@@ -1,0 +1,50 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# build outputs
+dist/
+build/
+out/
+.output/
+.vinxi/
+.tanstack/
+.nitro/
+.turbo/
+*.tsbuildinfo
+
+# generated
+.prisma/
+packages/db/generated/
+**/routeTree.gen.ts
+
+# env
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# logs
+*.log
+npm-debug.log*
+bun-debug.log*
+logs/
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# test / coverage
+coverage/
+playwright-report/
+test-results/
+.playwright/
+
+# misc
+*.local
+.cache/
+tmp/
