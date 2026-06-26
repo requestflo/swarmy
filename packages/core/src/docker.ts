@@ -1,0 +1,269 @@
+import os from 'node:os';
+import Docker from 'dockerode';
+import type {
+  ContainerInfo,
+  ContainerState,
+  NodeFacts,
+  ServiceSpec,
+  SwarmServiceInfo,
+} from './protocol';
+
+/** The subset of `docker info` the agent reads. */
+interface DockerInfoLike {
+  Name?: string;
+  OperatingSystem?: string;
+  Architecture?: string;
+  NCPU?: number;
+  MemTotal?: number;
+  Swarm?: { LocalNodeState?: string; ControlAvailable?: boolean };
+}
+
+/**
+ * Thin, typed wrapper over dockerode used by the node agent. Maps Docker's
+ * shapes onto the swarmy wire protocol. The controller never imports this — it
+ * only ever sees the protocol types the agent emits.
+ */
+export class DockerClient {
+  readonly docker: Docker;
+
+  constructor(socketPath = process.env.DOCKER_SOCKET || '/var/run/docker.sock') {
+    this.docker = new Docker({ socketPath });
+  }
+
+  async ping(): Promise<boolean> {
+    try {
+      await this.docker.ping();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async info(): Promise<DockerInfoLike> {
+    return this.docker.info() as Promise<DockerInfoLike>;
+  }
+
+  /** Gather node facts for the register handshake. */
+  async getNodeFacts(agentVersion: string, protocolVersions: number[]): Promise<NodeFacts> {
+    const info = await this.info();
+    const version = await this.docker.version();
+    const swarm = info.Swarm;
+    const swarmRole: NodeFacts['swarmRole'] =
+      swarm?.LocalNodeState === 'active'
+        ? swarm.ControlAvailable
+          ? 'manager'
+          : 'worker'
+        : 'none';
+    return {
+      hostname: info.Name || os.hostname(),
+      os: `${info.OperatingSystem || os.type()}`,
+      arch: info.Architecture || os.arch(),
+      cpuCount: info.NCPU || os.cpus().length,
+      cpuModel: os.cpus()[0]?.model,
+      memTotalBytes: info.MemTotal || os.totalmem(),
+      dockerVersion: version.Version,
+      dockerApiVersion: version.ApiVersion,
+      swarmRole,
+      agentVersion,
+      protocolVersions: protocolVersions as [number, ...number[]],
+    };
+  }
+
+  async isManager(): Promise<boolean> {
+    const info = await this.info();
+    return info.Swarm?.ControlAvailable === true;
+  }
+
+  /** Snapshot all containers as protocol `ContainerInfo[]`. */
+  async listContainers(all = true): Promise<ContainerInfo[]> {
+    const list = await this.docker.listContainers({ all });
+    return list.map((c) => ({
+      id: c.Id,
+      name: (c.Names?.[0] || c.Id).replace(/^\//, ''),
+      image: c.Image,
+      imageId: c.ImageID,
+      state: normalizeState(c.State),
+      status: c.Status,
+      createdAt: (c.Created || 0) * 1000,
+      ports: (c.Ports || []).map((p) => ({
+        ip: p.IP,
+        privatePort: p.PrivatePort,
+        publicPort: p.PublicPort,
+        protocol: (p.Type as 'tcp' | 'udp' | 'sctp') || 'tcp',
+      })),
+      labels: c.Labels || {},
+      serviceId: c.Labels?.['com.docker.swarm.service.id'],
+    }));
+  }
+
+  /** Persistent stats stream for one container (consumer decimates). */
+  containerStatsStream(containerId: string) {
+    return this.docker.getContainer(containerId).stats({ stream: true });
+  }
+
+  /** Docker event stream (container start/stop/die) for stream lifecycle. */
+  getEvents(filters?: Record<string, string[]>) {
+    return this.docker.getEvents({ filters });
+  }
+
+  // ── Swarm services (manager only) ──────────────────────────────────────
+
+  async listServices(): Promise<SwarmServiceInfo[]> {
+    const services = await this.docker.listServices();
+    const out: SwarmServiceInfo[] = [];
+    for (const s of services) {
+      const id = s.ID as string;
+      const spec = s.Spec || {};
+      const taskTemplate = spec.TaskTemplate as { ContainerSpec?: { Image?: string } } | undefined;
+      const mode = spec.Mode?.Replicated ? 'replicated' : 'global';
+      let running = 0;
+      try {
+        const tasks = await this.docker.listTasks({
+          filters: { service: [spec.Name as string], 'desired-state': ['running'] },
+        });
+        running = tasks.filter((t) => t.Status?.State === 'running').length;
+      } catch {
+        running = 0;
+      }
+      out.push({
+        id,
+        name: spec.Name || id,
+        image: taskTemplate?.ContainerSpec?.Image || '',
+        mode,
+        desiredReplicas: spec.Mode?.Replicated?.Replicas,
+        runningReplicas: running,
+        createdAt: Date.parse(s.CreatedAt || '') || 0,
+        updatedAt: Date.parse(s.UpdatedAt || '') || 0,
+        labels: spec.Labels || {},
+      });
+    }
+    return out;
+  }
+
+  async createService(spec: ServiceSpec): Promise<string> {
+    const created = await this.docker.createService(toServiceCreateOptions(spec));
+    return (created as unknown as { id?: string; ID?: string }).id ?? (created as { ID?: string }).ID ?? '';
+  }
+
+  async getServiceByName(name: string) {
+    const services = await this.docker.listServices({ filters: { name: [name] } });
+    const match = services.find((s) => s.Spec?.Name === name) ?? services[0];
+    return match ? this.docker.getService(match.ID as string) : null;
+  }
+
+  async scaleService(nameOrId: string, replicas: number): Promise<string> {
+    const svc = (await this.getServiceByName(nameOrId)) ?? this.docker.getService(nameOrId);
+    const inspect = await svc.inspect();
+    const spec = inspect.Spec;
+    spec.Mode = { Replicated: { Replicas: replicas } };
+    await svc.update({ version: inspect.Version.Index, ...spec });
+    return inspect.ID;
+  }
+
+  async restartService(nameOrId: string): Promise<string> {
+    const svc = (await this.getServiceByName(nameOrId)) ?? this.docker.getService(nameOrId);
+    const inspect = await svc.inspect();
+    const spec = inspect.Spec;
+    spec.TaskTemplate = spec.TaskTemplate || {};
+    spec.TaskTemplate.ForceUpdate = (spec.TaskTemplate.ForceUpdate || 0) + 1;
+    await svc.update({ version: inspect.Version.Index, ...spec });
+    return inspect.ID;
+  }
+
+  async removeService(nameOrId: string): Promise<void> {
+    const svc = (await this.getServiceByName(nameOrId)) ?? this.docker.getService(nameOrId);
+    await svc.remove();
+  }
+
+  async updateSwarmNode(
+    swarmNodeId: string,
+    opts: { availability?: 'active' | 'pause' | 'drain'; labels?: Record<string, string> },
+  ): Promise<void> {
+    const node = this.docker.getNode(swarmNodeId);
+    const inspect = await node.inspect();
+    const spec = inspect.Spec || {};
+    if (opts.availability) spec.Availability = opts.availability;
+    if (opts.labels) spec.Labels = { ...(spec.Labels || {}), ...opts.labels };
+    await node.update({ version: inspect.Version.Index, ...spec });
+  }
+
+  async pullImage(
+    image: string,
+    authconfig?: { username: string; password: string; serveraddress?: string },
+    onProgress?: (line: string) => void,
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      this.docker.pull(image, { authconfig }, (err: Error | null, stream?: NodeJS.ReadableStream) => {
+        if (err || !stream) return reject(err ?? new Error('no pull stream'));
+        let digest = '';
+        this.docker.modem.followProgress(
+          stream,
+          (doneErr: Error | null) => (doneErr ? reject(doneErr) : resolve(digest)),
+          (event: { status?: string; aux?: { Digest?: string } }) => {
+            if (event.aux?.Digest) digest = event.aux.Digest;
+            if (onProgress && event.status) onProgress(event.status);
+          },
+        );
+      });
+    });
+  }
+}
+
+function normalizeState(state: string): ContainerState {
+  const s = (state || '').toLowerCase();
+  const known: ContainerState[] = [
+    'created',
+    'running',
+    'paused',
+    'restarting',
+    'removing',
+    'exited',
+    'dead',
+  ];
+  return (known as string[]).includes(s) ? (s as ContainerState) : 'dead';
+}
+
+/** Map a swarmy `ServiceSpec` onto a dockerode `createService` body. */
+export function toServiceCreateOptions(spec: ServiceSpec): Docker.CreateServiceOptions {
+  const env = spec.env ? Object.entries(spec.env).map(([k, v]) => `${k}=${v}`) : undefined;
+  const mode = spec.mode?.global
+    ? { Global: {} }
+    : { Replicated: { Replicas: spec.mode?.replicated?.replicas ?? 1 } };
+
+  return {
+    Name: spec.name,
+    Labels: spec.labels,
+    TaskTemplate: {
+      ContainerSpec: {
+        Image: spec.image,
+        Command: spec.command,
+        Args: spec.args,
+        Env: env,
+        Mounts: spec.mounts?.map((m) => ({
+          Type: m.type,
+          Source: m.source,
+          Target: m.target,
+          ReadOnly: m.readOnly,
+        })),
+      },
+      RestartPolicy: spec.restartPolicy
+        ? {
+            Condition: spec.restartPolicy.condition,
+            MaxAttempts: spec.restartPolicy.maxAttempts,
+          }
+        : undefined,
+      Networks: spec.networks?.map((n) => ({ Target: n })),
+    },
+    Mode: mode,
+    EndpointSpec: spec.ports
+      ? {
+          Ports: spec.ports.map((p) => ({
+            TargetPort: p.target,
+            PublishedPort: p.published,
+            Protocol: p.protocol,
+            PublishMode: p.mode === 'host' ? 'host' : 'ingress',
+          })),
+        }
+      : undefined,
+  } as Docker.CreateServiceOptions;
+}
