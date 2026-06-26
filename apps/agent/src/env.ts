@@ -1,0 +1,14 @@
+import os from 'node:os';
+import path from 'node:path';
+
+function expandHome(p: string): string {
+  return p.startsWith('~') ? path.join(os.homedir(), p.slice(1)) : p;
+}
+
+export const env = {
+  AGENT_WS_URL: process.env.AGENT_WS_URL ?? 'ws://localhost:3001/agent/ws',
+  JOIN_TOKEN: process.env.SWARMY_JOIN_TOKEN ?? '',
+  DOCKER_SOCKET: process.env.DOCKER_SOCKET ?? '/var/run/docker.sock',
+  STATE_PATH: expandHome(process.env.SWARMY_AGENT_STATE ?? '~/.swarmy/agent.json'),
+  ALLOW_EXEC: (process.env.SWARMY_ALLOW_EXEC ?? 'false') === 'true',
+};
