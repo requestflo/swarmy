@@ -1,0 +1,10 @@
+@import '@swarmy/ui/styles.css';
+
+/* Pick up class usage in the app's own source for Tailwind 4's JIT. */
+@source '../**/*.{ts,tsx}';
+
+html,
+body,
+#root {
+  height: 100%;
+}

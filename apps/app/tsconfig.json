@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@swarmy/ui": ["../../packages/ui/src/index.ts"],
+      "@swarmy/ui/*": ["../../packages/ui/src/*"],
+      "@swarmy/core": ["../../packages/core/src/index.ts"],
+      "@swarmy/core/*": ["../../packages/core/src/*"],
+      "@swarmy/auth/client": ["../../packages/auth/src/client.ts"],
+      "@swarmy/trpc": ["../../packages/trpc/src/index.ts"]
+    }
+  },
+  "include": ["src", "vite.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}
