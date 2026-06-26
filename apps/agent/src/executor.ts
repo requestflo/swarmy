@@ -1,6 +1,5 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { DockerClient, toServiceCreateOptions } from '@swarmy/core/docker';
 import type { ControllerEnvelope, RenderedConfig, ServiceSpec } from '@swarmy/core/protocol';
 import type { AgentConnection } from './connection';
@@ -117,14 +116,11 @@ async function deployOrUpdate(
   return { serviceId: inspect.ID, created: false };
 }
 
-function execShell(cmd: string[]): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const [bin, ...args] = cmd;
-    if (!bin) return resolve();
-    const child = spawn(bin, args, { stdio: 'ignore' });
-    child.on('error', reject);
-    child.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`${bin} exited ${code}`))));
-  });
+async function execShell(cmd: string[]): Promise<void> {
+  if (!cmd.length) return;
+  const proc = Bun.spawn(cmd, { stdout: 'ignore', stderr: 'ignore' });
+  const code = await proc.exited;
+  if (code !== 0) throw new Error(`${cmd[0]} exited ${code}`);
 }
 
 async function applyIngress(
