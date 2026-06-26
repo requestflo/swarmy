@@ -27,12 +27,19 @@
     "db:studio": "bun --filter @swarmy/db db:studio",
     "docker:up": "docker compose -f docker/docker-compose.yml up -d",
     "docker:down": "docker compose -f docker/docker-compose.yml down",
+    "release": "semantic-release",
+    "commitlint": "commitlint --edit",
     "clean": "turbo run clean && rm -rf node_modules"
   },
   "devDependencies": {
+    "@commitlint/cli": "^19.6.1",
+    "@commitlint/config-conventional": "^19.6.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
     "@types/bun": "latest",
     "kill-port": "^2.0.1",
     "prettier": "^3.4.2",
+    "semantic-release": "^24.2.1",
     "turbo": "^2.3.3",
     "typescript": "^5.5.4"
   },
