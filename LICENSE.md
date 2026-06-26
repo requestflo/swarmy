@@ -1,8 +1,10 @@
-# Functional Source License, Version 1.1, Apache 2.0 Future License
+# Functional Source License, Version 1.1, ALv2 Future License
+
+<!-- SPDX-License-Identifier: FSL-1.1-ALv2 -->
 
 ## Abbreviation
 
-FSL-1.1-Apache-2.0
+FSL-1.1-ALv2
 
 ## Notice
 

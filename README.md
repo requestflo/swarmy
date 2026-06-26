@@ -90,6 +90,15 @@ Per organization you choose a driver: `caddy`, `traefik`, or `none`. With `none`
 config — you own routing entirely. Adding a new driver is a single file
 implementing the `IngressDriver` interface registered in `@swarmy/ingress`.
 
+## Roadmap
+
+The product roadmap and per-epic design docs live in [`plans/`](./plans) —
+start with [`plans/ROADMAP.md`](./plans/ROADMAP.md) and
+[`plans/RECOMMENDATIONS.md`](./plans/RECOMMENDATIONS.md).
+
 ## License
 
-MIT
+[Functional Source License (FSL-1.1-ALv2)](./LICENSE.md) — use it for almost
+anything, including commercially; you just can't resell swarmy as a competing
+managed service. Each release converts to Apache-2.0 after two years.
+

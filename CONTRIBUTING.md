@@ -51,6 +51,6 @@ with [`plans/ROADMAP.md`](./plans/ROADMAP.md).
 ## License
 
 swarmy is licensed under the [Functional Source License](./LICENSE.md)
-(FSL-1.1-Apache-2.0). By contributing you agree your contributions are licensed
+(FSL-1.1-ALv2). By contributing you agree your contributions are licensed
 under the same terms. See the license for what is and isn't permitted (TL;DR: use
 it for almost anything except reselling swarmy as a competing managed service).
