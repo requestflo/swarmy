@@ -12,6 +12,23 @@
         "typescript": "^5.5.4",
       },
     },
+    "apps/api": {
+      "name": "@swarmy/api",
+      "version": "0.0.0",
+      "dependencies": {
+        "@swarmy/auth": "workspace:*",
+        "@swarmy/core": "workspace:*",
+        "@swarmy/db": "workspace:*",
+        "@swarmy/ingress": "workspace:*",
+        "@swarmy/trpc": "workspace:*",
+        "@trpc/server": "^11.0.0",
+        "hono": "^4.6.14",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.5.4",
+      },
+    },
     "packages/auth": {
       "name": "@swarmy/auth",
       "version": "0.0.0",
@@ -420,6 +437,8 @@
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.62.2", "", { "os": "win32", "cpu": "x64" }, "sha512-BfzEnDJOt9T8M989/lA37EcJgat01wLRnoi5dQf3QzOH7jzpqTAzdDbVfRljVr5r+jzKqpbHeyOfAaXxAd0PAA=="],
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
+
+    "@swarmy/api": ["@swarmy/api@workspace:apps/api"],
 
     "@swarmy/auth": ["@swarmy/auth@workspace:packages/auth"],
 
