@@ -1,0 +1,43 @@
+{
+  "name": "swarmy",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.10",
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "predev": "kill-port 3001 3003 4000 || true",
+    "dev": "turbo run dev",
+    "dev:app": "turbo run dev --filter=@swarmy/app --filter=@swarmy/api",
+    "dev:web": "turbo run dev --filter=@swarmy/web",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,md,json}\"",
+    "db:generate": "turbo run db:generate",
+    "db:push": "bun --filter @swarmy/db db:push",
+    "db:migrate": "bun --filter @swarmy/db db:migrate",
+    "db:studio": "bun --filter @swarmy/db db:studio",
+    "docker:up": "docker compose -f docker/docker-compose.yml up -d",
+    "docker:down": "docker compose -f docker/docker-compose.yml down",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "kill-port": "^2.0.1",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.5.4"
+  },
+  "overrides": {
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  }
+}

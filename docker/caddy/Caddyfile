@@ -1,0 +1,7 @@
+# Placeholder Caddyfile. The swarmy caddy ingress driver renders and
+# replaces this file on each managed node, then reloads via the admin API.
+{
+	admin :2019
+}
+
+# Routes are written here by @swarmy/ingress (CaddyDriver).

@@ -1,0 +1,59 @@
+# Local backing services for swarmy development.
+#   bun docker:up    -> start postgres
+#   bun docker:up --profile ingress  -> also start caddy + traefik for ingress testing
+name: swarmy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: swarmy
+      POSTGRES_PASSWORD: swarmy
+      POSTGRES_DB: swarmy
+    ports:
+      - '5678:5432'
+    volumes:
+      - swarmy-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U swarmy -d swarmy']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Optional: a local Caddy to exercise the caddy ingress driver.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ['ingress']
+    restart: unless-stopped
+    ports:
+      - '8080:80'
+      - '8443:443'
+      - '2019:2019' # admin API
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+      - swarmy-caddy-data:/data
+      - swarmy-caddy-config:/config
+
+  # Optional: a local Traefik to exercise the traefik ingress driver.
+  traefik:
+    image: traefik:v3.3
+    profiles: ['ingress']
+    restart: unless-stopped
+    command:
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --api.dashboard=true
+    ports:
+      - '8081:80'
+      - '8444:443'
+      - '8090:8080' # dashboard
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml
+      - ./traefik/dynamic:/etc/traefik/dynamic
+
+volumes:
+  swarmy-pgdata:
+  swarmy-caddy-data:
+  swarmy-caddy-config:

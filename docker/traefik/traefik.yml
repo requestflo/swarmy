@@ -1,0 +1,16 @@
+# Placeholder static Traefik config. The swarmy traefik ingress driver
+# writes dynamic route files into ./dynamic (file provider) and/or sets
+# docker labels on services.
+entryPoints:
+  web:
+    address: ':80'
+  websecure:
+    address: ':443'
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+api:
+  dashboard: true

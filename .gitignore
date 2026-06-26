@@ -17,6 +17,7 @@ out/
 # generated
 .prisma/
 packages/db/generated/
+packages/db/src/generated/
 **/routeTree.gen.ts
 
 # env
