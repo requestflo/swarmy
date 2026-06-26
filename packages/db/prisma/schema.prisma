@@ -1,0 +1,418 @@
+// swarmy — Prisma 7 schema (pg driver adapter, ESM client, no engine binary).
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated"
+  runtime      = "bun"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────── enums ──
+
+enum NodeRole {
+  MANAGER
+  WORKER
+}
+
+enum NodeStatus {
+  PENDING
+  ONLINE
+  OFFLINE
+  DRAINING
+}
+
+enum ServiceStatus {
+  PENDING
+  DEPLOYING
+  RUNNING
+  DEGRADED
+  STOPPED
+  FAILED
+  REMOVING
+}
+
+enum StackStatus {
+  PENDING
+  DEPLOYING
+  RUNNING
+  DEGRADED
+  STOPPED
+  FAILED
+}
+
+enum DeploymentPhase {
+  QUEUED
+  PULLING
+  CREATING
+  CONVERGING
+  COMPLETE
+  FAILED
+  ROLLEDBACK
+  CANCELED
+}
+
+enum DeploymentTargetType {
+  SERVICE
+  STACK
+}
+
+enum IngressDriver {
+  CADDY
+  TRAEFIK
+  NONE
+}
+
+enum MetricScope {
+  NODE
+  CONTAINER
+}
+
+// ──────────────────────────────────────────── Better Auth tables ──
+// Field/column names follow Better Auth's required schema. Ids are
+// String with no @default — Better Auth supplies them.
+
+model User {
+  id            String   @id
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions    Session[]
+  accounts    Account[]
+  members     Member[]
+  joinTokens  JoinToken[]  @relation("JoinTokenCreator")
+  deployments Deployment[]
+  auditLogs   AuditLog[]
+  invitations Invitation[] @relation("InvitationInviter")
+
+  @@map("user")
+}
+
+model Session {
+  id                   String   @id
+  userId               String
+  token                String   @unique
+  expiresAt            DateTime
+  ipAddress            String?
+  userAgent            String?
+  activeOrganizationId String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?   @db.Text
+  refreshToken          String?   @db.Text
+  idToken               String?   @db.Text
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String   @db.Text
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model Organization {
+  id        String   @id
+  name      String
+  slug      String   @unique
+  logo      String?
+  metadata  String?  @db.Text
+  createdAt DateTime @default(now())
+
+  members       Member[]
+  invitations   Invitation[]
+  nodes         Node[]
+  joinTokens    JoinToken[]
+  services      Service[]
+  stacks        Stack[]
+  deployments   Deployment[]
+  ingressConfig IngressConfig?
+  domains       Domain[]
+  auditLogs     AuditLog[]
+  metricSamples MetricSample[]
+
+  @@map("organization")
+}
+
+model Member {
+  id             String   @id
+  organizationId String
+  userId         String
+  role           String   @default("member")
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("member")
+}
+
+model Invitation {
+  id             String   @id
+  organizationId String
+  email          String
+  role           String?
+  status         String   @default("pending")
+  expiresAt      DateTime
+  inviterId      String
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  inviter      User         @relation("InvitationInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("invitation")
+}
+
+// ───────────────────────────────────────────────── domain models ──
+
+model Node {
+  id                String     @id @default(cuid())
+  orgId             String
+  name              String
+  hostname          String
+  ipAddress         String?
+  role              NodeRole   @default(WORKER)
+  status            NodeStatus @default(PENDING)
+  swarmNodeId       String?
+  dockerVersion     String?
+  os                String?
+  arch              String?
+  totalCpu          Int?
+  totalMemoryBytes  BigInt?
+  labels            Json       @default("{}")
+  latestMetrics     Json?
+  agentVersion      String?
+  lastSeenAt        DateTime?
+  // Per-node reconnect credential (hashed). Bump version to revoke.
+  sessionSecretHash String?
+  sessionVersion    Int        @default(1)
+  joinTokenId       String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  joinToken     JoinToken?     @relation(fields: [joinTokenId], references: [id], onDelete: SetNull)
+  services      Service[]
+  metricSamples MetricSample[]
+
+  @@unique([orgId, name])
+  @@index([orgId, status])
+  @@index([lastSeenAt])
+  @@map("node")
+}
+
+model JoinToken {
+  id          String    @id @default(cuid())
+  orgId       String
+  tokenHash   String    @unique
+  tokenPrefix String
+  label       String?
+  maxUses     Int?
+  uses        Int       @default(0)
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy User?        @relation("JoinTokenCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  nodes     Node[]
+
+  @@index([orgId])
+  @@index([tokenPrefix])
+  @@map("join_token")
+}
+
+model Service {
+  id             String        @id @default(cuid())
+  orgId          String
+  name           String
+  image          String
+  replicas       Int           @default(1)
+  command        Json          @default("[]")
+  env            Json          @default("{}")
+  ports          Json          @default("[]")
+  volumes        Json          @default("[]")
+  networks       Json          @default("[]")
+  constraints    Json          @default("[]")
+  status         ServiceStatus @default(PENDING)
+  nodeId         String?
+  stackId        String?
+  ingressEnabled Boolean       @default(false)
+  swarmServiceId String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  node        Node?        @relation(fields: [nodeId], references: [id], onDelete: SetNull)
+  stack       Stack?       @relation(fields: [stackId], references: [id], onDelete: Cascade)
+  domains     Domain[]
+  deployments Deployment[]
+
+  @@unique([orgId, name])
+  @@index([orgId, status])
+  @@index([stackId])
+  @@map("service")
+}
+
+model Stack {
+  id            String      @id @default(cuid())
+  orgId         String
+  name          String
+  composeSource String      @db.Text
+  status        StackStatus @default(PENDING)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  services    Service[]
+  deployments Deployment[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("stack")
+}
+
+model Deployment {
+  id          String               @id @default(cuid())
+  orgId       String
+  targetType  DeploymentTargetType
+  serviceId   String?
+  stackId     String?
+  kind        String
+  phase       DeploymentPhase      @default(QUEUED)
+  desired     Int?
+  ready       Int?
+  message     String?              @db.Text
+  imageDigest String?
+  error       String?              @db.Text
+  startedAt   DateTime             @default(now())
+  finishedAt  DateTime?
+  triggeredById String?
+
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  service     Service?     @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  stack       Stack?       @relation(fields: [stackId], references: [id], onDelete: SetNull)
+  triggeredBy User?        @relation(fields: [triggeredById], references: [id], onDelete: SetNull)
+
+  @@index([orgId, startedAt])
+  @@index([serviceId, startedAt])
+  @@index([stackId, startedAt])
+  @@map("deployment")
+}
+
+model MetricSample {
+  id             BigInt      @id @default(autoincrement())
+  orgId          String
+  nodeId         String
+  scope          MetricScope
+  containerId    String?
+  serviceId      String?
+  cpuPercent     Float
+  memUsedBytes   BigInt
+  memTotalBytes  BigInt
+  netRxBytes     BigInt
+  netTxBytes     BigInt
+  diskUsedBytes  BigInt
+  diskTotalBytes BigInt
+  ts             DateTime    @db.Timestamptz(3)
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  node Node         @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@index([nodeId, ts])
+  @@index([scope, containerId, ts])
+  @@index([orgId, ts])
+  @@map("metric_sample")
+}
+
+model IngressConfig {
+  id        String        @id @default(cuid())
+  orgId     String        @unique
+  driver    IngressDriver @default(NONE)
+  enabled   Boolean       @default(false)
+  settings  Json          @default("{}")
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("ingress_config")
+}
+
+model Domain {
+  id              String   @id @default(cuid())
+  orgId           String
+  host            String
+  serviceId       String
+  targetPort      Int
+  tlsMode         String   @default("auto")
+  stripPathPrefix Boolean  @default(false)
+  pathPrefix      String?
+  middlewares     Json     @default("[]")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  service Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([host, pathPrefix])
+  @@index([serviceId])
+  @@index([orgId])
+  @@map("domain")
+}
+
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  orgId      String
+  actorId    String?
+  actorType  String   @default("user")
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   Json     @default("{}")
+  ts         DateTime @default(now()) @db.Timestamptz(3)
+
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  actor User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, ts])
+  @@index([targetType, targetId])
+  @@map("audit_log")
+}
