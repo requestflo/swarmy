@@ -11,7 +11,7 @@
     "./docker": { "types": "./src/docker.ts", "import": "./src/docker.ts" }
   },
   "scripts": {
-    "build": "tsup",
+    "build": "echo '@swarmy/core resolves to src'",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist .turbo"
   },

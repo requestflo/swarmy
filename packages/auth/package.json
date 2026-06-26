@@ -9,7 +9,7 @@
     "./server": { "types": "./src/server.ts", "import": "./src/server.ts" }
   },
   "scripts": {
-    "build": "tsup",
+    "build": "echo '@swarmy/auth resolves to src'",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist .turbo"
   },
