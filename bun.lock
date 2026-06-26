@@ -51,6 +51,18 @@
         "typescript": "^5.5.4",
       },
     },
+    "packages/ingress": {
+      "name": "@swarmy/ingress",
+      "version": "0.0.0",
+      "dependencies": {
+        "@swarmy/core": "workspace:*",
+        "zod": "^3.24.1",
+      },
+      "devDependencies": {
+        "tsup": "^8.3.5",
+        "typescript": "^5.5.4",
+      },
+    },
   },
   "overrides": {
     "react": "19.2.4",
@@ -278,6 +290,8 @@
     "@swarmy/core": ["@swarmy/core@workspace:packages/core"],
 
     "@swarmy/db": ["@swarmy/db@workspace:packages/db"],
+
+    "@swarmy/ingress": ["@swarmy/ingress@workspace:packages/ingress"],
 
     "@turbo/darwin-64": ["@turbo/darwin-64@2.10.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-EwvHThXzpY0KGd1/NAmuewI5D+aVa3Rl/OlxE36yfjUKb/+ySrfJrSlEFt8aD1OXwnnaHnQnPKHFndor0Zxlsg=="],
 
