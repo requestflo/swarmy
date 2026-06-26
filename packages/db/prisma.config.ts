@@ -1,11 +1,13 @@
-import { defineConfig, env } from 'prisma/config';
+import { defineConfig } from 'prisma/config';
 
 // Prisma 7 moved the connection URL out of schema.prisma into this file.
-// `bun db:*` scripts run from this package dir with the root .env loaded.
+// The runtime client (src/client.ts) supplies the real pool via the pg adapter;
+// this URL is only used by the Prisma CLI (generate/migrate/db push). A fallback
+// keeps `prisma generate` working without DATABASE_URL set.
 export default defineConfig({
   schema: 'prisma/schema.prisma',
   datasource: {
-    url: env('DATABASE_URL'),
+    url: process.env.DATABASE_URL ?? 'postgresql://swarmy:swarmy@localhost:5678/swarmy',
   },
   migrations: {
     path: 'prisma/migrations',
