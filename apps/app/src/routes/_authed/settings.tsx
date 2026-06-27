@@ -36,6 +36,11 @@ export const Route = createFileRoute('/_authed/settings')({
   component: SettingsPage,
 });
 
+function installOneLiner(token: string): string {
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return `curl -fsSL ${origin}/install.sh | SWARMY_JOIN_TOKEN=${token} sh`;
+}
+
 function SettingsPage(): React.JSX.Element {
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
@@ -191,6 +196,13 @@ function TokensTab(): React.JSX.Element {
                 {issued}
               </code>
               <CopyButton value={issued} label="Copy" />
+            </div>
+            <p className="mt-4 mb-1 text-xs font-medium">Run this on any fresh Linux box:</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <code className="bg-ink-foreground/10 mono-data flex-1 overflow-x-auto rounded-lg px-3 py-2 text-xs">
+                {installOneLiner(issued)}
+              </code>
+              <CopyButton value={installOneLiner(issued)} label="Copy" />
             </div>
           </AlertDescription>
         </Alert>

@@ -28,6 +28,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': { target: 'http://localhost:3001', changeOrigin: true },
+      '/install.sh': { target: 'http://localhost:3001', changeOrigin: true },
       '/agent': { target: 'ws://localhost:3001', ws: true },
     },
   },
