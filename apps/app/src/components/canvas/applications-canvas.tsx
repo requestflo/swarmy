@@ -31,6 +31,9 @@ function CanvasInner(): React.JSX.Element {
   const [stackFilter, setStackFilter] = React.useState('all');
   const [selected, setSelected] = React.useState<string | null>(null);
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<ServiceFlowNode>([]);
+  // Ids the user has dragged this session — their live position wins over refetched
+  // saved positions; every other node takes the latest server/grid position.
+  const draggedRef = React.useRef<Set<string>>(new Set());
 
   const nodesById = React.useMemo(
     () => new Map((nodesQ.data ?? []).map((n) => [n.id, n])),
@@ -52,7 +55,11 @@ function CanvasInner(): React.JSX.Element {
     const fresh = buildServiceNodes(filtered, nodesById, stackNameById, positions);
     setFlowNodes((prev) => {
       const prevPos = new Map(prev.map((n) => [n.id, n.position]));
-      return fresh.map((n) => (prevPos.has(n.id) ? { ...n, position: prevPos.get(n.id)! } : n));
+      return fresh.map((n) =>
+        draggedRef.current.has(n.id) && prevPos.has(n.id)
+          ? { ...n, position: prevPos.get(n.id)! }
+          : n,
+      );
     });
   }, [filtered, nodesById, stackNameById, positions, isLoaded, setFlowNodes]);
 
@@ -66,7 +73,10 @@ function CanvasInner(): React.JSX.Element {
         nodeTypes={NODE_TYPES}
         onNodesChange={onNodesChange}
         onNodeClick={(_e, node) => setSelected(node.id)}
-        onNodeDragStop={(_e, node) => setPosition(node.id, node.position.x, node.position.y)}
+        onNodeDragStop={(_e, node) => {
+          draggedRef.current.add(node.id);
+          setPosition(node.id, node.position.x, node.position.y);
+        }}
         onMoveEnd={(_e, vp: Viewport) => setViewport(vp)}
         defaultViewport={savedViewport ?? undefined}
         fitView={!savedViewport}

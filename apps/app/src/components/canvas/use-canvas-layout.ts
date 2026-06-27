@@ -30,6 +30,11 @@ export function useCanvasLayout() {
     save.mutate({ positions: positionsRef.current, viewport: viewportRef.current });
   }, [save]);
 
+  // Keep the latest flush reachable from the unmount-only cleanup below without
+  // re-running that effect on every render (flush identity changes each render).
+  const flushRef = React.useRef(flush);
+  flushRef.current = flush;
+
   const queueSave = React.useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(flush, 600);
@@ -51,7 +56,17 @@ export function useCanvasLayout() {
     [queueSave],
   );
 
-  React.useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
+  // On unmount, flush any pending (debounced) save so a drag-then-navigate within
+  // the debounce window isn't lost.
+  React.useEffect(
+    () => () => {
+      if (timer.current) {
+        clearTimeout(timer.current);
+        flushRef.current();
+      }
+    },
+    [],
+  );
 
   return {
     isLoaded: layout.isSuccess,

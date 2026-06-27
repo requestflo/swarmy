@@ -20,6 +20,12 @@ const ORDER: DestinationGroup[] = ['Deploy', 'Networking', 'Delivery', 'Data', '
 export function SectionsMenu(): React.JSX.Element {
   const go = useGo();
   const { pathname } = useLocation();
+  // Most-specific match wins so a parent (/settings) isn't lit alongside its
+  // child (/settings/access).
+  const activeTo = React.useMemo(() => {
+    const matches = SECTIONS.filter((s) => pathname === s.to || pathname.startsWith(`${s.to}/`));
+    return matches.sort((a, b) => b.to.length - a.to.length)[0]?.to ?? null;
+  }, [pathname]);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
