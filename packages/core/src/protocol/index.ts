@@ -14,3 +14,4 @@ export * from './commands';
 export * from './ingress';
 export * from './results';
 export * from './messages';
+export * from './backup';

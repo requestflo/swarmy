@@ -4,6 +4,7 @@ import { DockerClient, toServiceCreateOptions } from '@swarmy/core/docker';
 import type { ControllerEnvelope, RenderedConfig, ServiceSpec } from '@swarmy/core/protocol';
 import type { AgentConnection } from './connection';
 import { env } from './env';
+import { backupVolume, restoreVolume, listSnapshots } from './handlers/backup';
 
 const activeLogStreams = new Map<string, () => void>();
 
@@ -57,6 +58,18 @@ export async function handleCommand(
     case 'applyIngress': {
       const { commandId, rendered } = envlp.payload;
       return run(conn, commandId, () => applyIngress(docker, rendered));
+    }
+    case 'backupVolume': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => backupVolume(docker, conn, p));
+    }
+    case 'restoreVolume': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => restoreVolume(docker, conn, p));
+    }
+    case 'listSnapshots': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => listSnapshots(docker, p));
     }
     case 'streamLogs':
       return handleStreamLogs(docker, conn, envlp.payload);

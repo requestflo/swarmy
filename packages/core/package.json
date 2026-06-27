@@ -8,7 +8,8 @@
     "./protocol": { "types": "./src/protocol/index.ts", "import": "./src/protocol/index.ts" },
     "./inputs": { "types": "./src/inputs.ts", "import": "./src/inputs.ts" },
     "./views": { "types": "./src/views.ts", "import": "./src/views.ts" },
-    "./docker": { "types": "./src/docker.ts", "import": "./src/docker.ts" }
+    "./docker": { "types": "./src/docker.ts", "import": "./src/docker.ts" },
+    "./crypto": { "types": "./src/crypto.ts", "import": "./src/crypto.ts" }
   },
   "scripts": {
     "build": "echo '@swarmy/core resolves to src'",

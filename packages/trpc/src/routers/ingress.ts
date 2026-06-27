@@ -10,9 +10,12 @@ import {
   removeDomain,
   setDriver,
   setEnabled,
+  setHaStorage,
+  setOnDemandTls,
+  setTunnel,
 } from '../services/ingress.service';
 
-const driverEnum = z.enum(['caddy', 'traefik', 'none']);
+const driverEnum = z.enum(['caddy', 'traefik', 'none', 'cloudflared']);
 
 export const ingressRouter = router({
   getConfig: orgProcedure.query(({ ctx }) => getConfig(ctx)),
@@ -44,6 +47,48 @@ export const ingressRouter = router({
   removeDomain: orgProcedure
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeDomain(ctx, input.id)),
+
+  /** Configure Caddy HA shared-cert storage (Redis). `null` clears it. */
+  setHaStorage: adminProcedure
+    .input(
+      z
+        .object({
+          host: z.string().min(1),
+          port: z.number().int().min(1).max(65535).optional(),
+          db: z.number().int().nonnegative().optional(),
+          keyPrefix: z.string().optional(),
+          tlsEnabled: z.boolean().optional(),
+          username: z.string().optional(),
+          password: z.string().optional(),
+          encryptionKey: z.string().optional(),
+        })
+        .nullable(),
+    )
+    .mutation(({ ctx, input }) => setHaStorage(ctx, input)),
+
+  /** Toggle on-demand TLS + set the controller `ask` endpoint URL. */
+  setOnDemandTls: adminProcedure
+    .input(z.object({ enabled: z.boolean(), askUrl: z.string().url().optional() }))
+    .mutation(({ ctx, input }) => setOnDemandTls(ctx, input)),
+
+  /** Configure the Cloudflare tunnel (secrets encrypted at rest). `null` clears it. */
+  setTunnel: adminProcedure
+    .input(
+      z
+        .object({
+          accountId: z.string().optional(),
+          tunnelId: z.string().optional(),
+          tunnelName: z.string().optional(),
+          image: z.string().optional(),
+          replicas: z.number().int().min(1).optional(),
+          metricsAddr: z.string().optional(),
+          apiToken: z.string().optional(),
+          runToken: z.string().optional(),
+          credentialsJson: z.string().optional(),
+        })
+        .nullable(),
+    )
+    .mutation(({ ctx, input }) => setTunnel(ctx, input)),
 
   previewConfig: orgProcedure
     .input(z.object({ driver: driverEnum.optional() }))

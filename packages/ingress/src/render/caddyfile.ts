@@ -12,6 +12,22 @@ export function buildCaddyfile(config: IngressConfig): string {
     if (typeof extra.onDemandAsk === 'string') global.push(`    ask ${extra.onDemandAsk}`);
     global.push('  }');
   }
+  // Caddy HA: a shared Redis cert/ACME store (caddy-storage-redis). When enabled,
+  // every Caddy instance points at the same Redis → one ACME account + cert pool,
+  // so the existing per-node fan-out *becomes* an HA cluster (no re-issuance).
+  const ha = config.globalOptions.haStorage;
+  if (ha) {
+    global.push('  storage redis {');
+    global.push(`    host ${ha.host}`);
+    global.push(`    port ${ha.port}`);
+    global.push(`    db ${ha.db}`);
+    global.push(`    key_prefix ${ha.keyPrefix}`);
+    if (ha.username) global.push(`    username ${ha.username}`);
+    if (ha.password) global.push(`    password ${ha.password}`);
+    global.push(`    tls_enabled ${ha.tlsEnabled ? 'true' : 'false'}`);
+    if (ha.encryptionKey) global.push(`    encryption_key ${ha.encryptionKey}`);
+    global.push('  }');
+  }
   if (global.length) {
     out.push('{', ...global, '}', '');
   }

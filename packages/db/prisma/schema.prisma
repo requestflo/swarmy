@@ -63,6 +63,19 @@ enum IngressDriver {
   CADDY
   TRAEFIK
   NONE
+  CLOUDFLARE_TUNNEL
+}
+
+enum BackupTargetKind {
+  S3
+  NODE
+}
+
+enum SnapshotStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+  PRUNED
 }
 
 enum MetricScope {
@@ -164,6 +177,11 @@ model Organization {
   domains       Domain[]
   auditLogs     AuditLog[]
   metricSamples MetricSample[]
+
+  backupTargets       BackupTarget[]
+  snapshots           Snapshot[]
+  observabilityConfig ObservabilityConfig?
+  observabilityStore  ObservabilityStoreState[]
 
   @@map("organization")
 }
@@ -296,10 +314,11 @@ model Stack {
   id            String      @id @default(cuid())
   orgId         String
   name          String
-  composeSource String      @db.Text
-  status        StackStatus @default(PENDING)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  composeSource    String      @db.Text
+  status           StackStatus @default(PENDING)
+  telemetryEnabled Boolean     @default(false)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 
   org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   services    Service[]
@@ -416,4 +435,84 @@ model AuditLog {
   @@index([orgId, ts])
   @@index([targetType, targetId])
   @@map("audit_log")
+}
+
+// ───────────────────────────────────────────── volumes / DR ──
+
+model BackupTarget {
+  id                String           @id @default(cuid())
+  orgId             String
+  name              String
+  kind              BackupTargetKind @default(S3)
+  endpoint          String?
+  bucket            String
+  prefix            String?
+  region            String?
+  // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
+  credentialRef     String?
+  secretKeyRef      String?
+  resticPasswordRef String
+  enabled           Boolean          @default(true)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  snapshots Snapshot[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("backup_target")
+}
+
+model Snapshot {
+  id         String         @id @default(cuid())
+  orgId      String
+  targetId   String
+  volume     String
+  status     SnapshotStatus @default(RUNNING)
+  resticId   String?
+  sizeBytes  BigInt?
+  error      String?        @db.Text
+  hostNodeId String?
+  startedAt  DateTime       @default(now())
+  finishedAt DateTime?
+
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  target BackupTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, startedAt])
+  @@index([volume, startedAt])
+  @@index([targetId])
+  @@map("snapshot")
+}
+
+// ───────────────────────────────────────────── observability ──
+
+model ObservabilityConfig {
+  id              String   @id @default(cuid())
+  orgId           String   @unique
+  enabled         Boolean  @default(false)
+  clickhouseDsn   String?  @db.Text
+  collectorStatus String   @default("OFFLINE")
+  retentionDays   Int      @default(7)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("observability_config")
+}
+
+model ObservabilityStoreState {
+  id            String   @id @default(cuid())
+  orgId         String
+  nodeId        String?
+  status        String   @default("UNKNOWN")
+  diskUsedBytes BigInt   @default(0)
+  lastCheckedAt DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("observability_store_state")
 }

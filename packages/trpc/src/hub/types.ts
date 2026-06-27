@@ -21,7 +21,10 @@ export type CommandName =
   | 'node.update' // cordon / drain / labels
   | 'logs.subscribe'
   | 'logs.unsubscribe'
-  | 'exec';
+  | 'exec'
+  | 'backup.run'
+  | 'backup.restore'
+  | 'backup.list';
 
 /** CommandName → wire protocol message `type` (see @swarmy/core/protocol). */
 export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
@@ -35,6 +38,9 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'logs.subscribe': 'streamLogs',
   'logs.unsubscribe': 'streamLogs',
   exec: 'execCommand',
+  'backup.run': 'backupVolume',
+  'backup.restore': 'restoreVolume',
+  'backup.list': 'listSnapshots',
 };
 
 export interface CommandResult<R = unknown> {

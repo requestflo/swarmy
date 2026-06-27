@@ -2,6 +2,7 @@ import type { IngressDriver } from './types';
 import { CaddyDriver } from './drivers/caddy';
 import { TraefikDriver } from './drivers/traefik';
 import { NoneDriver } from './drivers/none';
+import { CloudflaredDriver } from './drivers/cloudflared';
 import { IngressUnknownDriverError } from './errors';
 
 export class IngressRegistry {
@@ -28,9 +29,10 @@ export class IngressRegistry {
 }
 
 export const defaultRegistry = new IngressRegistry()
+  .register(new NoneDriver())
   .register(new CaddyDriver())
   .register(new TraefikDriver())
-  .register(new NoneDriver());
+  .register(new CloudflaredDriver());
 
 export function registerDriver(driver: IngressDriver): void {
   defaultRegistry.register(driver);

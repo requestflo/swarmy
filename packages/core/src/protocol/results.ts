@@ -35,6 +35,8 @@ export const CommandResultMsg = z.object({
 export type CommandResultMsg = z.infer<typeof CommandResultMsg>;
 
 /** Typed `result` shapes per originating command, for controller-side narrowing. */
+import type { ResticSnapshotInfo } from './backup';
+
 export interface CommandResultMap {
   deployService: { serviceId: string; created: boolean };
   removeService: { serviceId: string };
@@ -44,6 +46,9 @@ export interface CommandResultMap {
   applyIngress: { driver: IngressDriverName; reloaded: boolean };
   execCommand: { exitCode: number };
   updateSwarmNode: { swarmNodeId: string };
+  backupVolume: { snapshotId: string; sizeBytes: number; filesNew?: number; durationMs?: number };
+  restoreVolume: { targetVolume: string; bytesRestored: number; durationMs?: number };
+  listSnapshots: { snapshots: ResticSnapshotInfo[] };
 }
 
 export const LogChunkPayload = z.object({

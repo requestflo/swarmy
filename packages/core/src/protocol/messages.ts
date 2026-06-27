@@ -18,6 +18,7 @@ import {
   PingMsg,
 } from './commands';
 import { ApplyIngressMsg } from './ingress';
+import { BackupVolumeMsg, RestoreVolumeMsg, ListSnapshotsMsg } from './backup';
 import {
   CommandResultMsg,
   LogChunkMsg,
@@ -52,6 +53,9 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   ExecCommandMsg,
   StreamLogsMsg,
   ApplyIngressMsg,
+  BackupVolumeMsg,
+  RestoreVolumeMsg,
+  ListSnapshotsMsg,
   UpdateSwarmNodeMsg,
   UpdateAgentMsg,
   PingMsg,

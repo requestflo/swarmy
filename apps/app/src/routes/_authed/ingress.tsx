@@ -3,6 +3,27 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PlusIcon, Trash2Icon } from 'lucide-react';
 import { INGRESS_DRIVER_LABELS } from '@swarmy/core';
+
+type IngressDriverId = 'none' | 'caddy' | 'traefik' | 'cloudflared';
+
+/**
+ * Local label map so the UI compiles before the integrator widens
+ * `INGRESS_DRIVER_LABELS` in @swarmy/core (see INTEGRATION). Falls back to the
+ * shared map for the existing three drivers.
+ */
+const DRIVER_LABELS: Record<IngressDriverId, string> = {
+  none: INGRESS_DRIVER_LABELS.none,
+  caddy: INGRESS_DRIVER_LABELS.caddy,
+  traefik: INGRESS_DRIVER_LABELS.traefik,
+  cloudflared: 'Cloudflare Tunnel',
+};
+
+const DRIVER_BLURB: Record<IngressDriverId, string> = {
+  none: 'Unopinionated by default. Bring your own proxy — swarmy stays out of the way.',
+  caddy: 'Automatic HTTPS. Recommended. Needs a public IP and a domain.',
+  traefik: 'Advanced / bring-your-own. Label-based routing for existing Traefik users.',
+  cloudflared: 'No public IP needed — connect via Cloudflare. Needs a Cloudflare account.',
+};
 import {
   Badge,
   Button,
@@ -57,6 +78,24 @@ function IngressPage(): React.JSX.Element {
   const removeDomain = useMutation(
     trpc.ingress.removeDomain.mutationOptions({ onSuccess: invalidate, onError: (e) => toast.error(e.message) }),
   );
+  const setHaStorage = useMutation(
+    trpc.ingress.setHaStorage.mutationOptions({
+      onSuccess: () => {
+        toast.success('Shared-cert storage updated');
+        invalidate();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+  const setTunnel = useMutation(
+    trpc.ingress.setTunnel.mutationOptions({
+      onSuccess: () => {
+        toast.success('Cloudflare tunnel updated');
+        invalidate();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
 
   const driver = config.data?.driver ?? 'none';
   const isNone = driver === 'none';
@@ -83,7 +122,7 @@ function IngressPage(): React.JSX.Element {
         actions={
           <StatusBadge
             tone={live ? 'online' : 'neutral'}
-            label={live ? `${INGRESS_DRIVER_LABELS[driver]} · live` : isNone ? 'Tracking only' : 'Paused'}
+            label={live ? `${DRIVER_LABELS[driver as IngressDriverId]} · live` : isNone ? 'Tracking only' : 'Paused'}
           />
         }
       />
@@ -102,24 +141,20 @@ function IngressPage(): React.JSX.Element {
               <Label className="mono-label">Ingress driver</Label>
               <Select
                 value={config.data?.driver ?? 'none'}
-                onValueChange={(v) => setDriver.mutate({ driver: v as 'caddy' | 'traefik' | 'none' })}
+                onValueChange={(v) => setDriver.mutate({ driver: v as IngressDriverId })}
               >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(['caddy', 'traefik', 'none'] as const).map((d) => (
+                  {(['none', 'caddy', 'traefik', 'cloudflared'] as const).map((d) => (
                     <SelectItem key={d} value={d}>
-                      {INGRESS_DRIVER_LABELS[d]}
+                      {DRIVER_LABELS[d]}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              {isNone ? (
-                <p className="text-muted-foreground mt-1 text-xs">
-                  Unopinionated by default. Bring your own proxy — swarmy stays out of the way.
-                </p>
-              ) : null}
+              <p className="text-muted-foreground mt-1 text-xs">{DRIVER_BLURB[driver as IngressDriverId]}</p>
             </div>
             <div className="bg-accent/40 flex items-center justify-between rounded-xl px-4 py-3">
               <div>
@@ -160,6 +195,24 @@ function IngressPage(): React.JSX.Element {
           </CardContent>
         </Card>
       </div>
+
+      {driver === 'caddy' ? (
+        <CaddyHaCard
+          haConfigured={!!config.data?.haConfigured}
+          onEnable={(host) => setHaStorage.mutate({ host })}
+          onDisable={() => setHaStorage.mutate(null)}
+          pending={setHaStorage.isPending}
+        />
+      ) : null}
+
+      {driver === 'cloudflared' ? (
+        <CloudflareTunnelCard
+          configured={!!config.data?.tunnelConfigured}
+          onSave={(v) => setTunnel.mutate(v)}
+          onClear={() => setTunnel.mutate(null)}
+          pending={setTunnel.isPending}
+        />
+      ) : null}
 
       <Card className="card-pop mt-6 border-0">
         <CardHeader>
@@ -209,6 +262,127 @@ function IngressPage(): React.JSX.Element {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function CaddyHaCard({
+  haConfigured,
+  onEnable,
+  onDisable,
+  pending,
+}: {
+  haConfigured: boolean;
+  onEnable: (host: string) => void;
+  onDisable: () => void;
+  pending: boolean;
+}) {
+  const [host, setHost] = React.useState('');
+  return (
+    <Card className="card-pop mt-6 border-0">
+      <CardHeader>
+        <CardTitle className="text-base">High availability — shared certificates</CardTitle>
+        <CardDescription>
+          Run Caddy on multiple nodes with one shared certificate pool (Redis-backed). One ACME
+          account, issued once, read by every instance — no re-issuance, no rate-limit hits.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        {haConfigured ? (
+          <div className="bg-accent/40 flex items-center justify-between rounded-xl px-4 py-3">
+            <div>
+              <Label className="font-medium">Shared storage active</Label>
+              <p className="text-muted-foreground text-xs">All Caddy instances share one cert pool.</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={onDisable} disabled={pending}>
+              Disable
+            </Button>
+          </div>
+        ) : (
+          <div className="grid gap-1.5">
+            <Label className="mono-label">Redis host</Label>
+            <div className="flex gap-2">
+              <Input
+                value={host}
+                onChange={(e) => setHost(e.target.value)}
+                placeholder="redis-ingress:6379 host (e.g. redis)"
+              />
+              <Button onClick={() => onEnable(host)} disabled={pending || !host}>
+                Enable HA
+              </Button>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              Point every Caddy node at one Redis. Credentials are encrypted at rest.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function CloudflareTunnelCard({
+  configured,
+  onSave,
+  onClear,
+  pending,
+}: {
+  configured: boolean;
+  onSave: (v: { tunnelName: string; tunnelId?: string; apiToken?: string }) => void;
+  onClear: () => void;
+  pending: boolean;
+}) {
+  const [tunnelName, setTunnelName] = React.useState('swarmy');
+  const [tunnelId, setTunnelId] = React.useState('');
+  const [apiToken, setApiToken] = React.useState('');
+  return (
+    <Card className="card-pop mt-6 border-0">
+      <CardHeader>
+        <CardTitle className="text-base">Cloudflare Tunnel</CardTitle>
+        <CardDescription>
+          Expose services with no public IP and no open ports. Paste a scoped Cloudflare API token —
+          it is encrypted at rest and never returned.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {configured ? (
+          <div className="bg-accent/40 flex items-center justify-between rounded-xl px-4 py-3">
+            <div>
+              <Label className="font-medium">Tunnel configured</Label>
+              <p className="text-muted-foreground text-xs">Connector runs as a swarm service.</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={onClear} disabled={pending}>
+              Disconnect
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-1.5">
+              <Label className="mono-label">Tunnel name</Label>
+              <Input value={tunnelName} onChange={(e) => setTunnelName(e.target.value)} />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="mono-label">Tunnel ID (optional — created via API if blank)</Label>
+              <Input value={tunnelId} onChange={(e) => setTunnelId(e.target.value)} placeholder="uuid" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="mono-label">Cloudflare API token</Label>
+              <Input
+                type="password"
+                value={apiToken}
+                onChange={(e) => setApiToken(e.target.value)}
+                placeholder="Account: Tunnel Edit · Zone: DNS Edit"
+              />
+            </div>
+            <Button
+              onClick={() => onSave({ tunnelName, tunnelId: tunnelId || undefined, apiToken: apiToken || undefined })}
+              disabled={pending || !apiToken}
+            >
+              Save tunnel
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

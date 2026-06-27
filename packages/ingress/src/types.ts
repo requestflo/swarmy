@@ -31,12 +31,64 @@ export const DomainRouteSchema = z.object({
 });
 export type DomainRoute = z.infer<typeof DomainRouteSchema>;
 
+/**
+ * Caddy HA shared-storage (caddy-storage-redis). When present, the Caddy renderer
+ * emits a global `storage redis { … }` block so every Caddy instance shares one
+ * ACME account + cert pool. `null`/absent ⇒ single-node behaviour (unchanged).
+ */
+export const HaStorageSchema = z.object({
+  /** Redis host the managed/BYO Redis listens on. */
+  host: z.string().min(1),
+  port: z.number().int().min(1).max(65535).default(6379),
+  /** Logical DB index. */
+  db: z.number().int().nonnegative().default(0),
+  /** Key namespace so multiple orgs can share one Redis. */
+  keyPrefix: z.string().default('caddy'),
+  tlsEnabled: z.boolean().default(false),
+  /**
+   * Plaintext secrets are NEVER stored here — the controller resolves these from
+   * the credential vault at render/dispatch time and injects them just-in-time.
+   */
+  username: z.string().optional(),
+  password: z.string().optional(),
+  /** At-rest encryption key for cert material in Redis (resolved from vault). */
+  encryptionKey: z.string().optional(),
+});
+export type HaStorage = z.infer<typeof HaStorageSchema>;
+
+/**
+ * Cloudflare Tunnel connector options. Secrets (API token / run token / tunnel
+ * credentials JSON) are resolved from the credential vault just-in-time; the
+ * controller injects them here only for the render that is dispatched.
+ */
+export const TunnelOptionsSchema = z.object({
+  provider: z.enum(['cloudflare']).default('cloudflare'),
+  /** Cloudflare account id (for the API). */
+  accountId: z.string().optional(),
+  /** Cloudflare-assigned tunnel UUID. */
+  tunnelId: z.string().optional(),
+  tunnelName: z.string().default('swarmy'),
+  /** Connector image (pin cloudflared ≥ 2025.4.0 for token mode). */
+  image: z.string().default('cloudflare/cloudflared:latest'),
+  replicas: z.number().int().min(1).default(1),
+  /** Resolved-just-in-time run token (token mode). */
+  runToken: z.string().optional(),
+  /** Resolved-just-in-time credentials JSON (locally-managed mode). */
+  credentialsJson: z.string().optional(),
+  metricsAddr: z.string().optional(),
+});
+export type TunnelOptions = z.infer<typeof TunnelOptionsSchema>;
+
 export const IngressGlobalOptionsSchema = z.object({
   email: z.string().email().optional(),
   onDemandTls: z.boolean().default(false),
   defaultTls: z.enum(['auto', 'off']).default('auto'),
   network: z.string().default('swarmy'),
-  /** Raw escape hatch (driver-typed): applyVia, provider, certs, etc. */
+  /** Caddy HA shared-cert storage. Absent ⇒ single-node Caddy. */
+  haStorage: HaStorageSchema.optional(),
+  /** Cloudflare Tunnel connector config (for the cloudflared driver). */
+  tunnel: TunnelOptionsSchema.optional(),
+  /** Raw escape hatch (driver-typed): applyVia, provider, certs, onDemandAsk, etc. */
   extraConfig: z.record(z.unknown()).default({}),
 });
 export type IngressGlobalOptions = z.infer<typeof IngressGlobalOptionsSchema>;

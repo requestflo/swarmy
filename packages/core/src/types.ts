@@ -3,13 +3,14 @@
  * (Wire enums live in `@swarmy/core/protocol`.)
  */
 
-export const INGRESS_DRIVERS = ['caddy', 'traefik', 'none'] as const;
+export const INGRESS_DRIVERS = ['caddy', 'traefik', 'none', 'cloudflared'] as const;
 export type IngressDriverId = (typeof INGRESS_DRIVERS)[number];
 
 export const INGRESS_DRIVER_LABELS: Record<IngressDriverId, string> = {
   caddy: 'Caddy',
   traefik: 'Traefik',
   none: 'None (self-managed)',
+  cloudflared: 'Cloudflare Tunnel',
 };
 
 export const NODE_STATUS_TONE: Record<string, 'online' | 'warning' | 'offline' | 'neutral'> = {

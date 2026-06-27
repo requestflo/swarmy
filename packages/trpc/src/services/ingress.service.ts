@@ -2,18 +2,41 @@ import {
   applyIngress as applyIngressPkg,
   previewConfig as previewConfigPkg,
   type DriverDispatch,
+  type HaStorage,
   type IngressConfig as OrgIngressConfig,
+  type TunnelOptions,
 } from '@swarmy/ingress';
 import type { IngressStatus, RenderedConfig } from '@swarmy/core/protocol';
-import type { TlsMode } from '@swarmy/core';
+import { type TlsMode } from '@swarmy/core';
+import { decryptSecret, encryptSecret } from '@swarmy/core/crypto';
 import type { OrgContext } from '../context';
+import { writeAudit } from '../services/audit.service';
 import { notFound } from '../errors';
 
+/**
+ * Driver ids supported at the controller. `cloudflared` is the Cloudflare Tunnel
+ * (no-public-IP) driver added by the ingress-strategy epic.
+ */
+export type IngressDriverId = 'caddy' | 'traefik' | 'none' | 'cloudflared';
+
+/** Map a controller driver id ⇄ Prisma `IngressDriver` enum value. */
+type IngressDriverEnum = 'CADDY' | 'TRAEFIK' | 'NONE' | 'CLOUDFLARE_TUNNEL';
+const DRIVER_TO_ENUM: Record<IngressDriverId, IngressDriverEnum> = {
+  caddy: 'CADDY',
+  traefik: 'TRAEFIK',
+  none: 'NONE',
+  cloudflared: 'CLOUDFLARE_TUNNEL',
+};
+
 export interface IngressConfigView {
-  driver: 'caddy' | 'traefik' | 'none';
+  driver: IngressDriverId;
   enabled: boolean;
   targetNodes: string[];
   domainCount: number;
+  /** Whether Caddy HA shared-storage is configured (secrets never returned). */
+  haConfigured: boolean;
+  /** Whether a Cloudflare tunnel is configured (secrets never returned). */
+  tunnelConfigured: boolean;
   updatedAt: string;
 }
 
@@ -34,9 +57,93 @@ interface ConfigRow {
   updatedAt: Date;
 }
 
-function driverLower(d: string): 'caddy' | 'traefik' | 'none' {
-  const v = d.toLowerCase();
-  return v === 'caddy' || v === 'traefik' ? v : 'none';
+function driverLower(d: string): IngressDriverId {
+  switch (d.toUpperCase()) {
+    case 'CADDY':
+      return 'caddy';
+    case 'TRAEFIK':
+      return 'traefik';
+    case 'CLOUDFLARE_TUNNEL':
+      return 'cloudflared';
+    default:
+      return 'none';
+  }
+}
+
+/**
+ * Shape persisted in `IngressConfig.settings` (Json). Secret fields hold encrypted
+ * vault blobs — never plaintext. They are decrypted just-in-time when building the
+ * driver config for render/dispatch and are NEVER returned to the client.
+ */
+interface IngressSettings {
+  targetNodes?: string[];
+  globalOptions?: Record<string, unknown>;
+  /** Caddy HA Redis coords (non-secret) + encrypted secret refs. */
+  haStorage?: {
+    host: string;
+    port?: number;
+    db?: number;
+    keyPrefix?: string;
+    tlsEnabled?: boolean;
+    username?: string;
+    /** encrypted */
+    passwordEnc?: string;
+    /** encrypted */
+    encryptionKeyEnc?: string;
+  };
+  /** Cloudflare tunnel coords (non-secret) + encrypted secret refs. */
+  tunnel?: {
+    provider?: 'cloudflare';
+    accountId?: string;
+    tunnelId?: string;
+    tunnelName?: string;
+    image?: string;
+    replicas?: number;
+    metricsAddr?: string;
+    /** encrypted CF run token */
+    runTokenEnc?: string;
+    /** encrypted CF API token */
+    apiTokenEnc?: string;
+    /** encrypted tunnel credentials JSON */
+    credentialsJsonEnc?: string;
+  };
+}
+
+function readSettings(row: ConfigRow): IngressSettings {
+  return (row.settings as IngressSettings | null) ?? {};
+}
+
+/** Resolve persisted HA settings into the render-time {@link HaStorage} (decrypts). */
+function resolveHaStorage(s: IngressSettings): HaStorage | undefined {
+  const ha = s.haStorage;
+  if (!ha) return undefined;
+  return {
+    host: ha.host,
+    port: ha.port ?? 6379,
+    db: ha.db ?? 0,
+    keyPrefix: ha.keyPrefix ?? 'caddy',
+    tlsEnabled: ha.tlsEnabled ?? false,
+    username: ha.username,
+    password: ha.passwordEnc ? decryptSecret(ha.passwordEnc) : undefined,
+    encryptionKey: ha.encryptionKeyEnc ? decryptSecret(ha.encryptionKeyEnc) : undefined,
+  };
+}
+
+/** Resolve persisted tunnel settings into render-time {@link TunnelOptions} (decrypts). */
+function resolveTunnel(s: IngressSettings): TunnelOptions | undefined {
+  const t = s.tunnel;
+  if (!t) return undefined;
+  return {
+    provider: 'cloudflare',
+    accountId: t.accountId,
+    tunnelId: t.tunnelId,
+    tunnelName: t.tunnelName ?? 'swarmy',
+    image: t.image ?? 'cloudflare/cloudflared:latest',
+    replicas: t.replicas ?? 1,
+    metricsAddr: t.metricsAddr,
+    runToken: t.runTokenEnc ? decryptSecret(t.runTokenEnc) : undefined,
+    credentialsJson: t.credentialsJsonEnc ? decryptSecret(t.credentialsJsonEnc) : undefined,
+  };
 }
 
 async function ensureConfig(ctx: OrgContext): Promise<ConfigRow> {
@@ -49,11 +156,12 @@ async function ensureConfig(ctx: OrgContext): Promise<ConfigRow> {
 
 async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
   const row = await ensureConfig(ctx);
-  const settings = (row.settings as { targetNodes?: string[]; globalOptions?: Record<string, unknown> }) ?? {};
+  const settings = readSettings(row);
   const domains = await ctx.db.domain.findMany({
     where: { orgId: ctx.activeOrgId },
     include: { service: { select: { name: true } } },
   });
+  const baseGlobal = (settings.globalOptions as OrgIngressConfig['globalOptions']) ?? ({} as OrgIngressConfig['globalOptions']);
   return {
     driver: driverLower(row.driver),
     enabled: row.enabled,
@@ -68,7 +176,12 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
       stripPathPrefix: d.stripPathPrefix,
       middlewares: (d.middlewares as string[]) ?? [],
     })),
-    globalOptions: (settings.globalOptions as OrgIngressConfig['globalOptions']) ?? ({} as OrgIngressConfig['globalOptions']),
+    globalOptions: {
+      ...baseGlobal,
+      // Promote the load-bearing (encrypted) options, resolving secrets JIT.
+      haStorage: resolveHaStorage(settings),
+      tunnel: resolveTunnel(settings),
+    },
   };
 }
 
@@ -105,25 +218,165 @@ function makeDispatch(ctx: OrgContext): DriverDispatch {
 
 export async function getConfig(ctx: OrgContext): Promise<IngressConfigView> {
   const row = await ensureConfig(ctx);
-  const settings = (row.settings as { targetNodes?: string[] }) ?? {};
+  const settings = readSettings(row);
   const domainCount = await ctx.db.domain.count({ where: { orgId: ctx.activeOrgId } });
   return {
     driver: driverLower(row.driver),
     enabled: row.enabled,
     targetNodes: settings.targetNodes ?? [],
     domainCount,
+    haConfigured: Boolean(settings.haStorage),
+    tunnelConfigured: Boolean(settings.tunnel?.tunnelId),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
 
 export async function setDriver(
   ctx: OrgContext,
-  driver: 'caddy' | 'traefik' | 'none',
+  driver: IngressDriverId,
 ): Promise<IngressConfigView> {
   await ensureConfig(ctx);
   await ctx.db.ingressConfig.update({
     where: { orgId: ctx.activeOrgId },
-    data: { driver: driver.toUpperCase() as 'CADDY' | 'TRAEFIK' | 'NONE' },
+    data: { driver: DRIVER_TO_ENUM[driver] },
+  });
+  await writeAudit(ctx, {
+    action: 'ingress.setDriver',
+    targetType: 'ingressConfig',
+    targetId: ctx.activeOrgId,
+    metadata: { driver },
+  });
+  await reapply(ctx);
+  return getConfig(ctx);
+}
+
+/** Merge a partial patch into the persisted settings JSON. */
+async function patchSettings(
+  ctx: OrgContext,
+  patch: (s: IngressSettings) => IngressSettings,
+): Promise<void> {
+  const row = await ensureConfig(ctx);
+  const next = patch(readSettings(row));
+  await ctx.db.ingressConfig.update({
+    where: { orgId: ctx.activeOrgId },
+    data: { settings: next as object },
+  });
+}
+
+/**
+ * Configure (or clear) Caddy HA shared-cert storage. Secrets are encrypted at
+ * rest via the credential vault; only non-secret coords are stored in the clear.
+ */
+export async function setHaStorage(
+  ctx: OrgContext,
+  input:
+    | {
+        host: string;
+        port?: number;
+        db?: number;
+        keyPrefix?: string;
+        tlsEnabled?: boolean;
+        username?: string;
+        password?: string;
+        encryptionKey?: string;
+      }
+    | null,
+): Promise<IngressConfigView> {
+  await patchSettings(ctx, (s) => ({
+    ...s,
+    haStorage: input
+      ? {
+          host: input.host,
+          port: input.port ?? 6379,
+          db: input.db ?? 0,
+          keyPrefix: input.keyPrefix ?? `caddy_${ctx.activeOrgId}`,
+          tlsEnabled: input.tlsEnabled ?? false,
+          username: input.username,
+          passwordEnc: input.password ? encryptSecret(input.password) : undefined,
+          encryptionKeyEnc: input.encryptionKey ? encryptSecret(input.encryptionKey) : undefined,
+        }
+      : undefined,
+  }));
+  await writeAudit(ctx, {
+    action: input ? 'ingress.setHaStorage' : 'ingress.clearHaStorage',
+    targetType: 'ingressConfig',
+    targetId: ctx.activeOrgId,
+    metadata: { host: input?.host ?? null },
+  });
+  await reapply(ctx);
+  return getConfig(ctx);
+}
+
+/** Toggle on-demand TLS + record the controller `ask` endpoint. */
+export async function setOnDemandTls(
+  ctx: OrgContext,
+  input: { enabled: boolean; askUrl?: string },
+): Promise<IngressConfigView> {
+  await patchSettings(ctx, (s) => {
+    const globalOptions = { ...(s.globalOptions ?? {}) } as Record<string, unknown>;
+    globalOptions.onDemandTls = input.enabled;
+    const extra = { ...((globalOptions.extraConfig as Record<string, unknown>) ?? {}) };
+    if (input.askUrl) extra.onDemandAsk = input.askUrl;
+    globalOptions.extraConfig = extra;
+    return { ...s, globalOptions };
+  });
+  await writeAudit(ctx, {
+    action: 'ingress.setOnDemandTls',
+    targetType: 'ingressConfig',
+    targetId: ctx.activeOrgId,
+    metadata: { enabled: input.enabled },
+  });
+  await reapply(ctx);
+  return getConfig(ctx);
+}
+
+/**
+ * Configure (or clear) the Cloudflare tunnel. The pasted CF API token and the
+ * run token / credentials JSON are encrypted at rest; only coords are in clear.
+ * (Tunnel *creation* via the CF API happens controller-side — see INTEGRATION —
+ * which then calls this with the resulting tunnelId + tokens.)
+ */
+export async function setTunnel(
+  ctx: OrgContext,
+  input:
+    | {
+        accountId?: string;
+        tunnelId?: string;
+        tunnelName?: string;
+        image?: string;
+        replicas?: number;
+        metricsAddr?: string;
+        apiToken?: string;
+        runToken?: string;
+        credentialsJson?: string;
+      }
+    | null,
+): Promise<IngressConfigView> {
+  await patchSettings(ctx, (s) => ({
+    ...s,
+    tunnel: input
+      ? {
+          ...s.tunnel,
+          provider: 'cloudflare',
+          accountId: input.accountId ?? s.tunnel?.accountId,
+          tunnelId: input.tunnelId ?? s.tunnel?.tunnelId,
+          tunnelName: input.tunnelName ?? s.tunnel?.tunnelName ?? 'swarmy',
+          image: input.image ?? s.tunnel?.image,
+          replicas: input.replicas ?? s.tunnel?.replicas,
+          metricsAddr: input.metricsAddr ?? s.tunnel?.metricsAddr,
+          apiTokenEnc: input.apiToken ? encryptSecret(input.apiToken) : s.tunnel?.apiTokenEnc,
+          runTokenEnc: input.runToken ? encryptSecret(input.runToken) : s.tunnel?.runTokenEnc,
+          credentialsJsonEnc: input.credentialsJson
+            ? encryptSecret(input.credentialsJson)
+            : s.tunnel?.credentialsJsonEnc,
+        }
+      : undefined,
+  }));
+  await writeAudit(ctx, {
+    action: input ? 'ingress.setTunnel' : 'ingress.clearTunnel',
+    targetType: 'ingressConfig',
+    targetId: ctx.activeOrgId,
+    metadata: { tunnelId: input?.tunnelId ?? null },
   });
   await reapply(ctx);
   return getConfig(ctx);
@@ -201,14 +454,14 @@ export async function removeDomain(
 
 export async function previewConfig(
   ctx: OrgContext,
-  driver?: 'caddy' | 'traefik' | 'none',
+  driver?: IngressDriverId,
 ): Promise<RenderedConfig> {
   const config = await loadOrgConfig(ctx);
   return previewConfigPkg({ ...config, driver: driver ?? config.driver, enabled: true });
 }
 
-export function listDrivers(): string[] {
-  return ['caddy', 'traefik', 'none'];
+export function listDrivers(): IngressDriverId[] {
+  return ['none', 'caddy', 'traefik', 'cloudflared'];
 }
 
 /** Render + dispatch the current config to the ingress nodes (best-effort). */

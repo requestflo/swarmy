@@ -1,0 +1,8 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "build": { "outputs": ["src/generated/**"] },
+    "db:generate": { "outputs": ["src/generated/**"] },
+    "typecheck": { "dependsOn": ["build"] }
+  }
+}

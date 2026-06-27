@@ -3,6 +3,7 @@ import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { mapDispatchError, notFound } from '../errors';
 import { failDeployment, resolveManagerNode } from './dispatch.service';
+import { augmentSpecsForStack } from './otel-injection';
 
 export interface StackSummary {
   id: string;
@@ -121,8 +122,14 @@ export async function deployFromCompose(
     },
   });
 
+  const finalSpecs = augmentSpecsForStack(specs, {
+    telemetryEnabled: stack.telemetryEnabled,
+    orgId: ctx.activeOrgId,
+    stack: stack.name,
+  });
+
   try {
-    for (const spec of specs) {
+    for (const spec of finalSpecs) {
       await ctx.db.service.upsert({
         where: { orgId_name: { orgId: ctx.activeOrgId, name: spec.name } },
         create: {
