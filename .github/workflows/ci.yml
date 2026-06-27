@@ -16,8 +16,22 @@ env:
 
 jobs:
   verify:
-    name: typecheck · build
+    name: typecheck · build · schema
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: swarmy
+          POSTGRES_PASSWORD: swarmy
+          POSTGRES_DB: swarmy
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U swarmy"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -27,6 +41,8 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Generate Prisma client
         run: bun run db:generate
+      - name: Validate schema applies
+        run: bun --filter @swarmy/db exec prisma db push --skip-generate --accept-data-loss
       - name: Typecheck
         run: bun run typecheck
       - name: Build
