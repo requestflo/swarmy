@@ -1,6 +1,12 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
+/* Ensure Tailwind scans this package's own component classes (button variants,
+   etc.) regardless of which app imports these styles. Paths resolve relative
+   to this file (packages/ui/src/styles.css). */
+@source './components/**/*.{ts,tsx}';
+@source './lib/**/*.{ts,tsx}';
+
 @custom-variant dark (&:is(.dark *));
 
 /* ─────────────────────────── Hot Signal ───────────────────────────
