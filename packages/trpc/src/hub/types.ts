@@ -1,4 +1,4 @@
-import type { ContainerInfo } from '@swarmy/core/protocol';
+import type { ContainerInfo, TermTarget } from '@swarmy/core/protocol';
 import type {
   ClusterStatsFrame,
   ContainerStatsSnapshot,
@@ -18,6 +18,7 @@ export type CommandName =
   | 'service.remove'
   | 'image.pull'
   | 'applyIngress'
+  | 'applyMesh'
   | 'node.update' // cordon / drain / labels
   | 'logs.subscribe'
   | 'logs.unsubscribe'
@@ -34,6 +35,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'service.remove': 'removeService',
   'image.pull': 'pullImage',
   applyIngress: 'applyIngress',
+  applyMesh: 'applyMesh',
   'node.update': 'updateSwarmNode',
   'logs.subscribe': 'streamLogs',
   'logs.unsubscribe': 'streamLogs',
@@ -88,4 +90,13 @@ export interface AgentHub {
     payload: unknown,
     signal: AbortSignal,
   ): AsyncIterable<LogLine>;
+
+  /** Mint a single-use ticket for the browser terminal data plane (/term/ws). */
+  mintTerminalTicket(input: {
+    sessionId: string;
+    nodeId: string;
+    orgId: string;
+    userId: string;
+    target: TermTarget;
+  }): { ticket: string; expiresAt: number };
 }

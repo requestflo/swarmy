@@ -22,6 +22,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@swarmy/core": "workspace:*",
+        "@swarmy/mesh": "workspace:*",
         "dockerode": "^4.0.2",
       },
       "devDependencies": {
@@ -63,6 +64,8 @@
         "@tanstack/react-router": "^1.95.1",
         "@trpc/client": "^11.0.0",
         "@trpc/tanstack-react-query": "^11.0.0",
+        "@xterm/addon-fit": "^0.10.0",
+        "@xterm/xterm": "^5.5.0",
         "lucide-react": "^0.469.0",
         "next-themes": "^0.4.4",
         "react": "19.2.4",
@@ -114,10 +117,18 @@
         "vite": "^7.0.0",
       },
     },
+    "packages/abac": {
+      "name": "@swarmy/abac",
+      "version": "0.0.0",
+      "devDependencies": {
+        "typescript": "^5.5.4",
+      },
+    },
     "packages/auth": {
       "name": "@swarmy/auth",
       "version": "0.0.0",
       "dependencies": {
+        "@swarmy/core": "workspace:*",
         "@swarmy/db": "workspace:*",
         "better-auth": "^1.6.19",
       },
@@ -165,14 +176,28 @@
         "typescript": "^5.5.4",
       },
     },
+    "packages/mesh": {
+      "name": "@swarmy/mesh",
+      "version": "0.0.0",
+      "dependencies": {
+        "@swarmy/core": "workspace:*",
+        "zod": "^3.24.1",
+      },
+      "devDependencies": {
+        "tsup": "^8.3.5",
+        "typescript": "^5.5.4",
+      },
+    },
     "packages/trpc": {
       "name": "@swarmy/trpc",
       "version": "0.0.0",
       "dependencies": {
+        "@swarmy/abac": "workspace:*",
         "@swarmy/auth": "workspace:*",
         "@swarmy/core": "workspace:*",
         "@swarmy/db": "workspace:*",
         "@swarmy/ingress": "workspace:*",
+        "@swarmy/mesh": "workspace:*",
         "@trpc/server": "^11.0.0",
         "superjson": "^2.2.2",
         "yaml": "^2.6.1",
@@ -661,6 +686,8 @@
 
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
+    "@swarmy/abac": ["@swarmy/abac@workspace:packages/abac"],
+
     "@swarmy/agent": ["@swarmy/agent@workspace:apps/agent"],
 
     "@swarmy/api": ["@swarmy/api@workspace:apps/api"],
@@ -676,6 +703,8 @@
     "@swarmy/e2e": ["@swarmy/e2e@workspace:apps/e2e"],
 
     "@swarmy/ingress": ["@swarmy/ingress@workspace:packages/ingress"],
+
+    "@swarmy/mesh": ["@swarmy/mesh@workspace:packages/mesh"],
 
     "@swarmy/trpc": ["@swarmy/trpc@workspace:packages/trpc"],
 
@@ -802,6 +831,10 @@
     "@types/ssh2": ["@types/ssh2@1.15.5", "", { "dependencies": { "@types/node": "^18.11.18" } }, "sha512-N1ASjp/nXH3ovBHddRJpli4ozpk6UdDYIX4RJWFa9L1YKnzdhTlVmiGHm4DZnj/jLbqZpes4aeR30EFGQtvhQQ=="],
 
     "@vitejs/plugin-react": ["@vitejs/plugin-react@4.7.0", "", { "dependencies": { "@babel/core": "^7.28.0", "@babel/plugin-transform-react-jsx-self": "^7.27.1", "@babel/plugin-transform-react-jsx-source": "^7.27.1", "@rolldown/pluginutils": "1.0.0-beta.27", "@types/babel__core": "^7.20.5", "react-refresh": "^0.17.0" }, "peerDependencies": { "vite": "^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0" } }, "sha512-gUu9hwfWvvEDBBmgtAowQCojwZmJ5mcLn3aufeCsitijs3+f2NsrPtlAWIR6OPiqljl96GVCUbLe0HyqIpVaoA=="],
+
+    "@xterm/addon-fit": ["@xterm/addon-fit@0.10.0", "", { "peerDependencies": { "@xterm/xterm": "^5.0.0" } }, "sha512-UFYkDm4HUahf2lnEyHvio51TNGiLK66mqP2JoATy7hRZeXaGMRDr00JiSF7m63vR5WKATF605yEggJKsw0JpMQ=="],
+
+    "@xterm/xterm": ["@xterm/xterm@5.5.0", "", {}, "sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A=="],
 
     "JSONStream": ["JSONStream@1.3.5", "", { "dependencies": { "jsonparse": "^1.2.0", "through": ">=2.2.7 <3" }, "bin": { "JSONStream": "./bin.js" } }, "sha512-E+iruNOY8VV9s4JEbe1aNEm6MiszPRr/UfcHMz0TQh1BXSxHK+ASV1R6W4HpjBhSeS+54PIsAMCBmwD06LLsqQ=="],
 

@@ -18,7 +18,17 @@ import {
   PingMsg,
 } from './commands';
 import { ApplyIngressMsg } from './ingress';
+import { ApplyMeshMsg } from './mesh';
 import { BackupVolumeMsg, RestoreVolumeMsg, ListSnapshotsMsg } from './backup';
+import {
+  TermStartMsg,
+  TermInputMsg,
+  TermResizeMsg,
+  TermCloseMsg,
+  TermStartedMsg,
+  TermDataMsg,
+  TermExitMsg,
+} from './terminal';
 import {
   CommandResultMsg,
   LogChunkMsg,
@@ -38,6 +48,9 @@ export const AgentToControllerMessage = z.discriminatedUnion('type', [
   LogChunkMsg,
   AckMsg,
   AgentErrorMsg,
+  TermStartedMsg,
+  TermDataMsg,
+  TermExitMsg,
 ]);
 export type AgentToControllerMessage = z.infer<typeof AgentToControllerMessage>;
 export type AgentMessageType = AgentToControllerMessage['type'];
@@ -53,9 +66,14 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   ExecCommandMsg,
   StreamLogsMsg,
   ApplyIngressMsg,
+  ApplyMeshMsg,
   BackupVolumeMsg,
   RestoreVolumeMsg,
   ListSnapshotsMsg,
+  TermStartMsg,
+  TermInputMsg,
+  TermResizeMsg,
+  TermCloseMsg,
   UpdateSwarmNodeMsg,
   UpdateAgentMsg,
   PingMsg,

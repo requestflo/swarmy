@@ -11,4 +11,6 @@ export const env = {
   DOCKER_SOCKET: process.env.DOCKER_SOCKET ?? '/var/run/docker.sock',
   STATE_PATH: expandHome(process.env.SWARMY_AGENT_STATE ?? '~/.swarmy/agent.json'),
   ALLOW_EXEC: (process.env.SWARMY_ALLOW_EXEC ?? 'false') === 'true',
+  // Mesh provisioning is on by default; a node can opt out (epic #6).
+  ALLOW_MESH: (process.env.SWARMY_ALLOW_MESH ?? 'true') === 'true',
 };

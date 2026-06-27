@@ -36,6 +36,7 @@ export type CommandResultMsg = z.infer<typeof CommandResultMsg>;
 
 /** Typed `result` shapes per originating command, for controller-side narrowing. */
 import type { ResticSnapshotInfo } from './backup';
+import type { ApplyMeshResult } from './mesh';
 
 export interface CommandResultMap {
   deployService: { serviceId: string; created: boolean };
@@ -49,6 +50,7 @@ export interface CommandResultMap {
   backupVolume: { snapshotId: string; sizeBytes: number; filesNew?: number; durationMs?: number };
   restoreVolume: { targetVolume: string; bytesRestored: number; durationMs?: number };
   listSnapshots: { snapshots: ResticSnapshotInfo[] };
+  applyMesh: ApplyMeshResult;
 }
 
 export const LogChunkPayload = z.object({

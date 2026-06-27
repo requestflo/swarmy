@@ -1,4 +1,5 @@
-import { PROTOCOL_VERSION, type ContainerInfo } from '@swarmy/core/protocol';
+import { PROTOCOL_VERSION, type ContainerInfo, type TermTarget } from '@swarmy/core/protocol';
+import { terminalHub } from '../terminal';
 import type {
   ClusterStatsFrame,
   ContainerStatsSnapshot,
@@ -38,6 +39,16 @@ export class AgentHubImpl implements AgentHub {
 
   onlineNodeIds(): string[] {
     return this.registry.onlineNodeIds();
+  }
+
+  mintTerminalTicket(input: {
+    sessionId: string;
+    nodeId: string;
+    orgId: string;
+    userId: string;
+    target: TermTarget;
+  }): { ticket: string; expiresAt: number } {
+    return terminalHub.mintTicket(input);
   }
 
   /** Called by the protocol handler when a `commandResult` arrives. */

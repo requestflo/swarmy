@@ -57,6 +57,13 @@ export const ServiceSpec = z.object({
       maxAttempts: z.number().int().optional(),
     })
     .optional(),
+  placement: z
+    .object({
+      constraints: z.array(z.string()).optional(),
+      preferences: z.array(z.string()).optional(),
+      maxReplicasPerNode: z.number().int().positive().optional(),
+    })
+    .optional(),
 });
 export type ServiceSpec = z.infer<typeof ServiceSpec>;
 

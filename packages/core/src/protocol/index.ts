@@ -15,3 +15,5 @@ export * from './ingress';
 export * from './results';
 export * from './messages';
 export * from './backup';
+export * from './mesh';
+export * from './terminal';

@@ -1,9 +1,16 @@
+import type { ServerWebSocket } from 'bun';
 import { Hono } from 'hono';
-import { auth } from '@swarmy/auth';
+import { authRegistry } from '@swarmy/auth';
 import { env } from './env';
 import { handleTrpc } from './trpc';
 import { renderInstallScript } from './install-script';
 import { agentWebSocketHandlers, type AgentWsData } from './gateway';
+import {
+  authorizeTermUpgrade,
+  terminalWebSocketHandlers,
+  type TermWsData,
+  type TermSocket,
+} from './terminal';
 import { startWorkers } from './workers';
 
 const app = new Hono();
@@ -19,14 +26,23 @@ app.get('/install.sh', (c) => {
     'cache-control': 'no-store',
   });
 });
-app.on(['GET', 'POST'], '/api/auth/*', (c) => auth.handler(c.req.raw));
+app.on(['GET', 'POST'], '/api/auth/*', (c) => authRegistry.getAuth().handler(c.req.raw));
 app.all('/api/trpc/*', (c) => handleTrpc(c.req.raw));
 app.notFound((c) => c.json({ error: 'not found' }, 404));
 
-const server = Bun.serve<AgentWsData>({
+// Load stored auth-provider config so social/SSO providers are live without a restart.
+await authRegistry.rebuild();
+
+type WsData = AgentWsData | TermWsData;
+
+function isTerm(ws: ServerWebSocket<WsData>): ws is TermSocket {
+  return 'kind' in ws.data && (ws.data as { kind?: string }).kind === 'term';
+}
+
+const server = Bun.serve<WsData>({
   port: env.PORT,
   idleTimeout: 60,
-  fetch(req, srv) {
+  async fetch(req, srv) {
     const url = new URL(req.url);
     if (url.pathname === '/agent/ws') {
       const upgraded = srv.upgrade(req, {
@@ -34,9 +50,28 @@ const server = Bun.serve<AgentWsData>({
       });
       return upgraded ? undefined : new Response('websocket upgrade failed', { status: 400 });
     }
+    if (url.pathname === '/term/ws') {
+      const data = await authorizeTermUpgrade(req);
+      if (!data) return new Response('unauthorized', { status: 401 });
+      const upgraded = srv.upgrade(req, { data });
+      return upgraded ? undefined : new Response('websocket upgrade failed', { status: 400 });
+    }
     return app.fetch(req);
   },
-  websocket: agentWebSocketHandlers,
+  websocket: {
+    open(ws) {
+      if (isTerm(ws)) terminalWebSocketHandlers.open(ws);
+      else agentWebSocketHandlers.open(ws as never);
+    },
+    message(ws, message) {
+      if (isTerm(ws)) terminalWebSocketHandlers.message(ws, message);
+      else void agentWebSocketHandlers.message(ws as never, message);
+    },
+    close(ws) {
+      if (isTerm(ws)) void terminalWebSocketHandlers.close(ws);
+      else void agentWebSocketHandlers.close(ws as never);
+    },
+  },
 });
 
 startWorkers();

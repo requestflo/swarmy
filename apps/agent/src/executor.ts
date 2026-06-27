@@ -5,6 +5,13 @@ import type { ControllerEnvelope, RenderedConfig, ServiceSpec } from '@swarmy/co
 import type { AgentConnection } from './connection';
 import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots } from './handlers/backup';
+import { applyMesh } from './handlers/mesh';
+import {
+  handleTermStart,
+  handleTermInput,
+  handleTermResize,
+  handleTermClose,
+} from './handlers/terminal';
 
 const activeLogStreams = new Map<string, () => void>();
 
@@ -59,6 +66,18 @@ export async function handleCommand(
       const { commandId, rendered } = envlp.payload;
       return run(conn, commandId, () => applyIngress(docker, rendered));
     }
+    case 'applyMesh': {
+      const { commandId, rendered } = envlp.payload;
+      if (!env.ALLOW_MESH) {
+        conn.send('commandResult', {
+          commandId,
+          status: 'rejected',
+          error: { code: 'E_MESH_DISABLED', message: 'mesh disabled on this agent' },
+        });
+        return;
+      }
+      return run(conn, commandId, () => applyMesh(docker, rendered));
+    }
     case 'backupVolume': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => backupVolume(docker, conn, p));
@@ -73,6 +92,17 @@ export async function handleCommand(
     }
     case 'streamLogs':
       return handleStreamLogs(docker, conn, envlp.payload);
+    case 'termStart':
+      return handleTermStart(docker, conn, envlp.payload);
+    case 'termInput':
+      handleTermInput(envlp.payload);
+      return;
+    case 'termResize':
+      handleTermResize(envlp.payload);
+      return;
+    case 'termClose':
+      handleTermClose(envlp.payload);
+      return;
     case 'execCommand': {
       const { commandId } = envlp.payload;
       if (!env.ALLOW_EXEC) {

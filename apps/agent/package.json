@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@swarmy/core": "workspace:*",
+    "@swarmy/mesh": "workspace:*",
     "dockerode": "^4.0.2"
   },
   "devDependencies": {

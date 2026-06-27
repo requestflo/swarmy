@@ -13,6 +13,7 @@ import { prisma } from '@swarmy/db';
 import type { AgentHubImpl } from './hub';
 import type { GatewayStore } from './store';
 import type { AgentSocket, ConnectionRegistry } from './registry';
+import { terminalHub } from '../terminal';
 
 function sha256(s: string): string {
   return createHash('sha256').update(s).digest('hex');
@@ -119,6 +120,11 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
       deps.hub.emitLog(commandId, line);
       return;
     }
+    case 'termStarted':
+    case 'termData':
+    case 'termExit':
+      terminalHub.onAgentTermFrame(env.type, env.payload);
+      return;
     default:
       return;
   }

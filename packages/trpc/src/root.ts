@@ -9,6 +9,12 @@ import { ingressRouter } from './routers/ingress';
 import { systemRouter } from './routers/system';
 import { backupsRouter } from './routers/backups';
 import { observabilityRouter } from './routers/observability';
+import { meshRouter } from './routers/mesh';
+import { imagesRouter } from './routers/images';
+import { builderRouter } from './routers/builder';
+import { authConfigRouter } from './routers/authConfig';
+import { policiesRouter } from './routers/policies';
+import { terminalRouter } from './routers/terminal';
 
 export const appRouter = router({
   org: orgRouter,
@@ -21,6 +27,12 @@ export const appRouter = router({
   system: systemRouter,
   backups: backupsRouter,
   observability: observabilityRouter,
+  mesh: meshRouter,
+  images: imagesRouter,
+  builder: builderRouter,
+  authConfig: authConfigRouter,
+  policies: policiesRouter,
+  terminal: terminalRouter,
 });
 
 export type AppRouter = typeof appRouter;

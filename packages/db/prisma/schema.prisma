@@ -182,6 +182,11 @@ model Organization {
   snapshots           Snapshot[]
   observabilityConfig ObservabilityConfig?
   observabilityStore  ObservabilityStoreState[]
+  meshConfig          MeshConfig?
+  meshPeers           MeshPeer[]
+  ssoProviders        SsoProvider[]
+  policies            Policy[]
+  resourceGrants      ResourceGrant[]
 
   @@map("organization")
 }
@@ -191,6 +196,7 @@ model Member {
   organizationId String
   userId         String
   role           String   @default("member")
+  attributes     Json     @default("{}")
   createdAt      DateTime @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -515,4 +521,121 @@ model ObservabilityStoreState {
 
   @@index([orgId])
   @@map("observability_store_state")
+}
+
+// ───────────────────────────────────────────── mesh networking ──
+
+enum MeshDriver {
+  NETBIRD
+  NONE
+}
+
+model MeshConfig {
+  id            String     @id @default(cuid())
+  orgId         String     @unique
+  driver        MeshDriver @default(NONE)
+  enabled       Boolean    @default(false)
+  managementUrl String?
+  controlPlane  Json       @default("{}")
+  settings      Json       @default("{}")
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("mesh_config")
+}
+
+model MeshPeer {
+  id        String    @id @default(cuid())
+  orgId     String
+  nodeId    String    @unique
+  driver    String    @default("NONE")
+  peerId    String?
+  meshIp    String?
+  status    String    @default("ENROLLING")
+  lastSeen  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("mesh_peer")
+}
+
+// ───────────────────────────────────────────── auth providers / ABAC ──
+
+model AuthProviderConfig {
+  id              String   @id @default(cuid())
+  orgId           String?
+  type            String
+  enabled         Boolean  @default(false)
+  clientId        String?
+  encryptedSecret String?  @db.Text
+  scopes          Json     @default("[]")
+  settings        Json     @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([orgId, type])
+  @@map("auth_provider_config")
+}
+
+model SsoProvider {
+  id              String   @id @default(cuid())
+  orgId           String
+  protocol        String
+  providerId      String   @unique
+  domain          String?
+  issuer          String?
+  clientId        String?
+  encryptedSecret String?  @db.Text
+  metadata        Json     @default("{}")
+  mapping         Json     @default("{}")
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([domain])
+  @@map("sso_provider")
+}
+
+model Policy {
+  id          String   @id @default(cuid())
+  orgId       String
+  name        String
+  description String?
+  effect      String
+  source      String   @db.Text
+  priority    Int      @default(0)
+  enabled     Boolean  @default(true)
+  isdefault   Boolean  @default(false)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, enabled])
+  @@map("policy")
+}
+
+model ResourceGrant {
+  id            String   @id @default(cuid())
+  orgId         String
+  principalType String
+  principalId   String
+  resourceType  String
+  resourceId    String
+  relation      String
+  createdAt     DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([principalType, principalId, resourceType, resourceId, relation])
+  @@index([orgId, resourceType, resourceId])
+  @@map("resource_grant")
 }
