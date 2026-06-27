@@ -11,6 +11,9 @@
     "clean": "rm -rf dist .turbo .tanstack"
   },
   "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.0.0",
+    "@fontsource-variable/geist-mono": "^5.0.0",
+    "@fontsource-variable/instrument-sans": "^5.0.0",
     "@hookform/resolvers": "^3.10.0",
     "@swarmy/auth": "workspace:*",
     "@swarmy/core": "workspace:*",
