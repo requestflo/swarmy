@@ -103,6 +103,7 @@ model User {
   deployments Deployment[]
   auditLogs   AuditLog[]
   invitations Invitation[] @relation("InvitationInviter")
+  apiKeys     ApiKey[]     @relation("ApiKeyCreator")
 
   @@map("user")
 }
@@ -187,6 +188,13 @@ model Organization {
   ssoProviders        SsoProvider[]
   policies            Policy[]
   resourceGrants      ResourceGrant[]
+  gitRepos            GitRepo[]
+  builds              Build[]
+  registryConfig      RegistryConfig?
+  imageGcPolicy       ImageGcPolicy?
+  geoDnsConfig        GeoDnsConfig?
+  dnsRecords          DnsRecord[]
+  apiKeys             ApiKey[]
 
   @@map("organization")
 }
@@ -638,4 +646,149 @@ model ResourceGrant {
   @@unique([principalType, principalId, resourceType, resourceId, relation])
   @@index([orgId, resourceType, resourceId])
   @@map("resource_grant")
+}
+
+// ───────────────────────────────────────────── git / CI / registry ──
+
+enum GitProviderKind {
+  GITHUB
+  GITLAB
+}
+
+enum BuildStatus {
+  QUEUED
+  BUILDING
+  PUSHING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
+enum ImageGcMode {
+  ON_HEALTHCHECK
+  AGE_DAYS
+}
+
+model GitRepo {
+  id         String          @id @default(cuid())
+  orgId      String
+  provider   GitProviderKind @default(GITHUB)
+  url        String
+  branch     String          @default("main")
+  tokenEnc   String?
+  autodeploy Boolean         @default(false)
+  serviceId  String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  builds Build[]
+
+  @@unique([orgId, url])
+  @@index([orgId])
+  @@map("git_repo")
+}
+
+model Build {
+  id         String      @id @default(cuid())
+  orgId      String
+  repoId     String
+  commit     String?
+  status     BuildStatus @default(QUEUED)
+  image      String?
+  logsRef    String?
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime    @default(now())
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  repo GitRepo      @relation(fields: [repoId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, startedAt])
+  @@index([repoId, startedAt])
+  @@map("build")
+}
+
+model RegistryConfig {
+  id             String   @id @default(cuid())
+  orgId          String   @unique
+  enabled        Boolean  @default(false)
+  host           String?
+  credentialsEnc String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("registry_config")
+}
+
+model ImageGcPolicy {
+  id        String      @id @default(cuid())
+  orgId     String      @unique
+  mode      ImageGcMode @default(ON_HEALTHCHECK)
+  keepProd  Boolean     @default(true)
+  days      Int?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("image_gc_policy")
+}
+
+// ───────────────────────────────────────────── geo-dns ──
+
+model GeoDnsConfig {
+  id        String   @id @default(cuid())
+  orgId     String   @unique
+  enabled   Boolean  @default(false)
+  zone      String   @default("")
+  ttl       Int      @default(30)
+  provider  String   @default("coredns")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("geo_dns_config")
+}
+
+model DnsRecord {
+  id            String   @id @default(cuid())
+  orgId         String
+  host          String
+  region        String
+  targetIngress String
+  healthy       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, host, region])
+  @@index([orgId])
+  @@map("dns_record")
+}
+
+// ───────────────────────────────────────────── public API keys ──
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  orgId       String
+  name        String
+  keyHash     String    @unique
+  prefix      String
+  scopes      Json      @default("[\"read\"]")
+  lastUsedAt  DateTime?
+  createdById String?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy User?        @relation("ApiKeyCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([prefix])
+  @@map("api_key")
 }

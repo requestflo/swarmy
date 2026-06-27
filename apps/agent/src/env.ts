@@ -13,4 +13,5 @@ export const env = {
   ALLOW_EXEC: (process.env.SWARMY_ALLOW_EXEC ?? 'false') === 'true',
   // Mesh provisioning is on by default; a node can opt out (epic #6).
   ALLOW_MESH: (process.env.SWARMY_ALLOW_MESH ?? 'true') === 'true',
+  ALLOW_BUILD: (process.env.SWARMY_ALLOW_BUILD ?? 'false') === 'true',
 };

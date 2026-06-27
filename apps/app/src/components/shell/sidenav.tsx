@@ -13,6 +13,8 @@ import {
   ActivityIcon,
   GlobeIcon,
   ShieldIcon,
+  GitBranchIcon,
+  KeyRoundIcon,
 } from 'lucide-react';
 import { authClient } from '@swarmy/auth/client';
 import {
@@ -36,9 +38,12 @@ const NAV = [
   { to: '/stacks', label: 'Stacks', icon: LayersIcon, exact: false },
   { to: '/ingress', label: 'Ingress', icon: NetworkIcon, exact: false },
   { to: '/networking', label: 'Networking', icon: GlobeIcon, exact: false },
+  { to: '/ci', label: 'CI', icon: GitBranchIcon, exact: false },
+  { to: '/geo', label: 'Geo', icon: GlobeIcon, exact: false },
   { to: '/backups', label: 'Backups', icon: DatabaseBackupIcon, exact: false },
   { to: '/observability', label: 'Observability', icon: ActivityIcon, exact: false },
   { to: '/settings/access', label: 'Access', icon: ShieldIcon, exact: false },
+  { to: '/settings/api-keys', label: 'API keys', icon: KeyRoundIcon, exact: false },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, exact: false },
 ] as const;
 

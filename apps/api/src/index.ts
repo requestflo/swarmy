@@ -1,10 +1,13 @@
 import type { ServerWebSocket } from 'bun';
 import { Hono } from 'hono';
 import { authRegistry } from '@swarmy/auth';
+import { prisma } from '@swarmy/db';
+import { resolveOrgContextFromApiKey } from '@swarmy/trpc';
+import { createRestApp } from '@swarmy/api-rest';
 import { env } from './env';
 import { handleTrpc } from './trpc';
 import { renderInstallScript } from './install-script';
-import { agentWebSocketHandlers, type AgentWsData } from './gateway';
+import { agentWebSocketHandlers, hub, type AgentWsData } from './gateway';
 import {
   authorizeTermUpgrade,
   terminalWebSocketHandlers,
@@ -28,6 +31,15 @@ app.get('/install.sh', (c) => {
 });
 app.on(['GET', 'POST'], '/api/auth/*', (c) => authRegistry.getAuth().handler(c.req.raw));
 app.all('/api/trpc/*', (c) => handleTrpc(c.req.raw));
+
+// Public REST API (OpenAPI) — handlers reuse the tRPC service layer via an
+// api-key-resolved OrgContext.
+const restApp = createRestApp({
+  resolveContextFromApiKey: (presentedKey) =>
+    resolveOrgContextFromApiKey({ db: prisma, hub, auth: authRegistry.getAuth() }, presentedKey),
+});
+app.route('/api/v1', restApp);
+
 app.notFound((c) => c.json({ error: 'not found' }, 404));
 
 // Load stored auth-provider config so social/SSO providers are live without a restart.

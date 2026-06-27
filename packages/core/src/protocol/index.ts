@@ -17,3 +17,4 @@ export * from './messages';
 export * from './backup';
 export * from './mesh';
 export * from './terminal';
+export * from './build';

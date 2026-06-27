@@ -19,6 +19,7 @@ export type CommandName =
   | 'image.pull'
   | 'applyIngress'
   | 'applyMesh'
+  | 'image.build'
   | 'node.update' // cordon / drain / labels
   | 'logs.subscribe'
   | 'logs.unsubscribe'
@@ -36,6 +37,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'image.pull': 'pullImage',
   applyIngress: 'applyIngress',
   applyMesh: 'applyMesh',
+  'image.build': 'buildImage',
   'node.update': 'updateSwarmNode',
   'logs.subscribe': 'streamLogs',
   'logs.unsubscribe': 'streamLogs',

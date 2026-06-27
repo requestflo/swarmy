@@ -1,0 +1,1105 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "swarmy API",
+    "version": "1.0.0",
+    "description": "Public, versioned REST API for swarmy. Authenticate with an org-scoped API key: `Authorization: Bearer swk_…`."
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerApiKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "swk",
+        "description": "swarmy API key (`Authorization: Bearer swk_…`)."
+      }
+    },
+    "schemas": {
+      "Node": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "manager",
+              "worker"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "online",
+              "offline",
+              "draining"
+            ]
+          },
+          "engine_version": {
+            "type": "string",
+            "nullable": true
+          },
+          "os": {
+            "type": "string",
+            "nullable": true
+          },
+          "arch": {
+            "type": "string",
+            "nullable": true
+          },
+          "last_seen_at": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "hostname",
+          "role",
+          "status",
+          "engine_version",
+          "os",
+          "arch",
+          "last_seen_at"
+        ]
+      },
+      "NodeList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Node"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "swarmy_code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status"
+        ]
+      },
+      "Service": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "replicas": {
+            "type": "object",
+            "properties": {
+              "desired": {
+                "type": "number"
+              },
+              "running": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "desired",
+              "running"
+            ]
+          },
+          "ingress_enabled": {
+            "type": "boolean"
+          },
+          "node_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "stack_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "image",
+          "status",
+          "replicas",
+          "ingress_enabled",
+          "node_id",
+          "stack_id",
+          "updated_at"
+        ]
+      },
+      "ServiceList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Service"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "DeploymentRef": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "deployment_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "deployment_id"
+        ]
+      },
+      "CreateServiceRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "replicas": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "env": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "value"
+              ]
+            }
+          },
+          "node_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "image"
+        ]
+      },
+      "ScaleServiceRequest": {
+        "type": "object",
+        "properties": {
+          "replicas": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "replicas"
+        ]
+      },
+      "Removed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "removed"
+        ]
+      },
+      "Stack": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "service_count": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "service_count",
+          "status",
+          "updated_at"
+        ]
+      },
+      "StackList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Stack"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "DeployStackRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "compose_source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "compose_source"
+        ]
+      },
+      "IngressDomain": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "service_id": {
+            "type": "string"
+          },
+          "service_name": {
+            "type": "string"
+          },
+          "target_port": {
+            "type": "number"
+          },
+          "tls": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "off",
+              "custom"
+            ]
+          },
+          "path_prefix": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "host",
+          "service_id",
+          "service_name",
+          "target_port",
+          "tls",
+          "path_prefix"
+        ]
+      },
+      "IngressDomainList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IngressDomain"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "AddDomainRequest": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "service_id": {
+            "type": "string"
+          },
+          "target_port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "tls": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "off",
+              "custom"
+            ]
+          },
+          "path_prefix": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "service_id",
+          "target_port"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/nodes": {
+      "get": {
+        "tags": [
+          "Nodes"
+        ],
+        "summary": "List nodes",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Nodes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/nodes/{id}": {
+      "get": {
+        "tags": [
+          "Nodes"
+        ],
+        "summary": "Get a node",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Node",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Node"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/services": {
+      "get": {
+        "tags": [
+          "Services"
+        ],
+        "summary": "List services",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Services",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Services"
+        ],
+        "summary": "Create a service (async deploy)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateServiceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted — deploy dispatched",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentRef"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/services/{id}": {
+      "get": {
+        "tags": [
+          "Services"
+        ],
+        "summary": "Get a service",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Service",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Service"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Services"
+        ],
+        "summary": "Remove a service",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Removed"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/services/{id}/scale": {
+      "post": {
+        "tags": [
+          "Services"
+        ],
+        "summary": "Scale a service (async deploy)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScaleServiceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentRef"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/services/{id}/restart": {
+      "post": {
+        "tags": [
+          "Services"
+        ],
+        "summary": "Restart a service (async deploy)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentRef"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stacks": {
+      "get": {
+        "tags": [
+          "Stacks"
+        ],
+        "summary": "List stacks",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stacks",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StackList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Stacks"
+        ],
+        "summary": "Deploy a stack from a compose document (async)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeployStackRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentRef"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stacks/{id}": {
+      "get": {
+        "tags": [
+          "Stacks"
+        ],
+        "summary": "Get a stack",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stack",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Stack"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Stacks"
+        ],
+        "summary": "Remove a stack",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Removed"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ingress/domains": {
+      "get": {
+        "tags": [
+          "Ingress"
+        ],
+        "summary": "List ingress domains",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Domains",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngressDomainList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Ingress"
+        ],
+        "summary": "Add an ingress domain",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddDomainRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngressDomain"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ingress/domains/{id}": {
+      "delete": {
+        "tags": [
+          "Ingress"
+        ],
+        "summary": "Remove an ingress domain",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Removed"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

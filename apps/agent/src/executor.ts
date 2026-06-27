@@ -6,6 +6,7 @@ import type { AgentConnection } from './connection';
 import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots } from './handlers/backup';
 import { applyMesh } from './handlers/mesh';
+import { buildImage } from './handlers/build';
 import {
   handleTermStart,
   handleTermInput,
@@ -89,6 +90,18 @@ export async function handleCommand(
     case 'listSnapshots': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => listSnapshots(docker, p));
+    }
+    case 'buildImage': {
+      const p = envlp.payload;
+      if (!env.ALLOW_BUILD) {
+        conn.send('commandResult', {
+          commandId: p.commandId,
+          status: 'rejected',
+          error: { code: 'E_BUILD_DISABLED', message: 'build disabled on this agent' },
+        });
+        return;
+      }
+      return run(conn, p.commandId, () => buildImage(docker, conn, p));
     }
     case 'streamLogs':
       return handleStreamLogs(docker, conn, envlp.payload);

@@ -19,6 +19,7 @@ import {
 } from './commands';
 import { ApplyIngressMsg } from './ingress';
 import { ApplyMeshMsg } from './mesh';
+import { BuildImageMsg } from './build';
 import { BackupVolumeMsg, RestoreVolumeMsg, ListSnapshotsMsg } from './backup';
 import {
   TermStartMsg,
@@ -67,6 +68,7 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   StreamLogsMsg,
   ApplyIngressMsg,
   ApplyMeshMsg,
+  BuildImageMsg,
   BackupVolumeMsg,
   RestoreVolumeMsg,
   ListSnapshotsMsg,

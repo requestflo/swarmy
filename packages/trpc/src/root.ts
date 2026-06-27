@@ -15,6 +15,10 @@ import { builderRouter } from './routers/builder';
 import { authConfigRouter } from './routers/authConfig';
 import { policiesRouter } from './routers/policies';
 import { terminalRouter } from './routers/terminal';
+import { cicdRouter } from './routers/cicd';
+import { geodnsRouter } from './routers/geodns';
+import { templatesRouter } from './routers/templates';
+import { apiKeysRouter } from './routers/apiKeys';
 
 export const appRouter = router({
   org: orgRouter,
@@ -33,6 +37,10 @@ export const appRouter = router({
   authConfig: authConfigRouter,
   policies: policiesRouter,
   terminal: terminalRouter,
+  cicd: cicdRouter,
+  geodns: geodnsRouter,
+  templates: templatesRouter,
+  apiKeys: apiKeysRouter,
 });
 
 export type AppRouter = typeof appRouter;

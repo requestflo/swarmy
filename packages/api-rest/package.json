@@ -1,24 +1,26 @@
 {
-  "name": "@swarmy/api",
+  "name": "@swarmy/api-rest",
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": { "types": "./src/index.ts", "import": "./src/index.ts" }
+  },
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun",
-    "start": "bun run src/index.ts",
+    "build": "echo '@swarmy/api-rest resolves to src'",
+    "openapi:dump": "bun run src/bin/dump-openapi.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "@swarmy/api-rest": "workspace:*",
     "@swarmy/auth": "workspace:*",
     "@swarmy/core": "workspace:*",
     "@swarmy/db": "workspace:*",
-    "@swarmy/ingress": "workspace:*",
     "@swarmy/trpc": "workspace:*",
-    "@trpc/server": "^11.0.0",
-    "hono": "^4.6.14"
+    "@hono/zod-openapi": "^0.18.3",
+    "@scalar/hono-api-reference": "^0.5.165",
+    "hono": "^4.6.14",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/bun": "latest",
