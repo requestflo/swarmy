@@ -21,6 +21,10 @@ import { ListEditor } from './list-editor';
 import { PortsEditor } from './ports-editor';
 import { MountsEditor } from './mounts-editor';
 import { SchedulingTab } from './scheduling-tab';
+import { ResourcesTab } from './resources-tab';
+import { HealthTab } from './health-tab';
+import { RefsEditor } from './refs-editor';
+import { ValidationPanel } from './validation-panel';
 import type { ServiceModelState } from './use-service-model';
 
 interface ServiceBuilderProps {
@@ -29,7 +33,7 @@ interface ServiceBuilderProps {
 
 /** The visual, model-driven service builder. Tabs map onto ServiceModel fields. */
 export function ServiceBuilder({ state }: ServiceBuilderProps): React.JSX.Element {
-  const { model, set } = state;
+  const { model, set, warnings } = state;
   return (
     <Card className="card-pop border-0">
       <CardContent className="pt-6">
@@ -39,7 +43,10 @@ export function ServiceBuilder({ state }: ServiceBuilderProps): React.JSX.Elemen
             <TabsTrigger value="env">Env</TabsTrigger>
             <TabsTrigger value="networking">Networking</TabsTrigger>
             <TabsTrigger value="storage">Storage</TabsTrigger>
+            <TabsTrigger value="resources">Resources</TabsTrigger>
             <TabsTrigger value="scheduling">Scheduling</TabsTrigger>
+            <TabsTrigger value="health">Health</TabsTrigger>
+            <TabsTrigger value="secrets">Configs &amp; secrets</TabsTrigger>
           </TabsList>
 
           <TabsContent value="general" className="grid gap-4">
@@ -120,10 +127,32 @@ export function ServiceBuilder({ state }: ServiceBuilderProps): React.JSX.Elemen
             </Field>
           </TabsContent>
 
+          <TabsContent value="resources">
+            <ResourcesTab model={model} set={set} />
+          </TabsContent>
+
           <TabsContent value="scheduling">
             <SchedulingTab model={model} set={set} />
           </TabsContent>
+
+          <TabsContent value="health">
+            <HealthTab model={model} set={set} />
+          </TabsContent>
+
+          <TabsContent value="secrets" className="grid gap-4">
+            <Field label="Configs">
+              <RefsEditor value={model.configs} onChange={(v) => set('configs', v)} noun="config" />
+            </Field>
+            <Field label="Secrets">
+              <RefsEditor value={model.secrets} onChange={(v) => set('secrets', v)} noun="secret" />
+            </Field>
+          </TabsContent>
         </Tabs>
+
+        <div className="border-border/60 mt-6 border-t pt-4">
+          <Label className="mono-label mb-2 block">Validation</Label>
+          <ValidationPanel warnings={warnings} />
+        </div>
       </CardContent>
     </Card>
   );

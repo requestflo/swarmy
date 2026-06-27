@@ -13,3 +13,14 @@ export class MeshValidationError extends Error {
     this.name = 'MeshValidationError';
   }
 }
+
+/** A provider control-plane (Admin API) call failed or was misconfigured. */
+export class MeshControlPlaneError extends Error {
+  constructor(
+    public readonly driver: string,
+    message: string,
+  ) {
+    super(`mesh control plane (${driver}): ${message}`);
+    this.name = 'MeshControlPlaneError';
+  }
+}

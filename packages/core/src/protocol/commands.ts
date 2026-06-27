@@ -64,6 +64,55 @@ export const ServiceSpec = z.object({
       maxReplicasPerNode: z.number().int().positive().optional(),
     })
     .optional(),
+  healthcheck: z
+    .object({
+      test: z.array(z.string()).optional(),
+      intervalNs: z.number().int().nonnegative().optional(),
+      timeoutNs: z.number().int().nonnegative().optional(),
+      startPeriodNs: z.number().int().nonnegative().optional(),
+      retries: z.number().int().nonnegative().optional(),
+      disable: z.boolean().optional(),
+    })
+    .optional(),
+  resources: z
+    .object({
+      limits: z
+        .object({
+          cpus: z.number().nonnegative().optional(),
+          memoryBytes: z.number().int().nonnegative().optional(),
+        })
+        .optional(),
+      reservations: z
+        .object({
+          cpus: z.number().nonnegative().optional(),
+          memoryBytes: z.number().int().nonnegative().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  configs: z
+    .array(
+      z.object({
+        source: z.string(),
+        target: z.string().optional(),
+        uid: z.string().optional(),
+        gid: z.string().optional(),
+        mode: z.number().int().optional(),
+      }),
+    )
+    .optional(),
+  secrets: z
+    .array(
+      z.object({
+        source: z.string(),
+        target: z.string().optional(),
+        uid: z.string().optional(),
+        gid: z.string().optional(),
+        mode: z.number().int().optional(),
+      }),
+    )
+    .optional(),
+  stopGracePeriodNs: z.number().int().nonnegative().optional(),
 });
 export type ServiceSpec = z.infer<typeof ServiceSpec>;
 

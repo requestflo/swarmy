@@ -230,6 +230,14 @@ export function toServiceCreateOptions(spec: ServiceSpec): Docker.CreateServiceO
     ? { Global: {} }
     : { Replicated: { Replicas: spec.mode?.replicated?.replicas ?? 1 } };
 
+  const toNanoCpus = (cpus?: number) => (cpus != null ? Math.round(cpus * 1e9) : undefined);
+  const refFile = (r: { target?: string; source: string; uid?: string; gid?: string; mode?: number }) => ({
+    Name: r.target ?? r.source,
+    UID: r.uid ?? '0',
+    GID: r.gid ?? '0',
+    Mode: r.mode ?? 0o444,
+  });
+
   return {
     Name: spec.name,
     Labels: spec.labels,
@@ -245,11 +253,51 @@ export function toServiceCreateOptions(spec: ServiceSpec): Docker.CreateServiceO
           Target: m.target,
           ReadOnly: m.readOnly,
         })),
+        Healthcheck: spec.healthcheck
+          ? spec.healthcheck.disable
+            ? { Test: ['NONE'] }
+            : {
+                Test: spec.healthcheck.test,
+                Interval: spec.healthcheck.intervalNs,
+                Timeout: spec.healthcheck.timeoutNs,
+                StartPeriod: spec.healthcheck.startPeriodNs,
+                Retries: spec.healthcheck.retries,
+              }
+          : undefined,
+        StopGracePeriod: spec.stopGracePeriodNs,
+        Configs: spec.configs?.map((c) => ({ ConfigName: c.source, File: refFile(c) })),
+        Secrets: spec.secrets?.map((s) => ({ SecretName: s.source, File: refFile(s) })),
       },
       RestartPolicy: spec.restartPolicy
         ? {
             Condition: spec.restartPolicy.condition,
             MaxAttempts: spec.restartPolicy.maxAttempts,
+          }
+        : undefined,
+      Resources: spec.resources
+        ? {
+            Limits: spec.resources.limits
+              ? {
+                  NanoCPUs: toNanoCpus(spec.resources.limits.cpus),
+                  MemoryBytes: spec.resources.limits.memoryBytes,
+                }
+              : undefined,
+            Reservations: spec.resources.reservations
+              ? {
+                  NanoCPUs: toNanoCpus(spec.resources.reservations.cpus),
+                  MemoryBytes: spec.resources.reservations.memoryBytes,
+                }
+              : undefined,
+          }
+        : undefined,
+      Placement: spec.placement
+        ? {
+            Constraints: spec.placement.constraints,
+            Preferences: spec.placement.preferences?.map((p) => {
+              const eq = p.indexOf('=');
+              return { Spread: { SpreadDescriptor: eq === -1 ? p : p.slice(eq + 1) } };
+            }),
+            MaxReplicas: spec.placement.maxReplicasPerNode,
           }
         : undefined,
       Networks: spec.networks?.map((n) => ({ Target: n })),

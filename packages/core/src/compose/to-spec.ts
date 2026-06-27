@@ -15,6 +15,33 @@ export interface ServiceSpecPlacement {
   maxReplicasPerNode?: number;
 }
 
+export interface ServiceSpecHealthcheck {
+  test?: string[];
+  intervalNs?: number;
+  timeoutNs?: number;
+  startPeriodNs?: number;
+  retries?: number;
+  disable?: boolean;
+}
+
+export interface ServiceSpecResourceBucket {
+  cpus?: number;
+  memoryBytes?: number;
+}
+
+export interface ServiceSpecResources {
+  limits?: ServiceSpecResourceBucket;
+  reservations?: ServiceSpecResourceBucket;
+}
+
+export interface ServiceSpecConfigSecretRef {
+  source: string;
+  target?: string;
+  uid?: string;
+  gid?: string;
+  mode?: number;
+}
+
 export interface ServiceSpecLike {
   name: string;
   image: string;
@@ -38,6 +65,11 @@ export interface ServiceSpecLike {
   networks?: string[];
   restartPolicy?: { condition?: 'none' | 'on-failure' | 'any'; maxAttempts?: number };
   placement?: ServiceSpecPlacement;
+  healthcheck?: ServiceSpecHealthcheck;
+  resources?: ServiceSpecResources;
+  configs?: ServiceSpecConfigSecretRef[];
+  secrets?: ServiceSpecConfigSecretRef[];
+  stopGracePeriodNs?: number;
 }
 
 export function modelToServiceSpec(model: ServiceModelOut): ServiceSpecLike {
@@ -79,6 +111,53 @@ export function modelToServiceSpec(model: ServiceModelOut): ServiceSpecLike {
     }
     if (Object.keys(placement).length) spec.placement = placement;
   }
+
+  if (model.healthcheck) {
+    const hc = model.healthcheck;
+    const out: ServiceSpecHealthcheck = {};
+    if (hc.test.length) out.test = hc.test;
+    if (hc.intervalNs != null) out.intervalNs = hc.intervalNs;
+    if (hc.timeoutNs != null) out.timeoutNs = hc.timeoutNs;
+    if (hc.startPeriodNs != null) out.startPeriodNs = hc.startPeriodNs;
+    if (hc.retries != null) out.retries = hc.retries;
+    if (hc.disable) out.disable = true;
+    if (Object.keys(out).length) spec.healthcheck = out;
+  }
+
+  if (model.resources) {
+    const bucket = (b?: { cpus?: number; memoryBytes?: number }): ServiceSpecResourceBucket | undefined => {
+      if (!b) return undefined;
+      const o: ServiceSpecResourceBucket = {};
+      if (b.cpus != null) o.cpus = b.cpus;
+      if (b.memoryBytes != null) o.memoryBytes = b.memoryBytes;
+      return Object.keys(o).length ? o : undefined;
+    };
+    const limits = bucket(model.resources.limits);
+    const reservations = bucket(model.resources.reservations);
+    if (limits || reservations) {
+      spec.resources = {
+        ...(limits ? { limits } : {}),
+        ...(reservations ? { reservations } : {}),
+      };
+    }
+  }
+
+  const cleanRef = (c: {
+    source: string;
+    target?: string;
+    uid?: string;
+    gid?: string;
+    mode?: number;
+  }): ServiceSpecConfigSecretRef => ({
+    source: c.source,
+    ...(c.target != null ? { target: c.target } : {}),
+    ...(c.uid != null ? { uid: c.uid } : {}),
+    ...(c.gid != null ? { gid: c.gid } : {}),
+    ...(c.mode != null ? { mode: c.mode } : {}),
+  });
+  if (model.configs.length) spec.configs = model.configs.map(cleanRef);
+  if (model.secrets.length) spec.secrets = model.secrets.map(cleanRef);
+  if (model.stopGracePeriodNs != null) spec.stopGracePeriodNs = model.stopGracePeriodNs;
 
   return spec;
 }

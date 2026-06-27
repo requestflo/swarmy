@@ -3,15 +3,31 @@ import { parsePolicyDoc, policyMatches, type ParsedPolicy } from './policy';
 import { DEFAULT_POLICY_SPECS } from './defaults';
 
 /**
- * The framework-agnostic policy engine. Loads an org's compiled policy set and
- * evaluates a PARC request to permit/deny + the deciding policy id.
+ * The framework-agnostic policy engine interface. Two implementations exist:
+ *
+ *  - {@link JsonPolicyEngine} — the default. Evaluates the JSON-predicate policy
+ *    documents directly, sync and sub-ms, zero dependencies.
+ *  - {@link CedarPolicyEngine} — behind a flag. Translates the same policy set to
+ *    Cedar source and evaluates it via `@cedar-policy/cedar-wasm` when that
+ *    dependency is present, giving a faithful permit/forbid (forbid-wins) path.
+ *
+ * `abacProcedure` depends only on this interface, so the engine is swappable
+ * without touching the enforcement seam (the epic's stated risk-mitigation).
+ */
+export interface IPolicyEngine {
+  evaluate(req: AuthzRequest): Decision;
+}
+
+/**
+ * The default engine. Loads an org's compiled policy set and evaluates a PARC
+ * request to permit/deny + the deciding policy id.
  *
  * Semantics: **forbid wins**. If any matching `forbid` applies, the result is
  * deny. Otherwise, if any `permit` matches, the result is permit (highest
  * priority reported as the deciding policy). With no match, the result is deny
  * (default-deny).
  */
-export class PolicyEngine {
+export class JsonPolicyEngine implements IPolicyEngine {
   private readonly compiled: ParsedPolicy[];
 
   constructor(policies: PolicyInput[]) {
@@ -27,8 +43,8 @@ export class PolicyEngine {
   }
 
   /** Build an engine from the seeded default policy set (zero custom policies). */
-  static withDefaults(): PolicyEngine {
-    return new PolicyEngine(
+  static withDefaults(): JsonPolicyEngine {
+    return new JsonPolicyEngine(
       DEFAULT_POLICY_SPECS.map((spec) => ({
         id: `default:${spec.key}`,
         name: spec.name,
@@ -63,3 +79,10 @@ export class PolicyEngine {
     return { decision: 'deny', policyId: null, reasons: ['no matching permit (default deny)'] };
   }
 }
+
+/**
+ * Back-compat alias. Existing callers use `PolicyEngine`; it remains the default
+ * (JSON) engine. Use {@link createEngine} to pick an engine by flag.
+ */
+export const PolicyEngine = JsonPolicyEngine;
+export type PolicyEngine = JsonPolicyEngine;

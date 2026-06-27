@@ -7,7 +7,19 @@ import { loadState, saveState, type AgentState } from './state';
 import { AgentConnection } from './connection';
 import { collectMetrics } from './stats';
 import { sendContainerList, sendServiceState } from './snapshots';
+import { sampleMeshState } from './handlers/mesh';
 import { handleCommand } from './executor';
+
+/** Push a `meshState` telemetry frame if a mesh client is running on this node. */
+async function reportMeshState(conn: AgentConnection): Promise<void> {
+  if (!env.ALLOW_MESH) return;
+  try {
+    const state = await sampleMeshState();
+    if (state) conn.send('meshState', state);
+  } catch {
+    // mesh client not present / not ready
+  }
+}
 
 function log(...args: unknown[]): void {
   // eslint-disable-next-line no-console
@@ -103,6 +115,10 @@ async function main(): Promise<void> {
         void sendServiceState(docker, conn);
       }, 15_000),
     );
+    // Live mesh-state reporter (epic #6, Phase 2+) — periodic telemetry feeding
+    // the controller's MeshPeer reconcile. No-op when no mesh client is running.
+    void reportMeshState(conn);
+    timers.push(setInterval(() => void reportMeshState(conn), 20_000));
   }
 
   conn.start();

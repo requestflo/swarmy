@@ -1,6 +1,7 @@
 import type { MeshEnrollment, MeshStatus, RenderedMesh } from '@swarmy/core/protocol';
 import type {
   DriverControlPlane,
+  MeshAccessRender,
   MeshConfig,
   MeshDriver,
   MeshValidationResult,
@@ -44,5 +45,9 @@ export class NoneDriver implements MeshDriver {
 
   async status(): Promise<MeshStatus> {
     return { driver: 'none', connected: false, relayed: false, message: 'unmanaged' };
+  }
+
+  applyAccess(): MeshAccessRender {
+    return { kind: 'none', summary: 'Mesh unmanaged — no ACL to apply.' };
   }
 }

@@ -125,6 +125,23 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
     case 'termExit':
       terminalHub.onAgentTermFrame(env.type, env.payload);
       return;
+    case 'meshState': {
+      const nodeId = ws.data.nodeId;
+      if (!nodeId) return;
+      const p = env.payload;
+      await prisma.meshPeer
+        .updateMany({
+          where: { nodeId },
+          data: {
+            status: p.connected ? 'ONLINE' : 'OFFLINE',
+            meshIp: p.meshIp ?? null,
+            peerId: p.peerId ?? null,
+            lastSeen: new Date(),
+          },
+        })
+        .catch(() => undefined);
+      return;
+    }
     default:
       return;
   }

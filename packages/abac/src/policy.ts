@@ -13,6 +13,8 @@ import type { Action, AuthzRequest, Effect, Principal, Resource } from './types'
  *   - `resourceLabels`: every key/value must equal the resource's label.
  *   - `attributes`: every key/value must equal the principal's attribute.
  *   - `ownerOnly`: principal must own the resource (member or team owner edge).
+ *   - `relations`: principal must hold at least one of these ReBAC relations on
+ *     the resource (resolved from `ResourceGrant` edges — owner/operator/viewer).
  */
 export interface PolicyDoc {
   actions?: string[];
@@ -21,6 +23,7 @@ export interface PolicyDoc {
   resourceLabels?: Record<string, unknown>;
   attributes?: Record<string, unknown>;
   ownerOnly?: boolean;
+  relations?: string[];
 }
 
 export interface ParsedPolicy {
@@ -76,6 +79,15 @@ export function parsePolicyDoc(source: string): PolicyDoc {
     }
     doc.ownerOnly = obj.ownerOnly;
   }
+  doc.relations = strArray('relations');
+  if (doc.relations) {
+    const allowed = new Set(['owner', 'operator', 'viewer']);
+    for (const r of doc.relations) {
+      if (!allowed.has(r)) {
+        throw new PolicyParseError(`"relations" must contain only owner|operator|viewer (got "${r}")`);
+      }
+    }
+  }
   return doc;
 }
 
@@ -84,11 +96,20 @@ function listMatches(list: string[] | undefined, value: string): boolean {
   return list.includes('*') || list.includes(value);
 }
 
-function ownsResource(principal: Principal, resource: Resource): boolean {
-  const teamIds = Array.isArray(principal.attributes.teamIds)
+function principalTeamIds(principal: Principal): string[] {
+  if (principal.teamIds && principal.teamIds.length) return principal.teamIds;
+  return Array.isArray(principal.attributes.teamIds)
     ? (principal.attributes.teamIds as unknown[]).map(String)
     : [];
-  if (resource.ownerMemberId && resource.ownerMemberId === principal.userId) return true;
+}
+
+function ownsResource(principal: Principal, resource: Resource): boolean {
+  // A resolved `owner` ReBAC relation counts as ownership.
+  if (resource.principalRelations?.includes('owner')) return true;
+  const teamIds = principalTeamIds(principal);
+  const memberId = principal.memberId ?? null;
+  if (resource.ownerMemberId && (resource.ownerMemberId === memberId || resource.ownerMemberId === principal.userId))
+    return true;
   if (resource.ownerTeamId && teamIds.includes(resource.ownerTeamId)) return true;
   return false;
 }
@@ -125,6 +146,12 @@ export function policyMatches(policy: ParsedPolicy, req: AuthzRequest): boolean 
 
   if (doc.ownerOnly) {
     if (!resource || !ownsResource(principal, resource)) return false;
+  }
+
+  if (doc.relations && doc.relations.length > 0) {
+    if (!resource) return false;
+    const held = resource.principalRelations ?? [];
+    if (!doc.relations.some((r) => held.includes(r as never))) return false;
   }
 
   return true;

@@ -21,7 +21,6 @@ export interface TranslationWarning {
  */
 export const SWARM_INCOMPATIBLE_KEYS = new Set([
   'build',
-  'depends_on',
   'volumes_from',
   'network_mode',
   'profiles',

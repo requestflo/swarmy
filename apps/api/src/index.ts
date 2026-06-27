@@ -18,11 +18,18 @@ import { startWorkers } from './workers';
 import { webhooksApp } from './webhooks';
 import { versionInfo } from './version';
 import { licenseStatus } from './license';
+import { checkOnDemand } from './ingress-ask';
 
 const app = new Hono();
 
 app.get('/health', (c) => c.json({ ok: true, service: 'swarmy-controller' }));
 app.get('/version', (c) => c.json({ ...versionInfo(), enterprise: licenseStatus().enabled }));
+
+// Caddy on-demand-TLS gate: 200 only for known org domains. Public, read-only.
+app.get('/ingress/ask', async (c) => {
+  const { status, body } = await checkOnDemand(prisma, c.req.query('domain'));
+  return c.text(body, status as 200 | 404 | 400);
+});
 
 // Live node installer: curl -fsSL <controller>/install.sh | SWARMY_JOIN_TOKEN=… sh
 // Optional ?manager=1 adds a swarm-manager init hint for the first node.

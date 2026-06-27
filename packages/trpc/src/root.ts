@@ -23,6 +23,8 @@ import { controllerBackupRouter } from './routers/controllerBackup';
 import { storageRouter } from './routers/storage';
 import { volumesRouter } from './routers/volumes';
 import { schedulesRouter } from './routers/schedules';
+import { ssoRouter } from './routers/sso';
+import { membersRouter } from './routers/members';
 
 export const appRouter = router({
   org: orgRouter,
@@ -49,6 +51,8 @@ export const appRouter = router({
   storage: storageRouter,
   volumes: volumesRouter,
   schedules: schedulesRouter,
+  sso: ssoRouter,
+  members: membersRouter,
 });
 
 export type AppRouter = typeof appRouter;

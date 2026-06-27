@@ -1,5 +1,8 @@
 import type { MeshDriver } from './types';
 import { NetbirdDriver } from './drivers/netbird';
+import { HeadscaleDriver } from './drivers/headscale';
+import { TailscaleDriver } from './drivers/tailscale';
+import { WireguardDriver } from './drivers/wireguard';
 import { NoneDriver } from './drivers/none';
 import { MeshUnknownDriverError } from './errors';
 
@@ -29,7 +32,10 @@ export class MeshRegistry {
 /** `none` stays the default; NetBird is the default once mesh is enabled. */
 export const defaultRegistry = new MeshRegistry()
   .register(new NoneDriver())
-  .register(new NetbirdDriver());
+  .register(new NetbirdDriver())
+  .register(new HeadscaleDriver())
+  .register(new TailscaleDriver())
+  .register(new WireguardDriver());
 
 export function registerDriver(driver: MeshDriver): void {
   defaultRegistry.register(driver);

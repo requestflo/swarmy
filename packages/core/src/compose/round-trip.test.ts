@@ -21,15 +21,31 @@ const SAMPLE = {
       deploy: {
         replicas: 3,
         restart_policy: { condition: 'on-failure', max_attempts: 5 },
+        resources: {
+          limits: { cpus: '0.5', memory: '512M' },
+          reservations: { cpus: 0.25, memory: '256M' },
+        },
         placement: {
           constraints: ['node.role==worker'],
           preferences: [{ spread: 'node.labels.zone' }],
           max_replicas_per_node: 2,
         },
       },
+      healthcheck: {
+        test: ['CMD', 'curl', '-f', 'http://localhost/'],
+        interval: '30s',
+        timeout: '5s',
+        retries: 3,
+        start_period: '10s',
+      },
+      configs: ['app-config', { source: 'tls-cert', target: '/etc/tls/cert.pem', mode: 292 }],
+      secrets: [{ source: 'db-password', target: 'db_password' }],
+      ulimits: { nofile: { soft: 1024, hard: 4096 }, nproc: 512 },
+      logging: { driver: 'json-file', options: { 'max-size': '10m' } },
+      stop_grace_period: '30s',
+      depends_on: ['db'],
       // unsupported / swarm-incompatible — must be preserved
       build: { context: '.' },
-      depends_on: ['db'],
     },
     db: {
       image: 'postgres:16',
@@ -71,7 +87,40 @@ describe('compose <-> model round-trip', () => {
 
     // unsupported preserved
     expect(web.unsupported.build).toEqual({ context: '.' });
-    expect(web.unsupported.depends_on).toEqual(['db']);
+    // depends_on is now mapped (captured), not dropped into unsupported.
+    expect(web.unsupported.depends_on).toBeUndefined();
+    expect(web.dependsOn).toEqual(['db']);
+  });
+
+  it('maps healthcheck, resources, configs/secrets, ulimits, logging', () => {
+    const web = composeToModels(SAMPLE).models.find((m) => m.name === 'web');
+    if (!web) throw new Error('missing');
+
+    expect(web.healthcheck).toEqual({
+      test: ['CMD', 'curl', '-f', 'http://localhost/'],
+      intervalNs: 30_000_000_000,
+      timeoutNs: 5_000_000_000,
+      startPeriodNs: 10_000_000_000,
+      retries: 3,
+      disable: undefined,
+    });
+    expect(web.resources).toEqual({
+      limits: { cpus: 0.5, memoryBytes: 512_000_000 },
+      reservations: { cpus: 0.25, memoryBytes: 256_000_000 },
+    });
+    expect(web.configs).toEqual([
+      { source: 'app-config', target: undefined, uid: undefined, gid: undefined, mode: undefined },
+      { source: 'tls-cert', target: '/etc/tls/cert.pem', uid: undefined, gid: undefined, mode: 292 },
+    ]);
+    expect(web.secrets).toEqual([
+      { source: 'db-password', target: 'db_password', uid: undefined, gid: undefined, mode: undefined },
+    ]);
+    expect(web.ulimits).toEqual([
+      { name: 'nofile', soft: 1024, hard: 4096 },
+      { name: 'nproc', soft: 512, hard: 512 },
+    ]);
+    expect(web.logging).toEqual({ driver: 'json-file', options: { 'max-size': '10m' } });
+    expect(web.stopGracePeriodNs).toBe(30_000_000_000);
   });
 
   it('classifies global mode', () => {
@@ -112,5 +161,22 @@ describe('compose <-> model round-trip', () => {
       maxReplicasPerNode: 2,
     });
     expect(spec.restartPolicy).toEqual({ condition: 'on-failure', maxAttempts: 5 });
+    expect(spec.healthcheck).toEqual({
+      test: ['CMD', 'curl', '-f', 'http://localhost/'],
+      intervalNs: 30_000_000_000,
+      timeoutNs: 5_000_000_000,
+      startPeriodNs: 10_000_000_000,
+      retries: 3,
+    });
+    expect(spec.resources).toEqual({
+      limits: { cpus: 0.5, memoryBytes: 512_000_000 },
+      reservations: { cpus: 0.25, memoryBytes: 256_000_000 },
+    });
+    expect(spec.configs).toEqual([
+      { source: 'app-config' },
+      { source: 'tls-cert', target: '/etc/tls/cert.pem', mode: 292 },
+    ]);
+    expect(spec.secrets).toEqual([{ source: 'db-password', target: 'db_password' }]);
+    expect(spec.stopGracePeriodNs).toBe(30_000_000_000);
   });
 });

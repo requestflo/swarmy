@@ -1,8 +1,16 @@
 import { z } from 'zod';
 import { CommandId } from './primitives';
+import { ServiceSpec } from './commands';
 
 /** Wire-level driver name. Mirrors the DB `IngressDriver` enum (lowercased). */
-export const IngressDriverName = z.enum(['caddy', 'traefik', 'none', 'cloudflared']);
+export const IngressDriverName = z.enum([
+  'caddy',
+  'traefik',
+  'none',
+  'cloudflared',
+  'nginx',
+  'haproxy',
+]);
 export type IngressDriverName = z.infer<typeof IngressDriverName>;
 
 /** A config file the agent should write on the node. */
@@ -42,6 +50,35 @@ export const RenderedConfig = z.object({
     })
     .optional(),
   serviceLabels: z.array(ServiceLabels).default([]),
+  /**
+   * Tunnel/connector deployment (cloudflared, tailscale, ngrok). When present the
+   * agent deploys/updates this Swarm service (via `deployOrUpdate`) instead of —
+   * or in addition to — writing vhost files. Absent for Caddy/Traefik/nginx/
+   * haproxy so those flows are byte-for-byte unchanged. Secrets are referenced,
+   * never inlined: the controller resolves `secrets[].value` just-in-time before
+   * dispatch and the agent injects them as the service's env.
+   */
+  connector: z
+    .object({
+      kind: z.enum(['cloudflared', 'tailscale', 'ngrok']),
+      /** Reuse the existing ServiceSpec — the agent already deploys these. */
+      service: ServiceSpec,
+      /**
+       * Secret refs resolved just-in-time. `ref` is the vault pointer (for audit/
+       * preview); `value` is the decrypted secret, present only on the dispatched
+       * render (never persisted, never returned to clients).
+       */
+      secrets: z
+        .array(
+          z.object({
+            name: z.string(),
+            ref: z.string(),
+            value: z.string().optional(),
+          }),
+        )
+        .default([]),
+    })
+    .optional(),
   /** Human-inspectable summary for the previewConfig UI. */
   summary: z.string().default(''),
 });

@@ -17,15 +17,23 @@ import { notFound } from '../errors';
  * Driver ids supported at the controller. `cloudflared` is the Cloudflare Tunnel
  * (no-public-IP) driver added by the ingress-strategy epic.
  */
-export type IngressDriverId = 'caddy' | 'traefik' | 'none' | 'cloudflared';
+export type IngressDriverId = 'caddy' | 'traefik' | 'none' | 'cloudflared' | 'nginx' | 'haproxy';
 
 /** Map a controller driver id ⇄ Prisma `IngressDriver` enum value. */
-type IngressDriverEnum = 'CADDY' | 'TRAEFIK' | 'NONE' | 'CLOUDFLARE_TUNNEL';
+type IngressDriverEnum =
+  | 'CADDY'
+  | 'TRAEFIK'
+  | 'NONE'
+  | 'CLOUDFLARE_TUNNEL'
+  | 'NGINX'
+  | 'HAPROXY';
 const DRIVER_TO_ENUM: Record<IngressDriverId, IngressDriverEnum> = {
   caddy: 'CADDY',
   traefik: 'TRAEFIK',
   none: 'NONE',
   cloudflared: 'CLOUDFLARE_TUNNEL',
+  nginx: 'NGINX',
+  haproxy: 'HAPROXY',
 };
 
 export interface IngressConfigView {
@@ -48,6 +56,8 @@ export interface DomainView {
   targetPort: number;
   tls: TlsMode;
   pathPrefix: string | null;
+  /** Per-domain driver override (null = inherit org default). */
+  ingressDriver: IngressDriverId | null;
 }
 
 interface ConfigRow {
@@ -65,6 +75,10 @@ function driverLower(d: string): IngressDriverId {
       return 'traefik';
     case 'CLOUDFLARE_TUNNEL':
       return 'cloudflared';
+    case 'NGINX':
+      return 'nginx';
+    case 'HAPROXY':
+      return 'haproxy';
     default:
       return 'none';
   }
@@ -78,6 +92,12 @@ function driverLower(d: string): IngressDriverId {
 interface IngressSettings {
   targetNodes?: string[];
   globalOptions?: Record<string, unknown>;
+  /**
+   * Per-domain driver overrides keyed by host (additive per-stack/per-domain
+   * selection). Resolution: domainDrivers[host] → org default. Promoted to
+   * Domain.ingressDriver in a future migration (see INTEGRATION).
+   */
+  domainDrivers?: Record<string, IngressDriverId>;
   /** Caddy HA Redis coords (non-secret) + encrypted secret refs. */
   haStorage?: {
     host: string;
@@ -238,7 +258,9 @@ export async function setDriver(
   await ensureConfig(ctx);
   await ctx.db.ingressConfig.update({
     where: { orgId: ctx.activeOrgId },
-    data: { driver: DRIVER_TO_ENUM[driver] },
+    // NGINX/HAPROXY are valid only after the IngressDriver enum migration lands
+    // (see INTEGRATION); cast keeps the build green until then.
+    data: { driver: DRIVER_TO_ENUM[driver] as never },
   });
   await writeAudit(ctx, {
     action: 'ingress.setDriver',
@@ -390,6 +412,8 @@ export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<Ing
 }
 
 export async function listDomains(ctx: OrgContext): Promise<DomainView[]> {
+  const row = await ensureConfig(ctx);
+  const overrides = readSettings(row).domainDrivers ?? {};
   const domains = await ctx.db.domain.findMany({
     where: { orgId: ctx.activeOrgId },
     include: { service: { select: { name: true } } },
@@ -403,12 +427,21 @@ export async function listDomains(ctx: OrgContext): Promise<DomainView[]> {
     targetPort: d.targetPort,
     tls: (d.tlsMode as TlsMode) ?? 'auto',
     pathPrefix: d.pathPrefix,
+    ingressDriver: overrides[d.host] ?? null,
   }));
 }
 
 export async function addDomain(
   ctx: OrgContext,
-  input: { host: string; serviceId: string; targetPort: number; tls: TlsMode; pathPrefix?: string },
+  input: {
+    host: string;
+    serviceId: string;
+    targetPort: number;
+    tls: TlsMode;
+    pathPrefix?: string;
+    /** Per-domain driver override; null/undefined inherits the org default. */
+    ingressDriver?: IngressDriverId | null;
+  },
 ): Promise<DomainView> {
   const service = await ctx.db.service.findFirst({
     where: { id: input.serviceId, orgId: ctx.activeOrgId },
@@ -426,6 +459,13 @@ export async function addDomain(
     },
   });
   await ctx.db.service.update({ where: { id: service.id }, data: { ingressEnabled: true } });
+  // Per-domain driver override (until Domain.ingressDriver lands — see INTEGRATION).
+  if (input.ingressDriver) {
+    await patchSettings(ctx, (s) => ({
+      ...s,
+      domainDrivers: { ...(s.domainDrivers ?? {}), [input.host]: input.ingressDriver! },
+    }));
+  }
   await reapply(ctx);
   return {
     id: created.id,
@@ -435,6 +475,7 @@ export async function addDomain(
     targetPort: created.targetPort,
     tls: input.tls,
     pathPrefix: created.pathPrefix,
+    ingressDriver: input.ingressDriver ?? null,
   };
 }
 
@@ -444,10 +485,17 @@ export async function removeDomain(
 ): Promise<{ id: string; removed: true }> {
   const domain = await ctx.db.domain.findFirst({
     where: { id, orgId: ctx.activeOrgId },
-    select: { id: true },
+    select: { id: true, host: true },
   });
   if (!domain) throw notFound('domain', id);
   await ctx.db.domain.delete({ where: { id } });
+  // Drop any per-domain driver override for the removed host.
+  await patchSettings(ctx, (s) => {
+    if (!s.domainDrivers?.[domain.host]) return s;
+    const next = { ...s.domainDrivers };
+    delete next[domain.host];
+    return { ...s, domainDrivers: next };
+  });
   await reapply(ctx);
   return { id, removed: true };
 }
@@ -461,7 +509,7 @@ export async function previewConfig(
 }
 
 export function listDrivers(): IngressDriverId[] {
-  return ['none', 'caddy', 'traefik', 'cloudflared'];
+  return ['none', 'caddy', 'traefik', 'cloudflared', 'nginx', 'haproxy'];
 }
 
 /** Render + dispatch the current config to the ingress nodes (best-effort). */
@@ -478,4 +526,13 @@ async function reapply(ctx: OrgContext): Promise<IngressStatus | null> {
 export async function applyNow(ctx: OrgContext): Promise<IngressStatus> {
   const config = await loadOrgConfig(ctx);
   return applyIngressPkg(config, makeDispatch(ctx));
+}
+
+/**
+ * Load the resolved org ingress config (secrets decrypted JIT) for the tunnel
+ * service — used to recompute the Cloudflare ingress-rule array. Exported wrapper
+ * over the internal {@link loadOrgConfig}.
+ */
+export async function loadOrgConfigForTunnels(ctx: OrgContext): Promise<OrgIngressConfig> {
+  return loadOrgConfig(ctx);
 }

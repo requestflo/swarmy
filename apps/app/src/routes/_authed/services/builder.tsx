@@ -1,43 +1,31 @@
 import * as React from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
-import { DownloadIcon, FileInputIcon, Loader2Icon } from 'lucide-react';
-import type { CreateServiceInput } from '@swarmy/core';
-import type { ServiceModelOut } from '@swarmy/core/compose';
+import { DownloadIcon, EyeIcon, FileInputIcon, Loader2Icon } from 'lucide-react';
 import { Button, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
 import { ServiceBuilder } from '@/components/service-builder/service-builder';
 import { ImportComposeDialog } from '@/components/service-builder/import-compose-dialog';
+import { PreviewDialog } from '@/components/service-builder/preview-dialog';
 import { useServiceModel } from '@/components/service-builder/use-service-model';
 
 export const Route = createFileRoute('/_authed/services/builder')({
   component: ServiceBuilderPage,
 });
 
-/** Map the canonical model down to the deploy input's common-field subset. */
-function toCreateInput(m: ServiceModelOut): CreateServiceInput {
-  return {
-    name: m.name,
-    image: m.image,
-    replicas: m.mode === 'global' ? 1 : m.replicas,
-    command: m.command,
-    env: Object.entries(m.env).map(([key, value]) => ({ key, value })),
-    ports: m.ports,
-    volumes: m.mounts,
-    networks: m.networks,
-    constraints: m.placement?.constraints ?? [],
-  };
-}
-
 function ServiceBuilderPage(): React.JSX.Element {
   const trpc = useTRPC();
   const navigate = useNavigate();
   const state = useServiceModel();
   const [importOpen, setImportOpen] = React.useState(false);
+  const [previewOpen, setPreviewOpen] = React.useState(false);
 
-  const create = useMutation(
-    trpc.services.create.mutationOptions({
+  // Full-fidelity deploy: the COMPLETE ServiceModel (placement, mounts, labels,
+  // healthcheck, resources, configs/secrets) is projected through the builder
+  // router, not the lossy CreateServiceInput subset.
+  const deploy = useMutation(
+    trpc.builder.deploy.mutationOptions({
       onSuccess: (res) => {
         toast.success('Service deploying');
         void navigate({ to: '/services/$serviceId', params: { serviceId: res.id } });
@@ -75,8 +63,16 @@ function ServiceBuilderPage(): React.JSX.Element {
             <Button
               type="button"
               variant="outline"
+              onClick={() => setPreviewOpen(true)}
+              disabled={state.hasBlockingError}
+            >
+              <EyeIcon className="size-4" /> Preview
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
               onClick={() => exportCompose.mutate({ models: [state.model] })}
-              disabled={!state.model.name || !state.model.image}
+              disabled={state.hasBlockingError}
             >
               <DownloadIcon className="size-4" /> Export compose
             </Button>
@@ -92,15 +88,16 @@ function ServiceBuilderPage(): React.JSX.Element {
         </Button>
         <Button
           type="button"
-          disabled={create.isPending || !state.model.name || !state.model.image}
-          onClick={() => create.mutate(toCreateInput(state.model))}
+          disabled={deploy.isPending || state.hasBlockingError}
+          onClick={() => deploy.mutate({ model: state.model })}
         >
-          {create.isPending && <Loader2Icon className="animate-spin" />}
+          {deploy.isPending && <Loader2Icon className="animate-spin" />}
           Deploy
         </Button>
       </div>
 
       <ImportComposeDialog open={importOpen} onOpenChange={setImportOpen} onImport={state.replace} />
+      <PreviewDialog open={previewOpen} onOpenChange={setPreviewOpen} model={state.model} />
     </div>
   );
 }

@@ -1,7 +1,9 @@
-import { parsePolicyDoc, PolicyParseError, defaultPolicyInputs } from '@swarmy/abac';
+import { parsePolicyDoc, PolicyParseError, defaultPolicyInputs, ACTIONS, isAction } from '@swarmy/abac';
+import type { Action } from '@swarmy/abac';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import { evaluateAccess } from '../abac';
 
 export interface PolicyView {
   id: string;
@@ -151,4 +153,63 @@ export async function deletePolicy(
   await ctx.db.policy.delete({ where: { id } });
   await writeAudit(ctx, { action: 'policy.delete', targetType: 'policy', targetId: id });
   return { id, deleted: true };
+}
+
+/**
+ * Compile-only validation: parse the policy source without persisting. Returns
+ * the recognised clauses (so the UI can confirm what it understood) or the parse
+ * error message. The "validate-on-type" path for the editor.
+ */
+export function validatePolicy(source: string): { valid: boolean; error?: string; doc?: unknown } {
+  try {
+    const doc = parsePolicyDoc(source);
+    return { valid: true, doc };
+  } catch (e) {
+    return { valid: false, error: e instanceof PolicyParseError ? e.message : String(e) };
+  }
+}
+
+export interface SimulateArgs {
+  action: string;
+  resourceType?: 'node' | 'service' | 'stack';
+  resourceId?: string;
+}
+
+/**
+ * The "why can't X do Y?" debugger. Runs a PARC request for the *current* user
+ * (principal) against the org's live policies and reports permit/deny + the
+ * deciding policy id — the exact decision path `abacProcedure` would take.
+ */
+export async function simulatePolicy(ctx: OrgContext, args: SimulateArgs) {
+  if (!isAction(args.action)) {
+    throw new Error(`unknown action "${args.action}"`);
+  }
+  const action: Action = args.action;
+  const resource =
+    args.resourceType && args.resourceId
+      ? { type: args.resourceType, id: args.resourceId, orgId: ctx.activeOrgId, labels: {} }
+      : null;
+  const result = await evaluateAccess(ctx, action, resource);
+  return {
+    decision: result.decision,
+    policyId: result.policyId,
+    reasons: result.reasons,
+  };
+}
+
+/** The action catalogue + the JSON policy-doc schema, for the UI builder. */
+export function policySchema() {
+  return {
+    actions: [...ACTIONS],
+    relations: ['owner', 'operator', 'viewer'],
+    clauses: [
+      { key: 'actions', label: 'Actions', type: 'string[]', hint: 'allowed actions, or ["*"]' },
+      { key: 'roles', label: 'Roles', type: 'string[]', hint: 'owner | admin | member' },
+      { key: 'resourceTypes', label: 'Resource types', type: 'string[]', hint: 'node | service | stack' },
+      { key: 'resourceLabels', label: 'Resource labels', type: 'object', hint: 'e.g. { "env": "staging" }' },
+      { key: 'attributes', label: 'Subject attributes', type: 'object', hint: 'e.g. { "team": "payments" }' },
+      { key: 'relations', label: 'ReBAC relations', type: 'string[]', hint: 'owner | operator | viewer' },
+      { key: 'ownerOnly', label: 'Owner only', type: 'boolean', hint: 'principal must own the resource' },
+    ],
+  };
 }

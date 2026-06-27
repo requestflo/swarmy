@@ -1,11 +1,13 @@
 import type { MeshEnrollment, MeshStatus, RenderedMesh } from '@swarmy/core/protocol';
 import type {
   DriverControlPlane,
+  MeshAccessRender,
   MeshConfig,
   MeshDriver,
   MeshValidationResult,
   ProvisionNodeOpts,
 } from '../types';
+import { buildNetbirdPolicyPlan, type MeshAccessIntent } from '../acl';
 
 /** Default NetBird client image. Pin a digest in production. */
 export const NETBIRD_CLIENT_IMAGE = 'netbirdio/netbird:latest';
@@ -92,5 +94,9 @@ export class NetbirdDriver implements MeshDriver {
         message: e instanceof Error ? e.message : 'control plane unreachable',
       };
     }
+  }
+
+  applyAccess(_config: MeshConfig, intent: MeshAccessIntent): MeshAccessRender {
+    return { kind: 'control-plane', plan: buildNetbirdPolicyPlan(intent) };
   }
 }

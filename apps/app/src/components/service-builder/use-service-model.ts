@@ -1,5 +1,5 @@
 import * as React from 'react';
-import type { ServiceModelOut } from '@swarmy/core/compose';
+import { validateModel, type ServiceModelOut, type TranslationWarning } from '@swarmy/core/compose';
 
 /** A blank canonical model — Swarm defaults everywhere. */
 export function emptyServiceModel(): ServiceModelOut {
@@ -17,6 +17,14 @@ export function emptyServiceModel(): ServiceModelOut {
     labels: {},
     restart: undefined,
     placement: undefined,
+    healthcheck: undefined,
+    resources: undefined,
+    configs: [],
+    secrets: [],
+    ulimits: [],
+    logging: undefined,
+    dependsOn: [],
+    stopGracePeriodNs: undefined,
     unsupported: {},
   };
 }
@@ -25,6 +33,10 @@ export interface ServiceModelState {
   model: ServiceModelOut;
   set: <K extends keyof ServiceModelOut>(key: K, value: ServiceModelOut[K]) => void;
   replace: (model: ServiceModelOut) => void;
+  /** Live semantic validation (cross-field rules) for the panel + deploy gate. */
+  warnings: TranslationWarning[];
+  /** True when the model is missing a name or image (deploy is disabled). */
+  hasBlockingError: boolean;
 }
 
 /** Local state for the canonical ServiceModel driving the builder. */
@@ -37,5 +49,7 @@ export function useServiceModel(initial?: ServiceModelOut): ServiceModelState {
     [],
   );
   const replace = React.useCallback((next: ServiceModelOut) => setModel(next), []);
-  return { model, set, replace };
+  const warnings = React.useMemo(() => validateModel(model), [model]);
+  const hasBlockingError = !model.name || !model.image;
+  return { model, set, replace, warnings, hasBlockingError };
 }

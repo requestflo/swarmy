@@ -6,7 +6,8 @@ export type SwarmyCode =
   | 'NO_MANAGER'
   | 'COMMAND_TIMEOUT'
   | 'COMMAND_REJECTED'
-  | 'NOT_FOUND';
+  | 'NOT_FOUND'
+  | 'POLICY_DENIED';
 
 type TRPCCode = ConstructorParameters<typeof TRPCError>[0]['code'];
 
@@ -32,6 +33,15 @@ export function commandTimeout(): TRPCError {
 
 export function commandRejected(message: string): TRPCError {
   return err('BAD_REQUEST', message, 'COMMAND_REJECTED');
+}
+
+/** A policy denied the action; carries the deciding policy id in `cause`. */
+export function policyDenied(action: string, policyId: string | null): TRPCError {
+  return new TRPCError({
+    code: 'FORBIDDEN',
+    message: `not permitted: ${action}`,
+    cause: { swarmyCode: 'POLICY_DENIED', policyId },
+  });
 }
 
 /** Map a dispatch failure into a typed TRPCError. */

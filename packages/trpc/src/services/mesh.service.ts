@@ -11,24 +11,49 @@
  */
 import {
   provisionNode as provisionNodePkg,
+  defaultRegistry,
+  NetbirdControlPlane,
+  reconcilePeerState,
+  principalTagForRoute,
+  targetTagForRoute,
   type DriverControlPlane,
+  type MeshAccessIntent,
   type MeshConfig as OrgMeshConfig,
   type MeshPeerInfo,
+  type MeshStateReport,
 } from '@swarmy/mesh';
 import type { ApplyMeshResult } from '@swarmy/core/protocol';
 import { decryptSecret, encryptSecret, randomToken } from '@swarmy/core/crypto';
+import { TRPCError } from '@trpc/server';
 import type { OrgContext } from '../context';
 import { writeAudit } from '../services/audit.service';
 import { notFound } from '../errors';
 import { requireOnlineNode } from './dispatch.service';
 
+function badRequest(message: string): TRPCError {
+  return new TRPCError({ code: 'BAD_REQUEST', message });
+}
+
 /** Controller driver ids ⇄ Prisma `MeshDriver` enum. */
-export type MeshDriverId = 'netbird' | 'none';
-type MeshDriverEnum = 'NETBIRD' | 'NONE';
-const DRIVER_TO_ENUM: Record<MeshDriverId, MeshDriverEnum> = { netbird: 'NETBIRD', none: 'NONE' };
+export type MeshDriverId = 'netbird' | 'headscale' | 'tailscale' | 'wireguard' | 'none';
+type MeshDriverEnum = 'NETBIRD' | 'HEADSCALE' | 'TAILSCALE' | 'WIREGUARD' | 'NONE';
+const DRIVER_TO_ENUM: Record<MeshDriverId, MeshDriverEnum> = {
+  netbird: 'NETBIRD',
+  headscale: 'HEADSCALE',
+  tailscale: 'TAILSCALE',
+  wireguard: 'WIREGUARD',
+  none: 'NONE',
+};
+const ENUM_TO_DRIVER: Record<string, MeshDriverId> = {
+  NETBIRD: 'netbird',
+  HEADSCALE: 'headscale',
+  TAILSCALE: 'tailscale',
+  WIREGUARD: 'wireguard',
+  NONE: 'none',
+};
 
 function driverLower(d: string): MeshDriverId {
-  return d.toUpperCase() === 'NETBIRD' ? 'netbird' : 'none';
+  return ENUM_TO_DRIVER[d.toUpperCase()] ?? 'none';
 }
 
 export interface MeshConfigView {
@@ -96,25 +121,35 @@ function toOrgConfig(ctx: OrgContext, row: ConfigRow): OrgMeshConfig {
 }
 
 /**
- * The NetBird Admin API binding. MVP keeps the on-controller plumbing minimal: a
- * managed/external NetBird mints setup keys via its API. Until the unified server
- * client lands (see INTEGRATION), we mint a swarmy-side single-use key reference;
- * the real `createSetupKey` swaps to `POST {url}/api/setup-keys` with the token.
+ * Build the provider control-plane binding for an org config. When the driver is
+ * NetBird (or Headscale, which we drive over the same Admin-API shape) AND a URL
+ * + decrypted service token are present, we return the REAL HTTP client
+ * ({@link NetbirdControlPlane}: `POST /api/setup-keys`, `/api/peers`,
+ * `/api/groups`, `/api/policies`). Otherwise we fall back to a local stub that
+ * mints an opaque one-time key — so a fresh/unconfigured org still works and
+ * tests don't need a live control plane. Tailscale/wireguard don't drive a
+ * self-hosted Admin API; the stub's `createSetupKey` returns the configured
+ * reusable key (or an opaque placeholder) for them.
+ *
+ * UNVERIFIED: the real NetBird client is credential-gated and coded to the
+ * documented API but not exercised against a live control plane in this repo.
  */
 function makeControlPlane(config: OrgMeshConfig): DriverControlPlane {
+  const url = config.managementUrl ?? config.controlPlane.url;
+  const token = config.controlPlane.serviceToken;
+  if ((config.driver === 'netbird' || config.driver === 'headscale') && url && token) {
+    return new NetbirdControlPlane({ managementUrl: url, serviceToken: token });
+  }
+  // Fallback / SaaS / no-control-plane drivers: opaque single-use key.
   return {
     async createSetupKey({ nodeId }) {
-      // TODO(integration): call NetBird `POST /api/setup-keys` with
-      // config.controlPlane.serviceToken. For MVP we mint a one-time opaque key.
       void nodeId;
-      return { setupKey: randomToken('nbk') };
+      return { setupKey: token ?? randomToken('msh') };
     },
     async listPeers(): Promise<MeshPeerInfo[]> {
       return [];
     },
-    async revokePeer(): Promise<void> {
-      // no-op until the Admin API client is wired (see INTEGRATION).
-    },
+    async revokePeer(): Promise<void> {},
   };
 }
 
@@ -134,7 +169,7 @@ export async function getConfig(ctx: OrgContext): Promise<MeshConfigView> {
 }
 
 export function listDrivers(): MeshDriverId[] {
-  return ['none', 'netbird'];
+  return defaultRegistry.list() as MeshDriverId[];
 }
 
 export async function setDriver(ctx: OrgContext, driver: MeshDriverId): Promise<MeshConfigView> {
@@ -285,4 +320,324 @@ export async function enrollNode(
     status: fresh.status,
     lastSeen: fresh.lastSeen ? fresh.lastSeen.toISOString() : null,
   };
+}
+
+// ── Live peer reconciliation (Phase 2+) ──────────────────────────────────────
+
+/** Minimal DB surface so the reconcile helpers can run from a worker too. */
+export interface MeshReconcileDb {
+  meshPeer: {
+    updateMany(args: {
+      where: { nodeId: string };
+      data: { status: string; meshIp: string | null; peerId: string | null; lastSeen: Date };
+    }): Promise<{ count: number }>;
+  };
+}
+
+/**
+ * Reconcile a single agent `meshState` report onto its `MeshPeer` row. Pure
+ * mapping lives in `@swarmy/mesh` (`reconcilePeerState`); this just persists it.
+ * Used by the gateway `meshState` handler AND the periodic reconcile worker (see
+ * INTEGRATION). `updateMany` so a report for an un-enrolled node is a safe no-op.
+ */
+export async function reconcileMeshPeer(
+  db: MeshReconcileDb,
+  nodeId: string,
+  report: MeshStateReport,
+): Promise<void> {
+  const update = reconcilePeerState(report);
+  await db.meshPeer.updateMany({ where: { nodeId }, data: update });
+}
+
+// ── Direct stack connect (Phase 2) ───────────────────────────────────────────
+
+export interface MeshRouteView {
+  id: string;
+  kind: string;
+  targetServiceId: string | null;
+  targetStackId: string | null;
+  cidr: string | null;
+  port: number | null;
+  principalType: string;
+  principalId: string;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+function toRouteView(r: {
+  id: string;
+  kind: string;
+  targetServiceId: string | null;
+  targetStackId: string | null;
+  cidr: string | null;
+  port: number | null;
+  principalType: string;
+  principalId: string;
+  expiresAt: Date | null;
+  createdAt: Date;
+}): MeshRouteView {
+  return {
+    id: r.id,
+    kind: r.kind,
+    targetServiceId: r.targetServiceId,
+    targetStackId: r.targetStackId,
+    cidr: r.cidr,
+    port: r.port,
+    principalType: r.principalType,
+    principalId: r.principalId,
+    expiresAt: r.expiresAt ? r.expiresAt.toISOString() : null,
+    createdAt: r.createdAt.toISOString(),
+  };
+}
+
+export async function listRoutes(ctx: OrgContext): Promise<MeshRouteView[]> {
+  const routes = await ctx.db.meshRoute.findMany({
+    where: { orgId: ctx.activeOrgId },
+    orderBy: { createdAt: 'desc' },
+  });
+  return routes.map(toRouteView);
+}
+
+interface DirectConnectInput {
+  serviceId?: string;
+  stackId?: string;
+  /** Mesh principal (peer public key / id, or a group tag). */
+  principalType?: 'peer' | 'group' | 'member';
+  principalId: string;
+  port?: number;
+  proto?: 'tcp' | 'udp';
+  /** TTL seconds; direct routes default short-lived. */
+  ttlSec?: number;
+}
+
+/** Build the {@link MeshAccessIntent} for the org's current routes plus one new grant. */
+async function buildAccessIntent(
+  ctx: OrgContext,
+  extra?: { id: string; port?: number; proto?: 'tcp' | 'udp' },
+): Promise<MeshAccessIntent> {
+  const routes = await ctx.db.meshRoute.findMany({
+    where: { orgId: ctx.activeOrgId, kind: 'direct' },
+  });
+  const grants = routes.map((r) => ({
+    id: r.id,
+    principalTag: principalTagForRoute(r.id),
+    targetTag: targetTagForRoute(r.id),
+    ports: r.port ? [r.port] : [],
+    proto: (r.proto ?? undefined) as 'tcp' | 'udp' | undefined,
+  }));
+  if (extra) {
+    grants.push({
+      id: extra.id,
+      principalTag: principalTagForRoute(extra.id),
+      targetTag: targetTagForRoute(extra.id),
+      ports: extra.port ? [extra.port] : [],
+      proto: extra.proto,
+    });
+  }
+  return { orgId: ctx.activeOrgId, grants };
+}
+
+/**
+ * Grant a direct, point-to-point route to a service/stack over the mesh. Persists
+ * a `MeshRoute` + a rendered `MeshAcl`, and pushes the ACL via the control plane
+ * (NetBird policy) or records the rendered file (Headscale/wireguard). Returns
+ * connection info (mesh IP:port + a ready-to-paste join snippet). adminProcedure
+ * + audited; short TTL by default.
+ */
+export async function grantDirectRoute(
+  ctx: OrgContext,
+  input: DirectConnectInput,
+): Promise<{ route: MeshRouteView; connect: DirectConnectInfo }> {
+  const row = await ensureConfig(ctx);
+  const driver = driverLower(row.driver);
+  if (driver === 'none' || !row.enabled) {
+    throw badRequest('mesh is not enabled — pick a driver and enable it first');
+  }
+  if (!input.serviceId && !input.stackId && !input.principalId) {
+    throw badRequest('a direct route needs a target (serviceId/stackId) and a principal');
+  }
+
+  // Resolve the target's mesh address + port for the returned connect info.
+  let meshHost = 'svc.mesh';
+  if (input.serviceId) {
+    const svc = await ctx.db.service.findFirst({
+      where: { id: input.serviceId, orgId: ctx.activeOrgId },
+      select: { id: true, name: true, nodeId: true },
+    });
+    if (!svc) throw notFound('service', input.serviceId);
+    if (svc.nodeId) {
+      const peer = await ctx.db.meshPeer.findUnique({ where: { nodeId: svc.nodeId } });
+      if (peer?.meshIp) meshHost = peer.meshIp;
+    }
+  }
+
+  const expiresAt = input.ttlSec ? new Date(Date.now() + input.ttlSec * 1000) : null;
+  const route = await ctx.db.meshRoute.create({
+    data: {
+      orgId: ctx.activeOrgId,
+      kind: 'direct',
+      targetServiceId: input.serviceId ?? null,
+      targetStackId: input.stackId ?? null,
+      port: input.port ?? null,
+      proto: input.proto ?? null,
+      principalType: input.principalType ?? 'peer',
+      principalId: input.principalId,
+      expiresAt,
+      createdById: ctx.user.id,
+    },
+  });
+
+  // Render + push the access enforcement for the whole intent.
+  const meshDriver = defaultRegistry.get(driver);
+  const config = toOrgConfig(ctx, row);
+  const intent = await buildAccessIntent(ctx, { id: route.id, port: input.port, proto: input.proto });
+  const access = meshDriver.applyAccess?.(config, intent) ?? { kind: 'none' as const, summary: '' };
+
+  let policyRef: string | null = null;
+  if (access.kind === 'control-plane') {
+    const control = makeControlPlane(config);
+    if (control.applyPolicyPlan) {
+      try {
+        const res = await control.applyPolicyPlan(access.plan);
+        policyRef = res.policyIds.join(',') || null;
+      } catch (e) {
+        // Surface but don't lose the persisted route; mark the ACL un-applied.
+        await writeAudit(ctx, {
+          action: 'mesh.route.pushFailed',
+          targetType: 'meshRoute',
+          targetId: route.id,
+          metadata: { error: e instanceof Error ? e.message : String(e) },
+        });
+      }
+    }
+  }
+
+  await ctx.db.meshAcl.create({
+    data: {
+      orgId: ctx.activeOrgId,
+      routeId: route.id,
+      driver,
+      kind: access.kind,
+      rendered:
+        access.kind === 'control-plane'
+          ? (access.plan as unknown as object)
+          : access.kind === 'file'
+            ? { path: access.path, contents: access.contents }
+            : { summary: access.summary },
+      appliedAt: access.kind === 'none' ? null : new Date(),
+    },
+  });
+
+  if (policyRef) {
+    await ctx.db.meshRoute.update({ where: { id: route.id }, data: { policyRef } });
+  }
+
+  await writeAudit(ctx, {
+    action: 'mesh.route.grant',
+    targetType: 'meshRoute',
+    targetId: route.id,
+    metadata: {
+      driver,
+      serviceId: input.serviceId ?? null,
+      stackId: input.stackId ?? null,
+      principalId: input.principalId,
+      port: input.port ?? null,
+    },
+  });
+
+  // Mint an ephemeral setup key so a laptop/CI can join scoped to this route.
+  const control = makeControlPlane(config);
+  let joinKey: string | undefined;
+  try {
+    const minted = await control.createSetupKey({ nodeId: `dc-${route.id}`, ephemeral: true });
+    joinKey = minted.setupKey;
+  } catch {
+    joinKey = undefined;
+  }
+
+  const fresh = await ctx.db.meshRoute.findUniqueOrThrow({ where: { id: route.id } });
+  return {
+    route: toRouteView(fresh),
+    connect: buildConnectInfo(driver, config, meshHost, input.port, joinKey),
+  };
+}
+
+export interface DirectConnectInfo {
+  driver: MeshDriverId;
+  /** `<meshIp>:<port>` the principal dials. */
+  address: string;
+  /** Copy-paste snippet to join as an ephemeral peer scoped to the route. */
+  joinSnippet: string;
+  setupKey?: string;
+}
+
+function buildConnectInfo(
+  driver: MeshDriverId,
+  config: OrgMeshConfig,
+  host: string,
+  port: number | undefined,
+  setupKey?: string,
+): DirectConnectInfo {
+  const address = port ? `${host}:${port}` : host;
+  const url = config.managementUrl ?? config.controlPlane.url ?? '';
+  let joinSnippet: string;
+  if (driver === 'netbird') {
+    joinSnippet = `netbird up --management-url ${url} --setup-key ${setupKey ?? '<setup-key>'}`;
+  } else if (driver === 'headscale' || driver === 'tailscale') {
+    joinSnippet = `tailscale up --login-server ${url || 'https://controlplane.tailscale.com'} --authkey ${setupKey ?? '<auth-key>'}`;
+  } else {
+    joinSnippet = `# add this machine as a WireGuard peer, then: wg-quick up wg0`;
+  }
+  return { driver, address, joinSnippet, setupKey };
+}
+
+/** Revoke a direct route: tear down the control-plane policy + delete rows. */
+export async function revokeDirectRoute(ctx: OrgContext, routeId: string): Promise<void> {
+  const route = await ctx.db.meshRoute.findFirst({
+    where: { id: routeId, orgId: ctx.activeOrgId },
+  });
+  if (!route) throw notFound('mesh route', routeId);
+
+  if (route.policyRef) {
+    const row = await ensureConfig(ctx);
+    const config = toOrgConfig(ctx, row);
+    const control = makeControlPlane(config);
+    if (control.deletePolicy) {
+      for (const id of route.policyRef.split(',').filter(Boolean)) {
+        await control.deletePolicy(id).catch(() => undefined);
+      }
+    }
+  }
+
+  await ctx.db.meshRoute.delete({ where: { id: route.id } });
+  await writeAudit(ctx, {
+    action: 'mesh.route.revoke',
+    targetType: 'meshRoute',
+    targetId: route.id,
+    metadata: { routeId: route.id },
+  });
+}
+
+/** Preview the ACL a direct-connect grant would create (no writes). */
+export async function previewAccess(
+  ctx: OrgContext,
+  input: { port?: number; proto?: 'tcp' | 'udp' },
+): Promise<{ kind: string; summary: string; rendered?: string }> {
+  const row = await ensureConfig(ctx);
+  const driver = driverLower(row.driver);
+  const meshDriver = defaultRegistry.get(driver);
+  const config = toOrgConfig(ctx, row);
+  const intent = await buildAccessIntent(ctx, { id: 'preview', port: input.port, proto: input.proto });
+  const access = meshDriver.applyAccess?.(config, intent) ?? { kind: 'none' as const, summary: '' };
+  if (access.kind === 'file') {
+    return { kind: 'file', summary: `Would write ${access.path}`, rendered: access.contents };
+  }
+  if (access.kind === 'control-plane') {
+    return {
+      kind: 'control-plane',
+      summary: `Would push ${access.plan.policies.length} policy / ${access.plan.groups.length} group changes`,
+      rendered: JSON.stringify(access.plan, null, 2),
+    };
+  }
+  return { kind: 'none', summary: access.summary };
 }

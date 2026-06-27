@@ -3,6 +3,8 @@ import { CaddyDriver } from './drivers/caddy';
 import { TraefikDriver } from './drivers/traefik';
 import { NoneDriver } from './drivers/none';
 import { CloudflaredDriver } from './drivers/cloudflared';
+import { NginxDriver } from './drivers/nginx';
+import { HaproxyDriver } from './drivers/haproxy';
 import { IngressUnknownDriverError } from './errors';
 
 export class IngressRegistry {
@@ -32,7 +34,9 @@ export const defaultRegistry = new IngressRegistry()
   .register(new NoneDriver())
   .register(new CaddyDriver())
   .register(new TraefikDriver())
-  .register(new CloudflaredDriver());
+  .register(new CloudflaredDriver())
+  .register(new NginxDriver())
+  .register(new HaproxyDriver());
 
 export function registerDriver(driver: IngressDriver): void {
   defaultRegistry.register(driver);

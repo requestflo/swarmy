@@ -22,17 +22,27 @@ import {
 import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
 import { CountUp } from '@/components/count-up';
+import { ControlPlaneCard } from '@/components/networking/control-plane-card';
+import { DirectConnectCard } from '@/components/networking/direct-connect-card';
 
-type MeshDriverId = 'none' | 'netbird';
+type MeshDriverId = 'none' | 'netbird' | 'headscale' | 'tailscale' | 'wireguard';
+
+const DRIVER_ORDER: MeshDriverId[] = ['none', 'netbird', 'headscale', 'tailscale', 'wireguard'];
 
 const DRIVER_LABELS: Record<MeshDriverId, string> = {
   none: 'None',
   netbird: 'NetBird',
+  headscale: 'Headscale',
+  tailscale: 'Tailscale',
+  wireguard: 'WireGuard',
 };
 
 const DRIVER_BLURB: Record<MeshDriverId, string> = {
   none: 'Unopinionated by default. Nodes use their own network — swarmy stays out of the way.',
   netbird: 'Zero-trust WireGuard mesh. Any node, any cloud, behind NAT — no inbound ports.',
+  headscale: 'Self-hosted Tailscale control plane. Official clients, config-as-code ACLs.',
+  tailscale: 'Bring your own Tailscale tailnet — SaaS control plane, best NAT traversal.',
+  wireguard: 'Raw WireGuard. swarmy templates wg0.conf; you own routing & NAT.',
 };
 
 export const Route = createFileRoute('/_authed/networking')({
@@ -115,7 +125,7 @@ function NetworkingPage(): React.JSX.Element {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(['none', 'netbird'] as const).map((d) => (
+                  {DRIVER_ORDER.map((d) => (
                     <SelectItem key={d} value={d}>
                       {DRIVER_LABELS[d]}
                     </SelectItem>
@@ -189,6 +199,12 @@ function NetworkingPage(): React.JSX.Element {
         </Card>
       </div>
 
+      {!isNone && (
+        <div className="mt-4">
+          <ControlPlaneCard driver={driver} />
+        </div>
+      )}
+
       <Card className="card-pop mt-6 border-0">
         <CardHeader>
           <CardTitle className="text-base">Peers</CardTitle>
@@ -230,6 +246,8 @@ function NetworkingPage(): React.JSX.Element {
           </div>
         </CardContent>
       </Card>
+
+      {live && <DirectConnectCard />}
     </div>
   );
 }

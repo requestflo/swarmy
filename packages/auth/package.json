@@ -20,7 +20,8 @@
   "scripts": {
     "build": "echo '@swarmy/auth resolves to src'",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo",
+    "test": "bun test"
   },
   "dependencies": {
     "@swarmy/core": "workspace:*",

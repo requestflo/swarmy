@@ -119,6 +119,178 @@ function networkNames(value: unknown): string[] {
   return [];
 }
 
+const DURATION_UNITS: Record<string, number> = {
+  ns: 1,
+  us: 1_000,
+  µs: 1_000,
+  ms: 1_000_000,
+  s: 1_000_000_000,
+  m: 60_000_000_000,
+  h: 3_600_000_000_000,
+};
+
+/** compose duration ("1m30s", "10s", 5000000000) -> nanoseconds. */
+function parseDurationNs(value: unknown): number | undefined {
+  if (value == null) return undefined;
+  if (typeof value === 'number') return Math.round(value);
+  const s = String(value).trim();
+  if (/^\d+$/.test(s)) return Number(s);
+  let total = 0;
+  let matched = false;
+  const re = /(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) != null) {
+    matched = true;
+    total += Number(m[1]) * (DURATION_UNITS[m[2] as string] ?? 0);
+  }
+  return matched ? Math.round(total) : undefined;
+}
+
+/** compose cpu quota ("0.5", 0.5, "500m") -> fractional cores. */
+function parseCpus(value: unknown): number | undefined {
+  if (value == null) return undefined;
+  if (typeof value === 'number') return value;
+  const s = String(value).trim();
+  if (s.endsWith('m')) {
+    const n = Number(s.slice(0, -1));
+    return Number.isFinite(n) ? n / 1000 : undefined;
+  }
+  const n = Number(s);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** compose memory ("512M", "1g", 536870912) -> bytes. */
+function parseBytes(value: unknown): number | undefined {
+  if (value == null) return undefined;
+  if (typeof value === 'number') return Math.round(value);
+  const s = String(value).trim();
+  const m = /^(\d+(?:\.\d+)?)\s*([kmgt]?i?)b?$/i.exec(s);
+  if (!m) {
+    const n = Number(s);
+    return Number.isFinite(n) ? n : undefined;
+  }
+  const scale: Record<string, number> = {
+    '': 1,
+    k: 1000,
+    ki: 1024,
+    m: 1000 ** 2,
+    mi: 1024 ** 2,
+    g: 1000 ** 3,
+    gi: 1024 ** 3,
+    t: 1000 ** 4,
+    ti: 1024 ** 4,
+  };
+  return Math.round(Number(m[1]) * (scale[(m[2] as string).toLowerCase()] ?? 1));
+}
+
+/** compose `healthcheck` -> ModelHealthcheck shape (durations in ns). */
+function parseHealthcheck(value: unknown): {
+  test: string[];
+  intervalNs?: number;
+  timeoutNs?: number;
+  startPeriodNs?: number;
+  retries?: number;
+  disable?: boolean;
+} | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const o = value as Record<string, unknown>;
+  const test = Array.isArray(o.test) ? o.test.map(String) : typeof o.test === 'string' ? ['CMD-SHELL', o.test] : [];
+  return {
+    test,
+    intervalNs: parseDurationNs(o.interval),
+    timeoutNs: parseDurationNs(o.timeout),
+    startPeriodNs: parseDurationNs(o.start_period),
+    retries: o.retries != null ? Number(o.retries) : undefined,
+    disable: o.disable === true ? true : undefined,
+  };
+}
+
+/** compose `deploy.resources` -> ModelResources. */
+function parseResources(value: unknown):
+  | { limits?: { cpus?: number; memoryBytes?: number }; reservations?: { cpus?: number; memoryBytes?: number } }
+  | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const o = value as Record<string, unknown>;
+  const bucket = (b: unknown): { cpus?: number; memoryBytes?: number } | undefined => {
+    if (!b || typeof b !== 'object') return undefined;
+    const bo = b as Record<string, unknown>;
+    const cpus = parseCpus(bo.cpus);
+    const memoryBytes = parseBytes(bo.memory);
+    if (cpus == null && memoryBytes == null) return undefined;
+    return { ...(cpus != null ? { cpus } : {}), ...(memoryBytes != null ? { memoryBytes } : {}) };
+  };
+  const limits = bucket(o.limits);
+  const reservations = bucket(o.reservations);
+  if (!limits && !reservations) return undefined;
+  return { ...(limits ? { limits } : {}), ...(reservations ? { reservations } : {}) };
+}
+
+/** compose `configs`/`secrets` (short string or long object) -> refs. */
+function parseConfigSecrets(value: unknown): Array<{
+  source: string;
+  target?: string;
+  uid?: string;
+  gid?: string;
+  mode?: number;
+}> {
+  if (!Array.isArray(value)) return [];
+  const out: Array<{ source: string; target?: string; uid?: string; gid?: string; mode?: number }> = [];
+  for (const entry of value) {
+    if (typeof entry === 'string') {
+      out.push({ source: entry });
+    } else if (entry && typeof entry === 'object') {
+      const o = entry as Record<string, unknown>;
+      if (o.source == null) continue;
+      out.push({
+        source: String(o.source),
+        target: o.target != null ? String(o.target) : undefined,
+        uid: o.uid != null ? String(o.uid) : undefined,
+        gid: o.gid != null ? String(o.gid) : undefined,
+        mode: o.mode != null ? Number(o.mode) : undefined,
+      });
+    }
+  }
+  return out;
+}
+
+/** compose `ulimits` (number or {soft,hard}) -> ModelUlimit[]. */
+function parseUlimits(value: unknown): Array<{ name: string; soft?: number; hard?: number }> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  const out: Array<{ name: string; soft?: number; hard?: number }> = [];
+  for (const [name, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === 'number') out.push({ name, soft: v, hard: v });
+    else if (v && typeof v === 'object') {
+      const o = v as Record<string, unknown>;
+      out.push({
+        name,
+        soft: o.soft != null ? Number(o.soft) : undefined,
+        hard: o.hard != null ? Number(o.hard) : undefined,
+      });
+    }
+  }
+  return out;
+}
+
+/** compose `logging` -> ModelLogging. */
+function parseLogging(value: unknown): { driver?: string; options: Record<string, string> } | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const o = value as Record<string, unknown>;
+  const options: Record<string, string> = {};
+  if (o.options && typeof o.options === 'object') {
+    for (const [k, v] of Object.entries(o.options as Record<string, unknown>)) options[k] = String(v);
+  }
+  const driver = o.driver != null ? String(o.driver) : undefined;
+  if (driver == null && Object.keys(options).length === 0) return undefined;
+  return { driver, options };
+}
+
+/** compose `depends_on` (list or map) -> service names. */
+function dependsOnNames(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String);
+  if (value && typeof value === 'object') return Object.keys(value as object);
+  return [];
+}
+
 /** Keys we fully map; everything else falls through to `unsupported`. */
 const MAPPED_KEYS = new Set([
   'image',
@@ -131,6 +303,13 @@ const MAPPED_KEYS = new Set([
   'labels',
   'deploy',
   'restart',
+  'healthcheck',
+  'configs',
+  'secrets',
+  'ulimits',
+  'logging',
+  'depends_on',
+  'stop_grace_period',
 ]);
 
 export function composeToModels(doc: ComposeFile | null | undefined): FromComposeResult {
@@ -195,6 +374,17 @@ export function composeToModels(doc: ComposeFile | null | undefined): FromCompos
       });
     }
 
+    const dependsOn = dependsOnNames(svc.depends_on);
+    if (dependsOn.length) {
+      warnings.push({
+        level: 'warn',
+        path: `${name}.depends_on`,
+        code: 'lossy-mapping',
+        message:
+          '`depends_on` start-order is not enforced by Swarm — captured, but services start concurrently.',
+      });
+    }
+
     const parsed = ServiceModel.parse({
       name,
       image: svc.image != null ? String(svc.image) : '',
@@ -216,6 +406,14 @@ export function composeToModels(doc: ComposeFile | null | undefined): FromCompos
             }
           : undefined,
       placement,
+      healthcheck: parseHealthcheck(svc.healthcheck),
+      resources: parseResources(deploy.resources),
+      configs: parseConfigSecrets(svc.configs),
+      secrets: parseConfigSecrets(svc.secrets),
+      ulimits: parseUlimits(svc.ulimits),
+      logging: parseLogging(svc.logging),
+      dependsOn,
+      stopGracePeriodNs: parseDurationNs(svc.stop_grace_period),
       unsupported,
     });
     models.push(parsed);

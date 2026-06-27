@@ -8,6 +8,7 @@ export {
   MeshEnrollment,
   MeshStatus,
   MeshDriverName,
+  MeshClientKind,
 } from '@swarmy/core/protocol';
 export type {
   RenderedMesh as RenderedMeshT,
@@ -16,6 +17,7 @@ export type {
 } from '@swarmy/core/protocol';
 
 import type { MeshEnrollment, MeshStatus, RenderedMesh } from '@swarmy/core/protocol';
+import type { MeshAccessIntent, NetbirdPolicyPlan } from './acl';
 
 // ── Org-scoped config (persisted, controller-side) ─────────────────────
 
@@ -67,6 +69,14 @@ export interface DriverControlPlane {
   listPeers(): Promise<MeshPeerInfo[]>;
   /** Revoke a peer by its provider id. */
   revokePeer(peerId: string): Promise<void>;
+  /**
+   * Push a desired access plan (groups + policies) for direct-stack-connect.
+   * Optional: file-based drivers (Headscale) and `none`/`wireguard` render ACLs
+   * locally and don't implement this.
+   */
+  applyPolicyPlan?(plan: NetbirdPolicyPlan): Promise<{ groupIds: Record<string, string>; policyIds: string[] }>;
+  /** Tear down a previously-applied policy by its provider id. */
+  deletePolicy?(policyId: string): Promise<void>;
 }
 
 /** A provider peer as reported by the control plane. */
@@ -94,4 +104,18 @@ export interface MeshDriver {
   render(config: MeshConfig, enrollment: MeshEnrollment): RenderedMesh;
   /** Reconcile live status from the control plane (best-effort). */
   status(config: MeshConfig, control: DriverControlPlane): Promise<MeshStatus>;
+  /**
+   * Render the access enforcement for a direct-connect intent. Drivers with a
+   * control plane return `{ kind: 'control-plane' }` (caller pushes via
+   * `DriverControlPlane.applyPolicyPlan`); file-based drivers return
+   * `{ kind: 'file', files }` (an ACL doc the agent writes). Optional — the
+   * `none` driver records intent and renders nothing.
+   */
+  applyAccess?(config: MeshConfig, intent: MeshAccessIntent): MeshAccessRender;
 }
+
+/** What a driver produces for a direct-connect access intent. */
+export type MeshAccessRender =
+  | { kind: 'control-plane'; plan: NetbirdPolicyPlan }
+  | { kind: 'file'; path: string; contents: string }
+  | { kind: 'none'; summary: string };

@@ -71,6 +71,25 @@ export const DEFAULT_POLICY_SPECS: DefaultPolicySpec[] = [
       ],
     },
   },
+  {
+    // ReBAC: a member granted `operator` (or `owner`) on a specific resource may
+    // run safe ops on *that* resource even without org-wide member-safe-ops.
+    // Behaviour-neutral for orgs with no grants (no relation → no match).
+    key: 'operator-resource-ops',
+    name: 'Resource operators can operate their resources',
+    effect: 'permit',
+    priority: 45,
+    doc: {
+      relations: ['operator', 'owner'],
+      actions: [
+        'service.deploy',
+        'service.scale',
+        'service.restart',
+        'stack.deploy',
+        'node.drain',
+      ],
+    },
+  },
 ];
 
 /** The default policies as {@link PolicyInput} rows for the engine (no DB ids). */

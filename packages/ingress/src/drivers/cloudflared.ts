@@ -11,6 +11,7 @@ import {
   CLOUDFLARED_CONFIG_PATH,
   CLOUDFLARED_CREDENTIALS_PATH,
 } from '../render/cloudflared';
+import { buildConnectorServiceSpec, CLOUDFLARED_SECRET_NAME } from '../render/connector';
 import { IngressApplyError } from '../errors';
 
 /**
@@ -55,6 +56,30 @@ export class CloudflaredDriver implements IngressDriver {
     const tunnel = config.globalOptions.tunnel;
     const tunnelId = tunnel?.tunnelId ?? '';
     const tunnelName = tunnel?.tunnelName ?? 'swarmy';
+    const routesSummary = `${config.domains.length} route(s): ${
+      config.domains.map((d) => d.domain).join(', ') || 'none'
+    }. No public ports required.`;
+
+    // Remotely-managed (token) mode: deploy cloudflared as a Swarm service with
+    // the run token as a secret; ingress rules are pushed to the CF API
+    // controller-side, so no on-node config file is written.
+    if (tunnel?.runToken && !tunnel.credentialsJson) {
+      return {
+        driver: 'cloudflared',
+        files: [],
+        serviceLabels: [],
+        connector: {
+          kind: 'cloudflared',
+          service: buildConnectorServiceSpec(config),
+          secrets: [
+            { name: CLOUDFLARED_SECRET_NAME, ref: 'tunnel.runToken', value: tunnel.runToken },
+          ],
+        },
+        summary: `Cloudflare Tunnel "${tunnelName}" (token/connector-as-service) — ${routesSummary}`,
+      };
+    }
+
+    // Locally-managed mode: write config.yml (+ credentials) and run on-node.
     const contents = buildCloudflaredConfig(config, {
       tunnelId,
       tunnelName,
@@ -79,9 +104,6 @@ export class CloudflaredDriver implements IngressDriver {
       driver: 'cloudflared',
       files,
       serviceLabels: [],
-      // Run the connector against the rendered config. In token mode the
-      // connector is deployed as a Swarm service instead (carried by the
-      // RenderedConfig.connector block — see INTEGRATION).
       reloadCommand: [
         'cloudflared',
         'tunnel',
@@ -90,9 +112,7 @@ export class CloudflaredDriver implements IngressDriver {
         'run',
         tunnelName,
       ],
-      summary: `Cloudflare Tunnel "${tunnelName}" — ${config.domains.length} route(s): ${
-        config.domains.map((d) => d.domain).join(', ') || 'none'
-      }. No public ports required.`,
+      summary: `Cloudflare Tunnel "${tunnelName}" (locally-managed) — ${routesSummary}`,
     };
   }
 

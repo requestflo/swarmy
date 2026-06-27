@@ -12,6 +12,12 @@ export {
   ModelMount,
   ModelRestartPolicy,
   ModelPlacement,
+  ModelHealthcheck,
+  ModelResourceSpec,
+  ModelResources,
+  ModelConfigSecretRef,
+  ModelUlimit,
+  ModelLogging,
   type ServiceModelOut,
 } from './model';
 export {
@@ -29,9 +35,14 @@ export {
   modelToServiceSpec,
   type ServiceSpecLike,
   type ServiceSpecPlacement,
+  type ServiceSpecHealthcheck,
+  type ServiceSpecResources,
+  type ServiceSpecResourceBucket,
+  type ServiceSpecConfigSecretRef,
 } from './to-spec';
 export {
   type TranslationWarning,
   type WarningLevel,
   SWARM_INCOMPATIBLE_KEYS,
 } from './warnings';
+export { validateModel } from './validate';

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TlsMode } from '@swarmy/core';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { tunnelsRouter } from './tunnels';
 import {
   addDomain,
   getConfig,
@@ -15,7 +16,7 @@ import {
   setTunnel,
 } from '../services/ingress.service';
 
-const driverEnum = z.enum(['caddy', 'traefik', 'none', 'cloudflared']);
+const driverEnum = z.enum(['caddy', 'traefik', 'none', 'cloudflared', 'nginx', 'haproxy']);
 
 export const ingressRouter = router({
   getConfig: orgProcedure.query(({ ctx }) => getConfig(ctx)),
@@ -40,6 +41,12 @@ export const ingressRouter = router({
         targetPort: z.number().int().min(1).max(65535),
         tls: TlsMode.default('auto'),
         pathPrefix: z.string().optional(),
+        /**
+         * Per-domain driver override (ingress-strategy epic). `null`/absent =
+         * inherit the org default. Persisted in IngressConfig.settings until the
+         * Domain.ingressDriver column lands (see INTEGRATION).
+         */
+        ingressDriver: driverEnum.nullish(),
       }),
     )
     .mutation(({ ctx, input }) => addDomain(ctx, input)),
@@ -93,4 +100,10 @@ export const ingressRouter = router({
   previewConfig: orgProcedure
     .input(z.object({ driver: driverEnum.optional() }))
     .query(({ ctx, input }) => previewConfig(ctx, input.driver)),
+
+  /**
+   * Cloudflare tunnels. Nested here so it is reachable without a root.ts edit;
+   * the INTEGRATION snippet also mounts it top-level as `tunnels` if preferred.
+   */
+  tunnels: tunnelsRouter,
 });

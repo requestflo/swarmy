@@ -30,7 +30,8 @@ export type CommandName =
   | 'storage.apply' // volumes-dr P2: bring up a Garage member
   | 'volume.provision' // volumes-dr P3: create a local/CSI cluster volume
   | 'volume.remove'
-  | 'image.prune';
+  | 'image.prune'
+  | 'mesh.grantDirectRoute';
 
 /** CommandName → wire protocol message `type` (see @swarmy/core/protocol). */
 export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
@@ -53,6 +54,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'volume.provision': 'provisionVolume',
   'volume.remove': 'removeVolume',
   'image.prune': 'pruneImages',
+  'mesh.grantDirectRoute': 'grantDirectRoute',
 };
 
 export interface CommandResult<R = unknown> {

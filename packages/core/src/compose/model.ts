@@ -48,6 +48,61 @@ export const ModelPlacement = z.object({
 });
 export type ModelPlacement = z.infer<typeof ModelPlacement>;
 
+/**
+ * Container healthcheck (compose `healthcheck`). Durations are normalized to
+ * nanoseconds (the Swarm wire encoding); `test` is the exec/shell probe.
+ * `disable` short-circuits the image's inherited healthcheck.
+ */
+export const ModelHealthcheck = z.object({
+  test: z.array(z.string()).default([]),
+  intervalNs: z.number().int().nonnegative().optional(),
+  timeoutNs: z.number().int().nonnegative().optional(),
+  startPeriodNs: z.number().int().nonnegative().optional(),
+  retries: z.number().int().nonnegative().optional(),
+  disable: z.boolean().optional(),
+});
+export type ModelHealthcheck = z.infer<typeof ModelHealthcheck>;
+
+/** One resource bucket (cpu cores as a fraction; memory in bytes). */
+export const ModelResourceSpec = z.object({
+  cpus: z.number().nonnegative().optional(),
+  memoryBytes: z.number().int().nonnegative().optional(),
+});
+export type ModelResourceSpec = z.infer<typeof ModelResourceSpec>;
+
+/** Swarm resources (compose `deploy.resources.{limits,reservations}`). */
+export const ModelResources = z.object({
+  limits: ModelResourceSpec.optional(),
+  reservations: ModelResourceSpec.optional(),
+});
+export type ModelResources = z.infer<typeof ModelResources>;
+
+/** A Swarm config/secret reference (compose `configs`/`secrets` long form). */
+export const ModelConfigSecretRef = z.object({
+  source: z.string().min(1),
+  target: z.string().optional(),
+  uid: z.string().optional(),
+  gid: z.string().optional(),
+  /** Octal file mode, e.g. 0o444 → 292. */
+  mode: z.number().int().optional(),
+});
+export type ModelConfigSecretRef = z.infer<typeof ModelConfigSecretRef>;
+
+/** A POSIX ulimit (compose `ulimits`). `soft`/`hard`, or a single value. */
+export const ModelUlimit = z.object({
+  name: z.string().min(1),
+  soft: z.number().int().optional(),
+  hard: z.number().int().optional(),
+});
+export type ModelUlimit = z.infer<typeof ModelUlimit>;
+
+/** Logging driver (compose `logging`). */
+export const ModelLogging = z.object({
+  driver: z.string().optional(),
+  options: z.record(z.string()).default({}),
+});
+export type ModelLogging = z.infer<typeof ModelLogging>;
+
 const serviceName = z
   .string()
   .min(1)
@@ -73,6 +128,17 @@ export const ServiceModel = z.object({
   labels: z.record(z.string()).default({}),
   restart: ModelRestartPolicy.optional(),
   placement: ModelPlacement.optional(),
+  // Phase-2+ long-tail coverage. All additive + optional: an untouched
+  // section equals today's behavior (Swarm defaults).
+  healthcheck: ModelHealthcheck.optional(),
+  resources: ModelResources.optional(),
+  configs: z.array(ModelConfigSecretRef).default([]),
+  secrets: z.array(ModelConfigSecretRef).default([]),
+  ulimits: z.array(ModelUlimit).default([]),
+  logging: ModelLogging.optional(),
+  dependsOn: z.array(z.string()).default([]),
+  /** Graceful shutdown window in nanoseconds (compose `stop_grace_period`). */
+  stopGracePeriodNs: z.number().int().nonnegative().optional(),
   /**
    * Compose keys swarmy doesn't model but preserves verbatim for round-trip
    * fidelity (re-emitted by modelToCompose). Never sent to the agent.

@@ -4,7 +4,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PlusIcon, Trash2Icon } from 'lucide-react';
 import { INGRESS_DRIVER_LABELS } from '@swarmy/core';
 
-type IngressDriverId = 'none' | 'caddy' | 'traefik' | 'cloudflared';
+type IngressDriverId = 'none' | 'caddy' | 'traefik' | 'cloudflared' | 'nginx' | 'haproxy';
+
+const ALL_DRIVERS: IngressDriverId[] = ['none', 'caddy', 'traefik', 'cloudflared', 'nginx', 'haproxy'];
 
 /**
  * Local label map so the UI compiles before the integrator widens
@@ -16,6 +18,8 @@ const DRIVER_LABELS: Record<IngressDriverId, string> = {
   caddy: INGRESS_DRIVER_LABELS.caddy,
   traefik: INGRESS_DRIVER_LABELS.traefik,
   cloudflared: 'Cloudflare Tunnel',
+  nginx: 'nginx',
+  haproxy: 'HAProxy',
 };
 
 const DRIVER_BLURB: Record<IngressDriverId, string> = {
@@ -23,6 +27,8 @@ const DRIVER_BLURB: Record<IngressDriverId, string> = {
   caddy: 'Automatic HTTPS. Recommended. Needs a public IP and a domain.',
   traefik: 'Advanced / bring-your-own. Label-based routing for existing Traefik users.',
   cloudflared: 'No public IP needed — connect via Cloudflare. Needs a Cloudflare account.',
+  nginx: 'Classic reverse proxy. Pairs with an external ACME companion for TLS.',
+  haproxy: 'High-throughput L7 proxy. SNI routing; external cert management.',
 };
 import {
   Badge,
@@ -96,6 +102,15 @@ function IngressPage(): React.JSX.Element {
       onError: (e) => toast.error(e.message),
     }),
   );
+  const setOnDemandTls = useMutation(
+    trpc.ingress.setOnDemandTls.mutationOptions({
+      onSuccess: () => {
+        toast.success('On-demand TLS updated');
+        invalidate();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
 
   const driver = config.data?.driver ?? 'none';
   const isNone = driver === 'none';
@@ -147,7 +162,7 @@ function IngressPage(): React.JSX.Element {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(['none', 'caddy', 'traefik', 'cloudflared'] as const).map((d) => (
+                  {ALL_DRIVERS.map((d) => (
                     <SelectItem key={d} value={d}>
                       {DRIVER_LABELS[d]}
                     </SelectItem>
@@ -197,12 +212,19 @@ function IngressPage(): React.JSX.Element {
       </div>
 
       {driver === 'caddy' ? (
-        <CaddyHaCard
-          haConfigured={!!config.data?.haConfigured}
-          onEnable={(host) => setHaStorage.mutate({ host })}
-          onDisable={() => setHaStorage.mutate(null)}
-          pending={setHaStorage.isPending}
-        />
+        <>
+          <CaddyHaCard
+            haConfigured={!!config.data?.haConfigured}
+            onEnable={(host) => setHaStorage.mutate({ host })}
+            onDisable={() => setHaStorage.mutate(null)}
+            pending={setHaStorage.isPending}
+          />
+          <OnDemandTlsCard
+            onSave={(askUrl) => setOnDemandTls.mutate({ enabled: true, askUrl })}
+            onDisable={() => setOnDemandTls.mutate({ enabled: false })}
+            pending={setOnDemandTls.isPending}
+          />
+        </>
       ) : null}
 
       {driver === 'cloudflared' ? (
@@ -212,6 +234,10 @@ function IngressPage(): React.JSX.Element {
           onClear={() => setTunnel.mutate(null)}
           pending={setTunnel.isPending}
         />
+      ) : null}
+
+      {driver === 'nginx' || driver === 'haproxy' ? (
+        <ExternalAcmeNoticeCard driver={driver} />
       ) : null}
 
       <Card className="card-pop mt-6 border-0">
@@ -243,8 +269,11 @@ function IngressPage(): React.JSX.Element {
                 </div>
                 <span className="hidden truncate sm:block">{d.serviceName}</span>
                 <span className="mono-data hidden sm:block">:{d.targetPort}</span>
-                <span className="hidden sm:block">
+                <span className="hidden gap-1 sm:flex">
                   <Badge variant="muted">{d.tls}</Badge>
+                  {d.ingressDriver ? (
+                    <Badge variant="muted">{DRIVER_LABELS[d.ingressDriver as IngressDriverId]}</Badge>
+                  ) : null}
                 </span>
                 <div className="text-right">
                   <Button variant="ghost" size="icon" onClick={() => removeDomain.mutate({ id: d.id })}>
@@ -331,28 +360,87 @@ function CloudflareTunnelCard({
   onClear: () => void;
   pending: boolean;
 }) {
+  const trpc = useTRPC();
+  const qc = useQueryClient();
+  const tunnel = useQuery(trpc.ingress.tunnels.get.queryOptions());
   const [tunnelName, setTunnelName] = React.useState('swarmy');
   const [tunnelId, setTunnelId] = React.useState('');
+  const [accountId, setAccountId] = React.useState('');
   const [apiToken, setApiToken] = React.useState('');
+
+  const createTunnel = useMutation(
+    trpc.ingress.tunnels.create.mutationOptions({
+      onSuccess: () => {
+        toast.success('Tunnel created via Cloudflare API + connector deployed');
+        qc.invalidateQueries();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+  const syncTunnel = useMutation(
+    trpc.ingress.tunnels.sync.mutationOptions({
+      onSuccess: (r) => {
+        toast.success(`Pushed ${r.rules} ingress rule(s) to Cloudflare`);
+        qc.invalidateQueries();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+  const deleteTunnel = useMutation(
+    trpc.ingress.tunnels.delete.mutationOptions({
+      onSuccess: () => {
+        toast.success('Tunnel deleted');
+        qc.invalidateQueries();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+
+  const connected = configured || !!tunnel.data?.connected;
+
   return (
     <Card className="card-pop mt-6 border-0">
       <CardHeader>
         <CardTitle className="text-base">Cloudflare Tunnel</CardTitle>
         <CardDescription>
           Expose services with no public IP and no open ports. Paste a scoped Cloudflare API token —
-          it is encrypted at rest and never returned.
+          it is encrypted at rest and never returned. With an account id we create the tunnel for
+          you and deploy the connector as a swarm service.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
-        {configured ? (
-          <div className="bg-accent/40 flex items-center justify-between rounded-xl px-4 py-3">
-            <div>
-              <Label className="font-medium">Tunnel configured</Label>
-              <p className="text-muted-foreground text-xs">Connector runs as a swarm service.</p>
+        {connected ? (
+          <div className="grid gap-3">
+            <div className="bg-accent/40 flex items-center justify-between rounded-xl px-4 py-3">
+              <div>
+                <Label className="font-medium">
+                  {tunnel.data?.tunnelName ?? 'Tunnel'} configured
+                </Label>
+                <p className="text-muted-foreground text-xs">
+                  {tunnel.data?.tunnelId
+                    ? `id ${tunnel.data.tunnelId.slice(0, 12)}… · connector runs as a swarm service`
+                    : 'Connector runs as a swarm service.'}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => syncTunnel.mutate({})}
+                  disabled={syncTunnel.isPending || !tunnel.data?.tunnelId}
+                >
+                  Sync routes
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => (tunnel.data?.tunnelId ? deleteTunnel.mutate() : onClear())}
+                  disabled={pending || deleteTunnel.isPending}
+                >
+                  Disconnect
+                </Button>
+              </div>
             </div>
-            <Button variant="outline" size="sm" onClick={onClear} disabled={pending}>
-              Disconnect
-            </Button>
           </div>
         ) : (
           <>
@@ -361,7 +449,11 @@ function CloudflareTunnelCard({
               <Input value={tunnelName} onChange={(e) => setTunnelName(e.target.value)} />
             </div>
             <div className="grid gap-1.5">
-              <Label className="mono-label">Tunnel ID (optional — created via API if blank)</Label>
+              <Label className="mono-label">Cloudflare account id (creates the tunnel via API)</Label>
+              <Input value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder="account id" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="mono-label">Tunnel ID (optional — manual mode)</Label>
               <Input value={tunnelId} onChange={(e) => setTunnelId(e.target.value)} placeholder="uuid" />
             </div>
             <div className="grid gap-1.5">
@@ -373,15 +465,87 @@ function CloudflareTunnelCard({
                 placeholder="Account: Tunnel Edit · Zone: DNS Edit"
               />
             </div>
-            <Button
-              onClick={() => onSave({ tunnelName, tunnelId: tunnelId || undefined, apiToken: apiToken || undefined })}
-              disabled={pending || !apiToken}
-            >
-              Save tunnel
-            </Button>
+            {accountId ? (
+              <Button
+                onClick={() => createTunnel.mutate({ name: tunnelName, accountId, apiToken })}
+                disabled={createTunnel.isPending || !apiToken || !accountId}
+              >
+                Create tunnel via API
+              </Button>
+            ) : (
+              <Button
+                onClick={() => onSave({ tunnelName, tunnelId: tunnelId || undefined, apiToken: apiToken || undefined })}
+                disabled={pending || !apiToken}
+              >
+                Save tunnel (manual)
+              </Button>
+            )}
           </>
         )}
       </CardContent>
+    </Card>
+  );
+}
+
+function OnDemandTlsCard({
+  onSave,
+  onDisable,
+  pending,
+}: {
+  onSave: (askUrl: string) => void;
+  onDisable: () => void;
+  pending: boolean;
+}) {
+  const [askUrl, setAskUrl] = React.useState('');
+  return (
+    <Card className="card-pop mt-6 border-0">
+      <CardHeader>
+        <CardTitle className="text-base">On-demand TLS — custom domains</CardTitle>
+        <CardDescription>
+          Issue certificates on first request, gated by an <strong>ask</strong> endpoint so only
+          domains registered to your org get a cert. Point it at the controller&apos;s{' '}
+          <code className="mono-data">/ingress/ask</code> route.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <div className="grid gap-1.5">
+          <Label className="mono-label">Ask endpoint URL</Label>
+          <div className="flex gap-2">
+            <Input
+              value={askUrl}
+              onChange={(e) => setAskUrl(e.target.value)}
+              placeholder="https://controller.example.com/ingress/ask"
+            />
+            <Button onClick={() => onSave(askUrl)} disabled={pending || !askUrl}>
+              Enable
+            </Button>
+          </div>
+          <div className="flex items-center justify-between">
+            <p className="text-muted-foreground text-xs">
+              Deny-by-default: unknown hostnames never trigger issuance.
+            </p>
+            <Button variant="ghost" size="sm" onClick={onDisable} disabled={pending}>
+              Disable
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ExternalAcmeNoticeCard({ driver }: { driver: 'nginx' | 'haproxy' }) {
+  return (
+    <Card className="card-pop mt-6 border-0">
+      <CardHeader>
+        <CardTitle className="text-base">{DRIVER_LABELS[driver]} — TLS note</CardTitle>
+        <CardDescription>
+          {DRIVER_LABELS[driver]} has no built-in ACME. For <code className="mono-data">auto</code>{' '}
+          TLS, run an external companion (certbot / acme.sh) that drops certs at the conventional
+          path; swarmy renders the proxy config to read them. Or use <strong>custom</strong> TLS and
+          supply the cert material. Want automatic HTTPS with zero setup? Switch to Caddy.
+        </CardDescription>
+      </CardHeader>
     </Card>
   );
 }
@@ -398,6 +562,7 @@ function AddDomainDialog({
   const [host, setHost] = React.useState('');
   const [serviceId, setServiceId] = React.useState('');
   const [port, setPort] = React.useState(80);
+  const [driverOverride, setDriverOverride] = React.useState<'inherit' | IngressDriverId>('inherit');
 
   const add = useMutation(
     trpc.ingress.addDomain.mutationOptions({
@@ -405,6 +570,7 @@ function AddDomainDialog({
         toast.success('Domain added');
         setOpen(false);
         setHost('');
+        setDriverOverride('inherit');
         onDone();
       },
       onError: (e) => toast.error(e.message),
@@ -446,10 +612,37 @@ function AddDomainDialog({
             <Label className="mono-label">Target port</Label>
             <Input type="number" value={port} onChange={(e) => setPort(Number(e.target.value))} />
           </div>
+          <div className="grid gap-1.5">
+            <Label className="mono-label">Driver</Label>
+            <Select value={driverOverride} onValueChange={(v) => setDriverOverride(v as typeof driverOverride)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="inherit">Inherit org default</SelectItem>
+                {ALL_DRIVERS.filter((d) => d !== 'none').map((d) => (
+                  <SelectItem key={d} value={d}>
+                    {DRIVER_LABELS[d]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-muted-foreground text-xs">
+              Override which driver routes this domain, or inherit the org-wide choice.
+            </p>
+          </div>
         </div>
         <DialogFooter>
           <Button
-            onClick={() => add.mutate({ host, serviceId, targetPort: port, tls: 'auto' })}
+            onClick={() =>
+              add.mutate({
+                host,
+                serviceId,
+                targetPort: port,
+                tls: 'auto',
+                ingressDriver: driverOverride === 'inherit' ? null : driverOverride,
+              })
+            }
             disabled={add.isPending || !host || !serviceId}
           >
             Add

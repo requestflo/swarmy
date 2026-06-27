@@ -5,7 +5,8 @@ import type { ControllerEnvelope, RenderedConfig, ServiceSpec } from '@swarmy/co
 import type { AgentConnection } from './connection';
 import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots } from './handlers/backup';
-import { applyMesh } from './handlers/mesh';
+import { applyMesh, grantDirectRoute } from './handlers/mesh';
+import { applyIngressConnector } from './handlers/ingress-connector';
 import { buildImage } from './handlers/build';
 import { pruneImages } from './handlers/prune';
 import { applyStorageNode, provisionVolume, removeVolume } from './handlers/storage';
@@ -80,6 +81,18 @@ export async function handleCommand(
         return;
       }
       return run(conn, commandId, () => applyMesh(docker, rendered));
+    }
+    case 'grantDirectRoute': {
+      const p = envlp.payload;
+      if (!env.ALLOW_MESH) {
+        conn.send('commandResult', {
+          commandId: p.commandId,
+          status: 'rejected',
+          error: { code: 'E_MESH_DISABLED', message: 'mesh disabled on this agent' },
+        });
+        return;
+      }
+      return run(conn, p.commandId, () => grantDirectRoute(p));
     }
     case 'backupVolume': {
       const p = envlp.payload;
@@ -234,6 +247,8 @@ async function applyIngress(
       headers: rendered.adminApi.contentType ? { 'content-type': rendered.adminApi.contentType } : undefined,
     }).catch(() => undefined);
   }
+  // Token-mode tunnels (e.g. cloudflared) deploy a connector swarm service.
+  await applyIngressConnector(docker, rendered);
   return { driver: rendered.driver, reloaded: true };
 }
 

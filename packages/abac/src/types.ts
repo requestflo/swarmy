@@ -41,11 +41,18 @@ export function isAction(value: string): value is Action {
   return (ACTIONS as readonly string[]).includes(value);
 }
 
+/** A ReBAC relation a principal holds on a resource (from ResourceGrant edges). */
+export type Relation = 'owner' | 'operator' | 'viewer';
+
 /** The authenticated subject, derived from Better Auth identity + membership. */
 export interface Principal {
   userId: string;
+  /** This member's `Member.id` (used to match member→resource grants). */
+  memberId?: string | null;
   orgId: string;
   roles: Role[];
+  /** Team ids the principal belongs to (used to match team→resource grants). */
+  teamIds?: string[];
   /** Free-form subject attribute bag (team, employment type, …) from Member.attributes. */
   attributes: Record<string, unknown>;
 }
@@ -56,9 +63,15 @@ export interface Resource {
   id: string;
   orgId: string;
   labels: Record<string, unknown>;
-  /** Optional ownership edges (member/team ids) for ReBAC-style policies. */
+  /** Optional direct ownership edges (member/team ids) for ReBAC-style policies. */
   ownerMemberId?: string | null;
   ownerTeamId?: string | null;
+  /**
+   * Relations the *current* principal holds on this resource, resolved from
+   * `ResourceGrant` edges (member or team grants). Lets policies match on
+   * "principal is an operator/owner/viewer of this resource".
+   */
+  principalRelations?: Relation[];
 }
 
 /** Ambient request facts (time, ip, dryRun) policies may match on. */

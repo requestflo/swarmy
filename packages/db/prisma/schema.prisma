@@ -64,6 +64,8 @@ enum IngressDriver {
   TRAEFIK
   NONE
   CLOUDFLARE_TUNNEL
+  NGINX
+  HAPROXY
 }
 
 enum BackupTargetKind {
@@ -200,6 +202,9 @@ model Organization {
   backupSchedules     BackupSchedule[]
   backupJobs          BackupJob[]
   restoreOperations   RestoreOperation[]
+  meshRoutes          MeshRoute[]
+  meshAcls            MeshAcl[]
+  tunnels             Tunnel[]
 
   @@map("organization")
 }
@@ -334,9 +339,10 @@ model Stack {
   orgId         String
   name          String
   composeSource    String      @db.Text
-  status           StackStatus @default(PENDING)
-  telemetryEnabled Boolean     @default(false)
-  createdAt        DateTime    @default(now())
+  status           StackStatus    @default(PENDING)
+  telemetryEnabled Boolean        @default(false)
+  ingressDriver    IngressDriver?
+  createdAt        DateTime       @default(now())
   updatedAt        DateTime    @updatedAt
 
   org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -425,6 +431,7 @@ model Domain {
   stripPathPrefix Boolean  @default(false)
   pathPrefix      String?
   middlewares     Json     @default("[]")
+  ingressDriver   IngressDriver?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -543,6 +550,9 @@ model ObservabilityStoreState {
 
 enum MeshDriver {
   NETBIRD
+  HEADSCALE
+  TAILSCALE
+  WIREGUARD
   NONE
 }
 
@@ -968,4 +978,69 @@ model RestoreOperation {
   @@index([orgId, startedAt])
   @@index([orgId, snapshotId, status])
   @@map("restore_operation")
+}
+
+// ───────────────────────────────────────────── mesh routes / ACLs (mesh P2) ──
+
+model MeshRoute {
+  id              String    @id @default(cuid())
+  orgId           String
+  kind            String    @default("direct")
+  targetServiceId String?
+  targetStackId   String?
+  cidr            String?
+  port            Int?
+  proto           String?
+  principalType   String    @default("peer")
+  principalId     String
+  policyRef       String?
+  expiresAt       DateTime?
+  createdById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  acls MeshAcl[]
+
+  @@index([orgId])
+  @@map("mesh_route")
+}
+
+model MeshAcl {
+  id        String    @id @default(cuid())
+  orgId     String
+  routeId   String
+  driver    String
+  kind      String
+  rendered  Json      @default("{}")
+  appliedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  route MeshRoute    @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([routeId])
+  @@map("mesh_acl")
+}
+
+// ───────────────────────────────────────────── ingress tunnels (ingress P2) ──
+
+model Tunnel {
+  id             String   @id @default(cuid())
+  orgId          String
+  provider       String   @default("cloudflare")
+  externalId     String?
+  name           String
+  status         String   @default("pending")
+  credentialRef  String?
+  tunnelTokenRef String?
+  settings       Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("tunnel")
 }
