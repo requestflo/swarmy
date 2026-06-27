@@ -25,6 +25,8 @@ import { volumesRouter } from './routers/volumes';
 import { schedulesRouter } from './routers/schedules';
 import { ssoRouter } from './routers/sso';
 import { membersRouter } from './routers/members';
+import { oauthRouter } from './routers/oauth';
+import { webhooksOutRouter } from './routers/webhooksOut';
 
 export const appRouter = router({
   org: orgRouter,
@@ -53,6 +55,8 @@ export const appRouter = router({
   schedules: schedulesRouter,
   sso: ssoRouter,
   members: membersRouter,
+  oauth: oauthRouter,
+  webhooksOut: webhooksOutRouter,
 });
 
 export type AppRouter = typeof appRouter;

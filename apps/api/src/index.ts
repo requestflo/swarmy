@@ -18,6 +18,7 @@ import {
 } from './terminal';
 import { startWorkers } from './workers';
 import { webhooksApp } from './webhooks';
+import { oauthApp } from './oauth';
 import { versionInfo } from './version';
 import { licenseStatus } from './license';
 import { checkOnDemand } from './ingress-ask';
@@ -105,6 +106,9 @@ app.route('/api/v1', restApp);
 
 // Git provider webhooks (push → build). Public, per-repo HMAC-verified.
 app.route('/webhooks', webhooksApp);
+
+// OAuth2 client-credentials token endpoint (public-api-terraform P2). Public.
+app.route('/oauth', oauthApp);
 
 app.notFound((c) => c.json({ error: 'not found' }, 404));
 

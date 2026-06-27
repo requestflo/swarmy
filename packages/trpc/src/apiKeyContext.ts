@@ -52,10 +52,12 @@ export async function resolveOrgContextFromApiKey(
       orgId: true,
       scopes: true,
       revokedAt: true,
+      expiresAt: true,
       createdById: true,
     },
   });
   if (!row || row.revokedAt) return null;
+  if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) return null;
 
   // The principal "user" behind the key is its creator; resolve their current
   // membership in the key's org (the hard org-isolation boundary).

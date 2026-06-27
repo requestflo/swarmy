@@ -7,6 +7,13 @@ import { registerNodeRoutes } from './routes/nodes';
 import { registerServiceRoutes } from './routes/services';
 import { registerStackRoutes } from './routes/stacks';
 import { registerIngressRoutes } from './routes/ingress';
+import { registerApiKeyRoutes } from './routes/api-keys';
+import { registerNodeActionRoutes } from './routes/node-actions';
+import { registerDnsRecordRoutes } from './routes/dns-records';
+import { registerBackupRoutes } from './routes/backups';
+import { registerVolumeRoutes } from './routes/volumes';
+import { registerMeshRouteRoutes } from './routes/mesh-routes';
+import { idempotency } from './idempotency';
 
 export const OPENAPI_DOC_ROUTE = '/openapi.json';
 export const DOCS_ROUTE = '/docs';
@@ -35,12 +42,22 @@ function buildResourceApp(deps: RestDeps, withAuth = true): OpenAPIHono<RestEnv>
     description: 'swarmy API key (`Authorization: Bearer swk_…`).',
   });
 
-  if (withAuth) app.use('*', apiKeyAuth(deps));
+  if (withAuth) {
+    app.use('*', apiKeyAuth(deps));
+    // Idempotency must run AFTER auth — it reads c.get('orgCtx').
+    app.use('*', idempotency());
+  }
 
   registerNodeRoutes(app);
+  registerNodeActionRoutes(app);
   registerServiceRoutes(app);
   registerStackRoutes(app);
   registerIngressRoutes(app);
+  registerApiKeyRoutes(app);
+  registerDnsRecordRoutes(app);
+  registerBackupRoutes(app);
+  registerVolumeRoutes(app);
+  registerMeshRouteRoutes(app);
 
   app.onError((e, c) => {
     const p = trpcErrorToProblem(e, c.req.path);

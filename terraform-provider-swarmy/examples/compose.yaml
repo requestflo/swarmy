@@ -1,0 +1,6 @@
+services:
+  api:
+    image: ghcr.io/acme/api:1.4.0
+    replicas: 2
+  worker:
+    image: ghcr.io/acme/worker:1.4.0

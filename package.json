@@ -22,6 +22,8 @@
     "test": "turbo run test",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,md,json}\"",
+    "openapi:dump": "bun run --filter @swarmy/api-rest openapi:dump",
+    "gen:sdks": "bun run scripts/gen-sdks.ts",
     "db:generate": "turbo run db:generate",
     "db:push": "bun --env-file=.env --filter @swarmy/db db:push",
     "db:migrate": "bun --env-file=.env --filter @swarmy/db db:migrate",

@@ -6,6 +6,7 @@ import { startBackupScheduler } from './backup-scheduler';
 import { startDrReconcile } from './dr-reconcile';
 import { startObservabilityReconcile } from './observability-reconcile';
 import { startGeoDnsReconcile } from './geodns-reconcile';
+import { startWebhookDispatch } from './webhook-dispatch';
 
 export function startWorkers(): () => void {
   const stops = [
@@ -17,6 +18,7 @@ export function startWorkers(): () => void {
     startDrReconcile(),
     startObservabilityReconcile(),
     startGeoDnsReconcile(),
+    startWebhookDispatch(),
   ];
   return () => stops.forEach((s) => s());
 }

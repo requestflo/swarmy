@@ -4,6 +4,7 @@ import type { ServiceDetail, ServiceStatusView, ServiceSummary } from '@swarmy/c
 import type { OrgContext } from '../context';
 import { mapDispatchError, notFound } from '../errors';
 import { failDeployment, resolveManagerNode } from './dispatch.service';
+import { enqueueEvent } from './webhooks-out.service';
 
 interface ServiceRow {
   id: string;
@@ -178,6 +179,13 @@ export async function createService(
     await failDeployment(ctx, deployment.id, e);
     throw mapDispatchError(e);
   }
+  // Outbound webhook: fan a `service.deployed` event out to subscribed endpoints.
+  await enqueueEvent(ctx.db, ctx.activeOrgId, 'service.deployed', {
+    serviceId: svc.id,
+    name: input.name,
+    image: input.image,
+    deploymentId: deployment.id,
+  }).catch(() => undefined); // best-effort; never blocks the deploy
   return { id: svc.id, deploymentId: deployment.id };
 }
 

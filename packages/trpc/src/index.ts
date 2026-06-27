@@ -59,3 +59,71 @@ export type {
   SwarmDb,
   SwarmConfigRow,
 } from './services/swarm.service';
+
+// ── public-api-terraform P2 (Wave G1): REST CRUD service fns ──
+export { listApiKeys, createApiKey, revokeApiKey } from './services/apiKeys.service';
+export { setNodeAvailability, setNodeLabels, removeNode } from './services/node.service';
+export {
+  listRecords as listDnsRecords,
+  upsertRecord as upsertDnsRecord,
+  removeRecord as removeDnsRecord,
+} from './services/geodns.service';
+export {
+  listTargets as listBackupTargets,
+  addTarget as addBackupTarget,
+  removeTarget as removeBackupTarget,
+  backupVolume,
+  listSnapshots,
+  restoreSnapshot,
+} from './services/backups.service';
+export {
+  list as listClusterVolumes,
+  register as registerClusterVolume,
+  deregister as deregisterClusterVolume,
+} from './services/clusterVolume.service';
+export {
+  listRoutes as listMeshRoutes,
+  grantDirectRoute,
+  revokeDirectRoute,
+} from './services/mesh.service';
+
+// ── public-api-terraform P2: OAuth2 client-credentials seam ──
+export {
+  createOAuthClient,
+  listOAuthClients,
+  revokeOAuthClient,
+  verifyClientCredentials,
+  issueToken,
+  OAUTH_TOKEN_TTL_SECONDS,
+  OAUTH_CLIENT_PREFIX,
+  OAUTH_SECRET_PREFIX,
+} from './services/oauth.service';
+export type {
+  OAuthScope,
+  OAuthClientView,
+  OAuthClientIssued,
+  OAuthTokenIssued,
+  IssueTokenDeps,
+} from './services/oauth.service';
+
+// ── public-api-terraform P2: outbound webhook delivery seam ──
+export {
+  signPayload,
+  verifySignature,
+  backoffMs,
+  enqueueEvent,
+  registerEndpoint,
+  listEndpoints,
+  removeEndpoint,
+  setEndpointActive,
+  SIGNATURE_HEADER,
+  EVENT_HEADER,
+  DELIVERY_HEADER,
+  MAX_ATTEMPTS,
+  WEBHOOK_SECRET_PREFIX,
+} from './services/webhooks-out.service';
+export type {
+  WebhookEndpointView,
+  WebhookEndpointIssued,
+  DeliveryStatus,
+} from './services/webhooks-out.service';

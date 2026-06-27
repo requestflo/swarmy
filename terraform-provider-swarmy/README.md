@@ -4,11 +4,11 @@ A Terraform provider for [swarmy](../), letting a swarm's nodes, services, stack
 and ingress domains live in `.tf` and be `plan`/`apply`/`destroy`-ed in CI
 alongside the rest of your infrastructure.
 
-> **Status: scaffold.** This directory documents the provider plan and holds the
-> committed OpenAPI reference. The Go implementation is intentionally **not** part
-> of the TypeScript monorepo build (it has its own Go module + toolchain). MVP
-> ships the controller-side REST API + `openapi.json`; the provider is Phase 3 of
-> the epic (`../plans/epic-rest-api-terraform.md`).
+> **Status: implemented (v0.1).** A hand-written provider on the
+> [terraform-plugin-framework](https://developer.hashicorp.com/terraform/plugin/framework)
+> with a typed REST client lives in this directory. It is intentionally **not**
+> part of the TypeScript monorepo build (it has its own Go module + toolchain,
+> `go 1.24`). See [Build / install / use](#build--install--use) below.
 
 ## How it fits together
 
@@ -56,7 +56,7 @@ one, and `oasdiff` gates breaking changes within a major version.
 terraform {
   required_providers {
     swarmy = {
-      source  = "swarmy-dev/swarmy"
+      source  = "registry.terraform.io/requestflo/swarmy"
       version = "~> 0.1"
     }
   }
@@ -71,17 +71,10 @@ provider "swarmy" {
 One API key is scoped to one org, so the provider operates within that org.
 Read-only data sources need a `read`-scope key; managed resources need `write`.
 
-## Resources & data sources (v1 plan)
-
-| Terraform | REST backing | Lifecycle notes |
-|---|---|---|
-| `data.swarmy_node` / `swarmy_node` | `/nodes`, `/nodes/{id}` | Nodes self-register via the agent + a join token; the resource manages labels/availability/removal. |
-| `swarmy_service` (+ `data`) | `/services`, `/services/{id}`, `/services/{id}/scale`, `/services/{id}/restart` | Flagship. Create/update → async deploy; provider polls the deployment to a terminal phase. `ForceNew` on name/node; in-place on image/replicas/env. |
-| `swarmy_stack` | `/stacks`, `/stacks/{id}` | Compose-style bundle; async deploy/poll. |
-| `swarmy_ingress_domain` (+ `data`) | `/ingress/domains` | Plain CRUD; pairs a host with a service + port + TLS mode. |
-
-(`swarmy_join_token`, `swarmy_backup_target`, and richer ingress config land with
-later phases / their owning epics.)
+The implemented resources and data sources are listed in
+[Resources & data sources (implemented)](#resources--data-sources-implemented)
+below. (`swarmy_join_token`, `swarmy_backup_target`, and richer ingress config
+land with later phases / their owning epics.)
 
 ## Generation boundary (don't clobber hand code)
 
@@ -95,19 +88,113 @@ later phases / their owning epics.)
 
 ```
 terraform-provider-swarmy/
-├── README.md            # this file
-├── openapi.json         # committed spec reference (copy of the canonical export)
-├── main.go              # provider entrypoint (TODO)
-├── go.mod               # Go module (TODO — keeps Go out of the TS build)
+├── README.md                  # this file
+├── openapi.json               # committed spec reference (copy of the canonical export)
+├── GNUmakefile                # build / install / test / testacc targets
+├── go.mod / go.sum            # Go module (keeps Go out of the TS build)
+├── main.go                    # provider entrypoint (providerserver.Serve)
 ├── internal/
-│   ├── sdk/             # generated Go API client (TODO)
-│   └── provider/        # hand-written resources/data-sources (TODO)
-└── examples/            # *.tf usage examples
+│   ├── client/                # typed REST client: auth, JSON, RFC9457 errors
+│   │   ├── client.go          # transport, URL building, GET/POST/DELETE helpers
+│   │   ├── api.go             # per-resource calls (services, stacks, domains, …)
+│   │   ├── models.go          # DTO structs (snake_case JSON)
+│   │   ├── errors.go          # APIError + problem+json mapping + IsNotFound
+│   │   └── client_test.go     # unit tests: URL building, error mapping
+│   └── provider/              # hand-written resources/data-sources
+│       ├── provider.go        # schema, env fallbacks, Configure
+│       ├── helpers.go         # shared conversion helpers
+│       ├── resource_service.go, resource_stack.go,
+│       │   resource_domain.go, resource_api_key.go
+│       ├── data_source_node.go
+│       ├── provider_test.go   # fast schema-validity unit tests
+│       └── resource_service_acc_test.go  # TF_ACC-gated acceptance test
+└── examples/                  # *.tf usage examples (provider, resources, data-sources)
 ```
 
-## Build / publish (Phase 3)
+## Build / install / use
+
+The provider is a standalone Go module (`go 1.24`). All commands run from this
+directory.
+
+```sh
+# Compile, vet, unit-test (no live controller needed):
+make build
+make vet
+make test
+
+# Or directly:
+GOFLAGS=-mod=mod go mod tidy
+go build ./...
+go vet ./...
+go test ./internal/client/...
+```
+
+Install into the local Terraform plugin mirror so `terraform init` resolves it:
+
+```sh
+make install
+# copies the binary to
+# ~/.terraform.d/plugins/registry.terraform.io/requestflo/swarmy/<version>/<os>_<arch>/
+```
+
+Then in a config (see `examples/`):
+
+```hcl
+terraform {
+  required_providers {
+    swarmy = {
+      source  = "registry.terraform.io/requestflo/swarmy"
+      version = "~> 0.1"
+    }
+  }
+}
+
+provider "swarmy" {
+  endpoint = "https://controller.example.com" # or SWARMY_ENDPOINT
+  # api_key sourced from SWARMY_API_KEY
+}
+```
+
+```sh
+export SWARMY_ENDPOINT="https://controller.example.com"
+export SWARMY_API_KEY="swk_…"
+cd examples && terraform init && terraform plan
+```
+
+### Acceptance tests
+
+Acceptance tests are gated behind `TF_ACC` (so `go build`/`go vet`/`go test`
+stay green without a server) and require a live controller:
+
+```sh
+SWARMY_ENDPOINT=… SWARMY_API_KEY=swk_… make testacc
+```
+
+## Resources & data sources (implemented)
+
+| Terraform | REST backing | Lifecycle |
+|---|---|---|
+| `swarmy_service` | `POST/GET/DELETE /services`, `/services/{id}/scale`, `/services/{id}/restart` | Async create (202) → read-back. `name`/`node_id` force replace; `replicas` → scale; `image` → restart/redeploy. Import by ID. |
+| `swarmy_stack` | `POST/GET/DELETE /stacks` | Async deploy (202) → read-back. Update redeploys the compose source. Import by ID. |
+| `swarmy_domain` | `GET/POST /ingress/domains`, `DELETE /ingress/domains/{id}` | Plain CRUD. No update endpoint, so attribute changes delete+recreate. Read filters the list by ID. Import by ID. |
+| `swarmy_api_key` | `POST/GET/DELETE /api-keys` | Token returned once on create, stored sensitive in state. `name`/`scopes` force replace. |
+| `data.swarmy_node` | `GET /nodes`, `GET /nodes/{id}` | Lookup by `id` or `name` (exactly one). |
+
+## Caveats
+
+- **`swarmy_api_key` has no spec backing yet.** `openapi.json` does not ship an
+  `/api-keys` endpoint. The client/resource follow the documented convention
+  (`POST /api-keys` with `{name, scopes}` returning a one-time `token`); wire the
+  paths to the real endpoint once it lands. Everything else maps to endpoints
+  present in `openapi.json`.
+- **Async reconcile is read-after-create**, not deployment-phase polling. Create/
+  update dispatch the async deploy (202) and immediately read the resource back
+  to populate computed fields. A future revision can poll the returned
+  `deployment_id` to a terminal phase.
+- **`image`/`command`/`env`/`compose_source` are not echoed** by the read DTOs,
+  so they are preserved from plan/state rather than refreshed from the API.
+
+## Publish (future)
 
 - `goreleaser` builds the multi-platform provider binaries.
-- Published to the [Terraform Registry](https://registry.terraform.io) on release
-  (the repo already runs semantic-release for versioning).
-- Acceptance tests (`TF_ACC=1`) run against a dev controller.
+- Published to the [Terraform Registry](https://registry.terraform.io) on release.
