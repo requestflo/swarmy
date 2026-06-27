@@ -9,7 +9,13 @@ const trpcClient = createTrpcClient();
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="dark"
+      enableSystem
+      storageKey="swarmy-app-theme"
+      disableTransitionOnChange
+    >
       <QueryClientProvider client={queryClient}>
         <TRPCProvider trpcClient={trpcClient} queryClient={queryClient}>
           <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
