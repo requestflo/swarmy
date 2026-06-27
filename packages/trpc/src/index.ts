@@ -7,4 +7,6 @@ export type {
   CommandResult,
 } from './hub/types';
 export { COMMAND_PROTOCOL_TYPE } from './hub/types';
+export { writeAudit } from './services/audit.service';
+export type { AuditEntry, AuditActorType } from './services/audit.service';
 export * from './errors';
