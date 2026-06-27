@@ -15,6 +15,13 @@ function log(...args: unknown[]): void {
 }
 
 async function main(): Promise<void> {
+  if (process.argv.includes('--version') || process.argv.includes('-v')) {
+    const { versionInfo } = await import('./version');
+    const v = versionInfo();
+    // eslint-disable-next-line no-console
+    console.log(`swarmy-agent ${v.version} (protocol ${v.protocolVersion}, commit ${v.commit})`);
+    process.exit(0);
+  }
   const docker = new DockerClient(env.DOCKER_SOCKET);
   let state: AgentState | null = await loadState();
 

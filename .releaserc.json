@@ -1,21 +1,30 @@
 {
-  "branches": ["main"],
+  "branches": ["main", { "name": "next", "prerelease": true }, { "name": "beta", "prerelease": true }],
   "plugins": [
-    "@semantic-release/commit-analyzer",
-    "@semantic-release/release-notes-generator",
+    ["@semantic-release/commit-analyzer", { "preset": "conventionalcommits" }],
+    ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],
     ["@semantic-release/changelog", { "changelogFile": "CHANGELOG.md" }],
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "bun run scripts/set-version.ts ${nextRelease.version} && bun run scripts/gen-install-sh.ts ${nextRelease.version} dist/install.sh"
+      }
+    ],
     ["@semantic-release/npm", { "npmPublish": false }],
     [
       "@semantic-release/github",
       {
         "successComment": false,
-        "failComment": false
+        "failComment": false,
+        "assets": [
+          { "path": "dist/install.sh", "label": "install.sh (v${nextRelease.version}, version-pinned)" }
+        ]
       }
     ],
     [
       "@semantic-release/git",
       {
-        "assets": ["CHANGELOG.md", "package.json"],
+        "assets": ["CHANGELOG.md", "package.json", "apps/*/package.json", "packages/*/package.json"],
         "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
       }
     ]

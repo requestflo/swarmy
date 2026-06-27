@@ -4,18 +4,40 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": { "types": "./src/index.ts", "import": "./src/index.ts" },
-    "./protocol": { "types": "./src/protocol/index.ts", "import": "./src/protocol/index.ts" },
-    "./compose": { "types": "./src/compose/index.ts", "import": "./src/compose/index.ts" },
-    "./inputs": { "types": "./src/inputs.ts", "import": "./src/inputs.ts" },
-    "./views": { "types": "./src/views.ts", "import": "./src/views.ts" },
-    "./docker": { "types": "./src/docker.ts", "import": "./src/docker.ts" },
-    "./crypto": { "types": "./src/crypto.ts", "import": "./src/crypto.ts" }
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./protocol": {
+      "types": "./src/protocol/index.ts",
+      "import": "./src/protocol/index.ts"
+    },
+    "./compose": {
+      "types": "./src/compose/index.ts",
+      "import": "./src/compose/index.ts"
+    },
+    "./inputs": {
+      "types": "./src/inputs.ts",
+      "import": "./src/inputs.ts"
+    },
+    "./views": {
+      "types": "./src/views.ts",
+      "import": "./src/views.ts"
+    },
+    "./docker": {
+      "types": "./src/docker.ts",
+      "import": "./src/docker.ts"
+    },
+    "./crypto": {
+      "types": "./src/crypto.ts",
+      "import": "./src/crypto.ts"
+    }
   },
   "scripts": {
     "build": "echo '@swarmy/core resolves to src'",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo",
+    "test": "bun test"
   },
   "dependencies": {
     "zod": "^3.24.1",

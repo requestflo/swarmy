@@ -26,6 +26,10 @@ COPY apps/api apps/api
 ENV CHECKPOINT_DISABLE=1 PRISMA_HIDE_UPDATE_MESSAGE=1
 RUN bun --filter @swarmy/db db:generate
 
+# Bake the build commit so `GET /version` reports it.
+ARG SWARMY_COMMIT=dev
+ENV SWARMY_COMMIT=${SWARMY_COMMIT}
+
 ENV NODE_ENV=production PORT=3001
 EXPOSE 3001
 ENTRYPOINT ["bun", "run", "apps/api/src/index.ts"]

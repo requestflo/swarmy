@@ -13,12 +13,16 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
+    "test": "bun test",
     "clean": "rm -rf dist .turbo src/generated"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.3",
     "@prisma/adapter-pg": "^7.0.0",
     "@prisma/client": "^7.0.0",
-    "pg": "^8.13.1"
+    "@prisma/driver-adapter-utils": "^7.0.0",
+    "pg": "^8.13.1",
+    "postgres-array": "^3.0.4"
   },
   "devDependencies": {
     "@types/pg": "^8.11.10",

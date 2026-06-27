@@ -44,6 +44,8 @@ const NAV = [
   { to: '/observability', label: 'Observability', icon: ActivityIcon, exact: false },
   { to: '/settings/access', label: 'Access', icon: ShieldIcon, exact: false },
   { to: '/settings/api-keys', label: 'API keys', icon: KeyRoundIcon, exact: false },
+  { to: '/backups/schedules', label: 'DR & schedules', icon: ShieldIcon, exact: false },
+  { to: '/settings/backup', label: 'Controller backup', icon: DatabaseBackupIcon, exact: false },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, exact: false },
 ] as const;
 

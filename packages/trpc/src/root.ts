@@ -19,6 +19,10 @@ import { cicdRouter } from './routers/cicd';
 import { geodnsRouter } from './routers/geodns';
 import { templatesRouter } from './routers/templates';
 import { apiKeysRouter } from './routers/apiKeys';
+import { controllerBackupRouter } from './routers/controllerBackup';
+import { storageRouter } from './routers/storage';
+import { volumesRouter } from './routers/volumes';
+import { schedulesRouter } from './routers/schedules';
 
 export const appRouter = router({
   org: orgRouter,
@@ -41,6 +45,10 @@ export const appRouter = router({
   geodns: geodnsRouter,
   templates: templatesRouter,
   apiKeys: apiKeysRouter,
+  controllerBackup: controllerBackupRouter,
+  storage: storageRouter,
+  volumes: volumesRouter,
+  schedules: schedulesRouter,
 });
 
 export type AppRouter = typeof appRouter;

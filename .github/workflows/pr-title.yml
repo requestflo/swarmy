@@ -1,0 +1,32 @@
+name: PR Title
+
+# Squash-merges use the PR title as the commit subject, which is the actual input
+# to semantic-release. So the PR title must itself be a valid Conventional Commit
+# (commitlint.config.mjs) — otherwise a `feat:` PR squashed under a non-conforming
+# title silently fails to release. See plans/epic-licensing-release-engineering.md.
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  lint-pr-title:
+    name: conventional PR title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - run: bun install --frozen-lockfile
+      - name: Lint PR title with commitlint
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s' "$PR_TITLE" | bunx commitlint --verbose

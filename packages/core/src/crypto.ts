@@ -74,3 +74,75 @@ export function verifyTokenHash(token: string, storedHash: string): boolean {
 export function randomToken(prefix = 'swt'): string {
   return `${prefix}_${randomBytes(24).toString('base64url')}`;
 }
+
+// ── controller-state restore: user-held passphrase envelope ─────────────────
+//
+// The controller-state backup (data-store epic, P1) is encrypted with a
+// *separate, user-held passphrase* — NOT `SWARMY_SECRET_KEY`. This is the root
+// of trust for disaster recovery: a restore must work when the controller (and
+// thus the vault key) is gone. scrypt stretches the passphrase into a 256-bit
+// key; a random per-bundle salt is stored alongside the ciphertext so restore
+// needs only the passphrase. AES-256-GCM gives authenticated encryption.
+
+const PASSPHRASE_MAGIC = 'SWARMY-CB1'; // controller-bundle v1
+const SCRYPT_N = 1 << 15; // 32768 — interactive-grade cost
+const SCRYPT_PARAMS = { N: SCRYPT_N, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
+
+function derivePassphraseKey(passphrase: string, salt: Buffer): Buffer {
+  if (!passphrase || passphrase.length < 8) {
+    throw new Error('restore passphrase must be at least 8 characters');
+  }
+  return scryptSync(passphrase, salt, 32, SCRYPT_PARAMS);
+}
+
+/**
+ * Encrypt a controller-state bundle with a user-held passphrase. Output is a
+ * self-describing binary frame: `magic | salt(16) | iv(12) | tag(16) | ct`.
+ * Decryptable by {@link decryptWithPassphrase} (and, by hand, with restic + the
+ * passphrase + this format) — no controller, no vault key required.
+ */
+export function encryptWithPassphrase(plaintext: Buffer | Uint8Array, passphrase: string): Buffer {
+  const salt = randomBytes(16);
+  const iv = randomBytes(12);
+  const key = derivePassphraseKey(passphrase, salt);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const ct = Buffer.concat([cipher.update(Buffer.from(plaintext)), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([Buffer.from(PASSPHRASE_MAGIC, 'utf8'), salt, iv, tag, ct]);
+}
+
+/** Decrypt a frame produced by {@link encryptWithPassphrase}. Throws on a wrong passphrase. */
+export function decryptWithPassphrase(frame: Buffer | Uint8Array, passphrase: string): Buffer {
+  const buf = Buffer.from(frame);
+  const magic = Buffer.from(PASSPHRASE_MAGIC, 'utf8');
+  if (buf.length < magic.length + 16 + 12 + 16 || !buf.subarray(0, magic.length).equals(magic)) {
+    throw new Error('not a swarmy controller-state bundle (bad magic/length)');
+  }
+  let o = magic.length;
+  const salt = buf.subarray(o, (o += 16));
+  const iv = buf.subarray(o, (o += 12));
+  const tag = buf.subarray(o, (o += 16));
+  const ct = buf.subarray(o);
+  const key = derivePassphraseKey(passphrase, salt);
+  const decipher = createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  try {
+    return Buffer.concat([decipher.update(ct), decipher.final()]);
+  } catch {
+    throw new Error('decryption failed — wrong restore passphrase or corrupt bundle');
+  }
+}
+
+/** A short, non-secret fingerprint of a passphrase, safe to store as a hint. */
+export function passphraseFingerprint(passphrase: string): string {
+  return createHash('sha256').update(`swarmy.cb.fp:${passphrase}`).digest('hex').slice(0, 12);
+}
+
+/** Generate a strong, human-transcribable restore passphrase (recovery card). */
+export function generateRestorePassphrase(): string {
+  // 5 groups of 4 chars from an unambiguous alphabet → ~95 bits, card-friendly.
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = randomBytes(20);
+  const chars = Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
+  return chars.match(/.{1,4}/g)!.join('-');
+}

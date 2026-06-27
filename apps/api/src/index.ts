@@ -15,10 +15,14 @@ import {
   type TermSocket,
 } from './terminal';
 import { startWorkers } from './workers';
+import { webhooksApp } from './webhooks';
+import { versionInfo } from './version';
+import { licenseStatus } from './license';
 
 const app = new Hono();
 
 app.get('/health', (c) => c.json({ ok: true, service: 'swarmy-controller' }));
+app.get('/version', (c) => c.json({ ...versionInfo(), enterprise: licenseStatus().enabled }));
 
 // Live node installer: curl -fsSL <controller>/install.sh | SWARMY_JOIN_TOKEN=… sh
 // Optional ?manager=1 adds a swarm-manager init hint for the first node.
@@ -39,6 +43,9 @@ const restApp = createRestApp({
     resolveOrgContextFromApiKey({ db: prisma, hub, auth: authRegistry.getAuth() }, presentedKey),
 });
 app.route('/api/v1', restApp);
+
+// Git provider webhooks (push → build). Public, per-repo HMAC-verified.
+app.route('/webhooks', webhooksApp);
 
 app.notFound((c) => c.json({ error: 'not found' }, 404));
 

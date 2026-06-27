@@ -19,6 +19,10 @@ RUN bun install --filter @swarmy/agent --filter @swarmy/core || bun install
 COPY packages/core packages/core
 COPY apps/agent apps/agent
 
+# Bake the build commit so `swarmy-agent --version` reports it.
+ARG SWARMY_COMMIT=dev
+ENV SWARMY_COMMIT=${SWARMY_COMMIT}
+
 ENV SWARMY_AGENT_STATE=/var/lib/swarmy/agent.json
 VOLUME /var/lib/swarmy
 

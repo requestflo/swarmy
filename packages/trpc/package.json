@@ -12,7 +12,8 @@
   "scripts": {
     "build": "echo '@swarmy/trpc resolves to src'",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo",
+    "test": "bun test"
   },
   "dependencies": {
     "@swarmy/abac": "workspace:*",

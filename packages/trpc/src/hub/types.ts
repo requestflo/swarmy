@@ -26,7 +26,11 @@ export type CommandName =
   | 'exec'
   | 'backup.run'
   | 'backup.restore'
-  | 'backup.list';
+  | 'backup.list'
+  | 'storage.apply' // volumes-dr P2: bring up a Garage member
+  | 'volume.provision' // volumes-dr P3: create a local/CSI cluster volume
+  | 'volume.remove'
+  | 'image.prune';
 
 /** CommandName → wire protocol message `type` (see @swarmy/core/protocol). */
 export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
@@ -45,6 +49,10 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'backup.run': 'backupVolume',
   'backup.restore': 'restoreVolume',
   'backup.list': 'listSnapshots',
+  'storage.apply': 'applyStorageNode',
+  'volume.provision': 'provisionVolume',
+  'volume.remove': 'removeVolume',
+  'image.prune': 'pruneImages',
 };
 
 export interface CommandResult<R = unknown> {

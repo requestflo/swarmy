@@ -51,6 +51,8 @@ export type CloseCode = (typeof CloseCode)[keyof typeof CloseCode];
 
 /** Per-command execution timeouts (ms) the agent enforces. 0 = no timeout. */
 export const DEFAULT_COMMAND_TIMEOUTS: Record<string, number> = {
+  buildImage: 1800000,
+  pruneImages: 120000,
   deployService: 120_000,
   removeService: 60_000,
   scaleService: 60_000,

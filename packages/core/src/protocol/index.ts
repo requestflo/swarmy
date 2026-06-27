@@ -18,3 +18,5 @@ export * from './backup';
 export * from './mesh';
 export * from './terminal';
 export * from './build';
+export * from './prune';
+export * from './storage';

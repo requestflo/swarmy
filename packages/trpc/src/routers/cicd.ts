@@ -2,15 +2,22 @@ import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import {
   addRepo,
+  getBuildLogPage,
   getGcPolicy,
   getRegistryConfig,
+  getWebhookInfo,
   listBuilds,
   listRepos,
   removeRepo,
   setGcPolicy,
   setRegistryEnabled,
+  subscribeBuildLog,
   triggerBuild,
 } from '../services/cicd.service';
+import { runImageGcForOrg } from '../services/image-gc.service';
+
+const CONTROLLER_PUBLIC_URL =
+  process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3001';
 
 const providerEnum = z.enum(['github', 'gitlab']);
 
@@ -41,6 +48,22 @@ export const cicdRouter = router({
     .input(z.object({ repoId: z.string(), ref: z.string().optional() }))
     .mutation(({ ctx, input }) => triggerBuild(ctx, input)),
 
+  // Webhook URL + secret to paste into the provider (GitHub/GitLab).
+  webhookInfo: adminProcedure
+    .input(z.object({ repoId: z.string() }))
+    .query(({ ctx, input }) => getWebhookInfo(ctx, input.repoId, CONTROLLER_PUBLIC_URL)),
+
+  // ── Build logs (live viewer) ──
+  buildLogPage: orgProcedure
+    .input(z.object({ buildId: z.string() }))
+    .query(({ ctx, input }) => getBuildLogPage(ctx, input.buildId)),
+  buildLogs: orgProcedure
+    .input(z.object({ buildId: z.string() }))
+    .subscription(async function* ({ ctx, input, signal }) {
+      const ac = signal ?? new AbortController().signal;
+      yield* subscribeBuildLog(ctx, input.buildId, ac);
+    }),
+
   // ── Registry ──
   getRegistryConfig: orgProcedure.query(({ ctx }) => getRegistryConfig(ctx)),
   setRegistryEnabled: adminProcedure
@@ -58,4 +81,14 @@ export const cicdRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => setGcPolicy(ctx, input)),
+  // Run GC now (or preview). `dryRun` reports the plan without removing anything.
+  runGc: adminProcedure
+    .input(z.object({ dryRun: z.boolean().optional() }).optional())
+    .mutation(({ ctx, input }) =>
+      runImageGcForOrg(
+        { db: ctx.db, hub: ctx.hub, auth: ctx.auth },
+        ctx.activeOrgId,
+        { dryRun: input?.dryRun },
+      ),
+    ),
 });
