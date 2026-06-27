@@ -1,9 +1,10 @@
 import * as React from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { ServerIcon } from 'lucide-react';
+import { PlusIcon, ServerIcon } from 'lucide-react';
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   EmptyState,
@@ -40,6 +41,13 @@ function NodesPage(): React.JSX.Element {
           )
         }
         description="Every machine connected to your swarm via the agent — one place."
+        actions={
+          <Button asChild>
+            <Link to="/nodes/new">
+              <PlusIcon className="size-4" /> Add a node
+            </Link>
+          </Button>
+        }
       />
 
       {nodes.data && nodes.data.length === 0 ? (
@@ -48,7 +56,14 @@ function NodesPage(): React.JSX.Element {
             <EmptyState
               icon={<ServerIcon />}
               title="Quiet so far. Add a node."
-              description="Mint a join token in Settings, then run the swarmy agent on each machine — it shows up here the moment it phones home."
+              description="One line, pasted on your server, and it shows up here the moment it phones home."
+              action={
+                <Button asChild>
+                  <Link to="/nodes/new">
+                    <PlusIcon className="size-4" /> Add a node
+                  </Link>
+                </Button>
+              }
             />
           </CardContent>
         </Card>

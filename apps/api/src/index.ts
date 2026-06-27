@@ -11,12 +11,14 @@ const app = new Hono();
 app.get('/health', (c) => c.json({ ok: true, service: 'swarmy-controller' }));
 
 // Live node installer: curl -fsSL <controller>/install.sh | SWARMY_JOIN_TOKEN=… sh
-app.get('/install.sh', (c) =>
-  c.body(renderInstallScript(env.CONTROLLER_PUBLIC_URL), 200, {
+// Optional ?manager=1 adds a swarm-manager init hint for the first node.
+app.get('/install.sh', (c) => {
+  const manager = c.req.query('manager') === '1';
+  return c.body(renderInstallScript(env.CONTROLLER_PUBLIC_URL, { manager }), 200, {
     'content-type': 'text/x-shellscript; charset=utf-8',
     'cache-control': 'no-store',
-  }),
-);
+  });
+});
 app.on(['GET', 'POST'], '/api/auth/*', (c) => auth.handler(c.req.raw));
 app.all('/api/trpc/*', (c) => handleTrpc(c.req.raw));
 app.notFound((c) => c.json({ error: 'not found' }, 404));

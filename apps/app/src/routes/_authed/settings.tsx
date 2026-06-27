@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRoundIcon, PlusIcon } from 'lucide-react';
 import {
@@ -169,8 +169,11 @@ function TokensTab(): React.JSX.Element {
         <CardHeader>
           <CardTitle className="text-base">Enroll a node</CardTitle>
           <CardDescription>
-            Mint a join token, then run the agent on the node with{' '}
-            <code className="bg-muted mono-data rounded px-1 py-0.5 text-xs">SWARMY_JOIN_TOKEN</code>.
+            The fastest way is the{' '}
+            <Link to="/nodes/new" className="text-primary font-medium underline-offset-2 hover:underline">
+              guided one-liner
+            </Link>{' '}
+            — copy, paste, watch it connect. Or mint a raw join token below.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-end gap-3">
