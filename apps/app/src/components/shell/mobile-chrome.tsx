@@ -1,76 +1,56 @@
-import { Link, useNavigate } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import { BoxesIcon, GaugeIcon, LogOutIcon, PlusIcon, ServerIcon, SettingsIcon } from 'lucide-react';
-import { authClient } from '@swarmy/auth/client';
-import {
-  Avatar,
-  AvatarFallback,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  cn,
-} from '@swarmy/ui';
-import { useTRPC } from '@/integrations/trpc';
+import * as React from 'react';
+import { Link, useLocation } from '@tanstack/react-router';
+import { BoxesIcon, RocketIcon, SearchIcon, ServerIcon, SettingsIcon } from 'lucide-react';
+import { cn } from '@swarmy/ui';
 import { Wordmark } from '@/components/wordmark';
-import { ThemeMenuItems } from '@/components/theme-menu';
+import { UserMenu } from './user-menu';
+import { useCommandPalette } from './command-palette-provider';
 
+/** Compact mobile header: wordmark + search + avatar. No hamburger. */
 export function MobileHeader(): React.JSX.Element {
-  const trpc = useTRPC();
-  const navigate = useNavigate();
-  const whoami = useQuery(trpc.org.whoami.queryOptions());
+  const { toggle } = useCommandPalette();
   return (
     <header className="bg-background/85 sticky top-0 z-30 flex h-14 items-center justify-between border-b px-4 backdrop-blur lg:hidden">
       <Wordmark />
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className="rounded-full">
-            <Avatar>
-              <AvatarFallback className="bg-primary/15 text-foreground">
-                {(whoami.data?.name ?? whoami.data?.email ?? '?').slice(0, 1).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          <ThemeMenuItems />
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={async () => {
-              await authClient.signOut();
-              await navigate({ to: '/login' });
-            }}
-          >
-            <LogOutIcon className="size-4" /> Sign out
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <div className="flex items-center gap-3">
+        <button onClick={toggle} aria-label="Search" className="text-muted-foreground">
+          <SearchIcon className="size-5" />
+        </button>
+        <UserMenu side="bottom" />
+      </div>
     </header>
   );
 }
 
 const TABS = [
-  { to: '/', label: 'Overview', icon: GaugeIcon, exact: true },
-  { to: '/nodes', label: 'Nodes', icon: ServerIcon, exact: false },
-  { to: '/services', label: 'Services', icon: BoxesIcon, exact: false },
-  { to: '/settings', label: 'Settings', icon: SettingsIcon, exact: false },
+  { to: '/', label: 'Apps', icon: BoxesIcon, match: (p: string) => p === '/' || p.startsWith('/services') || p.startsWith('/stacks') },
+  { to: '/nodes', label: 'Infra', icon: ServerIcon, match: (p: string) => p.startsWith('/nodes') },
 ] as const;
 
+const TABS_RIGHT = [{ to: '/settings', label: 'Settings', icon: SettingsIcon, match: (p: string) => p.startsWith('/settings') }] as const;
+
+/** Bottom tab bar: planes flanking a centre coral Deploy FAB, plus Search + Settings. */
 export function MobileTabBar(): React.JSX.Element {
+  const { toggle } = useCommandPalette();
+  const { pathname } = useLocation();
   return (
     <nav className="bg-background/90 fixed inset-x-0 bottom-0 z-30 flex items-end justify-around border-t px-2 pb-[env(safe-area-inset-bottom)] pt-2 backdrop-blur lg:hidden">
-      {TABS.slice(0, 2).map((t) => (
-        <Tab key={t.to} {...t} />
+      {TABS.map((t) => (
+        <Tab key={t.to} {...t} active={t.match(pathname)} />
       ))}
       <Link
         to="/services/new"
-        className="bg-primary text-primary-foreground shadow-[0_8px_24px_-6px_var(--primary)] -mt-6 flex size-14 items-center justify-center rounded-full ring-4 ring-background"
-        aria-label="New service"
+        className="bg-primary text-primary-foreground ring-background -mt-6 flex size-14 items-center justify-center rounded-full shadow-[0_8px_24px_-6px_var(--primary)] ring-4"
+        aria-label="Deploy a new service"
       >
-        <PlusIcon className="size-6" />
+        <RocketIcon className="size-6" />
       </Link>
-      {TABS.slice(2).map((t) => (
-        <Tab key={t.to} {...t} />
+      <button onClick={toggle} className="text-muted-foreground flex flex-1 flex-col items-center gap-1 py-1 text-[10px] font-medium">
+        <SearchIcon className="size-5" />
+        Search
+      </button>
+      {TABS_RIGHT.map((t) => (
+        <Tab key={t.to} {...t} active={t.match(pathname)} />
       ))}
     </nav>
   );
@@ -80,26 +60,24 @@ function Tab({
   to,
   label,
   icon: Icon,
-  exact,
+  active,
 }: {
   to: string;
   label: string;
-  icon: typeof GaugeIcon;
-  exact: boolean;
+  icon: typeof BoxesIcon;
+  active: boolean;
 }): React.JSX.Element {
   return (
-    <Link to={to} activeOptions={{ exact }} className="flex-1">
-      {({ isActive }) => (
-        <span
-          className={cn(
-            'flex flex-col items-center gap-1 py-1 text-[10px] font-medium transition-colors',
-            isActive ? 'text-primary' : 'text-muted-foreground',
-          )}
-        >
-          <Icon className="size-5" />
-          {label}
-        </span>
-      )}
+    <Link to={to} className="flex-1">
+      <span
+        className={cn(
+          'flex flex-col items-center gap-1 py-1 text-[10px] font-medium transition-colors',
+          active ? 'text-primary' : 'text-muted-foreground',
+        )}
+      >
+        <Icon className="size-5" />
+        {label}
+      </span>
     </Link>
   );
 }

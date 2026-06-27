@@ -27,6 +27,7 @@ import { ssoRouter } from './routers/sso';
 import { membersRouter } from './routers/members';
 import { oauthRouter } from './routers/oauth';
 import { webhooksOutRouter } from './routers/webhooksOut';
+import { canvasRouter } from './routers/canvas';
 
 export const appRouter = router({
   org: orgRouter,
@@ -57,6 +58,7 @@ export const appRouter = router({
   members: membersRouter,
   oauth: oauthRouter,
   webhooksOut: webhooksOutRouter,
+  canvas: canvasRouter,
 });
 
 export type AppRouter = typeof appRouter;

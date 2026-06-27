@@ -8,3 +8,33 @@ body,
 #root {
   height: 100%;
 }
+
+/* ── React Flow chrome → Hot Signal (token-driven, dark-mode aware) ── */
+.react-flow__controls {
+  border-radius: 0.85rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 30px -16px rgb(0 0 0 / 0.35);
+}
+.react-flow__controls-button {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  color: var(--card-foreground);
+}
+.react-flow__controls-button:hover {
+  background: var(--accent);
+}
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+.react-flow__minimap {
+  background: color-mix(in oklab, var(--card) 92%, transparent);
+  border: 1px solid var(--border);
+}
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__node:focus,
+.react-flow__node:focus-visible {
+  outline: none;
+}
