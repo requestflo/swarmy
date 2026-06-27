@@ -1,6 +1,12 @@
 import { z } from 'zod';
-import { orgProcedure, router } from '../trpc';
-import { getTemplate, listTemplates, renderTemplate, type TemplateId } from '../services/templates';
+import { adminProcedure, orgProcedure, router } from '../trpc';
+import {
+  deployTemplate,
+  getTemplate,
+  listTemplates,
+  renderTemplate,
+  type TemplateId,
+} from '../services/templates';
 import { notFound } from '../errors';
 
 const templateIdEnum = z.enum(['postgres-ha', 'redis-ha']);
@@ -36,4 +42,22 @@ export const templatesRouter = router({
       if (!rendered) throw notFound('template', input.id);
       return rendered;
     }),
+
+  /** Deploy an HA template across regions + optionally wire Geo-DNS records. */
+  deploy: adminProcedure
+    .input(
+      z.object({
+        id: templateIdEnum,
+        params: paramsSchema,
+        geo: z
+          .object({
+            host: z.string().min(1),
+            targets: z.record(z.string()).optional(),
+          })
+          .optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      deployTemplate(ctx, { id: input.id as TemplateId, params: input.params, geo: input.geo }),
+    ),
 });

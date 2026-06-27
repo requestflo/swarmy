@@ -136,6 +136,48 @@ describe('evaluateAccess with custom policies + ReBAC grants', () => {
   });
 });
 
+describe('evaluateAccess terminal.open (highest-risk action)', () => {
+  it('permits owner to open a terminal by default', async () => {
+    const ctx = mockCtx({ role: 'owner' });
+    const r = await evaluateAccess(ctx, 'terminal.open', null);
+    expect(r.decision).toBe('permit');
+  });
+
+  it('permits admin to open a terminal by default', async () => {
+    const ctx = mockCtx({ role: 'admin' });
+    const r = await evaluateAccess(ctx, 'terminal.open', null);
+    expect(r.decision).toBe('permit');
+  });
+
+  it('denies a plain member by default (not in member-safe-ops)', async () => {
+    const ctx = mockCtx({ role: 'member' });
+    const r = await evaluateAccess(ctx, 'terminal.open', null);
+    expect(r.decision).toBe('deny');
+  });
+
+  it('a forbid policy on a prod node blocks even an owner', async () => {
+    const ctx = mockCtx({
+      role: 'owner',
+      policies: [
+        { id: 'allow', name: 'a', effect: 'permit', priority: 1, enabled: true, source: JSON.stringify({ actions: ['*'] }) },
+        {
+          id: 'no-prod-shell',
+          name: 'no prod shells',
+          effect: 'forbid',
+          priority: 99,
+          enabled: true,
+          source: JSON.stringify({ actions: ['terminal.open'], resourceLabels: { env: 'prod' } }),
+        },
+      ],
+      nodes: [{ id: 'n1', orgId: 'org1', labels: { env: 'prod' } }],
+    });
+    const resource = await resolveNode(ctx, { id: 'n1' });
+    const r = await evaluateAccess(ctx, 'terminal.open', resource);
+    expect(r.decision).toBe('deny');
+    expect(r.policyId).toBe('no-prod-shell');
+  });
+});
+
 describe('resource resolvers', () => {
   it('resolveNode returns null for an unknown id', async () => {
     const ctx = mockCtx({ nodes: [] });

@@ -205,6 +205,10 @@ model Organization {
   meshRoutes          MeshRoute[]
   meshAcls            MeshAcl[]
   tunnels             Tunnel[]
+  terminalSessions    TerminalSession[]
+  terminalPolicy      TerminalPolicy?
+  terminalApprovals   TerminalApproval[]
+  swarmConfig         SwarmConfig?
 
   @@map("organization")
 }
@@ -288,6 +292,8 @@ model JoinToken {
   label       String?
   maxUses     Int?
   uses        Int       @default(0)
+  // node-onboarding P2: preferred swarm role for nodes minted from this token.
+  roleHint    NodeRole?
   expiresAt   DateTime?
   revokedAt   DateTime?
   createdById String?
@@ -534,15 +540,15 @@ model ObservabilityConfig {
 
 model ObservabilityStoreState {
   id            String   @id @default(cuid())
-  orgId         String
+  orgId         String   @unique
   nodeId        String?
   status        String   @default("UNKNOWN")
+  reachable     Boolean  @default(false)
   diskUsedBytes BigInt   @default(0)
   lastCheckedAt DateTime @default(now())
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  @@index([orgId])
   @@map("observability_store_state")
 }
 
@@ -1043,4 +1049,84 @@ model Tunnel {
 
   @@index([orgId])
   @@map("tunnel")
+}
+
+// ─────────────────────────────────────── terminal sessions (terminal P2) ──
+
+model TerminalPolicy {
+  orgId                       String   @id
+  containerExecEnabled        Boolean  @default(true)
+  nodeShellEnabled            Boolean  @default(false)
+  requireMfa                  Boolean  @default(true)
+  requireApprovalForNodeShell Boolean  @default(true)
+  recordContainerExec         Boolean  @default(true)
+  idleTimeoutMs               Int      @default(300000)
+  maxSessionMs                Int      @default(3600000)
+  allowedRoles                Json     @default("[\"owner\",\"admin\"]")
+  updatedAt                   DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("terminal_policy")
+}
+
+model TerminalSession {
+  id           String    @id @default(cuid())
+  orgId        String
+  actorId      String
+  nodeId       String
+  targetKind   String
+  containerId  String?
+  command      Json      @default("{}")
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+  exitCode     Int?
+  reason       String?
+  recordingRef String?
+  bytesIn      Int       @default(0)
+  bytesOut     Int       @default(0)
+  clientIp     String?
+  approvedById String?
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, startedAt])
+  @@index([actorId])
+  @@map("terminal_session")
+}
+
+model TerminalApproval {
+  id            String   @id @default(cuid())
+  orgId         String
+  requestedById String
+  nodeId        String
+  reason        String
+  status        String   @default("pending")
+  approvedById  String?
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, status])
+  @@index([requestedById, nodeId])
+  @@map("terminal_approval")
+}
+
+// ──────────────────────────────────── swarm membership (node-onboarding P2) ──
+
+model SwarmConfig {
+  orgId                String   @id
+  swarmId              String?
+  managerNodeId        String?
+  managerAddr          String?
+  // Docker join tokens (`SWMTKN-…`), stored encrypted by the swarm service.
+  workerJoinTokenEnc   String?
+  managerJoinTokenEnc  String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("swarm_config")
 }

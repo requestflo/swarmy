@@ -25,16 +25,24 @@ import { resolveManagerNode } from './dispatch.service';
 import {
   collectorServiceSpec,
   clickhouseServiceSpec,
+  observabilityConfigFiles,
   CLICKHOUSE_HTTP_PORT,
   OTEL_OVERLAY_NETWORK,
 } from './observability-stack';
+import { renderClickhouseInitSql } from './observability-render';
 import {
   buildTracesQuery,
+  buildTraceDetailQuery,
   buildMetricsSeriesQuery,
+  buildMetricsSummaryQuery,
   type TraceRow,
+  type SpanRow,
   type MetricsPoint,
+  type MetricsSummaryRow,
   type TracesQueryInput,
+  type TraceDetailQueryInput,
   type MetricsQueryInput,
+  type MetricsSummaryQueryInput,
 } from './observability-query';
 
 export type CollectorStatus = 'OFFLINE' | 'DEPLOYING' | 'RUNNING' | 'FAILED';
@@ -287,6 +295,16 @@ export interface MetricsResult {
   points: MetricsPoint[];
 }
 
+export interface TraceDetailResult {
+  status: 'ok' | 'disabled' | 'unreachable' | 'not_found';
+  spans: SpanRow[];
+}
+
+export interface MetricsSummaryResult {
+  status: 'ok' | 'disabled' | 'unreachable';
+  rows: MetricsSummaryRow[];
+}
+
 export async function traces(
   ctx: OrgContext,
   query: TracesQueryInput,
@@ -311,6 +329,33 @@ export async function metricsSeries(
   return { status: 'ok', points: rows };
 }
 
+/** Full span tree for one trace (the waterfall view). Org-scoped. */
+export async function traceDetail(
+  ctx: OrgContext,
+  query: TraceDetailQueryInput,
+): Promise<TraceDetailResult> {
+  const dsn = await activeDsn(ctx);
+  if (!dsn) return { status: 'disabled', spans: [] };
+  const sql = buildTraceDetailQuery(ctx.activeOrgId, query);
+  const rows = await clickhouseJson<SpanRow>(dsn, sql);
+  if (rows === null) return { status: 'unreachable', spans: [] };
+  if (rows.length === 0) return { status: 'not_found', spans: [] };
+  return { status: 'ok', spans: rows };
+}
+
+/** Per-service aggregate of a metric (dashboard panel). Org-scoped. */
+export async function metricsSummary(
+  ctx: OrgContext,
+  query: MetricsSummaryQueryInput,
+): Promise<MetricsSummaryResult> {
+  const dsn = await activeDsn(ctx);
+  if (!dsn) return { status: 'disabled', rows: [] };
+  const sql = buildMetricsSummaryQuery(ctx.activeOrgId, query);
+  const rows = await clickhouseJson<MetricsSummaryRow>(dsn, sql);
+  if (rows === null) return { status: 'unreachable', rows: [] };
+  return { status: 'ok', rows };
+}
+
 /* ----------------------------------------------------------------------------
  * Internals
  * ------------------------------------------------------------------------- */
@@ -321,16 +366,60 @@ async function activeDsn(ctx: OrgContext): Promise<string | null> {
   return safeDecrypt(row.clickhouseDsn);
 }
 
-/** Deploy the collector + ClickHouse through the shared `service.deploy` path. */
+/**
+ * Deploy the collector + ClickHouse through the shared `service.deploy` path.
+ *
+ * Order matters:
+ *  1. Write the rendered collector `config.yaml` + ClickHouse init DDL to the
+ *     manager host (via the existing `applyIngress` file-write capability) so the
+ *     services' bind mounts resolve.
+ *  2. Deploy ClickHouse, then the collector (which depends on the store).
+ *  3. Replay the init DDL over the ClickHouse HTTP interface as a belt-and-braces
+ *     step (idempotent `CREATE ... IF NOT EXISTS`), so tables/TTLs exist even if
+ *     the entrypoint init dir was skipped (e.g. a re-used data volume).
+ */
 async function deployStore(ctx: OrgContext, dsnPlain: string): Promise<void> {
   const node = await resolveManagerNode(ctx);
   const dsn = parseDsn(dsnPlain);
+  const retentionDays = await retentionFor(ctx);
+
+  // 1. Write config files for the bind mounts (reuses the agent file-writer).
+  const files = observabilityConfigFiles({
+    password: dsn.password,
+    retentionDays,
+    database: dsn.database,
+  });
+  await ctx.hub.dispatch(node.id, 'applyIngress', {
+    rendered: {
+      driver: 'observability-files',
+      files,
+      serviceLabels: [],
+    },
+  });
+
+  // 2. Deploy the store, then the collector.
   const specs: ServiceSpec[] = [
-    clickhouseServiceSpec({ password: dsn.password, retentionDays: await retentionFor(ctx) }),
+    clickhouseServiceSpec({ password: dsn.password, retentionDays }),
     collectorServiceSpec({ clickhouseDsn: dsnPlain }),
   ];
   for (const spec of specs) {
     await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'missing' });
+  }
+
+  // 3. Replay the idempotent init DDL over HTTP (best-effort; store may still be
+  //    booting on first enable — the entrypoint init covers that case).
+  const initSql = renderClickhouseInitSql({ database: dsn.database, retentionDays });
+  await applyInitDdl(dsnPlain, initSql).catch(() => undefined);
+}
+
+/** Run multi-statement init DDL over ClickHouse HTTP (statement by statement). */
+async function applyInitDdl(dsnPlain: string, sql: string): Promise<void> {
+  const statements = sql
+    .split(';')
+    .map((s) => s.replace(/^\s*--.*$/gm, '').trim())
+    .filter((s) => s.length > 0);
+  for (const stmt of statements) {
+    await clickhouseExec(dsnPlain, stmt);
   }
 }
 
@@ -368,6 +457,21 @@ async function pingStore(dsnPlain: string): Promise<boolean> {
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+/** Run a single non-SELECT statement (DDL) against ClickHouse HTTP. */
+async function clickhouseExec(dsnPlain: string, sql: string): Promise<void> {
+  const dsn = parseDsn(dsnPlain);
+  const url = new URL(dsn.baseUrl);
+  const res = await fetch(url.toString(), {
+    method: 'POST',
+    headers: { ...authHeader(dsn), 'Content-Type': 'text/plain' },
+    body: sql,
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) {
+    throw new Error(`clickhouse exec failed (${res.status}): ${await res.text().catch(() => '')}`);
   }
 }
 

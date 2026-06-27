@@ -74,6 +74,69 @@ export class DockerClient {
     return info.Swarm?.ControlAvailable === true;
   }
 
+  // ── Swarm membership (node-onboarding epic) ────────────────────────────
+
+  /**
+   * `docker swarm init` on the LOCAL daemon. Returns this node's swarm id plus
+   * the freshly-minted worker+manager join tokens so the controller can store
+   * them for later nodes. Idempotent: if already in a swarm, returns the current
+   * id + tokens instead of erroring.
+   */
+  async swarmInit(advertiseAddr?: string): Promise<{
+    swarmNodeId: string;
+    managerAddr: string;
+    joinTokens: { worker: string; manager: string };
+  }> {
+    const info = await this.info();
+    if (info.Swarm?.LocalNodeState !== 'active') {
+      await this.docker.swarmInit({
+        ListenAddr: '0.0.0.0:2377',
+        AdvertiseAddr: advertiseAddr,
+      } as Parameters<Docker['swarmInit']>[0]);
+    }
+    return this.readSwarmState();
+  }
+
+  /** `docker swarm join` against an existing manager using a `SWMTKN-…`. */
+  async swarmJoin(opts: {
+    managerAddr: string;
+    joinToken: string;
+    advertiseAddr?: string;
+  }): Promise<{ swarmNodeId: string }> {
+    const info = await this.info();
+    if (info.Swarm?.LocalNodeState !== 'active') {
+      await this.docker.swarmJoin({
+        ListenAddr: '0.0.0.0:2377',
+        AdvertiseAddr: opts.advertiseAddr,
+        JoinToken: opts.joinToken,
+        RemoteAddrs: [opts.managerAddr],
+      } as Parameters<Docker['swarmJoin']>[0]);
+    }
+    return { swarmNodeId: await this.localSwarmNodeId() };
+  }
+
+  /** Read the local swarm node id, advertise addr, and current join tokens. */
+  async readSwarmState(): Promise<{
+    swarmNodeId: string;
+    managerAddr: string;
+    joinTokens: { worker: string; manager: string };
+  }> {
+    const swarm = await this.docker.swarmInspect();
+    const info = (await this.info()) as DockerInfoLike & { Swarm?: { NodeID?: string; NodeAddr?: string } };
+    const tokens = (swarm.JoinTokens ?? {}) as { Worker?: string; Manager?: string };
+    const nodeAddr = info.Swarm?.NodeAddr ?? '';
+    return {
+      swarmNodeId: info.Swarm?.NodeID ?? '',
+      managerAddr: nodeAddr ? `${nodeAddr}:2377` : '',
+      joinTokens: { worker: tokens.Worker ?? '', manager: tokens.Manager ?? '' },
+    };
+  }
+
+  private async localSwarmNodeId(): Promise<string> {
+    const info = (await this.info()) as DockerInfoLike & { Swarm?: { NodeID?: string } };
+    return info.Swarm?.NodeID ?? '';
+  }
+
   /** Snapshot all containers as protocol `ContainerInfo[]`. */
   async listContainers(all = true): Promise<ContainerInfo[]> {
     const list = await this.docker.listContainers({ all });

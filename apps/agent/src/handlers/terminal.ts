@@ -14,20 +14,21 @@ import { env } from '../env';
  * Interactive terminal (PTY) sessions on the node, multiplexed over the existing
  * agent → controller WebSocket.
  *
- * MVP target = container exec (dockerode), gated by the agent's existing
- * `SWARMY_ALLOW_EXEC`. A degraded node-shell path (a plain child process, no
- * full job control) is included behind the separate, default-off
- * `SWARMY_ALLOW_NODE_SHELL` flag — see env.ts INTEGRATION snippet. (Phase 2
- * upgrades node shell to a real host PTY via node-pty.)
+ * Targets:
+ *   - container : dockerode exec, gated by `SWARMY_ALLOW_EXEC` (env.ALLOW_EXEC).
+ *   - nodeShell : a host shell, gated by the SEPARATE `SWARMY_ALLOW_NODE_SHELL`
+ *                 (env.ALLOW_NODE_SHELL). Uses a real host PTY via `node-pty`
+ *                 when the native module is present (job control, `clear`, vim);
+ *                 otherwise falls back to a degraded `child_process` pipe (no
+ *                 SIGWINCH / job control) so the agent never fails to build.
+ *
+ * Limits: per-session idle-timeout (TermStart.idleTimeoutMs) and a hard
+ * per-session output cap (env.TERM_MAX_OUTPUT_BYTES; `yes`-bomb guard) that
+ * kills the session with `ptyExit{reason:'killed'}`.
  *
  * Routed from executor.ts: `termStart` → start, `termInput`/`termResize`/
  * `termClose` → the matching live session.
  */
-
-// SWARMY_ALLOW_NODE_SHELL is separate from ALLOW_EXEC; node shell is strictly
-// more dangerous and must never ride the container-exec flag. Read directly
-// until env.ts is extended (see INTEGRATION).
-const ALLOW_NODE_SHELL = (process.env.SWARMY_ALLOW_NODE_SHELL ?? 'false') === 'true';
 
 interface TermSession {
   sessionId: string;
@@ -35,6 +36,8 @@ interface TermSession {
   resize: (cols: number, rows: number) => void;
   kill: (reason: 'killed' | 'idle_timeout' | 'agent_shutdown') => void;
   touch: () => void;
+  /** Account for output bytes; returns false once the hard cap is exceeded. */
+  account: (n: number) => boolean;
 }
 
 const sessions = new Map<string, TermSession>();
@@ -53,6 +56,25 @@ function sendData(conn: AgentConnection, sessionId: string, seqRef: { v: number 
   }
 }
 
+/**
+ * Pure agent-side gating decision for a terminal target. Container exec rides
+ * `SWARMY_ALLOW_EXEC`; node shell rides the SEPARATE `SWARMY_ALLOW_NODE_SHELL`.
+ * Exported for unit testing the gate independently of dockerode/spawn.
+ */
+export function gateTarget(
+  target: TermStartPayload['target'],
+  flags: { allowExec: boolean; allowNodeShell: boolean },
+): { ok: true } | { ok: false; code: 'E_EXEC_DISABLED' | 'E_NODE_SHELL_DISABLED'; message: string } {
+  if (target.kind === 'container') {
+    return flags.allowExec
+      ? { ok: true }
+      : { ok: false, code: 'E_EXEC_DISABLED', message: 'exec disabled on this agent' };
+  }
+  return flags.allowNodeShell
+    ? { ok: true }
+    : { ok: false, code: 'E_NODE_SHELL_DISABLED', message: 'node shell disabled on this agent' };
+}
+
 export async function handleTermStart(
   docker: DockerClient,
   conn: AgentConnection,
@@ -61,30 +83,25 @@ export async function handleTermStart(
   const { sessionId, target } = p;
   if (sessions.has(sessionId)) return; // already running; ignore duplicate
 
+  const gate = gateTarget(target, {
+    allowExec: env.ALLOW_EXEC,
+    allowNodeShell: env.ALLOW_NODE_SHELL,
+  });
+  if (!gate.ok) {
+    conn.send('termStarted', {
+      sessionId,
+      ok: false,
+      error: { code: gate.code, message: gate.message },
+    });
+    return;
+  }
+
   try {
     if (target.kind === 'container') {
-      if (!env.ALLOW_EXEC) {
-        conn.send('termStarted', {
-          sessionId,
-          ok: false,
-          error: { code: 'E_EXEC_DISABLED', message: 'exec disabled on this agent' },
-        });
-        return;
-      }
       await startContainerExec(docker, conn, p, target);
       return;
     }
-
-    // nodeShell
-    if (!ALLOW_NODE_SHELL) {
-      conn.send('termStarted', {
-        sessionId,
-        ok: false,
-        error: { code: 'E_NODE_SHELL_DISABLED', message: 'node shell disabled on this agent' },
-      });
-      return;
-    }
-    startNodeShell(conn, p, target);
+    await startNodeShell(conn, p, target);
   } catch (e) {
     conn.send('termStarted', {
       sessionId,
@@ -166,6 +183,10 @@ async function startContainerExec(
 
   stream.on('data', (chunk: Buffer) => {
     session.touch();
+    if (!session.account(chunk.length)) {
+      session.kill('killed');
+      return;
+    }
     sendData(conn, sessionId, seqRef, chunk);
   });
   const finish = async (): Promise<void> => {
@@ -192,34 +213,103 @@ async function startContainerExec(
   session.resize(cols, rows);
 }
 
-function startNodeShell(
+/** Minimal structural type of the bits of `node-pty` we use. */
+interface PtyProcessLike {
+  write(data: string): void;
+  resize(cols: number, rows: number): void;
+  kill(signal?: string): void;
+  onData(cb: (data: string) => void): void;
+  onExit(cb: (e: { exitCode: number; signal?: number }) => void): void;
+}
+interface NodePtyModule {
+  spawn(
+    file: string,
+    args: string[],
+    opts: { name: string; cols: number; rows: number; cwd?: string; env?: NodeJS.ProcessEnv },
+  ): PtyProcessLike;
+}
+
+/** Best-effort load of the optional native `node-pty`. Returns null if absent. */
+async function loadNodePty(): Promise<NodePtyModule | null> {
+  try {
+    // Dynamic + indirected so bundlers don't hard-require the native module and
+    // the agent still builds/runs where node-pty isn't installed.
+    const mod = (await import(/* @vite-ignore */ 'node-pty' as string)) as unknown as NodePtyModule;
+    return typeof mod?.spawn === 'function' ? mod : null;
+  } catch {
+    return null;
+  }
+}
+
+async function startNodeShell(
   conn: AgentConnection,
   p: TermStartPayload,
   target: Extract<TermTargetKind, { kind: 'nodeShell' }>,
-): void {
-  const { sessionId } = p;
-  const shell = process.env.SHELL || '/bin/sh';
-  const cmd = target.cmd.length > 0 ? target.cmd : [shell, '-l'];
+): Promise<void> {
+  const { sessionId, cols, rows, term } = p;
+  const shell = target.cmd[0] ?? process.env.SHELL ?? '/bin/sh';
+  const args = target.cmd.length > 0 ? target.cmd.slice(1) : ['-l'];
 
-  const child = nodeSpawn(cmd[0]!, cmd.slice(1), {
-    env: { ...process.env, TERM: p.term },
+  const pty = await loadNodePty();
+  const seqRef = { v: 0 };
+
+  if (pty) {
+    // Real host PTY: full job control, SIGWINCH, vim/clear work.
+    const proc = pty.spawn(shell, args, {
+      name: term || 'xterm-256color',
+      cols,
+      rows,
+      cwd: process.env.HOME,
+      env: { ...process.env, TERM: term },
+    });
+    conn.send('termStarted', { sessionId, ok: true });
+    const session = registerSession(conn, p, {
+      write: (data) => proc.write(data.toString('binary')),
+      resize: (c, r) => proc.resize(c, r),
+      teardown: () => proc.kill(),
+    });
+    proc.onData((data) => {
+      session.touch();
+      const buf = Buffer.from(data, 'binary');
+      if (!session.account(buf.length)) {
+        session.kill('killed');
+        return;
+      }
+      sendData(conn, sessionId, seqRef, buf);
+    });
+    proc.onExit(({ exitCode, signal }) => {
+      if (!sessions.has(sessionId)) return;
+      sessions.delete(sessionId);
+      conn.send('termExit', {
+        sessionId,
+        exitCode,
+        signal: signal != null ? String(signal) : undefined,
+        reason: 'exit',
+      });
+    });
+    return;
+  }
+
+  // Degraded fallback: a plain child process (no PTY → no SIGWINCH / job control).
+  const child = nodeSpawn(shell, args, {
+    env: { ...process.env, TERM: term },
     stdio: ['pipe', 'pipe', 'pipe'],
   }) as import('node:child_process').ChildProcessWithoutNullStreams & {
     on(event: 'exit', cb: (code: number | null, signal: NodeJS.Signals | null) => void): void;
     on(event: 'error', cb: (err: Error) => void): void;
   };
-
   conn.send('termStarted', { sessionId, ok: true });
-
-  const seqRef = { v: 0 };
   const session = registerSession(conn, p, {
-    write: (data) => child.stdin?.write(data),
-    resize: () => undefined, // no PTY → SIGWINCH not available in the degraded path
+    write: (data) => void child.stdin?.write(data),
+    resize: () => undefined, // no PTY → SIGWINCH unavailable in the degraded path
     teardown: () => child.kill('SIGTERM'),
   });
-
   const onData = (chunk: Buffer): void => {
     session.touch();
+    if (!session.account(chunk.length)) {
+      session.kill('killed');
+      return;
+    }
     sendData(conn, sessionId, seqRef, chunk);
   };
   child.stdout?.on('data', onData);
@@ -247,7 +337,7 @@ interface SessionImpl {
   teardown: () => void;
 }
 
-/** Wire up idle-timeout + bookkeeping shared by both targets. */
+/** Wire up idle-timeout + output cap + bookkeeping shared by all targets. */
 function registerSession(
   conn: AgentConnection,
   p: TermStartPayload,
@@ -255,11 +345,17 @@ function registerSession(
 ): TermSession {
   const { sessionId, idleTimeoutMs } = p;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let bytesOut = 0;
+  const cap = env.TERM_MAX_OUTPUT_BYTES;
 
   const session: TermSession = {
     sessionId,
     write: impl.write,
     resize: impl.resize,
+    account: (n) => {
+      bytesOut += n;
+      return cap <= 0 || bytesOut <= cap;
+    },
     touch: () => {
       if (!idleTimeoutMs) return;
       if (idleTimer) clearTimeout(idleTimer);
@@ -293,6 +389,11 @@ export function handleTermResize(p: TermResizePayload): void {
 
 export function handleTermClose(p: TermClosePayload): void {
   sessions.get(p.sessionId)?.kill('killed');
+}
+
+/** Tear down every live session (agent shutdown). */
+export function shutdownAllTermSessions(): void {
+  for (const s of [...sessions.values()]) s.kill('agent_shutdown');
 }
 
 // Local helper alias for the discriminated target union member types.

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import {
+  applyNow,
   getConfig,
   listRecords,
   previewZone,
@@ -46,6 +47,9 @@ export const geodnsRouter = router({
     .mutation(({ ctx, input }) => removeRecord(ctx, input.id)),
 
   previewZone: orgProcedure.query(({ ctx }) => previewZone(ctx)),
+
+  /** Force a health-filtered re-render + redeploy of the CoreDNS zone now. */
+  applyNow: adminProcedure.mutation(({ ctx }) => applyNow(ctx)),
 
   /** Assign a node's region (writes `swarmy.region` label via updateSwarmNode). */
   setNodeRegion: adminProcedure

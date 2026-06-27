@@ -47,6 +47,41 @@ export interface MetricsPoint {
   value: number;
 }
 
+/** Lookup of every span in a trace, for the waterfall view. */
+export interface TraceDetailQueryInput {
+  traceId: string;
+}
+
+/** One span row within a single trace (waterfall node). */
+export interface SpanRow {
+  trace_id: string;
+  span_id: string;
+  parent_span_id: string;
+  service_name: string;
+  span_name: string;
+  span_kind: string;
+  /** Nanoseconds since epoch (string to survive JSON int precision). */
+  start_unix_nano: string;
+  duration_ms: number;
+  status_code: string;
+  status_message: string;
+}
+
+/** Aggregate metrics panel (RED-style) over a window, grouped by service. */
+export interface MetricsSummaryQueryInput {
+  metric: string;
+  stack?: string;
+  windowMinutes?: number;
+  limit?: number;
+}
+
+export interface MetricsSummaryRow {
+  service_name: string;
+  avg_value: number;
+  max_value: number;
+  samples: number;
+}
+
 /** Single-quote-escape a literal for inlining into ClickHouse SQL. */
 function lit(value: string): string {
   return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
@@ -87,6 +122,61 @@ export function buildTracesQuery(orgId: string, q: TracesQueryInput): string {
     'FROM otel_traces',
     `WHERE ${where.join(' AND ')}`,
     'ORDER BY Timestamp DESC',
+    `LIMIT ${limit}`,
+  ].join('\n');
+}
+
+/**
+ * All spans of a single trace, ordered for a waterfall render (root first, then
+ * by start time). Org-scoped: a caller can only fetch a trace owned by their org
+ * — the `swarmy.org_id` predicate is always present and the `traceId` is escaped.
+ */
+export function buildTraceDetailQuery(orgId: string, q: TraceDetailQueryInput): string {
+  return [
+    'SELECT',
+    '  TraceId AS trace_id,',
+    '  SpanId AS span_id,',
+    '  ParentSpanId AS parent_span_id,',
+    '  ServiceName AS service_name,',
+    '  SpanName AS span_name,',
+    '  SpanKind AS span_kind,',
+    '  toString(toUnixTimestamp64Nano(Timestamp)) AS start_unix_nano,',
+    '  round(Duration / 1000000, 3) AS duration_ms,',
+    '  StatusCode AS status_code,',
+    '  StatusMessage AS status_message',
+    'FROM otel_traces',
+    `WHERE ResourceAttributes['swarmy.org_id'] = ${lit(orgId)}`,
+    `  AND TraceId = ${lit(q.traceId)}`,
+    '-- root span(s) first, then chronological for a stable waterfall',
+    "ORDER BY ParentSpanId = '' DESC, Timestamp ASC, SpanId ASC",
+    'LIMIT 2000',
+  ].join('\n');
+}
+
+/**
+ * Per-service aggregate of a metric over the window — the data behind a metrics
+ * dashboard panel (avg / peak / sample count per service). Org-scoped.
+ */
+export function buildMetricsSummaryQuery(orgId: string, q: MetricsSummaryQueryInput): string {
+  const windowMinutes = clampInt(q.windowMinutes, 60, 1, 60 * 24 * 7);
+  const limit = clampInt(q.limit, 50, 1, 200);
+  const where: string[] = [
+    `ResourceAttributes['swarmy.org_id'] = ${lit(orgId)}`,
+    `MetricName = ${lit(q.metric)}`,
+    `TimeUnix >= now() - INTERVAL ${windowMinutes} MINUTE`,
+  ];
+  if (q.stack) where.push(`ResourceAttributes['swarmy.stack'] = ${lit(q.stack)}`);
+
+  return [
+    'SELECT',
+    '  ServiceName AS service_name,',
+    '  round(avg(Value), 4) AS avg_value,',
+    '  round(max(Value), 4) AS max_value,',
+    '  count() AS samples',
+    'FROM otel_metrics_gauge',
+    `WHERE ${where.join(' AND ')}`,
+    'GROUP BY service_name',
+    'ORDER BY avg_value DESC',
     `LIMIT ${limit}`,
   ].join('\n');
 }

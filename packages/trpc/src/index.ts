@@ -49,3 +49,13 @@ export type { GcRunResult } from './services/image-gc.service';
 export { isBackupDue, runControllerBackup } from './services/controllerBackup.service';
 export { restoreBundle } from './services/controllerBackup.bundle';
 export { loadControlPlane } from './services/controllerBackup.dump';
+
+// ── node-onboarding P2: swarm init/join orchestration (gateway register seam) ──
+export { orchestrateSwarmMembership, SWARM_COMMAND } from './services/swarm.service';
+export type {
+  OrchestrateArgs,
+  OrchestrateOutcome,
+  SwarmHub,
+  SwarmDb,
+  SwarmConfigRow,
+} from './services/swarm.service';

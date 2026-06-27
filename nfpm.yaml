@@ -1,0 +1,44 @@
+# nfpm config for the swarmy node agent (.deb / .rpm packaging).
+# Node-onboarding epic, PHASE-2+ — the "I'd rather not pipe to a shell" path.
+#
+# Build with: scripts/package-agent.sh  (which sets the env vars below + runs nfpm).
+# Requires: nfpm (https://nfpm.goreleaser.com) and a prebuilt agent binary at
+# ${AGENT_BINARY}. Cannot be built in this environment — UNVERIFIED.
+name: "swarmy-agent"
+arch: "${PKG_ARCH}"            # amd64 | arm64
+platform: "linux"
+version: "${PKG_VERSION}"      # e.g. 1.2.3 (no leading v)
+section: "admin"
+priority: "optional"
+maintainer: "swarmy <support@swarmy.dev>"
+description: |
+  swarmy node agent — dials out to your swarmy controller over WSS, registers
+  the node, and applies container/swarm/ingress intent against the local Docker.
+vendor: "swarmy"
+homepage: "https://swarmy.dev"
+license: "FSL-1.1-ALv2"
+
+depends:
+  - docker-ce | docker.io
+
+contents:
+  - src: "${AGENT_BINARY}"
+    dst: "/usr/local/bin/swarmy-agent"
+    file_info:
+      mode: 0755
+  - src: "packaging/swarmy-agent.service"
+    dst: "/lib/systemd/system/swarmy-agent.service"
+  - src: "packaging/agent.env.example"
+    dst: "/etc/swarmy/agent.env"
+    type: "config|noreplace"
+    file_info:
+      mode: 0600
+
+scripts:
+  postinstall: "packaging/postinstall.sh"
+  preremove: "packaging/preremove.sh"
+
+overrides:
+  rpm:
+    depends:
+      - docker-ce

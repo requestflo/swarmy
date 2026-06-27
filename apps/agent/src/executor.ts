@@ -10,6 +10,7 @@ import { applyIngressConnector } from './handlers/ingress-connector';
 import { buildImage } from './handlers/build';
 import { pruneImages } from './handlers/prune';
 import { applyStorageNode, provisionVolume, removeVolume } from './handlers/storage';
+import { applySwarmJoin } from './handlers/swarm';
 import {
   handleTermStart,
   handleTermInput,
@@ -141,6 +142,10 @@ export async function handleCommand(
     case 'removeVolume': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => removeVolume(docker, p));
+    }
+    case 'swarmJoin': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => applySwarmJoin(docker, p));
     }
     case 'streamLogs':
       return handleStreamLogs(docker, conn, envlp.payload);

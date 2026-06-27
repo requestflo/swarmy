@@ -81,3 +81,46 @@ export function augmentSpecsForStack(
     injectOtel(spec, { orgId: opts.orgId, stack: opts.stack, environment: opts.environment }),
   );
 }
+
+/**
+ * Resolve whether a single service should get OTEL injection, honouring a
+ * three-state precedence:
+ *  - service-level override wins when set (`true` forces on, `false` forces off,
+ *    even if the stack is enabled — opt a noisy service out, or a single service
+ *    in while the rest of the stack stays dark);
+ *  - otherwise the stack-level flag decides.
+ *
+ * Pure — no IO. The deploy path passes the resolved Stack/Service flags.
+ */
+export function resolveServiceTelemetry(opts: {
+  stackEnabled: boolean;
+  serviceOverride?: boolean | null;
+}): boolean {
+  if (opts.serviceOverride === true) return true;
+  if (opts.serviceOverride === false) return false;
+  return opts.stackEnabled;
+}
+
+/**
+ * Per-service injection: run ONE spec through {@link injectOtel} only when its
+ * resolved telemetry state (service override ?? stack flag) is on. Reuses the
+ * same augment helper so stack- and service-level injection are identical
+ * output. The deploy path calls this when deploying an individual service.
+ */
+export function augmentSpecForService(
+  spec: ServiceSpec,
+  opts: {
+    stackEnabled: boolean;
+    serviceOverride?: boolean | null;
+    orgId: string;
+    stack: string;
+    environment?: string;
+  },
+): ServiceSpec {
+  const on = resolveServiceTelemetry({
+    stackEnabled: opts.stackEnabled,
+    serviceOverride: opts.serviceOverride,
+  });
+  if (!on) return spec;
+  return injectOtel(spec, { orgId: opts.orgId, stack: opts.stack, environment: opts.environment });
+}

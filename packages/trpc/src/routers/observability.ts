@@ -5,8 +5,10 @@ import {
   getConfig,
   getStatus,
   metricsSeries,
+  metricsSummary,
   setEnabled,
   setRetention,
+  traceDetail,
   traces,
 } from '../services/observability.service';
 
@@ -40,6 +42,10 @@ export const observabilityRouter = router({
     )
     .query(({ ctx, input }) => traces(ctx, input)),
 
+  traceDetail: orgProcedure
+    .input(z.object({ traceId: z.string().min(1) }))
+    .query(({ ctx, input }) => traceDetail(ctx, input)),
+
   metricsSeries: orgProcedure
     .input(
       z.object({
@@ -51,4 +57,15 @@ export const observabilityRouter = router({
       }),
     )
     .query(({ ctx, input }) => metricsSeries(ctx, input)),
+
+  metricsSummary: orgProcedure
+    .input(
+      z.object({
+        metric: z.string().min(1),
+        stack: z.string().optional(),
+        windowMinutes: z.number().int().min(1).max(60 * 24 * 7).optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+      }),
+    )
+    .query(({ ctx, input }) => metricsSummary(ctx, input)),
 });

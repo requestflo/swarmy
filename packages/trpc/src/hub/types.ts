@@ -31,7 +31,8 @@ export type CommandName =
   | 'volume.provision' // volumes-dr P3: create a local/CSI cluster volume
   | 'volume.remove'
   | 'image.prune'
-  | 'mesh.grantDirectRoute';
+  | 'mesh.grantDirectRoute'
+  | 'swarm.join'; // node-onboarding P2: init/join the org's Docker Swarm
 
 /** CommandName → wire protocol message `type` (see @swarmy/core/protocol). */
 export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
@@ -55,6 +56,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'volume.remove': 'removeVolume',
   'image.prune': 'pruneImages',
   'mesh.grantDirectRoute': 'grantDirectRoute',
+  'swarm.join': 'swarmJoin',
 };
 
 export interface CommandResult<R = unknown> {
@@ -111,4 +113,7 @@ export interface AgentHub {
     userId: string;
     target: TermTarget;
   }): { ticket: string; expiresAt: number };
+
+  /** Best-effort teardown of a live terminal session's data-plane socket. */
+  killTerminalSession?(sessionId: string): boolean;
 }

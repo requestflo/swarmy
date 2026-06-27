@@ -22,6 +22,7 @@ import { ApplyMeshMsg, MeshStateMsg, GrantDirectRouteMsg } from './mesh';
 import { BuildImageMsg } from './build';
 import { PruneImagesMsg } from './prune';
 import { ApplyStorageNodeMsg, ProvisionVolumeMsg, RemoveVolumeMsg } from './storage';
+import { SwarmJoinMsg } from './swarm';
 import { BackupVolumeMsg, RestoreVolumeMsg, ListSnapshotsMsg } from './backup';
 import {
   TermStartMsg,
@@ -77,6 +78,7 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   ApplyStorageNodeMsg,
   ProvisionVolumeMsg,
   RemoveVolumeMsg,
+  SwarmJoinMsg,
   BackupVolumeMsg,
   RestoreVolumeMsg,
   ListSnapshotsMsg,

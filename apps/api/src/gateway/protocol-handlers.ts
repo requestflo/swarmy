@@ -10,6 +10,7 @@ import {
 import { SESSION_TOKEN_PREFIX } from '@swarmy/core';
 import type { LogLine } from '@swarmy/core/views';
 import { prisma } from '@swarmy/db';
+import { orchestrateSwarmMembership } from '@swarmy/trpc';
 import type { AgentHubImpl } from './hub';
 import type { GatewayStore } from './store';
 import type { AgentSocket, ConnectionRegistry } from './registry';
@@ -151,6 +152,7 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
   const { auth, facts } = payload;
   let nodeId: string | null = null;
   let orgId: string | null = null;
+  let roleHint: 'manager' | 'worker' | null = null;
 
   if (auth.kind === 'join') {
     const token = await prisma.joinToken.findUnique({ where: { tokenHash: sha256(auth.joinToken) } });
@@ -190,6 +192,7 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
       },
     });
     nodeId = node.id;
+    roleHint = token.roleHint === 'MANAGER' ? 'manager' : token.roleHint === 'WORKER' ? 'worker' : null;
     await prisma.joinToken.update({ where: { id: token.id }, data: { uses: { increment: 1 } } });
   } else {
     const node = await prisma.node.findUnique({ where: { id: auth.nodeId } });
@@ -237,6 +240,16 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
       },
     }),
   );
+
+  // node-onboarding P2: init or join the org's Docker Swarm (best-effort, async).
+  void orchestrateSwarmMembership({
+    db: prisma as never,
+    hub: deps.hub,
+    orgId,
+    nodeId,
+    roleHint,
+    alreadyInSwarm: facts.swarmRole !== 'none',
+  }).catch(() => undefined);
 }
 
 export async function handleAgentClose(ws: AgentSocket, deps: Deps): Promise<void> {

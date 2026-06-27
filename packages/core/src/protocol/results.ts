@@ -38,6 +38,7 @@ export type CommandResultMsg = z.infer<typeof CommandResultMsg>;
 import type { ResticSnapshotInfo } from './backup';
 import type { ApplyMeshResult } from './mesh';
 import type { BuildImageResult } from './build';
+import type { SwarmJoinResult } from './swarm';
 
 export interface CommandResultMap {
   deployService: { serviceId: string; created: boolean };
@@ -53,6 +54,7 @@ export interface CommandResultMap {
   listSnapshots: { snapshots: ResticSnapshotInfo[] };
   applyMesh: ApplyMeshResult;
   buildImage: BuildImageResult;
+  swarmJoin: SwarmJoinResult;
 }
 
 export const LogChunkPayload = z.object({

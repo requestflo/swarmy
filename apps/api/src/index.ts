@@ -7,6 +7,8 @@ import { createRestApp } from '@swarmy/api-rest';
 import { env } from './env';
 import { handleTrpc } from './trpc';
 import { renderInstallScript } from './install-script';
+import { renderLoader, renderChecksumFile, sha256Hex } from './install/loader';
+import { renderInstaller, type RenderInstallerOptions } from './install/installer';
 import { agentWebSocketHandlers, hub, type AgentWsData } from './gateway';
 import {
   authorizeTermUpgrade,
@@ -38,6 +40,56 @@ app.get('/install.sh', (c) => {
   return c.body(renderInstallScript(env.CONTROLLER_PUBLIC_URL, { manager }), 200, {
     'content-type': 'text/x-shellscript; charset=utf-8',
     'cache-control': 'no-store',
+  });
+});
+
+// node-onboarding P2: two-stage, checksum-pinned installer.
+//   GET /install/loader.sh           → tiny loader (verifies + execs the installer)
+//   GET /install/:version/install.sh        → the real (big) installer
+//   GET /install/:version/install.sh.sha256 → its checksum (for manual verify)
+function installerOptionsFor(version: string): RenderInstallerOptions {
+  let binarySha256: Record<string, string> = {};
+  try {
+    binarySha256 = JSON.parse(env.AGENT_BINARY_SHA256) as Record<string, string>;
+  } catch {
+    binarySha256 = {};
+  }
+  return {
+    controllerUrl: env.CONTROLLER_PUBLIC_URL,
+    version,
+    agentImage: env.AGENT_IMAGE,
+    binaryBaseUrl: env.AGENT_BINARY_BASE_URL,
+    binarySha256,
+  };
+}
+
+app.get('/install/loader.sh', (c) => {
+  const version = c.req.query('version') ?? env.AGENT_VERSION;
+  const installerBody = renderInstaller(installerOptionsFor(version));
+  return c.body(
+    renderLoader({
+      controllerUrl: env.CONTROLLER_PUBLIC_URL,
+      version,
+      installerSha256: sha256Hex(installerBody),
+    }),
+    200,
+    { 'content-type': 'text/x-shellscript; charset=utf-8', 'cache-control': 'no-store' },
+  );
+});
+
+app.get('/install/:version/install.sh', (c) => {
+  const version = c.req.param('version');
+  return c.body(renderInstaller(installerOptionsFor(version)), 200, {
+    'content-type': 'text/x-shellscript; charset=utf-8',
+    'cache-control': 'public, max-age=300',
+  });
+});
+
+app.get('/install/:version/install.sh.sha256', (c) => {
+  const version = c.req.param('version');
+  return c.body(renderChecksumFile(renderInstaller(installerOptionsFor(version))), 200, {
+    'content-type': 'text/plain; charset=utf-8',
+    'cache-control': 'public, max-age=300',
   });
 });
 app.on(['GET', 'POST'], '/api/auth/*', (c) => authRegistry.getAuth().handler(c.req.raw));

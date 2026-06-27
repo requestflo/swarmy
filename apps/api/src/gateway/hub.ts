@@ -51,6 +51,11 @@ export class AgentHubImpl implements AgentHub {
     return terminalHub.mintTicket(input);
   }
 
+  /** Best-effort teardown of a live terminal session's data-plane socket. */
+  killTerminalSession(sessionId: string): boolean {
+    return terminalHub.killSession(sessionId);
+  }
+
   /** Called by the protocol handler when a `commandResult` arrives. */
   settleCommand(commandId: string, ok: boolean, data?: unknown, error?: { message: string }): void {
     const p = this.pending.get(commandId);

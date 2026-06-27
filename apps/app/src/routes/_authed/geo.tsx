@@ -79,6 +79,15 @@ function GeoPage(): React.JSX.Element {
   const removeRecord = useMutation(
     trpc.geodns.removeRecord.mutationOptions({ onSuccess: invalidate, onError: onErr }),
   );
+  const applyNow = useMutation(
+    trpc.geodns.applyNow.mutationOptions({
+      onSuccess: (r) => {
+        toast.success(r.summary);
+        invalidate();
+      },
+      onError: onErr,
+    }),
+  );
 
   const enabled = !!config.data?.enabled;
   const recordCount = records.data?.length ?? 0;
@@ -136,9 +145,23 @@ function GeoPage(): React.JSX.Element {
                 onChange={(e) => setTtl(Number(e.target.value))}
               />
             </div>
-            <Button onClick={() => setConfig.mutate({ zone, ttl })} disabled={setConfig.isPending || !zone}>
-              Save zone
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                onClick={() => setConfig.mutate({ zone, ttl })}
+                disabled={setConfig.isPending || !zone}
+              >
+                Save zone
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => applyNow.mutate()}
+                disabled={applyNow.isPending || !enabled}
+                title="Re-render the health-filtered zone and redeploy CoreDNS now"
+              >
+                Apply now
+              </Button>
+            </div>
             <div className="bg-accent/40 flex items-center justify-between rounded-xl px-4 py-3">
               <div>
                 <Label htmlFor="geo-on" className="font-medium">
@@ -388,6 +411,7 @@ function TemplatesGallery(): React.JSX.Element {
 
 function TemplatePreview({ id }: { id: TemplateId }): React.JSX.Element {
   const trpc = useTRPC();
+  const qc = useQueryClient();
   const [name, setName] = React.useState('my-db');
   const [regionsText, setRegionsText] = React.useState('us-east, eu-west, ap-south');
   const regions = regionsText
@@ -398,6 +422,19 @@ function TemplatePreview({ id }: { id: TemplateId }): React.JSX.Element {
     ...trpc.templates.preview.queryOptions({ id, params: { name, regions } }),
     enabled: !!name && regions.length > 0,
   });
+
+  const deploy = useMutation(
+    trpc.templates.deploy.mutationOptions({
+      onSuccess: (r) => {
+        toast.success(
+          `Deployed ${name} across ${regions.length} region(s)` +
+            (r.geoRecords ? ` · ${r.geoRecords} Geo-DNS record(s) wired` : ''),
+        );
+        qc.invalidateQueries();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
 
   return (
     <CardContent className="border-t pt-4">
@@ -420,6 +457,12 @@ function TemplatePreview({ id }: { id: TemplateId }): React.JSX.Element {
           <pre className="bg-muted mono-data max-h-72 overflow-auto rounded-xl p-4 text-xs">
             {preview.data.composeSource}
           </pre>
+          <Button
+            onClick={() => deploy.mutate({ id, params: { name, regions } })}
+            disabled={deploy.isPending || !name || regions.length === 0}
+          >
+            Deploy across {regions.length} region{regions.length === 1 ? '' : 's'}
+          </Button>
         </div>
       )}
     </CardContent>

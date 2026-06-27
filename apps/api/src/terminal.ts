@@ -11,25 +11,32 @@ import {
   type TermExitPayload,
 } from '@swarmy/core/protocol';
 import { registry } from './gateway';
+import { TerminalRecorder } from './terminal-recording';
+import { finalizeTerminalSession, loadTerminalRuntimePolicy } from './terminal-store';
+import { TicketStore } from './terminal-tickets';
 
 /**
  * Browser-facing terminal data plane (`/term/ws`).
  *
- * Split of concerns (see epic): tRPC is the control plane (RBAC/policy/audit,
+ * Split of concerns (see epic): tRPC is the control plane (ABAC/policy/audit,
  * mints a single-use ticket); this WS is the byte pipe. It authenticates the
  * Better Auth session cookie at upgrade + a single-use ticket, then relays
  * `term*` frames between the browser and the target node's agent connection
  * (via the existing `ConnectionRegistry`).
  *
+ * Phase 2 additions:
+ *  - server-side session RECORDING (asciicast v2). The controller is the choke
+ *    point — output is always recorded; recording is non-disableable for
+ *    nodeShell and org-policy-controlled for container exec.
+ *  - idle-timeout + the agent's hard output cap are enforced node-side; here we
+ *    pass the org's idleTimeout into `termStart` and finalize the
+ *    `TerminalSession` row (bytes / exit / recordingRef) on close.
+ *
  * Wiring (see INTEGRATION):
- *  - apps/api/src/index.ts: add the `/term/ws` upgrade branch and a `websocket`
- *    handler set (Bun allows one websocket config per serve → branch on a
- *    `kind` discriminant in ws.data, or run on a second Bun.serve port).
+ *  - apps/api/src/index.ts: the `/term/ws` upgrade branch + websocket handler set.
  *  - apps/api/src/gateway/protocol-handlers.ts: route inbound agent frames
  *    `termStarted` / `termData` / `termExit` to `onAgentTermFrame(...)`.
  */
-
-const TICKET_TTL_MS = 30_000;
 
 export interface TermWsData {
   kind: 'term';
@@ -37,15 +44,6 @@ export interface TermWsData {
 }
 
 export type TermSocket = ServerWebSocket<TermWsData>;
-
-interface Ticket {
-  sessionId: string;
-  nodeId: string;
-  orgId: string;
-  userId: string;
-  target: TermTarget;
-  expiresAt: number;
-}
 
 interface LiveSession {
   sessionId: string;
@@ -56,19 +54,29 @@ interface LiveSession {
   ws: TermSocket;
   bytesIn: number;
   bytesOut: number;
+  recorder: TerminalRecorder | null;
+  finalized: boolean;
 }
 
 function frame(type: string, payload: unknown): string {
   return JSON.stringify({ v: PROTOCOL_VERSION, id: crypto.randomUUID(), ts: Date.now(), type, payload });
 }
 
+const b64decodeLen = (s: string): string => {
+  try {
+    return Buffer.from(s, 'base64').toString('binary');
+  } catch {
+    return '';
+  }
+};
+
 class TerminalHub {
-  private tickets = new Map<string, Ticket>();
+  private tickets = new TicketStore();
   private sessions = new Map<string, LiveSession>();
   private byTicket = new Map<string, string>(); // ticket → sessionId
 
   /**
-   * Control plane (tRPC) calls this after the full policy gate to mint a
+   * Control plane (tRPC) calls this after the full ABAC + policy gate to mint a
    * single-use, short-lived ticket. Returns the ticket string the browser
    * passes to `/term/ws?ticket=…`.
    */
@@ -79,25 +87,12 @@ class TerminalHub {
     userId: string;
     target: TermTarget;
   }): { ticket: string; expiresAt: number } {
-    const ticket = crypto.randomUUID();
-    const expiresAt = Date.now() + TICKET_TTL_MS;
-    this.tickets.set(ticket, { ...input, ticket, expiresAt } as Ticket);
-    setTimeout(() => this.tickets.delete(ticket), TICKET_TTL_MS).unref?.();
-    return { ticket, expiresAt };
-  }
-
-  /** Validate (single-use) a ticket on WS connect. */
-  private claimTicket(ticket: string): Ticket | null {
-    const t = this.tickets.get(ticket);
-    if (!t) return null;
-    this.tickets.delete(ticket);
-    if (t.expiresAt < Date.now()) return null;
-    return t;
+    return this.tickets.mint(input);
   }
 
   /** Browser socket connected with a ticket. Starts the agent-side session. */
   async onBrowserOpen(ws: TermSocket): Promise<void> {
-    const t = this.claimTicket(ws.data.ticket);
+    const t = this.tickets.claim(ws.data.ticket);
     if (!t) {
       ws.close(TermCloseCode.UNAUTHORIZED, 'invalid or expired ticket');
       return;
@@ -106,6 +101,24 @@ class TerminalHub {
       ws.close(TermCloseCode.SESSION_GONE, 'node offline');
       return;
     }
+
+    const policy = await loadTerminalRuntimePolicy(t.orgId);
+    // Recording: mandatory + non-disableable for nodeShell; org-policy-controlled
+    // for container exec. Output ('o') is always captured; input is not.
+    const shouldRecord = t.target.kind === 'nodeShell' || policy.recordContainerExec;
+    const recordingRef = shouldRecord ? `${t.orgId}/${t.sessionId}.cast` : null;
+    const recorder = shouldRecord
+      ? new TerminalRecorder(
+          recordingRef!,
+          {
+            width: 80,
+            height: 24,
+            title: `${t.target.kind} ${t.nodeId}`,
+            env: { TERM: 'xterm-256color' },
+          },
+          { recordInput: false },
+        )
+      : null;
 
     const session: LiveSession = {
       sessionId: t.sessionId,
@@ -116,6 +129,8 @@ class TerminalHub {
       ws,
       bytesIn: 0,
       bytesOut: 0,
+      recorder,
+      finalized: false,
     };
     this.sessions.set(t.sessionId, session);
     this.byTicket.set(ws.data.ticket, t.sessionId);
@@ -128,6 +143,7 @@ class TerminalHub {
           target: t.target,
           cols: 80,
           rows: 24,
+          idleTimeoutMs: policy.idleTimeoutMs,
         }),
       ),
     );
@@ -135,12 +151,17 @@ class TerminalHub {
     await writeAudit(
       { db: prisma, activeOrgId: t.orgId, user: { id: t.userId } },
       {
-        action: 'terminal.open',
+        action: 'terminal.connect',
         targetType: t.target.kind === 'container' ? 'container' : 'node',
         targetId: t.target.kind === 'container' ? t.target.containerId : t.nodeId,
         actorType: 'user',
         actorId: t.userId,
-        metadata: { sessionId: t.sessionId, nodeId: t.nodeId, target: t.target },
+        metadata: {
+          sessionId: t.sessionId,
+          nodeId: t.nodeId,
+          target: t.target,
+          recording: !!recordingRef,
+        },
       },
     );
   }
@@ -159,7 +180,9 @@ class TerminalHub {
       return;
     }
     if (msg.type === 'termInput' && typeof msg.payload?.data === 'string') {
-      session.bytesIn += msg.payload.data.length;
+      const data = msg.payload.data as string;
+      session.bytesIn += data.length;
+      session.recorder?.record('i', b64decodeLen(data));
       registry.send(session.nodeId, JSON.parse(frame('termInput', { ...msg.payload, sessionId })));
     } else if (msg.type === 'termResize') {
       registry.send(session.nodeId, JSON.parse(frame('termResize', { ...msg.payload, sessionId })));
@@ -175,7 +198,7 @@ class TerminalHub {
     if (!session) return;
     this.sessions.delete(sessionId);
     registry.send(session.nodeId, JSON.parse(frame('termClose', { sessionId })));
-    await this.recordClose(session, null, 'closed');
+    await this.finalize(session, null, 'closed');
   }
 
   /**
@@ -189,37 +212,56 @@ class TerminalHub {
   ): void {
     const session = this.sessions.get(payload.sessionId);
     if (!session) return;
-    if (session.ws.readyState !== 1) return;
 
     if (type === 'termData') {
       const p = payload as TermDataPayload;
       session.bytesOut += p.data.length;
-      session.ws.send(frame('termData', p));
+      session.recorder?.record('o', b64decodeLen(p.data));
+      if (session.ws.readyState === 1) session.ws.send(frame('termData', p));
       return;
     }
     if (type === 'termStarted') {
       const p = payload as TermStartedPayload;
-      session.ws.send(frame('termStarted', p));
+      if (session.ws.readyState === 1) session.ws.send(frame('termStarted', p));
       if (!p.ok) {
         // Failed to start (e.g. exec disabled): close the browser socket.
         this.sessions.delete(session.sessionId);
+        void this.finalize(session, null, `start_failed:${p.error.code}`);
         session.ws.close(TermCloseCode.FORBIDDEN, p.error.code);
       }
       return;
     }
     // termExit
     const p = payload as TermExitPayload;
-    session.ws.send(frame('termExit', p));
+    if (session.ws.readyState === 1) session.ws.send(frame('termExit', p));
     this.sessions.delete(session.sessionId);
-    void this.recordClose(session, p.exitCode, p.reason);
-    session.ws.close(1000, 'session ended');
+    void this.finalize(session, p.exitCode, p.reason);
+    if (session.ws.readyState === 1) session.ws.close(1000, 'session ended');
   }
 
-  private async recordClose(
+  /** Persist final session state, close the recorder, and audit. Idempotent. */
+  private async finalize(
     session: LiveSession,
     exitCode: number | null,
     reason: string,
   ): Promise<void> {
+    if (session.finalized) return;
+    session.finalized = true;
+
+    let recordingRef: string | null | undefined = undefined;
+    if (session.recorder) {
+      await session.recorder.close();
+      recordingRef = session.recorder.bytes > 0 ? session.recorder.ref : null;
+    }
+
+    await finalizeTerminalSession(session.sessionId, {
+      exitCode,
+      reason,
+      bytesIn: session.bytesIn,
+      bytesOut: session.bytesOut,
+      recordingRef,
+    });
+
     await writeAudit(
       { db: prisma, activeOrgId: session.orgId, user: { id: session.userId } },
       {
@@ -236,9 +278,21 @@ class TerminalHub {
           reason,
           bytesIn: session.bytesIn,
           bytesOut: session.bytesOut,
+          recording: recordingRef != null,
         },
       },
     );
+  }
+
+  /** Admin/owner force-kill of any live session (from tRPC terminal.close). */
+  killSession(sessionId: string): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session) return false;
+    this.sessions.delete(sessionId);
+    registry.send(session.nodeId, JSON.parse(frame('termClose', { sessionId })));
+    if (session.ws.readyState === 1) session.ws.close(TermCloseCode.SUPERSEDED, 'killed by admin');
+    void this.finalize(session, null, 'killed');
+    return true;
   }
 }
 

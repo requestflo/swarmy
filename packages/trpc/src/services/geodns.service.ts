@@ -3,6 +3,8 @@ import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { writeAudit } from './audit.service';
+import { regionCoord, type SteerTarget } from './geo-steer';
+import { planReconcile, type RegionHealth } from './geodns-reconcile.core';
 
 /**
  * Geo-DNS (GSLB) — epic #12, Part A — MVP.
@@ -57,6 +59,7 @@ interface DnsRecordDelegate {
     create: Omit<DnsRecordRow, 'id'>;
     update: Partial<DnsRecordRow>;
   }): Promise<DnsRecordRow>;
+  update(args: { where: { id: string }; data: Partial<DnsRecordRow> }): Promise<DnsRecordRow>;
   delete(args: { where: { id: string } }): Promise<DnsRecordRow>;
 }
 
@@ -156,20 +159,31 @@ export async function buildZoneSnapshot(ctx: OrgContext): Promise<ZoneSnapshot> 
 
 const isIp = (s: string): boolean => /^\d{1,3}(\.\d{1,3}){3}$/.test(s);
 
-/**
- * Render a CoreDNS zonefile + Corefile from a snapshot. Steering: per host, the
- * healthy regional ingresses are emitted (closest-region weighting is applied at
- * query time by CoreDNS `loadbalance`/`geoip`; for the MVP we emit all healthy
- * targets per host with a short TTL and drop the rest). If every endpoint for a
- * host is unhealthy we emit them all anyway (better than NXDOMAIN) and flag it.
- */
-export function renderCoreDns(snapshot: ZoneSnapshot): {
-  files: { path: string; contents: string }[];
-  summary: string;
-} {
-  const zone = snapshot.zone || 'example.com';
-  const ttl = snapshot.ttl || DEFAULT_TTL;
+export interface RenderCoreDnsOptions {
+  /**
+   * Zone SOA serial. Pass a fixed value (e.g. snapshot revision) for stable,
+   * golden-testable output. Defaults to `0` so the renderer is pure; callers
+   * deploying a live zone should pass an incrementing serial.
+   */
+  serial?: number;
+}
 
+export interface RenderedHost {
+  host: string;
+  /** Healthy endpoints selected (after filtering / spill). */
+  selected: ZoneEndpoint[];
+  /** Whether every endpoint was unhealthy and we spilled to keep answering. */
+  degraded: boolean;
+}
+
+/**
+ * Build the per-host steering plan from a snapshot: failover = drop unhealthy
+ * regions, ordered by distance from each endpoint's region centroid to its own
+ * region (a stable proxy used at render time; live per-query GeoIP ranking is
+ * applied by CoreDNS `geoip`/`metadata` + the {@link steer} resolver). Pure +
+ * deterministic so it powers goldens and the worker's change-detection.
+ */
+export function planHosts(snapshot: ZoneSnapshot): RenderedHost[] {
   const byHost = new Map<string, ZoneEndpoint[]>();
   for (const e of snapshot.endpoints) {
     const list = byHost.get(e.host) ?? [];
@@ -177,23 +191,63 @@ export function renderCoreDns(snapshot: ZoneSnapshot): {
     byHost.set(e.host, list);
   }
 
+  const plan: RenderedHost[] = [];
+  for (const [host, eps] of [...byHost.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    const healthy = eps.filter((e) => e.healthy);
+    const degraded = healthy.length === 0 && eps.length > 0;
+    // Failover: only healthy regions answer; if none, spill to all (no NXDOMAIN).
+    const pool = degraded ? eps : healthy;
+    // Deterministic ordering: known-coordinate regions first, then region, target.
+    const selected = [...pool].sort((a, b) => {
+      const ka = regionCoord(a.region) ? 0 : 1;
+      const kb = regionCoord(b.region) ? 0 : 1;
+      if (ka !== kb) return ka - kb;
+      if (a.region !== b.region) return a.region < b.region ? -1 : 1;
+      return a.target < b.target ? -1 : a.target > b.target ? 1 : 0;
+    });
+    plan.push({ host, selected, degraded });
+  }
+  return plan;
+}
+
+/**
+ * Render a CoreDNS zonefile + Corefile from a snapshot, health-filtered.
+ *
+ * The zone only contains records for *healthy* regions (failover by omission).
+ * Each record carries a region tag in a comment so the steering decision is
+ * auditable. CoreDNS chooses the per-query closest answer via the `geoip` +
+ * `loadbalance` plugins; the controller re-renders + redeploys whenever the
+ * healthy set changes (the reconcile worker), keeping the answer set live.
+ */
+export function renderCoreDns(
+  snapshot: ZoneSnapshot,
+  opts: RenderCoreDnsOptions = {},
+): {
+  files: { path: string; contents: string }[];
+  summary: string;
+  plan: RenderedHost[];
+} {
+  const zone = snapshot.zone || 'example.com';
+  const ttl = snapshot.ttl || DEFAULT_TTL;
+  const serial = opts.serial ?? 0;
+  const plan = planHosts(snapshot);
+
   const lines: string[] = [
     `$ORIGIN ${zone}.`,
     `$TTL ${ttl}`,
-    `@\tIN\tSOA\tns.${zone}. admin.${zone}. ( ${Math.floor(Date.now() / 1000)} 7200 3600 1209600 ${ttl} )`,
+    `@\tIN\tSOA\tns.${zone}. admin.${zone}. ( ${serial} 7200 3600 1209600 ${ttl} )`,
     `@\tIN\tNS\tns.${zone}.`,
   ];
+
   let degradedHosts = 0;
-  for (const [host, eps] of byHost) {
-    let healthy = eps.filter((e) => e.healthy);
-    if (healthy.length === 0) {
-      healthy = eps; // spill: send traffic somewhere rather than NXDOMAIN
-      degradedHosts++;
-    }
+  let recordCount = 0;
+  for (const { host, selected, degraded } of plan) {
+    if (degraded) degradedHosts++;
     const label = host.endsWith(zone) ? host.slice(0, -(zone.length + 1)) || '@' : host;
-    for (const e of healthy) {
+    for (const e of selected) {
       const rtype = isIp(e.target) ? 'A' : 'CNAME';
-      lines.push(`${label}\tIN\t${rtype}\t${e.target}`);
+      lines.push(`${label}\tIN\t${rtype}\t${e.target}\t; region=${e.region}${degraded ? ' DEGRADED' : ''}`);
+      recordCount++;
     }
   }
 
@@ -201,10 +255,14 @@ export function renderCoreDns(snapshot: ZoneSnapshot): {
   const corefile = [
     `${zone}:53 {`,
     `    file /etc/coredns/${zone}.zone`,
+    '    geoip /etc/coredns/GeoLite2-City.mmdb {',
+    '        edns-subnet',
+    '    }',
+    '    metadata',
     '    loadbalance',
-    '    geoip /etc/coredns/GeoLite2-City.mmdb',
     '    health',
     '    ready',
+    `    cache ${ttl}`,
     '    log',
     '    errors',
     '}',
@@ -216,15 +274,21 @@ export function renderCoreDns(snapshot: ZoneSnapshot): {
       { path: '/etc/coredns/Corefile', contents: corefile },
       { path: `/etc/coredns/${zone}.zone`, contents: zonefile },
     ],
-    summary: `CoreDNS zone ${zone} · TTL ${ttl}s · ${byHost.size} host(s) · ${snapshot.endpoints.length} endpoint(s)${
+    summary: `CoreDNS zone ${zone} · TTL ${ttl}s · ${plan.length} host(s) · ${recordCount} healthy record(s)${
       degradedHosts ? ` · ${degradedHosts} host(s) DEGRADED (all-unhealthy spill)` : ''
     }`,
+    plan,
   };
 }
 
+/** Map snapshot endpoints to {@link SteerTarget}s for the pure steering resolver. */
+export function endpointsToSteerTargets(endpoints: ZoneEndpoint[]): SteerTarget[] {
+  return endpoints.map((e) => ({ target: e.target, region: e.region, healthy: e.healthy }));
+}
+
 /** The swarm ServiceSpec used to deploy CoreDNS via the existing deploy path. */
-function coreDnsServiceSpec(snapshot: ZoneSnapshot): ServiceSpec {
-  const rendered = renderCoreDns(snapshot);
+function coreDnsServiceSpec(snapshot: ZoneSnapshot, serial = 0): ServiceSpec {
+  const rendered = renderCoreDns(snapshot, { serial });
   return {
     name: 'swarmy-coredns',
     image: COREDNS_IMAGE,
@@ -292,11 +356,7 @@ export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<Geo
   });
 
   if (enabled) {
-    const snapshot = await buildZoneSnapshot(ctx);
-    const node = await resolveManagerNode(ctx);
-    const spec = coreDnsServiceSpec(snapshot);
-    // Reuse the existing deploy command — no new agent/protocol command needed.
-    await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
+    await deployCoreDns(ctx);
   } else {
     const node = await resolveManagerNode(ctx).catch(() => null);
     if (node) {
@@ -304,6 +364,22 @@ export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<Geo
     }
   }
   return getConfig(ctx);
+}
+
+/**
+ * Re-render the (health-filtered) zone and (re)deploy CoreDNS via the existing
+ * deploy path. Bumps the SOA serial each time so resolvers/CoreDNS see a fresh
+ * zone. Used on enable and by the health-aware reconcile worker when the healthy
+ * set changes.
+ */
+export async function deployCoreDns(ctx: OrgContext): Promise<{ summary: string }> {
+  const snapshot = await buildZoneSnapshot(ctx);
+  const node = await resolveManagerNode(ctx);
+  const serial = Math.floor(Date.now() / 1000);
+  const spec = coreDnsServiceSpec(snapshot, serial);
+  await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
+  const rendered = renderCoreDns(snapshot, { serial });
+  return { summary: rendered.summary };
 }
 
 export async function listRecords(ctx: OrgContext): Promise<DnsRecordView[]> {
@@ -395,4 +471,91 @@ export async function setNodeRegion(
     metadata: { region },
   });
   return { id: nodeId, region };
+}
+
+/** Force a re-render + redeploy of the CoreDNS zone now (manual / from UI). */
+export async function applyNow(ctx: OrgContext): Promise<{ summary: string }> {
+  const cfg = await ensureConfig(ctx);
+  if (!cfg.enabled) return { summary: 'Geo-DNS is disabled — nothing to apply.' };
+  const out = await deployCoreDns(ctx);
+  await writeAudit(ctx, {
+    action: 'geodns.applyNow',
+    targetType: 'geoDnsConfig',
+    targetId: ctx.activeOrgId,
+    metadata: { summary: out.summary },
+  });
+  return out;
+}
+
+/**
+ * Health-aware reconcile for one org (used by the geodns-reconcile worker via
+ * its own inlined mirror, and callable directly in tests with a real ctx).
+ *
+ * Polls live region health (node online + ingress health), flips each
+ * DnsRecord.healthy to match, and — only when the healthy answer set changes and
+ * Geo-DNS is enabled — re-renders + redeploys CoreDNS so failover (dropping
+ * unhealthy regions) takes effect.
+ */
+export async function reconcileGeoDns(ctx: OrgContext): Promise<{
+  updated: number;
+  redeployed: boolean;
+}> {
+  const cfg = await ensureConfig(ctx);
+  const records = await db(ctx).dnsRecord.findMany({ where: { orgId: ctx.activeOrgId } });
+  if (records.length === 0) return { updated: 0, redeployed: false };
+
+  const health = await collectRegionHealth(ctx);
+  const plan = planReconcile(
+    records.map((r) => ({
+      id: r.id,
+      host: r.host,
+      region: r.region,
+      targetIngress: r.targetIngress,
+      healthy: r.healthy,
+    })),
+    health,
+  );
+
+  for (const u of plan.updates) {
+    await db(ctx)
+      .dnsRecord.update({ where: { id: u.id }, data: { healthy: u.healthy } })
+      .catch(() => undefined);
+  }
+
+  let redeployed = false;
+  if (plan.healthySetChanged && cfg.enabled) {
+    await deployCoreDns(ctx).catch(() => undefined);
+    redeployed = true;
+    await writeAudit(ctx, {
+      action: 'geodns.reconcile',
+      targetType: 'geoDnsConfig',
+      targetId: ctx.activeOrgId,
+      metadata: { updated: plan.updates.length, redeployed },
+    });
+  }
+  return { updated: plan.updates.length, redeployed };
+}
+
+/**
+ * Compose live per-region health from heartbeats (node online) and, when
+ * available, ingress health snapshots. region → {@link RegionHealth}.
+ */
+async function collectRegionHealth(ctx: OrgContext): Promise<Map<string, RegionHealth>> {
+  const nodes = await ctx.db.node.findMany({
+    where: { orgId: ctx.activeOrgId },
+    select: { id: true, labels: true },
+  });
+  const health = new Map<string, RegionHealth>();
+  for (const n of nodes) {
+    const region = (n.labels as Record<string, string> | null)?.['swarmy.region'];
+    if (!region) continue;
+    const online = ctx.hub.isOnline(n.id);
+    const existing = health.get(region);
+    if (existing) {
+      existing.nodeOnline = existing.nodeOnline || online;
+    } else {
+      health.set(region, { region, nodeOnline: online });
+    }
+  }
+  return health;
 }

@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { createFileRoute, useParams } from '@tanstack/react-router';
+import { createFileRoute, useParams, Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ActivityIcon, BoxesIcon, PauseIcon, PlayIcon } from 'lucide-react';
+import { ActivityIcon, BoxesIcon, PauseIcon, PlayIcon, TerminalIcon } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -97,6 +97,14 @@ function NodeDetailPage(): React.JSX.Element {
               disabled={activate.isPending}
             >
               <PlayIcon className="size-4" /> Activate
+            </Button>
+            {/* Node shell (break-glass host access) — gated by org policy +
+                SWARMY_ALLOW_NODE_SHELL on the agent. Lands on the dedicated
+                /nodes/$nodeId/terminal route. */}
+            <Button asChild variant="outline" size="sm">
+              <Link to="/nodes/$nodeId/terminal" params={{ nodeId }}>
+                <TerminalIcon className="size-4" /> Node shell
+              </Link>
             </Button>
           </>
         }

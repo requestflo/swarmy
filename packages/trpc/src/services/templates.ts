@@ -1,4 +1,9 @@
 import type { ServiceSpec } from '@swarmy/core/protocol';
+import type { OrgContext } from '../context';
+import { notFound } from '../errors';
+import { deployFromCompose } from './stack.service';
+import { upsertRecord } from './geodns.service';
+import { writeAudit } from './audit.service';
 
 /**
  * Ready-made HA service templates (epic #12, Part B — MVP).
@@ -301,4 +306,78 @@ export function getTemplate(id: TemplateId): TemplateDefinition | undefined {
 
 export function renderTemplate(id: TemplateId, params: TemplateParams): RenderedTemplate | undefined {
   return TEMPLATES[id]?.render(params);
+}
+
+// ───────────────────────────────────────────── deploy flow ──
+
+export interface DeployTemplateInput {
+  id: TemplateId;
+  params: TemplateParams;
+  /**
+   * When true (and a host is given), seed a Geo-DNS record per region pointing
+   * at the template's regional endpoint, so Part A (geo steering) and Part B
+   * (HA placement) compose: a "deploy HA template across regions" flow.
+   */
+  geo?: {
+    /** Host to expose, e.g. `db.geo.example.com`. */
+    host: string;
+    /** region → target ingress IP/hostname for that region's member. */
+    targets?: Record<string, string>;
+  };
+}
+
+export interface DeployTemplateResult {
+  stackId: string;
+  deploymentId: string;
+  connectionHint: string;
+  durabilityNote: string;
+  geoRecords: number;
+}
+
+/**
+ * Deploy an HA template across regions: render the placement-aware compose,
+ * deploy it through the EXISTING stack pipeline (so it also runs with plain
+ * `docker stack deploy`), then optionally wire Geo-DNS records so the stack's
+ * regional endpoints are steerable. One form → one Deploy.
+ */
+export async function deployTemplate(
+  ctx: OrgContext,
+  input: DeployTemplateInput,
+): Promise<DeployTemplateResult> {
+  const rendered = renderTemplate(input.id, input.params);
+  if (!rendered) throw notFound('template', input.id);
+
+  const deploy = await deployFromCompose(ctx, {
+    name: input.params.name,
+    composeSource: rendered.composeSource,
+  });
+
+  // Compose with Part A: seed one Geo-DNS record per region for the endpoint.
+  let geoRecords = 0;
+  if (input.geo?.host) {
+    const targets = input.geo.targets ?? {};
+    for (const region of input.params.regions) {
+      const target = targets[region];
+      if (!target) continue;
+      await upsertRecord(ctx, { host: input.geo.host, region, targetIngress: target }).catch(
+        () => undefined,
+      );
+      geoRecords++;
+    }
+  }
+
+  await writeAudit(ctx, {
+    action: 'templates.deploy',
+    targetType: 'stack',
+    targetId: deploy.id,
+    metadata: { template: input.id, regions: input.params.regions, geoRecords },
+  });
+
+  return {
+    stackId: deploy.id,
+    deploymentId: deploy.deploymentId,
+    connectionHint: rendered.connectionHint,
+    durabilityNote: rendered.durabilityNote,
+    geoRecords,
+  };
 }

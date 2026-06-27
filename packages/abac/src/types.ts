@@ -33,6 +33,9 @@ export const ACTIONS = [
   'member.write',
   'authconfig.read',
   'authconfig.write',
+  // Web terminal / SSH proxy (epic #11). `terminal.open` governs opening an
+  // interactive shell (container exec OR node shell) — the highest-risk action.
+  'terminal.open',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];
