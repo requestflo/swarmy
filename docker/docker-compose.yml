@@ -1,6 +1,10 @@
 # Local backing services for swarmy development.
 #   bun docker:up    -> start postgres
 #   bun docker:up --profile ingress  -> also start caddy + traefik for ingress testing
+#
+# Host port for Postgres defaults to 5678. If 5678 is taken locally (e.g. another
+# project's Postgres), set SWARMY_DB_PORT in your root .env to a free port and
+# point DATABASE_URL at the same port. Compose reads .env from the repo root.
 name: swarmy
 
 services:
@@ -12,7 +16,7 @@ services:
       POSTGRES_PASSWORD: swarmy
       POSTGRES_DB: swarmy
     ports:
-      - '5678:5432'
+      - '${SWARMY_DB_PORT:-5678}:5432'
     volumes:
       - swarmy-pgdata:/var/lib/postgresql/data
     healthcheck:

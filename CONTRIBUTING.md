@@ -4,8 +4,8 @@
 
 ```bash
 bun install
-bun docker:up          # Postgres on :5678
-cp .env.example .env   # set BETTER_AUTH_SECRET
+cp .env.example .env   # set BETTER_AUTH_SECRET (openssl rand -base64 32)
+bun docker:up          # Postgres on :5678 (reads .env; set SWARMY_DB_PORT if taken)
 bun db:generate && bun db:push
 bun dev                # controller (:3001) + dashboard (:3003)
 ```

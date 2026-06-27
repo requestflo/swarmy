@@ -57,12 +57,16 @@ packages/
 
 ```bash
 bun install
-bun docker:up          # Postgres on :5678
-cp .env.example .env   # then edit BETTER_AUTH_SECRET
+cp .env.example .env   # then set BETTER_AUTH_SECRET (openssl rand -base64 32)
+bun docker:up          # Postgres on :5678 (reads .env)
 bun db:generate        # generate Prisma client
 bun db:push            # create the schema
 bun dev                # api (:3001) + app (:3003)
 ```
+
+> **Port 5678 already taken?** Set `SWARMY_DB_PORT` in `.env` to a free port
+> (e.g. `5679`) and change the port in `DATABASE_URL` to match. `bun docker:up`
+> and the Prisma helpers both read `.env`, so everything follows automatically.
 
 Open http://localhost:3003, create an account, then **Settings → Tokens** to mint
 a join token. On each node:
