@@ -17,17 +17,12 @@ import {
   Input,
   Label,
   StatusBadge,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
   Textarea,
   toast,
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
+import { CountUp } from '@/components/count-up';
 
 export const Route = createFileRoute('/_authed/stacks/')({
   component: StacksPage,
@@ -42,7 +37,7 @@ const EXAMPLE = `services:
       - "8080:80"
 `;
 
-function StacksPage() {
+function StacksPage(): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const stacks = useQuery({ ...trpc.stacks.list.queryOptions(), refetchInterval: 4_000 });
@@ -71,11 +66,25 @@ function StacksPage() {
     }),
   );
 
+  const list = stacks.data ?? [];
+  const total = list.length;
+  const running = list.filter((s) => s.status === 'running').length;
+  const allRunning = total > 0 && running === total;
+
   return (
-    <div>
+    <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
       <PageHeader
-        title="Stacks"
-        description="Deploy multi-service apps from a compose file."
+        eyebrow="Stacks"
+        title={
+          total === 0 ? (
+            <>Ship a whole app at <em>once</em>.</>
+          ) : allRunning ? (
+            <>All <em>{running}</em> stacks running.</>
+          ) : (
+            <><em>{running}</em> of {total} stacks running.</>
+          )
+        }
+        description="Deploy multi-service apps straight from a compose file."
         actions={
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
@@ -116,39 +125,53 @@ function StacksPage() {
         }
       />
       {stacks.data && stacks.data.length === 0 ? (
-        <EmptyState icon={<LayersIcon />} title="No stacks" description="Deploy a compose file to get started." />
-      ) : (
-        <Card>
+        <Card className="card-pop border-0">
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Services</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(stacks.data ?? []).map((stack) => (
-                  <TableRow key={stack.id}>
-                    <TableCell className="font-medium">{stack.name}</TableCell>
-                    <TableCell>{stack.serviceCount}</TableCell>
-                    <TableCell>
-                      <StatusBadge
-                        tone={stack.status === 'running' ? 'online' : stack.status === 'failed' ? 'offline' : 'progress'}
-                        label={stack.status}
-                      />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => remove.mutate({ id: stack.id })}>
-                        <Trash2Icon className="size-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <EmptyState
+              icon={<LayersIcon />}
+              title="Nothing shipped yet."
+              description="Paste a compose file and deploy every service in one move — they show up here as they converge."
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="card-pop border-0">
+          <CardContent className="p-0">
+            <div className="flex items-center justify-between gap-4 px-6 py-4">
+              <span className="mono-label">
+                <CountUp value={running} /> / {total} running
+              </span>
+              <span className="mono-label text-muted-foreground">{total} total</span>
+            </div>
+            <div className="divide-border divide-y border-t">
+              {list.map((stack) => (
+                <div
+                  key={stack.id}
+                  className="hover:bg-accent/60 flex items-center gap-4 px-6 py-4 transition-colors"
+                >
+                  <StatusBadge
+                    tone={stack.status === 'running' ? 'online' : stack.status === 'failed' ? 'offline' : 'progress'}
+                    label=""
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">{stack.name}</p>
+                    <p className="text-muted-foreground mono-label truncate">{stack.status}</p>
+                  </div>
+                  <div className="hidden w-32 text-right sm:block">
+                    <p className="mono-data text-sm">{stack.serviceCount}</p>
+                    <p className="text-muted-foreground mono-label">services</p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => remove.mutate({ id: stack.id })}
+                    disabled={remove.isPending}
+                  >
+                    <Trash2Icon className="size-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       )}

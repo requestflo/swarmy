@@ -23,12 +23,13 @@ import {
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
+import { CountUp } from '@/components/count-up';
 
 export const Route = createFileRoute('/_authed/services/$serviceId')({
   component: ServiceDetailPage,
 });
 
-function ServiceDetailPage() {
+function ServiceDetailPage(): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -68,24 +69,42 @@ function ServiceDetailPage() {
 
   const s = svc.data;
   const desired = replicas ?? s?.replicas.desired ?? 1;
+  const deploying =
+    deploy.data && deploy.data.phase !== 'complete' && deploy.data.phase !== 'failed';
 
   return (
-    <div>
+    <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
       <PageHeader
-        title={s?.name ?? 'Service'}
-        description={s?.image}
+        eyebrow="Service"
+        title={
+          <>
+            <CountUp value={s?.replicas.running ?? 0} /> of {s?.replicas.desired ?? 0}{' '}
+            <em>running</em>.
+          </>
+        }
+        description={s ? `${s.name} · ${s.image}` : undefined}
         actions={
-          <Button variant="outline" size="sm" onClick={() => restart.mutate({ id: serviceId })}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => restart.mutate({ id: serviceId })}
+            disabled={restart.isPending}
+          >
             <RotateCwIcon className="size-4" /> Restart
           </Button>
         }
       />
 
-      {deploy.data && deploy.data.phase !== 'complete' && deploy.data.phase !== 'failed' && (
-        <Alert className="mb-4">
-          <AlertTitle className="capitalize">Deploying — {deploy.data.phase}</AlertTitle>
+      {deploying && (
+        <Alert className="card-pop mb-6 border-0">
+          <AlertTitle className="flex items-center gap-2 capitalize">
+            <span className="pulse-dot" /> Deploying — {deploy.data?.phase}
+          </AlertTitle>
           <AlertDescription>
-            {deploy.data.ready ?? 0} / {deploy.data.desired ?? desired} replicas ready
+            <span className="mono-data">
+              {deploy.data?.ready ?? 0} / {deploy.data?.desired ?? desired}
+            </span>{' '}
+            replicas ready
           </AlertDescription>
         </Alert>
       )}
@@ -98,35 +117,40 @@ function ServiceDetailPage() {
           <TabsTrigger value="danger">Danger</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview" className="mt-4 grid gap-4 lg:grid-cols-2">
-          <Card>
+        <TabsContent value="overview" className="mt-6 grid gap-4 lg:grid-cols-2">
+          <Card className="card-pop border-0">
             <CardHeader>
               <CardTitle className="text-base">Status</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">State</span>
-                <StatusBadge tone={SERVICE_STATUS_TONE[s?.status ?? ''] ?? 'neutral'} label={s?.status ?? '—'} />
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Replicas</span>
-                <span className="tabular-nums">
+              <Row label="State">
+                <StatusBadge
+                  tone={SERVICE_STATUS_TONE[s?.status ?? ''] ?? 'neutral'}
+                  label={s?.status ?? '—'}
+                />
+              </Row>
+              <Row label="Replicas">
+                <span className="mono-data">
                   {s?.replicas.running ?? 0} / {s?.replicas.desired ?? 0}
                 </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Ingress</span>
-                {s?.ingressEnabled ? <Badge variant="success">on</Badge> : <Badge variant="muted">off</Badge>}
-              </div>
+              </Row>
+              <Row label="Ingress">
+                {s?.ingressEnabled ? (
+                  <Badge variant="success">on</Badge>
+                ) : (
+                  <Badge variant="muted">off</Badge>
+                )}
+              </Row>
             </CardContent>
           </Card>
-          <Card>
+
+          <Card className="card-pop border-0">
             <CardHeader>
               <CardTitle className="text-base">Scale</CardTitle>
             </CardHeader>
             <CardContent className="flex items-end gap-2">
               <div className="grid flex-1 gap-1">
-                <span className="text-muted-foreground text-xs">Desired replicas</span>
+                <span className="mono-label text-muted-foreground">Desired replicas</span>
                 <Input
                   type="number"
                   min={0}
@@ -144,69 +168,84 @@ function ServiceDetailPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="config" className="mt-4">
-          <Card>
+        <TabsContent value="config" className="mt-6">
+          <Card className="card-pop border-0">
             <CardHeader>
               <CardTitle className="text-base">Environment & ports</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4 text-sm">
               <div>
-                <p className="text-muted-foreground mb-1 text-xs">Environment</p>
+                <p className="mono-label text-muted-foreground mb-2">Environment</p>
                 {Object.entries(s?.env ?? {}).length ? (
-                  <pre className="bg-muted rounded-md p-3 font-mono text-xs">
+                  <pre className="bg-muted rounded-xl p-3 font-mono text-xs">
                     {Object.entries(s?.env ?? {})
                       .map(([k, v]) => `${k}=${v}`)
                       .join('\n')}
                   </pre>
                 ) : (
-                  <p className="text-muted-foreground">None</p>
+                  <p className="text-muted-foreground">Nothing set. This service runs clean.</p>
                 )}
               </div>
               <div>
-                <p className="text-muted-foreground mb-1 text-xs">Ports</p>
+                <p className="mono-label text-muted-foreground mb-2">Ports</p>
                 {(s?.ports ?? []).length ? (
                   <div className="flex flex-wrap gap-2">
                     {(s?.ports ?? []).map((p, i) => (
-                      <Badge key={i} variant="outline">
+                      <Badge key={i} variant="outline" className="mono-data">
                         {p.published ? `${p.published}:` : ''}
                         {p.target}/{p.protocol}
                       </Badge>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-muted-foreground">None</p>
+                  <p className="text-muted-foreground">No ports published.</p>
                 )}
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="logs" className="mt-4">
-          <Card>
-            <CardContent className="text-muted-foreground p-6 text-sm">
-              Live logs stream from the node agent over the controller. Connect a node running this
-              service to tail its output here.
+        <TabsContent value="logs" className="mt-6">
+          <Card className="card-pop border-0">
+            <CardContent className="text-muted-foreground p-10 text-center text-sm">
+              No logs yet. Live output streams from the node agent over the controller — connect a
+              node running this service to tail it here.
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="danger" className="mt-4">
-          <Card className="border-destructive/40">
+        <TabsContent value="danger" className="mt-6">
+          <Card className="card-pop border-destructive/40 border">
             <CardHeader>
               <CardTitle className="text-destructive text-base">Danger zone</CardTitle>
             </CardHeader>
-            <CardContent className="flex items-center justify-between">
+            <CardContent className="flex flex-wrap items-center justify-between gap-4">
               <div className="text-sm">
                 <p className="font-medium">Remove this service</p>
-                <p className="text-muted-foreground">Stops all replicas and deletes the service.</p>
+                <p className="text-muted-foreground">
+                  Stops every replica and deletes the service. No undo.
+                </p>
               </div>
-              <Button variant="destructive" onClick={() => remove.mutate({ id: serviceId })}>
+              <Button
+                variant="destructive"
+                onClick={() => remove.mutate({ id: serviceId })}
+                disabled={remove.isPending}
+              >
                 <Trash2Icon className="size-4" /> Remove
               </Button>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="mono-label text-muted-foreground">{label}</span>
+      <span className="text-right">{children}</span>
     </div>
   );
 }

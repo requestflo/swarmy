@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
 import { useFieldArray, useForm } from 'react-hook-form';
@@ -31,7 +32,7 @@ export const Route = createFileRoute('/_authed/services/new')({
 
 type FormValues = z.input<typeof CreateServiceInput>;
 
-function NewServicePage() {
+function NewServicePage(): React.JSX.Element {
   const trpc = useTRPC();
   const navigate = useNavigate();
 
@@ -70,11 +71,15 @@ function NewServicePage() {
   });
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <PageHeader title="New service" description="Deploy a container image to the swarm." />
+    <div className="mx-auto w-full max-w-3xl px-6 pt-8 lg:pb-20 xl:px-10">
+      <PageHeader
+        eyebrow="New service"
+        title={<>Deploy a <em>service</em>.</>}
+        description="Point us at a container image. We'll roll it out across the swarm."
+      />
       <Form {...form}>
         <form onSubmit={submit} className="grid gap-4">
-          <Card>
+          <Card className="card-pop border-0">
             <CardHeader>
               <CardTitle className="text-base">Service</CardTitle>
             </CardHeader>
@@ -84,7 +89,7 @@ function NewServicePage() {
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Name</FormLabel>
+                    <FormLabel className="mono-label">Name</FormLabel>
                     <FormControl>
                       <Input placeholder="api" {...field} />
                     </FormControl>
@@ -97,9 +102,9 @@ function NewServicePage() {
                 name="image"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Image</FormLabel>
+                    <FormLabel className="mono-label">Image</FormLabel>
                     <FormControl>
-                      <Input placeholder="nginx:latest" {...field} />
+                      <Input placeholder="nginx:latest" className="font-mono" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -110,12 +115,13 @@ function NewServicePage() {
                 name="replicas"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Replicas</FormLabel>
+                    <FormLabel className="mono-label">Replicas</FormLabel>
                     <FormControl>
                       <Input
                         type="number"
                         min={0}
                         max={1000}
+                        className="mono-data"
                         {...field}
                         onChange={(e) => field.onChange(Number(e.target.value))}
                       />
@@ -127,7 +133,7 @@ function NewServicePage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="card-pop border-0">
             <CardHeader>
               <CardTitle className="flex items-center justify-between text-base">
                 Environment
@@ -147,12 +153,12 @@ function NewServicePage() {
                 </div>
               ))}
               {env.fields.length === 0 && (
-                <p className="text-muted-foreground text-sm">No environment variables.</p>
+                <p className="text-muted-foreground text-sm">No env yet. Add a key when you need one.</p>
               )}
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="card-pop border-0">
             <CardHeader>
               <CardTitle className="flex items-center justify-between text-base">
                 Ports
@@ -172,12 +178,14 @@ function NewServicePage() {
                   <Input
                     type="number"
                     placeholder="published"
+                    className="mono-data"
                     {...form.register(`ports.${i}.published`, { valueAsNumber: true })}
                   />
                   <span className="text-muted-foreground">→</span>
                   <Input
                     type="number"
                     placeholder="target"
+                    className="mono-data"
                     {...form.register(`ports.${i}.target`, { valueAsNumber: true })}
                   />
                   <Button type="button" variant="ghost" size="icon" onClick={() => ports.remove(i)}>
@@ -185,17 +193,19 @@ function NewServicePage() {
                   </Button>
                 </div>
               ))}
-              {ports.fields.length === 0 && <p className="text-muted-foreground text-sm">No published ports.</p>}
+              {ports.fields.length === 0 && (
+                <p className="text-muted-foreground text-sm">No published ports. Add one to expose a port.</p>
+              )}
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="card-pop border-0">
             <CardHeader>
               <CardTitle className="text-base">Ingress</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4">
               <div className="flex items-center justify-between">
-                <Label htmlFor="ingress-enabled">Expose via ingress</Label>
+                <Label htmlFor="ingress-enabled" className="mono-label">Expose via ingress</Label>
                 <Switch
                   id="ingress-enabled"
                   checked={!!ingressEnabled}
@@ -204,10 +214,11 @@ function NewServicePage() {
               </div>
               {ingressEnabled && (
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <Input placeholder="app.example.com" {...form.register('ingress.domain')} />
+                  <Input placeholder="app.example.com" className="font-mono" {...form.register('ingress.domain')} />
                   <Input
                     type="number"
                     placeholder="target port"
+                    className="mono-data"
                     {...form.register('ingress.targetPort', { valueAsNumber: true })}
                   />
                 </div>

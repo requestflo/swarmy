@@ -19,6 +19,7 @@ import {
 import { SERVICE_STATUS_TONE } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
+import { CountUp } from '@/components/count-up';
 
 export const Route = createFileRoute('/_authed/services/')({
   component: ServicesPage,
@@ -46,10 +47,21 @@ function ServicesPage() {
     }),
   );
 
+  const count = services.data?.length ?? 0;
+
   return (
-    <div>
+    <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
       <PageHeader
-        title="Services"
+        eyebrow="Services"
+        title={
+          count > 0 ? (
+            <>
+              <CountUp value={count} /> service{count === 1 ? '' : 's'} <em>running</em>.
+            </>
+          ) : (
+            <>Deploy a <em>service</em>.</>
+          )
+        }
         description="Long-running workloads deployed across the swarm."
         actions={
           <Button onClick={() => navigate({ to: '/services/new' })}>
@@ -60,8 +72,8 @@ function ServicesPage() {
       {services.data && services.data.length === 0 ? (
         <EmptyState
           icon={<BoxesIcon />}
-          title="No services yet"
-          description="Deploy your first service to the cluster."
+          title="Nothing deployed yet"
+          description="Quiet so far. Ship your first service to the swarm."
           action={
             <Button onClick={() => navigate({ to: '/services/new' })}>
               <PlusIcon className="size-4" /> New service
@@ -69,22 +81,22 @@ function ServicesPage() {
           }
         />
       ) : (
-        <Card>
+        <Card className="card-pop border-0">
           <CardContent className="p-0">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Image</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Replicas</TableHead>
-                  <TableHead>Ingress</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="mono-label">Name</TableHead>
+                  <TableHead className="mono-label">Image</TableHead>
+                  <TableHead className="mono-label">Status</TableHead>
+                  <TableHead className="mono-label">Replicas</TableHead>
+                  <TableHead className="mono-label">Ingress</TableHead>
+                  <TableHead className="mono-label text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(services.data ?? []).map((svc) => (
-                  <TableRow key={svc.id}>
+                  <TableRow key={svc.id} className="hover:bg-accent/60 transition-colors">
                     <TableCell>
                       <Link
                         to="/services/$serviceId"
@@ -94,13 +106,13 @@ function ServicesPage() {
                         {svc.name}
                       </Link>
                     </TableCell>
-                    <TableCell className="text-muted-foreground font-mono text-xs">
+                    <TableCell className="text-muted-foreground mono-data text-xs">
                       {svc.image}
                     </TableCell>
                     <TableCell>
                       <StatusBadge tone={SERVICE_STATUS_TONE[svc.status] ?? 'neutral'} label={svc.status} />
                     </TableCell>
-                    <TableCell className="tabular-nums">
+                    <TableCell className="mono-data">
                       {svc.replicas.running} / {svc.replicas.desired}
                     </TableCell>
                     <TableCell>

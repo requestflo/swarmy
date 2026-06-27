@@ -1,18 +1,16 @@
 import * as React from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { ContainerIcon, Loader2Icon } from 'lucide-react';
+import { Loader2Icon } from 'lucide-react';
 import { authClient } from '@swarmy/auth/client';
 import {
   Button,
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   Input,
   Label,
   toast,
 } from '@swarmy/ui';
+import { Wordmark } from '@/components/wordmark';
 
 export const Route = createFileRoute('/login')({
   component: LoginPage,
@@ -22,7 +20,7 @@ function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `org-${Date.now()}`;
 }
 
-function LoginPage() {
+function LoginPage(): React.JSX.Element {
   const navigate = useNavigate();
   const [mode, setMode] = React.useState<'signin' | 'signup'>('signin');
   const [name, setName] = React.useState('');
@@ -57,69 +55,74 @@ function LoginPage() {
   }
 
   return (
-    <div className="bg-background flex min-h-screen items-center justify-center p-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-center justify-center gap-2">
-          <div className="bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg">
-            <ContainerIcon className="size-5" />
-          </div>
-          <span className="text-xl font-semibold tracking-tight">swarmy</span>
-        </div>
-        <Card>
-          <CardHeader>
-            <CardTitle>{mode === 'signin' ? 'Welcome back' : 'Create your account'}</CardTitle>
-            <CardDescription>
-              {mode === 'signin'
-                ? 'Sign in to your swarmy controller'
-                : 'Set up your account and first team'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={submit} className="grid gap-4">
-              {mode === 'signup' && (
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Name</Label>
-                  <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
-                </div>
+    <div className="mesh bg-background flex min-h-screen items-center justify-center p-4">
+      <div className="w-full max-w-3xl">
+        <div className="mx-auto flex w-full max-w-md flex-col">
+          <div className="mb-8 flex flex-col items-center text-center">
+            <Wordmark className="text-2xl" />
+            <span className="eyebrow mt-6 text-muted-foreground">Welcome</span>
+            <h1 className="headline mt-3 text-[2.4rem] sm:text-5xl/[3.4rem]">
+              {mode === 'signin' ? (
+                <>Welcome <em>back</em>.</>
+              ) : (
+                <>Run your <em>swarm</em>.</>
               )}
-              <div className="grid gap-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={8}
-                />
-              </div>
-              <Button type="submit" disabled={busy} className="w-full">
-                {busy && <Loader2Icon className="animate-spin" />}
-                {mode === 'signin' ? 'Sign in' : 'Create account'}
-              </Button>
-            </form>
-            <p className="text-muted-foreground mt-4 text-center text-sm">
-              {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
-              <button
-                type="button"
-                className="text-primary hover:underline"
-                onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
-              >
-                {mode === 'signin' ? 'Sign up' : 'Sign in'}
-              </button>
+            </h1>
+            <p className="text-muted-foreground mt-3 text-sm">
+              {mode === 'signin'
+                ? 'Sign in to your swarmy controller.'
+                : 'Set up your account and first team. Anyone can just deploy.'}
             </p>
-          </CardContent>
-        </Card>
+          </div>
+
+          <Card className="card-pop border-0">
+            <CardContent className="pt-6">
+              <form onSubmit={submit} className="grid gap-4">
+                {mode === 'signup' && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="name" className="mono-label">Name</Label>
+                    <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
+                  </div>
+                )}
+                <div className="grid gap-2">
+                  <Label htmlFor="email" className="mono-label">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="password" className="mono-label">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={8}
+                  />
+                </div>
+                <Button type="submit" disabled={busy} className="mt-2 w-full">
+                  {busy && <Loader2Icon className="animate-spin" />}
+                  {mode === 'signin' ? 'Sign in' : 'Create account'}
+                </Button>
+              </form>
+              <p className="text-muted-foreground mt-6 text-center text-sm">
+                {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
+                <button
+                  type="button"
+                  className="text-primary font-medium hover:underline"
+                  onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+                >
+                  {mode === 'signin' ? 'Sign up' : 'Sign in'}
+                </button>
+              </p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

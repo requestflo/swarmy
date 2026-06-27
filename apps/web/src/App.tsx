@@ -44,12 +44,14 @@ const FEATURES = [
 export function App() {
   return (
     <div className="bg-background text-foreground min-h-screen">
-      <header className="mx-auto flex max-w-6xl items-center justify-between p-6">
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
         <div className="flex items-center gap-2">
-          <div className="bg-primary/10 text-primary flex size-8 items-center justify-center rounded-lg">
+          <div className="bg-primary/10 text-primary flex size-8 items-center justify-center rounded-xl">
             <ContainerIcon className="size-5" />
           </div>
-          <span className="text-lg font-semibold tracking-tight">swarmy</span>
+          <span className="text-lg font-bold tracking-tight">
+            swarm<span className="text-primary">y</span>
+          </span>
         </div>
         <Button asChild variant="outline">
           <a href="http://localhost:3003">Open dashboard</a>
@@ -57,46 +59,94 @@ export function App() {
       </header>
 
       <main>
-        <section className="mx-auto max-w-3xl px-6 py-24 text-center">
-          <Badge variant="success" className="mb-5">
-            Open source · self-hosted
-          </Badge>
-          <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
-            The Docker Swarm controller that gets out of your way.
-          </h1>
-          <p className="text-muted-foreground mx-auto mt-6 max-w-xl text-lg">
-            Live stats, agent-based node enrollment, and pluggable ingress — a modern, professional
-            control plane for your swarm. Like Dokploy, minus the opinions.
-          </p>
-          <div className="mt-8 flex justify-center gap-3">
-            <Button asChild size="lg">
-              <a href="http://localhost:3003">Get started</a>
-            </Button>
-            <Button asChild size="lg" variant="outline">
-              <a href="https://github.com/requestflo/swarmy">View on GitHub</a>
-            </Button>
+        <section className="mesh relative overflow-hidden">
+          <div className="mx-auto max-w-3xl px-6 pt-20 pb-24 text-center lg:pt-28">
+            <span className="eyebrow mb-6">
+              <span className="pulse-dot" /> Open source · self-hosted
+            </span>
+            <h1 className="headline mt-6 text-[2.6rem] sm:text-6xl/[4.4rem]">
+              Deploy your swarm. <em>Get out of the way</em>.
+            </h1>
+            <p className="text-muted-foreground mx-auto mt-7 max-w-xl text-lg">
+              Live stats, agent-based node enrollment, and pluggable ingress — a modern, premium
+              control plane for Docker Swarm. Like Dokploy, minus the opinions.
+            </p>
+            <div className="mt-9 flex flex-wrap justify-center gap-3">
+              <Button asChild size="lg">
+                <a href="http://localhost:3003">Get started</a>
+              </Button>
+              <Button asChild size="lg" variant="outline">
+                <a href="https://github.com/requestflo/swarmy">View on GitHub</a>
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-6xl px-6 pb-12">
+          <div className="ink-block flex flex-wrap items-center justify-around gap-8 rounded-2xl px-8 py-9 text-center">
+            <div>
+              <p className="mono-data text-4xl font-bold">∞</p>
+              <p className="mono-label mt-1 opacity-70">nodes per swarm</p>
+            </div>
+            <div>
+              <p className="mono-data text-4xl font-bold">0</p>
+              <p className="mono-label mt-1 opacity-70">inbound ports</p>
+            </div>
+            <div>
+              <p className="mono-data text-4xl font-bold">2s</p>
+              <p className="mono-label mt-1 opacity-70">live refresh</p>
+            </div>
+            <div>
+              <p className="mono-data text-4xl font-bold">FSL</p>
+              <p className="mono-label mt-1 opacity-70">licensed</p>
+            </div>
           </div>
         </section>
 
         <section className="mx-auto max-w-6xl px-6 pb-24">
+          <div className="mb-8 max-w-2xl">
+            <span className="eyebrow mb-4">Features</span>
+            <h2 className="headline mt-4 text-3xl sm:text-4xl">
+              Everything you need. <em>Nothing you don't</em>.
+            </h2>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((f) => (
-              <Card key={f.title}>
+              <Card key={f.title} className="card-pop card-pop-hover border-0">
                 <CardContent className="flex flex-col gap-3 p-6">
-                  <div className="bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg">
+                  <div className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-xl">
                     <f.icon className="size-5" />
                   </div>
-                  <h3 className="font-semibold">{f.title}</h3>
+                  <h3 className="font-bold tracking-tight">{f.title}</h3>
                   <p className="text-muted-foreground text-sm">{f.body}</p>
                 </CardContent>
               </Card>
             ))}
           </div>
         </section>
+
+        <section className="mx-auto max-w-6xl px-6 pb-24">
+          <div className="ink-block relative overflow-hidden rounded-2xl px-8 py-14 text-center">
+            <Badge variant="success" className="mb-5">
+              Ready when you are
+            </Badge>
+            <h2 className="headline text-3xl sm:text-5xl">
+              Spin up your <em>control plane</em>.
+            </h2>
+            <p className="mx-auto mt-5 max-w-lg text-base opacity-80">
+              One agent per node, a join token, and you're live. No inbound ports, no walled garden.
+            </p>
+            <div className="mt-8 flex flex-wrap justify-center gap-3">
+              <Button asChild size="lg">
+                <a href="http://localhost:3003">Open dashboard</a>
+              </Button>
+            </div>
+          </div>
+        </section>
       </main>
 
       <footer className="text-muted-foreground border-t py-8 text-center text-sm">
-        swarmy — MIT licensed.
+        swarm<span className="text-primary">y</span> — FSL-1.1 licensed.
       </footer>
     </div>
   );

@@ -24,23 +24,19 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  StatusBadge,
   Switch,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
   toast,
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
+import { CountUp } from '@/components/count-up';
 
 export const Route = createFileRoute('/_authed/ingress')({
   component: IngressPage,
 });
 
-function IngressPage() {
+function IngressPage(): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const config = useQuery(trpc.ingress.getConfig.queryOptions());
@@ -62,21 +58,48 @@ function IngressPage() {
     trpc.ingress.removeDomain.mutationOptions({ onSuccess: invalidate, onError: (e) => toast.error(e.message) }),
   );
 
+  const driver = config.data?.driver ?? 'none';
+  const isNone = driver === 'none';
+  const enabled = !!config.data?.enabled;
+  const domainCount = domains.data?.length ?? 0;
+  const live = enabled && !isNone;
+
   return (
-    <div>
-      <PageHeader title="Ingress" description="Unopinionated routing — Caddy, Traefik, or bring your own." />
+    <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
+      <PageHeader
+        eyebrow="Ingress"
+        title={
+          domainCount > 0 ? (
+            <>
+              <CountUp value={domainCount} /> domain{domainCount === 1 ? '' : 's'} <em>routed</em>.
+            </>
+          ) : (
+            <>
+              Routing, <em>your</em> way.
+            </>
+          )
+        }
+        description="Pick a driver — or none at all. swarmy stays unopinionated about how traffic reaches your services."
+        actions={
+          <StatusBadge
+            tone={live ? 'online' : 'neutral'}
+            label={live ? `${INGRESS_DRIVER_LABELS[driver]} · live` : isNone ? 'Tracking only' : 'Paused'}
+          />
+        }
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
+        <Card className="card-pop border-0">
           <CardHeader>
             <CardTitle className="text-base">Driver</CardTitle>
             <CardDescription>
-              With “None”, swarmy tracks domains for display but writes no routing config.
+              Choose <strong className="text-foreground">None</strong> to stay fully unopinionated — swarmy tracks
+              domains for display but writes no routing config to your nodes.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4">
+          <CardContent className="grid gap-5">
             <div className="grid gap-1.5">
-              <Label>Ingress driver</Label>
+              <Label className="mono-label">Ingress driver</Label>
               <Select
                 value={config.data?.driver ?? 'none'}
                 onValueChange={(v) => setDriver.mutate({ driver: v as 'caddy' | 'traefik' | 'none' })}
@@ -92,10 +115,17 @@ function IngressPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {isNone ? (
+                <p className="text-muted-foreground mt-1 text-xs">
+                  Unopinionated by default. Bring your own proxy — swarmy stays out of the way.
+                </p>
+              ) : null}
             </div>
-            <div className="flex items-center justify-between">
+            <div className="bg-accent/40 flex items-center justify-between rounded-xl px-4 py-3">
               <div>
-                <Label htmlFor="ingress-on">Enabled</Label>
+                <Label htmlFor="ingress-on" className="font-medium">
+                  Enabled
+                </Label>
                 <p className="text-muted-foreground text-xs">Master switch — off writes nothing to nodes.</p>
               </div>
               <Switch
@@ -107,16 +137,19 @@ function IngressPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="card-pop border-0">
           <CardHeader>
             <CardTitle className="text-base">Rendered config preview</CardTitle>
             <CardDescription>What the agent would apply on ingress nodes.</CardDescription>
           </CardHeader>
           <CardContent>
             {config.data?.driver === 'none' ? (
-              <p className="text-muted-foreground text-sm">Nothing is written in “None” mode.</p>
+              <div className="text-muted-foreground flex h-40 flex-col items-center justify-center gap-2 text-center text-sm">
+                <span className="mono-label">None mode</span>
+                <p>Nothing written. You're in charge of routing.</p>
+              </div>
             ) : preview.data ? (
-              <pre className="bg-muted max-h-64 overflow-auto rounded-md p-3 font-mono text-xs">
+              <pre className="bg-muted mono-data max-h-64 overflow-auto rounded-xl p-4 text-xs">
                 {preview.data.summary}
                 {'\n\n'}
                 {preview.data.files.map((f) => `# ${f.path}\n${f.contents}`).join('\n')}
@@ -128,7 +161,7 @@ function IngressPage() {
         </Card>
       </div>
 
-      <Card className="mt-4">
+      <Card className="card-pop mt-6 border-0">
         <CardHeader>
           <CardTitle className="flex items-center justify-between text-base">
             Domains
@@ -136,41 +169,43 @@ function IngressPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Host</TableHead>
-                <TableHead>Service</TableHead>
-                <TableHead>Port</TableHead>
-                <TableHead>TLS</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(domains.data ?? []).map((d) => (
-                <TableRow key={d.id}>
-                  <TableCell className="font-medium">{d.host}</TableCell>
-                  <TableCell>{d.serviceName}</TableCell>
-                  <TableCell>{d.targetPort}</TableCell>
-                  <TableCell>
-                    <Badge variant="muted">{d.tls}</Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" onClick={() => removeDomain.mutate({ id: d.id })}>
-                      <Trash2Icon className="size-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {domains.data?.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-muted-foreground py-8 text-center text-sm">
-                    No domains mapped.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+          <div className="grid grid-cols-[1fr_auto] gap-x-4 px-6 pb-2 sm:grid-cols-[2fr_1.5fr_auto_auto_auto]">
+            <span className="mono-label">Host</span>
+            <span className="mono-label hidden sm:block">Service</span>
+            <span className="mono-label hidden sm:block">Port</span>
+            <span className="mono-label hidden sm:block">TLS</span>
+            <span className="mono-label text-right">{domainCount > 0 ? domainCount : ''}</span>
+          </div>
+          <div className="border-t">
+            {(domains.data ?? []).map((d) => (
+              <div
+                key={d.id}
+                className="hover:bg-accent/60 grid grid-cols-[1fr_auto] items-center gap-x-4 border-b px-6 py-3 transition-colors last:border-b-0 sm:grid-cols-[2fr_1.5fr_auto_auto_auto]"
+              >
+                <div className="min-w-0">
+                  <p className="mono-data truncate font-medium">{d.host}</p>
+                  <p className="text-muted-foreground mono-label sm:hidden">
+                    {d.serviceName} · :{d.targetPort} · {d.tls}
+                  </p>
+                </div>
+                <span className="hidden truncate sm:block">{d.serviceName}</span>
+                <span className="mono-data hidden sm:block">:{d.targetPort}</span>
+                <span className="hidden sm:block">
+                  <Badge variant="muted">{d.tls}</Badge>
+                </span>
+                <div className="text-right">
+                  <Button variant="ghost" size="icon" onClick={() => removeDomain.mutate({ id: d.id })}>
+                    <Trash2Icon className="size-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {domains.data?.length === 0 && (
+              <div className="text-muted-foreground px-6 py-12 text-center text-sm">
+                No domains mapped yet. Point one at a service to send it traffic.
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -215,11 +250,11 @@ function AddDomainDialog({
         </DialogHeader>
         <div className="grid gap-3">
           <div className="grid gap-1.5">
-            <Label>Host</Label>
+            <Label className="mono-label">Host</Label>
             <Input value={host} onChange={(e) => setHost(e.target.value)} placeholder="app.example.com" />
           </div>
           <div className="grid gap-1.5">
-            <Label>Service</Label>
+            <Label className="mono-label">Service</Label>
             <Select value={serviceId} onValueChange={setServiceId}>
               <SelectTrigger>
                 <SelectValue placeholder="Select a service" />
@@ -234,7 +269,7 @@ function AddDomainDialog({
             </Select>
           </div>
           <div className="grid gap-1.5">
-            <Label>Target port</Label>
+            <Label className="mono-label">Target port</Label>
             <Input type="number" value={port} onChange={(e) => setPort(Number(e.target.value))} />
           </div>
         </div>
