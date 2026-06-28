@@ -5,8 +5,10 @@ import {
   NetworkIcon,
   ServerIcon,
   ShieldCheckIcon,
+  SparklesIcon,
 } from 'lucide-react';
 import { Badge, Button, Card, CardContent } from '@swarmy/ui';
+import { APP_URL, DEMO_URL } from './config';
 
 const FEATURES = [
   {
@@ -53,9 +55,16 @@ export function App() {
             swarm<span className="text-primary">y</span>
           </span>
         </div>
-        <Button asChild variant="outline">
-          <a href="http://localhost:3003">Open dashboard</a>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="ghost" className="hidden sm:inline-flex">
+            <a href={DEMO_URL}>
+              <SparklesIcon /> Live demo
+            </a>
+          </Button>
+          <Button asChild variant="outline">
+            <a href={APP_URL}>Open dashboard</a>
+          </Button>
+        </div>
       </header>
 
       <main>
@@ -73,12 +82,20 @@ export function App() {
             </p>
             <div className="mt-9 flex flex-wrap justify-center gap-3">
               <Button asChild size="lg">
-                <a href="http://localhost:3003">Get started</a>
+                <a href={APP_URL}>Get started</a>
               </Button>
               <Button asChild size="lg" variant="outline">
+                <a href={DEMO_URL}>
+                  <SparklesIcon /> Try the live demo
+                </a>
+              </Button>
+              <Button asChild size="lg" variant="ghost">
                 <a href="https://github.com/requestflo/swarmy">View on GitHub</a>
               </Button>
             </div>
+            <p className="text-muted-foreground/80 mt-4 text-xs">
+              No sign-up, no install — the full dashboard, right in your browser.
+            </p>
           </div>
         </section>
 
@@ -104,11 +121,19 @@ export function App() {
         </section>
 
         <section className="mx-auto max-w-6xl px-6 pb-24">
-          <div className="mb-8 max-w-2xl">
-            <span className="eyebrow mb-4">Features</span>
-            <h2 className="headline mt-4 text-3xl sm:text-4xl">
-              Everything you need. <em>Nothing you don't</em>.
-            </h2>
+          <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+            <div className="max-w-2xl">
+              <span className="eyebrow mb-4">Features</span>
+              <h2 className="headline mt-4 text-3xl sm:text-4xl">
+                Everything you need. <em>Nothing you don't</em>.
+              </h2>
+            </div>
+            <a
+              href={DEMO_URL}
+              className="text-primary inline-flex items-center gap-1.5 text-sm font-semibold hover:underline"
+            >
+              See it live <span aria-hidden>→</span>
+            </a>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((f) => (
@@ -138,7 +163,12 @@ export function App() {
             </p>
             <div className="mt-8 flex flex-wrap justify-center gap-3">
               <Button asChild size="lg">
-                <a href="http://localhost:3003">Open dashboard</a>
+                <a href={APP_URL}>Open dashboard</a>
+              </Button>
+              <Button asChild size="lg" variant="outline">
+                <a href={DEMO_URL}>
+                  <SparklesIcon /> Try the live demo
+                </a>
               </Button>
             </div>
           </div>
