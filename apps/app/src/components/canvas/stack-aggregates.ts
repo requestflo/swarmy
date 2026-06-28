@@ -43,7 +43,11 @@ export interface StackStat {
  */
 export function computeStackStats(inv: Inventory): StackStat[] {
   const svcById = new Map(inv.services.map((s) => [s.id, s]));
-  return inv.projects.map((project) => {
+  // The stacks home shows only real Docker stacks running in the swarm. Standalone
+  // (ungrouped) containers aren't apps/stacks — they're viewed per-node under Nodes.
+  return inv.projects
+    .filter((project) => project.name !== UNGROUPED)
+    .map((project) => {
     const ids = new Set(project.serviceIds);
     const services = project.serviceIds
       .map((id) => svcById.get(id))
