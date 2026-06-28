@@ -145,6 +145,19 @@ export const ScaleServiceMsg = z.object({
 });
 export type ScaleServiceMsg = z.infer<typeof ScaleServiceMsg>;
 
+/** Merge/remove labels on a live service — how swarmy persists config (Docker-truth). */
+export const UpdateServiceLabelsPayload = z.object({
+  ...cmd,
+  service: z.string(),
+  add: z.record(z.string()).default({}),
+  removeKeys: z.array(z.string()).default([]),
+});
+export const UpdateServiceLabelsMsg = z.object({
+  type: z.literal('updateServiceLabels'),
+  payload: UpdateServiceLabelsPayload,
+});
+export type UpdateServiceLabelsMsg = z.infer<typeof UpdateServiceLabelsMsg>;
+
 export const RestartServicePayload = z.object({
   ...cmd,
   service: z.string(),

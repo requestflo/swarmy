@@ -8,7 +8,9 @@ import {
   removeService,
   restartService,
   scaleService,
+  setScaleToZero,
   updateService,
+  wakeService,
 } from '../services/service.service';
 import {
   getDeployStatus,
@@ -50,6 +52,21 @@ export const servicesRouter = router({
   remove: orgProcedure
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeService(ctx, input.id)),
+
+  setScaleToZero: orgProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        enabled: z.boolean(),
+        targetReplicas: z.number().int().min(1).max(1000).optional(),
+        idleSeconds: z.number().int().min(10).max(86400).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => setScaleToZero(ctx, input)),
+
+  wake: orgProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(({ ctx, input }) => wakeService(ctx, input.id)),
 
   deployStatus: orgProcedure
     .input(z.object({ serviceId: z.string() }))

@@ -57,6 +57,14 @@ export async function handleCommand(
       pushInventory(docker, conn);
       return;
     }
+    case 'updateServiceLabels': {
+      const { commandId, service, add, removeKeys } = envlp.payload;
+      await run(conn, commandId, async () => ({
+        serviceId: await docker.updateServiceLabels(service, add, removeKeys),
+      }));
+      pushInventory(docker, conn);
+      return;
+    }
     case 'pullImage': {
       const { commandId, image, registryAuth } = envlp.payload;
       return run(conn, commandId, async () => {

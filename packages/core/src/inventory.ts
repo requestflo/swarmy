@@ -11,6 +11,8 @@ import type { ContainerInfo, SwarmServiceInfo } from './protocol';
  */
 export const STACK_LABEL = 'com.docker.stack.namespace';
 export const SCALE_TO_ZERO_LABEL = 'swarmy.scaleToZero.enabled';
+export const SCALE_TO_ZERO_TARGET_LABEL = 'swarmy.scaleToZero.targetReplicas';
+export const SCALE_TO_ZERO_IDLE_LABEL = 'swarmy.scaleToZero.idleSeconds';
 export const UNGROUPED = '(ungrouped)';
 
 /** Networks that never imply an application link. */

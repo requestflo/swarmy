@@ -278,6 +278,21 @@ export class DockerClient {
     await svc.remove();
   }
 
+  /** Merge/remove labels on a live service (how swarmy persists config — Docker-truth). */
+  async updateServiceLabels(
+    nameOrId: string,
+    add: Record<string, string>,
+    removeKeys: string[] = [],
+  ): Promise<string> {
+    const svc = (await this.getServiceByName(nameOrId)) ?? this.docker.getService(nameOrId);
+    const inspect = await svc.inspect();
+    const spec = inspect.Spec as { Labels?: Record<string, string> };
+    spec.Labels = { ...(spec.Labels ?? {}), ...add };
+    for (const k of removeKeys) delete spec.Labels[k];
+    await svc.update({ version: inspect.Version.Index, ...(spec as Record<string, unknown>) });
+    return inspect.ID;
+  }
+
   async updateSwarmNode(
     swarmNodeId: string,
     opts: { availability?: 'active' | 'pause' | 'drain'; labels?: Record<string, string> },

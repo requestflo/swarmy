@@ -105,6 +105,7 @@ export interface ServiceDetail extends ServiceSummary {
   constraints: string[];
   swarmServiceId: string | null;
   createdAt: string;
+  scaleToZero?: { enabled: boolean; targetReplicas: number; idleSeconds: number };
 }
 
 /** Live swarm state for a service, read from the gateway's in-memory snapshot. */

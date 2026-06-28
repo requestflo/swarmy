@@ -15,6 +15,7 @@ export type CommandName =
   | 'service.deploy' // create + update (idempotent)
   | 'service.scale'
   | 'service.restart'
+  | 'service.updateLabels'
   | 'service.remove'
   | 'image.pull'
   | 'applyIngress'
@@ -39,6 +40,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'service.deploy': 'deployService',
   'service.scale': 'scaleService',
   'service.restart': 'restartService',
+  'service.updateLabels': 'updateServiceLabels',
   'service.remove': 'removeService',
   'image.pull': 'pullImage',
   applyIngress: 'applyIngress',

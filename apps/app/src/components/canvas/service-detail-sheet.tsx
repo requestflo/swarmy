@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MinusIcon, PlusIcon, RotateCwIcon, ScrollTextIcon, SquareTerminalIcon, Trash2Icon } from 'lucide-react';
-import { Button, Sheet, SheetContent, SheetHeader, SheetTitle, StatusBadge } from '@swarmy/ui';
+import { MinusIcon, MoonIcon, PlusIcon, RotateCwIcon, ScrollTextIcon, SquareTerminalIcon, Trash2Icon, ZapIcon } from 'lucide-react';
+import { Button, Sheet, SheetContent, SheetHeader, SheetTitle, StatusBadge, Switch } from '@swarmy/ui';
 import { SERVICE_STATUS_TONE } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 
@@ -26,9 +26,12 @@ export function ServiceDetailSheet({
   const scale = useMutation(trpc.services.scale.mutationOptions({ onSuccess: invalidate }));
   const restart = useMutation(trpc.services.restart.mutationOptions({ onSuccess: invalidate }));
   const remove = useMutation(trpc.services.remove.mutationOptions({ onSuccess: invalidate }));
+  const setS2z = useMutation(trpc.services.setScaleToZero.mutationOptions({ onSuccess: invalidate }));
+  const wake = useMutation(trpc.services.wake.mutationOptions({ onSuccess: invalidate }));
 
   const s = svc.data;
   const tone = s ? (SERVICE_STATUS_TONE[s.status] ?? 'neutral') : 'neutral';
+  const asleep = !!s?.scaleToZero?.enabled && (s?.replicas.desired ?? 0) === 0;
 
   return (
     <Sheet open={!!serviceId} onOpenChange={onOpenChange}>
@@ -68,6 +71,29 @@ export function ServiceDetailSheet({
                   <PlusIcon className="size-4" />
                 </Button>
               </div>
+            </div>
+
+            <div className="border-border rounded-xl border p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="flex items-center gap-1.5 text-sm font-semibold">
+                    <MoonIcon className="text-status-progress size-4" /> Scale to zero
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    Sleeps after {s.scaleToZero?.idleSeconds ?? 300}s idle · wakes on the next request
+                  </p>
+                </div>
+                <Switch
+                  checked={!!s.scaleToZero?.enabled}
+                  disabled={setS2z.isPending}
+                  onCheckedChange={(v) => setS2z.mutate({ id: s.id, enabled: v })}
+                />
+              </div>
+              {asleep && (
+                <Button className="mt-3 w-full" disabled={wake.isPending} onClick={() => wake.mutate({ id: s.id })}>
+                  <ZapIcon className="size-4" /> Wake now
+                </Button>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-2">

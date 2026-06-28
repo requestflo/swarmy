@@ -10,6 +10,7 @@ import { renderInstallScript } from './install-script';
 import { renderLoader, renderChecksumFile, sha256Hex } from './install/loader';
 import { renderInstaller, type RenderInstallerOptions } from './install/installer';
 import { agentWebSocketHandlers, hub, type AgentWsData } from './gateway';
+import { activatorApp } from './activator';
 import {
   authorizeTermUpgrade,
   terminalWebSocketHandlers,
@@ -109,6 +110,9 @@ app.route('/webhooks', webhooksApp);
 
 // OAuth2 client-credentials token endpoint (public-api-terraform P2). Public.
 app.route('/oauth', oauthApp);
+
+// Scale-to-zero activator (epic #4B): wake a cold service on the first request.
+app.route('/_wake', activatorApp);
 
 app.notFound((c) => c.json({ error: 'not found' }, 404));
 
