@@ -1,5 +1,8 @@
 import { Hono } from 'hono';
+import { prisma } from '@swarmy/db';
+import { authRegistry } from '@swarmy/auth';
 import { SCALE_TO_ZERO_TARGET_LABEL } from '@swarmy/core';
+import { reapplyIngressForOrg } from '@swarmy/trpc';
 import { hub, store } from './gateway';
 
 /**
@@ -63,6 +66,17 @@ activatorApp.all('/:service', async (c) => {
   recordActivity(name);
   const { found, ready } = await wake(name);
   if (!found) return c.json({ error: 'unknown service' }, 404);
+  if (ready) {
+    // Service is warm now: re-render ingress so its domain flips from THIS activator
+    // back to a direct upstream BEFORE we 307 the caller back (closes the redirect-loop
+    // window where a warm service is still routed through the activator).
+    const svc = findService(name);
+    if (svc) {
+      await reapplyIngressForOrg({ db: prisma, hub, auth: authRegistry.getAuth() }, svc.orgId).catch(
+        () => undefined,
+      );
+    }
+  }
   const back = c.req.query('return');
   if (back) return c.redirect(back, 307);
   return c.json({ service: name, ready });

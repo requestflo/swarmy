@@ -18,6 +18,7 @@ import {
   watchDeployStatus,
 } from '../services/deployment.service';
 import { resolveManagerNode } from '../services/dispatch.service';
+import { resolveServiceLogTarget } from '../services/live-resolve';
 
 export const servicesRouter = router({
   list: orgProcedure
@@ -89,24 +90,16 @@ export const servicesRouter = router({
 
   logs: orgProcedure.input(LogsInput).subscription(async function* ({ ctx, input, signal }) {
     const ac = signal ?? new AbortController().signal;
-    let nodeId: string | null = null;
     if (input.serviceId) {
-      const svc = await ctx.db.service.findFirst({
-        where: { id: input.serviceId, orgId: ctx.activeOrgId },
-        select: { name: true, nodeId: true },
-      });
-      if (svc) {
-        const node = await resolveManagerNode(ctx, svc.nodeId).catch(() => null);
-        nodeId = node?.id ?? null;
-        if (nodeId) {
-          yield* ctx.hub.subscribeLogLines(
-            nodeId,
-            { action: 'start', target: { kind: 'service', service: svc.name }, tail: input.tail, follow: input.follow },
-            ac,
-          );
-          return;
-        }
-      }
+      // Docker-direct: resolve the service name + a manager node from the live
+      // inventory (no DB row) and stream `docker service logs` by name.
+      const { serviceName, nodeId } = await resolveServiceLogTarget(ctx, input.serviceId);
+      yield* ctx.hub.subscribeLogLines(
+        nodeId,
+        { action: 'start', target: { kind: 'service', service: serviceName }, tail: input.tail, follow: input.follow },
+        ac,
+      );
+      return;
     }
     if (input.containerId) {
       // best-effort: stream from the first online node

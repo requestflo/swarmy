@@ -41,6 +41,7 @@ export function buildTraefikLabels(config: IngressConfig): Map<string, Record<st
 export function buildTraefikDynamicYaml(config: IngressConfig): string {
   const routers: string[] = [];
   const services: string[] = [];
+  const middlewares: string[] = [];
   for (const r of config.domains) {
     const rn = routerName(r);
     let rule = `Host(\`${r.domain}\`)`;
@@ -49,6 +50,17 @@ export function buildTraefikDynamicYaml(config: IngressConfig): string {
     routers.push(`      rule: "${rule}"`);
     routers.push(`      service: "${rn}"`);
     routers.push(`      entryPoints: ["${r.tls === 'off' ? 'web' : 'websecure'}"]`);
+    // Scale-to-zero COLD: a `replacePath` middleware rewrites the request to the
+    // activator wake endpoint and the service points at the activator host. As with
+    // HAProxy, the seamless 307 `return` bounce is Caddy/nginx-only; here the service
+    // wakes and is served direct on the next (re-rendered) request.
+    if (r.cold) {
+      const mw = `${rn}-wake`;
+      routers.push(`      middlewares: ["${mw}"]`);
+      middlewares.push(`    ${mw}:`);
+      middlewares.push('      replacePath:');
+      middlewares.push(`        path: "${r.cold.wakePath}"`);
+    }
     if (r.tls === 'auto') {
       routers.push('      tls:');
       routers.push('        certResolver: le');
@@ -56,7 +68,10 @@ export function buildTraefikDynamicYaml(config: IngressConfig): string {
     services.push(`    ${rn}:`);
     services.push('      loadBalancer:');
     services.push('        servers:');
-    services.push(`          - url: "http://${r.service}:${r.port}"`);
+    services.push(`          - url: "http://${r.cold ? r.cold.upstream : `${r.service}:${r.port}`}"`);
   }
-  return ['http:', '  routers:', ...routers, '  services:', ...services, ''].join('\n');
+  const out = ['http:', '  routers:', ...routers, '  services:', ...services];
+  if (middlewares.length) out.push('  middlewares:', ...middlewares);
+  out.push('');
+  return out.join('\n');
 }

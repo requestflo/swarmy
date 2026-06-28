@@ -25,8 +25,14 @@ export {
 } from './services/service.service';
 export { deployFromCompose, getStack, listStacks, removeStack } from './services/stack.service';
 export type { StackSummary, StackDetail } from './services/stack.service';
-export { addDomain, listDomains, removeDomain } from './services/ingress.service';
-export type { DomainView, IngressConfigView } from './services/ingress.service';
+export {
+  addDomain,
+  listDomains,
+  removeDomain,
+  reconcileColdIngress,
+  reapplyIngressForOrg,
+} from './services/ingress.service';
+export type { DomainView, IngressConfigView, IngressColdReconcileDeps } from './services/ingress.service';
 
 // ── git-cicd-registry P2: webhook + GC + build-log seams ──
 export { buildLogBus } from './services/build-log-bus';

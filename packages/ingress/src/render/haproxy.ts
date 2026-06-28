@@ -67,6 +67,16 @@ export function buildHaproxyConfig(config: IngressConfig): string {
 
   for (const r of config.domains) {
     out.push(`backend ${backendName(r.domain)}`);
+    // Scale-to-zero COLD: dial the activator instead of the asleep service and set
+    // the path to the wake endpoint. HAProxy can't cheaply rebuild the caller's full
+    // URL into a `return` query, so it wakes-then-serves on the next (re-rendered)
+    // request rather than auto-bouncing (Caddy/nginx do the seamless 307 return).
+    if (r.cold) {
+      out.push(`  http-request set-path ${r.cold.wakePath}`);
+      out.push(`  server srv ${r.cold.upstream}`);
+      out.push('');
+      continue;
+    }
     if (r.stripPathPrefix && r.pathPrefix && r.pathPrefix !== '/') {
       out.push(`  http-request replace-path ${r.pathPrefix}(.*) \\1`);
     }

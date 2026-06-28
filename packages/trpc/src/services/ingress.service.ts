@@ -1,17 +1,61 @@
 import {
   applyIngress as applyIngressPkg,
   previewConfig as previewConfigPkg,
+  type ColdRoute,
   type DriverDispatch,
   type HaStorage,
   type IngressConfig as OrgIngressConfig,
   type TunnelOptions,
 } from '@swarmy/ingress';
 import type { IngressStatus, RenderedConfig } from '@swarmy/core/protocol';
-import { type TlsMode } from '@swarmy/core';
+import { buildInventory, type TlsMode } from '@swarmy/core';
 import { decryptSecret, encryptSecret } from '@swarmy/core/crypto';
+import type { Auth } from '@swarmy/auth';
+import type { DB } from '@swarmy/db';
+import type { AgentHub } from '../hub/types';
 import type { OrgContext } from '../context';
+import { systemContext } from './cicd.service';
 import { writeAudit } from '../services/audit.service';
 import { notFound } from '../errors';
+
+/**
+ * Scale-to-zero activator base URL. Ingress routes a COLD (0-replica) domain here
+ * so the controller can wake the service and 307 the caller back. On a single-node
+ * Docker Desktop swarm `host.docker.internal` resolves to the host (the controller)
+ * from inside the ingress container. Overridable for multi-host / non-default ports.
+ */
+function activatorBaseUrl(): string {
+  return process.env.SWARMY_ACTIVATOR_URL ?? 'http://host.docker.internal:3001';
+}
+
+/** Activator dial target `host:port` (path stripped — the wake path is per-service). */
+function activatorUpstream(): string {
+  try {
+    return new URL(activatorBaseUrl()).host;
+  } catch {
+    return 'host.docker.internal:3001';
+  }
+}
+
+/**
+ * Map of service name → COLD route for every scale-to-zero service that is asleep
+ * (0 running replicas) in the org's live Docker inventory. A domain backed by a
+ * name in this map renders an activator upstream instead of a direct one. Reading
+ * `running === 0` (rather than `desired === 0`) keeps the domain pinned to the
+ * activator through the wake transient — while the service scales up but no task is
+ * live yet — so the bounce-back never lands on a 0-task service and 502s.
+ */
+function computeColdRoutes(ctx: OrgContext): Map<string, ColdRoute> {
+  const cold = new Map<string, ColdRoute>();
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  const upstream = activatorUpstream();
+  for (const s of buildInventory(services, containers).services) {
+    if (s.scaleToZero && s.replicas.running === 0) {
+      cold.set(s.name, { upstream, wakePath: `/_wake/${encodeURIComponent(s.name)}` });
+    }
+  }
+  return cold;
+}
 
 /**
  * Driver ids supported at the controller. `cloudflared` is the Cloudflare Tunnel
@@ -182,6 +226,8 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
     include: { service: { select: { name: true } } },
   });
   const baseGlobal = (settings.globalOptions as OrgIngressConfig['globalOptions']) ?? ({} as OrgIngressConfig['globalOptions']);
+  // Live scale-to-zero state: a domain whose service is asleep routes to the activator.
+  const coldRoutes = computeColdRoutes(ctx);
   return {
     driver: driverLower(row.driver),
     enabled: row.enabled,
@@ -195,6 +241,7 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
       tls: (d.tlsMode as TlsMode) ?? 'auto',
       stripPathPrefix: d.stripPathPrefix,
       middlewares: (d.middlewares as string[]) ?? [],
+      cold: coldRoutes.get(d.service.name),
     })),
     globalOptions: {
       ...baseGlobal,
@@ -535,4 +582,68 @@ export async function applyNow(ctx: OrgContext): Promise<IngressStatus> {
  */
 export async function loadOrgConfigForTunnels(ctx: OrgContext): Promise<OrgIngressConfig> {
   return loadOrgConfig(ctx);
+}
+
+/** Deps for the worker-side cold-ingress reconcile (no HTTP session). */
+export interface IngressColdReconcileDeps {
+  db: DB;
+  hub: AgentHub;
+  auth: Auth;
+}
+
+/**
+ * Force a render + dispatch of one org's ingress under a SYSTEM context (no diff).
+ * Used by the activator the instant a service has woken so the affected domain flips
+ * from the activator upstream back to a DIRECT one BEFORE the caller is 307'd back —
+ * closing the brief redirect-loop window where a warm service is still routed to the
+ * activator. Best-effort: disabled/`none` ingress is a no-op; failures are swallowed.
+ */
+export async function reapplyIngressForOrg(
+  deps: IngressColdReconcileDeps,
+  orgId: string,
+): Promise<void> {
+  const ctx = systemContext(deps, orgId);
+  const config = await loadOrgConfig(ctx);
+  if (config.driver === 'none' || !config.enabled) return;
+  await applyIngressPkg(config, makeDispatch(ctx)).catch(() => undefined);
+}
+
+/**
+ * Scale-to-zero ingress reconcile (epic #4B). Recompute the set of COLD domains
+ * (scale-to-zero services at 0 running replicas that back a domain) for one org
+ * from live Docker state and, when that set differs from `prevColdHosts`, re-render
+ * + dispatch the org's ingress — so a domain that just went cold flips to the
+ * activator upstream and one that just warmed flips back to a direct upstream.
+ *
+ * Returns the freshly-computed cold-host set (sorted) for the caller to cache and
+ * pass back next tick. A no-op (returns the set, no dispatch) when ingress is
+ * disabled or the driver is `none`. Best-effort: a dispatch failure is swallowed so
+ * one unhealthy org never stalls the worker.
+ *
+ * Runs under a SYSTEM `OrgContext` (no session) — same seam the GC/webhook workers use.
+ */
+export async function reconcileColdIngress(
+  deps: IngressColdReconcileDeps,
+  orgId: string,
+  prevColdHosts: readonly string[],
+): Promise<string[]> {
+  const ctx = systemContext(deps, orgId);
+  const config = await loadOrgConfig(ctx);
+  const coldHosts = config.domains
+    .filter((d) => d.cold)
+    .map((d) => d.domain)
+    .sort();
+  if (config.driver === 'none' || !config.enabled) return coldHosts;
+  const prev = [...prevColdHosts].sort();
+  const unchanged =
+    prev.length === coldHosts.length && prev.every((h, i) => h === coldHosts[i]);
+  if (unchanged) return coldHosts;
+  try {
+    await applyIngressPkg(config, makeDispatch(ctx));
+    return coldHosts;
+  } catch {
+    // Apply failed — return the PREVIOUS set so the caller's cache is unchanged and
+    // the (still-differing) cold set re-triggers a dispatch on the next tick.
+    return [...prevColdHosts];
+  }
 }

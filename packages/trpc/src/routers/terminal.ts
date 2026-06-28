@@ -18,6 +18,7 @@ import {
   closeTerminalSession,
 } from '../services/terminal.service';
 import { readRecording } from '../services/terminal-recording-read';
+import { resolveExecTarget, resolveLiveService } from '../services/live-resolve';
 
 /**
  * Terminal control plane (epic #11). The single place RBAC/ABAC/policy/approval
@@ -36,17 +37,20 @@ import { readRecording } from '../services/terminal-recording-read';
  * a typed `NEEDS_APPROVAL` error and the UI shows a "Request access" button.
  */
 
-/** Resolve the service's node as the ABAC resource for container exec. */
+/**
+ * Resolve the service's node as the ABAC resource for container exec. Docker-direct:
+ * the service→node mapping comes from the live inventory (the node the exec would
+ * land on, else the org's manager); node labels still load from the DB so attribute
+ * policies keep working.
+ */
 const resolveServiceNode: ResolveResource = async (ctx, input) => {
   const serviceId = (input as { serviceId?: string })?.serviceId;
   if (!serviceId) return null;
-  const svc = await ctx.db.service.findFirst({
-    where: { id: serviceId, orgId: ctx.activeOrgId },
-    select: { id: true, nodeId: true },
-  });
-  if (!svc?.nodeId) return null;
+  const exec = resolveExecTarget(ctx, serviceId);
+  const nodeId = exec?.nodeId ?? ctx.hub.managerNode(ctx.activeOrgId);
+  if (!nodeId) return null;
   const node = await ctx.db.node.findFirst({
-    where: { id: svc.nodeId, orgId: ctx.activeOrgId },
+    where: { id: nodeId, orgId: ctx.activeOrgId },
     select: { id: true, orgId: true, labels: true },
   });
   if (!node) return null;
@@ -92,25 +96,18 @@ export const terminalRouter = router({
       }
       assertAllowedRole(ctx, policy.allowedRoles);
 
-      const svc = await ctx.db.service.findFirst({
-        where: { id: input.serviceId, orgId: ctx.activeOrgId },
-        select: { id: true, name: true, nodeId: true },
-      });
+      // Docker-direct: resolve the service + a running container (and the node it
+      // lives on) from the live inventory by Docker id — no DB service/node rows.
+      const svc = resolveLiveService(ctx, input.serviceId);
       if (!svc) throw notFound('service', input.serviceId);
-
-      const nodeId = svc.nodeId ?? ctx.hub.onlineNodeIds()[0];
-      if (!nodeId || !ctx.hub.isOnline(nodeId)) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'no online node for this service' });
+      const exec = resolveExecTarget(ctx, input.serviceId);
+      if (!exec) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'no running container found for this service' });
       }
-
-      const containers = ctx.hub.latestContainers(nodeId);
-      const match = containers.find((c) => c.name?.includes(svc.name)) ?? containers[0];
-      if (!match) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'no running container found on the node' });
-      }
+      const { containerId, nodeId } = exec;
 
       const sessionId = crypto.randomUUID();
-      const target = { kind: 'container' as const, containerId: match.id, cmd: [] as string[] };
+      const target = { kind: 'container' as const, containerId, cmd: [] as string[] };
       const { ticket } = ctx.hub.mintTerminalTicket({
         sessionId,
         nodeId,
@@ -125,7 +122,7 @@ export const terminalRouter = router({
         actorId: ctx.user.id,
         nodeId,
         targetKind: 'container',
-        containerId: match.id,
+        containerId,
         command: target,
       });
 
@@ -133,7 +130,7 @@ export const terminalRouter = router({
         action: 'terminal.open',
         targetType: 'service',
         targetId: svc.id,
-        metadata: { nodeId, containerId: match.id, sessionId, kind: 'container' },
+        metadata: { nodeId, containerId, sessionId, kind: 'container' },
       });
 
       return { sessionId, ticket };

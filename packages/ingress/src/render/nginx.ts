@@ -44,6 +44,25 @@ function buildServer(r: DomainRoute, config: IngressConfig): string[] {
     out.push(`  ssl_certificate ${tls.cert};`);
     out.push(`  ssl_certificate_key ${tls.key};`);
   }
+
+  // Scale-to-zero COLD: route the whole vhost to the controller activator. The
+  // `rewrite ... break` replaces the request URI with the wake path + a `return`
+  // of the caller's original URL, and `proxy_pass` (no URI part → the rewritten URI
+  // is forwarded as-is) dials the activator. The host is a literal so no `resolver`
+  // is required. The activator wakes the service then 307s the caller back.
+  if (r.cold) {
+    out.push('  location / {');
+    out.push(`    rewrite ^ ${r.cold.wakePath}?return=$scheme://$host$request_uri break;`);
+    out.push('    proxy_set_header Host $host;');
+    out.push('    proxy_set_header X-Real-IP $remote_addr;');
+    out.push('    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;');
+    out.push('    proxy_set_header X-Forwarded-Proto $scheme;');
+    out.push(`    proxy_pass http://${r.cold.upstream};`);
+    out.push('  }');
+    out.push('}');
+    return out;
+  }
+
   const loc = r.pathPrefix && r.pathPrefix !== '/' ? r.pathPrefix : '/';
   out.push(`  location ${loc} {`);
   if (r.stripPathPrefix && loc !== '/') {

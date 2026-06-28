@@ -52,6 +52,18 @@ function buildSite(r: DomainRoute, config: IngressConfig): string[] {
     out.push('  tls {', '    on_demand', '  }');
   }
 
+  // Scale-to-zero COLD: the backing service is asleep. Rewrite the request to the
+  // activator's wake endpoint and reverse_proxy to the controller (server-side —
+  // the activator host is internal). `return` carries the caller's original URL so
+  // the activator can 307 the browser back once the service is warm. The whole site
+  // routes to the activator regardless of pathPrefix (we'll be warm again next hit).
+  if (r.cold) {
+    out.push(`  rewrite * ${r.cold.wakePath}?return={scheme}://{host}{uri}`);
+    out.push(`  reverse_proxy ${r.cold.upstream}`);
+    out.push('}');
+    return out;
+  }
+
   const upstream = `${r.service}:${r.port}`;
   if (r.pathPrefix && r.pathPrefix !== '/') {
     const directive = r.stripPathPrefix ? 'handle_path' : 'handle';

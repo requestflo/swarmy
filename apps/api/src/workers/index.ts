@@ -8,6 +8,8 @@ import { startObservabilityReconcile } from './observability-reconcile';
 import { startGeoDnsReconcile } from './geodns-reconcile';
 import { startWebhookDispatch } from './webhook-dispatch';
 import { startScaleToZero } from './scale-to-zero';
+import { startRegionReconcile } from './region-reconcile';
+import { startIngressReconcile } from './ingress-reconcile';
 
 export function startWorkers(): () => void {
   const stops = [
@@ -21,6 +23,8 @@ export function startWorkers(): () => void {
     startGeoDnsReconcile(),
     startWebhookDispatch(),
     startScaleToZero(),
+    startRegionReconcile(),
+    startIngressReconcile(),
   ];
   return () => stops.forEach((s) => s());
 }

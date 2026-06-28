@@ -29,10 +29,12 @@ import { oauthRouter } from './routers/oauth';
 import { webhooksOutRouter } from './routers/webhooksOut';
 import { canvasRouter } from './routers/canvas';
 import { inventoryRouter } from './routers/inventory';
+import { regionRouter } from './routers/region';
 
 export const appRouter = router({
   org: orgRouter,
   inventory: inventoryRouter,
+  region: regionRouter,
   nodes: nodesRouter,
   services: servicesRouter,
   stacks: stacksRouter,

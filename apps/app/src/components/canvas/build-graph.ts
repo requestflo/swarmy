@@ -1,6 +1,7 @@
 import { type Edge as FlowEdge, type Node as FlowNode, MarkerType } from '@xyflow/react';
 import type { Inventory, InvEdge, InvService } from '@swarmy/core';
 import { UNGROUPED } from '@swarmy/core';
+import { STATUS_TONE, aggregateTone } from './stack-aggregates';
 
 export interface ServiceNodeData extends Record<string, unknown> {
   service: InvService;
@@ -37,21 +38,8 @@ const PER_ROW = 2;
 /** Network links have no on-brand teal token — this soft teal matches the token space. */
 const NETWORK_TEAL = 'oklch(0.72 0.1 195)';
 
-/** Task-defined mapping: stopped reads as offline; idle is intentional, not an error. */
-const STATUS_TONE: Record<InvService['status'], string> = {
-  running: 'online',
-  degraded: 'warning',
-  deploying: 'progress',
-  stopped: 'offline',
-  idle: 'idle',
-};
-
-/** Worst-of for a project dot; idle is lowest because it's a chosen, healthy state. */
-function aggregateTone(services: InvService[]): string {
-  const tones = new Set(services.map((s) => STATUS_TONE[s.status]));
-  for (const t of ['offline', 'warning', 'progress', 'online']) if (tones.has(t)) return t;
-  return 'idle';
-}
+// STATUS_TONE + aggregateTone are shared with the stack-overview cards so the
+// per-stack worst-of dot matches in both views (see ./stack-aggregates).
 
 function serviceFallback(index: number): { x: number; y: number } {
   const col = index % PER_ROW;

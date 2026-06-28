@@ -20,6 +20,28 @@ import type { RenderedConfig, IngressStatus } from '@swarmy/core/protocol';
 
 // ── Org-scoped config (persisted, controller-side) ─────────────────────
 
+/**
+ * Scale-to-zero COLD routing for a domain. When a `DomainRoute` carries `cold`,
+ * the service backing it is asleep (scale-to-zero, 0 running replicas) and ingress
+ * must route the domain to the controller **activator** — which wakes the service,
+ * waits for it to come live, then 307s the caller back — instead of proxying to the
+ * (down) service. Absent ⇒ warm: a normal upstream to `service:port`.
+ *
+ * Pure render input: the controller computes this from live Docker state
+ * (`ctx.hub.liveInventory`) and the activator's reachable address; the renderer
+ * only turns it into the driver's reverse-proxy/rewrite syntax.
+ */
+export const ColdRouteSchema = z.object({
+  /**
+   * Activator dial target as `host:port`. On a single-node Docker Desktop swarm
+   * this is `host.docker.internal:3001` (the host, reachable from containers).
+   */
+  upstream: z.string().min(1),
+  /** Wake endpoint path for THIS service, e.g. `/_wake/<service>`. */
+  wakePath: z.string().min(1),
+});
+export type ColdRoute = z.infer<typeof ColdRouteSchema>;
+
 export const DomainRouteSchema = z.object({
   domain: z.string().min(1),
   pathPrefix: z.string().default('/'),
@@ -28,6 +50,11 @@ export const DomainRouteSchema = z.object({
   tls: z.enum(['auto', 'off', 'custom']).default('auto'),
   stripPathPrefix: z.boolean().default(false),
   middlewares: z.array(z.string()).default([]),
+  /**
+   * Scale-to-zero COLD override. Present ⇒ route to the activator (wake-on-request)
+   * instead of `service:port`; absent ⇒ warm (direct upstream). See {@link ColdRouteSchema}.
+   */
+  cold: ColdRouteSchema.optional(),
 });
 export type DomainRoute = z.infer<typeof DomainRouteSchema>;
 
