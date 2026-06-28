@@ -1,49 +1,138 @@
-import type { Node as FlowNode } from '@xyflow/react';
-import type { NodeSummary, ServiceSummary } from '@swarmy/core';
-import { SERVICE_STATUS_TONE } from '@swarmy/core';
+import { type Edge as FlowEdge, type Node as FlowNode, MarkerType } from '@xyflow/react';
+import type { Inventory, InvEdge, InvService } from '@swarmy/core';
+import { UNGROUPED } from '@swarmy/core';
 
 export interface ServiceNodeData extends Record<string, unknown> {
-  service: ServiceSummary;
-  /** Human label for where this runs: a node name, "cluster", or "unscheduled". */
-  placement: string;
+  service: InvService;
+  /** Status token name (online | warning | progress | offline | idle). */
   tone: string;
-  stackName: string | null;
+}
+export interface ProjectNodeData extends Record<string, unknown> {
+  /** Display label ("Ungrouped" for the catch-all project). */
+  label: string;
+  ungrouped: boolean;
+  count: number;
+  /** Aggregate status token for the project dot. */
+  tone: string;
 }
 
 export type ServiceFlowNode = FlowNode<ServiceNodeData, 'service'>;
+export type ProjectFlowNode = FlowNode<ProjectNodeData, 'project'>;
+export type CanvasNode = ServiceFlowNode | ProjectFlowNode;
+export type CanvasEdge = FlowEdge;
 
-const COL_W = 300;
-const ROW_H = 168;
-const PER_ROW = 4;
+export type Positions = Record<string, { x: number; y: number }>;
 
-/** Where does this service run? Pinned node name, else cluster-wide / unscheduled. */
-function placementLabel(svc: ServiceSummary, nodesById: Map<string, NodeSummary>): string {
-  if (svc.nodeId) return nodesById.get(svc.nodeId)?.name ?? 'pinned node';
-  if (svc.replicas.running > 0) return 'cluster';
-  return 'unscheduled';
+// Layout geometry. Services grid inside their project frame; frames flow left→right.
+const SERVICE_W = 248;
+const SERVICE_H = 178;
+const COL_GAP = 22;
+const ROW_GAP = 22;
+const PAD_X = 22;
+const PAD_TOP = 60; // room for the project chip header
+const PAD_BOTTOM = 22;
+const PROJECT_GAP = 88;
+const PER_ROW = 2;
+
+/** Network links have no on-brand teal token — this soft teal matches the token space. */
+const NETWORK_TEAL = 'oklch(0.72 0.1 195)';
+
+/** Task-defined mapping: stopped reads as offline; idle is intentional, not an error. */
+const STATUS_TONE: Record<InvService['status'], string> = {
+  running: 'online',
+  degraded: 'warning',
+  deploying: 'progress',
+  stopped: 'offline',
+  idle: 'idle',
+};
+
+/** Worst-of for a project dot; idle is lowest because it's a chosen, healthy state. */
+function aggregateTone(services: InvService[]): string {
+  const tones = new Set(services.map((s) => STATUS_TONE[s.status]));
+  for (const t of ['offline', 'warning', 'progress', 'online']) if (tones.has(t)) return t;
+  return 'idle';
+}
+
+function serviceFallback(index: number): { x: number; y: number } {
+  const col = index % PER_ROW;
+  const row = Math.floor(index / PER_ROW);
+  return { x: PAD_X + col * (SERVICE_W + COL_GAP), y: PAD_TOP + row * (SERVICE_H + ROW_GAP) };
+}
+
+function edgeFor(e: InvEdge): CanvasEdge {
+  const depends = e.kind === 'depends';
+  // Two parallel handles keep a network + depends link on the same pair from overlapping.
+  return {
+    id: `${e.kind}:${e.from}->${e.to}`,
+    source: e.from,
+    target: e.to,
+    sourceHandle: depends ? 'r1' : 'r2',
+    targetHandle: depends ? 'l1' : 'l2',
+    animated: depends,
+    style: depends
+      ? { stroke: 'var(--primary)', strokeWidth: 2 }
+      : { stroke: NETWORK_TEAL, strokeWidth: 1.75, opacity: 0.85 },
+    markerEnd: depends
+      ? { type: MarkerType.ArrowClosed, color: 'var(--primary)', width: 16, height: 16 }
+      : undefined,
+    data: { kind: e.kind, label: e.label ?? null },
+  };
 }
 
 /**
- * Pure: turn the live services (+ node + stack lookups + saved positions) into
- * React Flow nodes. Services without a saved position fall into a tidy grid so a
- * fresh canvas is never a pile at the origin. Drag only ever moves cards — this
- * never reflects or changes real placement.
+ * Pure: project the live Docker inventory into a React Flow graph — one group
+ * frame per project (parent node) with its services gridded inside (children with
+ * parentId + extent:'parent'), plus the inferred network/depends edges. Saved
+ * positions (relative to the parent frame) win; the rest auto-grid so a fresh
+ * canvas is never a pile at the origin. Drag is visual only — never real placement.
  */
-export function buildServiceNodes(
-  services: ServiceSummary[],
-  nodesById: Map<string, NodeSummary>,
-  stackNameById: Map<string, string>,
-  positions: Record<string, { x: number; y: number }>,
-): ServiceFlowNode[] {
-  return services.map((service, i) => ({
-    id: service.id,
-    type: 'service',
-    position: positions[service.id] ?? { x: (i % PER_ROW) * COL_W, y: Math.floor(i / PER_ROW) * ROW_H },
-    data: {
-      service,
-      placement: placementLabel(service, nodesById),
-      tone: SERVICE_STATUS_TONE[service.status] ?? 'neutral',
-      stackName: service.stackId ? (stackNameById.get(service.stackId) ?? null) : null,
-    },
-  }));
+export function buildGraph(
+  inv: Inventory,
+  positions: Positions,
+): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
+  const svcById = new Map(inv.services.map((s) => [s.id, s]));
+  const projectNodes: ProjectFlowNode[] = [];
+  const serviceNodes: ServiceFlowNode[] = [];
+  let cursorX = 0;
+
+  for (const project of inv.projects) {
+    const services = project.serviceIds
+      .map((id) => svcById.get(id))
+      .filter((s): s is InvService => Boolean(s));
+    const count = services.length;
+    const cols = Math.min(PER_ROW, Math.max(1, count));
+    const rows = Math.max(1, Math.ceil(count / cols));
+    const width = PAD_X * 2 + cols * SERVICE_W + (cols - 1) * COL_GAP;
+    const height = PAD_TOP + rows * SERVICE_H + (rows - 1) * ROW_GAP + PAD_BOTTOM;
+    const ungrouped = project.name === UNGROUPED;
+    const projectId = `project:${project.name}`;
+
+    projectNodes.push({
+      id: projectId,
+      type: 'project',
+      position: { x: cursorX, y: 0 },
+      data: { label: ungrouped ? 'Ungrouped' : project.name, ungrouped, count, tone: aggregateTone(services) },
+      draggable: false,
+      selectable: false,
+      style: { width, height },
+    });
+
+    services.forEach((service, i) => {
+      serviceNodes.push({
+        id: service.id,
+        type: 'service',
+        parentId: projectId,
+        extent: 'parent',
+        position: positions[service.id] ?? serviceFallback(i),
+        data: { service, tone: STATUS_TONE[service.status] },
+      });
+    });
+
+    cursorX += width + PROJECT_GAP;
+  }
+
+  const ids = new Set(inv.services.map((s) => s.id));
+  const edges = inv.edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map(edgeFor);
+  // Parents must precede children in the node array for React Flow grouping.
+  return { nodes: [...projectNodes, ...serviceNodes], edges };
 }

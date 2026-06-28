@@ -1,5 +1,6 @@
 import type { DemoHandler, DemoStore, DemoSubHandler, DomainResolvers } from './types';
 import { core } from './resolvers/core';
+import { inventory } from './resolvers/inventory';
 import { ingress } from './resolvers/ingress';
 import { cicd } from './resolvers/cicd';
 import { mesh } from './resolvers/mesh';
@@ -16,6 +17,7 @@ import { infraextra } from './resolvers/infraextra';
  */
 const MODULES: DomainResolvers[] = [
   core,
+  inventory,
   ingress,
   cicd,
   mesh,
