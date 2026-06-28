@@ -2,6 +2,8 @@ import * as React from 'react';
 import { CommandBar } from './command-bar';
 import { MobileHeader, MobileTabBar } from './mobile-chrome';
 import { CommandPaletteProvider } from './command-palette-provider';
+import { isDemo } from '@/demo/is-demo';
+import { DemoBanner } from '@/demo/demo-banner';
 
 /**
  * The redesigned shell: a floating command bar (desktop) / compact header
@@ -16,6 +18,7 @@ export function AppShell({ children }: { children: React.ReactNode }): React.JSX
   return (
     <CommandPaletteProvider>
       <div className="bg-background flex min-h-screen flex-col">
+        {isDemo() && <DemoBanner />}
         <CommandBar />
         <MobileHeader />
         <main className="min-h-[calc(100dvh-3.5rem)] flex-1 pb-28 lg:min-h-0 lg:pb-0">{children}</main>

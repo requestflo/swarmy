@@ -1,0 +1,143 @@
+import type { NodeSummary, ServiceSummary } from '@swarmy/core';
+import type { DemoStore, DomainResolvers } from '../types';
+
+/**
+ * Core demo resolvers — the flagship surfaces (command bar, Applications canvas,
+ * Infrastructure plane, service/node detail). Other routers are covered by their
+ * own resolver modules; anything unhandled falls back gracefully.
+ */
+
+const jitter = (base: number, spread = 6) => Math.max(2, Math.min(98, base + (Math.random() - 0.5) * spread));
+
+function byId<T extends { id: string }>(arr: T[], id: string): T | undefined {
+  return arr.find((x) => x.id === id);
+}
+
+export const core: DomainResolvers = {
+  handlers: {
+    'org.currentOrg': (_i, s) => ({ id: s.org.id, name: s.org.name, slug: s.org.slug, role: s.org.role }),
+    'org.whoami': (_i, s) => ({ id: s.user.id, name: s.user.name, email: s.user.email }),
+
+    'system.dashboardSummary': (_i, s) => {
+      const online = s.nodes.filter((n) => n.status === 'online').length;
+      const running = s.services.filter((sv) => sv.status === 'running').length;
+      const containers = s.services.reduce((a, sv) => a + sv.replicas.running, 0);
+      return {
+        nodes: { online, total: s.nodes.length },
+        services: { running, total: s.services.length },
+        containersRunning: containers,
+        recentDeployments: 7,
+      };
+    },
+    'metrics.overview': (_i, s) => {
+      const live = s.nodes.filter((n) => n.live);
+      const cpu = live.reduce((a, n) => a + (n.live?.cpuPercent ?? 0), 0) / Math.max(1, live.length);
+      const mem = live.reduce((a, n) => a + (n.live?.memPercent ?? 0), 0) / Math.max(1, live.length);
+      return { cpuPercent: jitter(cpu), memPercent: jitter(mem, 3) };
+    },
+
+    'nodes.list': (_i, s): NodeSummary[] => s.nodes,
+    'nodes.get': (i, s) => byId(s.nodes, (i as { id: string }).id) ?? null,
+    'nodes.liveStatsLatest': (i, s) => {
+      const n = byId(s.nodes, (i as { id?: string })?.id ?? '');
+      if (!n?.live) return null;
+      return { cpuPercent: jitter(n.live.cpuPercent), memPercent: jitter(n.live.memPercent, 3) };
+    },
+    'nodes.containers': (i, s) => {
+      const id = (i as { id?: string })?.id;
+      return s.services
+        .filter((sv) => sv.nodeId === id)
+        .map((sv) => ({ id: `ctr-${sv.id}`, name: sv.name, image: sv.image, state: 'running' }));
+    },
+    'nodes.drain': (i, s) => {
+      const n = byId(s.nodes, (i as { id: string }).id);
+      if (n) n.status = 'draining';
+      return { id: (i as { id: string }).id };
+    },
+    'nodes.activate': (i, s) => {
+      const n = byId(s.nodes, (i as { id: string }).id);
+      if (n) n.status = 'online';
+      return { id: (i as { id: string }).id };
+    },
+
+    'services.list': (i, s): ServiceSummary[] => {
+      const f = (i as { nodeId?: string; stackId?: string; status?: string; search?: string }) ?? {};
+      return s.services.filter(
+        (sv) =>
+          (!f.nodeId || sv.nodeId === f.nodeId) &&
+          (!f.stackId || sv.stackId === f.stackId) &&
+          (!f.status || sv.status === f.status) &&
+          (!f.search || sv.name.includes(f.search) || sv.image.includes(f.search)),
+      );
+    },
+    'services.get': (i, s) => byId(s.services, (i as { id: string }).id) ?? null,
+    'services.deployStatus': () => null,
+    'services.scale': (i, s) => {
+      const { id, replicas } = i as { id: string; replicas: number };
+      const sv = byId(s.services, id);
+      if (sv) {
+        sv.replicas = { desired: replicas, running: replicas };
+        sv.status = replicas === 0 ? 'stopped' : 'running';
+        sv.updatedAt = new Date().toISOString();
+      }
+      return { id, deploymentId: `dep-${Math.random().toString(36).slice(2, 8)}` };
+    },
+    'services.restart': (i, s) => {
+      const sv = byId(s.services, (i as { id: string }).id);
+      if (sv) {
+        sv.status = 'running';
+        sv.replicas.running = sv.replicas.desired;
+        sv.updatedAt = new Date().toISOString();
+      }
+      return { id: (i as { id: string }).id, deploymentId: `dep-${Math.random().toString(36).slice(2, 8)}` };
+    },
+    'services.remove': (i, s) => {
+      const { id } = i as { id: string };
+      s.services = s.services.filter((sv) => sv.id !== id);
+      delete s.positions[id];
+      return { id, removed: true as const };
+    },
+    'services.create': (i, s) => {
+      const b = i as { name: string; image: string; replicas?: number; nodeId?: string };
+      const id = `svc-${b.name}-${Math.random().toString(36).slice(2, 6)}`;
+      s.services.push({
+        id,
+        name: b.name,
+        image: b.image,
+        status: 'deploying',
+        replicas: { desired: b.replicas ?? 1, running: 0 },
+        ingressEnabled: false,
+        nodeId: b.nodeId ?? null,
+        stackId: null,
+        updatedAt: new Date().toISOString(),
+        env: {},
+        ports: [],
+        volumes: [],
+        networks: ['swarmy_public'],
+        constraints: [],
+        swarmServiceId: `svc-${id}`,
+        createdAt: new Date().toISOString(),
+      });
+      return { id, deploymentId: `dep-${Math.random().toString(36).slice(2, 8)}` };
+    },
+
+    'stacks.list': (_i, s) => s.stacks,
+    'stacks.remove': (i, s) => {
+      const { id } = i as { id: string };
+      s.stacks = s.stacks.filter((st) => st.id !== id);
+      return { id, removed: true as const };
+    },
+    'stacks.deployFromCompose': () => ({ ok: true as const, deploymentId: 'dep-demo' }),
+
+    'canvas.get': (_i, s) => ({ positions: s.positions, viewport: s.viewport }),
+    'canvas.save': (i, s) => {
+      const b = i as { positions?: Record<string, { x: number; y: number }>; viewport?: { x: number; y: number; zoom: number } | null };
+      if (b.positions) s.positions = b.positions;
+      if (b.viewport !== undefined) s.viewport = b.viewport ?? null;
+      return { ok: true as const };
+    },
+  },
+};
+
+// re-export the store type for resolver authors that import from here
+export type { DemoStore };

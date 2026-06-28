@@ -8,6 +8,8 @@ import {
 import { createTRPCContext } from '@trpc/tanstack-react-query';
 import superjson from 'superjson';
 import type { AppRouter } from '@swarmy/trpc';
+import { isDemo } from '@/demo/is-demo';
+import { demoLink } from '@/demo/demo-link';
 
 export const { TRPCProvider, useTRPC, useTRPCClient } = createTRPCContext<AppRouter>();
 
@@ -22,6 +24,10 @@ export function createQueryClient(): QueryClient {
 }
 
 export function createTrpcClient() {
+  // Demo mode: resolve everything from the in-memory store, no network/DB/auth.
+  if (isDemo()) {
+    return createTRPCClient<AppRouter>({ links: [demoLink()] });
+  }
   return createTRPCClient<AppRouter>({
     links: [
       splitLink({
