@@ -9,6 +9,12 @@ import {
 } from '@swarmy/core/protocol';
 import type { AgentConnection } from '../connection';
 import { env } from '../env';
+import { attachExec } from './exec-attach';
+
+/** The Docker unix socket the agent talks to (same default as the runner). */
+function dockerSocketPath(): string {
+  return process.env.DOCKER_SOCKET ?? '/var/run/docker.sock';
+}
 
 /**
  * Interactive terminal (PTY) sessions on the node, multiplexed over the existing
@@ -132,9 +138,15 @@ async function startContainerExec(
     return;
   }
 
-  // Probe for a shell when none was requested.
+  // Pick a shell when none was requested. We can't probe with exec-create — Docker
+  // accepts a create for a binary that doesn't exist and only fails at start, so a
+  // naive [bash, sh] probe always "succeeds" on bash and then dies at start on
+  // bash-less images (alpine). Instead enter /bin/sh (near-universal) and let it
+  // hand off to bash only when present.
   const candidates: string[][] =
-    target.cmd.length > 0 ? [target.cmd] : [['/bin/bash', '-l'], ['/bin/sh']];
+    target.cmd.length > 0
+      ? [target.cmd]
+      : [['/bin/sh', '-c', 'if command -v bash >/dev/null 2>&1; then exec bash -l; else exec /bin/sh; fi'], ['/bin/sh']];
 
   let exec: Awaited<ReturnType<typeof container.exec>> | null = null;
   let lastErr: unknown;
@@ -167,8 +179,9 @@ async function startContainerExec(
     return;
   }
 
-  // hijack:true + stdin:true ⇒ a single duplex stream (Tty merges stdout/stderr).
-  const stream = (await exec.start({ hijack: true, stdin: true })) as NodeJS.ReadWriteStream;
+  // A Tty exec is one duplex stream (stdout/stderr merged). dockerode's
+  // exec.start({hijack}) hangs under Bun, so attach over the raw socket ourselves.
+  const stream = await attachExec(dockerSocketPath(), exec.id, true);
 
   conn.send('termStarted', { sessionId, ok: true });
 
@@ -178,7 +191,7 @@ async function startContainerExec(
     resize: (c, r) => {
       void exec!.resize({ h: r, w: c }).catch(() => undefined);
     },
-    teardown: () => (stream as unknown as { destroy?: () => void }).destroy?.(),
+    teardown: () => stream.destroy(),
   });
 
   stream.on('data', (chunk: Buffer) => {
@@ -201,7 +214,6 @@ async function startContainerExec(
     }
     conn.send('termExit', { sessionId, exitCode, reason: 'exit' });
   };
-  stream.on('end', () => void finish());
   stream.on('close', () => void finish());
   stream.on('error', () => {
     if (!sessions.has(sessionId)) return;
