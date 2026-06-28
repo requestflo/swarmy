@@ -8,7 +8,8 @@
     "BETTER_AUTH_SECRET",
     "BETTER_AUTH_URL",
     "CONTROLLER_PUBLIC_URL",
-    "AGENT_WS_URL"
+    "AGENT_WS_URL",
+    "SWARMY_*"
   ],
   "tasks": {
     "build": {

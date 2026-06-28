@@ -111,7 +111,11 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
     }
     case 'commandResult': {
       const { commandId, status, result, error } = env.payload;
-      const ok = status === 'succeeded' || status === 'accepted';
+      // Intermediate progress frames ('running'/'accepted') are NOT terminal —
+      // settling on them would resolve/reject the dispatch before the real
+      // outcome arrives. Only settle on a terminal status.
+      if (status === 'running' || status === 'accepted') return;
+      const ok = status === 'succeeded';
       deps.hub.settleCommand(commandId, ok, result, error ? { message: error.message } : undefined);
       return;
     }
@@ -242,6 +246,9 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
   );
 
   // node-onboarding P2: init or join the org's Docker Swarm (best-effort, async).
+  // Surface failures (e.g. a missing SWARMY_SECRET_KEY blocking the token vault)
+  // instead of swallowing them — a silent failure here leaves the swarm running
+  // but unrecorded (no swarm_config, node stuck WORKER).
   void orchestrateSwarmMembership({
     db: prisma as never,
     hub: deps.hub,
@@ -249,7 +256,9 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
     nodeId,
     roleHint,
     alreadyInSwarm: facts.swarmRole !== 'none',
-  }).catch(() => undefined);
+  }).catch((err) => {
+    console.error('[swarm] membership orchestration failed:', err instanceof Error ? err.message : err);
+  });
 }
 
 export async function handleAgentClose(ws: AgentSocket, deps: Deps): Promise<void> {

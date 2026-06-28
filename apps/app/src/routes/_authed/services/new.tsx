@@ -50,9 +50,12 @@ function NewServicePage(): React.JSX.Element {
     }),
   );
 
-  const submit = form.handleSubmit((values) => {
-    create.mutate(values as typeof CreateServiceInput._output);
-  });
+  const submit = form.handleSubmit(
+    (values) => {
+      create.mutate(values as typeof CreateServiceInput._output);
+    },
+    () => toast.error('Check the highlighted fields before deploying.'),
+  );
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 pt-8 lg:pb-20 xl:px-10">

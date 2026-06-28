@@ -57,14 +57,18 @@ export function ServicePortFields({ form }: ServicePortFieldsProps): React.JSX.E
               type="number"
               placeholder="published"
               className="mono-data"
-              {...form.register(`ports.${i}.published`, { valueAsNumber: true })}
+              {...form.register(`ports.${i}.published`, {
+                setValueAs: (v) => (v === '' || v == null ? undefined : Number(v)),
+              })}
             />
             <span className="text-primary mono-label">→</span>
             <Input
               type="number"
               placeholder="target"
               className="mono-data"
-              {...form.register(`ports.${i}.target`, { valueAsNumber: true })}
+              {...form.register(`ports.${i}.target`, {
+                setValueAs: (v) => (v === '' || v == null ? undefined : Number(v)),
+              })}
             />
             <Button
               type="button"

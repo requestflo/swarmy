@@ -34,8 +34,27 @@ ok "Docker is up."
 if [[ ! -f .env ]]; then
   warn ".env not found — copying from .env.example."
   cp .env.example .env
-  warn "Set a real BETTER_AUTH_SECRET in .env: openssl rand -base64 32"
 fi
+
+# Ensure the required secrets are real values (not empty / the .env.example
+# placeholder). SWARMY_SECRET_KEY backs the credential vault (swarm join tokens,
+# ingress creds, OIDC secrets); without it swarm onboarding fails. BETTER_AUTH_SECRET
+# must be real or auth misbehaves. Generate them if missing.
+ensure_secret() {
+  local key="$1" cur
+  cur="$(grep -E "^${key}=" .env | head -1 | cut -d= -f2- || true)"
+  if [[ -z "$cur" || "$cur" == *replace-me* ]]; then
+    local val; val="$(openssl rand -base64 32)"
+    if grep -qE "^${key}=" .env; then
+      sed -i.bak -E "s|^${key}=.*|${key}=${val}|" .env && rm -f .env.bak
+    else
+      printf '%s=%s\n' "$key" "$val" >> .env
+    fi
+    say "Generated ${key} in .env"
+  fi
+}
+ensure_secret SWARMY_SECRET_KEY
+ensure_secret BETTER_AUTH_SECRET
 
 # ── 2. Single-node swarm (idempotent) ───────────────────────────────────────
 # `docker swarm init` errors if the host is already a swarm; swallow that case.

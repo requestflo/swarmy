@@ -64,7 +64,9 @@ export function ServiceIngressFields({ form }: ServiceIngressFieldsProps): React
             placeholder="8080"
             className="mono-data sm:w-32"
             disabled={!ingressEnabled}
-            {...form.register('ingress.targetPort', { valueAsNumber: true })}
+            {...form.register('ingress.targetPort', {
+              setValueAs: (v) => (v === '' || v == null ? undefined : Number(v)),
+            })}
           />
         </div>
         <div className="grid gap-1.5">
