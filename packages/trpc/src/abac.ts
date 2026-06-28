@@ -14,6 +14,7 @@ import {
   type ResourceInput,
   type PolicyInput,
 } from '@swarmy/abac';
+import { buildInventory } from '@swarmy/core';
 import { orgProcedure } from './trpc';
 import type { OrgContext } from './context';
 import { writeAudit } from './services/audit.service';
@@ -189,30 +190,35 @@ export function abacProcedure(action: Action, resolveResource?: ResolveResource)
 // loads the org-scoped row (the org boundary stays the hard tenant gate) and maps
 // it to a resource description; labels feed attribute policies.
 
-/** Resolve a Node row from `{ id }` input. */
+/**
+ * Resolve a Node from `{ id }` input. The org-scoped existence/identity check
+ * stays on the kept Node enrollment row; labels are Docker-truth and come from
+ * the live hub (no Node.labels column any more).
+ */
 export const resolveNode: ResolveResource = async (ctx, input) => {
   const id = (input as { id?: string })?.id;
   if (!id) return null;
   const row = await ctx.db.node.findFirst({
     where: { id, orgId: ctx.activeOrgId },
-    select: { id: true, orgId: true, labels: true },
-  });
-  if (!row) return null;
-  return { type: 'node', id: row.id, orgId: row.orgId, labels: (row.labels as Record<string, unknown>) ?? {} };
-};
-
-/** Resolve a Service row from `{ id }` input. */
-export const resolveService: ResolveResource = async (ctx, input) => {
-  const id = (input as { id?: string })?.id;
-  if (!id) return null;
-  const row = await ctx.db.service.findFirst({
-    where: { id, orgId: ctx.activeOrgId },
     select: { id: true, orgId: true },
   });
   if (!row) return null;
-  // Services have no `labels` column; constraints are array-shaped. Keep labels
-  // empty here — attribute policies match resource type + ReBAC relations.
-  return { type: 'service', id: row.id, orgId: row.orgId, labels: {} };
+  const labels = ctx.hub.nodeInfoFor(row.id)?.labels ?? {};
+  return { type: 'node', id: row.id, orgId: row.orgId, labels };
+};
+
+/**
+ * Resolve a Service from `{ id }` input (Docker id or service name). There is no
+ * Service model — the row is resolved from the live hub inventory, and the
+ * service's Docker labels feed attribute policies.
+ */
+export const resolveService: ResolveResource = (ctx, input) => {
+  const id = (input as { id?: string })?.id;
+  if (!id) return null;
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  const svc = buildInventory(services, containers).services.find((s) => s.id === id || s.name === id);
+  if (!svc) return null;
+  return { type: 'service', id: svc.id, orgId: ctx.activeOrgId, labels: svc.labels };
 };
 
 /** Resolve a Stack row from `{ id }` input. */

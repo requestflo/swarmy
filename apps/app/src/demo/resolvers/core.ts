@@ -1,4 +1,4 @@
-import type { NodeSummary, ServiceSummary } from '@swarmy/core';
+import type { DeployPhase, DeployStatus, NodeSummary, ServiceSummary } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 
 /**
@@ -71,7 +71,27 @@ export const core: DomainResolvers = {
       );
     },
     'services.get': (i, s) => byId(s.services, (i as { id: string }).id) ?? null,
-    'services.deployStatus': () => null,
+    // Synthesized from the service's live replica counts (no Deployment row in the
+    // backendless demo), mirroring the controller's new inventory-derived status:
+    // `complete` once running >= desired, else still `converging`.
+    'services.deployStatus': (i, s): DeployStatus | null => {
+      const sv = byId(s.services, (i as { serviceId: string }).serviceId);
+      if (!sv) return null;
+      const { desired, running } = sv.replicas;
+      const phase: DeployPhase =
+        sv.status === 'failed' ? 'failed' : running >= desired ? 'complete' : 'converging';
+      return {
+        deploymentId: `dep-${sv.id}`,
+        serviceId: sv.id,
+        kind: 'update',
+        phase,
+        desired,
+        ready: running,
+        message: null,
+        startedAt: sv.updatedAt,
+        finishedAt: phase === 'complete' ? sv.updatedAt : null,
+      };
+    },
     'services.scale': (i, s) => {
       const { id, replicas } = i as { id: string; replicas: number };
       const sv = byId(s.services, id);

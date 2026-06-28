@@ -33,11 +33,9 @@ function makeHub(online: boolean, result: unknown): { hub: SwarmHub; calls: Disp
 function makeDb(initial: SwarmConfigRow | null): {
   db: SwarmDb;
   rows: Map<string, SwarmConfigRow>;
-  nodeUpdates: { id: string; data: unknown }[];
 } {
   const rows = new Map<string, SwarmConfigRow>();
   if (initial) rows.set(initial.orgId, initial);
-  const nodeUpdates: { id: string; data: unknown }[] = [];
   const db: SwarmDb = {
     swarmConfig: {
       findUnique: async ({ where }) => rows.get(where.orgId) ?? null,
@@ -48,14 +46,8 @@ function makeDb(initial: SwarmConfigRow | null): {
         return next;
       },
     },
-    node: {
-      update: async ({ where, data }) => {
-        nodeUpdates.push({ id: where.id, data });
-        return undefined;
-      },
-    },
   };
-  return { db, rows, nodeUpdates };
+  return { db, rows };
 }
 
 describe('orchestrateSwarmMembership', () => {
@@ -82,7 +74,7 @@ describe('orchestrateSwarmMembership', () => {
       managerAddr: '10.0.0.2:2377',
       joinTokens: { worker: 'SWMTKN-worker', manager: 'SWMTKN-manager' },
     });
-    const { db, rows, nodeUpdates } = makeDb(null);
+    const { db, rows } = makeDb(null);
 
     const out = await orchestrateSwarmMembership({ db, hub, orgId: 'o1', nodeId: 'n1' });
 
@@ -97,8 +89,7 @@ describe('orchestrateSwarmMembership', () => {
     expect(row.workerJoinTokenEnc).not.toContain('SWMTKN-worker');
     expect(decryptSecret(row.workerJoinTokenEnc!)).toBe('SWMTKN-worker');
     expect(decryptSecret(row.managerJoinTokenEnc!)).toBe('SWMTKN-manager');
-
-    expect(nodeUpdates[0]).toEqual({ id: 'n1', data: { swarmNodeId: 'swarm-node-1', role: 'MANAGER' } });
+    // The node's swarm id + role are Docker truth now — no Node-row write to assert.
   });
 
   it('joins a later node as a worker using the stored worker token', async () => {
@@ -111,7 +102,7 @@ describe('orchestrateSwarmMembership', () => {
       managerJoinTokenEnc: encryptFixture('SWMTKN-manager'),
     };
     const { hub, calls } = makeHub(true, { mode: 'join', swarmNodeId: 'swarm-node-2' });
-    const { db, nodeUpdates } = makeDb(seed);
+    const { db } = makeDb(seed);
 
     const out = await orchestrateSwarmMembership({ db, hub, orgId: 'o1', nodeId: 'n2' });
 
@@ -121,7 +112,6 @@ describe('orchestrateSwarmMembership', () => {
     expect(p.role).toBe('worker');
     expect(p.managerAddr).toBe('10.0.0.2:2377');
     expect(p.joinToken).toBe('SWMTKN-worker'); // decrypted just-in-time for dispatch
-    expect(nodeUpdates[0]).toEqual({ id: 'n2', data: { swarmNodeId: 'swarm-node-2', role: 'WORKER' } });
   });
 
   it('joins as a manager when role-hinted, using the manager token', async () => {

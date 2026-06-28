@@ -23,9 +23,15 @@ export async function requireOnlineNode(ctx: OrgContext, nodeId: string): Promis
   return node;
 }
 
-export async function failDeployment(ctx: OrgContext, deploymentId: string, e: unknown): Promise<void> {
-  await ctx.db.deployment.update({
-    where: { id: deploymentId },
-    data: { phase: 'FAILED', message: e instanceof Error ? e.message : String(e), finishedAt: new Date() },
-  });
+/**
+ * Deployments are no longer persisted — swarm state is read live from Docker.
+ * Kept as a no-op so existing callers compile; deploy failures now surface
+ * directly as dispatch errors at the call site.
+ */
+export async function failDeployment(
+  _ctx: OrgContext,
+  _deploymentId: string,
+  _e: unknown,
+): Promise<void> {
+  // no-op: nothing to persist
 }

@@ -10,6 +10,7 @@
  * Invoked per-org by the `image-gc` worker (apps/api/workers/image-gc.ts) and
  * on-demand. Each org runs under a SYSTEM `OrgContext`.
  */
+import { buildInventory } from '@swarmy/core';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import type { AgentHub } from '../hub/types';
@@ -30,33 +31,22 @@ export interface GcRunResult {
 }
 
 /**
- * Compute the pinned digest set for an org: every digest a prod service can pull.
- *  - each `Service.image` (when digest-pinned, `repo@sha256:…`);
- *  - the `imageDigest` of every COMPLETE deployment (the running history);
- *  - the image of every SUCCEEDED build a service currently points at.
- * A digest that appears here is never collected.
+ * Compute the pinned digest set for an org from LIVE Docker state (the source of
+ * truth) — every digest a currently-running service can pull:
+ *  - each live service's resolved image (Docker pins it to `repo@sha256:…`);
+ *  - each running container's image digest (the actually-pulled layers).
+ * A digest that appears here is never collected. Reads the in-memory hub
+ * inventory rather than any Service/Deployment DB row.
  */
-export async function computePinnedDigests(db: DB, orgId: string): Promise<Set<string>> {
+export function computePinnedDigests(hub: AgentHub, orgId: string): Set<string> {
   const pinned = new Set<string>();
-
-  const services = await db.service.findMany({
-    where: { orgId },
-    select: { image: true },
-  });
-  for (const s of services) {
-    if (s.image?.includes('@sha256:')) pinned.add(bareDigest(s.image));
+  const { services, containers } = hub.liveInventory(orgId);
+  for (const s of buildInventory(services, containers).services) {
+    if (s.image.includes('@sha256:')) pinned.add(bareDigest(s.image));
+    for (const c of s.containers) {
+      if (c.image.includes('@sha256:')) pinned.add(bareDigest(c.image));
+    }
   }
-
-  const deployments = await db.deployment.findMany({
-    where: { orgId, phase: 'COMPLETE', imageDigest: { not: null } },
-    select: { imageDigest: true },
-    orderBy: { startedAt: 'desc' },
-    take: 500,
-  });
-  for (const d of deployments) {
-    if (d.imageDigest) pinned.add(bareDigest(d.imageDigest));
-  }
-
   return pinned;
 }
 
@@ -86,7 +76,7 @@ export async function runImageGcForOrg(
     finishedAt: b.finishedAt,
   }));
 
-  const pinnedDigests = await computePinnedDigests(db, orgId);
+  const pinnedDigests = computePinnedDigests(hub, orgId);
   const plan = computeGcPlan({
     mode,
     days: policy.days,

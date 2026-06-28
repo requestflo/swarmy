@@ -131,14 +131,15 @@ export async function buildZoneSnapshot(ctx: OrgContext): Promise<ZoneSnapshot> 
     orderBy: { host: 'asc' },
   });
 
-  // Map region → at least one online node (label-based).
+  // Map region → at least one online node (label-based). Node membership comes from
+  // the DB (enrollment ids); the region label + online state are Docker truth via the hub.
   const nodes = await ctx.db.node.findMany({
     where: { orgId: ctx.activeOrgId },
-    select: { id: true, labels: true },
+    select: { id: true },
   });
   const onlineRegions = new Set<string>();
   for (const n of nodes) {
-    const region = (n.labels as Record<string, string> | null)?.['swarmy.region'];
+    const region = ctx.hub.nodeInfoFor(n.id)?.labels['swarmy.region'];
     if (region && ctx.hub.isOnline(n.id)) onlineRegions.add(region);
   }
 
@@ -445,22 +446,24 @@ export async function setNodeRegion(
   nodeId: string,
   region: string,
 ): Promise<{ id: string; region: string }> {
-  const node = (await ctx.db.node.findFirst({
+  // Membership/identity is the DB's job; swarm labels + swarmNodeId are Docker truth (hub).
+  const node = await ctx.db.node.findFirst({
     where: { id: nodeId, orgId: ctx.activeOrgId },
-    select: { id: true, swarmNodeId: true, labels: true },
-  })) as { id: string; swarmNodeId: string | null; labels: unknown } | null;
+    select: { id: true },
+  });
   if (!node) throw notFound('node', nodeId);
 
+  // Merge onto the node's live swarm labels (no DB write — labels live in Docker now).
   const labels: Record<string, string> = {
-    ...((node.labels as Record<string, string> | null) ?? {}),
+    ...(ctx.hub.nodeInfoFor(nodeId)?.labels ?? {}),
     'swarmy.region': region,
   };
-  await ctx.db.node.update({ where: { id: nodeId }, data: { labels } });
 
   // Best-effort push to the swarm engine (reconciles later if offline).
-  if (ctx.hub.isOnline(nodeId) && node.swarmNodeId) {
+  const swarmNodeId = ctx.hub.swarmNodeIdFor(nodeId);
+  if (ctx.hub.isOnline(nodeId) && swarmNodeId) {
     await ctx.hub
-      .dispatch(nodeId, 'node.update', { swarmNodeId: node.swarmNodeId, labels })
+      .dispatch(nodeId, 'node.update', { swarmNodeId, labels })
       .catch(() => undefined);
   }
 
@@ -543,11 +546,11 @@ export async function reconcileGeoDns(ctx: OrgContext): Promise<{
 async function collectRegionHealth(ctx: OrgContext): Promise<Map<string, RegionHealth>> {
   const nodes = await ctx.db.node.findMany({
     where: { orgId: ctx.activeOrgId },
-    select: { id: true, labels: true },
+    select: { id: true },
   });
   const health = new Map<string, RegionHealth>();
   for (const n of nodes) {
-    const region = (n.labels as Record<string, string> | null)?.['swarmy.region'];
+    const region = ctx.hub.nodeInfoFor(n.id)?.labels['swarmy.region'];
     if (!region) continue;
     const online = ctx.hub.isOnline(n.id);
     const existing = health.get(region);

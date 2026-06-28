@@ -17,47 +17,9 @@ enum NodeRole {
   WORKER
 }
 
-enum NodeStatus {
-  PENDING
-  ONLINE
-  OFFLINE
-  DRAINING
-}
-
-enum ServiceStatus {
-  PENDING
-  DEPLOYING
-  RUNNING
-  DEGRADED
-  STOPPED
-  FAILED
-  REMOVING
-}
-
-enum StackStatus {
-  PENDING
-  DEPLOYING
-  RUNNING
-  DEGRADED
-  STOPPED
-  FAILED
-}
-
-enum DeploymentPhase {
-  QUEUED
-  PULLING
-  CREATING
-  CONVERGING
-  COMPLETE
-  FAILED
-  ROLLEDBACK
-  CANCELED
-}
-
-enum DeploymentTargetType {
-  SERVICE
-  STACK
-}
+// NodeStatus/ServiceStatus/StackStatus/DeploymentPhase/DeploymentTargetType removed
+// with the Service/Deployment models + Node/Stack status columns (epic #6). NodeRole
+// stays (still used by JoinToken.roleHint).
 
 enum IngressDriver {
   CADDY
@@ -102,7 +64,6 @@ model User {
   accounts    Account[]
   members     Member[]
   joinTokens  JoinToken[]  @relation("JoinTokenCreator")
-  deployments Deployment[]
   auditLogs   AuditLog[]
   invitations Invitation[] @relation("InvitationInviter")
   apiKeys     ApiKey[]     @relation("ApiKeyCreator")
@@ -173,9 +134,7 @@ model Organization {
   invitations   Invitation[]
   nodes         Node[]
   joinTokens    JoinToken[]
-  services      Service[]
   stacks        Stack[]
-  deployments   Deployment[]
   ingressConfig IngressConfig?
   domains       Domain[]
   auditLogs     AuditLog[]
@@ -253,39 +212,26 @@ model Invitation {
 
 // ───────────────────────────────────────────────── domain models ──
 
+// Node is now an ENROLLMENT/IDENTITY record only — role/status/labels/resources/
+// version/lastSeen are Docker-truth and live in the in-memory hub (epic #6 rip-out).
+// What stays: identity + the per-node reconnect credential (auth).
 model Node {
-  id                String     @id @default(cuid())
+  id                String   @id @default(cuid())
   orgId             String
   name              String
   hostname          String
-  ipAddress         String?
-  role              NodeRole   @default(WORKER)
-  status            NodeStatus @default(PENDING)
-  swarmNodeId       String?
-  dockerVersion     String?
-  os                String?
-  arch              String?
-  totalCpu          Int?
-  totalMemoryBytes  BigInt?
-  labels            Json       @default("{}")
-  latestMetrics     Json?
-  agentVersion      String?
-  lastSeenAt        DateTime?
   // Per-node reconnect credential (hashed). Bump version to revoke.
   sessionSecretHash String?
-  sessionVersion    Int        @default(1)
+  sessionVersion    Int      @default(1)
   joinTokenId       String?
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   joinToken     JoinToken?     @relation(fields: [joinTokenId], references: [id], onDelete: SetNull)
-  services      Service[]
   metricSamples MetricSample[]
 
   @@unique([orgId, name])
-  @@index([orgId, status])
-  @@index([lastSeenAt])
   @@map("node")
 }
 
@@ -313,84 +259,24 @@ model JoinToken {
   @@map("join_token")
 }
 
-model Service {
-  id             String        @id @default(cuid())
-  orgId          String
-  name           String
-  image          String
-  replicas       Int           @default(1)
-  command        Json          @default("[]")
-  env            Json          @default("{}")
-  ports          Json          @default("[]")
-  volumes        Json          @default("[]")
-  networks       Json          @default("[]")
-  constraints    Json          @default("[]")
-  status         ServiceStatus @default(PENDING)
-  nodeId         String?
-  stackId        String?
-  ingressEnabled Boolean       @default(false)
-  swarmServiceId String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-
-  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  node        Node?        @relation(fields: [nodeId], references: [id], onDelete: SetNull)
-  stack       Stack?       @relation(fields: [stackId], references: [id], onDelete: Cascade)
-  domains     Domain[]
-  deployments Deployment[]
-
-  @@unique([orgId, name])
-  @@index([orgId, status])
-  @@index([stackId])
-  @@map("service")
-}
-
+// Service + Deployment models removed (epic #6): live services are Docker-truth in
+// the hub; deploy status is synthesized from live convergence. Stack is trimmed to
+// the user's compose CONFIG; its live status/services derive from stack-namespace labels.
 model Stack {
-  id            String      @id @default(cuid())
-  orgId         String
-  name          String
-  composeSource    String      @db.Text
-  status           StackStatus    @default(PENDING)
+  id               String         @id @default(cuid())
+  orgId            String
+  name             String
+  composeSource    String         @db.Text
   telemetryEnabled Boolean        @default(false)
   ingressDriver    IngressDriver?
   createdAt        DateTime       @default(now())
-  updatedAt        DateTime    @updatedAt
+  updatedAt        DateTime       @updatedAt
 
-  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  services    Service[]
-  deployments Deployment[]
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, name])
   @@index([orgId])
   @@map("stack")
-}
-
-model Deployment {
-  id          String               @id @default(cuid())
-  orgId       String
-  targetType  DeploymentTargetType
-  serviceId   String?
-  stackId     String?
-  kind        String
-  phase       DeploymentPhase      @default(QUEUED)
-  desired     Int?
-  ready       Int?
-  message     String?              @db.Text
-  imageDigest String?
-  error       String?              @db.Text
-  startedAt   DateTime             @default(now())
-  finishedAt  DateTime?
-  triggeredById String?
-
-  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  service     Service?     @relation(fields: [serviceId], references: [id], onDelete: SetNull)
-  stack       Stack?       @relation(fields: [stackId], references: [id], onDelete: SetNull)
-  triggeredBy User?        @relation(fields: [triggeredById], references: [id], onDelete: SetNull)
-
-  @@index([orgId, startedAt])
-  @@index([serviceId, startedAt])
-  @@index([stackId, startedAt])
-  @@map("deployment")
 }
 
 model MetricSample {
@@ -446,9 +332,9 @@ model Domain {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  service Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
+  // serviceId holds a Docker service id (no FK) — the service is Docker-truth now.
   @@unique([host, pathPrefix])
   @@index([serviceId])
   @@index([orgId])

@@ -51,12 +51,8 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
       return;
     case 'heartbeat': {
       const nodeId = ws.data.nodeId;
-      if (nodeId) {
-        deps.store.lastSeen.set(nodeId, Date.now());
-        await prisma.node
-          .update({ where: { id: nodeId }, data: { lastSeenAt: new Date() } })
-          .catch(() => undefined);
-      }
+      // lastSeen is hub-truth now (Node.lastSeenAt column removed in the rip-out).
+      if (nodeId) deps.store.lastSeen.set(nodeId, Date.now());
       return;
     }
     case 'metrics': {
@@ -171,31 +167,12 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
       return;
     }
     orgId = token.orgId;
+    // The Node row is now an enrollment/identity record only — role/status/labels/
+    // resources/version are Docker-truth and live in the hub (serviceState/nodeList).
     const node = await prisma.node.upsert({
       where: { orgId_name: { orgId, name: facts.hostname } },
-      create: {
-        orgId,
-        name: facts.hostname,
-        hostname: facts.hostname,
-        role: facts.swarmRole === 'manager' ? 'MANAGER' : 'WORKER',
-        status: 'ONLINE',
-        dockerVersion: facts.dockerVersion,
-        os: facts.os,
-        arch: facts.arch,
-        totalCpu: facts.cpuCount,
-        totalMemoryBytes: BigInt(Math.round(facts.memTotalBytes)),
-        agentVersion: facts.agentVersion,
-        lastSeenAt: new Date(),
-        joinTokenId: token.id,
-      },
-      update: {
-        status: 'ONLINE',
-        role: facts.swarmRole === 'manager' ? 'MANAGER' : 'WORKER',
-        dockerVersion: facts.dockerVersion,
-        agentVersion: facts.agentVersion,
-        lastSeenAt: new Date(),
-        joinTokenId: token.id,
-      },
+      create: { orgId, name: facts.hostname, hostname: facts.hostname, joinTokenId: token.id },
+      update: { joinTokenId: token.id },
     });
     nodeId = node.id;
     roleHint = token.roleHint === 'MANAGER' ? 'manager' : token.roleHint === 'WORKER' ? 'worker' : null;
@@ -208,10 +185,6 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
     }
     nodeId = node.id;
     orgId = node.orgId;
-    await prisma.node.update({
-      where: { id: node.id },
-      data: { status: 'ONLINE', lastSeenAt: new Date(), agentVersion: facts.agentVersion },
-    });
   }
 
   // Rotate the per-node session secret on every successful register.
@@ -264,12 +237,11 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
   });
 }
 
-export async function handleAgentClose(ws: AgentSocket, deps: Deps): Promise<void> {
+export function handleAgentClose(ws: AgentSocket, deps: Deps): void {
   const nodeId = ws.data.nodeId;
   if (!nodeId) return;
   deps.registry.remove(nodeId, ws);
+  // Node liveness is hub-truth now (status/lastSeenAt columns removed). forget()
+  // retains a last-known snapshot for ABAC/dr-reconcile, then drops live telemetry.
   deps.store.forget(nodeId);
-  await prisma.node
-    .update({ where: { id: nodeId }, data: { status: 'OFFLINE', lastSeenAt: new Date() } })
-    .catch(() => undefined);
 }

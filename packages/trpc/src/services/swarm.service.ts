@@ -51,9 +51,6 @@ export interface SwarmDb {
       update: Partial<SwarmConfigRow>;
     }): Promise<SwarmConfigRow>;
   };
-  node: {
-    update(args: { where: { id: string }; data: { swarmNodeId?: string; role?: 'MANAGER' | 'WORKER' } }): Promise<unknown>;
-  };
 }
 
 /** Result of `swarmJoin` as it arrives in `commandResult.result`. */
@@ -125,7 +122,8 @@ export async function orchestrateSwarmMembership(args: OrchestrateArgs): Promise
       managerJoinTokenEnc: tokens.manager ? encryptSecret(tokens.manager) : null,
     };
     await db.swarmConfig.upsert({ where: { orgId }, create: row, update: row });
-    await db.node.update({ where: { id: nodeId }, data: { swarmNodeId: res.swarmNodeId, role: 'MANAGER' } });
+    // The node's swarm id + role are Docker truth (read via `hub.swarmNodeIdFor`/
+    // `nodeInfoFor`) — never written back to the Node row.
     return { action: 'init', swarmNodeId: res.swarmNodeId };
   }
 
@@ -147,9 +145,7 @@ export async function orchestrateSwarmMembership(args: OrchestrateArgs): Promise
     },
     { timeoutMs: SWARM_DISPATCH_TIMEOUT_MS },
   );
-  await db.node.update({
-    where: { id: nodeId },
-    data: { swarmNodeId: res.swarmNodeId, role: role === 'manager' ? 'MANAGER' : 'WORKER' },
-  });
+  // The node's swarm id + role are Docker truth (read via `hub.swarmNodeIdFor`/
+  // `nodeInfoFor`) — never written back to the Node row.
   return { action: 'join', role, swarmNodeId: res.swarmNodeId };
 }

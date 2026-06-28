@@ -49,24 +49,28 @@ const resolveServiceNode: ResolveResource = async (ctx, input) => {
   const exec = resolveExecTarget(ctx, serviceId);
   const nodeId = exec?.nodeId ?? ctx.hub.managerNode(ctx.activeOrgId);
   if (!nodeId) return null;
+  // Node identity stays in the DB; swarm labels are Docker truth (hub).
   const node = await ctx.db.node.findFirst({
     where: { id: nodeId, orgId: ctx.activeOrgId },
-    select: { id: true, orgId: true, labels: true },
+    select: { id: true, orgId: true },
   });
   if (!node) return null;
-  return { type: 'node', id: node.id, orgId: node.orgId, labels: (node.labels as Record<string, unknown>) ?? {} };
+  const labels = ctx.hub.nodeInfoFor(node.id)?.labels ?? {};
+  return { type: 'node', id: node.id, orgId: node.orgId, labels };
 };
 
 /** Resolve a Node from `{ nodeId }` for node-shell. */
 const resolveNodeFromNodeId: ResolveResource = async (ctx, input) => {
   const nodeId = (input as { nodeId?: string })?.nodeId;
   if (!nodeId) return null;
+  // Node identity stays in the DB; swarm labels are Docker truth (hub).
   const node = await ctx.db.node.findFirst({
     where: { id: nodeId, orgId: ctx.activeOrgId },
-    select: { id: true, orgId: true, labels: true },
+    select: { id: true, orgId: true },
   });
   if (!node) return null;
-  return { type: 'node', id: node.id, orgId: node.orgId, labels: (node.labels as Record<string, unknown>) ?? {} };
+  const labels = ctx.hub.nodeInfoFor(node.id)?.labels ?? {};
+  return { type: 'node', id: node.id, orgId: node.orgId, labels };
 };
 
 function assertAllowedRole(ctx: OrgContext, allowedRoles: string[]): void {

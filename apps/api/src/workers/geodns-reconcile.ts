@@ -15,7 +15,7 @@
  */
 import { prisma } from '@swarmy/db';
 import type { ServiceSpec } from '@swarmy/core/protocol';
-import { hub, registry } from '../gateway';
+import { hub } from '../gateway';
 
 const TICK_MS = 30_000;
 const COREDNS_IMAGE = 'coredns/coredns:1.11.3';
@@ -144,22 +144,21 @@ interface GeoDb {
   };
 }
 
-async function resolveManagerNodeId(orgId: string): Promise<string | null> {
-  const managers = await prisma.node.findMany({
-    where: { orgId, role: 'MANAGER' },
-    select: { id: true },
-  });
-  const online = managers.find((m) => registry.isOnline(m.id));
-  return online?.id ?? null;
+/** A connected swarm manager to redeploy the CoreDNS zone through (Docker truth). */
+function resolveManagerNodeId(orgId: string): string | null {
+  return hub.managerNodes(orgId)[0] ?? null;
 }
 
-async function collectRegionHealth(orgId: string): Promise<Map<string, RegionHealth>> {
-  const nodes = await prisma.node.findMany({ where: { orgId }, select: { id: true, labels: true } });
+/** Region health from the live swarm node inventory (labels + status are Docker
+ *  truth). `swarmy.region` node labels group nodes into regions; a region is
+ *  healthy if at least one of its nodes is `ready`. Offline nodes fold in via
+ *  `includeOffline` (status `down`) so a region with only dead nodes flips. */
+function collectRegionHealth(orgId: string): Map<string, RegionHealth> {
   const health = new Map<string, RegionHealth>();
-  for (const n of nodes) {
-    const region = (n.labels as Record<string, string> | null)?.['swarmy.region'];
+  for (const n of hub.nodeInventory(orgId, true)) {
+    const region = n.labels['swarmy.region'];
     if (!region) continue;
-    const online = registry.isOnline(n.id);
+    const online = n.status === 'ready';
     const existing = health.get(region);
     if (existing) existing.nodeOnline = existing.nodeOnline || online;
     else health.set(region, { region, nodeOnline: online });
@@ -173,7 +172,7 @@ async function reconcileOrg(orgId: string): Promise<void> {
   const records = await db.dnsRecord.findMany({ where: { orgId } });
   if (records.length === 0) return;
 
-  const health = await collectRegionHealth(orgId);
+  const health = collectRegionHealth(orgId);
   const plan = planReconcile(records, health);
 
   for (const u of plan.updates) {
@@ -182,7 +181,7 @@ async function reconcileOrg(orgId: string): Promise<void> {
 
   if (!plan.healthySetChanged || !cfg?.enabled) return;
 
-  const nodeId = await resolveManagerNodeId(orgId);
+  const nodeId = resolveManagerNodeId(orgId);
   if (!nodeId) return;
 
   // Re-read with flipped health so the redeployed zone reflects the new set.

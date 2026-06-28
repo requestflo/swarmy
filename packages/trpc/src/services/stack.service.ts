@@ -1,9 +1,41 @@
+import { randomUUID } from 'node:crypto';
 import { parse as parseYaml } from 'yaml';
+import { buildInventory, STACK_LABEL, UNGROUPED, type InvService } from '@swarmy/core';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { mapDispatchError, notFound } from '../errors';
-import { failDeployment, resolveManagerNode } from './dispatch.service';
+import { resolveManagerNode } from './dispatch.service';
 import { augmentSpecsForStack } from './otel-injection';
+
+/**
+ * Swarm state lives in Docker, not the DB. The Stack model is now config-only
+ * (name + composeSource + ingress/telemetry flags); a stack's live status and
+ * service membership are derived from the in-memory hub inventory, grouped by
+ * the Docker stack-namespace label (`com.docker.stack.namespace`), whose value
+ * is the swarmy stack name.
+ */
+
+/** Live services that belong to a stack, by its Docker stack-namespace label. */
+function liveStackServices(ctx: OrgContext, stackName: string): InvService[] {
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  return buildInventory(services, containers).services.filter((s) => s.stack === stackName);
+}
+
+/** Synthesize a stack-level status from its live services' statuses. */
+function stackStatus(svcs: InvService[]): string {
+  if (svcs.length === 0) return 'empty';
+  if (svcs.some((s) => s.status === 'deploying')) return 'deploying';
+  if (svcs.some((s) => s.status === 'degraded' || s.status === 'stopped')) return 'degraded';
+  return 'running';
+}
+
+/** Stamp the swarmy-managed + stack-namespace labels so live inventory groups it. */
+function withStackLabels(spec: ServiceSpec, stackName: string): ServiceSpec {
+  return {
+    ...spec,
+    labels: { ...(spec.labels ?? {}), 'swarmy.managed': 'true', [STACK_LABEL]: stackName },
+  };
+}
 
 export interface StackSummary {
   id: string;
@@ -61,35 +93,55 @@ export function composeToSpecs(source: string): ServiceSpec[] {
 }
 
 export async function listStacks(ctx: OrgContext): Promise<StackSummary[]> {
-  const rows = await ctx.db.stack.findMany({
+  // Config rows (name + flags). Live status is LEFT-JOINed from Docker truth.
+  const dbRows = await ctx.db.stack.findMany({
     where: { orgId: ctx.activeOrgId },
-    orderBy: { createdAt: 'desc' },
-    include: { _count: { select: { services: true } } },
+    select: { id: true, name: true },
   });
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    serviceCount: r._count.services,
-    status: r.status.toLowerCase(),
-    updatedAt: r.updatedAt.toISOString(),
-  }));
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  const byStack = new Map<string, InvService[]>();
+  for (const s of buildInventory(services, containers).services) {
+    if (s.stack === UNGROUPED) continue;
+    const list = byStack.get(s.stack) ?? [];
+    list.push(s);
+    byStack.set(s.stack, list);
+  }
+
+  const now = new Date().toISOString();
+  const seen = new Set<string>();
+  const out: StackSummary[] = [];
+  // DB-config stacks first (a config row with no live services shows empty).
+  for (const r of dbRows) {
+    seen.add(r.name);
+    const svcs = byStack.get(r.name) ?? [];
+    out.push({ id: r.id, name: r.name, serviceCount: svcs.length, status: stackStatus(svcs), updatedAt: now });
+  }
+  // Label-only stacks (live services grouped under a stack with no DB row).
+  for (const [name, svcs] of byStack) {
+    if (seen.has(name)) continue;
+    out.push({ id: name, name, serviceCount: svcs.length, status: stackStatus(svcs), updatedAt: now });
+  }
+  return out;
 }
 
 export async function getStack(ctx: OrgContext, id: string): Promise<StackDetail> {
+  // composeSource is config (kept on the Stack row); membership/status is live.
   const row = await ctx.db.stack.findFirst({
     where: { id, orgId: ctx.activeOrgId },
-    include: { services: { select: { id: true, name: true, image: true } } },
+    select: { id: true, name: true, composeSource: true },
   });
   if (!row) throw notFound('stack', id);
+  const svcs = liveStackServices(ctx, row.name);
+  const now = new Date().toISOString();
   return {
     id: row.id,
     name: row.name,
-    serviceCount: row.services.length,
-    status: row.status.toLowerCase(),
-    updatedAt: row.updatedAt.toISOString(),
+    serviceCount: svcs.length,
+    status: stackStatus(svcs),
+    updatedAt: now,
     composeSource: row.composeSource,
-    services: row.services,
-    createdAt: row.createdAt.toISOString(),
+    services: svcs.map((s) => ({ id: s.id, name: s.name, image: s.image })),
+    createdAt: now,
   };
 }
 
@@ -100,58 +152,36 @@ export async function deployFromCompose(
   const specs = composeToSpecs(input.composeSource);
   const node = await resolveManagerNode(ctx);
 
+  // Persist only the stack CONFIG (name + composeSource); status/membership are
+  // read back live from Docker. No Service/Deployment rows are written.
   const stack = await ctx.db.stack.upsert({
     where: { orgId_name: { orgId: ctx.activeOrgId, name: input.name } },
     create: {
       orgId: ctx.activeOrgId,
       name: input.name,
       composeSource: input.composeSource,
-      status: 'DEPLOYING',
     },
-    update: { composeSource: input.composeSource, status: 'DEPLOYING' },
-  });
-
-  const deployment = await ctx.db.deployment.create({
-    data: {
-      orgId: ctx.activeOrgId,
-      targetType: 'STACK',
-      stackId: stack.id,
-      kind: 'stack',
-      phase: 'QUEUED',
-      triggeredById: ctx.user.id,
-    },
+    update: { composeSource: input.composeSource },
+    select: { id: true, name: true, telemetryEnabled: true },
   });
 
   const finalSpecs = augmentSpecsForStack(specs, {
     telemetryEnabled: stack.telemetryEnabled,
     orgId: ctx.activeOrgId,
     stack: stack.name,
-  });
+  }).map((spec) => withStackLabels(spec, stack.name));
 
+  // Non-persisted deploy correlation id — keeps the API shape without a DB row.
+  const deploymentId = randomUUID();
   try {
     for (const spec of finalSpecs) {
-      await ctx.db.service.upsert({
-        where: { orgId_name: { orgId: ctx.activeOrgId, name: spec.name } },
-        create: {
-          orgId: ctx.activeOrgId,
-          stackId: stack.id,
-          name: spec.name,
-          image: spec.image,
-          replicas: spec.mode?.replicated?.replicas ?? 1,
-          env: spec.env ?? {},
-          status: 'DEPLOYING',
-        },
-        update: { image: spec.image, stackId: stack.id, status: 'DEPLOYING' },
-      });
       await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
     }
   } catch (e) {
-    await failDeployment(ctx, deployment.id, e);
-    await ctx.db.stack.update({ where: { id: stack.id }, data: { status: 'FAILED' } });
     throw mapDispatchError(e);
   }
 
-  return { id: stack.id, deploymentId: deployment.id };
+  return { id: stack.id, deploymentId };
 }
 
 export async function redeployStack(
@@ -175,12 +205,13 @@ export async function removeStack(
 ): Promise<{ id: string; removed: true }> {
   const stack = await ctx.db.stack.findFirst({
     where: { id, orgId: ctx.activeOrgId },
-    include: { services: { select: { name: true } } },
+    select: { id: true, name: true },
   });
   if (!stack) throw notFound('stack', id);
   const node = await resolveManagerNode(ctx).catch(() => null);
   if (node) {
-    for (const svc of stack.services) {
+    // Service membership comes from live Docker inventory, not a DB relation.
+    for (const svc of liveStackServices(ctx, stack.name)) {
       await ctx.hub.dispatch(node.id, 'service.remove', { service: svc.name }).catch(() => undefined);
     }
   }

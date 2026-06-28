@@ -1,76 +1,77 @@
+import type { InvService } from '@swarmy/core';
 import type { DeployPhase, DeployStatus } from '@swarmy/core/views';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
+import { liveService } from './service.service';
 
-interface DeploymentRow {
-  id: string;
-  serviceId: string | null;
-  kind: string;
-  phase: string;
-  desired: number | null;
-  ready: number | null;
-  message: string | null;
-  startedAt: Date;
-  finishedAt: Date | null;
-}
-
-function phaseView(p: string): DeployPhase {
-  const map: Record<string, DeployPhase> = {
-    QUEUED: 'queued',
-    PULLING: 'pulling',
-    CREATING: 'creating',
-    CONVERGING: 'converging',
-    COMPLETE: 'complete',
-    FAILED: 'failed',
-    ROLLEDBACK: 'rolledback',
-    CANCELED: 'canceled',
-  };
-  return map[p] ?? 'queued';
-}
-
-function toStatus(d: DeploymentRow): DeployStatus {
-  return {
-    deploymentId: d.id,
-    serviceId: d.serviceId,
-    kind: d.kind,
-    phase: phaseView(d.phase),
-    desired: d.desired,
-    ready: d.ready,
-    message: d.message,
-    startedAt: d.startedAt.toISOString(),
-    finishedAt: d.finishedAt ? d.finishedAt.toISOString() : null,
-  };
-}
-
-export async function getDeployStatus(ctx: OrgContext, deploymentId: string): Promise<DeployStatus> {
-  const d = (await ctx.db.deployment.findFirst({
-    where: { id: deploymentId, orgId: ctx.activeOrgId },
-  })) as DeploymentRow | null;
-  if (!d) throw notFound('deployment', deploymentId);
-  return toStatus(d);
-}
-
-export async function getLatestServiceDeployStatus(
-  ctx: OrgContext,
-  serviceId: string,
-): Promise<DeployStatus | null> {
-  const d = (await ctx.db.deployment.findFirst({
-    where: { serviceId, orgId: ctx.activeOrgId },
-    orderBy: { startedAt: 'desc' },
-  })) as DeploymentRow | null;
-  return d ? toStatus(d) : null;
-}
+/**
+ * Deployments are no longer persisted. A "deployment" is just the live
+ * convergence of a service: we synthesize a {@link DeployStatus} from the
+ * Docker-truth inventory (running vs. desired replicas). The `deploymentId`
+ * carried by callers is the service's id/name, which resolves the live service.
+ */
 
 const TERMINAL: DeployPhase[] = ['complete', 'failed', 'rolledback', 'canceled'];
 
-/** Poll a deployment's status until it reaches a terminal phase or aborts. */
+/** Synthesize a deploy status from a live service's replica convergence. */
+function synth(svc: InvService, deploymentId: string): DeployStatus {
+  const { desired, running } = svc.replicas;
+  // Converged once the running count meets the desired count (desired 0 included).
+  const complete = running >= desired;
+  const phase: DeployPhase = complete ? 'complete' : 'converging';
+  const now = new Date().toISOString();
+  return {
+    deploymentId,
+    serviceId: svc.id,
+    kind: 'deploy',
+    phase,
+    desired,
+    ready: running,
+    message: null,
+    startedAt: now,
+    finishedAt: complete ? now : null,
+  };
+}
+
+/** A non-terminal placeholder while a just-dispatched service is not yet visible. */
+function pending(deploymentId: string): DeployStatus {
+  return {
+    deploymentId,
+    serviceId: null,
+    kind: 'deploy',
+    phase: 'converging',
+    desired: null,
+    ready: null,
+    message: null,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+  };
+}
+
+export function getDeployStatus(ctx: OrgContext, deploymentId: string): DeployStatus {
+  const svc = liveService(ctx, deploymentId);
+  if (!svc) throw notFound('deployment', deploymentId);
+  return synth(svc, deploymentId);
+}
+
+export function getLatestServiceDeployStatus(
+  ctx: OrgContext,
+  serviceId: string,
+): DeployStatus | null {
+  const svc = liveService(ctx, serviceId);
+  return svc ? synth(svc, svc.id) : null;
+}
+
+/** Poll a service's live convergence until it reaches a terminal phase or aborts. */
 export async function* watchDeployStatus(
   ctx: OrgContext,
   deploymentId: string,
   signal: AbortSignal,
 ): AsyncGenerator<DeployStatus> {
   while (!signal.aborted) {
-    const status = await getDeployStatus(ctx, deploymentId);
+    const svc = liveService(ctx, deploymentId);
+    // Tolerate the brief window before a freshly-dispatched service appears.
+    const status = svc ? synth(svc, deploymentId) : pending(deploymentId);
     yield status;
     if (TERMINAL.includes(status.phase)) return;
     await new Promise((r) => setTimeout(r, 1000));

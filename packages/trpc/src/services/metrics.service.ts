@@ -1,4 +1,4 @@
-import type { MetricKind, TimeseriesInput } from '@swarmy/core';
+import { buildInventory, type MetricKind, type TimeseriesInput } from '@swarmy/core';
 import type { DashboardSummary } from '@swarmy/core/views';
 import type { OrgContext } from '../context';
 
@@ -23,16 +23,21 @@ const RANGE_MS: Record<string, number> = {
 };
 
 export async function getOverview(ctx: OrgContext): Promise<ClusterOverview> {
+  // Node presence (online/total) is Docker-truth → live swarm inventory, not DB.
+  const nodesTotal = ctx.hub.nodeInventory(ctx.activeOrgId, true).length;
+  const nodesOnline = ctx.hub.nodeInventory(ctx.activeOrgId).length;
+  // Per-node stats are keyed by the controller (enrollment) node id; enumerate
+  // those via the kept Node identity columns to aggregate the live hub samples.
   const nodes = await ctx.db.node.findMany({
     where: { orgId: ctx.activeOrgId },
     select: { id: true },
   });
-  const online = nodes.filter((n) => ctx.hub.isOnline(n.id));
   let cpuSum = 0;
   let memUsed = 0;
   let memTotal = 0;
   let counted = 0;
-  for (const n of online) {
+  for (const n of nodes) {
+    if (!ctx.hub.isOnline(n.id)) continue;
     const s = ctx.hub.latestNodeStats(n.id);
     if (s) {
       cpuSum += s.cpuPercent;
@@ -49,8 +54,8 @@ export async function getOverview(ctx: OrgContext): Promise<ClusterOverview> {
     memPercent: memTotal ? (memUsed / memTotal) * 100 : 0,
     memUsedBytes: memUsed,
     memTotalBytes: memTotal,
-    nodesOnline: online.length,
-    nodesTotal: nodes.length,
+    nodesOnline,
+    nodesTotal,
     containersRunning,
     sampledAt: new Date().toISOString(),
   };
@@ -138,13 +143,13 @@ export async function getTopConsumers(
 
 export async function getDashboardSummary(ctx: OrgContext): Promise<DashboardSummary> {
   const overview = await getOverview(ctx);
-  const [serviceTotal, serviceRunning, recentDeployments] = await Promise.all([
-    ctx.db.service.count({ where: { orgId: ctx.activeOrgId } }),
-    ctx.db.service.count({ where: { orgId: ctx.activeOrgId, status: 'RUNNING' } }),
-    ctx.db.deployment.count({
-      where: { orgId: ctx.activeOrgId, startedAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) } },
-    }),
-  ]);
+  // Service totals come from live Docker inventory (no Service model). There is
+  // no persisted deployment history any more, so the recent-deploy count is 0.
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  const inv = buildInventory(services, containers).services;
+  const serviceTotal = inv.length;
+  const serviceRunning = inv.filter((s) => s.status === 'running').length;
+  const recentDeployments = 0;
   return {
     nodes: { online: overview.nodesOnline, total: overview.nodesTotal },
     services: { running: serviceRunning, total: serviceTotal },

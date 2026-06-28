@@ -68,14 +68,12 @@ function toRepo(t: TargetRow): ResticRepo {
   };
 }
 
-/** Pick an online node to run the backup: the recorded host, else any online manager. */
+/** Pick an online node to run the backup: the recorded host, else any online
+ *  swarm manager (Docker truth via the hub — no DB Node role column). */
 async function pickNode(orgId: string, preferredNodeId: string | null): Promise<string | null> {
   if (preferredNodeId && registry.isOnline(preferredNodeId)) return preferredNodeId;
-  const managers = await prisma.node.findMany({
-    where: { orgId, role: 'MANAGER' },
-    select: { id: true },
-  });
-  return managers.find((m) => registry.isOnline(m.id))?.id ?? null;
+  // `hub.managerNodes` already returns only connected swarm managers for the org.
+  return hub.managerNodes(orgId)[0] ?? null;
 }
 
 async function runDue(): Promise<void> {

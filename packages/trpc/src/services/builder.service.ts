@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import {
   composeToModels,
@@ -12,7 +13,8 @@ import {
 import { writeAudit } from '../services/audit.service';
 import type { OrgContext } from '../context';
 import { mapDispatchError } from '../errors';
-import { failDeployment, resolveManagerNode } from './dispatch.service';
+import { resolveManagerNode } from './dispatch.service';
+import { liveService } from './service.service';
 
 /**
  * Compose import/export for the GUI service builder. The `yaml` string <-> object
@@ -100,48 +102,27 @@ export async function deployFromModel(
   const node = await resolveManagerNode(ctx, input.nodeId);
   const spec = modelToServiceSpec(model);
 
-  const replicas = model.mode === 'global' ? 1 : model.replicas;
-  const svc = await ctx.db.service.create({
-    data: {
-      orgId: ctx.activeOrgId,
-      name: model.name,
-      image: model.image,
-      replicas,
-      command: model.command,
-      env: model.env,
-      ports: model.ports,
-      volumes: model.mounts,
-      networks: model.networks,
-      constraints: model.placement?.constraints ?? [],
-      nodeId: input.nodeId ?? null,
-      status: 'DEPLOYING',
-    },
-  });
-  const deployment = await ctx.db.deployment.create({
-    data: {
-      orgId: ctx.activeOrgId,
-      targetType: 'SERVICE',
-      serviceId: svc.id,
-      kind: 'create',
-      phase: 'QUEUED',
-      desired: replicas,
-      triggeredById: ctx.user.id,
-    },
-  });
+  // Docker is the source of truth: the deploy no longer writes a Service or
+  // Deployment row. Callers still get a `deploymentId` for correlation, but it
+  // is a synthetic, non-persisted id rather than a DB primary key.
+  const deploymentId = randomUUID();
 
   try {
     await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
   } catch (e) {
-    await failDeployment(ctx, deployment.id, e);
     throw mapDispatchError(e);
   }
+
+  // Resolve the Docker service id from live inventory (falls back to the name
+  // until the hub snapshot catches up with the just-dispatched deploy).
+  const id = liveService(ctx, model.name)?.id ?? model.name;
 
   await writeAudit(ctx, {
     action: 'service.builder.deploy',
     targetType: 'service',
-    targetId: svc.id,
+    targetId: id,
     metadata: { name: model.name, image: model.image, warningCount: warnings.length },
   });
 
-  return { id: svc.id, deploymentId: deployment.id, warnings };
+  return { id, deploymentId, warnings };
 }

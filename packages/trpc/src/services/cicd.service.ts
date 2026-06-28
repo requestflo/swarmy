@@ -26,6 +26,7 @@ import { mapDispatchError, notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { writeAudit } from './audit.service';
 import { buildLogBus } from './build-log-bus';
+import { liveService } from './service.service';
 
 export type GitProvider = 'github' | 'gitlab';
 
@@ -297,26 +298,15 @@ async function runBuild(
  * a floating tag) so GC's "in prod" reasoning and rollback stay correct.
  */
 export async function autodeployBuilt(ctx: OrgContext, serviceId: string, image: string): Promise<void> {
-  const service = await ctx.db.service.findFirst({
-    where: { id: serviceId, orgId: ctx.activeOrgId },
-    select: { id: true, name: true, replicas: true },
-  });
+  // `serviceId` is the linked Docker service id (or name) — resolve it from live
+  // inventory rather than a DB row. Docker is the source of truth for placement
+  // and replica count; the redeploy pins the freshly-built digest.
+  const service = liveService(ctx, serviceId);
   if (!service) return;
   const node = await resolveManagerNode(ctx);
-  await ctx.db.service.update({ where: { id: service.id }, data: { image, status: 'DEPLOYING' } });
-  await ctx.db.deployment.create({
-    data: {
-      orgId: ctx.activeOrgId,
-      targetType: 'SERVICE',
-      serviceId: service.id,
-      kind: 'autodeploy',
-      phase: 'COMPLETE',
-      imageDigest: image,
-    },
-  });
   await ctx.hub
     .dispatch(node.id, 'service.deploy', {
-      spec: { name: service.name, image, mode: { replicated: { replicas: service.replicas } } },
+      spec: { name: service.name, image, mode: { replicated: { replicas: service.replicas.desired } } },
       pullPolicy: 'always',
     })
     .catch(() => undefined);
@@ -639,14 +629,15 @@ async function registryNodeOnline(ctx: OrgContext): Promise<boolean> {
 
 /** Pick an online builder node (label `swarmy.role=builder`), else any online node. */
 async function resolveBuilderNode(ctx: OrgContext): Promise<{ id: string }> {
+  // Membership/identity comes from the DB (enrollment node id); the swarm role
+  // label is Docker truth, read live from the hub via the hostname bridge.
   const nodes = await ctx.db.node.findMany({
     where: { orgId: ctx.activeOrgId },
-    select: { id: true, labels: true },
+    select: { id: true },
   });
-  const builders = nodes.filter((n) => {
-    const labels = (n.labels as Record<string, string> | null) ?? {};
-    return labels['swarmy.role'] === 'builder';
-  });
+  const builders = nodes.filter(
+    (n) => ctx.hub.nodeInfoFor(n.id)?.labels['swarmy.role'] === 'builder',
+  );
   const onlineBuilder = builders.find((n) => ctx.hub.isOnline(n.id));
   if (onlineBuilder) return { id: onlineBuilder.id };
   const anyOnline = nodes.find((n) => ctx.hub.isOnline(n.id));

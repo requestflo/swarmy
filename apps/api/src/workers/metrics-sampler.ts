@@ -3,9 +3,10 @@ import { env } from '../env';
 import { store } from '../gateway';
 
 /**
- * Periodically flush a downsampled metric row per node into Postgres (history),
- * and snapshot the latest sample onto Node.latestMetrics for instant reads.
- * High-frequency live stats stay in the in-memory ring (no write amplification).
+ * Periodically flush a downsampled metric row per node into Postgres (history).
+ * The latest live sample is served straight from the in-memory hub ring (Docker
+ * truth) — no Node.latestMetrics column, no write amplification. `nodeId` is
+ * persisted as a plain string id; node swarm/telemetry state is never written.
  */
 export function startMetricsSampler(): () => void {
   const timer = setInterval(async () => {
@@ -30,17 +31,6 @@ export function startMetricsSampler(): () => void {
             diskUsedBytes: BigInt(Math.round(snap.fsUsedBytes ?? 0)),
             diskTotalBytes: BigInt(Math.round(snap.fsTotalBytes ?? 0)),
             ts,
-          },
-        });
-        await prisma.node.update({
-          where: { id: nodeId },
-          data: {
-            latestMetrics: {
-              cpuPercent: snap.cpuPercent,
-              memUsedBytes: snap.memUsedBytes,
-              memTotalBytes: snap.memTotalBytes,
-              ts: snap.ts,
-            },
           },
         });
       } catch {

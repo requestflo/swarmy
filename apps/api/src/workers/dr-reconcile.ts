@@ -1,10 +1,17 @@
 /**
  * DR reconciliation worker (epic: volumes-dr, P2 — restore-on-recovery).
  *
- * Polls node health. When a node has been offline past a grace window, it finds
- * services/volumes stranded on that node and schedules a restore of the latest
- * snapshot onto a healthy node (via the existing restic `backup.restore`
- * dispatch). When a new node comes online, pending restores can target it.
+ * Polls node health (Docker truth via the hub heartbeat). When a node that
+ * hosted volume snapshots has been offline past a grace window, its volumes are
+ * stranded — so we schedule a restore of each volume's latest snapshot onto a
+ * healthy node (via the existing restic `backup.restore` dispatch).
+ *
+ * No DB Node/Service rows are read: dead-node liveness comes from the hub
+ * (`isOnline`/`lastSeen`, corroborated by `nodeInfoFor` swarm status, the same
+ * source as `nodeInventory(includeOffline)`). Which volumes lived on the dead
+ * node comes from each `Snapshot.hostNodeId` (a kept backup column) — the only
+ * Docker-independent record of where a volume's data was. Restore targets are
+ * connected swarm managers (`hub.managerNodes`).
  *
  * Placement policy lives in the pure `selectRestoreTarget` (unit-tested in
  * @swarmy/trpc); a small copy is inlined here since the worker cannot subpath-
@@ -13,7 +20,7 @@
 import { prisma } from '@swarmy/db';
 import { decryptSecret } from '@swarmy/core/crypto';
 import type { ResticRepo, RestoreVolumeResult } from '@swarmy/core/protocol';
-import { hub, registry } from '../gateway';
+import { hub } from '../gateway';
 
 const TICK_MS = 30_000;
 /** A node must be unreachable this long before we declare it dead and restore. */
@@ -67,66 +74,72 @@ function toRepo(t: TargetRow): ResticRepo {
   };
 }
 
+interface SnapshotRow {
+  id: string;
+  volume: string;
+  targetId: string;
+  resticId: string | null;
+  hostNodeId: string | null;
+}
+
+interface ReconcileDb {
+  restoreOperation: {
+    findFirst(a: unknown): Promise<{ id: string } | null>;
+    create(a: unknown): Promise<{ id: string }>;
+    update(a: unknown): Promise<unknown>;
+  };
+  snapshot: {
+    findMany<T = SnapshotRow>(a: unknown): Promise<T[]>;
+  };
+  backupTarget: { findUnique(a: unknown): Promise<TargetRow | null> };
+}
+
+/** Is a node that hosted snapshots now dead (offline past grace, per Docker truth)? */
+function isDead(nodeId: string, now: number): boolean {
+  if (hub.isOnline(nodeId)) return false;
+  const seen = hub.lastSeen(nodeId);
+  if (seen == null || now - seen <= GRACE_MS) return false;
+  // Corroborate with swarm status: a node the cluster still reports `ready` isn't dead.
+  const info = hub.nodeInfoFor(nodeId);
+  return !info || info.status !== 'ready';
+}
+
 async function reconcileOrg(orgId: string): Promise<void> {
-  const nodes = await prisma.node.findMany({
-    where: { orgId },
-    select: { id: true, role: true, lastSeenAt: true },
-  });
-  const now = Date.now();
-  const reconcileNodes: ReconcileNode[] = nodes.map((n) => ({
-    id: n.id,
-    role: n.role === 'MANAGER' ? 'MANAGER' : 'WORKER',
-    online: registry.isOnline(n.id),
+  // Restore targets = connected swarm managers (Docker truth). Nowhere healthy
+  // to land a restore ⇒ nothing to do this tick.
+  const candidates: ReconcileNode[] = hub.managerNodes(orgId).map((id) => ({
+    id,
+    role: 'MANAGER',
+    online: true,
     assignedRestores: 0,
   }));
+  if (candidates.length === 0) return;
 
-  // Dead = offline AND last seen past the grace window.
-  const dead = nodes.filter(
-    (n) =>
-      !registry.isOnline(n.id) &&
-      n.lastSeenAt != null &&
-      now - n.lastSeenAt.getTime() > GRACE_MS,
-  );
-  if (dead.length === 0) return;
+  const db = prisma as unknown as ReconcileDb;
 
-  const db = prisma as unknown as {
-    restoreOperation: {
-      findFirst(a: unknown): Promise<{ id: string } | null>;
-      create(a: unknown): Promise<{ id: string }>;
-      update(a: unknown): Promise<unknown>;
-    };
-    snapshot: {
-      findFirst(a: unknown): Promise<
-        | { id: string; volume: string; targetId: string; resticId: string | null }
-        | null
-      >;
-    };
-    backupTarget: { findUnique(a: unknown): Promise<TargetRow | null> };
-  };
+  // Nodes that ever hosted a successful snapshot for this org. Each volume's data
+  // last lived on its snapshot's `hostNodeId`; a dead one means stranded volumes.
+  const hosts = await db.snapshot.findMany<{ hostNodeId: string | null }>({
+    where: { orgId, status: 'SUCCEEDED', hostNodeId: { not: null } },
+    select: { hostNodeId: true },
+    distinct: ['hostNodeId'],
+  });
+  const now = Date.now();
+  const deadNodeIds = [
+    ...new Set(hosts.map((h) => h.hostNodeId).filter((id): id is string => id != null)),
+  ].filter((id) => isDead(id, now));
+  if (deadNodeIds.length === 0) return;
 
-  for (const node of dead) {
-    // Volumes stranded on the dead node = distinct volumes with a snapshot whose
-    // host was this node and which has no successful restore in flight.
-    const services = await prisma.service.findMany({
-      where: { orgId, nodeId: node.id },
-      select: { id: true, volumes: true },
+  for (const deadNodeId of deadNodeIds) {
+    // Latest successful snapshot per volume that was hosted on the dead node.
+    const snaps = await db.snapshot.findMany({
+      where: { orgId, hostNodeId: deadNodeId, status: 'SUCCEEDED' },
+      orderBy: { startedAt: 'desc' },
     });
-    const volumes = new Set<string>();
-    for (const svc of services) {
-      const vols = Array.isArray(svc.volumes) ? (svc.volumes as unknown[]) : [];
-      for (const v of vols) {
-        const name = typeof v === 'string' ? v : (v as { source?: string; name?: string })?.source ?? (v as { name?: string })?.name;
-        if (name) volumes.add(name);
-      }
-    }
-
-    for (const volume of volumes) {
-      // Latest successful snapshot for this volume.
-      const snap = await db.snapshot.findFirst({
-        where: { orgId, volume, status: 'SUCCEEDED' },
-        orderBy: { startedAt: 'desc' },
-      });
-      if (!snap) continue;
+    const handled = new Set<string>();
+    for (const snap of snaps) {
+      if (handled.has(snap.volume)) continue; // only the newest snapshot per volume
+      handled.add(snap.volume);
 
       // Skip if a reconcile restore is already queued/running for this snapshot.
       const inFlight = await db.restoreOperation.findFirst({
@@ -134,7 +147,7 @@ async function reconcileOrg(orgId: string): Promise<void> {
       });
       if (inFlight) continue;
 
-      const targetNodeId = selectRestoreTarget(node.id, reconcileNodes);
+      const targetNodeId = selectRestoreTarget(deadNodeId, candidates);
       if (!targetNodeId) continue;
       const target = await db.backupTarget.findUnique({ where: { id: snap.targetId } });
       if (!target) continue;
@@ -143,7 +156,7 @@ async function reconcileOrg(orgId: string): Promise<void> {
         data: {
           orgId,
           snapshotId: snap.id,
-          targetVolume: volume,
+          targetVolume: snap.volume,
           targetNodeId,
           conflict: 'overwrite',
           status: 'RUNNING',
@@ -151,15 +164,15 @@ async function reconcileOrg(orgId: string): Promise<void> {
           startedAt: new Date(),
         },
       });
-      // Count this assignment so the next volume balances onto another node.
-      const rn = reconcileNodes.find((n) => n.id === targetNodeId);
+      // Count this assignment so the next volume balances onto another manager.
+      const rn = candidates.find((n) => n.id === targetNodeId);
       if (rn) rn.assignedRestores += 1;
 
       try {
         const result = await hub.dispatch<RestoreVolumeResult>(targetNodeId, 'backup.restore', {
           repo: toRepo(target),
           snapshotId: snap.resticId ?? 'latest',
-          targetVolume: volume,
+          targetVolume: snap.volume,
         });
         await db.restoreOperation.update({
           where: { id: op.id },

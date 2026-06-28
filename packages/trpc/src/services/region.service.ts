@@ -80,20 +80,14 @@ function liveServiceById(ctx: OrgContext, idOrName: string): SwarmServiceInfo | 
  * any regions already declared on live services (so a configured region survives
  * a node temporarily dropping its label).
  *
- * NOTE: node labels are read from the `Node` row's `labels` JSON — the same
- * source Geo-DNS uses (geodns.service.ts / geodns-reconcile worker). The hub does
- * not currently surface live node labels; if/when it does, swap this read for a
- * `ctx.hub` method. No new DB model is introduced here.
+ * Node labels are Docker truth, read from the live swarm node inventory (the hub),
+ * the same source Geo-DNS uses. No DB model is introduced or read here.
  */
 export async function listKnownRegions(ctx: OrgContext): Promise<string[]> {
   const regions = new Set<string>();
 
-  const nodes = await ctx.db.node.findMany({
-    where: { orgId: ctx.activeOrgId },
-    select: { labels: true },
-  });
-  for (const n of nodes) {
-    const region = (n.labels as Record<string, string> | null)?.[REGION_NODE_LABEL];
+  for (const node of ctx.hub.nodeInventory(ctx.activeOrgId)) {
+    const region = node.labels[REGION_NODE_LABEL];
     if (region) regions.add(region);
   }
 

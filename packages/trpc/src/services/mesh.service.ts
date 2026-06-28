@@ -29,6 +29,7 @@ import type { OrgContext } from '../context';
 import { writeAudit } from '../services/audit.service';
 import { notFound } from '../errors';
 import { requireOnlineNode } from './dispatch.service';
+import { resolveExecTarget, resolveLiveService } from './live-resolve';
 
 function badRequest(message: string): TRPCError {
   return new TRPCError({ code: 'BAD_REQUEST', message });
@@ -457,16 +458,16 @@ export async function grantDirectRoute(
     throw badRequest('a direct route needs a target (serviceId/stackId) and a principal');
   }
 
-  // Resolve the target's mesh address + port for the returned connect info.
+  // Resolve the target's mesh address + port for the returned connect info. The
+  // service comes from live Docker inventory (no Service table); its placement node
+  // is derived from the host of a running container (Docker truth).
   let meshHost = 'svc.mesh';
   if (input.serviceId) {
-    const svc = await ctx.db.service.findFirst({
-      where: { id: input.serviceId, orgId: ctx.activeOrgId },
-      select: { id: true, name: true, nodeId: true },
-    });
+    const svc = resolveLiveService(ctx, input.serviceId);
     if (!svc) throw notFound('service', input.serviceId);
-    if (svc.nodeId) {
-      const peer = await ctx.db.meshPeer.findUnique({ where: { nodeId: svc.nodeId } });
+    const host = resolveExecTarget(ctx, svc.id);
+    if (host) {
+      const peer = await ctx.db.meshPeer.findUnique({ where: { nodeId: host.nodeId } });
       if (peer?.meshIp) meshHost = peer.meshIp;
     }
   }

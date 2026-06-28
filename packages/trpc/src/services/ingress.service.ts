@@ -17,6 +17,19 @@ import type { OrgContext } from '../context';
 import { systemContext } from './cicd.service';
 import { writeAudit } from '../services/audit.service';
 import { notFound } from '../errors';
+import { resolveManagerNode } from './dispatch.service';
+import { resolveLiveService } from './live-resolve';
+
+/** Service label that marks a Docker service as ingress-enabled (replaces the dropped column). */
+const INGRESS_ENABLED_LABEL = 'swarmy.ingress';
+
+/** Map every live Docker service id → its name (Docker truth; replaces the Service table). */
+function liveServiceNames(ctx: OrgContext): Map<string, string> {
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  const names = new Map<string, string>();
+  for (const s of buildInventory(services, containers).services) names.set(s.id, s.name);
+  return names;
+}
 
 /**
  * Scale-to-zero activator base URL. Ingress routes a COLD (0-replica) domain here
@@ -223,8 +236,9 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
   const settings = readSettings(row);
   const domains = await ctx.db.domain.findMany({
     where: { orgId: ctx.activeOrgId },
-    include: { service: { select: { name: true } } },
   });
+  // Domain.serviceId is a plain Docker service id (no relation) → resolve names live.
+  const names = liveServiceNames(ctx);
   const baseGlobal = (settings.globalOptions as OrgIngressConfig['globalOptions']) ?? ({} as OrgIngressConfig['globalOptions']);
   // Live scale-to-zero state: a domain whose service is asleep routes to the activator.
   const coldRoutes = computeColdRoutes(ctx);
@@ -233,16 +247,19 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
     enabled: row.enabled,
     orgId: ctx.activeOrgId,
     targetNodes: settings.targetNodes ?? [],
-    domains: domains.map((d) => ({
-      domain: d.host,
-      pathPrefix: d.pathPrefix ?? '/',
-      service: d.service.name,
-      port: d.targetPort,
-      tls: (d.tlsMode as TlsMode) ?? 'auto',
-      stripPathPrefix: d.stripPathPrefix,
-      middlewares: (d.middlewares as string[]) ?? [],
-      cold: coldRoutes.get(d.service.name),
-    })),
+    domains: domains.map((d) => {
+      const serviceName = names.get(d.serviceId) ?? d.serviceId;
+      return {
+        domain: d.host,
+        pathPrefix: d.pathPrefix ?? '/',
+        service: serviceName,
+        port: d.targetPort,
+        tls: (d.tlsMode as TlsMode) ?? 'auto',
+        stripPathPrefix: d.stripPathPrefix,
+        middlewares: (d.middlewares as string[]) ?? [],
+        cold: coldRoutes.get(serviceName),
+      };
+    }),
     globalOptions: {
       ...baseGlobal,
       // Promote the load-bearing (encrypted) options, resolving secrets JIT.
@@ -256,11 +273,8 @@ function makeDispatch(ctx: OrgContext): DriverDispatch {
   return {
     async resolveTargetNodes(orgId, explicit) {
       if (explicit.length) return explicit;
-      const managers = await ctx.db.node.findMany({
-        where: { orgId, role: 'MANAGER' },
-        select: { id: true },
-      });
-      return managers.filter((m) => ctx.hub.isOnline(m.id)).map((m) => m.id);
+      // Manager set is Docker truth from the hub (already connected); no DB role read.
+      return ctx.hub.managerNodes(orgId);
     },
     async sendToNode(nodeId, rendered: RenderedConfig) {
       try {
@@ -463,14 +477,15 @@ export async function listDomains(ctx: OrgContext): Promise<DomainView[]> {
   const overrides = readSettings(row).domainDrivers ?? {};
   const domains = await ctx.db.domain.findMany({
     where: { orgId: ctx.activeOrgId },
-    include: { service: { select: { name: true } } },
     orderBy: { createdAt: 'desc' },
   });
+  // Domain.serviceId is a plain Docker service id (no relation) → resolve names live.
+  const names = liveServiceNames(ctx);
   return domains.map((d) => ({
     id: d.id,
     host: d.host,
     serviceId: d.serviceId,
-    serviceName: d.service.name,
+    serviceName: names.get(d.serviceId) ?? d.serviceId,
     targetPort: d.targetPort,
     tls: (d.tlsMode as TlsMode) ?? 'auto',
     pathPrefix: d.pathPrefix,
@@ -490,22 +505,32 @@ export async function addDomain(
     ingressDriver?: IngressDriverId | null;
   },
 ): Promise<DomainView> {
-  const service = await ctx.db.service.findFirst({
-    where: { id: input.serviceId, orgId: ctx.activeOrgId },
-    select: { id: true, name: true },
-  });
+  // Resolve the target from live Docker inventory (no Service table). Domain.serviceId
+  // stores the Docker service id as a plain string (no relation).
+  const service = resolveLiveService(ctx, input.serviceId);
   if (!service) throw notFound('service', input.serviceId);
   const created = await ctx.db.domain.create({
     data: {
       orgId: ctx.activeOrgId,
       host: input.host,
-      serviceId: input.serviceId,
+      serviceId: service.id,
       targetPort: input.targetPort,
       tlsMode: input.tls,
       pathPrefix: input.pathPrefix ?? null,
     },
   });
-  await ctx.db.service.update({ where: { id: service.id }, data: { ingressEnabled: true } });
+  // Mark the service ingress-enabled via the `swarmy.ingress` Docker label (replaces the
+  // dropped Service.ingressEnabled column). Best-effort: a Domain row also implies ingress.
+  const node = await resolveManagerNode(ctx).catch(() => null);
+  if (node) {
+    await ctx.hub
+      .dispatch(node.id, 'service.updateLabels', {
+        service: service.name,
+        add: { [INGRESS_ENABLED_LABEL]: 'true' },
+        removeKeys: [],
+      })
+      .catch(() => undefined);
+  }
   // Per-domain driver override (until Domain.ingressDriver lands — see INTEGRATION).
   if (input.ingressDriver) {
     await patchSettings(ctx, (s) => ({
