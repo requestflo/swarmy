@@ -1,6 +1,6 @@
 # swarmy
 
-A modern, **unopinionated** Docker Swarm controller. Manage a cluster of nodes
+A modern Docker Swarm controller. Manage a cluster of nodes
 from a slick dashboard: live stats, service deploys, and pluggable ingress
 (Caddy, Traefik, or none — you stay in control).
 
