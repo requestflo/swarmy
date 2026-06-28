@@ -98,7 +98,10 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
       const nodeId = ws.data.nodeId;
       // Keep the FULL live Docker service info (labels/networks/env/ports) — it is
       // the source of truth for the inventory + canvas. Thin views derive from it.
-      if (nodeId) deps.store.serviceInfo.set(nodeId, env.payload.services);
+      if (nodeId) {
+        deps.store.serviceInfo.set(nodeId, env.payload.services);
+        deps.store.managers.set(nodeId, env.payload.isManager);
+      }
       return;
     }
     case 'commandResult': {

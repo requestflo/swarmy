@@ -113,7 +113,7 @@ async function main(): Promise<void> {
       setInterval(() => {
         void sendContainerList(docker, conn);
         void sendServiceState(docker, conn);
-      }, 15_000),
+      }, 4_000),
     );
     // Live mesh-state reporter (epic #6, Phase 2+) — periodic telemetry feeding
     // the controller's MeshPeer reconcile. No-op when no mesh client is running.

@@ -98,6 +98,8 @@ export interface AgentHub {
   latestServiceState(orgId: string): ServiceStateSnapshot[];
   /** Live Docker inventory (services + containers) read from the in-memory hub. */
   liveInventory(orgId: string): { services: SwarmServiceInfo[]; containers: ContainerInfo[] };
+  /** A connected swarm-manager node id (Docker truth) to route write commands to. */
+  managerNode(orgId: string): string | undefined;
 
   subscribeNodeStats(nodeId: string, signal: AbortSignal): AsyncIterable<NodeStatsSnapshot>;
   subscribeClusterStats(orgId: string, signal: AbortSignal): AsyncIterable<ClusterStatsFrame>;

@@ -135,6 +135,11 @@ export class AgentHubImpl implements AgentHub {
     };
   }
 
+  /** A connected swarm-manager node id (Docker truth) to route write commands to. */
+  managerNode(orgId: string): string | undefined {
+    return this.store.managerNodeForOrg(orgId);
+  }
+
   async *subscribeNodeStats(nodeId: string, signal: AbortSignal): AsyncIterable<NodeStatsSnapshot> {
     const q = asyncQueue<NodeStatsSnapshot>(signal);
     const current = this.store.nodeStats.get(nodeId);

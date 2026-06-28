@@ -11,6 +11,7 @@ import { buildImage } from './handlers/build';
 import { pruneImages } from './handlers/prune';
 import { applyStorageNode, provisionVolume, removeVolume } from './handlers/storage';
 import { applySwarmJoin } from './handlers/swarm';
+import { pushInventory } from './snapshots';
 import {
   handleTermStart,
   handleTermInput,
@@ -31,22 +32,30 @@ export async function handleCommand(
       return;
     case 'deployService': {
       const { commandId, spec } = envlp.payload;
-      return run(conn, commandId, () => deployOrUpdate(docker, spec));
+      await run(conn, commandId, () => deployOrUpdate(docker, spec));
+      pushInventory(docker, conn);
+      return;
     }
     case 'scaleService': {
       const { commandId, service, replicas } = envlp.payload;
-      return run(conn, commandId, async () => ({ serviceId: await docker.scaleService(service, replicas) }));
+      await run(conn, commandId, async () => ({ serviceId: await docker.scaleService(service, replicas) }));
+      pushInventory(docker, conn);
+      return;
     }
     case 'restartService': {
       const { commandId, service } = envlp.payload;
-      return run(conn, commandId, async () => ({ serviceId: await docker.restartService(service) }));
+      await run(conn, commandId, async () => ({ serviceId: await docker.restartService(service) }));
+      pushInventory(docker, conn);
+      return;
     }
     case 'removeService': {
       const { commandId, service } = envlp.payload;
-      return run(conn, commandId, async () => {
+      await run(conn, commandId, async () => {
         await docker.removeService(service);
         return { serviceId: service };
       });
+      pushInventory(docker, conn);
+      return;
     }
     case 'pullImage': {
       const { commandId, image, registryAuth } = envlp.payload;

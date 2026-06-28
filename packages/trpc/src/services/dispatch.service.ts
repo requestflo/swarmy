@@ -1,18 +1,14 @@
 import type { OrgContext } from '../context';
 import { noManager, nodeOffline, notFound } from '../errors';
 
-/** Resolve an online manager node to route write/lifecycle commands to. */
+/** Resolve a connected swarm-manager node (Docker truth) to route commands to. */
 export async function resolveManagerNode(
   ctx: OrgContext,
   preferredNodeId?: string | null,
 ): Promise<{ id: string }> {
-  const managers = await ctx.db.node.findMany({
-    where: { orgId: ctx.activeOrgId, role: 'MANAGER' },
-    select: { id: true },
-  });
-  const online = managers.find((m) => ctx.hub.isOnline(m.id));
-  if (online) return online;
   if (preferredNodeId && ctx.hub.isOnline(preferredNodeId)) return { id: preferredNodeId };
+  const managerId = ctx.hub.managerNode(ctx.activeOrgId);
+  if (managerId) return { id: managerId };
   throw noManager();
 }
 

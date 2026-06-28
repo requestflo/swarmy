@@ -66,6 +66,8 @@ export class GatewayStore {
   readonly containerStats = new Map<string, ContainerStatsSnapshot[]>();
   /** Raw live Docker services per (manager) node — the source of truth for reads. */
   readonly serviceInfo = new Map<string, SwarmServiceInfo[]>();
+  /** Which connected nodes are swarm managers (from the agent's serviceState). */
+  readonly managers = new Map<string, boolean>();
   readonly nodeOrg = new Map<string, string>();
   readonly nodeCpuCount = new Map<string, number>();
 
@@ -107,10 +109,16 @@ export class GatewayStore {
     return out;
   }
 
+  /** A connected swarm-manager node for the org (Docker truth, not the DB role). */
+  managerNodeForOrg(orgId: string): string | undefined {
+    return this.nodesForOrg(orgId).find((id) => this.managers.get(id) === true);
+  }
+
   forget(nodeId: string): void {
     this.nodeStats.delete(nodeId);
     this.containers.delete(nodeId);
     this.containerStats.delete(nodeId);
     this.serviceInfo.delete(nodeId);
+    this.managers.delete(nodeId);
   }
 }

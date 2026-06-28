@@ -19,3 +19,9 @@ export async function sendServiceState(docker: DockerClient, conn: AgentConnecti
     // worker / docker unavailable
   }
 }
+
+/** Push a fresh containers + services snapshot now (e.g. right after a deploy/scale). */
+export function pushInventory(docker: DockerClient, conn: AgentConnection): void {
+  void sendContainerList(docker, conn);
+  void sendServiceState(docker, conn);
+}

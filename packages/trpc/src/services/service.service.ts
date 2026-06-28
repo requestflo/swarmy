@@ -1,4 +1,4 @@
-import type { CreateServiceInput, UpdateServiceInput } from '@swarmy/core';
+import { buildInventory, type CreateServiceInput, type InvService, type InvServiceStatus, type UpdateServiceInput } from '@swarmy/core';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { ServiceDetail, ServiceStatusView, ServiceSummary } from '@swarmy/core/views';
 import type { OrgContext } from '../context';
@@ -117,21 +117,47 @@ export async function listServices(
   return rows.map((r) => toSummary(ctx, r));
 }
 
-export async function getServiceDetail(ctx: OrgContext, id: string): Promise<ServiceDetail> {
-  const row = (await ctx.db.service.findFirst({
-    where: { id, orgId: ctx.activeOrgId },
-  })) as unknown as ServiceRow | null;
-  if (!row) throw notFound('service', id);
-  const env = (row.env as Record<string, string>) ?? {};
+/** InvService status → the dashboard's ServiceStatusView (idle/stopped collapse). */
+const INV_STATUS: Record<InvServiceStatus, ServiceStatusView> = {
+  running: 'running',
+  degraded: 'degraded',
+  deploying: 'deploying',
+  idle: 'stopped',
+  stopped: 'stopped',
+};
+
+/** Resolve a service from the LIVE Docker inventory (by Docker id or name). No DB. */
+function liveService(ctx: OrgContext, idOrName: string): InvService | undefined {
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  const all = buildInventory(services, containers).services;
+  return all.find((s) => s.id === idOrName) ?? all.find((s) => s.name === idOrName);
+}
+
+export function getServiceDetail(ctx: OrgContext, id: string): ServiceDetail {
+  const s = liveService(ctx, id);
+  if (!s) throw notFound('service', id);
+  const env: Record<string, string> = {};
+  for (const kv of s.env) {
+    const i = kv.indexOf('=');
+    env[i >= 0 ? kv.slice(0, i) : kv] = i >= 0 ? kv.slice(i + 1) : '';
+  }
   return {
-    ...toSummary(ctx, row),
+    id: s.id,
+    name: s.name,
+    image: s.image,
+    status: INV_STATUS[s.status],
+    replicas: s.replicas,
+    ingressEnabled: s.labels['swarmy.ingress'] === 'true' || s.ports.length > 0,
+    nodeId: null,
+    stackId: s.stack === '(ungrouped)' ? null : s.stack,
+    updatedAt: new Date().toISOString(),
     env,
-    ports: (row.ports as ServiceDetail['ports']) ?? [],
-    volumes: (row.volumes as ServiceDetail['volumes']) ?? [],
-    networks: (row.networks as string[]) ?? [],
-    constraints: (row.constraints as string[]) ?? [],
-    swarmServiceId: row.swarmServiceId,
-    createdAt: row.createdAt.toISOString(),
+    ports: s.ports.map((p) => ({ target: p.target, published: p.published, protocol: p.protocol, mode: 'ingress' })),
+    volumes: [],
+    networks: s.networks.map((n) => n.name),
+    constraints: [],
+    swarmServiceId: s.id,
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -260,76 +286,42 @@ export async function scaleService(
   ctx: OrgContext,
   input: { id: string; replicas: number },
 ): Promise<{ id: string; deploymentId: string }> {
-  const svc = (await ctx.db.service.findFirst({
-    where: { id: input.id, orgId: ctx.activeOrgId },
-    select: { id: true, name: true, nodeId: true },
-  })) as { id: string; name: string; nodeId: string | null } | null;
+  const svc = liveService(ctx, input.id);
   if (!svc) throw notFound('service', input.id);
-  const node = await resolveManagerNode(ctx, svc.nodeId);
-  const deployment = await ctx.db.deployment.create({
-    data: {
-      orgId: ctx.activeOrgId,
-      targetType: 'SERVICE',
-      serviceId: svc.id,
-      kind: 'scale',
-      phase: 'QUEUED',
-      desired: input.replicas,
-      triggeredById: ctx.user.id,
-    },
-  });
+  const node = await resolveManagerNode(ctx);
   try {
     await ctx.hub.dispatch(node.id, 'service.scale', { service: svc.name, replicas: input.replicas });
   } catch (e) {
-    await failDeployment(ctx, deployment.id, e);
     throw mapDispatchError(e);
   }
-  await ctx.db.service.update({ where: { id: svc.id }, data: { replicas: input.replicas } });
-  return { id: svc.id, deploymentId: deployment.id };
+  return { id: svc.id, deploymentId: '' };
 }
 
 export async function restartService(
   ctx: OrgContext,
   id: string,
 ): Promise<{ id: string; deploymentId: string }> {
-  const svc = (await ctx.db.service.findFirst({
-    where: { id, orgId: ctx.activeOrgId },
-    select: { id: true, name: true, nodeId: true },
-  })) as { id: string; name: string; nodeId: string | null } | null;
+  const svc = liveService(ctx, id);
   if (!svc) throw notFound('service', id);
-  const node = await resolveManagerNode(ctx, svc.nodeId);
-  const deployment = await ctx.db.deployment.create({
-    data: {
-      orgId: ctx.activeOrgId,
-      targetType: 'SERVICE',
-      serviceId: svc.id,
-      kind: 'restart',
-      phase: 'QUEUED',
-      triggeredById: ctx.user.id,
-    },
-  });
+  const node = await resolveManagerNode(ctx);
   try {
     await ctx.hub.dispatch(node.id, 'service.restart', { service: svc.name });
   } catch (e) {
-    await failDeployment(ctx, deployment.id, e);
     throw mapDispatchError(e);
   }
-  return { id: svc.id, deploymentId: deployment.id };
+  return { id: svc.id, deploymentId: '' };
 }
 
 export async function removeService(
   ctx: OrgContext,
   id: string,
 ): Promise<{ id: string; removed: true }> {
-  const svc = (await ctx.db.service.findFirst({
-    where: { id, orgId: ctx.activeOrgId },
-    select: { id: true, name: true, nodeId: true },
-  })) as { id: string; name: string; nodeId: string | null } | null;
+  const svc = liveService(ctx, id);
   if (!svc) throw notFound('service', id);
-  const node = await resolveManagerNode(ctx, svc.nodeId).catch(() => null);
+  const node = await resolveManagerNode(ctx).catch(() => null);
   if (node) {
     await ctx.hub.dispatch(node.id, 'service.remove', { service: svc.name }).catch(() => undefined);
   }
-  await ctx.db.service.delete({ where: { id: svc.id } });
   return { id: svc.id, removed: true };
 }
 
