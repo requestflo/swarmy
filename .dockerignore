@@ -1,0 +1,50 @@
+# Keep the Docker build context (repo root) clean: the controller/agent images
+# COPY workspace dirs, so anything here would otherwise leak in — host-arch
+# node_modules shadowing the in-image install, secrets, build output, git history.
+
+# Dependencies (re-installed inside the image)
+node_modules
+**/node_modules
+
+# Build output / caches
+dist
+**/dist
+.output
+**/.output
+.tanstack
+**/.tanstack
+.turbo
+**/.turbo
+coverage
+**/coverage
+
+# Generated Prisma client (the controller image runs db:generate itself)
+packages/db/src/generated
+
+# VCS / CI / editor
+.git
+.github
+.gitignore
+.vscode
+.idea
+
+# Secrets & local env (never bake into an image)
+.env
+.env.*
+!.env.example
+.swarmy-dev-token
+
+# Local agent/runtime state
+.swarmy
+**/.swarmy
+
+# Docs, tests, and things the runtime images don't need
+**/*.md
+apps/web
+apps/e2e
+plans
+docs
+
+# Logs & misc
+**/*.log
+.DS_Store
