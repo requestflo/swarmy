@@ -1,32 +1,78 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { TerminalIcon } from 'lucide-react';
-import { Button, Card, CardContent, EmptyState } from '@swarmy/ui';
+import { useSubscription } from '@trpc/tanstack-react-query';
+import { Button, Card, CardContent } from '@swarmy/ui';
+import { useTRPC } from '@/integrations/trpc';
 
 interface ServiceLogsPanelProps {
   serviceId: string;
 }
 
+interface LogLine {
+  seq: number;
+  stream: 'stdout' | 'stderr';
+  message: string;
+}
+
 /**
- * Logs surface. Live output streams over the controller from the node agent;
- * the empty state sells the next action — opening an exec terminal on the node.
+ * Live service logs. Tails the Docker-direct `services.logs` subscription — the
+ * controller resolves the service + a manager from the live inventory (no DB) and
+ * relays `docker service logs` from the node agent. Auto-scrolls while pinned.
  */
 export function ServiceLogsPanel({ serviceId }: ServiceLogsPanelProps): React.JSX.Element {
+  const trpc = useTRPC();
+  const [lines, setLines] = React.useState<LogLine[]>([]);
+  const boxRef = React.useRef<HTMLDivElement>(null);
+  const pinnedRef = React.useRef(true);
+
+  useSubscription(
+    trpc.services.logs.subscriptionOptions(
+      { serviceId, tail: 200, follow: true },
+      { onData: (line: LogLine) => setLines((prev) => [...prev.slice(-2000), line]) },
+    ),
+  );
+
+  React.useEffect(() => {
+    const box = boxRef.current;
+    if (box && pinnedRef.current) box.scrollTop = box.scrollHeight;
+  }, [lines]);
+
+  const onScroll = (): void => {
+    const box = boxRef.current;
+    if (!box) return;
+    pinnedRef.current = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  };
+
   return (
     <Card className="card-pop mt-6 border-0">
       <CardContent className="p-6">
-        <EmptyState
-          icon={<TerminalIcon />}
-          title="No logs yet"
-          description="Live output streams from the node agent over the controller. Open a terminal to tail and exec into a running replica."
-          action={
-            <Button asChild className="rounded-full font-bold">
-              <Link to="/services/$serviceId/terminal" params={{ serviceId }}>
-                <TerminalIcon className="size-4" /> Open terminal
-              </Link>
-            </Button>
-          }
-        />
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">Live logs</p>
+          <Button asChild variant="outline" size="sm" className="rounded-full">
+            <Link to="/services/$serviceId/terminal" params={{ serviceId }}>
+              <TerminalIcon className="size-4" /> Terminal
+            </Link>
+          </Button>
+        </div>
+        <div
+          ref={boxRef}
+          onScroll={onScroll}
+          className="bg-foreground/95 text-background h-[60vh] overflow-auto rounded-xl p-4 font-mono text-xs leading-relaxed"
+        >
+          {lines.length === 0 ? (
+            <p className="text-background/50">Waiting for log output…</p>
+          ) : (
+            lines.map((l, i) => (
+              <pre
+                key={`${l.stream}-${l.seq}-${i}`}
+                className={l.stream === 'stderr' ? 'text-status-offline whitespace-pre-wrap' : 'whitespace-pre-wrap'}
+              >
+                {l.message}
+              </pre>
+            ))
+          )}
+        </div>
       </CardContent>
     </Card>
   );
