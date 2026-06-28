@@ -19,7 +19,7 @@ function mockCtx(opts: {
     relation: string;
   }[];
   nodes?: { id: string; orgId: string; labels: Record<string, unknown> }[];
-  services?: { id: string; orgId: string }[];
+  services?: { id: string; orgId: string; labels?: Record<string, string> }[];
 }): OrgContext {
   const orgId = 'org1';
   const memberId = opts.memberId ?? 'mem1';
@@ -46,8 +46,36 @@ function mockCtx(opts: {
     },
     auditLog: { create: async () => ({}) },
   };
+  // Node swarm labels are Docker-truth now: resolveNode reads them from the hub
+  // (the DB only confirms enrollment existence).
+  const hub = {
+    nodeInfoFor: (id: string) => {
+      const n = (opts.nodes ?? []).find((x) => x.id === id);
+      return n ? { labels: n.labels } : undefined;
+    },
+    // resolveService reads services from the live inventory (no Service model).
+    liveInventory: () => ({
+      services: (opts.services ?? []).map((s) => ({
+        id: s.id,
+        name: s.id,
+        image: '',
+        mode: 'replicated',
+        replicas: 1,
+        runningReplicas: 1,
+        desiredReplicas: 1,
+        labels: s.labels ?? {},
+        networks: [],
+        env: [],
+        ports: [],
+        createdAt: 0,
+        updatedAt: 0,
+      })),
+      containers: [],
+    }),
+  };
   return {
     db,
+    hub,
     activeOrgId: orgId,
     user: { id: 'user1' },
     membership: { role: opts.role ?? 'member', orgId },
