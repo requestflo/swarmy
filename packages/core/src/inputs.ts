@@ -60,6 +60,8 @@ export const CreateServiceInput = z.object({
   constraints: z.array(z.string()).default([]),
   /** Pin to a single node; omit for swarm-wide scheduling. */
   nodeId: z.string().optional(),
+  /** Project = Docker stack namespace; groups the service on the canvas. */
+  project: z.string().optional(),
   ingress: ServiceIngressInput.optional(),
 });
 export type CreateServiceInput = z.infer<typeof CreateServiceInput>;

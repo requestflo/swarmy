@@ -68,6 +68,24 @@ export function ServiceCoreFields({ form }: ServiceCoreFieldsProps): React.JSX.E
           </FormItem>
         )}
       />
+      <FormField
+        control={form.control}
+        name="project"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel className="mono-label">Project</FormLabel>
+            <FormControl>
+              <Input
+                placeholder="ungrouped"
+                className="font-mono"
+                {...field}
+                value={field.value ?? ''}
+              />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
     </ServiceFormSection>
   );
 }

@@ -57,11 +57,17 @@ function buildServiceSpec(row: {
   volumes: { type: string; source?: string; target: string; readOnly?: boolean }[];
   networks: string[];
   constraints: string[];
+  project?: string;
 }): ServiceSpec {
   return {
     name: row.name,
     image: row.image,
     mode: { replicated: { replicas: row.replicas } },
+    labels: {
+      'swarmy.managed': 'true',
+      // Project = Docker stack namespace (native grouping read back by the inventory).
+      ...(row.project ? { 'com.docker.stack.namespace': row.project } : {}),
+    },
     env: row.env,
     command: row.command.length ? row.command : undefined,
     ports: row.ports.map((p) => ({
@@ -172,6 +178,7 @@ export async function createService(
     volumes: input.volumes,
     networks: input.networks,
     constraints: input.constraints,
+    project: input.project,
   });
   try {
     await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
