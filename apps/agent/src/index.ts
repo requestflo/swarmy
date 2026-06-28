@@ -6,7 +6,7 @@ import { env } from './env';
 import { loadState, saveState, type AgentState } from './state';
 import { AgentConnection } from './connection';
 import { collectMetrics } from './stats';
-import { sendContainerList, sendServiceState } from './snapshots';
+import { sendContainerList, sendServiceState, sendNodeList } from './snapshots';
 import { sampleMeshState } from './handlers/mesh';
 import { handleCommand } from './executor';
 
@@ -94,6 +94,7 @@ async function main(): Promise<void> {
 
     void sendContainerList(docker, conn);
     void sendServiceState(docker, conn);
+    void sendNodeList(docker, conn);
 
     timers.push(
       setInterval(() => {
@@ -113,6 +114,7 @@ async function main(): Promise<void> {
       setInterval(() => {
         void sendContainerList(docker, conn);
         void sendServiceState(docker, conn);
+        void sendNodeList(docker, conn);
       }, 4_000),
     );
     // Live mesh-state reporter (epic #6, Phase 2+) — periodic telemetry feeding

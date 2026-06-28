@@ -2,6 +2,7 @@ import {
   PROTOCOL_VERSION,
   type ContainerInfo,
   type SwarmServiceInfo,
+  type SwarmNodeInfo,
   type TermTarget,
 } from '@swarmy/core/protocol';
 import { terminalHub } from '../terminal';
@@ -138,6 +139,16 @@ export class AgentHubImpl implements AgentHub {
   /** A connected swarm-manager node id (Docker truth) to route write commands to. */
   managerNode(orgId: string): string | undefined {
     return this.store.managerNodeForOrg(orgId);
+  }
+
+  /** Live swarm node inventory (Docker-truth role/status/labels/resources) for the org. */
+  nodeInventory(orgId: string): SwarmNodeInfo[] {
+    return this.store.nodeInventoryForOrg(orgId);
+  }
+
+  /** Docker swarm node id for a connected agent (via its reported hostname). */
+  swarmNodeIdFor(controllerNodeId: string): string | undefined {
+    return this.store.swarmNodeIdFor(controllerNodeId);
   }
 
   async *subscribeNodeStats(nodeId: string, signal: AbortSignal): AsyncIterable<NodeStatsSnapshot> {

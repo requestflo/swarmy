@@ -1,4 +1,4 @@
-import type { ContainerInfo, SwarmServiceInfo, TermTarget } from '@swarmy/core/protocol';
+import type { ContainerInfo, SwarmServiceInfo, SwarmNodeInfo, TermTarget } from '@swarmy/core/protocol';
 import type {
   ClusterStatsFrame,
   ContainerStatsSnapshot,
@@ -102,6 +102,10 @@ export interface AgentHub {
   liveInventory(orgId: string): { services: SwarmServiceInfo[]; containers: ContainerInfo[] };
   /** A connected swarm-manager node id (Docker truth) to route write commands to. */
   managerNode(orgId: string): string | undefined;
+  /** Live swarm node inventory (Docker-truth role/status/labels/resources) for the org. */
+  nodeInventory(orgId: string): SwarmNodeInfo[];
+  /** Docker swarm node id for a connected agent (via its reported hostname). */
+  swarmNodeIdFor(controllerNodeId: string): string | undefined;
 
   subscribeNodeStats(nodeId: string, signal: AbortSignal): AsyncIterable<NodeStatsSnapshot>;
   subscribeClusterStats(orgId: string, signal: AbortSignal): AsyncIterable<ClusterStatsFrame>;

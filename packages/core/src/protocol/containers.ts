@@ -92,3 +92,37 @@ export const ServiceStateMsg = z.object({
   payload: ServiceStatePayload,
 });
 export type ServiceStateMsg = z.infer<typeof ServiceStateMsg>;
+
+/** Swarm node info (`docker node ls/inspect`) — only managers can enumerate these.
+ *  This is the Docker-truth replacement for the DB Node model's swarm fields. */
+export const SwarmNodeInfo = z.object({
+  swarmNodeId: z.string(),
+  hostname: z.string(),
+  role: z.enum(['manager', 'worker']),
+  /** Swarm availability (`active`/`pause`/`drain`). */
+  availability: z.enum(['active', 'pause', 'drain']),
+  /** Node state from the cluster's perspective. */
+  status: z.enum(['unknown', 'down', 'ready', 'disconnected']),
+  leader: z.boolean().default(false),
+  reachability: z.enum(['unknown', 'unreachable', 'reachable']).optional(),
+  addr: z.string().optional(),
+  engineVersion: z.string().optional(),
+  os: z.string().optional(),
+  arch: z.string().optional(),
+  cpus: z.number().optional(),
+  memBytes: z.number().optional(),
+  labels: z.record(z.string()).default({}),
+});
+export type SwarmNodeInfo = z.infer<typeof SwarmNodeInfo>;
+
+export const NodeListPayload = z.object({
+  snapshotAt: Timestamp,
+  nodes: z.array(SwarmNodeInfo),
+});
+export type NodeListPayload = z.infer<typeof NodeListPayload>;
+
+export const NodeListMsg = z.object({
+  type: z.literal('nodeList'),
+  payload: NodeListPayload,
+});
+export type NodeListMsg = z.infer<typeof NodeListMsg>;

@@ -6,6 +6,7 @@ import type {
   NodeFacts,
   ServiceSpec,
   SwarmServiceInfo,
+  SwarmNodeInfo,
 } from './protocol';
 
 /** The subset of a Docker swarm ServiceSpec the agent reads (dockerode types are loose). */
@@ -241,6 +242,52 @@ export class DockerClient {
       });
     }
     return out;
+  }
+
+  /** Live swarm node inventory (`docker node ls`) — manager-only. The Docker-truth
+   *  replacement for the DB Node model's role/status/labels/resources. */
+  async listNodes(): Promise<SwarmNodeInfo[]> {
+    const nodes = await this.docker.listNodes();
+    return nodes.map((n) => {
+      const spec = (n.Spec ?? {}) as { Role?: string; Availability?: string; Labels?: Record<string, string> };
+      const desc = (n.Description ?? {}) as {
+        Hostname?: string;
+        Platform?: { OS?: string; Architecture?: string };
+        Resources?: { NanoCPUs?: number; MemoryBytes?: number };
+        Engine?: { EngineVersion?: string };
+      };
+      const mgr = (n.ManagerStatus ?? {}) as { Leader?: boolean; Reachability?: string; Addr?: string };
+      const state = ((n.Status ?? {}) as { State?: string }).State ?? 'unknown';
+      return {
+        swarmNodeId: (n.ID as string) || '',
+        hostname: desc.Hostname ?? '',
+        role: spec.Role === 'manager' ? ('manager' as const) : ('worker' as const),
+        availability:
+          spec.Availability === 'drain' ? ('drain' as const) : spec.Availability === 'pause' ? ('pause' as const) : ('active' as const),
+        status:
+          state === 'ready'
+            ? ('ready' as const)
+            : state === 'down'
+              ? ('down' as const)
+              : state === 'disconnected'
+                ? ('disconnected' as const)
+                : ('unknown' as const),
+        leader: mgr.Leader === true,
+        reachability:
+          mgr.Reachability === 'reachable'
+            ? ('reachable' as const)
+            : mgr.Reachability === 'unreachable'
+              ? ('unreachable' as const)
+              : undefined,
+        addr: mgr.Addr,
+        engineVersion: desc.Engine?.EngineVersion,
+        os: desc.Platform?.OS,
+        arch: desc.Platform?.Architecture,
+        cpus: desc.Resources?.NanoCPUs ? desc.Resources.NanoCPUs / 1e9 : undefined,
+        memBytes: desc.Resources?.MemoryBytes,
+        labels: spec.Labels ?? {},
+      };
+    });
   }
 
   async createService(spec: ServiceSpec): Promise<string> {

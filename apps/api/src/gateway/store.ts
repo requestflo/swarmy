@@ -1,4 +1,4 @@
-import type { ContainerInfo, SwarmServiceInfo } from '@swarmy/core/protocol';
+import type { ContainerInfo, SwarmNodeInfo, SwarmServiceInfo } from '@swarmy/core/protocol';
 import type {
   ContainerStatsSnapshot,
   LogLine,
@@ -68,6 +68,10 @@ export class GatewayStore {
   readonly serviceInfo = new Map<string, SwarmServiceInfo[]>();
   /** Which connected nodes are swarm managers (from the agent's serviceState). */
   readonly managers = new Map<string, boolean>();
+  /** Live swarm node inventory per (manager) controllerNodeId — Docker-truth for nodes. */
+  readonly swarmNodes = new Map<string, SwarmNodeInfo[]>();
+  /** controllerNodeId → reported hostname (bridge to docker node inventory + swarmNodeId). */
+  readonly nodeHostname = new Map<string, string>();
   readonly nodeOrg = new Map<string, string>();
   readonly nodeCpuCount = new Map<string, number>();
 
@@ -114,11 +118,32 @@ export class GatewayStore {
     return this.nodesForOrg(orgId).find((id) => this.managers.get(id) === true);
   }
 
+  /** Live swarm node inventory across the org's connected managers, deduped by swarm id. */
+  nodeInventoryForOrg(orgId: string): SwarmNodeInfo[] {
+    const byId = new Map<string, SwarmNodeInfo>();
+    for (const nodeId of this.nodesForOrg(orgId)) {
+      for (const n of this.swarmNodes.get(nodeId) ?? []) byId.set(n.swarmNodeId, n);
+    }
+    return [...byId.values()];
+  }
+
+  /** Resolve a connected agent's Docker swarm node id via its reported hostname. */
+  swarmNodeIdFor(controllerNodeId: string): string | undefined {
+    const host = this.nodeHostname.get(controllerNodeId);
+    if (!host) return undefined;
+    const orgId = this.nodeOrg.get(controllerNodeId);
+    if (!orgId) return undefined;
+    return this.nodeInventoryForOrg(orgId).find((n) => n.hostname === host)?.swarmNodeId;
+  }
+
   forget(nodeId: string): void {
     this.nodeStats.delete(nodeId);
     this.containers.delete(nodeId);
     this.containerStats.delete(nodeId);
     this.serviceInfo.delete(nodeId);
     this.managers.delete(nodeId);
+    // Clear live swarm-node telemetry on disconnect, but keep nodeOrg + nodeHostname
+    // so an offline-but-enrolled node still resolves its org/hostname.
+    this.swarmNodes.delete(nodeId);
   }
 }

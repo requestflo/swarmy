@@ -104,6 +104,12 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
       }
       return;
     }
+    case 'nodeList': {
+      // Live swarm node inventory from a manager — Docker-truth node role/status/labels.
+      const nodeId = ws.data.nodeId;
+      if (nodeId) deps.store.swarmNodes.set(nodeId, env.payload.nodes);
+      return;
+    }
     case 'commandResult': {
       const { commandId, status, result, error } = env.payload;
       // Intermediate progress frames ('running'/'accepted') are NOT terminal —
@@ -217,6 +223,7 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
 
   deps.store.nodeOrg.set(nodeId, orgId);
   deps.store.nodeCpuCount.set(nodeId, facts.cpuCount);
+  deps.store.nodeHostname.set(nodeId, facts.hostname);
   const previous = deps.registry.add(nodeId, ws);
   previous?.close(CloseCode.DUPLICATE_SESSION, 'newer session');
   ws.data.state = 'ready';

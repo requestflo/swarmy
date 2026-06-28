@@ -20,8 +20,20 @@ export async function sendServiceState(docker: DockerClient, conn: AgentConnecti
   }
 }
 
-/** Push a fresh containers + services snapshot now (e.g. right after a deploy/scale). */
+/** Live swarm node inventory (manager-only) — Docker-truth for node role/status/labels. */
+export async function sendNodeList(docker: DockerClient, conn: AgentConnection): Promise<void> {
+  try {
+    if (!(await docker.isManager())) return;
+    const nodes = await docker.listNodes();
+    conn.send('nodeList', { snapshotAt: Date.now(), nodes });
+  } catch {
+    // worker / docker unavailable
+  }
+}
+
+/** Push a fresh containers + services + nodes snapshot now (e.g. right after a deploy/scale). */
 export function pushInventory(docker: DockerClient, conn: AgentConnection): void {
   void sendContainerList(docker, conn);
   void sendServiceState(docker, conn);
+  void sendNodeList(docker, conn);
 }
