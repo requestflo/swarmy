@@ -113,6 +113,8 @@ export interface AgentHub {
   lastSeen(nodeId: string): number | undefined;
   /** Docker swarm node id for a connected agent (via its reported hostname). */
   swarmNodeIdFor(controllerNodeId: string): string | undefined;
+  /** Full live swarm info (role/status/labels/resources) for an enrollment node id. */
+  nodeInfoFor(controllerNodeId: string): SwarmNodeInfo | undefined;
 
   subscribeNodeStats(nodeId: string, signal: AbortSignal): AsyncIterable<NodeStatsSnapshot>;
   subscribeClusterStats(orgId: string, signal: AbortSignal): AsyncIterable<ClusterStatsFrame>;

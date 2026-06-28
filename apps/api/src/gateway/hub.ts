@@ -167,6 +167,11 @@ export class AgentHubImpl implements AgentHub {
     return this.store.swarmNodeIdFor(controllerNodeId);
   }
 
+  /** Full live swarm info (role/status/labels/resources) for an enrollment node id. */
+  nodeInfoFor(controllerNodeId: string): SwarmNodeInfo | undefined {
+    return this.store.nodeInfoFor(controllerNodeId);
+  }
+
   async *subscribeNodeStats(nodeId: string, signal: AbortSignal): AsyncIterable<NodeStatsSnapshot> {
     const q = asyncQueue<NodeStatsSnapshot>(signal);
     const current = this.store.nodeStats.get(nodeId);

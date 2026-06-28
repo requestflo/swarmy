@@ -162,11 +162,16 @@ export class GatewayStore {
 
   /** Resolve a connected agent's Docker swarm node id via its reported hostname. */
   swarmNodeIdFor(controllerNodeId: string): string | undefined {
+    return this.nodeInfoFor(controllerNodeId)?.swarmNodeId;
+  }
+
+  /** Full live swarm info (role/status/labels/resources) for an ENROLLMENT node id,
+   *  bridged via the hostname it reported. Includes last-known for offline nodes. */
+  nodeInfoFor(controllerNodeId: string): SwarmNodeInfo | undefined {
     const host = this.nodeHostname.get(controllerNodeId);
-    if (!host) return undefined;
     const orgId = this.nodeOrg.get(controllerNodeId);
-    if (!orgId) return undefined;
-    return this.nodeInventoryForOrg(orgId).find((n) => n.hostname === host)?.swarmNodeId;
+    if (!host || !orgId) return undefined;
+    return this.nodeInventoryForOrg(orgId, true).find((n) => n.hostname === host);
   }
 
   forget(nodeId: string): void {
