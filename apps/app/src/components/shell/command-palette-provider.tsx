@@ -14,10 +14,12 @@ interface CommandPaletteCtx {
 
 const Ctx = React.createContext<CommandPaletteCtx | null>(null);
 
+const NOOP: CommandPaletteCtx = { open: false, setOpen: () => undefined, toggle: () => undefined };
+
+/** Safe everywhere: outside the provider (e.g. a full-screen route) it returns a no-op
+ *  rather than crashing the page — the palette just isn't wired on that surface. */
 export function useCommandPalette(): CommandPaletteCtx {
-  const ctx = React.useContext(Ctx);
-  if (!ctx) throw new Error('useCommandPalette must be used within CommandPaletteProvider');
-  return ctx;
+  return React.useContext(Ctx) ?? NOOP;
 }
 
 export function CommandPaletteProvider({
