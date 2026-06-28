@@ -14,7 +14,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
 import { WebTerminal } from '@/components/terminal/web-terminal';
 
-export const Route = createFileRoute('/_authed/services/$serviceId/terminal')({
+export const Route = createFileRoute('/_authed/services/$serviceId_/terminal')({
   component: ServiceTerminalPage,
 });
 
@@ -22,7 +22,7 @@ type Phase = 'idle' | 'connecting' | 'open' | 'disabled' | 'closed' | 'error';
 
 function ServiceTerminalPage(): React.JSX.Element {
   const trpc = useTRPC();
-  const { serviceId } = useParams({ from: '/_authed/services/$serviceId/terminal' });
+  const { serviceId } = useParams({ from: '/_authed/services/$serviceId_/terminal' });
 
   // The service detail tells us which node + container to exec into. The MVP
   // execs into the first running container of the service on its node.

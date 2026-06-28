@@ -249,8 +249,15 @@ export class DockerClient {
   }
 
   async getServiceByName(name: string) {
+    // Docker's `name` filter is a SUBSTRING match, so asking for `shop_web` can
+    // return sibling services (`shop_web`, `shop_web_cache`, …) and asking for a
+    // stack-ish fragment can return the whole stack. Resolve ONLY an exact
+    // `Spec.Name` match — never fall back to an arbitrary `services[0]`, which
+    // would silently apply a write (scale, label, remove) to the WRONG service.
+    // Callers that may legitimately pass a service id fall back to
+    // `docker.getService(id)` themselves, which resolves an id/name exactly.
     const services = await this.docker.listServices({ filters: { name: [name] } });
-    const match = services.find((s) => s.Spec?.Name === name) ?? services[0];
+    const match = services.find((s) => s.Spec?.Name === name);
     return match ? this.docker.getService(match.ID as string) : null;
   }
 

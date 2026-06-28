@@ -30,6 +30,11 @@ export default defineConfig({
       '/api': { target: 'http://localhost:3001', changeOrigin: true },
       '/install.sh': { target: 'http://localhost:3001', changeOrigin: true },
       '/agent': { target: 'ws://localhost:3001', ws: true },
+      // Browser terminal data plane (xterm → controller `/term/ws`). Same-origin
+      // in prod; in dev the page is served from :3003, so proxy the WS upgrade to
+      // the controller at :3001 (mirrors `/agent`). Without this the socket hits
+      // the Vite dev origin and never reaches the API, so the shell never attaches.
+      '/term': { target: 'ws://localhost:3001', ws: true },
     },
   },
 });

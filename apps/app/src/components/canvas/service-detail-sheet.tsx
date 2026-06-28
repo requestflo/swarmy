@@ -86,8 +86,16 @@ export function ServiceDetailSheet({
                 </div>
                 <Switch
                   checked={!!s.scaleToZero?.enabled}
-                  disabled={setS2z.isPending}
-                  onCheckedChange={(v) => setS2z.mutate({ id: s.id, enabled: v })}
+                  disabled={setS2z.isPending || svc.isLoading}
+                  onCheckedChange={(v) => {
+                    // Defense-in-depth: a controlled Switch must only ever write
+                    // on a real user toggle. Ignore any change that doesn't flip
+                    // the persisted value (e.g. a re-render / 4s refetch echoing
+                    // current state) and never fire while loading or mid-mutation.
+                    // Opening a sheet must NEVER mutate scale-to-zero.
+                    if (v === !!s.scaleToZero?.enabled || setS2z.isPending || svc.isLoading) return;
+                    setS2z.mutate({ id: s.id, enabled: v });
+                  }}
                 />
               </div>
               {asleep && (
