@@ -7,7 +7,7 @@ import { defineConfig } from 'prisma/config';
 export default defineConfig({
   schema: 'prisma/schema.prisma',
   datasource: {
-    url: process.env.DATABASE_URL ?? 'postgresql://swarmy:swarmy@localhost:5678/swarmy',
+    url: process.env.DATABASE_URL ?? 'postgresql://swarmy:swarmy@localhost:5679/swarmy',
   },
   migrations: {
     path: 'prisma/migrations',
