@@ -47,6 +47,38 @@ When driving the browser to verify a change, **screenshot and actually look** �
 `/login` rendering the Hot Signal styling (navy gradient, coral accents) means the
 app booted; a blank frame means it didn't.
 
+## Full local swarm (controller + a real node)
+
+To run the **genuine product loop** — a controller with a real agent attached to
+the laptop's Docker, so a node shows up ONLINE — use the one-command path:
+
+```bash
+bun run dev:up        # Docker check + swarm init + Postgres + db push + seed
+```
+
+`dev:up` is idempotent: it `docker swarm init`s the host (single-node manager, so
+the agent can `docker service`), starts Postgres, generates + pushes the schema,
+then `seed-dev`s a dev user + org + one join token. The raw token lands in
+`.swarmy-dev-token` (gitignored). Then, in two terminals:
+
+```bash
+bun dev               # controller API :3001 + dashboard :3003
+bun run dev:agent     # local agent → ws://localhost:3001/agent/ws, /var/run/docker.sock
+```
+
+Log in at <http://localhost:3003> with **dev@swarmy.local / swarmy-dev** and the
+node appears on the Infrastructure plane. The active org is auto-selected on
+sign-in (a Better Auth session hook in `@swarmy/auth` picks the user's org).
+
+Scripts: `scripts/dev-up.sh`, `scripts/seed-dev.ts`, `scripts/run-agent.sh`.
+Wired as root scripts `dev:up`, `seed-dev`, `dev:agent`. Full walkthrough +
+troubleshooting (swarm init, socket perms, remote-node onboarding, demo mode):
+**`docs/LOCAL-SWARM.md`**.
+
+**Demo mode** — visit the dashboard with `?demo=1` for a zero-backend, in-memory
+interactive demo (no Docker/DB/agent needed). The flag is sticky in
+`localStorage` until the "Get swarmy" CTA clears it.
+
 ## Port 5678 already taken
 
 Common when another project runs its own Postgres on 5678. Don't fight it — move

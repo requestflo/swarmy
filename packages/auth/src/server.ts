@@ -124,6 +124,27 @@ export function buildAuth(
       process.env.CONTROLLER_PUBLIC_URL ?? 'http://localhost:3001',
       'http://localhost:3003',
     ],
+    // Auto-select an active organization when a session is created and the user
+    // belongs to one. The org plugin only sets `activeOrganizationId` when
+    // explicitly called (the signup flow does), so a fresh sign-in would
+    // otherwise land with no active org and `orgProcedure` would 403. This makes
+    // single-org users (the seeded dev user, returning users) land on their org.
+    databaseHooks: {
+      session: {
+        create: {
+          before: async (session) => {
+            if (session.activeOrganizationId) return;
+            const member = await db.member.findFirst({
+              where: { userId: session.userId },
+              orderBy: { createdAt: 'asc' },
+              select: { organizationId: true },
+            });
+            if (!member) return;
+            return { data: { ...session, activeOrganizationId: member.organizationId } };
+          },
+        },
+      },
+    },
     emailAndPassword: {
       enabled: true,
       autoSignIn: true,

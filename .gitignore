@@ -26,6 +26,9 @@ packages/db/src/generated/
 !.env.example
 !**/.env.example
 
+# local-dev seed artifacts (raw join token written by scripts/seed-dev.ts)
+.swarmy-dev-token
+
 # logs
 *.log
 npm-debug.log*
