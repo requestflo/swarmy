@@ -96,17 +96,9 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
     }
     case 'serviceState': {
       const nodeId = ws.data.nodeId;
-      if (nodeId) {
-        deps.store.serviceState.set(
-          nodeId,
-          env.payload.services.map((s) => ({
-            serviceName: s.name,
-            desiredReplicas: s.desiredReplicas ?? null,
-            runningReplicas: s.runningReplicas,
-            updateStatus: s.updateStatus ?? null,
-          })),
-        );
-      }
+      // Keep the FULL live Docker service info (labels/networks/env/ports) — it is
+      // the source of truth for the inventory + canvas. Thin views derive from it.
+      if (nodeId) deps.store.serviceInfo.set(nodeId, env.payload.services);
       return;
     }
     case 'commandResult': {

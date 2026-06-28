@@ -6,6 +6,7 @@
 export * from './types';
 export * from './views';
 export * from './inputs';
+export * from './inventory';
 // NOTE: './crypto' (node:crypto credential vault) is server-only and is NOT
 // re-exported here — import it via '@swarmy/core/crypto' so it never reaches the
 // browser bundle.

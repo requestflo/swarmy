@@ -1,4 +1,4 @@
-import type { ContainerInfo } from '@swarmy/core/protocol';
+import type { ContainerInfo, SwarmServiceInfo } from '@swarmy/core/protocol';
 import type {
   ContainerStatsSnapshot,
   LogLine,
@@ -64,7 +64,8 @@ export class GatewayStore {
   readonly nodeStats = new Map<string, NodeStatsSnapshot>();
   readonly containers = new Map<string, ContainerInfo[]>();
   readonly containerStats = new Map<string, ContainerStatsSnapshot[]>();
-  readonly serviceState = new Map<string, ServiceStateSnapshot[]>();
+  /** Raw live Docker services per (manager) node — the source of truth for reads. */
+  readonly serviceInfo = new Map<string, SwarmServiceInfo[]>();
   readonly nodeOrg = new Map<string, string>();
   readonly nodeCpuCount = new Map<string, number>();
 
@@ -80,11 +81,29 @@ export class GatewayStore {
     return [...this.nodeOrg.entries()].filter(([, o]) => o === orgId).map(([id]) => id);
   }
 
+  /** Thin per-service state (back-compat) derived from the raw Docker services. */
   serviceStatesForOrg(orgId: string): ServiceStateSnapshot[] {
-    const out: ServiceStateSnapshot[] = [];
+    return this.liveServicesForOrg(orgId).map((s) => ({
+      serviceName: s.name,
+      desiredReplicas: s.desiredReplicas ?? null,
+      runningReplicas: s.runningReplicas,
+      updateStatus: s.updateStatus ?? null,
+    }));
+  }
+
+  /** Raw live Docker services across the org's nodes, deduped by service id. */
+  liveServicesForOrg(orgId: string): SwarmServiceInfo[] {
+    const byId = new Map<string, SwarmServiceInfo>();
     for (const nodeId of this.nodesForOrg(orgId)) {
-      out.push(...(this.serviceState.get(nodeId) ?? []));
+      for (const svc of this.serviceInfo.get(nodeId) ?? []) byId.set(svc.id, svc);
     }
+    return [...byId.values()];
+  }
+
+  /** All live containers across the org's nodes. */
+  containersForOrg(orgId: string): ContainerInfo[] {
+    const out: ContainerInfo[] = [];
+    for (const nodeId of this.nodesForOrg(orgId)) out.push(...(this.containers.get(nodeId) ?? []));
     return out;
   }
 
@@ -92,6 +111,6 @@ export class GatewayStore {
     this.nodeStats.delete(nodeId);
     this.containers.delete(nodeId);
     this.containerStats.delete(nodeId);
-    this.serviceState.delete(nodeId);
+    this.serviceInfo.delete(nodeId);
   }
 }

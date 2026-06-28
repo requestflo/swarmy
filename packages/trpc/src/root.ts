@@ -28,9 +28,11 @@ import { membersRouter } from './routers/members';
 import { oauthRouter } from './routers/oauth';
 import { webhooksOutRouter } from './routers/webhooksOut';
 import { canvasRouter } from './routers/canvas';
+import { inventoryRouter } from './routers/inventory';
 
 export const appRouter = router({
   org: orgRouter,
+  inventory: inventoryRouter,
   nodes: nodesRouter,
   services: servicesRouter,
   stacks: stacksRouter,

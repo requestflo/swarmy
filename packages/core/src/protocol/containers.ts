@@ -61,6 +61,22 @@ export const SwarmServiceInfo = z.object({
     .enum(['none', 'updating', 'paused', 'completed', 'rollback_started', 'rollback_completed'])
     .optional(),
   labels: z.record(z.string()),
+  /** Attached overlay networks (resolved names + aliases) — drives link inference. */
+  networks: z
+    .array(z.object({ name: z.string(), aliases: z.array(z.string()).default([]) }))
+    .default([]),
+  /** TaskTemplate env (`KEY=value` strings) — drives env-ref link inference. */
+  env: z.array(z.string()).default([]),
+  /** Published ports (target/published/protocol). */
+  ports: z
+    .array(
+      z.object({
+        target: z.number().int(),
+        published: z.number().int().optional(),
+        protocol: z.enum(['tcp', 'udp']).default('tcp'),
+      }),
+    )
+    .default([]),
 });
 export type SwarmServiceInfo = z.infer<typeof SwarmServiceInfo>;
 

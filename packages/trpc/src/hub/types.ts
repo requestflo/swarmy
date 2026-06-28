@@ -1,4 +1,4 @@
-import type { ContainerInfo, TermTarget } from '@swarmy/core/protocol';
+import type { ContainerInfo, SwarmServiceInfo, TermTarget } from '@swarmy/core/protocol';
 import type {
   ClusterStatsFrame,
   ContainerStatsSnapshot,
@@ -96,6 +96,8 @@ export interface AgentHub {
   latestContainers(nodeId: string): ContainerInfo[];
   latestContainerStats(nodeId: string): ContainerStatsSnapshot[];
   latestServiceState(orgId: string): ServiceStateSnapshot[];
+  /** Live Docker inventory (services + containers) read from the in-memory hub. */
+  liveInventory(orgId: string): { services: SwarmServiceInfo[]; containers: ContainerInfo[] };
 
   subscribeNodeStats(nodeId: string, signal: AbortSignal): AsyncIterable<NodeStatsSnapshot>;
   subscribeClusterStats(orgId: string, signal: AbortSignal): AsyncIterable<ClusterStatsFrame>;

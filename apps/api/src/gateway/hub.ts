@@ -1,4 +1,9 @@
-import { PROTOCOL_VERSION, type ContainerInfo, type TermTarget } from '@swarmy/core/protocol';
+import {
+  PROTOCOL_VERSION,
+  type ContainerInfo,
+  type SwarmServiceInfo,
+  type TermTarget,
+} from '@swarmy/core/protocol';
 import { terminalHub } from '../terminal';
 import type {
   ClusterStatsFrame,
@@ -120,6 +125,14 @@ export class AgentHubImpl implements AgentHub {
 
   latestServiceState(orgId: string): ServiceStateSnapshot[] {
     return this.store.serviceStatesForOrg(orgId);
+  }
+
+  /** Live Docker inventory for the org (services + containers) — read from memory, no DB. */
+  liveInventory(orgId: string): { services: SwarmServiceInfo[]; containers: ContainerInfo[] } {
+    return {
+      services: this.store.liveServicesForOrg(orgId),
+      containers: this.store.containersForOrg(orgId),
+    };
   }
 
   async *subscribeNodeStats(nodeId: string, signal: AbortSignal): AsyncIterable<NodeStatsSnapshot> {

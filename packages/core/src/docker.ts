@@ -8,6 +8,25 @@ import type {
   SwarmServiceInfo,
 } from './protocol';
 
+/** The subset of a Docker swarm ServiceSpec the agent reads (dockerode types are loose). */
+interface SwarmNetworkAttachment {
+  Target?: string;
+  Aliases?: string[];
+}
+interface SwarmSpecLike {
+  Name?: string;
+  Labels?: Record<string, string>;
+  Mode?: { Replicated?: { Replicas?: number } };
+  TaskTemplate?: {
+    ContainerSpec?: { Image?: string; Env?: string[] };
+    Networks?: SwarmNetworkAttachment[];
+  };
+  Networks?: SwarmNetworkAttachment[];
+  EndpointSpec?: {
+    Ports?: Array<{ TargetPort?: number; PublishedPort?: number; Protocol?: string }>;
+  };
+}
+
 /** The subset of `docker info` the agent reads. */
 interface DockerInfoLike {
   Name?: string;
@@ -173,11 +192,20 @@ export class DockerClient {
 
   async listServices(): Promise<SwarmServiceInfo[]> {
     const services = await this.docker.listServices();
+    // Resolve overlay network IDs → names once (services reference networks by id).
+    const netName = new Map<string, string>();
+    try {
+      for (const n of await this.docker.listNetworks()) {
+        if (n.Id && n.Name) netName.set(n.Id, n.Name);
+      }
+    } catch {
+      // best-effort
+    }
     const out: SwarmServiceInfo[] = [];
     for (const s of services) {
       const id = s.ID as string;
-      const spec = s.Spec || {};
-      const taskTemplate = spec.TaskTemplate as { ContainerSpec?: { Image?: string } } | undefined;
+      const spec = (s.Spec || {}) as SwarmSpecLike;
+      const tt = spec.TaskTemplate ?? {};
       const mode = spec.Mode?.Replicated ? 'replicated' : 'global';
       let running = 0;
       try {
@@ -188,16 +216,28 @@ export class DockerClient {
       } catch {
         running = 0;
       }
+      const nets = (tt.Networks ?? spec.Networks ?? []).map((n) => ({
+        name: netName.get(n.Target ?? '') ?? n.Target ?? '',
+        aliases: n.Aliases ?? [],
+      }));
+      const ports = (spec.EndpointSpec?.Ports ?? []).map((p) => ({
+        target: p.TargetPort ?? 0,
+        published: p.PublishedPort,
+        protocol: (p.Protocol as 'tcp' | 'udp') ?? 'tcp',
+      }));
       out.push({
         id,
         name: spec.Name || id,
-        image: taskTemplate?.ContainerSpec?.Image || '',
+        image: tt.ContainerSpec?.Image || '',
         mode,
         desiredReplicas: spec.Mode?.Replicated?.Replicas,
         runningReplicas: running,
         createdAt: Date.parse(s.CreatedAt || '') || 0,
         updatedAt: Date.parse(s.UpdatedAt || '') || 0,
         labels: spec.Labels || {},
+        networks: nets.filter((n) => n.name),
+        env: tt.ContainerSpec?.Env ?? [],
+        ports,
       });
     }
     return out;
