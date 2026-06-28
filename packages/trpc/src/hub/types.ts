@@ -102,8 +102,15 @@ export interface AgentHub {
   liveInventory(orgId: string): { services: SwarmServiceInfo[]; containers: ContainerInfo[] };
   /** A connected swarm-manager node id (Docker truth) to route write commands to. */
   managerNode(orgId: string): string | undefined;
-  /** Live swarm node inventory (Docker-truth role/status/labels/resources) for the org. */
-  nodeInventory(orgId: string): SwarmNodeInfo[];
+  /** Live swarm node inventory (Docker-truth role/status/labels/resources) for the org.
+   *  includeOffline folds in last-known nodes for disconnected-but-enrolled agents. */
+  nodeInventory(orgId: string, includeOffline?: boolean): SwarmNodeInfo[];
+  /** ALL connected swarm-manager node ids for the org (for fan-out / pick-any). */
+  managerNodes(orgId: string): string[];
+  /** Last-known services for the org (live + retained-on-disconnect) — dr-reconcile. */
+  lastKnownServices(orgId: string): SwarmServiceInfo[];
+  /** Last heartbeat time for a node (ms epoch), or undefined if never seen. */
+  lastSeen(nodeId: string): number | undefined;
   /** Docker swarm node id for a connected agent (via its reported hostname). */
   swarmNodeIdFor(controllerNodeId: string): string | undefined;
 

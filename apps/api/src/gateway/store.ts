@@ -74,6 +74,13 @@ export class GatewayStore {
   readonly nodeHostname = new Map<string, string>();
   readonly nodeOrg = new Map<string, string>();
   readonly nodeCpuCount = new Map<string, number>();
+  /** Last heartbeat/snapshot time per node (replaces DB Node.lastSeenAt). */
+  readonly lastSeen = new Map<string, number>();
+  /** Last-known swarm-node + service snapshots retained AFTER a node disconnects —
+   *  so ABAC (offline node labels) and dr-reconcile (dead-node placement/volumes)
+   *  still have data once the node leaves the hub. */
+  readonly lastKnownSwarmNodes = new Map<string, SwarmNodeInfo[]>();
+  readonly lastKnownServices = new Map<string, SwarmServiceInfo[]>();
 
   readonly nodeStatsEvent = new Emitter<{ nodeId: string; snap: NodeStatsSnapshot }>();
   readonly logEvent = new Emitter<{ commandId: string; line: LogLine }>();
@@ -118,11 +125,37 @@ export class GatewayStore {
     return this.nodesForOrg(orgId).find((id) => this.managers.get(id) === true);
   }
 
-  /** Live swarm node inventory across the org's connected managers, deduped by swarm id. */
-  nodeInventoryForOrg(orgId: string): SwarmNodeInfo[] {
+  /** ALL connected swarm-manager nodes for the org (for fan-out / pick-any loops). */
+  managerNodeIdsForOrg(orgId: string): string[] {
+    return this.nodesForOrg(orgId).filter((id) => this.managers.get(id) === true);
+  }
+
+  /** Live swarm node inventory across the org's connected managers, deduped by swarm id.
+   *  With includeOffline, also folds in last-known nodes for the org's disconnected
+   *  agents (so the nodes list + ABAC still see offline-but-enrolled nodes). */
+  nodeInventoryForOrg(orgId: string, includeOffline = false): SwarmNodeInfo[] {
     const byId = new Map<string, SwarmNodeInfo>();
     for (const nodeId of this.nodesForOrg(orgId)) {
       for (const n of this.swarmNodes.get(nodeId) ?? []) byId.set(n.swarmNodeId, n);
+    }
+    if (includeOffline) {
+      for (const [nodeId, org] of this.nodeOrg) {
+        if (org !== orgId || this.swarmNodes.has(nodeId)) continue;
+        for (const n of this.lastKnownSwarmNodes.get(nodeId) ?? []) {
+          if (!byId.has(n.swarmNodeId)) byId.set(n.swarmNodeId, { ...n, status: 'down' });
+        }
+      }
+    }
+    return [...byId.values()];
+  }
+
+  /** Last-known services across the org's nodes (live + retained-on-disconnect) —
+   *  for dr-reconcile's stranded-volume detection on dead nodes. */
+  lastKnownServicesForOrg(orgId: string): SwarmServiceInfo[] {
+    const byId = new Map<string, SwarmServiceInfo>();
+    for (const [nodeId, org] of this.nodeOrg) {
+      if (org !== orgId) continue;
+      for (const s of this.serviceInfo.get(nodeId) ?? this.lastKnownServices.get(nodeId) ?? []) byId.set(s.id, s);
     }
     return [...byId.values()];
   }
@@ -137,6 +170,14 @@ export class GatewayStore {
   }
 
   forget(nodeId: string): void {
+    // Retain last-known node + service state for ABAC (offline labels) and dr-reconcile
+    // (dead-node placement) before clearing live telemetry.
+    const sn = this.swarmNodes.get(nodeId);
+    if (sn) this.lastKnownSwarmNodes.set(nodeId, sn);
+    const svc = this.serviceInfo.get(nodeId);
+    if (svc) this.lastKnownServices.set(nodeId, svc);
+    this.lastSeen.set(nodeId, Date.now());
+
     this.nodeStats.delete(nodeId);
     this.containers.delete(nodeId);
     this.containerStats.delete(nodeId);

@@ -52,6 +52,7 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
     case 'heartbeat': {
       const nodeId = ws.data.nodeId;
       if (nodeId) {
+        deps.store.lastSeen.set(nodeId, Date.now());
         await prisma.node
           .update({ where: { id: nodeId }, data: { lastSeenAt: new Date() } })
           .catch(() => undefined);

@@ -141,9 +141,25 @@ export class AgentHubImpl implements AgentHub {
     return this.store.managerNodeForOrg(orgId);
   }
 
-  /** Live swarm node inventory (Docker-truth role/status/labels/resources) for the org. */
-  nodeInventory(orgId: string): SwarmNodeInfo[] {
-    return this.store.nodeInventoryForOrg(orgId);
+  /** Live swarm node inventory (Docker-truth role/status/labels/resources) for the org.
+   *  includeOffline folds in last-known nodes for disconnected-but-enrolled agents. */
+  nodeInventory(orgId: string, includeOffline = false): SwarmNodeInfo[] {
+    return this.store.nodeInventoryForOrg(orgId, includeOffline);
+  }
+
+  /** ALL connected swarm-manager node ids for the org (for fan-out / pick-any). */
+  managerNodes(orgId: string): string[] {
+    return this.store.managerNodeIdsForOrg(orgId);
+  }
+
+  /** Last-known services for the org (live + retained-on-disconnect) — dr-reconcile. */
+  lastKnownServices(orgId: string): SwarmServiceInfo[] {
+    return this.store.lastKnownServicesForOrg(orgId);
+  }
+
+  /** Last heartbeat time for a node (ms epoch), or undefined if never seen. */
+  lastSeen(nodeId: string): number | undefined {
+    return this.store.lastSeen.get(nodeId);
   }
 
   /** Docker swarm node id for a connected agent (via its reported hostname). */
