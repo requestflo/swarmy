@@ -31,28 +31,52 @@ const b64decode = (s: string): Uint8Array =>
 export function WebTerminal({ wsUrl, onPhase, className }: WebTerminalProps): React.JSX.Element {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
 
+  // Keep onPhase in a ref so the socket effect depends ONLY on wsUrl. The caller
+  // passes a fresh inline onPhase each render; if the effect depended on it, every
+  // setPhase would re-run the effect and tear down + recreate the WebSocket before
+  // it finished connecting — a reconnect storm that never receives termStarted.
+  const onPhaseRef = React.useRef(onPhase);
+  React.useEffect(() => {
+    onPhaseRef.current = onPhase;
+  }, [onPhase]);
+
   React.useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
 
-    const term = new Terminal({
-      cursorBlink: true,
-      fontFamily: 'var(--font-mono, "Geist Mono", monospace)',
-      fontSize: 13,
-      theme: { background: '#0b1020' },
-      convertEol: false,
-      scrollback: 5_000,
-    });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(host);
-    fit.fit();
+    let disposed = false;
+    let teardown: (() => void) | null = null;
 
-    let seq = 0;
-    let closedByExit = false;
-    const ws = new WebSocket(wsUrl);
+    // Defer a tick so React StrictMode's synchronous mount→cleanup→mount cancels
+    // the throwaway run before it opens a socket. The /term ticket is single-use,
+    // so a discarded first connection would consume it and the real mount would
+    // get 'unauthorized'.
+    const timer = setTimeout(() => {
+      if (disposed) return;
 
-    const sendResize = (): void => {
+      const term = new Terminal({
+        cursorBlink: true,
+        fontFamily: 'var(--font-mono, "Geist Mono", monospace)',
+        fontSize: 13,
+        theme: { background: '#0b1020' },
+        convertEol: false,
+        scrollback: 5_000,
+      });
+      const fit = new FitAddon();
+      term.loadAddon(fit);
+      term.open(host);
+      try {
+        fit.fit();
+      } catch {
+        // host not laid out yet; the ResizeObserver below fits once it is. Must not
+        // abort here — the WebSocket is created next and a throw would skip it.
+      }
+
+      let seq = 0;
+      let closedByExit = false;
+      const ws = new WebSocket(wsUrl);
+
+      const sendResize = (): void => {
       if (ws.readyState !== WebSocket.OPEN) return;
       ws.send(JSON.stringify({ type: 'termResize', payload: { cols: term.cols, rows: term.rows } }));
     };
@@ -67,10 +91,10 @@ export function WebTerminal({ wsUrl, onPhase, className }: WebTerminalProps): Re
     });
     ro.observe(host);
 
-    onPhase?.('connecting');
+    onPhaseRef.current?.('connecting');
 
     ws.onopen = () => {
-      onPhase?.('open');
+      onPhaseRef.current?.('open');
       sendResize();
       term.focus();
     };
@@ -95,7 +119,7 @@ export function WebTerminal({ wsUrl, onPhase, className }: WebTerminalProps): Re
       if (msg.type === 'termStarted') {
         if (msg.payload?.ok === false) {
           const code = (msg.payload.error as { code?: string })?.code ?? 'forbidden';
-          onPhase?.('disabled', code);
+          onPhaseRef.current?.('disabled', code);
           term.writeln(`\r\n\x1b[31mTerminal unavailable: ${code}\x1b[0m`);
         }
         return;
@@ -108,31 +132,38 @@ export function WebTerminal({ wsUrl, onPhase, className }: WebTerminalProps): Re
         closedByExit = true;
         const code = msg.payload?.exitCode;
         term.writeln(`\r\n\x1b[2mSession ended${code != null ? ` (exit ${code})` : ''}.\x1b[0m`);
-        onPhase?.('closed');
+        onPhaseRef.current?.('closed');
       }
     };
 
-    ws.onerror = () => onPhase?.('error');
+    ws.onerror = () => onPhaseRef.current?.('error');
     ws.onclose = (ev) => {
       if (!closedByExit) {
-        if (ev.code === 4403) onPhase?.('disabled', ev.reason || 'forbidden');
-        else if (ev.code === 4401) onPhase?.('error', 'unauthorized');
-        else onPhase?.('closed', ev.reason);
+        if (ev.code === 4403) onPhaseRef.current?.('disabled', ev.reason || 'forbidden');
+        else if (ev.code === 4401) onPhaseRef.current?.('error', 'unauthorized');
+        else onPhaseRef.current?.('closed', ev.reason);
         term.writeln('\r\n\x1b[2mDisconnected.\x1b[0m');
       }
     };
 
+      teardown = () => {
+        ro.disconnect();
+        dataDisposable.dispose();
+        try {
+          ws.close();
+        } catch {
+          // already closed
+        }
+        term.dispose();
+      };
+    }, 0);
+
     return () => {
-      ro.disconnect();
-      dataDisposable.dispose();
-      try {
-        ws.close();
-      } catch {
-        // already closed
-      }
-      term.dispose();
+      disposed = true;
+      clearTimeout(timer);
+      teardown?.();
     };
-  }, [wsUrl, onPhase]);
+  }, [wsUrl]);
 
   return (
     <div

@@ -32,6 +32,11 @@ function ServiceTerminalPage(): React.JSX.Element {
   const [detail, setDetail] = React.useState<string | undefined>();
   const [wsUrl, setWsUrl] = React.useState<string | null>(null);
 
+  const onPhase = React.useCallback((p: Phase, d?: string): void => {
+    setPhase(p);
+    if (d) setDetail(d);
+  }, []);
+
   // INTEGRATION: `terminal.open` mutation (control plane). It runs the policy
   // gate (RBAC, SWARMY_ALLOW_EXEC reflected via node capability, container
   // exists), audits, mints a single-use ticket, and returns { ticket, wsUrl }.
@@ -97,13 +102,7 @@ function ServiceTerminalPage(): React.JSX.Element {
         <CardContent className="p-2">
           {wsUrl ? (
             <div style={{ height: '60vh', minHeight: 360 }}>
-              <WebTerminal
-                wsUrl={wsUrl}
-                onPhase={(p, d) => {
-                  setPhase(p);
-                  if (d) setDetail(d);
-                }}
-              />
+              <WebTerminal wsUrl={wsUrl} onPhase={onPhase} />
             </div>
           ) : (
             <div className="text-muted-foreground p-16 text-center text-sm">
