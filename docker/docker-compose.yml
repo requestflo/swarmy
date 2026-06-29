@@ -26,6 +26,17 @@ services:
       retries: 10
 
   # Optional: a local Caddy to exercise the caddy ingress driver.
+  #
+  # Admin API: the mounted Caddyfile binds the admin endpoint with `admin :2019`
+  # (all container interfaces == 0.0.0.0:2019), and 2019 is published to the host
+  # below — so the agent's
+  # `applyIngress` admin-API path (POST the rendered Caddyfile to `/load`) reaches it
+  # at http://127.0.0.1:2019 in single-node dev. To drive Caddy via the admin API in
+  # dev, set the org ingress config's globalOptions.extraConfig to:
+  #   { "applyVia": "admin", "adminUrl": "http://127.0.0.1:2019/load" }
+  # On a real swarm the controller (ensureCaddyController → service swarmy-ingress-caddy)
+  # serves the admin API on the overlay; leave adminUrl unset to target the service name.
+  # Verify a pushed route:  curl -s http://127.0.0.1:2019/config/ | jq .
   caddy:
     image: caddy:2-alpine
     profiles: ['ingress']
@@ -33,7 +44,7 @@ services:
     ports:
       - '8080:80'
       - '8443:443'
-      - '2019:2019' # admin API
+      - '2019:2019' # admin API (bound 0.0.0.0:2019 in ./caddy/Caddyfile so the host mapping reaches it)
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile
       - swarmy-caddy-data:/data

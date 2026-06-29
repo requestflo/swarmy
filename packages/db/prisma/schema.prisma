@@ -136,7 +136,6 @@ model Organization {
   joinTokens    JoinToken[]
   stacks        Stack[]
   ingressConfig IngressConfig?
-  domains       Domain[]
   auditLogs     AuditLog[]
   metricSamples MetricSample[]
 
@@ -318,28 +317,9 @@ model IngressConfig {
   @@map("ingress_config")
 }
 
-model Domain {
-  id              String   @id @default(cuid())
-  orgId           String
-  host            String
-  serviceId       String
-  targetPort      Int
-  tlsMode         String   @default("auto")
-  stripPathPrefix Boolean  @default(false)
-  pathPrefix      String?
-  middlewares     Json     @default("[]")
-  ingressDriver   IngressDriver?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  // serviceId holds a Docker service id (no FK) — the service is Docker-truth now.
-  @@unique([host, pathPrefix])
-  @@index([serviceId])
-  @@index([orgId])
-  @@map("domain")
-}
+// Domain model removed — per-service ingress routing now lives on the
+// swarmy.ingress.routes service label (Docker-truth). Org-level ingress config
+// (driver default, Caddy HA, tunnel) stays in IngressConfig.
 
 model AuditLog {
   id         BigInt   @id @default(autoincrement())

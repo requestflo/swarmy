@@ -1,17 +1,18 @@
 import { describe, expect, it, beforeEach } from 'bun:test';
-import { checkOnDemand, normalizeHost, _resetAskCache } from './ingress-ask';
+import { checkOnDemand, normalizeHost, _resetAskCache, type OnDemandDeps } from './ingress-ask';
 
-/** Minimal db stub matching the `Pick<PrismaClient, 'domain'>` shape used. */
-function dbWith(hosts: string[]) {
+/** Deps stub: routes live on the swarmy.ingress.routes label of a live service. */
+function depsWith(hosts: string[]): OnDemandDeps {
+  const routes = hosts.map((host) => ({ host, port: 80, tls: 'auto' }));
   return {
-    domain: {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      findFirst: async (args: any) => {
-        const wanted = args?.where?.host as string;
-        return hosts.includes(wanted) ? { id: `dom_${wanted}` } : null;
-      },
-    },
-  } as never;
+    listOrgIds: async () => ['org_1'],
+    liveInventory: () => ({
+      services: [
+        { id: 'svc_1', name: 'web', labels: { 'swarmy.ingress.routes': JSON.stringify(routes) } } as never,
+      ],
+      containers: [],
+    }),
+  };
 }
 
 describe('normalizeHost', () => {
@@ -26,38 +27,46 @@ describe('checkOnDemand', () => {
   beforeEach(() => _resetAskCache());
 
   it('200 for a registered domain', async () => {
-    const res = await checkOnDemand(dbWith(['app.example.com']), 'app.example.com');
+    const res = await checkOnDemand(depsWith(['app.example.com']), 'app.example.com');
     expect(res.status).toBe(200);
   });
 
   it('matches case-insensitively', async () => {
-    const res = await checkOnDemand(dbWith(['app.example.com']), 'APP.example.com');
+    const res = await checkOnDemand(depsWith(['app.example.com']), 'APP.example.com');
     expect(res.status).toBe(200);
   });
 
   it('403 (deny-by-default) for an unknown domain', async () => {
-    const res = await checkOnDemand(dbWith(['app.example.com']), 'evil.attacker.com');
+    const res = await checkOnDemand(depsWith(['app.example.com']), 'evil.attacker.com');
     expect(res.status).toBe(403);
   });
 
   it('400 for a missing or malformed domain', async () => {
-    expect((await checkOnDemand(dbWith([]), undefined)).status).toBe(400);
-    expect((await checkOnDemand(dbWith([]), 'has space')).status).toBe(400);
-    expect((await checkOnDemand(dbWith([]), 'a/b')).status).toBe(400);
+    expect((await checkOnDemand(depsWith([]), undefined)).status).toBe(400);
+    expect((await checkOnDemand(depsWith([]), 'has space')).status).toBe(400);
+    expect((await checkOnDemand(depsWith([]), 'a/b')).status).toBe(400);
   });
 
-  it('serves a positive result from cache without re-hitting the db', async () => {
+  it('serves a positive result from cache without re-scanning the inventory', async () => {
     let hits = 0;
-    const db = {
-      domain: {
-        findFirst: async () => {
-          hits += 1;
-          return { id: 'dom_1' };
-        },
+    const deps: OnDemandDeps = {
+      listOrgIds: async () => ['org_1'],
+      liveInventory: () => {
+        hits += 1;
+        return {
+          services: [
+            {
+              id: 'svc_1',
+              name: 'web',
+              labels: { 'swarmy.ingress.routes': JSON.stringify([{ host: 'cached.example.com', port: 80, tls: 'auto' }]) },
+            } as never,
+          ],
+          containers: [],
+        };
       },
-    } as never;
-    await checkOnDemand(db, 'cached.example.com');
-    await checkOnDemand(db, 'cached.example.com');
+    };
+    await checkOnDemand(deps, 'cached.example.com');
+    await checkOnDemand(deps, 'cached.example.com');
     expect(hits).toBe(1);
   });
 });

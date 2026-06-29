@@ -16,11 +16,11 @@ WORKDIR /app
 # files (cheap, cache-friendly) but only the agent's source closure
 # (core + mesh + agent) afterwards, keeping the image lean.
 COPY package.json bun.lock ./
+# apps/web and apps/e2e are excluded by .dockerignore — they're leaf apps that
+# nothing in the agent's graph depends on, so bun tolerates their absence.
 COPY apps/agent/package.json apps/agent/
 COPY apps/api/package.json apps/api/
 COPY apps/app/package.json apps/app/
-COPY apps/e2e/package.json apps/e2e/
-COPY apps/web/package.json apps/web/
 COPY packages/abac/package.json packages/abac/
 COPY packages/api-rest/package.json packages/api-rest/
 COPY packages/auth/package.json packages/auth/

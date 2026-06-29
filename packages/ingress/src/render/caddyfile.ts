@@ -6,6 +6,16 @@ export function buildCaddyfile(config: IngressConfig): string {
   const extra = config.globalOptions.extraConfig as Record<string, unknown>;
 
   const global: string[] = [];
+  // When applies are pushed to the controller's admin API (`applyVia: 'admin'`),
+  // the rendered config MUST keep the admin endpoint bound on the overlay (0.0.0.0)
+  // — otherwise the first `/load` rebinds it to localhost (Caddy's default) and the
+  // agent, which reaches Caddy over the overlay from another container, is locked out
+  // of every subsequent push (and `--resume` would restore a localhost-only admin).
+  const applyVia = typeof extra.applyVia === 'string' ? extra.applyVia : 'file';
+  if (applyVia === 'admin') {
+    const adminListen = typeof extra.adminListen === 'string' ? extra.adminListen : '0.0.0.0:2019';
+    global.push(`  admin ${adminListen}`);
+  }
   if (config.globalOptions.email) global.push(`  email ${config.globalOptions.email}`);
   if (config.globalOptions.onDemandTls) {
     global.push('  on_demand_tls {');

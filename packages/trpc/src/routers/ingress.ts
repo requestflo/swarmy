@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TlsMode } from '@swarmy/core';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import { tunnelsRouter } from './tunnels';
+import { ensureCaddyController } from '../services/ingress-controller';
 import {
   addDomain,
   getConfig,
@@ -32,6 +33,10 @@ export const ingressRouter = router({
     .mutation(({ ctx, input }) => setEnabled(ctx, input.enabled)),
 
   listDomains: orgProcedure.query(({ ctx }) => listDomains(ctx)),
+
+  /** Deploy/converge the native Caddy ingress controller (swarmy-ingress-caddy)
+   *  on the swarm; swarmy pushes rendered routing to its admin API. Idempotent. */
+  ensureController: adminProcedure.mutation(({ ctx }) => ensureCaddyController(ctx)),
 
   addDomain: orgProcedure
     .input(

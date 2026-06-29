@@ -21,6 +21,7 @@ import {
   type CloudflareIngressRule,
 } from './cloudflare.client';
 import { applyNow, loadOrgConfigForTunnels, setTunnel } from './ingress.service';
+import { listRoutesForOrg } from './ingress-routes';
 
 export interface TunnelView {
   provider: 'cloudflare';
@@ -68,7 +69,8 @@ interface TunnelSettings {
 export async function getTunnel(ctx: OrgContext): Promise<TunnelView | null> {
   const t = await readTunnel(ctx);
   if (!t) return null;
-  const domainCount = await ctx.db.domain.count({ where: { orgId: ctx.activeOrgId } });
+  // Domain count is Docker-truth: routes across the org's live service labels.
+  const domainCount = listRoutesForOrg(ctx).length;
   return {
     provider: 'cloudflare',
     tunnelId: t.tunnelId ?? null,

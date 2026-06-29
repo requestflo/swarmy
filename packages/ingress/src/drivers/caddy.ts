@@ -8,6 +8,27 @@ import type {
 import { buildCaddyfile } from '../render/caddyfile';
 import { IngressApplyError } from '../errors';
 
+/** Swarm service name of the native Caddy ingress controller (deployed by
+ *  `ensureCaddyController`). Routes pushed via the admin API target this name on
+ *  the ingress overlay network. */
+export const CADDY_CONTROLLER_SERVICE = 'swarmy-ingress-caddy';
+/** Port the Caddy admin API listens on inside the controller. */
+export const CADDY_ADMIN_PORT = 2019;
+/** Caddyfile path on the node / controller bind mount. */
+export const CADDY_CONFIG_PATH = '/etc/caddy/Caddyfile';
+
+/**
+ * Where the agent POSTs the rendered Caddyfile to apply it live. On a real swarm
+ * the Caddy admin API lives INSIDE the controller service, not on the agent host,
+ * so the default targets the controller by service name on the overlay. Override
+ * with `extraConfig.adminUrl` — e.g. the published host port for single-node dev:
+ * `http://127.0.0.1:2019/load`.
+ */
+export function caddyAdminLoadUrl(extra: Record<string, unknown>): string {
+  if (typeof extra.adminUrl === 'string' && extra.adminUrl.length > 0) return extra.adminUrl;
+  return `http://${CADDY_CONTROLLER_SERVICE}:${CADDY_ADMIN_PORT}/load`;
+}
+
 export class CaddyDriver implements IngressDriver {
   readonly name = 'caddy';
 
@@ -36,19 +57,23 @@ export class CaddyDriver implements IngressDriver {
 
   render(config: IngressConfig): RenderedConfig {
     const contents = buildCaddyfile(config);
-    const applyVia = (config.globalOptions.extraConfig as Record<string, unknown>).applyVia ?? 'file';
+    const extra = config.globalOptions.extraConfig as Record<string, unknown>;
+    const applyVia = typeof extra.applyVia === 'string' ? extra.applyVia : 'file';
     const rendered: RenderedConfig = {
       driver: 'caddy',
-      files: [{ path: '/etc/caddy/Caddyfile', contents, mode: 0o644 }],
+      files: [{ path: CADDY_CONFIG_PATH, contents, mode: 0o644 }],
       serviceLabels: [],
       summary: `Caddy — ${config.domains.length} route(s): ${
         config.domains.map((d) => d.domain).join(', ') || 'none'
       }`,
     };
     if (applyVia === 'admin') {
+      // Push the full config to the controller's admin API. The agent also writes
+      // `files` first (on the manager that becomes the controller's bind-mounted
+      // base Caddyfile), so a `--resume`-less cold restart still has admin bound.
       rendered.adminApi = {
         method: 'POST',
-        url: 'http://127.0.0.1:2019/load',
+        url: caddyAdminLoadUrl(extra),
         body: contents,
         contentType: 'text/caddyfile',
       };
@@ -57,7 +82,7 @@ export class CaddyDriver implements IngressDriver {
         'caddy',
         'reload',
         '--config',
-        '/etc/caddy/Caddyfile',
+        CADDY_CONFIG_PATH,
         '--adapter',
         'caddyfile',
       ];

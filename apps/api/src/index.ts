@@ -31,8 +31,16 @@ app.get('/version', (c) => c.json({ ...versionInfo(), enterprise: licenseStatus(
 
 // Caddy on-demand-TLS gate: 200 only for known org domains. Public, read-only.
 app.get('/ingress/ask', async (c) => {
-  const { status, body } = await checkOnDemand(prisma, c.req.query('domain'));
-  return c.text(body, status as 200 | 404 | 400);
+  // Routes live on swarmy.ingress.routes service labels now (no Domain model) —
+  // scan every org's live inventory for the host.
+  const { status, body } = await checkOnDemand(
+    {
+      listOrgIds: () => prisma.organization.findMany({ select: { id: true } }).then((rows) => rows.map((r) => r.id)),
+      liveInventory: (orgId) => hub.liveInventory(orgId),
+    },
+    c.req.query('domain'),
+  );
+  return c.text(body, status as 200 | 400 | 403);
 });
 
 // Live node installer: curl -fsSL <controller>/install.sh | SWARMY_JOIN_TOKEN=… sh

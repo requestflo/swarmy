@@ -19,16 +19,27 @@ import { writeAudit } from '../services/audit.service';
 import { notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { resolveLiveService } from './live-resolve';
+import {
+  INGRESS_ROUTES_LABEL,
+  listRoutesForOrg,
+  readRoutes,
+  serializeRoutes,
+  type Route,
+} from './ingress-routes';
 
 /** Service label that marks a Docker service as ingress-enabled (replaces the dropped column). */
 const INGRESS_ENABLED_LABEL = 'swarmy.ingress';
 
-/** Map every live Docker service id → its name (Docker truth; replaces the Service table). */
-function liveServiceNames(ctx: OrgContext): Map<string, string> {
-  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
-  const names = new Map<string, string>();
-  for (const s of buildInventory(services, containers).services) names.set(s.id, s.name);
-  return names;
+/**
+ * TLS mode mapping between the route label and the render/DomainView layer. The
+ * label scheme uses `'manual'` for an operator-supplied cert; the render layer
+ * (and {@link TlsMode}) calls the same thing `'custom'`. `'auto'`/`'off'` pass through.
+ */
+function routeTlsToTlsMode(tls: Route['tls']): TlsMode {
+  return tls === 'manual' ? 'custom' : tls;
+}
+function tlsModeToRouteTls(tls: TlsMode): Route['tls'] {
+  return tls === 'custom' ? 'manual' : tls;
 }
 
 /**
@@ -149,12 +160,6 @@ function driverLower(d: string): IngressDriverId {
 interface IngressSettings {
   targetNodes?: string[];
   globalOptions?: Record<string, unknown>;
-  /**
-   * Per-domain driver overrides keyed by host (additive per-stack/per-domain
-   * selection). Resolution: domainDrivers[host] → org default. Promoted to
-   * Domain.ingressDriver in a future migration (see INTEGRATION).
-   */
-  domainDrivers?: Record<string, IngressDriverId>;
   /** Caddy HA Redis coords (non-secret) + encrypted secret refs. */
   haStorage?: {
     host: string;
@@ -234,11 +239,9 @@ async function ensureConfig(ctx: OrgContext): Promise<ConfigRow> {
 async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
   const row = await ensureConfig(ctx);
   const settings = readSettings(row);
-  const domains = await ctx.db.domain.findMany({
-    where: { orgId: ctx.activeOrgId },
-  });
-  // Domain.serviceId is a plain Docker service id (no relation) → resolve names live.
-  const names = liveServiceNames(ctx);
+  // Per-service routes are Docker-truth: read straight off the live service labels,
+  // never the DB. The owning service of a route supplies the upstream name.
+  const serviceRoutes = listRoutesForOrg(ctx);
   const baseGlobal = (settings.globalOptions as OrgIngressConfig['globalOptions']) ?? ({} as OrgIngressConfig['globalOptions']);
   // Live scale-to-zero state: a domain whose service is asleep routes to the activator.
   const coldRoutes = computeColdRoutes(ctx);
@@ -247,19 +250,16 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
     enabled: row.enabled,
     orgId: ctx.activeOrgId,
     targetNodes: settings.targetNodes ?? [],
-    domains: domains.map((d) => {
-      const serviceName = names.get(d.serviceId) ?? d.serviceId;
-      return {
-        domain: d.host,
-        pathPrefix: d.pathPrefix ?? '/',
-        service: serviceName,
-        port: d.targetPort,
-        tls: (d.tlsMode as TlsMode) ?? 'auto',
-        stripPathPrefix: d.stripPathPrefix,
-        middlewares: (d.middlewares as string[]) ?? [],
-        cold: coldRoutes.get(serviceName),
-      };
-    }),
+    domains: serviceRoutes.map(({ serviceName, route }) => ({
+      domain: route.host,
+      pathPrefix: route.path ?? '/',
+      service: serviceName,
+      port: route.port,
+      tls: routeTlsToTlsMode(route.tls),
+      stripPathPrefix: route.stripPrefix ?? false,
+      middlewares: route.middlewares ?? [],
+      cold: coldRoutes.get(serviceName),
+    })),
     globalOptions: {
       ...baseGlobal,
       // Promote the load-bearing (encrypted) options, resolving secrets JIT.
@@ -300,7 +300,8 @@ function makeDispatch(ctx: OrgContext): DriverDispatch {
 export async function getConfig(ctx: OrgContext): Promise<IngressConfigView> {
   const row = await ensureConfig(ctx);
   const settings = readSettings(row);
-  const domainCount = await ctx.db.domain.count({ where: { orgId: ctx.activeOrgId } });
+  // Domain count is Docker-truth: number of routes across the org's service labels.
+  const domainCount = listRoutesForOrg(ctx).length;
   return {
     driver: driverLower(row.driver),
     enabled: row.enabled,
@@ -473,23 +474,17 @@ export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<Ing
 }
 
 export async function listDomains(ctx: OrgContext): Promise<DomainView[]> {
-  const row = await ensureConfig(ctx);
-  const overrides = readSettings(row).domainDrivers ?? {};
-  const domains = await ctx.db.domain.findMany({
-    where: { orgId: ctx.activeOrgId },
-    orderBy: { createdAt: 'desc' },
-  });
-  // Domain.serviceId is a plain Docker service id (no relation) → resolve names live.
-  const names = liveServiceNames(ctx);
-  return domains.map((d) => ({
-    id: d.id,
-    host: d.host,
-    serviceId: d.serviceId,
-    serviceName: names.get(d.serviceId) ?? d.serviceId,
-    targetPort: d.targetPort,
-    tls: (d.tlsMode as TlsMode) ?? 'auto',
-    pathPrefix: d.pathPrefix,
-    ingressDriver: overrides[d.host] ?? null,
+  // Routes are Docker-truth: project each service's `swarmy.ingress.routes` label.
+  // The DomainView id is `${serviceId}:${host}` (the handle removeDomain parses back).
+  return listRoutesForOrg(ctx).map(({ serviceId, serviceName, route }) => ({
+    id: `${serviceId}:${route.host}`,
+    host: route.host,
+    serviceId,
+    serviceName,
+    targetPort: route.port,
+    tls: routeTlsToTlsMode(route.tls),
+    pathPrefix: route.path ?? null,
+    ingressDriver: (route.driver as IngressDriverId | undefined) ?? null,
   }));
 }
 
@@ -505,48 +500,37 @@ export async function addDomain(
     ingressDriver?: IngressDriverId | null;
   },
 ): Promise<DomainView> {
-  // Resolve the target from live Docker inventory (no Service table). Domain.serviceId
-  // stores the Docker service id as a plain string (no relation).
+  // Resolve the target from live Docker inventory (no Service table). The route is
+  // persisted on the service's `swarmy.ingress.routes` label — Docker is the truth.
   const service = resolveLiveService(ctx, input.serviceId);
   if (!service) throw notFound('service', input.serviceId);
-  const created = await ctx.db.domain.create({
-    data: {
-      orgId: ctx.activeOrgId,
-      host: input.host,
-      serviceId: service.id,
-      targetPort: input.targetPort,
-      tlsMode: input.tls,
-      pathPrefix: input.pathPrefix ?? null,
-    },
+
+  // Read the service's current routes, drop any existing route for this host, then
+  // append the new one and write the whole array back as the label value.
+  const routes = readRoutes(service.labels).filter((r) => r.host !== input.host);
+  const route: Route = { host: input.host, port: input.targetPort, tls: tlsModeToRouteTls(input.tls) };
+  if (input.pathPrefix) route.path = input.pathPrefix;
+  if (input.ingressDriver) route.driver = input.ingressDriver;
+  routes.push(route);
+
+  // The label IS the source of truth, so this dispatch must land (not best-effort).
+  // `swarmy.ingress` is kept in sync so the service-summary ingress indicator stays lit.
+  const node = await resolveManagerNode(ctx);
+  await ctx.hub.dispatch(node.id, 'service.updateLabels', {
+    service: service.name,
+    add: { [INGRESS_ROUTES_LABEL]: serializeRoutes(routes), [INGRESS_ENABLED_LABEL]: 'true' },
+    removeKeys: [],
   });
-  // Mark the service ingress-enabled via the `swarmy.ingress` Docker label (replaces the
-  // dropped Service.ingressEnabled column). Best-effort: a Domain row also implies ingress.
-  const node = await resolveManagerNode(ctx).catch(() => null);
-  if (node) {
-    await ctx.hub
-      .dispatch(node.id, 'service.updateLabels', {
-        service: service.name,
-        add: { [INGRESS_ENABLED_LABEL]: 'true' },
-        removeKeys: [],
-      })
-      .catch(() => undefined);
-  }
-  // Per-domain driver override (until Domain.ingressDriver lands — see INTEGRATION).
-  if (input.ingressDriver) {
-    await patchSettings(ctx, (s) => ({
-      ...s,
-      domainDrivers: { ...(s.domainDrivers ?? {}), [input.host]: input.ingressDriver! },
-    }));
-  }
+
   await reapply(ctx);
   return {
-    id: created.id,
-    host: created.host,
-    serviceId: created.serviceId,
+    id: `${service.id}:${input.host}`,
+    host: input.host,
+    serviceId: service.id,
     serviceName: service.name,
-    targetPort: created.targetPort,
+    targetPort: input.targetPort,
     tls: input.tls,
-    pathPrefix: created.pathPrefix,
+    pathPrefix: input.pathPrefix ?? null,
     ingressDriver: input.ingressDriver ?? null,
   };
 }
@@ -555,19 +539,30 @@ export async function removeDomain(
   ctx: OrgContext,
   id: string,
 ): Promise<{ id: string; removed: true }> {
-  const domain = await ctx.db.domain.findFirst({
-    where: { id, orgId: ctx.activeOrgId },
-    select: { id: true, host: true },
-  });
-  if (!domain) throw notFound('domain', id);
-  await ctx.db.domain.delete({ where: { id } });
-  // Drop any per-domain driver override for the removed host.
-  await patchSettings(ctx, (s) => {
-    if (!s.domainDrivers?.[domain.host]) return s;
-    const next = { ...s.domainDrivers };
-    delete next[domain.host];
-    return { ...s, domainDrivers: next };
-  });
+  // The DomainView id is `${serviceId}:${host}`; split on the FIRST colon (service
+  // ids are colon-free, hosts may not be — keep everything after it as the host).
+  const sep = id.indexOf(':');
+  const serviceId = sep >= 0 ? id.slice(0, sep) : id;
+  const host = sep >= 0 ? id.slice(sep + 1) : '';
+  const service = resolveLiveService(ctx, serviceId);
+  if (!service) throw notFound('domain', id);
+
+  const remaining = readRoutes(service.labels).filter((r) => r.host !== host);
+  const node = await resolveManagerNode(ctx);
+  if (remaining.length === 0) {
+    // Empty array → drop the label entirely (and the now-orphaned ingress flag).
+    await ctx.hub.dispatch(node.id, 'service.updateLabels', {
+      service: service.name,
+      add: {},
+      removeKeys: [INGRESS_ROUTES_LABEL, INGRESS_ENABLED_LABEL],
+    });
+  } else {
+    await ctx.hub.dispatch(node.id, 'service.updateLabels', {
+      service: service.name,
+      add: { [INGRESS_ROUTES_LABEL]: serializeRoutes(remaining) },
+      removeKeys: [],
+    });
+  }
   await reapply(ctx);
   return { id, removed: true };
 }

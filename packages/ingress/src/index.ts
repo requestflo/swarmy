@@ -2,7 +2,13 @@ export * from './types';
 export * from './errors';
 export * from './registry';
 export * from './apply';
-export { CaddyDriver } from './drivers/caddy';
+export {
+  CaddyDriver,
+  caddyAdminLoadUrl,
+  CADDY_CONTROLLER_SERVICE,
+  CADDY_ADMIN_PORT,
+  CADDY_CONFIG_PATH,
+} from './drivers/caddy';
 export { TraefikDriver } from './drivers/traefik';
 export { NoneDriver } from './drivers/none';
 export { CloudflaredDriver } from './drivers/cloudflared';
