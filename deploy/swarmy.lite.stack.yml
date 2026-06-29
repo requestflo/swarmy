@@ -1,0 +1,98 @@
+# swarmy control plane — LITE tier (embedded PGlite). One service, one volume.
+#
+# Deployed by scripts/install-swarmy.sh on the bootstrap host via:
+#   docker stack deploy -c deploy/swarmy.lite.stack.yml swarmy
+#
+# ${VARS} are interpolated by `docker stack deploy` from the installer's environment.
+# Secrets are external (created by the installer with `docker secret create`) and
+# surfaced to the container as *_FILE, which docker-entrypoint.sh expands into env —
+# so no secret ever lands in the service spec or `docker inspect`.
+version: "3.8"
+
+services:
+  controller:
+    image: ${SWARMY_IMAGE}
+    # Stable service DNS name on the overlay: agents, Caddy, and the cloudflared
+    # connector all reach the controller at swarmy_controller:3001.
+    hostname: swarmy_controller
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      SWARMY_DB_DRIVER: pglite
+      SWARMY_DATA_DIR: /var/lib/swarmy/data
+      SWARMY_STATIC_DIR: /app/public
+      SWARMY_SELF_MIGRATE: "1"
+      SWARMY_BOOTSTRAP: "1"
+      CONTROLLER_PUBLIC_URL: ${SWARMY_PUBLIC_URL}
+      BETTER_AUTH_URL: ${SWARMY_PUBLIC_URL}
+      ADMIN_EMAIL: ${SWARMY_ADMIN_EMAIL}
+      # Non-secret swarm identity; the join tokens themselves arrive as secrets below.
+      SWARM_ID: ${SWARMY_SWARM_ID}
+      SWARM_MANAGER_ADDR: ${SWARMY_MANAGER_ADDR}
+      # Docker-secret file references (expanded by the entrypoint).
+      SWARMY_SECRET_KEY_FILE: /run/secrets/swarmy_secret_key
+      BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
+      ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      SWARMY_BOOTSTRAP_JOIN_TOKEN_FILE: /run/secrets/bootstrap_join_token
+      SWARM_WORKER_TOKEN_FILE: /run/secrets/swarm_worker_token
+      SWARM_MANAGER_TOKEN_FILE: /run/secrets/swarm_manager_token
+    secrets:
+      - swarmy_secret_key
+      - better_auth_secret
+      - admin_password
+      - bootstrap_join_token
+      - swarm_worker_token
+      - swarm_manager_token
+    volumes:
+      - swarmy-data:/var/lib/swarmy
+    ports:
+      # Host-mode publish so first login works at http://<host-ip>:<port> before
+      # ingress exists. Pinned to the bootstrap host by the placement constraint.
+      - target: 3001
+        published: ${SWARMY_PUBLISH_PORT}
+        protocol: tcp
+        mode: host
+    networks:
+      - swarmy
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          # Pin to the bootstrap host: the PGlite volume is node-local, so a floating
+          # task on another node would mount an empty DB. node.hostname, not node.role.
+          - node.hostname == ${SWARMY_NODE_HOSTNAME}
+      update_config:
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+networks:
+  swarmy:
+    driver: overlay
+    attachable: true
+    driver_opts:
+      encrypted: "true"
+
+volumes:
+  swarmy-data:
+
+secrets:
+  swarmy_secret_key:
+    external: true
+  better_auth_secret:
+    external: true
+  admin_password:
+    external: true
+  bootstrap_join_token:
+    external: true
+  swarm_worker_token:
+    external: true
+  swarm_manager_token:
+    external: true

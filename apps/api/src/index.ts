@@ -1,10 +1,13 @@
+import { join } from 'node:path';
 import type { ServerWebSocket } from 'bun';
 import { Hono } from 'hono';
+import { serveStatic } from 'hono/bun';
 import { authRegistry } from '@swarmy/auth';
-import { prisma } from '@swarmy/db';
+import { prisma, ensureSchema, buildAdapter, resolveDbDriver } from '@swarmy/db';
 import { resolveOrgContextFromApiKey } from '@swarmy/trpc';
 import { createRestApp } from '@swarmy/api-rest';
 import { env } from './env';
+import { maybeBootstrapSeed } from './bootstrap/seed';
 import { handleTrpc } from './trpc';
 import { renderInstallScript } from './install-script';
 import { renderLoader, renderChecksumFile, sha256Hex } from './install/loader';
@@ -122,10 +125,64 @@ app.route('/oauth', oauthApp);
 // Scale-to-zero activator (epic #4B): wake a cold service on the first request.
 app.route('/_wake', activatorApp);
 
+// ── Dashboard SPA (self-host single-image) ──────────────────────────────────
+// In production the controller image bundles the built dashboard and serves it
+// same-origin: the SPA calls /api/trpc + /api/auth and upgrades /agent + /term on
+// this very origin. SWARMY_STATIC_DIR points at the built assets (the image sets
+// it to ./public). It is unset in dev — Vite serves :3003 and proxies back here —
+// so this whole block is inert locally. Mounted AFTER every functional route so
+// those win, and the SPA fallback below preserves JSON 404s for API namespaces.
+const STATIC_DIR = process.env.SWARMY_STATIC_DIR;
+if (STATIC_DIR) {
+  const indexHtmlPath = join(STATIC_DIR, 'index.html');
+  app.use('/assets/*', serveStatic({ root: STATIC_DIR }));
+  app.use('*', serveStatic({ root: STATIC_DIR }));
+  // SPA fallback: client-routed paths (e.g. /infrastructure) resolve to index.html;
+  // unmatched API/functional paths keep a real JSON 404 instead of the HTML shell.
+  app.get('*', async (c) => {
+    const p = c.req.path;
+    if (
+      p.startsWith('/api') ||
+      p.startsWith('/webhooks') ||
+      p.startsWith('/oauth') ||
+      p.startsWith('/_wake') ||
+      p.startsWith('/install') ||
+      p === '/health' ||
+      p === '/version'
+    ) {
+      return c.json({ error: 'not found' }, 404);
+    }
+    const file = Bun.file(indexHtmlPath);
+    if (await file.exists()) return c.html(await file.text());
+    return c.json({ error: 'not found' }, 404);
+  });
+}
+
 app.notFound((c) => c.json({ error: 'not found' }, 404));
+
+// ── Fresh-DB bring-up (self-host) ───────────────────────────────────────────
+// A self-hosted controller boots against an empty database. Lite (PGlite) mode
+// has no external `prisma migrate deploy`, so apply pending migrations in-process
+// BEFORE anything reads the DB — authRegistry.rebuild() below is the first read
+// and it throws on a table-less DB. Gated so dev's `bun db:push` flow (which never
+// records into _swarmy_migrations) is not double-applied: lite always self-migrates;
+// managed Postgres opts in via SWARMY_SELF_MIGRATE=1 (set by the self-host stack),
+// leaving `prisma migrate deploy` as the path for externally-managed databases.
+if (resolveDbDriver() === 'pglite' || process.env.SWARMY_SELF_MIGRATE === '1') {
+  const applied = await ensureSchema(buildAdapter() as never);
+  if (applied.length > 0) {
+    // eslint-disable-next-line no-console
+    console.log(`swarmy controller: applied ${applied.length} migration(s): ${applied.join(', ')}`);
+  }
+}
 
 // Load stored auth-provider config so social/SSO providers are live without a restart.
 await authRegistry.rebuild();
+
+// Self-host first-boot: seed the owner org/user, the bootstrap join token, and the
+// SwarmConfig (so added nodes join this swarm). Gated on SWARMY_BOOTSTRAP=1 and
+// idempotent — inert in dev and harmless on every restart.
+await maybeBootstrapSeed();
 
 type WsData = AgentWsData | TermWsData;
 

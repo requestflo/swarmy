@@ -1,0 +1,123 @@
+# swarmy control plane — STANDARD tier (managed Postgres service + controller).
+#
+# Deployed by scripts/install-swarmy.sh (--standard) on the bootstrap host via:
+#   docker stack deploy -c deploy/swarmy.standard.stack.yml swarmy
+#
+# Same conventions as the lite stack: ${VARS} from the installer env, external
+# secrets surfaced as *_FILE. `depends_on` is ignored by `docker stack deploy`, so
+# the controller simply crash-restarts until Postgres accepts connections — its
+# restart_policy makes that the ordering mechanism.
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${SWARMY_POSTGRES_USER:-swarmy}
+      POSTGRES_DB: ${SWARMY_POSTGRES_DB:-swarmy}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - swarmy-pgdata:/var/lib/postgresql/data
+    networks:
+      - swarmy
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          # Node-local volume → pin to the bootstrap host.
+          - node.hostname == ${SWARMY_NODE_HOSTNAME}
+      restart_policy:
+        condition: any
+        delay: 5s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SWARMY_POSTGRES_USER:-swarmy} -d ${SWARMY_POSTGRES_DB:-swarmy}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  controller:
+    image: ${SWARMY_IMAGE}
+    hostname: swarmy_controller
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      SWARMY_DB_DRIVER: postgres
+      SWARMY_STATIC_DIR: /app/public
+      SWARMY_SELF_MIGRATE: "1"
+      SWARMY_BOOTSTRAP: "1"
+      CONTROLLER_PUBLIC_URL: ${SWARMY_PUBLIC_URL}
+      BETTER_AUTH_URL: ${SWARMY_PUBLIC_URL}
+      ADMIN_EMAIL: ${SWARMY_ADMIN_EMAIL}
+      SWARM_ID: ${SWARMY_SWARM_ID}
+      SWARM_MANAGER_ADDR: ${SWARMY_MANAGER_ADDR}
+      # DATABASE_URL is composed by docker-entrypoint.sh from POSTGRES_* + the secret.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${SWARMY_POSTGRES_USER:-swarmy}
+      POSTGRES_DB: ${SWARMY_POSTGRES_DB:-swarmy}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      SWARMY_SECRET_KEY_FILE: /run/secrets/swarmy_secret_key
+      BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
+      ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      SWARMY_BOOTSTRAP_JOIN_TOKEN_FILE: /run/secrets/bootstrap_join_token
+      SWARM_WORKER_TOKEN_FILE: /run/secrets/swarm_worker_token
+      SWARM_MANAGER_TOKEN_FILE: /run/secrets/swarm_manager_token
+    secrets:
+      - postgres_password
+      - swarmy_secret_key
+      - better_auth_secret
+      - admin_password
+      - bootstrap_join_token
+      - swarm_worker_token
+      - swarm_manager_token
+    ports:
+      - target: 3001
+        published: ${SWARMY_PUBLISH_PORT}
+        protocol: tcp
+        mode: host
+    networks:
+      - swarmy
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == ${SWARMY_NODE_HOSTNAME}
+      update_config:
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+networks:
+  swarmy:
+    driver: overlay
+    attachable: true
+    driver_opts:
+      encrypted: "true"
+
+volumes:
+  swarmy-pgdata:
+
+secrets:
+  postgres_password:
+    external: true
+  swarmy_secret_key:
+    external: true
+  better_auth_secret:
+    external: true
+  admin_password:
+    external: true
+  bootstrap_join_token:
+    external: true
+  swarm_worker_token:
+    external: true
+  swarm_manager_token:
+    external: true
