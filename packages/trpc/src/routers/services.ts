@@ -4,6 +4,7 @@ import { orgProcedure, router } from '../trpc';
 import {
   createService,
   getServiceDetail,
+  inspectService,
   listServices,
   removeService,
   restartService,
@@ -37,6 +38,11 @@ export const servicesRouter = router({
   get: orgProcedure.input(z.object({ id: z.string() })).query(({ ctx, input }) =>
     getServiceDetail(ctx, input.id),
   ),
+
+  // Full raw `docker service inspect` for the details/debug view (on-demand dispatch).
+  inspect: orgProcedure
+    .input(z.object({ id: z.string() }))
+    .query(({ ctx, input }) => inspectService(ctx, input.id)),
 
   create: orgProcedure.input(CreateServiceInput).mutation(({ ctx, input }) => createService(ctx, input)),
 

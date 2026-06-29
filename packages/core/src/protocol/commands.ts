@@ -145,6 +145,14 @@ export const ScaleServiceMsg = z.object({
 });
 export type ScaleServiceMsg = z.infer<typeof ScaleServiceMsg>;
 
+/** Read the FULL raw `docker service inspect` for one service (details/debug view). */
+export const InspectServicePayload = z.object({ ...cmd, service: z.string() });
+export const InspectServiceMsg = z.object({
+  type: z.literal('inspectService'),
+  payload: InspectServicePayload,
+});
+export type InspectServiceMsg = z.infer<typeof InspectServiceMsg>;
+
 /** Merge/remove labels on a live service — how swarmy persists config (Docker-truth). */
 export const UpdateServiceLabelsPayload = z.object({
   ...cmd,

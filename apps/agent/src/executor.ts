@@ -48,6 +48,12 @@ export async function handleCommand(
       pushInventory(docker, conn);
       return;
     }
+    case 'inspectService': {
+      const { commandId, service } = envlp.payload;
+      // Read-only: surface the full raw inspect; no inventory push needed.
+      await run(conn, commandId, async () => ({ inspect: await docker.inspectService(service) }));
+      return;
+    }
     case 'removeService': {
       const { commandId, service } = envlp.payload;
       await run(conn, commandId, async () => {

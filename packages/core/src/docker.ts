@@ -308,6 +308,16 @@ export class DockerClient {
     return match ? this.docker.getService(match.ID as string) : null;
   }
 
+  /**
+   * Full raw `docker service inspect` for one service (complete spec + task/
+   * update status) — the structured inventory only carries summary fields, so
+   * this powers the details/debug view. Resolves by exact name first, then id.
+   */
+  async inspectService(nameOrId: string): Promise<unknown> {
+    const svc = (await this.getServiceByName(nameOrId)) ?? this.docker.getService(nameOrId);
+    return svc.inspect();
+  }
+
   async scaleService(nameOrId: string, replicas: number): Promise<string> {
     const svc = (await this.getServiceByName(nameOrId)) ?? this.docker.getService(nameOrId);
     const inspect = await svc.inspect();

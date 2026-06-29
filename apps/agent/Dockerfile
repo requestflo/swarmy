@@ -11,12 +11,29 @@ FROM oven/bun:1.3-alpine
 WORKDIR /app
 
 # Workspace install (run from repo root build context).
+# bun validates the whole lockfile graph, so every workspace member's manifest
+# must be present even though we only build the agent. We copy all package.json
+# files (cheap, cache-friendly) but only the agent's source closure
+# (core + mesh + agent) afterwards, keeping the image lean.
 COPY package.json bun.lock ./
-COPY packages/core/package.json packages/core/
 COPY apps/agent/package.json apps/agent/
-RUN bun install --filter @swarmy/agent --filter @swarmy/core || bun install
+COPY apps/api/package.json apps/api/
+COPY apps/app/package.json apps/app/
+COPY apps/e2e/package.json apps/e2e/
+COPY apps/web/package.json apps/web/
+COPY packages/abac/package.json packages/abac/
+COPY packages/api-rest/package.json packages/api-rest/
+COPY packages/auth/package.json packages/auth/
+COPY packages/core/package.json packages/core/
+COPY packages/db/package.json packages/db/
+COPY packages/ingress/package.json packages/ingress/
+COPY packages/mesh/package.json packages/mesh/
+COPY packages/trpc/package.json packages/trpc/
+COPY packages/ui/package.json packages/ui/
+RUN bun install --filter @swarmy/agent --filter @swarmy/core --filter @swarmy/mesh
 
 COPY packages/core packages/core
+COPY packages/mesh packages/mesh
 COPY apps/agent apps/agent
 
 # Bake the build commit so `swarmy-agent --version` reports it.

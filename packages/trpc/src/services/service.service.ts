@@ -270,6 +270,28 @@ export async function restartService(
   return { id: svc.id, deploymentId: '' };
 }
 
+/**
+ * Full raw `docker service inspect` for one service (complete spec + task/update
+ * status) — for the details/debug view. Resolves the live service NAME from the
+ * inventory, routes to a manager, and returns the inspect JSON as-is.
+ */
+export async function inspectService(
+  ctx: OrgContext,
+  idOrName: string,
+): Promise<Record<string, unknown>> {
+  const svc = liveService(ctx, idOrName);
+  if (!svc) throw notFound('service', idOrName);
+  const node = await resolveManagerNode(ctx);
+  try {
+    const res = await ctx.hub.dispatch<{ inspect: unknown }>(node.id, 'service.inspect', {
+      service: svc.name,
+    });
+    return (res?.inspect ?? {}) as Record<string, unknown>;
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
+}
+
 export async function removeService(
   ctx: OrgContext,
   id: string,

@@ -1,11 +1,12 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MinusIcon, MoonIcon, PlusIcon, RotateCwIcon, ScrollTextIcon, SquareTerminalIcon, Trash2Icon, ZapIcon } from 'lucide-react';
+import { BracesIcon, MinusIcon, MoonIcon, PlusIcon, RotateCwIcon, ScrollTextIcon, SquareTerminalIcon, Trash2Icon, ZapIcon } from 'lucide-react';
 import { Button, Sheet, SheetContent, SheetHeader, SheetTitle, StatusBadge, Switch } from '@swarmy/ui';
 import { SERVICE_STATUS_TONE } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { RegionReplicas } from '@/components/services/region-replicas';
+import { ServiceInspectDialog } from '@/components/canvas/service-inspect-dialog';
 
 /** Slide-over for a canvas service: live status + quick scale + jump-to actions. */
 export function ServiceDetailSheet({
@@ -29,12 +30,14 @@ export function ServiceDetailSheet({
   const remove = useMutation(trpc.services.remove.mutationOptions({ onSuccess: invalidate }));
   const setS2z = useMutation(trpc.services.setScaleToZero.mutationOptions({ onSuccess: invalidate }));
   const wake = useMutation(trpc.services.wake.mutationOptions({ onSuccess: invalidate }));
+  const [inspectOpen, setInspectOpen] = React.useState(false);
 
   const s = svc.data;
   const tone = s ? (SERVICE_STATUS_TONE[s.status] ?? 'neutral') : 'neutral';
   const asleep = !!s?.scaleToZero?.enabled && (s?.replicas.desired ?? 0) === 0;
 
   return (
+    <>
     <Sheet open={!!serviceId} onOpenChange={onOpenChange}>
       <SheetContent className="flex w-full flex-col gap-0 sm:max-w-md">
         <SheetHeader>
@@ -114,6 +117,9 @@ export function ServiceDetailSheet({
               <Button variant="outline" onClick={() => navigate({ to: '/services/$serviceId', params: { serviceId: s.id } })}>
                 <ScrollTextIcon className="size-4" /> Details
               </Button>
+              <Button variant="outline" onClick={() => setInspectOpen(true)}>
+                <BracesIcon className="size-4" /> Inspect
+              </Button>
               <Button
                 variant="outline"
                 onClick={() => navigate({ to: '/services/$serviceId/terminal', params: { serviceId: s.id } })}
@@ -136,5 +142,12 @@ export function ServiceDetailSheet({
         )}
       </SheetContent>
     </Sheet>
+    <ServiceInspectDialog
+      serviceId={serviceId}
+      serviceName={s?.name}
+      open={inspectOpen}
+      onOpenChange={setInspectOpen}
+    />
+    </>
   );
 }

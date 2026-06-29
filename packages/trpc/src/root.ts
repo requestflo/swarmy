@@ -30,11 +30,13 @@ import { webhooksOutRouter } from './routers/webhooksOut';
 import { canvasRouter } from './routers/canvas';
 import { inventoryRouter } from './routers/inventory';
 import { regionRouter } from './routers/region';
+import { managedDbRouter } from './routers/manageddb';
 
 export const appRouter = router({
   org: orgRouter,
   inventory: inventoryRouter,
   region: regionRouter,
+  db: managedDbRouter,
   nodes: nodesRouter,
   services: servicesRouter,
   stacks: stacksRouter,

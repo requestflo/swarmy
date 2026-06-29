@@ -10,6 +10,7 @@ import { startWebhookDispatch } from './webhook-dispatch';
 import { startScaleToZero } from './scale-to-zero';
 import { startRegionReconcile } from './region-reconcile';
 import { startIngressReconcile } from './ingress-reconcile';
+import { startManagedDbReconcile } from './manageddb-reconcile';
 
 export function startWorkers(): () => void {
   const stops = [
@@ -25,6 +26,7 @@ export function startWorkers(): () => void {
     startScaleToZero(),
     startRegionReconcile(),
     startIngressReconcile(),
+    startManagedDbReconcile(),
   ];
   return () => stops.forEach((s) => s());
 }
