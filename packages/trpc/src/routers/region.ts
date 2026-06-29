@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { orgProcedure, router } from '../trpc';
-import { getRegionReplicas, listKnownRegions, setRegionReplicas } from '../services/region.service';
+import {
+  getRegionPlan,
+  getRegionReplicas,
+  listKnownRegions,
+  setRegionReplicas,
+} from '../services/region.service';
 
 /**
  * Per-region replicas (epic #7). Read/declare how many replicas a service wants
@@ -11,6 +16,11 @@ export const regionRouter = router({
   get: orgProcedure
     .input(z.object({ serviceId: z.string().min(1) }))
     .query(({ ctx, input }) => getRegionReplicas(ctx, input.serviceId)),
+
+  /** Live materialisation plan: per-region declared desired vs running siblings. */
+  plan: orgProcedure
+    .input(z.object({ serviceId: z.string().min(1) }))
+    .query(({ ctx, input }) => getRegionPlan(ctx, input.serviceId)),
 
   /** Distinct regions across the org's live nodes (+ already-declared ones). */
   knownRegions: orgProcedure.query(({ ctx }) => listKnownRegions(ctx)),

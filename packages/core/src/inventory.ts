@@ -13,6 +13,14 @@ export const STACK_LABEL = 'com.docker.stack.namespace';
 export const SCALE_TO_ZERO_LABEL = 'swarmy.scaleToZero.enabled';
 export const SCALE_TO_ZERO_TARGET_LABEL = 'swarmy.scaleToZero.targetReplicas';
 export const SCALE_TO_ZERO_IDLE_LABEL = 'swarmy.scaleToZero.idleSeconds';
+/**
+ * Per-region sibling markers (epic #7). A logical app declares
+ * `swarmy.region.<region>.replicas=<n>`; the region-reconcile worker materialises
+ * one Docker service per region named `<name>-<region>` carrying these two labels,
+ * so the canvas can group siblings back under their parent logical service.
+ */
+export const REGION_PARENT_LABEL = 'swarmy.region.parent';
+export const REGION_OF_LABEL = 'swarmy.region.of';
 export const UNGROUPED = '(ungrouped)';
 
 /** Networks that never imply an application link. */
@@ -37,6 +45,14 @@ export interface InvService {
   status: InvServiceStatus;
   /** True when labelled for scale-to-zero (idle = intentional, not failure). */
   scaleToZero: boolean;
+  /**
+   * When set, this service is a per-region sibling materialised by the
+   * region-reconcile worker, and this is the parent logical service's name
+   * (`swarmy.region.parent`). The canvas nests siblings under that parent.
+   */
+  regionParent?: string;
+  /** When a sibling, the region (`swarmy.region` node-label value) it is pinned to. */
+  region?: string;
   labels: Record<string, string>;
   networks: { name: string; aliases: string[] }[];
   env: string[];
@@ -93,6 +109,8 @@ export function buildInventory(services: SwarmServiceInfo[], containers: Contain
       replicas: { desired, running: s.runningReplicas },
       status: statusOf(desired, s.runningReplicas, scaleToZero),
       scaleToZero,
+      regionParent: s.labels?.[REGION_PARENT_LABEL] || undefined,
+      region: s.labels?.[REGION_OF_LABEL] || undefined,
       labels: s.labels ?? {},
       networks: s.networks ?? [],
       env: s.env ?? [],

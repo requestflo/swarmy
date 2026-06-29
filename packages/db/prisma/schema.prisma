@@ -642,6 +642,9 @@ model GeoDnsConfig {
   zone      String   @default("")
   ttl       Int      @default(30)
   provider  String   @default("coredns")
+  /** GeoLite2 + provider-sync REFERENCES only (Docker config/secret names, provider
+   *  zone id + token-env), never secret values. Parsed by parseGeoDnsSettings(). */
+  settings  Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

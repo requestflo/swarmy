@@ -6,6 +6,8 @@ import {
   removeNode,
   setNodeAvailability,
   setNodeLabels,
+  setNodeRegion,
+  setNodeRole,
 } from '../services/node.service';
 import {
   generateJoinToken,
@@ -25,6 +27,24 @@ export const nodesRouter = router({
   setLabels: orgProcedure
     .input(z.object({ id: z.string(), labels: z.record(z.string()) }))
     .mutation(({ ctx, input }) => setNodeLabels(ctx, input.id, input.labels)),
+
+  /** Toggle ingress/outlet roles (Docker node labels). Partial — omit a role to leave it. */
+  setRole: adminProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        ingress: z.boolean().optional(),
+        outlet: z.boolean().optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      setNodeRole(ctx, input.id, { ingress: input.ingress, outlet: input.outlet }),
+    ),
+
+  /** Assign a node's region (`swarmy.region` label via updateSwarmNode). */
+  setRegion: adminProcedure
+    .input(z.object({ id: z.string(), region: z.string().min(1) }))
+    .mutation(({ ctx, input }) => setNodeRegion(ctx, input.id, input.region)),
 
   drain: orgProcedure
     .input(z.object({ id: z.string() }))

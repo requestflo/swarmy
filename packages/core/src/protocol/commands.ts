@@ -127,6 +127,24 @@ export const DeployServiceMsg = z.object({
 });
 export type DeployServiceMsg = z.infer<typeof DeployServiceMsg>;
 
+/**
+ * Idempotently ensure an (attachable overlay) network exists BEFORE deploying a
+ * service that attaches to it — fixes "network <x> not found" on a fresh overlay.
+ * The agent resolves/creates via `docker.ensureNetwork`. Manager-only.
+ */
+export const EnsureNetworkPayload = z.object({
+  ...cmd,
+  name: z.string(),
+  driver: z.string().default('overlay'),
+  attachable: z.boolean().default(true),
+  labels: z.record(z.string()).optional(),
+});
+export const EnsureNetworkMsg = z.object({
+  type: z.literal('ensureNetwork'),
+  payload: EnsureNetworkPayload,
+});
+export type EnsureNetworkMsg = z.infer<typeof EnsureNetworkMsg>;
+
 export const RemoveServicePayload = z.object({ ...cmd, service: z.string() });
 export const RemoveServiceMsg = z.object({
   type: z.literal('removeService'),

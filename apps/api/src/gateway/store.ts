@@ -174,6 +174,26 @@ export class GatewayStore {
     return this.nodeInventoryForOrg(orgId, true).find((n) => n.hostname === host);
   }
 
+  /** Controller node ids whose swarm node carries a role label (= 'true').
+   *  Roles are Docker node labels: swarmy.node.ingress / swarmy.node.outlet. */
+  nodesByRoleForOrg(orgId: string, role: 'ingress' | 'outlet'): string[] {
+    const label = role === 'ingress' ? 'swarmy.node.ingress' : 'swarmy.node.outlet';
+    return this.nodesForOrg(orgId).filter((nodeId) => this.nodeInfoFor(nodeId)?.labels[label] === 'true');
+  }
+
+  /** Region label (swarmy.region) → controller node ids in that region. */
+  nodesByRegionForOrg(orgId: string): Map<string, string[]> {
+    const out = new Map<string, string[]>();
+    for (const nodeId of this.nodesForOrg(orgId)) {
+      const region = this.nodeInfoFor(nodeId)?.labels['swarmy.region'];
+      if (!region) continue;
+      const list = out.get(region) ?? [];
+      list.push(nodeId);
+      out.set(region, list);
+    }
+    return out;
+  }
+
   forget(nodeId: string): void {
     // Retain last-known node + service state for ABAC (offline labels) and dr-reconcile
     // (dead-node placement) before clearing live telemetry.

@@ -172,6 +172,16 @@ export class AgentHubImpl implements AgentHub {
     return this.store.nodeInfoFor(controllerNodeId);
   }
 
+  /** Controller node ids carrying a role label (swarmy.node.ingress/outlet = "true"). */
+  nodesByRole(orgId: string, role: 'ingress' | 'outlet'): string[] {
+    return this.store.nodesByRoleForOrg(orgId, role);
+  }
+
+  /** Region label (swarmy.region) → controller node ids in that region. */
+  nodesByRegion(orgId: string): Map<string, string[]> {
+    return this.store.nodesByRegionForOrg(orgId);
+  }
+
   async *subscribeNodeStats(nodeId: string, signal: AbortSignal): AsyncIterable<NodeStatsSnapshot> {
     const q = asyncQueue<NodeStatsSnapshot>(signal);
     const current = this.store.nodeStats.get(nodeId);

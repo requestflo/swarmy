@@ -29,6 +29,12 @@ export interface NodeSummary {
   name: string;
   hostname: string;
   role: NodeRole;
+  /** Carries the ingress-edge role label (`swarmy.node.ingress=true`). */
+  ingress?: boolean;
+  /** Carries the egress-outlet role label (`swarmy.node.outlet=true`). */
+  outlet?: boolean;
+  /** Region label (`swarmy.region`), or null if unset. */
+  region?: string | null;
   status: NodeStatusView;
   engineVersion: string | null;
   os: string | null;

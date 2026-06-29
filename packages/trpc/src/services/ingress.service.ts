@@ -30,6 +30,28 @@ import {
 /** Service label that marks a Docker service as ingress-enabled (replaces the dropped column). */
 const INGRESS_ENABLED_LABEL = 'swarmy.ingress';
 
+/** Swarm node-role label that marks a node as an ingress (edge) node. */
+const INGRESS_NODE_LABEL = 'swarmy.node.ingress';
+
+/**
+ * Org nodes (enrollment ids) explicitly marked as ingress nodes via the swarm
+ * label `swarmy.node.ingress=true` and currently online. Membership/identity is
+ * the DB's job; the role label + online state are Docker-truth read off the hub.
+ */
+async function ingressTargetNodes(ctx: OrgContext): Promise<string[]> {
+  const nodes = await ctx.db.node.findMany({
+    where: { orgId: ctx.activeOrgId },
+    select: { id: true },
+  });
+  return nodes
+    .filter(
+      (n) =>
+        ctx.hub.isOnline(n.id) &&
+        ctx.hub.nodeInfoFor(n.id)?.labels[INGRESS_NODE_LABEL] === 'true',
+    )
+    .map((n) => n.id);
+}
+
 /**
  * TLS mode mapping between the route label and the render/DomainView layer. The
  * label scheme uses `'manual'` for an operator-supplied cert; the render layer
@@ -273,8 +295,10 @@ function makeDispatch(ctx: OrgContext): DriverDispatch {
   return {
     async resolveTargetNodes(orgId, explicit) {
       if (explicit.length) return explicit;
-      // Manager set is Docker truth from the hub (already connected); no DB role read.
-      return ctx.hub.managerNodes(orgId);
+      // Prefer nodes tagged as the ingress (edge) tier via the node-role label;
+      // fall back to the manager set when no node is marked so ingress still applies.
+      const marked = await ingressTargetNodes(ctx);
+      return marked.length ? marked : ctx.hub.managerNodes(orgId);
     },
     async sendToNode(nodeId, rendered: RenderedConfig) {
       try {

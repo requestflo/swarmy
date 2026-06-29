@@ -1,3 +1,4 @@
+import { REGION_OF_LABEL, REGION_PARENT_LABEL } from '@swarmy/core';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { mapDispatchError, notFound } from '../errors';
@@ -145,4 +146,48 @@ export async function setRegionReplicas(
     throw mapDispatchError(e);
   }
   return { id: svc.id, ok: true };
+}
+
+/** One row of the materialisation plan: a region's declared intent vs live siblings. */
+export interface RegionPlanEntry {
+  region: string;
+  /** Declared replicas for this region (`swarmy.region.<region>.replicas`); 0 ⇒ the
+   *  sibling is an orphan pending removal by the reconcile worker. */
+  desired: number;
+  /** Running replicas of the live `<name>-<region>` sibling (0 if not materialised yet). */
+  running: number;
+}
+
+/**
+ * The live per-region materialisation plan for a logical service: declared
+ * intent (parent `swarmy.region.<region>.replicas` labels) reconciled against the
+ * running sibling services (`swarmy.region.parent == <name>`) the region-reconcile
+ * worker materialises. Pure Docker-truth read from the hub — no DB.
+ *
+ * Union of declared regions and live-sibling regions, so the view surfaces both
+ * regions still converging (declared, sibling not up yet ⇒ running 0) and orphan
+ * siblings the worker is about to remove (no longer declared ⇒ desired 0).
+ */
+export async function getRegionPlan(ctx: OrgContext, serviceId: string): Promise<RegionPlanEntry[]> {
+  const parent = liveServiceById(ctx, serviceId);
+  if (!parent) throw notFound('service', serviceId);
+
+  const declared = parseRegionReplicas(parent.labels);
+
+  const siblings = new Map<string, SwarmServiceInfo>();
+  const { services } = ctx.hub.liveInventory(ctx.activeOrgId);
+  for (const s of services) {
+    if (s.labels[REGION_PARENT_LABEL] !== parent.name) continue;
+    const region = s.labels[REGION_OF_LABEL];
+    if (region) siblings.set(region, s);
+  }
+
+  const regions = new Set<string>([...declared.keys(), ...siblings.keys()]);
+  return [...regions]
+    .sort((a, b) => a.localeCompare(b))
+    .map((region) => ({
+      region,
+      desired: declared.get(region) ?? 0,
+      running: siblings.get(region)?.runningReplicas ?? 0,
+    }));
 }

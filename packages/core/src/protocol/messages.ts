@@ -7,6 +7,7 @@ import { HeartbeatMsg, MetricsMsg } from './stats';
 import { ContainerListMsg, ServiceStateMsg, NodeListMsg } from './containers';
 import {
   DeployServiceMsg,
+  EnsureNetworkMsg,
   RemoveServiceMsg,
   ScaleServiceMsg,
   RestartServiceMsg,
@@ -67,6 +68,7 @@ export type AgentMessageType = AgentToControllerMessage['type'];
 export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   RegisterAckMsg,
   DeployServiceMsg,
+  EnsureNetworkMsg,
   RemoveServiceMsg,
   ScaleServiceMsg,
   RestartServiceMsg,

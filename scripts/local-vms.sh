@@ -90,20 +90,51 @@ runcmd:
 YAML
 }
 
-vm_ip() { multipass exec "$1" -- bash -lc "hostname -I | awk '{print \$1}'" 2>/dev/null | tr -d '\r'; }
+# Run a command with a hard wall-clock cap (macOS has no `timeout` by default).
+# multipassd (1.16.x + qemu on macOS) intermittently wedges a `multipass exec`
+# SSH session; the cap turns an indefinite hang into a recoverable failure.
+guarded() {
+  local secs="$1"; shift
+  ( "$@" & local p=$!
+    ( sleep "$secs"; kill -9 "$p" 2>/dev/null ) & local k=$!
+    wait "$p"; local rc=$?; kill "$k" 2>/dev/null; return "$rc" )
+}
 
-# Wait for Docker to be installed and responsive. We poll `docker info` directly
-# rather than `cloud-init status --wait`, which is known to hang on Ubuntu 24.04
-# under multipass even after cloud-init has actually finished.
-wait_for_docker() {
-  local name="$1" tries=0
-  until multipass exec "$name" -- sudo docker info >/dev/null 2>&1; do
-    tries=$((tries + 1))
-    if [ "$tries" -gt 90 ]; then   # ~7.5 min
-      die "[$name] Docker did not become ready. Check: multipass exec $name -- cloud-init status --long"
-    fi
-    sleep 5
-  done
+# The ENTIRE per-node setup, run in ONE `multipass exec` so we open a single SSH
+# session per VM instead of one per step (sequential exec sessions are what wedge
+# multipassd). Waits for Docker locally, inits a single-node swarm, loads the
+# agent image from the transferred tar, and (re)starts the agent. Idempotent.
+node_setup_script() {
+  cat <<'SETUP'
+#!/usr/bin/env bash
+set -eu
+WS_URL="$1"; TOKEN="$2"; NAME="$3"; ALLOW_MESH="$4"; ALLOW_BUILD="$5"; ALLOW_EXEC="$6"
+
+# Docker may still be installing via cloud-init — wait for it locally.
+for _ in $(seq 1 120); do docker info >/dev/null 2>&1 && break; sleep 3; done
+docker info >/dev/null 2>&1 || { echo "DOCKER_NOT_READY"; exit 1; }
+
+# Single-node swarm so swarmy can drive `docker service` on this node.
+if ! docker info --format '{{.Swarm.LocalNodeState}}' | grep -q active; then
+  docker swarm init --advertise-addr "$(hostname -I | awk '{print $1}')" >/dev/null 2>&1 || true
+fi
+
+docker image inspect swarmy-agent:local >/dev/null 2>&1 || docker load -i /tmp/agent.tar >/dev/null
+
+docker rm -f swarmy-agent >/dev/null 2>&1 || true
+docker run -d --name swarmy-agent --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v swarmy-agent:/var/lib/swarmy \
+  -e AGENT_WS_URL="$WS_URL" \
+  -e SWARMY_JOIN_TOKEN="$TOKEN" \
+  -e SWARMY_NODE_LABELS="local-vm,$NAME" \
+  -e SWARMY_ALLOW_MESH="$ALLOW_MESH" \
+  -e SWARMY_ALLOW_BUILD="$ALLOW_BUILD" \
+  -e SWARMY_ALLOW_EXEC="$ALLOW_EXEC" \
+  -e SWARMY_AGENT_STATE=/var/lib/swarmy/agent.json \
+  swarmy-agent:local >/dev/null
+echo "AGENT_STARTED $NAME"
+SETUP
 }
 
 up() {
@@ -122,47 +153,33 @@ up() {
   say "Launching ${COUNT} × Ubuntu ${RELEASE} (${CPUS} CPU / ${MEM} / ${DISK}) — ${NET_DESC}"
   printf '    controller : %s\n    join token : %s…\n\n' "$WS_URL" "${TOKEN:0:12}"
 
-  local ci; ci="$(mktemp -t swarmy-ci)"; cloud_init_file >"$ci"
-  trap 'rm -f "$ci"' RETURN
+  local ci setup; ci="$(mktemp -t swarmy-ci)"; setup="$(mktemp -t swarmy-setup)"
+  cloud_init_file >"$ci"; node_setup_script >"$setup"
+  trap 'rm -f "$ci" "$setup"' RETURN
 
   for i in $(seq 1 "$COUNT"); do
     local name="${PREFIX}-${i}"
     if multipass info "$name" >/dev/null 2>&1; then
-      warn "$name already exists — skipping launch (use 'down' to reset)."
+      warn "[$name] already exists — reusing (use 'down' to reset)."
     else
-      say "[$name] launching…"
+      say "[$name] launching Ubuntu ${RELEASE}…"
       multipass launch "$RELEASE" --name "$name" \
         --cpus "$CPUS" --memory "$MEM" --disk "$DISK" \
         --cloud-init "$ci" "${NETWORK_ARGS[@]}"
     fi
 
-    say "[$name] waiting for Docker to be ready…"
-    wait_for_docker "$name"
-
-    local ip; ip="$(vm_ip "$name")"
-    say "[$name] enabling single-node swarm (advertise ${ip})…"
-    multipass exec "$name" -- sudo docker swarm init --advertise-addr "$ip" >/dev/null 2>&1 \
-      || multipass exec "$name" -- sudo docker swarm init --advertise-addr "${ip}:2377" >/dev/null 2>&1 || true
-
-    say "[$name] loading agent image…"
+    # One SSH session per VM: ship the image tar + setup script, then run it once.
+    say "[$name] transferring agent image + setup…"
     multipass transfer "$IMAGE_TAR" "${name}:/tmp/agent.tar"
-    multipass exec "$name" -- sudo docker load -i /tmp/agent.tar >/dev/null
+    multipass transfer "$setup"    "${name}:/tmp/node-setup.sh"
 
-    say "[$name] starting swarmy agent → ${WS_URL}"
-    multipass exec "$name" -- sudo docker rm -f swarmy-agent >/dev/null 2>&1 || true
-    multipass exec "$name" -- sudo docker run -d \
-      --name swarmy-agent --restart unless-stopped \
-      -v /var/run/docker.sock:/var/run/docker.sock \
-      -v swarmy-agent:/var/lib/swarmy \
-      -e AGENT_WS_URL="$WS_URL" \
-      -e SWARMY_JOIN_TOKEN="$TOKEN" \
-      -e SWARMY_NODE_LABELS="local-vm,${name}" \
-      -e SWARMY_ALLOW_MESH="$ALLOW_MESH" \
-      -e SWARMY_ALLOW_BUILD="$ALLOW_BUILD" \
-      -e SWARMY_ALLOW_EXEC="$ALLOW_EXEC" \
-      -e SWARMY_AGENT_STATE=/var/lib/swarmy/agent.json \
-      "$IMAGE_TAG" >/dev/null
-    ok "[$name] agent up"
+    say "[$name] configuring (Docker wait → swarm → agent) → ${WS_URL}"
+    if guarded 600 multipass exec "$name" -- sudo bash /tmp/node-setup.sh \
+         "$WS_URL" "$TOKEN" "$name" "$ALLOW_MESH" "$ALLOW_BUILD" "$ALLOW_EXEC"; then
+      ok "[$name] agent up"
+    else
+      warn "[$name] setup hung or failed. Recover: multipass restart $name && bash scripts/local-vms.sh up"
+    fi
   done
 
   echo
@@ -178,8 +195,8 @@ status() {
     local name="${PREFIX}-${i}"
     multipass info "$name" >/dev/null 2>&1 || continue
     printf '\033[1m%s\033[0m: ' "$name"
-    multipass exec "$name" -- sudo docker ps --filter name=swarmy-agent \
-      --format '{{.Status}}' 2>/dev/null || echo "(unreachable)"
+    guarded 20 multipass exec "$name" -- sudo docker ps --filter name=swarmy-agent \
+      --format '{{.Status}}' 2>/dev/null || echo "(unreachable/timed out)"
   done
 }
 

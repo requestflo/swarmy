@@ -15,6 +15,17 @@
  */
 import { prisma } from '@swarmy/db';
 import type { ServiceSpec } from '@swarmy/core/protocol';
+// GeoLite2 strategy + provider sync are the pure, unit-tested seams exported from
+// @swarmy/trpc (package root — not an internal subpath, same as the other workers).
+import {
+  type GeoLitePlan,
+  geoipEnabled,
+  isSyncProvider,
+  parseGeoDnsSettings,
+  resolveGeoLite,
+  resolveProviderToken,
+  syncProviderZone,
+} from '@swarmy/trpc';
 import { hub } from '../gateway';
 
 const TICK_MS = 30_000;
@@ -94,15 +105,23 @@ function renderZone(
   return lines.join('\n') + '\n';
 }
 
-function coreDnsSpec(zone: string, ttl: number, serial: number, records: ReconcileRecord[]): ServiceSpec {
+function coreDnsSpec(
+  zone: string,
+  ttl: number,
+  serial: number,
+  records: ReconcileRecord[],
+  geo: GeoLitePlan,
+): ServiceSpec {
   const zonefile = renderZone(zone, ttl, serial, records);
+  const geoipPath = geoipEnabled(geo) ? geo.mmdbPath : false;
   const corefile = [
     `${zone}:53 {`,
     `    file /etc/coredns/${zone}.zone`,
-    '    geoip /etc/coredns/GeoLite2-City.mmdb {',
-    '        edns-subnet',
-    '    }',
-    '    metadata',
+    // geoip only when a GeoLite2 db will be present; otherwise degrade to
+    // round-robin (loadbalance) so CoreDNS does not crash-loop on the missing db.
+    ...(geoipPath
+      ? [`    geoip ${geoipPath} {`, '        edns-subnet', '    }', '    metadata']
+      : []),
     '    loadbalance',
     '    health',
     '    ready',
@@ -112,7 +131,7 @@ function coreDnsSpec(zone: string, ttl: number, serial: number, records: Reconci
     '}',
     '',
   ].join('\n');
-  return {
+  const spec: ServiceSpec = {
     name: 'swarmy-coredns',
     image: COREDNS_IMAGE,
     mode: { replicated: { replicas: Math.max(1, Math.min(3, records.length || 1)) } },
@@ -120,6 +139,7 @@ function coreDnsSpec(zone: string, ttl: number, serial: number, records: Reconci
     labels: {
       'swarmy.gslb': 'coredns',
       'swarmy.gslb.serial': String(serial),
+      'swarmy.gslb.geoip': geo.mode,
       // The rendered files live in service labels for visibility/audit (MVP).
       'swarmy.gslb.corefile': corefile,
       'swarmy.gslb.zonefile': zonefile,
@@ -130,18 +150,66 @@ function coreDnsSpec(zone: string, ttl: number, serial: number, records: Reconci
     ],
     placement: { preferences: ['spread=node.labels.swarmy.region'], maxReplicasPerNode: 1 },
   };
+  // The mmdb itself is mounted here; the license-init downloader (Mode B) is
+  // managed by the controller's enable/apply path, not this redeploy worker.
+  if (geo.mode === 'config') {
+    spec.configs = [{ source: geo.configRef, target: geo.mmdbPath, mode: 0o444 }];
+  } else if (geo.mode === 'license') {
+    spec.mounts = [{ type: 'volume', source: geo.volume, target: geo.volumeDir, readOnly: true }];
+  }
+  return spec;
 }
 
 // ── IO shell ─────────────────────────────────────────────────────────────────
 
 interface GeoDb {
   geoDnsConfig: {
-    findUnique(a: unknown): Promise<{ enabled: boolean; zone: string; ttl: number } | null>;
+    findUnique(a: unknown): Promise<{
+      enabled: boolean;
+      zone: string;
+      ttl: number;
+      provider: string;
+      settings: unknown;
+    } | null>;
   };
   dnsRecord: {
     findMany(a: unknown): Promise<ReconcileRecord[]>;
     update(a: unknown): Promise<unknown>;
   };
+}
+
+/**
+ * Mirror the new (health-filtered) answer set into an external DNS provider when
+ * `provider` is cloudflare/route53 and a zone id + token are configured. Token
+ * comes from the controller's secret-injected env (never the DB). Best-effort;
+ * self-host CoreDNS still serves regardless.
+ */
+async function syncProviderForOrg(
+  provider: string,
+  zone: string,
+  ttl: number,
+  settings: ReturnType<typeof parseGeoDnsSettings>,
+  records: ReconcileRecord[],
+): Promise<void> {
+  if (!isSyncProvider(provider)) return;
+  const zoneId = settings.providerZoneId;
+  if (!zoneId) return;
+  const token = resolveProviderToken(provider, settings);
+  if (!token) return;
+  await syncProviderZone(
+    provider,
+    {
+      zone,
+      ttl,
+      endpoints: records.map((r) => ({
+        host: r.host,
+        region: r.region,
+        target: r.targetIngress,
+        healthy: r.healthy,
+      })),
+    },
+    { zoneId, token, region: settings.providerRegion },
+  );
 }
 
 /** A connected swarm manager to redeploy the CoreDNS zone through (Docker truth). */
@@ -189,9 +257,16 @@ async function reconcileOrg(orgId: string): Promise<void> {
     const u = plan.updates.find((x) => x.id === r.id);
     return u ? { ...r, healthy: u.healthy } : r;
   });
+  const settings = parseGeoDnsSettings(cfg.settings);
+  const geo = resolveGeoLite(settings);
+  const zone = cfg.zone || 'example.com';
+  const ttl = cfg.ttl || DEFAULT_TTL;
   const serial = Math.floor(Date.now() / 1000);
-  const spec = coreDnsSpec(cfg.zone || 'example.com', cfg.ttl || DEFAULT_TTL, serial, next);
+  const spec = coreDnsSpec(zone, ttl, serial, next, geo);
   await hub.dispatch(nodeId, 'service.deploy', { spec, pullPolicy: 'always' }).catch(() => undefined);
+
+  // Optional external-provider mirror, behind GeoDnsConfig.provider.
+  await syncProviderForOrg(cfg.provider, zone, ttl, settings, next).catch(() => undefined);
 }
 
 async function tick(): Promise<void> {

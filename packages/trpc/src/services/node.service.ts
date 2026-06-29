@@ -19,6 +19,29 @@ type NodeRow = {
   createdAt: Date;
 };
 
+/**
+ * Node ROLES + region are Docker node labels (Docker is the source of truth — no
+ * DB column). `swarmy.node.ingress`/`swarmy.node.outlet` flag a node as an
+ * ingress edge / egress outlet; `swarmy.region` is its region. These are read
+ * back live from the hub's swarm-node inventory (`nodeInfoFor(...).labels`).
+ */
+export const NODE_INGRESS_LABEL = 'swarmy.node.ingress';
+export const NODE_OUTLET_LABEL = 'swarmy.node.outlet';
+export const NODE_REGION_LABEL = 'swarmy.region';
+
+/** Derive the role/region view from a node's live swarm labels. */
+function rolesFromLabels(labels: Record<string, string> | undefined): {
+  ingress: boolean;
+  outlet: boolean;
+  region: string | null;
+} {
+  return {
+    ingress: labels?.[NODE_INGRESS_LABEL] === 'true',
+    outlet: labels?.[NODE_OUTLET_LABEL] === 'true',
+    region: labels?.[NODE_REGION_LABEL] ?? null,
+  };
+}
+
 /** Dashboard status from live swarm availability + connection state. */
 function statusOf(info: SwarmNodeInfo | undefined, online: boolean, everSeen: boolean): NodeStatusView {
   if (info?.availability === 'drain') return 'draining';
@@ -40,11 +63,15 @@ function toSummary(ctx: OrgContext, n: NodeRow): NodeSummary {
           memPercent: snap.memTotalBytes > 0 ? (snap.memUsedBytes / snap.memTotalBytes) * 100 : 0,
         }
       : null;
+  const roles = rolesFromLabels(info?.labels);
   return {
     id: n.id,
     name: n.name,
     hostname: n.hostname,
     role: info?.role ?? 'worker',
+    ingress: roles.ingress,
+    outlet: roles.outlet,
+    region: roles.region,
     status: statusOf(info, online, lastSeen != null),
     engineVersion: info?.engineVersion ?? null,
     os: info?.os ?? null,
@@ -104,6 +131,46 @@ export async function setNodeLabels(
   }
   return { id, labels };
 }
+
+/**
+ * Toggle a node's ROLES (ingress edge / egress outlet) via Docker node labels.
+ * Only the roles present in `roles` are touched (partial update). Because
+ * `updateSwarmNode` merges labels and cannot delete keys, "off" is written as the
+ * empty string — any value other than `'true'` reads back as false. Best-effort
+ * push (skipped while offline); Docker remains the source of truth.
+ */
+export async function setNodeRole(
+  ctx: OrgContext,
+  id: string,
+  roles: { ingress?: boolean; outlet?: boolean },
+): Promise<{ id: string; ingress: boolean; outlet: boolean }> {
+  const node = await ctx.db.node.findFirst({
+    where: { id, orgId: ctx.activeOrgId },
+    select: { id: true },
+  });
+  if (!node) throw notFound('node', id);
+
+  const patch: Record<string, string> = {};
+  if (roles.ingress !== undefined) patch[NODE_INGRESS_LABEL] = roles.ingress ? 'true' : '';
+  if (roles.outlet !== undefined) patch[NODE_OUTLET_LABEL] = roles.outlet ? 'true' : '';
+
+  const swarmNodeId = ctx.hub.swarmNodeIdFor(id);
+  if (ctx.hub.isOnline(id) && swarmNodeId && Object.keys(patch).length > 0) {
+    await ctx.hub.dispatch(id, 'node.update', { swarmNodeId, labels: patch }).catch(() => undefined);
+  }
+
+  // Reflect the resulting state: live labels merged with the patch we just sent.
+  const merged = { ...(ctx.hub.nodeInfoFor(id)?.labels ?? {}), ...patch };
+  const result = rolesFromLabels(merged);
+  return { id, ingress: result.ingress, outlet: result.outlet };
+}
+
+/**
+ * Region is also a Docker node label (`swarmy.region`). The canonical impl
+ * (audit + label merge via `node.update`) lives in geodns.service — reuse it so
+ * the nodes router has a single import surface for node label mutations.
+ */
+export { setNodeRegion } from './geodns.service';
 
 export async function setNodeAvailability(
   ctx: OrgContext,

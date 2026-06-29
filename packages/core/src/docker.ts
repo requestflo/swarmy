@@ -290,6 +290,43 @@ export class DockerClient {
     });
   }
 
+  /**
+   * Idempotently ensure an overlay network exists, returning its id. Looks the
+   * network up by EXACT name first (Docker's listNetworks `name` filter is a
+   * substring match, so we filter in-process); if absent, creates an attachable
+   * overlay so swarm services AND ad-hoc containers can join. Fixes the
+   * "network <x> not found" failure when deploying a service (Caddy/CoreDNS) to
+   * a freshly-named overlay the swarm hasn't created yet. Overlay networks
+   * require a manager — route this command to a manager node.
+   */
+  async ensureNetwork(
+    name: string,
+    opts: { driver?: string; attachable?: boolean; labels?: Record<string, string> } = {},
+  ): Promise<string> {
+    const findByName = async (): Promise<string | undefined> => {
+      const nets = await this.docker.listNetworks();
+      return nets.find((n) => n.Name === name)?.Id;
+    };
+    const existing = await findByName();
+    if (existing) return existing;
+    try {
+      const net = await this.docker.createNetwork({
+        Name: name,
+        Driver: opts.driver ?? 'overlay',
+        Attachable: opts.attachable ?? true,
+        CheckDuplicate: true,
+        Labels: opts.labels,
+      });
+      return net.id;
+    } catch (e) {
+      // Lost a create race (another deploy created it concurrently)? Re-resolve
+      // by name before surfacing the error so this stays idempotent.
+      const raced = await findByName();
+      if (raced) return raced;
+      throw e;
+    }
+  }
+
   async createService(spec: ServiceSpec): Promise<string> {
     const created = await this.docker.createService(toServiceCreateOptions(await this.resolveSpecNetworks(spec)));
     return (created as unknown as { id?: string; ID?: string }).id ?? (created as { ID?: string }).ID ?? '';

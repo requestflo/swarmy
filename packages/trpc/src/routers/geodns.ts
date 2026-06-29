@@ -2,7 +2,9 @@ import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import {
   applyNow,
+  checkDomain,
   getConfig,
+  listDnsView,
   listRecords,
   previewZone,
   removeRecord,
@@ -30,6 +32,14 @@ export const geodnsRouter = router({
     .mutation(({ ctx, input }) => setEnabled(ctx, input.enabled)),
 
   listRecords: orgProcedure.query(({ ctx }) => listRecords(ctx)),
+
+  /** Live DNS view: each zone endpoint with its resolved IP + health (table). */
+  dnsView: orgProcedure.query(({ ctx }) => listDnsView(ctx)),
+
+  /** Probe one host: expected vs actual resolved IP + reachability (diagnostic). */
+  checkDomain: orgProcedure
+    .input(z.object({ host: z.string().min(1) }))
+    .query(({ ctx, input }) => checkDomain(ctx, input.host)),
 
   upsertRecord: adminProcedure
     .input(

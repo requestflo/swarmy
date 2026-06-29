@@ -1,15 +1,18 @@
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import {
-  buildCaddyfile,
   CADDY_ADMIN_PORT,
   CADDY_CONFIG_PATH,
   CADDY_CONTROLLER_SERVICE,
-  IngressConfigSchema,
 } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
+import type { CommandName } from '../hub/types';
 import { mapDispatchError } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { liveService } from './service.service';
+
+// `network.ensure` becomes a valid CommandName once the hub/types.ts integration
+// snippet lands; the cast keeps @swarmy/trpc green until then (see INTEGRATION).
+const NETWORK_ENSURE = 'network.ensure' as CommandName;
 
 /**
  * Deploy/converge a NATIVE Caddy ingress controller on the swarm and keep its
@@ -57,23 +60,22 @@ export interface EnsureControllerResult {
 
 type ResolvedOptions = Required<EnsureControllerOptions>;
 
+/** Swarm node-role label that marks a node as an ingress (edge) node. */
+const INGRESS_NODE_LABEL = 'swarmy.node.ingress';
+
 /**
- * Base Caddyfile written to the manager host for the controller's first boot —
- * it only enables the admin endpoint (no routes yet). Reuses the real renderer so
- * the `admin 0.0.0.0:2019` directive stays in lockstep with the driver's output.
+ * Placement constraint for the ingress controller. Prefer pinning Caddy to nodes
+ * explicitly marked `swarmy.node.ingress=true` (the edge tier); fall back to
+ * managers when no node carries the label yet so a fresh swarm still schedules.
  */
-function baseCaddyfile(): string {
-  return buildCaddyfile(
-    IngressConfigSchema.parse({
-      driver: 'caddy',
-      orgId: '_controller',
-      domains: [],
-      globalOptions: { extraConfig: { applyVia: 'admin' } },
-    }),
-  );
+function ingressPlacementConstraint(ctx: OrgContext): string {
+  const marked = ctx.hub
+    .nodeInventory(ctx.activeOrgId, true)
+    .some((n) => n.labels[INGRESS_NODE_LABEL] === 'true');
+  return marked ? `node.labels.${INGRESS_NODE_LABEL}==true` : 'node.role == manager';
 }
 
-function controllerSpec(opts: ResolvedOptions): ServiceSpec {
+function controllerSpec(opts: ResolvedOptions, placementConstraint: string): ServiceSpec {
   const ports: NonNullable<ServiceSpec['ports']> = [
     { target: 80, published: 80, protocol: 'tcp', mode: 'ingress' },
     { target: 443, published: 443, protocol: 'tcp', mode: 'ingress' },
@@ -86,18 +88,21 @@ function controllerSpec(opts: ResolvedOptions): ServiceSpec {
     image: opts.image,
     mode: { replicated: { replicas: opts.replicas } },
     labels: { 'swarmy.managed': 'true', 'swarmy.role': 'ingress' },
-    command: ['caddy', 'run', '--resume', '--config', CADDY_CONFIG_PATH, '--adapter', 'caddyfile'],
+    // The container writes its own admin-enabling base config on boot (no host bind
+    // mount / root needed), then swarmy pushes the rendered routes to the admin API.
+    command: [
+      'sh',
+      '-c',
+      `printf '{\\n\\tadmin 0.0.0.0:${CADDY_ADMIN_PORT}\\n}\\n' > ${CADDY_CONFIG_PATH} && ` +
+        `exec caddy run --config ${CADDY_CONFIG_PATH} --adapter caddyfile`,
+    ],
     ports,
     mounts: [
-      // First-boot base config (admin endpoint). Pinned to the manager via the
-      // placement constraint below so the bind source — written by the agent on
-      // the manager — is co-located; each apply rewrites it for `--resume`.
-      { type: 'bind', source: CADDY_CONFIG_PATH, target: CADDY_CONFIG_PATH, readOnly: false },
       { type: 'volume', source: DATA_VOLUME, target: '/data' },
       { type: 'volume', source: CONFIG_VOLUME, target: '/config' },
     ],
     networks: [opts.network],
-    placement: { constraints: ['node.role == manager'] },
+    placement: { constraints: [placementConstraint] },
   };
 }
 
@@ -113,24 +118,25 @@ export async function ensureCaddyController(
   };
   const node = await resolveManagerNode(ctx);
 
-  // 1. Write the base Caddyfile to the manager host so the controller's bind mount
-  //    resolves on first boot (mirrors observability-stack's file-then-deploy order).
+  // Ensure the ingress overlay exists BEFORE the controller deploy so attaching
+  // to a freshly-named network doesn't fail with "network <x> not found".
   try {
-    await ctx.hub.dispatch(node.id, 'applyIngress', {
-      rendered: {
-        driver: 'caddy-controller-base',
-        files: [{ path: CADDY_CONFIG_PATH, contents: baseCaddyfile(), mode: 0o644 }],
-        serviceLabels: [],
-      },
+    await ctx.hub.dispatch(node.id, NETWORK_ENSURE, {
+      name: opts.network,
+      driver: 'overlay',
+      attachable: true,
+      labels: { 'swarmy.managed': 'true', 'swarmy.role': 'ingress' },
     });
   } catch (e) {
     throw mapDispatchError(e);
   }
 
-  // 2. Deploy/converge the controller service (create+update idempotent).
+  // Deploy/converge the controller service (create+update idempotent). The container
+  // writes its own admin-enabling base config on boot (no host bind mount / root), then
+  // swarmy pushes the rendered routes to its admin API on every apply.
   try {
     await ctx.hub.dispatch(node.id, 'service.deploy', {
-      spec: controllerSpec(opts),
+      spec: controllerSpec(opts, ingressPlacementConstraint(ctx)),
       pullPolicy: 'missing',
     });
   } catch (e) {

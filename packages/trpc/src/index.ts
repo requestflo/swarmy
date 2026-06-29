@@ -74,6 +74,36 @@ export {
   upsertRecord as upsertDnsRecord,
   removeRecord as removeDnsRecord,
 } from './services/geodns.service';
+// ── geodns P3: DNS view + provider sync seam (reused by the reconcile worker) ──
+export {
+  listDnsView,
+  checkDomain,
+  reconcileGeoDns,
+  buildZoneSnapshot,
+  resolveProviderToken,
+} from './services/geodns.service';
+export type { DnsViewRow, DomainCheck } from './services/geodns.service';
+export {
+  resolveGeoLite,
+  geoipEnabled,
+  parseGeoDnsSettings,
+} from './services/geodns-geolite';
+export type { GeoDnsSettings, GeoLitePlan } from './services/geodns-geolite';
+export {
+  syncProviderZone,
+  getDnsProvider,
+  isSyncProvider,
+  desiredRecords,
+  diffRecords,
+} from './services/geodns-provider';
+export type {
+  DnsProvider,
+  ProviderName,
+  ProviderZoneSnapshot,
+  ProviderEndpoint,
+  ProviderSyncResult,
+  ProviderSyncOptions,
+} from './services/geodns-provider';
 export {
   listTargets as listBackupTargets,
   addTarget as addBackupTarget,

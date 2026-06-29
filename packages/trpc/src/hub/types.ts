@@ -18,6 +18,7 @@ export type CommandName =
   | 'service.inspect'
   | 'service.updateLabels'
   | 'service.remove'
+  | 'network.ensure' // idempotent overlay-network create (pre-deploy)
   | 'image.pull'
   | 'applyIngress'
   | 'applyMesh'
@@ -44,6 +45,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'service.inspect': 'inspectService',
   'service.updateLabels': 'updateServiceLabels',
   'service.remove': 'removeService',
+  'network.ensure': 'ensureNetwork',
   'image.pull': 'pullImage',
   applyIngress: 'applyIngress',
   applyMesh: 'applyMesh',
@@ -117,6 +119,10 @@ export interface AgentHub {
   swarmNodeIdFor(controllerNodeId: string): string | undefined;
   /** Full live swarm info (role/status/labels/resources) for an enrollment node id. */
   nodeInfoFor(controllerNodeId: string): SwarmNodeInfo | undefined;
+  /** Controller node ids carrying a role label (swarmy.node.ingress/outlet = "true"). */
+  nodesByRole(orgId: string, role: 'ingress' | 'outlet'): string[];
+  /** Region label (swarmy.region) → controller node ids in that region. */
+  nodesByRegion(orgId: string): Map<string, string[]>;
 
   subscribeNodeStats(nodeId: string, signal: AbortSignal): AsyncIterable<NodeStatsSnapshot>;
   subscribeClusterStats(orgId: string, signal: AbortSignal): AsyncIterable<ClusterStatsFrame>;

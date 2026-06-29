@@ -1,10 +1,28 @@
+import { resolve4 } from 'node:dns/promises';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
+import type { CommandName } from '../hub/types';
 import { notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { writeAudit } from './audit.service';
 import { regionCoord, type SteerTarget } from './geo-steer';
 import { planReconcile, type RegionHealth } from './geodns-reconcile.core';
+import {
+  type GeoDnsSettings,
+  type GeoLitePlan,
+  GEOLITE_INIT_IMAGE,
+  GEOLITE_INIT_SERVICE,
+  geoipEnabled,
+  geoliteInitScript,
+  parseGeoDnsSettings,
+  resolveGeoLite,
+} from './geodns-geolite';
+import {
+  type ProviderSyncResult,
+  type ProviderZoneSnapshot,
+  isSyncProvider,
+  syncProviderZone,
+} from './geodns-provider';
 
 /**
  * Geo-DNS (GSLB) — epic #12, Part A — MVP.
@@ -30,7 +48,14 @@ interface GeoDnsConfigRow {
   enabled: boolean;
   zone: string;
   ttl: number;
-  provider: string; // 'coredns'
+  provider: string; // 'coredns' | 'cloudflare' | 'route53'
+  /**
+   * Opaque Json bag of *references* — GeoLite2 config/secret names and provider
+   * zone/token-env/region. Holds NO secret values (skill: secrets live in Docker
+   * secrets / the controller's secret-injected env, never the DB). See
+   * {@link GeoDnsSettings}. Optional so the file compiles before the column lands.
+   */
+  settings?: unknown;
   updatedAt: Date;
 }
 
@@ -109,6 +134,25 @@ export interface ZoneSnapshot {
 
 const DEFAULT_TTL = 30;
 const COREDNS_IMAGE = 'coredns/coredns:1.11.3';
+/** Attachable overlay CoreDNS joins (ensured before deploy). */
+const DNS_NETWORK = 'swarmy-dns';
+// `network.ensure` becomes a valid CommandName once the hub/types.ts integration
+// snippet lands; the cast keeps @swarmy/trpc green until then (see INTEGRATION).
+const NETWORK_ENSURE = 'network.ensure' as CommandName;
+/** Swarm node-role label that marks a node as a DNS (outlet) node. */
+const OUTLET_NODE_LABEL = 'swarmy.node.outlet';
+
+/**
+ * Placement constraint for CoreDNS. Prefer pinning to nodes explicitly marked
+ * `swarmy.node.outlet=true` (the DNS/outlet tier); fall back to managers when no
+ * node carries the label yet so a fresh swarm still schedules the service.
+ */
+function outletPlacementConstraint(ctx: OrgContext): string {
+  const marked = ctx.hub
+    .nodeInventory(ctx.activeOrgId, true)
+    .some((n) => n.labels[OUTLET_NODE_LABEL] === 'true');
+  return marked ? `node.labels.${OUTLET_NODE_LABEL}==true` : 'node.role == manager';
+}
 
 async function ensureConfig(ctx: OrgContext): Promise<GeoDnsConfigRow> {
   return db(ctx).geoDnsConfig.upsert({
@@ -167,6 +211,13 @@ export interface RenderCoreDnsOptions {
    * deploying a live zone should pass an incrementing serial.
    */
   serial?: number;
+  /**
+   * Path to the GeoLite2 mmdb the `geoip` plugin should read, or `false` to omit
+   * the geoip block entirely (graceful degrade → round-robin via `loadbalance`,
+   * so CoreDNS still starts when no db is available). Defaults to the canonical
+   * `/etc/coredns/GeoLite2-City.mmdb`.
+   */
+  geoip?: string | false;
 }
 
 export interface RenderedHost {
@@ -253,13 +304,16 @@ export function renderCoreDns(
   }
 
   const zonefile = lines.join('\n') + '\n';
+  const geoipPath = opts.geoip === undefined ? '/etc/coredns/GeoLite2-City.mmdb' : opts.geoip;
   const corefile = [
     `${zone}:53 {`,
     `    file /etc/coredns/${zone}.zone`,
-    '    geoip /etc/coredns/GeoLite2-City.mmdb {',
-    '        edns-subnet',
-    '    }',
-    '    metadata',
+    // geoip + metadata only when a GeoLite2 db is present; without the file the
+    // geoip plugin fails to load and CoreDNS crash-loops, so we degrade to plain
+    // round-robin (loadbalance) and still answer.
+    ...(geoipPath
+      ? [`    geoip ${geoipPath} {`, '        edns-subnet', '    }', '    metadata']
+      : []),
     '    loadbalance',
     '    health',
     '    ready',
@@ -288,9 +342,17 @@ export function endpointsToSteerTargets(endpoints: ZoneEndpoint[]): SteerTarget[
 }
 
 /** The swarm ServiceSpec used to deploy CoreDNS via the existing deploy path. */
-function coreDnsServiceSpec(snapshot: ZoneSnapshot, serial = 0): ServiceSpec {
-  const rendered = renderCoreDns(snapshot, { serial });
-  return {
+function coreDnsServiceSpec(
+  snapshot: ZoneSnapshot,
+  serial = 0,
+  placementConstraint = 'node.role == manager',
+  geo: GeoLitePlan = { mode: 'none', mmdbPath: '/etc/coredns/GeoLite2-City.mmdb' },
+): ServiceSpec {
+  const rendered = renderCoreDns(snapshot, {
+    serial,
+    geoip: geoipEnabled(geo) ? geo.mmdbPath : false,
+  });
+  const spec: ServiceSpec = {
     name: 'swarmy-coredns',
     image: COREDNS_IMAGE,
     mode: { replicated: { replicas: Math.max(1, Math.min(3, snapshot.endpoints.length || 1)) } },
@@ -300,12 +362,48 @@ function coreDnsServiceSpec(snapshot: ZoneSnapshot, serial = 0): ServiceSpec {
     labels: {
       'swarmy.gslb': 'coredns',
       'swarmy.gslb.summary': rendered.summary,
+      'swarmy.gslb.geoip': geo.mode,
     },
     ports: [
       { target: 53, published: 53, protocol: 'udp', mode: 'host' },
       { target: 53, published: 53, protocol: 'tcp', mode: 'host' },
     ],
-    placement: { preferences: ['spread=node.labels.swarmy.region'], maxReplicasPerNode: 1 },
+    networks: [DNS_NETWORK],
+    // Pin to the DNS/outlet node tier (label-based), spread across regions among
+    // the eligible nodes. Constraint falls back to managers when none are marked.
+    placement: {
+      constraints: [placementConstraint],
+      preferences: ['spread=node.labels.swarmy.region'],
+      maxReplicasPerNode: 1,
+    },
+  };
+  // Make the GeoLite2 db available: Mode A mounts an operator-created Docker
+  // config at the geoip path; Mode B mounts the per-node volume the license-init
+  // downloader fills. Mode 'none' adds nothing (geoip is already disabled above).
+  if (geo.mode === 'config') {
+    spec.configs = [{ source: geo.configRef, target: geo.mmdbPath, mode: 0o444 }];
+  } else if (geo.mode === 'license') {
+    spec.mounts = [{ type: 'volume', source: geo.volume, target: geo.volumeDir, readOnly: true }];
+  }
+  return spec;
+}
+
+/**
+ * Mode-B GeoLite2 init: a tiny GLOBAL service that downloads the City db using a
+ * MaxMind license key (read from a Docker secret) into the per-node volume CoreDNS
+ * mounts. Global so every outlet node gets a local copy (Swarm local volumes are
+ * per-node). Refreshes daily; restarts on failure.
+ */
+function geoLiteInitSpec(geo: Extract<GeoLitePlan, { mode: 'license' }>): ServiceSpec {
+  return {
+    name: GEOLITE_INIT_SERVICE,
+    image: GEOLITE_INIT_IMAGE,
+    mode: { global: {} },
+    command: ['/bin/sh', '-c', geoliteInitScript(geo.licenseSecretRef, geo.volumeDir)],
+    secrets: [{ source: geo.licenseSecretRef }],
+    mounts: [{ type: 'volume', source: geo.volume, target: geo.volumeDir }],
+    labels: { 'swarmy.gslb': 'geolite-init' },
+    restartPolicy: { condition: 'any' },
   };
 }
 
@@ -362,6 +460,9 @@ export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<Geo
     const node = await resolveManagerNode(ctx).catch(() => null);
     if (node) {
       await ctx.hub.dispatch(node.id, 'service.remove', { service: 'swarmy-coredns' }).catch(() => undefined);
+      await ctx.hub
+        .dispatch(node.id, 'service.remove', { service: GEOLITE_INIT_SERVICE })
+        .catch(() => undefined);
     }
   }
   return getConfig(ctx);
@@ -374,13 +475,38 @@ export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<Geo
  * set changes.
  */
 export async function deployCoreDns(ctx: OrgContext): Promise<{ summary: string }> {
+  const cfg = await ensureConfig(ctx);
+  const settings = parseGeoDnsSettings(cfg.settings);
+  const geo = resolveGeoLite(settings);
   const snapshot = await buildZoneSnapshot(ctx);
   const node = await resolveManagerNode(ctx);
   const serial = Math.floor(Date.now() / 1000);
-  const spec = coreDnsServiceSpec(snapshot, serial);
+  // Ensure the dns overlay exists before CoreDNS attaches to it (idempotent).
+  await ctx.hub.dispatch(node.id, NETWORK_ENSURE, {
+    name: DNS_NETWORK,
+    driver: 'overlay',
+    attachable: true,
+    labels: { 'swarmy.managed': 'true', 'swarmy.role': 'gslb' },
+  });
+  // Mode B: bring up the license-init downloader so the mmdb appears on each
+  // outlet node (Swarm restarts CoreDNS until the geoip plugin can load it).
+  if (geo.mode === 'license') {
+    await ctx.hub
+      .dispatch(node.id, 'service.deploy', { spec: geoLiteInitSpec(geo), pullPolicy: 'missing' })
+      .catch(() => undefined);
+  }
+  const spec = coreDnsServiceSpec(snapshot, serial, outletPlacementConstraint(ctx), geo);
   await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
-  const rendered = renderCoreDns(snapshot, { serial });
-  return { summary: rendered.summary };
+  const rendered = renderCoreDns(snapshot, {
+    serial,
+    geoip: geoipEnabled(geo) ? geo.mmdbPath : false,
+  });
+
+  // Optional: mirror the live (health-filtered) zone into an external provider
+  // (Cloudflare / Route53). Self-host CoreDNS still serves regardless.
+  const sync = await syncProviderForOrg(ctx, cfg, settings, snapshot).catch(() => null);
+  const suffix = sync ? ` · ${sync.provider}: ${sync.applied} change(s)` : '';
+  return { summary: rendered.summary + suffix };
 }
 
 export async function listRecords(ctx: OrgContext): Promise<DnsRecordView[]> {
@@ -433,8 +559,10 @@ export async function removeRecord(ctx: OrgContext, id: string): Promise<{ id: s
 export async function previewZone(
   ctx: OrgContext,
 ): Promise<{ summary: string; files: { path: string; contents: string }[] }> {
+  const cfg = await ensureConfig(ctx);
+  const geo = resolveGeoLite(parseGeoDnsSettings(cfg.settings));
   const snapshot = await buildZoneSnapshot(ctx);
-  return renderCoreDns(snapshot);
+  return renderCoreDns(snapshot, { geoip: geoipEnabled(geo) ? geo.mmdbPath : false });
 }
 
 /**
@@ -561,4 +689,174 @@ async function collectRegionHealth(ctx: OrgContext): Promise<Map<string, RegionH
     }
   }
   return health;
+}
+
+// ───────────────────────────────────────────── provider sync ──
+
+/** Map the internal zone snapshot onto the provider-agnostic snapshot shape. */
+function buildProviderSnapshot(snapshot: ZoneSnapshot): ProviderZoneSnapshot {
+  return {
+    zone: snapshot.zone,
+    ttl: snapshot.ttl,
+    endpoints: snapshot.endpoints.map((e) => ({
+      host: e.host,
+      region: e.region,
+      target: e.target,
+      healthy: e.healthy,
+    })),
+  };
+}
+
+/**
+ * Resolve the provider API token from the controller's secret-injected ENV (never
+ * the DB). `settings.providerTokenEnv` names the var; per-provider defaults apply.
+ * Route53 assembles `accessKeyId:secretAccessKey[:sessionToken]` from the standard
+ * AWS vars when no single var is named. Returns null when unset → sync is skipped.
+ */
+export function resolveProviderToken(provider: string, settings: GeoDnsSettings): string | null {
+  const env = (k?: string): string | undefined => (k ? process.env[k] : undefined);
+  if (provider === 'cloudflare') {
+    return env(settings.providerTokenEnv) ?? env('CLOUDFLARE_API_TOKEN') ?? null;
+  }
+  if (provider === 'route53') {
+    const single = env(settings.providerTokenEnv);
+    if (single) return single;
+    const id = env('AWS_ACCESS_KEY_ID');
+    const secret = env('AWS_SECRET_ACCESS_KEY');
+    if (id && secret) {
+      const sessionToken = env('AWS_SESSION_TOKEN');
+      return sessionToken ? `${id}:${secret}:${sessionToken}` : `${id}:${secret}`;
+    }
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Mirror the live (health-filtered) zone into an external provider when
+ * `provider` is cloudflare/route53 and a zone id + token are configured.
+ * Best-effort + audited; returns null when not configured. The self-host CoreDNS
+ * service still runs independently (self-host + provider, per the epic).
+ */
+async function syncProviderForOrg(
+  ctx: OrgContext,
+  cfg: GeoDnsConfigRow,
+  settings: GeoDnsSettings,
+  snapshot: ZoneSnapshot,
+): Promise<ProviderSyncResult | null> {
+  if (!isSyncProvider(cfg.provider)) return null;
+  const zoneId = settings.providerZoneId;
+  if (!zoneId) return null;
+  const token = resolveProviderToken(cfg.provider, settings);
+  if (!token) return null;
+
+  const result = await syncProviderZone(cfg.provider, buildProviderSnapshot(snapshot), {
+    zoneId,
+    token,
+    region: settings.providerRegion,
+  });
+  await writeAudit(ctx, {
+    action: 'geodns.providerSync',
+    targetType: 'geoDnsConfig',
+    targetId: ctx.activeOrgId,
+    metadata: {
+      provider: result.provider,
+      applied: result.applied,
+      planned: result.planned.length,
+      errors: result.errors.length,
+    },
+  });
+  return result;
+}
+
+// ───────────────────────────────────────────── DNS view (probe) ──
+
+export interface DnsViewRow {
+  host: string;
+  region: string;
+  target: string;
+  /** Resolved A value (the target itself when already an IP, else a live lookup). */
+  ip: string;
+  healthy: boolean;
+}
+
+export interface DomainCheck {
+  /** Whether the host resolves to at least one A record right now. */
+  resolves: boolean;
+  /** The IP swarmy WOULD serve for this host (first healthy endpoint). */
+  expectedIp: string;
+  /** The IP a public resolver actually returns for this host. */
+  gotIp: string;
+  /** Whether the resolved host answered an HTTP(S) probe. */
+  reachable: boolean;
+}
+
+/** Best-effort A lookup; returns [] on any failure (NXDOMAIN, timeout, …). */
+async function resolveIps(host: string): Promise<string[]> {
+  try {
+    return await resolve4(host);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Live DNS view: every zone endpoint with its resolved IP + health, for the
+ * dashboard DNS table. CNAME targets are resolved to an A best-effort (cached per
+ * target). Reuses the same health-composed snapshot the zone is rendered from.
+ */
+export async function listDnsView(ctx: OrgContext): Promise<DnsViewRow[]> {
+  const snapshot = await buildZoneSnapshot(ctx);
+  const ipCache = new Map<string, string>();
+  const rows: DnsViewRow[] = [];
+  for (const e of snapshot.endpoints) {
+    let ip: string;
+    if (isIp(e.target)) {
+      ip = e.target;
+    } else if (ipCache.has(e.target)) {
+      ip = ipCache.get(e.target) ?? '';
+    } else {
+      ip = (await resolveIps(e.target))[0] ?? '';
+      ipCache.set(e.target, ip);
+    }
+    rows.push({ host: e.host, region: e.region, target: e.target, ip, healthy: e.healthy });
+  }
+  return rows;
+}
+
+/** Probe whether the resolved host answers HTTP/HTTPS within a short timeout. */
+async function probeReachable(host: string): Promise<boolean> {
+  for (const url of [`https://${host}/`, `http://${host}/`]) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 2500);
+    try {
+      await fetch(url, { method: 'HEAD', redirect: 'manual', signal: ctl.signal });
+      clearTimeout(timer);
+      return true; // any HTTP answer (even an error status) means reachable
+    } catch {
+      clearTimeout(timer);
+    }
+  }
+  return false;
+}
+
+/**
+ * Probe one host: compare the IP swarmy intends to serve (first healthy endpoint)
+ * against what a public resolver returns, plus a reachability check. Diagnostic
+ * only — no Docker writes.
+ */
+export async function checkDomain(ctx: OrgContext, host: string): Promise<DomainCheck> {
+  const snapshot = await buildZoneSnapshot(ctx);
+  const eps = snapshot.endpoints.filter((e) => e.host === host);
+  const preferred = eps.find((e) => e.healthy) ?? eps[0];
+
+  let expectedIp = '';
+  if (preferred) {
+    expectedIp = isIp(preferred.target)
+      ? preferred.target
+      : (await resolveIps(preferred.target))[0] ?? '';
+  }
+  const gotIp = (await resolveIps(host))[0] ?? '';
+  const reachable = gotIp ? await probeReachable(host) : false;
+  return { resolves: gotIp !== '', expectedIp, gotIp, reachable };
 }
