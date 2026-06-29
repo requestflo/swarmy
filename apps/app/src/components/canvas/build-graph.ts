@@ -1,7 +1,6 @@
 import { type Edge as FlowEdge, type Node as FlowNode, MarkerType } from '@xyflow/react';
 import type { Inventory, InvEdge, InvService } from '@swarmy/core';
-import { UNGROUPED } from '@swarmy/core';
-import { STATUS_TONE, aggregateTone } from './stack-aggregates';
+import { STATUS_TONE } from './stack-aggregates';
 
 export interface ServiceNodeData extends Record<string, unknown> {
   service: InvService;
@@ -24,16 +23,16 @@ export type CanvasEdge = FlowEdge;
 
 export type Positions = Record<string, { x: number; y: number }>;
 
-// Layout geometry. Services grid inside their project frame; frames flow left→right.
+/** Per-service canvas position is Docker-truth — stored as labels on the service. */
+export const CANVAS_X_LABEL = 'swarmy.canvas.x';
+export const CANVAS_Y_LABEL = 'swarmy.canvas.y';
+
+// Flat layout geometry — services flow across the full canvas, no group frame.
 const SERVICE_W = 248;
 const SERVICE_H = 178;
-const COL_GAP = 22;
-const ROW_GAP = 22;
-const PAD_X = 22;
-const PAD_TOP = 60; // room for the project chip header
-const PAD_BOTTOM = 22;
-const PROJECT_GAP = 88;
-const PER_ROW = 2;
+const COL_GAP = 40;
+const ROW_GAP = 40;
+const PER_ROW = 4;
 
 /** Network links have no on-brand teal token — this soft teal matches the token space. */
 const NETWORK_TEAL = 'oklch(0.72 0.1 195)';
@@ -44,7 +43,17 @@ const NETWORK_TEAL = 'oklch(0.72 0.1 195)';
 function serviceFallback(index: number): { x: number; y: number } {
   const col = index % PER_ROW;
   const row = Math.floor(index / PER_ROW);
-  return { x: PAD_X + col * (SERVICE_W + COL_GAP), y: PAD_TOP + row * (SERVICE_H + ROW_GAP) };
+  return { x: col * (SERVICE_W + COL_GAP), y: row * (SERVICE_H + ROW_GAP) };
+}
+
+/** Read a service's saved canvas position from its Docker labels, if any. */
+function labelPosition(s: InvService): { x: number; y: number } | null {
+  const rx = s.labels?.[CANVAS_X_LABEL];
+  const ry = s.labels?.[CANVAS_Y_LABEL];
+  if (rx == null || ry == null) return null;
+  const x = Number(rx);
+  const y = Number(ry);
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
 }
 
 function edgeFor(e: InvEdge): CanvasEdge {
@@ -68,59 +77,25 @@ function edgeFor(e: InvEdge): CanvasEdge {
 }
 
 /**
- * Pure: project the live Docker inventory into a React Flow graph — one group
- * frame per project (parent node) with its services gridded inside (children with
- * parentId + extent:'parent'), plus the inferred network/depends edges. Saved
- * positions (relative to the parent frame) win; the rest auto-grid so a fresh
- * canvas is never a pile at the origin. Drag is visual only — never real placement.
+ * Pure: project the live Docker inventory into a React Flow graph — every service
+ * is a free top-level node on the full canvas (no group frame), plus the inferred
+ * network/depends edges. Each service's position is Docker-truth: read from its
+ * swarmy.canvas.x/y labels; `live` (this-session drags) wins over the label so a
+ * 4s poll never snaps a card mid-arrange; unplaced services auto-grid. Drag writes
+ * the labels back (see service-canvas).
  */
 export function buildGraph(
   inv: Inventory,
-  positions: Positions,
+  live: Positions = {},
 ): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
-  const svcById = new Map(inv.services.map((s) => [s.id, s]));
-  const projectNodes: ProjectFlowNode[] = [];
-  const serviceNodes: ServiceFlowNode[] = [];
-  let cursorX = 0;
-
-  for (const project of inv.projects) {
-    const services = project.serviceIds
-      .map((id) => svcById.get(id))
-      .filter((s): s is InvService => Boolean(s));
-    const count = services.length;
-    const cols = Math.min(PER_ROW, Math.max(1, count));
-    const rows = Math.max(1, Math.ceil(count / cols));
-    const width = PAD_X * 2 + cols * SERVICE_W + (cols - 1) * COL_GAP;
-    const height = PAD_TOP + rows * SERVICE_H + (rows - 1) * ROW_GAP + PAD_BOTTOM;
-    const ungrouped = project.name === UNGROUPED;
-    const projectId = `project:${project.name}`;
-
-    projectNodes.push({
-      id: projectId,
-      type: 'project',
-      position: { x: cursorX, y: 0 },
-      data: { label: ungrouped ? 'Ungrouped' : project.name, ungrouped, count, tone: aggregateTone(services) },
-      draggable: false,
-      selectable: false,
-      style: { width, height },
-    });
-
-    services.forEach((service, i) => {
-      serviceNodes.push({
-        id: service.id,
-        type: 'service',
-        parentId: projectId,
-        extent: 'parent',
-        position: positions[service.id] ?? serviceFallback(i),
-        data: { service, tone: STATUS_TONE[service.status] },
-      });
-    });
-
-    cursorX += width + PROJECT_GAP;
-  }
+  const serviceNodes: ServiceFlowNode[] = inv.services.map((service, i) => ({
+    id: service.id,
+    type: 'service',
+    position: live[service.id] ?? labelPosition(service) ?? serviceFallback(i),
+    data: { service, tone: STATUS_TONE[service.status] },
+  }));
 
   const ids = new Set(inv.services.map((s) => s.id));
   const edges = inv.edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map(edgeFor);
-  // Parents must precede children in the node array for React Flow grouping.
-  return { nodes: [...projectNodes, ...serviceNodes], edges };
+  return { nodes: serviceNodes, edges };
 }

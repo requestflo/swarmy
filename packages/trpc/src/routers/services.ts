@@ -9,6 +9,7 @@ import {
   removeService,
   restartService,
   scaleService,
+  setCanvasPosition,
   setScaleToZero,
   updateService,
   wakeService,
@@ -74,6 +75,10 @@ export const servicesRouter = router({
   wake: orgProcedure
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => wakeService(ctx, input.id)),
+
+  setCanvasPos: orgProcedure
+    .input(z.object({ id: z.string(), x: z.number(), y: z.number() }))
+    .mutation(({ ctx, input }) => setCanvasPosition(ctx, input)),
 
   deployStatus: orgProcedure
     .input(z.object({ serviceId: z.string() }))

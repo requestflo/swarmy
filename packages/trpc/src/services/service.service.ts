@@ -351,4 +351,25 @@ export async function wakeService(ctx: OrgContext, id: string): Promise<{ id: st
   return { id: s.id, woke: true };
 }
 
+/** Persist a service's canvas position as Docker labels (swarmy.canvas.x/y) —
+ *  layout is Docker-truth, not stored in swarmy's DB. */
+export async function setCanvasPosition(
+  ctx: OrgContext,
+  input: { id: string; x: number; y: number },
+): Promise<{ id: string; ok: true }> {
+  const s = liveService(ctx, input.id);
+  if (!s) throw notFound('service', input.id);
+  const node = await resolveManagerNode(ctx);
+  try {
+    await ctx.hub.dispatch(node.id, 'service.updateLabels', {
+      service: s.name,
+      add: { 'swarmy.canvas.x': String(Math.round(input.x)), 'swarmy.canvas.y': String(Math.round(input.y)) },
+      removeKeys: [],
+    });
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
+  return { id: s.id, ok: true };
+}
+
 export { recordToEnvArray };

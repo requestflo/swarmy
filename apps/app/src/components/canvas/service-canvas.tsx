@@ -9,7 +9,7 @@ import {
   type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import type { Inventory } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { ServiceNode } from './service-node';
@@ -40,7 +40,9 @@ interface ServiceCanvasProps {
 export function ServiceCanvas({ stackFilter, onBack }: ServiceCanvasProps): React.JSX.Element {
   const trpc = useTRPC();
   const inventory = useQuery({ ...trpc.inventory.get.queryOptions(), refetchInterval: 4_000 });
-  const { isLoaded, positions, savedViewport, setPosition, setViewport } = useCanvasLayout();
+  const { savedViewport, setViewport } = useCanvasLayout();
+  // Canvas position is Docker-truth: persisted as swarmy.canvas.x/y labels on the service.
+  const setCanvasPos = useMutation(trpc.services.setCanvasPos.mutationOptions());
 
   const [selected, setSelected] = React.useState<string | null>(null);
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<CanvasNode>([]);
@@ -54,12 +56,12 @@ export function ServiceCanvas({ stackFilter, onBack }: ServiceCanvasProps): Reac
   );
 
   const graph = React.useMemo(
-    () => (scoped ? buildGraph(scoped, positions) : { nodes: [], edges: [] }),
-    [scoped, positions],
+    () => (scoped ? buildGraph(scoped) : { nodes: [], edges: [] }),
+    [scoped],
   );
 
   React.useEffect(() => {
-    if (!isLoaded) return;
+    if (!scoped) return;
     setFlowNodes((prev) => {
       const prevPos = new Map(prev.map((n) => [n.id, n.position]));
       return graph.nodes.map((n) =>
@@ -68,7 +70,7 @@ export function ServiceCanvas({ stackFilter, onBack }: ServiceCanvasProps): Reac
           : n,
       );
     });
-  }, [graph, isLoaded, setFlowNodes]);
+  }, [graph, scoped, setFlowNodes]);
 
   // Viewport (camera) is only persisted for the flat "All services" view — the
   // store holds one viewport per org, so a drilled-in stack just fit-views
@@ -86,7 +88,7 @@ export function ServiceCanvas({ stackFilter, onBack }: ServiceCanvasProps): Reac
         onNodeDragStop={(_e, node) => {
           if (node.type !== 'service') return;
           draggedRef.current.add(node.id);
-          setPosition(node.id, node.position.x, node.position.y);
+          setCanvasPos.mutate({ id: node.id, x: node.position.x, y: node.position.y });
         }}
         onMoveEnd={(_e, vp: Viewport) => isAll && setViewport(vp)}
         defaultViewport={isAll ? (savedViewport ?? undefined) : undefined}
