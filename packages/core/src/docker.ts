@@ -291,8 +291,23 @@ export class DockerClient {
   }
 
   async createService(spec: ServiceSpec): Promise<string> {
-    const created = await this.docker.createService(toServiceCreateOptions(spec));
+    const created = await this.docker.createService(toServiceCreateOptions(await this.resolveSpecNetworks(spec)));
     return (created as unknown as { id?: string; ID?: string }).id ?? (created as { ID?: string }).ID ?? '';
+  }
+
+  /** Resolve network NAMES → ids in a spec. Docker's TaskTemplate.Networks resolves
+   *  ids reliably but is flaky resolving freshly-created overlay names at create time. */
+  private async resolveSpecNetworks(spec: ServiceSpec): Promise<ServiceSpec> {
+    if (!spec.networks?.length) return spec;
+    const byName = new Map<string, string>();
+    try {
+      for (const n of await this.docker.listNetworks()) {
+        if (n.Name && n.Id) byName.set(n.Name, n.Id);
+      }
+    } catch {
+      return spec; // best-effort: fall back to names
+    }
+    return { ...spec, networks: spec.networks.map((n) => byName.get(n) ?? n) };
   }
 
   async getServiceByName(name: string) {
