@@ -6,6 +6,8 @@ import { Button, Sheet, SheetContent, SheetHeader, SheetTitle, StatusBadge, Swit
 import { SERVICE_STATUS_TONE } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { RegionPlanEditor } from '@/components/stacks/region-plan-editor';
+import { AppIngressPanel } from '@/components/stacks/app-ingress-panel';
+import { AppCicdPanel } from '@/components/stacks/app-cicd-panel';
 import { ServiceInspectDialog } from '@/components/canvas/service-inspect-dialog';
 
 /** Slide-over for a canvas service: live status + quick scale + jump-to actions. */
@@ -109,6 +111,10 @@ export function ServiceDetailSheet({
             </div>
 
             <RegionPlanEditor serviceId={s.id} />
+
+            <AppIngressPanel serviceId={s.id} serviceName={s.name} />
+
+            <AppCicdPanel serviceId={s.id} serviceName={s.name} />
 
             <div className="grid grid-cols-2 gap-2">
               <Button variant="outline" disabled={restart.isPending} onClick={() => restart.mutate({ id: s.id })}>

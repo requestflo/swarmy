@@ -229,6 +229,56 @@ export const ingress: DomainResolvers = {
 
     'ingress.listDomains': (_i, s): DomainView[] => getState(s).domains,
 
+    // Per-app multi-route API (Phase 3): routes derive from this service's domains.
+    'ingress.listServiceRoutes': (i, s) => {
+      const { serviceId } = i as { serviceId: string };
+      return getState(s)
+        .domains.filter((d) => d.serviceId === serviceId)
+        .map((d) => ({
+          host: d.host,
+          port: d.targetPort,
+          tls: (d.tls === 'custom' ? 'manual' : d.tls) as 'auto' | 'off' | 'manual',
+          ...(d.pathPrefix ? { path: d.pathPrefix } : {}),
+          ...(d.ingressDriver ? { driver: d.ingressDriver } : {}),
+        }));
+    },
+    'ingress.setServiceRoutes': (i, s) => {
+      const b = i as { serviceId: string; routes: { host: string; port: number; tls?: 'auto' | 'off' | 'manual'; path?: string; driver?: string }[] };
+      const st = getState(s);
+      const svc = s.services.find((sv) => sv.id === b.serviceId);
+      const others = st.domains.filter((d) => d.serviceId !== b.serviceId);
+      st.domains = [
+        ...b.routes.map((r): DomainView => ({
+          id: rid('dom'),
+          host: r.host,
+          serviceId: b.serviceId,
+          serviceName: svc?.name ?? b.serviceId,
+          targetPort: r.port,
+          tls: (r.tls === 'manual' ? 'custom' : (r.tls ?? 'auto')) as TlsMode,
+          pathPrefix: r.path ?? null,
+          ingressDriver: r.driver && VALID_DRIVERS.has(r.driver as IngressDriverId) && r.driver !== 'none' ? (r.driver as IngressDriverId) : null,
+        })),
+        ...others,
+      ];
+      if (svc) svc.ingressEnabled = b.routes.length > 0;
+      st.updatedAt = nowIso();
+      return getState(s).domains.filter((d) => d.serviceId === b.serviceId).map((d) => ({ host: d.host, port: d.targetPort, tls: (d.tls === 'custom' ? 'manual' : d.tls) as 'auto' | 'off' | 'manual' }));
+    },
+    'ingress.detectPorts': (i, s) => {
+      const { serviceId } = i as { serviceId: string };
+      const svc = s.services.find((sv) => sv.id === serviceId);
+      const seen = new Set<string>();
+      const out: { port: number; protocol: 'tcp' | 'udp'; source: 'service' | 'container' }[] = [];
+      for (const p of svc?.ports ?? []) {
+        const protocol: 'tcp' | 'udp' = p.protocol === 'udp' ? 'udp' : 'tcp';
+        const key = `${p.target}/${protocol}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ port: p.target, protocol, source: 'service' });
+      }
+      return out;
+    },
+
     'ingress.addDomain': (i, s): DomainView => {
       const b = i as {
         host: string;

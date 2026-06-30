@@ -114,7 +114,7 @@ export function ServiceCanvas({ stackFilter, onBack }: ServiceCanvasProps): Reac
           className="!rounded-xl"
         />
         <CanvasBreadcrumb stack={stackFilter} onBack={onBack} />
-        <CanvasToolbar count={scoped?.services.length ?? 0} />
+        <CanvasToolbar count={scoped?.services.length ?? 0} stack={stackFilter} />
       </ReactFlow>
       <ServiceDetailSheet serviceId={selected} onOpenChange={(o) => !o && setSelected(null)} />
     </div>

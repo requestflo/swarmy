@@ -16,8 +16,24 @@ import {
   setOnDemandTls,
   setTunnel,
 } from '../services/ingress.service';
+import {
+  detectServicePorts,
+  listServiceRoutes,
+  setServiceRoutes,
+} from '../services/ingress-routes-api';
 
 const driverEnum = z.enum(['caddy', 'traefik', 'none', 'cloudflared', 'nginx', 'haproxy']);
+
+/** One ingress route as written to the `swarmy.ingress.routes` service label. */
+const routeInput = z.object({
+  host: z.string().min(1),
+  port: z.number().int().min(1).max(65535),
+  tls: z.enum(['auto', 'off', 'manual']).default('auto'),
+  path: z.string().optional(),
+  stripPrefix: z.boolean().optional(),
+  middlewares: z.array(z.string()).optional(),
+  driver: z.string().optional(),
+});
 
 export const ingressRouter = router({
   getConfig: orgProcedure.query(({ ctx }) => getConfig(ctx)),
@@ -59,6 +75,24 @@ export const ingressRouter = router({
   removeDomain: orgProcedure
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeDomain(ctx, input.id)),
+
+  /** All ingress routes carried on one service's `swarmy.ingress.routes` label. */
+  listServiceRoutes: orgProcedure
+    .input(z.object({ serviceId: z.string() }))
+    .query(({ ctx, input }) => listServiceRoutes(ctx, input.serviceId)),
+
+  /**
+   * Replace ALL routes for a service in one write (multi-route): validates and
+   * serializes the whole array into the single routes label, then re-renders.
+   */
+  setServiceRoutes: orgProcedure
+    .input(z.object({ serviceId: z.string(), routes: z.array(routeInput) }))
+    .mutation(({ ctx, input }) => setServiceRoutes(ctx, input.serviceId, input.routes)),
+
+  /** Suggested {port, protocol} for a service, read from the live Docker inventory. */
+  detectPorts: orgProcedure
+    .input(z.object({ serviceId: z.string() }))
+    .query(({ ctx, input }) => detectServicePorts(ctx, input.serviceId)),
 
   /** Configure Caddy HA shared-cert storage (Redis). `null` clears it. */
   setHaStorage: adminProcedure

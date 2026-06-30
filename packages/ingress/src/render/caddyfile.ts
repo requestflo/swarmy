@@ -42,45 +42,124 @@ export function buildCaddyfile(config: IngressConfig): string {
     out.push('{', ...global, '}', '');
   }
 
-  for (const route of config.domains) {
-    out.push(...buildSite(route, config), '');
+  // The org's FULL route set — every service's routes, already flattened into
+  // `config.domains` by the controller (listRoutesForOrg) — is grouped by HOST so
+  // path-based routing across containers collapses into ONE Caddy site block per
+  // host. Caddy rejects duplicate site addresses, so two services sharing a host
+  // (xyz.com/app → appA, xyz.com/app/api → appB; or http + ws on one host) MUST
+  // live in a single block. Within it, routes are ordered longest-prefix-first so
+  // the most specific path wins (Caddy evaluates `handle` blocks top-to-bottom and
+  // the first match handles the request).
+  for (const [host, routes] of groupByHost(config.domains)) {
+    out.push(...buildSite(host, routes, config), '');
   }
   return `${out.join('\n').trimEnd()}\n`;
 }
 
-function buildSite(r: DomainRoute, config: IngressConfig): string[] {
-  const address = r.tls === 'off' ? `http://${r.domain}` : r.domain;
+/** Group routes by host, preserving first-seen host order for stable output. */
+function groupByHost(domains: readonly DomainRoute[]): Map<string, DomainRoute[]> {
+  const byHost = new Map<string, DomainRoute[]>();
+  for (const d of domains) {
+    const list = byHost.get(d.domain);
+    if (list) list.push(d);
+    else byHost.set(d.domain, [d]);
+  }
+  return byHost;
+}
+
+/** A route's path prefix, normalised so an empty/undefined prefix is the root `/`. */
+function routePath(r: DomainRoute): string {
+  return r.pathPrefix && r.pathPrefix.length > 0 ? r.pathPrefix : '/';
+}
+
+/**
+ * One TLS mode per host — the site address carries a single scheme. A custom
+ * operator cert on ANY route governs the host; a host whose EVERY route is `off`
+ * serves plain http; otherwise ACME (`auto`). Single-route hosts are unchanged from
+ * the pre-grouping behaviour; mixed hosts get a deterministic scheme.
+ */
+function resolveHostTls(routes: readonly DomainRoute[]): DomainRoute['tls'] {
+  if (routes.some((r) => r.tls === 'custom')) return 'custom';
+  if (routes.every((r) => r.tls === 'off')) return 'off';
+  return 'auto';
+}
+
+/** Sort longest-prefix-first; the root `/` (a catch-all) always sorts last. */
+function bySpecificity(a: DomainRoute, b: DomainRoute): number {
+  const pa = routePath(a);
+  const pb = routePath(b);
+  const wa = pa === '/' ? 0 : pa.length;
+  const wb = pb === '/' ? 0 : pb.length;
+  if (wb !== wa) return wb - wa;
+  // Stable, deterministic tie-break for equal-length paths.
+  if (pa < pb) return -1;
+  if (pa > pb) return 1;
+  return 0;
+}
+
+function buildSite(host: string, routes: DomainRoute[], config: IngressConfig): string[] {
+  const tls = resolveHostTls(routes);
+  const address = tls === 'off' ? `http://${host}` : host;
   const out: string[] = [`${address} {`];
 
-  if (r.tls === 'custom') {
+  if (tls === 'custom') {
     const certs = (config.globalOptions.extraConfig as Record<string, unknown>).certs as
       | Record<string, { cert: string; key: string }>
       | undefined;
-    const material = certs?.[r.domain];
+    const material = certs?.[host];
     if (material) out.push(`  tls ${material.cert} ${material.key}`);
-  } else if (config.globalOptions.onDemandTls && r.tls === 'auto') {
+  } else if (config.globalOptions.onDemandTls && tls === 'auto') {
     out.push('  tls {', '    on_demand', '  }');
   }
 
-  // Scale-to-zero COLD: the backing service is asleep. Rewrite the request to the
-  // activator's wake endpoint and reverse_proxy to the controller (server-side —
-  // the activator host is internal). `return` carries the caller's original URL so
-  // the activator can 307 the browser back once the service is warm. The whole site
-  // routes to the activator regardless of pathPrefix (we'll be warm again next hit).
-  if (r.cold) {
-    out.push(`  rewrite * ${r.cold.wakePath}?return={scheme}://{host}{uri}`);
-    out.push(`  reverse_proxy ${r.cold.upstream}`);
-    out.push('}');
-    return out;
-  }
+  const ordered = [...routes].sort(bySpecificity);
+  // The overwhelmingly common case — a single service at the host root — renders
+  // WITHOUT a handle wrapper, byte-for-byte identical to the pre-grouping output.
+  const only = ordered.length === 1 ? ordered[0] : undefined;
+  const bareRoot = only !== undefined && routePath(only) === '/';
+  for (const r of ordered) appendRoute(out, r, bareRoot);
 
-  const upstream = `${r.service}:${r.port}`;
-  if (r.pathPrefix && r.pathPrefix !== '/') {
-    const directive = r.stripPathPrefix ? 'handle_path' : 'handle';
-    out.push(`  ${directive} ${r.pathPrefix}* {`, `    reverse_proxy ${upstream}`, '  }');
-  } else {
-    out.push(`  reverse_proxy ${upstream}`);
-  }
   out.push('}');
   return out;
+}
+
+/**
+ * Emit one route's directives. `bare` (a host's only route, at the root) writes the
+ * reverse_proxy / cold-rewrite straight into the site block; every other route is
+ * wrapped in its own `handle`/`handle_path` so multiple services coexist on a host.
+ *
+ * Scale-to-zero COLD: the backing service is asleep, so the route rewrites to the
+ * activator's wake endpoint and proxies the controller (server-side — the activator
+ * host is internal). `return` carries the caller's original URL so the activator can
+ * 307 the browser back once the service is warm. Only THIS route's path is diverted;
+ * sibling routes on the same host stay direct (a cold `/api` never sleeps `/`).
+ */
+function appendRoute(out: string[], r: DomainRoute, bare: boolean): void {
+  const path = routePath(r);
+  const body: string[] = r.cold
+    ? [
+        `rewrite * ${r.cold.wakePath}?return={scheme}://{host}{uri}`,
+        `reverse_proxy ${r.cold.upstream}`,
+      ]
+    : [`reverse_proxy ${r.service}:${r.port}`];
+
+  if (bare) {
+    for (const line of body) out.push(`  ${line}`);
+    return;
+  }
+
+  if (path === '/') {
+    // Catch-all (sorted last): everything not matched by a more specific handle.
+    out.push('  handle {');
+    for (const line of body) out.push(`    ${line}`);
+    out.push('  }');
+    return;
+  }
+
+  // A cold route always uses `handle` — the wake rewrite replaces the path, so
+  // prefix stripping is moot; warm routes honour stripPathPrefix via handle_path.
+  const directive = !r.cold && r.stripPathPrefix ? 'handle_path' : 'handle';
+  out.push(`  ${directive} ${path}* {`);
+  for (const line of body) out.push(`    ${line}`);
+  out.push('  }');
 }

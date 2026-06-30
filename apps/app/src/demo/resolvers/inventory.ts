@@ -90,5 +90,37 @@ function buildDemoInventory(store: DemoStore): Inventory {
 export const inventory: DomainResolvers = {
   handlers: {
     'inventory.get': (_i, s) => buildDemoInventory(s),
+    // Contextual deploy: add a single app into an existing stack (Docker namespace).
+    'stacks.addServiceToStack': (i, s) => {
+      const b = i as {
+        stack: string;
+        name: string;
+        image: string;
+        ports?: { target: number; published?: number; protocol?: 'tcp' | 'udp' }[];
+        replicas?: number;
+      };
+      const stack = s.stacks.find((st) => st.name === b.stack);
+      const id = `svc-${b.name}-${Math.random().toString(36).slice(2, 6)}`;
+      s.services.push({
+        id,
+        name: b.name,
+        image: b.image,
+        status: 'deploying',
+        replicas: { desired: b.replicas ?? 1, running: 0 },
+        ingressEnabled: (b.ports?.length ?? 0) > 0,
+        nodeId: null,
+        stackId: stack?.id ?? null,
+        updatedAt: new Date().toISOString(),
+        env: {},
+        ports: (b.ports ?? []).map((p) => ({
+          target: p.target,
+          published: p.published,
+          protocol: p.protocol ?? 'tcp',
+          mode: 'ingress' as const,
+        })),
+      } as (typeof s.services)[number]);
+      if (stack) stack.serviceCount += 1;
+      return { id };
+    },
   },
 };

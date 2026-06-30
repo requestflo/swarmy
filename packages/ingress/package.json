@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "echo '@swarmy/ingress resolves to src'",
+    "test": "bun test",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist .turbo"
   },

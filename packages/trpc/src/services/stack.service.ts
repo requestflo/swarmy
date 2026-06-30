@@ -184,6 +184,73 @@ export async function deployFromCompose(
   return { id: stack.id, deploymentId };
 }
 
+export interface AddServiceToStackInput {
+  /** Target stack name = the Docker stack-namespace the new service is stamped into. */
+  stack: string;
+  name: string;
+  image: string;
+  ports?: { target: number; published?: number; protocol?: 'tcp' | 'udp' }[];
+  env?: Record<string, string>;
+  replicas?: number;
+}
+
+/**
+ * Contextual deploy: drop ONE app straight into an existing stack. Builds a
+ * minimal `ServiceSpec`, runs it through the stack's telemetry injection (a
+ * no-op when the stack isn't opted in), stamps the swarmy-managed +
+ * stack-namespace labels so live inventory groups it under <stack>, and
+ * dispatches `service.deploy` — reusing the exact spec/label/deploy path as
+ * `deployFromCompose`. No Service/Deployment DB rows are written (Docker truth).
+ */
+export async function addServiceToStack(
+  ctx: OrgContext,
+  input: AddServiceToStackInput,
+): Promise<{ id: string; deploymentId: string }> {
+  const node = await resolveManagerNode(ctx);
+
+  // The stack's telemetry flag lives on its (optional) config row; a label-only
+  // stack with no DB row just deploys without OTEL injection.
+  const stackRow = await ctx.db.stack.findFirst({
+    where: { orgId: ctx.activeOrgId, name: input.stack },
+    select: { telemetryEnabled: true },
+  });
+
+  const baseSpec: ServiceSpec = {
+    name: input.name,
+    image: input.image,
+    mode: { replicated: { replicas: input.replicas ?? 1 } },
+    env: input.env && Object.keys(input.env).length ? input.env : undefined,
+    ports: input.ports?.length
+      ? input.ports.map((p) => ({
+          target: p.target,
+          published: p.published,
+          protocol: p.protocol ?? ('tcp' as const),
+          mode: 'ingress' as const,
+        }))
+      : undefined,
+  };
+
+  // Same augmentation pipeline as the compose path: telemetry first, then the
+  // stack-namespace + swarmy.managed labels.
+  const [spec] = augmentSpecsForStack([baseSpec], {
+    telemetryEnabled: stackRow?.telemetryEnabled ?? false,
+    orgId: ctx.activeOrgId,
+    stack: input.stack,
+  }).map((s) => withStackLabels(s, input.stack));
+
+  const deploymentId = randomUUID();
+  try {
+    await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
+
+  // Best-effort live id (inventory is eventually consistent); name is the stable
+  // fallback until the new service surfaces under the stack.
+  const id = liveStackServices(ctx, input.stack).find((s) => s.name === input.name)?.id ?? input.name;
+  return { id, deploymentId };
+}
+
 export async function redeployStack(
   ctx: OrgContext,
   input: { id: string; composeSource?: string },
