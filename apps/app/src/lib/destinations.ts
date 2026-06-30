@@ -70,6 +70,7 @@ export const SECTIONS: Destination[] = [
   { to: '/ingress', label: 'Ingress', icon: NetworkIcon, group: 'Networking', keywords: 'domains routes tls caddy reverse proxy' },
   { to: '/networking', label: 'Mesh networking', icon: GlobeIcon, group: 'Networking', keywords: 'mesh wireguard overlay peers routes acl' },
   { to: '/geo', label: 'Geo DNS', icon: GlobeIcon, group: 'Networking', keywords: 'dns geo steering failover records' },
+  { to: '/geo/dns', label: 'DNS health', icon: GlobeIcon, group: 'Networking', keywords: 'dns resolve probe health endpoints reachable geodns' },
   { to: '/ci', label: 'CI & builds', icon: GitBranchIcon, group: 'Delivery', keywords: 'git pipelines builds registry images' },
   { to: '/backups', label: 'Backups', icon: DatabaseBackupIcon, group: 'Data', keywords: 'volumes snapshots restore restic' },
   { to: '/backups/schedules', label: 'DR & schedules', icon: ShieldIcon, group: 'Data', keywords: 'disaster recovery schedules cron' },

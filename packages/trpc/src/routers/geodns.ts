@@ -6,6 +6,7 @@ import {
   getConfig,
   listDnsView,
   listRecords,
+  listRegions,
   previewZone,
   removeRecord,
   setConfig,
@@ -32,6 +33,9 @@ export const geodnsRouter = router({
     .mutation(({ ctx, input }) => setEnabled(ctx, input.enabled)),
 
   listRecords: orgProcedure.query(({ ctx }) => listRecords(ctx)),
+
+  /** Region markers for the Infrastructure globe: coords + live node membership/health/outlets. */
+  listRegions: orgProcedure.query(({ ctx }) => listRegions(ctx)),
 
   /** Live DNS view: each zone endpoint with its resolved IP + health (table). */
   dnsView: orgProcedure.query(({ ctx }) => listDnsView(ctx)),

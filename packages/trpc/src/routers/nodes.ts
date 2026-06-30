@@ -2,9 +2,11 @@ import { z } from 'zod';
 import { orgProcedure, adminProcedure, router } from '../trpc';
 import {
   getNode,
+  listNodeCanvasPositions,
   listNodes,
   removeNode,
   setNodeAvailability,
+  setNodeCanvasPosition,
   setNodeLabels,
   setNodeRegion,
   setNodeRole,
@@ -45,6 +47,14 @@ export const nodesRouter = router({
   setRegion: adminProcedure
     .input(z.object({ id: z.string(), region: z.string().min(1) }))
     .mutation(({ ctx, input }) => setNodeRegion(ctx, input.id, input.region)),
+
+  /** Saved Infrastructure-canvas positions per node (`swarmy.canvas.x/y` labels). */
+  canvasPositions: orgProcedure.query(({ ctx }) => listNodeCanvasPositions(ctx)),
+
+  /** Persist a node's canvas position as Docker node labels (mirrors services.setCanvasPos). */
+  setCanvasPosition: orgProcedure
+    .input(z.object({ id: z.string(), x: z.number(), y: z.number() }))
+    .mutation(({ ctx, input }) => setNodeCanvasPosition(ctx, input)),
 
   drain: orgProcedure
     .input(z.object({ id: z.string() }))

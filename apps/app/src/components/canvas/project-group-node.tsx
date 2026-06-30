@@ -10,7 +10,7 @@ import type { ProjectFlowNode } from './build-graph';
  * only frames the services that drag within it.
  */
 export function ProjectGroupNode({ data }: NodeProps<ProjectFlowNode>): React.JSX.Element {
-  const { label, ungrouped, count, tone } = data;
+  const { label, ungrouped, count, tone, regionBadges } = data;
 
   return (
     <div
@@ -43,6 +43,19 @@ export function ProjectGroupNode({ data }: NodeProps<ProjectFlowNode>): React.JS
           {count} {count === 1 ? 'service' : 'services'}
         </span>
       </div>
+      {regionBadges && regionBadges.length > 0 && (
+        <div className="absolute top-3 right-4 flex max-w-[60%] flex-wrap items-center justify-end gap-1">
+          {regionBadges.map((b) => (
+            <span
+              key={b.region}
+              title={`${b.region} · ${b.replicas} ${b.replicas === 1 ? 'replica' : 'replicas'}`}
+              className="mono-data bg-muted/70 text-muted-foreground rounded-full px-2 py-0.5 text-[10px]"
+            >
+              {b.region}×{b.replicas}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,10 +1,18 @@
 import { type Edge as FlowEdge, type Node as FlowNode, MarkerType } from '@xyflow/react';
 import type { Inventory, InvEdge, InvService } from '@swarmy/core';
-import { STATUS_TONE } from './stack-aggregates';
+import { aggregateTone, STATUS_TONE } from './stack-aggregates';
 
 export interface ServiceNodeData extends Record<string, unknown> {
   service: InvService;
   /** Status token name (online | warning | progress | offline | idle). */
+  tone: string;
+}
+/** One per-region summary chip on a logical-app frame (e.g. `eu × 5`). */
+export interface RegionBadge {
+  region: string;
+  /** Declared (intent) replica count for this region. */
+  replicas: number;
+  /** Status token for the badge dot — sibling health, or progress while converging. */
   tone: string;
 }
 export interface ProjectNodeData extends Record<string, unknown> {
@@ -14,6 +22,12 @@ export interface ProjectNodeData extends Record<string, unknown> {
   count: number;
   /** Aggregate status token for the project dot. */
   tone: string;
+  /**
+   * When this frame groups a logical app's per-region siblings (epic #7), the
+   * per-region summary badges (eu×5, us×2…). Absent for a plain Docker-stack
+   * frame, so plain frames render unchanged.
+   */
+  regionBadges?: RegionBadge[];
 }
 
 export type ServiceFlowNode = FlowNode<ServiceNodeData, 'service'>;
@@ -34,16 +48,75 @@ const COL_GAP = 40;
 const ROW_GAP = 40;
 const PER_ROW = 4;
 
+// Region-group geometry: a logical app frames its per-region siblings (+ the
+// parent card) like project-group-node frames a stack. GROUP_HEADER reserves the
+// top band the frame paints its label chip + region badges into.
+const GROUP_HEADER = 60;
+const GROUP_PAD = 20;
+const GROUP_PER_ROW = 2;
+
 /** Network links have no on-brand teal token — this soft teal matches the token space. */
 const NETWORK_TEAL = 'oklch(0.72 0.1 195)';
+
+// Parses the declared per-region replica labels (`swarmy.region.<region>.replicas`)
+// the parent app carries — the same Docker-truth the region tRPC service reads.
+const REGION_REPLICAS_RE = /^swarmy\.region\.(.+)\.replicas$/;
 
 // STATUS_TONE + aggregateTone are shared with the stack-overview cards so the
 // per-stack worst-of dot matches in both views (see ./stack-aggregates).
 
-function serviceFallback(index: number): { x: number; y: number } {
+function serviceFallback(index: number, xOffset = 0): { x: number; y: number } {
   const col = index % PER_ROW;
   const row = Math.floor(index / PER_ROW);
-  return { x: col * (SERVICE_W + COL_GAP), y: row * (SERVICE_H + ROW_GAP) };
+  return { x: xOffset + col * (SERVICE_W + COL_GAP), y: row * (SERVICE_H + ROW_GAP) };
+}
+
+/** Child grid position *relative to the frame* (cards nest under the group node). */
+function memberFallback(index: number): { x: number; y: number } {
+  const col = index % GROUP_PER_ROW;
+  const row = Math.floor(index / GROUP_PER_ROW);
+  return {
+    x: GROUP_PAD + col * (SERVICE_W + COL_GAP),
+    y: GROUP_HEADER + row * (SERVICE_H + ROW_GAP),
+  };
+}
+
+/** Declared per-region replica intent parsed from a parent app's Docker labels. */
+function declaredRegionReplicas(labels: Record<string, string>): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [key, value] of Object.entries(labels)) {
+    const match = REGION_REPLICAS_RE.exec(key);
+    if (!match?.[1]) continue;
+    const n = Number.parseInt(value, 10);
+    if (Number.isNaN(n) || n < 0) continue;
+    out.set(match[1], n);
+  }
+  return out;
+}
+
+/**
+ * Summary badges for a logical app's frame: union of the regions it *declares*
+ * (parent `swarmy.region.<region>.replicas` labels) and the regions it has
+ * *materialised* (running `<name>-<region>` siblings). The count is the declared
+ * intent (falling back to the sibling's desired); the tone is the sibling's live
+ * health, or `progress` while a declared region is still converging.
+ */
+function regionBadges(parent: InvService | undefined, siblings: InvService[]): RegionBadge[] {
+  const declared = parent ? declaredRegionReplicas(parent.labels) : new Map<string, number>();
+  const sibByRegion = new Map<string, InvService>();
+  for (const s of siblings) if (s.region) sibByRegion.set(s.region, s);
+
+  const regions = [...new Set([...declared.keys(), ...sibByRegion.keys()])].sort((a, b) =>
+    a.localeCompare(b),
+  );
+  return regions.map((region) => {
+    const sib = sibByRegion.get(region);
+    return {
+      region,
+      replicas: declared.get(region) ?? sib?.replicas.desired ?? 0,
+      tone: sib ? STATUS_TONE[sib.status] : 'progress',
+    };
+  });
 }
 
 /** Read a service's saved canvas position from its Docker labels, if any. */
@@ -77,25 +150,108 @@ function edgeFor(e: InvEdge): CanvasEdge {
 }
 
 /**
- * Pure: project the live Docker inventory into a React Flow graph — every service
- * is a free top-level node on the full canvas (no group frame), plus the inferred
- * network/depends edges. Each service's position is Docker-truth: read from its
- * swarmy.canvas.x/y labels; `live` (this-session drags) wins over the label so a
- * 4s poll never snaps a card mid-arrange; unplaced services auto-grid. Drag writes
- * the labels back (see service-canvas).
+ * Pure: project the live Docker inventory into a React Flow graph.
+ *
+ * Per-region siblings (epic #7) are grouped: any service carrying
+ * `swarmy.region.parent=<app>` is a regional materialisation of `<app>`, so it —
+ * plus the parent card itself, when present — nests inside one logical-app frame
+ * (a `project` group node) carrying per-region badges (eu×5, us×2…). The frame
+ * reuses the project-group-node grouping approach; cards nest via React Flow
+ * `parentId`/`extent`. Every other service stays a free top-level node, gridded to
+ * the right of the frames so the two never overlap.
+ *
+ * Position is Docker-truth: read from `swarmy.canvas.x/y` labels (for a nested
+ * card these are interpreted relative to its frame, matching how a drag of that
+ * card persists); `live` (this-session drags) wins so a 4s poll never snaps a card
+ * mid-arrange; unplaced services auto-grid. Drag writes the labels back (see
+ * service-canvas).
  */
 export function buildGraph(
   inv: Inventory,
   live: Positions = {},
 ): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
-  const serviceNodes: ServiceFlowNode[] = inv.services.map((service, i) => ({
-    id: service.id,
-    type: 'service',
-    position: live[service.id] ?? labelPosition(service) ?? serviceFallback(i),
-    data: { service, tone: STATUS_TONE[service.status] },
-  }));
+  // Group regional siblings by their logical parent app name.
+  const siblingsByParent = new Map<string, InvService[]>();
+  for (const s of inv.services) {
+    if (!s.regionParent) continue;
+    const list = siblingsByParent.get(s.regionParent) ?? [];
+    list.push(s);
+    siblingsByParent.set(s.regionParent, list);
+  }
+
+  const byName = new Map(inv.services.map((s) => [s.name, s] as const));
+  const grouped = new Set<string>(); // service ids nested inside a frame
+  const groupNodes: ProjectFlowNode[] = [];
+  const childNodes: ServiceFlowNode[] = [];
+  let groupY = 0;
+  let groupsColWidth = 0;
+
+  for (const parentName of [...siblingsByParent.keys()].sort((a, b) => a.localeCompare(b))) {
+    const siblings = siblingsByParent
+      .get(parentName)!
+      .slice()
+      .sort((a, b) => (a.region ?? '').localeCompare(b.region ?? ''));
+    // The parent card (the label-holder) leads, then its regional siblings. Only
+    // a true logical parent (not itself a sibling of something else) is folded in,
+    // so a node id can never land in two frames.
+    const parentSvc = byName.get(parentName);
+    const members = parentSvc && !parentSvc.regionParent ? [parentSvc, ...siblings] : siblings;
+
+    const cols = Math.min(GROUP_PER_ROW, members.length);
+    const rows = Math.ceil(members.length / GROUP_PER_ROW);
+    const width = GROUP_PAD * 2 + cols * SERVICE_W + (cols - 1) * COL_GAP;
+    const height = GROUP_HEADER + GROUP_PAD + rows * SERVICE_H + (rows - 1) * ROW_GAP;
+    const groupId = `region-group:${parentName}`;
+
+    groupNodes.push({
+      id: groupId,
+      type: 'project',
+      position: { x: 0, y: groupY },
+      // A frame is a backdrop: it stays anchored while its cards drag within it.
+      draggable: false,
+      selectable: false,
+      style: { width, height },
+      data: {
+        label: parentName,
+        ungrouped: false,
+        count: members.length,
+        tone: aggregateTone(members),
+        regionBadges: regionBadges(parentSvc, siblings),
+      },
+    });
+
+    members.forEach((m, i) => {
+      grouped.add(m.id);
+      childNodes.push({
+        id: m.id,
+        type: 'service',
+        parentId: groupId,
+        extent: 'parent',
+        position: live[m.id] ?? labelPosition(m) ?? memberFallback(i),
+        data: { service: m, tone: STATUS_TONE[m.status] },
+      });
+    });
+
+    groupsColWidth = Math.max(groupsColWidth, width);
+    groupY += height + ROW_GAP;
+  }
+
+  // Free top-level services grid to the right of the frame column so a frame and a
+  // standalone card never collide; with no frames this is the original flat grid.
+  const flatX = groupsColWidth > 0 ? groupsColWidth + COL_GAP * 2 : 0;
+  const serviceNodes: ServiceFlowNode[] = inv.services
+    .filter((s) => !grouped.has(s.id))
+    .map((service, i) => ({
+      id: service.id,
+      type: 'service',
+      position: live[service.id] ?? labelPosition(service) ?? serviceFallback(i, flatX),
+      data: { service, tone: STATUS_TONE[service.status] },
+    }));
+
+  // Frames must precede their nested cards in the array (React Flow parent rule).
+  const nodes: CanvasNode[] = [...groupNodes, ...childNodes, ...serviceNodes];
 
   const ids = new Set(inv.services.map((s) => s.id));
   const edges = inv.edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map(edgeFor);
-  return { nodes: serviceNodes, edges };
+  return { nodes, edges };
 }

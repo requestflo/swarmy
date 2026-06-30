@@ -5,7 +5,7 @@ import { BracesIcon, MinusIcon, MoonIcon, PlusIcon, RotateCwIcon, ScrollTextIcon
 import { Button, Sheet, SheetContent, SheetHeader, SheetTitle, StatusBadge, Switch } from '@swarmy/ui';
 import { SERVICE_STATUS_TONE } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
-import { RegionReplicas } from '@/components/services/region-replicas';
+import { RegionPlanEditor } from '@/components/stacks/region-plan-editor';
 import { ServiceInspectDialog } from '@/components/canvas/service-inspect-dialog';
 
 /** Slide-over for a canvas service: live status + quick scale + jump-to actions. */
@@ -108,7 +108,7 @@ export function ServiceDetailSheet({
               )}
             </div>
 
-            <RegionReplicas serviceId={s.id} />
+            <RegionPlanEditor serviceId={s.id} />
 
             <div className="grid grid-cols-2 gap-2">
               <Button variant="outline" disabled={restart.isPending} onClick={() => restart.mutate({ id: s.id })}>

@@ -134,6 +134,17 @@ function toConfigView(st: GeoState): GeoDnsConfigView {
 
 const isIp = (s: string): boolean => /^\d{1,3}(\.\d{1,3}){3}$/.test(s);
 
+/** A small demo mirror of geo-steer's REGION_COORDS for the globe view. */
+const DEMO_REGION_COORDS: Record<string, { lat: number; lon: number }> = {
+  'us-east': { lat: 39.0, lon: -77.5 }, 'us-west': { lat: 45.6, lon: -121.2 },
+  'us-central': { lat: 41.3, lon: -95.9 }, 'ca-central': { lat: 45.5, lon: -73.6 },
+  'sa-east': { lat: -23.5, lon: -46.6 }, 'eu-west': { lat: 53.3, lon: -6.3 },
+  'eu-central': { lat: 50.1, lon: 8.7 }, 'eu-north': { lat: 59.3, lon: 18.1 },
+  'me-south': { lat: 26.1, lon: 50.6 }, 'af-south': { lat: -33.9, lon: 18.4 },
+  'ap-south': { lat: 19.1, lon: 72.9 }, 'ap-southeast': { lat: 1.3, lon: 103.8 },
+  'ap-northeast': { lat: 35.7, lon: 139.7 }, 'ap-east': { lat: 22.3, lon: 114.2 },
+};
+
 interface RenderedHost {
   host: string;
   selected: DnsRecordView[];
@@ -473,6 +484,56 @@ export const geo: DomainResolvers = {
 
     'geodns.listRecords': (_i, s): DnsRecordView[] =>
       [...getState(s).records].sort((a, b) => (a.host < b.host ? -1 : a.host > b.host ? 1 : 0)),
+
+    // DNS view + per-domain probe (Edge/geo): mirror geodns.dnsView/checkDomain so
+    // the DNS-health page lights up under ?demo=1.
+    'geodns.dnsView': (_i, s) =>
+      [...getState(s).records]
+        .sort((a, b) => (a.host < b.host ? -1 : a.host > b.host ? 1 : 0))
+        .map((r) => ({
+          host: r.host,
+          region: r.region,
+          target: r.targetIngress,
+          ip: isIp(r.targetIngress) ? r.targetIngress : `203.0.113.${(r.host.length % 50) + 1}`,
+          healthy: r.healthy,
+        })),
+
+    'geodns.checkDomain': (i, s) => {
+      const { host } = i as { host: string };
+      const eps = getState(s).records.filter((r) => r.host === host);
+      const preferred = eps.find((e) => e.healthy) ?? eps[0];
+      const expectedIp = preferred
+        ? isIp(preferred.targetIngress)
+          ? preferred.targetIngress
+          : `203.0.113.${(host.length % 50) + 1}`
+        : '';
+      const resolves = !!preferred;
+      return { resolves, expectedIp, gotIp: resolves ? expectedIp : '', reachable: resolves && !!preferred?.healthy };
+    },
+
+    // Region globe: regions with coords + node assignments + health.
+    'geodns.listRegions': (_i, s) => {
+      const byRegion = new Map<string, string[]>();
+      for (const n of s.nodes) {
+        const region = (n as { region?: string }).region ?? (n as { labels?: Record<string, string> }).labels?.['swarmy.region'];
+        if (!region) continue;
+        const list = byRegion.get(region) ?? [];
+        list.push(n.id);
+        byRegion.set(region, list);
+      }
+      const out: { region: string; lat: number; lng: number; nodeIds: string[]; healthy: boolean; outlets: number }[] = [];
+      for (const [region, nodeIds] of byRegion) {
+        const c = DEMO_REGION_COORDS[region.toLowerCase()];
+        if (!c) continue;
+        const members = s.nodes.filter((n) => nodeIds.includes(n.id));
+        out.push({
+          region, lat: c.lat, lng: c.lon, nodeIds,
+          healthy: members.some((n) => n.status === 'online'),
+          outlets: members.filter((n) => (n as { outlet?: boolean }).outlet).length,
+        });
+      }
+      return out.sort((a, b) => (a.region < b.region ? -1 : 1));
+    },
 
     'geodns.upsertRecord': (i, s): DnsRecordView => {
       const b = i as { host: string; region: string; targetIngress: string; healthy?: boolean };

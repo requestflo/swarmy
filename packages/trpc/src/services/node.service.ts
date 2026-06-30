@@ -29,6 +29,14 @@ export const NODE_INGRESS_LABEL = 'swarmy.node.ingress';
 export const NODE_OUTLET_LABEL = 'swarmy.node.outlet';
 export const NODE_REGION_LABEL = 'swarmy.region';
 
+/**
+ * A node's position on the Infrastructure canvas is Docker-truth too — persisted
+ * as `swarmy.canvas.x`/`swarmy.canvas.y` node labels (mirrors the service canvas),
+ * never in swarmy's DB. Read back live from `nodeInfoFor(...).labels`.
+ */
+export const CANVAS_X_LABEL = 'swarmy.canvas.x';
+export const CANVAS_Y_LABEL = 'swarmy.canvas.y';
+
 /** Derive the role/region view from a node's live swarm labels. */
 function rolesFromLabels(labels: Record<string, string> | undefined): {
   ingress: boolean;
@@ -163,6 +171,61 @@ export async function setNodeRole(
   const merged = { ...(ctx.hub.nodeInfoFor(id)?.labels ?? {}), ...patch };
   const result = rolesFromLabels(merged);
   return { id, ingress: result.ingress, outlet: result.outlet };
+}
+
+/**
+ * Read every enrolled node's saved canvas position from its live swarm labels
+ * (`swarmy.canvas.x/y`). Nodes without a saved position are omitted — the canvas
+ * auto-grids them. Mirrors the service canvas, but node labels aren't carried on
+ * `NodeSummary`, so the canvas reads them through this dedicated map.
+ */
+export async function listNodeCanvasPositions(
+  ctx: OrgContext,
+): Promise<Record<string, { x: number; y: number }>> {
+  const rows = (await ctx.db.node.findMany({
+    where: { orgId: ctx.activeOrgId },
+    select: { id: true },
+  })) as { id: string }[];
+  const out: Record<string, { x: number; y: number }> = {};
+  for (const r of rows) {
+    const labels = ctx.hub.nodeInfoFor(r.id)?.labels;
+    const rx = labels?.[CANVAS_X_LABEL];
+    const ry = labels?.[CANVAS_Y_LABEL];
+    if (rx == null || ry == null) continue;
+    const x = Number(rx);
+    const y = Number(ry);
+    if (Number.isFinite(x) && Number.isFinite(y)) out[r.id] = { x, y };
+  }
+  return out;
+}
+
+/**
+ * Persist a node's Infrastructure-canvas position as Docker node labels
+ * (`swarmy.canvas.x/y`) — mirrors `service.setCanvasPosition`. Layout is
+ * Docker-truth, not stored in swarmy's DB. Best-effort push (skipped while
+ * offline; reconciles when the node reconnects).
+ */
+export async function setNodeCanvasPosition(
+  ctx: OrgContext,
+  input: { id: string; x: number; y: number },
+): Promise<{ id: string; ok: true }> {
+  const node = await ctx.db.node.findFirst({
+    where: { id: input.id, orgId: ctx.activeOrgId },
+    select: { id: true },
+  });
+  if (!node) throw notFound('node', input.id);
+
+  const patch: Record<string, string> = {
+    [CANVAS_X_LABEL]: String(Math.round(input.x)),
+    [CANVAS_Y_LABEL]: String(Math.round(input.y)),
+  };
+  const swarmNodeId = ctx.hub.swarmNodeIdFor(input.id);
+  if (ctx.hub.isOnline(input.id) && swarmNodeId) {
+    await ctx.hub
+      .dispatch(input.id, 'node.update', { swarmNodeId, labels: patch })
+      .catch(() => undefined);
+  }
+  return { id: input.id, ok: true };
 }
 
 /**

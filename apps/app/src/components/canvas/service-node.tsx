@@ -3,7 +3,19 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { MoonIcon } from 'lucide-react';
 import { cn } from '@swarmy/ui';
 import type { InvContainer } from '@swarmy/core';
+import { DnsHealthBadge } from '@/components/geo/dns-health-badge';
 import type { ServiceFlowNode } from './build-graph';
+
+/** First ingress host on a service, from the `swarmy.ingress.routes` JSON label. */
+function firstIngressHost(labels?: Record<string, string>): string | undefined {
+  const raw = labels?.['swarmy.ingress.routes'];
+  if (!raw) return undefined;
+  try {
+    return (JSON.parse(raw) as { host?: string }[]).find((r) => typeof r?.host === 'string' && r.host)?.host;
+  } catch {
+    return undefined;
+  }
+}
 
 const HANDLE: React.CSSProperties = {
   opacity: 0,
@@ -82,6 +94,12 @@ export function ServiceNode({ data, selected }: NodeProps<ServiceFlowNode>): Rea
       </div>
 
       <p className="mono-data text-muted-foreground mt-1.5 truncate text-xs">{service.image}</p>
+      {firstIngressHost(service.labels) && (
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <DnsHealthBadge host={firstIngressHost(service.labels)!} compact />
+          <span className="mono-data text-muted-foreground truncate text-[11px]">{firstIngressHost(service.labels)}</span>
+        </div>
+      )}
 
       <div className="mt-2.5 flex items-center justify-between gap-2">
         <span

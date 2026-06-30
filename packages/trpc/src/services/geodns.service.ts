@@ -5,7 +5,7 @@ import type { CommandName } from '../hub/types';
 import { notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { writeAudit } from './audit.service';
-import { regionCoord, type SteerTarget } from './geo-steer';
+import { REGION_COORDS, regionCoord, type SteerTarget } from './geo-steer';
 import { planReconcile, type RegionHealth } from './geodns-reconcile.core';
 import {
   type GeoDnsSettings,
@@ -602,6 +602,57 @@ export async function setNodeRegion(
     metadata: { region },
   });
   return { id: nodeId, region };
+}
+
+// ───────────────────────────────────────────── region map (globe) ──
+
+/**
+ * One region marker for the Infrastructure region map / globe. Coordinates come
+ * from the static {@link REGION_COORDS} table (the `swarmy.region` label maps to
+ * a lat/lon); membership, health, and outlet count are live swarm truth via the
+ * hub — never persisted.
+ */
+export interface RegionView {
+  /** The `swarmy.region` label value. */
+  region: string;
+  lat: number;
+  lng: number;
+  /** Controller node ids whose `swarmy.region` label == this region (matches `nodes.list`). */
+  nodeIds: string[];
+  /** True when at least one node in the region is currently online. */
+  healthy: boolean;
+  /** How many of this region's nodes carry the outlet role (`swarmy.node.outlet`). */
+  outlets: number;
+}
+
+/**
+ * Region markers for the globe: the canonical {@link REGION_COORDS} set unioned
+ * with any custom region labels nodes are actually assigned to, each annotated
+ * with live node membership, health, and outlet count. Region membership +
+ * online/role state are Docker truth (hub); only the coordinates are static.
+ * Unplaceable custom labels (no known coordinate) are dropped — they can't be
+ * drawn — so the map only ever shows points it can position.
+ */
+export function listRegions(ctx: OrgContext): RegionView[] {
+  const byRegion = ctx.hub.nodesByRegion(ctx.activeOrgId);
+  const outletIds = new Set(ctx.hub.nodesByRole(ctx.activeOrgId, 'outlet'));
+
+  const regions = new Set<string>([...Object.keys(REGION_COORDS), ...byRegion.keys()]);
+  const rows: RegionView[] = [];
+  for (const region of regions) {
+    const coord = regionCoord(region);
+    if (!coord) continue;
+    const nodeIds = byRegion.get(region) ?? [];
+    rows.push({
+      region,
+      lat: coord.lat,
+      lng: coord.lon,
+      nodeIds,
+      healthy: nodeIds.some((id) => ctx.hub.isOnline(id)),
+      outlets: nodeIds.filter((id) => outletIds.has(id)).length,
+    });
+  }
+  return rows.sort((a, b) => (a.region < b.region ? -1 : a.region > b.region ? 1 : 0));
 }
 
 /** Force a re-render + redeploy of the CoreDNS zone now (manual / from UI). */

@@ -59,6 +59,35 @@ export const core: DomainResolvers = {
       if (n) n.status = 'online';
       return { id: (i as { id: string }).id };
     },
+    // Edge/geo: node roles (ingress/outlet), region, and canvas position — all
+    // mirror the real handlers (Docker node labels) so the Infrastructure canvas +
+    // globe are interactive under ?demo=1.
+    'nodes.setRole': (i, s) => {
+      const { id, ingress, outlet } = i as { id: string; ingress?: boolean; outlet?: boolean };
+      const n = byId(s.nodes, id) as (NodeSummary & { labels?: Record<string, string> }) | undefined;
+      if (n) {
+        if (ingress !== undefined) n.ingress = ingress;
+        if (outlet !== undefined) n.outlet = outlet;
+        n.labels = { ...(n.labels ?? {}) };
+        if (ingress !== undefined) n.labels['swarmy.node.ingress'] = String(ingress);
+        if (outlet !== undefined) n.labels['swarmy.node.outlet'] = String(outlet);
+      }
+      return { id };
+    },
+    'nodes.setRegion': (i, s) => {
+      const { id, region } = i as { id: string; region: string };
+      const n = byId(s.nodes, id) as (NodeSummary & { labels?: Record<string, string> }) | undefined;
+      if (n) {
+        n.region = region;
+        n.labels = { ...(n.labels ?? {}), 'swarmy.region': region };
+      }
+      return { id, region };
+    },
+    'nodes.setCanvasPosition': (i) => {
+      const { id } = i as { id: string; x: number; y: number };
+      return { id };
+    },
+    'nodes.canvasPositions': () => ({}) as Record<string, { x: number; y: number }>,
 
     'services.list': (i, s): ServiceSummary[] => {
       const f = (i as { nodeId?: string; stackId?: string; status?: string; search?: string }) ?? {};
