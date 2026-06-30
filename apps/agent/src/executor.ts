@@ -130,6 +130,16 @@ export async function handleCommand(
       const p = envlp.payload;
       return run(conn, p.commandId, () => listSnapshots(docker, p));
     }
+    case 'ensureNetwork': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, async () => ({
+        networkId: await docker.ensureNetwork(p.name, {
+          driver: p.driver,
+          attachable: p.attachable,
+          labels: p.labels,
+        }),
+      }));
+    }
     case 'dbBackup': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => backupDb(docker, conn, p));
