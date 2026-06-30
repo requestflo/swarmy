@@ -9,7 +9,7 @@ export function CanvasEmpty(): React.JSX.Element {
   return (
     <div className="mesh flex h-full w-full items-center justify-center p-6">
       <div className="ink-block max-w-lg rounded-3xl p-10 text-center">
-        <p className="eyebrow mx-auto">Applications</p>
+        <p className="eyebrow mx-auto">Stacks</p>
         <h2 className="headline mt-4 text-3xl sm:text-4xl">
           Nothing deployed <em>yet</em>.
         </h2>

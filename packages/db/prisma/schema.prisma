@@ -266,7 +266,6 @@ model Stack {
   orgId            String
   name             String
   composeSource    String         @db.Text
-  telemetryEnabled Boolean        @default(false)
   ingressDriver    IngressDriver?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt

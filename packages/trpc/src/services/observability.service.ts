@@ -4,8 +4,11 @@
  * Decisions (see plans/epic-mission-control-otel.md):
  *  - ONE ClickHouse store + an OTel Collector, both deployed as swarmy-managed
  *    Swarm services via the EXISTING service-deploy path (`service.deploy`).
- *  - Per-stack opt-in: a `telemetryEnabled` flag on the Stack injects OTEL_* env
- *    at deploy time (see `otel-injection.ts`) — unopinionated, never touches code.
+ *  - Per-stack opt-in: a `swarmy.otel.enabled` LABEL on the stack's services
+ *    (Docker truth, per docker-native-storage — not a DB column) injects OTEL_*
+ *    env at deploy time (see `otel-injection.ts`) — unopinionated, never touches
+ *    code. `enableForStack` stamps/clears the label; `stackTelemetryEnabled` reads
+ *    it back from the live inventory.
  *  - Reads (traces / metrics) query ClickHouse over its HTTP interface with
  *    `fetch`; if the store isn't configured we return empty + a clear status.
  *  - Everything is org-scoped and audited.
@@ -17,11 +20,13 @@
  */
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import { randomBytes } from 'node:crypto';
+import { buildInventory, UNGROUPED, type InvService } from '@swarmy/core';
 import { encryptSecret, decryptSecret } from '@swarmy/core/crypto';
 import type { OrgContext } from '../context';
 import { writeAudit } from './audit.service';
 import { mapDispatchError, notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
+import { OTEL_ENABLED_LABEL } from './otel-injection';
 import {
   collectorServiceSpec,
   clickhouseServiceSpec,
@@ -171,10 +176,9 @@ export async function getConfig(ctx: OrgContext): Promise<ObservabilityConfigVie
 export async function getStatus(ctx: OrgContext): Promise<ObservabilityStatusView> {
   const row = await ensureConfig(ctx);
   const base = toView(row);
-  const stacksEnabled = await ctx.db.stack.count({
-    // `telemetryEnabled` is the new Stack flag (INTEGRATION snippet).
-    where: { orgId: ctx.activeOrgId, telemetryEnabled: true } as never,
-  });
+  // Opted-in stacks are Docker truth: count distinct stacks whose live services
+  // carry the `swarmy.otel.enabled` label (never a DB column).
+  const stacksEnabled = enabledStacks(ctx).size;
   let storeReachable = false;
   if (row.clickhouseDsn) {
     storeReachable = await pingStore(safeDecrypt(row.clickhouseDsn));
@@ -257,28 +261,75 @@ export async function setRetention(
   return toView(row);
 }
 
-/** Flip the per-stack opt-in flag and redeploy so OTEL_* env is (un)injected. */
+/* ----------------------------------------------------------------------------
+ * Per-stack opt-in — Docker truth (a `swarmy.otel.enabled` service label).
+ * ------------------------------------------------------------------------- */
+
+/** Live services belonging to a stack, by its Docker stack-namespace label. */
+function liveStackServices(ctx: OrgContext, stackName: string): InvService[] {
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  return buildInventory(services, containers).services.filter((s) => s.stack === stackName);
+}
+
+/** Distinct stack names whose live services carry the otel opt-in label. */
+function enabledStacks(ctx: OrgContext): Set<string> {
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  return new Set(
+    buildInventory(services, containers)
+      .services.filter((s) => s.stack !== UNGROUPED && s.labels[OTEL_ENABLED_LABEL] === 'true')
+      .map((s) => s.stack),
+  );
+}
+
+/**
+ * Read the per-stack opt-in straight from Docker: a stack is telemetry-enabled
+ * when any of its live services carries `swarmy.otel.enabled=true`. Pure read of
+ * the in-memory inventory — the deploy path calls this to decide OTEL injection.
+ */
+export function stackTelemetryEnabled(ctx: OrgContext, stack: string): boolean {
+  return liveStackServices(ctx, stack).some((s) => s.labels[OTEL_ENABLED_LABEL] === 'true');
+}
+
+/**
+ * Flip the per-stack opt-in by stamping/clearing the `swarmy.otel.enabled` label
+ * on every live service in the stack (Docker truth). The label is read back at
+ * deploy time so a subsequent redeploy (un)injects OTEL_* env. `stackId` is a
+ * Stack config-row id OR the stack name (label-only stacks surface their name as
+ * id) — both resolve to the Docker stack-namespace value.
+ */
 export async function enableForStack(
   ctx: OrgContext,
   input: { stackId: string; enabled: boolean },
-): Promise<{ id: string; telemetryEnabled: boolean }> {
-  const stack = await ctx.db.stack.findFirst({
+): Promise<{ id: string; enabled: boolean }> {
+  const row = await ctx.db.stack.findFirst({
     where: { id: input.stackId, orgId: ctx.activeOrgId },
     select: { id: true, name: true },
   });
-  if (!stack) throw notFound('stack', input.stackId);
+  const stackName = row?.name ?? input.stackId;
 
-  await ctx.db.stack.update({
-    where: { id: stack.id },
-    data: { telemetryEnabled: input.enabled } as never,
-  });
+  const services = liveStackServices(ctx, stackName);
+  if (!row && services.length === 0) throw notFound('stack', input.stackId);
+
+  const node = await resolveManagerNode(ctx);
+  try {
+    for (const svc of services) {
+      await ctx.hub.dispatch(node.id, 'service.updateLabels', {
+        service: svc.name,
+        add: input.enabled ? { [OTEL_ENABLED_LABEL]: 'true' } : {},
+        removeKeys: input.enabled ? [] : [OTEL_ENABLED_LABEL],
+      });
+    }
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
+
   await writeAudit(ctx, {
     action: input.enabled ? 'observability.stack.enable' : 'observability.stack.disable',
     targetType: 'stack',
-    targetId: stack.id,
-    metadata: { stack: stack.name },
+    targetId: row?.id ?? stackName,
+    metadata: { stack: stackName },
   });
-  return { id: stack.id, telemetryEnabled: input.enabled };
+  return { id: input.stackId, enabled: input.enabled };
 }
 
 /* ----------------------------------------------------------------------------

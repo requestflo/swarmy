@@ -4,16 +4,16 @@ import { BoxesIcon, ServerIcon } from 'lucide-react';
 import { cn } from '@swarmy/ui';
 
 /**
- * The two primary planes as a segmented control: Applications (the deploy canvas)
+ * The two primary planes as a segmented control: Stacks (the deploy canvas)
  * vs Infrastructure (the cluster). This replaces the top of the old sidenav as
  * the always-visible "where am I" anchor.
  *
  * Active detection is prefix-based so deep routes still light the right plane:
  * anything under /nodes is Infrastructure; everything app-shaped
- * (/, /services, /stacks) is Applications.
+ * (/, /services, /stacks) is Stacks.
  */
 const PLANE_DEFS = [
-  { to: '/', label: 'Applications', icon: BoxesIcon, match: (p: string) => p === '/' || p.startsWith('/services') || p.startsWith('/stacks') },
+  { to: '/', label: 'Stacks', icon: BoxesIcon, match: (p: string) => p === '/' || p.startsWith('/services') || p.startsWith('/stacks') },
   { to: '/nodes', label: 'Infrastructure', icon: ServerIcon, match: (p: string) => p.startsWith('/nodes') },
 ] as const;
 

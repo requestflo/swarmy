@@ -8,6 +8,7 @@ import {
   metricsSummary,
   setEnabled,
   setRetention,
+  stackTelemetryEnabled,
   traceDetail,
   traces,
 } from '../services/observability.service';
@@ -28,6 +29,11 @@ export const observabilityRouter = router({
   enableForStack: adminProcedure
     .input(z.object({ stackId: z.string(), enabled: z.boolean() }))
     .mutation(({ ctx, input }) => enableForStack(ctx, input)),
+
+  /** Per-stack opt-in state, read from the live `swarmy.otel.enabled` labels. */
+  stackTelemetry: orgProcedure
+    .input(z.object({ stack: z.string() }))
+    .query(({ ctx, input }) => ({ enabled: stackTelemetryEnabled(ctx, input.stack) })),
 
   traces: orgProcedure
     .input(

@@ -1,8 +1,8 @@
 import * as React from 'react';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { SearchIcon, RocketIcon } from 'lucide-react';
-import { Button, cn } from '@swarmy/ui';
+import { SearchIcon } from 'lucide-react';
+import { cn } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { Wordmark } from '@/components/wordmark';
 import { PlaneTabs } from './plane-tabs';
@@ -13,11 +13,11 @@ import { useCommandPalette } from './command-palette-provider';
 /**
  * The floating command bar — the entire desktop chrome (there is no sidenav).
  * Left: wordmark + org + a live cluster pulse. Center: the two plane tabs.
- * Right: ⌘K search, the sections overflow, one coral Deploy CTA, the user menu.
+ * Right: ⌘K search, the sections overflow, the user menu. Deploy is now
+ * contextual — the "+ Add app" action lives on each stack's canvas toolbar.
  */
 export function CommandBar(): React.JSX.Element {
   const trpc = useTRPC();
-  const navigate = useNavigate();
   const { toggle } = useCommandPalette();
   const org = useQuery(trpc.org.currentOrg.queryOptions());
   const summary = useQuery({ ...trpc.system.dashboardSummary.queryOptions(), refetchInterval: 5_000 });
@@ -56,10 +56,6 @@ export function CommandBar(): React.JSX.Element {
         </button>
 
         <SectionsMenu />
-
-        <Button onClick={() => navigate({ to: '/services/new' })} className="gap-2">
-          <RocketIcon className="size-4" /> Deploy
-        </Button>
 
         <UserMenu />
       </div>

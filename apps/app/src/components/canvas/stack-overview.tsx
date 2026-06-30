@@ -32,7 +32,7 @@ export function StackOverview({
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
       <PageHeader
-        eyebrow="Applications"
+        eyebrow="Stacks"
         title={
           <>
             <CountUp value={count} /> stack{count === 1 ? '' : 's'} <em>discovered</em>.

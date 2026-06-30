@@ -118,6 +118,12 @@ interface ObservabilityState {
   traces: TraceRow[];
   /** Full span tree per trace_id, for the waterfall view. */
   spans: Record<string, SpanRow[]>;
+  /**
+   * Stack names opted into telemetry — the demo stand-in for the
+   * `swarmy.otel.enabled` service label the live controller stamps. The per-stack
+   * toggle reads/flips this; `config.stacksEnabled` tracks its size.
+   */
+  telemetryStacks: string[];
 }
 
 const now = Date.now();
@@ -316,6 +322,7 @@ function buildSeed(): ObservabilityState {
     },
     traces,
     spans,
+    telemetryStacks: ['storefront', 'data'],
   };
 }
 
@@ -432,6 +439,25 @@ export const observability: DomainResolvers = {
       st.config.storeReachable = enabled;
       st.config.updatedAt = new Date().toISOString();
       return toStatusView(st);
+    },
+
+    // Per-stack opt-in — the demo stand-in for the `swarmy.otel.enabled` label.
+    'observability.stackTelemetry': (i, s): { enabled: boolean } => {
+      const { stack } = i as { stack: string };
+      return { enabled: state(s).telemetryStacks.includes(stack) };
+    },
+
+    'observability.enableForStack': (i, s): { id: string; enabled: boolean } => {
+      const { stackId, enabled } = i as { stackId: string; enabled: boolean };
+      const st = state(s);
+      // The toggle passes the stack name; label-only stacks surface name as id.
+      const name = s.stacks.find((x) => x.id === stackId)?.name ?? stackId;
+      const set = new Set(st.telemetryStacks);
+      if (enabled) set.add(name);
+      else set.delete(name);
+      st.telemetryStacks = [...set];
+      st.config.stacksEnabled = st.telemetryStacks.length;
+      return { id: stackId, enabled };
     },
 
     'observability.traces': (i, s): TracesResult => {

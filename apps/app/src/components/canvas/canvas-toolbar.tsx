@@ -4,6 +4,7 @@ import { useReactFlow, Panel } from '@xyflow/react';
 import { MaximizeIcon, RocketIcon } from 'lucide-react';
 import { Button } from '@swarmy/ui';
 import { AddAppDialog } from '@/components/stacks/add-app-dialog';
+import { OtelStackToggle } from '@/components/stacks/otel-stack-toggle';
 
 /** Floating canvas chrome: wayfinding + service count + fit-view + the one coral CTA. */
 export function CanvasToolbar({
@@ -32,6 +33,8 @@ export function CanvasToolbar({
         >
           <MaximizeIcon className="size-4" />
         </Button>
+        {/* Drilled into a stack → per-stack telemetry opt-in (Docker-label backed). */}
+        {stack ? <OtelStackToggle stack={stack} /> : null}
         {/* Drilled into a stack → contextual deploy: add a single app straight into it. */}
         {stack ? <AddAppDialog stack={stack} /> : null}
         <Button className="gap-2" onClick={() => navigate({ to: '/services/new' })}>

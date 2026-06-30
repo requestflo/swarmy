@@ -11,7 +11,7 @@ interface CanvasBreadcrumbProps {
 
 /**
  * Top-left wayfinding for the service canvas: a back chevron to the stack grid +
- * the current scope ("Applications / storefront" or "Applications / All services").
+ * the current scope ("Stacks / storefront" or "Stacks / All services").
  */
 export function CanvasBreadcrumb({ stack, onBack }: CanvasBreadcrumbProps): React.JSX.Element {
   return (
@@ -26,7 +26,7 @@ export function CanvasBreadcrumb({ stack, onBack }: CanvasBreadcrumbProps): Reac
         >
           <ChevronLeftIcon className="size-4" />
         </Button>
-        <span className="text-muted-foreground text-xs">Applications</span>
+        <span className="text-muted-foreground text-xs">Stacks</span>
         <span className="text-muted-foreground/50">/</span>
         <span className="font-display text-[13px] font-bold tracking-tight">
           {stack ?? 'All services'}

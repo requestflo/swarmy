@@ -19,7 +19,7 @@ import {
  * The single source of truth for every navigable destination in the dashboard.
  *
  * The redesign drops the 15-item sidenav. Navigation now flows through two
- * primary *planes* (Applications / Infrastructure) shown as tabs in the command
+ * primary *planes* (Stacks / Infrastructure) shown as tabs in the command
  * bar, plus the ⌘K command palette + a top-bar overflow that group everything
  * else. Both consume this registry so a new page is added in exactly one place.
  */
@@ -48,10 +48,10 @@ export interface Destination {
 export const PLANES: Destination[] = [
   {
     to: '/',
-    label: 'Applications',
+    label: 'Stacks',
     icon: BoxesIcon,
     group: 'Planes',
-    keywords: 'apps services stacks canvas deploy graph architecture',
+    keywords: 'apps applications services stacks canvas deploy graph architecture',
     exact: true,
   },
   {
@@ -65,7 +65,7 @@ export const PLANES: Destination[] = [
 
 /** Everything else, grouped. Reachable from ⌘K and the top-bar overflow. */
 export const SECTIONS: Destination[] = [
-  { to: '/stacks', label: 'Stacks', icon: LayersIcon, group: 'Deploy', keywords: 'compose bundles groups' },
+  { to: '/stacks', label: 'Deploy from compose', icon: LayersIcon, group: 'Deploy', keywords: 'compose bundles groups stacks yaml' },
   { to: '/services/builder', label: 'Service builder', icon: WandSparklesIcon, group: 'Deploy', keywords: 'gui compose builder visual' },
   { to: '/ingress', label: 'Ingress', icon: NetworkIcon, group: 'Networking', keywords: 'domains routes tls caddy reverse proxy' },
   { to: '/networking', label: 'Mesh networking', icon: GlobeIcon, group: 'Networking', keywords: 'mesh wireguard overlay peers routes acl' },

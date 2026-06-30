@@ -10,11 +10,22 @@
  *    (e.g. the user points at their own collector) it wins.
  *
  * This is a PURE helper. The deploy path (stack.service / service.service) calls
- * it before dispatch when the stack is `telemetryEnabled`. We deliberately do
- * NOT edit those shared files here — see the INTEGRATION wiring snippet.
+ * it before dispatch when the stack is opted in. Per docker-native-storage the
+ * opt-in is now a Docker LABEL on the stack's services (`swarmy.otel.enabled`),
+ * read from the live inventory at deploy time — never a DB column. We deliberately
+ * do NOT edit those shared files here — see the INTEGRATION wiring snippet.
  */
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import { OTEL_OVERLAY_NETWORK, OTLP_GRPC_PORT } from './observability-stack';
+
+/**
+ * The Docker-truth per-stack opt-in marker. Stamped on every service in a stack
+ * (by `observability.enableForStack`, and re-stamped here on every injected
+ * deploy so it survives redeploys); the deploy path reads it back from the live
+ * inventory to decide whether to inject. Replaces the old `Stack.telemetryEnabled`
+ * DB column.
+ */
+export const OTEL_ENABLED_LABEL = 'swarmy.otel.enabled';
 
 export interface OtelInjectionContext {
   orgId: string;
@@ -55,6 +66,9 @@ export function injectOtel(spec: ServiceSpec, c: OtelInjectionContext): ServiceS
 
   const labels: Record<string, string> = {
     ...(spec.labels ?? {}),
+    // Self-describing: re-stamp the opt-in marker so a redeploy of an opted-in
+    // stack keeps the label even if it was only ever set via enableForStack.
+    [OTEL_ENABLED_LABEL]: 'true',
     'swarmy.telemetry': 'on',
     'swarmy.stack': c.stack,
     'swarmy.service': spec.name,

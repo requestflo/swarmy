@@ -6,6 +6,7 @@ import type { OrgContext } from '../context';
 import { mapDispatchError, notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { augmentSpecsForStack } from './otel-injection';
+import { stackTelemetryEnabled } from './observability.service';
 
 /**
  * Swarm state lives in Docker, not the DB. The Stack model is now config-only
@@ -162,11 +163,11 @@ export async function deployFromCompose(
       composeSource: input.composeSource,
     },
     update: { composeSource: input.composeSource },
-    select: { id: true, name: true, telemetryEnabled: true },
+    select: { id: true, name: true },
   });
 
   const finalSpecs = augmentSpecsForStack(specs, {
-    telemetryEnabled: stack.telemetryEnabled,
+    telemetryEnabled: stackTelemetryEnabled(ctx, stack.name),
     orgId: ctx.activeOrgId,
     stack: stack.name,
   }).map((spec) => withStackLabels(spec, stack.name));
@@ -208,13 +209,6 @@ export async function addServiceToStack(
 ): Promise<{ id: string; deploymentId: string }> {
   const node = await resolveManagerNode(ctx);
 
-  // The stack's telemetry flag lives on its (optional) config row; a label-only
-  // stack with no DB row just deploys without OTEL injection.
-  const stackRow = await ctx.db.stack.findFirst({
-    where: { orgId: ctx.activeOrgId, name: input.stack },
-    select: { telemetryEnabled: true },
-  });
-
   const baseSpec: ServiceSpec = {
     name: input.name,
     image: input.image,
@@ -233,7 +227,7 @@ export async function addServiceToStack(
   // Same augmentation pipeline as the compose path: telemetry first, then the
   // stack-namespace + swarmy.managed labels.
   const [spec] = augmentSpecsForStack([baseSpec], {
-    telemetryEnabled: stackRow?.telemetryEnabled ?? false,
+    telemetryEnabled: stackTelemetryEnabled(ctx, input.stack),
     orgId: ctx.activeOrgId,
     stack: input.stack,
   }).map((s) => withStackLabels(s, input.stack));
