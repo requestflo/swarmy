@@ -15,6 +15,7 @@ export * from './ingress';
 export * from './results';
 export * from './messages';
 export * from './backup';
+export * from './dbBackup';
 export * from './mesh';
 export * from './terminal';
 export * from './build';

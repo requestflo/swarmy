@@ -4,6 +4,7 @@ import {
   getConfig,
   listRemoteSnapshots,
   listSnapshots,
+  restoreControllerBackup,
   runControllerBackup,
   setConfig,
   setRestorePassphrase,
@@ -52,6 +53,17 @@ export const controllerBackupRouter = router({
     .mutation(({ ctx, input }) => setRestorePassphrase(ctx, input.passphrase)),
 
   runNow: adminProcedure.mutation(({ ctx }) => runControllerBackup(ctx)),
+
+  /** Restore the control plane from an encrypted snapshot (passphrase-gated). */
+  restore: adminProcedure
+    .input(
+      z.object({
+        snapshotId: z.string().optional(),
+        passphrase: z.string().optional(),
+        loadData: z.boolean().optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => restoreControllerBackup(ctx, input)),
 
   listSnapshots: adminProcedure.query(({ ctx }) => listSnapshots(ctx.db)),
 

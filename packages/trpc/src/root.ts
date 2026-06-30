@@ -8,6 +8,7 @@ import { metricsRouter } from './routers/metrics';
 import { ingressRouter } from './routers/ingress';
 import { systemRouter } from './routers/system';
 import { backupsRouter } from './routers/backups';
+import { dbBackupRouter } from './routers/dbBackup';
 import { observabilityRouter } from './routers/observability';
 import { meshRouter } from './routers/mesh';
 import { imagesRouter } from './routers/images';
@@ -45,6 +46,7 @@ export const appRouter = router({
   ingress: ingressRouter,
   system: systemRouter,
   backups: backupsRouter,
+  dbBackups: dbBackupRouter,
   observability: observabilityRouter,
   mesh: meshRouter,
   images: imagesRouter,

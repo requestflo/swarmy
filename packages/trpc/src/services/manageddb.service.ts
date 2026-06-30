@@ -58,12 +58,76 @@ export const SCALE_TO_ZERO_EXEMPT_LABEL = 'swarmy.scaleToZero.exempt';
 export const DB_INJECT_LABEL = 'swarmy.db.inject';
 export const DB_INJECT_VAR_LABEL = 'swarmy.db.inject.var';
 
+// ── HA topology (this slice). The topology is a single changeable label on the
+// cluster anchor; the manageddb-reconcile worker CONVERGES the live member set to
+// match it in-situ. Keep these in sync with manageddb-reconcile.ts (a worker
+// cannot subpath-import an internal @swarmy/trpc module). ──
+
+/** The selected HA shape for a cluster (anchor label). Missing ⇒ primary-replica. */
+export const DB_TOPOLOGY_LABEL = 'swarmy.db.topology';
+/** geo: node-label region the single writer is pinned to (`swarmy.region==<x>`). */
+export const DB_WRITE_REGION_LABEL = 'swarmy.db.writeRegion';
+/** geo: region the primary was last DEPLOYED into — reconcile re-places when it drifts. */
+export const DB_PLACED_REGION_LABEL = 'swarmy.db.placedRegion';
+/** geo region-replica sibling: which region it is pinned to (mirrors region-reconcile). */
+export const DB_REGION_LABEL = 'swarmy.db.region';
+/** active-active: desired number of writable primaries (>=2). */
+export const DB_PRIMARIES_LABEL = 'swarmy.db.primaries';
+/** active-active: 1-based member index on extra primaries (base primary is unlabelled/1). */
+export const DB_MEMBER_LABEL = 'swarmy.db.member';
+/** failover: status label the reconcile stamps with the observed leader service name. */
+export const DB_LEADER_LABEL = 'swarmy.db.leader';
+/** Node label naming a node's region — shared with region/geodns (placement constraints). */
+export const REGION_NODE_LABEL = 'swarmy.region';
+/** `swarmy.db.region.<region>.replicas=<n>` — per-region read-replica declarations (geo). */
+const DB_REGION_REPLICAS_PREFIX = 'swarmy.db.region.';
+const DB_REGION_REPLICAS_SUFFIX = '.replicas';
+const DB_REGION_REPLICAS_RE = /^swarmy\.db\.region\.(.+)\.replicas$/;
+
+/** Selectable HA topologies. Order = least→most advanced. */
+export const DB_TOPOLOGIES = [
+  'single', // one writer, no replicas (replica service parked at 0)
+  'primary-replica', // current default: 1 writer + N async read replicas
+  'failover', // primary-replica + an etcd consensus member + leader observation
+  'geo', // write-region primary + per-region read replicas
+  'active-active', // 2+ writable primaries (bidirectional logical replication)
+] as const;
+export type DbTopology = (typeof DB_TOPOLOGIES)[number];
+export const DEFAULT_TOPOLOGY: DbTopology = 'primary-replica';
+
 const PG_PORT = 5432;
 const REPLICATION_USER = 'repl';
 const DEFAULT_DATABASE = 'app';
 const DISPATCH_TIMEOUT_MS = 60_000;
 
 export type DbEngine = 'postgres';
+
+/** Docker label key carrying the per-region read-replica count for `region`. */
+export function regionReplicasLabelKey(region: string): string {
+  return `${DB_REGION_REPLICAS_PREFIX}${region}${DB_REGION_REPLICAS_SUFFIX}`;
+}
+
+/** Parse `swarmy.db.region.<region>.replicas` labels → { region: count }. */
+function parseRegionReplicas(labels: Record<string, string>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(labels)) {
+    const m = DB_REGION_REPLICAS_RE.exec(key);
+    if (!m) continue;
+    const region = m[1];
+    const n = Number.parseInt(value, 10);
+    if (!region || Number.isNaN(n) || n < 0) continue;
+    out[region] = n;
+  }
+  return out;
+}
+
+/** Read the cluster's topology off a member's labels (default primary-replica). */
+function topologyOf(labels: Record<string, string> | undefined): DbTopology {
+  const v = labels?.[DB_TOPOLOGY_LABEL];
+  return (DB_TOPOLOGIES as readonly string[]).includes(v ?? '')
+    ? (v as DbTopology)
+    : DEFAULT_TOPOLOGY;
+}
 
 /** `<stack>_<cluster>-primary` — the single writer; also the rw DNS host. */
 export function primaryServiceName(stack: string, cluster: string): string {
@@ -108,8 +172,14 @@ function findCluster(
     (s) => s.labels[DB_CLUSTER_LABEL] === cluster,
   );
   return {
-    primary: members.find((s) => s.labels[DB_ROLE_LABEL] === 'primary'),
-    replica: members.find((s) => s.labels[DB_ROLE_LABEL] === 'replica'),
+    // The base primary/replica are the unregioned anchors; geo region-replica
+    // siblings also carry role=replica, so prefer the unregioned member.
+    primary: members.find(
+      (s) => s.labels[DB_ROLE_LABEL] === 'primary' && !s.labels[DB_MEMBER_LABEL],
+    ),
+    replica:
+      members.find((s) => s.labels[DB_ROLE_LABEL] === 'replica' && !s.labels[DB_REGION_LABEL]) ??
+      members.find((s) => s.labels[DB_ROLE_LABEL] === 'replica'),
     members,
   };
 }
@@ -120,6 +190,7 @@ function dbLabels(
   cluster: string,
   role: 'primary' | 'replica',
   replicas: number,
+  topology: DbTopology = DEFAULT_TOPOLOGY,
 ): Record<string, string> {
   return {
     [MANAGED_LABEL]: 'true',
@@ -128,6 +199,7 @@ function dbLabels(
     [DB_CLUSTER_LABEL]: cluster,
     [DB_ROLE_LABEL]: role,
     [DB_REPLICAS_LABEL]: String(replicas),
+    [DB_TOPOLOGY_LABEL]: topology,
     // DBs must stay warm: belt-and-suspenders marker so the idle sleeper skips
     // these (it already skips anything without `scaleToZero.enabled=true`).
     [SCALE_TO_ZERO_EXEMPT_LABEL]: 'true',
@@ -253,6 +325,17 @@ export async function provisionDb(
   };
 }
 
+/** One live cluster member with its Docker-truth role + health. */
+export interface DbMemberView {
+  service: string;
+  role: 'primary' | 'replica' | 'dcs';
+  /** geo: the region a replica sibling is pinned to, or the primary's write-region. */
+  region?: string;
+  status: InvServiceStatus | 'absent';
+  desired: number;
+  running: number;
+}
+
 export interface DbClusterView {
   name: string;
   engine: DbEngine;
@@ -264,6 +347,18 @@ export interface DbClusterView {
   roHost: string;
   /** Declared replica count from the `swarmy.db.replicas` label (worker target). */
   declaredReplicas: number;
+  /** Selected HA topology (the changeable `swarmy.db.topology` anchor label). */
+  topology: DbTopology;
+  /** Every live member of the cluster with its role + health (per-node roles). */
+  members: DbMemberView[];
+  /** failover: the leader the reconcile last observed (`swarmy.db.leader`). */
+  leader?: string;
+  /** geo: the node-label region the single writer is pinned to. */
+  writeRegion?: string;
+  /** geo: declared per-region read-replica counts (`swarmy.db.region.<r>.replicas`). */
+  regionReplicas?: Record<string, number>;
+  /** active-active: declared number of writable primaries. */
+  primaries?: number;
 }
 
 export interface DbTopologyView {
@@ -286,11 +381,39 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
 
   const clusters: DbClusterView[] = [];
   for (const [name, members] of byCluster) {
-    const primary = members.find((s) => s.labels[DB_ROLE_LABEL] === 'primary');
-    const replica = members.find((s) => s.labels[DB_ROLE_LABEL] === 'replica');
+    const primary = members.find(
+      (s) => s.labels[DB_ROLE_LABEL] === 'primary' && !s.labels[DB_MEMBER_LABEL],
+    );
+    // The base (unregioned) replica is the legacy rw/ro anchor; geo siblings extra.
+    const replica =
+      members.find((s) => s.labels[DB_ROLE_LABEL] === 'replica' && !s.labels[DB_REGION_LABEL]) ??
+      members.find((s) => s.labels[DB_ROLE_LABEL] === 'replica');
+    const anchorLabels = primary?.labels ?? replica?.labels;
     const declared = Number(
       primary?.labels[DB_REPLICAS_LABEL] ?? replica?.labels[DB_REPLICAS_LABEL] ?? '0',
     );
+    const topology = topologyOf(anchorLabels);
+    const writeRegion = primary?.labels[DB_WRITE_REGION_LABEL];
+    const leader = primary?.labels[DB_LEADER_LABEL];
+    const regionReplicas = parseRegionReplicas(primary?.labels ?? {});
+    const primariesDeclared = Number.parseInt(primary?.labels[DB_PRIMARIES_LABEL] ?? '', 10);
+
+    const memberViews: DbMemberView[] = members
+      .map((s): DbMemberView => {
+        const role = s.labels[DB_ROLE_LABEL];
+        return {
+          service: s.name,
+          role: role === 'primary' || role === 'dcs' ? role : 'replica',
+          region:
+            s.labels[DB_REGION_LABEL] ??
+            (role === 'primary' ? s.labels[DB_WRITE_REGION_LABEL] : undefined),
+          status: s.status,
+          desired: s.replicas.desired,
+          running: s.replicas.running,
+        };
+      })
+      .sort((a, b) => a.service.localeCompare(b.service));
+
     clusters.push({
       name,
       engine: 'postgres',
@@ -305,6 +428,14 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
       rwHost: primary?.name ?? primaryServiceName(stack, name),
       roHost: replica?.name ?? replicaServiceName(stack, name),
       declaredReplicas: Number.isFinite(declared) ? declared : 0,
+      topology,
+      members: memberViews,
+      ...(leader ? { leader } : {}),
+      ...(writeRegion ? { writeRegion } : {}),
+      ...(Object.keys(regionReplicas).length > 0 ? { regionReplicas } : {}),
+      ...(Number.isFinite(primariesDeclared) && primariesDeclared >= 2
+        ? { primaries: primariesDeclared }
+        : {}),
     });
   }
 
@@ -343,6 +474,134 @@ export async function setReplicas(
     throw mapDispatchError(e);
   }
   return { cluster: input.cluster, replicas };
+}
+
+/**
+ * Select (or change, in-situ) a cluster's HA topology. Pure Docker-truth: this
+ * only stamps the `swarmy.db.topology` anchor label on every live member; the
+ * manageddb-reconcile worker then CONVERGES the live member set to match —
+ * standing up an etcd consensus member (failover), per-region read replicas
+ * (geo), or extra primaries (active-active), and tearing down infra that the new
+ * topology no longer needs. single/primary-replica behave exactly as before.
+ *
+ * Switching to `geo` with no `swarmy.db.writeRegion` set yet leaves the primary
+ * where it is until {@link setWriteRegion} is called; switching to `active-active`
+ * defaults to 2 primaries until {@link setReplicas}-style `swarmy.db.primaries` is
+ * raised. Both are safe no-ops on the reconcile until their inputs are declared.
+ */
+export async function setTopology(
+  ctx: OrgContext,
+  input: {
+    stack: string;
+    cluster: string;
+    topology: DbTopology;
+    /** geo: where the single writer lives (applied via setWriteRegion). */
+    writeRegion?: string;
+    /** geo: per-region read-replica plan (applied via setRegionReplicas). */
+    regions?: { region: string; replicas: number }[];
+  },
+): Promise<{ cluster: string; topology: DbTopology }> {
+  if (!(DB_TOPOLOGIES as readonly string[]).includes(input.topology)) {
+    throw commandRejected(`unknown topology "${input.topology}"`);
+  }
+  const { primary, members } = findCluster(ctx, input.stack, input.cluster);
+  if (members.length === 0) throw notFound('db cluster', input.cluster);
+  const node = await resolveManagerNode(ctx);
+
+  const add: Record<string, string> = { [DB_TOPOLOGY_LABEL]: input.topology };
+  // active-active needs at least 2 writers; seed the count on the primary so the
+  // reconcile has a target the moment the topology flips (raise it via the label).
+  if (input.topology === 'active-active' && primary && !primary.labels[DB_PRIMARIES_LABEL]) {
+    add[DB_PRIMARIES_LABEL] = '2';
+  }
+  try {
+    for (const svc of members) {
+      await ctx.hub.dispatch(node.id, 'service.updateLabels', {
+        service: svc.name,
+        // Only the primary carries cluster-wide declarations (primaries count);
+        // replicas/siblings just get the topology marker so reads stay coherent.
+        add: svc === primary ? add : { [DB_TOPOLOGY_LABEL]: input.topology },
+        removeKeys: [],
+      });
+    }
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
+
+  // geo: fold the write-region + per-region replica plan in atomically so the UI's
+  // single setTopology call fully provisions the geo shape (the reconcile converges).
+  if (input.topology === 'geo') {
+    if (input.writeRegion?.trim()) {
+      await setWriteRegion(ctx, { stack: input.stack, cluster: input.cluster, region: input.writeRegion });
+    }
+    for (const r of input.regions ?? []) {
+      if (r.region.trim()) {
+        await setRegionReplicas(ctx, { stack: input.stack, cluster: input.cluster, region: r.region, replicas: r.replicas });
+      }
+    }
+  }
+  return { cluster: input.cluster, topology: input.topology };
+}
+
+/**
+ * Geo: pin the single writer to a node-label region (`swarmy.region==<region>`).
+ * Stamps `swarmy.db.writeRegion` on the primary; the reconcile re-places the
+ * primary onto a node in that region (it tracks the last placement in
+ * `swarmy.db.placedRegion`, so steady state is a no-op).
+ */
+export async function setWriteRegion(
+  ctx: OrgContext,
+  input: { stack: string; cluster: string; region: string },
+): Promise<{ cluster: string; writeRegion: string }> {
+  const region = input.region.trim();
+  if (!region) throw commandRejected('region is required');
+  const { primary, members } = findCluster(ctx, input.stack, input.cluster);
+  if (!primary) throw notFound('db cluster primary', input.cluster);
+  const node = await resolveManagerNode(ctx);
+  try {
+    // Stamp on the primary (placement source) + every member (so the canvas/detail
+    // sheet can render the write-region without resolving the anchor).
+    for (const svc of members) {
+      await ctx.hub.dispatch(node.id, 'service.updateLabels', {
+        service: svc.name,
+        add: { [DB_WRITE_REGION_LABEL]: region },
+        removeKeys: [],
+      });
+    }
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
+  return { cluster: input.cluster, writeRegion: region };
+}
+
+/**
+ * Geo: declare N read replicas pinned to a region. Stamps (or, for n=0, clears)
+ * `swarmy.db.region.<region>.replicas` on the primary (the declaration holder);
+ * the reconcile materialises a region-pinned replica sibling
+ * `<stack>_<cluster>-replica-<region>` and converges its count — the exact
+ * per-region placement model the region-reconcile worker uses for app services.
+ */
+export async function setRegionReplicas(
+  ctx: OrgContext,
+  input: { stack: string; cluster: string; region: string; replicas: number },
+): Promise<{ cluster: string; region: string; replicas: number }> {
+  const region = input.region.trim();
+  if (!region) throw commandRejected('region is required');
+  const replicas = Math.max(0, Math.floor(input.replicas));
+  const { primary } = findCluster(ctx, input.stack, input.cluster);
+  if (!primary) throw notFound('db cluster primary', input.cluster);
+  const node = await resolveManagerNode(ctx);
+  const key = regionReplicasLabelKey(region);
+  try {
+    await ctx.hub.dispatch(node.id, 'service.updateLabels', {
+      service: primary.name,
+      add: replicas > 0 ? { [key]: String(replicas) } : {},
+      removeKeys: replicas > 0 ? [] : [key],
+    });
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
+  return { cluster: input.cluster, region, replicas };
 }
 
 /** Derive the read-only env var name from the writer var (DATABASE_URL → DATABASE_RO_URL). */

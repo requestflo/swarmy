@@ -27,6 +27,7 @@ import { PruneImagesMsg } from './prune';
 import { ApplyStorageNodeMsg, ProvisionVolumeMsg, RemoveVolumeMsg } from './storage';
 import { SwarmJoinMsg } from './swarm';
 import { BackupVolumeMsg, RestoreVolumeMsg, ListSnapshotsMsg } from './backup';
+import { DbBackupMsg, DbRestoreMsg } from './dbBackup';
 import {
   TermStartMsg,
   TermInputMsg,
@@ -89,6 +90,8 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   BackupVolumeMsg,
   RestoreVolumeMsg,
   ListSnapshotsMsg,
+  DbBackupMsg,
+  DbRestoreMsg,
   TermStartMsg,
   TermInputMsg,
   TermResizeMsg,

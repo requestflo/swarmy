@@ -9,6 +9,7 @@ import { CountUp } from '@/components/count-up';
 import { BackupVolumeDialog } from '@/components/backups/backup-volume-dialog';
 import { TargetsCard } from '@/components/backups/targets-card';
 import { SnapshotsList } from '@/components/backups/snapshots-list';
+import { DbBackupsCard } from '@/components/backups/db-backups-card';
 
 export const Route = createFileRoute('/_authed/backups')({
   component: BackupsPage,
@@ -53,6 +54,10 @@ function BackupsPage(): React.JSX.Element {
       <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
         <TargetsCard targets={targetRows} />
         <SnapshotsList />
+      </div>
+
+      <div className="mt-6">
+        <DbBackupsCard />
       </div>
     </div>
   );

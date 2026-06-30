@@ -22,11 +22,12 @@ import type { DB } from '@swarmy/db';
 import { resolveDbDriver } from '@swarmy/db';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
-import { dumpControlPlane } from './controllerBackup.dump';
+import { dumpControlPlane, loadControlPlane } from './controllerBackup.dump';
 import {
   createAndStoreBundle,
   defaultRunner,
   listBundleSnapshots,
+  restoreBundle,
   type ControllerManifest,
   type ControllerSecrets,
   type ResticRunner,
@@ -383,6 +384,91 @@ export async function listRemoteSnapshots(db: DB): Promise<{ id: string; time: s
   if (!target) return [];
   const snaps = await listBundleSnapshots(toResticRepo(target));
   return snaps.map((s) => ({ id: s.id, time: s.time }));
+}
+
+// ── restore ────────────────────────────────────────────────────────────────────
+
+export interface RestoreControllerResult {
+  manifest: ControllerManifest;
+  /** Whether the control-plane data dump was loaded into the live DB. */
+  tablesLoaded: boolean;
+  /** Whether the bundle's SWARMY_SECRET_KEY matches the running controller's. */
+  secretsMatch: boolean;
+  /** Non-fatal preflight findings the operator should act on (driver/key mismatch). */
+  warnings: string[];
+}
+
+/**
+ * Restore the controller's brain from a previously-stored bundle.
+ *
+ * Pulls the encrypted bundle from the configured restic target, decrypts it with
+ * the user-held passphrase (supplied for a disaster restore, or the stored
+ * operational copy), and — unless `loadData: false` (preview only) — loads the
+ * control-plane dump back into the live DB via {@link loadControlPlane}.
+ *
+ * Secrets are NOT hot-swapped: `SWARMY_SECRET_KEY` can't change in a running
+ * process, so a key mismatch is surfaced as a warning (existing vault ciphertext
+ * only decrypts under the original key — the operator must set it from the bundle
+ * and restart). Mirrors the disaster-recovery flow in `controllerBackup.bundle`.
+ */
+export async function restoreControllerBackup(
+  ctx: AuditCtx,
+  input: { snapshotId?: string; passphrase?: string; loadData?: boolean } = {},
+): Promise<RestoreControllerResult> {
+  const config = await getOrCreateConfig(ctx.db);
+  if (!config.targetId) {
+    throw new Error('no backup target configured for controller backups');
+  }
+  const target = await models(ctx.db).backupTarget.findFirst({ where: { id: config.targetId } });
+  if (!target) throw notFound('backup target', config.targetId);
+
+  const passphrase =
+    input.passphrase?.trim() ||
+    (config.restorePassphraseRef ? decryptSecret(config.restorePassphraseRef) : '');
+  if (!passphrase) {
+    throw new Error('no restore passphrase available — supply one or capture it first');
+  }
+
+  const contents = await restoreBundle({
+    repo: toResticRepo(target),
+    snapshotId: input.snapshotId,
+    passphrase,
+  });
+
+  const warnings: string[] = [];
+  const liveDriver = resolveDbDriver();
+  if (contents.manifest.dbDriver !== liveDriver) {
+    warnings.push(
+      `bundle dbDriver="${contents.manifest.dbDriver}" differs from live driver="${liveDriver}"`,
+    );
+  }
+  const liveKey = process.env.SWARMY_SECRET_KEY ?? '';
+  const secretsMatch = Boolean(liveKey) && contents.secrets.SWARMY_SECRET_KEY === liveKey;
+  if (!secretsMatch) {
+    warnings.push(
+      'restored SWARMY_SECRET_KEY differs from the running controller — set it from the bundle and restart before relying on vault-encrypted data',
+    );
+  }
+
+  let tablesLoaded = false;
+  if (input.loadData !== false) {
+    await loadControlPlane(ctx.db, contents.dbDump.toString('utf8'));
+    tablesLoaded = true;
+  }
+
+  await writeAudit(ctx, {
+    action: 'controller.backup.restore',
+    targetType: 'controllerBackupConfig',
+    targetId: SINGLETON_ID,
+    metadata: {
+      snapshotId: input.snapshotId ?? 'latest',
+      tablesLoaded,
+      secretsMatch,
+      warnings,
+    },
+  });
+
+  return { manifest: contents.manifest, tablesLoaded, secretsMatch, warnings };
 }
 
 // ── scheduling ────────────────────────────────────────────────────────────────

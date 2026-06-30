@@ -30,6 +30,8 @@ export type CommandName =
   | 'backup.run'
   | 'backup.restore'
   | 'backup.list'
+  | 'db.backup' // data-plane: logical/physical DB backup (pg_dump/wal-g/…)
+  | 'db.restore'
   | 'storage.apply' // volumes-dr P2: bring up a Garage member
   | 'volume.provision' // volumes-dr P3: create a local/CSI cluster volume
   | 'volume.remove'
@@ -57,6 +59,8 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'backup.run': 'backupVolume',
   'backup.restore': 'restoreVolume',
   'backup.list': 'listSnapshots',
+  'db.backup': 'dbBackup',
+  'db.restore': 'dbRestore',
   'storage.apply': 'applyStorageNode',
   'volume.provision': 'provisionVolume',
   'volume.remove': 'removeVolume',

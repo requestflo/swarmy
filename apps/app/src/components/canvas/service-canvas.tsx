@@ -14,6 +14,10 @@ import type { Inventory } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { ServiceNode } from './service-node';
 import { ProjectGroupNode } from './project-group-node';
+import { DbClusterNode } from './db-cluster-node';
+import { DbClusterPanel } from '@/components/stacks/db-cluster-panel';
+import { DbTopologySelector } from '@/components/stacks/db-topology-selector';
+import { DbBackupPanel } from '@/components/stacks/db-backup-panel';
 import { buildGraph, type CanvasNode, type ServiceNodeData } from './build-graph';
 import { filterInventory } from './filter-inventory';
 import { useCanvasLayout } from './use-canvas-layout';
@@ -21,7 +25,7 @@ import { CanvasToolbar } from './canvas-toolbar';
 import { CanvasBreadcrumb } from './canvas-breadcrumb';
 import { ServiceDetailSheet } from './service-detail-sheet';
 
-const NODE_TYPES = { service: ServiceNode, project: ProjectGroupNode };
+const NODE_TYPES = { service: ServiceNode, project: ProjectGroupNode, dbCluster: DbClusterNode };
 
 interface ServiceCanvasProps {
   /** Stack name to scope the canvas to, or null for the flat cross-swarm view. */
@@ -45,6 +49,7 @@ export function ServiceCanvas({ stackFilter, onBack }: ServiceCanvasProps): Reac
   const setCanvasPos = useMutation(trpc.services.setCanvasPos.mutationOptions());
 
   const [selected, setSelected] = React.useState<string | null>(null);
+  const [dbCluster, setDbCluster] = React.useState<{ stack: string; cluster: string } | null>(null);
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<CanvasNode>([]);
   // Ids dragged this session keep their live position over a refetch, so a 4s poll
   // never snaps a card back to its saved/grid spot mid-arrange.
@@ -84,7 +89,11 @@ export function ServiceCanvas({ stackFilter, onBack }: ServiceCanvasProps): Reac
         edges={graph.edges}
         nodeTypes={NODE_TYPES}
         onNodesChange={onNodesChange}
-        onNodeClick={(_e, node) => node.type === 'service' && setSelected(node.id)}
+        onNodeClick={(_e, node) => {
+          if (node.type === 'service') setSelected(node.id);
+          else if (node.type === 'dbCluster')
+            setDbCluster({ stack: node.data.stack, cluster: node.data.cluster });
+        }}
         onNodeDragStop={(_e, node) => {
           if (node.type !== 'service') return;
           draggedRef.current.add(node.id);
@@ -117,6 +126,15 @@ export function ServiceCanvas({ stackFilter, onBack }: ServiceCanvasProps): Reac
         <CanvasToolbar count={scoped?.services.length ?? 0} stack={stackFilter} />
       </ReactFlow>
       <ServiceDetailSheet serviceId={selected} onOpenChange={(o) => !o && setSelected(null)} />
+      <DbClusterPanel
+        stack={dbCluster?.stack ?? null}
+        cluster={dbCluster?.cluster ?? null}
+        onOpenChange={(o) => !o && setDbCluster(null)}
+        topologySlot={
+          dbCluster && <DbTopologySelector stack={dbCluster.stack} cluster={dbCluster.cluster} />
+        }
+        backupSlot={dbCluster && <DbBackupPanel stack={dbCluster.stack} cluster={dbCluster.cluster} />}
+      />
     </div>
   );
 }

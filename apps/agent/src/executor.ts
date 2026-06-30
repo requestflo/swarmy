@@ -4,7 +4,7 @@ import { DockerClient, toServiceCreateOptions } from '@swarmy/core/docker';
 import type { ControllerEnvelope, RenderedConfig, ServiceSpec } from '@swarmy/core/protocol';
 import type { AgentConnection } from './connection';
 import { env } from './env';
-import { backupVolume, restoreVolume, listSnapshots } from './handlers/backup';
+import { backupVolume, restoreVolume, listSnapshots, backupDb, restoreDb } from './handlers/backup';
 import { applyMesh, grantDirectRoute } from './handlers/mesh';
 import { applyIngressConnector } from './handlers/ingress-connector';
 import { buildImage } from './handlers/build';
@@ -129,6 +129,14 @@ export async function handleCommand(
     case 'listSnapshots': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => listSnapshots(docker, p));
+    }
+    case 'dbBackup': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => backupDb(docker, conn, p));
+    }
+    case 'dbRestore': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => restoreDb(docker, conn, p));
     }
     case 'buildImage': {
       const p = envlp.payload;

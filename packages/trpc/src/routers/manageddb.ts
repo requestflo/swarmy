@@ -1,10 +1,14 @@
 import { z } from 'zod';
 import { orgProcedure, router } from '../trpc';
 import {
+  DB_TOPOLOGIES,
   getDbTopology,
   injectConnection,
   provisionDb,
+  setRegionReplicas,
   setReplicas,
+  setTopology,
+  setWriteRegion,
 } from '../services/manageddb.service';
 
 const stackName = z
@@ -18,6 +22,15 @@ const clusterName = z
   .min(1)
   .max(40)
   .regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/, 'invalid cluster name');
+
+/** A node-label region value (`swarmy.region`) — same charset as a label value segment. */
+const regionName = z
+  .string()
+  .min(1)
+  .max(40)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/, 'invalid region');
+
+const topologyEnum = z.enum(DB_TOPOLOGIES);
 
 /**
  * Managed DB topology (epic #8). Declare a Postgres primary/replica cluster for
@@ -60,6 +73,49 @@ export const managedDbRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => setReplicas(ctx, input)),
+
+  /**
+   * Select (or change, in-situ) the cluster's HA topology. The reconcile worker
+   * converges live infra to match — single | primary-replica | failover | geo |
+   * active-active.
+   */
+  setTopology: orgProcedure
+    .input(
+      z.object({
+        stack: stackName,
+        cluster: clusterName,
+        topology: topologyEnum,
+        // geo: applied in one call so the UI fully provisions the geo shape.
+        writeRegion: z.string().min(1).max(63).optional(),
+        regions: z
+          .array(z.object({ region: z.string().min(1).max(63), replicas: z.number().int().min(0).max(50) }))
+          .optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => setTopology(ctx, input)),
+
+  /** Geo: pin the single writer to a node-label region (`swarmy.region==<region>`). */
+  setWriteRegion: orgProcedure
+    .input(
+      z.object({
+        stack: stackName,
+        cluster: clusterName,
+        region: regionName,
+      }),
+    )
+    .mutation(({ ctx, input }) => setWriteRegion(ctx, input)),
+
+  /** Geo: declare N read replicas pinned to a region (0 removes the region sibling). */
+  setRegionReplicas: orgProcedure
+    .input(
+      z.object({
+        stack: stackName,
+        cluster: clusterName,
+        region: regionName,
+        replicas: z.number().int().min(0).max(20),
+      }),
+    )
+    .mutation(({ ctx, input }) => setRegionReplicas(ctx, input)),
 
   /** Inject DATABASE_URL (+ *_RO_URL) env onto an app service in the stack. */
   inject: orgProcedure
