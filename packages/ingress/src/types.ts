@@ -58,6 +58,43 @@ export const CanaryUpstreamSchema = z.object({
 });
 export type CanaryUpstream = z.infer<typeof CanaryUpstreamSchema>;
 
+/**
+ * Per-route edge protections (stack-level "rate limits & protections"). Pure
+ * render input: renderers translate these into driver syntax (Caddy:
+ * `rate_limit` via mholt/caddy-ratelimit, `@matchers` + `abort`/`respond`,
+ * `request_body max_size`). Drivers without support ignore what they can't
+ * express — validation warns, render never throws.
+ */
+export const RateLimitRuleSchema = z.object({
+  /** Max requests per window. */
+  requests: z.number().int().min(1),
+  /** Window length in seconds. */
+  windowSeconds: z.number().int().min(1),
+  /** What a client is keyed by: remote IP (default) or a header value. */
+  key: z.enum(['ip', 'header']).default('ip'),
+  /** Header name when `key` is 'header' (e.g. X-Api-Key). */
+  header: z.string().optional(),
+});
+export type RateLimitRule = z.infer<typeof RateLimitRuleSchema>;
+
+export const RouteProtectionSchema = z.object({
+  /** Sliding-window rate limit for this route. */
+  rateLimit: RateLimitRuleSchema.optional(),
+  /** CIDRs/IPs allowed — non-matching requests are aborted. Empty = allow all. */
+  ipAllow: z.array(z.string()).default([]),
+  /** CIDRs/IPs denied — matching requests are aborted. */
+  ipDeny: z.array(z.string()).default([]),
+  /** Max request body size, e.g. "10MB". */
+  bodyMaxSize: z.string().optional(),
+  /** Abort requests whose User-Agent matches known bot/scanner patterns. */
+  blockBots: z.boolean().default(false),
+  /** Headers that must be present (optionally with an exact value). */
+  requiredHeaders: z
+    .array(z.object({ name: z.string().min(1), value: z.string().optional() }))
+    .default([]),
+});
+export type RouteProtection = z.infer<typeof RouteProtectionSchema>;
+
 export const DomainRouteSchema = z.object({
   domain: z.string().min(1),
   pathPrefix: z.string().default('/'),
@@ -66,6 +103,8 @@ export const DomainRouteSchema = z.object({
   tls: z.enum(['auto', 'off', 'custom']).default('auto'),
   stripPathPrefix: z.boolean().default(false),
   middlewares: z.array(z.string()).default([]),
+  /** Edge protections (rate limit, IP rules, body cap, bot/header rules). */
+  protection: RouteProtectionSchema.optional(),
   /**
    * Scale-to-zero COLD override. Present ⇒ route to the activator (wake-on-request)
    * instead of `service:port`; absent ⇒ warm (direct upstream). See {@link ColdRouteSchema}.
@@ -138,12 +177,34 @@ export const IngressGlobalOptionsSchema = z.object({
 });
 export type IngressGlobalOptions = z.infer<typeof IngressGlobalOptionsSchema>;
 
+/**
+ * A vhost that proxies straight to the swarmy controller instead of a swarm
+ * service — the one shared primitive behind custom domains for status pages,
+ * inbound webhook endpoints, and the AI gateway. The controller computes the
+ * list at render time from persisted rows (StatusPage.domain,
+ * InboundEndpoint.domain, AI outlet config); renderers emit a reverse-proxy
+ * vhost with a path rewrite onto the controller upstream.
+ */
+export const ControllerVhostSchema = z.object({
+  domain: z.string().min(1),
+  /** Controller dial target as host:port, reachable from the ingress container. */
+  upstream: z.string().min(1),
+  /** Controller path the vhost's `/` maps onto, e.g. `/s/my-page` or `/hooks/gh`. */
+  targetPath: z.string().min(1),
+  /** What this vhost fronts — drives labeling/diagnostics only. */
+  kind: z.enum(['status-page', 'webhook', 'ai-gateway']),
+  tls: z.enum(['auto', 'off']).default('auto'),
+});
+export type ControllerVhost = z.infer<typeof ControllerVhostSchema>;
+
 export const IngressConfigSchema = z.object({
   driver: z.string().min(1),
   enabled: z.boolean().default(true),
   orgId: z.string(),
   targetNodes: z.array(z.string()).default([]),
   domains: z.array(DomainRouteSchema).default([]),
+  /** Controller-upstream vhosts (status pages / webhooks / AI gateway domains). */
+  controllerVhosts: z.array(ControllerVhostSchema).default([]),
   globalOptions: IngressGlobalOptionsSchema.default({}),
 });
 export type IngressConfig = z.infer<typeof IngressConfigSchema>;

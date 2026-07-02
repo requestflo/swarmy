@@ -28,3 +28,5 @@ export * from './components/sparkline';
 export * from './components/metric-card';
 export * from './components/copy-button';
 export * from './components/empty-state';
+export * from './components/collapsible';
+export * from './components/alert-dialog';

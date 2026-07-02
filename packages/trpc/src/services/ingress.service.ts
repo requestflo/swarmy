@@ -284,6 +284,9 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
       // Weighted canary upstream (D2) — carried on the route label, pure render input.
       canary: route.canary,
     })),
+    // Controller-upstream vhosts (status pages / webhooks / AI gateway domains)
+    // are computed from persisted rows at render time; wired in renderInput.
+    controllerVhosts: [],
     globalOptions: {
       ...baseGlobal,
       // Promote the load-bearing (encrypted) options, resolving secrets JIT.

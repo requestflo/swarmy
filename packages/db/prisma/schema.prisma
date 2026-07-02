@@ -1259,6 +1259,8 @@ model StatusPage {
   orgId          String
   slug           String   @unique
   title          String
+  // Stack this status page fronts (stack-scoped IA); null = org-wide/legacy.
+  stackName      String?
   domain         String?
   componentsJson Json     @default("[]")
   showUptime     Boolean  @default(true)
@@ -1271,6 +1273,7 @@ model StatusPage {
   samples UptimeSample[]
 
   @@index([orgId])
+  @@index([orgId, stackName])
   @@map("status_page")
 }
 
@@ -1317,6 +1320,8 @@ model ScheduledJob {
   id             String           @id @default(cuid())
   orgId          String
   name           String
+  // Stack this job belongs to (stack-scoped IA); null = org-wide/legacy.
+  stackName      String?
   // 5-field cron expression evaluated by the job-scheduler worker.
   schedule       String
   kind           ScheduledJobKind @default(IMAGE)
@@ -1339,6 +1344,7 @@ model ScheduledJob {
 
   @@unique([orgId, name])
   @@index([orgId])
+  @@index([orgId, stackName])
   @@index([enabled, lastRunAt])
   @@map("scheduled_job")
 }
@@ -1366,6 +1372,8 @@ model WorkflowDef {
   id        String   @id @default(cuid())
   orgId     String
   name      String
+  // Stack this workflow belongs to (stack-scoped IA); null = org-wide/legacy.
+  stackName String?
   version   Int      @default(1)
   stepsJson Json     @default("[]")
   enabled   Boolean  @default(true)
@@ -1377,6 +1385,7 @@ model WorkflowDef {
 
   @@unique([orgId, name, version])
   @@index([orgId])
+  @@index([orgId, stackName])
   @@map("workflow_def")
 }
 
@@ -1448,11 +1457,19 @@ model InboundEndpoint {
   orgId           String
   name            String
   slug            String
+  // Stack this endpoint belongs to (stack-scoped IA); null = org-wide/legacy.
+  stackName       String?
+  // Custom domain served via the controller-upstream ingress vhost (DNS exposure).
+  domain          String?
   verifyKind      InboundVerifyKind @default(NONE)
   // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
   verifySecretEnc String?           @db.Text
   targetKind      InboundTargetKind @default(FORWARD)
   targetJson      Json              @default("{}")
+  // Handlebars-style template applied to the forwarded request body; null = pass-through.
+  transformTemplate String?         @db.Text
+  // Handlebars-style template for the HTTP response returned to the caller; null = default ack.
+  responseTemplate  String?         @db.Text
   retentionDays   Int               @default(30)
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
@@ -1462,6 +1479,7 @@ model InboundEndpoint {
 
   @@unique([orgId, slug])
   @@index([orgId])
+  @@index([orgId, stackName])
   @@map("inbound_endpoint")
 }
 
