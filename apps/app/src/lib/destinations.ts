@@ -11,6 +11,7 @@ import {
   LayoutDashboardIcon,
   LayoutTemplateIcon,
   MailIcon,
+  NetworkIcon,
   PackageIcon,
   ScrollTextIcon,
   ServerIcon,
@@ -107,6 +108,7 @@ export const SECTIONS: Destination[] = [
   // ── Platform (global, estate-level services) ────────────────────────────
   { to: '/data/buckets', label: 'Object storage', icon: ArchiveIcon, group: 'Platform', blurb: 'S3 buckets on your nodes', keywords: 's3 object storage garage buckets keys minio' },
   { to: '/networking', label: 'Mesh', icon: GlobeIcon, group: 'Platform', blurb: 'WireGuard overlay & peers', keywords: 'mesh wireguard overlay peers routes acl netbird zero trust' },
+  { to: '/ingress', label: 'Edge & ingress', icon: NetworkIcon, group: 'Platform', blurb: 'The edge fleet: driver, TLS, tunnel', keywords: 'caddy driver tls https ha storage tunnel cloudflare edge controller — per-stack domains live in each stack' },
   { to: '/ai', label: 'AI gateway', icon: SparklesIcon, group: 'Platform', blurb: 'Providers, keys & metering', keywords: 'llm anthropic openai openrouter models virtual keys usage tokens embeddings gateway' },
   { to: '/backups', label: 'Backup destinations', icon: DatabaseBackupIcon, group: 'Platform', blurb: 'Where backups go — incl. your own buckets', keywords: 'targets restic s3 destinations snapshots volumes restore dr' },
   { to: '/settings/backup', label: 'Controller backup', icon: ShieldIcon, group: 'Platform', blurb: 'Back up swarmy itself', keywords: 'control plane bundle dump restore passphrase' },
@@ -152,7 +154,7 @@ export interface CommandAction {
 
 export const QUICK_ACTIONS: CommandAction[] = [
   { id: 'new-service', label: 'Deploy a service', to: '/services/new', icon: PackageIcon, kind: 'deploy', keywords: 'create add run container deploy' },
-  { id: 'deploy-stack', label: 'Deploy from compose', to: '/stacks', icon: LayersIcon, kind: 'deploy', keywords: 'compose yaml stack bundle' },
+  { id: 'deploy-stack', label: 'Deploy from compose', to: '/stacks/new', icon: LayersIcon, kind: 'deploy', keywords: 'compose yaml stack bundle' },
   { id: 'blueprint', label: 'Start from a blueprint', to: '/blueprints', icon: LayoutTemplateIcon, kind: 'deploy', keywords: 'template one-click wordpress n8n' },
   { id: 'new-bucket', label: 'Create a bucket', to: '/data/buckets', icon: ArchiveIcon, kind: 'data', keywords: 's3 object storage bucket' },
   { id: 'add-node', label: 'Add a node', to: '/nodes/new', icon: ServerIcon, kind: 'infra', keywords: 'enrol join install agent host machine' },
