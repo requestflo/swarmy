@@ -9,6 +9,30 @@ import { geo } from './resolvers/geo';
 import { data } from './resolvers/data';
 import { access } from './resolvers/access';
 import { infraextra } from './resolvers/infraextra';
+import { cache } from './resolvers/cache';
+import { buckets } from './resolvers/buckets';
+import { queues } from './resolvers/queues';
+import { jobs } from './resolvers/jobs';
+import { workflows } from './resolvers/workflows';
+import { webhookgw } from './resolvers/webhookgw';
+import { alerts } from './resolvers/alerts';
+import { incidents } from './resolvers/incidents';
+import { statuspages } from './resolvers/statuspages';
+import { releases } from './resolvers/releases';
+import { registrypolicy } from './resolvers/registrypolicy';
+import { previews } from './resolvers/previews';
+import { secretsmgr } from './resolvers/secretsmgr';
+import { configsmgr } from './resolvers/configsmgr';
+import { exposure } from './resolvers/exposure';
+import { guardrails } from './resolvers/guardrails';
+import { auditlog } from './resolvers/auditlog';
+import { cost } from './resolvers/cost';
+import { resilience } from './resolvers/resilience';
+import { blueprints } from './resolvers/blueprints';
+import { searchsvc } from './resolvers/searchsvc';
+import { vector } from './resolvers/vector';
+import { ai } from './resolvers/ai';
+import { notify } from './resolvers/notify';
 
 /**
  * Assembles every per-domain resolver module into flat lookup tables for the demo
@@ -26,6 +50,30 @@ const MODULES: DomainResolvers[] = [
   data,
   access,
   infraextra,
+  cache,
+  buckets,
+  queues,
+  jobs,
+  workflows,
+  webhookgw,
+  alerts,
+  incidents,
+  statuspages,
+  releases,
+  registrypolicy,
+  previews,
+  secretsmgr,
+  configsmgr,
+  exposure,
+  guardrails,
+  auditlog,
+  cost,
+  resilience,
+  blueprints,
+  searchsvc,
+  vector,
+  ai,
+  notify,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(

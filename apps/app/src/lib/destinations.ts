@@ -1,17 +1,36 @@
 import {
   ActivityIcon,
+  BellIcon,
   BoxesIcon,
+  CalendarClockIcon,
+  CircleDollarSignIcon,
   DatabaseBackupIcon,
+  DatabaseIcon,
+  FileCogIcon,
   GitBranchIcon,
   GlobeIcon,
+  HeartPulseIcon,
   KeyRoundIcon,
   LayersIcon,
+  LayoutTemplateIcon,
+  ListOrderedIcon,
+  LockKeyholeIcon,
+  MailIcon,
   NetworkIcon,
   PackageIcon,
+  RadioTowerIcon,
+  RocketIcon,
+  ScrollTextIcon,
   ServerIcon,
   SettingsIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
   ShieldIcon,
+  SirenIcon,
+  SparklesIcon,
   WandSparklesIcon,
+  WebhookIcon,
+  WorkflowIcon,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -31,6 +50,10 @@ export type DestinationGroup =
   | 'Delivery'
   | 'Data'
   | 'Observability'
+  | 'Operations'
+  | 'Network'
+  | 'Protection'
+  | 'Governance'
   | 'Settings';
 
 export interface Destination {
@@ -67,18 +90,37 @@ export const PLANES: Destination[] = [
 export const SECTIONS: Destination[] = [
   { to: '/stacks', label: 'Deploy from compose', icon: LayersIcon, group: 'Deploy', keywords: 'compose bundles groups stacks yaml' },
   { to: '/services/builder', label: 'Service builder', icon: WandSparklesIcon, group: 'Deploy', keywords: 'gui compose builder visual' },
+  { to: '/blueprints', label: 'Blueprints', icon: LayoutTemplateIcon, group: 'Deploy', keywords: 'templates gallery starter wordpress n8n directus one-click stacks' },
   { to: '/ingress', label: 'Ingress', icon: NetworkIcon, group: 'Networking', keywords: 'domains routes tls caddy reverse proxy' },
   { to: '/networking', label: 'Mesh networking', icon: GlobeIcon, group: 'Networking', keywords: 'mesh wireguard overlay peers routes acl' },
   { to: '/geo', label: 'Geo DNS', icon: GlobeIcon, group: 'Networking', keywords: 'dns geo steering failover records' },
   { to: '/geo/dns', label: 'DNS health', icon: GlobeIcon, group: 'Networking', keywords: 'dns resolve probe health endpoints reachable geodns' },
-  { to: '/ci', label: 'CI & builds', icon: GitBranchIcon, group: 'Delivery', keywords: 'git pipelines builds registry images' },
+  { to: '/exposure', label: 'Exposure', icon: ShieldAlertIcon, group: 'Network', keywords: 'public private protected ports attack surface audit violations' },
+  { to: '/ci', label: 'CI & builds', icon: GitBranchIcon, group: 'Delivery', keywords: 'git pipelines builds registry images previews' },
+  { to: '/releases', label: 'Releases', icon: RocketIcon, group: 'Delivery', keywords: 'deploys history rollback canary blue green health gates' },
+  { to: '/data', label: 'Data services', icon: DatabaseIcon, group: 'Data', keywords: 'databases postgres cache redis valkey search meilisearch typesense vector qdrant buckets s3 garage managed' },
+  { to: '/ai', label: 'AI gateway', icon: SparklesIcon, group: 'Data', keywords: 'llm anthropic openai openrouter models virtual keys usage tokens embeddings' },
   { to: '/backups', label: 'Backups', icon: DatabaseBackupIcon, group: 'Data', keywords: 'volumes snapshots restore restic' },
   { to: '/backups/schedules', label: 'DR & schedules', icon: ShieldIcon, group: 'Data', keywords: 'disaster recovery schedules cron' },
   { to: '/settings/backup', label: 'Controller backup', icon: DatabaseBackupIcon, group: 'Data', keywords: 'control plane bundle dump restore' },
+  { to: '/resilience', label: 'Resilience', icon: HeartPulseIcon, group: 'Protection', keywords: 'score drills failover restore readiness dr chaos' },
   { to: '/observability', label: 'Observability', icon: ActivityIcon, group: 'Observability', keywords: 'traces logs metrics otel telemetry' },
+  { to: '/alerts', label: 'Alerts', icon: BellIcon, group: 'Operations', keywords: 'rules channels notifications firing resolved slack email teams' },
+  { to: '/incidents', label: 'Incidents', icon: SirenIcon, group: 'Operations', keywords: 'outage timeline postmortem resolved downtime' },
+  { to: '/status-pages', label: 'Status pages', icon: RadioTowerIcon, group: 'Operations', keywords: 'public uptime components status page subscribe' },
+  { to: '/queues', label: 'Queues', icon: ListOrderedIcon, group: 'Operations', keywords: 'bullmq workers depth dlq dead letter retry scale' },
+  { to: '/jobs', label: 'Jobs', icon: CalendarClockIcon, group: 'Operations', keywords: 'cron scheduled tasks runs one-shot output' },
+  { to: '/workflows', label: 'Workflows', icon: WorkflowIcon, group: 'Operations', keywords: 'automation steps approvals pipelines runs delays' },
+  { to: '/webhooks', label: 'Webhooks', icon: WebhookIcon, group: 'Operations', keywords: 'inbound outbound endpoints deliveries events hmac github stripe replay' },
+  { to: '/secrets', label: 'Secrets', icon: LockKeyholeIcon, group: 'Governance', keywords: 'docker secrets rotation versions credentials vault' },
+  { to: '/configs', label: 'Configs', icon: FileCogIcon, group: 'Governance', keywords: 'docker configs versions diff rollout files' },
+  { to: '/governance', label: 'Guardrails', icon: ShieldCheckIcon, group: 'Governance', keywords: 'governance policies production safety rules blocked overrides' },
+  { to: '/audit', label: 'Audit log', icon: ScrollTextIcon, group: 'Governance', keywords: 'compliance who did what history export actions' },
+  { to: '/cost', label: 'Cost', icon: CircleDollarSignIcon, group: 'Governance', keywords: 'spend usd nodes utilization idle savings recommendations' },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, group: 'Settings', keywords: 'org profile general preferences' },
   { to: '/settings/access', label: 'Access & roles', icon: ShieldIcon, group: 'Settings', keywords: 'rbac abac members sso policies' },
   { to: '/settings/api-keys', label: 'API keys', icon: KeyRoundIcon, group: 'Settings', keywords: 'tokens swk oauth terraform' },
+  { to: '/settings/notifications', label: 'Notifications', icon: MailIcon, group: 'Settings', keywords: 'email smtp resend postmark mailgun templates delivery' },
 ];
 
 export const ALL_DESTINATIONS: Destination[] = [...PLANES, ...SECTIONS];

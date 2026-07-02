@@ -77,6 +77,12 @@ export const SwarmServiceInfo = z.object({
       }),
     )
     .default([]),
+  /** Docker secret NAMES the service spec references — drives the secrets-mgr
+   *  usage map/rotation (E1). References only, never values. Defaults keep the
+   *  wire optional-safe for older agents. */
+  secrets: z.array(z.string()).default([]),
+  /** Docker config NAMES the service spec references (configs-mgr, E2). */
+  configs: z.array(z.string()).default([]),
 });
 export type SwarmServiceInfo = z.infer<typeof SwarmServiceInfo>;
 

@@ -32,6 +32,31 @@ import { canvasRouter } from './routers/canvas';
 import { inventoryRouter } from './routers/inventory';
 import { regionRouter } from './routers/region';
 import { managedDbRouter } from './routers/manageddb';
+// ── platform buildout spine (see plans/platform-buildout-manifest.md) ──
+import { managedCacheRouter } from './routers/cache';
+import { objectStorageRouter } from './routers/buckets';
+import { queuesRouter } from './routers/queues';
+import { jobsRouter } from './routers/jobs';
+import { workflowEngineRouter } from './routers/workflows';
+import { inboundWebhooksRouter } from './routers/inboundWebhooks';
+import { alertsRouter } from './routers/alerts';
+import { incidentsRouter } from './routers/incidents';
+import { statusPagesRouter } from './routers/statusPages';
+import { releasesRouter } from './routers/releases';
+import { registryPolicyRouter } from './routers/registryPolicy';
+import { previewsRouter } from './routers/previews';
+import { secretsMgrRouter } from './routers/secretsMgr';
+import { configsMgrRouter } from './routers/configsMgr';
+import { exposureRouter } from './routers/exposure';
+import { guardrailsRouter } from './routers/guardrails';
+import { auditLogRouter } from './routers/auditLog';
+import { costRouter } from './routers/cost';
+import { resilienceRouter } from './routers/resilience';
+import { blueprintsRouter } from './routers/blueprints';
+import { managedSearchRouter } from './routers/search';
+import { vectorStoreRouter } from './routers/vector';
+import { aiGatewayRouter } from './routers/ai';
+import { notificationsRouter } from './routers/notifications';
 
 export const appRouter = router({
   org: orgRouter,
@@ -67,6 +92,31 @@ export const appRouter = router({
   oauth: oauthRouter,
   webhooksOut: webhooksOutRouter,
   canvas: canvasRouter,
+  // ── platform buildout spine (see plans/platform-buildout-manifest.md) ──
+  cache: managedCacheRouter,
+  buckets: objectStorageRouter,
+  queues: queuesRouter,
+  jobs: jobsRouter,
+  workflows: workflowEngineRouter,
+  inboundWebhooks: inboundWebhooksRouter,
+  alerts: alertsRouter,
+  incidents: incidentsRouter,
+  statusPages: statusPagesRouter,
+  releases: releasesRouter,
+  registryPolicy: registryPolicyRouter,
+  previews: previewsRouter,
+  secrets: secretsMgrRouter,
+  configs: configsMgrRouter,
+  exposure: exposureRouter,
+  guardrails: guardrailsRouter,
+  audit: auditLogRouter,
+  cost: costRouter,
+  resilience: resilienceRouter,
+  blueprints: blueprintsRouter,
+  search: managedSearchRouter,
+  vector: vectorStoreRouter,
+  ai: aiGatewayRouter,
+  notifications: notificationsRouter,
 });
 
 export type AppRouter = typeof appRouter;

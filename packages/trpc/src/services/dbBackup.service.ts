@@ -293,3 +293,11 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
     throw mapDispatchError(e);
   }
 }
+
+/**
+ * Run any due scheduled DB backups (schedule = `swarmy.db.backup.schedule`
+ * label on the cluster primary). Called from the managed-db reconcile worker.
+ *
+ * Spine stub — slice A1 replaces this with the real due-ness scan + dispatch.
+ */
+export async function runDueDbBackups(_now: Date): Promise<void> {}

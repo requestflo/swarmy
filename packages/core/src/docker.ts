@@ -19,13 +19,25 @@ interface SwarmSpecLike {
   Labels?: Record<string, string>;
   Mode?: { Replicated?: { Replicas?: number } };
   TaskTemplate?: {
-    ContainerSpec?: { Image?: string; Env?: string[] };
+    ContainerSpec?: {
+      Image?: string;
+      Env?: string[];
+      Secrets?: Array<{ SecretName?: string }>;
+      Configs?: Array<{ ConfigName?: string }>;
+    };
     Networks?: SwarmNetworkAttachment[];
   };
   Networks?: SwarmNetworkAttachment[];
   EndpointSpec?: {
     Ports?: Array<{ TargetPort?: number; PublishedPort?: number; Protocol?: string }>;
   };
+}
+
+/** The subset of a Docker secret/config list entry the agent reads. */
+interface SwarmResourceLike {
+  ID?: string;
+  CreatedAt?: string;
+  Spec?: { Name?: string; Labels?: Record<string, string>; Data?: string };
 }
 
 /** The subset of `docker info` the agent reads. */
@@ -239,6 +251,8 @@ export class DockerClient {
         networks: nets.filter((n) => n.name),
         env: tt.ContainerSpec?.Env ?? [],
         ports,
+        secrets: (tt.ContainerSpec?.Secrets ?? []).map((r) => r.SecretName ?? '').filter(Boolean),
+        configs: (tt.ContainerSpec?.Configs ?? []).map((r) => r.ConfigName ?? '').filter(Boolean),
       });
     }
     return out;
@@ -288,6 +302,83 @@ export class DockerClient {
         labels: spec.Labels ?? {},
       };
     });
+  }
+
+  // ── Swarm secrets / configs (manager only, platform buildout spine) ─────
+  // Values are write-only for secrets (Docker never returns secret data);
+  // configs ARE readable back via `inspectConfig` (Spec.Data, base64).
+
+  private mapSwarmResource(r: SwarmResourceLike): {
+    id: string;
+    name: string;
+    createdAt: number;
+    labels: Record<string, string>;
+  } {
+    return {
+      id: r.ID ?? '',
+      name: r.Spec?.Name ?? '',
+      createdAt: Date.parse(r.CreatedAt ?? '') || 0,
+      labels: r.Spec?.Labels ?? {},
+    };
+  }
+
+  async listSecrets(): Promise<
+    Array<{ id: string; name: string; createdAt: number; labels: Record<string, string> }>
+  > {
+    const secrets = (await this.docker.listSecrets()) as unknown as SwarmResourceLike[];
+    return secrets.map((s) => this.mapSwarmResource(s));
+  }
+
+  /** Create a Docker secret from base64 data. Errors if the name already exists. */
+  async createSecret(name: string, dataB64: string, labels?: Record<string, string>): Promise<string> {
+    const created = (await this.docker.createSecret({
+      Name: name,
+      Data: dataB64,
+      Labels: labels,
+    })) as { id?: string; ID?: string };
+    return created.id ?? created.ID ?? '';
+  }
+
+  async removeSecret(nameOrId: string): Promise<void> {
+    const match = (await this.listSecrets()).find((s) => s.name === nameOrId);
+    await this.docker.getSecret(match?.id ?? nameOrId).remove();
+  }
+
+  async listConfigs(): Promise<
+    Array<{ id: string; name: string; createdAt: number; labels: Record<string, string> }>
+  > {
+    const configs = (await this.docker.listConfigs()) as unknown as SwarmResourceLike[];
+    return configs.map((c) => this.mapSwarmResource(c));
+  }
+
+  /** Create a Docker config from base64 data. Errors if the name already exists. */
+  async createConfig(name: string, dataB64: string, labels?: Record<string, string>): Promise<string> {
+    const created = (await this.docker.createConfig({
+      Name: name,
+      Data: dataB64,
+      Labels: labels,
+    })) as { id?: string; ID?: string };
+    return created.id ?? created.ID ?? '';
+  }
+
+  async removeConfig(nameOrId: string): Promise<void> {
+    const match = (await this.listConfigs()).find((c) => c.name === nameOrId);
+    await this.docker.getConfig(match?.id ?? nameOrId).remove();
+  }
+
+  /** Full config content (`Spec.Data`, base64) + metadata — configs are readable. */
+  async inspectConfig(nameOrId: string): Promise<{
+    id: string;
+    name: string;
+    dataB64: string;
+    createdAt: number;
+    labels: Record<string, string>;
+  }> {
+    const match = (await this.listConfigs()).find((c) => c.name === nameOrId);
+    const raw = (await this.docker
+      .getConfig(match?.id ?? nameOrId)
+      .inspect()) as unknown as SwarmResourceLike;
+    return { ...this.mapSwarmResource(raw), dataB64: raw.Spec?.Data ?? '' };
   }
 
   /**

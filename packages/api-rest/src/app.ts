@@ -13,6 +13,8 @@ import { registerDnsRecordRoutes } from './routes/dns-records';
 import { registerBackupRoutes } from './routes/backups';
 import { registerVolumeRoutes } from './routes/volumes';
 import { registerMeshRouteRoutes } from './routes/mesh-routes';
+import { registerAuditRoutes } from './routes/audit';
+import { registerNotifyRoutes } from './routes/notify';
 import { idempotency } from './idempotency';
 
 export const OPENAPI_DOC_ROUTE = '/openapi.json';
@@ -58,6 +60,8 @@ function buildResourceApp(deps: RestDeps, withAuth = true): OpenAPIHono<RestEnv>
   registerBackupRoutes(app);
   registerVolumeRoutes(app);
   registerMeshRouteRoutes(app);
+  registerAuditRoutes(app);
+  registerNotifyRoutes(app);
 
   app.onError((e, c) => {
     const p = trpcErrorToProblem(e, c.req.path);

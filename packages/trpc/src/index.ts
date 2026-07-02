@@ -163,3 +163,13 @@ export type {
   WebhookEndpointIssued,
   DeliveryStatus,
 } from './services/webhooks-out.service';
+
+// ── platform buildout spine: cross-slice contract seams (see plans/platform-buildout-manifest.md) ──
+export { evaluateAdmission } from './services/admission.service';
+export type { AdmissionIntent, Violation } from './services/admission.service';
+export { summarizeStack, summarizeService } from './services/health-summary';
+export type { HealthSummary } from './services/health-summary';
+export { fireEvent } from './services/alerts-fire';
+export type { FireEventInput } from './services/alerts-fire';
+export { recordIncidentEvent } from './services/incidents-record';
+export { sendNotification } from './services/notifications-send';

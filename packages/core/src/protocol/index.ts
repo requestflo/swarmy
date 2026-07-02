@@ -16,6 +16,7 @@ export * from './results';
 export * from './messages';
 export * from './backup';
 export * from './dbBackup';
+export * from './swarmres';
 export * from './mesh';
 export * from './terminal';
 export * from './build';

@@ -173,6 +173,32 @@ model Organization {
   webhookDeliveries   WebhookDelivery[]
   canvasLayout        CanvasLayout?
 
+  notificationChannels   NotificationChannel[]
+  alertRules             AlertRule[]
+  alertEvents            AlertEvent[]
+  incidents              Incident[]
+  incidentEvents         IncidentEvent[]
+  statusPages            StatusPage[]
+  uptimeSamples          UptimeSample[]
+  scheduledJobs          ScheduledJob[]
+  jobRuns                JobRun[]
+  workflowDefs           WorkflowDef[]
+  workflowRuns           WorkflowRun[]
+  workflowStepRuns       WorkflowStepRun[]
+  inboundEndpoints       InboundEndpoint[]
+  inboundDeliveries      InboundDelivery[]
+  releases               Release[]
+  imageScans             ImageScan[]
+  exposureConfig         ExposureConfig?
+  guardrailConfig        GuardrailConfig?
+  notificationConfig     NotificationConfig?
+  notificationTemplates  NotificationTemplate[]
+  notificationDeliveries NotificationDelivery[]
+  aiProviderConfig       AiProviderConfig?
+  aiVirtualKeys          AiVirtualKey[]
+  aiUsage                AiUsage[]
+  aiRequestLogs          AiRequestLog[]
+
   @@map("organization")
 }
 
@@ -573,6 +599,10 @@ model GitRepo {
   webhookSecretEnc String?
   autodeploy Boolean         @default(false)
   serviceId  String?
+  // PR preview environments (platform buildout, D4):
+  // { enable, baseDomain, ttlHours, teardownOnClose }. Preview stacks themselves
+  // are Docker-truth (`swarmy.preview.*` stack labels) — this is repo INPUT config.
+  previewsJson Json?
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
 
@@ -610,6 +640,12 @@ model RegistryConfig {
   enabled        Boolean  @default(false)
   host           String?
   credentialsEnc String?
+  // Registry policy (platform buildout, D3): admission gates + org cosign keypair.
+  requireSignedImages Boolean @default(false)
+  blockCriticalCves   Boolean @default(false)
+  cosignPublicKey     String? @db.Text
+  // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
+  cosignPrivateKeyEnc String? @db.Text
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -1093,4 +1129,595 @@ model CanvasLayout {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("canvas_layout")
+}
+
+// ───────────────────────────────────── alerting / incidents (platform buildout, C3/C4) ──
+
+enum NotificationChannelKind {
+  EMAIL
+  SLACK
+  TEAMS
+  WEBHOOK
+}
+
+enum AlertEventStatus {
+  FIRING
+  RESOLVED
+}
+
+enum IncidentStatus {
+  OPEN
+  RESOLVED
+}
+
+model NotificationChannel {
+  id        String                  @id @default(cuid())
+  orgId     String
+  name      String
+  kind      NotificationChannelKind
+  // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
+  configEnc String?                 @db.Text
+  enabled   Boolean                 @default(true)
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("notification_channel")
+}
+
+model AlertRule {
+  id           String   @id @default(cuid())
+  orgId        String
+  name         String
+  // Signal key evaluated by the alert-evaluator worker (e.g. node-offline,
+  // service-down, db-degraded, queue-depth, error-rate, cert-expiry, disk).
+  signal       String
+  selectorJson Json     @default("{}")
+  threshold    Float?
+  forSeconds   Int      @default(0)
+  // NotificationChannel ids to notify (JSON array of strings).
+  channelIds   Json     @default("[]")
+  enabled      Boolean  @default(true)
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  events AlertEvent[]
+
+  @@index([orgId, enabled])
+  @@map("alert_rule")
+}
+
+model AlertEvent {
+  id         String           @id @default(cuid())
+  orgId      String
+  ruleId     String?
+  signal     String
+  severity   String           @default("warning")
+  // Resource key the event fired for (dedupe axis), e.g. `service:web` / `node:n1`.
+  resource   String
+  message    String           @db.Text
+  status     AlertEventStatus @default(FIRING)
+  firedAt    DateTime         @default(now()) @db.Timestamptz(3)
+  resolvedAt DateTime?        @db.Timestamptz(3)
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  rule AlertRule?   @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, status, firedAt])
+  @@index([ruleId, resource, status])
+  @@map("alert_event")
+}
+
+model Incident {
+  id         String         @id @default(cuid())
+  orgId      String
+  title      String
+  status     IncidentStatus @default(OPEN)
+  severity   String         @default("major")
+  summary    String?        @db.Text
+  openedAt   DateTime       @default(now()) @db.Timestamptz(3)
+  resolvedAt DateTime?      @db.Timestamptz(3)
+
+  org    Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  events IncidentEvent[]
+
+  @@index([orgId, status, openedAt])
+  @@map("incident")
+}
+
+model IncidentEvent {
+  id         String   @id @default(cuid())
+  orgId      String
+  incidentId String
+  at         DateTime @default(now()) @db.Timestamptz(3)
+  kind       String
+  message    String   @db.Text
+  meta       Json     @default("{}")
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  incident Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([incidentId, at])
+  @@map("incident_event")
+}
+
+// ───────────────────────────────────────────── status pages (platform buildout, C5) ──
+
+enum UptimeStatus {
+  UP
+  DEGRADED
+  DOWN
+}
+
+model StatusPage {
+  id             String   @id @default(cuid())
+  orgId          String
+  slug           String   @unique
+  title          String
+  domain         String?
+  componentsJson Json     @default("[]")
+  showUptime     Boolean  @default(true)
+  showIncidents  Boolean  @default(true)
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  org     Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  samples UptimeSample[]
+
+  @@index([orgId])
+  @@map("status_page")
+}
+
+// Sampled by the alert-evaluator worker; retention-pruned.
+model UptimeSample {
+  id           String       @id @default(cuid())
+  orgId        String
+  pageId       String
+  componentKey String
+  at           DateTime     @default(now()) @db.Timestamptz(3)
+  status       UptimeStatus @default(UP)
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  page StatusPage   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, at])
+  @@index([pageId, componentKey, at])
+  @@map("uptime_sample")
+}
+
+// ─────────────────────────────────────── jobs / workflows (platform buildout, B2/B3) ──
+
+enum ScheduledJobKind {
+  IMAGE
+  SERVICE_EXEC
+}
+
+enum JobRunStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+  TIMEOUT
+}
+
+enum WorkflowRunStatus {
+  RUNNING
+  WAITING_APPROVAL
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+model ScheduledJob {
+  id             String           @id @default(cuid())
+  orgId          String
+  name           String
+  // 5-field cron expression evaluated by the job-scheduler worker.
+  schedule       String
+  kind           ScheduledJobKind @default(IMAGE)
+  image          String?
+  serviceRef     String?
+  command        Json             @default("[]")
+  envJson        Json             @default("{}")
+  // Placement constraints for image jobs (node/label selectors).
+  runOnJson      Json             @default("{}")
+  timeoutMs      Int              @default(600000)
+  retries        Int              @default(0)
+  alertOnFailure Boolean          @default(true)
+  enabled        Boolean          @default(true)
+  lastRunAt      DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  runs JobRun[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@index([enabled, lastRunAt])
+  @@map("scheduled_job")
+}
+
+model JobRun {
+  id         String       @id @default(cuid())
+  orgId      String
+  jobId      String
+  status     JobRunStatus @default(RUNNING)
+  exitCode   Int?
+  outputTail String?      @db.Text
+  attempt    Int          @default(1)
+  startedAt  DateTime     @default(now()) @db.Timestamptz(3)
+  finishedAt DateTime?    @db.Timestamptz(3)
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  job ScheduledJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, startedAt])
+  @@index([jobId, startedAt])
+  @@map("job_run")
+}
+
+model WorkflowDef {
+  id        String   @id @default(cuid())
+  orgId     String
+  name      String
+  version   Int      @default(1)
+  stepsJson Json     @default("[]")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org  Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  runs WorkflowRun[]
+
+  @@unique([orgId, name, version])
+  @@index([orgId])
+  @@map("workflow_def")
+}
+
+model WorkflowRun {
+  id         String            @id @default(cuid())
+  orgId      String
+  defId      String
+  status     WorkflowRunStatus @default(RUNNING)
+  // Index of the step the workflow-runner worker will execute next.
+  cursor     Int               @default(0)
+  stateJson  Json              @default("{}")
+  startedAt  DateTime          @default(now()) @db.Timestamptz(3)
+  finishedAt DateTime?         @db.Timestamptz(3)
+
+  org      Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  def      WorkflowDef       @relation(fields: [defId], references: [id], onDelete: Cascade)
+  stepRuns WorkflowStepRun[]
+
+  @@index([orgId, startedAt])
+  @@index([defId, startedAt])
+  @@index([status])
+  @@map("workflow_run")
+}
+
+model WorkflowStepRun {
+  id         String    @id @default(cuid())
+  orgId      String
+  runId      String
+  index      Int
+  name       String
+  kind       String
+  status     String    @default("pending")
+  startedAt  DateTime? @db.Timestamptz(3)
+  finishedAt DateTime? @db.Timestamptz(3)
+  outputJson Json?
+  error      String?   @db.Text
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  run WorkflowRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, index])
+  @@index([orgId])
+  @@map("workflow_step_run")
+}
+
+// ───────────────────────────────────────── webhook gateway (platform buildout, B4) ──
+
+enum InboundVerifyKind {
+  NONE
+  HMAC
+  GITHUB
+  STRIPE
+}
+
+enum InboundTargetKind {
+  QUEUE
+  FORWARD
+}
+
+enum InboundDeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  DEAD
+}
+
+model InboundEndpoint {
+  id              String            @id @default(cuid())
+  orgId           String
+  name            String
+  slug            String
+  verifyKind      InboundVerifyKind @default(NONE)
+  // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
+  verifySecretEnc String?           @db.Text
+  targetKind      InboundTargetKind @default(FORWARD)
+  targetJson      Json              @default("{}")
+  retentionDays   Int               @default(30)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  org        Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  deliveries InboundDelivery[]
+
+  @@unique([orgId, slug])
+  @@index([orgId])
+  @@map("inbound_endpoint")
+}
+
+model InboundDelivery {
+  id            String                @id @default(cuid())
+  orgId         String
+  endpointId    String
+  receivedAt    DateTime              @default(now()) @db.Timestamptz(3)
+  headersJson   Json                  @default("{}")
+  // ≤256KB — truncated by the public receiver before persisting.
+  bodyText      String                @db.Text
+  verifyOk      Boolean               @default(false)
+  status        InboundDeliveryStatus @default(PENDING)
+  attempts      Int                   @default(0)
+  nextAttemptAt DateTime?
+  lastError     String?               @db.Text
+
+  org      Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  endpoint InboundEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, receivedAt])
+  @@index([endpointId, receivedAt])
+  @@index([status, nextAttemptAt])
+  @@map("inbound_delivery")
+}
+
+// ───────────────────────────────────────────── deploy safety (platform buildout, D1) ──
+
+enum ReleaseStatus {
+  DEPLOYING
+  HEALTHY
+  FAILED
+  ROLLED_BACK
+  SUPERSEDED
+}
+
+model Release {
+  id             String        @id @default(cuid())
+  orgId          String
+  stackName      String
+  composeSource  String        @db.Text
+  // Resolved image refs (name → ref@digest) snapshotted at deploy time.
+  imagesJson     Json          @default("[]")
+  actor          String?
+  strategyJson   Json          @default("{}")
+  status         ReleaseStatus @default(DEPLOYING)
+  healthGateJson Json?
+  notes          String?       @db.Text
+  createdAt      DateTime      @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, stackName, createdAt])
+  @@index([orgId, status])
+  @@map("release")
+}
+
+// ───────────────────────────────────────── registry policy (platform buildout, D3) ──
+
+enum ImageScanStatus {
+  PASSED
+  FAILED
+  ERROR
+}
+
+model ImageScan {
+  id            String          @id @default(cuid())
+  orgId         String
+  imageRef      String
+  digest        String?
+  scanner       String          @default("trivy")
+  criticalCount Int             @default(0)
+  highCount     Int             @default(0)
+  mediumCount   Int             @default(0)
+  lowCount      Int             @default(0)
+  reportJson    Json            @default("{}")
+  status        ImageScanStatus @default(PASSED)
+  scannedAt     DateTime        @default(now()) @db.Timestamptz(3)
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, scannedAt])
+  @@index([orgId, imageRef])
+  @@index([digest])
+  @@map("image_scan")
+}
+
+// ─────────────────────────── governance singletons (platform buildout, E3/E4) ──
+// One-per-org, IngressConfig pattern (orgId @unique).
+
+model ExposureConfig {
+  id        String   @id @default(cuid())
+  orgId     String   @unique
+  rulesJson Json     @default("{}")
+  enforce   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("exposure_config")
+}
+
+model GuardrailConfig {
+  id                   String   @id @default(cuid())
+  orgId                String   @unique
+  rulesJson            Json     @default("{}")
+  productionSafetyMode Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("guardrail_config")
+}
+
+// ───────────────────────────────────────── notifications (platform buildout, F6) ──
+
+enum NotificationProvider {
+  SMTP
+  RESEND
+  POSTMARK
+  MAILGUN
+}
+
+enum NotificationDeliveryStatus {
+  QUEUED
+  SENT
+  FAILED
+  BOUNCED
+}
+
+model NotificationConfig {
+  id          String               @id @default(cuid())
+  orgId       String               @unique
+  provider    NotificationProvider @default(SMTP)
+  // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
+  configEnc   String?              @db.Text
+  fromAddress String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("notification_config")
+}
+
+model NotificationTemplate {
+  id        String   @id @default(cuid())
+  orgId     String
+  name      String
+  subject   String
+  bodyHtml  String?  @db.Text
+  bodyText  String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("notification_template")
+}
+
+model NotificationDelivery {
+  id         String                     @id @default(cuid())
+  orgId      String
+  channel    String
+  to         String
+  subject    String?
+  status     NotificationDeliveryStatus @default(QUEUED)
+  providerId String?
+  error      String?                    @db.Text
+  meta       Json                       @default("{}")
+  createdAt  DateTime                   @default(now()) @db.Timestamptz(3)
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
+  @@index([status, createdAt])
+  @@map("notification_delivery")
+}
+
+// ───────────────────────────────────────────── AI gateway (platform buildout, F5) ──
+
+model AiProviderConfig {
+  id            String   @id @default(cuid())
+  orgId         String   @unique
+  // Provider descriptors (kind, base URL, model prefixes) — REFERENCES only.
+  providersJson Json     @default("[]")
+  // Encrypted provider API keys via the vault (SWARMY_SECRET_KEY). Never returned to clients.
+  configEnc     String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("ai_provider_config")
+}
+
+model AiVirtualKey {
+  id         String   @id @default(cuid())
+  orgId      String
+  name       String
+  keyHash    String   @unique
+  appRef     String?
+  limitsJson Json     @default("{}")
+  disabled   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  org        Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  usage      AiUsage[]
+  requestLog AiRequestLog[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("ai_virtual_key")
+}
+
+model AiUsage {
+  id         String   @id @default(cuid())
+  orgId      String
+  keyId      String
+  at         DateTime @default(now()) @db.Timestamptz(3)
+  provider   String
+  model      String
+  inTokens   Int      @default(0)
+  outTokens  Int      @default(0)
+  costMicros BigInt   @default(0)
+  latencyMs  Int      @default(0)
+  status     String   @default("ok")
+  cacheHit   Boolean  @default(false)
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  key AiVirtualKey @relation(fields: [keyId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, at])
+  @@index([keyId, at])
+  @@map("ai_usage")
+}
+
+// Request-level log — only written when the org's audit toggle is on.
+model AiRequestLog {
+  id             String   @id @default(cuid())
+  orgId          String
+  keyId          String
+  at             DateTime @default(now()) @db.Timestamptz(3)
+  model          String
+  promptRedacted String?  @db.Text
+  meta           Json     @default("{}")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  key AiVirtualKey @relation(fields: [keyId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, at])
+  @@index([keyId, at])
+  @@map("ai_request_log")
 }

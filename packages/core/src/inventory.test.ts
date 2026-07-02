@@ -16,6 +16,8 @@ function svc(p: Partial<SwarmServiceInfo> & { id: string; name: string }): Swarm
     networks: p.networks ?? [],
     env: p.env ?? [],
     ports: p.ports ?? [],
+    secrets: p.secrets ?? [],
+    configs: p.configs ?? [],
   };
 }
 

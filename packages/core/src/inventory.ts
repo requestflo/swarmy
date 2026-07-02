@@ -57,6 +57,11 @@ export interface InvService {
   networks: { name: string; aliases: string[] }[];
   env: string[];
   ports: { target: number; published?: number; protocol: string }[];
+  /** Docker secret names the service spec references (usage map — never values).
+   *  Optional (additive) — buildInventory always fills it; older/demo shapes may omit. */
+  secrets?: string[];
+  /** Docker config names the service spec references. Optional (additive). */
+  configs?: string[];
   containers: InvContainer[];
 }
 export interface InvProject {
@@ -115,6 +120,8 @@ export function buildInventory(services: SwarmServiceInfo[], containers: Contain
       networks: s.networks ?? [],
       env: s.env ?? [],
       ports: s.ports ?? [],
+      secrets: s.secrets ?? [],
+      configs: s.configs ?? [],
       containers: ctrsByService.get(s.id) ?? [],
     };
   });

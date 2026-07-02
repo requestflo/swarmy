@@ -22,6 +22,9 @@ import {
 } from './terminal';
 import { startWorkers } from './workers';
 import { webhooksApp } from './webhooks';
+import { inboundHooksApp } from './inbound-hooks';
+import { statusPublicApp } from './status-public';
+import { aiGatewayApp } from './ai-gateway';
 import { oauthApp } from './oauth';
 import { versionInfo } from './version';
 import { licenseStatus } from './license';
@@ -119,6 +122,15 @@ app.route('/api/v1', restApp);
 // Git provider webhooks (push → build). Public, per-repo HMAC-verified.
 app.route('/webhooks', webhooksApp);
 
+// Inbound webhook gateway (B4): public third-party webhook receiver.
+app.route('/hooks', inboundHooksApp);
+
+// Public status pages (C5): unauthenticated JSON snapshots.
+app.route('/status', statusPublicApp);
+
+// AI gateway (F5): provider-shaped proxy authed by virtual keys.
+app.route('/ai', aiGatewayApp);
+
 // OAuth2 client-credentials token endpoint (public-api-terraform P2). Public.
 app.route('/oauth', oauthApp);
 
@@ -143,7 +155,14 @@ if (STATIC_DIR) {
     const p = c.req.path;
     if (
       p.startsWith('/api') ||
-      p.startsWith('/webhooks') ||
+      // trailing slash: the bare SPA route `/webhooks` must fall through to
+      // index.html; only the git-webhook API namespace 404s as JSON.
+      p.startsWith('/webhooks/') ||
+      p.startsWith('/hooks') ||
+      // `/status/*` is the public status-page JSON namespace; the bare SPA
+      // routes `/status-pages` and `/ai` must still fall through to index.html.
+      p.startsWith('/status/') ||
+      p.startsWith('/ai/v1') ||
       p.startsWith('/oauth') ||
       p.startsWith('/_wake') ||
       p.startsWith('/install') ||

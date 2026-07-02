@@ -11,6 +11,16 @@ import { buildImage } from './handlers/build';
 import { pruneImages } from './handlers/prune';
 import { applyStorageNode, provisionVolume, removeVolume } from './handlers/storage';
 import { applySwarmJoin } from './handlers/swarm';
+import {
+  secretCreate,
+  secretRemove,
+  secretList,
+  configCreate,
+  configRemove,
+  configList,
+  configInspect,
+  runOnce,
+} from './handlers/swarmres';
 import { pushInventory } from './snapshots';
 import {
   handleTermStart,
@@ -187,6 +197,38 @@ export async function handleCommand(
     case 'swarmJoin': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => applySwarmJoin(docker, p));
+    }
+    case 'secretCreate': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => secretCreate(docker, p));
+    }
+    case 'secretRemove': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => secretRemove(docker, p));
+    }
+    case 'secretList': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => secretList(docker));
+    }
+    case 'configCreate': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => configCreate(docker, p));
+    }
+    case 'configRemove': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => configRemove(docker, p));
+    }
+    case 'configList': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => configList(docker));
+    }
+    case 'configInspect': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => configInspect(docker, p));
+    }
+    case 'runOnce': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => runOnce(docker, p));
     }
     case 'streamLogs':
       return handleStreamLogs(docker, conn, envlp.payload);

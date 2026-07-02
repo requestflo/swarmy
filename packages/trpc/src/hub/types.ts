@@ -37,7 +37,15 @@ export type CommandName =
   | 'volume.remove'
   | 'image.prune'
   | 'mesh.grantDirectRoute'
-  | 'swarm.join'; // node-onboarding P2: init/join the org's Docker Swarm
+  | 'swarm.join' // node-onboarding P2: init/join the org's Docker Swarm
+  | 'secret.create' // platform buildout: Docker secrets/configs as first-class resources
+  | 'secret.remove'
+  | 'secret.list'
+  | 'config.create'
+  | 'config.remove'
+  | 'config.list'
+  | 'config.inspect'
+  | 'container.runOnce'; // one-shot utility container → { exitCode, output }
 
 /** CommandName → wire protocol message `type` (see @swarmy/core/protocol). */
 export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
@@ -67,6 +75,14 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'image.prune': 'pruneImages',
   'mesh.grantDirectRoute': 'grantDirectRoute',
   'swarm.join': 'swarmJoin',
+  'secret.create': 'secretCreate',
+  'secret.remove': 'secretRemove',
+  'secret.list': 'secretList',
+  'config.create': 'configCreate',
+  'config.remove': 'configRemove',
+  'config.list': 'configList',
+  'config.inspect': 'configInspect',
+  'container.runOnce': 'runOnce',
 };
 
 export interface CommandResult<R = unknown> {

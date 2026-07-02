@@ -29,6 +29,16 @@ import { SwarmJoinMsg } from './swarm';
 import { BackupVolumeMsg, RestoreVolumeMsg, ListSnapshotsMsg } from './backup';
 import { DbBackupMsg, DbRestoreMsg } from './dbBackup';
 import {
+  SecretCreateMsg,
+  SecretRemoveMsg,
+  SecretListMsg,
+  ConfigCreateMsg,
+  ConfigRemoveMsg,
+  ConfigListMsg,
+  ConfigInspectMsg,
+  RunOnceMsg,
+} from './swarmres';
+import {
   TermStartMsg,
   TermInputMsg,
   TermResizeMsg,
@@ -92,6 +102,14 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   ListSnapshotsMsg,
   DbBackupMsg,
   DbRestoreMsg,
+  SecretCreateMsg,
+  SecretRemoveMsg,
+  SecretListMsg,
+  ConfigCreateMsg,
+  ConfigRemoveMsg,
+  ConfigListMsg,
+  ConfigInspectMsg,
+  RunOnceMsg,
   TermStartMsg,
   TermInputMsg,
   TermResizeMsg,
