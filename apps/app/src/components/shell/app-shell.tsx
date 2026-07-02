@@ -1,28 +1,30 @@
 import * as React from 'react';
-import { CommandBar } from './command-bar';
+import { Sidenav } from './sidenav';
 import { MobileHeader, MobileTabBar } from './mobile-chrome';
 import { CommandPaletteProvider } from './command-palette-provider';
 import { isDemo } from '@/demo/is-demo';
 import { DemoBanner } from '@/demo/demo-banner';
 
 /**
- * The redesigned shell: a floating command bar (desktop) / compact header
- * (mobile) over a full-bleed content area, with the global ⌘K palette mounted at
- * the root. No sidenav — navigation is the plane tabs + the palette.
+ * The shell: a fixed navy sidenav (desktop) / compact header + bottom tab bar
+ * (mobile) around a full-bleed content area, with the global ⌘K palette mounted
+ * at the root. The sidenav is the primary wayfinding — every destination is one
+ * glance away, grouped — with the palette as the fast path.
  *
- * Content is full-width; each page owns its container. Canvas surfaces
- * (Applications / Infrastructure) fill the viewport; document pages keep their
- * own max-width. `pb-28` keeps the mobile tab bar from covering content.
+ * Content is offset by the sidenav on `lg`; each page owns its own container.
+ * `pb-28` keeps the mobile tab bar from covering content.
  */
 export function AppShell({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
     <CommandPaletteProvider>
-      <div className="bg-background flex min-h-screen flex-col">
-        {isDemo() && <DemoBanner />}
-        <CommandBar />
-        <MobileHeader />
-        <main className="min-h-[calc(100dvh-3.5rem)] flex-1 pb-28 lg:min-h-0 lg:pb-0">{children}</main>
-        <MobileTabBar />
+      <div className="bg-background min-h-screen">
+        <Sidenav />
+        <div className="flex min-h-screen flex-col lg:pl-64">
+          {isDemo() && <DemoBanner />}
+          <MobileHeader />
+          <main className="min-h-[calc(100dvh-3.5rem)] flex-1 pb-28 lg:min-h-0 lg:pb-0">{children}</main>
+          <MobileTabBar />
+        </div>
       </div>
     </CommandPaletteProvider>
   );

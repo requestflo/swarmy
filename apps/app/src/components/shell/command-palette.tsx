@@ -14,16 +14,9 @@ import { NODE_STATUS_TONE, SERVICE_STATUS_TONE } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { useGo } from '@/lib/use-go';
 import { useCommandPalette } from './command-palette-provider';
-import { PLANES, SECTIONS, QUICK_ACTIONS, type DestinationGroup } from '@/lib/destinations';
+import { PRIMARY, SECTIONS, QUICK_ACTIONS, NAV_GROUP_ORDER } from '@/lib/destinations';
 
-const SECTION_ORDER: DestinationGroup[] = [
-  'Deploy',
-  'Networking',
-  'Delivery',
-  'Data',
-  'Observability',
-  'Settings',
-];
+const SECTION_ORDER = NAV_GROUP_ORDER;
 
 /** The ⌘K palette — primary navigator: planes, sections, quick actions, live entities. */
 export function CommandPalette(): React.JSX.Element {
@@ -57,8 +50,8 @@ export function CommandPalette(): React.JSX.Element {
 
         <CommandSeparator />
 
-        <CommandGroup heading="Planes">
-          {PLANES.map((p) => (
+        <CommandGroup heading="Jump to">
+          {PRIMARY.map((p) => (
             <CommandItem key={p.to} value={`${p.label} ${p.keywords ?? ''}`} onSelect={() => goTo(p.to)}>
               <p.icon />
               {p.label}
