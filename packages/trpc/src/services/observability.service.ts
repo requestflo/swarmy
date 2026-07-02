@@ -560,3 +560,105 @@ async function clickhouseJson<T>(dsnPlain: string, sql: string): Promise<T[] | n
 }
 
 export { OTEL_OVERLAY_NETWORK };
+
+/* ----------------------------------------------------------------------------
+ * ── logs (C1)
+ * ------------------------------------------------------------------------- */
+
+import { buildLogsQuery } from './observability-query';
+import type { LogRowView, ObservabilityLogsInput, ObservabilityLogsPage } from '@swarmy/core';
+
+const LOGS_DEFAULT_LIMIT = 200;
+const LOGS_MAX_LIMIT = 500;
+
+/**
+ * Structured logs from `otel_logs`, newest first, timestamp-cursor paginated.
+ * Same fail-open `{status}` contract as the other reads: `disabled` when the
+ * suite is off / no store DSN, `unreachable` when ClickHouse doesn't answer.
+ * Org-scoping happens inside `buildLogsQuery` (the `swarmy.org_id` predicate
+ * is always present). Pure read — no audit row.
+ */
+export async function logs(
+  ctx: OrgContext,
+  query: ObservabilityLogsInput,
+): Promise<ObservabilityLogsPage> {
+  const dsn = await activeDsn(ctx);
+  if (!dsn) return { status: 'disabled', rows: [], nextCursor: null };
+  const sql = buildLogsQuery(ctx.activeOrgId, query);
+  const rows = await clickhouseJson<LogRowView>(dsn, sql);
+  if (rows === null) return { status: 'unreachable', rows: [], nextCursor: null };
+  const limit = Math.min(Math.max(query.limit ?? LOGS_DEFAULT_LIMIT, 1), LOGS_MAX_LIMIT);
+  // A full page means there may be older rows: hand back the last row's
+  // nanosecond timestamp as the keyset cursor for the next page.
+  const nextCursor = rows.length >= limit ? (rows[rows.length - 1]?.ts_nano ?? null) : null;
+  return { status: 'ok', rows, nextCursor };
+}
+
+/* ----------------------------------------------------------------------------
+ * ── map+health (C2)
+ * ------------------------------------------------------------------------- */
+
+import {
+  buildServiceMapNodesQuery,
+  buildServiceMapQuery,
+  composeServiceMap,
+  MAP_DEFAULT_WINDOW_MINUTES,
+  type ServiceMapEdgeRow,
+  type ServiceMapNodeRow,
+} from './observability-map';
+import type { ObservabilityMapInput, ServiceMapView } from '@swarmy/core';
+
+/**
+ * The service map (`observability.map`): nodes = services with entry spans in
+ * the window, edges = client→server span-kind pairs, both with RED aggregates.
+ * Same fail-open `{status}` contract as the other reads. Org-scoping happens
+ * inside the SQL builders (both join sides). Pure read — no audit row.
+ */
+export async function serviceMap(ctx: OrgContext, q: ObservabilityMapInput): Promise<ServiceMapView> {
+  const windowMinutes = q.windowMinutes ?? MAP_DEFAULT_WINDOW_MINUTES;
+  const dsn = await activeDsn(ctx);
+  if (!dsn) return { status: 'disabled', windowMinutes, nodes: [], edges: [] };
+  const [nodeRows, edgeRows] = await Promise.all([
+    clickhouseJson<ServiceMapNodeRow>(dsn, buildServiceMapNodesQuery(ctx.activeOrgId, { windowMinutes })),
+    clickhouseJson<ServiceMapEdgeRow>(dsn, buildServiceMapQuery(ctx.activeOrgId, { windowMinutes })),
+  ]);
+  if (nodeRows === null || edgeRows === null) {
+    return { status: 'unreachable', windowMinutes, nodes: [], edges: [] };
+  }
+  return { status: 'ok', windowMinutes, ...composeServiceMap(nodeRows, edgeRows, windowMinutes) };
+}
+
+/**
+ * RED + collector/store snapshot for the health narrative (`health-summary.ts`):
+ * per-service p95/error-rate over entry spans, plus whether the suite is on and
+ * the store answered. Never upserts config (safe from worker/system contexts);
+ * a missing row simply reads as disabled.
+ */
+export interface RedSnapshot {
+  enabled: boolean;
+  collectorStatus: CollectorStatus;
+  /** True when ClickHouse answered the RED query on this snapshot. */
+  reachable: boolean;
+  rows: ServiceMapNodeRow[];
+  windowMinutes: number;
+}
+
+export async function redSnapshot(
+  ctx: OrgContext,
+  windowMinutes: number = MAP_DEFAULT_WINDOW_MINUTES,
+): Promise<RedSnapshot> {
+  const row = await obsDb(ctx)
+    .findUnique({ where: { orgId: ctx.activeOrgId } })
+    .catch(() => null);
+  const enabled = Boolean(row?.enabled);
+  const collectorStatus = (row?.collectorStatus as CollectorStatus) ?? 'OFFLINE';
+  if (!row || !enabled || !row.clickhouseDsn) {
+    return { enabled, collectorStatus, reachable: false, rows: [], windowMinutes };
+  }
+  const rows = await clickhouseJson<ServiceMapNodeRow>(
+    safeDecrypt(row.clickhouseDsn),
+    buildServiceMapNodesQuery(ctx.activeOrgId, { windowMinutes }),
+  );
+  if (rows === null) return { enabled, collectorStatus, reachable: false, rows: [], windowMinutes };
+  return { enabled, collectorStatus, reachable: true, rows, windowMinutes };
+}

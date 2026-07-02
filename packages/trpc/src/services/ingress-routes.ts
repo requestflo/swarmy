@@ -13,6 +13,20 @@ import type { OrgContext } from '../context';
 export const INGRESS_ROUTES_LABEL = 'swarmy.ingress.routes';
 
 /**
+ * Weighted canary upstream for a route (slice D2). When present, the render
+ * layer emits BOTH upstreams with `lb_policy weighted_round_robin` so
+ * `weightPct` percent of the host's traffic reaches `service:port` (the
+ * canary) and the rest stays on the stable upstream.
+ */
+export interface RouteCanary {
+  /** Canary Docker service name (e.g. `storefront_web--canary`). */
+  service: string;
+  port: number;
+  /** Share of traffic (0–100) sent to the canary upstream. */
+  weightPct: number;
+}
+
+/**
  * One ingress route. `tls: 'manual'` means an operator-supplied certificate
  * (the render layer's equivalent is `'custom'`); `'auto'` = ACME, `'off'` = none.
  */
@@ -24,6 +38,8 @@ export interface Route {
   stripPrefix?: boolean;
   middlewares?: string[];
   driver?: string;
+  /** Weighted canary upstream (slice D2); absent = 100% stable. */
+  canary?: RouteCanary;
 }
 
 /** A route together with the live Docker service carrying it. */
@@ -51,7 +67,23 @@ function coerceRoute(value: unknown): Route | undefined {
     route.middlewares = v.middlewares.filter((m): m is string => typeof m === 'string');
   }
   if (typeof v.driver === 'string') route.driver = v.driver;
+  const canary = coerceCanary(v.canary);
+  if (canary) route.canary = canary;
   return route;
+}
+
+/** Coerce a route's `canary` fragment, or drop it if unusable (tolerant). */
+function coerceCanary(value: unknown): RouteCanary | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const v = value as Record<string, unknown>;
+  if (typeof v.service !== 'string' || v.service.length === 0) return undefined;
+  if (typeof v.port !== 'number' || !Number.isFinite(v.port)) return undefined;
+  if (typeof v.weightPct !== 'number' || !Number.isFinite(v.weightPct)) return undefined;
+  return {
+    service: v.service,
+    port: v.port,
+    weightPct: Math.min(100, Math.max(0, v.weightPct)),
+  };
 }
 
 /**

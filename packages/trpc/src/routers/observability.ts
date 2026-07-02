@@ -1,5 +1,12 @@
 import { z } from 'zod';
+import { ObservabilityLogsInput } from '@swarmy/core';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+// ── logs (C1) service import (kept separate to stay conflict-free with C2) ──
+import { logs } from '../services/observability.service';
+// ── map+health (C2) imports (kept separate to stay conflict-free with C1) ──
+import { ObservabilityHealthInput, ObservabilityMapInput } from '@swarmy/core';
+import { serviceMap } from '../services/observability.service';
+import { healthNarrative } from '../services/health-summary';
 import {
   enableForStack,
   getConfig,
@@ -74,4 +81,18 @@ export const observabilityRouter = router({
       }),
     )
     .query(({ ctx, input }) => metricsSummary(ctx, input)),
+
+  // ── logs (C1) ── structured logs feed over otel_logs (org-scoped, cursored).
+  logs: orgProcedure
+    .input(ObservabilityLogsInput)
+    .query(({ ctx, input }) => logs(ctx, input)),
+
+  // ── map+health (C2) ── service graph from otel_traces + degraded narrative.
+  map: orgProcedure
+    .input(ObservabilityMapInput)
+    .query(({ ctx, input }) => serviceMap(ctx, input)),
+
+  health: orgProcedure
+    .input(ObservabilityHealthInput)
+    .query(({ ctx, input }) => healthNarrative(ctx, input)),
 });

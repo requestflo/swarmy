@@ -1,12 +1,16 @@
 import { randomUUID } from 'node:crypto';
+import { TRPCError } from '@trpc/server';
 import { parse as parseYaml } from 'yaml';
 import { buildInventory, STACK_LABEL, UNGROUPED, type InvService } from '@swarmy/core';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { mapDispatchError, notFound } from '../errors';
+import { evaluateAdmission, type Violation } from './admission.service';
+import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { augmentSpecsForStack } from './otel-injection';
 import { stackTelemetryEnabled } from './observability.service';
+import { DEPLOY_SAFETY_LABEL, DEPLOY_STRATEGY_LABEL, recordRelease } from './releases.service';
 
 /**
  * Swarm state lives in Docker, not the DB. The Stack model is now config-only
@@ -146,11 +150,52 @@ export async function getStack(ctx: OrgContext, id: string): Promise<StackDetail
   };
 }
 
+/** D1: admission refusal — a typed error listing every policy violation. */
+function admissionDenied(violations: Violation[]): TRPCError {
+  const lines = violations.map(
+    (v) => `[${v.severity}] ${v.rule}: ${v.message}${v.resource ? ` (${v.resource})` : ''}`,
+  );
+  return new TRPCError({
+    code: 'PRECONDITION_FAILED',
+    message: `Deployment blocked by policy:\n${lines.join('\n')}`,
+    cause: { swarmyCode: 'POLICY_DENIED', violations },
+  });
+}
+
 export async function deployFromCompose(
   ctx: OrgContext,
-  input: { name: string; composeSource: string },
-): Promise<{ id: string; deploymentId: string }> {
+  input: { name: string; composeSource: string; override?: boolean },
+): Promise<{ id: string; deploymentId: string; releaseId: string | null }> {
   const specs = composeToSpecs(input.composeSource);
+
+  // D1: every stack deploy runs the admission pipeline first. Violations refuse
+  // the deploy unless explicitly overridden; overriding a `block` violation
+  // needs an admin, and every override is audited.
+  const violations = await evaluateAdmission(ctx, {
+    kind: 'stack.deploy',
+    orgId: ctx.activeOrgId,
+    stackName: input.name,
+    specs,
+    override: input.override,
+  });
+  if (violations.length > 0) {
+    if (!input.override) throw admissionDenied(violations);
+    const hasBlock = violations.some((v) => v.severity === 'block');
+    if (hasBlock && ctx.membership.role === 'member') {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'overriding a blocking policy violation requires an admin or owner',
+        cause: { swarmyCode: 'POLICY_DENIED', violations },
+      });
+    }
+    await writeAudit(ctx, {
+      action: 'stack.deploy.override',
+      targetType: 'stack',
+      targetId: input.name,
+      metadata: { violations: violations.map((v) => ({ ...v })) },
+    });
+  }
+
   const node = await resolveManagerNode(ctx);
 
   // Persist only the stack CONFIG (name + composeSource); status/membership are
@@ -166,11 +211,25 @@ export async function deployFromCompose(
     select: { id: true, name: true },
   });
 
+  // D1: `swarmy.deploy.*` labels are stack-level Docker-truth config. A deploy
+  // replaces each service's label set, so carry the stack's current safety +
+  // strategy labels forward onto every new spec (they survive redeploys and
+  // newly added services inherit them).
+  const liveStack = liveStackServices(ctx, stack.name);
+  const deployLabels: Record<string, string> = {};
+  for (const key of [DEPLOY_SAFETY_LABEL, DEPLOY_STRATEGY_LABEL]) {
+    const value = liveStack.map((s) => s.labels[key]).find((v): v is string => !!v);
+    if (value) deployLabels[key] = value;
+  }
+
   const finalSpecs = augmentSpecsForStack(specs, {
     telemetryEnabled: stackTelemetryEnabled(ctx, stack.name),
     orgId: ctx.activeOrgId,
     stack: stack.name,
-  }).map((spec) => withStackLabels(spec, stack.name));
+  }).map((spec) => {
+    const labelled = withStackLabels(spec, stack.name);
+    return { ...labelled, labels: { ...deployLabels, ...labelled.labels } };
+  });
 
   // Non-persisted deploy correlation id — keeps the API shape without a DB row.
   const deploymentId = randomUUID();
@@ -182,7 +241,26 @@ export async function deployFromCompose(
     throw mapDispatchError(e);
   }
 
-  return { id: stack.id, deploymentId };
+  // D1: snapshot the deploy as a Release row (history + the health-gate watch).
+  const release = await recordRelease(ctx, {
+    stackName: stack.name,
+    composeSource: input.composeSource,
+    specs: finalSpecs,
+    deployLabels,
+  }).catch(() => null);
+
+  await writeAudit(ctx, {
+    action: 'stack.deploy',
+    targetType: 'stack',
+    targetId: stack.id,
+    metadata: {
+      stackName: stack.name,
+      services: finalSpecs.map((s) => s.name),
+      releaseId: release?.id ?? null,
+    },
+  });
+
+  return { id: stack.id, deploymentId, releaseId: release?.id ?? null };
 }
 
 export interface AddServiceToStackInput {
@@ -247,8 +325,8 @@ export async function addServiceToStack(
 
 export async function redeployStack(
   ctx: OrgContext,
-  input: { id: string; composeSource?: string },
-): Promise<{ id: string; deploymentId: string }> {
+  input: { id: string; composeSource?: string; override?: boolean },
+): Promise<{ id: string; deploymentId: string; releaseId: string | null }> {
   const stack = await ctx.db.stack.findFirst({
     where: { id: input.id, orgId: ctx.activeOrgId },
     select: { name: true, composeSource: true },
@@ -257,6 +335,7 @@ export async function redeployStack(
   return deployFromCompose(ctx, {
     name: stack.name,
     composeSource: input.composeSource ?? stack.composeSource,
+    override: input.override,
   });
 }
 

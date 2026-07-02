@@ -512,3 +512,259 @@ export const observability: DomainResolvers = {
     },
   },
 };
+
+// ── logs (C1) ─────────────────────────────────────────────────────────────────
+// Appended by the logs slice: ~200 plausible otel_logs rows over the last 24h
+// across the telemetry services, ~2 lines correlated to every seeded trace so
+// "View trace" always resolves a waterfall. Shapes come from @swarmy/core
+// (LogRowView / ObservabilityLogsPage) — the same types the real service returns.
+
+import type { LogRowView, ObservabilityLogsPage } from '@swarmy/core';
+
+interface LogTemplate {
+  body: string;
+  severity: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR' | 'FATAL';
+  attrs?: Record<string, string>;
+}
+
+const SEVERITY_NUMBER: Record<LogTemplate['severity'], number> = {
+  DEBUG: 5,
+  INFO: 9,
+  WARN: 13,
+  ERROR: 17,
+  FATAL: 21,
+};
+
+/** Weighted, service-flavoured line library — mostly info, some noise, few fires. */
+const LOG_TEMPLATES: Record<string, LogTemplate[]> = {
+  web: [
+    { body: 'GET / 200 in 12ms', severity: 'INFO', attrs: { 'http.method': 'GET', 'http.status_code': '200' } },
+    { body: 'GET /checkout 200 in 184ms', severity: 'INFO', attrs: { 'http.method': 'GET', 'http.status_code': '200' } },
+    { body: 'session refreshed for user u_48213', severity: 'DEBUG', attrs: { 'user.id': 'u_48213' } },
+    { body: 'slow render: /checkout took 812ms (budget 300ms)', severity: 'WARN', attrs: { 'http.route': '/checkout' } },
+    { body: 'unhandled rejection: fetch to api failed (ECONNRESET)', severity: 'ERROR', attrs: { 'peer.service': 'api' } },
+  ],
+  api: [
+    { body: 'POST /api/orders 201 (order_9f3k2)', severity: 'INFO', attrs: { 'http.method': 'POST', 'order.id': 'order_9f3k2' } },
+    { body: 'GET /api/cart 200 in 46ms', severity: 'INFO', attrs: { 'http.method': 'GET', 'http.status_code': '200' } },
+    { body: 'SELECT carts WHERE user_id = $1 — 12 rows in 8ms', severity: 'DEBUG', attrs: { 'db.system': 'postgresql' } },
+    { body: 'rate limit at 82% for key live_k1', severity: 'WARN', attrs: { 'ratelimit.remaining': '54' } },
+    { body: 'upstream timeout talking to checkout after 5000ms', severity: 'ERROR', attrs: { 'peer.service': 'checkout' } },
+    { body: 'pg: connection reset — retrying (1/3)', severity: 'WARN', attrs: { 'db.system': 'postgresql' } },
+  ],
+  checkout: [
+    { body: 'charge authorized: $184.20 (visa ••4242)', severity: 'INFO', attrs: { 'payment.provider': 'stripe' } },
+    { body: 'card tokenized ok in 96ms', severity: 'DEBUG', attrs: { 'payment.provider': 'stripe' } },
+    { body: 'stripe latency 1.9s — above 1s SLO', severity: 'WARN', attrs: { 'peer.service': 'stripe.com' } },
+    { body: 'charge declined: insufficient_funds (order_2b81x)', severity: 'ERROR', attrs: { 'order.id': 'order_2b81x' } },
+    { body: 'payment worker crashed: OOMKilled — restarting', severity: 'FATAL', attrs: { 'container.exit_code': '137' } },
+  ],
+  'cdn-edge': [
+    { body: 'cache HIT /assets/app.js (11ms)', severity: 'INFO', attrs: { 'cache.result': 'hit' } },
+    { body: 'cache MISS /assets/logo.svg — origin fetch 44ms', severity: 'INFO', attrs: { 'cache.result': 'miss' } },
+    { body: 'purged 214 stale objects', severity: 'DEBUG' },
+    { body: 'origin fetch slow: 1.2s for /assets/hero.webp', severity: 'WARN', attrs: { 'cache.result': 'miss' } },
+  ],
+  worker: [
+    { body: 'processed order.created in 264ms', severity: 'INFO', attrs: { 'messaging.destination': 'order.created' } },
+    { body: 'email queued: order confirmation (order_9f3k2)', severity: 'INFO', attrs: { 'order.id': 'order_9f3k2' } },
+    { body: 'reserved inventory: 3 items for order_9f3k2', severity: 'DEBUG', attrs: { 'order.id': 'order_9f3k2' } },
+    { body: 'queue depth 143 on order.created — scale rule will add a worker', severity: 'WARN', attrs: { 'queue.depth': '143' } },
+    { body: 'email provider returned 502 — retry 2/5 in 30s', severity: 'ERROR', attrs: { 'peer.service': 'postmark' } },
+  ],
+};
+
+/** Weighted template pick: mostly the info/debug lines, occasionally the fires. */
+function pickTemplate(service: string): LogTemplate {
+  const pool = LOG_TEMPLATES[service] ?? LOG_TEMPLATES['api']!;
+  // ~72% first two (info), ~13% third, ~10% fourth, ~5% the rest.
+  const r = Math.random();
+  const idx =
+    r < 0.4 ? 0 : r < 0.72 ? 1 : r < 0.85 ? Math.min(2, pool.length - 1) : r < 0.95 ? Math.min(3, pool.length - 1) : pool.length - 1;
+  return pool[Math.min(idx, pool.length - 1)]!;
+}
+
+function makeLogRow(service: string, atMs: number, tpl: LogTemplate, tid: string, sid: string): LogRowView {
+  return {
+    timestamp: new Date(atMs).toISOString().replace('T', ' ').replace('Z', ''),
+    ts_nano: `${Math.floor(atMs)}000000`,
+    trace_id: tid,
+    span_id: sid,
+    severity_text: tpl.severity,
+    severity_number: SEVERITY_NUMBER[tpl.severity],
+    service_name: service,
+    body: tpl.body,
+    attributes: tpl.attrs ?? {},
+  };
+}
+
+/** Seed ~200 rows: ~2 per seeded trace (correlated) + background noise over 24h. */
+function buildLogSeed(st: ObservabilityState): LogRowView[] {
+  const rows: LogRowView[] = [];
+
+  // Correlated lines: reuse each seeded trace's id + spans so links resolve.
+  for (const trace of st.traces) {
+    const spans = st.spans[trace.trace_id] ?? [];
+    for (const span of spans.slice(0, 2)) {
+      const atMs = Number(span.start_unix_nano) / 1_000_000 + Math.random() * 5;
+      const isError = span.status_code !== STATUS_OK;
+      const tpl: LogTemplate = isError
+        ? { body: `${span.span_name} failed: ${span.status_message || 'error'}`, severity: 'ERROR' }
+        : { body: `${span.span_name} completed in ${span.duration_ms}ms`, severity: 'INFO' };
+      rows.push(makeLogRow(span.service_name, atMs, tpl, trace.trace_id, span.span_id));
+    }
+  }
+
+  // Background noise: ~160 uncorrelated lines, denser in the last hour.
+  const services = [...TELEMETRY_SERVICES];
+  for (let i = 0; i < 160; i++) {
+    const service = services[i % services.length]!;
+    // 60% inside the last hour, the rest spread across 24h.
+    const ageMs =
+      Math.random() < 0.6
+        ? Math.random() * HOUR
+        : HOUR + Math.random() * 23 * HOUR;
+    const atMs = now - ageMs;
+    rows.push(makeLogRow(service, atMs, pickTemplate(service), '', hex(16)));
+  }
+
+  rows.sort((a, b) => Number(b.ts_nano) - Number(a.ts_nano));
+  return rows;
+}
+
+/** Lazily seeded log rows (own extra key so the C1 append stays self-contained). */
+function logRows(store: DemoStore): LogRowView[] {
+  const key = 'observability.logs';
+  const existing = store.extra[key] as LogRowView[] | undefined;
+  if (existing) return existing;
+  const fresh = buildLogSeed(state(store));
+  store.extra[key] = fresh;
+  return fresh;
+}
+
+observability.handlers!['observability.logs'] = (i, s): ObservabilityLogsPage => {
+  const q =
+    (i as {
+      from: number;
+      to: number;
+      serviceName?: string;
+      severityMin?: number;
+      search?: string;
+      traceId?: string;
+      limit?: number;
+      cursor?: string;
+    }) ?? { from: 0, to: Date.now() };
+  const st = state(s);
+  if (!st.config.enabled) return { status: 'disabled', rows: [], nextCursor: null };
+
+  const fromNano = Math.max(0, Math.floor(q.from)) * 1_000_000;
+  const toNano = Math.max(0, Math.floor(q.to)) * 1_000_000;
+  let rows = logRows(s).filter((r) => {
+    const ts = Number(r.ts_nano);
+    return ts >= fromNano && ts <= toNano;
+  });
+  if (q.serviceName) rows = rows.filter((r) => r.service_name === q.serviceName);
+  if (q.severityMin !== undefined) rows = rows.filter((r) => r.severity_number >= (q.severityMin as number));
+  if (q.search) {
+    const term = q.search.toLowerCase();
+    rows = rows.filter((r) => r.body.toLowerCase().includes(term));
+  }
+  if (q.traceId) rows = rows.filter((r) => r.trace_id === q.traceId);
+  if (q.cursor && /^\d+$/.test(q.cursor)) {
+    const c = Number(q.cursor);
+    rows = rows.filter((r) => Number(r.ts_nano) < c);
+  }
+  const limit = Math.min(Math.max(q.limit ?? 200, 1), 500);
+  const page = rows.slice(0, limit);
+  const nextCursor = page.length >= limit ? (page[page.length - 1]?.ts_nano ?? null) : null;
+  return { status: 'ok', rows: page, nextCursor };
+};
+
+// ── map+health (C2) ───────────────────────────────────────────────────────────
+// Appended by the health-map slice: a 5-service call graph consistent with the
+// seeded traces (checkout is the slow, error-prone hop) and a degraded health
+// narrative that matches the demo inventory (checkout 1/2 tasks, loki 1/2,
+// postgres replica lagging, the emails queue backing up). Shapes come from
+// @swarmy/core (ServiceMapView / HealthNarrativeView) — the same types the real
+// service returns.
+
+import type {
+  HealthEntryView,
+  HealthNarrativeView,
+  ServiceMapEdgeView,
+  ServiceMapNodeView,
+  ServiceMapView,
+} from '@swarmy/core';
+
+const MAP_NODES: ServiceMapNodeView[] = [
+  { id: 'cdn-edge', callsPerMin: 140, errorRate: 0.001, p95Ms: 40, degraded: false },
+  { id: 'web', callsPerMin: 86, errorRate: 0.004, p95Ms: 240, degraded: false },
+  { id: 'api', callsPerMin: 118, errorRate: 0.012, p95Ms: 380, degraded: false },
+  { id: 'checkout', callsPerMin: 22, errorRate: 0.062, p95Ms: 1820, degraded: true },
+  { id: 'worker', callsPerMin: 12, errorRate: 0.009, p95Ms: 520, degraded: false },
+];
+
+const MAP_EDGES: ServiceMapEdgeView[] = [
+  { from: 'web', to: 'cdn-edge', callsPerMin: 96, errorRate: 0.001, p95Ms: 38 },
+  { from: 'web', to: 'api', callsPerMin: 74, errorRate: 0.011, p95Ms: 360 },
+  { from: 'api', to: 'checkout', callsPerMin: 22, errorRate: 0.062, p95Ms: 1820 },
+  { from: 'api', to: 'worker', callsPerMin: 12, errorRate: 0.009, p95Ms: 520 },
+];
+
+/** RED-derived reasons disappear when the suite is off (the store is the source). */
+const RED_REASON = /error rate|p95 latency/;
+
+const HEALTH_ENTRIES: HealthEntryView[] = [
+  {
+    kind: 'stack',
+    name: 'storefront',
+    status: 'degraded',
+    reasons: [
+      'service checkout running 1/2 tasks',
+      'checkout: error rate 6.2% (target <5.0%)',
+      'checkout: p95 latency 1.8s (target <1.5s)',
+    ],
+  },
+  {
+    kind: 'stack',
+    name: 'data',
+    status: 'degraded',
+    reasons: [
+      'database replica lag 12s (member postgres-replica-1, target <10s)',
+      'queue depth rising (emails: 340 waiting)',
+    ],
+  },
+  { kind: 'stack', name: 'platform', status: 'degraded', reasons: ['service loki running 1/2 tasks'] },
+];
+
+const HEALTH_TOP_REASONS = [
+  'service checkout running 1/2 tasks',
+  'service loki running 1/2 tasks',
+  'database replica lag 12s (member postgres-replica-1, target <10s)',
+  'queue depth rising (emails: 340 waiting)',
+  'checkout: error rate 6.2% (target <5.0%)',
+  'checkout: p95 latency 1.8s (target <1.5s)',
+];
+
+observability.handlers!['observability.map'] = (i, s): ServiceMapView => {
+  const q = (i as { windowMinutes?: number } | undefined) ?? {};
+  const windowMinutes = q.windowMinutes ?? 15;
+  const st = state(s);
+  if (!st.config.enabled) return { status: 'disabled', windowMinutes, nodes: [], edges: [] };
+  return { status: 'ok', windowMinutes, nodes: MAP_NODES, edges: MAP_EDGES };
+};
+
+observability.handlers!['observability.health'] = (i, s): HealthNarrativeView => {
+  const q = (i as { stack?: string } | undefined) ?? {};
+  const st = state(s);
+  const stripRed = (reasons: string[]): string[] =>
+    st.config.enabled ? reasons : reasons.filter((r) => !RED_REASON.test(r));
+  const entries = (q.stack ? HEALTH_ENTRIES.filter((e) => e.name === q.stack) : HEALTH_ENTRIES).map(
+    (e) => ({ ...e, reasons: stripRed(e.reasons) }),
+  );
+  const reasons = stripRed(
+    q.stack ? (entries[0]?.reasons ?? []) : HEALTH_TOP_REASONS,
+  );
+  const status = entries.length === 0 ? 'unknown' : entries.some((e) => e.status !== 'healthy') ? 'degraded' : 'healthy';
+  return { status, reasons, entries, generatedAt: new Date().toISOString() };
+};

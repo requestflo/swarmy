@@ -8,6 +8,10 @@ import { ObservabilityHero } from '@/components/observability/observability-hero
 import { TracesPanel } from '@/components/observability/traces-panel';
 import { MetricsPanel } from '@/components/observability/metrics-panel';
 import { ServiceMetricsPanel } from '@/components/observability/service-metrics-panel';
+import { LogsPanel } from '@/components/observability/logs-panel';
+// ── map+health (C2) mounts ──
+import { HealthReasonsPanel } from '@/components/observability/health-reasons';
+import { ServiceMapPanel } from '@/components/observability/service-map';
 import { heroLabel, heroTone, type CollectorStatus } from '@/components/observability/observability-shared';
 
 export const Route = createFileRoute('/_authed/observability')({
@@ -78,12 +82,20 @@ function ObservabilityPage(): React.JSX.Element {
         onToggle={(v) => setEnabled.mutate({ enabled: v })}
       />
 
+      {/* ── map+health (C2): the narrative + the call graph ── */}
+      <HealthReasonsPanel />
+      <ServiceMapPanel enabled={enabled} />
+
       <div className="grid gap-4 xl:grid-cols-2">
         <TracesPanel enabled={enabled} />
         <div className="grid gap-4">
           <MetricsPanel enabled={enabled} />
           <ServiceMetricsPanel enabled={enabled} />
         </div>
+      </div>
+
+      <div className="mt-4">
+        <LogsPanel enabled={enabled} />
       </div>
     </div>
   );

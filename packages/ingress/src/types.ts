@@ -42,6 +42,22 @@ export const ColdRouteSchema = z.object({
 });
 export type ColdRoute = z.infer<typeof ColdRouteSchema>;
 
+/**
+ * Weighted canary upstream (slice D2). Present on a route while a canary
+ * rollout is in flight: renderers emit BOTH upstreams (stable first, canary
+ * second) with a weighted load-balancing policy so `weightPct` percent of the
+ * route's traffic reaches the canary. Pure render input — the controller reads
+ * it off the `swarmy.ingress.routes` service label (Docker truth).
+ */
+export const CanaryUpstreamSchema = z.object({
+  /** Canary Docker service name (e.g. `web--canary`). */
+  service: z.string().min(1),
+  port: z.number().int().min(1).max(65535),
+  /** Share of traffic (0–100) routed to the canary upstream. */
+  weightPct: z.number().min(0).max(100),
+});
+export type CanaryUpstream = z.infer<typeof CanaryUpstreamSchema>;
+
 export const DomainRouteSchema = z.object({
   domain: z.string().min(1),
   pathPrefix: z.string().default('/'),
@@ -55,6 +71,8 @@ export const DomainRouteSchema = z.object({
    * instead of `service:port`; absent ⇒ warm (direct upstream). See {@link ColdRouteSchema}.
    */
   cold: ColdRouteSchema.optional(),
+  /** Weighted canary upstream (D2). Absent ⇒ 100% stable. */
+  canary: CanaryUpstreamSchema.optional(),
 });
 export type DomainRoute = z.infer<typeof DomainRouteSchema>;
 

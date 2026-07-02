@@ -20,9 +20,9 @@
  */
 import { Hono } from 'hono';
 import { decryptSecret } from '@swarmy/core/crypto';
-import { prisma } from '@swarmy/db';
-import { triggerBuildForRepo } from '@swarmy/trpc';
-import { authRegistry } from '@swarmy/auth';
+import { prisma, type DB } from '@swarmy/db';
+import { triggerBuildForRepo, type AgentHub } from '@swarmy/trpc';
+import { authRegistry, type Auth } from '@swarmy/auth';
 import { hub } from './gateway';
 import {
   parseCommitSha,
@@ -32,6 +32,49 @@ import {
 } from './webhook-verify';
 
 export const webhooksApp = new Hono();
+
+// ── D4: PR preview environments ───────────────────────────────────────────────
+// PR / MR events on the SAME per-repo endpoint (same HMAC/token verification)
+// drive ephemeral preview stacks via `previews.service.handlePrEvent`.
+//
+// ORCHESTRATOR TODO (spine seam missing): add to packages/trpc/src/index.ts
+//   export { handlePrEventForRepo, parsePrWebhookEvent } from './services/previews.service';
+//   export type { PrEventResult, PrWebhookEvent } from './services/previews.service';
+// …then replace this dynamic seam (and its signature mirror below) with a
+// static root import. Until then the canonical implementation is loaded by
+// file URL — Bun resolves the workspace package by realpath, so module
+// identity (build-log bus, etc.) is SHARED with the '@swarmy/trpc' graph; a
+// static relative import is not an option (TS6059 outside this app's rootDir).
+
+/** Signature mirror of previews.service.ts exports — keep in sync (D4). */
+interface PreviewsSeam {
+  parsePrWebhookEvent(
+    provider: WebhookProvider,
+    eventHeader: string | null | undefined,
+    body: unknown,
+  ): { action: 'opened' | 'synchronize' | 'closed'; prNumber: number; branch: string; commit: string | null } | null;
+  handlePrEventForRepo(
+    deps: { db: DB; hub: AgentHub; auth: Auth },
+    input: {
+      repoId: string;
+      orgId: string;
+      action: 'opened' | 'synchronize' | 'closed';
+      prNumber: number;
+      branch: string;
+      commit?: string | null;
+    },
+  ): Promise<{ action: 'deployed' | 'torn-down' | 'skipped'; stack?: string; url?: string | null; reason?: string }>;
+}
+
+let previewsSeamPromise: Promise<PreviewsSeam> | null = null;
+
+/** Lazily load the previews service (memoized; see ORCHESTRATOR TODO above). */
+function previewsSeam(): Promise<PreviewsSeam> {
+  previewsSeamPromise ??= import(
+    new URL('../../../packages/trpc/src/services/previews.service.ts', import.meta.url).href
+  ) as Promise<PreviewsSeam>;
+  return previewsSeamPromise;
+}
 
 webhooksApp.post('/git/:repoId', async (c) => {
   const repoId = c.req.param('repoId');
@@ -65,6 +108,23 @@ webhooksApp.post('/git/:repoId', async (c) => {
     body = JSON.parse(rawBody);
   } catch {
     return c.json({ error: 'malformed body' }, 400);
+  }
+
+  // D4: PR preview environments — a verified pull-request / merge-request event
+  // (opened/synchronize → build the branch + deploy `pr<N>-<repo-short>`;
+  // closed → teardown) is handled here; anything else falls through to the
+  // existing push handling below.
+  const previews = await previewsSeam().catch(() => null);
+  const prEvent = previews?.parsePrWebhookEvent(provider, event ?? null, body) ?? null;
+  if (previews && prEvent) {
+    const result = await previews
+      .handlePrEventForRepo(
+        { db: prisma, hub, auth: authRegistry.getAuth() },
+        { ...prEvent, repoId: repo.id, orgId: repo.orgId },
+      )
+      .catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }) as const);
+    if ('error' in result) return c.json({ error: result.error }, 502);
+    return c.json({ ok: true, pr: prEvent.prNumber, ...result });
   }
 
   const ref = parsePushRef(provider, body);

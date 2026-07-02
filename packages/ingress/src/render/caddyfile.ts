@@ -124,6 +124,26 @@ function buildSite(host: string, routes: DomainRoute[], config: IngressConfig): 
 }
 
 /**
+ * The reverse_proxy directive(s) for a WARM route. A route carrying a `canary`
+ * fragment emits both upstreams — stable FIRST, canary second — with
+ * `lb_policy weighted_round_robin <stableWeight> <canaryWeight>`: Caddy assigns
+ * the weights positionally, in upstream declaration order, so the order of the
+ * two lists must always match (golden-tested).
+ */
+function warmProxy(r: DomainRoute): string[] {
+  const c = r.canary;
+  if (!c || c.weightPct <= 0) return [`reverse_proxy ${r.service}:${r.port}`];
+  // Clamp + round: weighted_round_robin takes non-negative integer weights.
+  const canaryWeight = Math.min(100, Math.max(0, Math.round(c.weightPct)));
+  const stableWeight = 100 - canaryWeight;
+  return [
+    `reverse_proxy ${r.service}:${r.port} ${c.service}:${c.port} {`,
+    `  lb_policy weighted_round_robin ${stableWeight} ${canaryWeight}`,
+    '}',
+  ];
+}
+
+/**
  * Emit one route's directives. `bare` (a host's only route, at the root) writes the
  * reverse_proxy / cold-rewrite straight into the site block; every other route is
  * wrapped in its own `handle`/`handle_path` so multiple services coexist on a host.
@@ -133,6 +153,7 @@ function buildSite(host: string, routes: DomainRoute[], config: IngressConfig): 
  * host is internal). `return` carries the caller's original URL so the activator can
  * 307 the browser back once the service is warm. Only THIS route's path is diverted;
  * sibling routes on the same host stay direct (a cold `/api` never sleeps `/`).
+ * A cold route ignores any canary fragment — waking the stable service comes first.
  */
 function appendRoute(out: string[], r: DomainRoute, bare: boolean): void {
   const path = routePath(r);
@@ -141,7 +162,7 @@ function appendRoute(out: string[], r: DomainRoute, bare: boolean): void {
         `rewrite * ${r.cold.wakePath}?return={scheme}://{host}{uri}`,
         `reverse_proxy ${r.cold.upstream}`,
       ]
-    : [`reverse_proxy ${r.service}:${r.port}`];
+    : warmProxy(r);
 
   if (bare) {
     for (const line of body) out.push(`  ${line}`);

@@ -1,32 +1,13 @@
 import * as React from 'react';
-import { createFileRoute } from '@tanstack/react-router';
-import { WorkflowIcon } from 'lucide-react';
-import { EmptyState } from '@swarmy/ui';
-import { PageHeader } from '@/components/page-header';
+import { Outlet, createFileRoute, useChildMatches } from '@tanstack/react-router';
+import { WorkflowsPage } from '@/components/workflows/workflows-page';
 
 export const Route = createFileRoute('/_authed/workflows')({
-  component: WorkflowsPage,
+  component: WorkflowsRoute,
 });
 
-function WorkflowsPage(): React.JSX.Element {
-  return (
-    <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Operations · Workflows"
-        title={
-          <>
-            <em>Workflows</em>.
-          </>
-        }
-        description="Multi-step automations — containers, execs, webhooks, approvals and delays — versioned and replayable."
-      />
-      <div className="card-pop p-2">
-        <EmptyState
-          icon={<WorkflowIcon />}
-          title="No workflows yet"
-          description="Define a workflow — steps, approvals, delays — then trigger it manually or from a webhook."
-        />
-      </div>
-    </div>
-  );
+/** `/workflows` renders the surface; `/workflows/$runId` renders through the Outlet. */
+function WorkflowsRoute(): React.JSX.Element {
+  const hasChild = useChildMatches().length > 0;
+  return hasChild ? <Outlet /> : <WorkflowsPage />;
 }

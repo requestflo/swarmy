@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { GitBranchIcon, NetworkIcon } from 'lucide-react';
 import {
   Button,
@@ -12,14 +12,13 @@ import {
   SelectValue,
   toast,
 } from '@swarmy/ui';
+import type {
+  DbGeoRegionPlan as DbGeoRegion,
+  DbTopologyConfigView as DbTopologyConfig,
+  DbTopologyMode,
+} from '@swarmy/core';
+import { useTRPC } from '@/integrations/trpc';
 import { DbTopologyGeoFields } from './db-topology-geo-fields';
-import {
-  useDbMutation,
-  type DbGeoRegion,
-  type DbTopologyConfig,
-  type DbTopologyMode,
-  type SetTopologyResult,
-} from './managed-db-trpc';
 
 interface SetTopologyInput {
   stack: string;
@@ -58,6 +57,7 @@ export function DbTopologySelector({
   cluster,
   current,
 }: DbTopologySelectorProps): React.JSX.Element {
+  const trpc = useTRPC();
   const qc = useQueryClient();
   const [mode, setMode] = React.useState<DbTopologyMode>(current?.topology ?? 'primary-replica');
   const [writeRegion, setWriteRegion] = React.useState(current?.writeRegion ?? '');
@@ -65,13 +65,15 @@ export function DbTopologySelector({
     current?.regions?.length ? current.regions : [{ region: '', replicas: 1 }],
   );
 
-  const apply = useDbMutation<SetTopologyResult, SetTopologyInput>('db', 'setTopology', {
-    onSuccess: (res) => {
-      toast.success(`${res.cluster} → ${labelFor(res.topology)} topology`);
-      void qc.invalidateQueries();
-    },
-    onError: (e) => toast.error(e.message),
-  });
+  const apply = useMutation(
+    trpc.db.setTopology.mutationOptions({
+      onSuccess: (res) => {
+        toast.success(`${res.cluster} → ${labelFor(res.topology)} topology`);
+        void qc.invalidateQueries();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
 
   const meta = MODES.find((m) => m.value === mode);
   const unchanged = mode === current?.topology && mode !== 'geo';

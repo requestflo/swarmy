@@ -281,6 +281,8 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
       stripPathPrefix: route.stripPrefix ?? false,
       middlewares: route.middlewares ?? [],
       cold: coldRoutes.get(serviceName),
+      // Weighted canary upstream (D2) — carried on the route label, pure render input.
+      canary: route.canary,
     })),
     globalOptions: {
       ...baseGlobal,

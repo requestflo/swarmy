@@ -125,6 +125,14 @@ export const DbRestorePayload = z.object({
   /** single-database: which database to extract/restore. */
   database: z.string().optional(),
   tags: z.array(z.string()).default([]),
+  /**
+   * pitr (additive, slice A2): `restore_command` the agent stages into
+   * `postgresql.auto.conf` alongside the recovery target, so the restarted
+   * server replays archived WAL from the same wal-g prefix the per-cluster
+   * wal-shipper pushed segments to (see {@link PITR_RESTORE_COMMAND}). Older
+   * agents ignore it (zod strips unknown keys) — the base backup still restores.
+   */
+  restoreCommand: z.string().optional(),
   ...engineEnv,
 });
 export const DbRestoreMsg = z.object({
@@ -162,3 +170,37 @@ export const DbBackupListResult = z.object({
   snapshots: z.array(ResticSnapshotInfo).default([]),
 });
 export type DbBackupListResult = z.infer<typeof DbBackupListResult>;
+
+// ── PITR / WAL-archiving wire constants (slice A2 — appended, additive only) ──
+// Shared by the controller (manageddb.service), the manageddb-reconcile worker
+// and the agent so archive/ship/restore all agree on paths and commands.
+
+/** Where the WAL-archive Docker volume mounts inside the primary + wal-shipper. */
+export const WAL_ARCHIVE_MOUNT = '/wal-archive';
+
+/**
+ * Postgres `archive_command` staged onto a PITR-enabled primary: copy each
+ * finished WAL segment into the archive volume (idempotent — never overwrite).
+ * The per-cluster wal-shipper sidecar then `wal-g wal-push`es and deletes it.
+ */
+export const PITR_ARCHIVE_COMMAND = `test ! -f ${WAL_ARCHIVE_MOUNT}/%f && cp %p ${WAL_ARCHIVE_MOUNT}/%f`;
+
+/**
+ * Canonical `restore_command` for a PITR restore: fetch replayed WAL back out
+ * of the wal-g S3 prefix (the wal-shipper's push target). Rides
+ * `DbRestorePayload.restoreCommand` so recovery actually replays WAL up to
+ * `targetTime` instead of stopping at the base backup.
+ */
+export const PITR_RESTORE_COMMAND = 'wal-g wal-fetch "%f" "%p"';
+
+/** Extended Postgres conf a PITR-enabled primary mounts (Docker config). */
+export function pitrExtraConf(): string {
+  return `archive_mode = on\narchive_command = '${PITR_ARCHIVE_COMMAND}'\n`;
+}
+
+/** Where the extended conf mounts in a bitnami/postgresql container. */
+export const BITNAMI_PITR_CONF_TARGET = '/bitnami/postgresql/conf/conf.d/swarmy-pitr.conf';
+
+/** bitnami paths for a replica→primary promotion (`pg_ctl promote`). */
+export const BITNAMI_PG_CTL = '/opt/bitnami/postgresql/bin/pg_ctl';
+export const BITNAMI_PGDATA = '/bitnami/postgresql/data';

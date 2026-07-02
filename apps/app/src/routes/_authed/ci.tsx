@@ -9,6 +9,11 @@ import { RegistryCard } from '@/components/ci/registry-card';
 import { GcPolicyCard } from '@/components/ci/gc-policy-card';
 import { ReposList } from '@/components/ci/repos-list';
 import { BuildsList } from '@/components/ci/builds-list';
+// D3: registry policy (image scanning / signing / admission)
+import { ScanPolicyCard } from '@/components/ci/scan-policy-card';
+import { ScanList } from '@/components/ci/scan-list';
+// D4: PR preview environments
+import { PreviewsSection } from '@/components/ci/previews-section';
 
 export const Route = createFileRoute('/_authed/ci')({
   component: CiPage,
@@ -50,11 +55,19 @@ function CiPage(): React.JSX.Element {
           value={gc.data}
           onDone={() => qc.invalidateQueries({ queryKey: trpc.cicd.getGcPolicy.queryKey() })}
         />
+        {/* D3: image admission policy + signing key */}
+        <ScanPolicyCard />
       </div>
 
       <ReposList repos={repos.data ?? []} onChanged={invalidate} />
 
       <BuildsList builds={builds.data ?? []} />
+
+      {/* D3: CVE scans of built images */}
+      <ScanList />
+
+      {/* D4: PR preview environments */}
+      <PreviewsSection repos={repos.data ?? []} />
     </div>
   );
 }

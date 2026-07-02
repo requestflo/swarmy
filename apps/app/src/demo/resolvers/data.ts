@@ -135,6 +135,50 @@ interface StorageStatusView {
   endpoint: string | null;
 }
 
+// ── DB backups (slice A1) — mirrors of the @swarmy/core views ────────────────
+
+type DbBackupEngine = 'pg_dump' | 'pg_dumpall' | 'snapshot-from-replica' | 'wal-g' | 'pgbackrest';
+type DbBackupRunStatus = 'succeeded' | 'failed';
+
+interface DbBackupScheduleView {
+  stack: string;
+  cluster: string;
+  cron: string;
+  engine: DbBackupEngine;
+  retentionDays: number;
+  pitr: boolean;
+  targetId: string | null;
+  dataVolume: string | null;
+  lastRunAt: string | null;
+  lastStatus: DbBackupRunStatus | null;
+  nextRunAt: string | null;
+}
+
+interface DbBackupSnapshotView {
+  id: string;
+  time: string;
+  engine: DbBackupEngine | null;
+  sizeBytes: string | null;
+  tags: string[];
+}
+
+interface DbBackupOverviewRow {
+  stack: string;
+  cluster: string;
+  scheduled: boolean;
+  cron: string | null;
+  engine: DbBackupEngine | null;
+  retentionDays: number | null;
+  pitr: boolean;
+  targetId: string | null;
+  targetName: string | null;
+  lastBackupAt: string | null;
+  lastStatus: DbBackupRunStatus | null;
+  lastSizeBytes: string | null;
+  nextRunAt: string | null;
+  pitrWindow: { from: string; to: string } | null;
+}
+
 // ── demo world ───────────────────────────────────────────────────────────────
 
 interface StorageState {
@@ -159,6 +203,52 @@ interface ControllerBackupState {
   snapshots: ControllerSnapshotView[];
 }
 
+interface DbBackupSchedule {
+  cron: string;
+  engine: DbBackupEngine;
+  retentionDays: number;
+  pitr: boolean;
+  targetId: string | null;
+  dataVolume: string | null;
+}
+
+interface DbClusterState {
+  stack: string;
+  cluster: string;
+  schedule: DbBackupSchedule | null;
+  lastRunAt: string | null;
+  lastStatus: DbBackupRunStatus | null;
+  lastSizeBytes: string | null;
+}
+
+interface DbSnapshotState extends DbBackupSnapshotView {
+  stack: string;
+  cluster: string;
+}
+
+// ── Managed-DB topology (slice A2) — mirrors manageddb.service view shapes ────
+
+type DbMemberStatus = 'running' | 'degraded' | 'deploying' | 'idle' | 'stopped' | 'absent';
+
+interface DbTopoMember {
+  service: string;
+  role: 'primary' | 'replica' | 'dcs';
+  region?: string;
+  status: DbMemberStatus;
+  desired: number;
+  running: number;
+  lagSeconds?: number;
+}
+
+/** Seed state for one cluster's live topology (`db.get`). */
+interface DbTopoState {
+  stack: string;
+  cluster: string;
+  topology: 'single' | 'primary-replica' | 'failover' | 'geo' | 'active-active';
+  members: DbTopoMember[];
+  leader?: string;
+}
+
 interface DataState {
   targets: BackupTargetView[];
   snapshots: SnapshotView[];
@@ -166,6 +256,10 @@ interface DataState {
   restores: RestoreOperationView[];
   controller: ControllerBackupState;
   storage: StorageState;
+  dbClusters: DbClusterState[];
+  dbSnapshots: DbSnapshotState[];
+  /** slice A2: live-topology seeds behind `db.get` (lag badges, leader crown). */
+  dbTopologies: DbTopoState[];
 }
 
 const GARAGE_S3_PORT = 3900;
@@ -255,8 +349,138 @@ function nextRunFrom(every: number, unit: IntervalUnit): string {
   return new Date(Date.now() + ms).toISOString();
 }
 
+// ── DB backups (slice A1): projections + a light cron approximation ──────────
+
+/** Rough next-occurrence for the demo (hourly steps read off the cron's hour field). */
+function fakeCronNext(cron: string): string {
+  const hourField = cron.trim().split(/\s+/)[1] ?? '*';
+  const step = /^\*\/(\d+)$/.exec(hourField)?.[1];
+  if (step) return new Date(Date.now() + Number(step) * HOUR).toISOString();
+  if (hourField === '*') return new Date(Date.now() + HOUR).toISOString();
+  return new Date(Date.now() + 9 * HOUR).toISOString();
+}
+
+function findDbCluster(st: DataState, stack: string, cluster: string): DbClusterState | undefined {
+  return st.dbClusters.find((c) => c.stack === stack && c.cluster === cluster);
+}
+
+function dbScheduleView(c: DbClusterState): DbBackupScheduleView | null {
+  if (!c.schedule) return null;
+  return {
+    stack: c.stack,
+    cluster: c.cluster,
+    cron: c.schedule.cron,
+    engine: c.schedule.engine,
+    retentionDays: c.schedule.retentionDays,
+    pitr: c.schedule.pitr,
+    targetId: c.schedule.targetId,
+    dataVolume: c.schedule.dataVolume,
+    lastRunAt: c.lastRunAt,
+    lastStatus: c.lastStatus,
+    nextRunAt: fakeCronNext(c.schedule.cron),
+  };
+}
+
+function dbOverviewRow(st: DataState, c: DbClusterState): DbBackupOverviewRow {
+  const s = c.schedule;
+  const pitrWindow =
+    s?.pitr && c.lastStatus === 'succeeded' && c.lastRunAt
+      ? { from: iso(s.retentionDays * DAY), to: c.lastRunAt }
+      : null;
+  return {
+    stack: c.stack,
+    cluster: c.cluster,
+    scheduled: s != null,
+    cron: s?.cron ?? null,
+    engine: s?.engine ?? null,
+    retentionDays: s?.retentionDays ?? null,
+    pitr: s?.pitr ?? false,
+    targetId: s?.targetId ?? null,
+    targetName: s?.targetId ? targetName(st, s.targetId) || null : null,
+    lastBackupAt: c.lastRunAt,
+    lastStatus: c.lastStatus,
+    lastSizeBytes: c.lastSizeBytes,
+    nextRunAt: s ? fakeCronNext(s.cron) : null,
+    pitrWindow,
+  };
+}
+
+function recordDbBackup(
+  st: DataState,
+  stack: string,
+  cluster: string,
+  engine: DbBackupEngine,
+): { engine: DbBackupEngine; snapshotId: string; sizeBytes: string; databases: string[] } {
+  const snapshotId = resticId();
+  const sizeBytes = String(Math.floor(140_000_000 + Math.random() * 1_800_000_000));
+  st.dbSnapshots = [
+    {
+      id: snapshotId,
+      time: nowIso(),
+      engine,
+      sizeBytes,
+      tags: ['org:org-demo', `db:${stack}/${cluster}`, `engine:${engine}`],
+      stack,
+      cluster,
+    },
+    ...st.dbSnapshots,
+  ];
+  const c = findDbCluster(st, stack, cluster);
+  if (c) {
+    c.lastRunAt = nowIso();
+    c.lastStatus = 'succeeded';
+    c.lastSizeBytes = sizeBytes;
+  }
+  return { engine, snapshotId, sizeBytes, databases: engine === 'pg_dumpall' ? ['app', 'analytics'] : ['app'] };
+}
+
+// ── db.get projection (slice A2): topology seed + A1 schedule state → view ────
+
+function dbClusterView(st: DataState, t: DbTopoState): Record<string, unknown> {
+  const primary = t.members.find((m) => m.role === 'primary');
+  const replicas = t.members.filter((m) => m.role === 'replica');
+  const desired = replicas.reduce((n, m) => n + m.desired, 0);
+  const running = replicas.reduce((n, m) => n + m.running, 0);
+  const lags = t.members.map((m) => m.lagSeconds).filter((v): v is number => v !== undefined);
+  // PITR is Docker-truth off the backup schedule label — derive it live from the
+  // A1 demo state so toggling the schedule flips the panel's WAL-shipping row.
+  const pitr = findDbCluster(st, t.stack, t.cluster)?.schedule?.pitr ?? false;
+  const base = `${t.stack}_${t.cluster}`;
+  return {
+    name: t.cluster,
+    engine: 'postgres',
+    primary: {
+      service: primary?.service ?? `${base}-primary`,
+      status: primary?.status ?? 'absent',
+    },
+    replicas: { desired, running },
+    rwHost: primary?.service ?? `${base}-primary`,
+    roHost: replicas[0]?.service ?? `${base}-replica`,
+    declaredReplicas: desired,
+    topology: t.topology,
+    members: t.members,
+    pitr,
+    ...(pitr ? { walShipper: { service: `${base}-wal-shipper`, status: 'running' } } : {}),
+    ...(lags.length > 0 ? { maxLagSeconds: Math.max(...lags) } : {}),
+    ...(t.leader ? { leader: t.leader } : {}),
+  };
+}
+
 export const data: DomainResolvers = {
   handlers: {
+    // ── managed-DB topology (slice A2: db-cluster-panel) ─────────────────────
+    'db.get': (i, s): { stack: string; clusters: Record<string, unknown>[] } => {
+      const { stack } = i as { stack: string };
+      const st = getState(s);
+      return {
+        stack,
+        clusters: st.dbTopologies
+          .filter((t) => t.stack === stack)
+          .map((t) => dbClusterView(st, t))
+          .sort((a, b) => String(a.name).localeCompare(String(b.name))),
+      };
+    },
+
     // ── backups ──────────────────────────────────────────────────────────────
     'backups.listTargets': (_i, s): BackupTargetView[] => getState(s).targets,
 
@@ -513,6 +737,96 @@ export const data: DomainResolvers = {
       st.updatedAt = nowIso();
       return storageView(st);
     },
+
+    // ── dbBackups (slice A1: managed-cluster backups + schedule labels) ───────
+    'dbBackups.overview': (_i, s): DbBackupOverviewRow[] => {
+      const st = getState(s);
+      return st.dbClusters
+        .map((c) => dbOverviewRow(st, c))
+        .sort((a, b) => `${a.stack}/${a.cluster}`.localeCompare(`${b.stack}/${b.cluster}`));
+    },
+
+    'dbBackups.getSchedule': (i, s): DbBackupScheduleView | null => {
+      const b = i as { stack: string; cluster: string };
+      const c = findDbCluster(getState(s), b.stack, b.cluster);
+      return c ? dbScheduleView(c) : null;
+    },
+
+    'dbBackups.setSchedule': (i, s): DbBackupScheduleView | null => {
+      const b = i as {
+        enabled: boolean;
+        stack: string;
+        cluster: string;
+        cron?: string;
+        engine?: DbBackupEngine;
+        retentionDays?: number;
+        pitr?: boolean;
+        targetId?: string;
+        dataVolume?: string;
+      };
+      const st = getState(s);
+      let c = findDbCluster(st, b.stack, b.cluster);
+      if (!c) {
+        c = { stack: b.stack, cluster: b.cluster, schedule: null, lastRunAt: null, lastStatus: null, lastSizeBytes: null };
+        st.dbClusters = [...st.dbClusters, c];
+      }
+      if (!b.enabled) {
+        c.schedule = null;
+        return null;
+      }
+      c.schedule = {
+        cron: b.cron ?? '0 3 * * *',
+        engine: b.engine ?? 'pg_dump',
+        retentionDays: b.retentionDays ?? 14,
+        pitr: b.pitr ?? false,
+        targetId: b.targetId ?? null,
+        dataVolume: b.dataVolume ?? null,
+      };
+      return dbScheduleView(c);
+    },
+
+    'dbBackups.run': (i, s): { engine: DbBackupEngine; snapshotId: string; sizeBytes: string; databases: string[] } => {
+      const b = i as { stack: string; cluster: string; engine?: DbBackupEngine };
+      const st = getState(s);
+      const engine = b.engine ?? findDbCluster(st, b.stack, b.cluster)?.schedule?.engine ?? 'pg_dump';
+      return recordDbBackup(st, b.stack, b.cluster, engine);
+    },
+
+    'dbBackups.backup': (i, s): { engine: DbBackupEngine; snapshotId: string; sizeBytes: string; databases: string[] } => {
+      const b = i as { stack: string; cluster: string; engine: DbBackupEngine };
+      return recordDbBackup(getState(s), b.stack, b.cluster, b.engine);
+    },
+
+    'dbBackups.list': (i, s): DbBackupSnapshotView[] => {
+      const f = (i as { stack?: string; cluster?: string } | null | undefined) ?? {};
+      return getState(s)
+        .dbSnapshots.filter(
+          (snap) => (!f.stack || snap.stack === f.stack) && (!f.cluster || snap.cluster === f.cluster),
+        )
+        .map(({ stack: _st, cluster: _cl, ...view }) => view)
+        .sort((a, b) => b.time.localeCompare(a.time));
+    },
+
+    'dbBackups.restore': (
+      i,
+      s,
+    ): { mode: string; engine: DbBackupEngine; database?: string; bytesRestored: string; recoveredTo?: string } => {
+      const b = i as {
+        mode: string;
+        engine: DbBackupEngine;
+        snapshotId?: string;
+        targetTime?: string;
+        database?: string;
+      };
+      const snap = getState(s).dbSnapshots.find((x) => x.id === b.snapshotId);
+      return {
+        mode: b.mode,
+        engine: b.engine,
+        database: b.database,
+        bytesRestored: snap?.sizeBytes ?? String(Math.floor(200_000_000 + Math.random() * 900_000_000)),
+        ...(b.mode === 'pitr' ? { recoveredTo: b.targetTime ?? nowIso() } : {}),
+      };
+    },
   },
 
   seed: (store) => {
@@ -726,6 +1040,112 @@ export const data: DomainResolvers = {
       updatedAt: iso(2 * DAY),
     };
 
+    // Managed-DB backup coverage: the data stack's cluster backs up 6-hourly with
+    // PITR via wal-g; the storefront cluster dumps nightly; platform/metrics has
+    // no schedule yet (the overview shows the gap → the CTA writes the label).
+    const dbClusters: DbClusterState[] = [
+      {
+        stack: 'data',
+        cluster: 'main',
+        schedule: {
+          cron: '0 */6 * * *',
+          engine: 'wal-g',
+          retentionDays: 14,
+          pitr: true,
+          targetId: tS3.id,
+          dataVolume: 'data_main-primary-data',
+        },
+        lastRunAt: iso(50 * MIN),
+        lastStatus: 'succeeded',
+        lastSizeBytes: String(1_842_300_416),
+      },
+      {
+        stack: 'storefront',
+        cluster: 'checkout',
+        schedule: {
+          cron: '0 3 * * *',
+          engine: 'pg_dump',
+          retentionDays: 30,
+          pitr: false,
+          targetId: tS3.id,
+          dataVolume: null,
+        },
+        lastRunAt: iso(9 * HOUR),
+        lastStatus: 'failed',
+        lastSizeBytes: null,
+      },
+      {
+        stack: 'platform',
+        cluster: 'metrics',
+        schedule: null,
+        lastRunAt: null,
+        lastStatus: null,
+        lastSizeBytes: null,
+      },
+    ];
+
+    const dbSnap = (
+      stack: string,
+      cluster: string,
+      engine: DbBackupEngine,
+      msAgo: number,
+      bytes: number,
+    ): DbSnapshotState => ({
+      id: resticId(),
+      time: iso(msAgo),
+      engine,
+      sizeBytes: String(bytes),
+      tags: ['org:org-demo', `db:${stack}/${cluster}`, `engine:${engine}`],
+      stack,
+      cluster,
+    });
+
+    const dbSnapshots: DbSnapshotState[] = [
+      dbSnap('data', 'main', 'wal-g', 50 * MIN, 1_842_300_416),
+      dbSnap('data', 'main', 'wal-g', 6 * HOUR + 50 * MIN, 1_831_204_992),
+      dbSnap('data', 'main', 'wal-g', 12 * HOUR + 50 * MIN, 1_820_115_968),
+      dbSnap('data', 'main', 'pg_dump', 26 * HOUR, 412_090_368),
+      dbSnap('storefront', 'checkout', 'pg_dump', 33 * HOUR, 268_435_456),
+      dbSnap('storefront', 'checkout', 'snapshot-from-replica', 57 * HOUR, 259_984_600),
+    ];
+
+    // Live cluster topologies (slice A2): the data/main cluster runs failover
+    // with two healthy replicas + a consensus member (crowned leader, sub-second
+    // lag, PITR shipping); storefront/checkout has one replica falling behind
+    // (the amber lag badge); platform/metrics is a bare single-writer.
+    const dbTopologies: DbTopoState[] = [
+      {
+        stack: 'data',
+        cluster: 'main',
+        topology: 'failover',
+        leader: 'data_main-primary',
+        members: [
+          { service: 'data_main-primary', role: 'primary', status: 'running', desired: 1, running: 1 },
+          { service: 'data_main-replica', role: 'replica', status: 'running', desired: 2, running: 2, lagSeconds: 0.4 },
+          { service: 'data_main-dcs', role: 'dcs', status: 'running', desired: 1, running: 1 },
+        ],
+      },
+      {
+        stack: 'storefront',
+        cluster: 'checkout',
+        topology: 'primary-replica',
+        leader: 'storefront_checkout-primary',
+        members: [
+          { service: 'storefront_checkout-primary', role: 'primary', status: 'running', desired: 1, running: 1 },
+          { service: 'storefront_checkout-replica', role: 'replica', status: 'degraded', desired: 2, running: 1, lagSeconds: 14.2 },
+        ],
+      },
+      {
+        stack: 'platform',
+        cluster: 'metrics',
+        topology: 'single',
+        leader: 'platform_metrics-primary',
+        members: [
+          { service: 'platform_metrics-primary', role: 'primary', status: 'running', desired: 1, running: 1 },
+        ],
+      },
+    ];
+
     const state: DataState = {
       targets: [tS3, tNode],
       snapshots,
@@ -733,6 +1153,9 @@ export const data: DomainResolvers = {
       restores,
       controller,
       storage,
+      dbClusters,
+      dbSnapshots,
+      dbTopologies,
     };
     store.extra.data = state;
   },

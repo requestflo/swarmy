@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { RotateCcwIcon } from 'lucide-react';
 import {
   Button,
@@ -18,66 +18,68 @@ import {
   SelectValue,
   toast,
 } from '@swarmy/ui';
+import type { DbBackupSnapshotView } from '@swarmy/core';
+import type { DbRestoreMode } from '@swarmy/core/protocol';
+import { useTRPC } from '@/integrations/trpc';
 import { DbRestoreFields } from './db-restore-fields';
-import {
-  useDbMutation,
-  type DbBackupView,
-  type DbRestoreMode,
-} from './managed-db-trpc';
-
-interface RestoreInput {
-  stack: string;
-  cluster: string;
-  backupId: string;
-  mode: DbRestoreMode;
-  targetCluster?: string;
-  pitrTarget?: string;
-  database?: string;
-}
+import { engineLabel, isPhysical } from './db-backup-format';
 
 const MODES: { value: DbRestoreMode; label: string; blurb: string }[] = [
-  { value: 'clone', label: 'Clone to new cluster', blurb: 'Restore into a fresh cluster — safest, nothing live is touched.' },
-  { value: 'pitr', label: 'Point-in-time', blurb: 'Replay WAL up to a timestamp (pgBackRest).' },
+  { value: 'clone-to-new-cluster', label: 'Clone to new cluster', blurb: 'Restore into a fresh cluster — safest, nothing live is touched.' },
+  { value: 'single-database', label: 'Single database', blurb: 'Restore just one database from the backup.' },
+  { value: 'pitr', label: 'Point-in-time', blurb: 'Replay WAL up to a timestamp (wal-g / pgBackRest backups).' },
   { value: 'in-place', label: 'In place', blurb: 'Overwrite the live primary — destructive.' },
-  { value: 'single-db', label: 'Single database', blurb: 'Restore just one database from the backup.' },
 ];
 
-/** Restore a single DB backup from the canvas, with a mode-specific form. */
+/** Restore a single DB backup, with a mode-specific form. */
 export function DbRestoreDialog({
   stack,
   cluster,
+  targetId,
   backup,
 }: {
   stack: string;
   cluster: string;
-  backup: DbBackupView;
+  /** Destination the backup was listed from; defaults server-side when omitted. */
+  targetId?: string;
+  backup: DbBackupSnapshotView;
 }): React.JSX.Element {
+  const trpc = useTRPC();
   const qc = useQueryClient();
   const [open, setOpen] = React.useState(false);
-  const [mode, setMode] = React.useState<DbRestoreMode>('clone');
+  const [mode, setMode] = React.useState<DbRestoreMode>('clone-to-new-cluster');
   const [targetCluster, setTargetCluster] = React.useState(`${cluster}-restore`);
   const [pitrTarget, setPitrTarget] = React.useState('');
   const [database, setDatabase] = React.useState('app');
+  const [dataVolume, setDataVolume] = React.useState('');
 
-  const restore = useDbMutation<{ operationId: string }, RestoreInput>('dbBackup', 'restore', {
-    onSuccess: () => {
-      toast.success(`Restore started from ${backup.engine} backup`);
-      setOpen(false);
-      void qc.invalidateQueries();
-    },
-    onError: (e) => toast.error(e.message),
-  });
+  const engine = backup.engine ?? 'pg_dump';
+
+  const restore = useMutation(
+    trpc.dbBackups.restore.mutationOptions({
+      onSuccess: () => {
+        toast.success(`Restore started from ${engineLabel(engine)} backup`);
+        setOpen(false);
+        void qc.invalidateQueries();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
 
   const meta = MODES.find((m) => m.value === mode);
+  const pitrBlocked = mode === 'pitr' && (!isPhysical(engine) || !dataVolume.trim());
   const submit = (): void =>
     restore.mutate({
       stack,
       cluster,
-      backupId: backup.id,
+      engine,
       mode,
-      targetCluster: mode === 'clone' || mode === 'pitr' ? targetCluster.trim() || undefined : undefined,
-      pitrTarget: mode === 'pitr' ? pitrTarget.trim() || undefined : undefined,
-      database: mode === 'single-db' ? database.trim() || undefined : undefined,
+      targetId,
+      snapshotId: backup.id,
+      targetCluster: mode === 'clone-to-new-cluster' ? targetCluster.trim() || undefined : undefined,
+      targetTime: mode === 'pitr' ? pitrTarget.trim() || undefined : undefined,
+      database: mode === 'single-database' ? database.trim() || undefined : undefined,
+      dataVolume: mode === 'pitr' ? dataVolume.trim() || undefined : undefined,
     });
 
   return (
@@ -91,7 +93,7 @@ export function DbRestoreDialog({
         <DialogHeader>
           <DialogTitle>Restore backup</DialogTitle>
           <DialogDescription>
-            {backup.engine} · {new Date(backup.startedAt).toLocaleString()}
+            {engineLabel(backup.engine)} · {new Date(backup.time).toLocaleString()}
           </DialogDescription>
         </DialogHeader>
 
@@ -111,6 +113,11 @@ export function DbRestoreDialog({
               </SelectContent>
             </Select>
             {meta && <p className="text-muted-foreground text-sm">{meta.blurb}</p>}
+            {mode === 'pitr' && !isPhysical(engine) && (
+              <p className="text-status-warning text-sm">
+                Point-in-time needs a wal-g / pgBackRest backup — this one is {engineLabel(engine)}.
+              </p>
+            )}
           </div>
 
           <DbRestoreFields
@@ -122,6 +129,8 @@ export function DbRestoreDialog({
             onPitrTarget={setPitrTarget}
             database={database}
             onDatabase={setDatabase}
+            dataVolume={dataVolume}
+            onDataVolume={setDataVolume}
           />
         </div>
 
@@ -129,7 +138,7 @@ export function DbRestoreDialog({
           <Button
             variant={mode === 'in-place' ? 'destructive' : 'default'}
             onClick={submit}
-            disabled={restore.isPending}
+            disabled={restore.isPending || pitrBlocked}
           >
             <RotateCcwIcon className="size-4" /> Start restore
           </Button>

@@ -1,52 +1,21 @@
 import * as React from 'react';
 import { DatabaseBackupIcon } from 'lucide-react';
-import { EmptyState, StatusBadge, type StatusTone } from '@swarmy/ui';
+import { EmptyState } from '@swarmy/ui';
+import type { DbBackupSnapshotView } from '@swarmy/core';
 import { DbRestoreDialog } from './db-restore-dialog';
-import type { DbBackupEngine, DbBackupView } from './managed-db-trpc';
-
-function fmtBytes(n: string | null): string {
-  if (!n) return '—';
-  let v = Number(n);
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
-}
-
-function relativeTime(iso: string): string {
-  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
-}
-
-const TONE: Record<string, StatusTone> = {
-  SUCCEEDED: 'online',
-  RUNNING: 'progress',
-  FAILED: 'offline',
-  PRUNED: 'neutral',
-};
-
-const ENGINE_LABEL: Record<DbBackupEngine, string> = {
-  pg_dump: 'pg_dump',
-  pgbackrest: 'pgBackRest',
-  'replica-snapshot': 'replica snapshot',
-};
+import { engineLabel, fmtBytes, relativeTime } from './db-backup-format';
 
 /** Flat backup rows for a cluster, each with a restore affordance. */
 export function DbBackupList({
   stack,
   cluster,
+  targetId,
   backups,
 }: {
   stack: string;
   cluster: string;
-  backups: DbBackupView[];
+  targetId?: string;
+  backups: DbBackupSnapshotView[];
 }): React.JSX.Element {
   if (backups.length === 0) {
     return (
@@ -66,22 +35,17 @@ export function DbBackupList({
           key={b.id}
           className="hover:bg-accent/60 flex items-center gap-4 py-3 transition-colors"
         >
-          <StatusBadge tone={TONE[b.status] ?? 'neutral'} label="" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-medium">{ENGINE_LABEL[b.engine] ?? b.engine}</span>
+              <span className="font-medium">{engineLabel(b.engine)}</span>
               <span className="mono-label text-muted-foreground">{fmtBytes(b.sizeBytes)}</span>
-              {b.lsn && <span className="mono-label text-muted-foreground">LSN {b.lsn}</span>}
+              <span className="mono-label text-muted-foreground">{b.id.slice(0, 8)}</span>
             </div>
             <p className="text-muted-foreground mono-label truncate">
-              {relativeTime(b.startedAt)}
-              {b.targetName ? ` · ${b.targetName}` : ''}
-              {b.error ? ` · ${b.error}` : ''}
+              {relativeTime(b.time)} · {new Date(b.time).toLocaleString()}
             </p>
           </div>
-          {b.status === 'SUCCEEDED' && (
-            <DbRestoreDialog stack={stack} cluster={cluster} backup={b} />
-          )}
+          <DbRestoreDialog stack={stack} cluster={cluster} targetId={targetId} backup={b} />
         </div>
       ))}
     </div>

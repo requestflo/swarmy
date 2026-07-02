@@ -27,6 +27,7 @@ import { resolveManagerNode } from './dispatch.service';
 import { writeAudit } from './audit.service';
 import { buildLogBus } from './build-log-bus';
 import { liveService } from './service.service';
+import { onImageBuilt } from './registryPolicy.service'; // D3 hook
 
 export type GitProvider = 'github' | 'gitlab';
 
@@ -274,6 +275,15 @@ async function runBuild(
       data: { status: 'SUCCEEDED', image: digested, finishedAt: new Date() },
       include: { repo: { select: { url: true } } },
     });
+
+    // D3 hook: registry policy on build success — trivy CVE scan + cosign sign
+    // of the freshly pushed image, on the node that built it. Fire-and-forget:
+    // policy work never delays or fails the build itself.
+    void onImageBuilt(ctx, {
+      imageRef,
+      digest: result?.digest ?? null,
+      nodeId: node.id,
+    }).catch(() => undefined);
 
     // Autodeploy: a SUCCEEDED build whose repo is linked to a service + opted in
     // redeploys that service to the freshly-built digest (reusing the deploy path).

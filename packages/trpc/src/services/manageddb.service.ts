@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto';
 import {
   buildInventory,
   STACK_LABEL,
+  type DbClusterMemberView,
+  type DbWalShipperView,
   type InvService,
   type InvServiceStatus,
 } from '@swarmy/core';
@@ -77,6 +79,21 @@ export const DB_PRIMARIES_LABEL = 'swarmy.db.primaries';
 export const DB_MEMBER_LABEL = 'swarmy.db.member';
 /** failover: status label the reconcile stamps with the observed leader service name. */
 export const DB_LEADER_LABEL = 'swarmy.db.leader';
+/**
+ * Replication-lag telemetry (slice A2): `swarmy.db.lag.<memberService>=<seconds>`
+ * stamped on the cluster PRIMARY by the reconcile each tick (one label per
+ * member so a single anchor read yields the whole cluster's lag picture).
+ */
+export const DB_LAG_LABEL_PREFIX = 'swarmy.db.lag.';
+/** PITR (A2): version marker the reconcile stamps once WAL archiving is applied
+ *  (archive volume + extended conf + wal-shipper). Steady state = no redeploys. */
+export const DB_PITR_APPLIED_LABEL = 'swarmy.db.pitr.applied';
+/** Marks the per-cluster wal-shipper sidecar service (not a Postgres member). */
+export const DB_WAL_SHIPPER_LABEL = 'swarmy.db.walShipper';
+/** Mirror of dbBackup.service `DB_BACKUP_PITR_LABEL` — importing it here would
+ *  create a module cycle (dbBackup.service imports this file), so the string is
+ *  kept in sync instead. */
+const DB_BACKUP_PITR_FLAG_LABEL = 'swarmy.db.backup.pitr';
 /** Node label naming a node's region — shared with region/geodns (placement constraints). */
 export const REGION_NODE_LABEL = 'swarmy.region';
 /** `swarmy.db.region.<region>.replicas=<n>` — per-region read-replica declarations (geo). */
@@ -140,6 +157,39 @@ export function replicaServiceName(stack: string, cluster: string): string {
 /** Per-cluster attachable overlay network joining primary + replicas + apps. */
 export function clusterNetworkName(stack: string, cluster: string): string {
   return `${stack}_${cluster}-net`;
+}
+/** `<stack>_<cluster>-wal-shipper` — the PITR WAL-push sidecar service (A2). */
+export function walShipperServiceName(stack: string, cluster: string): string {
+  return `${stack}_${cluster}-wal-shipper`;
+}
+/** Named volume the primary archives WAL into (shared with the wal-shipper). */
+export function walArchiveVolumeName(stack: string, cluster: string): string {
+  return `${stack}_${cluster}-wal-archive`;
+}
+/** Docker config carrying the archive_mode/archive_command extended conf. */
+export function pitrConfigName(stack: string, cluster: string): string {
+  return `${stack}_${cluster}-pitr-conf`;
+}
+
+/** Label key carrying `member`'s replication lag on the cluster primary. */
+export function lagLabelKey(member: string): string {
+  return `${DB_LAG_LABEL_PREFIX}${member}`;
+}
+
+/**
+ * Parse the primary's `swarmy.db.lag.<member>` labels → { member: seconds }.
+ * Malformed/negative values are dropped (a foreign label never breaks the view).
+ */
+export function parseLagLabels(labels: Record<string, string> | undefined): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(labels ?? {})) {
+    if (!key.startsWith(DB_LAG_LABEL_PREFIX)) continue;
+    const member = key.slice(DB_LAG_LABEL_PREFIX.length);
+    const n = Number.parseFloat(value);
+    if (!member || !Number.isFinite(n) || n < 0) continue;
+    out[member] = n;
+  }
+  return out;
 }
 
 /** URL-safe secret (no chars that need percent-encoding in a postgres:// URL). */
@@ -325,16 +375,12 @@ export async function provisionDb(
   };
 }
 
-/** One live cluster member with its Docker-truth role + health. */
-export interface DbMemberView {
-  service: string;
-  role: 'primary' | 'replica' | 'dcs';
-  /** geo: the region a replica sibling is pinned to, or the primary's write-region. */
-  region?: string;
-  status: InvServiceStatus | 'absent';
-  desired: number;
-  running: number;
-}
+/**
+ * One live cluster member with its Docker-truth role + health + replication
+ * lag. Canonical shape appended to `@swarmy/core` views (slice A2) so the
+ * dashboard types come from core, never a redeclaration.
+ */
+export type DbMemberView = DbClusterMemberView;
 
 export interface DbClusterView {
   name: string;
@@ -353,6 +399,12 @@ export interface DbClusterView {
   members: DbMemberView[];
   /** failover: the leader the reconcile last observed (`swarmy.db.leader`). */
   leader?: string;
+  /** PITR (A2): WAL archiving requested (`swarmy.db.backup.pitr=true` on the primary). */
+  pitr: boolean;
+  /** PITR (A2): the per-cluster wal-shipper sidecar, when provisioned. */
+  walShipper?: DbWalShipperView;
+  /** Worst replica lag across members this tick (seconds), when measured. */
+  maxLagSeconds?: number;
   /** geo: the node-label region the single writer is pinned to. */
   writeRegion?: string;
   /** geo: declared per-region read-replica counts (`swarmy.db.region.<r>.replicas`). */
@@ -368,9 +420,13 @@ export interface DbTopologyView {
 
 /** Read the managed-DB topology for a stack straight off the live inventory. */
 export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
-  const svcs = liveStackServices(ctx, stack).filter(
+  const stackServices = liveStackServices(ctx, stack);
+  const svcs = stackServices.filter(
     (s) => s.labels[DB_CLUSTER_LABEL] && s.labels[DB_ENGINE_LABEL],
   );
+  // wal-shipper sidecars carry the cluster label but no engine label — they are
+  // PITR infrastructure, surfaced separately rather than as Postgres members.
+  const shippers = stackServices.filter((s) => s.labels[DB_WAL_SHIPPER_LABEL] === 'true');
   const byCluster = new Map<string, InvService[]>();
   for (const s of svcs) {
     const c = s.labels[DB_CLUSTER_LABEL]!;
@@ -398,9 +454,16 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
     const regionReplicas = parseRegionReplicas(primary?.labels ?? {});
     const primariesDeclared = Number.parseInt(primary?.labels[DB_PRIMARIES_LABEL] ?? '', 10);
 
+    // Replication lag: the reconcile stamps `swarmy.db.lag.<member>` seconds on
+    // the primary each tick — one anchor read yields every member's lag.
+    const lagByMember = parseLagLabels(primary?.labels);
+    const pitr = primary?.labels[DB_BACKUP_PITR_FLAG_LABEL] === 'true';
+    const shipper = shippers.find((s) => s.labels[DB_CLUSTER_LABEL] === name);
+
     const memberViews: DbMemberView[] = members
       .map((s): DbMemberView => {
         const role = s.labels[DB_ROLE_LABEL];
+        const lag = lagByMember[s.name];
         return {
           service: s.name,
           role: role === 'primary' || role === 'dcs' ? role : 'replica',
@@ -410,9 +473,14 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
           status: s.status,
           desired: s.replicas.desired,
           running: s.replicas.running,
+          ...(lag !== undefined ? { lagSeconds: lag } : {}),
         };
       })
       .sort((a, b) => a.service.localeCompare(b.service));
+
+    const measuredLags = memberViews
+      .map((m) => m.lagSeconds)
+      .filter((v): v is number => v !== undefined);
 
     clusters.push({
       name,
@@ -430,6 +498,9 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
       declaredReplicas: Number.isFinite(declared) ? declared : 0,
       topology,
       members: memberViews,
+      pitr,
+      ...(shipper ? { walShipper: { service: shipper.name, status: shipper.status } } : {}),
+      ...(measuredLags.length > 0 ? { maxLagSeconds: Math.max(...measuredLags) } : {}),
       ...(leader ? { leader } : {}),
       ...(writeRegion ? { writeRegion } : {}),
       ...(Object.keys(regionReplicas).length > 0 ? { regionReplicas } : {}),

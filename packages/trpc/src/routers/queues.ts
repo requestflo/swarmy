@@ -1,11 +1,61 @@
+import {
+  AttachQueueInput,
+  QueueBatchInput,
+  QueueDlqListInput,
+  QueueRefInput,
+  UpdateQueueInput,
+} from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
-import { overview } from '../services/queues.service';
+import {
+  attachQueue,
+  dlqList,
+  dlqRequeue,
+  drainQueue,
+  listQueues,
+  queueStats,
+  queuesOverview,
+  removeQueue,
+  retryFailed,
+  updateQueue,
+} from '../services/queues.service';
 
 /**
- * Queues — queue defs in the `swarmy.queues` JSON label, depth stats, scaling, DLQ actions (slice B1). Spine stub — slice B1 replaces the
- * placeholder `overview` procedure with the real surface.
+ * Queues (slice B1) — queue defs in the `swarmy.queues` JSON label on the
+ * worker service, depths via redis-cli exec on the backing cache primary,
+ * autoscaling by the queue-reconcile worker, DLQ browse/requeue actions.
  */
 export const queuesRouter = router({
-  /** Inert placeholder so the mount + client types exist before the slice lands. */
-  overview: orgProcedure.query(({ ctx }) => overview(ctx)),
+  /** Aggregates for the Queues page hero. */
+  overview: orgProcedure.query(({ ctx }) => queuesOverview(ctx)),
+
+  /** Every queue in the org (inventory scan + last stamped stats). */
+  list: orgProcedure.query(({ ctx }) => listQueues(ctx)),
+
+  /** Attach a queue to a worker service (label write). */
+  attach: orgProcedure.input(AttachQueueInput).mutation(({ ctx, input }) => attachQueue(ctx, input)),
+
+  /** Update a queue's rules (matched by name on the worker service). */
+  update: orgProcedure.input(UpdateQueueInput).mutation(({ ctx, input }) => updateQueue(ctx, input)),
+
+  /** Remove a queue def (clears the labels when it was the last one). */
+  remove: orgProcedure.input(QueueRefInput).mutation(({ ctx, input }) => removeQueue(ctx, input)),
+
+  /** Live depth sample from the cache primary (falls back to the label stamp). */
+  stats: orgProcedure.input(QueueRefInput).query(({ ctx, input }) => queueStats(ctx, input)),
+
+  /** Bounded retry batch: BullMQ failed → wait. */
+  retryFailed: orgProcedure
+    .input(QueueBatchInput)
+    .mutation(({ ctx, input }) => retryFailed(ctx, input)),
+
+  /** Drain: delete waiting (+ delayed) jobs. */
+  drain: orgProcedure.input(QueueRefInput).mutation(({ ctx, input }) => drainQueue(ctx, input)),
+
+  /** Browse the dead-letter list (`<q>:dead`). */
+  dlqList: orgProcedure.input(QueueDlqListInput).query(({ ctx, input }) => dlqList(ctx, input)),
+
+  /** Bounded requeue batch: dead → wait. */
+  dlqRequeue: orgProcedure
+    .input(QueueBatchInput)
+    .mutation(({ ctx, input }) => dlqRequeue(ctx, input)),
 });

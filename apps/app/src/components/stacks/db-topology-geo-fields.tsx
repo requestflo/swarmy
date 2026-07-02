@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { MapPinIcon, PlusIcon, Trash2Icon } from 'lucide-react';
 import { Button, Input, Label } from '@swarmy/ui';
-import type { DbGeoRegion } from './managed-db-trpc';
+import type { DbGeoRegionPlan as DbGeoRegion } from '@swarmy/core';
 
 interface GeoFieldsProps {
   writeRegion: string;

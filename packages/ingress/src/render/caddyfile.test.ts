@@ -140,3 +140,136 @@ describe('caddy host grouping — path routing across services', () => {
     expect(out).not.toContain('handle');
   });
 });
+
+describe('caddy canary — weighted upstreams (D2)', () => {
+  it('GOLDEN: a root route with a 10% canary renders both upstreams + positional weights', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'app.xyz.com',
+          service: 'web',
+          port: 3000,
+          pathPrefix: '/',
+          tls: 'auto',
+          canary: { service: 'web--canary', port: 3000, weightPct: 10 },
+        },
+      ]),
+    );
+    // Exact block, byte-for-byte: stable upstream FIRST, canary second, and the
+    // weighted_round_robin weights in THE SAME order (90 stable, 10 canary).
+    expect(out).toBe(
+      [
+        'app.xyz.com {',
+        '  reverse_proxy web:3000 web--canary:3000 {',
+        '    lb_policy weighted_round_robin 90 10',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('GOLDEN: a path route with a canary nests the weighted proxy inside its handle', () => {
+    const out = buildCaddyfile(
+      cfg([
+        { domain: 'xyz.com', service: 'web', port: 3000, pathPrefix: '/', tls: 'auto' },
+        {
+          domain: 'xyz.com',
+          service: 'api',
+          port: 8080,
+          pathPrefix: '/api',
+          tls: 'auto',
+          canary: { service: 'api--canary', port: 8080, weightPct: 25 },
+        },
+      ]),
+    );
+    expect(out).toBe(
+      [
+        'xyz.com {',
+        '  handle /api* {',
+        '    reverse_proxy api:8080 api--canary:8080 {',
+        '      lb_policy weighted_round_robin 75 25',
+        '    }',
+        '  }',
+        '  handle {',
+        '    reverse_proxy web:3000',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('weights are clamped + rounded to integers (weighted_round_robin takes ints)', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'app.xyz.com',
+          service: 'web',
+          port: 3000,
+          pathPrefix: '/',
+          tls: 'auto',
+          canary: { service: 'web--canary', port: 3000, weightPct: 33.4 },
+        },
+      ]),
+    );
+    expect(out).toContain('lb_policy weighted_round_robin 67 33');
+  });
+
+  it('a 0% canary renders as a plain single-upstream proxy (no lb_policy)', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'app.xyz.com',
+          service: 'web',
+          port: 3000,
+          pathPrefix: '/',
+          tls: 'auto',
+          canary: { service: 'web--canary', port: 3000, weightPct: 0 },
+        },
+      ]),
+    );
+    expect(out).toContain('  reverse_proxy web:3000');
+    expect(out).not.toContain('weighted_round_robin');
+    expect(out).not.toContain('web--canary');
+  });
+
+  it('a cold route ignores its canary: waking the stable service wins', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'app.xyz.com',
+          service: 'web',
+          port: 3000,
+          pathPrefix: '/',
+          tls: 'auto',
+          cold: { upstream: 'host.docker.internal:3001', wakePath: '/_wake/web' },
+          canary: { service: 'web--canary', port: 3000, weightPct: 10 },
+        },
+      ]),
+    );
+    expect(out).toContain('rewrite * /_wake/web?return={scheme}://{host}{uri}');
+    expect(out).toContain('reverse_proxy host.docker.internal:3001');
+    expect(out).not.toContain('weighted_round_robin');
+  });
+
+  it('sibling routes on the same host stay single-upstream when only one has a canary', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'xyz.com',
+          service: 'web',
+          port: 3000,
+          pathPrefix: '/',
+          tls: 'auto',
+          canary: { service: 'web--canary', port: 3000, weightPct: 50 },
+        },
+        { domain: 'xyz.com', service: 'api', port: 8080, pathPrefix: '/api', tls: 'auto' },
+      ]),
+    );
+    expect(out).toContain('reverse_proxy web:3000 web--canary:3000 {');
+    expect(out).toContain('lb_policy weighted_round_robin 50 50');
+    expect(out).toContain('reverse_proxy api:8080');
+    expect(out).not.toContain('api--canary');
+  });
+});
