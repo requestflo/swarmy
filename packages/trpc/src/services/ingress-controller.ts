@@ -1,3 +1,4 @@
+import { STACK_LABEL, SYSTEM_STACK, SYSTEM_STACK_LABEL } from '@swarmy/core';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import {
   CADDY_ADMIN_PORT,
@@ -123,7 +124,14 @@ function controllerSpec(opts: ResolvedOptions, placementConstraint: string): Ser
     name: CADDY_CONTROLLER_SERVICE,
     image: opts.image,
     mode: { replicated: { replicas: opts.replicas } },
-    labels: { 'swarmy.managed': 'true', 'swarmy.role': 'ingress' },
+    labels: {
+      'swarmy.managed': 'true',
+      'swarmy.role': 'ingress',
+      // Group under the swarmy-system stack namespace (platform plumbing, not
+      // a user app stack) and mark it so the UI can tell system stacks apart.
+      [STACK_LABEL]: SYSTEM_STACK,
+      [SYSTEM_STACK_LABEL]: 'true',
+    },
     ...(env ? { env } : {}),
     // The container writes its own admin-enabling base config on boot (no host bind
     // mount / root needed), then swarmy pushes the rendered routes to the admin API.

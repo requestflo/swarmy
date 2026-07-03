@@ -23,6 +23,25 @@ export const REGION_PARENT_LABEL = 'swarmy.region.parent';
 export const REGION_OF_LABEL = 'swarmy.region.of';
 export const UNGROUPED = '(ungrouped)';
 
+/**
+ * swarmy's own platform plumbing (observability collector + ClickHouse, the
+ * ingress Caddy controller, the Garage object store, …) deploys as one
+ * managed Docker stack so it gets a coherent home in the stacks list/canvas
+ * instead of floating as `UNGROUPED`. `SYSTEM_STACK` is the
+ * `com.docker.stack.namespace` value every such service is stamped with;
+ * `SYSTEM_STACK_LABEL` is an additional marker (value `'true'`) so the UI can
+ * tell a system stack apart even if a service is (re)namespaced oddly. A
+ * stack is "system" when its name is `SYSTEM_STACK` OR any of its services
+ * carry `SYSTEM_STACK_LABEL`.
+ */
+export const SYSTEM_STACK = 'swarmy-system';
+export const SYSTEM_STACK_LABEL = 'swarmy.system';
+
+/** True when `name` is the reserved swarmy-system stack namespace. */
+export function isSystemStack(name: string): boolean {
+  return name === SYSTEM_STACK;
+}
+
 /** Networks that never imply an application link. */
 const SYSTEM_NETWORKS = new Set(['ingress', 'bridge', 'host', 'none', 'docker_gwbridge']);
 

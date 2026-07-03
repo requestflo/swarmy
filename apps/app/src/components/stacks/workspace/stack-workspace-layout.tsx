@@ -1,8 +1,9 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeftIcon, BoxesIcon } from 'lucide-react';
+import { ArrowLeftIcon, BoxesIcon, ShieldIcon } from 'lucide-react';
 import { EmptyState } from '@swarmy/ui';
+import { isSystemStack } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { computeStackStats, type StackStat } from '@/components/canvas/stack-aggregates';
 import { StackTabStrip } from './stack-tab-strip';
@@ -49,6 +50,7 @@ export function StackWorkspaceLayout({
 
   if (inventory.data && !stat) return <StackNotFound stack={stack} />;
 
+  const isSystem = isSystemStack(stack);
   const tone = stat?.tone ?? 'idle';
   const phrase = TONE_WORD[tone] ?? IDLE_PHRASE;
 
@@ -63,7 +65,13 @@ export function StackWorkspaceLayout({
 
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="eyebrow mb-2">Stack</div>
+          {isSystem ? (
+            <div className="border-border text-muted-foreground mb-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold tracking-wide uppercase">
+              <ShieldIcon className="size-3.5" /> System · managed by swarmy
+            </div>
+          ) : (
+            <div className="eyebrow mb-2">Stack</div>
+          )}
           <h1 className="headline text-[2rem] leading-[1.05] sm:text-4xl">
             {stack}
             {stat && (

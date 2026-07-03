@@ -13,6 +13,22 @@ import type { DemoStore, DomainResolvers } from '../types';
 /** Services we present as scale-to-zero; cloudflared is shown asleep to demo idle. */
 const SCALE_TO_ZERO = new Set(['cloudflared', 'cdn-edge']);
 
+/**
+ * swarmy's own platform plumbing lives in one managed, non-deletable stack
+ * (`swarmy-system`) rather than floating as ungrouped services. Real services
+ * get these two labels from their ServiceSpec (see packages/core inventory
+ * constants); the demo layer hardcodes the exact same strings since ServiceDetail
+ * has no raw labels bag to carry them through.
+ */
+const SYSTEM_STACK_NAME = 'swarmy-system';
+const SYSTEM_STACK_LABEL = 'swarmy.system';
+const SYSTEM_SERVICE_ROLES: Record<string, string> = {
+  'swarmy-otel-collector': 'collector',
+  'swarmy-clickhouse': 'store',
+  'swarmy-ingress-caddy': 'ingress',
+  'swarmy-garage': 'storage',
+};
+
 const STATUS_MAP: Record<string, InvService['status']> = {
   running: 'running',
   degraded: 'degraded',
@@ -45,6 +61,13 @@ function toInvService(sv: ServiceDetail, stackName: string | null): InvService {
   const scaleToZero = SCALE_TO_ZERO.has(sv.name);
   const idle = sv.name === 'cloudflared'; // shown asleep so the idle affordance is visible
   const replicas = idle ? { desired: 0, running: 0 } : { ...sv.replicas };
+  const role = SYSTEM_SERVICE_ROLES[sv.name];
+  const labels: Record<string, string> = stackName ? { 'com.docker.stack.namespace': stackName } : {};
+  if (role) {
+    labels['swarmy.managed'] = 'true';
+    labels['swarmy.role'] = role;
+    labels[SYSTEM_STACK_LABEL] = 'true';
+  }
   return {
     id: sv.id,
     name: sv.name,
@@ -54,7 +77,7 @@ function toInvService(sv: ServiceDetail, stackName: string | null): InvService {
     replicas,
     status: idle ? 'idle' : (STATUS_MAP[sv.status] ?? 'running'),
     scaleToZero,
-    labels: stackName ? { 'com.docker.stack.namespace': stackName } : {},
+    labels,
     networks: sv.networks.map((name) => ({ name, aliases: [sv.name] })),
     env: Object.entries(sv.env).map(([k, v]) => `${k}=${v}`),
     ports: sv.ports.map((p) => ({ target: p.target, published: p.published, protocol: p.protocol })),
@@ -68,16 +91,19 @@ function buildDemoInventory(store: DemoStore): Inventory {
     toInvService(sv, sv.stackId ? (stackNameById.get(sv.stackId) ?? null) : null),
   );
 
-  // Group into projects, keeping stack order; the ungrouped catch-all goes last.
+  // Group into projects, keeping stack order; swarmy-system sorts after app
+  // stacks (it's platform plumbing, not a user app) and the ungrouped catch-all
+  // goes last of all.
   const grouped = new Map<string, string[]>();
   const order: string[] = [];
   for (const s of services) {
     if (!grouped.has(s.stack)) {
       grouped.set(s.stack, []);
-      if (s.stack !== UNGROUPED) order.push(s.stack);
+      if (s.stack !== UNGROUPED && s.stack !== SYSTEM_STACK_NAME) order.push(s.stack);
     }
     grouped.get(s.stack)!.push(s.id);
   }
+  if (grouped.has(SYSTEM_STACK_NAME)) order.push(SYSTEM_STACK_NAME);
   if (grouped.has(UNGROUPED)) order.push(UNGROUPED);
   const projects = order.map((name) => ({ name, serviceIds: grouped.get(name) ?? [] }));
 
@@ -99,6 +125,9 @@ export const inventory: DomainResolvers = {
         ports?: { target: number; published?: number; protocol?: 'tcp' | 'udp' }[];
         replicas?: number;
       };
+      if (b.stack === SYSTEM_STACK_NAME) {
+        throw new Error('swarmy-system is managed by swarmy and cannot receive additional services');
+      }
       const stack = s.stacks.find((st) => st.name === b.stack);
       const id = `svc-${b.name}-${Math.random().toString(36).slice(2, 6)}`;
       s.services.push({

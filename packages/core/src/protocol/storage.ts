@@ -45,6 +45,13 @@ export const RenderedStoreDeployment = z.object({
   s3Port: z.number().int().positive(),
   /** Admin API port (Garage layout/status). */
   adminPort: z.number().int().positive().optional(),
+  /**
+   * Extra labels the agent must merge onto the store service's `labels`
+   * (controller-side additions — e.g. the `swarmy-system` stack namespace —
+   * layered over the agent's own base labels). Optional/additive so older
+   * renders without it still validate.
+   */
+  labels: z.record(z.string()).optional(),
   /** Optional layout/admin call to run after the service is up. */
   adminApi: z
     .object({

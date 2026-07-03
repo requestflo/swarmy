@@ -1,5 +1,5 @@
 import type { Inventory, InvService, InvServiceStatus } from '@swarmy/core';
-import { UNGROUPED } from '@swarmy/core';
+import { SYSTEM_STACK_LABEL, UNGROUPED, isSystemStack } from '@swarmy/core';
 
 /** Task-defined mapping: stopped reads as offline; idle is intentional, not an error. */
 export const STATUS_TONE: Record<InvServiceStatus, string> = {
@@ -23,6 +23,8 @@ export interface StackStat {
   /** Display label ("Ungrouped" for the catch-all). */
   label: string;
   ungrouped: boolean;
+  /** True for swarmy's own platform stack (observability, ingress, Garage, mesh). */
+  system: boolean;
   services: InvService[];
   serviceCount: number;
   /** Aggregate (worst-of) status token for the stack. */
@@ -45,7 +47,7 @@ export function computeStackStats(inv: Inventory): StackStat[] {
   const svcById = new Map(inv.services.map((s) => [s.id, s]));
   // The stacks home shows only real Docker stacks running in the swarm. Standalone
   // (ungrouped) containers aren't apps/stacks — they're viewed per-node under Nodes.
-  return inv.projects
+  const stats = inv.projects
     .filter((project) => project.name !== UNGROUPED)
     .map((project) => {
     const ids = new Set(project.serviceIds);
@@ -60,10 +62,13 @@ export function computeStackStats(inv: Inventory): StackStat[] {
     }
     const linkCount = inv.edges.filter((e) => ids.has(e.from) && ids.has(e.to)).length;
     const ungrouped = project.name === UNGROUPED;
+    const system =
+      isSystemStack(project.name) || services.some((s) => s.labels[SYSTEM_STACK_LABEL] === 'true');
     return {
       name: project.name,
       label: ungrouped ? 'Ungrouped' : project.name,
       ungrouped,
+      system,
       services,
       serviceCount: services.length,
       tone: aggregateTone(services),
@@ -72,4 +77,7 @@ export function computeStackStats(inv: Inventory): StackStat[] {
       linkCount,
     };
   });
+  // App stacks first (alpha, from inv.projects order), swarmy's own platform
+  // stack sorts last — it's plumbing, not something you deployed.
+  return stats.sort((a, b) => (a.system === b.system ? 0 : a.system ? 1 : -1));
 }

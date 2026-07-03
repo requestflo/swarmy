@@ -9,6 +9,8 @@
  * an admin-API layout assignment per member is all it needs. We replicate
  * (factor N) rather than erasure-code — simplest failure model for small swarms.
  */
+import { STACK_LABEL, SYSTEM_STACK, SYSTEM_STACK_LABEL } from '@swarmy/core';
+
 /**
  * Structural copy of `RenderedStoreDeployment` from the new
  * `@swarmy/core/protocol/storage` schema (registered into the protocol index via
@@ -22,6 +24,8 @@ export interface RenderedStoreDeployment {
   image: string;
   s3Port: number;
   adminPort?: number;
+  /** Extra labels the agent merges onto the store service's `labels` (see the Zod schema). */
+  labels?: Record<string, string>;
   adminApi?: {
     method: 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'GET';
     url: string;
@@ -128,6 +132,9 @@ export function renderGarageDeployment(input: GarageRenderInput): RenderedStoreD
     image,
     s3Port: GARAGE_S3_PORT,
     adminPort: GARAGE_ADMIN_PORT,
+    // Group under the swarmy-system stack namespace (platform plumbing, not a
+    // user app stack) and mark it so the UI can tell system stacks apart.
+    labels: { [STACK_LABEL]: SYSTEM_STACK, [SYSTEM_STACK_LABEL]: 'true' },
     adminApi: joined.length
       ? {
           method: 'POST',

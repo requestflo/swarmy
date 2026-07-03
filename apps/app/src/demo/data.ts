@@ -56,6 +56,9 @@ export const DEMO_STACKS = [
   { id: 's-store', name: 'storefront', serviceCount: 4, status: 'running', updatedAt: iso(2 * HOUR) },
   { id: 's-data', name: 'data', serviceCount: 4, status: 'running', updatedAt: iso(5 * HOUR) },
   { id: 's-platform', name: 'platform', serviceCount: 3, status: 'degraded', updatedAt: iso(20 * MIN) },
+  // The swarmy platform's own plumbing (collector/store/ingress/object storage),
+  // grouped under one managed stack so it stops floating as "(ungrouped)".
+  { id: 's-system', name: 'swarmy-system', serviceCount: 4, status: 'running', updatedAt: iso(10 * MIN) },
 ];
 
 function svc(
@@ -105,6 +108,12 @@ export const DEMO_SERVICES: ServiceDetail[] = [
   svc('svc-prometheus', 'prometheus', 'prom/prometheus:v3.0.0', 'running', 1, 1, 'n-mgr-2', 's-platform', false),
   svc('svc-loki', 'loki', 'grafana/loki:3.2.0', 'deploying', 2, 1, null, 's-platform', false),
   svc('svc-tunnel', 'cloudflared', 'cloudflare/cloudflared:2024.10.0', 'running', 2, 2, null, null, false),
+  // swarmy-system: the platform's own managed plumbing (collector, ClickHouse
+  // store, ingress controller, object storage) — grouped, not user app stacks.
+  svc('svc-otel-collector', 'swarmy-otel-collector', 'otel/opentelemetry-collector-contrib:0.111.0', 'running', 1, 1, null, 's-system', false),
+  svc('svc-clickhouse', 'swarmy-clickhouse', 'clickhouse/clickhouse-server:24.9-alpine', 'running', 1, 1, 'n-wkr-1', 's-system', false),
+  svc('svc-ingress-caddy', 'swarmy-ingress-caddy', 'caddy:2.9-alpine', 'running', 2, 2, null, 's-system', true, web(443)),
+  svc('svc-garage', 'swarmy-garage', 'dxflrs/garage:v1.0.1', 'running', 3, 3, null, 's-system', false),
 ];
 
 export const DEMO_ORG = { id: 'org-demo', name: 'Northwind', slug: 'northwind', role: 'owner' as const };

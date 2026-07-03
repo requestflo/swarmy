@@ -29,6 +29,8 @@ interface RenderedStoreDeployment {
   image: string;
   s3Port: number;
   adminPort?: number;
+  /** Extra labels the agent merges onto the store service's `labels` (see the Zod schema). */
+  labels?: Record<string, string>;
   adminApi?: {
     method: 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'GET';
     url: string;
@@ -86,7 +88,14 @@ export async function applyStorageNode(
     name: r.serviceName,
     image: r.image,
     mode: { replicated: { replicas: 1 } },
-    labels: { 'swarmy.managed': 'true', 'swarmy.component': 'storage', 'swarmy.driver': r.driver },
+    // `r.labels` carries controller-side additions (e.g. the swarmy-system
+    // stack namespace) layered over the agent's own base labels.
+    labels: {
+      'swarmy.managed': 'true',
+      'swarmy.component': 'storage',
+      'swarmy.driver': r.driver,
+      ...r.labels,
+    },
     ports: [
       { target: r.s3Port, protocol: 'tcp' as const, mode: 'ingress' as const },
       ...(r.adminPort

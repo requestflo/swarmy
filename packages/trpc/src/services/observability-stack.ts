@@ -4,6 +4,7 @@
  * the EXISTING `service.deploy` dispatch path — no new agent code, no new
  * protocol. Pinned images keep deploys reproducible.
  */
+import { STACK_LABEL, SYSTEM_STACK, SYSTEM_STACK_LABEL } from '@swarmy/core';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import {
   CLICKHOUSE_INIT_PATH,
@@ -34,6 +35,10 @@ const COLLECTOR_IMAGE = 'otel/opentelemetry-collector-contrib:0.111.0';
 const MANAGED_LABELS: Record<string, string> = {
   'swarmy.managed': 'true',
   'swarmy.component': 'observability',
+  // Group under the swarmy-system stack namespace (platform plumbing, not a
+  // user app stack) and mark it so the UI can tell system stacks apart.
+  [STACK_LABEL]: SYSTEM_STACK,
+  [SYSTEM_STACK_LABEL]: 'true',
 };
 
 /** Host directory the agent writes the rendered config files into for bind mounts. */

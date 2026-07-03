@@ -28,6 +28,7 @@ export function StackOverview({
   const navigate = useNavigate();
   const stats = React.useMemo(() => computeStackStats(inv), [inv]);
   const count = stats.length;
+  const firstSystemIndex = stats.findIndex((s) => s.system);
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
@@ -51,8 +52,17 @@ export function StackOverview({
         }
       />
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
-        {stats.map((stat) => (
-          <StackCard key={stat.name} stat={stat} onOpen={() => onOpenStack(stat.name)} />
+        {stats.map((stat, i) => (
+          <React.Fragment key={stat.name}>
+            {i === firstSystemIndex && i > 0 && (
+              <div className="text-muted-foreground mono-label col-span-full -mb-1 flex items-center gap-3 pt-2">
+                <span className="bg-border h-px flex-1" />
+                Platform
+                <span className="bg-border h-px flex-1" />
+              </div>
+            )}
+            <StackCard stat={stat} onOpen={() => onOpenStack(stat.name)} />
+          </React.Fragment>
         ))}
       </div>
     </div>

@@ -215,6 +215,10 @@ export const core: DomainResolvers = {
     'stacks.list': (_i, s) => s.stacks,
     'stacks.remove': (i, s) => {
       const { id } = i as { id: string };
+      const target = s.stacks.find((st) => st.id === id);
+      if (target?.name === 'swarmy-system') {
+        throw new Error('swarmy-system is managed by swarmy and cannot be removed');
+      }
       s.stacks = s.stacks.filter((st) => st.id !== id);
       return { id, removed: true as const };
     },
