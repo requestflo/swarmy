@@ -1,0 +1,30 @@
+// Deploy safety: releases.
+
+enum ReleaseStatus {
+  DEPLOYING
+  HEALTHY
+  FAILED
+  ROLLED_BACK
+  SUPERSEDED
+}
+
+model Release {
+  id             String        @id @default(cuid())
+  orgId          String
+  stackName      String
+  composeSource  String        @db.Text
+  // Resolved image refs (name → ref@digest) snapshotted at deploy time.
+  imagesJson     Json          @default("[]")
+  actor          String?
+  strategyJson   Json          @default("{}")
+  status         ReleaseStatus @default(DEPLOYING)
+  healthGateJson Json?
+  notes          String?       @db.Text
+  createdAt      DateTime      @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, stackName, createdAt])
+  @@index([orgId, status])
+  @@map("release")
+}

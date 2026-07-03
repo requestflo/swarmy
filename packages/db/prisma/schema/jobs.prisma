@@ -1,0 +1,136 @@
+// Scheduled jobs & workflows: defs, runs, step runs.
+
+enum ScheduledJobKind {
+  IMAGE
+  SERVICE_EXEC
+}
+
+enum JobRunStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+  TIMEOUT
+}
+
+enum WorkflowRunStatus {
+  RUNNING
+  WAITING_APPROVAL
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+model ScheduledJob {
+  id             String           @id @default(cuid())
+  orgId          String
+  name           String
+  // Stack this job belongs to (stack-scoped IA); null = org-wide/legacy.
+  stackName      String?
+  // 5-field cron expression evaluated by the job-scheduler worker.
+  schedule       String
+  kind           ScheduledJobKind @default(IMAGE)
+  image          String?
+  serviceRef     String?
+  command        Json             @default("[]")
+  envJson        Json             @default("{}")
+  // Placement constraints for image jobs (node/label selectors).
+  runOnJson      Json             @default("{}")
+  timeoutMs      Int              @default(600000)
+  retries        Int              @default(0)
+  alertOnFailure Boolean          @default(true)
+  enabled        Boolean          @default(true)
+  lastRunAt      DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  runs JobRun[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@index([orgId, stackName])
+  @@index([enabled, lastRunAt])
+  @@map("scheduled_job")
+}
+
+model JobRun {
+  id         String       @id @default(cuid())
+  orgId      String
+  jobId      String
+  status     JobRunStatus @default(RUNNING)
+  exitCode   Int?
+  outputTail String?      @db.Text
+  attempt    Int          @default(1)
+  startedAt  DateTime     @default(now()) @db.Timestamptz(3)
+  finishedAt DateTime?    @db.Timestamptz(3)
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  job ScheduledJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, startedAt])
+  @@index([jobId, startedAt])
+  @@map("job_run")
+}
+
+model WorkflowDef {
+  id        String   @id @default(cuid())
+  orgId     String
+  name      String
+  // Stack this workflow belongs to (stack-scoped IA); null = org-wide/legacy.
+  stackName String?
+  version   Int      @default(1)
+  stepsJson Json     @default("[]")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org  Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  runs WorkflowRun[]
+
+  @@unique([orgId, name, version])
+  @@index([orgId])
+  @@index([orgId, stackName])
+  @@map("workflow_def")
+}
+
+model WorkflowRun {
+  id         String            @id @default(cuid())
+  orgId      String
+  defId      String
+  status     WorkflowRunStatus @default(RUNNING)
+  // Index of the step the workflow-runner worker will execute next.
+  cursor     Int               @default(0)
+  stateJson  Json              @default("{}")
+  startedAt  DateTime          @default(now()) @db.Timestamptz(3)
+  finishedAt DateTime?         @db.Timestamptz(3)
+
+  org      Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  def      WorkflowDef       @relation(fields: [defId], references: [id], onDelete: Cascade)
+  stepRuns WorkflowStepRun[]
+
+  @@index([orgId, startedAt])
+  @@index([defId, startedAt])
+  @@index([status])
+  @@map("workflow_run")
+}
+
+model WorkflowStepRun {
+  id         String    @id @default(cuid())
+  orgId      String
+  runId      String
+  index      Int
+  name       String
+  kind       String
+  status     String    @default("pending")
+  startedAt  DateTime? @db.Timestamptz(3)
+  finishedAt DateTime? @db.Timestamptz(3)
+  outputJson Json?
+  error      String?   @db.Text
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  run WorkflowRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, index])
+  @@index([orgId])
+  @@map("workflow_step_run")
+}

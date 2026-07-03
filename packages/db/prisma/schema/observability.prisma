@@ -1,0 +1,30 @@
+// Observability: collector/store config + per-node store state.
+
+model ObservabilityConfig {
+  id              String   @id @default(cuid())
+  orgId           String   @unique
+  enabled         Boolean  @default(false)
+  clickhouseDsn   String?  @db.Text
+  collectorStatus String   @default("OFFLINE")
+  retentionDays   Int      @default(7)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("observability_config")
+}
+
+model ObservabilityStoreState {
+  id            String   @id @default(cuid())
+  orgId         String   @unique
+  nodeId        String?
+  status        String   @default("UNKNOWN")
+  reachable     Boolean  @default(false)
+  diskUsedBytes BigInt   @default(0)
+  lastCheckedAt DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("observability_store_state")
+}

@@ -1,0 +1,127 @@
+// Git / CI / registry: repos, builds, registry config, image GC, image scans.
+
+enum GitProviderKind {
+  GITHUB
+  GITLAB
+}
+
+enum BuildStatus {
+  QUEUED
+  BUILDING
+  PUSHING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
+enum ImageGcMode {
+  ON_HEALTHCHECK
+  AGE_DAYS
+}
+
+model GitRepo {
+  id         String          @id @default(cuid())
+  orgId      String
+  provider   GitProviderKind @default(GITHUB)
+  url        String
+  branch     String          @default("main")
+  tokenEnc         String?
+  webhookSecretEnc String?
+  autodeploy Boolean         @default(false)
+  serviceId  String?
+  // PR preview environments (platform buildout, D4):
+  // { enable, baseDomain, ttlHours, teardownOnClose }. Preview stacks themselves
+  // are Docker-truth (`swarmy.preview.*` stack labels) — this is repo INPUT config.
+  previewsJson Json?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  builds Build[]
+
+  @@unique([orgId, url])
+  @@index([orgId])
+  @@map("git_repo")
+}
+
+model Build {
+  id         String      @id @default(cuid())
+  orgId      String
+  repoId     String
+  commit     String?
+  status     BuildStatus @default(QUEUED)
+  image      String?
+  logsRef    String?
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime    @default(now())
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  repo GitRepo      @relation(fields: [repoId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, startedAt])
+  @@index([repoId, startedAt])
+  @@map("build")
+}
+
+model RegistryConfig {
+  id             String   @id @default(cuid())
+  orgId          String   @unique
+  enabled        Boolean  @default(false)
+  host           String?
+  credentialsEnc String?
+  // Registry policy (platform buildout, D3): admission gates + org cosign keypair.
+  requireSignedImages Boolean @default(false)
+  blockCriticalCves   Boolean @default(false)
+  cosignPublicKey     String? @db.Text
+  // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
+  cosignPrivateKeyEnc String? @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("registry_config")
+}
+
+model ImageGcPolicy {
+  id        String      @id @default(cuid())
+  orgId     String      @unique
+  mode      ImageGcMode @default(ON_HEALTHCHECK)
+  keepProd  Boolean     @default(true)
+  days      Int?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("image_gc_policy")
+}
+
+enum ImageScanStatus {
+  PASSED
+  FAILED
+  ERROR
+}
+
+model ImageScan {
+  id            String          @id @default(cuid())
+  orgId         String
+  imageRef      String
+  digest        String?
+  scanner       String          @default("trivy")
+  criticalCount Int             @default(0)
+  highCount     Int             @default(0)
+  mediumCount   Int             @default(0)
+  lowCount      Int             @default(0)
+  reportJson    Json            @default("{}")
+  status        ImageScanStatus @default(PASSED)
+  scannedAt     DateTime        @default(now()) @db.Timestamptz(3)
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, scannedAt])
+  @@index([orgId, imageRef])
+  @@index([digest])
+  @@map("image_scan")
+}

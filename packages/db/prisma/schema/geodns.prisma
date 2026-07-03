@@ -1,0 +1,36 @@
+// Geo-DNS: zone config + records.
+
+model GeoDnsConfig {
+  id        String   @id @default(cuid())
+  orgId     String   @unique
+  enabled   Boolean  @default(false)
+  zone      String   @default("")
+  ttl       Int      @default(30)
+  provider  String   @default("coredns")
+  /** GeoLite2 + provider-sync REFERENCES only (Docker config/secret names, provider
+   *  zone id + token-env), never secret values. Parsed by parseGeoDnsSettings(). */
+  settings  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("geo_dns_config")
+}
+
+model DnsRecord {
+  id            String   @id @default(cuid())
+  orgId         String
+  host          String
+  region        String
+  targetIngress String
+  healthy       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, host, region])
+  @@index([orgId])
+  @@map("dns_record")
+}

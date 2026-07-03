@@ -1,0 +1,43 @@
+// Ingress: driver config + Cloudflare tunnels.
+
+enum IngressDriver {
+  CADDY
+  TRAEFIK
+  NONE
+  CLOUDFLARE_TUNNEL
+  NGINX
+  HAPROXY
+}
+
+model IngressConfig {
+  id        String        @id @default(cuid())
+  orgId     String        @unique
+  driver    IngressDriver @default(NONE)
+  enabled   Boolean       @default(false)
+  settings  Json          @default("{}")
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("ingress_config")
+}
+
+model Tunnel {
+  id             String   @id @default(cuid())
+  orgId          String
+  provider       String   @default("cloudflare")
+  externalId     String?
+  name           String
+  status         String   @default("pending")
+  credentialRef  String?
+  tunnelTokenRef String?
+  settings       Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("tunnel")
+}

@@ -1,0 +1,15 @@
+// swarmy — Prisma 7 schema (pg driver adapter, ESM client, no engine binary).
+// Multi-file schema (Prisma 6.7+ GA): models live in domain files in this folder;
+// this file holds the generator + datasource. All files are combined at generate.
+
+// swarmy — Prisma 7 schema (pg driver adapter, ESM client, no engine binary).
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated"
+  runtime      = "bun"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}

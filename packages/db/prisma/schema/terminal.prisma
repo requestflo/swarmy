@@ -1,0 +1,61 @@
+// Terminal: policy, sessions, approvals.
+
+model TerminalPolicy {
+  orgId                       String   @id
+  containerExecEnabled        Boolean  @default(true)
+  nodeShellEnabled            Boolean  @default(false)
+  requireMfa                  Boolean  @default(true)
+  requireApprovalForNodeShell Boolean  @default(true)
+  recordContainerExec         Boolean  @default(true)
+  idleTimeoutMs               Int      @default(300000)
+  maxSessionMs                Int      @default(3600000)
+  allowedRoles                Json     @default("[\"owner\",\"admin\"]")
+  updatedAt                   DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("terminal_policy")
+}
+
+model TerminalSession {
+  id           String    @id @default(cuid())
+  orgId        String
+  actorId      String
+  nodeId       String
+  targetKind   String
+  containerId  String?
+  command      Json      @default("{}")
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+  exitCode     Int?
+  reason       String?
+  recordingRef String?
+  bytesIn      Int       @default(0)
+  bytesOut     Int       @default(0)
+  clientIp     String?
+  approvedById String?
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, startedAt])
+  @@index([actorId])
+  @@map("terminal_session")
+}
+
+model TerminalApproval {
+  id            String   @id @default(cuid())
+  orgId         String
+  requestedById String
+  nodeId        String
+  reason        String
+  status        String   @default("pending")
+  approvedById  String?
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, status])
+  @@index([requestedById, nodeId])
+  @@map("terminal_approval")
+}

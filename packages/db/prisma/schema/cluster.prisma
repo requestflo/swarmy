@@ -1,0 +1,166 @@
+// Cluster identity: nodes, join tokens, stacks, metric samples, audit log, swarm config, canvas layout.
+
+enum NodeRole {
+  MANAGER
+  WORKER
+}
+
+enum MetricScope {
+  NODE
+  CONTAINER
+}
+
+// Node is now an ENROLLMENT/IDENTITY record only — role/status/labels/resources/
+// version/lastSeen are Docker-truth and live in the in-memory hub (epic #6 rip-out).
+// What stays: identity + the per-node reconnect credential (auth).
+model Node {
+  id                String   @id @default(cuid())
+  orgId             String
+  name              String
+  hostname          String
+  // Per-node reconnect credential (hashed). Bump version to revoke.
+  sessionSecretHash String?
+  sessionVersion    Int      @default(1)
+  joinTokenId       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  joinToken     JoinToken?     @relation(fields: [joinTokenId], references: [id], onDelete: SetNull)
+  metricSamples MetricSample[]
+
+  @@unique([orgId, name])
+  @@map("node")
+}
+
+model JoinToken {
+  id          String    @id @default(cuid())
+  orgId       String
+  tokenHash   String    @unique
+  tokenPrefix String
+  label       String?
+  maxUses     Int?
+  uses        Int       @default(0)
+  // node-onboarding P2: preferred swarm role for nodes minted from this token.
+  roleHint    NodeRole?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy User?        @relation("JoinTokenCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  nodes     Node[]
+
+  @@index([orgId])
+  @@index([tokenPrefix])
+  @@map("join_token")
+}
+
+// Service + Deployment models removed (epic #6): live services are Docker-truth in
+// the hub; deploy status is synthesized from live convergence. Stack is trimmed to
+// the user's compose CONFIG; its live status/services derive from stack-namespace labels.
+model Stack {
+  id               String         @id @default(cuid())
+  orgId            String
+  name             String
+  composeSource    String         @db.Text
+  ingressDriver    IngressDriver?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("stack")
+}
+
+model MetricSample {
+  id             BigInt      @id @default(autoincrement())
+  orgId          String
+  nodeId         String
+  scope          MetricScope
+  containerId    String?
+  serviceId      String?
+  cpuPercent     Float
+  memUsedBytes   BigInt
+  memTotalBytes  BigInt
+  netRxBytes     BigInt
+  netTxBytes     BigInt
+  diskUsedBytes  BigInt
+  diskTotalBytes BigInt
+  ts             DateTime    @db.Timestamptz(3)
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  node Node         @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@index([nodeId, ts])
+  @@index([scope, containerId, ts])
+  @@index([orgId, ts])
+  @@map("metric_sample")
+}
+
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  orgId      String
+  actorId    String?
+  actorType  String   @default("user")
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   Json     @default("{}")
+  ts         DateTime @default(now()) @db.Timestamptz(3)
+
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  actor User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, ts])
+  @@index([targetType, targetId])
+  @@map("audit_log")
+}
+
+model IdempotencyKey {
+  id           String   @id @default(cuid())
+  orgId        String
+  key          String
+  method       String
+  path         String
+  statusCode   Int
+  responseBody Json
+  createdAt    DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, key])
+  @@map("idempotency_key")
+}
+
+model SwarmConfig {
+  orgId                String   @id
+  swarmId              String?
+  managerNodeId        String?
+  managerAddr          String?
+  // Docker join tokens (`SWMTKN-…`), stored encrypted by the swarm service.
+  workerJoinTokenEnc   String?
+  managerJoinTokenEnc  String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("swarm_config")
+}
+
+model CanvasLayout {
+  orgId     String   @id
+  // serviceId/stackId → { x, y } persisted node positions (drag = visual only).
+  positions Json     @default("{}")
+  // last { x, y, zoom } viewport so the canvas reopens where the user left it.
+  viewport  Json?
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("canvas_layout")
+}

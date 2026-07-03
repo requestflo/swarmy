@@ -1,0 +1,74 @@
+// Inbound webhook gateway: endpoints + deliveries.
+
+enum InboundVerifyKind {
+  NONE
+  HMAC
+  GITHUB
+  STRIPE
+}
+
+enum InboundTargetKind {
+  QUEUE
+  FORWARD
+}
+
+enum InboundDeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  DEAD
+}
+
+model InboundEndpoint {
+  id              String            @id @default(cuid())
+  orgId           String
+  name            String
+  slug            String
+  // Stack this endpoint belongs to (stack-scoped IA); null = org-wide/legacy.
+  stackName       String?
+  // Custom domain served via the controller-upstream ingress vhost (DNS exposure).
+  domain          String?
+  verifyKind      InboundVerifyKind @default(NONE)
+  // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
+  verifySecretEnc String?           @db.Text
+  targetKind      InboundTargetKind @default(FORWARD)
+  targetJson      Json              @default("{}")
+  // Handlebars-style template applied to the forwarded request body; null = pass-through.
+  transformTemplate String?         @db.Text
+  // Handlebars-style template for the HTTP response returned to the caller; null = default ack.
+  responseTemplate  String?         @db.Text
+  retentionDays   Int               @default(30)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  org        Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  deliveries InboundDelivery[]
+
+  @@unique([orgId, slug])
+  @@index([orgId])
+  @@index([orgId, stackName])
+  @@map("inbound_endpoint")
+}
+
+model InboundDelivery {
+  id            String                @id @default(cuid())
+  orgId         String
+  endpointId    String
+  receivedAt    DateTime              @default(now()) @db.Timestamptz(3)
+  headersJson   Json                  @default("{}")
+  // ≤256KB — truncated by the public receiver before persisting.
+  bodyText      String                @db.Text
+  verifyOk      Boolean               @default(false)
+  status        InboundDeliveryStatus @default(PENDING)
+  attempts      Int                   @default(0)
+  nextAttemptAt DateTime?
+  lastError     String?               @db.Text
+
+  org      Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  endpoint InboundEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, receivedAt])
+  @@index([endpointId, receivedAt])
+  @@index([status, nextAttemptAt])
+  @@map("inbound_delivery")
+}

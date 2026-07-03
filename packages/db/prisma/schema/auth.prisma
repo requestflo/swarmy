@@ -1,0 +1,185 @@
+// Better Auth tables (User / Session / Account / Verification) + Organization / Member / Invitation.
+
+model User {
+  id            String   @id
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions    Session[]
+  accounts    Account[]
+  members     Member[]
+  joinTokens  JoinToken[]  @relation("JoinTokenCreator")
+  auditLogs   AuditLog[]
+  invitations Invitation[] @relation("InvitationInviter")
+  apiKeys     ApiKey[]     @relation("ApiKeyCreator")
+
+  @@map("user")
+}
+
+model Session {
+  id                   String   @id
+  userId               String
+  token                String   @unique
+  expiresAt            DateTime
+  ipAddress            String?
+  userAgent            String?
+  activeOrganizationId String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?   @db.Text
+  refreshToken          String?   @db.Text
+  idToken               String?   @db.Text
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String   @db.Text
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model Organization {
+  id        String   @id
+  name      String
+  slug      String   @unique
+  logo      String?
+  metadata  String?  @db.Text
+  createdAt DateTime @default(now())
+
+  members       Member[]
+  invitations   Invitation[]
+  nodes         Node[]
+  joinTokens    JoinToken[]
+  stacks        Stack[]
+  ingressConfig IngressConfig?
+  auditLogs     AuditLog[]
+  metricSamples MetricSample[]
+
+  backupTargets       BackupTarget[]
+  snapshots           Snapshot[]
+  observabilityConfig ObservabilityConfig?
+  observabilityStore  ObservabilityStoreState[]
+  meshConfig          MeshConfig?
+  meshPeers           MeshPeer[]
+  ssoProviders        SsoProvider[]
+  policies            Policy[]
+  resourceGrants      ResourceGrant[]
+  gitRepos            GitRepo[]
+  builds              Build[]
+  registryConfig      RegistryConfig?
+  imageGcPolicy       ImageGcPolicy?
+  geoDnsConfig        GeoDnsConfig?
+  dnsRecords          DnsRecord[]
+  apiKeys             ApiKey[]
+  storageCluster      StorageCluster?
+  clusterVolumes      ClusterVolume[]
+  backupSchedules     BackupSchedule[]
+  backupJobs          BackupJob[]
+  restoreOperations   RestoreOperation[]
+  meshRoutes          MeshRoute[]
+  meshAcls            MeshAcl[]
+  tunnels             Tunnel[]
+  terminalSessions    TerminalSession[]
+  terminalPolicy      TerminalPolicy?
+  terminalApprovals   TerminalApproval[]
+  swarmConfig         SwarmConfig?
+  idempotencyKeys     IdempotencyKey[]
+  oauthClients        OAuthClient[]
+  webhookEndpoints    WebhookEndpoint[]
+  webhookDeliveries   WebhookDelivery[]
+  canvasLayout        CanvasLayout?
+
+  notificationChannels   NotificationChannel[]
+  alertRules             AlertRule[]
+  alertEvents            AlertEvent[]
+  incidents              Incident[]
+  incidentEvents         IncidentEvent[]
+  statusPages            StatusPage[]
+  uptimeSamples          UptimeSample[]
+  scheduledJobs          ScheduledJob[]
+  jobRuns                JobRun[]
+  workflowDefs           WorkflowDef[]
+  workflowRuns           WorkflowRun[]
+  workflowStepRuns       WorkflowStepRun[]
+  inboundEndpoints       InboundEndpoint[]
+  inboundDeliveries      InboundDelivery[]
+  releases               Release[]
+  imageScans             ImageScan[]
+  exposureConfig         ExposureConfig?
+  guardrailConfig        GuardrailConfig?
+  notificationConfig     NotificationConfig?
+  notificationTemplates  NotificationTemplate[]
+  notificationDeliveries NotificationDelivery[]
+  aiProviderConfig       AiProviderConfig?
+  aiVirtualKeys          AiVirtualKey[]
+  aiUsage                AiUsage[]
+  aiRequestLogs          AiRequestLog[]
+
+  @@map("organization")
+}
+
+model Member {
+  id             String   @id
+  organizationId String
+  userId         String
+  role           String   @default("member")
+  attributes     Json     @default("{}")
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("member")
+}
+
+model Invitation {
+  id             String   @id
+  organizationId String
+  email          String
+  role           String?
+  status         String   @default("pending")
+  expiresAt      DateTime
+  inviterId      String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  inviter      User         @relation("InvitationInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("invitation")
+}

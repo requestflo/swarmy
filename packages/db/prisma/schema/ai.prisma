@@ -1,0 +1,76 @@
+// AI gateway: provider config, virtual keys, usage, request logs.
+
+model AiProviderConfig {
+  id            String   @id @default(cuid())
+  orgId         String   @unique
+  // Provider descriptors (kind, base URL, model prefixes) — REFERENCES only.
+  providersJson Json     @default("[]")
+  // Encrypted provider API keys via the vault (SWARMY_SECRET_KEY). Never returned to clients.
+  configEnc     String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("ai_provider_config")
+}
+
+model AiVirtualKey {
+  id         String   @id @default(cuid())
+  orgId      String
+  name       String
+  keyHash    String   @unique
+  appRef     String?
+  limitsJson Json     @default("{}")
+  disabled   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  org        Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  usage      AiUsage[]
+  requestLog AiRequestLog[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("ai_virtual_key")
+}
+
+model AiUsage {
+  id         String   @id @default(cuid())
+  orgId      String
+  keyId      String
+  at         DateTime @default(now()) @db.Timestamptz(3)
+  provider   String
+  model      String
+  inTokens   Int      @default(0)
+  outTokens  Int      @default(0)
+  costMicros BigInt   @default(0)
+  latencyMs  Int      @default(0)
+  status     String   @default("ok")
+  cacheHit   Boolean  @default(false)
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  key AiVirtualKey @relation(fields: [keyId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, at])
+  @@index([keyId, at])
+  @@map("ai_usage")
+}
+
+// Request-level log — only written when the org's audit toggle is on.
+model AiRequestLog {
+  id             String   @id @default(cuid())
+  orgId          String
+  keyId          String
+  at             DateTime @default(now()) @db.Timestamptz(3)
+  model          String
+  promptRedacted String?  @db.Text
+  meta           Json     @default("{}")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  key AiVirtualKey @relation(fields: [keyId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, at])
+  @@index([keyId, at])
+  @@map("ai_request_log")
+}

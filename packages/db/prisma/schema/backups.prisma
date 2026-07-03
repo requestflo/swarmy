@@ -1,0 +1,227 @@
+// Backups / DR: targets, snapshots, controller backup, replicated store (Garage), CSI volumes, schedules.
+
+enum BackupTargetKind {
+  S3
+  NODE
+}
+
+enum SnapshotStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+  PRUNED
+}
+
+model BackupTarget {
+  id                String           @id @default(cuid())
+  orgId             String
+  name              String
+  kind              BackupTargetKind @default(S3)
+  endpoint          String?
+  bucket            String
+  prefix            String?
+  region            String?
+  // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
+  credentialRef     String?
+  secretKeyRef      String?
+  resticPasswordRef String
+  enabled           Boolean          @default(true)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  org                 Organization             @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  snapshots           Snapshot[]
+  schedules           BackupSchedule[]
+  controllerConfigs   ControllerBackupConfig[]
+  controllerSnapshots ControllerSnapshot[]     @relation("ControllerSnapshots")
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("backup_target")
+}
+
+model Snapshot {
+  id         String         @id @default(cuid())
+  orgId      String
+  targetId   String
+  volume     String
+  status     SnapshotStatus @default(RUNNING)
+  resticId   String?
+  sizeBytes  BigInt?
+  error      String?        @db.Text
+  hostNodeId String?
+  startedAt  DateTime       @default(now())
+  finishedAt DateTime?
+
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  target BackupTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, startedAt])
+  @@index([volume, startedAt])
+  @@index([targetId])
+  @@map("snapshot")
+}
+
+model ControllerBackupConfig {
+  id                    String    @id @default("controller")
+  targetId              String?
+  enabled               Boolean   @default(false)
+  schedule              String    @default("0 3 * * *")
+  retention             Json      @default("{\"keepDaily\":7,\"keepWeekly\":4,\"keepMonthly\":3}")
+  restorePassphraseRef  String?
+  restorePassphraseHint String?
+  lastRunAt             DateTime?
+  nextRunAt             DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  target BackupTarget? @relation(fields: [targetId], references: [id], onDelete: SetNull)
+
+  @@map("controller_backup_config")
+}
+
+model ControllerSnapshot {
+  id               String         @id @default(cuid())
+  targetId         String
+  resticSnapshotId String?
+  sizeBytes        BigInt?
+  durationMs       Int?
+  manifestJson     Json?
+  status           SnapshotStatus @default(RUNNING)
+  startedAt        DateTime       @default(now())
+  finishedAt       DateTime?
+  error            String?        @db.Text
+
+  target BackupTarget @relation("ControllerSnapshots", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([startedAt])
+  @@index([targetId])
+  @@map("controller_snapshot")
+}
+
+enum StorageClusterDriver {
+  GARAGE
+  MINIO
+  NONE
+}
+
+enum ClusterVolumeStatus {
+  PROVISIONING
+  READY
+  FAILED
+}
+
+enum BackupJobStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum RestoreStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+model StorageCluster {
+  id                String               @id @default(cuid())
+  orgId             String               @unique
+  driver            StorageClusterDriver @default(NONE)
+  enabled           Boolean              @default(false)
+  replicationFactor Int                  @default(3)
+  region            String               @default("swarmy")
+  memberNodeIds     Json                 @default("[]")
+  layout            Json                 @default("{}")
+  rpcSecretRef      String?
+  adminTokenRef     String?
+  accessKeyRef      String?
+  secretKeyRef      String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("storage_cluster")
+}
+
+model ClusterVolume {
+  id            String              @id @default(cuid())
+  orgId         String
+  name          String
+  csiDriver     String
+  accessMode    String              @default("single-writer")
+  capacityBytes BigInt?
+  options       Json                @default("{}")
+  status        ClusterVolumeStatus @default(PROVISIONING)
+  serviceId     String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("cluster_volume")
+}
+
+model BackupSchedule {
+  id        String    @id @default(cuid())
+  orgId     String
+  targetId  String
+  volume    String
+  nodeId    String?
+  every     Int
+  unit      String
+  paused    Boolean   @default(false)
+  lastRunAt DateTime?
+  nextRunAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  target BackupTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  jobs   BackupJob[]
+
+  @@index([orgId])
+  @@index([paused, nextRunAt])
+  @@map("backup_schedule")
+}
+
+model BackupJob {
+  id         String          @id @default(cuid())
+  orgId      String
+  scheduleId String?
+  snapshotId String?
+  status     BackupJobStatus @default(RUNNING)
+  error      String?         @db.Text
+  startedAt  DateTime        @default(now())
+  finishedAt DateTime?
+
+  org      Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  schedule BackupSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@map("backup_job")
+}
+
+model RestoreOperation {
+  id            String        @id @default(cuid())
+  orgId         String
+  snapshotId    String
+  targetVolume  String
+  targetNodeId  String?
+  conflict      String        @default("overwrite")
+  status        RestoreStatus @default(QUEUED)
+  reason        String        @default("manual")
+  bytesRestored BigInt?
+  error         String?       @db.Text
+  startedAt     DateTime      @default(now())
+  finishedAt    DateTime?
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, startedAt])
+  @@index([orgId, snapshotId, status])
+  @@map("restore_operation")
+}

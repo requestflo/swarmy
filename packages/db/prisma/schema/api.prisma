@@ -1,0 +1,77 @@
+// Public API surface: API keys, OAuth clients, outbound webhook endpoints + deliveries.
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  orgId       String
+  name        String
+  keyHash     String    @unique
+  prefix      String
+  scopes      Json      @default("[\"read\"]")
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdById String?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy User?        @relation("ApiKeyCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([prefix])
+  @@map("api_key")
+}
+
+model OAuthClient {
+  id               String    @id @default(cuid())
+  orgId            String
+  name             String
+  clientId         String    @unique
+  clientSecretHash String
+  scopes           Json      @default("[\"read\"]")
+  createdAt        DateTime  @default(now())
+  lastUsedAt       DateTime?
+  revokedAt        DateTime?
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("oauth_client")
+}
+
+model WebhookEndpoint {
+  id        String   @id @default(cuid())
+  orgId     String
+  url       String
+  secret    String // encrypted at rest (@swarmy/core/crypto)
+  events    Json     @default("[]")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  org        Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([orgId])
+  @@map("webhook_endpoint")
+}
+
+model WebhookDelivery {
+  id            String    @id @default(cuid())
+  orgId         String
+  endpointId    String
+  eventType     String
+  payload       Json
+  status        String    @default("pending") // pending | delivered | failed
+  attempts      Int       @default(0)
+  lastError     String?
+  nextAttemptAt DateTime?
+  createdAt     DateTime  @default(now())
+  deliveredAt   DateTime?
+
+  org      Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([endpointId])
+  @@index([status, nextAttemptAt])
+  @@map("webhook_delivery")
+}

@@ -1,0 +1,75 @@
+// Access control: auth providers, SSO, ABAC policies + resource grants.
+
+model AuthProviderConfig {
+  id              String   @id @default(cuid())
+  orgId           String?
+  type            String
+  enabled         Boolean  @default(false)
+  clientId        String?
+  encryptedSecret String?  @db.Text
+  scopes          Json     @default("[]")
+  settings        Json     @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([orgId, type])
+  @@map("auth_provider_config")
+}
+
+model SsoProvider {
+  id              String   @id @default(cuid())
+  orgId           String
+  protocol        String
+  providerId      String   @unique
+  domain          String?
+  issuer          String?
+  clientId        String?
+  encryptedSecret String?  @db.Text
+  metadata        Json     @default("{}")
+  mapping         Json     @default("{}")
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([domain])
+  @@map("sso_provider")
+}
+
+model Policy {
+  id          String   @id @default(cuid())
+  orgId       String
+  name        String
+  description String?
+  effect      String
+  source      String   @db.Text
+  priority    Int      @default(0)
+  enabled     Boolean  @default(true)
+  isdefault   Boolean  @default(false)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, enabled])
+  @@map("policy")
+}
+
+model ResourceGrant {
+  id            String   @id @default(cuid())
+  orgId         String
+  principalType String
+  principalId   String
+  resourceType  String
+  resourceId    String
+  relation      String
+  createdAt     DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([principalType, principalId, resourceType, resourceId, relation])
+  @@index([orgId, resourceType, resourceId])
+  @@map("resource_grant")
+}

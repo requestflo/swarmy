@@ -1,0 +1,85 @@
+// Mesh networking: driver config, peers, routes, ACLs.
+
+enum MeshDriver {
+  NETBIRD
+  HEADSCALE
+  TAILSCALE
+  WIREGUARD
+  NONE
+}
+
+model MeshConfig {
+  id            String     @id @default(cuid())
+  orgId         String     @unique
+  driver        MeshDriver @default(NONE)
+  enabled       Boolean    @default(false)
+  managementUrl String?
+  controlPlane  Json       @default("{}")
+  settings      Json       @default("{}")
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("mesh_config")
+}
+
+model MeshPeer {
+  id        String    @id @default(cuid())
+  orgId     String
+  nodeId    String    @unique
+  driver    String    @default("NONE")
+  peerId    String?
+  meshIp    String?
+  status    String    @default("ENROLLING")
+  lastSeen  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("mesh_peer")
+}
+
+model MeshRoute {
+  id              String    @id @default(cuid())
+  orgId           String
+  kind            String    @default("direct")
+  targetServiceId String?
+  targetStackId   String?
+  cidr            String?
+  port            Int?
+  proto           String?
+  principalType   String    @default("peer")
+  principalId     String
+  policyRef       String?
+  expiresAt       DateTime?
+  createdById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  acls MeshAcl[]
+
+  @@index([orgId])
+  @@map("mesh_route")
+}
+
+model MeshAcl {
+  id        String    @id @default(cuid())
+  orgId     String
+  routeId   String
+  driver    String
+  kind      String
+  rendered  Json      @default("{}")
+  appliedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  route MeshRoute    @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([routeId])
+  @@map("mesh_acl")
+}

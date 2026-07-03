@@ -1,0 +1,66 @@
+// Notifications: provider config, templates, deliveries.
+
+enum NotificationProvider {
+  SMTP
+  RESEND
+  POSTMARK
+  MAILGUN
+}
+
+enum NotificationDeliveryStatus {
+  QUEUED
+  SENT
+  FAILED
+  BOUNCED
+}
+
+model NotificationConfig {
+  id          String               @id @default(cuid())
+  orgId       String               @unique
+  provider    NotificationProvider @default(SMTP)
+  // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
+  configEnc   String?              @db.Text
+  fromAddress String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("notification_config")
+}
+
+model NotificationTemplate {
+  id        String   @id @default(cuid())
+  orgId     String
+  name      String
+  subject   String
+  bodyHtml  String?  @db.Text
+  bodyText  String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("notification_template")
+}
+
+model NotificationDelivery {
+  id         String                     @id @default(cuid())
+  orgId      String
+  channel    String
+  to         String
+  subject    String?
+  status     NotificationDeliveryStatus @default(QUEUED)
+  providerId String?
+  error      String?                    @db.Text
+  meta       Json                       @default("{}")
+  createdAt  DateTime                   @default(now()) @db.Timestamptz(3)
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
+  @@index([status, createdAt])
+  @@map("notification_delivery")
+}

@@ -1,0 +1,160 @@
+// Alerting / incidents / status pages: channels, rules, events, incidents, uptime.
+
+enum NotificationChannelKind {
+  EMAIL
+  SLACK
+  TEAMS
+  WEBHOOK
+}
+
+enum AlertEventStatus {
+  FIRING
+  RESOLVED
+}
+
+enum IncidentStatus {
+  OPEN
+  RESOLVED
+}
+
+model NotificationChannel {
+  id        String                  @id @default(cuid())
+  orgId     String
+  name      String
+  kind      NotificationChannelKind
+  // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
+  configEnc String?                 @db.Text
+  enabled   Boolean                 @default(true)
+  createdAt DateTime                @default(now())
+  updatedAt DateTime                @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("notification_channel")
+}
+
+model AlertRule {
+  id           String   @id @default(cuid())
+  orgId        String
+  name         String
+  // Signal key evaluated by the alert-evaluator worker (e.g. node-offline,
+  // service-down, db-degraded, queue-depth, error-rate, cert-expiry, disk).
+  signal       String
+  selectorJson Json     @default("{}")
+  threshold    Float?
+  forSeconds   Int      @default(0)
+  // NotificationChannel ids to notify (JSON array of strings).
+  channelIds   Json     @default("[]")
+  enabled      Boolean  @default(true)
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  events AlertEvent[]
+
+  @@index([orgId, enabled])
+  @@map("alert_rule")
+}
+
+model AlertEvent {
+  id         String           @id @default(cuid())
+  orgId      String
+  ruleId     String?
+  signal     String
+  severity   String           @default("warning")
+  // Resource key the event fired for (dedupe axis), e.g. `service:web` / `node:n1`.
+  resource   String
+  message    String           @db.Text
+  status     AlertEventStatus @default(FIRING)
+  firedAt    DateTime         @default(now()) @db.Timestamptz(3)
+  resolvedAt DateTime?        @db.Timestamptz(3)
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  rule AlertRule?   @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, status, firedAt])
+  @@index([ruleId, resource, status])
+  @@map("alert_event")
+}
+
+model Incident {
+  id         String         @id @default(cuid())
+  orgId      String
+  title      String
+  status     IncidentStatus @default(OPEN)
+  severity   String         @default("major")
+  summary    String?        @db.Text
+  openedAt   DateTime       @default(now()) @db.Timestamptz(3)
+  resolvedAt DateTime?      @db.Timestamptz(3)
+
+  org    Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  events IncidentEvent[]
+
+  @@index([orgId, status, openedAt])
+  @@map("incident")
+}
+
+model IncidentEvent {
+  id         String   @id @default(cuid())
+  orgId      String
+  incidentId String
+  at         DateTime @default(now()) @db.Timestamptz(3)
+  kind       String
+  message    String   @db.Text
+  meta       Json     @default("{}")
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  incident Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([incidentId, at])
+  @@map("incident_event")
+}
+
+enum UptimeStatus {
+  UP
+  DEGRADED
+  DOWN
+}
+
+model StatusPage {
+  id             String   @id @default(cuid())
+  orgId          String
+  slug           String   @unique
+  title          String
+  // Stack this status page fronts (stack-scoped IA); null = org-wide/legacy.
+  stackName      String?
+  domain         String?
+  componentsJson Json     @default("[]")
+  showUptime     Boolean  @default(true)
+  showIncidents  Boolean  @default(true)
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  org     Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  samples UptimeSample[]
+
+  @@index([orgId])
+  @@index([orgId, stackName])
+  @@map("status_page")
+}
+
+// Sampled by the alert-evaluator worker; retention-pruned.
+model UptimeSample {
+  id           String       @id @default(cuid())
+  orgId        String
+  pageId       String
+  componentKey String
+  at           DateTime     @default(now()) @db.Timestamptz(3)
+  status       UptimeStatus @default(UP)
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  page StatusPage   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, at])
+  @@index([pageId, componentKey, at])
+  @@map("uptime_sample")
+}
