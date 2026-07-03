@@ -419,8 +419,42 @@ export class DockerClient {
   }
 
   async createService(spec: ServiceSpec): Promise<string> {
-    const created = await this.docker.createService(toServiceCreateOptions(await this.resolveSpecNetworks(spec)));
+    const resolved = await this.resolveSpecNetworks(spec);
+    const options = toServiceCreateOptions(resolved);
+    await this.resolveSecretConfigIds(options);
+    const created = await this.docker.createService(options);
     return (created as unknown as { id?: string; ID?: string }).id ?? (created as { ID?: string }).ID ?? '';
+  }
+
+  /**
+   * Fill in SecretID/ConfigID on the create options' references. The swarm API
+   * rejects a reference that carries only the name ("malformed secret
+   * reference") — unlike networks, names are never resolved server-side.
+   */
+  private async resolveSecretConfigIds(options: Docker.CreateServiceOptions): Promise<void> {
+    const tt = (options as { TaskTemplate?: { ContainerSpec?: { Secrets?: Array<{ SecretID?: string; SecretName?: string }>; Configs?: Array<{ ConfigID?: string; ConfigName?: string }> } } }).TaskTemplate;
+    const secrets = tt?.ContainerSpec?.Secrets;
+    const configs = tt?.ContainerSpec?.Configs;
+    if (secrets?.length) {
+      const byName = new Map((await this.listSecrets()).map((s) => [s.name, s.id]));
+      for (const ref of secrets) {
+        if (!ref.SecretID && ref.SecretName) {
+          const id = byName.get(ref.SecretName);
+          if (!id) throw new Error(`secret not found: ${ref.SecretName}`);
+          ref.SecretID = id;
+        }
+      }
+    }
+    if (configs?.length) {
+      const byName = new Map((await this.listConfigs()).map((c) => [c.name, c.id]));
+      for (const ref of configs) {
+        if (!ref.ConfigID && ref.ConfigName) {
+          const id = byName.get(ref.ConfigName);
+          if (!id) throw new Error(`config not found: ${ref.ConfigName}`);
+          ref.ConfigID = id;
+        }
+      }
+    }
   }
 
   /** Resolve network NAMES → ids in a spec. Docker's TaskTemplate.Networks resolves
