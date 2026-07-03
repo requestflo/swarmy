@@ -164,7 +164,7 @@ export const incidents: DomainResolvers = {
 
   seed: (store) => {
     const gkDb = { groupKey: 'db:main-db' };
-    const gkRel = { groupKey: 'release:shop-api' };
+    const gkRel = { groupKey: 'release:storefront' };
 
     const failover: DemoIncident = {
       id: 'inc-failover-main-db',
@@ -231,8 +231,8 @@ export const incidents: DomainResolvers = {
     };
 
     const deployGate: DemoIncident = {
-      id: 'inc-deploy-shop-api',
-      title: 'Failed deploy on shop-api',
+      id: 'inc-deploy-storefront',
+      title: 'Failed deploy on storefront',
       status: 'open',
       severity: 'critical',
       summary: null,
@@ -243,7 +243,7 @@ export const incidents: DomainResolvers = {
           id: 'ie-d1',
           at: minutesAgo(18),
           kind: 'opened',
-          message: 'Incident opened (release:shop-api)',
+          message: 'Incident opened (release:storefront)',
           meta: gkRel,
         },
         {
@@ -251,21 +251,21 @@ export const incidents: DomainResolvers = {
           at: minutesAgo(18),
           kind: 'deploy.gate.failed',
           message:
-            'Release rel-9f31d2 failed its health gate (shop-api: 2/5 tasks unhealthy; error-rate 12%)',
-          meta: { ...gkRel, releaseId: 'rel-9f31d2', stackName: 'shop-api' },
+            'Release rel-9f31d2 failed its health gate (storefront: 2/5 tasks unhealthy; error-rate 12%)',
+          meta: { ...gkRel, releaseId: 'rel-9f31d2', stackName: 'storefront' },
         },
         {
           id: 'ie-d3',
           at: minutesAgo(16),
           kind: 'deploy.gate.rollback',
-          message: 'Auto-rolled shop-api back to release rel-8c02aa',
+          message: 'Auto-rolled storefront back to release rel-8c02aa',
           meta: { ...gkRel, failedReleaseId: 'rel-9f31d2', rolledBackTo: 'rel-8c02aa' },
         },
         {
           id: 'ie-d4',
           at: minutesAgo(14),
           kind: 'alert.fired',
-          message: 'error-rate on service:shop-api — 12% of requests failing (threshold 5%)',
+          message: 'error-rate on service:web — 12% of requests failing (threshold 5%)',
           meta: { ...gkRel, signal: 'error-rate' },
         },
       ],

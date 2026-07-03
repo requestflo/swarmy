@@ -1,9 +1,8 @@
 import * as React from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import type { AuditEntryView, AuditFilterInput } from '@swarmy/core';
+import type { AuditFilterInput } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
-import { AuditDetailSheet } from './audit-detail-sheet';
 import { AuditFilters, EMPTY_FILTERS, type AuditFilterState } from './audit-filters';
 import { AuditTable } from './audit-table';
 import { CannedChips } from './canned-chips';
@@ -21,7 +20,6 @@ const PAGE_SIZE = 50;
 export function AuditPage(): React.JSX.Element {
   const trpc = useTRPC();
   const [filters, setFilters] = React.useState<AuditFilterState>(EMPTY_FILTERS);
-  const [selected, setSelected] = React.useState<AuditEntryView | null>(null);
 
   const filterInput = React.useMemo<AuditFilterInput>(() => {
     const canned = CANNED_QUESTIONS.find((q) => q.key === filters.canned);
@@ -85,7 +83,6 @@ export function AuditPage(): React.JSX.Element {
             isFetchingNextPage={list.isFetchingNextPage}
             onLoadMore={() => void list.fetchNextPage()}
             onRetry={() => void list.refetch()}
-            onSelect={setSelected}
           />
           <div className="space-y-6">
             <RetentionCard />
@@ -101,8 +98,6 @@ export function AuditPage(): React.JSX.Element {
           </div>
         </div>
       </div>
-
-      <AuditDetailSheet entry={selected} onOpenChange={(open) => !open && setSelected(null)} />
     </div>
   );
 }

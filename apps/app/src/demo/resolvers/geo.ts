@@ -115,6 +115,13 @@ function getState(store: DemoStore): GeoState {
   return store.extra.geo as GeoState;
 }
 
+/** Mirrors the controller's `stackDnsScope`: a record belongs to a stack when
+ *  its host is one of that stack's ingress hosts (read off `store.extra.ingress`). */
+function stackDnsHosts(store: DemoStore, stack: string): Set<string> {
+  const ingress = store.extra.ingress as { domains?: { host: string; stack: string }[] } | undefined;
+  return new Set((ingress?.domains ?? []).filter((d) => d.stack === stack).map((d) => d.host));
+}
+
 function toConfigView(st: GeoState): GeoDnsConfigView {
   return {
     enabled: st.enabled,
@@ -482,13 +489,21 @@ export const geo: DomainResolvers = {
       return toConfigView(st);
     },
 
-    'geodns.listRecords': (_i, s): DnsRecordView[] =>
-      [...getState(s).records].sort((a, b) => (a.host < b.host ? -1 : a.host > b.host ? 1 : 0)),
+    'geodns.listRecords': (i, s): DnsRecordView[] => {
+      const stack = (i as { stack?: string } | undefined)?.stack;
+      const hosts = stack ? stackDnsHosts(s, stack) : null;
+      return [...getState(s).records]
+        .filter((r) => !hosts || hosts.has(r.host))
+        .sort((a, b) => (a.host < b.host ? -1 : a.host > b.host ? 1 : 0));
+    },
 
     // DNS view + per-domain probe (Edge/geo): mirror geodns.dnsView/checkDomain so
     // the DNS-health page lights up under ?demo=1.
-    'geodns.dnsView': (_i, s) =>
-      [...getState(s).records]
+    'geodns.dnsView': (i, s) => {
+      const stack = (i as { stack?: string } | undefined)?.stack;
+      const hosts = stack ? stackDnsHosts(s, stack) : null;
+      return [...getState(s).records]
+        .filter((r) => !hosts || hosts.has(r.host))
         .sort((a, b) => (a.host < b.host ? -1 : a.host > b.host ? 1 : 0))
         .map((r) => ({
           host: r.host,
@@ -496,7 +511,8 @@ export const geo: DomainResolvers = {
           target: r.targetIngress,
           ip: isIp(r.targetIngress) ? r.targetIngress : `203.0.113.${(r.host.length % 50) + 1}`,
           healthy: r.healthy,
-        })),
+        }));
+    },
 
     'geodns.checkDomain': (i, s) => {
       const { host } = i as { host: string };
@@ -671,6 +687,10 @@ export const geo: DomainResolvers = {
         { id: 'dns-api-us', host: 'api.geo.northwind.dev', region: 'us-east', targetIngress: 'us.ingress.northwind.dev', healthy: true },
         { id: 'dns-api-eu', host: 'api.geo.northwind.dev', region: 'eu-west', targetIngress: 'eu.ingress.northwind.dev', healthy: true },
         { id: 'dns-cdn-us', host: 'cdn.geo.northwind.dev', region: 'us-east', targetIngress: '203.0.113.20', healthy: true },
+        // Scoped to the `storefront` stack's own ingress host (shop.northwind.dev)
+        // so its Network tab's Geo-DNS section shows real steering, not an empty state.
+        { id: 'dns-shop-us', host: 'shop.northwind.dev', region: 'us-east', targetIngress: '203.0.113.30', healthy: true },
+        { id: 'dns-shop-eu', host: 'shop.northwind.dev', region: 'eu-west', targetIngress: '198.51.100.30', healthy: true },
       ],
       // Region labels for the demo nodes (n-mgr-1/n-mgr-2/n-wkr-1/n-wkr-2/n-wkr-3).
       nodeRegions: {

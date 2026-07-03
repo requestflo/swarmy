@@ -1,6 +1,8 @@
 import { resolve4 } from 'node:dns/promises';
+import { buildInventory } from '@swarmy/core';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
+import { readRoutes } from './ingress-routes';
 import type { CommandName } from '../hub/types';
 import { notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
@@ -509,18 +511,42 @@ export async function deployCoreDns(ctx: OrgContext): Promise<{ summary: string 
   return { summary: rendered.summary + suffix };
 }
 
-export async function listRecords(ctx: OrgContext): Promise<DnsRecordView[]> {
+/**
+ * The DNS-relevant footprint of one Docker stack, read live off the hub: the
+ * ingress hosts its services expose (`swarmy.ingress.routes` labels) and the
+ * service names themselves. A Geo-DNS record belongs to the stack when its host
+ * is one of those ingress hosts OR its target dials one of those services.
+ */
+function stackDnsScope(
+  ctx: OrgContext,
+  stack: string,
+): { hosts: Set<string>; services: Set<string> } {
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  const hosts = new Set<string>();
+  const names = new Set<string>();
+  for (const s of buildInventory(services, containers).services) {
+    if (s.stack !== stack) continue;
+    names.add(s.name);
+    for (const r of readRoutes(s.labels)) hosts.add(r.host);
+  }
+  return { hosts, services: names };
+}
+
+export async function listRecords(ctx: OrgContext, stack?: string): Promise<DnsRecordView[]> {
   const records = await db(ctx).dnsRecord.findMany({
     where: { orgId: ctx.activeOrgId },
     orderBy: { host: 'asc' },
   });
-  return records.map((r) => ({
-    id: r.id,
-    host: r.host,
-    region: r.region,
-    targetIngress: r.targetIngress,
-    healthy: r.healthy,
-  }));
+  const scope = stack ? stackDnsScope(ctx, stack) : null;
+  return records
+    .filter((r) => !scope || scope.hosts.has(r.host) || scope.services.has(r.targetIngress))
+    .map((r) => ({
+      id: r.id,
+      host: r.host,
+      region: r.region,
+      targetIngress: r.targetIngress,
+      healthy: r.healthy,
+    }));
 }
 
 export async function upsertRecord(
@@ -856,11 +882,13 @@ async function resolveIps(host: string): Promise<string[]> {
  * dashboard DNS table. CNAME targets are resolved to an A best-effort (cached per
  * target). Reuses the same health-composed snapshot the zone is rendered from.
  */
-export async function listDnsView(ctx: OrgContext): Promise<DnsViewRow[]> {
+export async function listDnsView(ctx: OrgContext, stack?: string): Promise<DnsViewRow[]> {
   const snapshot = await buildZoneSnapshot(ctx);
+  const scope = stack ? stackDnsScope(ctx, stack) : null;
   const ipCache = new Map<string, string>();
   const rows: DnsViewRow[] = [];
   for (const e of snapshot.endpoints) {
+    if (scope && !scope.hosts.has(e.host) && !scope.services.has(e.target)) continue;
     let ip: string;
     if (isIp(e.target)) {
       ip = e.target;

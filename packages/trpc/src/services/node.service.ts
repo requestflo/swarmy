@@ -200,6 +200,24 @@ export async function listNodeCanvasPositions(
 }
 
 /**
+ * Container count per enrolled node — the "what's running here" number the
+ * Nodes index row shows without opening the node page. Sourced from the same
+ * live hub snapshot the node detail's Containers panel reads
+ * (`ctx.hub.latestContainers`); offline/never-seen nodes read back `0`.
+ */
+export async function listNodeContainerCounts(ctx: OrgContext): Promise<Record<string, number>> {
+  const rows = (await ctx.db.node.findMany({
+    where: { orgId: ctx.activeOrgId },
+    select: { id: true },
+  })) as { id: string }[];
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    out[r.id] = ctx.hub.latestContainers(r.id).length;
+  }
+  return out;
+}
+
+/**
  * Persist a node's Infrastructure-canvas position as Docker node labels
  * (`swarmy.canvas.x/y`) — mirrors `service.setCanvasPosition`. Layout is
  * Docker-truth, not stored in swarmy's DB. Best-effort push (skipped while

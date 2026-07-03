@@ -23,6 +23,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { decryptSecret } from '@swarmy/core/crypto';
 import { prisma } from '@swarmy/db';
+import { renderInboundTemplate, templateContentType } from './inbound-template';
 
 /** Max raw body persisted per delivery (mirror of INBOUND_BODY_MAX_BYTES). */
 const BODY_MAX_BYTES = 256 * 1024;
@@ -113,7 +114,7 @@ inboundHooksApp.post('/i/:orgId/:slug', async (c) => {
 
   const endpoint = await prisma.inboundEndpoint.findUnique({
     where: { orgId_slug: { orgId, slug } },
-    select: { id: true, orgId: true, verifyKind: true, verifySecretEnc: true },
+    select: { id: true, orgId: true, verifyKind: true, verifySecretEnc: true, responseTemplate: true },
   });
   if (!endpoint) return c.json({ error: 'unknown endpoint' }, 404);
 
@@ -147,5 +148,17 @@ inboundHooksApp.post('/i/:orgId/:slug', async (c) => {
   });
 
   if (!verifyOk) return c.json({ error: 'invalid signature', deliveryId: delivery.id }, 401);
+
+  // Templated ack: same 202, the endpoint's responseTemplate shapes the body
+  // ({{body}}, {{headers.x}}, {{json.path}}, {{slug}}, {{deliveryId}}).
+  if (endpoint.responseTemplate) {
+    const rendered = renderInboundTemplate(endpoint.responseTemplate, {
+      body: rawBody,
+      headers,
+      slug,
+      deliveryId: delivery.id,
+    });
+    return c.body(rendered, 202, { 'content-type': templateContentType(rendered) });
+  }
   return c.json({ ok: true, deliveryId: delivery.id }, 202);
 });

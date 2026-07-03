@@ -210,12 +210,16 @@ const STEP_STATUS_SET = new Set<string>(['pending', 'running', 'waiting', 'succe
 interface DefRow {
   id: string;
   name: string;
+  stackName: string | null;
   version: number;
   stepsJson: unknown;
   enabled: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
+
+/** `WorkflowDefView` + the stack-scoped IA field (local until core absorbs it). */
+export type WorkflowDefFullView = WorkflowDefView & { stackName: string | null };
 
 interface RunRow {
   id: string;
@@ -290,21 +294,22 @@ async function requireRun(ctx: OrgContext, runId: string): Promise<RunRow & { de
 
 // ── queries ──────────────────────────────────────────────────────────────────
 
-export async function overview(ctx: OrgContext): Promise<WorkflowsOverview> {
+export async function overview(ctx: OrgContext, stack?: string): Promise<WorkflowsOverview> {
   const since = new Date(Date.now() - 24 * 3_600_000);
+  const scope = stack ? { def: { stackName: stack } } : {};
   const [defs, active, recent] = await Promise.all([
     ctx.db.workflowDef.findMany({
-      where: { orgId: ctx.activeOrgId },
+      where: { orgId: ctx.activeOrgId, ...(stack ? { stackName: stack } : {}) },
       orderBy: { version: 'desc' },
       select: { name: true, enabled: true },
     }),
     ctx.db.workflowRun.groupBy({
       by: ['status'],
-      where: { orgId: ctx.activeOrgId, status: { in: ['RUNNING', 'WAITING_APPROVAL'] } },
+      where: { orgId: ctx.activeOrgId, status: { in: ['RUNNING', 'WAITING_APPROVAL'] }, ...scope },
       _count: true,
     }),
     ctx.db.workflowRun.findMany({
-      where: { orgId: ctx.activeOrgId, finishedAt: { gte: since } },
+      where: { orgId: ctx.activeOrgId, finishedAt: { gte: since }, ...scope },
       select: { status: true },
     }),
   ]);
@@ -321,9 +326,9 @@ export async function overview(ctx: OrgContext): Promise<WorkflowsOverview> {
 }
 
 /** Latest version per name, with last-run status for the defs list. */
-export async function listDefs(ctx: OrgContext): Promise<WorkflowDefView[]> {
+export async function listDefs(ctx: OrgContext, stack?: string): Promise<WorkflowDefFullView[]> {
   const rows = await ctx.db.workflowDef.findMany({
-    where: { orgId: ctx.activeOrgId },
+    where: { orgId: ctx.activeOrgId, ...(stack ? { stackName: stack } : {}) },
     orderBy: [{ name: 'asc' }, { version: 'desc' }],
   });
   const latest: DefRow[] = [];
@@ -349,6 +354,7 @@ export async function listDefs(ctx: OrgContext): Promise<WorkflowDefView[]> {
     return {
       id: row.id,
       name: row.name,
+      stackName: row.stackName,
       version: row.version,
       versions: versions.get(row.name) ?? 1,
       enabled: row.enabled,
@@ -381,12 +387,22 @@ export async function listVersions(ctx: OrgContext, name: string): Promise<Workf
   });
 }
 
-export async function listRuns(ctx: OrgContext, input: WorkflowRunsInput): Promise<WorkflowRunsPage> {
+export async function listRuns(
+  ctx: OrgContext,
+  input: WorkflowRunsInput & { stack?: string },
+): Promise<WorkflowRunsPage> {
   const now = new Date();
   const rows = await ctx.db.workflowRun.findMany({
     where: {
       orgId: ctx.activeOrgId,
-      ...(input.defName ? { def: { name: input.defName } } : {}),
+      ...(input.defName || input.stack
+        ? {
+            def: {
+              ...(input.defName ? { name: input.defName } : {}),
+              ...(input.stack ? { stackName: input.stack } : {}),
+            },
+          }
+        : {}),
     },
     include: { def: { select: { name: true, version: true, stepsJson: true } } },
     orderBy: { startedAt: 'desc' },
@@ -424,7 +440,10 @@ function assertValidSteps(steps: WorkflowStepInput[]): void {
   if (problems.length > 0) throw commandRejected(problems.join('; '));
 }
 
-export async function createDef(ctx: OrgContext, input: CreateWorkflowDefInput): Promise<WorkflowDefView> {
+export async function createDef(
+  ctx: OrgContext,
+  input: CreateWorkflowDefInput & { stackName?: string },
+): Promise<WorkflowDefFullView> {
   assertValidSteps(input.steps);
   const existing = await ctx.db.workflowDef.findFirst({
     where: { orgId: ctx.activeOrgId, name: input.name },
@@ -435,6 +454,7 @@ export async function createDef(ctx: OrgContext, input: CreateWorkflowDefInput):
     data: {
       orgId: ctx.activeOrgId,
       name: input.name,
+      stackName: input.stackName ?? null,
       version: 1,
       stepsJson: toStoredSteps(input.steps) as object,
       enabled: input.enabled,
@@ -444,20 +464,29 @@ export async function createDef(ctx: OrgContext, input: CreateWorkflowDefInput):
     action: 'workflow.create',
     targetType: 'workflowDef',
     targetId: row.id,
-    metadata: { name: input.name, steps: input.steps.map((s) => `${s.kind}:${s.name}`) },
+    metadata: {
+      name: input.name,
+      ...(input.stackName ? { stackName: input.stackName } : {}),
+      steps: input.steps.map((s) => `${s.kind}:${s.name}`),
+    },
   });
   const [view] = (await listDefs(ctx)).filter((d) => d.name === input.name);
   return view!;
 }
 
 /** Edit = a NEW version row; history (and in-flight runs' pinned steps) stay intact. */
-export async function updateDef(ctx: OrgContext, input: UpdateWorkflowDefInput): Promise<WorkflowDefView> {
+export async function updateDef(
+  ctx: OrgContext,
+  input: UpdateWorkflowDefInput & { stackName?: string },
+): Promise<WorkflowDefFullView> {
   assertValidSteps(input.steps);
   const prev = await latestDefByName(ctx, input.name);
   const row = await ctx.db.workflowDef.create({
     data: {
       orgId: ctx.activeOrgId,
       name: input.name,
+      // Carry the stack forward unless the edit explicitly re-homes it.
+      stackName: input.stackName !== undefined ? input.stackName : prev.stackName,
       version: prev.version + 1,
       stepsJson: toStoredSteps(input.steps, parseSteps(prev.stepsJson)) as object,
       enabled: input.enabled ?? prev.enabled,

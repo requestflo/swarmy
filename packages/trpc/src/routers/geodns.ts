@@ -32,13 +32,18 @@ export const geodnsRouter = router({
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ ctx, input }) => setEnabled(ctx, input.enabled)),
 
-  listRecords: orgProcedure.query(({ ctx }) => listRecords(ctx)),
+  /** DNS records; `stack` scopes to records fronting that stack's hosts/services. */
+  listRecords: orgProcedure
+    .input(z.object({ stack: z.string().optional() }).optional())
+    .query(({ ctx, input }) => listRecords(ctx, input?.stack)),
 
   /** Region markers for the Infrastructure globe: coords + live node membership/health/outlets. */
   listRegions: orgProcedure.query(({ ctx }) => listRegions(ctx)),
 
   /** Live DNS view: each zone endpoint with its resolved IP + health (table). */
-  dnsView: orgProcedure.query(({ ctx }) => listDnsView(ctx)),
+  dnsView: orgProcedure
+    .input(z.object({ stack: z.string().optional() }).optional())
+    .query(({ ctx, input }) => listDnsView(ctx, input?.stack)),
 
   /** Probe one host: expected vs actual resolved IP + reachability (diagnostic). */
   checkDomain: orgProcedure

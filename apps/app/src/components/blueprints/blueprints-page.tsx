@@ -1,21 +1,19 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { LayoutTemplateIcon } from 'lucide-react';
-import type { BlueprintMetaView } from '@swarmy/core';
 import { Button, EmptyState } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
 import { BlueprintCard } from './blueprint-card';
-import { DeployBlueprintDialog } from './deploy-blueprint-dialog';
 
 /**
- * Deploy → Blueprints: the gallery of production-ready stacks. Pick a card,
- * name it, preview the plan ("Will create: …"), deploy — database, cache,
- * buckets, secrets and routes are wired through the managed services.
+ * Deploy → Blueprints: the gallery of production-ready stacks. Pick a card and
+ * it expands in place — name it, preview the plan ("Will create: …"), deploy —
+ * then you land in the new stack's workspace. No modals anywhere.
  */
 export function BlueprintsPage(): React.JSX.Element {
   const trpc = useTRPC();
-  const [active, setActive] = React.useState<BlueprintMetaView | null>(null);
+  const [activeId, setActiveId] = React.useState<string | null>(null);
   const blueprints = useQuery(trpc.blueprints.list.queryOptions());
   const cards = blueprints.data ?? [];
 
@@ -59,19 +57,17 @@ export function BlueprintsPage(): React.JSX.Element {
           />
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid items-start gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {cards.map((meta) => (
-            <BlueprintCard key={meta.id} meta={meta} onDeploy={setActive} />
+            <BlueprintCard
+              key={meta.id}
+              meta={meta}
+              active={activeId === meta.id}
+              onToggle={(open) => setActiveId(open ? meta.id : null)}
+            />
           ))}
         </div>
       )}
-
-      <DeployBlueprintDialog
-        meta={active}
-        onOpenChange={(open) => {
-          if (!open) setActive(null);
-        }}
-      />
     </div>
   );
 }

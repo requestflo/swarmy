@@ -183,23 +183,43 @@ function runDemoDrill(st: ResilienceState, kind: DrillKind, target: string | nul
   return result;
 }
 
+// Mirrors resilience.service.ts's stack scoping: real checks with
+// `resource: null` are estate-wide (gated only on the stack having any
+// services, which every seeded demo stack does) so they show for every
+// stack; resource-bearing checks match when the resource names that stack.
+// `single-replica` aggregates service names rather than a stack ref — grafana
+// and prometheus are seeded under the `platform` stack (see resolvers/data.ts).
+function problemMatchesStack(p: ProblemView, stack: string): boolean {
+  if (p.check === 'geodns-single-region') return true;
+  if (!p.resource) return true;
+  if (p.resource.includes(stack)) return true;
+  if (p.check === 'single-replica') return stack === 'platform';
+  return false;
+}
+
 // ── resolvers ─────────────────────────────────────────────────────────────────
 
 export const resilience: DomainResolvers = {
   handlers: {
-    'resilience.overview': (_i, s) => {
+    'resilience.overview': (i, s) => {
+      const stack = (i as { stack?: string } | null | undefined)?.stack;
       const st = getState(s);
+      const scoped = stack ? { ...st, problems: st.problems.filter((p) => problemMatchesStack(p, stack)) } : st;
       return {
         ready: true as const,
-        score: scoreView(st),
+        score: scoreView(scoped),
         drills: drillCards(st),
-        drillTargets: st.targets,
+        drillTargets: stack ? st.targets.filter((t) => t.stack === stack) : st.targets,
       };
     },
 
     'resilience.drillHistory': (i, s) => {
-      const limit = (i as { limit?: number } | undefined)?.limit ?? 20;
-      return getState(s).history.slice(0, limit);
+      const f = (i as { limit?: number; stack?: string } | undefined) ?? {};
+      const limit = f.limit ?? 20;
+      const history = getState(s).history.filter(
+        (h) => !f.stack || (h.target ?? '').startsWith(`${f.stack}/`),
+      );
+      return history.slice(0, limit);
     },
 
     'resilience.runRestoreDrill': (i, s) => {

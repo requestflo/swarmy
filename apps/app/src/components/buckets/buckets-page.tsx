@@ -1,12 +1,11 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArchiveIcon } from 'lucide-react';
+import { ArchiveIcon, PlusIcon } from 'lucide-react';
 import { Button, CopyButton, EmptyState } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
-import { BucketDetailSheet } from './bucket-detail-sheet';
 import { BucketsTable } from './buckets-table';
-import { CreateBucketDialog } from './create-bucket-dialog';
+import { CreateBucketCard } from './create-bucket-card';
 import { fmtBytes } from './format';
 import { KeysCard } from './keys-card';
 import { StoreDisabledCard } from './store-disabled-card';
@@ -17,13 +16,16 @@ import { StoreDisabledCard } from './store-disabled-card';
  */
 export function BucketsPage(): React.JSX.Element {
   const trpc = useTRPC();
-  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [expandedId, setExpandedId] = React.useState<string | null>(null);
+  const [createOpen, setCreateOpen] = React.useState(false);
   const overview = useQuery({ ...trpc.buckets.overview.queryOptions(), refetchInterval: 20_000 });
 
   const o = overview.data;
   const buckets = o?.buckets ?? [];
   const totalBytes = buckets.reduce((sum, b) => sum + b.usageBytes, 0);
   const ready = o?.state === 'ready';
+
+  const toggle = (id: string): void => setExpandedId((cur) => (cur === id ? null : id));
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
@@ -41,8 +43,16 @@ export function BucketsPage(): React.JSX.Element {
           )
         }
         description="S3-compatible object storage on your own nodes — create buckets, mint access keys and wire apps with one click."
-        actions={ready ? <CreateBucketDialog /> : undefined}
+        actions={
+          ready ? (
+            <Button onClick={() => setCreateOpen((o2) => !o2)}>
+              <PlusIcon className="size-4" /> New bucket
+            </Button>
+          ) : undefined
+        }
       />
+
+      {ready ? <CreateBucketCard open={createOpen} onOpenChange={setCreateOpen} /> : null}
 
       {overview.isLoading ? (
         <div className="card-pop space-y-3 p-5">
@@ -84,12 +94,16 @@ export function BucketsPage(): React.JSX.Element {
             icon={<ArchiveIcon />}
             title="No buckets yet — create one."
             description="Buckets hold uploads, assets and backups. Private by default; apps get scoped keys injected as env + a Docker secret."
-            action={<CreateBucketDialog variant="outline" />}
+            action={
+              <Button variant="outline" onClick={() => setCreateOpen(true)}>
+                <PlusIcon className="size-4" /> New bucket
+              </Button>
+            }
           />
         </div>
       ) : (
         <div className="space-y-6">
-          <BucketsTable buckets={buckets} selectedId={selectedId} onSelect={setSelectedId} />
+          <BucketsTable buckets={buckets} expandedId={expandedId} onToggle={toggle} />
           {o?.endpoint ? (
             <p className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
               S3 endpoint <code className="mono-data bg-accent rounded px-1.5 py-0.5">{o.endpoint}</code>
@@ -105,13 +119,6 @@ export function BucketsPage(): React.JSX.Element {
           <KeysCard />
         </div>
       ) : null}
-
-      <BucketDetailSheet
-        bucketId={selectedId}
-        onOpenChange={(open) => {
-          if (!open) setSelectedId(null);
-        }}
-      />
     </div>
   );
 }

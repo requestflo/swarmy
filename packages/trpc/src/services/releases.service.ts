@@ -234,9 +234,9 @@ export async function recordRelease(
 
 // ── queries ──────────────────────────────────────────────────────────────────
 
-export async function overview(ctx: OrgContext): Promise<ReleasesOverview> {
+export async function overview(ctx: OrgContext, stackName?: string): Promise<ReleasesOverview> {
   const rows = await ctx.db.release.findMany({
-    where: { orgId: ctx.activeOrgId },
+    where: { orgId: ctx.activeOrgId, ...(stackName ? { stackName } : {}) },
     select: { status: true, createdAt: true },
     orderBy: { createdAt: 'desc' },
     take: 500,

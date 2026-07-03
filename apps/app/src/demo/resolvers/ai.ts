@@ -30,7 +30,21 @@ interface AiState {
   byModel: AiUsageBreakdownRow[];
   byKey: AiUsageBreakdownRow[];
   logs: AiRequestLogView[];
+  /** Stack → public outlet domain (mirrors providersJson.outlets). */
+  outlets: Record<string, string>;
 }
+
+/** Stack-tagged grant key name (mirrors ai.service stackKeyName). */
+const stackKeyName = (stack: string): string => `stack:${stack}`;
+
+const attachResult = (stack: string, service: string): Record<string, string> => ({
+  appService: service,
+  keyName: `svc:${stack}/${service}`,
+  gatewayUrl: GATEWAY_URL,
+  envVar: 'AI_GATEWAY_URL',
+  keyFileVar: 'AI_GATEWAY_KEY_FILE',
+  keySecret: `swarmy-ai-${stack}_${service}-key`,
+});
 
 function getState(store: DemoStore): AiState {
   return store.extra.ai as AiState;
@@ -97,6 +111,15 @@ export const ai: DomainResolvers = {
       settings: { auditLog: true, cache: true },
       keys: [
         {
+          id: 'demo-key-stack-storefront',
+          name: 'stack:storefront',
+          appRef: 'storefront',
+          disabled: false,
+          createdAt: new Date(Date.now() - 12 * 86_400_000).toISOString(),
+          limits: { rpm: null, dailyBudgetUsd: 25 },
+          usage30d: { requests: 0, costUsd: 0 },
+        },
+        {
           id: 'demo-key-web',
           name: 'web-app',
           appRef: 'storefront/web',
@@ -127,6 +150,7 @@ export const ai: DomainResolvers = {
         { key: 'worker', requests: Math.round(totalReq * 0.3), inTokens: 1_930_000, outTokens: 390_000, costUsd: totalCost * 0.3 },
       ],
       logs,
+      outlets: { storefront: 'ai.northwind.dev' },
     } satisfies AiState;
   },
 
@@ -258,14 +282,103 @@ export const ai: DomainResolvers = {
         },
         ...st.keys,
       ];
+      return attachResult(b.stack, b.appService);
+    },
+
+    'ai.stackAccess': (i, s) => {
+      const { stack } = i as { stack: string };
+      const st = getState(s);
+      const keyRow = st.keys.find((k) => k.name === stackKeyName(stack) && !k.disabled) ?? null;
+      const attachedServices = st.keys
+        .filter((k) => !k.disabled && k.appRef?.startsWith(`${stack}/`))
+        .map((k) => ({ service: k.appRef!.slice(stack.length + 1), keyName: k.name }))
+        .sort((a, b) => a.service.localeCompare(b.service));
       return {
-        appService: b.appService,
-        keyName,
+        stack,
+        key: keyRow
+          ? { id: keyRow.id, name: keyRow.name, createdAt: keyRow.createdAt, limits: { ...keyRow.limits } }
+          : null,
+        attachedServices,
+        outletDomain: st.outlets[stack] ?? null,
         gatewayUrl: GATEWAY_URL,
-        envVar: 'AI_GATEWAY_URL',
-        keyFileVar: 'AI_GATEWAY_KEY_FILE',
-        keySecret: `swarmy-ai-${b.stack}_${b.appService}-key`,
       };
     },
+
+    'ai.grantStackAccess': (i, s) => {
+      const b = i as { stack: string; services?: string[] };
+      const st = getState(s);
+      // Rotate: retire any prior stack key (mirrors the real grant flow).
+      st.keys = st.keys.map((k) =>
+        k.name === stackKeyName(b.stack) && !k.disabled
+          ? { ...k, disabled: true, name: `${k.name} (rotated)` }
+          : k,
+      );
+      const id = `demo-key-stack-${Date.now()}`;
+      st.keys = [
+        {
+          id,
+          name: stackKeyName(b.stack),
+          appRef: b.stack,
+          disabled: false,
+          createdAt: nowIso(),
+          limits: { rpm: null, dailyBudgetUsd: null },
+          usage30d: { requests: 0, costUsd: 0 },
+        },
+        ...st.keys,
+      ];
+      const attached = (b.services ?? []).map((svc) => {
+        st.keys = [
+          {
+            id: `demo-key-${svc}-${Date.now()}`,
+            name: `svc:${b.stack}/${svc}`,
+            appRef: `${b.stack}/${svc}`,
+            disabled: false,
+            createdAt: nowIso(),
+            limits: { rpm: null, dailyBudgetUsd: null },
+            usage30d: { requests: 0, costUsd: 0 },
+          },
+          ...st.keys,
+        ];
+        return attachResult(b.stack, svc);
+      });
+      return {
+        stack: b.stack,
+        keyId: id,
+        keyName: stackKeyName(b.stack),
+        key: 'swk-ai-demoStackXq9tR2vWm7bYcAeK1sZ8gHnL0dQfU',
+        gatewayUrl: GATEWAY_URL,
+        attached,
+      };
+    },
+
+    'ai.revokeStackAccess': (i, s) => {
+      const { stack } = i as { stack: string };
+      const st = getState(s);
+      let revoked = 0;
+      st.keys = st.keys.map((k) => {
+        const mine =
+          k.name === stackKeyName(stack) || k.appRef === stack || Boolean(k.appRef?.startsWith(`${stack}/`));
+        if (mine && !k.disabled) {
+          revoked += 1;
+          return { ...k, disabled: true };
+        }
+        return k;
+      });
+      return { stack, revoked };
+    },
+
+    'ai.setStackOutlet': (i, s) => {
+      const b = i as { stack: string; domain: string };
+      const st = getState(s);
+      const domain = b.domain.trim().toLowerCase();
+      if (domain) st.outlets[b.stack] = domain;
+      else delete st.outlets[b.stack];
+      return { stack: b.stack, domain: domain || null };
+    },
+
+    'ai.listOutlets': (_i, s) =>
+      Object.entries(getState(s).outlets)
+        .map(([stack, domain]) => ({ stack, domain }))
+        .sort((a, b) => a.stack.localeCompare(b.stack)),
   },
 };

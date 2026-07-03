@@ -1,18 +1,7 @@
 import * as React from 'react';
 import { useMutation } from '@tanstack/react-query';
-import {
-  Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-  toast,
-} from '@swarmy/ui';
+import { EyeIcon } from 'lucide-react';
+import { Button, Collapsible, CollapsibleContent, CopyButton, toast } from '@swarmy/ui';
 import type { ServiceModelOut } from '@swarmy/core/compose';
 import { useTRPC, useTRPCClient } from '@/integrations/trpc';
 
@@ -22,7 +11,14 @@ interface PreviewDialogProps {
   model: ServiceModelOut;
 }
 
-/** "View as compose / docker service create" — the unopinionated escape hatch. */
+/**
+ * "View as compose / docker service create" — the unopinionated escape hatch.
+ *
+ * Docked inline panel (never a modal): compose.yaml and the ServiceSpec JSON
+ * render side-by-side once there's room (`xl`), stacked below that. The name
+ * is kept for the existing call site, which still toggles it from the page
+ * header's "Preview" button.
+ */
 export function PreviewDialog({ open, onOpenChange, model }: PreviewDialogProps): React.JSX.Element {
   const trpc = useTRPC();
   const client = useTRPCClient();
@@ -41,48 +37,51 @@ export function PreviewDialog({ open, onOpenChange, model }: PreviewDialogProps)
     exportCompose.mutate({ models: [model] });
     client.builder.exportServiceSpec
       .query({ model })
-      .then((res) => setSpec(JSON.stringify(res.spec, null, 2)))
+      .then((res) => setSpec(res?.spec ? JSON.stringify(res.spec, null, 2) : ''))
       .catch((e: Error) => toast.error(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const copy = (text: string): void => {
-    void navigator.clipboard.writeText(text);
-    toast.success('Copied');
-  };
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Preview</DialogTitle>
-          <DialogDescription>
-            The exact artifact swarmy would apply — runs on vanilla Docker Swarm.
-          </DialogDescription>
-        </DialogHeader>
-        <Tabs defaultValue="compose">
-          <TabsList>
-            <TabsTrigger value="compose">compose.yaml</TabsTrigger>
-            <TabsTrigger value="spec">ServiceSpec (JSON)</TabsTrigger>
-          </TabsList>
-          <TabsContent value="compose" className="grid gap-2">
-            <pre className="bg-muted max-h-80 overflow-auto rounded-md p-3 font-mono text-xs">{compose || '…'}</pre>
-            <div>
-              <Button type="button" variant="outline" size="sm" onClick={() => copy(compose)}>
-                Copy
-              </Button>
+    <Collapsible open={open} onOpenChange={onOpenChange} className="mb-4">
+      <CollapsibleContent>
+        <section className="card-pop grid gap-4 p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="bg-primary/10 text-primary flex size-8 shrink-0 items-center justify-center rounded-lg">
+                <EyeIcon className="size-4" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold">Preview</p>
+                <p className="text-muted-foreground text-xs">
+                  The exact artifact swarmy would apply — runs on vanilla Docker Swarm.
+                </p>
+              </div>
             </div>
-          </TabsContent>
-          <TabsContent value="spec" className="grid gap-2">
-            <pre className="bg-muted max-h-80 overflow-auto rounded-md p-3 font-mono text-xs">{spec || '…'}</pre>
-            <div>
-              <Button type="button" variant="outline" size="sm" onClick={() => copy(spec)}>
-                Copy
-              </Button>
-            </div>
-          </TabsContent>
-        </Tabs>
-      </DialogContent>
-    </Dialog>
+            <Button type="button" variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
+          </div>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <PreviewPane label="compose.yaml" content={compose} />
+            <PreviewPane label="ServiceSpec (JSON)" content={spec} />
+          </div>
+        </section>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function PreviewPane({ label, content }: { label: string; content: string }): React.JSX.Element {
+  return (
+    <div className="grid gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="mono-label">{label}</span>
+        <CopyButton value={content} />
+      </div>
+      <pre className="bg-muted max-h-96 overflow-auto rounded-md p-3 font-mono text-xs">
+        {content || '…'}
+      </pre>
+    </div>
   );
 }

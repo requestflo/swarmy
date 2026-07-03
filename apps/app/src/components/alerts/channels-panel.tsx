@@ -1,10 +1,10 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MailIcon, MessageSquareIcon, SendIcon, Trash2Icon, WebhookIcon } from 'lucide-react';
+import { MailIcon, MessageSquareIcon, PlusIcon, SendIcon, Trash2Icon, WebhookIcon } from 'lucide-react';
 import type { NotificationChannelKindView, NotificationChannelView } from '@swarmy/core';
 import { Button, EmptyState, Switch, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { AddChannelDialog } from './add-channel-dialog';
+import { AddChannelCard } from './add-channel-card';
 
 const KIND_ICON: Record<NotificationChannelKindView, React.JSX.Element> = {
   email: <MailIcon className="size-4" />,
@@ -74,9 +74,10 @@ function ChannelRow({ channel }: { channel: NotificationChannelView }): React.JS
   );
 }
 
-/** Channels panel: where alerts go — add, test, toggle, remove. */
+/** Channels panel: where alerts go — add (inline card), test, toggle, remove. */
 export function ChannelsPanel(): React.JSX.Element {
   const trpc = useTRPC();
+  const [createOpen, setCreateOpen] = React.useState(false);
   const channels = useQuery({ ...trpc.alerts.channels.queryOptions(), refetchInterval: 30_000 });
   const rows = channels.data ?? [];
 
@@ -84,8 +85,13 @@ export function ChannelsPanel(): React.JSX.Element {
     <section>
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="headline text-xl">Channels</h2>
-        {rows.length > 0 ? <AddChannelDialog variant="outline" /> : null}
+        <Button onClick={() => setCreateOpen((o) => !o)}>
+          <PlusIcon className="size-4" /> Add channel
+        </Button>
       </div>
+
+      <AddChannelCard open={createOpen} onOpenChange={setCreateOpen} />
+
       {channels.isLoading ? (
         <div className="card-pop space-y-3 p-5">
           {[0, 1].map((i) => (
@@ -111,7 +117,11 @@ export function ChannelsPanel(): React.JSX.Element {
             icon={<SendIcon />}
             title="No channels yet — add one."
             description="Alerts only help if they reach you. Add an email, Slack, Teams or webhook channel and send it a test."
-            action={<AddChannelDialog variant="outline" />}
+            action={
+              <Button variant="outline" onClick={() => setCreateOpen(true)}>
+                <PlusIcon className="size-4" /> Add channel
+              </Button>
+            }
           />
         </div>
       ) : (

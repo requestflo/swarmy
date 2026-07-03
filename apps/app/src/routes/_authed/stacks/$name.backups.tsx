@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { WorkspaceStub } from '@/components/stacks/workspace/workspace-stub';
+import { StackBackups } from '@/components/backups/stack-backups';
 
 /** Backups tab: DR setup & resilience for this stack. */
 export const Route = createFileRoute('/_authed/stacks/$name/backups')({
@@ -8,5 +8,6 @@ export const Route = createFileRoute('/_authed/stacks/$name/backups')({
 });
 
 function BackupsTab(): React.JSX.Element {
-  return <WorkspaceStub title="Backups, DR & resilience — moving in." />;
+  const { name } = Route.useParams();
+  return <StackBackups stack={name} />;
 }

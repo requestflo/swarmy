@@ -8,8 +8,8 @@ import type {
 import type { DemoStore, DomainResolvers } from '../types';
 
 /**
- * Managed-search demo resolvers — the Search surface of Data services
- * (`/data/search`): instance list/detail, live-ish stats, attach/detach,
+ * Managed-search demo resolvers — the Search section of the stack Data tab
+ * (`/stacks/$name/data`): instance list/detail, live-ish stats, attach/detach,
  * snapshots and destroy. Return shapes mirror `search.service.ts` views
  * exactly (imported from @swarmy/core, never redeclared). State lives in
  * `store.extra.searchsvc`; mutations rewrite it so the page reflects changes
@@ -123,10 +123,12 @@ export const searchsvc: DomainResolvers = {
   },
 
   handlers: {
-    'search.list': (_i, s): SearchInstanceView[] =>
-      [...getState(s).instances].sort((a, b) =>
-        key(a.stack, a.name).localeCompare(key(b.stack, b.name)),
-      ),
+    'search.list': (i, s): SearchInstanceView[] => {
+      const stack = (i as { stack?: string } | null | undefined)?.stack;
+      return getState(s)
+        .instances.filter((v) => !stack || v.stack === stack)
+        .sort((a, b) => key(a.stack, a.name).localeCompare(key(b.stack, b.name)));
+    },
 
     'search.get': (i, s): SearchInstanceView => require_(getState(s), i),
 

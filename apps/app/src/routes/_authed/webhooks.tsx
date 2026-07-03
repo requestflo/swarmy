@@ -1,6 +1,8 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { WebhooksPage } from '@/components/webhookgw/webhooks-page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+/** Webhooks moved into the stack workspace (the Messaging tab). */
 export const Route = createFileRoute('/_authed/webhooks')({
-  component: WebhooksPage,
+  beforeLoad: () => {
+    throw redirect({ to: '/' });
+  },
 });

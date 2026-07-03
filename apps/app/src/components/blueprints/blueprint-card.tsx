@@ -1,23 +1,31 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
-import { ArrowRightIcon, RocketIcon } from 'lucide-react';
+import { ArrowRightIcon, RocketIcon, XIcon } from 'lucide-react';
 import type { BlueprintMetaView } from '@swarmy/core';
-import { Button } from '@swarmy/ui';
+import { Button, cn, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@swarmy/ui';
 import { BlueprintIcon } from './blueprint-icons';
+import { BlueprintDeployPanel } from './blueprint-deploy-panel';
+
+interface BlueprintCardProps {
+  meta: BlueprintMetaView;
+  active: boolean;
+  onToggle: (open: boolean) => void;
+}
 
 /**
  * One gallery card: icon, name, tagline and resource chips. Deployable cards
- * open the wizard; doc-only cards link to the surface they document.
+ * expand in place into the inline deploy wizard (no modal); doc-only cards
+ * link to the surface they document. The panel unmounts on collapse so a
+ * fresh open always starts at the params form.
  */
-export function BlueprintCard({
-  meta,
-  onDeploy,
-}: {
-  meta: BlueprintMetaView;
-  onDeploy: (meta: BlueprintMetaView) => void;
-}): React.JSX.Element {
+export function BlueprintCard({ meta, active, onToggle }: BlueprintCardProps): React.JSX.Element {
   return (
-    <div className="card-pop card-pop-hover flex flex-col gap-3 p-5">
+    <div
+      className={cn(
+        'card-pop flex flex-col gap-3 p-5',
+        active ? 'ring-primary/40 ring-2' : 'card-pop-hover',
+      )}
+    >
       <div className="flex items-center gap-3">
         <span className="bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-xl">
           <BlueprintIcon id={meta.id} className="size-5" />
@@ -32,23 +40,38 @@ export function BlueprintCard({
           </span>
         ))}
       </div>
-      <div className="mt-auto pt-1">
-        {meta.docOnly ? (
+      {meta.docOnly ? (
+        <div className="mt-auto pt-1">
           <Button asChild variant="outline" className="rounded-full font-bold">
             <Link to="/observability">
               Open observability <ArrowRightIcon className="size-4" />
             </Link>
           </Button>
-        ) : (
-          <Button
-            variant="outline"
-            className="rounded-full font-bold"
-            onClick={() => onDeploy(meta)}
-          >
-            <RocketIcon className="size-4" /> Deploy
-          </Button>
-        )}
-      </div>
+        </div>
+      ) : (
+        <Collapsible open={active} onOpenChange={onToggle} className="mt-auto">
+          <div className="pt-1">
+            <CollapsibleTrigger asChild>
+              <Button variant="outline" className="rounded-full font-bold">
+                {active ? (
+                  <>
+                    <XIcon className="size-4" /> Close
+                  </>
+                ) : (
+                  <>
+                    <RocketIcon className="size-4" /> Deploy
+                  </>
+                )}
+              </Button>
+            </CollapsibleTrigger>
+          </div>
+          <CollapsibleContent>
+            <div className="border-border mt-4 border-t pt-4">
+              {active ? <BlueprintDeployPanel meta={meta} onClose={() => onToggle(false)} /> : null}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
     </div>
   );
 }

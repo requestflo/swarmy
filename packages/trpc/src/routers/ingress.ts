@@ -1,19 +1,23 @@
 import { z } from 'zod';
 import { TlsMode } from '@swarmy/core';
+import { RouteProtectionSchema } from '@swarmy/ingress';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import { tunnelsRouter } from './tunnels';
 import { ensureCaddyController } from '../services/ingress-controller';
 import {
   addDomain,
   getConfig,
+  getControllerImage,
   listDomains,
   listDrivers,
   previewConfig,
   removeDomain,
+  setControllerImage,
   setDriver,
   setEnabled,
   setHaStorage,
   setOnDemandTls,
+  setTargetNodes,
   setTunnel,
 } from '../services/ingress.service';
 import {
@@ -33,6 +37,8 @@ const routeInput = z.object({
   stripPrefix: z.boolean().optional(),
   middlewares: z.array(z.string()).optional(),
   driver: z.string().optional(),
+  /** Edge protections (rate limit, IP rules, body cap, bots, required headers). */
+  protection: RouteProtectionSchema.optional(),
 });
 
 export const ingressRouter = router({
@@ -48,11 +54,36 @@ export const ingressRouter = router({
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ ctx, input }) => setEnabled(ctx, input.enabled)),
 
-  listDomains: orgProcedure.query(({ ctx }) => listDomains(ctx)),
+  /** Domain routes read live off service labels; `stack` scopes to one Docker stack. */
+  listDomains: orgProcedure
+    .input(z.object({ stack: z.string().optional() }).optional())
+    .query(({ ctx, input }) => listDomains(ctx, input?.stack)),
 
   /** Deploy/converge the native Caddy ingress controller (swarmy-ingress-caddy)
-   *  on the swarm; swarmy pushes rendered routing to its admin API. Idempotent. */
-  ensureController: adminProcedure.mutation(({ ctx }) => ensureCaddyController(ctx)),
+   *  on the swarm; swarmy pushes rendered routing to its admin API. Idempotent.
+   *  Deploys the configured controller image (rate-limit builds) and honours
+   *  the configured target nodes, when set. */
+  ensureController: adminProcedure.mutation(async ({ ctx }) => {
+    const config = await getConfig(ctx);
+    return ensureCaddyController(ctx, {
+      image: (await getControllerImage(ctx)) ?? undefined,
+      targetNodes: config.targetNodes,
+    });
+  }),
+
+  /** Set (or clear) the ingress-controller image — the swarmy Caddy build
+   *  (docker/caddy-swarmy) is required for per-route rate limits. */
+  setControllerImage: adminProcedure
+    .input(z.object({ image: z.string().min(1).nullable() }))
+    .mutation(({ ctx, input }) => setControllerImage(ctx, input.image)),
+
+  /** Pin the ingress controller to specific swarm nodes. A single id pins the
+   *  deploy directly (`node.id==`); multiple ids fall back to the
+   *  `swarmy.node.ingress` label heuristic (Swarm constraints AND, so a list
+   *  can't express "any of these" via node ids). Empty array clears the pin. */
+  setTargetNodes: adminProcedure
+    .input(z.object({ nodeIds: z.array(z.string()) }))
+    .mutation(({ ctx, input }) => setTargetNodes(ctx, input.nodeIds)),
 
   addDomain: orgProcedure
     .input(

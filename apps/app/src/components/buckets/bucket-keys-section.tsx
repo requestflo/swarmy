@@ -1,15 +1,28 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ShieldOffIcon } from 'lucide-react';
+import { ShieldPlusIcon, ShieldOffIcon } from 'lucide-react';
 import type { BucketDetailView } from '@swarmy/core';
-import { Button, toast } from '@swarmy/ui';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Button,
+  toast,
+} from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { GrantKeyDialog } from './grant-key-dialog';
+import { GrantKeyInline } from './grant-key-inline';
 
-/** Keys granted on this bucket, with per-flag chips and a revoke action. */
+/** Keys granted on this bucket, with per-flag chips and a revoke confirm. */
 export function BucketKeysSection({ bucket }: { bucket: BucketDetailView }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
+  const [granting, setGranting] = React.useState(false);
 
   const revoke = useMutation(
     trpc.buckets.grantKeyOnBucket.mutationOptions({
@@ -25,8 +38,11 @@ export function BucketKeysSection({ bucket }: { bucket: BucketDetailView }): Rea
     <section className="space-y-2">
       <div className="flex items-center justify-between">
         <p className="mono-label text-muted-foreground !mb-0">Keys with access</p>
-        <GrantKeyDialog bucketId={bucket.id} />
+        <Button variant="outline" size="sm" onClick={() => setGranting((o) => !o)}>
+          <ShieldPlusIcon className="size-4" /> Grant key
+        </Button>
       </div>
+      <GrantKeyInline bucketId={bucket.id} open={granting} onDone={() => setGranting(false)} />
       {bucket.keys.length === 0 ? (
         <p className="text-muted-foreground text-xs">
           No keys can reach this bucket yet. Grant one to give a tool or app access.
@@ -49,22 +65,42 @@ export function BucketKeysSection({ bucket }: { bucket: BucketDetailView }): Rea
                     .filter(Boolean)
                     .join(' · ') || 'no access'}
                 </span>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  aria-label={`Revoke ${k.name || k.accessKeyId}`}
-                  disabled={revoke.isPending}
-                  onClick={() =>
-                    revoke.mutate({
-                      bucketId: bucket.id,
-                      accessKeyId: k.accessKeyId,
-                      permissions: { read: true, write: true, owner: true },
-                      mode: 'deny',
-                    })
-                  }
-                >
-                  <ShieldOffIcon className="size-4" />
-                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      aria-label={`Revoke ${k.name || k.accessKeyId}`}
+                      disabled={revoke.isPending}
+                    >
+                      <ShieldOffIcon className="size-4" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Revoke {k.name || k.accessKeyId}?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Removes all read/write/owner access this key has on {bucket.name}. Anything
+                        using it loses access immediately.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Keep access</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() =>
+                          revoke.mutate({
+                            bucketId: bucket.id,
+                            accessKeyId: k.accessKeyId,
+                            permissions: { read: true, write: true, owner: true },
+                            mode: 'deny',
+                          })
+                        }
+                      >
+                        Revoke access
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             </div>
           ))}

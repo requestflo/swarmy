@@ -3,14 +3,16 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { PlayIcon } from 'lucide-react';
 import type { ResilienceDrillKind, ResilienceDrillTargetView } from '@swarmy/core';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
   Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
   Label,
   Select,
   SelectContent,
@@ -32,7 +34,7 @@ const CONFIRM_COPY: Record<ResilienceDrillKind, string> = {
     'This runs `restic check` against the backup destination in a one-shot container — read-only, safe to run any time.',
 };
 
-/** Confirm + run one drill. Failover needs an explicit "I understand" switch. */
+/** Confirm + run one drill — the sanctioned AlertDialog. Failover needs an explicit "I understand" gate. */
 export function RunDrillDialog({
   kind,
   targets,
@@ -74,7 +76,7 @@ export function RunDrillDialog({
   const pending = restore.isPending || failover.isPending || verify.isPending;
 
   const run = (): void => {
-    if (kind === 'backup-verify') return verify.mutate({});
+    if (kind === 'backup-verify') return void verify.mutate({});
     if (!selected) return;
     const ref = { stack: selected.stack, cluster: selected.cluster };
     if (kind === 'restore') restore.mutate(ref);
@@ -82,22 +84,31 @@ export function RunDrillDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) setAck(false); }}>
-      <DialogTrigger asChild>
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setAck(false);
+      }}
+    >
+      <AlertDialogTrigger asChild>
         <Button size="sm" variant="outline" disabled={disabled} title={disabledReason ?? undefined}>
           <PlayIcon className="size-3.5" /> Run drill
         </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Run the {DRILL_TITLES[kind].toLowerCase()}?</DialogTitle>
-          <DialogDescription>{CONFIRM_COPY[kind]} Everything is audited.</DialogDescription>
-        </DialogHeader>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Run the {DRILL_TITLES[kind].toLowerCase()}?</AlertDialogTitle>
+          <AlertDialogDescription>{CONFIRM_COPY[kind]} Everything is audited.</AlertDialogDescription>
+        </AlertDialogHeader>
 
         {kind !== 'backup-verify' && pickable.length > 0 ? (
           <div className="space-y-2">
             <Label className="text-sm font-medium">Database cluster</Label>
-            <Select value={target || (selected ? `${selected.stack}/${selected.cluster}` : '')} onValueChange={setTarget}>
+            <Select
+              value={target || (selected ? `${selected.stack}/${selected.cluster}` : '')}
+              onValueChange={setTarget}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Pick a cluster" />
               </SelectTrigger>
@@ -124,18 +135,19 @@ export function RunDrillDialog({
           </div>
         ) : null}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
-          <Button
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
             disabled={pending || (kind === 'failover' && !ack) || (kind !== 'backup-verify' && !selected)}
-            onClick={run}
+            onClick={(e) => {
+              e.preventDefault();
+              run();
+            }}
           >
             {pending ? 'Running… this can take a few minutes' : `Run ${DRILL_TITLES[kind].toLowerCase()}`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

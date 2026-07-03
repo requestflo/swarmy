@@ -41,8 +41,10 @@ export const managedCacheRouter = router({
     .input(ProvisionCacheInput)
     .mutation(({ ctx, input }) => provisionCache(ctx, input)),
 
-  /** Every managed cache cluster in the org (the Data → Caches list). */
-  list: orgProcedure.query(({ ctx }) => listCacheClusters(ctx)),
+  /** Managed cache clusters — the whole org, or one stack when `stack` is given. */
+  list: orgProcedure
+    .input(z.object({ stack: stackName.optional() }).optional())
+    .query(({ ctx, input }) => listCacheClusters(ctx, input?.stack)),
 
   /** One cluster's topology view, read straight off the labels. */
   get: orgProcedure.input(clusterRef).query(({ ctx, input }) => getCacheCluster(ctx, input)),

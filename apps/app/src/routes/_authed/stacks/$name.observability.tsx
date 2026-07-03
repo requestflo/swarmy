@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { WorkspaceStub } from '@/components/stacks/workspace/workspace-stub';
+import { StackObservabilityTab } from '@/components/observability/stack-observability-tab';
 
 /** Observability tab: logs, metrics, traces, health & status page for this stack. */
 export const Route = createFileRoute('/_authed/stacks/$name/observability')({
@@ -8,5 +8,6 @@ export const Route = createFileRoute('/_authed/stacks/$name/observability')({
 });
 
 function ObservabilityTab(): React.JSX.Element {
-  return <WorkspaceStub title="Logs, metrics, traces & status page — moving in." />;
+  const { name } = Route.useParams();
+  return <StackObservabilityTab stack={name} />;
 }

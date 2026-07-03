@@ -7,8 +7,9 @@ import type {
 import type { DemoStore, DomainResolvers } from '../types';
 
 /**
- * Vector-store demo resolvers — the vector surface (`/data/vector`): qdrant
- * instance list, provision/destroy/attach and the pgvector enablement card.
+ * Vector-store demo resolvers — the Vector section of the stack Data tab
+ * (`/stacks/$name/data`): qdrant instance list, provision/destroy/attach and
+ * the pgvector enablement rows.
  * Return shapes mirror `vector.service.ts` views exactly (imported from
  * @swarmy/core, never redeclared). State lives in `store.extra.vector`.
  */
@@ -86,10 +87,12 @@ export const vector: DomainResolvers = {
   },
 
   handlers: {
-    'vector.list': (_i, s): VectorInstanceView[] =>
-      [...getState(s).instances].sort((a, b) =>
-        `${a.stack}/${a.name}`.localeCompare(`${b.stack}/${b.name}`),
-      ),
+    'vector.list': (i, s): VectorInstanceView[] => {
+      const stack = (i as { stack?: string } | null | undefined)?.stack;
+      return getState(s)
+        .instances.filter((v) => !stack || v.stack === stack)
+        .sort((a, b) => `${a.stack}/${a.name}`.localeCompare(`${b.stack}/${b.name}`));
+    },
 
     'vector.get': (i, s): VectorInstanceView => require_(getState(s), i),
 
@@ -159,7 +162,10 @@ export const vector: DomainResolvers = {
       return { appService, name: v.name, detached: true };
     },
 
-    'vector.pgvector': (_i, s): PgvectorClusterView[] => getState(s).pgvector,
+    'vector.pgvector': (i, s): PgvectorClusterView[] => {
+      const stack = (i as { stack?: string } | null | undefined)?.stack;
+      return getState(s).pgvector.filter((c) => !stack || c.stack === stack);
+    },
 
     'vector.enablePgvector': (i, s): { stack: string; cluster: string; enabled: true } => {
       const { stack, cluster } = i as { stack: string; cluster: string };

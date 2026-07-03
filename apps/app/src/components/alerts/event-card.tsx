@@ -6,11 +6,15 @@ import { Button, StatusBadge, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { relTime } from '@/lib/format';
 import { SEVERITY_TONE } from './alert-tones';
+import { StackChip } from './stack-chip';
+import { stackForResource, useServiceStackMap } from './use-service-stack-map';
 
 /** One alert event — a flat row with severity, resource, message and ack. */
 export function EventCard({ event }: { event: AlertEventView }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
+  const stackMap = useServiceStackMap();
+  const stack = stackForResource(event.resource, stackMap);
   const ack = useMutation(
     trpc.alerts.ack.mutationOptions({
       onSuccess: () => {
@@ -33,6 +37,7 @@ export function EventCard({ event }: { event: AlertEventView }): React.JSX.Eleme
         <div className="flex flex-wrap items-baseline gap-x-2">
           <span className="mono-data text-sm font-semibold">{event.signal}</span>
           <span className="mono-data text-muted-foreground truncate text-xs">{event.resource}</span>
+          {stack ? <StackChip stack={stack} /> : null}
         </div>
         <p className="text-muted-foreground mt-0.5 truncate text-sm">{event.message}</p>
       </div>

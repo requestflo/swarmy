@@ -2,9 +2,11 @@ import {
   applyIngress as applyIngressPkg,
   previewConfig as previewConfigPkg,
   type ColdRoute,
+  type ControllerVhost,
   type DriverDispatch,
   type HaStorage,
   type IngressConfig as OrgIngressConfig,
+  type RouteProtection,
   type TunnelOptions,
 } from '@swarmy/ingress';
 import type { IngressStatus, RenderedConfig } from '@swarmy/core/protocol';
@@ -135,6 +137,8 @@ export interface IngressConfigView {
   haConfigured: boolean;
   /** Whether a Cloudflare tunnel is configured (secrets never returned). */
   tunnelConfigured: boolean;
+  /** Custom ingress-controller image (null = the stock caddy:2-alpine). */
+  controllerImage: string | null;
   updatedAt: string;
 }
 
@@ -143,11 +147,17 @@ export interface DomainView {
   host: string;
   serviceId: string;
   serviceName: string;
+  /** Docker stack the owning service belongs to (UNGROUPED when standalone). */
+  stack: string;
   targetPort: number;
   tls: TlsMode;
   pathPrefix: string | null;
   /** Per-domain driver override (null = inherit org default). */
   ingressDriver: IngressDriverId | null;
+  /** Edge protections carried on the route label (null = none). */
+  protection: RouteProtection | null;
+  /** Live canary traffic share (null = no canary in flight). */
+  canaryPct: number | null;
 }
 
 interface ConfigRow {
@@ -182,6 +192,12 @@ function driverLower(d: string): IngressDriverId {
 interface IngressSettings {
   targetNodes?: string[];
   globalOptions?: Record<string, unknown>;
+  /**
+   * Ingress-controller image `ensureCaddyController` deploys. Unset = the stock
+   * caddy:2-alpine. Set to the swarmy build (docker/caddy-swarmy) to enable
+   * per-route rate limits (mholt/caddy-ratelimit is compiled in).
+   */
+  controllerImage?: string;
   /** Caddy HA Redis coords (non-secret) + encrypted secret refs. */
   haStorage?: {
     host: string;
@@ -258,6 +274,50 @@ async function ensureConfig(ctx: OrgContext): Promise<ConfigRow> {
   });
 }
 
+/**
+ * Controller-upstream vhosts: every custom domain that fronts the CONTROLLER
+ * rather than a swarm service — status pages (`/s/<slug>`) and inbound webhook
+ * endpoints (`/hooks/i/<orgId>/<slug>`). Rows are persisted (StatusPage /
+ * InboundEndpoint `domain`); the dial target reuses the scale-to-zero
+ * activator's reachable host:port, since both are "the controller from inside
+ * an ingress container".
+ */
+async function computeControllerVhosts(ctx: OrgContext): Promise<ControllerVhost[]> {
+  const upstream = activatorUpstream();
+  const [pages, endpoints] = await Promise.all([
+    ctx.db.statusPage.findMany({
+      where: { orgId: ctx.activeOrgId, enabled: true, domain: { not: null } },
+      select: { slug: true, domain: true },
+    }),
+    ctx.db.inboundEndpoint.findMany({
+      where: { orgId: ctx.activeOrgId, domain: { not: null } },
+      select: { slug: true, domain: true },
+    }),
+  ]);
+  const out: ControllerVhost[] = [];
+  for (const p of pages) {
+    if (!p.domain) continue;
+    out.push({
+      domain: p.domain,
+      upstream,
+      targetPath: `/s/${p.slug}`,
+      kind: 'status-page',
+      tls: 'auto',
+    });
+  }
+  for (const e of endpoints) {
+    if (!e.domain) continue;
+    out.push({
+      domain: e.domain,
+      upstream,
+      targetPath: `/hooks/i/${ctx.activeOrgId}/${e.slug}`,
+      kind: 'webhook',
+      tls: 'auto',
+    });
+  }
+  return out;
+}
+
 async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
   const row = await ensureConfig(ctx);
   const settings = readSettings(row);
@@ -267,6 +327,12 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
   const baseGlobal = (settings.globalOptions as OrgIngressConfig['globalOptions']) ?? ({} as OrgIngressConfig['globalOptions']);
   // Live scale-to-zero state: a domain whose service is asleep routes to the activator.
   const coldRoutes = computeColdRoutes(ctx);
+  // Thread the configured controller image into extraConfig so driver validate()
+  // can warn when a rate-limited route meets the stock (plugin-less) image.
+  const extraConfig: Record<string, unknown> = {
+    ...((baseGlobal?.extraConfig as Record<string, unknown> | undefined) ?? {}),
+  };
+  if (settings.controllerImage) extraConfig.controllerImage = settings.controllerImage;
   return {
     driver: driverLower(row.driver),
     enabled: row.enabled,
@@ -283,12 +349,15 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
       cold: coldRoutes.get(serviceName),
       // Weighted canary upstream (D2) — carried on the route label, pure render input.
       canary: route.canary,
+      // Edge protections — carried on the route label, pure render input.
+      protection: route.protection,
     })),
-    // Controller-upstream vhosts (status pages / webhooks / AI gateway domains)
-    // are computed from persisted rows at render time; wired in renderInput.
-    controllerVhosts: [],
+    // Controller-upstream vhosts (status-page / webhook domains) — persisted rows
+    // resolved at render time onto the controller upstream.
+    controllerVhosts: await computeControllerVhosts(ctx),
     globalOptions: {
       ...baseGlobal,
+      extraConfig,
       // Promote the load-bearing (encrypted) options, resolving secrets JIT.
       haStorage: resolveHaStorage(settings),
       tunnel: resolveTunnel(settings),
@@ -338,8 +407,55 @@ export async function getConfig(ctx: OrgContext): Promise<IngressConfigView> {
     domainCount,
     haConfigured: Boolean(settings.haStorage),
     tunnelConfigured: Boolean(settings.tunnel?.tunnelId),
+    controllerImage: settings.controllerImage ?? null,
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+/** The configured controller image, or null for the stock default. */
+export async function getControllerImage(ctx: OrgContext): Promise<string | null> {
+  const row = await ensureConfig(ctx);
+  return readSettings(row).controllerImage ?? null;
+}
+
+/**
+ * Set (or clear) the ingress-controller image. Persisted in settings; the next
+ * `ensureController` deploy converges the running controller onto it. Needed for
+ * per-route rate limits — the stock caddy:2-alpine lacks mholt/caddy-ratelimit.
+ */
+export async function setControllerImage(
+  ctx: OrgContext,
+  image: string | null,
+): Promise<IngressConfigView> {
+  await patchSettings(ctx, (s) => ({ ...s, controllerImage: image ?? undefined }));
+  await writeAudit(ctx, {
+    action: image ? 'ingress.setControllerImage' : 'ingress.clearControllerImage',
+    targetType: 'ingressConfig',
+    targetId: ctx.activeOrgId,
+    metadata: { image },
+  });
+  return getConfig(ctx);
+}
+
+/**
+ * Set the ingress controller's target node set — the swarm node ids
+ * `ensureController`-class deploys should prefer. Persisted in settings
+ * (`IngressConfigView.targetNodes`); an empty array clears the pin and falls
+ * back to the default placement heuristic (`swarmy.node.ingress` label /
+ * manager quorum, see `ingress-controller.ts`).
+ */
+export async function setTargetNodes(
+  ctx: OrgContext,
+  nodeIds: string[],
+): Promise<IngressConfigView> {
+  await patchSettings(ctx, (s) => ({ ...s, targetNodes: nodeIds }));
+  await writeAudit(ctx, {
+    action: 'ingress.setTargetNodes',
+    targetType: 'ingressConfig',
+    targetId: ctx.activeOrgId,
+    metadata: { nodeIds },
+  });
+  return getConfig(ctx);
 }
 
 export async function setDriver(
@@ -502,19 +618,25 @@ export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<Ing
   return getConfig(ctx);
 }
 
-export async function listDomains(ctx: OrgContext): Promise<DomainView[]> {
+export async function listDomains(ctx: OrgContext, stack?: string): Promise<DomainView[]> {
   // Routes are Docker-truth: project each service's `swarmy.ingress.routes` label.
   // The DomainView id is `${serviceId}:${host}` (the handle removeDomain parses back).
-  return listRoutesForOrg(ctx).map(({ serviceId, serviceName, route }) => ({
-    id: `${serviceId}:${route.host}`,
-    host: route.host,
-    serviceId,
-    serviceName,
-    targetPort: route.port,
-    tls: routeTlsToTlsMode(route.tls),
-    pathPrefix: route.path ?? null,
-    ingressDriver: (route.driver as IngressDriverId | undefined) ?? null,
-  }));
+  // `stack` scopes the list to services in that Docker stack (namespace label).
+  return listRoutesForOrg(ctx)
+    .filter((r) => !stack || r.stack === stack)
+    .map(({ serviceId, serviceName, stack: svcStack, route }) => ({
+      id: `${serviceId}:${route.host}`,
+      host: route.host,
+      serviceId,
+      serviceName,
+      stack: svcStack,
+      targetPort: route.port,
+      tls: routeTlsToTlsMode(route.tls),
+      pathPrefix: route.path ?? null,
+      ingressDriver: (route.driver as IngressDriverId | undefined) ?? null,
+      protection: route.protection ?? null,
+      canaryPct: route.canary ? route.canary.weightPct : null,
+    }));
 }
 
 export async function addDomain(
@@ -557,10 +679,13 @@ export async function addDomain(
     host: input.host,
     serviceId: service.id,
     serviceName: service.name,
+    stack: service.stack,
     targetPort: input.targetPort,
     tls: input.tls,
     pathPrefix: input.pathPrefix ?? null,
     ingressDriver: input.ingressDriver ?? null,
+    protection: null,
+    canaryPct: null,
   };
 }
 

@@ -4,6 +4,7 @@ import type {
   IngressConfig,
   IngressDriver,
   IngressValidationResult,
+  IngressValidationWarning,
 } from '../types';
 import { buildCaddyfile } from '../render/caddyfile';
 import { IngressApplyError } from '../errors';
@@ -52,7 +53,24 @@ export class CaddyDriver implements IngressDriver {
         message: 'on-demand TLS requires an ACME email or an ask endpoint',
       });
     }
-    return errors.length ? { ok: false, errors } : { ok: true };
+    // Non-blocking: `rate_limit` is a plugin (mholt/caddy-ratelimit) that the
+    // stock caddy:2-alpine image does NOT carry — routes render fine but Caddy
+    // rejects the config at load time. The swarmy build (docker/caddy-swarmy)
+    // includes it; the controller image is threaded via extraConfig.
+    const warnings: IngressValidationWarning[] = [];
+    const image = typeof extra.controllerImage === 'string' ? extra.controllerImage : '';
+    const rateLimited = config.domains.filter((d) => d.protection?.rateLimit);
+    if (rateLimited.length > 0 && (image === '' || image === 'caddy:2-alpine')) {
+      warnings.push({
+        path: 'globalOptions.extraConfig.controllerImage',
+        message:
+          `${rateLimited.length} route(s) carry a rate limit, but the controller image is the stock ` +
+          'caddy:2-alpine — rate_limit needs the swarmy Caddy build (docker/caddy-swarmy, ' +
+          'xcaddy --with github.com/mholt/caddy-ratelimit). Set a custom controller image.',
+      });
+    }
+    if (errors.length) return { ok: false, errors, warnings: warnings.length ? warnings : undefined };
+    return warnings.length ? { ok: true, warnings } : { ok: true };
   }
 
   render(config: IngressConfig): RenderedConfig {

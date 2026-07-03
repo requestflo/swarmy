@@ -16,16 +16,30 @@ import type { DemoStore, DomainResolvers } from '../types';
 /** Driver ids supported by the UI (mirrors `IngressDriverId` in driver-config.ts). */
 type IngressDriverId = 'none' | 'caddy' | 'traefik' | 'cloudflared' | 'nginx' | 'haproxy';
 
+/** Mirror of `RouteProtection` (protection-model.ts / packages/ingress/src/types.ts). */
+interface RouteProtection {
+  rateLimit?: { requests: number; windowSeconds: number; key: 'ip' | 'header'; header?: string };
+  ipAllow: string[];
+  ipDeny: string[];
+  bodyMaxSize?: string;
+  blockBots: boolean;
+  requiredHeaders: { name: string; value?: string }[];
+}
+
 /** Mirror of the controller's `DomainView` (ingress.service.ts). */
 interface DomainView {
   id: string;
   host: string;
   serviceId: string;
   serviceName: string;
+  /** Docker stack the owning service belongs to (`(ungrouped)` when standalone). */
+  stack: string;
   targetPort: number;
   tls: TlsMode;
   pathPrefix: string | null;
   ingressDriver: IngressDriverId | null;
+  protection: RouteProtection | null;
+  canaryPct: number | null;
 }
 
 /** Mirror of the controller's `IngressConfigView` (ingress.service.ts). */
@@ -36,6 +50,8 @@ interface IngressConfigView {
   domainCount: number;
   haConfigured: boolean;
   tunnelConfigured: boolean;
+  /** Custom ingress-controller image (null = the stock caddy:2-alpine). */
+  controllerImage: string | null;
   updatedAt: string;
 }
 
@@ -58,6 +74,7 @@ interface IngressState {
   haConfigured: boolean;
   onDemandTls: boolean;
   onDemandAskUrl: string | null;
+  controllerImage: string | null;
   updatedAt: string;
   domains: DomainView[];
   tunnel: {
@@ -93,6 +110,12 @@ function getState(store: DemoStore): IngressState {
   return store.extra.ingress as IngressState;
 }
 
+/** `store.stacks` carries id→name; services only know the id. Mirrors the real
+ *  resolver's `service.stack` (Docker namespace NAME, UNGROUPED when standalone). */
+function stackName(store: DemoStore, stackId: string | null): string {
+  return store.stacks.find((st) => st.id === stackId)?.name ?? '(ungrouped)';
+}
+
 /** Build the summary view the Networking page header + badges read. */
 function toConfigView(st: IngressState): IngressConfigView {
   return {
@@ -102,6 +125,7 @@ function toConfigView(st: IngressState): IngressConfigView {
     domainCount: st.domains.length,
     haConfigured: st.haConfigured,
     tunnelConfigured: Boolean(st.tunnel?.tunnelId),
+    controllerImage: st.controllerImage,
     updatedAt: st.updatedAt,
   };
 }
@@ -227,7 +251,11 @@ export const ingress: DomainResolvers = {
 
     'ingress.listDrivers': (): IngressDriverId[] => ['none', 'caddy', 'traefik', 'cloudflared', 'nginx', 'haproxy'],
 
-    'ingress.listDomains': (_i, s): DomainView[] => getState(s).domains,
+    'ingress.listDomains': (i, s): DomainView[] => {
+      const stack = (i as { stack?: string } | undefined)?.stack;
+      const rows = getState(s).domains;
+      return stack ? rows.filter((d) => d.stack === stack) : rows;
+    },
 
     // Per-app multi-route API (Phase 3): routes derive from this service's domains.
     'ingress.listServiceRoutes': (i, s) => {
@@ -240,24 +268,45 @@ export const ingress: DomainResolvers = {
           tls: (d.tls === 'custom' ? 'manual' : d.tls) as 'auto' | 'off' | 'manual',
           ...(d.pathPrefix ? { path: d.pathPrefix } : {}),
           ...(d.ingressDriver ? { driver: d.ingressDriver } : {}),
+          ...(d.protection ? { protection: d.protection } : {}),
         }));
     },
     'ingress.setServiceRoutes': (i, s) => {
-      const b = i as { serviceId: string; routes: { host: string; port: number; tls?: 'auto' | 'off' | 'manual'; path?: string; driver?: string }[] };
+      const b = i as {
+        serviceId: string;
+        routes: {
+          host: string;
+          port: number;
+          tls?: 'auto' | 'off' | 'manual';
+          path?: string;
+          driver?: string;
+          protection?: RouteProtection;
+        }[];
+      };
       const st = getState(s);
       const svc = s.services.find((sv) => sv.id === b.serviceId);
+      const prior = st.domains.filter((d) => d.serviceId === b.serviceId);
       const others = st.domains.filter((d) => d.serviceId !== b.serviceId);
       st.domains = [
-        ...b.routes.map((r): DomainView => ({
-          id: rid('dom'),
-          host: r.host,
-          serviceId: b.serviceId,
-          serviceName: svc?.name ?? b.serviceId,
-          targetPort: r.port,
-          tls: (r.tls === 'manual' ? 'custom' : (r.tls ?? 'auto')) as TlsMode,
-          pathPrefix: r.path ?? null,
-          ingressDriver: r.driver && VALID_DRIVERS.has(r.driver as IngressDriverId) && r.driver !== 'none' ? (r.driver as IngressDriverId) : null,
-        })),
+        ...b.routes.map((r): DomainView => {
+          const match = prior.find((d) => d.host === r.host && (d.pathPrefix ?? null) === (r.path ?? null));
+          return {
+            id: match?.id ?? rid('dom'),
+            host: r.host,
+            serviceId: b.serviceId,
+            serviceName: svc?.name ?? b.serviceId,
+            stack: stackName(s, svc?.stackId ?? null),
+            targetPort: r.port,
+            tls: (r.tls === 'manual' ? 'custom' : (r.tls ?? 'auto')) as TlsMode,
+            pathPrefix: r.path ?? null,
+            ingressDriver:
+              r.driver && VALID_DRIVERS.has(r.driver as IngressDriverId) && r.driver !== 'none'
+                ? (r.driver as IngressDriverId)
+                : null,
+            protection: r.protection ?? null,
+            canaryPct: match?.canaryPct ?? null,
+          };
+        }),
         ...others,
       ];
       if (svc) svc.ingressEnabled = b.routes.length > 0;
@@ -298,10 +347,13 @@ export const ingress: DomainResolvers = {
         host: b.host,
         serviceId: b.serviceId,
         serviceName,
+        stack: stackName(s, svc?.stackId ?? null),
         targetPort: b.targetPort,
         tls: b.tls ?? 'auto',
         pathPrefix: b.pathPrefix ?? null,
         ingressDriver: driverOverride,
+        protection: null,
+        canaryPct: null,
       };
       st.domains = [row, ...st.domains];
       if (svc) svc.ingressEnabled = true;
@@ -331,6 +383,28 @@ export const ingress: DomainResolvers = {
       st.enabled = enabled;
       st.updatedAt = nowIso();
       return toConfigView(st);
+    },
+
+    'ingress.setControllerImage': (i, s): IngressConfigView => {
+      const { image } = i as { image: string | null };
+      const st = getState(s);
+      st.controllerImage = image;
+      st.updatedAt = nowIso();
+      return toConfigView(st);
+    },
+
+    'ingress.setTargetNodes': (i, s): IngressConfigView => {
+      const { nodeIds } = i as { nodeIds: string[] };
+      const st = getState(s);
+      st.targetNodes = nodeIds;
+      st.updatedAt = nowIso();
+      return toConfigView(st);
+    },
+
+    /** Idempotent "deploy/converge" — demo mode just bumps updatedAt. */
+    'ingress.ensureController': (_i, s): { converged: true } => {
+      getState(s).updatedAt = nowIso();
+      return { converged: true };
     },
 
     'ingress.previewConfig': (i, s): RenderedConfig => {
@@ -440,6 +514,7 @@ export const ingress: DomainResolvers = {
       haConfigured: true,
       onDemandTls: false,
       onDemandAskUrl: null,
+      controllerImage: null,
       updatedAt: new Date(Date.now() - 20 * 60_000).toISOString(),
       domains: [
         {
@@ -447,40 +522,65 @@ export const ingress: DomainResolvers = {
           host: 'shop.northwind.dev',
           serviceId: 'svc-web',
           serviceName: 'web',
+          stack: stackName(store, 's-store'),
           targetPort: 3000,
           tls: 'auto',
           pathPrefix: null,
           ingressDriver: null,
+          // A live rate limit — the reason the controller-image note exists.
+          protection: {
+            rateLimit: { requests: 100, windowSeconds: 60, key: 'ip' },
+            ipAllow: [],
+            ipDeny: [],
+            blockBots: true,
+            requiredHeaders: [],
+          },
+          canaryPct: 10,
         },
         {
           id: 'dom-api',
           host: 'api.northwind.dev',
           serviceId: 'svc-api',
           serviceName: 'api',
+          stack: stackName(store, 's-store'),
           targetPort: 8080,
           tls: 'auto',
           pathPrefix: '/v2',
           ingressDriver: null,
+          protection: null,
+          canaryPct: null,
         },
         {
           id: 'dom-cdn',
           host: 'cdn.northwind.dev',
           serviceId: 'svc-cdn',
           serviceName: 'cdn-edge',
+          stack: stackName(store, 's-store'),
           targetPort: 8081,
           tls: 'auto',
           pathPrefix: null,
           ingressDriver: 'cloudflared',
+          protection: null,
+          canaryPct: null,
         },
         {
           id: 'dom-grafana',
           host: 'metrics.northwind.dev',
           serviceId: 'svc-grafana',
           serviceName: 'grafana',
+          stack: stackName(store, 's-platform'),
           targetPort: 3001,
           tls: 'custom',
           pathPrefix: null,
           ingressDriver: null,
+          protection: {
+            rateLimit: undefined,
+            ipAllow: ['10.0.0.0/8'],
+            ipDeny: [],
+            blockBots: false,
+            requiredHeaders: [],
+          },
+          canaryPct: null,
         },
       ],
       tunnel: null,

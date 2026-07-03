@@ -3,6 +3,7 @@ import { orgProcedure, adminProcedure, router } from '../trpc';
 import {
   getNode,
   listNodeCanvasPositions,
+  listNodeContainerCounts,
   listNodes,
   removeNode,
   setNodeAvailability,
@@ -16,6 +17,7 @@ import {
   listJoinTokens,
   revokeJoinToken,
 } from '../services/token.service';
+import { setNodeCost } from '../services/cost.service';
 
 export const nodesRouter = router({
   list: orgProcedure.query(({ ctx }) => listNodes(ctx)),
@@ -48,8 +50,16 @@ export const nodesRouter = router({
     .input(z.object({ id: z.string(), region: z.string().min(1) }))
     .mutation(({ ctx, input }) => setNodeRegion(ctx, input.id, input.region)),
 
+  /** Set (or clear) a node's monthly price — the `swarmy.node.cost` label (mirrors cost.setNodeCost). */
+  setCost: adminProcedure
+    .input(z.object({ id: z.string(), monthlyUsd: z.number().min(0).max(1_000_000).nullable() }))
+    .mutation(({ ctx, input }) => setNodeCost(ctx, { nodeId: input.id, monthlyUsd: input.monthlyUsd })),
+
   /** Saved Infrastructure-canvas positions per node (`swarmy.canvas.x/y` labels). */
   canvasPositions: orgProcedure.query(({ ctx }) => listNodeCanvasPositions(ctx)),
+
+  /** Container count per node (for the index list row) — same source as node.containers. */
+  containerCounts: orgProcedure.query(({ ctx }) => listNodeContainerCounts(ctx)),
 
   /** Persist a node's canvas position as Docker node labels (mirrors services.setCanvasPos). */
   setCanvasPosition: orgProcedure

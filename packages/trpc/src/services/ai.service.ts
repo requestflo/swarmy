@@ -81,6 +81,8 @@ export interface AiProviderDescriptor {
 export interface AiConfigDoc {
   providers: AiProviderDescriptor[];
   settings: AiSettingsView;
+  /** Stack → public outlet domain; the edge renders one gateway vhost per entry. */
+  outlets: Record<string, string>;
 }
 
 const DEFAULT_SETTINGS: AiSettingsView = { auditLog: false, cache: false };
@@ -95,7 +97,7 @@ function isKind(v: unknown): v is AiProviderKind {
  * wrapper — malformed entries are dropped, never thrown on.
  */
 export function parseConfigDoc(raw: unknown): AiConfigDoc {
-  const doc: AiConfigDoc = { providers: [], settings: { ...DEFAULT_SETTINGS } };
+  const doc: AiConfigDoc = { providers: [], settings: { ...DEFAULT_SETTINGS }, outlets: {} };
   const list = Array.isArray(raw)
     ? raw
     : raw && typeof raw === 'object' && Array.isArray((raw as { providers?: unknown }).providers)
@@ -116,6 +118,12 @@ export function parseConfigDoc(raw: unknown): AiConfigDoc {
   if (s && typeof s === 'object') {
     const st = s as { auditLog?: unknown; cache?: unknown };
     doc.settings = { auditLog: st.auditLog === true, cache: st.cache === true };
+  }
+  const outlets = (raw as { outlets?: unknown } | null | undefined)?.outlets;
+  if (outlets && typeof outlets === 'object' && !Array.isArray(outlets)) {
+    for (const [stack, domain] of Object.entries(outlets as Record<string, unknown>)) {
+      if (typeof domain === 'string' && domain.trim()) doc.outlets[stack] = domain.trim().toLowerCase();
+    }
   }
   // At most one default; the first wins.
   let seenDefault = false;
@@ -165,7 +173,7 @@ async function loadConfig(ctx: OrgContext): Promise<ConfigRow> {
 }
 
 async function saveConfig(ctx: OrgContext, doc: AiConfigDoc, configEnc: string | null): Promise<void> {
-  const providersJson = { providers: doc.providers, settings: doc.settings } as object;
+  const providersJson = { providers: doc.providers, settings: doc.settings, outlets: doc.outlets } as object;
   await ctx.db.aiProviderConfig.upsert({
     where: { orgId: ctx.activeOrgId },
     create: { orgId: ctx.activeOrgId, providersJson, configEnc },
@@ -631,4 +639,186 @@ export async function attachAiToService(ctx: OrgContext, input: AttachAiInput): 
     keyFileVar: AI_KEY_FILE_VAR,
     keySecret: secretName,
   };
+}
+
+// ── Stack access: one grant per stack (key + attached services + outlet) ──────
+
+/** Virtual-key name carrying a stack-wide grant (`stack:<name>`). */
+export function stackKeyName(stack: string): string {
+  return `stack:${stack}`;
+}
+
+export interface AiStackKeySummary {
+  id: string;
+  name: string;
+  createdAt: string;
+  limits: AiKeyLimitsView;
+}
+
+export interface AiStackAttachedService {
+  service: string;
+  keyName: string;
+}
+
+/** The stack's current AI grant: key (hash-only), wired services, outlet. */
+export interface AiStackAccessView {
+  stack: string;
+  key: AiStackKeySummary | null;
+  attachedServices: AiStackAttachedService[];
+  outletDomain: string | null;
+  gatewayUrl: string;
+}
+
+export interface AiStackGrantResult {
+  stack: string;
+  keyId: string;
+  keyName: string;
+  /** Plaintext virtual key — returned ONCE, then stored only as a hash. */
+  key: string;
+  gatewayUrl: string;
+  attached: AiAttachResult[];
+}
+
+export interface AiOutletView {
+  stack: string;
+  domain: string;
+}
+
+/** Current grant for one stack: stack key + label-attached services + outlet. */
+export async function stackAccess(ctx: OrgContext, stack: string): Promise<AiStackAccessView> {
+  const [keyRow, row] = await Promise.all([
+    ctx.db.aiVirtualKey.findFirst({
+      where: { orgId: ctx.activeOrgId, name: stackKeyName(stack), disabled: false },
+      orderBy: { createdAt: 'desc' },
+    }),
+    loadConfig(ctx),
+  ]);
+  const attachedServices: AiStackAttachedService[] = liveOrgServices(ctx)
+    .filter((s) => s.stack === stack && s.labels[AI_INJECT_LABEL] === 'true')
+    .map((s) => ({
+      service: s.name,
+      keyName: s.labels[AI_INJECT_KEY_LABEL] ?? `svc:${stack}/${s.name}`,
+    }))
+    .sort((a, b) => a.service.localeCompare(b.service));
+  return {
+    stack,
+    key: keyRow
+      ? {
+          id: keyRow.id,
+          name: keyRow.name,
+          createdAt: keyRow.createdAt.toISOString(),
+          limits: parseKeyLimits(keyRow.limitsJson),
+        }
+      : null,
+    attachedServices,
+    outletDomain: parseConfigDoc(row.providersJson).outlets[stack] ?? null,
+    gatewayUrl: gatewayUrl(),
+  };
+}
+
+/**
+ * Grant a stack AI access: mint a stack-tagged virtual key (revealed ONCE; an
+ * existing grant is rotated) and wire each chosen service through the normal
+ * attach flow (per-service key in a Docker secret + gateway env).
+ */
+export async function grantStackAccess(
+  ctx: OrgContext,
+  input: { stack: string; services?: string[] },
+): Promise<AiStackGrantResult> {
+  const providers = await getProviders(ctx);
+  if (!providers.providers.some((p) => p.hasKey)) {
+    throw commandRejected('no AI provider configured — add one on the AI page first');
+  }
+  const name = stackKeyName(input.stack);
+  const prior = await ctx.db.aiVirtualKey.findFirst({
+    where: { orgId: ctx.activeOrgId, name },
+    select: { id: true },
+  });
+  if (prior) {
+    await ctx.db.aiVirtualKey.update({
+      where: { id: prior.id },
+      data: { disabled: true, name: `${name} (rotated ${Date.now()})` },
+    });
+  }
+  const minted = await mintKey(ctx, { name, appRef: input.stack });
+  const attached: AiAttachResult[] = [];
+  for (const svc of input.services ?? []) {
+    attached.push(await attachAiToService(ctx, { stack: input.stack, appService: svc }));
+  }
+  await writeAudit(ctx, {
+    action: 'ai.stackAccess.grant',
+    targetType: 'stack',
+    targetId: input.stack,
+    metadata: { keyName: name, rotated: Boolean(prior), services: attached.map((a) => a.appService) },
+  });
+  return {
+    stack: input.stack,
+    keyId: minted.id,
+    keyName: name,
+    key: minted.key,
+    gatewayUrl: minted.gatewayUrl,
+    attached,
+  };
+}
+
+/**
+ * Revoke the stack's grant: disable the stack-tagged key AND every per-service
+ * key minted for the stack. The gateway answers 403 immediately; injected env
+ * on services stays until their next redeploy (harmless — the key is dead).
+ */
+export async function revokeStackAccess(
+  ctx: OrgContext,
+  stack: string,
+): Promise<{ stack: string; revoked: number }> {
+  const res = await ctx.db.aiVirtualKey.updateMany({
+    where: {
+      orgId: ctx.activeOrgId,
+      disabled: false,
+      OR: [{ name: stackKeyName(stack) }, { appRef: stack }, { appRef: { startsWith: `${stack}/` } }],
+    },
+    data: { disabled: true },
+  });
+  await writeAudit(ctx, {
+    action: 'ai.stackAccess.revoke',
+    targetType: 'stack',
+    targetId: stack,
+    metadata: { revoked: res.count },
+  });
+  return { stack, revoked: res.count };
+}
+
+/**
+ * Point a public domain at this stack's gateway (empty domain clears it).
+ * Persisted in the org-config JSON (`providersJson.outlets`); the edge reads
+ * {@link listOutlets} to render one vhost per entry.
+ */
+export async function setStackOutlet(
+  ctx: OrgContext,
+  input: { stack: string; domain: string },
+): Promise<{ stack: string; domain: string | null }> {
+  const row = await loadConfig(ctx);
+  const doc = parseConfigDoc(row.providersJson);
+  const domain = input.domain.trim().toLowerCase();
+  const taken = Object.entries(doc.outlets).find(([s, d]) => d === domain && s !== input.stack);
+  if (domain && taken) {
+    throw commandRejected(`"${domain}" already routes to the ${taken[0]} stack`);
+  }
+  if (domain) doc.outlets[input.stack] = domain;
+  else delete doc.outlets[input.stack];
+  await saveConfig(ctx, doc, row.configEnc);
+  await writeAudit(ctx, {
+    action: 'ai.outlet.set',
+    targetType: 'stack',
+    targetId: input.stack,
+    metadata: { domain: domain || null },
+  });
+  return { stack: input.stack, domain: domain || null };
+}
+
+/** Every stack outlet, sorted — the edge renders one gateway vhost per entry. */
+export async function listOutlets(ctx: OrgContext): Promise<AiOutletView[]> {
+  const doc = parseConfigDoc((await loadConfig(ctx)).providersJson);
+  return Object.entries(doc.outlets)
+    .map(([stack, domain]) => ({ stack, domain }))
+    .sort((a, b) => a.stack.localeCompare(b.stack));
 }

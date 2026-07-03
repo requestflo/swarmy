@@ -1,11 +1,8 @@
-import * as React from 'react';
-import { createFileRoute } from '@tanstack/react-router';
-import { JobsPage } from '@/components/jobs/jobs-page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+/** Scheduled jobs moved into the stack workspace (the Messaging tab). */
 export const Route = createFileRoute('/_authed/jobs')({
-  component: JobsRoute,
+  beforeLoad: () => {
+    throw redirect({ to: '/' });
+  },
 });
-
-function JobsRoute(): React.JSX.Element {
-  return <JobsPage />;
-}

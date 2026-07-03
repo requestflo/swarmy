@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import {
+  ArrowRightIcon,
   CheckCircle2Icon,
   ExternalLinkIcon,
   KeyRoundIcon,
@@ -16,7 +17,10 @@ function StatusIcon({ status }: { status: BlueprintStepStatus }): React.JSX.Elem
   return <MinusCircleIcon className="text-status-idle size-4" />;
 }
 
-/** Step 3 of the wizard: per-step outcomes, one-time reveals and success links. */
+/**
+ * Step 3 of the inline wizard: per-step outcomes, one-time reveals (a coral
+ * inline banner — never a modal) and the jump into the new stack's workspace.
+ */
 export function BlueprintDeployResult({
   result,
   onClose,
@@ -49,8 +53,8 @@ export function BlueprintDeployResult({
       </ol>
 
       {result.notes.length > 0 ? (
-        <div className="bg-muted/40 space-y-2 rounded-xl px-3 py-2.5">
-          <p className="mono-label flex items-center gap-1.5">
+        <div className="border-primary/40 bg-primary/5 space-y-2 rounded-xl border px-3 py-2.5">
+          <p className="mono-label text-primary flex items-center gap-1.5">
             <KeyRoundIcon className="size-3.5" /> Save these now — shown once
           </p>
           {result.notes.map((note) => (
@@ -70,12 +74,17 @@ export function BlueprintDeployResult({
             </a>
           </Button>
         ) : null}
-        <Button asChild variant="outline" className="rounded-full font-bold">
-          <Link to="/stacks">View stack</Link>
-        </Button>
-        <Button className="rounded-full font-bold" onClick={onClose}>
-          Done
-        </Button>
+        {result.ok ? (
+          <Button asChild className="rounded-full font-bold">
+            <Link to="/stacks/$name" params={{ name: result.stackName }}>
+              Open stack <ArrowRightIcon className="size-4" />
+            </Link>
+          </Button>
+        ) : (
+          <Button variant="outline" className="rounded-full font-bold" onClick={onClose}>
+            Close
+          </Button>
+        )}
       </div>
     </div>
   );

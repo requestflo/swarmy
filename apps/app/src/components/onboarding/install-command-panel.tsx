@@ -65,13 +65,13 @@ function ArrivalFooter({ arrived }: { arrived: AwaitedNode | null }): React.JSX.
       <Link
         to="/nodes/$nodeId"
         params={{ nodeId: arrived.id }}
-        className="bg-status-online/12 hover:bg-status-online/20 group flex items-center justify-between gap-3 rounded-xl px-4 py-3 transition-colors"
+        className="bg-primary/12 hover:bg-primary/20 group flex items-center justify-between gap-3 rounded-xl px-4 py-3 transition-colors"
       >
         <span className="flex items-center gap-2.5 text-sm font-medium">
           <StatusBadge tone="online" label="Online" />
           <span className="mono-data">{arrived.name}</span> joined the swarm.
         </span>
-        <span className="text-status-online inline-flex items-center gap-1 text-sm font-bold">
+        <span className="text-primary inline-flex items-center gap-1 text-sm font-bold">
           Open node
           <ArrowRightIcon className="size-4 transition-transform group-hover:translate-x-0.5" />
         </span>

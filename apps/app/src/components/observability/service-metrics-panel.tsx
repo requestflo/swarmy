@@ -17,14 +17,16 @@ import { METRIC_PRESETS } from './observability-shared';
 
 interface ServiceMetricsPanelProps {
   enabled: boolean;
+  /** Scope the breakdown to one stack (`swarmy.stack` resource attribute). */
+  stack?: string;
 }
 
 /** Per-service average + peak — flat rows in one card-pop with proportion bars. */
-export function ServiceMetricsPanel({ enabled }: ServiceMetricsPanelProps): React.JSX.Element {
+export function ServiceMetricsPanel({ enabled, stack }: ServiceMetricsPanelProps): React.JSX.Element {
   const trpc = useTRPC();
   const [metric, setMetric] = React.useState<string>(METRIC_PRESETS[0].value);
   const summary = useQuery({
-    ...trpc.observability.metricsSummary.queryOptions({ metric, windowMinutes: 60, limit: 20 }),
+    ...trpc.observability.metricsSummary.queryOptions({ metric, windowMinutes: 60, limit: 20, stack }),
     enabled,
     refetchInterval: enabled ? 15_000 : false,
   });

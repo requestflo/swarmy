@@ -209,9 +209,15 @@ export const IngressConfigSchema = z.object({
 });
 export type IngressConfig = z.infer<typeof IngressConfigSchema>;
 
+/** A non-blocking validation note (config renders/applies, but degraded). */
+export interface IngressValidationWarning {
+  path: string;
+  message: string;
+}
+
 export type IngressValidationResult =
-  | { ok: true }
-  | { ok: false; errors: { path: string; message: string }[] };
+  | { ok: true; warnings?: IngressValidationWarning[] }
+  | { ok: false; errors: { path: string; message: string }[]; warnings?: IngressValidationWarning[] };
 
 export interface IngressStatusReportLite {
   nodeId: string;

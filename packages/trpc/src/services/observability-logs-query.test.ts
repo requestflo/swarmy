@@ -49,6 +49,22 @@ describe('buildLogsQuery', () => {
     expect(sql).toContain("TraceId = 'deadbeef'");
   });
 
+  it('applies the stack filter via the swarmy.stack resource attribute', () => {
+    const sql = buildLogsQuery(ORG, { from: FROM, to: TO, stack: 'storefront' });
+    expect(sql).toContain("ResourceAttributes['swarmy.stack'] = 'storefront'");
+  });
+
+  it('omits the stack predicate when no stack is passed', () => {
+    const sql = buildLogsQuery(ORG, { from: FROM, to: TO });
+    expect(sql).not.toContain("ResourceAttributes['swarmy.stack']");
+  });
+
+  it('escapes single quotes in the stack filter (no injection)', () => {
+    const sql = buildLogsQuery(ORG, { from: FROM, to: TO, stack: "s' OR '1'='1" });
+    expect(sql).toContain("ResourceAttributes['swarmy.stack'] = 's\\' OR \\'1\\'=\\'1'");
+    expect(sql).not.toContain("OR '1'='1'");
+  });
+
   it('search becomes a body ILIKE with escaped LIKE metacharacters', () => {
     const sql = buildLogsQuery(ORG, { from: FROM, to: TO, search: '100%_done' });
     expect(sql).toContain("Body ILIKE '%100\\\\%\\\\_done%'");

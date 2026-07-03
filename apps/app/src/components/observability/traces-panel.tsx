@@ -17,14 +17,16 @@ import { useTRPC } from '@/integrations/trpc';
 
 interface TracesPanelProps {
   enabled: boolean;
+  /** Scope the list to one stack (`swarmy.stack` resource attribute). */
+  stack?: string;
 }
 
 /** Jaeger-lite list of last-hour root spans — flat rows in one card-pop. */
-export function TracesPanel({ enabled }: TracesPanelProps): React.JSX.Element {
+export function TracesPanel({ enabled, stack }: TracesPanelProps): React.JSX.Element {
   const trpc = useTRPC();
   const [errorsOnly, setErrorsOnly] = React.useState(false);
   const traces = useQuery({
-    ...trpc.observability.traces.queryOptions({ windowMinutes: 60, errorsOnly, limit: 100 }),
+    ...trpc.observability.traces.queryOptions({ windowMinutes: 60, errorsOnly, limit: 100, stack }),
     enabled,
     refetchInterval: enabled ? 10_000 : false,
   });

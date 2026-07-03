@@ -63,9 +63,16 @@ function toView(row: ScheduleRow): BackupScheduleView {
   };
 }
 
-export async function listSchedules(ctx: OrgContext): Promise<BackupScheduleView[]> {
+export async function listSchedules(
+  ctx: OrgContext,
+  input?: { stack?: string },
+): Promise<BackupScheduleView[]> {
   const rows = await db(ctx).findMany({
-    where: { orgId: ctx.activeOrgId },
+    where: {
+      orgId: ctx.activeOrgId,
+      // Volumes belong to a stack by name prefix (`<stack>_<volume>`).
+      ...(input?.stack ? { volume: { startsWith: `${input.stack}_` } } : {}),
+    },
     orderBy: { createdAt: 'desc' },
   });
   return rows.map(toView);
@@ -165,12 +172,18 @@ interface RestoreRow {
   error: string | null;
 }
 
-export async function listRestoreOperations(ctx: OrgContext): Promise<RestoreOperationView[]> {
+export async function listRestoreOperations(
+  ctx: OrgContext,
+  input?: { stack?: string },
+): Promise<RestoreOperationView[]> {
   const handle = (ctx.db as unknown as {
     restoreOperation: { findMany(a: unknown): Promise<RestoreRow[]> };
   }).restoreOperation;
   const rows = await handle.findMany({
-    where: { orgId: ctx.activeOrgId },
+    where: {
+      orgId: ctx.activeOrgId,
+      ...(input?.stack ? { targetVolume: { startsWith: `${input.stack}_` } } : {}),
+    },
     orderBy: { startedAt: 'desc' },
     take: 100,
   });

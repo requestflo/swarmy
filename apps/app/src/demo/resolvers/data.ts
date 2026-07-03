@@ -1,4 +1,8 @@
+import { NATIVE_TARGET_NAME } from '@/components/backups/native-target-name';
 import type { DemoStore, DomainResolvers } from '../types';
+
+/** Mirrors `NATIVE_BUCKET` in packages/trpc backups.service. */
+const NATIVE_BUCKET = 'swarmy-backups';
 
 /**
  * Data + DR demo resolvers — the Backups page, the Schedules / DR page, the
@@ -519,10 +523,39 @@ export const data: DomainResolvers = {
       return { id, removed: true };
     },
 
+    'backups.ensureNativeTarget': (
+      _i,
+      s,
+    ): { target: BackupTargetView; bucket: string; created: boolean } => {
+      const st = getState(s);
+      const existing = st.targets.find((t) => t.name === NATIVE_TARGET_NAME);
+      if (existing) return { target: existing, bucket: existing.bucket, created: false };
+      if (!st.storage.enabled) {
+        throw new Error('object storage is off — enable the replicated store below, then try again');
+      }
+      const target: BackupTargetView = {
+        id: rid('tgt'),
+        name: NATIVE_TARGET_NAME,
+        kind: 's3',
+        endpoint: endpointFor(st.storage),
+        bucket: NATIVE_BUCKET,
+        prefix: 'restic',
+        region: st.storage.region,
+        hasCredentials: true,
+        enabled: true,
+        createdAt: nowIso(),
+      };
+      st.targets = [target, ...st.targets];
+      return { target, bucket: NATIVE_BUCKET, created: true };
+    },
+
     'backups.listSnapshots': (i, s): SnapshotView[] => {
-      const f = (i as { volume?: string; targetId?: string } | null | undefined) ?? {};
+      const f = (i as { volume?: string; targetId?: string; stack?: string } | null | undefined) ?? {};
       return getState(s).snapshots.filter(
-        (snap) => (!f.volume || snap.volume === f.volume) && (!f.targetId || snap.targetId === f.targetId),
+        (snap) =>
+          (!f.volume || snap.volume === f.volume) &&
+          (!f.targetId || snap.targetId === f.targetId) &&
+          (!f.stack || snap.volume.startsWith(`${f.stack}_`)),
       );
     },
 
@@ -557,9 +590,17 @@ export const data: DomainResolvers = {
     },
 
     // ── schedules ──────────────────────────────────────────────────────────────
-    'schedules.list': (_i, s): BackupScheduleView[] => getState(s).schedules,
+    'schedules.list': (i, s): BackupScheduleView[] => {
+      const f = (i as { stack?: string } | null | undefined) ?? {};
+      return getState(s).schedules.filter((row) => !f.stack || row.volume.startsWith(`${f.stack}_`));
+    },
 
-    'schedules.listRestores': (_i, s): RestoreOperationView[] => getState(s).restores,
+    'schedules.listRestores': (i, s): RestoreOperationView[] => {
+      const f = (i as { stack?: string } | null | undefined) ?? {};
+      return getState(s).restores.filter(
+        (row) => !f.stack || row.targetVolume.startsWith(`${f.stack}_`),
+      );
+    },
 
     'schedules.create': (i, s): BackupScheduleView => {
       const b = i as { targetId: string; volume: string; nodeId?: string; every: number; unit: IntervalUnit };
@@ -863,7 +904,7 @@ export const data: DomainResolvers = {
     const snapshots: SnapshotView[] = [
       {
         id: 'snap-pg-1',
-        volume: 's-data_postgres',
+        volume: 'data_postgres',
         targetId: tS3.id,
         targetName: tS3.name,
         status: 'SUCCEEDED',
@@ -875,7 +916,7 @@ export const data: DomainResolvers = {
       },
       {
         id: 'snap-redis-1',
-        volume: 's-data_redis',
+        volume: 'data_redis',
         targetId: tS3.id,
         targetName: tS3.name,
         status: 'SUCCEEDED',
@@ -887,7 +928,7 @@ export const data: DomainResolvers = {
       },
       {
         id: 'snap-grafana-1',
-        volume: 's-platform_grafana',
+        volume: 'platform_grafana',
         targetId: tNode.id,
         targetName: tNode.name,
         status: 'SUCCEEDED',
@@ -899,7 +940,7 @@ export const data: DomainResolvers = {
       },
       {
         id: 'snap-pg-running',
-        volume: 's-data_postgres',
+        volume: 'data_postgres',
         targetId: tS3.id,
         targetName: tS3.name,
         status: 'RUNNING',
@@ -911,7 +952,7 @@ export const data: DomainResolvers = {
       },
       {
         id: 'snap-checkout-failed',
-        volume: 's-store_checkout',
+        volume: 'storefront_checkout',
         targetId: tS3.id,
         targetName: tS3.name,
         status: 'FAILED',
@@ -927,7 +968,7 @@ export const data: DomainResolvers = {
       {
         id: 'sch-pg',
         targetId: tS3.id,
-        volume: 's-data_postgres',
+        volume: 'data_postgres',
         nodeId: 'n-wkr-1',
         every: 6,
         unit: 'hours',
@@ -939,7 +980,7 @@ export const data: DomainResolvers = {
       {
         id: 'sch-redis',
         targetId: tS3.id,
-        volume: 's-data_redis',
+        volume: 'data_redis',
         nodeId: null,
         every: 1,
         unit: 'days',
@@ -951,7 +992,7 @@ export const data: DomainResolvers = {
       {
         id: 'sch-grafana',
         targetId: tNode.id,
-        volume: 's-platform_grafana',
+        volume: 'platform_grafana',
         nodeId: 'n-mgr-2',
         every: 12,
         unit: 'hours',
@@ -966,7 +1007,7 @@ export const data: DomainResolvers = {
       {
         id: 'rop-1',
         snapshotId: 'snap-redis-1',
-        targetVolume: 's-data_redis',
+        targetVolume: 'data_redis',
         targetNodeId: 'n-wkr-2',
         status: 'SUCCEEDED',
         reason: 'node n-wkr-3 unreachable past grace window',

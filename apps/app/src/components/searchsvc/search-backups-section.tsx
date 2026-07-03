@@ -2,7 +2,19 @@ import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArchiveIcon, RotateCcwIcon } from 'lucide-react';
 import type { SearchInstanceView } from '@swarmy/core';
-import { Button, toast } from '@swarmy/ui';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Button,
+  toast,
+} from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { bytes, relTime } from '@/lib/format';
 
@@ -75,22 +87,27 @@ export function SearchBackupsSection({ view }: { view: SearchInstanceView }): Re
                   {b.sizeBytes ? ` · ${bytes(Number(b.sizeBytes))}` : ''}
                 </p>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={restore.isPending}
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      `Restore snapshot ${b.id.slice(0, 8)}? The engine restarts and current data is replaced.`,
-                    )
-                  ) {
-                    restore.mutate({ ...ref, snapshotId: b.id });
-                  }
-                }}
-              >
-                <RotateCcwIcon className="size-3.5" /> Restore
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button size="sm" variant="outline" disabled={restore.isPending}>
+                    <RotateCcwIcon className="size-3.5" /> Restore
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Restore snapshot {b.id.slice(0, 8)}?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      The engine restarts and its current data is replaced with this snapshot.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => restore.mutate({ ...ref, snapshotId: b.id })}>
+                      Restore
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           ))}
         </div>

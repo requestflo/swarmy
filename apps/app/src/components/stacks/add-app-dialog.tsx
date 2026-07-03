@@ -1,15 +1,11 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { PlusIcon } from 'lucide-react';
+import { PlusIcon, XIcon } from 'lucide-react';
 import {
   Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
   Input,
   Label,
   toast,
@@ -40,12 +36,18 @@ function parsePorts(raw: string): { target: number; published?: number; protocol
     .filter((p) => Number.isFinite(p.target) && p.target > 0);
 }
 
+interface AddAppDialogProps {
+  stack: string;
+  /** Trigger label — the settings tab says "Add a service". */
+  label?: string;
+}
+
 /**
- * Contextual deploy: drop a single app straight into the stack the canvas is
- * scoped to. Owns the `stacks.addServiceToStack` mutation; the new service is
- * stamped into the `<stack>` namespace so it joins the same Project frame.
+ * Contextual deploy as an INLINE expanding card (no modal): drop a single app
+ * straight into an existing stack. Owns the `stacks.addServiceToStack`
+ * mutation; the new service is stamped into the `<stack>` namespace.
  */
-export function AddAppDialog({ stack }: { stack: string }): React.JSX.Element {
+export function AddAppDialog({ stack, label = 'Add app' }: AddAppDialogProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const [open, setOpen] = React.useState(false);
@@ -69,7 +71,7 @@ export function AddAppDialog({ stack }: { stack: string }): React.JSX.Element {
     }),
   );
 
-  const submit = () =>
+  const submit = (): void =>
     add.mutate({
       stack,
       name,
@@ -79,75 +81,47 @@ export function AddAppDialog({ stack }: { stack: string }): React.JSX.Element {
     });
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
         <Button variant="outline" className="gap-2">
-          <PlusIcon className="size-4" /> Add app
+          {open ? <XIcon className="size-4" /> : <PlusIcon className="size-4" />}
+          {open ? 'Close' : label}
         </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Add app to {stack}</DialogTitle>
-          <DialogDescription>
-            Deploy one service into this stack — it&apos;s stamped into the{' '}
-            <span className="mono-data">{stack}</span> namespace.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3">
-          <div className="grid gap-1.5">
-            <Label htmlFor="add-app-name" className="mono-label">
-              Name
-            </Label>
-            <Input
-              id="add-app-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="cache"
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="add-app-image" className="mono-label">
-              Image
-            </Label>
-            <Input
-              id="add-app-image"
-              value={image}
-              onChange={(e) => setImage(e.target.value)}
-              placeholder="redis:7"
-            />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="card-pop mt-2 w-full max-w-md space-y-3 p-4 text-left">
+          <div>
+            <p className="text-sm font-semibold">Add a service to {stack}</p>
+            <p className="text-muted-foreground text-xs">
+              Deploys one service stamped into the <span className="mono-data">{stack}</span>{' '}
+              namespace.
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label htmlFor="add-app-ports" className="mono-label">
-                Ports
-              </Label>
-              <Input
-                id="add-app-ports"
-                value={ports}
-                onChange={(e) => setPorts(e.target.value)}
-                placeholder="8080:80"
-              />
+              <Label htmlFor="add-app-name" className="mono-label">Name</Label>
+              <Input id="add-app-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="cache" />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="add-app-replicas" className="mono-label">
-                Replicas
-              </Label>
-              <Input
-                id="add-app-replicas"
-                type="number"
-                min={1}
-                value={replicas}
-                onChange={(e) => setReplicas(e.target.value)}
-              />
+              <Label htmlFor="add-app-image" className="mono-label">Image</Label>
+              <Input id="add-app-image" value={image} onChange={(e) => setImage(e.target.value)} placeholder="redis:7" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="add-app-ports" className="mono-label">Ports</Label>
+              <Input id="add-app-ports" value={ports} onChange={(e) => setPorts(e.target.value)} placeholder="8080:80" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="add-app-replicas" className="mono-label">Replicas</Label>
+              <Input id="add-app-replicas" type="number" min={1} value={replicas} onChange={(e) => setReplicas(e.target.value)} />
             </div>
           </div>
+          <div className="flex justify-end">
+            <Button variant="secondary" size="sm" onClick={submit} disabled={add.isPending || !name || !image}>
+              {add.isPending ? 'Adding…' : 'Add service'}
+            </Button>
+          </div>
         </div>
-        <DialogFooter>
-          <Button onClick={submit} disabled={add.isPending || !name || !image}>
-            Add app
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

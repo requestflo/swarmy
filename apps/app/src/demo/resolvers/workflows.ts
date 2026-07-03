@@ -36,8 +36,11 @@ interface DemoRun {
   approvalPrompt: string | null;
 }
 
+/** `WorkflowDefView` + the stack-scoped IA field (mirrors workflows.service.ts). */
+type WfDefSeed = WorkflowDefView & { stackName: string | null };
+
 interface WfState {
-  defs: WorkflowDefView[];
+  defs: WfDefSeed[];
   runs: DemoRun[];
 }
 
@@ -96,24 +99,31 @@ function inputToView(steps: WorkflowStepInput[]): WorkflowStepView[] {
 
 export const workflows: DomainResolvers = {
   handlers: {
-    'workflows.overview': (_i, s): WorkflowsOverview => {
+    'workflows.overview': (i, s): WorkflowsOverview => {
+      const { stack } = (i ?? {}) as { stack?: string };
       const st = getState(s);
+      const defs = st.defs.filter((d) => (stack ? d.stackName === stack : true));
+      const defNames = new Set(defs.map((d) => d.name));
+      const runs = st.runs.filter((r) => defNames.has(r.defName));
       const since = Date.now() - 24 * 3_600_000;
-      const finished = st.runs.filter((r) => r.finishedAt && new Date(r.finishedAt).getTime() >= since);
+      const finished = runs.filter((r) => r.finishedAt && new Date(r.finishedAt).getTime() >= since);
       return {
-        defs: st.defs.length,
-        enabled: st.defs.filter((d) => d.enabled).length,
-        running: st.runs.filter((r) => r.status === 'running').length,
-        waitingApproval: st.runs.filter((r) => r.status === 'waiting-approval').length,
+        defs: defs.length,
+        enabled: defs.filter((d) => d.enabled).length,
+        running: runs.filter((r) => r.status === 'running').length,
+        waitingApproval: runs.filter((r) => r.status === 'waiting-approval').length,
         succeeded24h: finished.filter((r) => r.status === 'succeeded').length,
         failed24h: finished.filter((r) => r.status === 'failed').length,
       };
     },
 
-    'workflows.defs': (_i, s): WorkflowDefView[] => {
+    'workflows.defs': (i, s): WorkflowDefView[] => {
+      const { stack } = (i ?? {}) as { stack?: string };
       const st = getState(s);
       refreshLastRun(st);
-      return [...st.defs].sort((a, b) => (a.name < b.name ? -1 : 1));
+      return [...st.defs]
+        .filter((d) => (stack ? d.stackName === stack : true))
+        .sort((a, b) => (a.name < b.name ? -1 : 1));
     },
 
     'workflows.versions': (i, s): WorkflowDefVersionView[] => {
@@ -134,9 +144,14 @@ export const workflows: DomainResolvers = {
     },
 
     'workflows.runs': (i, s): WorkflowRunsPage => {
-      const { defName, limit = 25 } = (i as { defName?: string; limit?: number } | undefined) ?? {};
+      const { defName, stack, limit = 25 } =
+        (i as { defName?: string; stack?: string; limit?: number } | undefined) ?? {};
       const st = getState(s);
+      const stackDefNames = stack
+        ? new Set(st.defs.filter((d) => d.stackName === stack).map((d) => d.name))
+        : null;
       const rows = st.runs
+        .filter((r) => (stackDefNames ? stackDefNames.has(r.defName) : true))
         .filter((r) => !defName || r.defName === defName)
         .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))
         .slice(0, limit);
@@ -151,12 +166,13 @@ export const workflows: DomainResolvers = {
     },
 
     'workflows.create': (i, s): WorkflowDefView => {
-      const b = i as { name: string; steps: WorkflowStepInput[]; enabled?: boolean };
+      const b = i as { name: string; steps: WorkflowStepInput[]; enabled?: boolean; stackName?: string };
       const st = getState(s);
       if (st.defs.some((d) => d.name === b.name)) throw new Error(`a workflow named "${b.name}" already exists`);
-      const def: WorkflowDefView = {
+      const def: WfDefSeed = {
         id: `wfd-${b.name}`,
         name: b.name,
+        stackName: b.stackName ?? null,
         version: 1,
         versions: 1,
         enabled: b.enabled ?? true,
@@ -171,13 +187,14 @@ export const workflows: DomainResolvers = {
     },
 
     'workflows.update': (i, s): WorkflowDefView => {
-      const b = i as { name: string; steps: WorkflowStepInput[]; enabled?: boolean };
+      const b = i as { name: string; steps: WorkflowStepInput[]; enabled?: boolean; stackName?: string };
       const def = getState(s).defs.find((d) => d.name === b.name);
       if (!def) throw new Error(`workflow "${b.name}" not found`);
       def.version += 1;
       def.versions += 1;
       def.steps = inputToView(b.steps);
       if (b.enabled !== undefined) def.enabled = b.enabled;
+      if (b.stackName !== undefined) def.stackName = b.stackName;
       def.updatedAt = nowIso();
       return def;
     },
@@ -324,10 +341,11 @@ export const workflows: DomainResolvers = {
       { name: 'cool-down', kind: 'delay', config: { seconds: 300 }, timeoutMs: null, retries: null },
     ];
 
-    const defs: WorkflowDefView[] = [
+    const defs: WfDefSeed[] = [
       {
         id: 'wfd-document-pipeline',
         name: 'document-pipeline',
+        stackName: 'platform',
         version: 3,
         versions: 3,
         enabled: true,
@@ -340,6 +358,7 @@ export const workflows: DomainResolvers = {
       {
         id: 'wfd-nightly-cleanup',
         name: 'nightly-cleanup',
+        stackName: 'storefront',
         version: 1,
         versions: 1,
         enabled: true,

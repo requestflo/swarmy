@@ -28,6 +28,7 @@
 import { prisma } from '@swarmy/db';
 import type { SwarmServiceInfo, ContainerInfo } from '@swarmy/core/protocol';
 import { hub } from '../gateway';
+import { normalizeHeadersJson, renderInboundTemplate } from '../inbound-template';
 
 const TICK_MS = 10_000;
 /** Max deliveries handled per tick (fairness / backpressure). */
@@ -180,6 +181,8 @@ interface EndpointRow {
   slug: string;
   targetJson: unknown;
   retentionDays: number;
+  /** Handlebars-style body transform applied before delivery; null = pass-through. */
+  transformTemplate: string | null;
 }
 
 interface DeliveryRow {
@@ -299,8 +302,24 @@ async function deliverOne(row: DeliveryRow): Promise<void> {
     });
     return;
   }
+  // Body transform: the endpoint's template reshapes what the target receives
+  // ({{body}}, {{headers.x}}, {{json.path}}, {{slug}}, {{deliveryId}}). The
+  // stored delivery keeps the ORIGINAL body — replays re-run the transform.
+  const effective: DeliveryRow = row.endpoint.transformTemplate
+    ? {
+        ...row,
+        bodyText: renderInboundTemplate(row.endpoint.transformTemplate, {
+          body: row.bodyText,
+          headers: normalizeHeadersJson(row.headersJson),
+          slug: row.endpoint.slug,
+          deliveryId: row.id,
+        }),
+      }
+    : row;
   const error =
-    target.kind === 'queue' ? await deliverToQueue(row, target) : await deliverToForward(row, target);
+    target.kind === 'queue'
+      ? await deliverToQueue(effective, target)
+      : await deliverToForward(effective, target);
   if (error === null) await markDelivered(row.id, attempts);
   else await markFailed(row.id, attempts, error);
 }
@@ -312,7 +331,9 @@ async function runDue(): Promise<void> {
   const due = (await prisma.inboundDelivery.findMany({
     where: { status: 'PENDING', nextAttemptAt: { lte: now } },
     include: {
-      endpoint: { select: { id: true, slug: true, targetJson: true, retentionDays: true } },
+      endpoint: {
+        select: { id: true, slug: true, targetJson: true, retentionDays: true, transformTemplate: true },
+      },
     },
     orderBy: { nextAttemptAt: 'asc' },
     take: BATCH,

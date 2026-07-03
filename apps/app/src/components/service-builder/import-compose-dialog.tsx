@@ -1,14 +1,10 @@
 import * as React from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { AlertTriangleIcon, InfoIcon } from 'lucide-react';
+import { AlertTriangleIcon, FileInputIcon, InfoIcon } from 'lucide-react';
 import {
   Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Collapsible,
+  CollapsibleContent,
   Textarea,
   cn,
   toast,
@@ -33,7 +29,13 @@ const EXAMPLE = `services:
       - TZ=UTC
 `;
 
-/** Paste compose -> live parse -> diff/warnings -> import the first service. */
+/**
+ * Paste compose -> live parse -> diff/warnings -> import the first service.
+ *
+ * Renders as an inline expanding section (never a modal) controlled by the
+ * page's `open` state — the name is kept for the existing call site, which
+ * still toggles it from the page header's "Import compose" button.
+ */
 export function ImportComposeDialog({
   open,
   onOpenChange,
@@ -61,30 +63,37 @@ export function ImportComposeDialog({
   );
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Import from compose</DialogTitle>
-          <DialogDescription>
-            Paste a docker-compose file. We map what Swarm supports and preserve the rest.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3">
+    <Collapsible open={open} onOpenChange={onOpenChange} className="mb-4">
+      <CollapsibleContent>
+        <section className="card-pop grid gap-3 p-5">
+          <div className="flex items-center gap-2">
+            <span className="bg-primary/10 text-primary flex size-8 shrink-0 items-center justify-center rounded-lg">
+              <FileInputIcon className="size-4" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold">Import from compose</p>
+              <p className="text-muted-foreground text-xs">
+                Paste a docker-compose file. We map what Swarm supports and preserve the rest.
+              </p>
+            </div>
+          </div>
           <Textarea
             className="h-56 font-mono text-xs"
             value={source}
             onChange={(e) => setSource(e.target.value)}
           />
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => parse.mutate({ source })}
-            disabled={parse.isPending}
-          >
-            Preview
-          </Button>
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => parse.mutate({ source })}
+              disabled={parse.isPending}
+            >
+              Preview
+            </Button>
+          </div>
           {models.length > 0 && (
-            <div className="grid gap-2">
+            <div className="border-border grid gap-2 rounded-xl border px-3 py-2.5">
               <p className="mono-label">
                 {models.length} service{models.length === 1 ? '' : 's'} found — importing{' '}
                 <span className="font-mono">{models[0]?.name}</span>
@@ -113,24 +122,27 @@ export function ImportComposeDialog({
               )}
             </div>
           )}
-        </div>
-        <DialogFooter>
-          <Button
-            type="button"
-            disabled={models.length === 0}
-            onClick={() => {
-              const first = models[0];
-              if (first) {
-                onImport(first);
-                onOpenChange(false);
-                toast.success(`Imported ${first.name}`);
-              }
-            }}
-          >
-            Import
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
+            <Button
+              type="button"
+              disabled={models.length === 0}
+              onClick={() => {
+                const first = models[0];
+                if (first) {
+                  onImport(first);
+                  onOpenChange(false);
+                  toast.success(`Imported ${first.name}`);
+                }
+              }}
+            >
+              Import
+            </Button>
+          </div>
+        </section>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

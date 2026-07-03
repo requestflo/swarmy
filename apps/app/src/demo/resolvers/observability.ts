@@ -102,6 +102,22 @@ const METRICS = ['http.server.duration', 'system.cpu.utilization', 'system.memor
 /** Telemetry-emitting services in the demo cluster, by name (svc-* ids upstream). */
 const TELEMETRY_SERVICES = ['web', 'api', 'checkout', 'cdn-edge', 'worker'] as const;
 
+/** Demo stack → telemetry services (mirrors DEMO_STACKS / DEMO_SERVICES seeding). */
+const STACK_SERVICES: Record<string, readonly string[]> = {
+  storefront: ['web', 'api', 'checkout', 'cdn-edge'],
+  data: ['worker'],
+};
+
+/** The telemetry services in scope: one stack's, or the whole estate's. */
+function servicesFor(stack?: string): readonly string[] {
+  return stack ? (STACK_SERVICES[stack] ?? []) : TELEMETRY_SERVICES;
+}
+
+/** Predicate for stack-scoped row filters over `service_name` columns. */
+function inStack(stack: string | undefined, serviceName: string): boolean {
+  return !stack || servicesFor(stack).includes(serviceName);
+}
+
 /** Everything the observability surface owns in the demo store. */
 interface ObservabilityState {
   config: {
@@ -365,9 +381,16 @@ function round4(n: number): number {
   return Math.round(n * 10000) / 10000;
 }
 
-/** Per-minute series for the last `windowMinutes`, summed across services (or one). */
-function buildSeries(metric: string, windowMinutes: number, bucketSeconds: number, service?: string): MetricsPoint[] {
-  const services = service ? [service] : [...TELEMETRY_SERVICES];
+/** Per-minute series for the last `windowMinutes`, averaged across the scope. */
+function buildSeries(
+  metric: string,
+  windowMinutes: number,
+  bucketSeconds: number,
+  service?: string,
+  stack?: string,
+): MetricsPoint[] {
+  const services = service ? [service] : [...servicesFor(stack)];
+  if (services.length === 0) return [];
   const base = services.reduce((sum, s) => sum + metricBaseline(metric, s), 0) / services.length;
   const buckets = Math.max(1, Math.min(360, Math.floor((windowMinutes * 60) / bucketSeconds)));
   const points: MetricsPoint[] = [];
@@ -385,14 +408,7 @@ function buildSeries(metric: string, windowMinutes: number, bucketSeconds: numbe
 
 /** Per-service aggregate (avg/peak/samples) of a metric over the window. */
 function buildSummary(metric: string, windowMinutes: number, limit: number, stack?: string): MetricsSummaryRow[] {
-  // The demo cluster's telemetry services don't map 1:1 to stacks; if a stack
-  // filter is supplied we still return the relevant services (storefront → web,
-  // api, checkout, cdn-edge; data → worker), otherwise all.
-  const stackServices: Record<string, string[]> = {
-    storefront: ['web', 'api', 'checkout', 'cdn-edge'],
-    data: ['worker'],
-  };
-  const services = stack ? (stackServices[stack] ?? [...TELEMETRY_SERVICES]) : [...TELEMETRY_SERVICES];
+  const services = servicesFor(stack);
   const samplesPerMin = 60; // a sample per second
   const rows: MetricsSummaryRow[] = services.map((service) => {
     const avg = metricBaseline(metric, service);
@@ -473,6 +489,7 @@ export const observability: DomainResolvers = {
       const st = state(s);
       if (!st.config.enabled) return { status: 'disabled', traces: [] };
       let rows = st.traces;
+      if (q.stack) rows = rows.filter((t) => inStack(q.stack, t.service_name));
       if (q.service) rows = rows.filter((t) => t.service_name === q.service);
       if (q.errorsOnly) rows = rows.filter((t) => t.status_code !== STATUS_OK);
       if (q.minDurationMs && q.minDurationMs > 0) {
@@ -507,7 +524,7 @@ export const observability: DomainResolvers = {
         };
       const st = state(s);
       if (!st.config.enabled) return { status: 'disabled', points: [] };
-      const points = buildSeries(q.metric, q.windowMinutes ?? 60, q.bucketSeconds ?? 60, q.service);
+      const points = buildSeries(q.metric, q.windowMinutes ?? 60, q.bucketSeconds ?? 60, q.service, q.stack);
       return { status: 'ok', points };
     },
   },
@@ -647,6 +664,7 @@ observability.handlers!['observability.logs'] = (i, s): ObservabilityLogsPage =>
     (i as {
       from: number;
       to: number;
+      stack?: string;
       serviceName?: string;
       severityMin?: number;
       search?: string;
@@ -663,6 +681,7 @@ observability.handlers!['observability.logs'] = (i, s): ObservabilityLogsPage =>
     const ts = Number(r.ts_nano);
     return ts >= fromNano && ts <= toNano;
   });
+  if (q.stack) rows = rows.filter((r) => inStack(q.stack, r.service_name));
   if (q.serviceName) rows = rows.filter((r) => r.service_name === q.serviceName);
   if (q.severityMin !== undefined) rows = rows.filter((r) => r.severity_number >= (q.severityMin as number));
   if (q.search) {

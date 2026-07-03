@@ -165,6 +165,7 @@ interface JobRow {
   id: string;
   orgId: string;
   name: string;
+  stackName: string | null;
   schedule: string;
   kind: string;
   image: string | null;
@@ -179,6 +180,9 @@ interface JobRow {
   lastRunAt: Date | null;
   createdAt: Date;
 }
+
+/** `ScheduledJobView` + the stack-scoped IA field (local until core absorbs it). */
+export type ScheduledJobFullView = ScheduledJobView & { stackName: string | null };
 
 interface RunRow {
   id: string;
@@ -214,10 +218,11 @@ function nextRunAtOf(row: Pick<JobRow, 'schedule' | 'enabled'>, now: Date): Date
   }
 }
 
-function toView(row: JobRow, lastRunStatus: JobRunStatusView | null, now: Date): ScheduledJobView {
+function toView(row: JobRow, lastRunStatus: JobRunStatusView | null, now: Date): ScheduledJobFullView {
   return {
     id: row.id,
     name: row.name,
+    stackName: row.stackName,
     schedule: row.schedule,
     scheduleText: describeCron(row.schedule),
     kind: KIND_TO_VIEW[row.kind] ?? 'image',
@@ -254,13 +259,19 @@ async function latestRunStatus(ctx: OrgContext, jobId: string): Promise<JobRunSt
 
 // ── queries ──────────────────────────────────────────────────────────────────
 
-export async function overview(ctx: OrgContext): Promise<JobsOverview> {
+export async function overview(ctx: OrgContext, stack?: string): Promise<JobsOverview> {
   const now = new Date();
   const since = new Date(now.getTime() - 24 * 3_600_000);
   const [jobs, recent] = await Promise.all([
-    ctx.db.scheduledJob.findMany({ where: { orgId: ctx.activeOrgId } }),
+    ctx.db.scheduledJob.findMany({
+      where: { orgId: ctx.activeOrgId, ...(stack ? { stackName: stack } : {}) },
+    }),
     ctx.db.jobRun.findMany({
-      where: { orgId: ctx.activeOrgId, startedAt: { gte: since } },
+      where: {
+        orgId: ctx.activeOrgId,
+        startedAt: { gte: since },
+        ...(stack ? { job: { stackName: stack } } : {}),
+      },
       select: { status: true },
     }),
   ]);
@@ -283,10 +294,10 @@ export async function overview(ctx: OrgContext): Promise<JobsOverview> {
   };
 }
 
-export async function listJobs(ctx: OrgContext): Promise<ScheduledJobView[]> {
+export async function listJobs(ctx: OrgContext, stack?: string): Promise<ScheduledJobFullView[]> {
   const now = new Date();
   const rows = await ctx.db.scheduledJob.findMany({
-    where: { orgId: ctx.activeOrgId },
+    where: { orgId: ctx.activeOrgId, ...(stack ? { stackName: stack } : {}) },
     orderBy: { name: 'asc' },
   });
   // Latest run per job in one query (newest-first + distinct on jobId).
@@ -343,7 +354,10 @@ function assertValidConfig(fields: JobConfigFields): void {
   if (problems.length > 0) throw commandRejected(problems.join('; '));
 }
 
-export async function createJob(ctx: OrgContext, input: CreateScheduledJobInput): Promise<ScheduledJobView> {
+export async function createJob(
+  ctx: OrgContext,
+  input: CreateScheduledJobInput & { stackName?: string },
+): Promise<ScheduledJobFullView> {
   assertValidConfig(input);
   const existing = await ctx.db.scheduledJob.findFirst({
     where: { orgId: ctx.activeOrgId, name: input.name },
@@ -355,6 +369,7 @@ export async function createJob(ctx: OrgContext, input: CreateScheduledJobInput)
     data: {
       orgId: ctx.activeOrgId,
       name: input.name,
+      stackName: input.stackName ?? null,
       schedule: input.schedule,
       kind: KIND_TO_DB[input.kind],
       image: input.kind === 'image' ? (input.image ?? null) : null,
@@ -372,12 +387,20 @@ export async function createJob(ctx: OrgContext, input: CreateScheduledJobInput)
     action: 'job.create',
     targetType: 'scheduledJob',
     targetId: row.id,
-    metadata: { name: input.name, schedule: input.schedule, kind: input.kind },
+    metadata: {
+      name: input.name,
+      schedule: input.schedule,
+      kind: input.kind,
+      ...(input.stackName ? { stackName: input.stackName } : {}),
+    },
   });
   return toView(row, null, new Date());
 }
 
-export async function updateJob(ctx: OrgContext, input: UpdateScheduledJobInput): Promise<ScheduledJobView> {
+export async function updateJob(
+  ctx: OrgContext,
+  input: UpdateScheduledJobInput & { stackName?: string },
+): Promise<ScheduledJobFullView> {
   const row = await requireJob(ctx, input.id);
   const kind = input.kind ?? (KIND_TO_VIEW[row.kind] ?? 'image');
   assertValidConfig({
@@ -400,6 +423,7 @@ export async function updateJob(ctx: OrgContext, input: UpdateScheduledJobInput)
     where: { id: row.id },
     data: {
       ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.stackName !== undefined ? { stackName: input.stackName } : {}),
       ...(input.schedule !== undefined ? { schedule: input.schedule } : {}),
       ...(input.kind !== undefined ? { kind: KIND_TO_DB[input.kind] } : {}),
       ...(input.image !== undefined ? { image: input.image } : {}),

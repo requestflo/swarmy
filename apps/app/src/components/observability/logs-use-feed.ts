@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import type { LogRowView, ObservabilityLogsPage } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import {
@@ -9,6 +9,7 @@ import {
   rangePresetMs,
   type LogFilters,
 } from './logs-shared';
+import { useLogsOlderPages } from './logs-use-older-pages';
 
 export interface LogsFeed {
   rows: LogRowView[];
@@ -22,12 +23,16 @@ export interface LogsFeed {
 /**
  * The logs data feed: derives `[from, to]` from the range preset, re-anchors it
  * every 10s while `live` is on (the tick IS the poll — a new window is a new
- * query), and pages older rows via the `ts_nano` keyset cursor, capped at
- * {@link LOGS_ROW_CAP} rows.
+ * query), and pages older rows via {@link useLogsOlderPages}, capped at
+ * {@link LOGS_ROW_CAP} rows. An optional `stack` scopes every page server-side.
  */
-export function useLogsFeed(filters: LogFilters, live: boolean, enabled: boolean): LogsFeed {
+export function useLogsFeed(
+  filters: LogFilters,
+  live: boolean,
+  enabled: boolean,
+  stack?: string,
+): LogsFeed {
   const trpc = useTRPC();
-  const qc = useQueryClient();
 
   // Window anchor: frozen while paused, re-anchored on a 10s tick when live.
   const [anchor, setAnchor] = React.useState<number>(() => Date.now());
@@ -42,42 +47,30 @@ export function useLogsFeed(filters: LogFilters, live: boolean, enabled: boolean
     () => ({
       from: anchor - rangePresetMs(filters.range),
       to: anchor,
+      stack,
       serviceName: filters.serviceName,
       severityMin: filters.severityMin,
       search: filters.search.trim() || undefined,
       limit: LOGS_PAGE_SIZE,
     }),
-    [anchor, filters],
+    [anchor, filters, stack],
   );
 
   const head = useQuery({ ...trpc.observability.logs.queryOptions(input), enabled });
+  const headRows = head.data?.rows ?? [];
+  const older = useLogsOlderPages(input, head.data?.nextCursor, LOGS_ROW_CAP, headRows.length);
 
-  // Older pages accumulate below the head page until the cap; reset per window.
-  const [older, setOlder] = React.useState<LogRowView[]>([]);
-  const [olderCursor, setOlderCursor] = React.useState<string | null | undefined>(undefined);
-  const [loadingOlder, setLoadingOlder] = React.useState(false);
-  React.useEffect(() => {
-    setOlder([]);
-    setOlderCursor(undefined);
-  }, [input]);
+  const rows = React.useMemo(
+    () => [...headRows, ...older.rows].slice(0, LOGS_ROW_CAP),
+    [headRows, older.rows],
+  );
 
-  const headRows = React.useMemo(() => head.data?.rows ?? [], [head.data]);
-  const rows = React.useMemo(() => [...headRows, ...older].slice(0, LOGS_ROW_CAP), [headRows, older]);
-
-  const cursor = olderCursor === undefined ? (head.data?.nextCursor ?? null) : olderCursor;
-  const canLoadOlder = cursor !== null && rows.length < LOGS_ROW_CAP;
-
-  const loadOlder = React.useCallback(async (): Promise<void> => {
-    if (!cursor || loadingOlder) return;
-    setLoadingOlder(true);
-    try {
-      const page = await qc.fetchQuery(trpc.observability.logs.queryOptions({ ...input, cursor }));
-      setOlder((prev) => [...prev, ...page.rows]);
-      setOlderCursor(page.nextCursor);
-    } finally {
-      setLoadingOlder(false);
-    }
-  }, [cursor, loadingOlder, qc, trpc, input]);
-
-  return { rows, status: head.data?.status, isLoading: head.isLoading, canLoadOlder, loadingOlder, loadOlder };
+  return {
+    rows,
+    status: head.data?.status,
+    isLoading: head.isLoading,
+    canLoadOlder: older.canLoadMore,
+    loadingOlder: older.loading,
+    loadOlder: older.loadMore,
+  };
 }

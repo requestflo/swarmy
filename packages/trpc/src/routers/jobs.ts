@@ -19,16 +19,27 @@ import {
   updateJob,
 } from '../services/jobs.service';
 
+/** Optional stack scope for list/overview procedures (no input = org-wide). */
+const StackScopeInput = z.object({ stack: z.string().min(1).optional() }).optional();
+
+const stackNameField = z.string().min(1).max(63).optional();
+
 /**
  * Scheduled jobs (slice B2) — user cron firing one-shot containers
  * (`container.runOnce`) or service execs, with run history and output tails.
+ * Stack-scoped IA: list/overview take an optional `stack`; jobs carry a
+ * `stackName` home so the stack workspace Messaging tab can filter.
  */
 export const jobsRouter = router({
   /** Counts + the soonest upcoming run, for the Jobs page hero. */
-  overview: orgProcedure.query(({ ctx }) => overview(ctx)),
+  overview: orgProcedure
+    .input(StackScopeInput)
+    .query(({ ctx, input }) => overview(ctx, input?.stack)),
 
   /** Every job with schedule text, last-run status and next occurrence. */
-  list: orgProcedure.query(({ ctx }) => listJobs(ctx)),
+  list: orgProcedure
+    .input(StackScopeInput)
+    .query(({ ctx, input }) => listJobs(ctx, input?.stack)),
 
   /** Validate a cron + return its next occurrences (live editor preview). */
   previewSchedule: orgProcedure
@@ -40,12 +51,12 @@ export const jobsRouter = router({
 
   /** Create a job (cron validated server-side; audited). */
   create: orgProcedure
-    .input(CreateScheduledJobInput)
+    .input(CreateScheduledJobInput.extend({ stackName: stackNameField }))
     .mutation(({ ctx, input }) => createJob(ctx, input)),
 
   /** Update a job (merged config re-validated; audited). */
   update: orgProcedure
-    .input(UpdateScheduledJobInput)
+    .input(UpdateScheduledJobInput.extend({ stackName: stackNameField }))
     .mutation(({ ctx, input }) => updateJob(ctx, input)),
 
   /** Delete a job and its run history (audited). */

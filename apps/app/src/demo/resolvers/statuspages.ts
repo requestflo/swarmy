@@ -30,8 +30,11 @@ import type { DemoStore, DomainResolvers } from '../types';
 
 // ───────────────────────────────────────────── demo world ──
 
+/** Demo rows carry the stack link the real `StatusPage.stackName` column holds. */
+type StackedPage = StatusPageView & { stackName: string | null };
+
 interface StatusPagesState {
-  pages: StatusPageView[];
+  pages: StackedPage[];
   /** `${pageId}|${componentKey}` → 90 daily entries (oldest→newest). */
   uptime: Record<string, UptimeDayView[]>;
   /** `${pageId}|${componentKey}` → current status override. */
@@ -163,33 +166,46 @@ export const statuspages: DomainResolvers = {
       };
     },
 
-    'statusPages.list': (_i, s): StatusPageView[] => [...getState(s).pages],
+    'statusPages.list': (i, s): StatusPageView[] => {
+      const { stack } = (i as { stack?: string } | undefined) ?? {};
+      const pages = getState(s).pages;
+      return stack ? pages.filter((p) => p.stackName === stack) : [...pages];
+    },
 
-    'statusPages.componentOptions': (_i, s): StatusComponentOption[] => {
+    'statusPages.componentOptions': (i, s): StatusComponentOption[] => {
+      const { stack } = (i as { stack?: string } | undefined) ?? {};
+      const stackNameOf = (stackId: string | null): string | null =>
+        stackId ? (s.stacks.find((st) => st.id === stackId)?.name ?? stackId) : null;
       const options: StatusComponentOption[] = s.services
         .filter((svc) => !['postgres', 'redis'].includes(svc.name))
+        .filter((svc) => !stack || stackNameOf(svc.stackId) === stack)
         .map((svc) => ({
           kind: 'service' as const,
           ref: svc.name,
           label: svc.name,
-          hint: svc.stackId ? `stack ${s.stacks.find((st) => st.id === svc.stackId)?.name ?? svc.stackId}` : null,
+          hint: svc.stackId ? `stack ${stackNameOf(svc.stackId)}` : null,
         }));
-      options.push(
-        { kind: 'db', ref: 'main-db', label: 'main-db', hint: 'database · 3 members' },
-        { kind: 'cache', ref: 'sessions', label: 'sessions', hint: 'cache · 2 members' },
-      );
-      const regions = new Set<string>();
-      for (const n of s.nodes) {
-        const region = (n as { labels?: Record<string, string> }).labels?.['swarmy.region'];
-        if (region) regions.add(region);
+      // The managed clusters live in the `data` stack (postgres/redis members).
+      if (!stack || stack === 'data') {
+        options.push(
+          { kind: 'db', ref: 'main-db', label: 'main-db', hint: 'database · 3 members' },
+          { kind: 'cache', ref: 'sessions', label: 'sessions', hint: 'cache · 2 members' },
+        );
       }
-      for (const region of [...regions].sort()) {
-        const count = s.nodes.filter(
-          (n) => (n as { labels?: Record<string, string> }).labels?.['swarmy.region'] === region,
-        ).length;
-        options.push({ kind: 'region', ref: region, label: region, hint: `${count} node${count === 1 ? '' : 's'}` });
+      if (!stack) {
+        const regions = new Set<string>();
+        for (const n of s.nodes) {
+          const region = (n as { labels?: Record<string, string> }).labels?.['swarmy.region'];
+          if (region) regions.add(region);
+        }
+        for (const region of [...regions].sort()) {
+          const count = s.nodes.filter(
+            (n) => (n as { labels?: Record<string, string> }).labels?.['swarmy.region'] === region,
+          ).length;
+          options.push({ kind: 'region', ref: region, label: region, hint: `${count} node${count === 1 ? '' : 's'}` });
+        }
+        options.push({ kind: 'ingress', ref: 'swarmy-ingress-caddy', label: 'Ingress edge', hint: 'reverse proxy' });
       }
-      options.push({ kind: 'ingress', ref: 'swarmy-ingress-caddy', label: 'Ingress edge', hint: 'reverse proxy' });
       return options;
     },
 
@@ -201,16 +217,17 @@ export const statuspages: DomainResolvers = {
     },
 
     'statusPages.create': (i, s): StatusPageView => {
-      const input = i as CreateStatusPageInput;
+      const input = i as CreateStatusPageInput & { stackName?: string };
       const st = getState(s);
       if (st.pages.some((p) => p.slug === input.slug)) {
         throw new Error(`the slug "${input.slug}" is already taken — pick another`);
       }
-      const page: StatusPageView = {
+      const page: StackedPage = {
         id: rid('sp'),
         slug: input.slug,
         title: input.title,
         domain: input.domain?.toLowerCase() ?? null,
+        stackName: input.stackName ?? null,
         components: input.components ?? [],
         showUptime: input.showUptime ?? true,
         showIncidents: input.showIncidents ?? true,
@@ -224,7 +241,7 @@ export const statuspages: DomainResolvers = {
     },
 
     'statusPages.update': (i, s): StatusPageView => {
-      const input = i as UpdateStatusPageInput;
+      const input = i as UpdateStatusPageInput & { stackName?: string | null };
       const st = getState(s);
       const page = st.pages.find((p) => p.id === input.id);
       if (!page) throw new Error('status page not found');
@@ -237,6 +254,7 @@ export const statuspages: DomainResolvers = {
         page.publicPath = `/s/${input.slug}`;
       }
       if (input.domain !== undefined) page.domain = input.domain?.toLowerCase() ?? null;
+      if (input.stackName !== undefined) page.stackName = input.stackName;
       if (input.components !== undefined) page.components = input.components;
       if (input.showUptime !== undefined) page.showUptime = input.showUptime;
       if (input.showIncidents !== undefined) page.showIncidents = input.showIncidents;
@@ -264,11 +282,14 @@ export const statuspages: DomainResolvers = {
 
   seed: (store) => {
     const pageId = 'sp-requestflo';
-    const page: StatusPageView = {
+    // Attached to the seeded `storefront` stack so the stack workspace's
+    // Observability tab lists it (its components are storefront services).
+    const page: StackedPage = {
       id: pageId,
       slug: 'requestflo-status',
       title: 'RequestFlo',
       domain: 'status.requestflo.dev',
+      stackName: 'storefront',
       components: [
         { key: 'website', label: 'Website', kind: 'service', ref: 'web' },
         { key: 'api', label: 'API', kind: 'service', ref: 'api' },

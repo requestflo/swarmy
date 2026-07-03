@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   AttachQueueInput,
   QueueBatchInput,
@@ -19,17 +20,26 @@ import {
   updateQueue,
 } from '../services/queues.service';
 
+/** Optional stack scope for list/overview procedures (no input = org-wide). */
+const StackScopeInput = z.object({ stack: z.string().min(1).optional() }).optional();
+
 /**
  * Queues (slice B1) — queue defs in the `swarmy.queues` JSON label on the
  * worker service, depths via redis-cli exec on the backing cache primary,
  * autoscaling by the queue-reconcile worker, DLQ browse/requeue actions.
+ * Stack-scoped IA: list/overview take an optional `stack`, filtered by the
+ * queue's backing worker service's stack.
  */
 export const queuesRouter = router({
-  /** Aggregates for the Queues page hero. */
-  overview: orgProcedure.query(({ ctx }) => queuesOverview(ctx)),
+  /** Aggregates for the Queues page hero (optionally one stack's). */
+  overview: orgProcedure
+    .input(StackScopeInput)
+    .query(({ ctx, input }) => queuesOverview(ctx, input?.stack)),
 
   /** Every queue in the org (inventory scan + last stamped stats). */
-  list: orgProcedure.query(({ ctx }) => listQueues(ctx)),
+  list: orgProcedure
+    .input(StackScopeInput)
+    .query(({ ctx, input }) => listQueues(ctx, input?.stack)),
 
   /** Attach a queue to a worker service (label write). */
   attach: orgProcedure.input(AttachQueueInput).mutation(({ ctx, input }) => attachQueue(ctx, input)),

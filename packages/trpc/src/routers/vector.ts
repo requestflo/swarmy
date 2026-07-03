@@ -18,6 +18,8 @@ const instanceRef = z.object({
   name: z.string().min(1).max(40),
 });
 
+const listInput = z.object({ stack: z.string().min(1).max(63).optional() }).optional();
+
 /**
  * Vector store (slice F5) — managed qdrant instances (Docker-truth via
  * `swarmy.vector.*` labels, API key in a Docker secret) plus pgvector
@@ -29,8 +31,10 @@ export const vectorStoreRouter = router({
     .input(ProvisionVectorInput)
     .mutation(({ ctx, input }) => provisionVector(ctx, input)),
 
-  /** Every managed qdrant instance in the org (the Data → Vector list). */
-  list: orgProcedure.query(({ ctx }) => listVectorInstances(ctx)),
+  /** Managed qdrant instances — the whole org, or one stack when `stack` is given. */
+  list: orgProcedure
+    .input(listInput)
+    .query(({ ctx, input }) => listVectorInstances(ctx, input?.stack)),
 
   /** One instance's view, read straight off the labels. */
   get: orgProcedure.input(instanceRef).query(({ ctx, input }) => getVectorInstance(ctx, input)),
@@ -53,8 +57,10 @@ export const vectorStoreRouter = router({
   /** Live collections sample (falls back to the reconcile stamp). */
   stats: orgProcedure.input(instanceRef).query(({ ctx, input }) => vectorStats(ctx, input)),
 
-  /** Managed Postgres clusters + their pgvector state (enablement card). */
-  pgvector: orgProcedure.query(({ ctx }) => listPgvectorClusters(ctx)),
+  /** Managed Postgres clusters + their pgvector state (enablement rows). */
+  pgvector: orgProcedure
+    .input(listInput)
+    .query(({ ctx, input }) => listPgvectorClusters(ctx, input?.stack)),
 
   /** `CREATE EXTENSION IF NOT EXISTS vector` on a cluster primary + stamp. */
   enablePgvector: orgProcedure

@@ -7,6 +7,7 @@
  * its writers remove the label entirely (see ingress.service `removeDomain`).
  */
 import { buildInventory } from '@swarmy/core';
+import { RouteProtectionSchema, type RouteProtection } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
 
 /** The one label that carries a service's ingress routes (JSON-string array). */
@@ -40,12 +41,16 @@ export interface Route {
   driver?: string;
   /** Weighted canary upstream (slice D2); absent = 100% stable. */
   canary?: RouteCanary;
+  /** Edge protections (rate limit, IP rules, body cap, bots, required headers). */
+  protection?: RouteProtection;
 }
 
 /** A route together with the live Docker service carrying it. */
 export interface ServiceRoute {
   serviceId: string;
   serviceName: string;
+  /** Docker stack the owning service belongs to (`com.docker.stack.namespace`), UNGROUPED when standalone. */
+  stack: string;
   route: Route;
 }
 
@@ -69,7 +74,45 @@ function coerceRoute(value: unknown): Route | undefined {
   if (typeof v.driver === 'string') route.driver = v.driver;
   const canary = coerceCanary(v.canary);
   if (canary) route.canary = canary;
+  const protection = coerceProtection(v.protection);
+  if (protection) route.protection = protection;
   return route;
+}
+
+/**
+ * Coerce a route's `protection` fragment via the shared schema, or drop it if
+ * unusable (tolerant — a bad fragment never breaks the whole label). The result
+ * is compacted so a semantically-empty object collapses to `undefined` and the
+ * serialized label stays minimal.
+ */
+function coerceProtection(value: unknown): RouteProtection | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const parsed = RouteProtectionSchema.safeParse(value);
+  if (!parsed.success) return undefined;
+  return compactProtection(parsed.data);
+}
+
+/**
+ * Drop no-op protection fields (empty arrays, false flags) so labels only carry
+ * what is actually enforced; an all-default object collapses to `undefined`.
+ */
+export function compactProtection(p: RouteProtection): RouteProtection | undefined {
+  const out: RouteProtection = {
+    ipAllow: p.ipAllow ?? [],
+    ipDeny: p.ipDeny ?? [],
+    blockBots: p.blockBots ?? false,
+    requiredHeaders: p.requiredHeaders ?? [],
+  };
+  if (p.rateLimit) out.rateLimit = p.rateLimit;
+  if (p.bodyMaxSize) out.bodyMaxSize = p.bodyMaxSize;
+  const active =
+    out.rateLimit !== undefined ||
+    out.ipAllow.length > 0 ||
+    out.ipDeny.length > 0 ||
+    out.bodyMaxSize !== undefined ||
+    out.blockBots ||
+    out.requiredHeaders.length > 0;
+  return active ? out : undefined;
 }
 
 /** Coerce a route's `canary` fragment, or drop it if unusable (tolerant). */
@@ -124,7 +167,7 @@ export function listRoutesForOrg(ctx: OrgContext): ServiceRoute[] {
   const out: ServiceRoute[] = [];
   for (const s of buildInventory(services, containers).services) {
     for (const route of readRoutes(s.labels)) {
-      out.push({ serviceId: s.id, serviceName: s.name, route });
+      out.push({ serviceId: s.id, serviceName: s.name, stack: s.stack, route });
     }
   }
   return out;

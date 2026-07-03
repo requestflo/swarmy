@@ -227,8 +227,9 @@ function likeTerm(term: string): string {
  *  - Always `swarmy_org_id`-scoped (first predicate, non-negotiable).
  *  - Closed `[from, to]` window in unix **milliseconds** — inlined as integers,
  *    never as strings, so the window can't carry an injection.
- *  - Optional filters: exact service, severity-number floor, body ILIKE
- *    substring, exact trace id — every string routed through `lit()`.
+ *  - Optional filters: exact stack (`ResourceAttributes['swarmy.stack']`,
+ *    mirroring `buildTracesQuery`), exact service, severity-number floor, body
+ *    ILIKE substring, exact trace id — every string routed through `lit()`.
  *  - Descending by Timestamp; keyset pagination via a nanosecond `ts_nano`
  *    cursor (digits-only or ignored) — page N+1 is `ts_nano < cursor`.
  */
@@ -242,6 +243,7 @@ export function buildLogsQuery(orgId: string, q: ObservabilityLogsInput): string
     `Timestamp >= fromUnixTimestamp64Milli(${from})`,
     `Timestamp <= fromUnixTimestamp64Milli(${to})`,
   ];
+  if (q.stack) where.push(`ResourceAttributes['swarmy.stack'] = ${lit(q.stack)}`);
   if (q.serviceName) where.push(`ServiceName = ${lit(q.serviceName)}`);
   if (q.severityMin !== undefined) {
     where.push(`SeverityNumber >= ${clampInt(q.severityMin, 9, 1, 24)}`);

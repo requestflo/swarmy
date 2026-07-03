@@ -226,13 +226,44 @@ interface EndpointRow {
   orgId: string;
   name: string;
   slug: string;
+  stackName: string | null;
+  domain: string | null;
   verifyKind: string;
   verifySecretEnc: string | null;
   targetKind: string;
   targetJson: unknown;
+  transformTemplate: string | null;
+  responseTemplate: string | null;
   retentionDays: number;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** Extra create/update fields riding next to the core inputs. */
+export interface EndpointTemplateFields {
+  stackName?: string;
+  domain?: string;
+  transformTemplate?: string;
+  responseTemplate?: string;
+}
+
+const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
+
+/** '' clears; otherwise a bare lowercase hostname (unit of the CNAME hint). */
+export function normalizeEndpointDomain(input: string | undefined): string | null | undefined {
+  if (input === undefined) return undefined;
+  const domain = input.trim().toLowerCase().replace(/\.$/, '');
+  if (domain === '') return null;
+  if (domain.length > 253 || !DOMAIN_RE.test(domain)) {
+    throw commandRejected(`"${input}" is not a valid hostname — try hooks.example.com`);
+  }
+  return domain;
+}
+
+/** '' clears a stored template; whitespace-only counts as empty. */
+export function normalizeTemplate(input: string | undefined): string | null | undefined {
+  if (input === undefined) return undefined;
+  return input.trim() === '' ? null : input;
 }
 
 interface DeliveryRow {
@@ -261,10 +292,14 @@ function toEndpointView(
     id: row.id,
     name: row.name,
     slug: row.slug,
+    stackName: row.stackName,
+    domain: row.domain,
     url: publicHookUrl(CONTROLLER_PUBLIC_URL, row.orgId, row.slug),
     verifyKind: verifyKindFromDb(row.verifyKind),
     hasSecret: Boolean(row.verifySecretEnc),
     target,
+    transformTemplate: row.transformTemplate,
+    responseTemplate: row.responseTemplate,
     retentionDays: row.retentionDays,
     deliveries24h: stats.deliveries24h,
     lastDeliveryAt: stats.lastDeliveryAt ? stats.lastDeliveryAt.toISOString() : null,
@@ -307,27 +342,31 @@ export function parseHeadersJson(json: unknown): Record<string, string> {
 
 // ── Overview + endpoint CRUD ──────────────────────────────────────────────────
 
-/** Aggregates for the Webhooks page hero. */
-export async function overview(ctx: OrgContext): Promise<InboundWebhooksOverview> {
+/** Aggregates for the Webhooks hero (optionally one stack's endpoints). */
+export async function overview(ctx: OrgContext, stack?: string): Promise<InboundWebhooksOverview> {
   const orgId = ctx.activeOrgId;
   const since = new Date(Date.now() - 24 * 3_600_000);
+  const scope = stack ? { endpoint: { stackName: stack } } : {};
   const [endpoints, deliveries24h, failed24h, pending, dead] = await Promise.all([
-    ctx.db.inboundEndpoint.count({ where: { orgId } }),
-    ctx.db.inboundDelivery.count({ where: { orgId, receivedAt: { gte: since } } }),
+    ctx.db.inboundEndpoint.count({ where: { orgId, ...(stack ? { stackName: stack } : {}) } }),
+    ctx.db.inboundDelivery.count({ where: { orgId, receivedAt: { gte: since }, ...scope } }),
     ctx.db.inboundDelivery.count({
-      where: { orgId, receivedAt: { gte: since }, status: { in: ['FAILED', 'DEAD'] } },
+      where: { orgId, receivedAt: { gte: since }, status: { in: ['FAILED', 'DEAD'] }, ...scope },
     }),
-    ctx.db.inboundDelivery.count({ where: { orgId, status: 'PENDING' } }),
-    ctx.db.inboundDelivery.count({ where: { orgId, status: 'DEAD' } }),
+    ctx.db.inboundDelivery.count({ where: { orgId, status: 'PENDING', ...scope } }),
+    ctx.db.inboundDelivery.count({ where: { orgId, status: 'DEAD', ...scope } }),
   ]);
   return { endpoints, deliveries24h, failed24h, pending, dead };
 }
 
-export async function listEndpoints(ctx: OrgContext): Promise<InboundEndpointView[]> {
+export async function listEndpoints(ctx: OrgContext, stack?: string): Promise<InboundEndpointView[]> {
   const orgId = ctx.activeOrgId;
   const since = new Date(Date.now() - 24 * 3_600_000);
   const [rows, counts, lasts] = await Promise.all([
-    ctx.db.inboundEndpoint.findMany({ where: { orgId }, orderBy: { createdAt: 'desc' } }),
+    ctx.db.inboundEndpoint.findMany({
+      where: { orgId, ...(stack ? { stackName: stack } : {}) },
+      orderBy: { createdAt: 'desc' },
+    }),
     ctx.db.inboundDelivery.groupBy({
       by: ['endpointId'],
       where: { orgId, receivedAt: { gte: since } },
@@ -357,7 +396,7 @@ function requireSecretRule(kind: InboundVerifyKindView, hasSecret: boolean): voi
 
 export async function createEndpoint(
   ctx: OrgContext,
-  input: CreateInboundEndpointInput,
+  input: CreateInboundEndpointInput & EndpointTemplateFields,
 ): Promise<InboundEndpointView> {
   requireSecretRule(input.verifyKind, Boolean(input.secret));
   const existing = await ctx.db.inboundEndpoint.findFirst({
@@ -365,17 +404,22 @@ export async function createEndpoint(
     select: { id: true },
   });
   if (existing) throw commandRejected(`slug "${input.slug}" is already taken in this org`);
+  const domain = normalizeEndpointDomain(input.domain) ?? null;
 
   const row = await ctx.db.inboundEndpoint.create({
     data: {
       orgId: ctx.activeOrgId,
       name: input.name,
       slug: input.slug,
+      stackName: input.stackName ?? null,
+      domain,
       verifyKind: VERIFY_TO_DB[input.verifyKind],
       verifySecretEnc:
         input.verifyKind !== 'none' && input.secret ? encryptSecret(input.secret) : null,
       targetKind: input.target.kind === 'queue' ? 'QUEUE' : 'FORWARD',
       targetJson: input.target as object,
+      transformTemplate: normalizeTemplate(input.transformTemplate) ?? null,
+      responseTemplate: normalizeTemplate(input.responseTemplate) ?? null,
       retentionDays: input.retentionDays,
     },
   });
@@ -386,9 +430,12 @@ export async function createEndpoint(
     metadata: {
       name: input.name,
       slug: input.slug,
+      ...(input.stackName ? { stackName: input.stackName } : {}),
+      ...(domain ? { domain } : {}),
       verifyKind: input.verifyKind,
       target: input.target,
       retentionDays: input.retentionDays,
+      templated: Boolean(row.transformTemplate ?? row.responseTemplate),
     },
   });
   return toEndpointView(row, { deliveries24h: 0, lastDeliveryAt: null });
@@ -396,7 +443,7 @@ export async function createEndpoint(
 
 export async function updateEndpoint(
   ctx: OrgContext,
-  input: UpdateInboundEndpointInput,
+  input: UpdateInboundEndpointInput & Omit<EndpointTemplateFields, 'stackName'>,
 ): Promise<InboundEndpointView> {
   const row = await ctx.db.inboundEndpoint.findFirst({
     where: { id: input.id, orgId: ctx.activeOrgId },
@@ -407,6 +454,7 @@ export async function updateEndpoint(
   const nextHasSecret =
     nextKind === 'none' ? false : Boolean(input.secret) || Boolean(row.verifySecretEnc);
   requireSecretRule(nextKind, nextHasSecret);
+  const domain = normalizeEndpointDomain(input.domain);
 
   const updated = await ctx.db.inboundEndpoint.update({
     where: { id: row.id },
@@ -422,6 +470,14 @@ export async function updateEndpoint(
             targetJson: input.target as object,
           }
         : {}),
+      // '' clears the domain / a template; undefined keeps the stored value.
+      ...(domain !== undefined ? { domain } : {}),
+      ...(input.transformTemplate !== undefined
+        ? { transformTemplate: normalizeTemplate(input.transformTemplate) }
+        : {}),
+      ...(input.responseTemplate !== undefined
+        ? { responseTemplate: normalizeTemplate(input.responseTemplate) }
+        : {}),
       ...(input.retentionDays !== undefined ? { retentionDays: input.retentionDays } : {}),
     },
   });
@@ -433,8 +489,10 @@ export async function updateEndpoint(
       name: input.name,
       verifyKind: input.verifyKind,
       target: input.target,
+      ...(domain !== undefined ? { domain } : {}),
       retentionDays: input.retentionDays,
       secretRotated: Boolean(input.secret),
+      templated: Boolean(updated.transformTemplate ?? updated.responseTemplate),
     },
   });
   const since = new Date(Date.now() - 24 * 3_600_000);
@@ -480,12 +538,13 @@ const STATUS_TO_DB: Record<InboundDeliveryStatusView, DbDeliveryStatus> = {
 
 export async function listDeliveries(
   ctx: OrgContext,
-  input: InboundDeliveriesInput,
+  input: InboundDeliveriesInput & { stack?: string },
 ): Promise<InboundDeliveriesPage> {
   const rows = await ctx.db.inboundDelivery.findMany({
     where: {
       orgId: ctx.activeOrgId,
       ...(input.endpointId ? { endpointId: input.endpointId } : {}),
+      ...(input.stack ? { endpoint: { stackName: input.stack } } : {}),
       ...(input.status ? { status: STATUS_TO_DB[input.status] } : {}),
     },
     include: { endpoint: { select: { name: true, slug: true, targetKind: true } } },

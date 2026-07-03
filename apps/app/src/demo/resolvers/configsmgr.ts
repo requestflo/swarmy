@@ -52,6 +52,12 @@ function require_(st: ConfigsState, family: string): FamState {
   return f;
 }
 
+/** Stack NAME a demo service belongs to ('(ungrouped)' when stackless). */
+function stackOfService(store: DemoStore, serviceName: string): string {
+  const svc = store.services.find((s) => s.name === serviceName);
+  return store.stacks.find((st) => st.id === svc?.stackId)?.name ?? '(ungrouped)';
+}
+
 function consumerViews(f: FamState, store: DemoStore): ConfigConsumerView[] {
   const current = f.versions[0]!.version;
   const stackName = (stackId: string | null): string =>
@@ -94,13 +100,23 @@ function toView(f: FamState, store: DemoStore): ConfigFamilyView {
 
 export const configsmgr: DomainResolvers = {
   handlers: {
-    'configs.list': (_i, s): ConfigsListView => {
+    'configs.list': (i, s): ConfigsListView => {
+      const { stack } = (i as { stack?: string } | null | undefined) ?? {};
       const st = getState(s);
+      const families = st.families
+        .map((f) => toView(f, s))
+        .sort((a, b) => a.family.localeCompare(b.family));
+      if (!stack) return { families, orphans: st.orphans };
+      // Stack scope mirrors the controller: attached-in-stack OR unattached
+      // (a just-created config must stay visible everywhere).
       return {
-        families: st.families
-          .map((f) => toView(f, s))
-          .sort((a, b) => a.family.localeCompare(b.family)),
-        orphans: st.orphans,
+        families: families.filter(
+          (f) => f.usedByCount === 0 || f.consumers.some((c) => c.stack === stack),
+        ),
+        orphans: st.orphans.filter(
+          (o) =>
+            o.consumers.length === 0 || o.consumers.some((n) => stackOfService(s, n) === stack),
+        ),
       };
     },
 
@@ -139,7 +155,7 @@ export const configsmgr: DomainResolvers = {
     },
 
     'configs.create': (i, s): CreateConfigResult => {
-      const b = i as { family: string; content: string; mountPath?: string };
+      const b = i as { family: string; content: string; mountPath?: string; stack?: string };
       const st = getState(s);
       if (st.families.some((f) => f.family === b.family)) {
         throw new Error(`config family "${b.family}" already exists — edit it instead`);

@@ -3,16 +3,19 @@ import { Input, Label, Switch } from '@swarmy/ui';
 import { ComponentPicker } from './component-picker';
 import { SLUG_RE, slugify, type PageDraft } from './page-draft';
 
-/** The create/edit form body — fields only, no dialog chrome or submit logic. */
+/** The create/edit form body — fields only, no chrome or submit logic. */
 export function StatusPageFields({
   draft,
   onChange,
   slugLocked,
+  stack,
 }: {
   draft: PageDraft;
   onChange: (next: PageDraft) => void;
   /** Editing an existing page keeps the public URL stable by default. */
   slugLocked?: boolean;
+  /** Offer only this stack's components in the picker. */
+  stack?: string;
 }): React.JSX.Element {
   const slugInvalid = draft.slug.length > 0 && !(draft.slug.length >= 3 && SLUG_RE.test(draft.slug));
   return (
@@ -63,6 +66,7 @@ export function StatusPageFields({
         <ComponentPicker
           selected={draft.components}
           onChange={(components) => onChange({ ...draft, components })}
+          stack={stack}
         />
         <p className="text-muted-foreground text-xs">
           {draft.components.length} picked — each gets a status row and an uptime bar.

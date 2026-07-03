@@ -9,13 +9,16 @@ interface ReleasesFeedProps {
   onSelect: (release: ReleaseView) => void;
 }
 
-/** Org-wide deploy feed — flat rows in one card, divided by hairlines. */
+/**
+ * One stack's deploy timeline — flat rows in one card divided by hairlines,
+ * newest first, image tags leading in mono.
+ */
 export function ReleasesFeed({ releases, selectedId, onSelect }: ReleasesFeedProps): React.JSX.Element {
   return (
     <div>
       {releases.map((r) => {
         const selected = r.id === selectedId;
-        const firstImage = r.images[0]?.image ?? '—';
+        const firstImage = r.images[0]?.image ?? 'no image snapshot';
         const extra = r.images.length - 1;
         return (
           <button
@@ -29,18 +32,19 @@ export function ReleasesFeed({ releases, selectedId, onSelect }: ReleasesFeedPro
           >
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="truncate font-medium">{r.stackName}</span>
+                <span className="mono-data truncate text-sm font-medium">
+                  {firstImage}
+                  {extra > 0 ? ` +${extra}` : ''}
+                </span>
                 {r.notes?.toLowerCase().includes('rollback') ? (
                   <span className="mono-label text-status-warning shrink-0">rollback</span>
                 ) : null}
               </div>
-              <p className="mono-label text-muted-foreground truncate">
-                {firstImage}
-                {extra > 0 ? ` +${extra}` : ''}
+              <p className="text-muted-foreground truncate text-xs">
+                by {r.actor ?? 'system'}
               </p>
             </div>
             <div className="hidden shrink-0 text-right sm:block">
-              <p className="text-muted-foreground truncate text-xs">{r.actor ?? 'system'}</p>
               <p className="mono-label text-muted-foreground">{relativeTime(r.createdAt)}</p>
             </div>
             <div className="shrink-0">

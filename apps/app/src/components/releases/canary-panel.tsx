@@ -3,31 +3,25 @@ import { useQuery } from '@tanstack/react-query';
 import { Button, Card, CardContent, CardHeader, CardTitle, Skeleton } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { CanaryRunCard } from './canary-run-card';
-import { CanaryStartDialog } from './canary-start-dialog';
+import { CanaryStartCard } from './canary-start-card';
 
 /**
- * Canary rollout panel (slice D2). Shows every in-flight canary for the
- * selected stack (or the whole org when none is selected) with live traffic
- * split + error rates, and the start dialog when a stack is in focus.
- * Canary state is Docker truth — polled straight off the labels.
+ * Canary rollout panel for one stack: every in-flight canary with its live
+ * traffic split + error rates, and the inline start-canary card when nothing
+ * is in flight. Canary state is Docker truth — polled straight off the labels.
  */
-export function CanaryPanel({ stackName }: { stackName: string | null }): React.JSX.Element {
+export function CanaryPanel({ stack }: { stack: string }): React.JSX.Element {
   const trpc = useTRPC();
   const canaries = useQuery({
-    ...trpc.releases.canaryStatus.queryOptions({ stack: stackName ?? undefined }),
+    ...trpc.releases.canaryStatus.queryOptions({ stack }),
     refetchInterval: 5_000,
   });
   const runs = canaries.data ?? [];
 
   return (
     <Card className="card-pop border-0">
-      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
-        <CardTitle className="text-base">
-          Canary rollout{stackName ? ` · ${stackName}` : ''}
-        </CardTitle>
-        {stackName && runs.length === 0 && !canaries.isLoading ? (
-          <CanaryStartDialog stackName={stackName} />
-        ) : null}
+      <CardHeader>
+        <CardTitle className="text-base">Canary rollout</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-4">
         {canaries.isLoading ? (
@@ -44,11 +38,13 @@ export function CanaryPanel({ stackName }: { stackName: string | null }): React.
             </Button>
           </div>
         ) : runs.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            {stackName
-              ? 'No canary in flight. Try a new image on a slice of real traffic — it promotes itself when clean and rolls back on errors.'
-              : 'No canaries in flight anywhere. Pick a stack to start one.'}
-          </p>
+          <>
+            <p className="text-muted-foreground text-sm">
+              No canary in flight. Try a new image on a slice of real traffic — it promotes itself
+              when clean and rolls back on errors.
+            </p>
+            <CanaryStartCard stack={stack} />
+          </>
         ) : (
           runs.map((run) => <CanaryRunCard key={run.canaryService} run={run} />)
         )}

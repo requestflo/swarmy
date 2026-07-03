@@ -1,13 +1,16 @@
-import * as React from 'react';
-import { Outlet, createFileRoute, useChildMatches } from '@tanstack/react-router';
-import { WorkflowsPage } from '@/components/workflows/workflows-page';
+import { Outlet, createFileRoute, redirect } from '@tanstack/react-router';
 
+/**
+ * Workflows moved into the stack workspace (`/stacks/$name/messaging`). This
+ * route stays only as the layout for its `$runId` child (a run's timeline is
+ * linked from the Messaging tab) — hitting exactly `/workflows` redirects
+ * home to the stacks.
+ */
 export const Route = createFileRoute('/_authed/workflows')({
-  component: WorkflowsRoute,
+  beforeLoad: ({ location }) => {
+    if (location.pathname.replace(/\/+$/, '') === '/workflows') {
+      throw redirect({ to: '/' });
+    }
+  },
+  component: Outlet,
 });
-
-/** `/workflows` renders the surface; `/workflows/$runId` renders through the Outlet. */
-function WorkflowsRoute(): React.JSX.Element {
-  const hasChild = useChildMatches().length > 0;
-  return hasChild ? <Outlet /> : <WorkflowsPage />;
-}

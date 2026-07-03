@@ -40,13 +40,16 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/** The create-search wizard fields (stack / name / engine / attach). */
+/** The create-search fields (stack / name / engine / attach). */
 export function CreateSearchFields({
   draft,
   onChange,
+  hideStack = false,
 }: {
   draft: SearchDraft;
   onChange: (next: SearchDraft) => void;
+  /** Hide the stack input when the stack comes from the workspace route. */
+  hideStack?: boolean;
 }): React.JSX.Element {
   const trpc = useTRPC();
   const services = useQuery(trpc.services.list.queryOptions({}));
@@ -55,9 +58,11 @@ export function CreateSearchFields({
   return (
     <div className="grid gap-3">
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Stack">
-          <Input value={draft.stack} onChange={(e) => set({ stack: e.target.value })} placeholder="shop" />
-        </Field>
+        {hideStack ? null : (
+          <Field label="Stack">
+            <Input value={draft.stack} onChange={(e) => set({ stack: e.target.value })} placeholder="shop" />
+          </Field>
+        )}
         <Field label="Instance name">
           <Input value={draft.name} onChange={(e) => set({ name: e.target.value })} placeholder="main" />
         </Field>

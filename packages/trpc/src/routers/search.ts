@@ -39,8 +39,10 @@ export const managedSearchRouter = router({
     .input(ProvisionSearchInput)
     .mutation(({ ctx, input }) => provisionSearch(ctx, input)),
 
-  /** Every managed search instance in the org (the Data → Search list). */
-  list: orgProcedure.query(({ ctx }) => listSearchInstances(ctx)),
+  /** Managed search instances — the whole org, or one stack when `stack` is given. */
+  list: orgProcedure
+    .input(z.object({ stack: stackName.optional() }).optional())
+    .query(({ ctx, input }) => listSearchInstances(ctx, input?.stack)),
 
   /** One instance's view, read straight off the labels. */
   get: orgProcedure.input(instanceRef).query(({ ctx, input }) => getSearchInstance(ctx, input)),

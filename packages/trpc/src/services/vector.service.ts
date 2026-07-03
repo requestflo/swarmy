@@ -215,11 +215,12 @@ function toView(ctx: OrgContext, s: InvService): VectorInstanceView {
   };
 }
 
-/** All managed qdrant instances in the org (Data → Vector page). */
-export function listVectorInstances(ctx: OrgContext): VectorInstanceView[] {
+/** Managed qdrant instances — org-wide, or scoped to one stack when given. */
+export function listVectorInstances(ctx: OrgContext, stack?: string): VectorInstanceView[] {
   return liveOrgServices(ctx)
     .filter((s) => s.labels[VECTOR_KIND_LABEL] === 'qdrant')
     .map((s) => toView(ctx, s))
+    .filter((v) => !stack || v.stack === stack)
     .sort((a, b) => `${a.stack}/${a.name}`.localeCompare(`${b.stack}/${b.name}`));
 }
 
@@ -526,7 +527,7 @@ export async function vectorStats(
  * Managed Postgres clusters + whether pgvector is enabled on each (the
  * `swarmy.vector.pgvector` label on the cluster primary).
  */
-export function listPgvectorClusters(ctx: OrgContext): PgvectorClusterView[] {
+export function listPgvectorClusters(ctx: OrgContext, stack?: string): PgvectorClusterView[] {
   return liveOrgServices(ctx)
     .filter(
       (s) =>
@@ -542,6 +543,7 @@ export function listPgvectorClusters(ctx: OrgContext): PgvectorClusterView[] {
       status: s.status,
       enabled: s.labels[PGVECTOR_LABEL] === 'true',
     }))
+    .filter((v) => !stack || v.stack === stack)
     .sort((a, b) => `${a.stack}/${a.cluster}`.localeCompare(`${b.stack}/${b.cluster}`));
 }
 

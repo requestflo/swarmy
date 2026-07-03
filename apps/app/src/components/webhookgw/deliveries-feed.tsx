@@ -20,13 +20,13 @@ import { DeliveryRow } from './delivery-row';
 
 type StatusFilter = InboundDeliveryStatusView | 'all';
 
-/** The live deliveries feed: status chips (incl. dead letters), endpoint filter. */
+/** The live deliveries feed, scoped to this stack: status chips, endpoint filter. */
 export function DeliveriesFeed({
+  stack,
   endpoints,
-  onInspect,
 }: {
+  stack: string;
   endpoints: InboundEndpointView[];
-  onInspect: (id: string) => void;
 }): React.JSX.Element {
   const trpc = useTRPC();
   const [status, setStatus] = React.useState<StatusFilter>('all');
@@ -34,6 +34,7 @@ export function DeliveriesFeed({
 
   const feed = useQuery({
     ...trpc.inboundWebhooks.deliveries.queryOptions({
+      stack,
       ...(status !== 'all' ? { status } : {}),
       ...(endpointId !== 'all' ? { endpointId } : {}),
       limit: 50,
@@ -94,7 +95,7 @@ export function DeliveriesFeed({
       ) : (
         <div className="card-pop divide-border divide-y overflow-hidden">
           {rows.map((d) => (
-            <DeliveryRow key={d.id} delivery={d} onInspect={onInspect} />
+            <DeliveryRow key={d.id} delivery={d} />
           ))}
         </div>
       )}

@@ -27,8 +27,10 @@ import {
  * rollback, and the per-stack deploy-safety settings (Docker labels).
  */
 export const releasesRouter = router({
-  /** Counts for the Releases page hero. */
-  overview: orgProcedure.query(({ ctx }) => overview(ctx)),
+  /** Counts for the releases hero — org-wide, or one stack's slice. */
+  overview: orgProcedure
+    .input(z.object({ stackName: z.string().optional() }).optional())
+    .query(({ ctx, input }) => overview(ctx, input?.stackName)),
 
   /** Org-wide recent deploys, or one stack's history via `stackName`. */
   list: orgProcedure.input(ReleaseListInput).query(({ ctx, input }) => listReleases(ctx, input)),

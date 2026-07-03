@@ -13,16 +13,43 @@ import {
   attachAiToService,
   getProviders,
   getSettings,
+  grantStackAccess,
   listKeys,
   listLogs,
+  listOutlets,
   mintKey,
   removeProvider,
   revokeKey,
+  revokeStackAccess,
   setProvider,
   setSettings,
+  setStackOutlet,
+  stackAccess,
   testProvider,
   usageSummary,
 } from '../services/ai.service';
+
+const StackInput = z.object({ stack: z.string().min(1).max(63) });
+
+const GrantStackAccessInput = z.object({
+  stack: z.string().min(1).max(63),
+  /** Service names in the stack to wire through the gateway (attach flow). */
+  services: z.array(z.string().min(1).max(255)).max(50).optional(),
+});
+
+const HOSTNAME_RE =
+  /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
+const SetStackOutletInput = z.object({
+  stack: z.string().min(1).max(63),
+  /** Bare hostname for the outlet vhost; empty string clears the outlet. */
+  domain: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(253)
+    .refine((d) => d === '' || HOSTNAME_RE.test(d), 'enter a bare domain like ai.example.com'),
+});
 
 /**
  * AI gateway control plane (slice F5) — providers (keys vault-encrypted,
@@ -75,4 +102,27 @@ export const aiGatewayRouter = router({
   attachToService: orgProcedure
     .input(AttachAiInput)
     .mutation(({ ctx, input }) => attachAiToService(ctx, input)),
+
+  /** One stack's grant: stack-tagged key + attached services + outlet domain. */
+  stackAccess: orgProcedure
+    .input(StackInput)
+    .query(({ ctx, input }) => stackAccess(ctx, input.stack)),
+
+  /** Grant a stack access: mint its key (revealed ONCE) + wire chosen services. */
+  grantStackAccess: orgProcedure
+    .input(GrantStackAccessInput)
+    .mutation(({ ctx, input }) => grantStackAccess(ctx, input)),
+
+  /** Kill the grant: disable the stack key and every per-service key. */
+  revokeStackAccess: orgProcedure
+    .input(StackInput)
+    .mutation(({ ctx, input }) => revokeStackAccess(ctx, input.stack)),
+
+  /** Point a public outlet domain at the stack's gateway (empty clears). */
+  setStackOutlet: orgProcedure
+    .input(SetStackOutletInput)
+    .mutation(({ ctx, input }) => setStackOutlet(ctx, input)),
+
+  /** Every stack outlet — the edge renders one gateway vhost per entry. */
+  listOutlets: orgProcedure.query(({ ctx }) => listOutlets(ctx)),
 });

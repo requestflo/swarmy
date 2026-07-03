@@ -1,14 +1,17 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRoundIcon } from 'lucide-react';
+import type { AiKeyMintResult } from '@swarmy/core';
 import { Button, EmptyState, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { MintKeyDialog } from './mint-key-dialog';
+import { KeyRevealBanner } from './key-reveal-banner';
+import { MintKeyCard } from './mint-key-card';
 
-/** Virtual keys table: per-key limits + 30-day usage, revoke, mint dialog. */
+/** Virtual keys table: inline mint form, REVEAL-ONCE banner, limits, revoke. */
 export function KeysCard(): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
+  const [reveal, setReveal] = React.useState<AiKeyMintResult | null>(null);
   const keys = useQuery({ ...trpc.ai.keys.queryOptions(), refetchInterval: 10_000 });
   const revoke = useMutation(
     trpc.ai.revokeKey.mutationOptions({
@@ -24,15 +27,25 @@ export function KeysCard(): React.JSX.Element {
 
   return (
     <div className="card-pop p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-semibold">Virtual keys</p>
           <p className="text-muted-foreground text-xs">
             Hand these to apps instead of provider keys — each with its own rate limit and budget.
           </p>
         </div>
-        <MintKeyDialog />
+        <MintKeyCard onMinted={setReveal} />
       </div>
+
+      {reveal ? (
+        <div className="mt-4">
+          <KeyRevealBanner
+            keyValue={reveal.key}
+            gatewayUrl={reveal.gatewayUrl}
+            onDismiss={() => setReveal(null)}
+          />
+        </div>
+      ) : null}
 
       {keys.isLoading ? (
         <div className="mt-4 space-y-2">

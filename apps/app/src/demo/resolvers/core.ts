@@ -88,6 +88,28 @@ export const core: DomainResolvers = {
       return { id };
     },
     'nodes.canvasPositions': () => ({}) as Record<string, { x: number; y: number }>,
+    // Container count per node for the index list row — mirrors nodes.containers'
+    // service-as-container placement so the two stay coherent under ?demo=1.
+    'nodes.containerCounts': (_i, s) => {
+      const counts: Record<string, number> = {};
+      for (const n of s.nodes) counts[n.id] = s.services.filter((sv) => sv.nodeId === n.id).length;
+      return counts;
+    },
+    // Mirrors cost.setNodeCost (same `swarmy.node.cost` label + the cost
+    // resolver's `st.prices` map) so the Nodes page and /cost stay in sync.
+    'nodes.setCost': (i, s): { id: string; monthlyUsd: number | null } => {
+      const { id, monthlyUsd } = i as { id: string; monthlyUsd: number | null };
+      const st = s.extra.cost as { prices: Record<string, number> } | undefined;
+      if (st) {
+        if (monthlyUsd == null) delete st.prices[id];
+        else st.prices[id] = monthlyUsd;
+      }
+      const n = byId(s.nodes, id) as (NodeSummary & { labels?: Record<string, string> }) | undefined;
+      if (n) {
+        n.labels = { ...(n.labels ?? {}), 'swarmy.node.cost': monthlyUsd == null ? '' : String(monthlyUsd) };
+      }
+      return { id, monthlyUsd };
+    },
 
     'services.list': (i, s): ServiceSummary[] => {
       const f = (i as { nodeId?: string; stackId?: string; status?: string; search?: string }) ?? {};

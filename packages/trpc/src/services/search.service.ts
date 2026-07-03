@@ -434,10 +434,11 @@ function toView(ctx: OrgContext, i: LiveInstance): SearchInstanceView {
   };
 }
 
-/** All managed search instances in the org (Data → Search page). */
-export function listSearchInstances(ctx: OrgContext): SearchInstanceView[] {
+/** Managed search instances — org-wide, or scoped to one stack when given. */
+export function listSearchInstances(ctx: OrgContext, stack?: string): SearchInstanceView[] {
   return groupInstances(liveOrgServices(ctx))
     .map((i) => toView(ctx, i))
+    .filter((v) => !stack || v.stack === stack)
     .sort((a, b) => `${a.stack}/${a.name}`.localeCompare(`${b.stack}/${b.name}`));
 }
 

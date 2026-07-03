@@ -1,48 +1,18 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ShieldCheckIcon } from 'lucide-react';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  EmptyState,
-  StatusBadge,
-  type StatusTone,
-} from '@swarmy/ui';
-import type { ImageScanView } from '@swarmy/core';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { ScanDetailDrawer } from './scan-detail-drawer';
+import { ScanRow } from './scan-row';
 
-function scanTone(scan: ImageScanView): StatusTone {
-  if (scan.status === 'error') return 'offline';
-  if (scan.criticalCount > 0) return 'offline';
-  if (scan.highCount > 0) return 'warning';
-  return 'online';
-}
-
-function scanLabel(scan: ImageScanView): string {
-  if (scan.status === 'error') return 'error';
-  if (scan.criticalCount > 0) return 'critical';
-  if (scan.highCount > 0) return 'attention';
-  return 'clean';
-}
-
-function imageName(ref: string): string {
-  const noDigest = ref.split('@')[0] ?? ref;
-  const slash = noDigest.indexOf('/');
-  return slash >= 0 ? noDigest.slice(slash + 1) : noDigest;
-}
-
-/** CVE scans of built images — flat rows in one card; click a row for detail. */
+/** CVE scans of built images — flat rows in one card; click a row to expand detail inline. */
 export function ScanList(): React.JSX.Element {
   const trpc = useTRPC();
   const scans = useQuery({
     ...trpc.registryPolicy.listScans.queryOptions({}),
     refetchInterval: 10_000,
   });
-  const [openId, setOpenId] = React.useState<string | null>(null);
+  const [expandedId, setExpandedId] = React.useState<string | null>(null);
   const rows = scans.data ?? [];
 
   return (
@@ -82,43 +52,17 @@ export function ScanList(): React.JSX.Element {
             </div>
             <div className="divide-border divide-y border-t">
               {rows.map((s) => (
-                <button
+                <ScanRow
                   key={s.id}
-                  type="button"
-                  onClick={() => setOpenId(s.id)}
-                  className="hover:bg-accent/60 grid w-full grid-cols-[1fr_auto] items-center gap-x-4 px-6 py-4 text-left transition-colors sm:grid-cols-[2fr_1fr_1fr_1fr_auto]"
-                >
-                  <div className="min-w-0">
-                    <p className="mono-data truncate font-medium">{imageName(s.imageRef)}</p>
-                    <p className="text-muted-foreground mono-label truncate sm:hidden">
-                      {s.criticalCount} crit · {s.highCount} high
-                    </p>
-                  </div>
-                  <span className="mono-data text-muted-foreground hidden truncate sm:block">
-                    {s.digest ? s.digest.replace('sha256:', '').slice(0, 12) : '—'}
-                  </span>
-                  <span className="mono-data hidden sm:block">
-                    <span className={s.criticalCount > 0 ? 'text-status-offline font-semibold' : ''}>
-                      {s.criticalCount}
-                    </span>
-                    {' / '}
-                    <span className={s.highCount > 0 ? 'text-status-warning' : ''}>{s.highCount}</span>
-                    {' / '}
-                    {s.mediumCount}
-                  </span>
-                  <span className="text-muted-foreground mono-label hidden truncate sm:block">
-                    {new Date(s.scannedAt).toLocaleString()}
-                  </span>
-                  <div className="flex justify-end">
-                    <StatusBadge tone={scanTone(s)} label={scanLabel(s)} />
-                  </div>
-                </button>
+                  scan={s}
+                  expanded={expandedId === s.id}
+                  onToggle={() => setExpandedId((cur) => (cur === s.id ? null : s.id))}
+                />
               ))}
             </div>
           </>
         )}
       </CardContent>
-      <ScanDetailDrawer scanId={openId} onClose={() => setOpenId(null)} />
     </Card>
   );
 }

@@ -1,12 +1,13 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { WorkspaceStub } from '@/components/stacks/workspace/workspace-stub';
+import { StackReleases } from '@/components/releases/stack-releases';
 
-/** Releases tab: history, canary & rollback for this stack. */
+/** Releases tab: this stack's deploy history, canary rollout and safety. */
 export const Route = createFileRoute('/_authed/stacks/$name/releases')({
   component: ReleasesTab,
 });
 
 function ReleasesTab(): React.JSX.Element {
-  return <WorkspaceStub title="Releases, canary & rollback — moving in." />;
+  const { name } = Route.useParams();
+  return <StackReleases stack={name} />;
 }

@@ -273,3 +273,230 @@ describe('caddy canary — weighted upstreams (D2)', () => {
     expect(out).not.toContain('api--canary');
   });
 });
+
+describe('caddy route protections — rate limit, IP rules, body cap, bots, headers', () => {
+  it('GOLDEN: a fully-protected root route renders every protection before the proxy', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'api.xyz.com',
+          service: 'api',
+          port: 8080,
+          pathPrefix: '/',
+          tls: 'auto',
+          protection: {
+            rateLimit: { requests: 100, windowSeconds: 60, key: 'ip' },
+            ipAllow: ['10.0.0.0/8', '192.168.1.0/24'],
+            ipDeny: ['203.0.113.7'],
+            bodyMaxSize: '10MB',
+            blockBots: true,
+            requiredHeaders: [{ name: 'X-Api-Key' }, { name: 'X-Env', value: 'prod' }],
+          },
+        },
+      ]),
+    );
+    expect(out).toBe(
+      [
+        'api.xyz.com {',
+        '  @deny_api_xyz_com remote_ip 203.0.113.7',
+        '  abort @deny_api_xyz_com',
+        '  @notallowed_api_xyz_com {',
+        '    not remote_ip 10.0.0.0/8 192.168.1.0/24',
+        '  }',
+        '  abort @notallowed_api_xyz_com',
+        '  @bots_api_xyz_com header_regexp User-Agent (?i)(bot|crawler|spider|scan)',
+        '  abort @bots_api_xyz_com',
+        '  @nohdr0_api_xyz_com {',
+        '    not header X-Api-Key *',
+        '  }',
+        '  abort @nohdr0_api_xyz_com',
+        '  @nohdr1_api_xyz_com {',
+        '    not header X-Env prod',
+        '  }',
+        '  abort @nohdr1_api_xyz_com',
+        '  request_body {',
+        '    max_size 10MB',
+        '  }',
+        '  rate_limit {',
+        '    zone rl_api_xyz_com {',
+        '      key {remote_host}',
+        '      events 100',
+        '      window 60s',
+        '    }',
+        '  }',
+        '  reverse_proxy api:8080',
+        '}',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('rate limit keyed by a header uses the {header.X} placeholder', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'api.xyz.com',
+          service: 'api',
+          port: 8080,
+          pathPrefix: '/',
+          tls: 'auto',
+          protection: { rateLimit: { requests: 30, windowSeconds: 10, key: 'header', header: 'X-Api-Key' } },
+        },
+      ]),
+    );
+    expect(out).toContain('key {header.X-Api-Key}');
+    expect(out).toContain('events 30');
+    expect(out).toContain('window 10s');
+  });
+
+  it('protections nest inside the route handle, before its proxy, and never leak to siblings', () => {
+    const out = buildCaddyfile(
+      cfg([
+        { domain: 'xyz.com', service: 'web', port: 3000, pathPrefix: '/', tls: 'auto' },
+        {
+          domain: 'xyz.com',
+          service: 'api',
+          port: 8080,
+          pathPrefix: '/api',
+          tls: 'auto',
+          protection: { ipDeny: ['198.51.100.0/24'], blockBots: true },
+        },
+      ]),
+    );
+    const block = siteBlock(out, 'xyz.com');
+    const handleIdx = block.findIndex((l) => l.includes('handle /api* {'));
+    const denyIdx = block.findIndex((l) => l.includes('@deny_xyz_com_api remote_ip 198.51.100.0/24'));
+    const proxyIdx = block.findIndex((l) => l.includes('reverse_proxy api:8080'));
+    const rootIdx = block.findIndex((l) => l.trim() === 'handle {');
+    expect(denyIdx).toBeGreaterThan(handleIdx);
+    expect(denyIdx).toBeLessThan(proxyIdx);
+    // The unprotected root catch-all carries no matchers.
+    expect(rootIdx).toBeGreaterThan(proxyIdx);
+    expect(block.filter((l) => l.includes('abort')).length).toBe(2); // deny + bots only
+  });
+
+  it('a cold protected route aborts BEFORE the wake rewrite (a blocked request never wakes the service)', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'app.xyz.com',
+          service: 'web',
+          port: 3000,
+          pathPrefix: '/',
+          tls: 'auto',
+          cold: { upstream: 'host.docker.internal:3001', wakePath: '/_wake/web' },
+          protection: { ipDeny: ['203.0.113.7'] },
+        },
+      ]),
+    );
+    const block = siteBlock(out, 'app.xyz.com');
+    const abortIdx = block.findIndex((l) => l.includes('abort @deny_app_xyz_com'));
+    const wakeIdx = block.findIndex((l) => l.includes('rewrite * /_wake/web'));
+    expect(abortIdx).toBeGreaterThanOrEqual(0);
+    expect(abortIdx).toBeLessThan(wakeIdx);
+  });
+
+  it('a route without protection renders byte-for-byte as before (no matchers, no rate_limit)', () => {
+    const out = buildCaddyfile(
+      cfg([{ domain: 'solo.xyz.com', service: 'web', port: 3000, pathPrefix: '/', tls: 'auto' }]),
+    );
+    expect(out).toBe(['solo.xyz.com {', '  reverse_proxy web:3000', '}', ''].join('\n'));
+  });
+});
+
+describe('caddy controller vhosts — status pages / webhooks / AI gateway domains', () => {
+  it('GOLDEN: a status-page vhost rewrites onto the controller slug path', () => {
+    const out = buildCaddyfile(
+      IngressConfigSchema.parse({
+        driver: 'caddy',
+        orgId: 'org_1',
+        domains: [],
+        controllerVhosts: [
+          {
+            domain: 'status.xyz.com',
+            upstream: 'host.docker.internal:3001',
+            targetPath: '/s/my-page',
+            kind: 'status-page',
+          },
+        ],
+      }),
+    );
+    expect(out).toBe(
+      [
+        'status.xyz.com {',
+        '  # swarmy status-page vhost',
+        '  rewrite * /s/my-page{uri}',
+        '  reverse_proxy host.docker.internal:3001',
+        '}',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('a webhook vhost with tls off serves plain http', () => {
+    const out = buildCaddyfile(
+      IngressConfigSchema.parse({
+        driver: 'caddy',
+        orgId: 'org_1',
+        domains: [],
+        controllerVhosts: [
+          {
+            domain: 'hooks.xyz.com',
+            upstream: 'host.docker.internal:3001',
+            targetPath: '/hooks/i/org_1/gh',
+            kind: 'webhook',
+            tls: 'off',
+          },
+        ],
+      }),
+    );
+    expect(out).toContain('http://hooks.xyz.com {');
+    expect(out).toContain('rewrite * /hooks/i/org_1/gh{uri}');
+  });
+
+  it('a vhost whose domain already has a service route is skipped (no duplicate site address)', () => {
+    const out = buildCaddyfile(
+      IngressConfigSchema.parse({
+        driver: 'caddy',
+        orgId: 'org_1',
+        domains: [{ domain: 'app.xyz.com', service: 'web', port: 3000 }],
+        controllerVhosts: [
+          {
+            domain: 'app.xyz.com',
+            upstream: 'host.docker.internal:3001',
+            targetPath: '/s/app',
+            kind: 'status-page',
+          },
+          {
+            domain: 'status.xyz.com',
+            upstream: 'host.docker.internal:3001',
+            targetPath: '/s/app',
+            kind: 'status-page',
+          },
+        ],
+      }),
+    );
+    expect(out.match(/^app\.xyz\.com \{$/gm)?.length).toBe(1);
+    expect(out).toContain('reverse_proxy web:3000');
+    expect(out).toContain('status.xyz.com {');
+  });
+
+  it('vhosts render after the service route sites, one block per domain', () => {
+    const out = buildCaddyfile(
+      IngressConfigSchema.parse({
+        driver: 'caddy',
+        orgId: 'org_1',
+        domains: [{ domain: 'app.xyz.com', service: 'web', port: 3000 }],
+        controllerVhosts: [
+          {
+            domain: 'status.xyz.com',
+            upstream: 'host.docker.internal:3001',
+            targetPath: '/s/app',
+            kind: 'status-page',
+          },
+        ],
+      }),
+    );
+    expect(out.indexOf('app.xyz.com {')).toBeLessThan(out.indexOf('status.xyz.com {'));
+  });
+});

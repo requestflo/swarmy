@@ -125,10 +125,19 @@ async function runSidecar(
 }
 
 /** Ensure the restic repo exists (idempotent — `init` no-ops on an existing repo). */
-async function ensureRepo(docker: DockerClient, image: string, repo: ResticRepo): Promise<void> {
-  await runSidecar(docker, { image, args: ['init'], env: repoEnv(repo), binds: [] }).catch(
-    () => undefined,
-  );
+async function ensureRepo(
+  docker: DockerClient,
+  image: string,
+  repo: ResticRepo,
+  networkMode?: string,
+): Promise<void> {
+  await runSidecar(docker, {
+    image,
+    args: ['init'],
+    env: repoEnv(repo),
+    binds: [],
+    networkMode,
+  }).catch(() => undefined);
 }
 
 function streamer(conn: AgentConnection, commandId: string): (line: string) => void {
@@ -144,7 +153,7 @@ export async function backupVolume(
 ): Promise<import('@swarmy/core/protocol').BackupVolumeResult> {
   const image = p.image ?? DEFAULT_RESTIC_IMAGE;
   const started = Date.now();
-  await ensureRepo(docker, image, p.repo);
+  await ensureRepo(docker, image, p.repo, p.network);
 
   const tagArgs = p.tags.flatMap((t) => ['--tag', t]);
   const res = await runSidecar(
@@ -154,6 +163,7 @@ export async function backupVolume(
       args: ['backup', MOUNT, '--json', '--host', p.volume, ...tagArgs],
       env: repoEnv(p.repo),
       binds: [`${p.volume}:${MOUNT}:ro`],
+      networkMode: p.network,
     },
     streamer(conn, p.commandId),
   );
@@ -190,6 +200,7 @@ export async function restoreVolume(
       args: ['restore', p.snapshotId, '--target', '/', '--json'],
       env: repoEnv(p.repo),
       binds: [`${p.targetVolume}:${MOUNT}`],
+      networkMode: p.network,
     },
     streamer(conn, p.commandId),
   );
@@ -209,13 +220,14 @@ export async function listSnapshots(
   p: ListSnapshotsPayload,
 ): Promise<{ snapshots: ResticSnapshotInfo[] }> {
   const image = p.image ?? DEFAULT_RESTIC_IMAGE;
-  await ensureRepo(docker, image, p.repo);
+  await ensureRepo(docker, image, p.repo, p.network);
   const tagArgs = p.tags.flatMap((t) => ['--tag', t]);
   const res = await runSidecar(docker, {
     image,
     args: ['snapshots', '--json', ...tagArgs],
     env: repoEnv(p.repo),
     binds: [],
+    networkMode: p.network,
   });
   if (res.exitCode !== 0) {
     throw new Error(res.stderr.trim() || `restic snapshots exited ${res.exitCode}`);

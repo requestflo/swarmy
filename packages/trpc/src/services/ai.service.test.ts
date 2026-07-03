@@ -62,6 +62,18 @@ describe('parseConfigDoc — providersJson codec', () => {
     expect(parseConfigDoc('nonsense').providers).toEqual([]);
     expect(parseConfigDoc({ settings: 'nope' }).settings).toEqual({ auditLog: false, cache: false });
   });
+
+  it('parses stack outlets (trimmed, lowercased), dropping non-string/empty values', () => {
+    const doc = parseConfigDoc({
+      outlets: { storefront: ' AI.Northwind.dev ', data: '', platform: 42 },
+    });
+    expect(doc.outlets).toEqual({ storefront: 'ai.northwind.dev' });
+  });
+
+  it('defaults outlets to {} when absent or malformed', () => {
+    expect(parseConfigDoc([]).outlets).toEqual({});
+    expect(parseConfigDoc({ outlets: ['nope'] }).outlets).toEqual({});
+  });
 });
 
 describe('parseKeyLimits', () => {

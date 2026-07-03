@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { GitBranchIcon, HammerIcon, Trash2Icon } from 'lucide-react';
+import { GitBranchIcon, HammerIcon, PlusIcon, Trash2Icon } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -14,7 +14,7 @@ import {
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { CountUp } from '@/components/count-up';
-import { AddRepoDialog } from './add-repo-dialog';
+import { AddRepoCard } from './add-repo-card';
 
 interface RepoRow {
   id: string;
@@ -28,10 +28,17 @@ interface RepoRow {
 interface ReposListProps {
   repos: RepoRow[];
   onChanged: () => void;
+  createOpen: boolean;
+  onCreateOpenChange: (open: boolean) => void;
 }
 
-/** Flat repo rows inside one card-pop, divided by hairlines. */
-export function ReposList({ repos, onChanged }: ReposListProps): React.JSX.Element {
+/** Flat repo rows inside one card-pop, divided by hairlines; link-repo card swaps in inline. */
+export function ReposList({
+  repos,
+  onChanged,
+  createOpen,
+  onCreateOpenChange,
+}: ReposListProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
 
@@ -55,11 +62,12 @@ export function ReposList({ repos, onChanged }: ReposListProps): React.JSX.Eleme
   const autodeploying = repos.filter((r) => r.autodeploy).length;
 
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className="card-pop mt-6 border-0 overflow-hidden">
       <CardHeader>
         <CardTitle className="text-base">Repositories</CardTitle>
         <CardDescription>Watched git repos. Build a ref by hand or let autodeploy redeploy on build.</CardDescription>
       </CardHeader>
+      <AddRepoCard open={createOpen} onOpenChange={onCreateOpenChange} onDone={onChanged} />
       <CardContent className="p-0">
         {total === 0 ? (
           <div className="px-6 pb-8">
@@ -67,7 +75,11 @@ export function ReposList({ repos, onChanged }: ReposListProps): React.JSX.Eleme
               icon={<GitBranchIcon />}
               title="No repos linked yet"
               description="Link one to build and deploy straight from a git push — no external CI."
-              action={<AddRepoDialog onDone={onChanged} />}
+              action={
+                <Button variant="outline" onClick={() => onCreateOpenChange(true)}>
+                  <PlusIcon className="size-4" /> Link a repo
+                </Button>
+              }
             />
           </div>
         ) : (

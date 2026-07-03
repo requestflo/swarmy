@@ -15,7 +15,7 @@ const KIND_TITLE: Record<(typeof KIND_ORDER)[number], string> = {
 };
 
 /** A stable per-page key for a picked option (unique among `taken`). */
-function keyFor(option: StatusComponentOption, taken: Set<string>): string {
+export function keyFor(option: StatusComponentOption, taken: Set<string>): string {
   const base = option.ref
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -23,19 +23,25 @@ function keyFor(option: StatusComponentOption, taken: Set<string>): string {
   return taken.has(base) ? `${option.kind}-${base}` : base;
 }
 
+interface ComponentPickerProps {
+  selected: StatusPageComponent[];
+  onChange: (next: StatusPageComponent[]) => void;
+  /** Offer only this stack's services and clusters. */
+  stack?: string;
+}
+
 /**
  * Pick what the page watches — live services, managed db/cache clusters,
- * regions and the ingress edge, straight from the inventory.
+ * regions and the ingress edge, straight from the inventory. With a `stack`,
+ * the options are that stack's own components.
  */
 export function ComponentPicker({
   selected,
   onChange,
-}: {
-  selected: StatusPageComponent[];
-  onChange: (next: StatusPageComponent[]) => void;
-}): React.JSX.Element {
+  stack,
+}: ComponentPickerProps): React.JSX.Element {
   const trpc = useTRPC();
-  const options = useQuery(trpc.statusPages.componentOptions.queryOptions());
+  const options = useQuery(trpc.statusPages.componentOptions.queryOptions({ stack }));
 
   const isPicked = (o: StatusComponentOption): boolean =>
     selected.some((c) => c.kind === o.kind && c.ref === o.ref);

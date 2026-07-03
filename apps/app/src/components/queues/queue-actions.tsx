@@ -2,46 +2,60 @@ import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { RotateCcwIcon, Trash2Icon, XCircleIcon } from 'lucide-react';
 import type { QueueView } from '@swarmy/core';
-import { Button, toast } from '@swarmy/ui';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Button,
+  toast,
+} from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 
-/** Two-click destructive button: first click arms it, second fires. */
-function ConfirmButton({
+/** Destructive action behind the one sanctioned modal — an AlertDialog confirm. */
+function DestructiveButton({
   label,
-  confirmLabel,
+  title,
+  description,
   icon,
   pending,
   onConfirm,
 }: {
   label: string;
-  confirmLabel: string;
+  title: string;
+  description: string;
   icon: React.ReactNode;
   pending: boolean;
   onConfirm: () => void;
 }): React.JSX.Element {
-  const [armed, setArmed] = React.useState(false);
-  React.useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => setArmed(false), 4_000);
-    return () => clearTimeout(t);
-  }, [armed]);
   return (
-    <Button
-      size="sm"
-      variant="outline"
-      className="text-status-offline border-status-offline/40 hover:bg-status-offline/10"
-      disabled={pending}
-      onClick={() => {
-        if (!armed) {
-          setArmed(true);
-          return;
-        }
-        setArmed(false);
-        onConfirm();
-      }}
-    >
-      {icon} {pending ? '…' : armed ? confirmLabel : label}
-    </Button>
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button
+          size="sm"
+          variant="outline"
+          className="text-status-offline border-status-offline/40 hover:bg-status-offline/10"
+          disabled={pending}
+        >
+          {icon} {pending ? '…' : label}
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>{label}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -98,16 +112,18 @@ export function QueueActions({
             {retry.isPending ? 'Retrying…' : 'Retry failed'}
           </Button>
         ) : null}
-        <ConfirmButton
+        <DestructiveButton
           label="Drain queue"
-          confirmLabel="Really drain?"
+          title={`Drain ${queue.name}?`}
+          description="Deletes every waiting and delayed job on this queue. Jobs already active or dead are untouched. This can't be undone."
           icon={<XCircleIcon className="size-3.5" />}
           pending={drain.isPending}
           onConfirm={() => drain.mutate(ref)}
         />
-        <ConfirmButton
+        <DestructiveButton
           label="Remove queue"
-          confirmLabel="Really remove?"
+          title={`Remove ${queue.name}?`}
+          description="Detaches the queue definition from this worker service. No job data is touched — you can re-attach it later."
           icon={<Trash2Icon className="size-3.5" />}
           pending={remove.isPending}
           onConfirm={() => remove.mutate(ref)}

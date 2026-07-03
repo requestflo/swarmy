@@ -1,6 +1,8 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { QueuesPage } from '@/components/queues/queues-page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+/** Queues moved into the stack workspace (the Messaging tab). */
 export const Route = createFileRoute('/_authed/queues')({
-  component: QueuesPage,
+  beforeLoad: () => {
+    throw redirect({ to: '/' });
+  },
 });

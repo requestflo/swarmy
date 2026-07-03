@@ -42,6 +42,11 @@ export const BackupVolumePayload = z.object({
   tags: z.array(z.string()).default([]),
   /** Image override; defaults to {@link DEFAULT_RESTIC_IMAGE}. */
   image: z.string().optional(),
+  /**
+   * Overlay network the restic sidecar joins so in-cluster repo endpoints
+   * (e.g. `swarmy-garage`) resolve. Omitted for external/on-node targets.
+   */
+  network: z.string().optional(),
 });
 export const BackupVolumeMsg = z.object({
   type: z.literal('backupVolume'),
@@ -59,6 +64,8 @@ export const RestoreVolumePayload = z.object({
   /** Docker local volume to restore into (created if missing). */
   targetVolume: z.string(),
   image: z.string().optional(),
+  /** Overlay network for in-cluster repo endpoints (see BackupVolumePayload). */
+  network: z.string().optional(),
 });
 export const RestoreVolumeMsg = z.object({
   type: z.literal('restoreVolume'),
@@ -74,6 +81,8 @@ export const ListSnapshotsPayload = z.object({
   /** Optional tag filter (e.g. a single volume). */
   tags: z.array(z.string()).default([]),
   image: z.string().optional(),
+  /** Overlay network for in-cluster repo endpoints (see BackupVolumePayload). */
+  network: z.string().optional(),
 });
 export const ListSnapshotsMsg = z.object({
   type: z.literal('listSnapshots'),

@@ -1,4 +1,4 @@
-import type { DomainRoute, IngressConfig } from '../types';
+import type { ControllerVhost, DomainRoute, IngressConfig, RouteProtection } from '../types';
 
 /** Build a Caddyfile from an org ingress config. Pure string construction. */
 export function buildCaddyfile(config: IngressConfig): string {
@@ -53,7 +53,34 @@ export function buildCaddyfile(config: IngressConfig): string {
   for (const [host, routes] of groupByHost(config.domains)) {
     out.push(...buildSite(host, routes, config), '');
   }
+
+  // Controller-upstream vhosts (status pages / inbound webhooks / AI gateway):
+  // one site block per domain, rewriting `/` onto the controller path that
+  // serves it, then proxying the controller. A vhost whose domain already has a
+  // service route is SKIPPED — Caddy rejects duplicate site addresses, and the
+  // service route (explicit user intent) wins.
+  const routeHosts = new Set(config.domains.map((d) => d.domain));
+  for (const v of config.controllerVhosts) {
+    if (routeHosts.has(v.domain)) continue;
+    out.push(...buildControllerVhost(v), '');
+  }
   return `${out.join('\n').trimEnd()}\n`;
+}
+
+/**
+ * A controller-upstream vhost: the domain's whole path space is rewritten under
+ * `targetPath` (`/` → `/s/my-page/`, `/foo` → `/s/my-page/foo`) and proxied to
+ * the controller — the same dial target the scale-to-zero activator uses.
+ */
+function buildControllerVhost(v: ControllerVhost): string[] {
+  const address = v.tls === 'off' ? `http://${v.domain}` : v.domain;
+  return [
+    `${address} {`,
+    `  # swarmy ${v.kind} vhost`,
+    `  rewrite * ${v.targetPath}{uri}`,
+    `  reverse_proxy ${v.upstream}`,
+    '}',
+  ];
 }
 
 /** Group routes by host, preserving first-seen host order for stable output. */
@@ -144,6 +171,69 @@ function warmProxy(r: DomainRoute): string[] {
 }
 
 /**
+ * A stable, Caddy-identifier-safe key for one route — names its rate-limit zone
+ * and protection matchers. Derived from host+path only, so the SAME route keeps
+ * the same zone across re-renders (sliding-window counters survive reloads).
+ */
+function routeKey(r: DomainRoute): string {
+  const path = routePath(r);
+  const raw = path === '/' ? r.domain : `${r.domain}${path}`;
+  return raw.replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+/**
+ * Edge-protection directives for one route, emitted BEFORE its proxy body so a
+ * blocked request never reaches the upstream. Order: IP deny → IP allow →
+ * bot block → required headers → body cap → rate limit (mholt/caddy-ratelimit —
+ * needs the swarmy Caddy build, see docker/caddy-swarmy). Matcher names carry
+ * the route key so sibling routes on one host never collide.
+ */
+function protectionLines(r: DomainRoute): string[] {
+  const p: RouteProtection | undefined = r.protection;
+  if (!p) return [];
+  const key = routeKey(r);
+  const out: string[] = [];
+  if (p.ipDeny.length > 0) {
+    out.push(`@deny_${key} remote_ip ${p.ipDeny.join(' ')}`, `abort @deny_${key}`);
+  }
+  if (p.ipAllow.length > 0) {
+    out.push(
+      `@notallowed_${key} {`,
+      `  not remote_ip ${p.ipAllow.join(' ')}`,
+      '}',
+      `abort @notallowed_${key}`,
+    );
+  }
+  if (p.blockBots) {
+    out.push(
+      `@bots_${key} header_regexp User-Agent (?i)(bot|crawler|spider|scan)`,
+      `abort @bots_${key}`,
+    );
+  }
+  p.requiredHeaders.forEach((h, i) => {
+    const m = `@nohdr${i}_${key}`;
+    out.push(`${m} {`, `  not header ${h.name} ${h.value ?? '*'}`, '}', `abort ${m}`);
+  });
+  if (p.bodyMaxSize) {
+    out.push('request_body {', `  max_size ${p.bodyMaxSize}`, '}');
+  }
+  const rl = p.rateLimit;
+  if (rl) {
+    const keyExpr = rl.key === 'header' && rl.header ? `{header.${rl.header}}` : '{remote_host}';
+    out.push(
+      'rate_limit {',
+      `  zone rl_${key} {`,
+      `    key ${keyExpr}`,
+      `    events ${rl.requests}`,
+      `    window ${rl.windowSeconds}s`,
+      '  }',
+      '}',
+    );
+  }
+  return out;
+}
+
+/**
  * Emit one route's directives. `bare` (a host's only route, at the root) writes the
  * reverse_proxy / cold-rewrite straight into the site block; every other route is
  * wrapped in its own `handle`/`handle_path` so multiple services coexist on a host.
@@ -157,12 +247,17 @@ function warmProxy(r: DomainRoute): string[] {
  */
 function appendRoute(out: string[], r: DomainRoute, bare: boolean): void {
   const path = routePath(r);
-  const body: string[] = r.cold
-    ? [
-        `rewrite * ${r.cold.wakePath}?return={scheme}://{host}{uri}`,
-        `reverse_proxy ${r.cold.upstream}`,
-      ]
-    : warmProxy(r);
+  // Protections run first so a blocked request never reaches the upstream —
+  // and never wakes a cold service.
+  const body: string[] = [
+    ...protectionLines(r),
+    ...(r.cold
+      ? [
+          `rewrite * ${r.cold.wakePath}?return={scheme}://{host}{uri}`,
+          `reverse_proxy ${r.cold.upstream}`,
+        ]
+      : warmProxy(r)),
+  ];
 
   if (bare) {
     for (const line of body) out.push(`  ${line}`);

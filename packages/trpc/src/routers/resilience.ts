@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   ResilienceBackupVerifyInput,
   ResilienceDrillHistoryInput,
@@ -19,13 +20,16 @@ import {
  * admin-only, confirmed in the UI, and every outcome is an audit row.
  */
 export const resilienceRouter = router({
-  /** Score + problems + drill cards + drill targets (poll for live data). */
-  overview: orgProcedure.query(({ ctx }) => overview(ctx)),
+  /** Score + problems + drill cards + drill targets (poll for live data).
+   *  Optional `stack` scopes service signals, backup recency and drills. */
+  overview: orgProcedure
+    .input(z.object({ stack: z.string().min(1).optional() }).optional())
+    .query(({ ctx, input }) => overview(ctx, input)),
 
   /** Recent drill outcomes, newest first (read back from the audit log). */
   drillHistory: orgProcedure
-    .input(ResilienceDrillHistoryInput)
-    .query(({ ctx, input }) => listDrillHistory(ctx, input.limit)),
+    .input(ResilienceDrillHistoryInput.extend({ stack: z.string().min(1).optional() }))
+    .query(({ ctx, input }) => listDrillHistory(ctx, input.limit, input.stack)),
 
   /** Clone the latest DB backup into a throwaway cluster, verify, destroy. */
   runRestoreDrill: adminProcedure

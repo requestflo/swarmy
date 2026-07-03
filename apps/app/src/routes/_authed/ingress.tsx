@@ -4,16 +4,18 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { StatusBadge, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
-import { CountUp } from '@/components/count-up';
 import { DriverPanel } from '@/components/ingress/driver-panel';
 import { CaddyHaCard } from '@/components/ingress/caddy-ha-card';
 import { OnDemandTlsCard } from '@/components/ingress/on-demand-tls-card';
+import { ControllerImageCard } from '@/components/ingress/controller-image-card';
+import { TargetNodesCard } from '@/components/ingress/target-nodes-card';
 import { CloudflareTunnelCard } from '@/components/ingress/cloudflare-tunnel-card';
 import { ExternalAcmeNoticeCard } from '@/components/ingress/external-acme-notice-card';
 import { DomainsList } from '@/components/ingress/domains-list';
-import { AddDomainDialog } from '@/components/ingress/add-domain-dialog';
+import { GlobalGeoDnsFooter } from '@/components/geo/global-geodns-footer';
 import { DRIVER_LABELS, type IngressDriverId } from '@/components/ingress/driver-config';
 
+/** Global "Edge & ingress" page: fleet-wide edge config, not per-route detail. */
 export const Route = createFileRoute('/_authed/ingress')({
   component: IngressPage,
 });
@@ -23,13 +25,12 @@ function IngressPage(): React.JSX.Element {
   const qc = useQueryClient();
   const config = useQuery(trpc.ingress.getConfig.queryOptions());
   const domains = useQuery(trpc.ingress.listDomains.queryOptions());
-  const services = useQuery(trpc.services.list.queryOptions({}));
   const preview = useQuery({
     ...trpc.ingress.previewConfig.queryOptions({}),
     enabled: (config.data?.driver ?? 'none') !== 'none',
   });
 
-  const invalidate = () => qc.invalidateQueries();
+  const invalidate = (): void => void qc.invalidateQueries();
   const setDriver = useMutation(
     trpc.ingress.setDriver.mutationOptions({ onSuccess: invalidate, onError: (e) => toast.error(e.message) }),
   );
@@ -67,33 +68,23 @@ function IngressPage(): React.JSX.Element {
   const driver = (config.data?.driver ?? 'none') as IngressDriverId;
   const isNone = driver === 'none';
   const enabled = !!config.data?.enabled;
-  const domainCount = domains.data?.length ?? 0;
   const live = enabled && !isNone;
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
       <PageHeader
-        eyebrow="Networking"
+        eyebrow="Edge & ingress"
         title={
-          domainCount > 0 ? (
-            <>
-              <CountUp value={domainCount} /> domain{domainCount === 1 ? '' : 's'} <em>routed</em>.
-            </>
-          ) : (
-            <>
-              Routing, <em>your</em> way.
-            </>
-          )
-        }
-        description="Pick a driver — or none at all. swarmy stays unopinionated about how traffic reaches your services."
-        actions={
           <>
-            <StatusBadge
-              tone={live ? 'online' : 'neutral'}
-              label={live ? `${DRIVER_LABELS[driver]} · live` : isNone ? 'Tracking only' : 'Paused'}
-            />
-            <AddDomainDialog services={services.data ?? []} />
+            The <em>edge</em>, configured once.
           </>
+        }
+        description="Driver, TLS, HA storage and the controller build — fleet-wide. Per-stack domains, routes and protections live on each stack's Network tab."
+        actions={
+          <StatusBadge
+            tone={live ? 'online' : 'neutral'}
+            label={live ? `${DRIVER_LABELS[driver]} · live` : isNone ? 'Tracking only' : 'Paused'}
+          />
         }
       />
 
@@ -118,6 +109,8 @@ function IngressPage(): React.JSX.Element {
             onDisable={() => setOnDemandTls.mutate({ enabled: false })}
             pending={setOnDemandTls.isPending}
           />
+          <ControllerImageCard image={config.data?.controllerImage ?? null} />
+          <TargetNodesCard targetNodes={config.data?.targetNodes ?? []} />
         </>
       ) : null}
 
@@ -132,7 +125,9 @@ function IngressPage(): React.JSX.Element {
 
       {driver === 'nginx' || driver === 'haproxy' ? <ExternalAcmeNoticeCard driver={driver} /> : null}
 
-      <DomainsList domains={domains.data ?? []} services={services.data ?? []} />
+      <DomainsList domains={domains.data ?? []} />
+
+      <GlobalGeoDnsFooter />
     </div>
   );
 }

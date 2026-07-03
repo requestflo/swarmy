@@ -2,11 +2,23 @@ import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileTextIcon, PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react';
 import type { NotifyTemplateView } from '@swarmy/core';
-import { Button, toast } from '@swarmy/ui';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+  Button,
+  toast,
+} from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { TemplateEditorDialog } from './template-editor-dialog';
+import { TemplateEditorCard } from './template-editor-card';
 
-/** Reusable email templates — list, edit, delete, create. */
+/** Reusable email templates — list, edit, delete, create; editor swaps in inline below. */
 export function TemplatesCard(): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
@@ -25,6 +37,12 @@ export function TemplatesCard(): React.JSX.Element {
   );
 
   const rows = templates.data ?? [];
+  const editorOpen = creating || editing !== null;
+
+  const closeEditor = (): void => {
+    setCreating(false);
+    setEditing(null);
+  };
 
   return (
     <section className="card-pop p-6">
@@ -36,7 +54,14 @@ export function TemplatesCard(): React.JSX.Element {
             — call them by name from alerts or <code className="text-xs">/api/v1/notify</code>.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setEditing(null);
+            setCreating((c) => !c);
+          }}
+        >
           <PlusIcon className="size-4" /> New
         </Button>
       </div>
@@ -72,33 +97,47 @@ export function TemplatesCard(): React.JSX.Element {
                   variant="ghost"
                   size="icon"
                   aria-label={`Edit ${t.name}`}
-                  onClick={() => setEditing(t)}
+                  onClick={() => {
+                    setCreating(false);
+                    setEditing(editing?.id === t.id ? null : t);
+                  }}
                 >
                   <PencilIcon className="size-4" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`Delete ${t.name}`}
-                  disabled={remove.isPending}
-                  onClick={() => remove.mutate({ id: t.id })}
-                >
-                  <Trash2Icon className="text-status-offline size-4" />
-                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Delete ${t.name}`}
+                      disabled={remove.isPending}
+                    >
+                      <Trash2Icon className="text-status-offline size-4" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete template "{t.name}"?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Anything still calling this template by name will fail to send. There is no
+                        undo.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Keep it</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => remove.mutate({ id: t.id })}>
+                        Delete template
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      <TemplateEditorDialog
-        open={creating || editing !== null}
-        template={editing}
-        onClose={() => {
-          setCreating(false);
-          setEditing(null);
-        }}
-      />
+      <TemplateEditorCard open={editorOpen} template={editing} onClose={closeEditor} />
     </section>
   );
 }

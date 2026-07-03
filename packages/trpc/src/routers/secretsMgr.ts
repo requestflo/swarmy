@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   AttachSecretInput,
   CreateSecretFamilyInput,
@@ -23,12 +24,18 @@ import {
  * create/rotate, never stored controller-side, never returned.
  */
 export const secretsMgrRouter = router({
-  /** Families (versions + consumers) and unmanaged orphans — one live read. */
-  list: orgProcedure.query(({ ctx }) => listSecretFamilies(ctx)),
+  /**
+   * Families (versions + consumers) and unmanaged orphans — one live read.
+   * Optional stack scope: keeps families attached to that stack's services,
+   * plus every zero-attachment family (a fresh secret never vanishes).
+   */
+  list: orgProcedure
+    .input(z.object({ stack: z.string().optional() }).optional())
+    .query(({ ctx, input }) => listSecretFamilies(ctx, input?.stack)),
 
-  /** Create a family at v1. The value never comes back. */
+  /** Create a family at v1. The value never comes back. `stack` is an audit hint. */
   create: adminProcedure
-    .input(CreateSecretFamilyInput)
+    .input(CreateSecretFamilyInput.extend({ stack: z.string().optional() }))
     .mutation(({ ctx, input }) => createSecretFamily(ctx, input)),
 
   /** New version + redeploy every consumer onto it (services restart). */

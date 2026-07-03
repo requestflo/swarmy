@@ -31,7 +31,18 @@ export class NginxDriver implements IngressDriver {
         }
       }
     });
-    return errors.length ? { ok: false, errors } : { ok: true };
+    // Route protections are a Caddy-renderer feature; nginx renders routes fine
+    // but silently skips them — surface that as a non-blocking warning.
+    const protectedCount = config.domains.filter((d) => d.protection).length;
+    const warnings = protectedCount
+      ? [
+          {
+            path: 'domains',
+            message: `${protectedCount} route(s) carry edge protections — the nginx driver ignores them (use the Caddy driver to enforce).`,
+          },
+        ]
+      : undefined;
+    return errors.length ? { ok: false, errors, warnings } : { ok: true, warnings };
   }
 
   render(config: IngressConfig): RenderedConfig {

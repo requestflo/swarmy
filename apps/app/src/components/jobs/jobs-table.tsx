@@ -4,15 +4,11 @@ import { JobRow } from './job-row';
 
 /** Flat rows in one card, divided by hairlines (never per-row cards). */
 export function JobsTable({
+  stack,
   jobs,
-  onHistory,
-  onEdit,
-  onDelete,
 }: {
+  stack: string;
   jobs: ScheduledJobView[];
-  onHistory: (job: ScheduledJobView) => void;
-  onEdit: (job: ScheduledJobView) => void;
-  onDelete: (job: ScheduledJobView) => void;
 }): React.JSX.Element {
   return (
     <div className="divide-border divide-y">
@@ -24,7 +20,7 @@ export function JobsTable({
         <span className="text-right">Actions</span>
       </div>
       {jobs.map((job) => (
-        <JobRow key={job.id} job={job} onHistory={onHistory} onEdit={onEdit} onDelete={onDelete} />
+        <JobRow key={job.id} stack={stack} job={job} />
       ))}
     </div>
   );

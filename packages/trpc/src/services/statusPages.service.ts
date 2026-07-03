@@ -256,10 +256,10 @@ export async function overview(ctx: OrgContext): Promise<StatusPagesOverview> {
   };
 }
 
-/** The org's status pages, newest first. */
-export async function listPages(ctx: OrgContext): Promise<StatusPageView[]> {
+/** The org's status pages, newest first — optionally scoped to one stack. */
+export async function listPages(ctx: OrgContext, stack?: string): Promise<StatusPageView[]> {
   const rows = await ctx.db.statusPage.findMany({
-    where: { orgId: ctx.activeOrgId },
+    where: { orgId: ctx.activeOrgId, ...(stack ? { stackName: stack } : {}) },
     orderBy: { createdAt: 'desc' },
   });
   return rows.map(toView);
@@ -271,8 +271,15 @@ export async function listPages(ctx: OrgContext): Promise<StatusPageView[]> {
  * cluster option), db/cache clusters from their `swarmy.db.cluster` /
  * `swarmy.cache.cluster` labels, regions from node `swarmy.region` labels,
  * plus the native ingress edge when it is deployed.
+ *
+ * With a `stack`, only that stack's services and the db/cache clusters whose
+ * member services live in it are offered — estate-wide options (regions, the
+ * ingress edge) are left out so a stack's page watches its own components.
  */
-export async function componentOptions(ctx: OrgContext): Promise<StatusComponentOption[]> {
+export async function componentOptions(
+  ctx: OrgContext,
+  stack?: string,
+): Promise<StatusComponentOption[]> {
   const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
   const inv = buildInventory(services, containers).services;
 
@@ -281,12 +288,13 @@ export async function componentOptions(ctx: OrgContext): Promise<StatusComponent
   const cacheClusters = new Map<string, number>();
 
   for (const svc of inv) {
+    if (stack && svc.stack !== stack) continue;
     const db = svc.labels[DB_CLUSTER_LABEL];
     const cache = svc.labels[CACHE_CLUSTER_LABEL];
     if (db) dbClusters.set(db, (dbClusters.get(db) ?? 0) + 1);
     else if (cache) cacheClusters.set(cache, (cacheClusters.get(cache) ?? 0) + 1);
     else if (svc.name === 'swarmy-ingress-caddy') {
-      out.push({ kind: 'ingress', ref: svc.name, label: 'Ingress edge', hint: 'reverse proxy' });
+      if (!stack) out.push({ kind: 'ingress', ref: svc.name, label: 'Ingress edge', hint: 'reverse proxy' });
     } else {
       out.push({
         kind: 'service',
@@ -302,8 +310,10 @@ export async function componentOptions(ctx: OrgContext): Promise<StatusComponent
   for (const [cluster, members] of cacheClusters) {
     out.push({ kind: 'cache', ref: cluster, label: cluster, hint: `cache · ${members} member${members === 1 ? '' : 's'}` });
   }
-  for (const [region, nodeIds] of ctx.hub.nodesByRegion(ctx.activeOrgId)) {
-    out.push({ kind: 'region', ref: region, label: region, hint: `${nodeIds.length} node${nodeIds.length === 1 ? '' : 's'}` });
+  if (!stack) {
+    for (const [region, nodeIds] of ctx.hub.nodesByRegion(ctx.activeOrgId)) {
+      out.push({ kind: 'region', ref: region, label: region, hint: `${nodeIds.length} node${nodeIds.length === 1 ? '' : 's'}` });
+    }
   }
   return out.sort((a, b) => (a.kind === b.kind ? a.ref.localeCompare(b.ref) : a.kind.localeCompare(b.kind)));
 }
@@ -552,7 +562,7 @@ export async function sampleUptimeTick(ctx: OrgContext): Promise<void> {
  */
 export async function createPage(
   ctx: OrgContext,
-  input: CreateStatusPageInput,
+  input: CreateStatusPageInput & { stackName?: string },
 ): Promise<StatusPageView> {
   await assertSlugFree(ctx, input.slug);
   const row = await ctx.db.statusPage.create({
@@ -561,6 +571,7 @@ export async function createPage(
       slug: input.slug,
       title: input.title,
       domain: input.domain?.toLowerCase() ?? null,
+      stackName: input.stackName ?? null,
       componentsJson: input.components as unknown as object,
       showUptime: input.showUptime,
       showIncidents: input.showIncidents,
@@ -571,15 +582,20 @@ export async function createPage(
     action: 'statusPages.create',
     targetType: 'statusPage',
     targetId: row.id,
-    metadata: { slug: row.slug, title: row.title, components: input.components.length },
+    metadata: {
+      slug: row.slug,
+      title: row.title,
+      components: input.components.length,
+      ...(input.stackName ? { stackName: input.stackName } : {}),
+    },
   });
   return toView(row);
 }
 
-/** Update a page's meta, components, domain, visibility toggles. */
+/** Update a page's meta, components, domain, stack link, visibility toggles. */
 export async function updatePage(
   ctx: OrgContext,
-  input: UpdateStatusPageInput,
+  input: UpdateStatusPageInput & { stackName?: string | null },
 ): Promise<StatusPageView> {
   const existing = await requirePage(ctx, input.id);
   if (input.slug !== undefined && input.slug !== existing.slug) {
@@ -591,6 +607,7 @@ export async function updatePage(
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(input.slug !== undefined ? { slug: input.slug } : {}),
       ...(input.domain !== undefined ? { domain: input.domain?.toLowerCase() ?? null } : {}),
+      ...(input.stackName !== undefined ? { stackName: input.stackName } : {}),
       ...(input.components !== undefined
         ? { componentsJson: input.components as unknown as object }
         : {}),

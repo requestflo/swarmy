@@ -65,6 +65,7 @@ import {
 import { resolveExecTarget } from './live-resolve';
 import { getConfig as getControllerBackupConfig } from './controllerBackup.service';
 import { getConfig as getStorageConfig } from './replicatedStore.service';
+import { resticNetworkFor } from './backups.service';
 
 // ── Read-only label mirrors (A3/E4 schemes; canonical copies live with owners) ─
 const CACHE_ROLE_LABEL = 'swarmy.cache.role';
@@ -450,7 +451,11 @@ function toSignal(s: InvService): ResilienceServiceSignal {
 }
 
 /** Latest successful backup across volume snapshots + per-cluster DB runs. */
-function latestBackupAt(ctx: OrgContext, services: InvService[]): Promise<string | null> {
+function latestBackupAt(
+  ctx: OrgContext,
+  services: InvService[],
+  stack?: string,
+): Promise<string | null> {
   const dbTimes = services
     .filter((s) => s.labels[DB_ROLE_LABEL] === 'primary' && !s.labels[DB_MEMBER_LABEL])
     .map((s) => parseLastRunLabel(s.labels[DB_BACKUP_LAST_RUN_LABEL]))
@@ -458,7 +463,12 @@ function latestBackupAt(ctx: OrgContext, services: InvService[]): Promise<string
     .map((r) => r.at);
   return ctx.db.snapshot
     .findFirst({
-      where: { orgId: ctx.activeOrgId, status: 'SUCCEEDED' },
+      where: {
+        orgId: ctx.activeOrgId,
+        status: 'SUCCEEDED',
+        // Volumes belong to a stack by name prefix (`<stack>_<volume>`).
+        ...(stack ? { volume: { startsWith: `${stack}_` } } : {}),
+      },
       orderBy: { startedAt: 'desc' },
       select: { startedAt: true },
     })
@@ -470,8 +480,10 @@ function latestBackupAt(ctx: OrgContext, services: InvService[]): Promise<string
     .catch(() => (dbTimes.length ? (dbTimes.sort().at(-1) ?? null) : null));
 }
 
-export async function buildSnapshot(ctx: OrgContext): Promise<ResilienceSnapshot> {
-  const inv = liveServices(ctx);
+export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<ResilienceSnapshot> {
+  // Stack scope narrows the service signals + backup recency to one stack;
+  // estate-level posture (ingress, geo, controller backups) stays shared.
+  const inv = liveServices(ctx).filter((s) => !stack || s.stack === stack);
   const regions = [...ctx.hub.nodesByRegion(ctx.activeOrgId).keys()];
 
   const [ingress, storage, geoCfg, geoRecords, controller, targetCount, lastSuccessAt, drills] =
@@ -482,8 +494,8 @@ export async function buildSnapshot(ctx: OrgContext): Promise<ResilienceSnapshot
       listGeoDnsRecords(ctx).catch(() => []),
       getControllerBackupConfig(ctx.db).catch(() => null),
       ctx.db.backupTarget.count({ where: { orgId: ctx.activeOrgId, enabled: true } }).catch(() => 0),
-      latestBackupAt(ctx, inv),
-      listDrillHistory(ctx, 50),
+      latestBackupAt(ctx, inv, stack),
+      listDrillHistory(ctx, 50, stack),
     ]);
 
   const lastRestore = drills.find((d) => d.kind === 'restore' && d.status === 'passed');
@@ -540,6 +552,7 @@ function parseDrillMetadata(meta: unknown): ResilienceDrillResultView | null {
 export async function listDrillHistory(
   ctx: OrgContext,
   limit = 20,
+  stack?: string,
 ): Promise<ResilienceDrillResultView[]> {
   let persisted: ResilienceDrillResultView[] = [];
   try {
@@ -560,6 +573,8 @@ export async function listDrillHistory(
     (r) => !seen.has(`${r.kind}@${r.at}`),
   );
   return [...memory, ...persisted]
+    // Restore/failover drill targets are `<stack>/<cluster>` refs.
+    .filter((r) => !stack || (r.target ?? '').startsWith(`${stack}/`))
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, limit);
 }
@@ -665,11 +680,15 @@ export function buildDrillCards(
   ];
 }
 
-export async function overview(ctx: OrgContext): Promise<ResilienceOverviewView> {
-  const snap = await buildSnapshot(ctx);
+export async function overview(
+  ctx: OrgContext,
+  input?: { stack?: string },
+): Promise<ResilienceOverviewView> {
+  const stack = input?.stack;
+  const snap = await buildSnapshot(ctx, stack);
   const problems = runChecks(snap);
-  const targets = drillTargets(liveServices(ctx));
-  const history = await listDrillHistory(ctx, 20);
+  const targets = drillTargets(liveServices(ctx)).filter((t) => !stack || t.stack === stack);
+  const history = await listDrillHistory(ctx, 20, stack);
   return {
     ready: true,
     score: scoreProblems(problems, new Date(snap.now)),
@@ -972,6 +991,8 @@ export async function runBackupVerify(
   const rec = stepRecorder();
   const isNode = row.kind === 'node' || row.kind === 'NODE';
   const repo = resticRepoUrl(row.kind, row.endpoint, row.bucket, row.prefix);
+  // In-cluster targets (swarmy-garage) only resolve on the swarmy overlay.
+  const network = isNode ? undefined : resticNetworkFor(row.endpoint);
   const env = buildResticCheckEnv({
     repo,
     password: decryptSecret(row.resticPasswordRef),
@@ -994,6 +1015,7 @@ export async function runBackupVerify(
               cmd: ['check'],
               env,
               binds: isNode ? [`${repo}:${repo}`] : [],
+              ...(network ? { networks: [network] } : {}),
               pull: true,
               timeoutMs: 180_000,
             },

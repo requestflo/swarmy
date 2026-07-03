@@ -2,14 +2,15 @@ import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { RotateCcwIcon } from 'lucide-react';
 import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
   Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
   Label,
   Select,
   SelectContent,
@@ -22,16 +23,13 @@ import type { DbBackupSnapshotView } from '@swarmy/core';
 import type { DbRestoreMode } from '@swarmy/core/protocol';
 import { useTRPC } from '@/integrations/trpc';
 import { DbRestoreFields } from './db-restore-fields';
-import { engineLabel, isPhysical } from './db-backup-format';
+import { DB_RESTORE_MODES, engineLabel, isPhysical } from './db-backup-format';
 
-const MODES: { value: DbRestoreMode; label: string; blurb: string }[] = [
-  { value: 'clone-to-new-cluster', label: 'Clone to new cluster', blurb: 'Restore into a fresh cluster — safest, nothing live is touched.' },
-  { value: 'single-database', label: 'Single database', blurb: 'Restore just one database from the backup.' },
-  { value: 'pitr', label: 'Point-in-time', blurb: 'Replay WAL up to a timestamp (wal-g / pgBackRest backups).' },
-  { value: 'in-place', label: 'In place', blurb: 'Overwrite the live primary — destructive.' },
-];
-
-/** Restore a single DB backup, with a mode-specific form. */
+/**
+ * Restore a single DB backup — a destructive confirm with a mode-specific
+ * form, so it uses the one sanctioned modal (AlertDialog) around
+ * `DbRestoreFields`.
+ */
 export function DbRestoreDialog({
   stack,
   cluster,
@@ -66,7 +64,7 @@ export function DbRestoreDialog({
     }),
   );
 
-  const meta = MODES.find((m) => m.value === mode);
+  const meta = DB_RESTORE_MODES.find((m) => m.value === mode);
   const pitrBlocked = mode === 'pitr' && (!isPhysical(engine) || !dataVolume.trim());
   const submit = (): void =>
     restore.mutate({
@@ -83,19 +81,19 @@ export function DbRestoreDialog({
     });
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
         <Button variant="outline" size="sm" className="rounded-full">
           <RotateCcwIcon className="size-4" /> Restore
         </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Restore backup</DialogTitle>
-          <DialogDescription>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Restore backup</AlertDialogTitle>
+          <AlertDialogDescription>
             {engineLabel(backup.engine)} · {new Date(backup.time).toLocaleString()}
-          </DialogDescription>
-        </DialogHeader>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
 
         <div className="space-y-4">
           <div className="grid gap-1.5">
@@ -105,7 +103,7 @@ export function DbRestoreDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {MODES.map((m) => (
+                {DB_RESTORE_MODES.map((m) => (
                   <SelectItem key={m.value} value={m.value}>
                     {m.label}
                   </SelectItem>
@@ -134,16 +132,18 @@ export function DbRestoreDialog({
           />
         </div>
 
-        <DialogFooter>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
           <Button
             variant={mode === 'in-place' ? 'destructive' : 'default'}
             onClick={submit}
             disabled={restore.isPending || pitrBlocked}
           >
-            <RotateCcwIcon className="size-4" /> Start restore
+            <RotateCcwIcon className="size-4" />
+            {restore.isPending ? 'Restoring…' : 'Start restore'}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

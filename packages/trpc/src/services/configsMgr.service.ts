@@ -272,25 +272,44 @@ function toFamilyView(group: ConfigFamilyGroup, services: InvService[]): ConfigF
   };
 }
 
-/** The whole Configs page: families (+usage) and unmanaged orphans, live. */
-export async function listConfigFamilies(ctx: OrgContext): Promise<ConfigsListView> {
+/**
+ * The whole Configs page: families (+usage) and unmanaged orphans, live.
+ *
+ * `stack` (optional) scopes the view to one stack: a family is "in" a stack
+ * when any of its consumer services belongs to it (`com.docker.stack.namespace`
+ * via the live inventory). Families with ZERO attachments are kept in every
+ * stack's view — a just-created config must not vanish before its first attach.
+ */
+export async function listConfigFamilies(
+  ctx: OrgContext,
+  stack?: string,
+): Promise<ConfigsListView> {
   const node = await resolveManagerNode(ctx);
   const raw = await listRawConfigs(ctx, node.id);
   const { families, orphans } = groupConfigs(raw, ctx.activeOrgId);
   const services = liveOrgServices(ctx);
 
+  const familyViews = families.map((g) => toFamilyView(g, services));
+  const orphanViews = orphans.map(
+    (c): OrphanConfigView => ({
+      id: c.id,
+      name: c.name,
+      createdAt: new Date(c.createdAt).toISOString(),
+      consumers: services
+        .filter((svc) => (svc.configs ?? []).includes(c.name))
+        .map((svc) => svc.name)
+        .sort(),
+    }),
+  );
+  if (!stack) return { families: familyViews, orphans: orphanViews };
+
+  const inStack = new Set(services.filter((s) => s.stack === stack).map((s) => s.name));
   return {
-    families: families.map((g) => toFamilyView(g, services)),
-    orphans: orphans.map(
-      (c): OrphanConfigView => ({
-        id: c.id,
-        name: c.name,
-        createdAt: new Date(c.createdAt).toISOString(),
-        consumers: services
-          .filter((svc) => (svc.configs ?? []).includes(c.name))
-          .map((svc) => svc.name)
-          .sort(),
-      }),
+    families: familyViews.filter(
+      (f) => f.usedByCount === 0 || f.consumers.some((c) => c.stack === stack),
+    ),
+    orphans: orphanViews.filter(
+      (o) => o.consumers.length === 0 || o.consumers.some((n) => inStack.has(n)),
     ),
   };
 }
@@ -489,7 +508,7 @@ async function createPhysical(
 /** Create a family at v1. Nothing restarts — attach/apply do that explicitly. */
 export async function createConfigFamily(
   ctx: OrgContext,
-  input: CreateConfigFamilyInput,
+  input: CreateConfigFamilyInput & { stack?: string },
 ): Promise<CreateConfigResult> {
   const family = input.family.trim();
   if (!isValidConfigFamily(family)) throw commandRejected(`invalid config family name "${family}"`);
@@ -508,7 +527,14 @@ export async function createConfigFamily(
     action: 'configs.create',
     targetType: 'configFamily',
     targetId: family,
-    metadata: { version: 1, mountPath, bytes: Buffer.byteLength(input.content, 'utf8') },
+    metadata: {
+      version: 1,
+      mountPath,
+      bytes: Buffer.byteLength(input.content, 'utf8'),
+      // Where the create was initiated from (stack workspace) — an audit hint
+      // only; membership stays Docker-truth via attachments.
+      ...(input.stack ? { stack: input.stack } : {}),
+    },
   });
   return { family, version: 1, name, mountPath };
 }

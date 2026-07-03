@@ -50,15 +50,20 @@ function StackChip({ entry }: { entry: HealthEntryView }): React.JSX.Element {
   );
 }
 
+interface HealthReasonsPanelProps {
+  /** Scope the narrative to one stack; omit for the whole estate. */
+  stack?: string;
+}
+
 /**
  * The health narrative: one status + the ordered human reasons behind it
  * ("p95 latency 1.8s (target <1.5s)", "database replica lag 12s", …), plus a
  * per-stack chip row so you can see WHERE the trouble is at a glance.
  */
-export function HealthReasonsPanel(): React.JSX.Element {
+export function HealthReasonsPanel({ stack }: HealthReasonsPanelProps): React.JSX.Element {
   const trpc = useTRPC();
   const health = useQuery({
-    ...trpc.observability.health.queryOptions({}),
+    ...trpc.observability.health.queryOptions({ stack }),
     refetchInterval: 10_000,
   });
 

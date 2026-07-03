@@ -16,14 +16,16 @@ import { METRIC_PRESETS } from './observability-shared';
 
 interface MetricsPanelProps {
   enabled: boolean;
+  /** Scope samples to one stack (`swarmy.stack` resource attribute). */
+  stack?: string;
 }
 
 /** Per-minute average chart over the last hour — coral bars, no chart chrome. */
-export function MetricsPanel({ enabled }: MetricsPanelProps): React.JSX.Element {
+export function MetricsPanel({ enabled, stack }: MetricsPanelProps): React.JSX.Element {
   const trpc = useTRPC();
   const [metric, setMetric] = React.useState<string>(METRIC_PRESETS[0].value);
   const series = useQuery({
-    ...trpc.observability.metricsSeries.queryOptions({ metric, windowMinutes: 60, bucketSeconds: 60 }),
+    ...trpc.observability.metricsSeries.queryOptions({ metric, windowMinutes: 60, bucketSeconds: 60, stack }),
     enabled,
     refetchInterval: enabled ? 15_000 : false,
   });

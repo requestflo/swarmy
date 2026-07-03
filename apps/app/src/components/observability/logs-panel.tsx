@@ -17,17 +17,19 @@ import { useLogsFeed } from './logs-use-feed';
 
 interface LogsPanelProps {
   enabled: boolean;
+  /** Scope the feed to one stack (`swarmy.stack`, filtered server-side). */
+  stack?: string;
 }
 
 /**
  * Structured-logs feed (otel_logs): filter bar, severity-coloured expandable
  * rows capped at {@link LOGS_ROW_CAP}, trace cross-links, 10s live tail.
  */
-export function LogsPanel({ enabled }: LogsPanelProps): React.JSX.Element {
+export function LogsPanel({ enabled, stack }: LogsPanelProps): React.JSX.Element {
   const [filters, setFilters] = React.useState<LogFilters>(DEFAULT_LOG_FILTERS);
   const [live, setLive] = React.useState(true);
   const [expandedKey, setExpandedKey] = React.useState<string | null>(null);
-  const feed = useLogsFeed(filters, live, enabled);
+  const feed = useLogsFeed(filters, live, enabled, stack);
 
   return (
     <Card className="card-pop border-0">
@@ -36,12 +38,19 @@ export function LogsPanel({ enabled }: LogsPanelProps): React.JSX.Element {
           <ScrollTextIcon className="size-4" /> Logs
         </CardTitle>
         <CardDescription>
-          Every log line from your telemetry-enabled stacks. Filter by service or severity,
-          search the text, and click a line for its context — or jump to the trace behind it.
+          {stack
+            ? `Every log line ${stack} emits. Filter by service or severity, search the text, and click a line for its context — or jump to the trace behind it.`
+            : 'Every log line from your telemetry-enabled stacks. Filter by service or severity, search the text, and click a line for its context — or jump to the trace behind it.'}
         </CardDescription>
       </CardHeader>
       <CardContent className="p-0">
-        <LogsFilterBar filters={filters} onChange={setFilters} live={live} onLiveChange={setLive} />
+        <LogsFilterBar
+          filters={filters}
+          onChange={setFilters}
+          live={live}
+          onLiveChange={setLive}
+          stack={stack}
+        />
         {!enabled ? (
           <EmptyState
             className="mx-6 mb-6"

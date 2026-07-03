@@ -927,12 +927,20 @@ export interface InboundEndpointView {
   id: string;
   name: string;
   slug: string;
+  /** Stack this endpoint belongs to (stack-scoped IA); null = org-wide/legacy. */
+  stackName: string | null;
+  /** Custom domain served at the edge (point a CNAME at the swarm); null = none. */
+  domain: string | null;
   /** Public receiver URL (`<controller>/hooks/i/<org>/<slug>`) — paste into the provider. */
   url: string;
   verifyKind: InboundVerifyKindView;
   /** True when a verify secret is stored (the value is never returned). */
   hasSecret: boolean;
   target: InboundTarget;
+  /** Handlebars-style body transform applied before delivery; null = pass-through. */
+  transformTemplate: string | null;
+  /** Handlebars-style templated ack body; null = default `{ok:true}` ack. */
+  responseTemplate: string | null;
   retentionDays: number;
   /** Deliveries received in the last 24h. */
   deliveries24h: number;

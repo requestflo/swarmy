@@ -19,8 +19,15 @@ import type {
   RestoreVolumeResult,
 } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
-import { mapDispatchError, notFound } from '../errors';
+import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import {
+  createBucket,
+  createKey,
+  garageS3Endpoint,
+  grantKeyOnBucket,
+  overview as bucketsOverview,
+} from './buckets.service';
 import { resolveManagerNode, requireOnlineNode } from './dispatch.service';
 
 export type BackupTargetKind = 's3' | 'node';
@@ -80,6 +87,27 @@ function toView(row: TargetRow): BackupTargetView {
     enabled: row.enabled,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+/** The shared overlay network every swarmy-managed platform service joins. */
+export const SWARMY_OVERLAY_NETWORK = 'swarmy';
+
+/** Hostnames that only resolve on the swarmy overlay (in-cluster endpoints). */
+const IN_CLUSTER_HOSTS = new Set(['swarmy-garage']);
+
+/**
+ * Overlay network a restic one-shot must join to reach `endpoint`, if any.
+ * External S3 endpoints and node-path repos need none; the native Garage
+ * target (`http://swarmy-garage:3900`) only resolves on the swarmy overlay.
+ */
+export function resticNetworkFor(endpoint: string | null | undefined): string | undefined {
+  if (!endpoint) return undefined;
+  try {
+    const url = new URL(endpoint.includes('://') ? endpoint : `http://${endpoint}`);
+    return IN_CLUSTER_HOSTS.has(url.hostname) ? SWARMY_OVERLAY_NETWORK : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Build the restic repo URL from a target row. */
@@ -180,6 +208,76 @@ export async function removeTarget(
   return { id, removed: true };
 }
 
+// ── native Garage DR target ─────────────────────────────────────────────────
+
+/** Name of the org's managed backup destination on the replicated store. */
+export const NATIVE_TARGET_NAME = 'swarmy-object-storage';
+/** Dedicated Garage bucket the native destination writes into. */
+export const NATIVE_BUCKET = 'swarmy-backups';
+
+export interface NativeTargetResult {
+  target: BackupTargetView;
+  bucket: string;
+  /** False when the destination already existed (the call is idempotent). */
+  created: boolean;
+}
+
+/**
+ * Find-or-create the native DR destination: a `BackupTarget` pointed at the
+ * in-swarm Garage endpoint with a dedicated bucket + bucket-scoped key minted
+ * through the Garage admin flow. Idempotent — a second click returns the
+ * existing destination. Requires the replicated store to be enabled.
+ */
+export async function ensureNativeTarget(ctx: OrgContext): Promise<NativeTargetResult> {
+  const existing = (await ctx.db.backupTarget.findFirst({
+    where: { orgId: ctx.activeOrgId, name: NATIVE_TARGET_NAME },
+  })) as unknown as TargetRow | null;
+  if (existing) {
+    return { target: toView(existing), bucket: existing.bucket, created: false };
+  }
+
+  const store = await bucketsOverview(ctx);
+  if (store.state === 'disabled') {
+    throw commandRejected(
+      'object storage is off — enable the replicated store below, then try again',
+    );
+  }
+  if (store.state === 'unreachable') {
+    throw commandRejected(`object store unreachable: ${store.message ?? 'try again shortly'}`);
+  }
+
+  // Mint (or adopt) the dedicated bucket, then a bucket-scoped key. The key
+  // secret exists in memory only until it is encrypted onto the target row.
+  const bucket =
+    store.buckets.find((b) => b.name === NATIVE_BUCKET) ??
+    (await createBucket(ctx, { name: NATIVE_BUCKET }));
+  const key = await createKey(ctx, `${NATIVE_TARGET_NAME}-restic`);
+  await grantKeyOnBucket(ctx, {
+    bucketId: bucket.id,
+    accessKeyId: key.accessKeyId,
+    permissions: { read: true, write: true, owner: false },
+    mode: 'allow',
+  });
+
+  const target = await addTarget(ctx, {
+    name: NATIVE_TARGET_NAME,
+    kind: 's3',
+    endpoint: garageS3Endpoint(),
+    bucket: NATIVE_BUCKET,
+    prefix: 'restic',
+    region: store.region,
+    accessKeyId: key.accessKeyId,
+    secretAccessKey: key.secretAccessKey,
+  });
+  await writeAudit(ctx, {
+    action: 'backup.target.native',
+    targetType: 'backupTarget',
+    targetId: target.id,
+    metadata: { bucket: NATIVE_BUCKET, accessKeyId: key.accessKeyId },
+  });
+  return { target, bucket: NATIVE_BUCKET, created: true };
+}
+
 // ── backup / restore / list ────────────────────────────────────────────────
 
 export async function backupVolume(
@@ -207,6 +305,7 @@ export async function backupVolume(
       repo: toResticRepo(target),
       volume: input.volume,
       tags: volumeTags(ctx.activeOrgId, input.volume),
+      network: resticNetworkFor(target.endpoint),
     });
     await ctx.db.snapshot.update({
       where: { id: snapshot.id },
@@ -243,12 +342,14 @@ export async function backupVolume(
 
 export async function listSnapshots(
   ctx: OrgContext,
-  input?: { volume?: string; targetId?: string },
+  input?: { volume?: string; targetId?: string; stack?: string },
 ): Promise<SnapshotView[]> {
   const rows = await ctx.db.snapshot.findMany({
     where: {
       orgId: ctx.activeOrgId,
-      volume: input?.volume,
+      // Volumes belong to a stack by name prefix (`<stack>_<volume>`).
+      volume:
+        input?.volume ?? (input?.stack ? { startsWith: `${input.stack}_` } : undefined),
       targetId: input?.targetId,
     },
     orderBy: { startedAt: 'desc' },
@@ -280,6 +381,7 @@ export async function listRemoteSnapshots(
     const res = await ctx.hub.dispatch<ListSnapshotsResult>(node.id, 'backup.list', {
       repo: toResticRepo(target),
       tags: input.volume ? volumeTags(ctx.activeOrgId, input.volume) : [`org:${ctx.activeOrgId}`],
+      network: resticNetworkFor(target.endpoint),
     });
     return res.snapshots;
   } catch (e) {
@@ -306,6 +408,7 @@ export async function restoreSnapshot(
       repo: toResticRepo(target),
       snapshotId: snapshot.resticId ?? 'latest',
       targetVolume,
+      network: resticNetworkFor(target.endpoint),
     });
     await writeAudit(ctx, {
       action: 'backup.restore',

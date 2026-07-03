@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { ComposeDiff } from './compose-diff';
 import { ReleaseStatusChip, relativeTime } from './release-status';
-import { RollbackDialog } from './rollback-dialog';
+import { RollbackConfirm } from './rollback-confirm';
 
 /**
  * Selected release: what shipped (images, actor, gate verdict), the compose
@@ -25,7 +25,7 @@ export function ReleaseDetailCard({ release }: { release: ReleaseView }): React.
           <CardTitle className="text-base">{release.stackName}</CardTitle>
           <ReleaseStatusChip status={release.status} />
         </div>
-        <RollbackDialog release={release} />
+        <RollbackConfirm release={release} />
       </CardHeader>
       <CardContent className="grid gap-4">
         <div className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs">

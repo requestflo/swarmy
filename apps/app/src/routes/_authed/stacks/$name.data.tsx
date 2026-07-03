@@ -1,12 +1,27 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { WorkspaceStub } from '@/components/stacks/workspace/workspace-stub';
+import { ManagedDbPanel } from '@/components/stacks/managed-db-panel';
+import { CacheSection } from '@/components/cache/cache-section';
+import { SearchSection } from '@/components/searchsvc/search-section';
+import { VectorSection } from '@/components/vector/vector-section';
 
-/** Data tab: managed databases, caches, search & vector for this stack. */
+/**
+ * Data tab of the stack workspace: this stack's managed databases, caches,
+ * search engines and vector stores — all inline-first (row-expands and
+ * Collapsible provision cards, no modals).
+ */
 export const Route = createFileRoute('/_authed/stacks/$name/data')({
   component: DataTab,
 });
 
 function DataTab(): React.JSX.Element {
-  return <WorkspaceStub title="Databases, caches, search & vector — moving in." />;
+  const { name } = Route.useParams();
+  return (
+    <div className="space-y-6">
+      <ManagedDbPanel stack={name} />
+      <CacheSection stack={name} />
+      <SearchSection stack={name} />
+      <VectorSection stack={name} />
+    </div>
+  );
 }

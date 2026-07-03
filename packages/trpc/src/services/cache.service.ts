@@ -648,10 +648,11 @@ function toView(ctx: OrgContext, c: LiveCluster): CacheClusterView {
   };
 }
 
-/** All managed cache clusters in the org (Data → Caches page). */
-export function listCacheClusters(ctx: OrgContext): CacheClusterView[] {
+/** Managed cache clusters — org-wide, or scoped to one stack when given. */
+export function listCacheClusters(ctx: OrgContext, stack?: string): CacheClusterView[] {
   return groupClusters(liveOrgServices(ctx))
     .map((c) => toView(ctx, c))
+    .filter((v) => !stack || v.stack === stack)
     .sort((a, b) => `${a.stack}/${a.name}`.localeCompare(`${b.stack}/${b.name}`));
 }
 

@@ -1,12 +1,13 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { WorkspaceStub } from '@/components/stacks/workspace/workspace-stub';
+import { StackSettingsTab } from '@/components/ai/stack-settings/stack-settings-tab';
 
-/** Settings tab: AI-gateway access, exposure & the danger zone for this stack. */
+/** Settings tab: environment, AI-gateway access & outlet, add-service, danger zone. */
 export const Route = createFileRoute('/_authed/stacks/$name/settings')({
   component: SettingsTab,
 });
 
 function SettingsTab(): React.JSX.Element {
-  return <WorkspaceStub title="Stack settings & AI access — moving in." />;
+  const { name } = Route.useParams();
+  return <StackSettingsTab stack={name} />;
 }

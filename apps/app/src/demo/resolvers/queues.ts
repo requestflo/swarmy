@@ -145,23 +145,29 @@ export const queues: DomainResolvers = {
   },
 
   handlers: {
-    'queues.list': (_i, s): QueueView[] =>
-      [...getState(s).queues].sort((a, b) => key(a).localeCompare(key(b))),
+    'queues.list': (i, s): QueueView[] => {
+      const { stack } = (i ?? {}) as { stack?: string };
+      return [...getState(s).queues]
+        .filter((q) => (stack ? q.stack === stack : true))
+        .sort((a, b) => key(a).localeCompare(key(b)));
+    },
 
-    'queues.overview': (_i, s): QueuesOverview => {
+    'queues.overview': (i, s): QueuesOverview => {
+      const { stack } = (i ?? {}) as { stack?: string };
       const st = getState(s);
+      const queues = st.queues.filter((q) => (stack ? q.stack === stack : true));
       const byWorker = new Map<string, number>();
       let totalWait = 0;
       let totalActive = 0;
       let totalFailed = 0;
-      for (const q of st.queues) {
+      for (const q of queues) {
         byWorker.set(q.workerService, q.workers.running);
         totalWait += q.stats?.wait ?? 0;
         totalActive += q.stats?.active ?? 0;
         totalFailed += q.stats?.failed ?? 0;
       }
       return {
-        queues: st.queues.length,
+        queues: queues.length,
         workersRunning: [...byWorker.values()].reduce((n, v) => n + v, 0),
         totalWait,
         totalActive,

@@ -11,8 +11,9 @@ import type {
 import type { DemoStore, DomainResolvers } from '../types';
 
 /**
- * Releases demo resolvers — the Releases surface (`/releases`): deploy history,
- * health gates, compose diffs and rollback. Return shapes mirror
+ * Releases demo resolvers — the stack workspace Releases tab
+ * (`/stacks/$name/releases`): deploy history, health gates, compose diffs and
+ * rollback. Return shapes mirror
  * `releases.service.ts` views exactly (imported from @swarmy/core, never
  * redeclared). State lives in `store.extra.releases`; rollback mutates it so
  * the feed reflects the new deploying release after invalidation.
@@ -164,8 +165,9 @@ function canaryToView(c: CanarySeed): CanaryRunView {
 
 export const releases: DomainResolvers = {
   handlers: {
-    'releases.overview': (_i, s): ReleasesOverview => {
-      const rows = getState(s).releases;
+    'releases.overview': (i, s): ReleasesOverview => {
+      const b = (i as { stackName?: string } | undefined) ?? {};
+      const rows = getState(s).releases.filter((r) => !b.stackName || r.stackName === b.stackName);
       const count = (st: ReleaseView['status']) => rows.filter((r) => r.status === st).length;
       return {
         total: rows.length,

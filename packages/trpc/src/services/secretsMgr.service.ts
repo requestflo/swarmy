@@ -234,25 +234,44 @@ function toFamilyView(group: FamilyGroup, services: InvService[]): SecretFamilyV
   };
 }
 
-/** The whole Secrets page: families (+usage) and unmanaged orphans, live. */
-export async function listSecretFamilies(ctx: OrgContext): Promise<SecretsListView> {
+/**
+ * The whole Secrets page: families (+usage) and unmanaged orphans, live.
+ *
+ * `stack` (optional) scopes the view to one stack: a family is "in" a stack
+ * when any of its consumer services belongs to it (`com.docker.stack.namespace`
+ * via the live inventory). Families with ZERO attachments are kept in every
+ * stack's view — a just-created secret must not vanish before its first attach.
+ */
+export async function listSecretFamilies(
+  ctx: OrgContext,
+  stack?: string,
+): Promise<SecretsListView> {
   const node = await resolveManagerNode(ctx);
   const raw = await listRawSecrets(ctx, node.id);
   const { families, orphans } = groupSecrets(raw, ctx.activeOrgId);
   const services = liveOrgServices(ctx);
 
+  const familyViews = families.map((g) => toFamilyView(g, services));
+  const orphanViews = orphans.map(
+    (s): OrphanSecretView => ({
+      id: s.id,
+      name: s.name,
+      createdAt: new Date(s.createdAt).toISOString(),
+      consumers: services
+        .filter((svc) => (svc.secrets ?? []).includes(s.name))
+        .map((svc) => svc.name)
+        .sort(),
+    }),
+  );
+  if (!stack) return { families: familyViews, orphans: orphanViews };
+
+  const inStack = new Set(services.filter((s) => s.stack === stack).map((s) => s.name));
   return {
-    families: families.map((g) => toFamilyView(g, services)),
-    orphans: orphans.map(
-      (s): OrphanSecretView => ({
-        id: s.id,
-        name: s.name,
-        createdAt: new Date(s.createdAt).toISOString(),
-        consumers: services
-          .filter((svc) => (svc.secrets ?? []).includes(s.name))
-          .map((svc) => svc.name)
-          .sort(),
-      }),
+    families: familyViews.filter(
+      (f) => f.usedByCount === 0 || f.consumers.some((c) => c.stack === stack),
+    ),
+    orphans: orphanViews.filter(
+      (o) => o.consumers.length === 0 || o.consumers.some((n) => inStack.has(n)),
     ),
   };
 }
@@ -369,7 +388,7 @@ function managedLabels(ctx: OrgContext, family: string, version: number): Record
  */
 export async function createSecretFamily(
   ctx: OrgContext,
-  input: CreateSecretFamilyInput,
+  input: CreateSecretFamilyInput & { stack?: string },
 ): Promise<CreateSecretResult> {
   const family = input.family.trim();
   if (!isValidSecretFamily(family)) throw commandRejected(`invalid secret family name "${family}"`);
@@ -400,7 +419,13 @@ export async function createSecretFamily(
     action: 'secrets.create',
     targetType: 'secretFamily',
     targetId: family,
-    metadata: { version: 1, bytes: Buffer.byteLength(input.value, 'utf8') },
+    metadata: {
+      version: 1,
+      bytes: Buffer.byteLength(input.value, 'utf8'),
+      // Where the create was initiated from (stack workspace) — an audit hint
+      // only; membership stays Docker-truth via attachments.
+      ...(input.stack ? { stack: input.stack } : {}),
+    },
   });
   return { family, version: 1, name };
 }

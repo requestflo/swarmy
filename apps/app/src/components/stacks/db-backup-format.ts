@@ -1,4 +1,4 @@
-import type { DbBackupEngine } from '@swarmy/core/protocol';
+import type { DbBackupEngine, DbRestoreMode } from '@swarmy/core/protocol';
 
 /**
  * Shared display metadata for the DB-backup surfaces (panel, list, restore
@@ -38,6 +38,14 @@ export const DB_BACKUP_ENGINES: EngineMeta[] = [
     label: 'pgBackRest (PITR)',
     blurb: 'Physical base backup + WAL archive — point-in-time restore.',
   },
+];
+
+/** Restore modes shown by the restore confirm (db-restore-dialog). */
+export const DB_RESTORE_MODES: { value: DbRestoreMode; label: string; blurb: string }[] = [
+  { value: 'clone-to-new-cluster', label: 'Clone to new cluster', blurb: 'Restore into a fresh cluster — safest, nothing live is touched.' },
+  { value: 'single-database', label: 'Single database', blurb: 'Restore just one database from the backup.' },
+  { value: 'pitr', label: 'Point-in-time', blurb: 'Replay WAL up to a timestamp (wal-g / pgBackRest backups).' },
+  { value: 'in-place', label: 'In place', blurb: 'Overwrite the live primary — destructive.' },
 ];
 
 export function engineLabel(engine: DbBackupEngine | null): string {

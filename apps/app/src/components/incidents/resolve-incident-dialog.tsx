@@ -2,14 +2,16 @@ import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2Icon } from 'lucide-react';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
   Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
   Textarea,
   toast,
 } from '@swarmy/ui';
@@ -41,40 +43,39 @@ export function ResolveIncidentDialog({
   );
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
         <Button className="shadow-[0_8px_24px_-8px_var(--primary)] transition-transform hover:scale-[1.03]">
           <CheckCircle2Icon className="size-4" /> Resolve incident
         </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Resolve this incident?</DialogTitle>
-          <DialogDescription>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Resolve this incident?</AlertDialogTitle>
+          <AlertDialogDescription>
             Marks “{title}” resolved and writes a final event on the timeline. You can reopen it if
             it flares up again.
-          </DialogDescription>
-        </DialogHeader>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
         <Textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           placeholder="Resolution message (optional) — e.g. “Replica promoted, cluster healthy.”"
           rows={3}
         />
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
-          <Button
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
             disabled={resolve.isPending}
-            onClick={() =>
-              resolve.mutate({ id: incidentId, message: message.trim() || undefined })
-            }
+            onClick={(e) => {
+              e.preventDefault();
+              resolve.mutate({ id: incidentId, message: message.trim() || undefined });
+            }}
           >
             {resolve.isPending ? 'Resolving…' : 'Resolve'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

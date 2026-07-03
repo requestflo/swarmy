@@ -1,21 +1,32 @@
 import * as React from 'react';
-import { Link } from '@tanstack/react-router';
+import { useNavigate } from '@tanstack/react-router';
 import { ChevronRightIcon } from 'lucide-react';
 import type { IncidentView } from '@swarmy/core';
 import { IncidentStatusChip, SeverityChip, formatDuration, relativeTime } from './incident-status';
+import { StackChip } from './stack-chip';
+import { stackFromIncidentTitle, useServiceStackMap } from './use-service-stack-map';
 
 /** One incident as a flat hairline row — the whole row links to the timeline. */
 export function IncidentRow({ incident }: { incident: IncidentView }): React.JSX.Element {
+  const navigate = useNavigate();
+  const stackMap = useServiceStackMap();
+  const stack = stackFromIncidentTitle(incident.title, stackMap);
+  const open = (): void =>
+    void navigate({ to: '/incidents/$incidentId', params: { incidentId: incident.id } });
+
   return (
-    <Link
-      to="/incidents/$incidentId"
-      params={{ incidentId: incident.id }}
-      className="hover:bg-accent/50 group flex w-full items-center gap-4 border-b px-6 py-4 transition-colors last:border-b-0"
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={(e) => e.key === 'Enter' && open()}
+      className="hover:bg-accent/50 group flex w-full cursor-pointer items-center gap-4 border-b px-6 py-4 transition-colors last:border-b-0"
     >
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="truncate font-medium">{incident.title}</span>
           <SeverityChip severity={incident.severity} />
+          {stack ? <StackChip stack={stack} /> : null}
         </div>
         <p className="text-muted-foreground mt-0.5 truncate text-xs">
           {incident.status === 'open'
@@ -32,6 +43,6 @@ export function IncidentRow({ incident }: { incident: IncidentView }): React.JSX
       </div>
       <IncidentStatusChip status={incident.status} className="shrink-0" />
       <ChevronRightIcon className="text-muted-foreground size-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
-    </Link>
+    </div>
   );
 }

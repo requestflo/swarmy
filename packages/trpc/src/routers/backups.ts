@@ -3,6 +3,7 @@ import { adminProcedure, orgProcedure, router } from '../trpc';
 import {
   addTarget,
   backupVolume,
+  ensureNativeTarget,
   listRemoteSnapshots,
   listSnapshots,
   listTargets,
@@ -35,12 +36,24 @@ export const backupsRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeTarget(ctx, input.id)),
 
+  /** Find-or-create the managed destination on the in-swarm Garage store. */
+  ensureNativeTarget: adminProcedure.mutation(({ ctx }) => ensureNativeTarget(ctx)),
+
   backupVolume: orgProcedure
     .input(z.object({ targetId: z.string(), volume: z.string().min(1), nodeId: z.string().optional() }))
     .mutation(({ ctx, input }) => backupVolume(ctx, input)),
 
   listSnapshots: orgProcedure
-    .input(z.object({ volume: z.string().optional(), targetId: z.string().optional() }).optional())
+    .input(
+      z
+        .object({
+          volume: z.string().optional(),
+          targetId: z.string().optional(),
+          /** Scope to one stack's volumes (`<stack>_*`). No input = estate-wide. */
+          stack: z.string().optional(),
+        })
+        .optional(),
+    )
     .query(({ ctx, input }) => listSnapshots(ctx, input)),
 
   listRemoteSnapshots: orgProcedure

@@ -47,6 +47,8 @@ export interface EnsureControllerOptions {
   replicas?: number;
   /** Also publish the admin API on the host (handy for `curl localhost:2019/config/`). Default true. */
   publishAdmin?: boolean;
+  /** Preferred target node ids (`IngressConfigView.targetNodes`) — see `ingressPlacementConstraint`. */
+  targetNodes?: string[];
 }
 
 export interface EnsureControllerResult {
@@ -64,11 +66,19 @@ type ResolvedOptions = Required<EnsureControllerOptions>;
 const INGRESS_NODE_LABEL = 'swarmy.node.ingress';
 
 /**
- * Placement constraint for the ingress controller. Prefer pinning Caddy to nodes
- * explicitly marked `swarmy.node.ingress=true` (the edge tier); fall back to
- * managers when no node carries the label yet so a fresh swarm still schedules.
+ * Placement constraint for the ingress controller.
+ *
+ * 1. An explicit single target node (`targetNodes` settings, one id) pins the
+ *    container there directly — the common "run it on this exact box" case.
+ *    Swarm constraints AND together, so a *list* of ids can't express "any of
+ *    these" via `node.id==`; multi-node targeting still goes through step 2.
+ * 2. Otherwise prefer nodes explicitly marked `swarmy.node.ingress=true` (the
+ *    edge tier, toggled per-node from Settings → Nodes).
+ * 3. Fall back to managers when nothing is marked yet, so a fresh swarm still
+ *    schedules the controller.
  */
-function ingressPlacementConstraint(ctx: OrgContext): string {
+function ingressPlacementConstraint(ctx: OrgContext, targetNodes: string[] = []): string {
+  if (targetNodes.length === 1) return `node.id==${targetNodes[0]}`;
   const marked = ctx.hub
     .nodeInventory(ctx.activeOrgId, true)
     .some((n) => n.labels[INGRESS_NODE_LABEL] === 'true');
@@ -115,6 +125,7 @@ export async function ensureCaddyController(
     image: options.image ?? DEFAULT_IMAGE,
     replicas: options.replicas ?? 1,
     publishAdmin: options.publishAdmin ?? true,
+    targetNodes: options.targetNodes ?? [],
   };
   const node = await resolveManagerNode(ctx);
 
@@ -136,7 +147,7 @@ export async function ensureCaddyController(
   // swarmy pushes the rendered routes to its admin API on every apply.
   try {
     await ctx.hub.dispatch(node.id, 'service.deploy', {
-      spec: controllerSpec(opts, ingressPlacementConstraint(ctx)),
+      spec: controllerSpec(opts, ingressPlacementConstraint(ctx, opts.targetNodes)),
       pullPolicy: 'missing',
     });
   } catch (e) {

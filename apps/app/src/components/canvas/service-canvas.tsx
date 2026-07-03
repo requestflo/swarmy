@@ -23,7 +23,9 @@ import { filterInventory } from './filter-inventory';
 import { useCanvasLayout } from './use-canvas-layout';
 import { CanvasToolbar } from './canvas-toolbar';
 import { CanvasBreadcrumb } from './canvas-breadcrumb';
-import { ServiceDetailSheet } from './service-detail-sheet';
+import { CanvasInspector } from './canvas-inspector';
+import { ServiceInspectorPanel } from './service-inspector-panel';
+import { useCanvasSelection } from './use-canvas-selection';
 
 const NODE_TYPES = { service: ServiceNode, project: ProjectGroupNode, dbCluster: DbClusterNode };
 
@@ -38,8 +40,9 @@ interface ServiceCanvasProps {
  * Project (stack) → Service → Container with inferred network/depends links.
  * Scoped to one stack (drill-in) or the whole swarm ("All services"). Drag
  * arranges services within their frame (visual only, persisted per-org via
- * canvas.get/save). Mounted under a keyed ReactFlowProvider so switching scope
- * re-fits cleanly.
+ * canvas.get/save). Selecting a service or db-cluster node docks an inspector
+ * column alongside the canvas — never an overlay/portal. Mounted under a keyed
+ * ReactFlowProvider so switching scope re-fits cleanly.
  */
 export function ServiceCanvas({ stackFilter, onBack }: ServiceCanvasProps): React.JSX.Element {
   const trpc = useTRPC();
@@ -48,8 +51,7 @@ export function ServiceCanvas({ stackFilter, onBack }: ServiceCanvasProps): Reac
   // Canvas position is Docker-truth: persisted as swarmy.canvas.x/y labels on the service.
   const setCanvasPos = useMutation(trpc.services.setCanvasPos.mutationOptions());
 
-  const [selected, setSelected] = React.useState<string | null>(null);
-  const [dbCluster, setDbCluster] = React.useState<{ stack: string; cluster: string } | null>(null);
+  const { selected, dbCluster, inspectorOpen, closeInspector, onNodeClick } = useCanvasSelection();
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<CanvasNode>([]);
   // Ids dragged this session keep their live position over a refetch, so a 4s poll
   // never snaps a card back to its saved/grid spot mid-arrange.
@@ -83,58 +85,59 @@ export function ServiceCanvas({ stackFilter, onBack }: ServiceCanvasProps): Reac
   const isAll = stackFilter === null;
 
   return (
-    <div className="h-[calc(100dvh-9.5rem)] w-full lg:h-[calc(100vh-6rem)]">
-      <ReactFlow
-        nodes={flowNodes}
-        edges={graph.edges}
-        nodeTypes={NODE_TYPES}
-        onNodesChange={onNodesChange}
-        onNodeClick={(_e, node) => {
-          if (node.type === 'service') setSelected(node.id);
-          else if (node.type === 'dbCluster')
-            setDbCluster({ stack: node.data.stack, cluster: node.data.cluster });
-        }}
-        onNodeDragStop={(_e, node) => {
-          if (node.type !== 'service') return;
-          draggedRef.current.add(node.id);
-          setCanvasPos.mutate({ id: node.id, x: node.position.x, y: node.position.y });
-        }}
-        onMoveEnd={(_e, vp: Viewport) => isAll && setViewport(vp)}
-        defaultViewport={isAll ? (savedViewport ?? undefined) : undefined}
-        fitView={!isAll || !savedViewport}
-        fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
-        minZoom={0.2}
-        maxZoom={1.6}
-        nodesConnectable={false}
-        proOptions={{ hideAttribution: true }}
-        className="!bg-transparent"
-      >
-        <Background variant={BackgroundVariant.Dots} gap={28} size={1.5} color="var(--border)" />
-        <Controls showInteractive={false} className="!shadow-lg" />
-        <MiniMap
-          pannable
-          zoomable
-          nodeColor={(n) =>
-            n.type === 'project'
-              ? 'var(--border)'
-              : `var(--status-${(n.data as ServiceNodeData)?.tone ?? 'idle'})`
-          }
-          nodeStrokeWidth={2}
-          className="!rounded-xl"
-        />
-        <CanvasBreadcrumb stack={stackFilter} onBack={onBack} />
-        <CanvasToolbar count={scoped?.services.length ?? 0} stack={stackFilter} />
-      </ReactFlow>
-      <ServiceDetailSheet serviceId={selected} onOpenChange={(o) => !o && setSelected(null)} />
-      <DbClusterPanel
-        stack={dbCluster?.stack ?? null}
-        cluster={dbCluster?.cluster ?? null}
-        onOpenChange={(o) => !o && setDbCluster(null)}
-        topologySlot={
-          dbCluster && <DbTopologySelector stack={dbCluster.stack} cluster={dbCluster.cluster} />
-        }
-        backupSlot={dbCluster && <DbBackupPanel stack={dbCluster.stack} cluster={dbCluster.cluster} />}
-      />
+    <div className="flex h-[calc(100dvh-9.5rem)] w-full lg:h-[calc(100vh-6rem)]">
+      <div className="relative h-full min-w-0 flex-1">
+        <ReactFlow
+          nodes={flowNodes}
+          edges={graph.edges}
+          nodeTypes={NODE_TYPES}
+          onNodesChange={onNodesChange}
+          onNodeClick={(_e, node) => onNodeClick(node)}
+          onPaneClick={closeInspector}
+          onNodeDragStop={(_e, node) => {
+            if (node.type !== 'service') return;
+            draggedRef.current.add(node.id);
+            setCanvasPos.mutate({ id: node.id, x: node.position.x, y: node.position.y });
+          }}
+          onMoveEnd={(_e, vp: Viewport) => isAll && setViewport(vp)}
+          defaultViewport={isAll ? (savedViewport ?? undefined) : undefined}
+          fitView={!isAll || !savedViewport}
+          fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
+          minZoom={0.2}
+          maxZoom={1.6}
+          nodesConnectable={false}
+          proOptions={{ hideAttribution: true }}
+          className="!bg-transparent"
+        >
+          <Background variant={BackgroundVariant.Dots} gap={28} size={1.5} color="var(--border)" />
+          <Controls showInteractive={false} className="!shadow-lg" />
+          <MiniMap
+            pannable
+            zoomable
+            nodeColor={(n) =>
+              n.type === 'project'
+                ? 'var(--border)'
+                : `var(--status-${(n.data as ServiceNodeData)?.tone ?? 'idle'})`
+            }
+            nodeStrokeWidth={2}
+            className="!rounded-xl"
+          />
+          <CanvasBreadcrumb stack={stackFilter} onBack={onBack} />
+          <CanvasToolbar count={scoped?.services.length ?? 0} stack={stackFilter} />
+        </ReactFlow>
+      </div>
+      <CanvasInspector open={inspectorOpen} onClose={closeInspector}>
+        {selected && <ServiceInspectorPanel serviceId={selected} onClose={closeInspector} />}
+        {dbCluster && (
+          <DbClusterPanel
+            stack={dbCluster.stack}
+            cluster={dbCluster.cluster}
+            onClose={closeInspector}
+            topologySlot={<DbTopologySelector stack={dbCluster.stack} cluster={dbCluster.cluster} />}
+            backupSlot={<DbBackupPanel stack={dbCluster.stack} cluster={dbCluster.cluster} />}
+          />
+        )}
+      </CanvasInspector>
     </div>
   );
 }

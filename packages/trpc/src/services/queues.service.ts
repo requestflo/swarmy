@@ -453,11 +453,12 @@ function toView(services: InvService[], worker: InvService, def: QueueDef): Queu
   };
 }
 
-/** Every queue in the org — inventory scan for `swarmy.queues` labels. */
-export function listQueues(ctx: OrgContext): QueueView[] {
+/** Every queue in the org (optionally one stack's) — inventory scan for `swarmy.queues` labels. */
+export function listQueues(ctx: OrgContext, stack?: string): QueueView[] {
   const services = liveOrgServices(ctx);
   const out: QueueView[] = [];
   for (const svc of services) {
+    if (stack && svc.stack !== stack) continue;
     for (const def of parseQueuesLabel(svc.labels[QUEUES_LABEL])) {
       out.push(toView(services, svc, def));
     }
@@ -467,9 +468,9 @@ export function listQueues(ctx: OrgContext): QueueView[] {
   );
 }
 
-/** Aggregates for the Queues page hero. */
-export function queuesOverview(ctx: OrgContext): QueuesOverview {
-  const queues = listQueues(ctx);
+/** Aggregates for the Queues page hero (optionally scoped to one stack). */
+export function queuesOverview(ctx: OrgContext, stack?: string): QueuesOverview {
+  const queues = listQueues(ctx, stack);
   const workersByService = new Map<string, number>();
   let totalWait = 0;
   let totalActive = 0;

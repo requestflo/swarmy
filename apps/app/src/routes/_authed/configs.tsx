@@ -1,6 +1,12 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { ConfigsPage } from '@/components/configsmgr/configs-page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+/**
+ * Configs moved into the stack workspace: every stack's Config tab shows the
+ * configs attached to it (plus unattached ones). The old global page redirects
+ * home, where each stack is one click away.
+ */
 export const Route = createFileRoute('/_authed/configs')({
-  component: ConfigsPage,
+  beforeLoad: () => {
+    throw redirect({ to: '/' });
+  },
 });

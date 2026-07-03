@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   ApplyConfigVersionInput,
   AttachConfigInput,
@@ -29,8 +30,14 @@ import {
  * readable (config.inspect), unlike secrets.
  */
 export const configsMgrRouter = router({
-  /** Families (versions + consumers + mount paths) and orphans — one live read. */
-  list: orgProcedure.query(({ ctx }) => listConfigFamilies(ctx)),
+  /**
+   * Families (versions + consumers + mount paths) and orphans — one live read.
+   * Optional stack scope: keeps families attached to that stack's services,
+   * plus every zero-attachment family (a fresh config never vanishes).
+   */
+  list: orgProcedure
+    .input(z.object({ stack: z.string().optional() }).optional())
+    .query(({ ctx, input }) => listConfigFamilies(ctx, input?.stack)),
 
   /** Decoded content of one version (current when unspecified) — feeds the diff. */
   content: orgProcedure
@@ -42,9 +49,9 @@ export const configsMgrRouter = router({
     .input(ConfigRestartPreviewInput)
     .query(({ ctx, input }) => restartPreview(ctx, input)),
 
-  /** Create a family at v1. Nothing restarts until attach/apply. */
+  /** Create a family at v1. Nothing restarts until attach/apply. `stack` is an audit hint. */
   create: adminProcedure
-    .input(CreateConfigFamilyInput)
+    .input(CreateConfigFamilyInput.extend({ stack: z.string().optional() }))
     .mutation(({ ctx, input }) => createConfigFamily(ctx, input)),
 
   /** Save an edit as v(n+1) — consumers keep their version until apply. */

@@ -1,10 +1,11 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { PlusIcon } from 'lucide-react';
+import { Button } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
 import { CountUp } from '@/components/count-up';
-import { AddRepoDialog } from '@/components/ci/add-repo-dialog';
 import { RegistryCard } from '@/components/ci/registry-card';
 import { GcPolicyCard } from '@/components/ci/gc-policy-card';
 import { ReposList } from '@/components/ci/repos-list';
@@ -29,6 +30,7 @@ function CiPage(): React.JSX.Element {
 
   const invalidate = React.useCallback(() => qc.invalidateQueries(), [qc]);
   const repoCount = repos.data?.length ?? 0;
+  const [createOpen, setCreateOpen] = React.useState(false);
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
@@ -46,7 +48,11 @@ function CiPage(): React.JSX.Element {
           )
         }
         description="Link a repo, build on your nodes, push to a registry that lives inside the swarm. No external CI."
-        actions={<AddRepoDialog onDone={invalidate} />}
+        actions={
+          <Button onClick={() => setCreateOpen((o) => !o)}>
+            <PlusIcon className="size-4" /> Link a repo
+          </Button>
+        }
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -59,7 +65,12 @@ function CiPage(): React.JSX.Element {
         <ScanPolicyCard />
       </div>
 
-      <ReposList repos={repos.data ?? []} onChanged={invalidate} />
+      <ReposList
+        repos={repos.data ?? []}
+        onChanged={invalidate}
+        createOpen={createOpen}
+        onCreateOpenChange={setCreateOpen}
+      />
 
       <BuildsList builds={builds.data ?? []} />
 

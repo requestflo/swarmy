@@ -64,7 +64,7 @@ export function SafetyCard({ stackName }: { stackName: string }): React.JSX.Elem
   return (
     <Card className="card-pop border-0">
       <CardHeader>
-        <CardTitle className="text-base">Deploy safety · {stackName}</CardTitle>
+        <CardTitle className="text-base">Deploy safety</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-4">
         <p className="text-muted-foreground -mt-2 text-sm">
@@ -133,6 +133,7 @@ export function SafetyCard({ stackName }: { stackName: string }): React.JSX.Elem
         </div>
 
         <Button
+          variant="outline"
           disabled={!dirty || save.isPending || (enabled && (windowSec < 30 || windowSec > 3600))}
           onClick={() => save.mutate({ stackName, enabled, windowSec, autoRollback })}
         >

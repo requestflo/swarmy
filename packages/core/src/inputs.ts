@@ -619,6 +619,8 @@ export type InboundEndpointRefInput = z.infer<typeof InboundEndpointRefInput>;
 export const ObservabilityLogsInput = z.object({
   from: z.number().int().nonnegative(),
   to: z.number().int().nonnegative(),
+  /** Only lines from services labelled with this stack (`swarmy.stack`). */
+  stack: z.string().min(1).max(255).optional(),
   serviceName: z.string().min(1).max(255).optional(),
   /** OTel severity-number floor (TRACE=1 … FATAL=21+); rows below are dropped. */
   severityMin: z.number().int().min(1).max(24).optional(),

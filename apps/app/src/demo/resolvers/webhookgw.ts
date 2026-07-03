@@ -130,27 +130,39 @@ const PARTNER_BODY = JSON.stringify({ event: 'inventory.sync', warehouse: 'eu-we
 export const webhookgw: DomainResolvers = {
   handlers: {
     // ── inbound ──
-    'inboundWebhooks.overview': (_i, s): InboundWebhooksOverview => {
+    'inboundWebhooks.overview': (i, s): InboundWebhooksOverview => {
+      const { stack } = (i ?? {}) as { stack?: string };
       const st = getState(s);
       advancePending(st);
+      const eps = st.endpoints.filter((e) => (stack ? e.stackName === stack : true));
+      const epIds = new Set(eps.map((e) => e.id));
+      const deliveries = st.deliveries.filter((d) => epIds.has(d.endpointId));
       const since = Date.now() - 24 * 3_600_000;
-      const recent = st.deliveries.filter((d) => new Date(d.receivedAt).getTime() >= since);
+      const recent = deliveries.filter((d) => new Date(d.receivedAt).getTime() >= since);
       return {
-        endpoints: st.endpoints.length,
+        endpoints: eps.length,
         deliveries24h: recent.length,
         failed24h: recent.filter((d) => d.status === 'failed' || d.status === 'dead').length,
-        pending: st.deliveries.filter((d) => d.status === 'pending').length,
-        dead: st.deliveries.filter((d) => d.status === 'dead').length,
+        pending: deliveries.filter((d) => d.status === 'pending').length,
+        dead: deliveries.filter((d) => d.status === 'dead').length,
       };
     },
 
-    'inboundWebhooks.listEndpoints': (_i, s): InboundEndpointView[] => {
+    'inboundWebhooks.listEndpoints': (i, s): InboundEndpointView[] => {
+      const { stack } = (i ?? {}) as { stack?: string };
       const st = getState(s);
-      return st.endpoints.map((e) => ({ ...e, ...statsFor(st, e.id) }));
+      return st.endpoints
+        .filter((e) => (stack ? e.stackName === stack : true))
+        .map((e) => ({ ...e, ...statsFor(st, e.id) }));
     },
 
     'inboundWebhooks.createEndpoint': (i, s): InboundEndpointView => {
-      const input = i as CreateInboundEndpointInput;
+      const input = i as CreateInboundEndpointInput & {
+        stackName?: string;
+        domain?: string;
+        transformTemplate?: string;
+        responseTemplate?: string;
+      };
       const st = getState(s);
       if (st.endpoints.some((e) => e.slug === input.slug)) {
         throw new Error(`slug "${input.slug}" is already taken in this org`);
@@ -159,10 +171,14 @@ export const webhookgw: DomainResolvers = {
         id: rid('iep'),
         name: input.name,
         slug: input.slug,
+        stackName: input.stackName ?? null,
+        domain: input.domain || null,
         url: `${DEMO_BASE}/hooks/i/${ORG}/${input.slug}`,
         verifyKind: input.verifyKind ?? 'none',
         hasSecret: Boolean(input.secret),
         target: input.target,
+        transformTemplate: input.transformTemplate || null,
+        responseTemplate: input.responseTemplate || null,
         retentionDays: input.retentionDays ?? 30,
         deliveries24h: 0,
         lastDeliveryAt: null,
@@ -174,15 +190,22 @@ export const webhookgw: DomainResolvers = {
     },
 
     'inboundWebhooks.updateEndpoint': (i, s): InboundEndpointView => {
-      const input = i as UpdateInboundEndpointInput;
+      const input = i as UpdateInboundEndpointInput & {
+        domain?: string;
+        transformTemplate?: string;
+        responseTemplate?: string;
+      };
       const st = getState(s);
       const ep = st.endpoints.find((e) => e.id === input.id);
       if (!ep) throw new Error('inbound endpoint not found');
       if (input.name !== undefined) ep.name = input.name;
+      if (input.domain !== undefined) ep.domain = input.domain || null;
       if (input.verifyKind !== undefined) ep.verifyKind = input.verifyKind;
       if (input.secret) ep.hasSecret = true;
       if (input.verifyKind === 'none') ep.hasSecret = false;
       if (input.target !== undefined) ep.target = input.target;
+      if (input.transformTemplate !== undefined) ep.transformTemplate = input.transformTemplate || null;
+      if (input.responseTemplate !== undefined) ep.responseTemplate = input.responseTemplate || null;
       if (input.retentionDays !== undefined) ep.retentionDays = input.retentionDays;
       ep.updatedAt = nowIso();
       return { ...ep, ...statsFor(st, ep.id) };
@@ -197,11 +220,20 @@ export const webhookgw: DomainResolvers = {
     },
 
     'inboundWebhooks.deliveries': (i, s): InboundDeliveriesPage => {
-      const input = (i ?? {}) as { endpointId?: string; status?: InboundDeliveryStatusView; limit?: number };
+      const input = (i ?? {}) as {
+        endpointId?: string;
+        status?: InboundDeliveryStatusView;
+        stack?: string;
+        limit?: number;
+      };
       const st = getState(s);
       advancePending(st);
       const limit = input.limit ?? 50;
+      const stackEpIds = input.stack
+        ? new Set(st.endpoints.filter((e) => e.stackName === input.stack).map((e) => e.id))
+        : null;
       const rows = st.deliveries
+        .filter((d) => (stackEpIds ? stackEpIds.has(d.endpointId) : true))
         .filter((d) => (input.endpointId ? d.endpointId === input.endpointId : true))
         .filter((d) => (input.status ? d.status === input.status : true))
         .sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : -1));
@@ -288,10 +320,14 @@ export const webhookgw: DomainResolvers = {
       id: 'iep-stripe',
       name: 'Stripe production',
       slug: 'stripe-prod',
+      stackName: 'storefront',
+      domain: 'hooks.northwind.dev',
       url: `${DEMO_BASE}/hooks/i/${ORG}/stripe-prod`,
       verifyKind: 'stripe',
       hasSecret: true,
       target: { kind: 'queue', cacheCluster: 'storefront/main', queue: 'stripe-events', convention: 'bullmq' },
+      transformTemplate: '{{json.data.object}}',
+      responseTemplate: null,
       retentionDays: 30,
       deliveries24h: 0,
       lastDeliveryAt: null,
@@ -302,10 +338,14 @@ export const webhookgw: DomainResolvers = {
       id: 'iep-github',
       name: 'GitHub → deploy hook',
       slug: 'github-deploys',
+      stackName: 'platform',
+      domain: null,
       url: `${DEMO_BASE}/hooks/i/${ORG}/github-deploys`,
       verifyKind: 'github',
       hasSecret: true,
       target: { kind: 'forward', url: 'https://ci.northwind.dev/hooks/github' },
+      transformTemplate: null,
+      responseTemplate: null,
       retentionDays: 14,
       deliveries24h: 0,
       lastDeliveryAt: null,
@@ -316,10 +356,14 @@ export const webhookgw: DomainResolvers = {
       id: 'iep-partner',
       name: 'Partner inventory sync',
       slug: 'partner-sync',
+      stackName: 'storefront',
+      domain: null,
       url: `${DEMO_BASE}/hooks/i/${ORG}/partner-sync`,
       verifyKind: 'hmac',
       hasSecret: true,
       target: { kind: 'queue', cacheCluster: 'storefront/main', queue: 'inventory', convention: 'list' },
+      transformTemplate: null,
+      responseTemplate: '{"received": "{{deliveryId}}"}',
       retentionDays: 7,
       deliveries24h: 0,
       lastDeliveryAt: null,

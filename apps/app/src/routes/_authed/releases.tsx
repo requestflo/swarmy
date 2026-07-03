@@ -1,11 +1,11 @@
-import * as React from 'react';
-import { createFileRoute } from '@tanstack/react-router';
-import { ReleasesPage } from '@/components/releases/releases-page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+/**
+ * The old global Releases surface moved into the stack workspace — each
+ * stack's history lives at /stacks/$name/releases. Send visitors home.
+ */
 export const Route = createFileRoute('/_authed/releases')({
-  component: ReleasesRoute,
+  beforeLoad: () => {
+    throw redirect({ to: '/' });
+  },
 });
-
-function ReleasesRoute(): React.JSX.Element {
-  return <ReleasesPage />;
-}

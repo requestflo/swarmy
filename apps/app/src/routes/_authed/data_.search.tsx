@@ -1,6 +1,8 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { SearchPage } from '@/components/searchsvc/search-page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+/** Search now lives inside each stack workspace (the Data tab). */
 export const Route = createFileRoute('/_authed/data_/search')({
-  component: SearchPage,
+  beforeLoad: () => {
+    throw redirect({ to: '/' });
+  },
 });

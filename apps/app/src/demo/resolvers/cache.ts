@@ -9,7 +9,8 @@ import type {
 import type { DemoStore, DomainResolvers } from '../types';
 
 /**
- * Managed-cache demo resolvers — the Caches surface (`/data/cache`): cluster
+ * Managed-cache demo resolvers — the Caches section of the stack Data tab
+ * (`/stacks/$name/data`): cluster
  * list/detail, live-ish stats, attach/detach, tuning, snapshots and destroy.
  * Return shapes mirror `cache.service.ts` views exactly (imported from
  * @swarmy/core, never redeclared). State lives in `store.extra.cache`;
@@ -194,10 +195,12 @@ export const cache: DomainResolvers = {
   },
 
   handlers: {
-    'cache.list': (_i, s): CacheClusterView[] =>
-      [...getState(s).clusters].sort((a, b) =>
-        key(a.stack, a.name).localeCompare(key(b.stack, b.name)),
-      ),
+    'cache.list': (i, s): CacheClusterView[] => {
+      const stack = (i as { stack?: string } | null | undefined)?.stack;
+      return getState(s)
+        .clusters.filter((c) => !stack || c.stack === stack)
+        .sort((a, b) => key(a.stack, a.name).localeCompare(key(b.stack, b.name)));
+    },
 
     'cache.get': (i, s): CacheClusterView => require_(getState(s), i),
 

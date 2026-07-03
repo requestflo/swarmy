@@ -18,6 +18,7 @@ import {
   type LogFilters,
   type LogRangePreset,
 } from './logs-shared';
+import { useStackServiceNames } from './use-stack-services';
 
 const ALL_SERVICES = '__all__';
 
@@ -26,6 +27,8 @@ interface LogsFilterBarProps {
   onChange: (filters: LogFilters) => void;
   live: boolean;
   onLiveChange: (live: boolean) => void;
+  /** Limit the service select to one stack's services. */
+  stack?: string;
 }
 
 /** Service select + severity chips + debounced search + range presets + live. */
@@ -34,12 +37,15 @@ export function LogsFilterBar({
   onChange,
   live,
   onLiveChange,
+  stack,
 }: LogsFilterBarProps): React.JSX.Element {
   const trpc = useTRPC();
-  const services = useQuery(trpc.services.list.queryOptions({}));
+  const services = useQuery({ ...trpc.services.list.queryOptions({}), enabled: !stack });
+  const stackNames = useStackServiceNames(stack);
   const serviceNames = React.useMemo(
-    () => [...new Set((services.data ?? []).map((s) => s.name))].sort(),
-    [services.data],
+    () =>
+      stack ? stackNames.names : [...new Set((services.data ?? []).map((s) => s.name))].sort(),
+    [stack, stackNames.names, services.data],
   );
 
   // Local, debounced search so typing doesn't fire a query per keystroke.

@@ -1,11 +1,8 @@
-import * as React from 'react';
-import { createFileRoute } from '@tanstack/react-router';
-import { ResiliencePage } from '@/components/resilience/resilience-page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+/** Resilience moved into each stack's Backups tab — this page is gone. */
 export const Route = createFileRoute('/_authed/resilience')({
-  component: ResilienceRoute,
+  beforeLoad: () => {
+    throw redirect({ to: '/' });
+  },
 });
-
-function ResilienceRoute(): React.JSX.Element {
-  return <ResiliencePage />;
-}

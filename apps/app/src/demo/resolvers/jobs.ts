@@ -143,6 +143,8 @@ function describeCron(expr: string): string {
 interface JobSeed {
   id: string;
   name: string;
+  /** Stack this job belongs to (stack-scoped IA); null = org-wide/legacy. */
+  stackName: string | null;
   schedule: string;
   kind: ScheduledJobView['kind'];
   image: string | null;
@@ -195,17 +197,20 @@ function pushRun(state: JobsState, run: JobRunView): void {
 
 export const jobs: DomainResolvers = {
   handlers: {
-    'jobs.overview': (_i, s): JobsOverview => {
+    'jobs.overview': (i, s): JobsOverview => {
+      const { stack } = (i ?? {}) as { stack?: string };
       const st = getState(s);
+      const jobs = st.jobs.filter((j) => (stack ? j.stackName === stack : true));
+      const jobIds = new Set(jobs.map((j) => j.id));
       const dayAgo = Date.now() - DAY;
-      const recent = st.runs.filter((r) => new Date(r.startedAt).getTime() >= dayAgo);
-      const views = st.jobs.map((j) => toView(j, st.runs));
+      const recent = st.runs.filter((r) => jobIds.has(r.jobId) && new Date(r.startedAt).getTime() >= dayAgo);
+      const views = jobs.map((j) => toView(j, st.runs));
       const next = views
         .filter((v) => v.nextRunAt)
         .sort((a, b) => (a.nextRunAt ?? '').localeCompare(b.nextRunAt ?? ''))[0];
       return {
-        total: st.jobs.length,
-        enabled: st.jobs.filter((j) => j.enabled).length,
+        total: jobs.length,
+        enabled: jobs.filter((j) => j.enabled).length,
         succeeded24h: recent.filter((r) => r.status === 'succeeded').length,
         failed24h: recent.filter((r) => r.status === 'failed' || r.status === 'timeout').length,
         nextRunAt: next?.nextRunAt ?? null,
@@ -213,9 +218,13 @@ export const jobs: DomainResolvers = {
       };
     },
 
-    'jobs.list': (_i, s): ScheduledJobView[] => {
+    'jobs.list': (i, s): ScheduledJobView[] => {
+      const { stack } = (i ?? {}) as { stack?: string };
       const st = getState(s);
-      return [...st.jobs].sort((a, b) => a.name.localeCompare(b.name)).map((j) => toView(j, st.runs));
+      return [...st.jobs]
+        .filter((j) => (stack ? j.stackName === stack : true))
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((j) => toView(j, st.runs));
     },
 
     'jobs.previewSchedule': (i, _s): SchedulePreview => {
@@ -254,7 +263,7 @@ export const jobs: DomainResolvers = {
     },
 
     'jobs.create': (i, s): ScheduledJobView => {
-      const input = i as CreateScheduledJobInput;
+      const input = i as CreateScheduledJobInput & { stackName?: string };
       parseCron(input.schedule); // throws the parser message for invalid crons
       const st = getState(s);
       if (st.jobs.some((j) => j.name === input.name)) {
@@ -263,6 +272,7 @@ export const jobs: DomainResolvers = {
       const job: JobSeed = {
         id: id('job'),
         name: input.name,
+        stackName: input.stackName ?? null,
         schedule: input.schedule,
         kind: input.kind ?? 'image',
         image: input.image ?? null,
@@ -282,12 +292,13 @@ export const jobs: DomainResolvers = {
     },
 
     'jobs.update': (i, s): ScheduledJobView => {
-      const input = i as UpdateScheduledJobInput;
+      const input = i as UpdateScheduledJobInput & { stackName?: string };
       const st = getState(s);
       const job = st.jobs.find((j) => j.id === input.id);
       if (!job) throw new Error(`job "${input.id}" not found`);
       if (input.schedule) parseCron(input.schedule);
       Object.assign(job, {
+        ...(input.stackName !== undefined ? { stackName: input.stackName } : {}),
         ...(input.name !== undefined ? { name: input.name } : {}),
         ...(input.schedule !== undefined ? { schedule: input.schedule } : {}),
         ...(input.kind !== undefined ? { kind: input.kind } : {}),
@@ -371,6 +382,7 @@ export const jobs: DomainResolvers = {
       {
         id: 'job-nightly-report',
         name: 'nightly-report',
+        stackName: 'platform',
         schedule: '0 2 * * *',
         kind: 'image',
         image: 'ghcr.io/northwind/report-runner:1.4.2',
@@ -388,6 +400,7 @@ export const jobs: DomainResolvers = {
       {
         id: 'job-cache-warmup',
         name: 'cache-warmup',
+        stackName: 'storefront',
         schedule: '0 * * * *',
         kind: 'service-exec',
         image: null,
@@ -405,6 +418,7 @@ export const jobs: DomainResolvers = {
       {
         id: 'job-weekly-cleanup',
         name: 'weekly-cleanup',
+        stackName: 'platform',
         schedule: '0 3 * * 1',
         kind: 'image',
         image: 'ghcr.io/northwind/janitor:0.9.1',

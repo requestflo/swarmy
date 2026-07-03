@@ -4,7 +4,7 @@ import { Button, EmptyState } from '@swarmy/ui';
 import type { AuditEntryView } from '@swarmy/core';
 import { AuditRow } from './audit-row';
 
-/** The timeline: flat rows in one card, hairline-divided, with a load-more tail. */
+/** The timeline: flat rows in one card, hairline-divided, each expanding inline. */
 export function AuditTable({
   entries,
   isLoading,
@@ -14,7 +14,6 @@ export function AuditTable({
   isFetchingNextPage,
   onLoadMore,
   onRetry,
-  onSelect,
 }: {
   entries: AuditEntryView[];
   isLoading: boolean;
@@ -24,8 +23,9 @@ export function AuditTable({
   isFetchingNextPage: boolean;
   onLoadMore: () => void;
   onRetry: () => void;
-  onSelect: (entry: AuditEntryView) => void;
 }): React.JSX.Element {
+  const [expandedId, setExpandedId] = React.useState<string | null>(null);
+
   if (isLoading) {
     return (
       <div className="card-pop space-y-3 p-4">
@@ -64,7 +64,12 @@ export function AuditTable({
   return (
     <div className="card-pop divide-border divide-y overflow-hidden">
       {entries.map((e) => (
-        <AuditRow key={e.id} entry={e} onSelect={onSelect} />
+        <AuditRow
+          key={e.id}
+          entry={e}
+          expanded={expandedId === e.id}
+          onToggle={() => setExpandedId((id) => (id === e.id ? null : e.id))}
+        />
       ))}
       {hasNextPage ? (
         <div className="flex justify-center p-3">
