@@ -43,8 +43,8 @@ export function BlueprintCard({ meta, active, onToggle }: BlueprintCardProps): R
       {meta.docOnly ? (
         <div className="mt-auto pt-1">
           <Button asChild variant="outline" className="rounded-full font-bold">
-            <Link to="/observability">
-              Open observability <ArrowRightIcon className="size-4" />
+            <Link to="/">
+              Open a stack → Observability <ArrowRightIcon className="size-4" />
             </Link>
           </Button>
         </div>

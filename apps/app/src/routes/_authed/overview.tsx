@@ -110,7 +110,11 @@ function OverviewPage(): React.JSX.Element {
             />
           </div>
 
-          <OnboardingChecklist hasNodes />
+          <OnboardingChecklist
+            hasNodes
+            hasServices={(services?.total ?? 0) > 0}
+            hasAlertChannel={(alerts.data?.channels ?? 0) > 0}
+          />
         </>
       )}
     </div>

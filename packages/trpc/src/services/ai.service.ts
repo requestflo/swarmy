@@ -803,6 +803,25 @@ export async function setStackOutlet(
   if (domain && taken) {
     throw commandRejected(`"${domain}" already routes to the ${taken[0]} stack`);
   }
+  if (domain) {
+    // Cross-feature guard (queried directly — ingress.service imports this
+    // module, so importing its helper here would create a cycle): a hostname
+    // renders exactly one controller vhost, shared with status pages/webhooks.
+    const [page, endpoint] = await Promise.all([
+      ctx.db.statusPage.findFirst({
+        where: { orgId: ctx.activeOrgId, domain },
+        select: { slug: true },
+      }),
+      ctx.db.inboundEndpoint.findFirst({
+        where: { orgId: ctx.activeOrgId, domain },
+        select: { slug: true },
+      }),
+    ]);
+    if (page) throw commandRejected(`"${domain}" is already used by status page "${page.slug}"`);
+    if (endpoint) {
+      throw commandRejected(`"${domain}" is already used by webhook endpoint "${endpoint.slug}"`);
+    }
+  }
   if (domain) doc.outlets[input.stack] = domain;
   else delete doc.outlets[input.stack];
   await saveConfig(ctx, doc, row.configEnc);

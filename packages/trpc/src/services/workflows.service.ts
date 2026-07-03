@@ -242,7 +242,11 @@ interface StepRunRow {
   error: string | null;
 }
 
-function runToView(row: RunRow, def: Pick<DefRow, 'name' | 'version' | 'stepsJson'>, now: Date): WorkflowRunView {
+function runToView(
+  row: RunRow,
+  def: Pick<DefRow, 'name' | 'version' | 'stepsJson' | 'stackName'>,
+  now: Date,
+): WorkflowRunView {
   const steps = parseSteps(def.stepsJson);
   const status = RUN_STATUS_TO_VIEW[row.status] ?? 'running';
   const cursor = Math.min(row.cursor, Math.max(0, steps.length - 1));
@@ -251,6 +255,7 @@ function runToView(row: RunRow, def: Pick<DefRow, 'name' | 'version' | 'stepsJso
     defId: row.defId,
     defName: def.name,
     defVersion: def.version,
+    stackName: def.stackName,
     status,
     cursor: row.cursor,
     totalSteps: steps.length,
@@ -404,7 +409,7 @@ export async function listRuns(
           }
         : {}),
     },
-    include: { def: { select: { name: true, version: true, stepsJson: true } } },
+    include: { def: { select: { name: true, version: true, stepsJson: true, stackName: true } } },
     orderBy: { startedAt: 'desc' },
     take: input.limit + 1,
     ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),

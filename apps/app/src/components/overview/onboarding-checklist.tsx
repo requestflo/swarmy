@@ -1,16 +1,39 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
 import { ActivityIcon, BellIcon, DatabaseBackupIcon, RocketIcon, ServerIcon } from 'lucide-react';
 import { cn } from '@swarmy/ui';
+import { useTRPC } from '@/integrations/trpc';
 
-/** Five steps to a production-grade platform — the ink-block CTA strip. */
-export function OnboardingChecklist({ hasNodes }: { hasNodes: boolean }): React.JSX.Element {
+interface OnboardingChecklistProps {
+  hasNodes: boolean;
+  /** Any service deployed anywhere on the swarm. */
+  hasServices?: boolean;
+  /** Any notification channel configured (alerts can actually reach someone). */
+  hasAlertChannel?: boolean;
+}
+
+/**
+ * Five steps to a production-grade platform — the ink-block CTA strip. Node /
+ * service / alert-channel state arrives via props (the Overview already runs
+ * those queries); domain + backup state is fetched here so every tick reflects
+ * reality instead of a hardcoded `false`.
+ */
+export function OnboardingChecklist({
+  hasNodes,
+  hasServices = false,
+  hasAlertChannel = false,
+}: OnboardingChecklistProps): React.JSX.Element {
+  const trpc = useTRPC();
+  const ingress = useQuery({ ...trpc.ingress.getConfig.queryOptions(), enabled: hasNodes });
+  const targets = useQuery({ ...trpc.backups.listTargets.queryOptions(), enabled: hasNodes });
+
   const steps = [
     { done: hasNodes, label: 'Add your first node', to: '/nodes/new', icon: <ServerIcon className="size-4" /> },
-    { done: false, label: 'Deploy a service or a blueprint', to: '/blueprints', icon: <RocketIcon className="size-4" /> },
-    { done: false, label: 'Point a domain at it', to: '/ingress', icon: <ActivityIcon className="size-4" /> },
-    { done: false, label: 'Set up backups', to: '/backups', icon: <DatabaseBackupIcon className="size-4" /> },
-    { done: false, label: 'Turn on alerts', to: '/alerts', icon: <BellIcon className="size-4" /> },
+    { done: hasServices, label: 'Deploy a service or a blueprint', to: '/blueprints', icon: <RocketIcon className="size-4" /> },
+    { done: (ingress.data?.domainCount ?? 0) > 0, label: 'Point a domain at it', to: '/ingress', icon: <ActivityIcon className="size-4" /> },
+    { done: (targets.data?.length ?? 0) > 0, label: 'Set up backups', to: '/backups', icon: <DatabaseBackupIcon className="size-4" /> },
+    { done: hasAlertChannel, label: 'Turn on alerts', to: '/alerts', icon: <BellIcon className="size-4" /> },
   ];
   return (
     <div className="ink-block mt-4 rounded-2xl p-6">

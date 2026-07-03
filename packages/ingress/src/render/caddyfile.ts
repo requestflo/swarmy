@@ -59,9 +59,14 @@ export function buildCaddyfile(config: IngressConfig): string {
   // serves it, then proxying the controller. A vhost whose domain already has a
   // service route is SKIPPED — Caddy rejects duplicate site addresses, and the
   // service route (explicit user intent) wins.
+  // Also dedupe vhosts against EACH OTHER (a status page and a webhook pointed
+  // at the same hostname would otherwise emit two identical site addresses and
+  // Caddy would reject the whole file). First wins; writers should prevent the
+  // collision, the renderer must never produce an unloadable file.
   const routeHosts = new Set(config.domains.map((d) => d.domain));
   for (const v of config.controllerVhosts) {
     if (routeHosts.has(v.domain)) continue;
+    routeHosts.add(v.domain);
     out.push(...buildControllerVhost(v), '');
   }
   return `${out.join('\n').trimEnd()}\n`;

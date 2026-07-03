@@ -27,8 +27,9 @@ export function ResilienceCard({
           <p className="text-muted-foreground mt-1 text-xs">{headline}</p>
         </>
       )}
-      <Link to="/resilience" className="text-primary mt-2 inline-flex items-center gap-1 text-sm font-semibold">
-        Resilience & drills <ArrowRightIcon className="size-3.5" />
+      {/* Resilience lives per-stack now (Backups tab) — send the user to pick a stack. */}
+      <Link to="/" className="text-primary mt-2 inline-flex items-center gap-1 text-sm font-semibold">
+        Drills live in each stack → Backups <ArrowRightIcon className="size-3.5" />
       </Link>
     </div>
   );

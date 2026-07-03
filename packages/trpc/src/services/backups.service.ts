@@ -29,6 +29,7 @@ import {
   overview as bucketsOverview,
 } from './buckets.service';
 import { resolveManagerNode, requireOnlineNode } from './dispatch.service';
+import { listStacks } from './stack.service';
 
 export type BackupTargetKind = 's3' | 'node';
 
@@ -259,16 +260,27 @@ export async function ensureNativeTarget(ctx: OrgContext): Promise<NativeTargetR
     mode: 'allow',
   });
 
-  const target = await addTarget(ctx, {
-    name: NATIVE_TARGET_NAME,
-    kind: 's3',
-    endpoint: garageS3Endpoint(),
-    bucket: NATIVE_BUCKET,
-    prefix: 'restic',
-    region: store.region,
-    accessKeyId: key.accessKeyId,
-    secretAccessKey: key.secretAccessKey,
-  });
+  let target: BackupTargetView;
+  try {
+    target = await addTarget(ctx, {
+      name: NATIVE_TARGET_NAME,
+      kind: 's3',
+      endpoint: garageS3Endpoint(),
+      bucket: NATIVE_BUCKET,
+      prefix: 'restic',
+      region: store.region,
+      accessKeyId: key.accessKeyId,
+      secretAccessKey: key.secretAccessKey,
+    });
+  } catch (e) {
+    // Concurrent double-click: the @@unique([orgId, name]) row won the race —
+    // adopt it (the extra minted key is bucket-scoped and harmless).
+    const raced = (await ctx.db.backupTarget.findFirst({
+      where: { orgId: ctx.activeOrgId, name: NATIVE_TARGET_NAME },
+    })) as unknown as TargetRow | null;
+    if (!raced) throw e;
+    return { target: toView(raced), bucket: raced.bucket, created: false };
+  }
   await writeAudit(ctx, {
     action: 'backup.target.native',
     targetType: 'backupTarget',
@@ -344,7 +356,7 @@ export async function listSnapshots(
   ctx: OrgContext,
   input?: { volume?: string; targetId?: string; stack?: string },
 ): Promise<SnapshotView[]> {
-  const rows = await ctx.db.snapshot.findMany({
+  let rows = await ctx.db.snapshot.findMany({
     where: {
       orgId: ctx.activeOrgId,
       // Volumes belong to a stack by name prefix (`<stack>_<volume>`).
@@ -356,6 +368,20 @@ export async function listSnapshots(
     take: 100,
     include: { target: { select: { name: true } } },
   });
+  if (input?.stack && !input.volume) {
+    // A bare prefix leaks siblings: stack `shop` would match `shop_x`'s volume
+    // `shop_x_data`. Attribute each volume to the LONGEST live stack whose
+    // `<stack>_` prefix matches, and keep only ours (unknown prefixes — e.g. a
+    // removed sibling — stay with the plain prefix match).
+    const stacks = (await listStacks(ctx)).map((s) => s.name);
+    const target = input.stack;
+    rows = rows.filter((r) => {
+      const best = stacks
+        .filter((name) => r.volume.startsWith(`${name}_`))
+        .sort((a, b) => b.length - a.length)[0];
+      return best === undefined || best === target;
+    });
+  }
   return rows.map((r) => ({
     id: r.id,
     volume: r.volume,

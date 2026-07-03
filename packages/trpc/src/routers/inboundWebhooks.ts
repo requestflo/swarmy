@@ -49,7 +49,11 @@ const CreateEndpointStackInput = CreateInboundEndpointInput.extend({
   ...endpointExtras,
 });
 
-const UpdateEndpointStackInput = UpdateInboundEndpointInput.extend(endpointExtras);
+const UpdateEndpointStackInput = UpdateInboundEndpointInput.extend({
+  /** Re-home the endpoint to another stack; null detaches it. */
+  stackName: z.string().min(1).max(63).nullable().optional(),
+  ...endpointExtras,
+});
 
 const DeliveriesStackInput = InboundDeliveriesInput.extend({
   stack: z.string().min(1).optional(),

@@ -27,6 +27,7 @@ interface DemoRun {
   defId: string;
   defName: string;
   defVersion: number;
+  stackName: string | null;
   status: WorkflowRunStatusView;
   cursor: number;
   startedAt: string;
@@ -57,6 +58,7 @@ function toRunView(r: DemoRun): WorkflowRunView {
     defId: r.defId,
     defName: r.defName,
     defVersion: r.defVersion,
+    stackName: r.stackName,
     status: r.status,
     cursor: r.cursor,
     totalSteps: r.steps.length,
@@ -225,6 +227,7 @@ export const workflows: DomainResolvers = {
         defId: def.id,
         defName: def.name,
         defVersion: def.version,
+        stackName: def.stackName,
         status: 'running',
         cursor: 0,
         startedAt: nowIso(),
@@ -413,6 +416,7 @@ export const workflows: DomainResolvers = {
         id: 'wfr-approval-demo',
         defId: 'wfd-document-pipeline',
         defName: 'document-pipeline',
+        stackName: 'platform',
         defVersion: 3,
         status: 'waiting-approval',
         cursor: 3,
@@ -433,6 +437,7 @@ export const workflows: DomainResolvers = {
         id: 'wfr-running-demo',
         defId: 'wfd-document-pipeline',
         defName: 'document-pipeline',
+        stackName: 'platform',
         defVersion: 3,
         status: 'running',
         cursor: 1,
@@ -453,6 +458,7 @@ export const workflows: DomainResolvers = {
         id: 'wfr-succeeded-demo',
         defId: 'wfd-document-pipeline',
         defName: 'document-pipeline',
+        stackName: 'platform',
         defVersion: 3,
         status: 'succeeded',
         cursor: 5,
@@ -479,6 +485,7 @@ export const workflows: DomainResolvers = {
         id: 'wfr-failed-demo',
         defId: 'wfd-document-pipeline',
         defName: 'document-pipeline',
+        stackName: 'platform',
         defVersion: 2,
         status: 'failed',
         cursor: 2,
@@ -499,6 +506,7 @@ export const workflows: DomainResolvers = {
         id: 'wfr-cancelled-demo',
         defId: 'wfd-document-pipeline',
         defName: 'document-pipeline',
+        stackName: 'platform',
         defVersion: 2,
         status: 'cancelled',
         cursor: 0,
@@ -519,6 +527,7 @@ export const workflows: DomainResolvers = {
         id: 'wfr-cleanup-demo',
         defId: 'wfd-nightly-cleanup',
         defName: 'nightly-cleanup',
+        stackName: 'storefront',
         defVersion: 1,
         status: 'succeeded',
         cursor: 2,

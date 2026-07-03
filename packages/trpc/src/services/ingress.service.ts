@@ -283,6 +283,37 @@ async function ensureConfig(ctx: OrgContext): Promise<ConfigRow> {
  * activator's reachable host:port, since both are "the controller from inside
  * an ingress container".
  */
+/**
+ * Cross-feature guard for controller-vhost domains. Status pages, inbound
+ * webhook endpoints, and AI outlets all render one Caddy site block per
+ * domain, so a hostname may serve exactly ONE of them (the renderer dedupes
+ * defensively, but the collision should be rejected at write time). Call from
+ * every writer that sets such a domain; `ignore` names the caller's own row.
+ */
+export async function assertControllerDomainAvailable(
+  ctx: OrgContext,
+  domain: string,
+  ignore: { statusPageId?: string; inboundEndpointId?: string; aiOutletStack?: string } = {},
+): Promise<void> {
+  const host = domain.trim().toLowerCase();
+  if (!host) return;
+  const [page, endpoint] = await Promise.all([
+    ctx.db.statusPage.findFirst({
+      where: { orgId: ctx.activeOrgId, domain: host, ...(ignore.statusPageId ? { id: { not: ignore.statusPageId } } : {}) },
+      select: { slug: true },
+    }),
+    ctx.db.inboundEndpoint.findFirst({
+      where: { orgId: ctx.activeOrgId, domain: host, ...(ignore.inboundEndpointId ? { id: { not: ignore.inboundEndpointId } } : {}) },
+      select: { slug: true },
+    }),
+  ]);
+  if (page) throw new Error(`domain ${host} is already used by status page "${page.slug}"`);
+  if (endpoint) throw new Error(`domain ${host} is already used by webhook endpoint "${endpoint.slug}"`);
+  const outlets = await listAiOutlets(ctx);
+  const outlet = outlets.find((o) => o.domain === host && o.stack !== ignore.aiOutletStack);
+  if (outlet) throw new Error(`domain ${host} is already used by the AI outlet for stack "${outlet.stack}"`);
+}
+
 async function computeControllerVhosts(ctx: OrgContext): Promise<ControllerVhost[]> {
   const upstream = activatorUpstream();
   const [pages, endpoints, outlets] = await Promise.all([

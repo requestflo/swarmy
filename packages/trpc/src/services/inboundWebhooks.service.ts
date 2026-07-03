@@ -17,6 +17,7 @@ import type {
 import type { OrgContext } from '../context';
 import { commandRejected, notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import { assertControllerDomainAvailable } from './ingress.service';
 
 /**
  * Inbound webhook gateway (slice B4) — public endpoints, verified deliveries,
@@ -405,6 +406,7 @@ export async function createEndpoint(
   });
   if (existing) throw commandRejected(`slug "${input.slug}" is already taken in this org`);
   const domain = normalizeEndpointDomain(input.domain) ?? null;
+  if (domain) await assertControllerDomainAvailable(ctx, domain);
 
   const row = await ctx.db.inboundEndpoint.create({
     data: {
@@ -443,7 +445,7 @@ export async function createEndpoint(
 
 export async function updateEndpoint(
   ctx: OrgContext,
-  input: UpdateInboundEndpointInput & Omit<EndpointTemplateFields, 'stackName'>,
+  input: UpdateInboundEndpointInput & Omit<EndpointTemplateFields, 'stackName'> & { stackName?: string | null },
 ): Promise<InboundEndpointView> {
   const row = await ctx.db.inboundEndpoint.findFirst({
     where: { id: input.id, orgId: ctx.activeOrgId },
@@ -455,6 +457,7 @@ export async function updateEndpoint(
     nextKind === 'none' ? false : Boolean(input.secret) || Boolean(row.verifySecretEnc);
   requireSecretRule(nextKind, nextHasSecret);
   const domain = normalizeEndpointDomain(input.domain);
+  if (domain) await assertControllerDomainAvailable(ctx, domain, { inboundEndpointId: row.id });
 
   const updated = await ctx.db.inboundEndpoint.update({
     where: { id: row.id },
@@ -470,6 +473,8 @@ export async function updateEndpoint(
             targetJson: input.target as object,
           }
         : {}),
+      // Re-home to another stack; null detaches; undefined keeps the value.
+      ...(input.stackName !== undefined ? { stackName: input.stackName } : {}),
       // '' clears the domain / a template; undefined keeps the stored value.
       ...(domain !== undefined ? { domain } : {}),
       ...(input.transformTemplate !== undefined

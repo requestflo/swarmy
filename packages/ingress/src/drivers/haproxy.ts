@@ -34,14 +34,22 @@ export class HaproxyDriver implements IngressDriver {
     // Route protections are a Caddy-renderer feature; HAProxy renders routes fine
     // but silently skips them — surface that as a non-blocking warning.
     const protectedCount = config.domains.filter((d) => d.protection).length;
-    const warnings = protectedCount
-      ? [
-          {
-            path: 'domains',
-            message: `${protectedCount} route(s) carry edge protections — the haproxy driver ignores them (use the Caddy driver to enforce).`,
-          },
-        ]
-      : undefined;
+    const warningList: { path: string; message: string }[] = [];
+    if (protectedCount) {
+      warningList.push({
+        path: 'domains',
+        message: `${protectedCount} route(s) carry edge protections — the haproxy driver ignores them (use the Caddy driver to enforce).`,
+      });
+    }
+    // Controller vhosts (status-page/webhook/AI custom domains) are also
+    // Caddy-only today: those domains simply won't be served by this driver.
+    if (config.controllerVhosts.length > 0) {
+      warningList.push({
+        path: 'controllerVhosts',
+        message: `${config.controllerVhosts.length} custom domain(s) (status pages / webhooks / AI outlets) need the Caddy driver — the haproxy driver does not render them.`,
+      });
+    }
+    const warnings = warningList.length ? warningList : undefined;
     return errors.length ? { ok: false, errors, warnings } : { ok: true, warnings };
   }
 

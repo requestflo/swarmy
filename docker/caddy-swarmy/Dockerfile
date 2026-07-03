@@ -13,8 +13,10 @@
 
 FROM caddy:2-builder AS builder
 
+# Pinned: the plugin's Caddyfile directives changed across versions — bump
+# deliberately alongside the rate_limit render in packages/ingress.
 RUN xcaddy build \
-    --with github.com/mholt/caddy-ratelimit
+    --with github.com/mholt/caddy-ratelimit@v0.1.0
 
 FROM caddy:2-alpine
 

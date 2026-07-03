@@ -31,9 +31,22 @@ export function RunPage({ runId }: { runId: string }): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <Link to="/workflows" className="text-muted-foreground mb-4 inline-flex items-center gap-1 text-sm hover:underline">
-        <ArrowLeftIcon className="size-4" /> Workflows
-      </Link>
+      {r?.stackName ? (
+        <Link
+          to="/stacks/$name/messaging"
+          params={{ name: r.stackName }}
+          className="text-muted-foreground mb-4 inline-flex items-center gap-1 text-sm hover:underline"
+        >
+          <ArrowLeftIcon className="size-4" /> {r.stackName} · Messaging
+        </Link>
+      ) : (
+        <Link
+          to="/"
+          className="text-muted-foreground mb-4 inline-flex items-center gap-1 text-sm hover:underline"
+        >
+          <ArrowLeftIcon className="size-4" /> Stacks
+        </Link>
+      )}
       <PageHeader
         eyebrow="Operations · Workflow run"
         title={

@@ -49,6 +49,26 @@ export const core: DomainResolvers = {
         .filter((sv) => sv.nodeId === id)
         .map((sv) => ({ id: `ctr-${sv.id}`, name: sv.name, image: sv.image, state: 'running' }));
     },
+    // Labels editor on the node page: '' values are deletions (mirrors the real
+    // node.update label patch convention).
+    'nodes.setLabels': (i, s) => {
+      const { id, labels } = i as { id: string; labels: Record<string, string> };
+      const n = byId(s.nodes, id) as (NodeSummary & { labels?: Record<string, string> }) | undefined;
+      if (n) {
+        const next = { ...(n.labels ?? {}) };
+        for (const [k, v] of Object.entries(labels)) {
+          if (v === '') delete next[k];
+          else next[k] = v;
+        }
+        n.labels = next;
+      }
+      return { id };
+    },
+    'nodes.remove': (i, s) => {
+      const { id } = i as { id: string };
+      s.nodes = s.nodes.filter((n) => n.id !== id);
+      return { id };
+    },
     'nodes.drain': (i, s) => {
       const n = byId(s.nodes, (i as { id: string }).id);
       if (n) n.status = 'draining';

@@ -23,6 +23,7 @@ import { dbLagsFromLabels, summarizeService, DB_LAG_TARGET_SECONDS, type HealthS
 import { publicIncidents } from './incidents.service';
 import { DB_CLUSTER_LABEL } from './manageddb.service';
 import { CACHE_CLUSTER_LABEL } from './cache.service';
+import { assertControllerDomainAvailable } from './ingress.service';
 
 /**
  * Status pages (slice C5) — public component status, uptime history, incident
@@ -565,6 +566,7 @@ export async function createPage(
   input: CreateStatusPageInput & { stackName?: string },
 ): Promise<StatusPageView> {
   await assertSlugFree(ctx, input.slug);
+  if (input.domain) await assertControllerDomainAvailable(ctx, input.domain);
   const row = await ctx.db.statusPage.create({
     data: {
       orgId: ctx.activeOrgId,
@@ -600,6 +602,9 @@ export async function updatePage(
   const existing = await requirePage(ctx, input.id);
   if (input.slug !== undefined && input.slug !== existing.slug) {
     await assertSlugFree(ctx, input.slug, existing.id);
+  }
+  if (input.domain) {
+    await assertControllerDomainAvailable(ctx, input.domain, { statusPageId: existing.id });
   }
   const row = await ctx.db.statusPage.update({
     where: { id: existing.id },

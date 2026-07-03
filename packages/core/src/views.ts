@@ -840,6 +840,8 @@ export interface WorkflowRunView {
   defId: string;
   defName: string;
   defVersion: number;
+  /** Stack the workflow def belongs to (null = org-wide/legacy). */
+  stackName: string | null;
   status: WorkflowRunStatusView;
   /** Index of the step the runner executes next. */
   cursor: number;
