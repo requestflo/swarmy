@@ -41,6 +41,8 @@ export interface CollectorRenderInput {
   clickhouseDatabase: string;
   /** Batch flush interval; bounded for determinism. Default 5s. */
   batchTimeoutSeconds?: number;
+  /** Data retention; becomes the exporter's per-table TTL. Default 7 days. */
+  retentionDays?: number;
 }
 
 export interface StoreInitInput {
@@ -104,7 +106,12 @@ export function renderCollectorConfig(input: CollectorRenderInput): string {
     `    password: ${input.clickhousePassword}`,
     '    traces_table_name: otel_traces',
     '    logs_table_name: otel_logs',
-    '    create_schema: false',
+    // The exporter OWNS the schema: its INSERT always references its full column
+    // set (TraceState, Events.*, Links.*, …), so a hand-rolled narrower schema
+    // fails ("No such column TraceState"). Let it CREATE the tables to match its
+    // own writer exactly; swarmy's queries use only standard columns it emits.
+    '    create_schema: true',
+    `    ttl: ${clampInt(input.retentionDays, 7, 1, 365) * 24}h`,
     '    timeout: 10s',
     '    retry_on_failure:',
     '      enabled: true',
@@ -142,80 +149,10 @@ export function renderCollectorConfig(input: CollectorRenderInput): string {
  * Deterministic for a given input — pinned by a golden test.
  */
 export function renderClickhouseInitSql(input: StoreInitInput): string {
-  const days = clampInt(input.retentionDays, 7, 1, 365);
-  const db = input.database;
-
-  return [
-    '-- Managed by swarmy (observability). Do not edit by hand.',
-    `CREATE DATABASE IF NOT EXISTS ${db};`,
-    '',
-    '-- Distributed traces (span per row), Jaeger-compatible columns.',
-    `CREATE TABLE IF NOT EXISTS ${db}.otel_traces (`,
-    '  Timestamp DateTime64(9) CODEC(Delta, ZSTD(1)),',
-    '  TraceId String CODEC(ZSTD(1)),',
-    '  SpanId String CODEC(ZSTD(1)),',
-    '  ParentSpanId String CODEC(ZSTD(1)),',
-    '  SpanName LowCardinality(String) CODEC(ZSTD(1)),',
-    '  SpanKind LowCardinality(String) CODEC(ZSTD(1)),',
-    '  ServiceName LowCardinality(String) CODEC(ZSTD(1)),',
-    '  Duration UInt64 CODEC(ZSTD(1)),',
-    '  StatusCode LowCardinality(String) CODEC(ZSTD(1)),',
-    '  StatusMessage String CODEC(ZSTD(1)),',
-    '  ResourceAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),',
-    '  SpanAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),',
-    '  INDEX idx_trace_id TraceId TYPE bloom_filter(0.001) GRANULARITY 1',
-    ') ENGINE = MergeTree',
-    "PARTITION BY toDate(Timestamp)",
-    "ORDER BY (ResourceAttributes['swarmy.org_id'], ServiceName, toUnixTimestamp(Timestamp))",
-    `TTL toDateTime(Timestamp) + INTERVAL ${days} DAY`,
-    'SETTINGS index_granularity = 8192;',
-    '',
-    '-- Gauge metrics (incl. hostmetrics resource utilization).',
-    `CREATE TABLE IF NOT EXISTS ${db}.otel_metrics_gauge (`,
-    '  TimeUnix DateTime64(9) CODEC(Delta, ZSTD(1)),',
-    '  MetricName LowCardinality(String) CODEC(ZSTD(1)),',
-    '  ServiceName LowCardinality(String) CODEC(ZSTD(1)),',
-    '  Value Float64 CODEC(ZSTD(1)),',
-    '  ResourceAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),',
-    '  Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1))',
-    ') ENGINE = MergeTree',
-    "PARTITION BY toDate(TimeUnix)",
-    "ORDER BY (ResourceAttributes['swarmy.org_id'], MetricName, ServiceName, toUnixTimestamp(TimeUnix))",
-    `TTL toDateTime(TimeUnix) + INTERVAL ${days} DAY`,
-    'SETTINGS index_granularity = 8192;',
-    '',
-    '-- Sum (monotonic counter) metrics.',
-    `CREATE TABLE IF NOT EXISTS ${db}.otel_metrics_sum (`,
-    '  TimeUnix DateTime64(9) CODEC(Delta, ZSTD(1)),',
-    '  MetricName LowCardinality(String) CODEC(ZSTD(1)),',
-    '  ServiceName LowCardinality(String) CODEC(ZSTD(1)),',
-    '  Value Float64 CODEC(ZSTD(1)),',
-    '  ResourceAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),',
-    '  Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1))',
-    ') ENGINE = MergeTree',
-    "PARTITION BY toDate(TimeUnix)",
-    "ORDER BY (ResourceAttributes['swarmy.org_id'], MetricName, ServiceName, toUnixTimestamp(TimeUnix))",
-    `TTL toDateTime(TimeUnix) + INTERVAL ${days} DAY`,
-    'SETTINGS index_granularity = 8192;',
-    '',
-    '-- Structured logs, correlated to traces by TraceId.',
-    `CREATE TABLE IF NOT EXISTS ${db}.otel_logs (`,
-    '  Timestamp DateTime64(9) CODEC(Delta, ZSTD(1)),',
-    '  TraceId String CODEC(ZSTD(1)),',
-    '  SpanId String CODEC(ZSTD(1)),',
-    '  SeverityText LowCardinality(String) CODEC(ZSTD(1)),',
-    '  SeverityNumber Int32 CODEC(ZSTD(1)),',
-    '  ServiceName LowCardinality(String) CODEC(ZSTD(1)),',
-    '  Body String CODEC(ZSTD(1)),',
-    '  ResourceAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),',
-    '  LogAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1))',
-    ') ENGINE = MergeTree',
-    "PARTITION BY toDate(Timestamp)",
-    "ORDER BY (ResourceAttributes['swarmy.org_id'], ServiceName, toUnixTimestamp(Timestamp))",
-    `TTL toDateTime(Timestamp) + INTERVAL ${days} DAY`,
-    'SETTINGS index_granularity = 8192;',
-    '',
-  ].join('\n');
+  // The collector exporter now owns the traces/metrics/logs tables
+  // (create_schema: true) so their DDL matches its writer exactly. We only
+  // ensure the database exists; retention is the exporter `ttl`.
+  return `-- Managed by swarmy (observability). Do not edit by hand.\nCREATE DATABASE IF NOT EXISTS ${input.database};\n`;
 }
 
 /** Render both config files for the deploy path (mounted into the services). */
@@ -226,7 +163,9 @@ export function renderObservabilityFiles(opts: {
   return {
     collectorConfig: {
       path: COLLECTOR_CONFIG_PATH,
-      contents: renderCollectorConfig(opts.collector),
+      // Retention lives on the store; the collector exporter enforces it as a
+      // per-table TTL now that it owns the schema.
+      contents: renderCollectorConfig({ ...opts.collector, retentionDays: opts.store.retentionDays }),
       mode: 0o644,
     },
     clickhouseInit: {

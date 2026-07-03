@@ -28,7 +28,15 @@ describe('renderCollectorConfig', () => {
     expect(yaml).toContain('tcp://swarmy-clickhouse:9000');
     expect(yaml).toContain('database: otel');
     expect(yaml).toContain('password: s3cr3t-pw');
-    expect(yaml).toContain('create_schema: false');
+    // The exporter owns the schema so its INSERT column set always matches.
+    expect(yaml).toContain('create_schema: true');
+  });
+
+  it('sets the exporter TTL from retentionDays (hours), clamped', () => {
+    expect(renderCollectorConfig({ ...COLLECTOR_INPUT, retentionDays: 7 })).toContain('ttl: 168h');
+    expect(renderCollectorConfig({ ...COLLECTOR_INPUT, retentionDays: 30 })).toContain('ttl: 720h');
+    expect(renderCollectorConfig({ ...COLLECTOR_INPUT, retentionDays: 99999 })).toContain('ttl: 8760h');
+    expect(renderCollectorConfig({ ...COLLECTOR_INPUT, retentionDays: 0 })).toContain('ttl: 24h');
   });
 
   it('declares traces, metrics and logs pipelines', () => {
@@ -52,35 +60,13 @@ describe('renderClickhouseInitSql', () => {
     expect(renderClickhouseInitSql({ database: 'otel', retentionDays: 7 })).toMatchSnapshot();
   });
 
-  it('creates the three signal tables and the database', () => {
+  it('only ensures the database — the collector exporter creates the tables', () => {
     const sql = renderClickhouseInitSql({ database: 'otel', retentionDays: 7 });
     expect(sql).toContain('CREATE DATABASE IF NOT EXISTS otel;');
-    expect(sql).toContain('CREATE TABLE IF NOT EXISTS otel.otel_traces');
-    expect(sql).toContain('CREATE TABLE IF NOT EXISTS otel.otel_metrics_gauge');
-    expect(sql).toContain('CREATE TABLE IF NOT EXISTS otel.otel_metrics_sum');
-    expect(sql).toContain('CREATE TABLE IF NOT EXISTS otel.otel_logs');
+    // No hand-rolled table DDL — that drifted from the exporter and broke inserts.
+    expect(sql).not.toContain('CREATE TABLE');
   });
 
-  it('applies the retention TTL from retentionDays to every table', () => {
-    const sql = renderClickhouseInitSql({ database: 'otel', retentionDays: 30 });
-    const ttls = sql.match(/TTL .* \+ INTERVAL 30 DAY/g) ?? [];
-    expect(ttls.length).toBe(4); // traces, gauge, sum, logs
-  });
-
-  it('clamps retentionDays into [1,365]', () => {
-    expect(renderClickhouseInitSql({ database: 'otel', retentionDays: 99999 })).toContain(
-      'INTERVAL 365 DAY',
-    );
-    expect(renderClickhouseInitSql({ database: 'otel', retentionDays: 0 })).toContain(
-      'INTERVAL 1 DAY',
-    );
-  });
-
-  it('org-prunes by putting swarmy.org_id first in every ORDER BY', () => {
-    const sql = renderClickhouseInitSql({ database: 'otel', retentionDays: 7 });
-    const orderBys = sql.match(/ORDER BY \(ResourceAttributes\['swarmy.org_id'\]/g) ?? [];
-    expect(orderBys.length).toBe(4);
-  });
 });
 
 describe('renderObservabilityFiles', () => {
@@ -92,6 +78,14 @@ describe('renderObservabilityFiles', () => {
     expect(files.collectorConfig.path).toBe(COLLECTOR_CONFIG_PATH);
     expect(files.clickhouseInit.path).toBe(CLICKHOUSE_INIT_PATH);
     expect(files.collectorConfig.contents).toContain('receivers:');
-    expect(files.clickhouseInit.contents).toContain('CREATE TABLE IF NOT EXISTS');
+    expect(files.clickhouseInit.contents).toContain('CREATE DATABASE IF NOT EXISTS otel;');
+  });
+
+  it('threads store retention into the collector exporter TTL', () => {
+    const files = renderObservabilityFiles({
+      collector: COLLECTOR_INPUT,
+      store: { database: 'otel', retentionDays: 14 },
+    });
+    expect(files.collectorConfig.contents).toContain('ttl: 336h');
   });
 });

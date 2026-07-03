@@ -28,7 +28,8 @@ exporters:
     password: s3cr3t-pw
     traces_table_name: otel_traces
     logs_table_name: otel_logs
-    create_schema: false
+    create_schema: true
+    ttl: 168h
     timeout: 10s
     retry_on_failure:
       enabled: true
@@ -55,71 +56,5 @@ service:
 exports[`renderClickhouseInitSql is a stable golden DDL 1`] = `
 "-- Managed by swarmy (observability). Do not edit by hand.
 CREATE DATABASE IF NOT EXISTS otel;
-
--- Distributed traces (span per row), Jaeger-compatible columns.
-CREATE TABLE IF NOT EXISTS otel.otel_traces (
-  Timestamp DateTime64(9) CODEC(Delta, ZSTD(1)),
-  TraceId String CODEC(ZSTD(1)),
-  SpanId String CODEC(ZSTD(1)),
-  ParentSpanId String CODEC(ZSTD(1)),
-  SpanName LowCardinality(String) CODEC(ZSTD(1)),
-  SpanKind LowCardinality(String) CODEC(ZSTD(1)),
-  ServiceName LowCardinality(String) CODEC(ZSTD(1)),
-  Duration UInt64 CODEC(ZSTD(1)),
-  StatusCode LowCardinality(String) CODEC(ZSTD(1)),
-  StatusMessage String CODEC(ZSTD(1)),
-  ResourceAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-  SpanAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-  INDEX idx_trace_id TraceId TYPE bloom_filter(0.001) GRANULARITY 1
-) ENGINE = MergeTree
-PARTITION BY toDate(Timestamp)
-ORDER BY (ResourceAttributes['swarmy.org_id'], ServiceName, toUnixTimestamp(Timestamp))
-TTL toDateTime(Timestamp) + INTERVAL 7 DAY
-SETTINGS index_granularity = 8192;
-
--- Gauge metrics (incl. hostmetrics resource utilization).
-CREATE TABLE IF NOT EXISTS otel.otel_metrics_gauge (
-  TimeUnix DateTime64(9) CODEC(Delta, ZSTD(1)),
-  MetricName LowCardinality(String) CODEC(ZSTD(1)),
-  ServiceName LowCardinality(String) CODEC(ZSTD(1)),
-  Value Float64 CODEC(ZSTD(1)),
-  ResourceAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-  Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1))
-) ENGINE = MergeTree
-PARTITION BY toDate(TimeUnix)
-ORDER BY (ResourceAttributes['swarmy.org_id'], MetricName, ServiceName, toUnixTimestamp(TimeUnix))
-TTL toDateTime(TimeUnix) + INTERVAL 7 DAY
-SETTINGS index_granularity = 8192;
-
--- Sum (monotonic counter) metrics.
-CREATE TABLE IF NOT EXISTS otel.otel_metrics_sum (
-  TimeUnix DateTime64(9) CODEC(Delta, ZSTD(1)),
-  MetricName LowCardinality(String) CODEC(ZSTD(1)),
-  ServiceName LowCardinality(String) CODEC(ZSTD(1)),
-  Value Float64 CODEC(ZSTD(1)),
-  ResourceAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-  Attributes Map(LowCardinality(String), String) CODEC(ZSTD(1))
-) ENGINE = MergeTree
-PARTITION BY toDate(TimeUnix)
-ORDER BY (ResourceAttributes['swarmy.org_id'], MetricName, ServiceName, toUnixTimestamp(TimeUnix))
-TTL toDateTime(TimeUnix) + INTERVAL 7 DAY
-SETTINGS index_granularity = 8192;
-
--- Structured logs, correlated to traces by TraceId.
-CREATE TABLE IF NOT EXISTS otel.otel_logs (
-  Timestamp DateTime64(9) CODEC(Delta, ZSTD(1)),
-  TraceId String CODEC(ZSTD(1)),
-  SpanId String CODEC(ZSTD(1)),
-  SeverityText LowCardinality(String) CODEC(ZSTD(1)),
-  SeverityNumber Int32 CODEC(ZSTD(1)),
-  ServiceName LowCardinality(String) CODEC(ZSTD(1)),
-  Body String CODEC(ZSTD(1)),
-  ResourceAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-  LogAttributes Map(LowCardinality(String), String) CODEC(ZSTD(1))
-) ENGINE = MergeTree
-PARTITION BY toDate(Timestamp)
-ORDER BY (ResourceAttributes['swarmy.org_id'], ServiceName, toUnixTimestamp(Timestamp))
-TTL toDateTime(Timestamp) + INTERVAL 7 DAY
-SETTINGS index_granularity = 8192;
 "
 `;
