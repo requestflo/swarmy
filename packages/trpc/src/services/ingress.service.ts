@@ -377,6 +377,13 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
     ...((baseGlobal?.extraConfig as Record<string, unknown> | undefined) ?? {}),
   };
   if (settings.controllerImage) extraConfig.controllerImage = settings.controllerImage;
+  // Observability on ⇒ render the `tracing` directive so the edge emits a span
+  // per request (the controller carries the matching OTLP exporter env).
+  const obs = await ctx.db.observabilityConfig.findUnique({
+    where: { orgId: ctx.activeOrgId },
+    select: { enabled: true },
+  });
+  const tracing = obs?.enabled === true;
   return {
     driver: driverLower(row.driver),
     enabled: row.enabled,
@@ -402,6 +409,7 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
     globalOptions: {
       ...baseGlobal,
       extraConfig,
+      tracing,
       // Promote the load-bearing (encrypted) options, resolving secrets JIT.
       haStorage: resolveHaStorage(settings),
       tunnel: resolveTunnel(settings),

@@ -172,6 +172,13 @@ export const IngressGlobalOptionsSchema = z.object({
   haStorage: HaStorageSchema.optional(),
   /** Cloudflare Tunnel connector config (for the cloudflared driver). */
   tunnel: TunnelOptionsSchema.optional(),
+  /**
+   * Emit an OpenTelemetry span per proxied request (Caddy `tracing` directive).
+   * Controller-computed: set when swarmy observability is enabled, so the edge
+   * exports spans to the collector (OTLP env on the controller container). Every
+   * hit to a fronted service then shows up as an edge span in Observability.
+   */
+  tracing: z.boolean().default(false),
   /** Raw escape hatch (driver-typed): applyVia, provider, certs, onDemandAsk, etc. */
   extraConfig: z.record(z.unknown()).default({}),
 });

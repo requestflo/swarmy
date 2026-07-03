@@ -49,6 +49,13 @@ export interface EnsureControllerOptions {
   publishAdmin?: boolean;
   /** Preferred target node ids (`IngressConfigView.targetNodes`) — see `ingressPlacementConstraint`. */
   targetNodes?: string[];
+  /**
+   * When set, the controller runs with OTLP exporter env so Caddy's `tracing`
+   * directive ships edge spans to the observability collector. The value is the
+   * org id (stamped as the `swarmy.org_id` resource attribute the traces query
+   * scopes on). Unset ⇒ no telemetry env (observability off).
+   */
+  otelOrgId?: string;
 }
 
 export interface EnsureControllerResult {
@@ -60,7 +67,9 @@ export interface EnsureControllerResult {
   adminUrl: string;
 }
 
-type ResolvedOptions = Required<EnsureControllerOptions>;
+type ResolvedOptions = Required<Omit<EnsureControllerOptions, 'otelOrgId'>> & {
+  otelOrgId?: string;
+};
 
 /** Swarm node-role label that marks a node as an ingress (edge) node. */
 const INGRESS_NODE_LABEL = 'swarmy.node.ingress';
@@ -93,11 +102,29 @@ function controllerSpec(opts: ResolvedOptions, placementConstraint: string): Ser
   if (opts.publishAdmin) {
     ports.push({ target: CADDY_ADMIN_PORT, published: CADDY_ADMIN_PORT, protocol: 'tcp', mode: 'ingress' });
   }
+  // OTLP exporter env for Caddy's `tracing` directive. Caddy reads standard
+  // OTEL_* vars; org id lands as the `swarmy.org_id` resource attribute the
+  // traces query scopes on. The controller already joins the `swarmy` overlay,
+  // so `swarmy-otel-collector` resolves. Only set when observability is on.
+  // Collector service name + OTLP gRPC port (mirrors observability-stack.ts —
+  // kept local to avoid coupling the ingress controller to the observability module).
+  const OTEL_COLLECTOR_HOST = 'swarmy-otel-collector';
+  const OTEL_COLLECTOR_GRPC_PORT = 4317;
+  const env = opts.otelOrgId
+    ? {
+        OTEL_EXPORTER_OTLP_ENDPOINT: `http://${OTEL_COLLECTOR_HOST}:${OTEL_COLLECTOR_GRPC_PORT}`,
+        OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc',
+        OTEL_SERVICE_NAME: CADDY_CONTROLLER_SERVICE,
+        OTEL_RESOURCE_ATTRIBUTES: `swarmy.org_id=${opts.otelOrgId}`,
+        OTEL_TRACES_SAMPLER: 'parentbased_always_on',
+      }
+    : undefined;
   return {
     name: CADDY_CONTROLLER_SERVICE,
     image: opts.image,
     mode: { replicated: { replicas: opts.replicas } },
     labels: { 'swarmy.managed': 'true', 'swarmy.role': 'ingress' },
+    ...(env ? { env } : {}),
     // The container writes its own admin-enabling base config on boot (no host bind
     // mount / root needed), then swarmy pushes the rendered routes to the admin API.
     command: [
@@ -120,12 +147,24 @@ export async function ensureCaddyController(
   ctx: OrgContext,
   options: EnsureControllerOptions = {},
 ): Promise<EnsureControllerResult> {
+  // Observability on ⇒ the controller runs with OTLP exporter env so Caddy's
+  // tracing directive can ship edge spans. Direct DB read (no coupling to the
+  // observability module); caller may override via options.otelOrgId.
+  let otelOrgId = options.otelOrgId;
+  if (otelOrgId === undefined) {
+    const obs = await ctx.db.observabilityConfig.findUnique({
+      where: { orgId: ctx.activeOrgId },
+      select: { enabled: true },
+    });
+    if (obs?.enabled) otelOrgId = ctx.activeOrgId;
+  }
   const opts: ResolvedOptions = {
     network: options.network ?? DEFAULT_NETWORK,
     image: options.image ?? DEFAULT_IMAGE,
     replicas: options.replicas ?? 1,
     publishAdmin: options.publishAdmin ?? true,
     targetNodes: options.targetNodes ?? [],
+    otelOrgId,
   };
   const node = await resolveManagerNode(ctx);
 

@@ -529,3 +529,25 @@ describe('caddy controller vhosts — status pages / webhooks / AI gateway domai
     expect(out.indexOf('app.xyz.com {')).toBeLessThan(out.indexOf('status.xyz.com {'));
   });
 });
+
+describe('distributed tracing (observability)', () => {
+  it('tracing off (default) → no tracing directive, no order override', () => {
+    const out = buildCaddyfile(cfg([{ domain: 'shop.local', service: 'web', port: 80, tls: 'off' }]));
+    expect(out).not.toContain('tracing');
+    expect(out).not.toContain('order tracing first');
+  });
+
+  it('tracing on → `order tracing first` global + a tracing span wrapping each site', () => {
+    const out = buildCaddyfile(
+      cfg([{ domain: 'shop.local', service: 'web', port: 80, tls: 'off' }], { tracing: true }),
+    );
+    expect(out).toContain('order tracing first');
+    const body = siteBlock(out, 'http://shop.local');
+    // tracing must precede the reverse_proxy so the span covers the whole request.
+    expect(body).toContain('  tracing {');
+    expect(body).toContain('    span swarmy-edge');
+    expect(body.findIndex((l) => l.includes('tracing'))).toBeLessThan(
+      body.findIndex((l) => l.includes('reverse_proxy')),
+    );
+  });
+});

@@ -16,6 +16,8 @@ export function buildCaddyfile(config: IngressConfig): string {
     const adminListen = typeof extra.adminListen === 'string' ? extra.adminListen : '0.0.0.0:2019';
     global.push(`  admin ${adminListen}`);
   }
+  // Tracing runs first so its span wraps the whole request (incl. the proxy).
+  if (config.globalOptions.tracing) global.push('  order tracing first');
   if (config.globalOptions.email) global.push(`  email ${config.globalOptions.email}`);
   if (config.globalOptions.onDemandTls) {
     global.push('  on_demand_tls {');
@@ -154,6 +156,13 @@ function buildSite(host: string, routes: DomainRoute[], config: IngressConfig): 
     if (material) out.push(`  tls ${material.cert} ${material.key}`);
   } else if (config.globalOptions.onDemandTls && tls === 'auto') {
     out.push('  tls {', '    on_demand', '  }');
+  }
+
+  // Distributed tracing: one span per request through this host, exported over
+  // OTLP by the controller (OTEL_* env). `order tracing first` (global options)
+  // guarantees it wraps the proxy so the span covers the whole request.
+  if (config.globalOptions.tracing) {
+    out.push('  tracing {', '    span swarmy-edge', '  }');
   }
 
   const ordered = [...routes].sort(bySpecificity);
