@@ -1,4 +1,4 @@
-import type { ContainerInfo, SwarmServiceInfo, SwarmNodeInfo, TermTarget } from '@swarmy/core/protocol';
+import type { ContainerInfo, SwarmServiceInfo, SwarmNodeInfo, SwarmState, TermTarget } from '@swarmy/core/protocol';
 import type {
   ClusterStatsFrame,
   ContainerStatsSnapshot,
@@ -139,6 +139,8 @@ export interface AgentHub {
   swarmNodeIdFor(controllerNodeId: string): string | undefined;
   /** Full live swarm info (role/status/labels/resources) for an enrollment node id. */
   nodeInfoFor(controllerNodeId: string): SwarmNodeInfo | undefined;
+  /** Live local swarm membership of a node (`active` = a working swarm member). */
+  swarmStateFor(controllerNodeId: string): SwarmState | undefined;
   /** Controller node ids carrying a role label (swarmy.node.ingress/outlet = "true"). */
   nodesByRole(orgId: string, role: 'ingress' | 'outlet'): string[];
   /** Region label (swarmy.region) → controller node ids in that region. */

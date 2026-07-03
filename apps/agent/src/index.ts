@@ -63,6 +63,45 @@ async function main(): Promise<void> {
   let heartbeatSeq = 0;
   let timers: ReturnType<typeof setInterval>[] = [];
 
+  // Swarm-membership watchdog. The agent is useless off-swarm — it can't run a
+  // single Docker Swarm command — so if the swarm is LEFT out from under a
+  // running agent (operator ran `docker swarm leave`, or the node was removed),
+  // fail loudly and exit. That drops the node offline / lets the container
+  // restart, instead of lingering as a phantom healthy member.
+  //
+  // We only exit AFTER seeing the swarm active at least once: a freshly-enrolling
+  // node legitimately starts off-swarm and waits for the controller's `swarmJoin`
+  // command, so an active→inactive transition (not "never joined") is the signal.
+  let swarmEverActive = false;
+  async function swarmWatchdog(): Promise<void> {
+    let swarm: Awaited<ReturnType<DockerClient['swarmState']>>;
+    try {
+      swarm = await docker.swarmState();
+    } catch {
+      swarm = 'inactive';
+    }
+    if (swarm === 'active') {
+      swarmEverActive = true;
+      return;
+    }
+    if (swarmEverActive) {
+      log(
+        `FATAL: this node left the swarm (docker swarm state: ${swarm}). The ` +
+          `swarmy agent cannot run off-swarm — exiting so the node drops offline ` +
+          `and the container restarts once it has rejoined a swarm.`,
+      );
+      for (const t of timers) clearInterval(t);
+      // Tell the controller BEFORE we go, so it can react intentionally (mark the
+      // node left-swarm, audit, fan out) rather than inferring it from the drop.
+      conn.send('swarmLeft', { at: Date.now(), swarmState: swarm, reason: 'watchdog: docker swarm left' });
+      // Give the frame a moment to flush over the socket, then exit.
+      setTimeout(() => {
+        conn.stop();
+        process.exit(1);
+      }, 250);
+    }
+  }
+
   const buildRegister = (): RegisterPayload => ({
     auth: state
       ? { kind: 'session', nodeId: state.nodeId, sessionSecret: state.sessionSecret }
@@ -92,9 +131,14 @@ async function main(): Promise<void> {
     for (const t of timers) clearInterval(t);
     timers = [];
 
+    void swarmWatchdog();
     void sendContainerList(docker, conn);
     void sendServiceState(docker, conn);
     void sendNodeList(docker, conn);
+
+    // Local swarm-membership check on its own cadence (independent of the
+    // controller connection): catches a `docker swarm leave` within ~5s.
+    timers.push(setInterval(() => void swarmWatchdog(), 5_000));
 
     timers.push(
       setInterval(() => {

@@ -18,6 +18,7 @@ export const INGRESS_DRIVER_LABELS: Record<IngressDriverId, string> = {
 export const NODE_STATUS_TONE: Record<string, 'online' | 'warning' | 'offline' | 'neutral'> = {
   online: 'online',
   draining: 'warning',
+  degraded: 'warning',
   pending: 'neutral',
   offline: 'offline',
 };

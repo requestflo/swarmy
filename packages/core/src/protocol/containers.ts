@@ -86,12 +86,46 @@ export const SwarmServiceInfo = z.object({
 });
 export type SwarmServiceInfo = z.infer<typeof SwarmServiceInfo>;
 
+/**
+ * Local swarm membership of the reporting node, straight from `docker info`'s
+ * `Swarm.LocalNodeState`. Only `active` means the node is a working swarm member
+ * that can run workloads; anything else (the operator ran `docker swarm leave`,
+ * the node is mid-join, or the swarm is locked) makes the node unusable even
+ * though its agent WebSocket is still connected. The controller must not treat a
+ * connected-but-inactive node as a healthy manager.
+ */
+export const SwarmState = z.enum(['active', 'pending', 'locked', 'error', 'inactive']);
+export type SwarmState = z.infer<typeof SwarmState>;
+
 export const ServiceStatePayload = z.object({
   snapshotAt: Timestamp,
   isManager: z.boolean(),
+  /** Live local swarm membership; absent from legacy agents ⇒ assume active. */
+  swarmState: SwarmState.optional(),
   services: z.array(SwarmServiceInfo),
 });
 export type ServiceStatePayload = z.infer<typeof ServiceStatePayload>;
+
+/**
+ * Graceful departure notice: the agent sends this the moment its swarm-membership
+ * watchdog sees the node has left the swarm, just before it exits. Lets the
+ * controller react intentionally (mark the node left-swarm, audit it, fan out to
+ * alerts/incidents/re-placement) instead of inferring it from a bare WS drop.
+ */
+export const SwarmLeftPayload = z.object({
+  at: Timestamp,
+  /** The observed non-active local swarm state (usually `inactive`). */
+  swarmState: SwarmState,
+  /** Short human reason, e.g. `watchdog: docker swarm left`. */
+  reason: z.string().optional(),
+});
+export type SwarmLeftPayload = z.infer<typeof SwarmLeftPayload>;
+
+export const SwarmLeftMsg = z.object({
+  type: z.literal('swarmLeft'),
+  payload: SwarmLeftPayload,
+});
+export type SwarmLeftMsg = z.infer<typeof SwarmLeftMsg>;
 
 export const ServiceStateMsg = z.object({
   type: z.literal('serviceState'),

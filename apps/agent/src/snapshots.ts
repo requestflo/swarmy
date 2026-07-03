@@ -12,9 +12,13 @@ export async function sendContainerList(docker: DockerClient, conn: AgentConnect
 
 export async function sendServiceState(docker: DockerClient, conn: AgentConnection): Promise<void> {
   try {
-    const isManager = await docker.isManager();
+    // swarmState is Docker-truth for "is this node a working swarm member"; the
+    // controller uses it to avoid showing a connected-but-swarm-left node as a
+    // healthy manager. isManager only holds when swarmState is active.
+    const swarmState = await docker.swarmState();
+    const isManager = swarmState === 'active' && (await docker.isManager());
     const services = isManager ? await docker.listServices() : [];
-    conn.send('serviceState', { snapshotAt: Date.now(), isManager, services });
+    conn.send('serviceState', { snapshotAt: Date.now(), isManager, swarmState, services });
   } catch {
     // worker / docker unavailable
   }
@@ -23,11 +27,17 @@ export async function sendServiceState(docker: DockerClient, conn: AgentConnecti
 /** Live swarm node inventory (manager-only) — Docker-truth for node role/status/labels. */
 export async function sendNodeList(docker: DockerClient, conn: AgentConnection): Promise<void> {
   try {
-    if (!(await docker.isManager())) return;
+    if (!(await docker.isManager())) {
+      // Not a manager (worker, or the swarm was left): send an EMPTY inventory
+      // so the controller drops any stale self-view of this node — otherwise a
+      // node that just left the swarm keeps showing its old `ready` manager row.
+      conn.send('nodeList', { snapshotAt: Date.now(), nodes: [] });
+      return;
+    }
     const nodes = await docker.listNodes();
     conn.send('nodeList', { snapshotAt: Date.now(), nodes });
   } catch {
-    // worker / docker unavailable
+    // docker unavailable
   }
 }
 

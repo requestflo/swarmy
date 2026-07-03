@@ -98,6 +98,44 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
       if (nodeId) {
         deps.store.serviceInfo.set(nodeId, env.payload.services);
         deps.store.managers.set(nodeId, env.payload.isManager);
+        // Legacy agents omit swarmState — assume active (their behaviour is unchanged).
+        deps.store.swarmStates.set(nodeId, env.payload.swarmState ?? 'active');
+      }
+      return;
+    }
+    case 'swarmLeft': {
+      // Graceful departure: the agent's watchdog saw the node leave the swarm and
+      // is exiting. Correct our view immediately (so the node stops showing as a
+      // healthy manager the instant it happens), audit it, and emit an event so
+      // future features (alerts, incidents, workload re-placement) can react.
+      const nodeId = ws.data.nodeId;
+      if (nodeId) {
+        deps.store.swarmStates.set(nodeId, env.payload.swarmState);
+        deps.store.managers.set(nodeId, false);
+        deps.store.swarmNodes.set(nodeId, []);
+        const orgId = deps.store.nodeOrg.get(nodeId);
+        if (orgId) {
+          deps.store.swarmLeftEvent.emit({
+            nodeId,
+            orgId,
+            swarmState: env.payload.swarmState,
+            at: env.payload.at,
+          });
+          void prisma.auditLog
+            .create({
+              data: {
+                orgId,
+                actorType: 'system',
+                action: 'node.swarm.left',
+                targetType: 'node',
+                targetId: nodeId,
+                metadata: { swarmState: env.payload.swarmState, reason: env.payload.reason ?? null },
+              },
+            })
+            .catch(() => {
+              /* audit is best-effort; never block the gateway on it */
+            });
+        }
       }
       return;
     }

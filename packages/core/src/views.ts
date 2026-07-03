@@ -5,7 +5,9 @@
  */
 
 export type NodeRole = 'manager' | 'worker';
-export type NodeStatusView = 'pending' | 'online' | 'offline' | 'draining';
+// `degraded`: the agent is connected but the node is not a working swarm member
+// (its Docker swarm was left / is inactive), so it cannot run workloads.
+export type NodeStatusView = 'pending' | 'online' | 'offline' | 'draining' | 'degraded';
 export type ServiceStatusView =
   | 'pending'
   | 'deploying'

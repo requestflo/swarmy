@@ -4,7 +4,7 @@ import { envelope } from './primitives';
 import { ProtocolError } from './errors';
 import { RegisterMsg, RegisterAckMsg } from './auth';
 import { HeartbeatMsg, MetricsMsg } from './stats';
-import { ContainerListMsg, ServiceStateMsg, NodeListMsg } from './containers';
+import { ContainerListMsg, ServiceStateMsg, NodeListMsg, SwarmLeftMsg } from './containers';
 import {
   DeployServiceMsg,
   EnsureNetworkMsg,
@@ -63,6 +63,7 @@ export const AgentToControllerMessage = z.discriminatedUnion('type', [
   ContainerListMsg,
   ServiceStateMsg,
   NodeListMsg,
+  SwarmLeftMsg,
   CommandResultMsg,
   LogChunkMsg,
   AckMsg,

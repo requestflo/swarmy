@@ -1,4 +1,4 @@
-import type { ContainerInfo, SwarmNodeInfo, SwarmServiceInfo } from '@swarmy/core/protocol';
+import type { ContainerInfo, SwarmNodeInfo, SwarmServiceInfo, SwarmState } from '@swarmy/core/protocol';
 import type {
   ContainerStatsSnapshot,
   LogLine,
@@ -68,6 +68,9 @@ export class GatewayStore {
   readonly serviceInfo = new Map<string, SwarmServiceInfo[]>();
   /** Which connected nodes are swarm managers (from the agent's serviceState). */
   readonly managers = new Map<string, boolean>();
+  /** Live local swarm membership per controllerNodeId (from serviceState). Only
+   *  `active` = a working swarm member; anything else = degraded even if online. */
+  readonly swarmStates = new Map<string, SwarmState>();
   /** Live swarm node inventory per (manager) controllerNodeId — Docker-truth for nodes. */
   readonly swarmNodes = new Map<string, SwarmNodeInfo[]>();
   /** controllerNodeId → reported hostname (bridge to docker node inventory + swarmNodeId). */
@@ -84,6 +87,8 @@ export class GatewayStore {
 
   readonly nodeStatsEvent = new Emitter<{ nodeId: string; snap: NodeStatsSnapshot }>();
   readonly logEvent = new Emitter<{ commandId: string; line: LogLine }>();
+  /** A node reported it left the swarm. Future hook: alerts, incidents, re-placement. */
+  readonly swarmLeftEvent = new Emitter<{ nodeId: string; orgId: string; swarmState: SwarmState; at: number }>();
 
   setNodeStats(nodeId: string, snap: NodeStatsSnapshot): void {
     this.nodeStats.set(nodeId, snap);
@@ -208,8 +213,14 @@ export class GatewayStore {
     this.containerStats.delete(nodeId);
     this.serviceInfo.delete(nodeId);
     this.managers.delete(nodeId);
+    this.swarmStates.delete(nodeId);
     // Clear live swarm-node telemetry on disconnect, but keep nodeOrg + nodeHostname
     // so an offline-but-enrolled node still resolves its org/hostname.
     this.swarmNodes.delete(nodeId);
+  }
+
+  /** Live local swarm membership of a node; `undefined` for legacy agents. */
+  swarmStateFor(nodeId: string): SwarmState | undefined {
+    return this.swarmStates.get(nodeId);
   }
 }

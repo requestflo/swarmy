@@ -7,6 +7,7 @@ import type {
   ServiceSpec,
   SwarmServiceInfo,
   SwarmNodeInfo,
+  SwarmState,
 } from './protocol';
 
 /** The subset of a Docker swarm ServiceSpec the agent reads (dockerode types are loose). */
@@ -104,6 +105,21 @@ export class DockerClient {
   async isManager(): Promise<boolean> {
     const info = await this.info();
     return info.Swarm?.ControlAvailable === true;
+  }
+
+  /**
+   * Local swarm membership (`docker info` → `Swarm.LocalNodeState`). `active`
+   * means a working swarm member; anything else means the node cannot run
+   * workloads even if its agent is up. Unknown/missing states map to `inactive`.
+   */
+  async swarmState(): Promise<SwarmState> {
+    try {
+      const state = (await this.info()).Swarm?.LocalNodeState ?? 'inactive';
+      const known: SwarmState[] = ['active', 'pending', 'locked', 'error', 'inactive'];
+      return known.includes(state as SwarmState) ? (state as SwarmState) : 'inactive';
+    } catch {
+      return 'inactive';
+    }
   }
 
   // ── Swarm membership (node-onboarding epic) ────────────────────────────

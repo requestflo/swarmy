@@ -1,4 +1,4 @@
-import type { SwarmNodeInfo } from '@swarmy/core/protocol';
+import type { SwarmNodeInfo, SwarmState } from '@swarmy/core/protocol';
 import type { NodeDetail, NodeStatusView, NodeSummary } from '@swarmy/core/views';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
@@ -50,9 +50,19 @@ function rolesFromLabels(labels: Record<string, string> | undefined): {
   };
 }
 
-/** Dashboard status from live swarm availability + connection state. */
-function statusOf(info: SwarmNodeInfo | undefined, online: boolean, everSeen: boolean): NodeStatusView {
+/** Dashboard status from live swarm availability + connection state. Exported for tests. */
+export function statusOf(
+  info: SwarmNodeInfo | undefined,
+  online: boolean,
+  everSeen: boolean,
+  swarmState: SwarmState | undefined,
+): NodeStatusView {
   if (info?.availability === 'drain') return 'draining';
+  // Agent connected but the node isn't a working swarm member (e.g. `docker
+  // swarm leave` was run): it can't run workloads, so it's degraded — never
+  // "online". `undefined` = a legacy agent that predates swarmState → trust the
+  // connection. `pending` (mid-join) is a transient degraded state too.
+  if (online && swarmState !== undefined && swarmState !== 'active') return 'degraded';
   if (online) return 'online';
   // Never connected (no heartbeat, no swarm info) = still pending enrollment.
   if (!everSeen && !info) return 'pending';
@@ -80,7 +90,7 @@ function toSummary(ctx: OrgContext, n: NodeRow): NodeSummary {
     ingress: roles.ingress,
     outlet: roles.outlet,
     region: roles.region,
-    status: statusOf(info, online, lastSeen != null),
+    status: statusOf(info, online, lastSeen != null, ctx.hub.swarmStateFor(n.id)),
     engineVersion: info?.engineVersion ?? null,
     os: info?.os ?? null,
     arch: info?.arch ?? null,

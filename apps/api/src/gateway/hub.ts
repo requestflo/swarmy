@@ -3,6 +3,7 @@ import {
   type ContainerInfo,
   type SwarmServiceInfo,
   type SwarmNodeInfo,
+  type SwarmState,
   type TermTarget,
 } from '@swarmy/core/protocol';
 import { terminalHub } from '../terminal';
@@ -170,6 +171,11 @@ export class AgentHubImpl implements AgentHub {
   /** Full live swarm info (role/status/labels/resources) for an enrollment node id. */
   nodeInfoFor(controllerNodeId: string): SwarmNodeInfo | undefined {
     return this.store.nodeInfoFor(controllerNodeId);
+  }
+
+  /** Live local swarm membership of a node — `active` means a working member. */
+  swarmStateFor(controllerNodeId: string): SwarmState | undefined {
+    return this.store.swarmStateFor(controllerNodeId);
   }
 
   /** Controller node ids carrying a role label (swarmy.node.ingress/outlet = "true"). */
