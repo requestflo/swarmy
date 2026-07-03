@@ -21,6 +21,7 @@ import { writeAudit } from '../services/audit.service';
 import { notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { resolveLiveService } from './live-resolve';
+import { listOutlets as listAiOutlets } from './ai.service';
 import {
   INGRESS_ROUTES_LABEL,
   listRoutesForOrg,
@@ -284,7 +285,7 @@ async function ensureConfig(ctx: OrgContext): Promise<ConfigRow> {
  */
 async function computeControllerVhosts(ctx: OrgContext): Promise<ControllerVhost[]> {
   const upstream = activatorUpstream();
-  const [pages, endpoints] = await Promise.all([
+  const [pages, endpoints, outlets] = await Promise.all([
     ctx.db.statusPage.findMany({
       where: { orgId: ctx.activeOrgId, enabled: true, domain: { not: null } },
       select: { slug: true, domain: true },
@@ -293,6 +294,7 @@ async function computeControllerVhosts(ctx: OrgContext): Promise<ControllerVhost
       where: { orgId: ctx.activeOrgId, domain: { not: null } },
       select: { slug: true, domain: true },
     }),
+    listAiOutlets(ctx),
   ]);
   const out: ControllerVhost[] = [];
   for (const p of pages) {
@@ -312,6 +314,17 @@ async function computeControllerVhosts(ctx: OrgContext): Promise<ControllerVhost
       upstream,
       targetPath: `/hooks/i/${ctx.activeOrgId}/${e.slug}`,
       kind: 'webhook',
+      tls: 'auto',
+    });
+  }
+  // Per-stack AI-gateway outlets: the whole domain proxies the gateway mount.
+  for (const o of outlets) {
+    if (!o.domain) continue;
+    out.push({
+      domain: o.domain,
+      upstream,
+      targetPath: '/ai',
+      kind: 'ai-gateway',
       tls: 'auto',
     });
   }

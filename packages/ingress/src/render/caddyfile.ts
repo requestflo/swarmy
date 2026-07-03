@@ -68,12 +68,24 @@ export function buildCaddyfile(config: IngressConfig): string {
 }
 
 /**
- * A controller-upstream vhost: the domain's whole path space is rewritten under
+ * A controller-upstream vhost: the domain's path space is rewritten under
  * `targetPath` (`/` → `/s/my-page/`, `/foo` → `/s/my-page/foo`) and proxied to
  * the controller — the same dial target the scale-to-zero activator uses.
+ * Status pages are SPA-rendered, so their asset requests (`/assets/*`) must
+ * reach the controller unrewritten or the page shell loads but its bundle 404s.
  */
 function buildControllerVhost(v: ControllerVhost): string[] {
   const address = v.tls === 'off' ? `http://${v.domain}` : v.domain;
+  if (v.kind === 'status-page') {
+    return [
+      `${address} {`,
+      `  # swarmy ${v.kind} vhost`,
+      '  @spa not path /assets/*',
+      `  rewrite @spa ${v.targetPath}{uri}`,
+      `  reverse_proxy ${v.upstream}`,
+      '}',
+    ];
+  }
   return [
     `${address} {`,
     `  # swarmy ${v.kind} vhost`,

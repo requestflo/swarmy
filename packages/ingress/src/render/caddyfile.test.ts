@@ -425,7 +425,36 @@ describe('caddy controller vhosts — status pages / webhooks / AI gateway domai
       [
         'status.xyz.com {',
         '  # swarmy status-page vhost',
-        '  rewrite * /s/my-page{uri}',
+        '  @spa not path /assets/*',
+        '  rewrite @spa /s/my-page{uri}',
+        '  reverse_proxy host.docker.internal:3001',
+        '}',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('GOLDEN: an ai-gateway vhost rewrites the whole path space onto /ai', () => {
+    const out = buildCaddyfile(
+      IngressConfigSchema.parse({
+        driver: 'caddy',
+        orgId: 'org_1',
+        domains: [],
+        controllerVhosts: [
+          {
+            domain: 'ai.xyz.com',
+            upstream: 'host.docker.internal:3001',
+            targetPath: '/ai',
+            kind: 'ai-gateway',
+          },
+        ],
+      }),
+    );
+    expect(out).toBe(
+      [
+        'ai.xyz.com {',
+        '  # swarmy ai-gateway vhost',
+        '  rewrite * /ai{uri}',
         '  reverse_proxy host.docker.internal:3001',
         '}',
         '',
