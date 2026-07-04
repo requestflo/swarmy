@@ -5,6 +5,8 @@ import type { ControllerEnvelope, RenderedConfig, ServiceSpec } from '@swarmy/co
 import type { AgentConnection } from './connection';
 import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots, backupDb, restoreDb } from './handlers/backup';
+import { applyDns } from './handlers/dns';
+import { localReload } from './handlers/ingress-local';
 import { applyMesh, grantDirectRoute } from './handlers/mesh';
 import { applyIngressConnector } from './handlers/ingress-connector';
 import { buildImage } from './handlers/build';
@@ -103,6 +105,10 @@ export async function handleCommand(
     case 'applyIngress': {
       const { commandId, rendered } = envlp.payload;
       return run(conn, commandId, () => applyIngress(docker, rendered));
+    }
+    case 'applyDns': {
+      const { commandId } = envlp.payload;
+      return run(conn, commandId, () => applyDns(envlp.payload));
     }
     case 'applyMesh': {
       const { commandId, rendered } = envlp.payload;
@@ -326,6 +332,10 @@ async function applyIngress(
     } catch {
       // best-effort label sync
     }
+  }
+  // Edge-per-node: reload THIS node's task of the edge service (geo-edge).
+  if (rendered.localReload) {
+    await localReload(docker, rendered.localReload.service, rendered.localReload.command);
   }
   if (rendered.reloadCommand?.length) await execShell(rendered.reloadCommand);
   if (rendered.adminApi) {

@@ -26,6 +26,7 @@ COPY packages/api-rest/package.json packages/api-rest/
 COPY packages/auth/package.json packages/auth/
 COPY packages/core/package.json packages/core/
 COPY packages/db/package.json packages/db/
+COPY packages/dns/package.json packages/dns/
 COPY packages/ingress/package.json packages/ingress/
 COPY packages/mesh/package.json packages/mesh/
 COPY packages/trpc/package.json packages/trpc/

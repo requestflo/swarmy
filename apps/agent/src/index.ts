@@ -8,6 +8,8 @@ import { AgentConnection } from './connection';
 import { collectMetrics } from './stats';
 import { sendContainerList, sendServiceState, sendNodeList } from './snapshots';
 import { sampleMeshState } from './handlers/mesh';
+import { detectPublicIp } from './public-ip';
+import { sampleIngressStatus } from './handlers/ingress-status';
 import { handleCommand } from './executor';
 
 /** Push a `meshState` telemetry frame if a mesh client is running on this node. */
@@ -58,6 +60,11 @@ async function main(): Promise<void> {
       protocolVersions: [PROTOCOL_VERSION],
     };
   }
+
+  // Public IP for the geo-edge DNS layer: detected outbound, sent with register
+  // + every heartbeat (detector caches hourly). Never blocks startup.
+  facts.publicIp = await detectPublicIp();
+  if (facts.publicIp) log(`public ip detected: ${facts.publicIp}`);
 
   const startedAt = Date.now();
   let heartbeatSeq = 0;
@@ -142,10 +149,13 @@ async function main(): Promise<void> {
 
     timers.push(
       setInterval(() => {
-        conn.send('heartbeat', {
-          seq: heartbeatSeq++,
-          uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
-          inflightCommands: 0,
+        void detectPublicIp().then((publicIp) => {
+          conn.send('heartbeat', {
+            seq: heartbeatSeq++,
+            uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
+            inflightCommands: 0,
+            publicIp,
+          });
         });
       }, heartbeatMs),
     );
@@ -165,6 +175,17 @@ async function main(): Promise<void> {
     // the controller's MeshPeer reconcile. No-op when no mesh client is running.
     void reportMeshState(conn);
     timers.push(setInterval(() => void reportMeshState(conn), 20_000));
+
+    // Geo-edge health: is this node's Caddy/swarmy-dns task alive? (local docker ps)
+    const reportIngressStatus = async () => {
+      try {
+        conn.send('ingressNodeStatus', await sampleIngressStatus(docker));
+      } catch {
+        // best-effort telemetry
+      }
+    };
+    void reportIngressStatus();
+    timers.push(setInterval(() => void reportIngressStatus(), 30_000));
   }
 
   conn.start();
