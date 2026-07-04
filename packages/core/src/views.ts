@@ -37,6 +37,8 @@ export interface NodeSummary {
   outlet?: boolean;
   /** Region label (`swarmy.region`), or null if unset. */
   region?: string | null;
+  /** Effective public IP (`swarmy.node.public-ip`; override label wins). */
+  publicIp?: string | null;
   status: NodeStatusView;
   engineVersion: string | null;
   os: string | null;

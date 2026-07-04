@@ -46,6 +46,8 @@ export const HeartbeatPayload = z.object({
   seq: z.number().int().nonnegative(),
   uptimeSec: z.number().int().nonnegative(),
   inflightCommands: z.number().int().nonnegative(),
+  /** Re-detected public IP (hourly) so label drift heals without re-register. */
+  publicIp: z.string().optional(),
 });
 export type HeartbeatPayload = z.infer<typeof HeartbeatPayload>;
 

@@ -15,6 +15,12 @@ export const NodeFacts = z.object({
   agentVersion: z.string(),
   /** Protocol versions this agent can speak (for negotiation). */
   protocolVersions: z.array(z.number().int()).nonempty(),
+  /**
+   * Self-detected public IPv4 (geo-edge: DNS answers are node public IPs).
+   * The controller cross-checks against the connection source and stamps the
+   * `swarmy.node.public-ip` node label; the override label wins.
+   */
+  publicIp: z.string().optional(),
 });
 export type NodeFacts = z.infer<typeof NodeFacts>;
 

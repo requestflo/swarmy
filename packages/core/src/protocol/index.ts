@@ -18,6 +18,7 @@ export * from './backup';
 export * from './dbBackup';
 export * from './swarmres';
 export * from './mesh';
+export * from './dns';
 export * from './terminal';
 export * from './build';
 export * from './prune';

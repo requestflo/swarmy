@@ -22,6 +22,7 @@ export type CommandName =
   | 'image.pull'
   | 'applyIngress'
   | 'applyMesh'
+  | 'dns.apply' // geo-edge: push a DnsSnapshotBundle to the node-local swarmy-dns
   | 'image.build'
   | 'node.update' // cordon / drain / labels
   | 'logs.subscribe'
@@ -59,6 +60,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'image.pull': 'pullImage',
   applyIngress: 'applyIngress',
   applyMesh: 'applyMesh',
+  'dns.apply': 'applyDns',
   'image.build': 'buildImage',
   'node.update': 'updateSwarmNode',
   'logs.subscribe': 'streamLogs',
@@ -139,6 +141,11 @@ export interface AgentHub {
   swarmNodeIdFor(controllerNodeId: string): string | undefined;
   /** Full live swarm info (role/status/labels/resources) for an enrollment node id. */
   nodeInfoFor(controllerNodeId: string): SwarmNodeInfo | undefined;
+
+  /** Latest edge health telemetry for a node (geo-edge), if it has reported. */
+  ingressStatusFor(
+    controllerNodeId: string,
+  ): { caddyRunning: boolean; dnsRunning: boolean; sampledAt: number } | undefined;
   /** Live local swarm membership of a node (`active` = a working swarm member). */
   swarmStateFor(controllerNodeId: string): SwarmState | undefined;
   /** Controller node ids carrying a role label (swarmy.node.ingress/outlet = "true"). */

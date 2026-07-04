@@ -20,8 +20,9 @@ import {
   UpdateAgentMsg,
   PingMsg,
 } from './commands';
-import { ApplyIngressMsg } from './ingress';
+import { ApplyIngressMsg, IngressNodeStatusMsg } from './ingress';
 import { ApplyMeshMsg, MeshStateMsg, GrantDirectRouteMsg } from './mesh';
+import { ApplyDnsMsg } from './dns';
 import { BuildImageMsg } from './build';
 import { PruneImagesMsg } from './prune';
 import { ApplyStorageNodeMsg, ProvisionVolumeMsg, RemoveVolumeMsg } from './storage';
@@ -72,6 +73,7 @@ export const AgentToControllerMessage = z.discriminatedUnion('type', [
   TermDataMsg,
   TermExitMsg,
   MeshStateMsg,
+  IngressNodeStatusMsg,
 ]);
 export type AgentToControllerMessage = z.infer<typeof AgentToControllerMessage>;
 export type AgentMessageType = AgentToControllerMessage['type'];
@@ -92,6 +94,7 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   ApplyIngressMsg,
   ApplyMeshMsg,
   GrantDirectRouteMsg,
+  ApplyDnsMsg,
   BuildImageMsg,
   PruneImagesMsg,
   ApplyStorageNodeMsg,

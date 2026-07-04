@@ -51,6 +51,19 @@ export const RenderedConfig = z.object({
     .optional(),
   serviceLabels: z.array(ServiceLabels).default([]),
   /**
+   * Edge-per-node reload (geo-edge): after writing `files` to the HOST path,
+   * the agent finds THIS NODE's task of `service` via its Docker socket
+   * (label com.docker.swarm.service.name) and execs `command` inside it —
+   * per-node config without ever publishing the admin API. Used by the Caddy
+   * driver when `applyVia: 'local'` (edge-per-node topology).
+   */
+  localReload: z
+    .object({
+      service: z.string(),
+      command: z.array(z.string()),
+    })
+    .optional(),
+  /**
    * Tunnel/connector deployment (cloudflared, tailscale, ngrok). When present the
    * agent deploys/updates this Swarm service (via `deployOrUpdate`) instead of —
    * or in addition to — writing vhost files. Absent for Caddy/Traefik/nginx/
@@ -115,3 +128,25 @@ export const ApplyIngressMsg = z.object({
   payload: ApplyIngressPayload,
 });
 export type ApplyIngressMsg = z.infer<typeof ApplyIngressMsg>;
+
+
+/**
+ * Per-node edge health telemetry (geo-edge): sampled by the agent from its
+ * LOCAL Docker state on a timer and pushed like `meshState`. The controller
+ * folds this into DNS answer healthiness — a node whose Caddy task is gone
+ * must leave the answer set even while the agent itself is online.
+ */
+export const IngressNodeStatusPayload = z.object({
+  /** A running local task of the edge Caddy service exists on this node. */
+  caddyRunning: z.boolean(),
+  /** A running local task of swarmy-dns exists on this node. */
+  dnsRunning: z.boolean(),
+  sampledAt: z.number().int(),
+});
+export type IngressNodeStatusPayload = z.infer<typeof IngressNodeStatusPayload>;
+
+export const IngressNodeStatusMsg = z.object({
+  type: z.literal('ingressNodeStatus'),
+  payload: IngressNodeStatusPayload,
+});
+export type IngressNodeStatusMsg = z.infer<typeof IngressNodeStatusMsg>;
