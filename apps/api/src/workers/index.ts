@@ -5,7 +5,7 @@ import { startControllerBackupScheduler } from './controller-backup-scheduler';
 import { startBackupScheduler } from './backup-scheduler';
 import { startDrReconcile } from './dr-reconcile';
 import { startObservabilityReconcile } from './observability-reconcile';
-import { startGeoDnsReconcile } from './geodns-reconcile';
+import { startDnsReconcile } from './dns-reconcile';
 import { startWebhookDispatch } from './webhook-dispatch';
 import { startScaleToZero } from './scale-to-zero';
 import { startRegionReconcile } from './region-reconcile';
@@ -33,7 +33,7 @@ export function startWorkers(): () => void {
     startBackupScheduler(),
     startDrReconcile(),
     startObservabilityReconcile(),
-    startGeoDnsReconcile(),
+    startDnsReconcile(),
     startWebhookDispatch(),
     startScaleToZero(),
     startRegionReconcile(),

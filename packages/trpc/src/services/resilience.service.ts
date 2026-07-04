@@ -48,7 +48,8 @@ import {
   parseLastRunLabel,
   restoreDb,
 } from './dbBackup.service';
-import { getConfig as getGeoDnsConfig, listRecords as listGeoDnsRecords } from './geodns.service';
+import { getConfig as getGeoDnsConfig } from './geodns.service';
+import { collectGeoEndpoints } from './dns-snapshot.service';
 import { getConfig as getIngressConfig } from './ingress.service';
 import {
   DB_CLUSTER_LABEL,
@@ -491,7 +492,7 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
       getIngressConfig(ctx).catch(() => null),
       getStorageConfig(ctx).catch(() => null),
       getGeoDnsConfig(ctx).catch(() => null),
-      listGeoDnsRecords(ctx).catch(() => []),
+      Promise.resolve().then(() => collectGeoEndpoints(ctx)).catch(() => []),
       getControllerBackupConfig(ctx.db).catch(() => null),
       ctx.db.backupTarget.count({ where: { orgId: ctx.activeOrgId, enabled: true } }).catch(() => 0),
       latestBackupAt(ctx, inv, stack),

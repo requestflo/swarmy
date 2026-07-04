@@ -1,6 +1,7 @@
 import type { SwarmNodeInfo, SwarmState } from '@swarmy/core/protocol';
 import type { NodeDetail, NodeStatusView, NodeSummary } from '@swarmy/core/views';
 import type { OrgContext } from '../context';
+import type { AgentHub } from '../hub/types';
 import { notFound } from '../errors';
 import { requireOnlineNode } from './dispatch.service';
 
@@ -28,6 +29,21 @@ type NodeRow = {
 export const NODE_INGRESS_LABEL = 'swarmy.node.ingress';
 export const NODE_OUTLET_LABEL = 'swarmy.node.outlet';
 export const NODE_REGION_LABEL = 'swarmy.region';
+
+/**
+ * Public IP for the geo-edge DNS layer (Docker-truth, like roles/region).
+ * `swarmy.node.public-ip` is stamped by the controller from the agent's
+ * self-report (cross-checked against the websocket source address);
+ * `swarmy.node.public-ip.override` is operator-set and ALWAYS wins — the
+ * escape hatch for NAT/proxy topologies where detection is wrong.
+ */
+export const NODE_PUBLIC_IP_LABEL = 'swarmy.node.public-ip';
+export const NODE_PUBLIC_IP_OVERRIDE_LABEL = 'swarmy.node.public-ip.override';
+
+/** Effective public IP from live labels (override beats agent-reported). */
+export function publicIpFromLabels(labels: Record<string, string> | undefined): string | null {
+  return labels?.[NODE_PUBLIC_IP_OVERRIDE_LABEL] || labels?.[NODE_PUBLIC_IP_LABEL] || null;
+}
 
 /**
  * A node's position on the Infrastructure canvas is Docker-truth too — persisted
@@ -90,6 +106,7 @@ function toSummary(ctx: OrgContext, n: NodeRow): NodeSummary {
     ingress: roles.ingress,
     outlet: roles.outlet,
     region: roles.region,
+    publicIp: publicIpFromLabels(info?.labels),
     status: statusOf(info, online, lastSeen != null, ctx.hub.swarmStateFor(n.id)),
     engineVersion: info?.engineVersion ?? null,
     os: info?.os ?? null,
@@ -181,6 +198,63 @@ export async function setNodeRole(
   const merged = { ...(ctx.hub.nodeInfoFor(id)?.labels ?? {}), ...patch };
   const result = rolesFromLabels(merged);
   return { id, ingress: result.ingress, outlet: result.outlet };
+}
+
+/**
+ * Operator override for a node's public IP (`swarmy.node.public-ip.override`,
+ * beats the agent-reported label everywhere). `null` clears the override
+ * (written as '' — swarm label merge cannot delete keys).
+ */
+export async function setPublicIpOverride(
+  ctx: OrgContext,
+  id: string,
+  ip: string | null,
+): Promise<{ id: string; publicIp: string | null }> {
+  const node = await ctx.db.node.findFirst({
+    where: { id, orgId: ctx.activeOrgId },
+    select: { id: true },
+  });
+  if (!node) throw notFound('node', id);
+
+  const patch = { [NODE_PUBLIC_IP_OVERRIDE_LABEL]: ip ?? '' };
+  const swarmNodeId = ctx.hub.swarmNodeIdFor(id);
+  if (ctx.hub.isOnline(id) && swarmNodeId) {
+    await ctx.hub.dispatch(id, 'node.update', { swarmNodeId, labels: patch }).catch(() => undefined);
+  }
+  const merged = { ...(ctx.hub.nodeInfoFor(id)?.labels ?? {}), ...patch };
+  return { id, publicIp: publicIpFromLabels(merged) };
+}
+
+/**
+ * Stamp the agent-reported public IP onto the node's Docker labels
+ * (`swarmy.node.public-ip`). Called by the gateway on register/heartbeat with
+ * the websocket source address for cross-checking — on disagreement we prefer
+ * the self-report (NAT hairpins make the socket address wrong more often than
+ * an outbound check) but log it. No-ops when unchanged, so heartbeat-frequency
+ * calls cost one label lookup.
+ */
+export async function stampReportedPublicIp(
+  hub: AgentHub,
+  nodeId: string,
+  reportedIp: string | undefined,
+  socketAddr?: string,
+): Promise<void> {
+  if (!reportedIp) return;
+  const labels = hub.nodeInfoFor(nodeId)?.labels;
+  if (labels?.[NODE_PUBLIC_IP_LABEL] === reportedIp) return;
+  if (socketAddr && socketAddr !== reportedIp) {
+    console.warn(
+      `[geo-edge] node ${nodeId}: self-reported public ip ${reportedIp} != socket source ${socketAddr} (using self-report; set the override label if wrong)`,
+    );
+  }
+  const swarmNodeId = hub.swarmNodeIdFor(nodeId);
+  if (!swarmNodeId || !hub.isOnline(nodeId)) return;
+  await hub
+    .dispatch(nodeId, 'node.update', {
+      swarmNodeId,
+      labels: { [NODE_PUBLIC_IP_LABEL]: reportedIp },
+    })
+    .catch(() => undefined);
 }
 
 /**

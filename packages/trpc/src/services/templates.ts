@@ -2,7 +2,6 @@ import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { deployFromCompose } from './stack.service';
-import { upsertRecord } from './geodns.service';
 import { writeAudit } from './audit.service';
 
 /**
@@ -352,19 +351,10 @@ export async function deployTemplate(
     composeSource: rendered.composeSource,
   });
 
-  // Compose with Part A: seed one Geo-DNS record per region for the endpoint.
-  let geoRecords = 0;
-  if (input.geo?.host) {
-    const targets = input.geo.targets ?? {};
-    for (const region of input.params.regions) {
-      const target = targets[region];
-      if (!target) continue;
-      await upsertRecord(ctx, { host: input.geo.host, region, targetIngress: target }).catch(
-        () => undefined,
-      );
-      geoRecords++;
-    }
-  }
+  // Geo-DNS records are DERIVED now (attach a domain via ingress and the
+  // nameserver answers automatically — docs/product/edge-network.md), so the
+  // old per-region record seeding is gone. `geoRecords` stays for API shape.
+  const geoRecords = 0;
 
   await writeAudit(ctx, {
     action: 'templates.deploy',

@@ -79,6 +79,11 @@ export class GatewayStore {
   readonly nodeCpuCount = new Map<string, number>();
   /** Last heartbeat/snapshot time per node (replaces DB Node.lastSeenAt). */
   readonly lastSeen = new Map<string, number>();
+  /** Latest per-node edge health telemetry (geo-edge: caddy/dns task liveness). */
+  readonly ingressNodeStatus = new Map<
+    string,
+    { caddyRunning: boolean; dnsRunning: boolean; sampledAt: number }
+  >();
   /** Last-known swarm-node + service snapshots retained AFTER a node disconnects —
    *  so ABAC (offline node labels) and dr-reconcile (dead-node placement/volumes)
    *  still have data once the node leaves the hub. */

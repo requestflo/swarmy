@@ -173,6 +173,13 @@ export class AgentHubImpl implements AgentHub {
     return this.store.nodeInfoFor(controllerNodeId);
   }
 
+  /** Latest edge health telemetry for a node (geo-edge), if it has reported. */
+  ingressStatusFor(
+    controllerNodeId: string,
+  ): { caddyRunning: boolean; dnsRunning: boolean; sampledAt: number } | undefined {
+    return this.store.ingressNodeStatus.get(controllerNodeId);
+  }
+
   /** Live local swarm membership of a node — `active` means a working member. */
   swarmStateFor(controllerNodeId: string): SwarmState | undefined {
     return this.store.swarmStateFor(controllerNodeId);

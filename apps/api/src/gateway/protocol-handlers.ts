@@ -10,7 +10,7 @@ import {
 import { SESSION_TOKEN_PREFIX } from '@swarmy/core';
 import type { LogLine } from '@swarmy/core/views';
 import { prisma } from '@swarmy/db';
-import { orchestrateSwarmMembership } from '@swarmy/trpc';
+import { orchestrateSwarmMembership, stampReportedPublicIp } from '@swarmy/trpc';
 import type { AgentHubImpl } from './hub';
 import type { GatewayStore } from './store';
 import type { AgentSocket, ConnectionRegistry } from './registry';
@@ -52,7 +52,11 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
     case 'heartbeat': {
       const nodeId = ws.data.nodeId;
       // lastSeen is hub-truth now (Node.lastSeenAt column removed in the rip-out).
-      if (nodeId) deps.store.lastSeen.set(nodeId, Date.now());
+      if (nodeId) {
+        deps.store.lastSeen.set(nodeId, Date.now());
+        // Geo-edge: keep the public-ip label current (no-op when unchanged).
+        void stampReportedPublicIp(deps.hub, nodeId, env.payload.publicIp, ws.remoteAddress);
+      }
       return;
     }
     case 'metrics': {
@@ -166,6 +170,11 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
     case 'termExit':
       terminalHub.onAgentTermFrame(env.type, env.payload);
       return;
+    case 'ingressNodeStatus': {
+      const nodeId = ws.data.nodeId;
+      if (nodeId) deps.store.ingressNodeStatus.set(nodeId, env.payload);
+      return;
+    }
     case 'meshState': {
       const nodeId = ws.data.nodeId;
       if (!nodeId) return;
@@ -258,6 +267,10 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
       },
     }),
   );
+
+  // Geo-edge: stamp the self-detected public IP once the node's swarm identity
+  // is known (label dispatch no-ops until then; heartbeats re-try it anyway).
+  void stampReportedPublicIp(deps.hub, nodeId, facts.publicIp, ws.remoteAddress);
 
   // node-onboarding P2: init or join the org's Docker Swarm (best-effort, async).
   // Surface failures (e.g. a missing SWARMY_SECRET_KEY blocking the token vault)

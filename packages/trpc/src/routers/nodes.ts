@@ -11,6 +11,7 @@ import {
   setNodeLabels,
   setNodeRegion,
   setNodeRole,
+  setPublicIpOverride,
 } from '../services/node.service';
 import {
   generateJoinToken,
@@ -49,6 +50,14 @@ export const nodesRouter = router({
   setRegion: adminProcedure
     .input(z.object({ id: z.string(), region: z.string().min(1) }))
     .mutation(({ ctx, input }) => setNodeRegion(ctx, input.id, input.region)),
+
+  /**
+   * Manually override a node's public IP (`swarmy.node.public-ip.override`
+   * label — beats the agent-detected value in DNS answers). Null clears.
+   */
+  setPublicIpOverride: adminProcedure
+    .input(z.object({ id: z.string(), ip: z.string().ip({ version: 'v4' }).nullable() }))
+    .mutation(({ ctx, input }) => setPublicIpOverride(ctx, input.id, input.ip)),
 
   /** Set (or clear) a node's monthly price — the `swarmy.node.cost` label (mirrors cost.setNodeCost). */
   setCost: adminProcedure

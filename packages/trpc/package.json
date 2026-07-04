@@ -19,6 +19,7 @@
     "@swarmy/abac": "workspace:*",
     "@swarmy/auth": "workspace:*",
     "@swarmy/core": "workspace:*",
+    "@swarmy/dns": "workspace:*",
     "@swarmy/db": "workspace:*",
     "@swarmy/ingress": "workspace:*",
     "@swarmy/mesh": "workspace:*",

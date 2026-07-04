@@ -68,27 +68,31 @@ export type {
 
 // ── public-api-terraform P2 (Wave G1): REST CRUD service fns ──
 export { listApiKeys, createApiKey, revokeApiKey } from './services/apiKeys.service';
-export { setNodeAvailability, setNodeLabels, removeNode } from './services/node.service';
+export { setNodeAvailability, setNodeLabels, removeNode, stampReportedPublicIp } from './services/node.service';
+// ── geo-dns ("swarmy is the nameserver"): worker + REST seams ──
+export {
+  listDnsView,
+  checkDomain,
+  reconcileDnsOrg,
+  resolveProviderToken,
+  syncProviderZones,
+} from './services/geodns.service';
+export type { DnsViewRow, DomainCheck, DnsReconcileDeps } from './services/geodns.service';
+export {
+  listZones as listDnsZones,
+  createZone as createDnsZone,
+  updateZone as updateDnsZone,
+  removeZone as removeDnsZone,
+  checkDelegation as checkDnsDelegation,
+} from './services/dns-zones.service';
+export type { DnsZoneView, DelegationCheck } from './services/dns-zones.service';
 export {
   listRecords as listDnsRecords,
   upsertRecord as upsertDnsRecord,
   removeRecord as removeDnsRecord,
-} from './services/geodns.service';
-// ── geodns P3: DNS view + provider sync seam (reused by the reconcile worker) ──
-export {
-  listDnsView,
-  checkDomain,
-  reconcileGeoDns,
-  buildZoneSnapshot,
-  resolveProviderToken,
-} from './services/geodns.service';
-export type { DnsViewRow, DomainCheck } from './services/geodns.service';
-export {
-  resolveGeoLite,
-  geoipEnabled,
-  parseGeoDnsSettings,
-} from './services/geodns-geolite';
-export type { GeoDnsSettings, GeoLitePlan } from './services/geodns-geolite';
+} from './services/dns-records.service';
+export type { DnsRecordView } from './services/dns-records.service';
+export { regionUpstreamsFor, siblingSetSignature } from './services/ingress-regions';
 export {
   syncProviderZone,
   getDnsProvider,
