@@ -102,6 +102,7 @@ model Organization {
   registryConfig      RegistryConfig?
   imageGcPolicy       ImageGcPolicy?
   geoDnsConfig        GeoDnsConfig?
+  dnsZones            DnsZone[]
   dnsRecords          DnsRecord[]
   apiKeys             ApiKey[]
   storageCluster      StorageCluster?

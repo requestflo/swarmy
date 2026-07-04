@@ -20,27 +20,14 @@ export type GeoDnsConfigModel = runtime.Types.Result.DefaultSelection<Prisma.$Ge
 
 export type AggregateGeoDnsConfig = {
   _count: GeoDnsConfigCountAggregateOutputType | null
-  _avg: GeoDnsConfigAvgAggregateOutputType | null
-  _sum: GeoDnsConfigSumAggregateOutputType | null
   _min: GeoDnsConfigMinAggregateOutputType | null
   _max: GeoDnsConfigMaxAggregateOutputType | null
-}
-
-export type GeoDnsConfigAvgAggregateOutputType = {
-  ttl: number | null
-}
-
-export type GeoDnsConfigSumAggregateOutputType = {
-  ttl: number | null
 }
 
 export type GeoDnsConfigMinAggregateOutputType = {
   id: string | null
   orgId: string | null
   enabled: boolean | null
-  zone: string | null
-  ttl: number | null
-  provider: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -49,9 +36,6 @@ export type GeoDnsConfigMaxAggregateOutputType = {
   id: string | null
   orgId: string | null
   enabled: boolean | null
-  zone: string | null
-  ttl: number | null
-  provider: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -60,9 +44,6 @@ export type GeoDnsConfigCountAggregateOutputType = {
   id: number
   orgId: number
   enabled: number
-  zone: number
-  ttl: number
-  provider: number
   settings: number
   createdAt: number
   updatedAt: number
@@ -70,21 +51,10 @@ export type GeoDnsConfigCountAggregateOutputType = {
 }
 
 
-export type GeoDnsConfigAvgAggregateInputType = {
-  ttl?: true
-}
-
-export type GeoDnsConfigSumAggregateInputType = {
-  ttl?: true
-}
-
 export type GeoDnsConfigMinAggregateInputType = {
   id?: true
   orgId?: true
   enabled?: true
-  zone?: true
-  ttl?: true
-  provider?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -93,9 +63,6 @@ export type GeoDnsConfigMaxAggregateInputType = {
   id?: true
   orgId?: true
   enabled?: true
-  zone?: true
-  ttl?: true
-  provider?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -104,9 +71,6 @@ export type GeoDnsConfigCountAggregateInputType = {
   id?: true
   orgId?: true
   enabled?: true
-  zone?: true
-  ttl?: true
-  provider?: true
   settings?: true
   createdAt?: true
   updatedAt?: true
@@ -151,18 +115,6 @@ export type GeoDnsConfigAggregateArgs<ExtArgs extends runtime.Types.Extensions.I
   /**
    * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
    * 
-   * Select which fields to average
-  **/
-  _avg?: GeoDnsConfigAvgAggregateInputType
-  /**
-   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
-   * 
-   * Select which fields to sum
-  **/
-  _sum?: GeoDnsConfigSumAggregateInputType
-  /**
-   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
-   * 
    * Select which fields to find the minimum value
   **/
   _min?: GeoDnsConfigMinAggregateInputType
@@ -193,8 +145,6 @@ export type GeoDnsConfigGroupByArgs<ExtArgs extends runtime.Types.Extensions.Int
   take?: number
   skip?: number
   _count?: GeoDnsConfigCountAggregateInputType | true
-  _avg?: GeoDnsConfigAvgAggregateInputType
-  _sum?: GeoDnsConfigSumAggregateInputType
   _min?: GeoDnsConfigMinAggregateInputType
   _max?: GeoDnsConfigMaxAggregateInputType
 }
@@ -203,15 +153,10 @@ export type GeoDnsConfigGroupByOutputType = {
   id: string
   orgId: string
   enabled: boolean
-  zone: string
-  ttl: number
-  provider: string
   settings: runtime.JsonValue | null
   createdAt: Date
   updatedAt: Date
   _count: GeoDnsConfigCountAggregateOutputType | null
-  _avg: GeoDnsConfigAvgAggregateOutputType | null
-  _sum: GeoDnsConfigSumAggregateOutputType | null
   _min: GeoDnsConfigMinAggregateOutputType | null
   _max: GeoDnsConfigMaxAggregateOutputType | null
 }
@@ -238,9 +183,6 @@ export type GeoDnsConfigWhereInput = {
   id?: Prisma.StringFilter<"GeoDnsConfig"> | string
   orgId?: Prisma.StringFilter<"GeoDnsConfig"> | string
   enabled?: Prisma.BoolFilter<"GeoDnsConfig"> | boolean
-  zone?: Prisma.StringFilter<"GeoDnsConfig"> | string
-  ttl?: Prisma.IntFilter<"GeoDnsConfig"> | number
-  provider?: Prisma.StringFilter<"GeoDnsConfig"> | string
   settings?: Prisma.JsonNullableFilter<"GeoDnsConfig">
   createdAt?: Prisma.DateTimeFilter<"GeoDnsConfig"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"GeoDnsConfig"> | Date | string
@@ -251,9 +193,6 @@ export type GeoDnsConfigOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   orgId?: Prisma.SortOrder
   enabled?: Prisma.SortOrder
-  zone?: Prisma.SortOrder
-  ttl?: Prisma.SortOrder
-  provider?: Prisma.SortOrder
   settings?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
@@ -267,9 +206,6 @@ export type GeoDnsConfigWhereUniqueInput = Prisma.AtLeast<{
   OR?: Prisma.GeoDnsConfigWhereInput[]
   NOT?: Prisma.GeoDnsConfigWhereInput | Prisma.GeoDnsConfigWhereInput[]
   enabled?: Prisma.BoolFilter<"GeoDnsConfig"> | boolean
-  zone?: Prisma.StringFilter<"GeoDnsConfig"> | string
-  ttl?: Prisma.IntFilter<"GeoDnsConfig"> | number
-  provider?: Prisma.StringFilter<"GeoDnsConfig"> | string
   settings?: Prisma.JsonNullableFilter<"GeoDnsConfig">
   createdAt?: Prisma.DateTimeFilter<"GeoDnsConfig"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"GeoDnsConfig"> | Date | string
@@ -280,17 +216,12 @@ export type GeoDnsConfigOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   orgId?: Prisma.SortOrder
   enabled?: Prisma.SortOrder
-  zone?: Prisma.SortOrder
-  ttl?: Prisma.SortOrder
-  provider?: Prisma.SortOrder
   settings?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.GeoDnsConfigCountOrderByAggregateInput
-  _avg?: Prisma.GeoDnsConfigAvgOrderByAggregateInput
   _max?: Prisma.GeoDnsConfigMaxOrderByAggregateInput
   _min?: Prisma.GeoDnsConfigMinOrderByAggregateInput
-  _sum?: Prisma.GeoDnsConfigSumOrderByAggregateInput
 }
 
 export type GeoDnsConfigScalarWhereWithAggregatesInput = {
@@ -300,9 +231,6 @@ export type GeoDnsConfigScalarWhereWithAggregatesInput = {
   id?: Prisma.StringWithAggregatesFilter<"GeoDnsConfig"> | string
   orgId?: Prisma.StringWithAggregatesFilter<"GeoDnsConfig"> | string
   enabled?: Prisma.BoolWithAggregatesFilter<"GeoDnsConfig"> | boolean
-  zone?: Prisma.StringWithAggregatesFilter<"GeoDnsConfig"> | string
-  ttl?: Prisma.IntWithAggregatesFilter<"GeoDnsConfig"> | number
-  provider?: Prisma.StringWithAggregatesFilter<"GeoDnsConfig"> | string
   settings?: Prisma.JsonNullableWithAggregatesFilter<"GeoDnsConfig">
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"GeoDnsConfig"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"GeoDnsConfig"> | Date | string
@@ -311,9 +239,6 @@ export type GeoDnsConfigScalarWhereWithAggregatesInput = {
 export type GeoDnsConfigCreateInput = {
   id?: string
   enabled?: boolean
-  zone?: string
-  ttl?: number
-  provider?: string
   settings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -324,9 +249,6 @@ export type GeoDnsConfigUncheckedCreateInput = {
   id?: string
   orgId: string
   enabled?: boolean
-  zone?: string
-  ttl?: number
-  provider?: string
   settings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -335,9 +257,6 @@ export type GeoDnsConfigUncheckedCreateInput = {
 export type GeoDnsConfigUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   enabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
-  zone?: Prisma.StringFieldUpdateOperationsInput | string
-  ttl?: Prisma.IntFieldUpdateOperationsInput | number
-  provider?: Prisma.StringFieldUpdateOperationsInput | string
   settings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -348,9 +267,6 @@ export type GeoDnsConfigUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   orgId?: Prisma.StringFieldUpdateOperationsInput | string
   enabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
-  zone?: Prisma.StringFieldUpdateOperationsInput | string
-  ttl?: Prisma.IntFieldUpdateOperationsInput | number
-  provider?: Prisma.StringFieldUpdateOperationsInput | string
   settings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -360,9 +276,6 @@ export type GeoDnsConfigCreateManyInput = {
   id?: string
   orgId: string
   enabled?: boolean
-  zone?: string
-  ttl?: number
-  provider?: string
   settings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -371,9 +284,6 @@ export type GeoDnsConfigCreateManyInput = {
 export type GeoDnsConfigUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   enabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
-  zone?: Prisma.StringFieldUpdateOperationsInput | string
-  ttl?: Prisma.IntFieldUpdateOperationsInput | number
-  provider?: Prisma.StringFieldUpdateOperationsInput | string
   settings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -383,9 +293,6 @@ export type GeoDnsConfigUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   orgId?: Prisma.StringFieldUpdateOperationsInput | string
   enabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
-  zone?: Prisma.StringFieldUpdateOperationsInput | string
-  ttl?: Prisma.IntFieldUpdateOperationsInput | number
-  provider?: Prisma.StringFieldUpdateOperationsInput | string
   settings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -400,25 +307,15 @@ export type GeoDnsConfigCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   orgId?: Prisma.SortOrder
   enabled?: Prisma.SortOrder
-  zone?: Prisma.SortOrder
-  ttl?: Prisma.SortOrder
-  provider?: Prisma.SortOrder
   settings?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
-}
-
-export type GeoDnsConfigAvgOrderByAggregateInput = {
-  ttl?: Prisma.SortOrder
 }
 
 export type GeoDnsConfigMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   orgId?: Prisma.SortOrder
   enabled?: Prisma.SortOrder
-  zone?: Prisma.SortOrder
-  ttl?: Prisma.SortOrder
-  provider?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -427,15 +324,8 @@ export type GeoDnsConfigMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   orgId?: Prisma.SortOrder
   enabled?: Prisma.SortOrder
-  zone?: Prisma.SortOrder
-  ttl?: Prisma.SortOrder
-  provider?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
-}
-
-export type GeoDnsConfigSumOrderByAggregateInput = {
-  ttl?: Prisma.SortOrder
 }
 
 export type GeoDnsConfigCreateNestedOneWithoutOrgInput = {
@@ -473,9 +363,6 @@ export type GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput = {
 export type GeoDnsConfigCreateWithoutOrgInput = {
   id?: string
   enabled?: boolean
-  zone?: string
-  ttl?: number
-  provider?: string
   settings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -484,9 +371,6 @@ export type GeoDnsConfigCreateWithoutOrgInput = {
 export type GeoDnsConfigUncheckedCreateWithoutOrgInput = {
   id?: string
   enabled?: boolean
-  zone?: string
-  ttl?: number
-  provider?: string
   settings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Date | string
   updatedAt?: Date | string
@@ -511,9 +395,6 @@ export type GeoDnsConfigUpdateToOneWithWhereWithoutOrgInput = {
 export type GeoDnsConfigUpdateWithoutOrgInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   enabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
-  zone?: Prisma.StringFieldUpdateOperationsInput | string
-  ttl?: Prisma.IntFieldUpdateOperationsInput | number
-  provider?: Prisma.StringFieldUpdateOperationsInput | string
   settings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -522,9 +403,6 @@ export type GeoDnsConfigUpdateWithoutOrgInput = {
 export type GeoDnsConfigUncheckedUpdateWithoutOrgInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   enabled?: Prisma.BoolFieldUpdateOperationsInput | boolean
-  zone?: Prisma.StringFieldUpdateOperationsInput | string
-  ttl?: Prisma.IntFieldUpdateOperationsInput | number
-  provider?: Prisma.StringFieldUpdateOperationsInput | string
   settings?: Prisma.NullableJsonNullValueInput | runtime.InputJsonValue
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -536,9 +414,6 @@ export type GeoDnsConfigSelect<ExtArgs extends runtime.Types.Extensions.Internal
   id?: boolean
   orgId?: boolean
   enabled?: boolean
-  zone?: boolean
-  ttl?: boolean
-  provider?: boolean
   settings?: boolean
   createdAt?: boolean
   updatedAt?: boolean
@@ -549,9 +424,6 @@ export type GeoDnsConfigSelectCreateManyAndReturn<ExtArgs extends runtime.Types.
   id?: boolean
   orgId?: boolean
   enabled?: boolean
-  zone?: boolean
-  ttl?: boolean
-  provider?: boolean
   settings?: boolean
   createdAt?: boolean
   updatedAt?: boolean
@@ -562,9 +434,6 @@ export type GeoDnsConfigSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.
   id?: boolean
   orgId?: boolean
   enabled?: boolean
-  zone?: boolean
-  ttl?: boolean
-  provider?: boolean
   settings?: boolean
   createdAt?: boolean
   updatedAt?: boolean
@@ -575,15 +444,12 @@ export type GeoDnsConfigSelectScalar = {
   id?: boolean
   orgId?: boolean
   enabled?: boolean
-  zone?: boolean
-  ttl?: boolean
-  provider?: boolean
   settings?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type GeoDnsConfigOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "orgId" | "enabled" | "zone" | "ttl" | "provider" | "settings" | "createdAt" | "updatedAt", ExtArgs["result"]["geoDnsConfig"]>
+export type GeoDnsConfigOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "orgId" | "enabled" | "settings" | "createdAt" | "updatedAt", ExtArgs["result"]["geoDnsConfig"]>
 export type GeoDnsConfigInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   org?: boolean | Prisma.OrganizationDefaultArgs<ExtArgs>
 }
@@ -603,12 +469,9 @@ export type $GeoDnsConfigPayload<ExtArgs extends runtime.Types.Extensions.Intern
     id: string
     orgId: string
     enabled: boolean
-    zone: string
-    ttl: number
-    provider: string
     /**
-     * * GeoLite2 + provider-sync REFERENCES only (Docker config/secret names, provider
-     *    *  zone id + token-env), never secret values. Parsed by parseGeoDnsSettings().
+     * * Org-level DNS settings REFERENCES only (geoipSource dbip|maxmind|file|off,
+     *    *  maxmindLicenseSecretRef, mmdbConfigRef), never secret values.
      */
     settings: runtime.JsonValue | null
     createdAt: Date
@@ -1040,9 +903,6 @@ export interface GeoDnsConfigFieldRefs {
   readonly id: Prisma.FieldRef<"GeoDnsConfig", 'String'>
   readonly orgId: Prisma.FieldRef<"GeoDnsConfig", 'String'>
   readonly enabled: Prisma.FieldRef<"GeoDnsConfig", 'Boolean'>
-  readonly zone: Prisma.FieldRef<"GeoDnsConfig", 'String'>
-  readonly ttl: Prisma.FieldRef<"GeoDnsConfig", 'Int'>
-  readonly provider: Prisma.FieldRef<"GeoDnsConfig", 'String'>
   readonly settings: Prisma.FieldRef<"GeoDnsConfig", 'Json'>
   readonly createdAt: Prisma.FieldRef<"GeoDnsConfig", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"GeoDnsConfig", 'DateTime'>

@@ -287,8 +287,15 @@ export type CanvasLayout = Prisma.CanvasLayoutModel
  */
 export type GeoDnsConfig = Prisma.GeoDnsConfigModel
 /**
- * Model DnsRecord
+ * Model DnsZone
  * 
+ */
+export type DnsZone = Prisma.DnsZoneModel
+/**
+ * Model DnsRecord
+ * Manual static records — the non-web zone content swarmy must answer once NS
+ * points at it (MX, TXT/SPF/DKIM, CNAME, SRV, CAA, child-zone NS). Web A
+ * records are NOT here: they derive from ingress (see dns-snapshot.service).
  */
 export type DnsRecord = Prisma.DnsRecordModel
 /**

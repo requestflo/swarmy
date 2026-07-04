@@ -1,14 +1,16 @@
-// Geo-DNS: zone config + records.
+// Geo-DNS ("swarmy is the nameserver" — docs/product/edge-network.md).
+//
+// The DB holds only the user's INPUT artifacts: zones (registrar-facing
+// identity + delegation pinning) and manual non-web records (MX/TXT/…).
+// Everything answerable is DERIVED at compose time from Docker/hub truth
+// (ingress hostnames, node roles/regions/public-ips, health) — never stored.
 
 model GeoDnsConfig {
   id        String   @id @default(cuid())
   orgId     String   @unique
   enabled   Boolean  @default(false)
-  zone      String   @default("")
-  ttl       Int      @default(30)
-  provider  String   @default("coredns")
-  /** GeoLite2 + provider-sync REFERENCES only (Docker config/secret names, provider
-   *  zone id + token-env), never secret values. Parsed by parseGeoDnsSettings(). */
+  /** Org-level DNS settings REFERENCES only (geoipSource dbip|maxmind|file|off,
+   *  maxmindLicenseSecretRef, mmdbConfigRef), never secret values. */
   settings  Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -18,19 +20,59 @@ model GeoDnsConfig {
   @@map("geo_dns_config")
 }
 
-model DnsRecord {
-  id            String   @id @default(cuid())
-  orgId         String
-  host          String
-  region        String
-  targetIngress String
-  healthy       Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+model DnsZone {
+  id     String  @id @default(cuid())
+  orgId  String
+  /** Apex, lowercase, no trailing dot: "requestflo.com". */
+  zone   String
+  /** swarmy-ns (we ARE the nameservers) | cloudflare | route53 (provider sync). */
+  mode   String  @default("swarmy-ns")
+  enabled Boolean @default(false)
+  ttl    Int     @default(30)
+  /** SOA serial — bumped by the reconciler only when composed content changes. */
+  serial Int     @default(1)
+  /** Answer the apex itself with the edge. */
+  apexToEdge Boolean @default(true)
+  /** Auto-answer `www` unless another record claims it. */
+  autoWww    Boolean @default(true)
+  /** Pinned advertised nameserver node ids (2–4, ordered → ns1..nsN). */
+  advertisedNodeIds Json @default("[]")
+  /** Provider-sync references only (providerZoneId, providerTokenEnv, region). */
+  settings  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  records DnsRecord[]
 
-  @@unique([orgId, host, region])
+  @@unique([orgId, zone])
   @@index([orgId])
+  @@map("dns_zone")
+}
+
+/// Manual static records — the non-web zone content swarmy must answer once NS
+/// points at it (MX, TXT/SPF/DKIM, CNAME, SRV, CAA, child-zone NS). Web A
+/// records are NOT here: they derive from ingress (see dns-snapshot.service).
+model DnsRecord {
+  id     String @id @default(cuid())
+  orgId  String
+  zoneId String
+  /** Zone-relative name; '@' = apex. */
+  name   String
+  /** A|AAAA|CNAME|TXT|MX|SRV|CAA|NS (StaticDnsRecord in @swarmy/core). */
+  type   String
+  value  String
+  ttl    Int?
+  /** MX preference / SRV priority. */
+  priority  Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  zone DnsZone      @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, zoneId, name, type, value])
+  @@index([orgId])
+  @@index([zoneId])
   @@map("dns_record")
 }

@@ -212,6 +212,7 @@ export type OrganizationWhereInput = {
   registryConfig?: Prisma.XOR<Prisma.RegistryConfigNullableScalarRelationFilter, Prisma.RegistryConfigWhereInput> | null
   imageGcPolicy?: Prisma.XOR<Prisma.ImageGcPolicyNullableScalarRelationFilter, Prisma.ImageGcPolicyWhereInput> | null
   geoDnsConfig?: Prisma.XOR<Prisma.GeoDnsConfigNullableScalarRelationFilter, Prisma.GeoDnsConfigWhereInput> | null
+  dnsZones?: Prisma.DnsZoneListRelationFilter
   dnsRecords?: Prisma.DnsRecordListRelationFilter
   apiKeys?: Prisma.ApiKeyListRelationFilter
   storageCluster?: Prisma.XOR<Prisma.StorageClusterNullableScalarRelationFilter, Prisma.StorageClusterWhereInput> | null
@@ -287,6 +288,7 @@ export type OrganizationOrderByWithRelationInput = {
   registryConfig?: Prisma.RegistryConfigOrderByWithRelationInput
   imageGcPolicy?: Prisma.ImageGcPolicyOrderByWithRelationInput
   geoDnsConfig?: Prisma.GeoDnsConfigOrderByWithRelationInput
+  dnsZones?: Prisma.DnsZoneOrderByRelationAggregateInput
   dnsRecords?: Prisma.DnsRecordOrderByRelationAggregateInput
   apiKeys?: Prisma.ApiKeyOrderByRelationAggregateInput
   storageCluster?: Prisma.StorageClusterOrderByWithRelationInput
@@ -365,6 +367,7 @@ export type OrganizationWhereUniqueInput = Prisma.AtLeast<{
   registryConfig?: Prisma.XOR<Prisma.RegistryConfigNullableScalarRelationFilter, Prisma.RegistryConfigWhereInput> | null
   imageGcPolicy?: Prisma.XOR<Prisma.ImageGcPolicyNullableScalarRelationFilter, Prisma.ImageGcPolicyWhereInput> | null
   geoDnsConfig?: Prisma.XOR<Prisma.GeoDnsConfigNullableScalarRelationFilter, Prisma.GeoDnsConfigWhereInput> | null
+  dnsZones?: Prisma.DnsZoneListRelationFilter
   dnsRecords?: Prisma.DnsRecordListRelationFilter
   apiKeys?: Prisma.ApiKeyListRelationFilter
   storageCluster?: Prisma.XOR<Prisma.StorageClusterNullableScalarRelationFilter, Prisma.StorageClusterWhereInput> | null
@@ -464,6 +467,7 @@ export type OrganizationCreateInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -539,6 +543,7 @@ export type OrganizationUncheckedCreateInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -614,6 +619,7 @@ export type OrganizationUpdateInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -689,6 +695,7 @@ export type OrganizationUncheckedUpdateInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -1368,6 +1375,20 @@ export type OrganizationUpdateOneRequiredWithoutGeoDnsConfigNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.OrganizationUpdateToOneWithWhereWithoutGeoDnsConfigInput, Prisma.OrganizationUpdateWithoutGeoDnsConfigInput>, Prisma.OrganizationUncheckedUpdateWithoutGeoDnsConfigInput>
 }
 
+export type OrganizationCreateNestedOneWithoutDnsZonesInput = {
+  create?: Prisma.XOR<Prisma.OrganizationCreateWithoutDnsZonesInput, Prisma.OrganizationUncheckedCreateWithoutDnsZonesInput>
+  connectOrCreate?: Prisma.OrganizationCreateOrConnectWithoutDnsZonesInput
+  connect?: Prisma.OrganizationWhereUniqueInput
+}
+
+export type OrganizationUpdateOneRequiredWithoutDnsZonesNestedInput = {
+  create?: Prisma.XOR<Prisma.OrganizationCreateWithoutDnsZonesInput, Prisma.OrganizationUncheckedCreateWithoutDnsZonesInput>
+  connectOrCreate?: Prisma.OrganizationCreateOrConnectWithoutDnsZonesInput
+  upsert?: Prisma.OrganizationUpsertWithoutDnsZonesInput
+  connect?: Prisma.OrganizationWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.OrganizationUpdateToOneWithWhereWithoutDnsZonesInput, Prisma.OrganizationUpdateWithoutDnsZonesInput>, Prisma.OrganizationUncheckedUpdateWithoutDnsZonesInput>
+}
+
 export type OrganizationCreateNestedOneWithoutDnsRecordsInput = {
   create?: Prisma.XOR<Prisma.OrganizationCreateWithoutDnsRecordsInput, Prisma.OrganizationUncheckedCreateWithoutDnsRecordsInput>
   connectOrCreate?: Prisma.OrganizationCreateOrConnectWithoutDnsRecordsInput
@@ -1746,6 +1767,7 @@ export type OrganizationCreateWithoutSsoProvidersInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -1820,6 +1842,7 @@ export type OrganizationUncheckedCreateWithoutSsoProvidersInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -1910,6 +1933,7 @@ export type OrganizationUpdateWithoutSsoProvidersInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -1984,6 +2008,7 @@ export type OrganizationUncheckedUpdateWithoutSsoProvidersInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -2058,6 +2083,7 @@ export type OrganizationCreateWithoutPoliciesInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -2132,6 +2158,7 @@ export type OrganizationUncheckedCreateWithoutPoliciesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -2222,6 +2249,7 @@ export type OrganizationUpdateWithoutPoliciesInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -2296,6 +2324,7 @@ export type OrganizationUncheckedUpdateWithoutPoliciesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -2370,6 +2399,7 @@ export type OrganizationCreateWithoutResourceGrantsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -2444,6 +2474,7 @@ export type OrganizationUncheckedCreateWithoutResourceGrantsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -2534,6 +2565,7 @@ export type OrganizationUpdateWithoutResourceGrantsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -2608,6 +2640,7 @@ export type OrganizationUncheckedUpdateWithoutResourceGrantsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -2683,6 +2716,7 @@ export type OrganizationCreateWithoutAiProviderConfigInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -2757,6 +2791,7 @@ export type OrganizationUncheckedCreateWithoutAiProviderConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -2847,6 +2882,7 @@ export type OrganizationUpdateWithoutAiProviderConfigInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -2921,6 +2957,7 @@ export type OrganizationUncheckedUpdateWithoutAiProviderConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -2995,6 +3032,7 @@ export type OrganizationCreateWithoutAiVirtualKeysInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -3069,6 +3107,7 @@ export type OrganizationUncheckedCreateWithoutAiVirtualKeysInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -3159,6 +3198,7 @@ export type OrganizationUpdateWithoutAiVirtualKeysInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -3233,6 +3273,7 @@ export type OrganizationUncheckedUpdateWithoutAiVirtualKeysInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -3307,6 +3348,7 @@ export type OrganizationCreateWithoutAiUsageInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -3381,6 +3423,7 @@ export type OrganizationUncheckedCreateWithoutAiUsageInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -3471,6 +3514,7 @@ export type OrganizationUpdateWithoutAiUsageInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -3545,6 +3589,7 @@ export type OrganizationUncheckedUpdateWithoutAiUsageInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -3619,6 +3664,7 @@ export type OrganizationCreateWithoutAiRequestLogsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -3693,6 +3739,7 @@ export type OrganizationUncheckedCreateWithoutAiRequestLogsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -3783,6 +3830,7 @@ export type OrganizationUpdateWithoutAiRequestLogsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -3857,6 +3905,7 @@ export type OrganizationUncheckedUpdateWithoutAiRequestLogsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -3931,6 +3980,7 @@ export type OrganizationCreateWithoutNotificationChannelsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -4005,6 +4055,7 @@ export type OrganizationUncheckedCreateWithoutNotificationChannelsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -4095,6 +4146,7 @@ export type OrganizationUpdateWithoutNotificationChannelsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -4169,6 +4221,7 @@ export type OrganizationUncheckedUpdateWithoutNotificationChannelsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -4243,6 +4296,7 @@ export type OrganizationCreateWithoutAlertRulesInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -4317,6 +4371,7 @@ export type OrganizationUncheckedCreateWithoutAlertRulesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -4407,6 +4462,7 @@ export type OrganizationUpdateWithoutAlertRulesInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -4481,6 +4537,7 @@ export type OrganizationUncheckedUpdateWithoutAlertRulesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -4555,6 +4612,7 @@ export type OrganizationCreateWithoutAlertEventsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -4629,6 +4687,7 @@ export type OrganizationUncheckedCreateWithoutAlertEventsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -4719,6 +4778,7 @@ export type OrganizationUpdateWithoutAlertEventsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -4793,6 +4853,7 @@ export type OrganizationUncheckedUpdateWithoutAlertEventsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -4867,6 +4928,7 @@ export type OrganizationCreateWithoutIncidentsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -4941,6 +5003,7 @@ export type OrganizationUncheckedCreateWithoutIncidentsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -5031,6 +5094,7 @@ export type OrganizationUpdateWithoutIncidentsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -5105,6 +5169,7 @@ export type OrganizationUncheckedUpdateWithoutIncidentsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -5179,6 +5244,7 @@ export type OrganizationCreateWithoutIncidentEventsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -5253,6 +5319,7 @@ export type OrganizationUncheckedCreateWithoutIncidentEventsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -5343,6 +5410,7 @@ export type OrganizationUpdateWithoutIncidentEventsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -5417,6 +5485,7 @@ export type OrganizationUncheckedUpdateWithoutIncidentEventsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -5491,6 +5560,7 @@ export type OrganizationCreateWithoutStatusPagesInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -5565,6 +5635,7 @@ export type OrganizationUncheckedCreateWithoutStatusPagesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -5655,6 +5726,7 @@ export type OrganizationUpdateWithoutStatusPagesInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -5729,6 +5801,7 @@ export type OrganizationUncheckedUpdateWithoutStatusPagesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -5803,6 +5876,7 @@ export type OrganizationCreateWithoutUptimeSamplesInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -5877,6 +5951,7 @@ export type OrganizationUncheckedCreateWithoutUptimeSamplesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -5967,6 +6042,7 @@ export type OrganizationUpdateWithoutUptimeSamplesInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -6041,6 +6117,7 @@ export type OrganizationUncheckedUpdateWithoutUptimeSamplesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -6115,6 +6192,7 @@ export type OrganizationCreateWithoutApiKeysInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
   clusterVolumes?: Prisma.ClusterVolumeCreateNestedManyWithoutOrgInput
@@ -6189,6 +6267,7 @@ export type OrganizationUncheckedCreateWithoutApiKeysInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
   clusterVolumes?: Prisma.ClusterVolumeUncheckedCreateNestedManyWithoutOrgInput
@@ -6279,6 +6358,7 @@ export type OrganizationUpdateWithoutApiKeysInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
   clusterVolumes?: Prisma.ClusterVolumeUpdateManyWithoutOrgNestedInput
@@ -6353,6 +6433,7 @@ export type OrganizationUncheckedUpdateWithoutApiKeysInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
   clusterVolumes?: Prisma.ClusterVolumeUncheckedUpdateManyWithoutOrgNestedInput
@@ -6427,6 +6508,7 @@ export type OrganizationCreateWithoutOauthClientsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -6501,6 +6583,7 @@ export type OrganizationUncheckedCreateWithoutOauthClientsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -6591,6 +6674,7 @@ export type OrganizationUpdateWithoutOauthClientsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -6665,6 +6749,7 @@ export type OrganizationUncheckedUpdateWithoutOauthClientsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -6739,6 +6824,7 @@ export type OrganizationCreateWithoutWebhookEndpointsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -6813,6 +6899,7 @@ export type OrganizationUncheckedCreateWithoutWebhookEndpointsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -6903,6 +6990,7 @@ export type OrganizationUpdateWithoutWebhookEndpointsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -6977,6 +7065,7 @@ export type OrganizationUncheckedUpdateWithoutWebhookEndpointsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -7051,6 +7140,7 @@ export type OrganizationCreateWithoutWebhookDeliveriesInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -7125,6 +7215,7 @@ export type OrganizationUncheckedCreateWithoutWebhookDeliveriesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -7215,6 +7306,7 @@ export type OrganizationUpdateWithoutWebhookDeliveriesInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -7289,6 +7381,7 @@ export type OrganizationUncheckedUpdateWithoutWebhookDeliveriesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -7362,6 +7455,7 @@ export type OrganizationCreateWithoutMembersInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -7436,6 +7530,7 @@ export type OrganizationUncheckedCreateWithoutMembersInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -7526,6 +7621,7 @@ export type OrganizationUpdateWithoutMembersInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -7600,6 +7696,7 @@ export type OrganizationUncheckedUpdateWithoutMembersInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -7674,6 +7771,7 @@ export type OrganizationCreateWithoutInvitationsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -7748,6 +7846,7 @@ export type OrganizationUncheckedCreateWithoutInvitationsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -7838,6 +7937,7 @@ export type OrganizationUpdateWithoutInvitationsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -7912,6 +8012,7 @@ export type OrganizationUncheckedUpdateWithoutInvitationsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -7986,6 +8087,7 @@ export type OrganizationCreateWithoutBackupTargetsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -8060,6 +8162,7 @@ export type OrganizationUncheckedCreateWithoutBackupTargetsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -8150,6 +8253,7 @@ export type OrganizationUpdateWithoutBackupTargetsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -8224,6 +8328,7 @@ export type OrganizationUncheckedUpdateWithoutBackupTargetsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -8298,6 +8403,7 @@ export type OrganizationCreateWithoutSnapshotsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -8372,6 +8478,7 @@ export type OrganizationUncheckedCreateWithoutSnapshotsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -8462,6 +8569,7 @@ export type OrganizationUpdateWithoutSnapshotsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -8536,6 +8644,7 @@ export type OrganizationUncheckedUpdateWithoutSnapshotsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -8611,6 +8720,7 @@ export type OrganizationCreateWithoutStorageClusterInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   clusterVolumes?: Prisma.ClusterVolumeCreateNestedManyWithoutOrgInput
@@ -8685,6 +8795,7 @@ export type OrganizationUncheckedCreateWithoutStorageClusterInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   clusterVolumes?: Prisma.ClusterVolumeUncheckedCreateNestedManyWithoutOrgInput
@@ -8775,6 +8886,7 @@ export type OrganizationUpdateWithoutStorageClusterInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   clusterVolumes?: Prisma.ClusterVolumeUpdateManyWithoutOrgNestedInput
@@ -8849,6 +8961,7 @@ export type OrganizationUncheckedUpdateWithoutStorageClusterInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   clusterVolumes?: Prisma.ClusterVolumeUncheckedUpdateManyWithoutOrgNestedInput
@@ -8923,6 +9036,7 @@ export type OrganizationCreateWithoutClusterVolumesInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -8997,6 +9111,7 @@ export type OrganizationUncheckedCreateWithoutClusterVolumesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -9087,6 +9202,7 @@ export type OrganizationUpdateWithoutClusterVolumesInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -9161,6 +9277,7 @@ export type OrganizationUncheckedUpdateWithoutClusterVolumesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -9235,6 +9352,7 @@ export type OrganizationCreateWithoutBackupSchedulesInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -9309,6 +9427,7 @@ export type OrganizationUncheckedCreateWithoutBackupSchedulesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -9399,6 +9518,7 @@ export type OrganizationUpdateWithoutBackupSchedulesInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -9473,6 +9593,7 @@ export type OrganizationUncheckedUpdateWithoutBackupSchedulesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -9547,6 +9668,7 @@ export type OrganizationCreateWithoutBackupJobsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -9621,6 +9743,7 @@ export type OrganizationUncheckedCreateWithoutBackupJobsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -9711,6 +9834,7 @@ export type OrganizationUpdateWithoutBackupJobsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -9785,6 +9909,7 @@ export type OrganizationUncheckedUpdateWithoutBackupJobsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -9859,6 +9984,7 @@ export type OrganizationCreateWithoutRestoreOperationsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -9933,6 +10059,7 @@ export type OrganizationUncheckedCreateWithoutRestoreOperationsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -10023,6 +10150,7 @@ export type OrganizationUpdateWithoutRestoreOperationsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -10097,6 +10225,7 @@ export type OrganizationUncheckedUpdateWithoutRestoreOperationsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -10170,6 +10299,7 @@ export type OrganizationCreateWithoutGitReposInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -10244,6 +10374,7 @@ export type OrganizationUncheckedCreateWithoutGitReposInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -10334,6 +10465,7 @@ export type OrganizationUpdateWithoutGitReposInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -10408,6 +10540,7 @@ export type OrganizationUncheckedUpdateWithoutGitReposInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -10482,6 +10615,7 @@ export type OrganizationCreateWithoutBuildsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -10556,6 +10690,7 @@ export type OrganizationUncheckedCreateWithoutBuildsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -10646,6 +10781,7 @@ export type OrganizationUpdateWithoutBuildsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -10720,6 +10856,7 @@ export type OrganizationUncheckedUpdateWithoutBuildsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -10794,6 +10931,7 @@ export type OrganizationCreateWithoutRegistryConfigInput = {
   builds?: Prisma.BuildCreateNestedManyWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -10868,6 +11006,7 @@ export type OrganizationUncheckedCreateWithoutRegistryConfigInput = {
   builds?: Prisma.BuildUncheckedCreateNestedManyWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -10958,6 +11097,7 @@ export type OrganizationUpdateWithoutRegistryConfigInput = {
   builds?: Prisma.BuildUpdateManyWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -11032,6 +11172,7 @@ export type OrganizationUncheckedUpdateWithoutRegistryConfigInput = {
   builds?: Prisma.BuildUncheckedUpdateManyWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -11106,6 +11247,7 @@ export type OrganizationCreateWithoutImageGcPolicyInput = {
   builds?: Prisma.BuildCreateNestedManyWithoutOrgInput
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -11180,6 +11322,7 @@ export type OrganizationUncheckedCreateWithoutImageGcPolicyInput = {
   builds?: Prisma.BuildUncheckedCreateNestedManyWithoutOrgInput
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -11270,6 +11413,7 @@ export type OrganizationUpdateWithoutImageGcPolicyInput = {
   builds?: Prisma.BuildUpdateManyWithoutOrgNestedInput
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -11344,6 +11488,7 @@ export type OrganizationUncheckedUpdateWithoutImageGcPolicyInput = {
   builds?: Prisma.BuildUncheckedUpdateManyWithoutOrgNestedInput
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -11419,6 +11564,7 @@ export type OrganizationCreateWithoutImageScansInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -11493,6 +11639,7 @@ export type OrganizationUncheckedCreateWithoutImageScansInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -11583,6 +11730,7 @@ export type OrganizationUpdateWithoutImageScansInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -11657,6 +11805,7 @@ export type OrganizationUncheckedUpdateWithoutImageScansInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -11730,6 +11879,7 @@ export type OrganizationCreateWithoutNodesInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -11804,6 +11954,7 @@ export type OrganizationUncheckedCreateWithoutNodesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -11894,6 +12045,7 @@ export type OrganizationUpdateWithoutNodesInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -11968,6 +12120,7 @@ export type OrganizationUncheckedUpdateWithoutNodesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -12042,6 +12195,7 @@ export type OrganizationCreateWithoutJoinTokensInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -12116,6 +12270,7 @@ export type OrganizationUncheckedCreateWithoutJoinTokensInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -12206,6 +12361,7 @@ export type OrganizationUpdateWithoutJoinTokensInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -12280,6 +12436,7 @@ export type OrganizationUncheckedUpdateWithoutJoinTokensInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -12354,6 +12511,7 @@ export type OrganizationCreateWithoutStacksInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -12428,6 +12586,7 @@ export type OrganizationUncheckedCreateWithoutStacksInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -12518,6 +12677,7 @@ export type OrganizationUpdateWithoutStacksInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -12592,6 +12752,7 @@ export type OrganizationUncheckedUpdateWithoutStacksInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -12666,6 +12827,7 @@ export type OrganizationCreateWithoutMetricSamplesInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -12740,6 +12902,7 @@ export type OrganizationUncheckedCreateWithoutMetricSamplesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -12830,6 +12993,7 @@ export type OrganizationUpdateWithoutMetricSamplesInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -12904,6 +13068,7 @@ export type OrganizationUncheckedUpdateWithoutMetricSamplesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -12978,6 +13143,7 @@ export type OrganizationCreateWithoutAuditLogsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -13052,6 +13218,7 @@ export type OrganizationUncheckedCreateWithoutAuditLogsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -13142,6 +13309,7 @@ export type OrganizationUpdateWithoutAuditLogsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -13216,6 +13384,7 @@ export type OrganizationUncheckedUpdateWithoutAuditLogsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -13291,6 +13460,7 @@ export type OrganizationCreateWithoutIdempotencyKeysInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -13365,6 +13535,7 @@ export type OrganizationUncheckedCreateWithoutIdempotencyKeysInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -13455,6 +13626,7 @@ export type OrganizationUpdateWithoutIdempotencyKeysInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -13529,6 +13701,7 @@ export type OrganizationUncheckedUpdateWithoutIdempotencyKeysInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -13603,6 +13776,7 @@ export type OrganizationCreateWithoutSwarmConfigInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -13677,6 +13851,7 @@ export type OrganizationUncheckedCreateWithoutSwarmConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -13767,6 +13942,7 @@ export type OrganizationUpdateWithoutSwarmConfigInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -13841,6 +14017,7 @@ export type OrganizationUncheckedUpdateWithoutSwarmConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -13915,6 +14092,7 @@ export type OrganizationCreateWithoutCanvasLayoutInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -13989,6 +14167,7 @@ export type OrganizationUncheckedCreateWithoutCanvasLayoutInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -14079,6 +14258,7 @@ export type OrganizationUpdateWithoutCanvasLayoutInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -14153,6 +14333,7 @@ export type OrganizationUncheckedUpdateWithoutCanvasLayoutInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -14226,6 +14407,7 @@ export type OrganizationCreateWithoutGeoDnsConfigInput = {
   builds?: Prisma.BuildCreateNestedManyWithoutOrgInput
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -14300,6 +14482,7 @@ export type OrganizationUncheckedCreateWithoutGeoDnsConfigInput = {
   builds?: Prisma.BuildUncheckedCreateNestedManyWithoutOrgInput
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -14390,6 +14573,7 @@ export type OrganizationUpdateWithoutGeoDnsConfigInput = {
   builds?: Prisma.BuildUpdateManyWithoutOrgNestedInput
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -14464,6 +14648,323 @@ export type OrganizationUncheckedUpdateWithoutGeoDnsConfigInput = {
   builds?: Prisma.BuildUncheckedUpdateManyWithoutOrgNestedInput
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
+  dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
+  apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
+  storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
+  clusterVolumes?: Prisma.ClusterVolumeUncheckedUpdateManyWithoutOrgNestedInput
+  backupSchedules?: Prisma.BackupScheduleUncheckedUpdateManyWithoutOrgNestedInput
+  backupJobs?: Prisma.BackupJobUncheckedUpdateManyWithoutOrgNestedInput
+  restoreOperations?: Prisma.RestoreOperationUncheckedUpdateManyWithoutOrgNestedInput
+  meshRoutes?: Prisma.MeshRouteUncheckedUpdateManyWithoutOrgNestedInput
+  meshAcls?: Prisma.MeshAclUncheckedUpdateManyWithoutOrgNestedInput
+  tunnels?: Prisma.TunnelUncheckedUpdateManyWithoutOrgNestedInput
+  terminalSessions?: Prisma.TerminalSessionUncheckedUpdateManyWithoutOrgNestedInput
+  terminalPolicy?: Prisma.TerminalPolicyUncheckedUpdateOneWithoutOrgNestedInput
+  terminalApprovals?: Prisma.TerminalApprovalUncheckedUpdateManyWithoutOrgNestedInput
+  swarmConfig?: Prisma.SwarmConfigUncheckedUpdateOneWithoutOrgNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedUpdateManyWithoutOrgNestedInput
+  oauthClients?: Prisma.OAuthClientUncheckedUpdateManyWithoutOrgNestedInput
+  webhookEndpoints?: Prisma.WebhookEndpointUncheckedUpdateManyWithoutOrgNestedInput
+  webhookDeliveries?: Prisma.WebhookDeliveryUncheckedUpdateManyWithoutOrgNestedInput
+  canvasLayout?: Prisma.CanvasLayoutUncheckedUpdateOneWithoutOrgNestedInput
+  notificationChannels?: Prisma.NotificationChannelUncheckedUpdateManyWithoutOrgNestedInput
+  alertRules?: Prisma.AlertRuleUncheckedUpdateManyWithoutOrgNestedInput
+  alertEvents?: Prisma.AlertEventUncheckedUpdateManyWithoutOrgNestedInput
+  incidents?: Prisma.IncidentUncheckedUpdateManyWithoutOrgNestedInput
+  incidentEvents?: Prisma.IncidentEventUncheckedUpdateManyWithoutOrgNestedInput
+  statusPages?: Prisma.StatusPageUncheckedUpdateManyWithoutOrgNestedInput
+  uptimeSamples?: Prisma.UptimeSampleUncheckedUpdateManyWithoutOrgNestedInput
+  scheduledJobs?: Prisma.ScheduledJobUncheckedUpdateManyWithoutOrgNestedInput
+  jobRuns?: Prisma.JobRunUncheckedUpdateManyWithoutOrgNestedInput
+  workflowDefs?: Prisma.WorkflowDefUncheckedUpdateManyWithoutOrgNestedInput
+  workflowRuns?: Prisma.WorkflowRunUncheckedUpdateManyWithoutOrgNestedInput
+  workflowStepRuns?: Prisma.WorkflowStepRunUncheckedUpdateManyWithoutOrgNestedInput
+  inboundEndpoints?: Prisma.InboundEndpointUncheckedUpdateManyWithoutOrgNestedInput
+  inboundDeliveries?: Prisma.InboundDeliveryUncheckedUpdateManyWithoutOrgNestedInput
+  releases?: Prisma.ReleaseUncheckedUpdateManyWithoutOrgNestedInput
+  imageScans?: Prisma.ImageScanUncheckedUpdateManyWithoutOrgNestedInput
+  exposureConfig?: Prisma.ExposureConfigUncheckedUpdateOneWithoutOrgNestedInput
+  guardrailConfig?: Prisma.GuardrailConfigUncheckedUpdateOneWithoutOrgNestedInput
+  notificationConfig?: Prisma.NotificationConfigUncheckedUpdateOneWithoutOrgNestedInput
+  notificationTemplates?: Prisma.NotificationTemplateUncheckedUpdateManyWithoutOrgNestedInput
+  notificationDeliveries?: Prisma.NotificationDeliveryUncheckedUpdateManyWithoutOrgNestedInput
+  aiProviderConfig?: Prisma.AiProviderConfigUncheckedUpdateOneWithoutOrgNestedInput
+  aiVirtualKeys?: Prisma.AiVirtualKeyUncheckedUpdateManyWithoutOrgNestedInput
+  aiUsage?: Prisma.AiUsageUncheckedUpdateManyWithoutOrgNestedInput
+  aiRequestLogs?: Prisma.AiRequestLogUncheckedUpdateManyWithoutOrgNestedInput
+}
+
+export type OrganizationCreateWithoutDnsZonesInput = {
+  id: string
+  name: string
+  slug: string
+  logo?: string | null
+  metadata?: string | null
+  createdAt?: Date | string
+  members?: Prisma.MemberCreateNestedManyWithoutOrganizationInput
+  invitations?: Prisma.InvitationCreateNestedManyWithoutOrganizationInput
+  nodes?: Prisma.NodeCreateNestedManyWithoutOrgInput
+  joinTokens?: Prisma.JoinTokenCreateNestedManyWithoutOrgInput
+  stacks?: Prisma.StackCreateNestedManyWithoutOrgInput
+  ingressConfig?: Prisma.IngressConfigCreateNestedOneWithoutOrgInput
+  auditLogs?: Prisma.AuditLogCreateNestedManyWithoutOrgInput
+  metricSamples?: Prisma.MetricSampleCreateNestedManyWithoutOrgInput
+  backupTargets?: Prisma.BackupTargetCreateNestedManyWithoutOrgInput
+  snapshots?: Prisma.SnapshotCreateNestedManyWithoutOrgInput
+  observabilityConfig?: Prisma.ObservabilityConfigCreateNestedOneWithoutOrgInput
+  observabilityStore?: Prisma.ObservabilityStoreStateCreateNestedManyWithoutOrgInput
+  meshConfig?: Prisma.MeshConfigCreateNestedOneWithoutOrgInput
+  meshPeers?: Prisma.MeshPeerCreateNestedManyWithoutOrgInput
+  ssoProviders?: Prisma.SsoProviderCreateNestedManyWithoutOrgInput
+  policies?: Prisma.PolicyCreateNestedManyWithoutOrgInput
+  resourceGrants?: Prisma.ResourceGrantCreateNestedManyWithoutOrgInput
+  gitRepos?: Prisma.GitRepoCreateNestedManyWithoutOrgInput
+  builds?: Prisma.BuildCreateNestedManyWithoutOrgInput
+  registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
+  imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
+  geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
+  apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
+  storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
+  clusterVolumes?: Prisma.ClusterVolumeCreateNestedManyWithoutOrgInput
+  backupSchedules?: Prisma.BackupScheduleCreateNestedManyWithoutOrgInput
+  backupJobs?: Prisma.BackupJobCreateNestedManyWithoutOrgInput
+  restoreOperations?: Prisma.RestoreOperationCreateNestedManyWithoutOrgInput
+  meshRoutes?: Prisma.MeshRouteCreateNestedManyWithoutOrgInput
+  meshAcls?: Prisma.MeshAclCreateNestedManyWithoutOrgInput
+  tunnels?: Prisma.TunnelCreateNestedManyWithoutOrgInput
+  terminalSessions?: Prisma.TerminalSessionCreateNestedManyWithoutOrgInput
+  terminalPolicy?: Prisma.TerminalPolicyCreateNestedOneWithoutOrgInput
+  terminalApprovals?: Prisma.TerminalApprovalCreateNestedManyWithoutOrgInput
+  swarmConfig?: Prisma.SwarmConfigCreateNestedOneWithoutOrgInput
+  idempotencyKeys?: Prisma.IdempotencyKeyCreateNestedManyWithoutOrgInput
+  oauthClients?: Prisma.OAuthClientCreateNestedManyWithoutOrgInput
+  webhookEndpoints?: Prisma.WebhookEndpointCreateNestedManyWithoutOrgInput
+  webhookDeliveries?: Prisma.WebhookDeliveryCreateNestedManyWithoutOrgInput
+  canvasLayout?: Prisma.CanvasLayoutCreateNestedOneWithoutOrgInput
+  notificationChannels?: Prisma.NotificationChannelCreateNestedManyWithoutOrgInput
+  alertRules?: Prisma.AlertRuleCreateNestedManyWithoutOrgInput
+  alertEvents?: Prisma.AlertEventCreateNestedManyWithoutOrgInput
+  incidents?: Prisma.IncidentCreateNestedManyWithoutOrgInput
+  incidentEvents?: Prisma.IncidentEventCreateNestedManyWithoutOrgInput
+  statusPages?: Prisma.StatusPageCreateNestedManyWithoutOrgInput
+  uptimeSamples?: Prisma.UptimeSampleCreateNestedManyWithoutOrgInput
+  scheduledJobs?: Prisma.ScheduledJobCreateNestedManyWithoutOrgInput
+  jobRuns?: Prisma.JobRunCreateNestedManyWithoutOrgInput
+  workflowDefs?: Prisma.WorkflowDefCreateNestedManyWithoutOrgInput
+  workflowRuns?: Prisma.WorkflowRunCreateNestedManyWithoutOrgInput
+  workflowStepRuns?: Prisma.WorkflowStepRunCreateNestedManyWithoutOrgInput
+  inboundEndpoints?: Prisma.InboundEndpointCreateNestedManyWithoutOrgInput
+  inboundDeliveries?: Prisma.InboundDeliveryCreateNestedManyWithoutOrgInput
+  releases?: Prisma.ReleaseCreateNestedManyWithoutOrgInput
+  imageScans?: Prisma.ImageScanCreateNestedManyWithoutOrgInput
+  exposureConfig?: Prisma.ExposureConfigCreateNestedOneWithoutOrgInput
+  guardrailConfig?: Prisma.GuardrailConfigCreateNestedOneWithoutOrgInput
+  notificationConfig?: Prisma.NotificationConfigCreateNestedOneWithoutOrgInput
+  notificationTemplates?: Prisma.NotificationTemplateCreateNestedManyWithoutOrgInput
+  notificationDeliveries?: Prisma.NotificationDeliveryCreateNestedManyWithoutOrgInput
+  aiProviderConfig?: Prisma.AiProviderConfigCreateNestedOneWithoutOrgInput
+  aiVirtualKeys?: Prisma.AiVirtualKeyCreateNestedManyWithoutOrgInput
+  aiUsage?: Prisma.AiUsageCreateNestedManyWithoutOrgInput
+  aiRequestLogs?: Prisma.AiRequestLogCreateNestedManyWithoutOrgInput
+}
+
+export type OrganizationUncheckedCreateWithoutDnsZonesInput = {
+  id: string
+  name: string
+  slug: string
+  logo?: string | null
+  metadata?: string | null
+  createdAt?: Date | string
+  members?: Prisma.MemberUncheckedCreateNestedManyWithoutOrganizationInput
+  invitations?: Prisma.InvitationUncheckedCreateNestedManyWithoutOrganizationInput
+  nodes?: Prisma.NodeUncheckedCreateNestedManyWithoutOrgInput
+  joinTokens?: Prisma.JoinTokenUncheckedCreateNestedManyWithoutOrgInput
+  stacks?: Prisma.StackUncheckedCreateNestedManyWithoutOrgInput
+  ingressConfig?: Prisma.IngressConfigUncheckedCreateNestedOneWithoutOrgInput
+  auditLogs?: Prisma.AuditLogUncheckedCreateNestedManyWithoutOrgInput
+  metricSamples?: Prisma.MetricSampleUncheckedCreateNestedManyWithoutOrgInput
+  backupTargets?: Prisma.BackupTargetUncheckedCreateNestedManyWithoutOrgInput
+  snapshots?: Prisma.SnapshotUncheckedCreateNestedManyWithoutOrgInput
+  observabilityConfig?: Prisma.ObservabilityConfigUncheckedCreateNestedOneWithoutOrgInput
+  observabilityStore?: Prisma.ObservabilityStoreStateUncheckedCreateNestedManyWithoutOrgInput
+  meshConfig?: Prisma.MeshConfigUncheckedCreateNestedOneWithoutOrgInput
+  meshPeers?: Prisma.MeshPeerUncheckedCreateNestedManyWithoutOrgInput
+  ssoProviders?: Prisma.SsoProviderUncheckedCreateNestedManyWithoutOrgInput
+  policies?: Prisma.PolicyUncheckedCreateNestedManyWithoutOrgInput
+  resourceGrants?: Prisma.ResourceGrantUncheckedCreateNestedManyWithoutOrgInput
+  gitRepos?: Prisma.GitRepoUncheckedCreateNestedManyWithoutOrgInput
+  builds?: Prisma.BuildUncheckedCreateNestedManyWithoutOrgInput
+  registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
+  imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
+  geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
+  apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
+  storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
+  clusterVolumes?: Prisma.ClusterVolumeUncheckedCreateNestedManyWithoutOrgInput
+  backupSchedules?: Prisma.BackupScheduleUncheckedCreateNestedManyWithoutOrgInput
+  backupJobs?: Prisma.BackupJobUncheckedCreateNestedManyWithoutOrgInput
+  restoreOperations?: Prisma.RestoreOperationUncheckedCreateNestedManyWithoutOrgInput
+  meshRoutes?: Prisma.MeshRouteUncheckedCreateNestedManyWithoutOrgInput
+  meshAcls?: Prisma.MeshAclUncheckedCreateNestedManyWithoutOrgInput
+  tunnels?: Prisma.TunnelUncheckedCreateNestedManyWithoutOrgInput
+  terminalSessions?: Prisma.TerminalSessionUncheckedCreateNestedManyWithoutOrgInput
+  terminalPolicy?: Prisma.TerminalPolicyUncheckedCreateNestedOneWithoutOrgInput
+  terminalApprovals?: Prisma.TerminalApprovalUncheckedCreateNestedManyWithoutOrgInput
+  swarmConfig?: Prisma.SwarmConfigUncheckedCreateNestedOneWithoutOrgInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUncheckedCreateNestedManyWithoutOrgInput
+  oauthClients?: Prisma.OAuthClientUncheckedCreateNestedManyWithoutOrgInput
+  webhookEndpoints?: Prisma.WebhookEndpointUncheckedCreateNestedManyWithoutOrgInput
+  webhookDeliveries?: Prisma.WebhookDeliveryUncheckedCreateNestedManyWithoutOrgInput
+  canvasLayout?: Prisma.CanvasLayoutUncheckedCreateNestedOneWithoutOrgInput
+  notificationChannels?: Prisma.NotificationChannelUncheckedCreateNestedManyWithoutOrgInput
+  alertRules?: Prisma.AlertRuleUncheckedCreateNestedManyWithoutOrgInput
+  alertEvents?: Prisma.AlertEventUncheckedCreateNestedManyWithoutOrgInput
+  incidents?: Prisma.IncidentUncheckedCreateNestedManyWithoutOrgInput
+  incidentEvents?: Prisma.IncidentEventUncheckedCreateNestedManyWithoutOrgInput
+  statusPages?: Prisma.StatusPageUncheckedCreateNestedManyWithoutOrgInput
+  uptimeSamples?: Prisma.UptimeSampleUncheckedCreateNestedManyWithoutOrgInput
+  scheduledJobs?: Prisma.ScheduledJobUncheckedCreateNestedManyWithoutOrgInput
+  jobRuns?: Prisma.JobRunUncheckedCreateNestedManyWithoutOrgInput
+  workflowDefs?: Prisma.WorkflowDefUncheckedCreateNestedManyWithoutOrgInput
+  workflowRuns?: Prisma.WorkflowRunUncheckedCreateNestedManyWithoutOrgInput
+  workflowStepRuns?: Prisma.WorkflowStepRunUncheckedCreateNestedManyWithoutOrgInput
+  inboundEndpoints?: Prisma.InboundEndpointUncheckedCreateNestedManyWithoutOrgInput
+  inboundDeliveries?: Prisma.InboundDeliveryUncheckedCreateNestedManyWithoutOrgInput
+  releases?: Prisma.ReleaseUncheckedCreateNestedManyWithoutOrgInput
+  imageScans?: Prisma.ImageScanUncheckedCreateNestedManyWithoutOrgInput
+  exposureConfig?: Prisma.ExposureConfigUncheckedCreateNestedOneWithoutOrgInput
+  guardrailConfig?: Prisma.GuardrailConfigUncheckedCreateNestedOneWithoutOrgInput
+  notificationConfig?: Prisma.NotificationConfigUncheckedCreateNestedOneWithoutOrgInput
+  notificationTemplates?: Prisma.NotificationTemplateUncheckedCreateNestedManyWithoutOrgInput
+  notificationDeliveries?: Prisma.NotificationDeliveryUncheckedCreateNestedManyWithoutOrgInput
+  aiProviderConfig?: Prisma.AiProviderConfigUncheckedCreateNestedOneWithoutOrgInput
+  aiVirtualKeys?: Prisma.AiVirtualKeyUncheckedCreateNestedManyWithoutOrgInput
+  aiUsage?: Prisma.AiUsageUncheckedCreateNestedManyWithoutOrgInput
+  aiRequestLogs?: Prisma.AiRequestLogUncheckedCreateNestedManyWithoutOrgInput
+}
+
+export type OrganizationCreateOrConnectWithoutDnsZonesInput = {
+  where: Prisma.OrganizationWhereUniqueInput
+  create: Prisma.XOR<Prisma.OrganizationCreateWithoutDnsZonesInput, Prisma.OrganizationUncheckedCreateWithoutDnsZonesInput>
+}
+
+export type OrganizationUpsertWithoutDnsZonesInput = {
+  update: Prisma.XOR<Prisma.OrganizationUpdateWithoutDnsZonesInput, Prisma.OrganizationUncheckedUpdateWithoutDnsZonesInput>
+  create: Prisma.XOR<Prisma.OrganizationCreateWithoutDnsZonesInput, Prisma.OrganizationUncheckedCreateWithoutDnsZonesInput>
+  where?: Prisma.OrganizationWhereInput
+}
+
+export type OrganizationUpdateToOneWithWhereWithoutDnsZonesInput = {
+  where?: Prisma.OrganizationWhereInput
+  data: Prisma.XOR<Prisma.OrganizationUpdateWithoutDnsZonesInput, Prisma.OrganizationUncheckedUpdateWithoutDnsZonesInput>
+}
+
+export type OrganizationUpdateWithoutDnsZonesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  slug?: Prisma.StringFieldUpdateOperationsInput | string
+  logo?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  members?: Prisma.MemberUpdateManyWithoutOrganizationNestedInput
+  invitations?: Prisma.InvitationUpdateManyWithoutOrganizationNestedInput
+  nodes?: Prisma.NodeUpdateManyWithoutOrgNestedInput
+  joinTokens?: Prisma.JoinTokenUpdateManyWithoutOrgNestedInput
+  stacks?: Prisma.StackUpdateManyWithoutOrgNestedInput
+  ingressConfig?: Prisma.IngressConfigUpdateOneWithoutOrgNestedInput
+  auditLogs?: Prisma.AuditLogUpdateManyWithoutOrgNestedInput
+  metricSamples?: Prisma.MetricSampleUpdateManyWithoutOrgNestedInput
+  backupTargets?: Prisma.BackupTargetUpdateManyWithoutOrgNestedInput
+  snapshots?: Prisma.SnapshotUpdateManyWithoutOrgNestedInput
+  observabilityConfig?: Prisma.ObservabilityConfigUpdateOneWithoutOrgNestedInput
+  observabilityStore?: Prisma.ObservabilityStoreStateUpdateManyWithoutOrgNestedInput
+  meshConfig?: Prisma.MeshConfigUpdateOneWithoutOrgNestedInput
+  meshPeers?: Prisma.MeshPeerUpdateManyWithoutOrgNestedInput
+  ssoProviders?: Prisma.SsoProviderUpdateManyWithoutOrgNestedInput
+  policies?: Prisma.PolicyUpdateManyWithoutOrgNestedInput
+  resourceGrants?: Prisma.ResourceGrantUpdateManyWithoutOrgNestedInput
+  gitRepos?: Prisma.GitRepoUpdateManyWithoutOrgNestedInput
+  builds?: Prisma.BuildUpdateManyWithoutOrgNestedInput
+  registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
+  imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
+  geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
+  apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
+  storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
+  clusterVolumes?: Prisma.ClusterVolumeUpdateManyWithoutOrgNestedInput
+  backupSchedules?: Prisma.BackupScheduleUpdateManyWithoutOrgNestedInput
+  backupJobs?: Prisma.BackupJobUpdateManyWithoutOrgNestedInput
+  restoreOperations?: Prisma.RestoreOperationUpdateManyWithoutOrgNestedInput
+  meshRoutes?: Prisma.MeshRouteUpdateManyWithoutOrgNestedInput
+  meshAcls?: Prisma.MeshAclUpdateManyWithoutOrgNestedInput
+  tunnels?: Prisma.TunnelUpdateManyWithoutOrgNestedInput
+  terminalSessions?: Prisma.TerminalSessionUpdateManyWithoutOrgNestedInput
+  terminalPolicy?: Prisma.TerminalPolicyUpdateOneWithoutOrgNestedInput
+  terminalApprovals?: Prisma.TerminalApprovalUpdateManyWithoutOrgNestedInput
+  swarmConfig?: Prisma.SwarmConfigUpdateOneWithoutOrgNestedInput
+  idempotencyKeys?: Prisma.IdempotencyKeyUpdateManyWithoutOrgNestedInput
+  oauthClients?: Prisma.OAuthClientUpdateManyWithoutOrgNestedInput
+  webhookEndpoints?: Prisma.WebhookEndpointUpdateManyWithoutOrgNestedInput
+  webhookDeliveries?: Prisma.WebhookDeliveryUpdateManyWithoutOrgNestedInput
+  canvasLayout?: Prisma.CanvasLayoutUpdateOneWithoutOrgNestedInput
+  notificationChannels?: Prisma.NotificationChannelUpdateManyWithoutOrgNestedInput
+  alertRules?: Prisma.AlertRuleUpdateManyWithoutOrgNestedInput
+  alertEvents?: Prisma.AlertEventUpdateManyWithoutOrgNestedInput
+  incidents?: Prisma.IncidentUpdateManyWithoutOrgNestedInput
+  incidentEvents?: Prisma.IncidentEventUpdateManyWithoutOrgNestedInput
+  statusPages?: Prisma.StatusPageUpdateManyWithoutOrgNestedInput
+  uptimeSamples?: Prisma.UptimeSampleUpdateManyWithoutOrgNestedInput
+  scheduledJobs?: Prisma.ScheduledJobUpdateManyWithoutOrgNestedInput
+  jobRuns?: Prisma.JobRunUpdateManyWithoutOrgNestedInput
+  workflowDefs?: Prisma.WorkflowDefUpdateManyWithoutOrgNestedInput
+  workflowRuns?: Prisma.WorkflowRunUpdateManyWithoutOrgNestedInput
+  workflowStepRuns?: Prisma.WorkflowStepRunUpdateManyWithoutOrgNestedInput
+  inboundEndpoints?: Prisma.InboundEndpointUpdateManyWithoutOrgNestedInput
+  inboundDeliveries?: Prisma.InboundDeliveryUpdateManyWithoutOrgNestedInput
+  releases?: Prisma.ReleaseUpdateManyWithoutOrgNestedInput
+  imageScans?: Prisma.ImageScanUpdateManyWithoutOrgNestedInput
+  exposureConfig?: Prisma.ExposureConfigUpdateOneWithoutOrgNestedInput
+  guardrailConfig?: Prisma.GuardrailConfigUpdateOneWithoutOrgNestedInput
+  notificationConfig?: Prisma.NotificationConfigUpdateOneWithoutOrgNestedInput
+  notificationTemplates?: Prisma.NotificationTemplateUpdateManyWithoutOrgNestedInput
+  notificationDeliveries?: Prisma.NotificationDeliveryUpdateManyWithoutOrgNestedInput
+  aiProviderConfig?: Prisma.AiProviderConfigUpdateOneWithoutOrgNestedInput
+  aiVirtualKeys?: Prisma.AiVirtualKeyUpdateManyWithoutOrgNestedInput
+  aiUsage?: Prisma.AiUsageUpdateManyWithoutOrgNestedInput
+  aiRequestLogs?: Prisma.AiRequestLogUpdateManyWithoutOrgNestedInput
+}
+
+export type OrganizationUncheckedUpdateWithoutDnsZonesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  slug?: Prisma.StringFieldUpdateOperationsInput | string
+  logo?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  metadata?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  members?: Prisma.MemberUncheckedUpdateManyWithoutOrganizationNestedInput
+  invitations?: Prisma.InvitationUncheckedUpdateManyWithoutOrganizationNestedInput
+  nodes?: Prisma.NodeUncheckedUpdateManyWithoutOrgNestedInput
+  joinTokens?: Prisma.JoinTokenUncheckedUpdateManyWithoutOrgNestedInput
+  stacks?: Prisma.StackUncheckedUpdateManyWithoutOrgNestedInput
+  ingressConfig?: Prisma.IngressConfigUncheckedUpdateOneWithoutOrgNestedInput
+  auditLogs?: Prisma.AuditLogUncheckedUpdateManyWithoutOrgNestedInput
+  metricSamples?: Prisma.MetricSampleUncheckedUpdateManyWithoutOrgNestedInput
+  backupTargets?: Prisma.BackupTargetUncheckedUpdateManyWithoutOrgNestedInput
+  snapshots?: Prisma.SnapshotUncheckedUpdateManyWithoutOrgNestedInput
+  observabilityConfig?: Prisma.ObservabilityConfigUncheckedUpdateOneWithoutOrgNestedInput
+  observabilityStore?: Prisma.ObservabilityStoreStateUncheckedUpdateManyWithoutOrgNestedInput
+  meshConfig?: Prisma.MeshConfigUncheckedUpdateOneWithoutOrgNestedInput
+  meshPeers?: Prisma.MeshPeerUncheckedUpdateManyWithoutOrgNestedInput
+  ssoProviders?: Prisma.SsoProviderUncheckedUpdateManyWithoutOrgNestedInput
+  policies?: Prisma.PolicyUncheckedUpdateManyWithoutOrgNestedInput
+  resourceGrants?: Prisma.ResourceGrantUncheckedUpdateManyWithoutOrgNestedInput
+  gitRepos?: Prisma.GitRepoUncheckedUpdateManyWithoutOrgNestedInput
+  builds?: Prisma.BuildUncheckedUpdateManyWithoutOrgNestedInput
+  registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
+  imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
+  geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -14539,6 +15040,7 @@ export type OrganizationCreateWithoutDnsRecordsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
   clusterVolumes?: Prisma.ClusterVolumeCreateNestedManyWithoutOrgInput
@@ -14613,6 +15115,7 @@ export type OrganizationUncheckedCreateWithoutDnsRecordsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
   clusterVolumes?: Prisma.ClusterVolumeUncheckedCreateNestedManyWithoutOrgInput
@@ -14703,6 +15206,7 @@ export type OrganizationUpdateWithoutDnsRecordsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
   clusterVolumes?: Prisma.ClusterVolumeUpdateManyWithoutOrgNestedInput
@@ -14777,6 +15281,7 @@ export type OrganizationUncheckedUpdateWithoutDnsRecordsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
   clusterVolumes?: Prisma.ClusterVolumeUncheckedUpdateManyWithoutOrgNestedInput
@@ -14851,6 +15356,7 @@ export type OrganizationCreateWithoutExposureConfigInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -14925,6 +15431,7 @@ export type OrganizationUncheckedCreateWithoutExposureConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -15015,6 +15522,7 @@ export type OrganizationUpdateWithoutExposureConfigInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -15089,6 +15597,7 @@ export type OrganizationUncheckedUpdateWithoutExposureConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -15163,6 +15672,7 @@ export type OrganizationCreateWithoutGuardrailConfigInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -15237,6 +15747,7 @@ export type OrganizationUncheckedCreateWithoutGuardrailConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -15327,6 +15838,7 @@ export type OrganizationUpdateWithoutGuardrailConfigInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -15401,6 +15913,7 @@ export type OrganizationUncheckedUpdateWithoutGuardrailConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -15474,6 +15987,7 @@ export type OrganizationCreateWithoutIngressConfigInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -15548,6 +16062,7 @@ export type OrganizationUncheckedCreateWithoutIngressConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -15638,6 +16153,7 @@ export type OrganizationUpdateWithoutIngressConfigInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -15712,6 +16228,7 @@ export type OrganizationUncheckedUpdateWithoutIngressConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -15787,6 +16304,7 @@ export type OrganizationCreateWithoutTunnelsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -15861,6 +16379,7 @@ export type OrganizationUncheckedCreateWithoutTunnelsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -15951,6 +16470,7 @@ export type OrganizationUpdateWithoutTunnelsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -16025,6 +16545,7 @@ export type OrganizationUncheckedUpdateWithoutTunnelsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -16099,6 +16620,7 @@ export type OrganizationCreateWithoutScheduledJobsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -16173,6 +16695,7 @@ export type OrganizationUncheckedCreateWithoutScheduledJobsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -16263,6 +16786,7 @@ export type OrganizationUpdateWithoutScheduledJobsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -16337,6 +16861,7 @@ export type OrganizationUncheckedUpdateWithoutScheduledJobsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -16411,6 +16936,7 @@ export type OrganizationCreateWithoutJobRunsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -16485,6 +17011,7 @@ export type OrganizationUncheckedCreateWithoutJobRunsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -16575,6 +17102,7 @@ export type OrganizationUpdateWithoutJobRunsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -16649,6 +17177,7 @@ export type OrganizationUncheckedUpdateWithoutJobRunsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -16723,6 +17252,7 @@ export type OrganizationCreateWithoutWorkflowDefsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -16797,6 +17327,7 @@ export type OrganizationUncheckedCreateWithoutWorkflowDefsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -16887,6 +17418,7 @@ export type OrganizationUpdateWithoutWorkflowDefsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -16961,6 +17493,7 @@ export type OrganizationUncheckedUpdateWithoutWorkflowDefsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -17035,6 +17568,7 @@ export type OrganizationCreateWithoutWorkflowRunsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -17109,6 +17643,7 @@ export type OrganizationUncheckedCreateWithoutWorkflowRunsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -17199,6 +17734,7 @@ export type OrganizationUpdateWithoutWorkflowRunsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -17273,6 +17809,7 @@ export type OrganizationUncheckedUpdateWithoutWorkflowRunsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -17347,6 +17884,7 @@ export type OrganizationCreateWithoutWorkflowStepRunsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -17421,6 +17959,7 @@ export type OrganizationUncheckedCreateWithoutWorkflowStepRunsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -17511,6 +18050,7 @@ export type OrganizationUpdateWithoutWorkflowStepRunsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -17585,6 +18125,7 @@ export type OrganizationUncheckedUpdateWithoutWorkflowStepRunsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -17658,6 +18199,7 @@ export type OrganizationCreateWithoutMeshConfigInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -17732,6 +18274,7 @@ export type OrganizationUncheckedCreateWithoutMeshConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -17822,6 +18365,7 @@ export type OrganizationUpdateWithoutMeshConfigInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -17896,6 +18440,7 @@ export type OrganizationUncheckedUpdateWithoutMeshConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -17970,6 +18515,7 @@ export type OrganizationCreateWithoutMeshPeersInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -18044,6 +18590,7 @@ export type OrganizationUncheckedCreateWithoutMeshPeersInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -18134,6 +18681,7 @@ export type OrganizationUpdateWithoutMeshPeersInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -18208,6 +18756,7 @@ export type OrganizationUncheckedUpdateWithoutMeshPeersInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -18283,6 +18832,7 @@ export type OrganizationCreateWithoutMeshRoutesInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -18357,6 +18907,7 @@ export type OrganizationUncheckedCreateWithoutMeshRoutesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -18447,6 +18998,7 @@ export type OrganizationUpdateWithoutMeshRoutesInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -18521,6 +19073,7 @@ export type OrganizationUncheckedUpdateWithoutMeshRoutesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -18595,6 +19148,7 @@ export type OrganizationCreateWithoutMeshAclsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -18669,6 +19223,7 @@ export type OrganizationUncheckedCreateWithoutMeshAclsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -18759,6 +19314,7 @@ export type OrganizationUpdateWithoutMeshAclsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -18833,6 +19389,7 @@ export type OrganizationUncheckedUpdateWithoutMeshAclsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -18907,6 +19464,7 @@ export type OrganizationCreateWithoutNotificationConfigInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -18981,6 +19539,7 @@ export type OrganizationUncheckedCreateWithoutNotificationConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -19071,6 +19630,7 @@ export type OrganizationUpdateWithoutNotificationConfigInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -19145,6 +19705,7 @@ export type OrganizationUncheckedUpdateWithoutNotificationConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -19219,6 +19780,7 @@ export type OrganizationCreateWithoutNotificationTemplatesInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -19293,6 +19855,7 @@ export type OrganizationUncheckedCreateWithoutNotificationTemplatesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -19383,6 +19946,7 @@ export type OrganizationUpdateWithoutNotificationTemplatesInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -19457,6 +20021,7 @@ export type OrganizationUncheckedUpdateWithoutNotificationTemplatesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -19531,6 +20096,7 @@ export type OrganizationCreateWithoutNotificationDeliveriesInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -19605,6 +20171,7 @@ export type OrganizationUncheckedCreateWithoutNotificationDeliveriesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -19695,6 +20262,7 @@ export type OrganizationUpdateWithoutNotificationDeliveriesInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -19769,6 +20337,7 @@ export type OrganizationUncheckedUpdateWithoutNotificationDeliveriesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -19842,6 +20411,7 @@ export type OrganizationCreateWithoutObservabilityConfigInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -19916,6 +20486,7 @@ export type OrganizationUncheckedCreateWithoutObservabilityConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -20006,6 +20577,7 @@ export type OrganizationUpdateWithoutObservabilityConfigInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -20080,6 +20652,7 @@ export type OrganizationUncheckedUpdateWithoutObservabilityConfigInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -20154,6 +20727,7 @@ export type OrganizationCreateWithoutObservabilityStoreInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -20228,6 +20802,7 @@ export type OrganizationUncheckedCreateWithoutObservabilityStoreInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -20318,6 +20893,7 @@ export type OrganizationUpdateWithoutObservabilityStoreInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -20392,6 +20968,7 @@ export type OrganizationUncheckedUpdateWithoutObservabilityStoreInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -20467,6 +21044,7 @@ export type OrganizationCreateWithoutReleasesInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -20541,6 +21119,7 @@ export type OrganizationUncheckedCreateWithoutReleasesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -20631,6 +21210,7 @@ export type OrganizationUpdateWithoutReleasesInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -20705,6 +21285,7 @@ export type OrganizationUncheckedUpdateWithoutReleasesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -20779,6 +21360,7 @@ export type OrganizationCreateWithoutTerminalPolicyInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -20853,6 +21435,7 @@ export type OrganizationUncheckedCreateWithoutTerminalPolicyInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -20943,6 +21526,7 @@ export type OrganizationUpdateWithoutTerminalPolicyInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -21017,6 +21601,7 @@ export type OrganizationUncheckedUpdateWithoutTerminalPolicyInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -21091,6 +21676,7 @@ export type OrganizationCreateWithoutTerminalSessionsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -21165,6 +21751,7 @@ export type OrganizationUncheckedCreateWithoutTerminalSessionsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -21255,6 +21842,7 @@ export type OrganizationUpdateWithoutTerminalSessionsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -21329,6 +21917,7 @@ export type OrganizationUncheckedUpdateWithoutTerminalSessionsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -21403,6 +21992,7 @@ export type OrganizationCreateWithoutTerminalApprovalsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -21477,6 +22067,7 @@ export type OrganizationUncheckedCreateWithoutTerminalApprovalsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -21567,6 +22158,7 @@ export type OrganizationUpdateWithoutTerminalApprovalsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -21641,6 +22233,7 @@ export type OrganizationUncheckedUpdateWithoutTerminalApprovalsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -21715,6 +22308,7 @@ export type OrganizationCreateWithoutInboundEndpointsInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -21789,6 +22383,7 @@ export type OrganizationUncheckedCreateWithoutInboundEndpointsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -21879,6 +22474,7 @@ export type OrganizationUpdateWithoutInboundEndpointsInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -21953,6 +22549,7 @@ export type OrganizationUncheckedUpdateWithoutInboundEndpointsInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -22027,6 +22624,7 @@ export type OrganizationCreateWithoutInboundDeliveriesInput = {
   registryConfig?: Prisma.RegistryConfigCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterCreateNestedOneWithoutOrgInput
@@ -22101,6 +22699,7 @@ export type OrganizationUncheckedCreateWithoutInboundDeliveriesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedCreateNestedOneWithoutOrgInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedCreateNestedOneWithoutOrgInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedCreateNestedOneWithoutOrgInput
+  dnsZones?: Prisma.DnsZoneUncheckedCreateNestedManyWithoutOrgInput
   dnsRecords?: Prisma.DnsRecordUncheckedCreateNestedManyWithoutOrgInput
   apiKeys?: Prisma.ApiKeyUncheckedCreateNestedManyWithoutOrgInput
   storageCluster?: Prisma.StorageClusterUncheckedCreateNestedOneWithoutOrgInput
@@ -22191,6 +22790,7 @@ export type OrganizationUpdateWithoutInboundDeliveriesInput = {
   registryConfig?: Prisma.RegistryConfigUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUpdateOneWithoutOrgNestedInput
@@ -22265,6 +22865,7 @@ export type OrganizationUncheckedUpdateWithoutInboundDeliveriesInput = {
   registryConfig?: Prisma.RegistryConfigUncheckedUpdateOneWithoutOrgNestedInput
   imageGcPolicy?: Prisma.ImageGcPolicyUncheckedUpdateOneWithoutOrgNestedInput
   geoDnsConfig?: Prisma.GeoDnsConfigUncheckedUpdateOneWithoutOrgNestedInput
+  dnsZones?: Prisma.DnsZoneUncheckedUpdateManyWithoutOrgNestedInput
   dnsRecords?: Prisma.DnsRecordUncheckedUpdateManyWithoutOrgNestedInput
   apiKeys?: Prisma.ApiKeyUncheckedUpdateManyWithoutOrgNestedInput
   storageCluster?: Prisma.StorageClusterUncheckedUpdateOneWithoutOrgNestedInput
@@ -22332,6 +22933,7 @@ export type OrganizationCountOutputType = {
   resourceGrants: number
   gitRepos: number
   builds: number
+  dnsZones: number
   dnsRecords: number
   apiKeys: number
   clusterVolumes: number
@@ -22387,6 +22989,7 @@ export type OrganizationCountOutputTypeSelect<ExtArgs extends runtime.Types.Exte
   resourceGrants?: boolean | OrganizationCountOutputTypeCountResourceGrantsArgs
   gitRepos?: boolean | OrganizationCountOutputTypeCountGitReposArgs
   builds?: boolean | OrganizationCountOutputTypeCountBuildsArgs
+  dnsZones?: boolean | OrganizationCountOutputTypeCountDnsZonesArgs
   dnsRecords?: boolean | OrganizationCountOutputTypeCountDnsRecordsArgs
   apiKeys?: boolean | OrganizationCountOutputTypeCountApiKeysArgs
   clusterVolumes?: boolean | OrganizationCountOutputTypeCountClusterVolumesArgs
@@ -22545,6 +23148,13 @@ export type OrganizationCountOutputTypeCountGitReposArgs<ExtArgs extends runtime
  */
 export type OrganizationCountOutputTypeCountBuildsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.BuildWhereInput
+}
+
+/**
+ * OrganizationCountOutputType without action
+ */
+export type OrganizationCountOutputTypeCountDnsZonesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.DnsZoneWhereInput
 }
 
 /**
@@ -22829,6 +23439,7 @@ export type OrganizationSelect<ExtArgs extends runtime.Types.Extensions.Internal
   registryConfig?: boolean | Prisma.Organization$registryConfigArgs<ExtArgs>
   imageGcPolicy?: boolean | Prisma.Organization$imageGcPolicyArgs<ExtArgs>
   geoDnsConfig?: boolean | Prisma.Organization$geoDnsConfigArgs<ExtArgs>
+  dnsZones?: boolean | Prisma.Organization$dnsZonesArgs<ExtArgs>
   dnsRecords?: boolean | Prisma.Organization$dnsRecordsArgs<ExtArgs>
   apiKeys?: boolean | Prisma.Organization$apiKeysArgs<ExtArgs>
   storageCluster?: boolean | Prisma.Organization$storageClusterArgs<ExtArgs>
@@ -22927,6 +23538,7 @@ export type OrganizationInclude<ExtArgs extends runtime.Types.Extensions.Interna
   registryConfig?: boolean | Prisma.Organization$registryConfigArgs<ExtArgs>
   imageGcPolicy?: boolean | Prisma.Organization$imageGcPolicyArgs<ExtArgs>
   geoDnsConfig?: boolean | Prisma.Organization$geoDnsConfigArgs<ExtArgs>
+  dnsZones?: boolean | Prisma.Organization$dnsZonesArgs<ExtArgs>
   dnsRecords?: boolean | Prisma.Organization$dnsRecordsArgs<ExtArgs>
   apiKeys?: boolean | Prisma.Organization$apiKeysArgs<ExtArgs>
   storageCluster?: boolean | Prisma.Organization$storageClusterArgs<ExtArgs>
@@ -23001,6 +23613,7 @@ export type $OrganizationPayload<ExtArgs extends runtime.Types.Extensions.Intern
     registryConfig: Prisma.$RegistryConfigPayload<ExtArgs> | null
     imageGcPolicy: Prisma.$ImageGcPolicyPayload<ExtArgs> | null
     geoDnsConfig: Prisma.$GeoDnsConfigPayload<ExtArgs> | null
+    dnsZones: Prisma.$DnsZonePayload<ExtArgs>[]
     dnsRecords: Prisma.$DnsRecordPayload<ExtArgs>[]
     apiKeys: Prisma.$ApiKeyPayload<ExtArgs>[]
     storageCluster: Prisma.$StorageClusterPayload<ExtArgs> | null
@@ -23469,6 +24082,7 @@ export interface Prisma__OrganizationClient<T, Null = never, ExtArgs extends run
   registryConfig<T extends Prisma.Organization$registryConfigArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Organization$registryConfigArgs<ExtArgs>>): Prisma.Prisma__RegistryConfigClient<runtime.Types.Result.GetResult<Prisma.$RegistryConfigPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   imageGcPolicy<T extends Prisma.Organization$imageGcPolicyArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Organization$imageGcPolicyArgs<ExtArgs>>): Prisma.Prisma__ImageGcPolicyClient<runtime.Types.Result.GetResult<Prisma.$ImageGcPolicyPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   geoDnsConfig<T extends Prisma.Organization$geoDnsConfigArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Organization$geoDnsConfigArgs<ExtArgs>>): Prisma.Prisma__GeoDnsConfigClient<runtime.Types.Result.GetResult<Prisma.$GeoDnsConfigPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
+  dnsZones<T extends Prisma.Organization$dnsZonesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Organization$dnsZonesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$DnsZonePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   dnsRecords<T extends Prisma.Organization$dnsRecordsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Organization$dnsRecordsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$DnsRecordPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   apiKeys<T extends Prisma.Organization$apiKeysArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Organization$apiKeysArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ApiKeyPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   storageCluster<T extends Prisma.Organization$storageClusterArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Organization$storageClusterArgs<ExtArgs>>): Prisma.Prisma__StorageClusterClient<runtime.Types.Result.GetResult<Prisma.$StorageClusterPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
@@ -24436,6 +25050,30 @@ export type Organization$geoDnsConfigArgs<ExtArgs extends runtime.Types.Extensio
    */
   include?: Prisma.GeoDnsConfigInclude<ExtArgs> | null
   where?: Prisma.GeoDnsConfigWhereInput
+}
+
+/**
+ * Organization.dnsZones
+ */
+export type Organization$dnsZonesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the DnsZone
+   */
+  select?: Prisma.DnsZoneSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the DnsZone
+   */
+  omit?: Prisma.DnsZoneOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.DnsZoneInclude<ExtArgs> | null
+  where?: Prisma.DnsZoneWhereInput
+  orderBy?: Prisma.DnsZoneOrderByWithRelationInput | Prisma.DnsZoneOrderByWithRelationInput[]
+  cursor?: Prisma.DnsZoneWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.DnsZoneScalarFieldEnum | Prisma.DnsZoneScalarFieldEnum[]
 }
 
 /**

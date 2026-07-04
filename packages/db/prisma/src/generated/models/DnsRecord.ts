@@ -14,23 +14,39 @@ import type * as Prisma from "../internal/prismaNamespace.ts"
 
 /**
  * Model DnsRecord
- * 
+ * Manual static records — the non-web zone content swarmy must answer once NS
+ * points at it (MX, TXT/SPF/DKIM, CNAME, SRV, CAA, child-zone NS). Web A
+ * records are NOT here: they derive from ingress (see dns-snapshot.service).
  */
 export type DnsRecordModel = runtime.Types.Result.DefaultSelection<Prisma.$DnsRecordPayload>
 
 export type AggregateDnsRecord = {
   _count: DnsRecordCountAggregateOutputType | null
+  _avg: DnsRecordAvgAggregateOutputType | null
+  _sum: DnsRecordSumAggregateOutputType | null
   _min: DnsRecordMinAggregateOutputType | null
   _max: DnsRecordMaxAggregateOutputType | null
+}
+
+export type DnsRecordAvgAggregateOutputType = {
+  ttl: number | null
+  priority: number | null
+}
+
+export type DnsRecordSumAggregateOutputType = {
+  ttl: number | null
+  priority: number | null
 }
 
 export type DnsRecordMinAggregateOutputType = {
   id: string | null
   orgId: string | null
-  host: string | null
-  region: string | null
-  targetIngress: string | null
-  healthy: boolean | null
+  zoneId: string | null
+  name: string | null
+  type: string | null
+  value: string | null
+  ttl: number | null
+  priority: number | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -38,10 +54,12 @@ export type DnsRecordMinAggregateOutputType = {
 export type DnsRecordMaxAggregateOutputType = {
   id: string | null
   orgId: string | null
-  host: string | null
-  region: string | null
-  targetIngress: string | null
-  healthy: boolean | null
+  zoneId: string | null
+  name: string | null
+  type: string | null
+  value: string | null
+  ttl: number | null
+  priority: number | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -49,23 +67,37 @@ export type DnsRecordMaxAggregateOutputType = {
 export type DnsRecordCountAggregateOutputType = {
   id: number
   orgId: number
-  host: number
-  region: number
-  targetIngress: number
-  healthy: number
+  zoneId: number
+  name: number
+  type: number
+  value: number
+  ttl: number
+  priority: number
   createdAt: number
   updatedAt: number
   _all: number
 }
 
 
+export type DnsRecordAvgAggregateInputType = {
+  ttl?: true
+  priority?: true
+}
+
+export type DnsRecordSumAggregateInputType = {
+  ttl?: true
+  priority?: true
+}
+
 export type DnsRecordMinAggregateInputType = {
   id?: true
   orgId?: true
-  host?: true
-  region?: true
-  targetIngress?: true
-  healthy?: true
+  zoneId?: true
+  name?: true
+  type?: true
+  value?: true
+  ttl?: true
+  priority?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -73,10 +105,12 @@ export type DnsRecordMinAggregateInputType = {
 export type DnsRecordMaxAggregateInputType = {
   id?: true
   orgId?: true
-  host?: true
-  region?: true
-  targetIngress?: true
-  healthy?: true
+  zoneId?: true
+  name?: true
+  type?: true
+  value?: true
+  ttl?: true
+  priority?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -84,10 +118,12 @@ export type DnsRecordMaxAggregateInputType = {
 export type DnsRecordCountAggregateInputType = {
   id?: true
   orgId?: true
-  host?: true
-  region?: true
-  targetIngress?: true
-  healthy?: true
+  zoneId?: true
+  name?: true
+  type?: true
+  value?: true
+  ttl?: true
+  priority?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -131,6 +167,18 @@ export type DnsRecordAggregateArgs<ExtArgs extends runtime.Types.Extensions.Inte
   /**
    * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
    * 
+   * Select which fields to average
+  **/
+  _avg?: DnsRecordAvgAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
+   * Select which fields to sum
+  **/
+  _sum?: DnsRecordSumAggregateInputType
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+   * 
    * Select which fields to find the minimum value
   **/
   _min?: DnsRecordMinAggregateInputType
@@ -161,6 +209,8 @@ export type DnsRecordGroupByArgs<ExtArgs extends runtime.Types.Extensions.Intern
   take?: number
   skip?: number
   _count?: DnsRecordCountAggregateInputType | true
+  _avg?: DnsRecordAvgAggregateInputType
+  _sum?: DnsRecordSumAggregateInputType
   _min?: DnsRecordMinAggregateInputType
   _max?: DnsRecordMaxAggregateInputType
 }
@@ -168,13 +218,17 @@ export type DnsRecordGroupByArgs<ExtArgs extends runtime.Types.Extensions.Intern
 export type DnsRecordGroupByOutputType = {
   id: string
   orgId: string
-  host: string
-  region: string
-  targetIngress: string
-  healthy: boolean
+  zoneId: string
+  name: string
+  type: string
+  value: string
+  ttl: number | null
+  priority: number | null
   createdAt: Date
   updatedAt: Date
   _count: DnsRecordCountAggregateOutputType | null
+  _avg: DnsRecordAvgAggregateOutputType | null
+  _sum: DnsRecordSumAggregateOutputType | null
   _min: DnsRecordMinAggregateOutputType | null
   _max: DnsRecordMaxAggregateOutputType | null
 }
@@ -200,55 +254,68 @@ export type DnsRecordWhereInput = {
   NOT?: Prisma.DnsRecordWhereInput | Prisma.DnsRecordWhereInput[]
   id?: Prisma.StringFilter<"DnsRecord"> | string
   orgId?: Prisma.StringFilter<"DnsRecord"> | string
-  host?: Prisma.StringFilter<"DnsRecord"> | string
-  region?: Prisma.StringFilter<"DnsRecord"> | string
-  targetIngress?: Prisma.StringFilter<"DnsRecord"> | string
-  healthy?: Prisma.BoolFilter<"DnsRecord"> | boolean
+  zoneId?: Prisma.StringFilter<"DnsRecord"> | string
+  name?: Prisma.StringFilter<"DnsRecord"> | string
+  type?: Prisma.StringFilter<"DnsRecord"> | string
+  value?: Prisma.StringFilter<"DnsRecord"> | string
+  ttl?: Prisma.IntNullableFilter<"DnsRecord"> | number | null
+  priority?: Prisma.IntNullableFilter<"DnsRecord"> | number | null
   createdAt?: Prisma.DateTimeFilter<"DnsRecord"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DnsRecord"> | Date | string
   org?: Prisma.XOR<Prisma.OrganizationScalarRelationFilter, Prisma.OrganizationWhereInput>
+  zone?: Prisma.XOR<Prisma.DnsZoneScalarRelationFilter, Prisma.DnsZoneWhereInput>
 }
 
 export type DnsRecordOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   orgId?: Prisma.SortOrder
-  host?: Prisma.SortOrder
-  region?: Prisma.SortOrder
-  targetIngress?: Prisma.SortOrder
-  healthy?: Prisma.SortOrder
+  zoneId?: Prisma.SortOrder
+  name?: Prisma.SortOrder
+  type?: Prisma.SortOrder
+  value?: Prisma.SortOrder
+  ttl?: Prisma.SortOrderInput | Prisma.SortOrder
+  priority?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   org?: Prisma.OrganizationOrderByWithRelationInput
+  zone?: Prisma.DnsZoneOrderByWithRelationInput
 }
 
 export type DnsRecordWhereUniqueInput = Prisma.AtLeast<{
   id?: string
-  orgId_host_region?: Prisma.DnsRecordOrgIdHostRegionCompoundUniqueInput
+  orgId_zoneId_name_type_value?: Prisma.DnsRecordOrgIdZoneIdNameTypeValueCompoundUniqueInput
   AND?: Prisma.DnsRecordWhereInput | Prisma.DnsRecordWhereInput[]
   OR?: Prisma.DnsRecordWhereInput[]
   NOT?: Prisma.DnsRecordWhereInput | Prisma.DnsRecordWhereInput[]
   orgId?: Prisma.StringFilter<"DnsRecord"> | string
-  host?: Prisma.StringFilter<"DnsRecord"> | string
-  region?: Prisma.StringFilter<"DnsRecord"> | string
-  targetIngress?: Prisma.StringFilter<"DnsRecord"> | string
-  healthy?: Prisma.BoolFilter<"DnsRecord"> | boolean
+  zoneId?: Prisma.StringFilter<"DnsRecord"> | string
+  name?: Prisma.StringFilter<"DnsRecord"> | string
+  type?: Prisma.StringFilter<"DnsRecord"> | string
+  value?: Prisma.StringFilter<"DnsRecord"> | string
+  ttl?: Prisma.IntNullableFilter<"DnsRecord"> | number | null
+  priority?: Prisma.IntNullableFilter<"DnsRecord"> | number | null
   createdAt?: Prisma.DateTimeFilter<"DnsRecord"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DnsRecord"> | Date | string
   org?: Prisma.XOR<Prisma.OrganizationScalarRelationFilter, Prisma.OrganizationWhereInput>
-}, "id" | "orgId_host_region">
+  zone?: Prisma.XOR<Prisma.DnsZoneScalarRelationFilter, Prisma.DnsZoneWhereInput>
+}, "id" | "orgId_zoneId_name_type_value">
 
 export type DnsRecordOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   orgId?: Prisma.SortOrder
-  host?: Prisma.SortOrder
-  region?: Prisma.SortOrder
-  targetIngress?: Prisma.SortOrder
-  healthy?: Prisma.SortOrder
+  zoneId?: Prisma.SortOrder
+  name?: Prisma.SortOrder
+  type?: Prisma.SortOrder
+  value?: Prisma.SortOrder
+  ttl?: Prisma.SortOrderInput | Prisma.SortOrder
+  priority?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.DnsRecordCountOrderByAggregateInput
+  _avg?: Prisma.DnsRecordAvgOrderByAggregateInput
   _max?: Prisma.DnsRecordMaxOrderByAggregateInput
   _min?: Prisma.DnsRecordMinOrderByAggregateInput
+  _sum?: Prisma.DnsRecordSumOrderByAggregateInput
 }
 
 export type DnsRecordScalarWhereWithAggregatesInput = {
@@ -257,54 +324,64 @@ export type DnsRecordScalarWhereWithAggregatesInput = {
   NOT?: Prisma.DnsRecordScalarWhereWithAggregatesInput | Prisma.DnsRecordScalarWhereWithAggregatesInput[]
   id?: Prisma.StringWithAggregatesFilter<"DnsRecord"> | string
   orgId?: Prisma.StringWithAggregatesFilter<"DnsRecord"> | string
-  host?: Prisma.StringWithAggregatesFilter<"DnsRecord"> | string
-  region?: Prisma.StringWithAggregatesFilter<"DnsRecord"> | string
-  targetIngress?: Prisma.StringWithAggregatesFilter<"DnsRecord"> | string
-  healthy?: Prisma.BoolWithAggregatesFilter<"DnsRecord"> | boolean
+  zoneId?: Prisma.StringWithAggregatesFilter<"DnsRecord"> | string
+  name?: Prisma.StringWithAggregatesFilter<"DnsRecord"> | string
+  type?: Prisma.StringWithAggregatesFilter<"DnsRecord"> | string
+  value?: Prisma.StringWithAggregatesFilter<"DnsRecord"> | string
+  ttl?: Prisma.IntNullableWithAggregatesFilter<"DnsRecord"> | number | null
+  priority?: Prisma.IntNullableWithAggregatesFilter<"DnsRecord"> | number | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"DnsRecord"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"DnsRecord"> | Date | string
 }
 
 export type DnsRecordCreateInput = {
   id?: string
-  host: string
-  region: string
-  targetIngress: string
-  healthy?: boolean
+  name: string
+  type: string
+  value: string
+  ttl?: number | null
+  priority?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
   org: Prisma.OrganizationCreateNestedOneWithoutDnsRecordsInput
+  zone: Prisma.DnsZoneCreateNestedOneWithoutRecordsInput
 }
 
 export type DnsRecordUncheckedCreateInput = {
   id?: string
   orgId: string
-  host: string
-  region: string
-  targetIngress: string
-  healthy?: boolean
+  zoneId: string
+  name: string
+  type: string
+  value: string
+  ttl?: number | null
+  priority?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
 
 export type DnsRecordUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  host?: Prisma.StringFieldUpdateOperationsInput | string
-  region?: Prisma.StringFieldUpdateOperationsInput | string
-  targetIngress?: Prisma.StringFieldUpdateOperationsInput | string
-  healthy?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  value?: Prisma.StringFieldUpdateOperationsInput | string
+  ttl?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  priority?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   org?: Prisma.OrganizationUpdateOneRequiredWithoutDnsRecordsNestedInput
+  zone?: Prisma.DnsZoneUpdateOneRequiredWithoutRecordsNestedInput
 }
 
 export type DnsRecordUncheckedUpdateInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   orgId?: Prisma.StringFieldUpdateOperationsInput | string
-  host?: Prisma.StringFieldUpdateOperationsInput | string
-  region?: Prisma.StringFieldUpdateOperationsInput | string
-  targetIngress?: Prisma.StringFieldUpdateOperationsInput | string
-  healthy?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  zoneId?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  value?: Prisma.StringFieldUpdateOperationsInput | string
+  ttl?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  priority?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -312,20 +389,23 @@ export type DnsRecordUncheckedUpdateInput = {
 export type DnsRecordCreateManyInput = {
   id?: string
   orgId: string
-  host: string
-  region: string
-  targetIngress: string
-  healthy?: boolean
+  zoneId: string
+  name: string
+  type: string
+  value: string
+  ttl?: number | null
+  priority?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
 
 export type DnsRecordUpdateManyMutationInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  host?: Prisma.StringFieldUpdateOperationsInput | string
-  region?: Prisma.StringFieldUpdateOperationsInput | string
-  targetIngress?: Prisma.StringFieldUpdateOperationsInput | string
-  healthy?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  value?: Prisma.StringFieldUpdateOperationsInput | string
+  ttl?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  priority?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -333,10 +413,12 @@ export type DnsRecordUpdateManyMutationInput = {
 export type DnsRecordUncheckedUpdateManyInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   orgId?: Prisma.StringFieldUpdateOperationsInput | string
-  host?: Prisma.StringFieldUpdateOperationsInput | string
-  region?: Prisma.StringFieldUpdateOperationsInput | string
-  targetIngress?: Prisma.StringFieldUpdateOperationsInput | string
-  healthy?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  zoneId?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  value?: Prisma.StringFieldUpdateOperationsInput | string
+  ttl?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  priority?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -351,30 +433,41 @@ export type DnsRecordOrderByRelationAggregateInput = {
   _count?: Prisma.SortOrder
 }
 
-export type DnsRecordOrgIdHostRegionCompoundUniqueInput = {
+export type DnsRecordOrgIdZoneIdNameTypeValueCompoundUniqueInput = {
   orgId: string
-  host: string
-  region: string
+  zoneId: string
+  name: string
+  type: string
+  value: string
 }
 
 export type DnsRecordCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   orgId?: Prisma.SortOrder
-  host?: Prisma.SortOrder
-  region?: Prisma.SortOrder
-  targetIngress?: Prisma.SortOrder
-  healthy?: Prisma.SortOrder
+  zoneId?: Prisma.SortOrder
+  name?: Prisma.SortOrder
+  type?: Prisma.SortOrder
+  value?: Prisma.SortOrder
+  ttl?: Prisma.SortOrder
+  priority?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+}
+
+export type DnsRecordAvgOrderByAggregateInput = {
+  ttl?: Prisma.SortOrder
+  priority?: Prisma.SortOrder
 }
 
 export type DnsRecordMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   orgId?: Prisma.SortOrder
-  host?: Prisma.SortOrder
-  region?: Prisma.SortOrder
-  targetIngress?: Prisma.SortOrder
-  healthy?: Prisma.SortOrder
+  zoneId?: Prisma.SortOrder
+  name?: Prisma.SortOrder
+  type?: Prisma.SortOrder
+  value?: Prisma.SortOrder
+  ttl?: Prisma.SortOrder
+  priority?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -382,12 +475,19 @@ export type DnsRecordMaxOrderByAggregateInput = {
 export type DnsRecordMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   orgId?: Prisma.SortOrder
-  host?: Prisma.SortOrder
-  region?: Prisma.SortOrder
-  targetIngress?: Prisma.SortOrder
-  healthy?: Prisma.SortOrder
+  zoneId?: Prisma.SortOrder
+  name?: Prisma.SortOrder
+  type?: Prisma.SortOrder
+  value?: Prisma.SortOrder
+  ttl?: Prisma.SortOrder
+  priority?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
+}
+
+export type DnsRecordSumOrderByAggregateInput = {
+  ttl?: Prisma.SortOrder
+  priority?: Prisma.SortOrder
 }
 
 export type DnsRecordCreateNestedManyWithoutOrgInput = {
@@ -432,22 +532,68 @@ export type DnsRecordUncheckedUpdateManyWithoutOrgNestedInput = {
   deleteMany?: Prisma.DnsRecordScalarWhereInput | Prisma.DnsRecordScalarWhereInput[]
 }
 
+export type DnsRecordCreateNestedManyWithoutZoneInput = {
+  create?: Prisma.XOR<Prisma.DnsRecordCreateWithoutZoneInput, Prisma.DnsRecordUncheckedCreateWithoutZoneInput> | Prisma.DnsRecordCreateWithoutZoneInput[] | Prisma.DnsRecordUncheckedCreateWithoutZoneInput[]
+  connectOrCreate?: Prisma.DnsRecordCreateOrConnectWithoutZoneInput | Prisma.DnsRecordCreateOrConnectWithoutZoneInput[]
+  createMany?: Prisma.DnsRecordCreateManyZoneInputEnvelope
+  connect?: Prisma.DnsRecordWhereUniqueInput | Prisma.DnsRecordWhereUniqueInput[]
+}
+
+export type DnsRecordUncheckedCreateNestedManyWithoutZoneInput = {
+  create?: Prisma.XOR<Prisma.DnsRecordCreateWithoutZoneInput, Prisma.DnsRecordUncheckedCreateWithoutZoneInput> | Prisma.DnsRecordCreateWithoutZoneInput[] | Prisma.DnsRecordUncheckedCreateWithoutZoneInput[]
+  connectOrCreate?: Prisma.DnsRecordCreateOrConnectWithoutZoneInput | Prisma.DnsRecordCreateOrConnectWithoutZoneInput[]
+  createMany?: Prisma.DnsRecordCreateManyZoneInputEnvelope
+  connect?: Prisma.DnsRecordWhereUniqueInput | Prisma.DnsRecordWhereUniqueInput[]
+}
+
+export type DnsRecordUpdateManyWithoutZoneNestedInput = {
+  create?: Prisma.XOR<Prisma.DnsRecordCreateWithoutZoneInput, Prisma.DnsRecordUncheckedCreateWithoutZoneInput> | Prisma.DnsRecordCreateWithoutZoneInput[] | Prisma.DnsRecordUncheckedCreateWithoutZoneInput[]
+  connectOrCreate?: Prisma.DnsRecordCreateOrConnectWithoutZoneInput | Prisma.DnsRecordCreateOrConnectWithoutZoneInput[]
+  upsert?: Prisma.DnsRecordUpsertWithWhereUniqueWithoutZoneInput | Prisma.DnsRecordUpsertWithWhereUniqueWithoutZoneInput[]
+  createMany?: Prisma.DnsRecordCreateManyZoneInputEnvelope
+  set?: Prisma.DnsRecordWhereUniqueInput | Prisma.DnsRecordWhereUniqueInput[]
+  disconnect?: Prisma.DnsRecordWhereUniqueInput | Prisma.DnsRecordWhereUniqueInput[]
+  delete?: Prisma.DnsRecordWhereUniqueInput | Prisma.DnsRecordWhereUniqueInput[]
+  connect?: Prisma.DnsRecordWhereUniqueInput | Prisma.DnsRecordWhereUniqueInput[]
+  update?: Prisma.DnsRecordUpdateWithWhereUniqueWithoutZoneInput | Prisma.DnsRecordUpdateWithWhereUniqueWithoutZoneInput[]
+  updateMany?: Prisma.DnsRecordUpdateManyWithWhereWithoutZoneInput | Prisma.DnsRecordUpdateManyWithWhereWithoutZoneInput[]
+  deleteMany?: Prisma.DnsRecordScalarWhereInput | Prisma.DnsRecordScalarWhereInput[]
+}
+
+export type DnsRecordUncheckedUpdateManyWithoutZoneNestedInput = {
+  create?: Prisma.XOR<Prisma.DnsRecordCreateWithoutZoneInput, Prisma.DnsRecordUncheckedCreateWithoutZoneInput> | Prisma.DnsRecordCreateWithoutZoneInput[] | Prisma.DnsRecordUncheckedCreateWithoutZoneInput[]
+  connectOrCreate?: Prisma.DnsRecordCreateOrConnectWithoutZoneInput | Prisma.DnsRecordCreateOrConnectWithoutZoneInput[]
+  upsert?: Prisma.DnsRecordUpsertWithWhereUniqueWithoutZoneInput | Prisma.DnsRecordUpsertWithWhereUniqueWithoutZoneInput[]
+  createMany?: Prisma.DnsRecordCreateManyZoneInputEnvelope
+  set?: Prisma.DnsRecordWhereUniqueInput | Prisma.DnsRecordWhereUniqueInput[]
+  disconnect?: Prisma.DnsRecordWhereUniqueInput | Prisma.DnsRecordWhereUniqueInput[]
+  delete?: Prisma.DnsRecordWhereUniqueInput | Prisma.DnsRecordWhereUniqueInput[]
+  connect?: Prisma.DnsRecordWhereUniqueInput | Prisma.DnsRecordWhereUniqueInput[]
+  update?: Prisma.DnsRecordUpdateWithWhereUniqueWithoutZoneInput | Prisma.DnsRecordUpdateWithWhereUniqueWithoutZoneInput[]
+  updateMany?: Prisma.DnsRecordUpdateManyWithWhereWithoutZoneInput | Prisma.DnsRecordUpdateManyWithWhereWithoutZoneInput[]
+  deleteMany?: Prisma.DnsRecordScalarWhereInput | Prisma.DnsRecordScalarWhereInput[]
+}
+
 export type DnsRecordCreateWithoutOrgInput = {
   id?: string
-  host: string
-  region: string
-  targetIngress: string
-  healthy?: boolean
+  name: string
+  type: string
+  value: string
+  ttl?: number | null
+  priority?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  zone: Prisma.DnsZoneCreateNestedOneWithoutRecordsInput
 }
 
 export type DnsRecordUncheckedCreateWithoutOrgInput = {
   id?: string
-  host: string
-  region: string
-  targetIngress: string
-  healthy?: boolean
+  zoneId: string
+  name: string
+  type: string
+  value: string
+  ttl?: number | null
+  priority?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -484,50 +630,158 @@ export type DnsRecordScalarWhereInput = {
   NOT?: Prisma.DnsRecordScalarWhereInput | Prisma.DnsRecordScalarWhereInput[]
   id?: Prisma.StringFilter<"DnsRecord"> | string
   orgId?: Prisma.StringFilter<"DnsRecord"> | string
-  host?: Prisma.StringFilter<"DnsRecord"> | string
-  region?: Prisma.StringFilter<"DnsRecord"> | string
-  targetIngress?: Prisma.StringFilter<"DnsRecord"> | string
-  healthy?: Prisma.BoolFilter<"DnsRecord"> | boolean
+  zoneId?: Prisma.StringFilter<"DnsRecord"> | string
+  name?: Prisma.StringFilter<"DnsRecord"> | string
+  type?: Prisma.StringFilter<"DnsRecord"> | string
+  value?: Prisma.StringFilter<"DnsRecord"> | string
+  ttl?: Prisma.IntNullableFilter<"DnsRecord"> | number | null
+  priority?: Prisma.IntNullableFilter<"DnsRecord"> | number | null
   createdAt?: Prisma.DateTimeFilter<"DnsRecord"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"DnsRecord"> | Date | string
 }
 
+export type DnsRecordCreateWithoutZoneInput = {
+  id?: string
+  name: string
+  type: string
+  value: string
+  ttl?: number | null
+  priority?: number | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  org: Prisma.OrganizationCreateNestedOneWithoutDnsRecordsInput
+}
+
+export type DnsRecordUncheckedCreateWithoutZoneInput = {
+  id?: string
+  orgId: string
+  name: string
+  type: string
+  value: string
+  ttl?: number | null
+  priority?: number | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type DnsRecordCreateOrConnectWithoutZoneInput = {
+  where: Prisma.DnsRecordWhereUniqueInput
+  create: Prisma.XOR<Prisma.DnsRecordCreateWithoutZoneInput, Prisma.DnsRecordUncheckedCreateWithoutZoneInput>
+}
+
+export type DnsRecordCreateManyZoneInputEnvelope = {
+  data: Prisma.DnsRecordCreateManyZoneInput | Prisma.DnsRecordCreateManyZoneInput[]
+  skipDuplicates?: boolean
+}
+
+export type DnsRecordUpsertWithWhereUniqueWithoutZoneInput = {
+  where: Prisma.DnsRecordWhereUniqueInput
+  update: Prisma.XOR<Prisma.DnsRecordUpdateWithoutZoneInput, Prisma.DnsRecordUncheckedUpdateWithoutZoneInput>
+  create: Prisma.XOR<Prisma.DnsRecordCreateWithoutZoneInput, Prisma.DnsRecordUncheckedCreateWithoutZoneInput>
+}
+
+export type DnsRecordUpdateWithWhereUniqueWithoutZoneInput = {
+  where: Prisma.DnsRecordWhereUniqueInput
+  data: Prisma.XOR<Prisma.DnsRecordUpdateWithoutZoneInput, Prisma.DnsRecordUncheckedUpdateWithoutZoneInput>
+}
+
+export type DnsRecordUpdateManyWithWhereWithoutZoneInput = {
+  where: Prisma.DnsRecordScalarWhereInput
+  data: Prisma.XOR<Prisma.DnsRecordUpdateManyMutationInput, Prisma.DnsRecordUncheckedUpdateManyWithoutZoneInput>
+}
+
 export type DnsRecordCreateManyOrgInput = {
   id?: string
-  host: string
-  region: string
-  targetIngress: string
-  healthy?: boolean
+  zoneId: string
+  name: string
+  type: string
+  value: string
+  ttl?: number | null
+  priority?: number | null
   createdAt?: Date | string
   updatedAt?: Date | string
 }
 
 export type DnsRecordUpdateWithoutOrgInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  host?: Prisma.StringFieldUpdateOperationsInput | string
-  region?: Prisma.StringFieldUpdateOperationsInput | string
-  targetIngress?: Prisma.StringFieldUpdateOperationsInput | string
-  healthy?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  value?: Prisma.StringFieldUpdateOperationsInput | string
+  ttl?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  priority?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  zone?: Prisma.DnsZoneUpdateOneRequiredWithoutRecordsNestedInput
 }
 
 export type DnsRecordUncheckedUpdateWithoutOrgInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  host?: Prisma.StringFieldUpdateOperationsInput | string
-  region?: Prisma.StringFieldUpdateOperationsInput | string
-  targetIngress?: Prisma.StringFieldUpdateOperationsInput | string
-  healthy?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  zoneId?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  value?: Prisma.StringFieldUpdateOperationsInput | string
+  ttl?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  priority?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
 export type DnsRecordUncheckedUpdateManyWithoutOrgInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
-  host?: Prisma.StringFieldUpdateOperationsInput | string
-  region?: Prisma.StringFieldUpdateOperationsInput | string
-  targetIngress?: Prisma.StringFieldUpdateOperationsInput | string
-  healthy?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  zoneId?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  value?: Prisma.StringFieldUpdateOperationsInput | string
+  ttl?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  priority?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type DnsRecordCreateManyZoneInput = {
+  id?: string
+  orgId: string
+  name: string
+  type: string
+  value: string
+  ttl?: number | null
+  priority?: number | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type DnsRecordUpdateWithoutZoneInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  value?: Prisma.StringFieldUpdateOperationsInput | string
+  ttl?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  priority?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  org?: Prisma.OrganizationUpdateOneRequiredWithoutDnsRecordsNestedInput
+}
+
+export type DnsRecordUncheckedUpdateWithoutZoneInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  orgId?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  value?: Prisma.StringFieldUpdateOperationsInput | string
+  ttl?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  priority?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type DnsRecordUncheckedUpdateManyWithoutZoneInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  orgId?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  type?: Prisma.StringFieldUpdateOperationsInput | string
+  value?: Prisma.StringFieldUpdateOperationsInput | string
+  ttl?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  priority?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -537,73 +791,99 @@ export type DnsRecordUncheckedUpdateManyWithoutOrgInput = {
 export type DnsRecordSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   orgId?: boolean
-  host?: boolean
-  region?: boolean
-  targetIngress?: boolean
-  healthy?: boolean
+  zoneId?: boolean
+  name?: boolean
+  type?: boolean
+  value?: boolean
+  ttl?: boolean
+  priority?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   org?: boolean | Prisma.OrganizationDefaultArgs<ExtArgs>
+  zone?: boolean | Prisma.DnsZoneDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["dnsRecord"]>
 
 export type DnsRecordSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   orgId?: boolean
-  host?: boolean
-  region?: boolean
-  targetIngress?: boolean
-  healthy?: boolean
+  zoneId?: boolean
+  name?: boolean
+  type?: boolean
+  value?: boolean
+  ttl?: boolean
+  priority?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   org?: boolean | Prisma.OrganizationDefaultArgs<ExtArgs>
+  zone?: boolean | Prisma.DnsZoneDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["dnsRecord"]>
 
 export type DnsRecordSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   orgId?: boolean
-  host?: boolean
-  region?: boolean
-  targetIngress?: boolean
-  healthy?: boolean
+  zoneId?: boolean
+  name?: boolean
+  type?: boolean
+  value?: boolean
+  ttl?: boolean
+  priority?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   org?: boolean | Prisma.OrganizationDefaultArgs<ExtArgs>
+  zone?: boolean | Prisma.DnsZoneDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["dnsRecord"]>
 
 export type DnsRecordSelectScalar = {
   id?: boolean
   orgId?: boolean
-  host?: boolean
-  region?: boolean
-  targetIngress?: boolean
-  healthy?: boolean
+  zoneId?: boolean
+  name?: boolean
+  type?: boolean
+  value?: boolean
+  ttl?: boolean
+  priority?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type DnsRecordOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "orgId" | "host" | "region" | "targetIngress" | "healthy" | "createdAt" | "updatedAt", ExtArgs["result"]["dnsRecord"]>
+export type DnsRecordOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "orgId" | "zoneId" | "name" | "type" | "value" | "ttl" | "priority" | "createdAt" | "updatedAt", ExtArgs["result"]["dnsRecord"]>
 export type DnsRecordInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   org?: boolean | Prisma.OrganizationDefaultArgs<ExtArgs>
+  zone?: boolean | Prisma.DnsZoneDefaultArgs<ExtArgs>
 }
 export type DnsRecordIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   org?: boolean | Prisma.OrganizationDefaultArgs<ExtArgs>
+  zone?: boolean | Prisma.DnsZoneDefaultArgs<ExtArgs>
 }
 export type DnsRecordIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   org?: boolean | Prisma.OrganizationDefaultArgs<ExtArgs>
+  zone?: boolean | Prisma.DnsZoneDefaultArgs<ExtArgs>
 }
 
 export type $DnsRecordPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "DnsRecord"
   objects: {
     org: Prisma.$OrganizationPayload<ExtArgs>
+    zone: Prisma.$DnsZonePayload<ExtArgs>
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
     orgId: string
-    host: string
-    region: string
-    targetIngress: string
-    healthy: boolean
+    zoneId: string
+    /**
+     * * Zone-relative name; '@' = apex.
+     */
+    name: string
+    /**
+     * * A|AAAA|CNAME|TXT|MX|SRV|CAA|NS (StaticDnsRecord in @swarmy/core).
+     */
+    type: string
+    value: string
+    ttl: number | null
+    /**
+     * * MX preference / SRV priority.
+     */
+    priority: number | null
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["dnsRecord"]>
@@ -1001,6 +1281,7 @@ readonly fields: DnsRecordFieldRefs;
 export interface Prisma__DnsRecordClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   org<T extends Prisma.OrganizationDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.OrganizationDefaultArgs<ExtArgs>>): Prisma.Prisma__OrganizationClient<runtime.Types.Result.GetResult<Prisma.$OrganizationPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+  zone<T extends Prisma.DnsZoneDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.DnsZoneDefaultArgs<ExtArgs>>): Prisma.Prisma__DnsZoneClient<runtime.Types.Result.GetResult<Prisma.$DnsZonePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1032,10 +1313,12 @@ export interface Prisma__DnsRecordClient<T, Null = never, ExtArgs extends runtim
 export interface DnsRecordFieldRefs {
   readonly id: Prisma.FieldRef<"DnsRecord", 'String'>
   readonly orgId: Prisma.FieldRef<"DnsRecord", 'String'>
-  readonly host: Prisma.FieldRef<"DnsRecord", 'String'>
-  readonly region: Prisma.FieldRef<"DnsRecord", 'String'>
-  readonly targetIngress: Prisma.FieldRef<"DnsRecord", 'String'>
-  readonly healthy: Prisma.FieldRef<"DnsRecord", 'Boolean'>
+  readonly zoneId: Prisma.FieldRef<"DnsRecord", 'String'>
+  readonly name: Prisma.FieldRef<"DnsRecord", 'String'>
+  readonly type: Prisma.FieldRef<"DnsRecord", 'String'>
+  readonly value: Prisma.FieldRef<"DnsRecord", 'String'>
+  readonly ttl: Prisma.FieldRef<"DnsRecord", 'Int'>
+  readonly priority: Prisma.FieldRef<"DnsRecord", 'Int'>
   readonly createdAt: Prisma.FieldRef<"DnsRecord", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"DnsRecord", 'DateTime'>
 }

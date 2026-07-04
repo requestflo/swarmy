@@ -100,6 +100,7 @@ export const ModelName = {
   SwarmConfig: 'SwarmConfig',
   CanvasLayout: 'CanvasLayout',
   GeoDnsConfig: 'GeoDnsConfig',
+  DnsZone: 'DnsZone',
   DnsRecord: 'DnsRecord',
   ExposureConfig: 'ExposureConfig',
   GuardrailConfig: 'GuardrailConfig',
@@ -893,9 +894,6 @@ export const GeoDnsConfigScalarFieldEnum = {
   id: 'id',
   orgId: 'orgId',
   enabled: 'enabled',
-  zone: 'zone',
-  ttl: 'ttl',
-  provider: 'provider',
   settings: 'settings',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
@@ -904,13 +902,34 @@ export const GeoDnsConfigScalarFieldEnum = {
 export type GeoDnsConfigScalarFieldEnum = (typeof GeoDnsConfigScalarFieldEnum)[keyof typeof GeoDnsConfigScalarFieldEnum]
 
 
+export const DnsZoneScalarFieldEnum = {
+  id: 'id',
+  orgId: 'orgId',
+  zone: 'zone',
+  mode: 'mode',
+  enabled: 'enabled',
+  ttl: 'ttl',
+  serial: 'serial',
+  apexToEdge: 'apexToEdge',
+  autoWww: 'autoWww',
+  advertisedNodeIds: 'advertisedNodeIds',
+  settings: 'settings',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type DnsZoneScalarFieldEnum = (typeof DnsZoneScalarFieldEnum)[keyof typeof DnsZoneScalarFieldEnum]
+
+
 export const DnsRecordScalarFieldEnum = {
   id: 'id',
   orgId: 'orgId',
-  host: 'host',
-  region: 'region',
-  targetIngress: 'targetIngress',
-  healthy: 'healthy',
+  zoneId: 'zoneId',
+  name: 'name',
+  type: 'type',
+  value: 'value',
+  ttl: 'ttl',
+  priority: 'priority',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const

@@ -433,6 +433,7 @@ export const ModelName = {
   SwarmConfig: 'SwarmConfig',
   CanvasLayout: 'CanvasLayout',
   GeoDnsConfig: 'GeoDnsConfig',
+  DnsZone: 'DnsZone',
   DnsRecord: 'DnsRecord',
   ExposureConfig: 'ExposureConfig',
   GuardrailConfig: 'GuardrailConfig',
@@ -473,7 +474,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "authProviderConfig" | "ssoProvider" | "policy" | "resourceGrant" | "aiProviderConfig" | "aiVirtualKey" | "aiUsage" | "aiRequestLog" | "notificationChannel" | "alertRule" | "alertEvent" | "incident" | "incidentEvent" | "statusPage" | "uptimeSample" | "apiKey" | "oAuthClient" | "webhookEndpoint" | "webhookDelivery" | "user" | "session" | "account" | "verification" | "organization" | "member" | "invitation" | "backupTarget" | "snapshot" | "controllerBackupConfig" | "controllerSnapshot" | "storageCluster" | "clusterVolume" | "backupSchedule" | "backupJob" | "restoreOperation" | "gitRepo" | "build" | "registryConfig" | "imageGcPolicy" | "imageScan" | "node" | "joinToken" | "stack" | "metricSample" | "auditLog" | "idempotencyKey" | "swarmConfig" | "canvasLayout" | "geoDnsConfig" | "dnsRecord" | "exposureConfig" | "guardrailConfig" | "ingressConfig" | "tunnel" | "scheduledJob" | "jobRun" | "workflowDef" | "workflowRun" | "workflowStepRun" | "meshConfig" | "meshPeer" | "meshRoute" | "meshAcl" | "notificationConfig" | "notificationTemplate" | "notificationDelivery" | "observabilityConfig" | "observabilityStoreState" | "release" | "terminalPolicy" | "terminalSession" | "terminalApproval" | "inboundEndpoint" | "inboundDelivery"
+    modelProps: "authProviderConfig" | "ssoProvider" | "policy" | "resourceGrant" | "aiProviderConfig" | "aiVirtualKey" | "aiUsage" | "aiRequestLog" | "notificationChannel" | "alertRule" | "alertEvent" | "incident" | "incidentEvent" | "statusPage" | "uptimeSample" | "apiKey" | "oAuthClient" | "webhookEndpoint" | "webhookDelivery" | "user" | "session" | "account" | "verification" | "organization" | "member" | "invitation" | "backupTarget" | "snapshot" | "controllerBackupConfig" | "controllerSnapshot" | "storageCluster" | "clusterVolume" | "backupSchedule" | "backupJob" | "restoreOperation" | "gitRepo" | "build" | "registryConfig" | "imageGcPolicy" | "imageScan" | "node" | "joinToken" | "stack" | "metricSample" | "auditLog" | "idempotencyKey" | "swarmConfig" | "canvasLayout" | "geoDnsConfig" | "dnsZone" | "dnsRecord" | "exposureConfig" | "guardrailConfig" | "ingressConfig" | "tunnel" | "scheduledJob" | "jobRun" | "workflowDef" | "workflowRun" | "workflowStepRun" | "meshConfig" | "meshPeer" | "meshRoute" | "meshAcl" | "notificationConfig" | "notificationTemplate" | "notificationDelivery" | "observabilityConfig" | "observabilityStoreState" | "release" | "terminalPolicy" | "terminalSession" | "terminalApproval" | "inboundEndpoint" | "inboundDelivery"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -4103,6 +4104,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    DnsZone: {
+      payload: Prisma.$DnsZonePayload<ExtArgs>
+      fields: Prisma.DnsZoneFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.DnsZoneFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DnsZonePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.DnsZoneFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DnsZonePayload>
+        }
+        findFirst: {
+          args: Prisma.DnsZoneFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DnsZonePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.DnsZoneFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DnsZonePayload>
+        }
+        findMany: {
+          args: Prisma.DnsZoneFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DnsZonePayload>[]
+        }
+        create: {
+          args: Prisma.DnsZoneCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DnsZonePayload>
+        }
+        createMany: {
+          args: Prisma.DnsZoneCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.DnsZoneCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DnsZonePayload>[]
+        }
+        delete: {
+          args: Prisma.DnsZoneDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DnsZonePayload>
+        }
+        update: {
+          args: Prisma.DnsZoneUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DnsZonePayload>
+        }
+        deleteMany: {
+          args: Prisma.DnsZoneDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.DnsZoneUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.DnsZoneUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DnsZonePayload>[]
+        }
+        upsert: {
+          args: Prisma.DnsZoneUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$DnsZonePayload>
+        }
+        aggregate: {
+          args: Prisma.DnsZoneAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateDnsZone>
+        }
+        groupBy: {
+          args: Prisma.DnsZoneGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.DnsZoneGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.DnsZoneCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.DnsZoneCountAggregateOutputType> | number
+        }
+      }
+    }
     DnsRecord: {
       payload: Prisma.$DnsRecordPayload<ExtArgs>
       fields: Prisma.DnsRecordFieldRefs
@@ -6742,9 +6817,6 @@ export const GeoDnsConfigScalarFieldEnum = {
   id: 'id',
   orgId: 'orgId',
   enabled: 'enabled',
-  zone: 'zone',
-  ttl: 'ttl',
-  provider: 'provider',
   settings: 'settings',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
@@ -6753,13 +6825,34 @@ export const GeoDnsConfigScalarFieldEnum = {
 export type GeoDnsConfigScalarFieldEnum = (typeof GeoDnsConfigScalarFieldEnum)[keyof typeof GeoDnsConfigScalarFieldEnum]
 
 
+export const DnsZoneScalarFieldEnum = {
+  id: 'id',
+  orgId: 'orgId',
+  zone: 'zone',
+  mode: 'mode',
+  enabled: 'enabled',
+  ttl: 'ttl',
+  serial: 'serial',
+  apexToEdge: 'apexToEdge',
+  autoWww: 'autoWww',
+  advertisedNodeIds: 'advertisedNodeIds',
+  settings: 'settings',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type DnsZoneScalarFieldEnum = (typeof DnsZoneScalarFieldEnum)[keyof typeof DnsZoneScalarFieldEnum]
+
+
 export const DnsRecordScalarFieldEnum = {
   id: 'id',
   orgId: 'orgId',
-  host: 'host',
-  region: 'region',
-  targetIngress: 'targetIngress',
-  healthy: 'healthy',
+  zoneId: 'zoneId',
+  name: 'name',
+  type: 'type',
+  value: 'value',
+  ttl: 'ttl',
+  priority: 'priority',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
@@ -7831,6 +7924,7 @@ export type GlobalOmitConfig = {
   swarmConfig?: Prisma.SwarmConfigOmit
   canvasLayout?: Prisma.CanvasLayoutOmit
   geoDnsConfig?: Prisma.GeoDnsConfigOmit
+  dnsZone?: Prisma.DnsZoneOmit
   dnsRecord?: Prisma.DnsRecordOmit
   exposureConfig?: Prisma.ExposureConfigOmit
   guardrailConfig?: Prisma.GuardrailConfigOmit
