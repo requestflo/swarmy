@@ -95,6 +95,21 @@ export const RouteProtectionSchema = z.object({
 });
 export type RouteProtection = z.infer<typeof RouteProtectionSchema>;
 
+/**
+ * One region-local candidate upstream for a route (geo-edge). `service` is a
+ * region SIBLING service name materialised by the region-reconcile worker
+ * (`${parent}-${region}`, labels swarmy.region.parent/of) — dialable from any
+ * node over the shared overlay, cross-region hops riding the mesh. Present
+ * only when siblings exist; renderers order these local-region-first.
+ */
+export const RegionUpstreamSchema = z.object({
+  service: z.string().min(1),
+  port: z.number().int().min(1).max(65535),
+  /** The `swarmy.region.of` label value this sibling is pinned to. */
+  region: z.string().min(1),
+});
+export type RegionUpstream = z.infer<typeof RegionUpstreamSchema>;
+
 export const DomainRouteSchema = z.object({
   domain: z.string().min(1),
   pathPrefix: z.string().default('/'),
@@ -112,6 +127,13 @@ export const DomainRouteSchema = z.object({
   cold: ColdRouteSchema.optional(),
   /** Weighted canary upstream (D2). Absent ⇒ 100% stable. */
   canary: CanaryUpstreamSchema.optional(),
+  /**
+   * Region-sibling upstream set (geo-edge). Present ⇒ warm renders emit an
+   * ordered multi-upstream proxy (receiving node's region first, automatic
+   * cross-region failover). Absent ⇒ plain `service:port` (byte-identical
+   * legacy output). Precedence: cold > canary > regionUpstreams > plain.
+   */
+  regionUpstreams: z.array(RegionUpstreamSchema).optional(),
 });
 export type DomainRoute = z.infer<typeof DomainRouteSchema>;
 
@@ -212,6 +234,13 @@ export const IngressConfigSchema = z.object({
   domains: z.array(DomainRouteSchema).default([]),
   /** Controller-upstream vhosts (status pages / webhooks / AI gateway domains). */
   controllerVhosts: z.array(ControllerVhostSchema).default([]),
+  /**
+   * Region of the node THIS render targets (geo-edge). Pure data — the driver
+   * renders once per target node, threading that node's `swarmy.region` label
+   * here so region upstream ordering prefers local tasks. Absent ⇒ stable
+   * region-name ordering (correct, just unpreferenced).
+   */
+  localRegion: z.string().optional(),
   globalOptions: IngressGlobalOptionsSchema.default({}),
 });
 export type IngressConfig = z.infer<typeof IngressConfigSchema>;
@@ -240,6 +269,15 @@ export interface IngressStatusReportLite {
 export interface DriverDispatch {
   sendToNode(nodeId: string, rendered: RenderedConfig): Promise<IngressStatusReportLite>;
   resolveTargetNodes(orgId: string, explicit: string[]): Promise<string[]>;
+  /**
+   * Target nodes WITH their region labels (geo-edge). Optional so non-regional
+   * drivers keep working; the Caddy driver prefers this when present to render
+   * per-node region-ordered upstreams.
+   */
+  resolveTargets?(
+    orgId: string,
+    explicit: string[],
+  ): Promise<Array<{ nodeId: string; region?: string }>>;
   queryStatus(nodeId: string, driver: string): Promise<IngressStatus>;
 }
 

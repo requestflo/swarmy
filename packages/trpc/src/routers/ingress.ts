@@ -19,6 +19,7 @@ import {
   setOnDemandTls,
   setTargetNodes,
   setTunnel,
+  setTopology,
 } from '../services/ingress.service';
 import {
   detectServicePorts,
@@ -70,6 +71,14 @@ export const ingressRouter = router({
       targetNodes: config.targetNodes,
     });
   }),
+
+  /** Switch the edge topology (geo-edge): 'edge-per-node' deploys a GLOBAL
+   *  host-mode Caddy on every ingress node with per-node region-aware configs
+   *  (cuts over the legacy replicated controller — seconds of blip, explicit
+   *  opt-in); 'controller' restores the classic replicated service. */
+  setTopology: adminProcedure
+    .input(z.object({ topology: z.enum(['controller', 'edge-per-node']) }))
+    .mutation(({ ctx, input }) => setTopology(ctx, input.topology)),
 
   /** Set (or clear) the ingress-controller image — the swarmy Caddy build
    *  (docker/caddy-swarmy) is required for per-route rate limits. */

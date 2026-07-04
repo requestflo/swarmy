@@ -1,4 +1,10 @@
-import type { ControllerVhost, DomainRoute, IngressConfig, RouteProtection } from '../types';
+import type {
+  ControllerVhost,
+  DomainRoute,
+  IngressConfig,
+  RegionUpstream,
+  RouteProtection,
+} from '../types';
 
 /** Build a Caddyfile from an org ingress config. Pure string construction. */
 export function buildCaddyfile(config: IngressConfig): string {
@@ -170,7 +176,7 @@ function buildSite(host: string, routes: DomainRoute[], config: IngressConfig): 
   // WITHOUT a handle wrapper, byte-for-byte identical to the pre-grouping output.
   const only = ordered.length === 1 ? ordered[0] : undefined;
   const bareRoot = only !== undefined && routePath(only) === '/';
-  for (const r of ordered) appendRoute(out, r, bareRoot);
+  for (const r of ordered) appendRoute(out, r, bareRoot, config.localRegion);
 
   out.push('}');
   return out;
@@ -183,17 +189,50 @@ function buildSite(host: string, routes: DomainRoute[], config: IngressConfig): 
  * the weights positionally, in upstream declaration order, so the order of the
  * two lists must always match (golden-tested).
  */
-function warmProxy(r: DomainRoute): string[] {
+function warmProxy(r: DomainRoute, localRegion?: string): string[] {
   const c = r.canary;
-  if (!c || c.weightPct <= 0) return [`reverse_proxy ${r.service}:${r.port}`];
-  // Clamp + round: weighted_round_robin takes non-negative integer weights.
-  const canaryWeight = Math.min(100, Math.max(0, Math.round(c.weightPct)));
-  const stableWeight = 100 - canaryWeight;
-  return [
-    `reverse_proxy ${r.service}:${r.port} ${c.service}:${c.port} {`,
-    `  lb_policy weighted_round_robin ${stableWeight} ${canaryWeight}`,
-    '}',
-  ];
+  if (c && c.weightPct > 0) {
+    // Canary wins over region ordering: weighted + first lb policies cannot
+    // combine in one reverse_proxy (validate() warns on the overlap).
+    // Clamp + round: weighted_round_robin takes non-negative integer weights.
+    const canaryWeight = Math.min(100, Math.max(0, Math.round(c.weightPct)));
+    const stableWeight = 100 - canaryWeight;
+    return [
+      `reverse_proxy ${r.service}:${r.port} ${c.service}:${c.port} {`,
+      `  lb_policy weighted_round_robin ${stableWeight} ${canaryWeight}`,
+      '}',
+    ];
+  }
+  if (r.regionUpstreams && r.regionUpstreams.length > 0) {
+    // Geo-edge: ordered multi-upstream — the receiving node's region first,
+    // the rest as failover. `lb_policy first` always dials the first AVAILABLE
+    // upstream; passive health (max_fails/fail_duration) shifts traffic to the
+    // next region for 30s when local tasks die, and lb_try_* retries within a
+    // request so a dying local task doesn't 502 the caller.
+    const ordered = orderByRegion(r.regionUpstreams, localRegion);
+    return [
+      `reverse_proxy ${ordered.map((u) => `${u.service}:${u.port}`).join(' ')} {`,
+      '  lb_policy first',
+      '  lb_try_duration 3s',
+      '  lb_try_interval 250ms',
+      '  fail_duration 30s',
+      '  max_fails 2',
+      '}',
+    ];
+  }
+  return [`reverse_proxy ${r.service}:${r.port}`];
+}
+
+/** Local region first; the rest in stable name order (deterministic output). */
+function orderByRegion(ups: readonly RegionUpstream[], local?: string): RegionUpstream[] {
+  return [...ups].sort((a, b) => {
+    if (a.region !== b.region) {
+      if (a.region === local) return -1;
+      if (b.region === local) return 1;
+      return a.region < b.region ? -1 : 1;
+    }
+    return a.service < b.service ? -1 : a.service > b.service ? 1 : 0;
+  });
 }
 
 /**
@@ -271,7 +310,7 @@ function protectionLines(r: DomainRoute): string[] {
  * sibling routes on the same host stay direct (a cold `/api` never sleeps `/`).
  * A cold route ignores any canary fragment — waking the stable service comes first.
  */
-function appendRoute(out: string[], r: DomainRoute, bare: boolean): void {
+function appendRoute(out: string[], r: DomainRoute, bare: boolean, localRegion?: string): void {
   const path = routePath(r);
   // Protections run first so a blocked request never reaches the upstream —
   // and never wakes a cold service.
@@ -282,7 +321,7 @@ function appendRoute(out: string[], r: DomainRoute, bare: boolean): void {
           `rewrite * ${r.cold.wakePath}?return={scheme}://{host}{uri}`,
           `reverse_proxy ${r.cold.upstream}`,
         ]
-      : warmProxy(r)),
+      : warmProxy(r, localRegion)),
   ];
 
   if (bare) {

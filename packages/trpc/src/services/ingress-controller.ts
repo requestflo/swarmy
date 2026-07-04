@@ -4,6 +4,8 @@ import {
   CADDY_ADMIN_PORT,
   CADDY_CONFIG_PATH,
   CADDY_CONTROLLER_SERVICE,
+  CADDY_EDGE_HOST_DIR,
+  CADDY_EDGE_SERVICE,
 } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
 import type { CommandName } from '../hub/types';
@@ -208,4 +210,155 @@ export async function ensureCaddyController(
     network: opts.network,
     adminUrl: `http://${CADDY_CONTROLLER_SERVICE}:${CADDY_ADMIN_PORT}/load`,
   };
+}
+
+
+// ───────────────────────────────────────────── edge-per-node topology (geo-edge) ──
+
+export interface EnsureEdgeOptions {
+  /** Overlay network the edge attaches to (must match fronted services). Default `swarmy`. */
+  network?: string;
+  /**
+   * Edge image. Default docker/caddy-swarmy (ghcr) — the swarmy build with
+   * caddy-ratelimit AND caddy-storage-redis compiled in; distributed cert
+   * storage requires it, so stock caddy:2-alpine is rejected by validate().
+   */
+  image?: string;
+  otelOrgId?: string;
+}
+
+const DEFAULT_EDGE_IMAGE =
+  process.env.SWARMY_CADDY_EDGE_IMAGE ?? 'ghcr.io/requestflo/caddy-swarmy:2';
+
+/**
+ * The edge Caddy ServiceSpec — THE single-sourced contract (geo-edge skill):
+ * the swarmy-stack composition must consume this builder, never hand-roll,
+ * so topology/ports/mounts stay in one place.
+ *
+ * Shape (each choice is load-bearing):
+ * - GLOBAL mode constrained to `swarmy.node.ingress==true` — one task per edge
+ *   node, converging automatically as nodes are labeled.
+ * - HOST-MODE 80/443 — the routing mesh would re-balance connections away from
+ *   the node geo-DNS just chose; host mode terminates on THAT node.
+ * - NO admin port published — config arrives per node via the agent's
+ *   `localReload` exec path (applyVia 'local').
+ * - `/var/lib/swarmy/ingress` (host, agent-written) bind-mounted RO at
+ *   /etc/caddy — the agent must have this path host-mounted rw.
+ */
+export function caddyEdgeSpec(opts: {
+  network: string;
+  image: string;
+  otelOrgId?: string;
+}): ServiceSpec {
+  const env = opts.otelOrgId
+    ? {
+        OTEL_EXPORTER_OTLP_ENDPOINT: 'http://swarmy-otel-collector:4317',
+        OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc',
+        OTEL_SERVICE_NAME: CADDY_EDGE_SERVICE,
+        OTEL_RESOURCE_ATTRIBUTES: `swarmy.org_id=${opts.otelOrgId}`,
+        OTEL_TRACES_SAMPLER: 'parentbased_always_on',
+      }
+    : undefined;
+  return {
+    name: CADDY_EDGE_SERVICE,
+    image: opts.image,
+    mode: { global: {} },
+    labels: {
+      'swarmy.managed': 'true',
+      'swarmy.role': 'ingress',
+      'swarmy.ingress.topology': 'edge-per-node',
+      [STACK_LABEL]: SYSTEM_STACK,
+      [SYSTEM_STACK_LABEL]: 'true',
+    },
+    ...(env ? { env } : {}),
+    // Boot against the agent-written host config when present; fall back to a
+    // minimal empty config so the task starts on a node the agent hasn't
+    // rendered yet (first apply lands seconds later via localReload).
+    command: [
+      'sh',
+      '-c',
+      `[ -f ${CADDY_CONFIG_PATH} ] || printf '# swarmy edge — awaiting first render\n' > /tmp/empty.caddyfile; ` +
+        `exec caddy run --config ${CADDY_CONFIG_PATH} --adapter caddyfile 2>/dev/null || ` +
+        `exec caddy run --config /tmp/empty.caddyfile --adapter caddyfile`,
+    ],
+    ports: [
+      { target: 80, published: 80, protocol: 'tcp', mode: 'host' },
+      { target: 443, published: 443, protocol: 'tcp', mode: 'host' },
+      { target: 443, published: 443, protocol: 'udp', mode: 'host' }, // HTTP/3
+    ],
+    mounts: [
+      { type: 'volume', source: DATA_VOLUME, target: '/data' },
+      { type: 'volume', source: CONFIG_VOLUME, target: '/config' },
+      { type: 'bind', source: CADDY_EDGE_HOST_DIR, target: '/etc/caddy', readOnly: true },
+    ],
+    networks: [opts.network],
+    placement: { constraints: ['node.labels.swarmy.node.ingress == true'] },
+    restartPolicy: { condition: 'any' },
+  };
+}
+
+export interface EnsureEdgeResult {
+  id: string;
+  name: string;
+  network: string;
+  /** True when a legacy replicated/routing-mesh controller was cut over. */
+  migrated: boolean;
+}
+
+/**
+ * Deploy/converge the edge-per-node Caddy (geo-edge). Handles the LEGACY
+ * cutover: Docker cannot change a service's mode in place and routing-mesh
+ * 80/443 binds on every node, so a replicated controller must be REMOVED
+ * before the global host-mode service deploys (seconds of blip — gated behind
+ * the explicit topology switch; same service name keeps the cert volumes).
+ */
+export async function ensureCaddyEdge(
+  ctx: OrgContext,
+  options: EnsureEdgeOptions = {},
+): Promise<EnsureEdgeResult> {
+  let otelOrgId = options.otelOrgId;
+  if (otelOrgId === undefined) {
+    const obs = await ctx.db.observabilityConfig.findUnique({
+      where: { orgId: ctx.activeOrgId },
+      select: { enabled: true },
+    });
+    if (obs?.enabled) otelOrgId = ctx.activeOrgId;
+  }
+  const network = options.network ?? DEFAULT_NETWORK;
+  const image = options.image ?? DEFAULT_EDGE_IMAGE;
+  const node = await resolveManagerNode(ctx);
+
+  try {
+    await ctx.hub.dispatch(node.id, NETWORK_ENSURE, {
+      name: network,
+      driver: 'overlay',
+      attachable: true,
+      labels: { 'swarmy.managed': 'true', 'swarmy.role': 'ingress' },
+    });
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
+
+  // Legacy cutover: a live service WITHOUT the edge topology label is the old
+  // replicated controller — remove it first (mode is immutable in place).
+  let migrated = false;
+  const live = liveService(ctx, CADDY_EDGE_SERVICE);
+  if (live && live.labels?.['swarmy.ingress.topology'] !== 'edge-per-node') {
+    migrated = true;
+    await ctx.hub
+      .dispatch(node.id, 'service.remove', { name: CADDY_EDGE_SERVICE })
+      .catch(() => undefined);
+  }
+
+  try {
+    await ctx.hub.dispatch(node.id, 'service.deploy', {
+      spec: caddyEdgeSpec({ network, image, otelOrgId }),
+      pullPolicy: 'missing',
+    });
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
+
+  const id = liveService(ctx, CADDY_EDGE_SERVICE)?.id ?? CADDY_EDGE_SERVICE;
+  return { id, name: CADDY_EDGE_SERVICE, network, migrated };
 }

@@ -18,6 +18,7 @@ import type { AgentHub } from '../hub/types';
 import type { OrgContext } from '../context';
 import { systemContext } from './cicd.service';
 import { writeAudit } from '../services/audit.service';
+import { ensureCaddyController, ensureCaddyEdge } from './ingress-controller';
 import { notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { resolveLiveService } from './live-resolve';
@@ -29,6 +30,8 @@ import {
   serializeRoutes,
   type Route,
 } from './ingress-routes';
+import { regionUpstreamsFor } from './ingress-regions';
+import { publicIpFromLabels } from './node.service';
 
 /** Service label that marks a Docker service as ingress-enabled (replaces the dropped column). */
 const INGRESS_ENABLED_LABEL = 'swarmy.ingress';
@@ -140,6 +143,8 @@ export interface IngressConfigView {
   tunnelConfigured: boolean;
   /** Custom ingress-controller image (null = the stock caddy:2-alpine). */
   controllerImage: string | null;
+  /** Edge topology: replicated controller vs global per-node edge (geo-edge). */
+  topology: 'controller' | 'edge-per-node';
   updatedAt: string;
 }
 
@@ -192,6 +197,14 @@ function driverLower(d: string): IngressDriverId {
  */
 interface IngressSettings {
   targetNodes?: string[];
+  /**
+   * Edge topology (geo-edge): 'controller' (default) = one replicated Caddy on
+   * the routing mesh; 'edge-per-node' = a GLOBAL host-mode Caddy per ingress
+   * node with per-node region-aware configs applied via the agent's localReload
+   * path. Switching to edge-per-node cuts the legacy controller over (seconds
+   * of blip) — explicit opt-in only.
+   */
+  topology?: 'controller' | 'edge-per-node';
   globalOptions?: Record<string, unknown>;
   /**
    * Ingress-controller image `ensureCaddyController` deploys. Unset = the stock
@@ -377,6 +390,9 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
     ...((baseGlobal?.extraConfig as Record<string, unknown> | undefined) ?? {}),
   };
   if (settings.controllerImage) extraConfig.controllerImage = settings.controllerImage;
+  // Edge-per-node topology renders per node and applies via the agent's
+  // localReload exec (no admin API) — see caddy driver applyVia 'local'.
+  if (settings.topology === 'edge-per-node') extraConfig.applyVia = 'local';
   // Observability on ⇒ render the `tracing` directive so the edge emits a span
   // per request (the controller carries the matching OTLP exporter env).
   const obs = await ctx.db.observabilityConfig.findUnique({
@@ -384,6 +400,9 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
     select: { enabled: true },
   });
   const tracing = obs?.enabled === true;
+  // Geo-edge: services with materialised region siblings render region-ordered
+  // multi-upstream proxies (same-region first, cross-region failover).
+  const liveServices = ctx.hub.liveInventory(ctx.activeOrgId).services;
   return {
     driver: driverLower(row.driver),
     enabled: row.enabled,
@@ -402,6 +421,7 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
       canary: route.canary,
       // Edge protections — carried on the route label, pure render input.
       protection: route.protection,
+      regionUpstreams: regionUpstreamsFor(serviceName, route.port, liveServices),
     })),
     // Controller-upstream vhosts (status-page / webhook domains) — persisted rows
     // resolved at render time onto the controller upstream.
@@ -425,6 +445,18 @@ function makeDispatch(ctx: OrgContext): DriverDispatch {
       // fall back to the manager set when no node is marked so ingress still applies.
       const marked = await ingressTargetNodes(ctx);
       return marked.length ? marked : ctx.hub.managerNodes(orgId);
+    },
+    async resolveTargets(orgId, explicit) {
+      const ids = explicit.length
+        ? explicit
+        : await (async () => {
+            const marked = await ingressTargetNodes(ctx);
+            return marked.length ? marked : ctx.hub.managerNodes(orgId);
+          })();
+      return ids.map((nodeId) => ({
+        nodeId,
+        region: ctx.hub.nodeInfoFor(nodeId)?.labels?.['swarmy.region'] || undefined,
+      }));
     },
     async sendToNode(nodeId, rendered: RenderedConfig) {
       try {
@@ -460,8 +492,39 @@ export async function getConfig(ctx: OrgContext): Promise<IngressConfigView> {
     haConfigured: Boolean(settings.haStorage),
     tunnelConfigured: Boolean(settings.tunnel?.tunnelId),
     controllerImage: settings.controllerImage ?? null,
+    topology: settings.topology ?? 'controller',
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+/**
+ * Switch the edge topology (geo-edge). 'edge-per-node' converges the global
+ * host-mode Caddy (cutting over a legacy replicated controller); 'controller'
+ * converges the classic replicated service. Re-applies ingress after either.
+ */
+export async function setTopology(
+  ctx: OrgContext,
+  topology: 'controller' | 'edge-per-node',
+): Promise<IngressConfigView> {
+  const row = await ensureConfig(ctx);
+  const settings = readSettings(row);
+  await patchSettings(ctx, (prev) => ({ ...prev, topology }));
+  if (topology === 'edge-per-node') {
+    await ensureCaddyEdge(ctx, { image: settings.controllerImage ?? undefined });
+  } else {
+    await ensureCaddyController(ctx, {
+      image: settings.controllerImage ?? undefined,
+      targetNodes: settings.targetNodes,
+    });
+  }
+  await reapply(ctx).catch(() => undefined);
+  await writeAudit(ctx, {
+    action: 'ingress.setTopology',
+    targetType: 'ingressConfig',
+    targetId: ctx.activeOrgId,
+    metadata: { topology },
+  });
+  return getConfig(ctx);
 }
 
 /** The configured controller image, or null for the stock default. */
@@ -824,6 +887,46 @@ export interface IngressColdReconcileDeps {
  * closing the brief redirect-loop window where a warm service is still routed to the
  * activator. Best-effort: disabled/`none` ingress is a no-op; failures are swallowed.
  */
+/**
+ * Per-region edge posture (geo-edge contract): ingress nodes with their public
+ * IP and live Caddy/DNS task state. ONE source read by the DNS snapshot
+ * builder, the dashboard, and diagnostics — never re-derive this elsewhere.
+ */
+export interface IngressRegionSnapshot {
+  region: string;
+  nodes: Array<{
+    nodeId: string;
+    publicIp: string | null;
+    online: boolean;
+    caddyRunning: boolean | null; // null = no telemetry reported yet
+    dnsRunning: boolean | null;
+    sampledAt: number | null;
+  }>;
+}
+
+export function ingressRegionSnapshot(ctx: OrgContext): IngressRegionSnapshot[] {
+  const byRegion = ctx.hub.nodesByRegion(ctx.activeOrgId);
+  const ingress = new Set(ctx.hub.nodesByRole(ctx.activeOrgId, 'ingress'));
+  const out: IngressRegionSnapshot[] = [];
+  for (const [region, nodeIds] of byRegion) {
+    const nodes = nodeIds
+      .filter((id) => ingress.has(id))
+      .map((nodeId) => {
+        const edge = ctx.hub.ingressStatusFor(nodeId);
+        return {
+          nodeId,
+          publicIp: publicIpFromLabels(ctx.hub.nodeInfoFor(nodeId)?.labels),
+          online: ctx.hub.isOnline(nodeId),
+          caddyRunning: edge?.caddyRunning ?? null,
+          dnsRunning: edge?.dnsRunning ?? null,
+          sampledAt: edge?.sampledAt ?? null,
+        };
+      });
+    if (nodes.length > 0) out.push({ region, nodes });
+  }
+  return out.sort((a, b) => (a.region < b.region ? -1 : 1));
+}
+
 export async function reapplyIngressForOrg(
   deps: IngressColdReconcileDeps,
   orgId: string,

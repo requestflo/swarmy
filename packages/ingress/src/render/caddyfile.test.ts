@@ -551,3 +551,115 @@ describe('distributed tracing (observability)', () => {
     );
   });
 });
+
+describe('caddy region-aware upstreams (geo-edge)', () => {
+  const regionUpstreams = [
+    { service: 'web-uk-scotland', port: 3000, region: 'uk-scotland' },
+    { service: 'web-za-johannesburg', port: 3000, region: 'za-johannesburg' },
+  ];
+
+  it('orders the receiving node region first with lb_policy first + health checks', () => {
+    const out = buildCaddyfile({
+      ...cfg([{ domain: 'app.example.com', service: 'web', port: 3000, regionUpstreams }]),
+      localRegion: 'za-johannesburg',
+    });
+    const body = siteBlock(out, 'app.example.com').map((l) => l.trim());
+    expect(body[0]).toBe(
+      'reverse_proxy web-za-johannesburg:3000 web-uk-scotland:3000 {',
+    );
+    expect(body).toContain('lb_policy first');
+    expect(body).toContain('lb_try_duration 3s');
+    expect(body).toContain('fail_duration 30s');
+    expect(body).toContain('max_fails 2');
+  });
+
+  it('renders the opposite ordering for the other region', () => {
+    const out = buildCaddyfile({
+      ...cfg([{ domain: 'app.example.com', service: 'web', port: 3000, regionUpstreams }]),
+      localRegion: 'uk-scotland',
+    });
+    const body = siteBlock(out, 'app.example.com').map((l) => l.trim());
+    expect(body[0]).toBe(
+      'reverse_proxy web-uk-scotland:3000 web-za-johannesburg:3000 {',
+    );
+  });
+
+  it('no localRegion → stable region-name ordering', () => {
+    const out = buildCaddyfile(
+      cfg([{ domain: 'app.example.com', service: 'web', port: 3000, regionUpstreams }]),
+    );
+    const body = siteBlock(out, 'app.example.com').map((l) => l.trim());
+    expect(body[0]).toBe(
+      'reverse_proxy web-uk-scotland:3000 web-za-johannesburg:3000 {',
+    );
+  });
+
+  it('no regionUpstreams → byte-identical legacy single-upstream render', () => {
+    const plain = buildCaddyfile(
+      cfg([{ domain: 'app.example.com', service: 'web', port: 3000 }]),
+    );
+    const withLocal = buildCaddyfile({
+      ...cfg([{ domain: 'app.example.com', service: 'web', port: 3000 }]),
+      localRegion: 'uk-scotland',
+    });
+    expect(withLocal).toBe(plain);
+    expect(plain).toContain('  reverse_proxy web:3000\n');
+  });
+
+  it('canary wins over region upstreams (weighted vs first cannot combine)', () => {
+    const out = buildCaddyfile({
+      ...cfg([
+        {
+          domain: 'app.example.com',
+          service: 'web',
+          port: 3000,
+          regionUpstreams,
+          canary: { service: 'web--canary', port: 3000, weightPct: 10 },
+        },
+      ]),
+      localRegion: 'za-johannesburg',
+    });
+    const body = siteBlock(out, 'app.example.com').map((l) => l.trim());
+    expect(body[0]).toBe('reverse_proxy web:3000 web--canary:3000 {');
+    expect(body).toContain('lb_policy weighted_round_robin 90 10');
+    expect(out).not.toContain('lb_policy first');
+  });
+
+  it('cold wins over region upstreams (wake the stable service first)', () => {
+    const out = buildCaddyfile({
+      ...cfg([
+        {
+          domain: 'app.example.com',
+          service: 'web',
+          port: 3000,
+          regionUpstreams,
+          cold: { wakePath: '/__swarmy/wake/web', upstream: 'controller:3001' },
+        },
+      ]),
+      localRegion: 'za-johannesburg',
+    });
+    const body = siteBlock(out, 'app.example.com').map((l) => l.trim());
+    expect(body.some((l) => l.startsWith('rewrite * /__swarmy/wake/web'))).toBe(true);
+    expect(out).not.toContain('web-za-johannesburg');
+  });
+
+  it('protections still precede the region proxy block', () => {
+    const out = buildCaddyfile({
+      ...cfg([
+        {
+          domain: 'app.example.com',
+          service: 'web',
+          port: 3000,
+          regionUpstreams,
+          protection: { ipDeny: ['10.0.0.0/8'], ipAllow: [], blockBots: false, requiredHeaders: [] },
+        },
+      ]),
+      localRegion: 'uk-scotland',
+    });
+    const body = siteBlock(out, 'app.example.com').map((l) => l.trim());
+    const denyIdx = body.findIndex((l) => l.startsWith('@deny_'));
+    const proxyIdx = body.findIndex((l) => l.startsWith('reverse_proxy'));
+    expect(denyIdx).toBeGreaterThanOrEqual(0);
+    expect(denyIdx).toBeLessThan(proxyIdx);
+  });
+});

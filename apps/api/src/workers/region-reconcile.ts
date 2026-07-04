@@ -1,6 +1,9 @@
 import { REGION_OF_LABEL, REGION_PARENT_LABEL, STACK_LABEL } from '@swarmy/core';
 import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
+import { prisma } from '@swarmy/db';
+import { reapplyIngressForOrg, siblingSetSignature } from '@swarmy/trpc';
 import { hub, store } from '../gateway';
+import { authRegistry } from '@swarmy/auth';
 
 /**
  * Per-region replicas reconcile worker (epic #7 — "the gamechanger").
@@ -168,9 +171,23 @@ async function reconcileOrg(orgId: string): Promise<void> {
 }
 
 export function startRegionReconcile(): () => void {
+  // Geo-edge: sibling churn must re-render ingress so a freshly-materialised
+  // `web-<region>` starts receiving region-preferred traffic within one tick.
+  const lastSiblingSig = new Map<string, string>();
   const timer = setInterval(() => {
     const orgIds = new Set(store.nodeOrg.values());
-    for (const orgId of orgIds) void reconcileOrg(orgId).catch(() => undefined);
+    for (const orgId of orgIds) {
+      void reconcileOrg(orgId)
+        .then(async () => {
+          const sig = siblingSetSignature(hub.liveInventory(orgId).services);
+          if (lastSiblingSig.get(orgId) === sig) return;
+          const known = lastSiblingSig.has(orgId);
+          lastSiblingSig.set(orgId, sig);
+          // Skip the first observation (startup) — nothing changed, only our cache.
+          if (known) await reapplyIngressForOrg({ db: prisma, hub, auth: authRegistry.getAuth() }, orgId);
+        })
+        .catch(() => undefined);
+    }
   }, TICK_MS);
   return () => clearInterval(timer);
 }
