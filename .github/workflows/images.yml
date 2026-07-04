@@ -24,6 +24,9 @@ jobs:
           - name: agent
             image: ghcr.io/${{ github.repository_owner }}/swarmy-agent
             dockerfile: apps/agent/Dockerfile
+          - name: dns
+            image: ghcr.io/${{ github.repository_owner }}/swarmy-dns
+            dockerfile: apps/dns/Dockerfile
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3

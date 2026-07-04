@@ -8,12 +8,14 @@
   "references": [
     { "path": "./packages/core" },
     { "path": "./packages/db" },
+    { "path": "./packages/dns" },
     { "path": "./packages/auth" },
     { "path": "./packages/ingress" },
     { "path": "./packages/trpc" },
     { "path": "./packages/ui" },
     { "path": "./apps/api" },
     { "path": "./apps/agent" },
+    { "path": "./apps/dns" },
     { "path": "./apps/app" },
     { "path": "./apps/web" }
   ]
