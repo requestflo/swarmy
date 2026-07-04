@@ -1,5 +1,14 @@
 # Epic: Geo-DNS multi-region routing + HA database templates
 
+> **⚠️ Part A (Geo-DNS/GSLB) is SUPERSEDED (2026-07).** The canonical design is now
+> [`docs/product/edge-network.md`](../docs/product/edge-network.md) ("swarmy is the
+> nameserver"): our own Bun/TS authoritative server (`swarmy-dns`, replacing the
+> CoreDNS approach below) runs on every ingress+outlet node (global service,
+> host-mode :53), users delegate NS records directly to pinned swarmy nodes, web
+> records are fully derived from ingress (no manual host+region records), and
+> answers are per-query steered node public IPs. Operational invariants live in the
+> `geo-edge-routing` skill. Part B (HA templates) below remains current.
+
 > Two capabilities, one epic, because they share a substrate (regions as first-class metadata) and a goal (a stack that survives a region going dark). Part A makes traffic find the nearest healthy ingress. Part B makes stateful services (Postgres, Redis) survive node/region loss. Both must stay one-command-easy and must run **with or without swarmy** (unopinionated).
 
 ---
