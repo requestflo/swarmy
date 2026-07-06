@@ -5,7 +5,7 @@
 // swarmy — Prisma 7 schema (pg driver adapter, ESM client, no engine binary).
 generator client {
   provider     = "prisma-client"
-  output       = "../src/generated"
+  output       = "../../src/generated"
   runtime      = "bun"
   moduleFormat = "esm"
 }

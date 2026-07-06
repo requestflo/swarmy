@@ -52,3 +52,4 @@ test-results/
 *.local
 .cache/
 tmp/
+packages/db/prisma/src/generated/
