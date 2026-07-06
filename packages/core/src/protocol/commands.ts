@@ -239,12 +239,14 @@ export const StreamLogsMsg = z.object({
 });
 export type StreamLogsMsg = z.infer<typeof StreamLogsMsg>;
 
-/** cordon / drain / set-labels on a swarm node (manager only). */
+/** cordon / drain / set-labels / promote / demote a swarm node (manager only). */
 export const UpdateSwarmNodePayload = z.object({
   ...cmd,
   swarmNodeId: z.string(),
   availability: z.enum(['active', 'pause', 'drain']).optional(),
   labels: z.record(z.string()).optional(),
+  /** WS2 promote/demote — additive; the agent passes it through to `Spec.Role`. */
+  role: z.enum(['manager', 'worker']).optional(),
 });
 export const UpdateSwarmNodeMsg = z.object({
   type: z.literal('updateSwarmNode'),

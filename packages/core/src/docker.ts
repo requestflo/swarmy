@@ -41,6 +41,13 @@ interface SwarmResourceLike {
   Spec?: { Name?: string; Labels?: Record<string, string>; Data?: string };
 }
 
+/** The subset of `GET /swarm` the recovery commands read (dockerode types are loose). */
+interface SwarmInspectLike {
+  Version?: { Index?: number };
+  Spec?: Record<string, unknown>;
+  JoinTokens?: { Worker?: string; Manager?: string };
+}
+
 /** The subset of `docker info` the agent reads. */
 interface DockerInfoLike {
   Name?: string;
@@ -183,6 +190,68 @@ export class DockerClient {
   private async localSwarmNodeId(): Promise<string> {
     const info = (await this.info()) as DockerInfoLike & { Swarm?: { NodeID?: string } };
     return info.Swarm?.NodeID ?? '';
+  }
+
+  /**
+   * `POST /swarm/update` with the CURRENT spec (mutated in place) + rotation
+   * flags (manager only). docker-modem splits `_query`/`_body`, which dockerode's
+   * loose `swarmUpdate` typing doesn't know about — hence the cast.
+   */
+  private async applySwarmUpdate(
+    mutateSpec: (spec: Record<string, unknown>) => void,
+    query: Record<string, boolean> = {},
+  ): Promise<void> {
+    const swarm = (await this.docker.swarmInspect()) as SwarmInspectLike;
+    const spec = (swarm.Spec ?? {}) as Record<string, unknown>;
+    mutateSpec(spec);
+    await this.docker.swarmUpdate({
+      _query: { version: swarm.Version?.Index ?? 0, ...query },
+      _body: spec,
+    } as unknown as Parameters<Docker['swarmUpdate']>[0]);
+  }
+
+  /**
+   * Toggle manager auto-lock (`AutoLockManagers`). Enabling returns the
+   * freshly-minted unlock key so the caller can store it — Docker only hands
+   * it out via `GET /swarm/unlockkey`, never in the update response.
+   */
+  async swarmSetAutolock(enabled: boolean): Promise<{ autolock: boolean; unlockKey?: string }> {
+    await this.applySwarmUpdate((spec) => {
+      const enc = (spec.EncryptionConfig ?? {}) as Record<string, unknown>;
+      spec.EncryptionConfig = { ...enc, AutoLockManagers: enabled };
+    });
+    if (!enabled) return { autolock: false };
+    const unlockKey = await this.swarmUnlockKey();
+    return { autolock: true, unlockKey: unlockKey || undefined };
+  }
+
+  /** Current unlock key (`GET /swarm/unlockkey`) — dockerode 4.x has no wrapper,
+   *  so dial the engine endpoint directly (manager only). */
+  async swarmUnlockKey(): Promise<string> {
+    const res = await new Promise<unknown>((resolve, reject) => {
+      this.docker.modem.dial(
+        {
+          path: '/swarm/unlockkey',
+          method: 'GET',
+          statusCodes: { 200: true, 406: 'node is not a swarm manager', 500: 'server error' },
+        },
+        (err: Error | null, data: unknown) => (err ? reject(err) : resolve(data)),
+      );
+    });
+    return (res as { UnlockKey?: string } | null)?.UnlockKey ?? '';
+  }
+
+  /** Rotate the worker and/or manager join tokens; returns the post-rotation pair. */
+  async swarmRotateTokens(
+    roles: Array<'manager' | 'worker'>,
+  ): Promise<{ worker: string; manager: string }> {
+    await this.applySwarmUpdate(() => undefined, {
+      rotateWorkerToken: roles.includes('worker'),
+      rotateManagerToken: roles.includes('manager'),
+    });
+    const swarm = (await this.docker.swarmInspect()) as SwarmInspectLike;
+    const tokens = swarm.JoinTokens ?? {};
+    return { worker: tokens.Worker ?? '', manager: tokens.Manager ?? '' };
   }
 
   /** Snapshot all containers as protocol `ContainerInfo[]`. */
@@ -564,13 +633,19 @@ export class DockerClient {
 
   async updateSwarmNode(
     swarmNodeId: string,
-    opts: { availability?: 'active' | 'pause' | 'drain'; labels?: Record<string, string> },
+    opts: {
+      availability?: 'active' | 'pause' | 'drain';
+      labels?: Record<string, string>;
+      /** WS2 promote/demote — maps straight onto the node spec's `Role`. */
+      role?: 'manager' | 'worker';
+    },
   ): Promise<void> {
     const node = this.docker.getNode(swarmNodeId);
     const inspect = await node.inspect();
     const spec = inspect.Spec || {};
     if (opts.availability) spec.Availability = opts.availability;
     if (opts.labels) spec.Labels = { ...(spec.Labels || {}), ...opts.labels };
+    if (opts.role) spec.Role = opts.role;
     await node.update({ version: inspect.Version.Index, ...spec });
   }
 

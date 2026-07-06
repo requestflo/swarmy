@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/page-header';
 import { CountUp } from '@/components/count-up';
 import { ClusterHero } from '@/components/infra/cluster-hero';
 import { NodeList } from '@/components/nodes/node-list';
+import { SwarmHealthCard } from '@/components/nodes/swarm-health-card';
 import { InfraCanvas } from '@/components/infrastructure/infra-canvas';
 import {
   InfraGlobeFallback,
@@ -68,6 +69,9 @@ function InfrastructurePlane(): React.JSX.Element {
       <div className="mt-8">
         <NodeList />
       </div>
+
+      {/* Manager quorum + recovery tooling (admin-only; hides itself otherwise). */}
+      <SwarmHealthCard />
 
       <div className="mt-10 flex items-center justify-between gap-3">
         <h2 className="text-muted-foreground mono-label mb-0!">

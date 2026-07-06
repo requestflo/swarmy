@@ -100,6 +100,7 @@ describe('orchestrateSwarmMembership', () => {
       managerAddr: '10.0.0.2:2377',
       workerJoinTokenEnc: encryptFixture('SWMTKN-worker'),
       managerJoinTokenEnc: encryptFixture('SWMTKN-manager'),
+      unlockKeyEnc: null,
     };
     const { hub, calls } = makeHub(true, { mode: 'join', swarmNodeId: 'swarm-node-2' });
     const { db } = makeDb(seed);
@@ -122,6 +123,7 @@ describe('orchestrateSwarmMembership', () => {
       managerAddr: '10.0.0.2:2377',
       workerJoinTokenEnc: encryptFixture('SWMTKN-worker'),
       managerJoinTokenEnc: encryptFixture('SWMTKN-manager'),
+      unlockKeyEnc: null,
     };
     const { hub, calls } = makeHub(true, { mode: 'join', swarmNodeId: 'swarm-node-3' });
     const { db } = makeDb(seed);
@@ -146,6 +148,7 @@ describe('orchestrateSwarmMembership', () => {
       managerAddr: null,
       workerJoinTokenEnc: null,
       managerJoinTokenEnc: null,
+      unlockKeyEnc: null,
     };
     const { hub, calls } = makeHub(true, {});
     const { db } = makeDb(seed);

@@ -144,6 +144,9 @@ model SwarmConfig {
   // Docker join tokens (`SWMTKN-…`), stored encrypted by the swarm service.
   workerJoinTokenEnc   String?
   managerJoinTokenEnc  String?
+  // Swarm autolock unlock key (`SWMKEY-…`), stored encrypted when the operator
+  // opts to keep it here (WS2). Null = autolock off OR the operator self-stores.
+  unlockKeyEnc         String?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

@@ -13,6 +13,9 @@ function byId<T extends { id: string }>(arr: T[], id: string): T | undefined {
   return arr.find((x) => x.id === id);
 }
 
+/** Session-local autolock state for the swarm.* demo resolvers. */
+const demoAutolock = { keyStored: false };
+
 export const core: DomainResolvers = {
   handlers: {
     'org.currentOrg': (_i, s) => ({ id: s.org.id, name: s.org.name, slug: s.org.slug, role: s.org.role }),
@@ -74,6 +77,56 @@ export const core: DomainResolvers = {
       if (n) n.status = 'draining';
       return { id: (i as { id: string }).id };
     },
+    // Swarm health + recovery (WS2). The demo estate keeps a mutable autolock
+    // flag on the store-adjacent closure below; promote/demote flip node roles
+    // in place so the census reacts.
+    'swarm.health': (_i, s) => {
+      const managers = s.nodes.filter((n) => n.role === 'manager');
+      const reachable = managers.filter((n) => n.status === 'online').length;
+      const total = managers.length;
+      const majority = Math.floor(total / 2) + 1;
+      const verdict = total === 0 ? 'no-swarm' : reachable < majority ? 'lost' : reachable === majority ? 'at-risk' : 'healthy';
+      const message =
+        verdict === 'at-risk'
+          ? `You have ${total} managers but only ${reachable} reachable — one more failure loses quorum.`
+          : verdict === 'lost'
+            ? 'Manager quorum is lost — the swarm cannot accept changes.'
+            : total === 1
+              ? 'A single manager is a single point of failure — use 3 for HA.'
+              : 'Manager quorum is healthy.';
+      return {
+        managers: { total, reachable, majority: total > 0 ? majority : 0, verdict, message },
+        workers: { total: s.nodes.filter((n) => n.role === 'worker').length },
+        autolock: { keyStored: demoAutolock.keyStored, lockedNodes: 0 },
+        managerNodes: managers.map((n, i) => ({ hostname: n.hostname, reachable: n.status === 'online', leader: i === 0 })),
+      };
+    },
+    'swarm.setAutolock': (i) => {
+      const { enabled, storeKey } = i as { enabled: boolean; storeKey?: boolean };
+      demoAutolock.keyStored = enabled && storeKey !== false;
+      return {
+        enabled,
+        keyStored: demoAutolock.keyStored,
+        ...(enabled && storeKey === false ? { unlockKey: 'SWMKEY-1-DEMOxDEMOxDEMOxDEMOxDEMOxDEMOxDEMO' } : {}),
+      };
+    },
+    'swarm.revealUnlockKey': () => ({ unlockKey: 'SWMKEY-1-DEMOxDEMOxDEMOxDEMOxDEMOxDEMOxDEMO' }),
+    'swarm.rotateJoinTokens': (i) => ({
+      rotated: (i as { roles?: string[] } | undefined)?.roles ?? ['worker', 'manager'],
+    }),
+    'swarm.promote': (i, s) => {
+      const n = byId(s.nodes, (i as { id: string }).id);
+      if (n) n.role = 'manager';
+      return { id: (i as { id: string }).id, role: 'manager' };
+    },
+    'swarm.demote': (i, s) => {
+      const managers = s.nodes.filter((x) => x.role === 'manager');
+      if (managers.length <= 1) throw new Error('Refusing to demote the last manager — the swarm would be headless.');
+      const n = byId(s.nodes, (i as { id: string }).id);
+      if (n) n.role = 'worker';
+      return { id: (i as { id: string }).id, role: 'worker' };
+    },
+
     // Agent self-update: the demo controller "ships" a newer release than the
     // seeded nodes run, so the Update affordance is visible; updating bumps the
     // node's reported version (mirrors the swap→reconnect flow instantly).

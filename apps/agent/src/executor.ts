@@ -12,7 +12,7 @@ import { applyIngressConnector } from './handlers/ingress-connector';
 import { buildImage } from './handlers/build';
 import { pruneImages } from './handlers/prune';
 import { applyStorageNode, provisionVolume, removeVolume } from './handlers/storage';
-import { applySwarmJoin } from './handlers/swarm';
+import { applySwarmJoin, rotateSwarmTokens, setSwarmAutolock } from './handlers/swarm';
 import { updateAgent } from './handlers/update';
 import {
   secretCreate,
@@ -97,9 +97,9 @@ export async function handleCommand(
       });
     }
     case 'updateSwarmNode': {
-      const { commandId, swarmNodeId, availability, labels } = envlp.payload;
+      const { commandId, swarmNodeId, availability, labels, role } = envlp.payload;
       return run(conn, commandId, async () => {
-        await docker.updateSwarmNode(swarmNodeId, { availability, labels });
+        await docker.updateSwarmNode(swarmNodeId, { availability, labels, role });
         return { swarmNodeId };
       });
     }
@@ -204,6 +204,14 @@ export async function handleCommand(
     case 'swarmJoin': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => applySwarmJoin(docker, p));
+    }
+    case 'swarmSetAutolock': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => setSwarmAutolock(docker, p));
+    }
+    case 'swarmRotateTokens': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => rotateSwarmTokens(docker, p));
     }
     case 'updateAgent': {
       // On success the handler schedules its own exit AFTER the result has had

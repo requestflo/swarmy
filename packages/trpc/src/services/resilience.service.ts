@@ -88,7 +88,7 @@ export const SEVERITY_WEIGHT: Record<ResilienceSeverity, number> = {
 /** "No successful backup in N days" / "controller backup stale" threshold. */
 export const BACKUP_STALE_DAYS = 7;
 const DAY_MS = 86_400_000;
-const CHECKS_RUN = 9;
+const CHECKS_RUN = 12;
 
 // ── Pure snapshot shape (fixture-friendly — the classifiers never touch ctx) ──
 
@@ -121,6 +121,9 @@ export interface ResilienceSnapshot {
   controllerBackup: { enabled: boolean; lastRunAt: string | null };
   /** Last successful restore drill (read back from the audit log), ISO. */
   lastRestoreDrillAt: string | null;
+  /** Swarm manager census (Docker-truth via the hub's node inventory).
+   *  `reachable` = managers the cluster currently reports `ready`. */
+  managers: { total: number; reachable: number };
 }
 
 // ── Pure helpers ───────────────────────────────────────────────────────────────
@@ -363,6 +366,77 @@ export function runChecks(snap: ResilienceSnapshot): ResilienceProblemView[] {
     );
   }
 
+  // 10–12. Swarm manager quorum (WS2). The check ids are additive to
+  // ResilienceCheckId; the views.ts union is owned by another workstream this
+  // round, so widen locally until integration folds them in.
+  const quorumCheckId = (id: string): ResilienceCheckId => id as ResilienceCheckId;
+  const { total: managerTotal, reachable: managersReachable } = snap.managers;
+
+  // 10. Exactly one manager: the control plane is a single point of failure.
+  if (managerTotal === 1) {
+    out.push(
+      problem(quorumCheckId('swarm-single-manager'), 'info', {
+        title: 'The swarm has a single manager',
+        detail:
+          'Losing that one node freezes the control plane — running services stay up, but nothing can be deployed, scaled, or rescheduled until it returns.',
+        fixHint: 'Promote two more nodes so 3 managers can survive one manager loss.',
+        fixPath: '/nodes',
+        fixLabel: 'Promote a node',
+        resource: null,
+      }),
+    );
+  }
+
+  // 11. Even manager counts buy no extra failure tolerance (raft majority).
+  if (managerTotal >= 2 && managerTotal % 2 === 0) {
+    out.push(
+      problem(quorumCheckId('swarm-even-managers'), 'warn', {
+        title: `${managerTotal} managers is an even number`,
+        detail: `Raft quorum needs a majority of ${Math.floor(managerTotal / 2) + 1}, so ${managerTotal} managers tolerate no more failures than ${managerTotal - 1} would — the extra one only adds risk. Use 1, 3, 5 or 7.`,
+        fixHint: 'Promote one more node (or demote one) to reach an odd manager count.',
+        fixPath: '/nodes',
+        fixLabel: 'Adjust managers',
+        resource: null,
+      }),
+    );
+  }
+
+  // 12. Quorum risk: exactly at the majority (one failure loses quorum) or
+  // already below it. A 1-manager swarm is covered by check 10 instead.
+  if (managerTotal >= 2) {
+    const majority = Math.floor(managerTotal / 2) + 1;
+    const down = managerTotal - managersReachable;
+    if (managersReachable < majority) {
+      out.push(
+        problem(quorumCheckId('swarm-quorum-risk'), 'crit', {
+          title: 'Swarm quorum is lost',
+          detail: `Only ${managersReachable} of ${managerTotal} managers ${managersReachable === 1 ? 'is' : 'are'} reachable — below the majority of ${majority}. The control plane is frozen until managers come back (or the swarm is force-recreated).`,
+          fixHint: 'Bring the offline managers back, or recover the swarm from a surviving manager.',
+          fixPath: '/nodes',
+          fixLabel: 'Recover managers',
+          resource: null,
+        }),
+      );
+    } else if (managersReachable === majority) {
+      out.push(
+        problem(quorumCheckId('swarm-quorum-risk'), 'crit', {
+          title: 'One manager failure from losing quorum',
+          detail:
+            down > 0
+              ? `You have ${managerTotal} managers but ${down} ${down === 1 ? 'is' : 'are'} offline — one more failure loses quorum.`
+              : `All ${managerTotal} managers are up, but quorum needs ${majority} of ${managerTotal} — a single manager loss freezes the control plane.`,
+          fixHint:
+            down > 0
+              ? 'Bring the offline managers back (or promote a healthy node) before the next failure.'
+              : 'Promote another node so the swarm can lose a manager without losing quorum.',
+          fixPath: '/nodes',
+          fixLabel: down > 0 ? 'Recover managers' : 'Promote a node',
+          resource: null,
+        }),
+      );
+    }
+  }
+
   const order: Record<ResilienceSeverity, number> = { crit: 0, warn: 1, info: 2 };
   return out.sort((a, b) => order[a.severity] - order[b.severity] || a.id.localeCompare(b.id));
 }
@@ -486,6 +560,11 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
   // estate-level posture (ingress, geo, controller backups) stays shared.
   const inv = liveServices(ctx).filter((s) => !stack || s.stack === stack);
   const regions = [...ctx.hub.nodesByRegion(ctx.activeOrgId).keys()];
+  // Manager census is Docker truth from the hub (includeOffline folds in
+  // last-known managers whose agents are disconnected — they still hold a vote).
+  const managerNodes = ctx.hub
+    .nodeInventory(ctx.activeOrgId, true)
+    .filter((n) => n.role === 'manager');
 
   const [ingress, storage, geoCfg, geoRecords, controller, targetCount, lastSuccessAt, drills] =
     await Promise.all([
@@ -525,6 +604,10 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
       lastRunAt: controller?.lastRunAt ?? null,
     },
     lastRestoreDrillAt: lastRestore?.at ?? null,
+    managers: {
+      total: managerNodes.length,
+      reachable: managerNodes.filter((n) => n.status === 'ready').length,
+    },
   };
 }
 

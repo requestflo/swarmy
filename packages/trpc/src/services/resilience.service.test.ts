@@ -42,6 +42,7 @@ function healthySnapshot(over: Partial<ResilienceSnapshot> = {}): ResilienceSnap
     geodns: { enabled: false, recordRegions: [] },
     controllerBackup: { enabled: true, lastRunAt: daysAgo(1) },
     lastRestoreDrillAt: daysAgo(2),
+    managers: { total: 3, reachable: 3 },
     ...over,
   };
 }
@@ -302,6 +303,91 @@ describe('runChecks — classifiers', () => {
       return order[a] - order[b];
     }));
     expect(severities[0]).toBe('crit');
+  });
+});
+
+describe('runChecks — swarm manager quorum (WS2)', () => {
+  const quorum = (total: number, reachable: number) =>
+    runChecks(healthySnapshot({ managers: { total, reachable } }));
+
+  it('a single manager is an info (SPOF), never a quorum crit', () => {
+    const problems = quorum(1, 1);
+    expect(byCheck(problems, 'swarm-single-manager')).toHaveLength(1);
+    expect(byCheck(problems, 'swarm-single-manager')[0]!.severity).toBe('info');
+    expect(byCheck(problems, 'swarm-even-managers')).toHaveLength(0);
+    expect(byCheck(problems, 'swarm-quorum-risk')).toHaveLength(0);
+  });
+
+  it('even manager counts warn with the odd-count advice', () => {
+    for (const total of [2, 4, 6]) {
+      const problems = byCheck(quorum(total, total), 'swarm-even-managers');
+      expect(problems).toHaveLength(1);
+      expect(problems[0]!.severity).toBe('warn');
+      expect(problems[0]!.detail).toContain('1, 3, 5 or 7');
+    }
+    for (const total of [1, 3, 5, 7]) {
+      expect(byCheck(quorum(total, total), 'swarm-even-managers')).toHaveLength(0);
+    }
+  });
+
+  it('healthy odd manager sets (3/5/7 all reachable) raise no quorum risk', () => {
+    for (const total of [3, 5, 7]) {
+      expect(byCheck(quorum(total, total), 'swarm-quorum-risk')).toHaveLength(0);
+    }
+  });
+
+  it('crits when reachable managers sit exactly at the majority', () => {
+    // (total, reachable at floor(n/2)+1): one more failure loses quorum.
+    const atMajority: Array<[number, number]> = [
+      [2, 2],
+      [3, 2],
+      [4, 3],
+      [5, 3],
+      [6, 4],
+      [7, 4],
+    ];
+    for (const [total, reachable] of atMajority) {
+      const problems = byCheck(quorum(total, reachable), 'swarm-quorum-risk');
+      expect(problems).toHaveLength(1);
+      expect(problems[0]!.severity).toBe('crit');
+      expect(problems[0]!.title).toBe('One manager failure from losing quorum');
+    }
+  });
+
+  it('names the offline manager count in the at-risk fix text', () => {
+    const [p] = byCheck(quorum(3, 2), 'swarm-quorum-risk');
+    expect(p!.detail).toBe('You have 3 managers but 1 is offline — one more failure loses quorum.');
+  });
+
+  it('crits as lost when reachable managers fall below the majority', () => {
+    const belowMajority: Array<[number, number]> = [
+      [2, 1],
+      [3, 1],
+      [4, 2],
+      [5, 2],
+      [6, 3],
+      [7, 3],
+      [3, 0],
+    ];
+    for (const [total, reachable] of belowMajority) {
+      const problems = byCheck(quorum(total, reachable), 'swarm-quorum-risk');
+      expect(problems).toHaveLength(1);
+      expect(problems[0]!.severity).toBe('crit');
+      expect(problems[0]!.title).toBe('Swarm quorum is lost');
+    }
+  });
+
+  it('reachable above the majority raises nothing (5 managers, 1 offline)', () => {
+    expect(byCheck(quorum(5, 4), 'swarm-quorum-risk')).toHaveLength(0);
+    expect(byCheck(quorum(7, 6), 'swarm-quorum-risk')).toHaveLength(0);
+    expect(byCheck(quorum(7, 5), 'swarm-quorum-risk')).toHaveLength(0);
+  });
+
+  it('an empty estate (no swarm yet) raises no quorum findings', () => {
+    const problems = quorum(0, 0);
+    expect(byCheck(problems, 'swarm-single-manager')).toHaveLength(0);
+    expect(byCheck(problems, 'swarm-even-managers')).toHaveLength(0);
+    expect(byCheck(problems, 'swarm-quorum-risk')).toHaveLength(0);
   });
 });
 

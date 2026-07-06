@@ -39,6 +39,8 @@ export interface SwarmConfigRow {
   workerJoinTokenEnc: string | null;
   /** Encrypted Docker manager join token (`SWMTKN-…`). */
   managerJoinTokenEnc: string | null;
+  /** Encrypted swarm autolock unlock key (`SWMKEY-…`), when the operator stores it here (WS2). */
+  unlockKeyEnc: string | null;
 }
 
 /** The minimal Prisma surface this service uses (keeps it model-agnostic + testable). */
@@ -120,6 +122,7 @@ export async function orchestrateSwarmMembership(args: OrchestrateArgs): Promise
       managerAddr: res.managerAddr ?? null,
       workerJoinTokenEnc: tokens.worker ? encryptSecret(tokens.worker) : null,
       managerJoinTokenEnc: tokens.manager ? encryptSecret(tokens.manager) : null,
+      unlockKeyEnc: null,
     };
     await db.swarmConfig.upsert({ where: { orgId }, create: row, update: row });
     // The node's swarm id + role are Docker truth (read via `hub.swarmNodeIdFor`/

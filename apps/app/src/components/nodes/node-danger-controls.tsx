@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { PauseIcon, PlayIcon, TrashIcon } from 'lucide-react';
+import { ChevronsDownIcon, ChevronsUpIcon, PauseIcon, PlayIcon, TrashIcon } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,11 +22,14 @@ interface NodeDangerControlsProps {
   nodeId: string;
   name: string;
   status: NodeStatusView | undefined;
+  /** Live swarm role — drives promote/demote (WS2). Omitted = hide the control. */
+  role?: 'manager' | 'worker';
 }
 
-/** Availability (drain/activate) + remove — the destructive end of node control.
- *  Drain and remove are AlertDialog-confirmed; activate is a plain reversible action. */
-export function NodeDangerControls({ nodeId, name, status }: NodeDangerControlsProps): React.JSX.Element {
+/** Availability (drain/activate), promote/demote, + remove — the destructive end
+ *  of node control. Drain, demote and remove are AlertDialog-confirmed; activate
+ *  and promote are plain reversible actions. Demote is quorum-guarded server-side. */
+export function NodeDangerControls({ nodeId, name, status, role }: NodeDangerControlsProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -47,6 +50,25 @@ export function NodeDangerControls({ nodeId, name, status }: NodeDangerControlsP
         toast.success(`${name} activated`);
         void qc.invalidateQueries();
       },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+  const promote = useMutation(
+    trpc.swarm.promote.mutationOptions({
+      onSuccess: () => {
+        toast.success(`${name} promoted to manager`);
+        void qc.invalidateQueries();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+  const demote = useMutation(
+    trpc.swarm.demote.mutationOptions({
+      onSuccess: () => {
+        toast.success(`${name} demoted to worker`);
+        void qc.invalidateQueries();
+      },
+      // The server's quorum guard speaks plainly — surface it verbatim.
       onError: (e) => toast.error(e.message),
     }),
   );
@@ -96,6 +118,40 @@ export function NodeDangerControls({ nodeId, name, status }: NodeDangerControlsP
             </AlertDialogContent>
           </AlertDialog>
         )}
+
+        {role === 'worker' ? (
+          <Button
+            variant="outline"
+            disabled={promote.isPending}
+            onClick={() => promote.mutate({ id: nodeId })}
+          >
+            <ChevronsUpIcon className="size-4" /> Promote to manager
+          </Button>
+        ) : null}
+        {role === 'manager' ? (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" disabled={demote.isPending}>
+                <ChevronsDownIcon className="size-4" /> Demote to worker
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Demote {name} to worker?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {name} stops voting in the manager quorum and can no longer run control-plane
+                  commands. swarmy refuses the demote if it would break quorum.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => demote.mutate({ id: nodeId })}>
+                  Demote node
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        ) : null}
       </div>
 
       <AlertDialog>

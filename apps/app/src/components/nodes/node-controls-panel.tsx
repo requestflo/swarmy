@@ -42,7 +42,12 @@ export function NodeControlsPanel({ node, monthlyUsd }: NodeControlsPanelProps):
           <NodeLabelsEditor nodeId={node?.id ?? ''} labels={node?.labels ?? {}} />
         </div>
         <div className="pt-5">
-          <NodeDangerControls nodeId={node?.id ?? ''} name={node?.name ?? 'node'} status={node?.status} />
+          <NodeDangerControls
+            nodeId={node?.id ?? ''}
+            name={node?.name ?? 'node'}
+            status={node?.status}
+            role={node?.role}
+          />
         </div>
       </CardContent>
     </Card>

@@ -131,6 +131,7 @@ Four ideas, one story:
 | Controller down while a node is enrolling | The agent retries the outbound WSS with jittered backoff; nothing on the box needs the controller except registration. Once the controller returns, `register` completes. |
 | Duplicate agent for one node (re-run installer) | Enrollment is idempotent: same hostname upserts the same `Node`; the newer session wins and the stale socket is closed. |
 | Docker not yet installed / unavailable | Install script installs Docker first; a running agent that can't reach Docker still reports OS-only node facts and stays connected rather than crash-looping. |
+| A manager dies / quorum is at risk | The Swarm health card + resilience score say it in plain words ("3 managers, 1 offline — one more failure loses quorum") before it becomes an outage. Promote/demote are quorum-guarded: swarmy refuses a demote that would leave the swarm headless or below majority. With autolock on, the unlock key is stored encrypted next to the join tokens (or shown once for self-storage) so a restarted manager can always be unlocked. |
 
 ## Explicitly rejected
 

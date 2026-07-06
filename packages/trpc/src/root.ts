@@ -52,6 +52,7 @@ import { guardrailsRouter } from './routers/guardrails';
 import { auditLogRouter } from './routers/auditLog';
 import { costRouter } from './routers/cost';
 import { resilienceRouter } from './routers/resilience';
+import { swarmRouter } from './routers/swarm';
 import { blueprintsRouter } from './routers/blueprints';
 import { managedSearchRouter } from './routers/search';
 import { vectorStoreRouter } from './routers/vector';
@@ -112,6 +113,7 @@ export const appRouter = router({
   audit: auditLogRouter,
   cost: costRouter,
   resilience: resilienceRouter,
+  swarm: swarmRouter,
   blueprints: blueprintsRouter,
   search: managedSearchRouter,
   vector: vectorStoreRouter,

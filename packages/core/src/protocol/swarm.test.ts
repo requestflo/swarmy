@@ -3,8 +3,16 @@ import {
   SwarmJoinPayload,
   SwarmJoinMsg,
   SwarmJoinResult,
+  SwarmRotateTokensMsg,
+  SwarmRotateTokensPayload,
+  SwarmRotateTokensResult,
+  SwarmSetAutolockMsg,
+  SwarmSetAutolockPayload,
+  SwarmSetAutolockResult,
   SWARM_JOIN_TIMEOUT_MS,
 } from './swarm';
+import { UpdateSwarmNodePayload } from './commands';
+import { ControllerToAgentMessage } from './messages';
 
 const CMD_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -79,5 +87,105 @@ describe('SwarmJoinResult', () => {
 describe('SWARM_JOIN_TIMEOUT_MS', () => {
   it('is a sane positive timeout', () => {
     expect(SWARM_JOIN_TIMEOUT_MS).toBeGreaterThan(0);
+  });
+});
+
+describe('SwarmSetAutolockPayload (WS2)', () => {
+  it('accepts enable and disable', () => {
+    expect(SwarmSetAutolockPayload.safeParse({ commandId: CMD_ID, enabled: true }).success).toBe(true);
+    expect(SwarmSetAutolockPayload.safeParse({ commandId: CMD_ID, enabled: false }).success).toBe(true);
+  });
+
+  it('rejects a missing or non-boolean enabled', () => {
+    expect(SwarmSetAutolockPayload.safeParse({ commandId: CMD_ID }).success).toBe(false);
+    expect(SwarmSetAutolockPayload.safeParse({ commandId: CMD_ID, enabled: 'yes' }).success).toBe(false);
+  });
+
+  it('wraps with the swarmSetAutolock discriminant and rejects a wrong type', () => {
+    const ok = SwarmSetAutolockMsg.safeParse({
+      type: 'swarmSetAutolock',
+      payload: { commandId: CMD_ID, enabled: true },
+    });
+    expect(ok.success).toBe(true);
+    const wrong = SwarmSetAutolockMsg.safeParse({
+      type: 'swarmAutolock',
+      payload: { commandId: CMD_ID, enabled: true },
+    });
+    expect(wrong.success).toBe(false);
+  });
+
+  it('round-trips through the ControllerToAgentMessage union', () => {
+    const r = ControllerToAgentMessage.safeParse({
+      type: 'swarmSetAutolock',
+      payload: { commandId: CMD_ID, enabled: true },
+    });
+    expect(r.success).toBe(true);
+    if (r.success && r.data.type === 'swarmSetAutolock') {
+      expect(r.data.payload.enabled).toBe(true);
+    }
+  });
+});
+
+describe('SwarmSetAutolockResult (WS2)', () => {
+  it('carries the unlock key only on enable', () => {
+    expect(
+      SwarmSetAutolockResult.safeParse({ autolock: true, unlockKey: 'SWMKEY-1-abc' }).success,
+    ).toBe(true);
+    expect(SwarmSetAutolockResult.safeParse({ autolock: false }).success).toBe(true);
+    expect(SwarmSetAutolockResult.safeParse({ autolock: true, unlockKey: '' }).success).toBe(false);
+  });
+});
+
+describe('SwarmRotateTokensPayload (WS2)', () => {
+  it('accepts one or both roles', () => {
+    expect(SwarmRotateTokensPayload.safeParse({ commandId: CMD_ID, roles: ['worker'] }).success).toBe(true);
+    expect(
+      SwarmRotateTokensPayload.safeParse({ commandId: CMD_ID, roles: ['manager', 'worker'] }).success,
+    ).toBe(true);
+  });
+
+  it('rejects an empty or unknown role list', () => {
+    expect(SwarmRotateTokensPayload.safeParse({ commandId: CMD_ID, roles: [] }).success).toBe(false);
+    expect(SwarmRotateTokensPayload.safeParse({ commandId: CMD_ID, roles: ['leader'] }).success).toBe(false);
+    expect(SwarmRotateTokensPayload.safeParse({ commandId: CMD_ID }).success).toBe(false);
+  });
+
+  it('wraps with the swarmRotateTokens discriminant and joins the union', () => {
+    const msg = { type: 'swarmRotateTokens', payload: { commandId: CMD_ID, roles: ['manager'] } };
+    expect(SwarmRotateTokensMsg.safeParse(msg).success).toBe(true);
+    expect(ControllerToAgentMessage.safeParse(msg).success).toBe(true);
+    expect(
+      SwarmRotateTokensMsg.safeParse({ ...msg, type: 'rotateTokens' }).success,
+    ).toBe(false);
+  });
+});
+
+describe('SwarmRotateTokensResult (WS2)', () => {
+  it('carries the post-rotation token pair', () => {
+    const r = SwarmRotateTokensResult.safeParse({
+      joinTokens: { worker: 'SWMTKN-w2', manager: 'SWMTKN-m2' },
+    });
+    expect(r.success).toBe(true);
+    expect(SwarmRotateTokensResult.safeParse({}).success).toBe(false);
+  });
+});
+
+describe('UpdateSwarmNodePayload role extension (WS2 promote/demote)', () => {
+  it('stays valid without a role (additive change)', () => {
+    const r = UpdateSwarmNodePayload.safeParse({ commandId: CMD_ID, swarmNodeId: 'n1', availability: 'drain' });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.role).toBeUndefined();
+  });
+
+  it('accepts manager/worker and rejects anything else', () => {
+    expect(
+      UpdateSwarmNodePayload.safeParse({ commandId: CMD_ID, swarmNodeId: 'n1', role: 'manager' }).success,
+    ).toBe(true);
+    expect(
+      UpdateSwarmNodePayload.safeParse({ commandId: CMD_ID, swarmNodeId: 'n1', role: 'worker' }).success,
+    ).toBe(true);
+    expect(
+      UpdateSwarmNodePayload.safeParse({ commandId: CMD_ID, swarmNodeId: 'n1', role: 'leader' }).success,
+    ).toBe(false);
   });
 });

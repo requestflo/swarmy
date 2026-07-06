@@ -39,6 +39,8 @@ export type CommandName =
   | 'image.prune'
   | 'mesh.grantDirectRoute'
   | 'swarm.join' // node-onboarding P2: init/join the org's Docker Swarm
+  | 'swarm.autolock' // WS2 quorum recovery: toggle AutoLockManagers (returns the unlock key on enable)
+  | 'swarm.rotateTokens' // WS2 quorum recovery: rotate worker/manager join tokens
   | 'secret.create' // platform buildout: Docker secrets/configs as first-class resources
   | 'secret.remove'
   | 'secret.list'
@@ -78,6 +80,8 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'image.prune': 'pruneImages',
   'mesh.grantDirectRoute': 'grantDirectRoute',
   'swarm.join': 'swarmJoin',
+  'swarm.autolock': 'swarmSetAutolock',
+  'swarm.rotateTokens': 'swarmRotateTokens',
   'secret.create': 'secretCreate',
   'secret.remove': 'secretRemove',
   'secret.list': 'secretList',

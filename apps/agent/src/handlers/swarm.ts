@@ -13,7 +13,14 @@
  * idempotency guarantee).
  */
 import type { DockerClient } from '@swarmy/core/docker';
-import type { SwarmJoinPayload, SwarmJoinResult } from '@swarmy/core/protocol';
+import type {
+  SwarmJoinPayload,
+  SwarmJoinResult,
+  SwarmRotateTokensPayload,
+  SwarmRotateTokensResult,
+  SwarmSetAutolockPayload,
+  SwarmSetAutolockResult,
+} from '@swarmy/core/protocol';
 
 /**
  * Local source address the kernel would use to reach `host` — a connected UDP
@@ -68,4 +75,23 @@ export async function applySwarmJoin(
     advertiseAddr,
   });
   return { mode: 'join', swarmNodeId };
+}
+
+/**
+ * WS2 quorum recovery — thin pass-throughs over DockerClient (both are
+ * manager-only; Docker rejects them elsewhere with a clear error the `run`
+ * helper surfaces as a failed commandResult).
+ */
+export async function setSwarmAutolock(
+  docker: DockerClient,
+  p: SwarmSetAutolockPayload,
+): Promise<SwarmSetAutolockResult> {
+  return docker.swarmSetAutolock(p.enabled);
+}
+
+export async function rotateSwarmTokens(
+  docker: DockerClient,
+  p: SwarmRotateTokensPayload,
+): Promise<SwarmRotateTokensResult> {
+  return { joinTokens: await docker.swarmRotateTokens(p.roles) };
 }

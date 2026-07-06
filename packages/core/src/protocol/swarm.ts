@@ -81,3 +81,56 @@ export type SwarmJoinResult = z.infer<typeof SwarmJoinResult>;
 
 /** Agent-enforced execution timeout (ms) for `swarmJoin`. */
 export const SWARM_JOIN_TIMEOUT_MS = 60_000;
+
+/**
+ * Quorum recovery tooling (roadmap WS2). Two more manager-only swarm commands:
+ *
+ *   - `swarmSetAutolock` — toggle `AutoLockManagers` on the swarm. Enabling
+ *     returns the freshly-minted unlock key (read via `GET /swarm/unlockkey`)
+ *     so the controller can store it encrypted — or hand it to the operator
+ *     once and store nothing.
+ *   - `swarmRotateTokens` — rotate the worker and/or manager join tokens and
+ *     return the fresh ones so the controller can re-encrypt + store them.
+ *
+ * Promote/demote is NOT a new command: `updateSwarmNode` gained an optional
+ * `role` field (additive) that the agent passes through to `Spec.Role`.
+ */
+
+export const SwarmSetAutolockPayload = z.object({
+  ...cmd,
+  enabled: z.boolean(),
+});
+export type SwarmSetAutolockPayload = z.infer<typeof SwarmSetAutolockPayload>;
+
+export const SwarmSetAutolockMsg = z.object({
+  type: z.literal('swarmSetAutolock'),
+  payload: SwarmSetAutolockPayload,
+});
+export type SwarmSetAutolockMsg = z.infer<typeof SwarmSetAutolockMsg>;
+
+/** Result of `swarmSetAutolock`. `unlockKey` is only present when enabling. */
+export const SwarmSetAutolockResult = z.object({
+  autolock: z.boolean(),
+  unlockKey: z.string().min(1).optional(),
+});
+export type SwarmSetAutolockResult = z.infer<typeof SwarmSetAutolockResult>;
+
+export const SwarmRotateTokensPayload = z.object({
+  ...cmd,
+  /** Which join tokens to rotate (at least one). */
+  roles: z.array(SwarmRole).min(1),
+});
+export type SwarmRotateTokensPayload = z.infer<typeof SwarmRotateTokensPayload>;
+
+export const SwarmRotateTokensMsg = z.object({
+  type: z.literal('swarmRotateTokens'),
+  payload: SwarmRotateTokensPayload,
+});
+export type SwarmRotateTokensMsg = z.infer<typeof SwarmRotateTokensMsg>;
+
+/** Result of `swarmRotateTokens`: the post-rotation tokens (both roles, fresh
+ *  or unchanged — the controller re-stores whichever it asked to rotate). */
+export const SwarmRotateTokensResult = z.object({
+  joinTokens: SwarmJoinTokens,
+});
+export type SwarmRotateTokensResult = z.infer<typeof SwarmRotateTokensResult>;
