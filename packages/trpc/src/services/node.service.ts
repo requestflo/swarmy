@@ -147,6 +147,29 @@ export async function getNode(ctx: OrgContext, id: string): Promise<NodeDetail> 
   };
 }
 
+/**
+ * Best-effort swarm node-label write. `docker node update` is MANAGER-only, so
+ * the dispatch must go to a manager agent, not the target node — dispatching to
+ * the node itself silently fails the moment the org has real worker nodes
+ * (single-node dev swarms masked this). Falls back to the target node when no
+ * manager is known (it may itself be the manager mid-bootstrap).
+ */
+export async function dispatchNodeLabels(
+  hub: AgentHub,
+  orgId: string,
+  targetNodeId: string,
+  labels: Record<string, string>,
+): Promise<boolean> {
+  const swarmNodeId = hub.swarmNodeIdFor(targetNodeId);
+  if (!swarmNodeId) return false;
+  const via = hub.managerNode(orgId) ?? (hub.isOnline(targetNodeId) ? targetNodeId : undefined);
+  if (!via) return false;
+  return await hub
+    .dispatch(via, 'node.update', { swarmNodeId, labels })
+    .then(() => true)
+    .catch(() => false);
+}
+
 export async function setNodeLabels(
   ctx: OrgContext,
   id: string,
@@ -160,10 +183,7 @@ export async function setNodeLabels(
   // Apply to the swarm node (Docker truth); labels read back via `nodeInfoFor`.
   // We do NOT persist labels on the Node row. Best-effort push — ignore if
   // offline (reconciles when the node reconnects).
-  const swarmNodeId = ctx.hub.swarmNodeIdFor(id);
-  if (ctx.hub.isOnline(id) && swarmNodeId) {
-    await ctx.hub.dispatch(id, 'node.update', { swarmNodeId, labels }).catch(() => undefined);
-  }
+  await dispatchNodeLabels(ctx.hub, ctx.activeOrgId, id, labels);
   return { id, labels };
 }
 
@@ -189,9 +209,8 @@ export async function setNodeRole(
   if (roles.ingress !== undefined) patch[NODE_INGRESS_LABEL] = roles.ingress ? 'true' : '';
   if (roles.outlet !== undefined) patch[NODE_OUTLET_LABEL] = roles.outlet ? 'true' : '';
 
-  const swarmNodeId = ctx.hub.swarmNodeIdFor(id);
-  if (ctx.hub.isOnline(id) && swarmNodeId && Object.keys(patch).length > 0) {
-    await ctx.hub.dispatch(id, 'node.update', { swarmNodeId, labels: patch }).catch(() => undefined);
+  if (Object.keys(patch).length > 0) {
+    await dispatchNodeLabels(ctx.hub, ctx.activeOrgId, id, patch);
   }
 
   // Reflect the resulting state: live labels merged with the patch we just sent.
@@ -217,10 +236,7 @@ export async function setPublicIpOverride(
   if (!node) throw notFound('node', id);
 
   const patch = { [NODE_PUBLIC_IP_OVERRIDE_LABEL]: ip ?? '' };
-  const swarmNodeId = ctx.hub.swarmNodeIdFor(id);
-  if (ctx.hub.isOnline(id) && swarmNodeId) {
-    await ctx.hub.dispatch(id, 'node.update', { swarmNodeId, labels: patch }).catch(() => undefined);
-  }
+  await dispatchNodeLabels(ctx.hub, ctx.activeOrgId, id, patch);
   const merged = { ...(ctx.hub.nodeInfoFor(id)?.labels ?? {}), ...patch };
   return { id, publicIp: publicIpFromLabels(merged) };
 }
@@ -235,6 +251,7 @@ export async function setPublicIpOverride(
  */
 export async function stampReportedPublicIp(
   hub: AgentHub,
+  orgId: string,
   nodeId: string,
   reportedIp: string | undefined,
   socketAddr?: string,
@@ -242,19 +259,18 @@ export async function stampReportedPublicIp(
   if (!reportedIp) return;
   const labels = hub.nodeInfoFor(nodeId)?.labels;
   if (labels?.[NODE_PUBLIC_IP_LABEL] === reportedIp) return;
-  if (socketAddr && socketAddr !== reportedIp) {
+  // Pre-swarm nodes have no node labels to stamp yet — stay silent, the next
+  // heartbeat after the swarm join lands it (warning here would fire per beat).
+  const stamped = await dispatchNodeLabels(hub, orgId, nodeId, {
+    [NODE_PUBLIC_IP_LABEL]: reportedIp,
+  });
+  if (!stamped) return;
+  const source = socketAddr?.replace(/^::ffff:/i, '');
+  if (source && source !== reportedIp) {
     console.warn(
-      `[geo-edge] node ${nodeId}: self-reported public ip ${reportedIp} != socket source ${socketAddr} (using self-report; set the override label if wrong)`,
+      `[geo-edge] node ${nodeId}: self-reported public ip ${reportedIp} != socket source ${source} (using self-report; set the override label if wrong)`,
     );
   }
-  const swarmNodeId = hub.swarmNodeIdFor(nodeId);
-  if (!swarmNodeId || !hub.isOnline(nodeId)) return;
-  await hub
-    .dispatch(nodeId, 'node.update', {
-      swarmNodeId,
-      labels: { [NODE_PUBLIC_IP_LABEL]: reportedIp },
-    })
-    .catch(() => undefined);
 }
 
 /**

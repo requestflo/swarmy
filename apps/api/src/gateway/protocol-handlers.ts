@@ -55,7 +55,10 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
       if (nodeId) {
         deps.store.lastSeen.set(nodeId, Date.now());
         // Geo-edge: keep the public-ip label current (no-op when unchanged).
-        void stampReportedPublicIp(deps.hub, nodeId, env.payload.publicIp, ws.remoteAddress);
+        const orgId = deps.store.nodeOrg.get(nodeId);
+        if (orgId) {
+          void stampReportedPublicIp(deps.hub, orgId, nodeId, env.payload.publicIp, ws.remoteAddress);
+        }
       }
       return;
     }
@@ -270,7 +273,7 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
 
   // Geo-edge: stamp the self-detected public IP once the node's swarm identity
   // is known (label dispatch no-ops until then; heartbeats re-try it anyway).
-  void stampReportedPublicIp(deps.hub, nodeId, facts.publicIp, ws.remoteAddress);
+  void stampReportedPublicIp(deps.hub, orgId, nodeId, facts.publicIp, ws.remoteAddress);
 
   // node-onboarding P2: init or join the org's Docker Swarm (best-effort, async).
   // Surface failures (e.g. a missing SWARMY_SECRET_KEY blocking the token vault)

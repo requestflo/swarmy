@@ -3,6 +3,7 @@ import { REGION_COORDS, regionCoord } from '@swarmy/dns';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import { dispatchNodeLabels } from './node.service';
 import {
   composeZone,
   dnsDb,
@@ -165,13 +166,8 @@ export async function setNodeRegion(
     'swarmy.region': region,
   };
 
-  // Best-effort push to the swarm engine (reconciles later if offline).
-  const swarmNodeId = ctx.hub.swarmNodeIdFor(nodeId);
-  if (ctx.hub.isOnline(nodeId) && swarmNodeId) {
-    await ctx.hub
-      .dispatch(nodeId, 'node.update', { swarmNodeId, labels })
-      .catch(() => undefined);
-  }
+  // Best-effort push to the swarm engine via a manager (reconciles later if offline).
+  await dispatchNodeLabels(ctx.hub, ctx.activeOrgId, nodeId, labels);
 
   await writeAudit(ctx, {
     action: 'geodns.setNodeRegion',
