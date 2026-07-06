@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'bun:test';
+import type { ExposedPortView, ExposureKind } from '@swarmy/core';
 import {
   DEFAULT_EXPOSURE_RULES,
   classifyService,
+  classifyServiceWithIntent,
+  computeExposureDrift,
   countExposure,
+  driftViolations,
   evaluateEstateRules,
   managedKindOf,
   parseExposureRules,
   type ClassifiableService,
+  type ExposureDriftInput,
 } from './exposure.service';
 
 function svc(over: Partial<ClassifiableService> = {}): ClassifiableService {
@@ -167,6 +172,211 @@ describe('evaluateEstateRules — current audit × rules', () => {
       classifyService(svc({ name: 'worker' })),
     ];
     expect(evaluateEstateRules(rows, rules)).toHaveLength(0);
+  });
+});
+
+describe('computeExposureDrift — declared vs observed, all 4 modes', () => {
+  const tcp = (published: number): ExposedPortView => ({
+    target: published,
+    published,
+    protocol: 'tcp',
+    mode: null,
+  });
+  const drift = (over: Partial<ExposureDriftInput> & Pick<ExposureDriftInput, 'declared'>) =>
+    computeExposureDrift({
+      observed: 'private' as ExposureKind,
+      publishedPorts: [],
+      domains: [],
+      routeDrivers: [],
+      ...over,
+    });
+
+  it('undeclared → never drifts, whatever is observed', () => {
+    expect(
+      drift({ declared: null, observed: 'public-port', publishedPorts: [tcp(80)] }),
+    ).toBeNull();
+    expect(drift({ declared: null, observed: 'public-domain', domains: ['a.io'] })).toBeNull();
+  });
+
+  it('private: conforming when observed private or internal-managed', () => {
+    expect(drift({ declared: 'private', observed: 'private' })).toBeNull();
+    expect(drift({ declared: 'private', observed: 'internal-managed' })).toBeNull();
+  });
+
+  it('private: observed public-port / public-domain → violation', () => {
+    const byPort = drift({
+      declared: 'private',
+      observed: 'public-port',
+      publishedPorts: [tcp(8080)],
+    });
+    expect(byPort?.level).toBe('violation');
+    expect(byPort?.message).toContain(':8080/tcp');
+
+    const byDomain = drift({
+      declared: 'private',
+      observed: 'public-domain',
+      domains: ['app.example.com'],
+      routeDrivers: ['caddy'],
+    });
+    expect(byDomain?.level).toBe('violation');
+    expect(byDomain?.message).toContain('app.example.com');
+  });
+
+  it('public: conforming with a port or a domain', () => {
+    expect(
+      drift({ declared: 'public', observed: 'public-port', publishedPorts: [tcp(443)] }),
+    ).toBeNull();
+    expect(
+      drift({
+        declared: 'public',
+        observed: 'public-domain',
+        domains: ['a.io'],
+        routeDrivers: ['caddy'],
+      }),
+    ).toBeNull();
+  });
+
+  it('public: no route and no port → warning (declared but unreachable)', () => {
+    const d = drift({ declared: 'public', observed: 'private' });
+    expect(d?.level).toBe('warning');
+    expect(d?.message).toContain('unreachable');
+  });
+
+  it('tunnel: conforming when every route is cloudflared and nothing publishes', () => {
+    expect(
+      drift({
+        declared: 'tunnel',
+        observed: 'public-domain',
+        domains: ['a.io'],
+        routeDrivers: ['cloudflared'],
+      }),
+    ).toBeNull();
+    expect(drift({ declared: 'tunnel', observed: 'private' })).toBeNull();
+  });
+
+  it('tunnel: a published port → violation (bypasses the tunnel)', () => {
+    const d = drift({
+      declared: 'tunnel',
+      observed: 'public-port',
+      publishedPorts: [tcp(80)],
+    });
+    expect(d?.level).toBe('violation');
+    expect(d?.message).toContain('bypasses the tunnel');
+  });
+
+  it('tunnel: a route served by a non-cloudflared driver → violation', () => {
+    const d = drift({
+      declared: 'tunnel',
+      observed: 'public-domain',
+      domains: ['a.io'],
+      routeDrivers: ['caddy', 'cloudflared'],
+    });
+    expect(d?.level).toBe('violation');
+    expect(d?.message).toContain('caddy');
+    expect(d?.message).toContain('not cloudflared');
+  });
+
+  it('mesh: conforming when nothing is public', () => {
+    expect(drift({ declared: 'mesh', observed: 'private' })).toBeNull();
+    expect(drift({ declared: 'mesh', observed: 'internal-managed' })).toBeNull();
+  });
+
+  it('mesh: any public port or route → violation', () => {
+    expect(
+      drift({ declared: 'mesh', observed: 'public-port', publishedPorts: [tcp(9000)] })?.level,
+    ).toBe('violation');
+    expect(
+      drift({
+        declared: 'mesh',
+        observed: 'public-domain',
+        domains: ['a.io'],
+        routeDrivers: ['caddy'],
+      })?.level,
+    ).toBe('violation');
+  });
+});
+
+describe('classifyServiceWithIntent — label → declared + drift on the row', () => {
+  it('reads swarmy.expose and applies the org default driver to routes', () => {
+    const declaredTunnel = classifyServiceWithIntent(
+      svc({
+        labels: {
+          'swarmy.expose': 'tunnel',
+          'swarmy.ingress.routes': JSON.stringify([{ host: 'a.io', port: 80, tls: 'auto' }]),
+        },
+      }),
+      'caddy',
+    );
+    expect(declaredTunnel.declared).toBe('tunnel');
+    expect(declaredTunnel.drift?.level).toBe('violation');
+
+    const served = classifyServiceWithIntent(
+      svc({
+        labels: {
+          'swarmy.expose': 'tunnel',
+          'swarmy.ingress.routes': JSON.stringify([{ host: 'a.io', port: 80, tls: 'auto' }]),
+        },
+      }),
+      'cloudflared',
+    );
+    expect(served.drift).toBeNull();
+  });
+
+  it('undeclared / junk label values → declared null, no drift', () => {
+    expect(classifyServiceWithIntent(svc()).declared).toBeNull();
+    const junk = classifyServiceWithIntent(svc({ labels: { 'swarmy.expose': 'internet' } }));
+    expect(junk.declared).toBeNull();
+    expect(junk.drift).toBeNull();
+  });
+
+  it('declared private + published port drifts as a violation', () => {
+    const row = classifyServiceWithIntent(
+      svc({
+        labels: { 'swarmy.expose': 'private' },
+        ports: [{ target: 80, published: 8080, protocol: 'tcp' }],
+      }),
+    );
+    expect(row.exposure).toBe('public-port');
+    expect(row.declared).toBe('private');
+    expect(row.drift?.level).toBe('violation');
+  });
+});
+
+describe('driftViolations — drift rows land in the violations feed', () => {
+  it('violation drift → block, warning drift → warn, conforming rows skipped', () => {
+    const rows = [
+      classifyServiceWithIntent(
+        svc({
+          name: 'db',
+          labels: { 'swarmy.expose': 'private' },
+          ports: [{ target: 5432, published: 5432, protocol: 'tcp' }],
+        }),
+      ),
+      classifyServiceWithIntent(svc({ name: 'site', labels: { 'swarmy.expose': 'public' } })),
+      classifyServiceWithIntent(svc({ name: 'ok', labels: { 'swarmy.expose': 'mesh' } })),
+      classifyServiceWithIntent(svc({ name: 'undeclared' })),
+    ];
+    const out = driftViolations(rows);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({
+      rule: 'exposure/declared-drift',
+      severity: 'block',
+      serviceName: 'db',
+    });
+    expect(out[0]!.fixHint).toContain('"private"');
+    expect(out[1]).toMatchObject({ severity: 'warn', serviceName: 'site' });
+  });
+});
+
+describe('parseExposureRules — WS3 additive key', () => {
+  it('enforceDeclaredIntent defaults ON and round-trips', () => {
+    expect(parseExposureRules({}, false).enforceDeclaredIntent).toBe(true);
+    expect(parseExposureRules({ enforceDeclaredIntent: false }, false).enforceDeclaredIntent).toBe(
+      false,
+    );
+    expect(parseExposureRules({ enforceDeclaredIntent: 'no' }, false).enforceDeclaredIntent).toBe(
+      true,
+    );
   });
 });
 

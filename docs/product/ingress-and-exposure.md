@@ -103,14 +103,19 @@ Four ideas, one story:
 - **The exposure verdict is derived every time, never stored.** `auditExposure`
   classifies each live service on read; the only persisted thing is the rule
   toggles.
-- **Direction (adopted 2026-07, being built): exposure becomes *declared*, not
-  just inferred.** Every service will carry an intent — `swarmy.expose` ∈
-  `public | tunnel | private | mesh` (a service label, Docker truth) — chosen
-  in the UI. Admission enforces intent-vs-spec (a `private` service with a
-  published port is refused), and the audit gains drift detection: declared ≠
-  observed is itself a violation. The inferred classifier stays — it becomes
-  the *observed* half of the comparison. See `plans/roadmap-mini-cloud.md`
-  (WS3).
+- **Direction (adopted 2026-07): exposure is *declared*, not just inferred.**
+  A service may carry an intent — `swarmy.expose` ∈
+  `public | tunnel | private | mesh` (a service label, Docker truth; `EXPOSE_LABEL`)
+  — chosen on the service page or the Exposure table. Admission enforces
+  intent-vs-spec on the incoming specs (a `private` or `mesh` service with a
+  published port or ingress route is refused; `tunnel` with a published port is
+  refused) — declaring a mode is the per-service opt-in, so it fires even while
+  the org-wide `enforce` switch is off (the `enforceDeclaredIntent` rule toggle,
+  default on, silences it). The audit carries drift detection: declared ≠
+  observed is itself a violation (declared `tunnel` served by a non-cloudflared
+  driver included), and "declared public but unreachable" surfaces as a warning.
+  The inferred classifier stays — it is the *observed* half of the comparison.
+  See `plans/roadmap-mini-cloud.md` (WS3).
 
 ## Ingress & exposure behaviour
 

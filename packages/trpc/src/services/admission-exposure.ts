@@ -1,13 +1,18 @@
-import { buildInventory } from '@swarmy/core';
+import { buildInventory, EXPOSE_LABEL, parseExposeMode } from '@swarmy/core';
 import type { ManagedDataKind } from '@swarmy/core';
 import type { OrgContext } from '../context';
 import type { AdmissionIntent, Violation } from './admission.service';
-import { managedKindOf, parseExposureRules, type ClassifiableService } from './exposure.service';
-import type { ExposureRulesView } from '@swarmy/core';
+import {
+  managedKindOf,
+  parseExposureRules,
+  type ClassifiableService,
+  type ExposureRulesWithIntent,
+} from './exposure.service';
+import { readRoutes } from './ingress-routes';
 
 /**
- * Exposure admission evaluator (slice E3) — enforces the org's exposure rules
- * against what a deploy is ABOUT to do (the intent's service specs):
+ * Exposure admission evaluator (slice E3 + WS3) — enforces the org's exposure
+ * rules against what a deploy is ABOUT to do (the intent's service specs):
  *
  * - `noPublicPortsOnManagedData` (block): a spec that publishes a port while
  *   carrying managed-data labels — or targeting a LIVE service that carries
@@ -17,11 +22,17 @@ import type { ExposureRulesView } from '@swarmy/core';
  * - `warnOnNewPublishedPorts` (warn): a published port the live service didn't
  *   already publish surfaces as a warning (redeploys of the existing surface
  *   stay quiet).
+ * - `enforceDeclaredIntent` (block): a spec whose `swarmy.expose` declaration
+ *   contradicts its own surface (private/mesh with a published port or ingress
+ *   route, tunnel with a published port) is refused. Unlike the rules above
+ *   this does NOT wait for the org-wide `enforce` switch — declaring a mode on
+ *   a service is the per-service opt-in to enforcement, so undeclared services
+ *   (every existing org) are untouched.
  *
- * The `ExposureConfig.enforce` flag is the "Block violating deploys" switch:
- * when OFF this evaluator returns [] — the rules stay advisory (the Exposure
- * page + the exposure-audit worker still surface them), because the admission
- * pipeline refuses on ANY returned violation unless the caller overrides.
+ * The `ExposureConfig.enforce` flag is the "Block violating deploys" switch
+ * for the estate rules: when OFF they stay advisory (the Exposure page + the
+ * exposure-audit worker still surface them), because the admission pipeline
+ * refuses on ANY returned violation unless the caller overrides.
  */
 
 /** The slice of a deploy spec this evaluator inspects. */
@@ -62,16 +73,57 @@ const portKey = (published: number, protocol: string | undefined): string =>
   `${published}/${protocol === 'udp' ? 'udp' : 'tcp'}`;
 
 /**
+ * Intent-vs-spec (WS3): a spec that declares `swarmy.expose` must not carry a
+ * surface its own declaration forbids. Pure on the INCOMING specs — no live
+ * estate needed, the contradiction is inside the spec itself.
+ */
+export function decideDeclaredIntentAdmission(specs: SpecExposureFacts[]): Violation[] {
+  const violations: Violation[] = [];
+  for (const spec of specs) {
+    const declared = parseExposeMode(spec.labels[EXPOSE_LABEL]);
+    if (!declared || declared === 'public') continue;
+    const published = spec.ports.filter(
+      (p) => typeof p.published === 'number' && p.published > 0,
+    );
+    const routes = readRoutes(spec.labels);
+    const ports = published.map((p) => p.published).join(', ');
+
+    if (published.length > 0) {
+      violations.push({
+        rule: `exposure/intent-${declared}-published-port`,
+        severity: 'block',
+        message: `${spec.name} declares swarmy.expose=${declared} but publishes port${published.length === 1 ? '' : 's'} ${ports} — remove the publish or change the declared mode.`,
+        resource: spec.name,
+      });
+    }
+    if (routes.length > 0 && declared !== 'tunnel') {
+      violations.push({
+        rule: `exposure/intent-${declared}-ingress-route`,
+        severity: 'block',
+        message: `${spec.name} declares swarmy.expose=${declared} but carries ingress route${routes.length === 1 ? '' : 's'} for ${routes.map((r) => r.host).join(', ')} — remove the route or change the declared mode.`,
+        resource: spec.name,
+      });
+    }
+  }
+  return violations;
+}
+
+/**
  * Pure admission decision given already-gathered facts (unit-tested).
- * Returns [] when `rules.enforce` is off — advisory-only mode.
+ * Estate rules return [] when `rules.enforce` is off (advisory-only mode);
+ * declared-intent checks fire whenever `enforceDeclaredIntent` is on, because
+ * a spec declaring a mode has opted into enforcement itself.
  */
 export function decideExposureAdmission(input: {
-  rules: ExposureRulesView;
+  rules: ExposureRulesWithIntent;
   specs: SpecExposureFacts[];
   live: LiveExposureFacts;
 }): Violation[] {
-  if (!input.rules.enforce) return [];
-  const violations: Violation[] = [];
+  const intent = input.rules.enforceDeclaredIntent
+    ? decideDeclaredIntentAdmission(input.specs)
+    : [];
+  if (!input.rules.enforce) return intent;
+  const violations: Violation[] = [...intent];
   for (const spec of input.specs) {
     const published = spec.ports.filter(
       (p) => typeof p.published === 'number' && p.published > 0,
@@ -131,7 +183,8 @@ export async function evaluate(ctx: OrgContext, intent: AdmissionIntent): Promis
   const specs = specFacts(intent.specs ?? []);
   if (specs.length === 0) return [];
 
-  // No config row yet → defaults (enforce off) → advisory only, fast exit.
+  // No config row yet → defaults: estate rules advisory (enforce off), but the
+  // declared-intent gate stays live — it only fires for specs that opt in.
   const cfg = await ctx.db.exposureConfig.findUnique({
     where: { orgId: ctx.activeOrgId },
     select: { rulesJson: true, enforce: true },
@@ -139,7 +192,7 @@ export async function evaluate(ctx: OrgContext, intent: AdmissionIntent): Promis
   const rules = cfg
     ? parseExposureRules(cfg.rulesJson, cfg.enforce)
     : parseExposureRules({}, false);
-  if (!rules.enforce) return [];
+  if (!rules.enforce && !rules.enforceDeclaredIntent) return [];
 
   // Live estate lookup: match a spec to its live service by exact name, or by
   // the `<stack>_<name>` convention when the intent deploys into a stack.

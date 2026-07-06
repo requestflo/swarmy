@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ExposureRulesView } from '@swarmy/core';
+
+type RulesWithIntent = ExposureRulesView & { enforceDeclaredIntent: boolean };
 import { Switch, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 
@@ -45,9 +47,9 @@ export function ExposureRulesCard(): React.JSX.Element {
     }),
   );
 
-  const r: ExposureRulesView | undefined = rules.data;
+  const r: RulesWithIntent | undefined = rules.data;
   const busy = rules.isLoading || setRules.isPending;
-  const set = (patch: Partial<ExposureRulesView>): void => setRules.mutate(patch);
+  const set = (patch: Partial<RulesWithIntent>): void => setRules.mutate(patch);
 
   return (
     <section className="card-pop overflow-hidden">
@@ -87,6 +89,13 @@ export function ExposureRulesCard(): React.JSX.Element {
               description="Any port a deploy would newly publish to the world gets flagged before it ships."
               checked={r.warnOnNewPublishedPorts}
               onChange={(v) => set({ warnOnNewPublishedPorts: v })}
+              disabled={busy}
+            />
+            <RuleRow
+              label="Enforce declared modes"
+              description="A deploy contradicting its own swarmy.expose declaration (private/mesh with a public surface, tunnel with a published port) is refused — only services that declare a mode are checked."
+              checked={r.enforceDeclaredIntent}
+              onChange={(v) => set({ enforceDeclaredIntent: v })}
               disabled={busy}
             />
           </div>

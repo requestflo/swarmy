@@ -2,6 +2,7 @@ import * as React from 'react';
 import { SERVICE_STATUS_TONE } from '@swarmy/core';
 import type { ServiceDetail } from '@swarmy/core';
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, StatusBadge } from '@swarmy/ui';
+import { ExposeModeControl } from '@/components/exposure/expose-mode-control';
 
 interface ServiceOverviewPanelProps {
   service: ServiceDetail | undefined;
@@ -43,6 +44,9 @@ export function ServiceOverviewPanel({
             ) : (
               <Badge variant="muted">off</Badge>
             )}
+          </DetailRow>
+          <DetailRow label="Exposure">
+            {service ? <ExposeModeControl serviceId={service.id} /> : <span>—</span>}
           </DetailRow>
           <DetailRow label="Image">
             <span className="mono-data text-xs">{service?.image ?? '—'}</span>

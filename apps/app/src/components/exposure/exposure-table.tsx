@@ -1,13 +1,14 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { GlobeIcon, LockIcon, DatabaseIcon } from 'lucide-react';
-import type { ExposureRowView } from '@swarmy/core';
+import { EXPOSE_MODE_LABELS, type ExposureIntentRowView, type ExposureRowView } from '@swarmy/core';
 import { StatusBadge, cn } from '@swarmy/ui';
 
 /**
  * The audit table — flat rows in one card, grouped Public / Private /
  * Managed-internal. Public rows carry an "expected?" nudge; rows that violate
- * a rule get a crimson badge.
+ * a rule get a crimson badge; rows whose DECLARED mode (`swarmy.expose`)
+ * disagrees with the observed verdict get a drift badge.
  */
 
 interface Group {
@@ -15,10 +16,10 @@ interface Group {
   title: string;
   hint: string;
   icon: React.ReactNode;
-  rows: ExposureRowView[];
+  rows: ExposureIntentRowView[];
 }
 
-function groupRows(rows: ExposureRowView[]): Group[] {
+function groupRows(rows: ExposureIntentRowView[]): Group[] {
   const pub = rows.filter((r) => r.exposure === 'public-port' || r.exposure === 'public-domain');
   const managed = rows.filter((r) => r.exposure === 'internal-managed');
   const priv = rows.filter((r) => r.exposure === 'private');
@@ -61,11 +62,27 @@ function RowBadge({ row, violating }: { row: ExposureRowView; violating: boolean
   }
 }
 
+/** Declared mode chip + drift badge — only rendered for services that declare. */
+function DeclaredBadges({ row }: { row: ExposureIntentRowView }): React.JSX.Element | null {
+  if (!row.declared) return null;
+  return (
+    <span className="flex items-center justify-end gap-1.5">
+      <StatusBadge tone="neutral" label={`declared ${EXPOSE_MODE_LABELS[row.declared].toLowerCase()}`} />
+      {row.drift ? (
+        <StatusBadge
+          tone={row.drift.level === 'violation' ? 'offline' : 'warning'}
+          label="drift"
+        />
+      ) : null}
+    </span>
+  );
+}
+
 export function ExposureTable({
   rows,
   violatingIds,
 }: {
-  rows: ExposureRowView[];
+  rows: ExposureIntentRowView[];
   violatingIds: ReadonlySet<string>;
 }): React.JSX.Element {
   return (
@@ -108,14 +125,26 @@ export function ExposureTable({
                         {d}
                       </span>
                     ))}
-                    {isPublic && !violating ? (
+                    {row.drift ? (
+                      <span
+                        className={cn(
+                          'block text-[11px]',
+                          row.drift.level === 'violation'
+                            ? 'text-status-offline'
+                            : 'text-status-warning',
+                        )}
+                      >
+                        Drift: {row.drift.message}.
+                      </span>
+                    ) : isPublic && !violating && !row.declared ? (
                       <span className="text-status-warning block text-[11px]">
                         Expected? If not, remove the published port / route.
                       </span>
                     ) : null}
                   </span>
-                  <span className="justify-self-end">
+                  <span className="grid justify-items-end gap-1 justify-self-end">
                     <RowBadge row={row} violating={violating} />
+                    <DeclaredBadges row={row} />
                   </span>
                 </div>
               );
