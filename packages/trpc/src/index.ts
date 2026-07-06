@@ -9,6 +9,10 @@ export type {
 export { COMMAND_PROTOCOL_TYPE } from './hub/types';
 export { writeAudit } from './services/audit.service';
 export type { AuditEntry, AuditActorType } from './services/audit.service';
+// Agent-binary release: the install routes serve these binaries and pin their
+// checksums into the rendered installer.
+export { agentRelease, agentBinaryPath } from './services/agent-release.service';
+export type { AgentReleaseManifest } from './services/agent-release.service';
 export * from './errors';
 
 // ── REST front door: api-key→OrgContext seam + service functions it reuses ──

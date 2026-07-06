@@ -22,7 +22,9 @@ User=root
 EnvironmentFile=/etc/swarmy/agent.env
 Environment=SWARMY_AGENT_STATE=/var/lib/swarmy/agent.json
 ExecStart=/usr/local/bin/swarmy-agent
-Restart=on-failure
+# always (not on-failure): the agent exits ON PURPOSE after a self-update swap
+# (and the swarm watchdog exits cleanly too) — systemd must bring it back up.
+Restart=always
 RestartSec=5
 # Persist the agent's session credential across restarts/reboots.
 StateDirectory=swarmy
@@ -55,7 +57,7 @@ describe('renderSystemdUnit (golden)', () => {
   it('always waits for docker.service (swarm init needs the daemon)', () => {
     const unit = renderSystemdUnit({ binaryPath: DEFAULT_BINARY_PATH, envFilePath: DEFAULT_ENV_FILE });
     expect(unit).toContain('After=network-online.target docker.service');
-    expect(unit).toContain('Restart=on-failure');
+    expect(unit).toContain('Restart=always');
   });
 });
 

@@ -1,5 +1,4 @@
 import os from 'node:os';
-import { AGENT_VERSION } from '@swarmy/core';
 import { PROTOCOL_VERSION, type NodeFacts, type RegisterPayload } from '@swarmy/core/protocol';
 import { DockerClient } from '@swarmy/core/docker';
 import { env } from './env';
@@ -10,6 +9,8 @@ import { sendContainerList, sendServiceState, sendNodeList } from './snapshots';
 import { sampleMeshState } from './handlers/mesh';
 import { detectPublicIp } from './public-ip';
 import { sampleIngressStatus } from './handlers/ingress-status';
+import { agentPackaging } from './handlers/update';
+import { VERSION } from './version';
 import { handleCommand } from './executor';
 
 /** Push a `meshState` telemetry frame if a mesh client is running on this node. */
@@ -45,7 +46,9 @@ async function main(): Promise<void> {
 
   let facts: NodeFacts;
   try {
-    facts = await docker.getNodeFacts(AGENT_VERSION, [PROTOCOL_VERSION]);
+    // VERSION is the release-stamped package.json version — the same string
+    // `--version` prints and the update manifest carries.
+    facts = await docker.getNodeFacts(VERSION, [PROTOCOL_VERSION]);
   } catch {
     log('docker unavailable — reporting node facts from the OS only');
     facts = {
@@ -56,10 +59,14 @@ async function main(): Promise<void> {
       memTotalBytes: os.totalmem(),
       dockerVersion: 'unknown',
       swarmRole: 'none',
-      agentVersion: AGENT_VERSION,
+      agentVersion: VERSION,
       protocolVersions: [PROTOCOL_VERSION],
     };
   }
+
+  // Compiled host binary vs interpreted container — the controller picks the
+  // matching updateAgent strategy (self-replace vs docker-recreate) from this.
+  facts.agentPackaging = agentPackaging();
 
   // Public IP for the geo-edge DNS layer: detected outbound, sent with register
   // + every heartbeat (detector caches hourly). Never blocks startup.

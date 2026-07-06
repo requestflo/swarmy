@@ -48,7 +48,9 @@ User=${user}
 EnvironmentFile=${envFilePath}
 Environment=SWARMY_AGENT_STATE=${stateDir}/agent.json
 ExecStart=${binaryPath}
-Restart=on-failure
+# always (not on-failure): the agent exits ON PURPOSE after a self-update swap
+# (and the swarm watchdog exits cleanly too) — systemd must bring it back up.
+Restart=always
 RestartSec=5
 # Persist the agent's session credential across restarts/reboots.
 StateDirectory=swarmy

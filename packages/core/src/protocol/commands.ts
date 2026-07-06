@@ -255,9 +255,12 @@ export type UpdateSwarmNodeMsg = z.infer<typeof UpdateSwarmNodeMsg>;
 export const UpdateAgentPayload = z.object({
   ...cmd,
   targetVersion: z.string(),
-  downloadUrl: z.string().url(),
-  sha256: z.string().length(64),
+  /** Binary URL + pinned checksum — required by the self-replace strategy. */
+  downloadUrl: z.string().url().optional(),
+  sha256: z.string().length(64).optional(),
   strategy: z.enum(['self-replace', 'docker-recreate']).default('self-replace'),
+  /** Container image ref — required by the docker-recreate strategy. */
+  image: z.string().optional(),
 });
 export const UpdateAgentMsg = z.object({
   type: z.literal('updateAgent'),

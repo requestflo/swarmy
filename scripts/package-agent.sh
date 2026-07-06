@@ -35,7 +35,7 @@ Type=simple
 EnvironmentFile=/etc/swarmy/agent.env
 Environment=SWARMY_AGENT_STATE=/var/lib/swarmy/agent.json
 ExecStart=/usr/local/bin/swarmy-agent
-Restart=on-failure
+Restart=always
 RestartSec=5
 StateDirectory=swarmy
 NoNewPrivileges=true

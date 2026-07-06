@@ -77,6 +77,9 @@ export class GatewayStore {
   readonly nodeHostname = new Map<string, string>();
   readonly nodeOrg = new Map<string, string>();
   readonly nodeCpuCount = new Map<string, number>();
+  /** Agent build from register facts (version + packaging) — the update UX compares
+   *  this against the controller's binary manifest. */
+  readonly agentBuild = new Map<string, { version: string; packaging?: 'binary' | 'container' }>();
   /** Last heartbeat/snapshot time per node (replaces DB Node.lastSeenAt). */
   readonly lastSeen = new Map<string, number>();
   /** Latest per-node edge health telemetry (geo-edge: caddy/dns task liveness). */

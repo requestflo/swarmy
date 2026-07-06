@@ -173,6 +173,13 @@ export class AgentHubImpl implements AgentHub {
     return this.store.nodeInfoFor(controllerNodeId);
   }
 
+  /** Agent build (version + packaging) from the node's last register facts. */
+  agentBuildFor(
+    controllerNodeId: string,
+  ): { version: string; packaging?: 'binary' | 'container' } | undefined {
+    return this.store.agentBuild.get(controllerNodeId);
+  }
+
   /** Latest edge health telemetry for a node (geo-edge), if it has reported. */
   ingressStatusFor(
     controllerNodeId: string,

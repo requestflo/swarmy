@@ -248,6 +248,7 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
   deps.store.nodeOrg.set(nodeId, orgId);
   deps.store.nodeCpuCount.set(nodeId, facts.cpuCount);
   deps.store.nodeHostname.set(nodeId, facts.hostname);
+  deps.store.agentBuild.set(nodeId, { version: facts.agentVersion, packaging: facts.agentPackaging });
   const previous = deps.registry.add(nodeId, ws);
   previous?.close(CloseCode.DUPLICATE_SESSION, 'newer session');
   ws.data.state = 'ready';

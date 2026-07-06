@@ -5,6 +5,7 @@ node_modules/
 
 # build outputs
 dist/
+dist-bin/
 build/
 out/
 .output/

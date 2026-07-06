@@ -13,6 +13,13 @@ export const NodeFacts = z.object({
   dockerApiVersion: z.string().optional(),
   swarmRole: z.enum(['manager', 'worker', 'none']),
   agentVersion: z.string(),
+  /**
+   * How this agent is installed: `binary` = compiled host binary (systemd),
+   * `container` = interpreted under Bun (Docker-container backend / dev).
+   * Drives the controller's updateAgent strategy (self-replace vs
+   * docker-recreate). Optional: absent on agents predating self-update.
+   */
+  agentPackaging: z.enum(['binary', 'container']).optional(),
   /** Protocol versions this agent can speak (for negotiation). */
   protocolVersions: z.array(z.number().int()).nonempty(),
   /**

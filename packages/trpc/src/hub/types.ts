@@ -46,7 +46,8 @@ export type CommandName =
   | 'config.remove'
   | 'config.list'
   | 'config.inspect'
-  | 'container.runOnce'; // one-shot utility container → { exitCode, output }
+  | 'container.runOnce' // one-shot utility container → { exitCode, output }
+  | 'agent.update'; // self-update: download + verify + swap the agent binary (or recreate its container)
 
 /** CommandName → wire protocol message `type` (see @swarmy/core/protocol). */
 export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
@@ -85,6 +86,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'config.list': 'configList',
   'config.inspect': 'configInspect',
   'container.runOnce': 'runOnce',
+  'agent.update': 'updateAgent',
 };
 
 export interface CommandResult<R = unknown> {
@@ -141,6 +143,10 @@ export interface AgentHub {
   swarmNodeIdFor(controllerNodeId: string): string | undefined;
   /** Full live swarm info (role/status/labels/resources) for an enrollment node id. */
   nodeInfoFor(controllerNodeId: string): SwarmNodeInfo | undefined;
+  /** Agent build (version + packaging) from the node's last register facts — drives the update UX. */
+  agentBuildFor?(
+    controllerNodeId: string,
+  ): { version: string; packaging?: 'binary' | 'container' } | undefined;
 
   /** Latest edge health telemetry for a node (geo-edge), if it has reported. */
   ingressStatusFor(

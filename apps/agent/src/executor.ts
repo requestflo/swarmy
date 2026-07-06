@@ -13,6 +13,7 @@ import { buildImage } from './handlers/build';
 import { pruneImages } from './handlers/prune';
 import { applyStorageNode, provisionVolume, removeVolume } from './handlers/storage';
 import { applySwarmJoin } from './handlers/swarm';
+import { updateAgent } from './handlers/update';
 import {
   secretCreate,
   secretRemove,
@@ -203,6 +204,13 @@ export async function handleCommand(
     case 'swarmJoin': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => applySwarmJoin(docker, p));
+    }
+    case 'updateAgent': {
+      // On success the handler schedules its own exit AFTER the result has had
+      // time to flush; systemd (Restart=always) or the replacement container
+      // brings the new version up, and its register confirms the new version.
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => updateAgent(docker, p));
     }
     case 'secretCreate': {
       const p = envlp.payload;

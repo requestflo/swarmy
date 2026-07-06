@@ -12,7 +12,9 @@ import {
   setNodeRegion,
   setNodeRole,
   setPublicIpOverride,
+  upgradeAgent,
 } from '../services/node.service';
+import { agentRelease } from '../services/agent-release.service';
 import {
   generateJoinToken,
   listJoinTokens,
@@ -86,6 +88,17 @@ export const nodesRouter = router({
   remove: adminProcedure.input(z.object({ id: z.string() })).mutation(({ ctx, input }) =>
     removeNode(ctx, input.id),
   ),
+
+  /** The agent release this controller can hand out (version + platforms), or null when no binaries are built. */
+  agentRelease: orgProcedure.query(() => {
+    const release = agentRelease();
+    return release ? { version: release.version, platforms: Object.keys(release.platforms) } : null;
+  }),
+
+  /** Push this controller's agent release to a node (self-replace or docker-recreate by packaging). */
+  upgradeAgent: adminProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(({ ctx, input }) => upgradeAgent(ctx, input.id)),
 
   generateJoinToken: adminProcedure
     .input(

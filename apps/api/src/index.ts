@@ -4,7 +4,7 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { authRegistry } from '@swarmy/auth';
 import { prisma, ensureSchema, buildAdapter, resolveDbDriver } from '@swarmy/db';
-import { resolveOrgContextFromApiKey } from '@swarmy/trpc';
+import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath } from '@swarmy/trpc';
 import { createRestApp } from '@swarmy/api-rest';
 import { env } from './env';
 import { maybeBootstrapSeed } from './bootstrap/seed';
@@ -64,11 +64,21 @@ app.get('/install.sh', (c) => {
 //   GET /install/:version/install.sh        → the real (big) installer
 //   GET /install/:version/install.sh.sha256 → its checksum (for manual verify)
 function installerOptionsFor(version: string): RenderInstallerOptions {
+  // Checksums: explicit env pin wins; otherwise the manifest of the binaries
+  // this controller itself serves at /install/bin/<platform>.
   let binarySha256: Record<string, string> = {};
   try {
     binarySha256 = JSON.parse(env.AGENT_BINARY_SHA256) as Record<string, string>;
   } catch {
     binarySha256 = {};
+  }
+  if (Object.keys(binarySha256).length === 0) {
+    const release = agentRelease();
+    if (release) {
+      binarySha256 = Object.fromEntries(
+        Object.entries(release.platforms).map(([platform, meta]) => [platform, meta.sha256]),
+      );
+    }
   }
   return {
     controllerUrl: env.CONTROLLER_PUBLIC_URL,
@@ -79,8 +89,13 @@ function installerOptionsFor(version: string): RenderInstallerOptions {
   };
 }
 
+/** The installer's pinned version: env override, else the built manifest's. */
+function agentReleaseVersion(): string {
+  return env.AGENT_VERSION !== 'latest' ? env.AGENT_VERSION : (agentRelease()?.version ?? env.AGENT_VERSION);
+}
+
 app.get('/install/loader.sh', (c) => {
-  const version = c.req.query('version') ?? env.AGENT_VERSION;
+  const version = c.req.query('version') ?? agentReleaseVersion();
   const installerBody = renderInstaller(installerOptionsFor(version));
   return c.body(
     renderLoader({
@@ -106,6 +121,39 @@ app.get('/install/:version/install.sh.sha256', (c) => {
   return c.body(renderChecksumFile(renderInstaller(installerOptionsFor(version))), 200, {
     'content-type': 'text/plain; charset=utf-8',
     'cache-control': 'public, max-age=300',
+  });
+});
+
+// Compiled agent binaries, served by the controller itself (self-hosted end to
+// end — no external release CDN in the install or self-update path). The
+// installer and the updateAgent command both verify the sha256 pinned above.
+app.get('/install/bin/manifest.json', (c) => {
+  const release = agentRelease();
+  if (!release) return c.text('no agent binaries built on this controller', 404);
+  return c.json(release, 200, { 'cache-control': 'no-store' });
+});
+
+app.get('/install/bin/:platform{[a-z0-9-]+}', (c) => {
+  const platform = c.req.param('platform');
+  const binPath = agentBinaryPath(platform);
+  if (!binPath) return c.text(`no agent binary for platform ${platform}`, 404);
+  return new Response(Bun.file(binPath), {
+    headers: {
+      'content-type': 'application/octet-stream',
+      'content-disposition': `attachment; filename="swarmy-agent-${platform}"`,
+      'cache-control': 'no-store',
+    },
+  });
+});
+
+app.get('/install/bin/:platform{[a-z0-9-]+}.sha256', (c) => {
+  const platform = c.req.param('platform');
+  const release = agentRelease();
+  const meta = release?.platforms[platform];
+  if (!meta) return c.text(`no agent binary for platform ${platform}`, 404);
+  return c.text(`${meta.sha256}  swarmy-agent-${platform}\n`, 200, {
+    'content-type': 'text/plain; charset=utf-8',
+    'cache-control': 'no-store',
   });
 });
 app.on(['GET', 'POST'], '/api/auth/*', (c) => authRegistry.getAuth().handler(c.req.raw));

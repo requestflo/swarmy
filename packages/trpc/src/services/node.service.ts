@@ -3,6 +3,7 @@ import type { NodeDetail, NodeStatusView, NodeSummary } from '@swarmy/core/views
 import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
 import { notFound } from '../errors';
+import { agentRelease, platformForArch } from './agent-release.service';
 import { requireOnlineNode } from './dispatch.service';
 
 /**
@@ -112,8 +113,8 @@ function toSummary(ctx: OrgContext, n: NodeRow): NodeSummary {
     os: info?.os ?? null,
     arch: info?.arch ?? null,
     resources: { cpus: info?.cpus ?? null, memBytes: info?.memBytes ?? null },
-    // No Docker-truth source for the swarmy *agent* version (only the engine version).
-    agentVersion: null,
+    // From the agent's register facts (kept in the hub, not the DB).
+    agentVersion: ctx.hub.agentBuildFor?.(n.id)?.version ?? null,
     lastSeenAt: lastSeen != null ? new Date(lastSeen).toISOString() : null,
     live,
   };
@@ -366,6 +367,53 @@ export async function setNodeAvailability(
   });
   // No DB telemetry write — drain state is Docker truth (reads back via nodeInfoFor).
   return { id, availability };
+}
+
+/**
+ * Push this controller's agent release to a node. Strategy follows the node's
+ * reported packaging: compiled host binary → `self-replace` (download from
+ * this controller, sha256-pinned); container backend → `docker-recreate`
+ * (pull the matching image, recreate the agent container). The command
+ * resolves when the agent has swapped and is about to restart; the reconnect
+ * with the new `agentVersion` in its register facts is the confirmation.
+ */
+export async function upgradeAgent(
+  ctx: OrgContext,
+  id: string,
+): Promise<{ id: string; targetVersion: string; strategy: string } | { id: string; upToDate: true }> {
+  const release = agentRelease();
+  if (!release) {
+    throw new Error('no agent release available on this controller (binaries not built)');
+  }
+  const node = await requireOnlineNode(ctx, id);
+  const build = ctx.hub.agentBuildFor?.(id);
+  if (build?.version === release.version) return { id, upToDate: true };
+
+  const controllerUrl =
+    process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3001';
+
+  if (build?.packaging === 'binary') {
+    const platform = platformForArch(ctx.hub.nodeInfoFor(id)?.arch);
+    const pinned = platform ? release.platforms[platform] : undefined;
+    if (!platform || !pinned) {
+      throw new Error(`no released binary for this node's platform (arch: ${ctx.hub.nodeInfoFor(id)?.arch ?? 'unknown'})`);
+    }
+    await ctx.hub.dispatch(node.id, 'agent.update', {
+      targetVersion: release.version,
+      downloadUrl: `${controllerUrl}/install/bin/${platform}`,
+      sha256: pinned.sha256,
+      strategy: 'self-replace',
+    });
+    return { id, targetVersion: release.version, strategy: 'self-replace' };
+  }
+
+  const image = process.env.SWARMY_AGENT_IMAGE ?? `ghcr.io/requestflo/swarmy-agent:${release.version}`;
+  await ctx.hub.dispatch(node.id, 'agent.update', {
+    targetVersion: release.version,
+    strategy: 'docker-recreate',
+    image,
+  });
+  return { id, targetVersion: release.version, strategy: 'docker-recreate' };
 }
 
 export async function removeNode(ctx: OrgContext, id: string): Promise<{ id: string; removed: true }> {
