@@ -79,7 +79,13 @@ export const managedCacheRouter = router({
 
   /** BGSAVE + restic snapshot of the data volume (tag `cache:<cluster>`). */
   backup: orgProcedure
-    .input(clusterRef.extend({ targetId: z.string().min(1).optional() }))
+    .input(
+      clusterRef.extend({
+        targetId: z.string().min(1).optional(),
+        /** Override the stack's `swarmy.backup.retentionDays` label for this run. */
+        retentionDays: z.number().int().min(1).max(3650).optional(),
+      }),
+    )
     .mutation(({ ctx, input }) => backupCache(ctx, input)),
 
   /** Stop primary → restore volume → start primary. */

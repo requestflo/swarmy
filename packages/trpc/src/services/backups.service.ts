@@ -11,12 +11,14 @@ import {
   encryptSecret,
   randomToken,
 } from '@swarmy/core/crypto';
+import { buildInventory } from '@swarmy/core';
 import type {
   BackupVolumeResult,
   ListSnapshotsResult,
   ResticRepo,
   ResticSnapshotInfo,
   RestoreVolumeResult,
+  RetentionOutcome,
 } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
@@ -145,6 +147,120 @@ async function loadTarget(ctx: OrgContext, id: string): Promise<TargetRow> {
 
 function volumeTags(orgId: string, volume: string): string[] {
   return [`org:${orgId}`, `volume:${volume}`];
+}
+
+// ── retention (stack-level Docker truth) ─────────────────────────────────────
+
+/**
+ * Volume-backup retention is a STACK-level policy, stored as Docker truth on
+ * the stack's services (`swarmy.backup.retentionDays` — the same
+ * label-not-a-column pattern as `swarmy.db.backup.schedule`). Every backup of a
+ * `<stack>_*` volume — manual, scheduled, or a cache snapshot — inherits it,
+ * and the agent enforces it with `restic forget --keep-within <N>d --prune`
+ * after each successful backup.
+ */
+export const STACK_RETENTION_LABEL = 'swarmy.backup.retentionDays';
+
+/** Parse the label value; anything outside 1..3650 whole days degrades to null. */
+export function parseRetentionDays(raw: string | undefined | null): number | null {
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 3650) return null;
+  return n;
+}
+
+/**
+ * Resolve the retention window for a volume from live inventory: attribute the
+ * volume to the LONGEST stack whose `<stack>_` prefix matches (same
+ * disambiguation as `listSnapshots` — stack `shop` must not claim `shop_x`'s
+ * volumes), then read the stack's retention label. If a partial stamp left the
+ * stack's services disagreeing, the LONGEST window wins (prefer keeping data).
+ */
+export function stackRetentionFor(
+  services: Array<{ stack: string; labels: Record<string, string> }>,
+  volume: string,
+): number | null {
+  const stacks = [...new Set(services.map((s) => s.stack))];
+  const stack = stacks
+    .filter((name) => volume.startsWith(`${name}_`))
+    .sort((a, b) => b.length - a.length)[0];
+  if (!stack) return null;
+  let best: number | null = null;
+  for (const s of services) {
+    if (s.stack !== stack) continue;
+    const n = parseRetentionDays(s.labels[STACK_RETENTION_LABEL]);
+    if (n != null && (best == null || n > best)) best = n;
+  }
+  return best;
+}
+
+/** Live services of the org (inventory truth) for retention resolution. */
+function invServices(ctx: OrgContext): Array<{ stack: string; labels: Record<string, string>; name: string }> {
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  return buildInventory(services, containers).services;
+}
+
+/** The stack's configured retention window, or null (keep forever). */
+export function getStackRetention(ctx: OrgContext, stack: string): number | null {
+  // Probe with a synthetic `<stack>_x` volume so attribution logic is shared.
+  return stackRetentionFor(invServices(ctx), `${stack}_x`);
+}
+
+/**
+ * Set (or clear, with null) the stack's retention window. Stamped on every
+ * service in the stack so the policy survives individual service removal.
+ */
+export async function setStackRetention(
+  ctx: OrgContext,
+  input: { stack: string; retentionDays: number | null },
+): Promise<{ stack: string; retentionDays: number | null }> {
+  const services = invServices(ctx).filter((s) => s.stack === input.stack);
+  if (services.length === 0) throw notFound('stack', input.stack);
+  const node = await resolveManagerNode(ctx);
+  for (const s of services) {
+    await ctx.hub.dispatch(node.id, 'service.updateLabels', {
+      service: s.name,
+      add:
+        input.retentionDays != null
+          ? { [STACK_RETENTION_LABEL]: String(input.retentionDays) }
+          : {},
+      removeKeys: input.retentionDays == null ? [STACK_RETENTION_LABEL] : [],
+    });
+  }
+  await writeAudit(ctx, {
+    action: 'backup.retention.set',
+    actorType: ctx.user ? 'user' : 'system',
+    targetType: 'stack',
+    targetId: input.stack,
+    metadata: { retentionDays: input.retentionDays },
+  });
+  return { stack: input.stack, retentionDays: input.retentionDays };
+}
+
+/**
+ * One audit row per prune that actually removed snapshots — retention is a
+ * destructive action and must leave a trace. A retention FAILURE is also
+ * audited (the backup itself succeeded; the miss must not be silent).
+ */
+export async function auditRetentionOutcome(
+  ctx: OrgContext,
+  scope: { targetType: string; targetId: string; volume?: string },
+  retention: RetentionOutcome | undefined,
+): Promise<void> {
+  if (!retention) return;
+  if (retention.snapshotsRemoved === 0 && !retention.error) return;
+  await writeAudit(ctx, {
+    action: retention.error ? 'backup.retention.failed' : 'backup.retention.prune',
+    actorType: ctx.user ? 'user' : 'system',
+    targetType: scope.targetType,
+    targetId: scope.targetId,
+    metadata: {
+      ...(scope.volume ? { volume: scope.volume } : {}),
+      retentionDays: retention.retentionDays,
+      snapshotsRemoved: retention.snapshotsRemoved,
+      ...(retention.error ? { error: retention.error } : {}),
+    },
+  });
 }
 
 // ── targets ──────────────────────────────────────────────────────────────
@@ -294,12 +410,15 @@ export async function ensureNativeTarget(ctx: OrgContext): Promise<NativeTargetR
 
 export async function backupVolume(
   ctx: OrgContext,
-  input: { targetId: string; volume: string; nodeId?: string },
+  input: { targetId: string; volume: string; nodeId?: string; retentionDays?: number },
 ): Promise<{ snapshotId: string; resticId: string; sizeBytes: string }> {
   const target = await loadTarget(ctx, input.targetId);
   const node = input.nodeId
     ? await requireOnlineNode(ctx, input.nodeId)
     : await resolveManagerNode(ctx);
+  // Explicit override wins; otherwise inherit the stack's retention label.
+  const retentionDays =
+    input.retentionDays ?? stackRetentionFor(invServices(ctx), input.volume) ?? undefined;
 
   const snapshot = await ctx.db.snapshot.create({
     data: {
@@ -317,6 +436,7 @@ export async function backupVolume(
       repo: toResticRepo(target),
       volume: input.volume,
       tags: volumeTags(ctx.activeOrgId, input.volume),
+      retentionDays,
       network: resticNetworkFor(target.endpoint),
     });
     await ctx.db.snapshot.update({
@@ -334,6 +454,11 @@ export async function backupVolume(
       targetId: snapshot.id,
       metadata: { volume: input.volume, targetId: target.id, resticId: result.snapshotId },
     });
+    await auditRetentionOutcome(
+      ctx,
+      { targetType: 'snapshot', targetId: snapshot.id, volume: input.volume },
+      result.retention,
+    );
     return {
       snapshotId: snapshot.id,
       resticId: result.snapshotId,

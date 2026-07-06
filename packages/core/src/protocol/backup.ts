@@ -40,6 +40,13 @@ export const BackupVolumePayload = z.object({
   volume: z.string(),
   /** restic tags, e.g. [`org:<id>`, `volume:<name>`]. */
   tags: z.array(z.string()).default([]),
+  /**
+   * Retention window: after a SUCCESSFUL backup the agent runs
+   * `restic forget --keep-within <N>d --prune` scoped to the same tags/host this
+   * snapshot used. Absent = keep forever (no prune). Additive — older agents
+   * ignore it.
+   */
+  retentionDays: z.number().int().min(1).max(3650).optional(),
   /** Image override; defaults to {@link DEFAULT_RESTIC_IMAGE}. */
   image: z.string().optional(),
   /**
@@ -107,11 +114,28 @@ export const ResticSnapshotInfo = z.object({
 });
 export type ResticSnapshotInfo = z.infer<typeof ResticSnapshotInfo>;
 
+/**
+ * Outcome of the post-backup `restic forget --keep-within --prune` pass.
+ * A retention failure never fails the backup (the backup already succeeded);
+ * it is reported here instead so the controller can surface + audit it.
+ */
+export const RetentionOutcome = z.object({
+  /** The window that was enforced (`--keep-within <N>d`). */
+  retentionDays: z.number().int().positive(),
+  /** Snapshots `restic forget` removed (0 = nothing had aged out). */
+  snapshotsRemoved: z.number().int().nonnegative(),
+  /** Set when forget/prune failed; the backup itself still succeeded. */
+  error: z.string().optional(),
+});
+export type RetentionOutcome = z.infer<typeof RetentionOutcome>;
+
 export const BackupVolumeResult = z.object({
   snapshotId: z.string(),
   sizeBytes: z.number().int().nonnegative(),
   filesNew: z.number().int().nonnegative().optional(),
   durationMs: z.number().int().nonnegative().optional(),
+  /** Present only when the payload carried `retentionDays`. */
+  retention: RetentionOutcome.optional(),
 });
 export type BackupVolumeResult = z.infer<typeof BackupVolumeResult>;
 

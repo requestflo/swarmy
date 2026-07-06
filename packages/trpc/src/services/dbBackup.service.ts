@@ -45,6 +45,7 @@ import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import { auditRetentionOutcome } from './backups.service';
 import { systemContext } from './cicd.service';
 import { resolveManagerNode } from './dispatch.service';
 import {
@@ -348,6 +349,12 @@ export interface BackupDbInput {
   database?: string;
   /** Physical engines: the primary's PGDATA volume to base-back-up. */
   dataVolume?: string;
+  /**
+   * Retention window (days) enforced agent-side with `restic forget
+   * --keep-within --prune` after a successful backup. Callers thread the
+   * schedule label's `retentionDays` here; absent = keep forever.
+   */
+  retentionDays?: number;
 }
 
 export interface DbBackupRunView {
@@ -381,6 +388,7 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
       conn,
       repo: toResticRepo(target),
       tags: dbTags(ctx.activeOrgId, input.stack, input.cluster, input.engine),
+      retentionDays: input.retentionDays,
       network: clusterNetworkName(input.stack, input.cluster),
       dataVolume: input.dataVolume,
     });
@@ -396,6 +404,11 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
         fromReplica,
       },
     });
+    await auditRetentionOutcome(
+      ctx,
+      { targetType: 'dbCluster', targetId: `${input.stack}/${input.cluster}` },
+      result.retention,
+    );
     await stampLastRun(ctx, primary.name, {
       at: new Date().toISOString(),
       status: 'succeeded',
@@ -438,6 +451,7 @@ export async function runDbBackup(ctx: OrgContext, input: RunDbBackupInput): Pro
     targetId,
     database: input.database,
     dataVolume: input.dataVolume ?? schedule?.dataVolume,
+    retentionDays: schedule?.retentionDays,
   });
 }
 
@@ -739,6 +753,7 @@ export async function runDueDbBackups(now: Date, deps?: RunDueDbBackupsDeps): Pr
           engine: schedule.engine,
           targetId,
           dataVolume: schedule.dataVolume,
+          retentionDays: schedule.retentionDays,
         });
       } catch (e) {
         // backupDb stamps dispatch failures itself; stamp pre-dispatch failures

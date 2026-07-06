@@ -26,6 +26,7 @@ import type {
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import { auditRetentionOutcome, stackRetentionFor } from './backups.service';
 import { resolveManagerNode } from './dispatch.service';
 import { resolveExecTarget } from './live-resolve';
 
@@ -1179,12 +1180,16 @@ async function bgsavePrimary(ctx: OrgContext, c: LiveCluster): Promise<void> {
 /** Snapshot the cluster's data volume (BGSAVE → restic backup.run). */
 export async function backupCache(
   ctx: OrgContext,
-  input: { stack: string; cluster: string; targetId?: string },
+  input: { stack: string; cluster: string; targetId?: string; retentionDays?: number },
 ): Promise<{ resticId: string; sizeBytes: string }> {
   const c = requireCluster(ctx, input.stack, input.cluster);
   const target = await resolveTarget(ctx, input.targetId);
   const node = await resolveManagerNode(ctx);
   const volume = cacheDataVolume(input.stack, input.cluster);
+  // Explicit override wins; otherwise the stack's volume-retention label
+  // (`swarmy.backup.retentionDays`) applies — cache volumes are stack volumes.
+  const retentionDays =
+    input.retentionDays ?? stackRetentionFor(liveOrgServices(ctx), volume) ?? undefined;
   await bgsavePrimary(ctx, c);
   try {
     const result = await ctx.hub.dispatch<BackupVolumeResult>(
@@ -1199,6 +1204,7 @@ export async function backupCache(
           `volume:${volume}`,
           cacheBackupTag(input.stack, input.cluster),
         ],
+        retentionDays,
       },
       { timeoutMs: BACKUP_TIMEOUT_MS },
     );
@@ -1208,6 +1214,15 @@ export async function backupCache(
       targetId: cacheBaseName(input.stack, input.cluster),
       metadata: { targetId: target.id, resticId: result.snapshotId, volume },
     });
+    await auditRetentionOutcome(
+      ctx,
+      {
+        targetType: 'cacheCluster',
+        targetId: cacheBaseName(input.stack, input.cluster),
+        volume,
+      },
+      result.retention,
+    );
     return { resticId: result.snapshotId, sizeBytes: String(result.sizeBytes) };
   } catch (e) {
     throw mapDispatchError(e);

@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { CalendarClockIcon, PauseIcon, PlayIcon, PlusIcon } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { CalendarClockIcon, HistoryIcon, PauseIcon, PlayIcon, PlusIcon } from 'lucide-react';
 import {
   Button,
   Card,
@@ -71,6 +71,7 @@ export function StackSchedulesCard({
             <ScheduleCreateInline stack={stack} targets={targets} onDone={() => setCreating(false)} />
           </CollapsibleContent>
         </Collapsible>
+        <RetentionRow stack={stack} />
         {schedules.length === 0 ? (
           <div className="border-t px-6 py-2">
             <EmptyState
@@ -118,5 +119,82 @@ export function StackSchedulesCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** The stack's retention window (`swarmy.backup.retentionDays` label): after each
+ *  successful backup, snapshots older than this are forgotten + pruned. */
+function RetentionRow({ stack }: { stack: string }): React.JSX.Element {
+  const trpc = useTRPC();
+  const qc = useQueryClient();
+  const retention = useQuery(trpc.backups.stackRetention.queryOptions({ stack }));
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState('');
+
+  const save = useMutation(
+    trpc.backups.setStackRetention.mutationOptions({
+      onSuccess: (_r, vars) => {
+        toast.success(
+          vars.retentionDays
+            ? `Snapshots kept ${vars.retentionDays} days — older ones prune after each backup`
+            : 'Retention cleared — snapshots are kept forever',
+        );
+        setEditing(false);
+        void qc.invalidateQueries();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+
+  const days = retention.data?.retentionDays ?? null;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t px-6 py-3">
+      <span className="text-muted-foreground mono-label inline-flex items-center gap-2">
+        <HistoryIcon className="size-4" /> Retention
+      </span>
+      {editing ? (
+        <span className="inline-flex items-center gap-2">
+          <input
+            type="number"
+            min={1}
+            max={3650}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="days"
+            className="border-input bg-background h-7 w-20 rounded-md border px-2 text-sm"
+          />
+          <Button
+            size="sm"
+            className="h-7"
+            disabled={save.isPending}
+            onClick={() => {
+              const n = Number(draft);
+              save.mutate({ stack, retentionDays: Number.isInteger(n) && n >= 1 ? n : null });
+            }}
+          >
+            Save
+          </Button>
+          <Button size="sm" variant="ghost" className="h-7" onClick={() => setEditing(false)}>
+            Cancel
+          </Button>
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-2">
+          <span className="mono-data text-sm">{days ? `keep ${days} days` : 'keep forever'}</span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7"
+            onClick={() => {
+              setDraft(days ? String(days) : '30');
+              setEditing(true);
+            }}
+          >
+            Edit
+          </Button>
+        </span>
+      )}
+    </div>
   );
 }

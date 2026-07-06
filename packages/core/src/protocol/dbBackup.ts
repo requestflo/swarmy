@@ -13,7 +13,7 @@
 import { z } from 'zod';
 import { CommandId } from './primitives';
 import { ResticRepo } from './backup';
-import { ResticSnapshotInfo } from './backup';
+import { ResticSnapshotInfo, RetentionOutcome } from './backup';
 
 /** Reusable command preamble (every controller→agent command carries these). */
 const cmd = { commandId: CommandId, timeoutMs: z.number().int().positive().optional() };
@@ -90,6 +90,14 @@ export const DbBackupPayload = z.object({
   repo: ResticRepo,
   /** restic tags, e.g. [`org:<id>`, `cluster:<name>`, `engine:<engine>`]. */
   tags: z.array(z.string()).default([]),
+  /**
+   * Retention window from the `swarmy.db.backup.schedule` label: after a
+   * SUCCESSFUL logical backup the agent runs `restic forget --keep-within <N>d
+   * --prune` scoped to this backup's tags/host. Physical engines (wal-g /
+   * pgbackrest) manage their own base-backup chains and are not pruned via
+   * restic. Absent = keep forever. Additive — older agents ignore it.
+   */
+  retentionDays: z.number().int().min(1).max(3650).optional(),
   ...engineEnv,
 });
 export const DbBackupMsg = z.object({
@@ -152,6 +160,8 @@ export const DbBackupResult = z.object({
   /** databases captured (pg_dumpall lists all; pg_dump lists the one). */
   databases: z.array(z.string()).default([]),
   durationMs: z.number().int().nonnegative().optional(),
+  /** Present only when the payload carried `retentionDays` (logical engines). */
+  retention: RetentionOutcome.optional(),
 });
 export type DbBackupResult = z.infer<typeof DbBackupResult>;
 

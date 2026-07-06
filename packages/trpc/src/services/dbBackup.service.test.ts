@@ -158,3 +158,109 @@ describe('scheduleView', () => {
     expect(v.lastStatus).toBe('failed');
   });
 });
+
+// ── schedule sweep: retention rides every scheduled dispatch ─────────────────
+
+import { runDueDbBackups } from './dbBackup.service';
+import { encryptSecret } from '@swarmy/core/crypto';
+import type { DbBackupResult } from '@swarmy/core/protocol';
+
+process.env.SWARMY_SECRET_KEY ??= 'test-secret-key-for-db-backup-sweep';
+
+describe('runDueDbBackups (schedule sweep passes retention through)', () => {
+  function fakeWorld(schedule: DbBackupSchedule): {
+    deps: Parameters<typeof runDueDbBackups>[1];
+    dispatches: Array<{ cmd: string; payload: Record<string, unknown> }>;
+    audits: Array<{ action: string; metadata: Record<string, unknown> }>;
+  } {
+    const dispatches: Array<{ cmd: string; payload: Record<string, unknown> }> = [];
+    const audits: Array<{ action: string; metadata: Record<string, unknown> }> = [];
+    const primary = {
+      id: 'svc1',
+      name: 'shop_main-db',
+      image: 'bitnami/postgresql:16',
+      mode: 'replicated' as const,
+      desiredReplicas: 1,
+      runningReplicas: 1,
+      labels: {
+        'com.docker.stack.namespace': 'shop',
+        'swarmy.db.cluster': 'main',
+        'swarmy.db.role': 'primary',
+        'swarmy.db.backup.schedule': encodeScheduleLabel(schedule),
+      },
+      env: ['POSTGRESQL_PASSWORD=pw', 'POSTGRESQL_DATABASE=app'],
+      networks: [],
+      ports: [],
+    };
+    const hub = {
+      managerNode: () => 'node1',
+      isOnline: () => true,
+      liveInventory: () => ({ services: [primary], containers: [] }),
+      dispatch: (nodeId: string, cmd: string, payload: Record<string, unknown>) => {
+        dispatches.push({ cmd, payload });
+        if (cmd === 'db.backup') {
+          const result: DbBackupResult = {
+            snapshotId: 'snap1',
+            engine: schedule.engine,
+            sizeBytes: 10,
+            databases: ['app'],
+            retention: { retentionDays: schedule.retentionDays, snapshotsRemoved: 3 },
+          };
+          return Promise.resolve(result);
+        }
+        return Promise.resolve({});
+      },
+    };
+    const db = {
+      organization: { findMany: () => Promise.resolve([{ id: 'org1' }]) },
+      backupTarget: {
+        findFirst: () =>
+          Promise.resolve({
+            id: 'tgt-1',
+            kind: 'S3',
+            endpoint: 'https://s3.example.com',
+            bucket: 'b',
+            prefix: null,
+            region: null,
+            credentialRef: null,
+            secretKeyRef: null,
+            resticPasswordRef: encryptSecret('restic-pw'),
+            enabled: true,
+          }),
+      },
+      auditLog: {
+        create: (a: { data: { action: string; metadata: Record<string, unknown> } }) => {
+          audits.push({ action: a.data.action, metadata: a.data.metadata });
+          return Promise.resolve({});
+        },
+      },
+    };
+    return {
+      deps: { db, hub, auth: {} } as unknown as Parameters<typeof runDueDbBackups>[1],
+      dispatches,
+      audits,
+    };
+  }
+
+  it('threads the schedule label retentionDays into the db.backup dispatch and audits the prune', async () => {
+    const schedule: DbBackupSchedule = {
+      cron: '* * * * *',
+      engine: 'pg_dump',
+      retentionDays: 21,
+      pitr: false,
+      targetId: 'tgt-1',
+    };
+    const { deps, dispatches, audits } = fakeWorld(schedule);
+    await runDueDbBackups(new Date('2026-07-01T00:00:30Z'), deps);
+
+    const backup = dispatches.find((d) => d.cmd === 'db.backup');
+    expect(backup).toBeDefined();
+    expect(backup!.payload.retentionDays).toBe(21);
+    expect(backup!.payload.tags).toEqual(['org:org1', 'db:shop/main', 'engine:pg_dump']);
+
+    const prune = audits.find((a) => a.action === 'backup.retention.prune');
+    expect(prune).toBeDefined();
+    expect(prune!.metadata.snapshotsRemoved).toBe(3);
+    expect(prune!.metadata.retentionDays).toBe(21);
+  });
+});

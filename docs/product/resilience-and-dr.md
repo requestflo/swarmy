@@ -61,6 +61,14 @@ Four ideas, one story:
   binary and the password — *with or without swarmy running*. Volume backups, DB
   dumps, and the controller's own brain all land in the same restic catalog with
   different sources. One mechanism, not three.
+- **Retention is enforced, not just displayed.** A retention window (per-stack
+  `swarmy.backup.retentionDays` label for volumes; the DB backup schedule's own
+  `retentionDays`) makes each *successful* backup run `restic forget
+  --keep-within <N>d --prune`, scoped to that source's tags so one cluster's
+  prune can never eat another's snapshots. A retention failure never fails the
+  backup that just succeeded — it is reported separately — and every prune that
+  removes snapshots writes an audit row with counts. No window set = keep
+  forever, stated plainly in the UI.
 - **Backups run where the data is; the controller only orchestrates.** The agent
   launches the sidecar against its local Docker socket (see the `agent-handlers`
   skill); the controller decrypts credentials just-in-time and dispatches. The one

@@ -119,6 +119,9 @@ export {
   backupVolume,
   listSnapshots,
   restoreSnapshot,
+  STACK_RETENTION_LABEL,
+  parseRetentionDays,
+  stackRetentionFor,
 } from './services/backups.service';
 export {
   list as listClusterVolumes,

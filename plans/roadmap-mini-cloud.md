@@ -118,13 +118,13 @@ Phase-A follow-ups (verifiers' findings, deliberately deferred):
 | Workstream | Status |
 |---|---|
 | WS0 docs + roadmap | done |
-| WS1 host-binary agent + self-update | in progress |
-| WS2 swarm quorum & recovery | queued |
+| WS1 host-binary agent + self-update | built — VM e2e pending |
+| WS2 swarm quorum & recovery | built (pending integration) |
 | WS3 declared exposure modes | built (pending integration) |
 | WS4 protection completion | built (pending integration) |
 | WS5 Garage lifecycle | built (pending integration) |
-| WS6 retention enforcement | queued |
-| WS7 install profiles + data roles | queued |
+| WS6 retention enforcement | built (pending integration) |
+| WS7 install profiles + data roles | in progress |
 
 ## 6. Supersessions
 

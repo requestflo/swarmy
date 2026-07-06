@@ -9,8 +9,10 @@
  * Mirrors `metrics-sampler`/`retention`: prisma + the shared gateway hub.
  */
 import { prisma } from '@swarmy/db';
+import { buildInventory } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import type { BackupVolumeResult, ResticRepo } from '@swarmy/core/protocol';
+import { stackRetentionFor } from '@swarmy/trpc';
 import { hub, registry } from '../gateway';
 
 const TICK_MS = 60_000;
@@ -66,6 +68,47 @@ function toRepo(t: TargetRow): ResticRepo {
     accessKeyId: t.credentialRef ? decryptSecret(t.credentialRef) : undefined,
     secretAccessKey: t.secretKeyRef ? decryptSecret(t.secretKeyRef) : undefined,
   };
+}
+
+/** Resolve the volume's stack-level retention window from live Docker truth. */
+function retentionFor(orgId: string, volume: string): number | null {
+  try {
+    const { services, containers } = hub.liveInventory(orgId);
+    return stackRetentionFor(buildInventory(services, containers).services, volume);
+  } catch {
+    return null; // no inventory (agent flapping) → back up without pruning
+  }
+}
+
+/**
+ * Retention is destructive: leave one audit row per prune that removed
+ * snapshots, and one per retention FAILURE (the backup itself succeeded).
+ */
+async function auditRetention(
+  orgId: string,
+  volume: string,
+  snapshotId: string,
+  retention: BackupVolumeResult['retention'],
+): Promise<void> {
+  if (!retention) return;
+  if (retention.snapshotsRemoved === 0 && !retention.error) return;
+  await (prisma as unknown as { auditLog: { create(a: unknown): Promise<unknown> } }).auditLog
+    .create({
+      data: {
+        orgId,
+        actorType: 'system',
+        action: retention.error ? 'backup.retention.failed' : 'backup.retention.prune',
+        targetType: 'snapshot',
+        targetId: snapshotId,
+        metadata: {
+          volume,
+          retentionDays: retention.retentionDays,
+          snapshotsRemoved: retention.snapshotsRemoved,
+          ...(retention.error ? { error: retention.error } : {}),
+        },
+      },
+    })
+    .catch(() => undefined);
 }
 
 /** Pick an online node to run the backup: the recorded host, else any online
@@ -133,12 +176,18 @@ async function runDue(): Promise<void> {
       },
     });
 
+    // The stack's retention label (`swarmy.backup.retentionDays`) rides the
+    // dispatch; the agent enforces it with `restic forget --keep-within --prune`
+    // after the backup succeeds. Absent label = keep forever.
+    const retentionDays = retentionFor(sched.orgId, sched.volume);
+
     try {
       const result = await hub.dispatch<BackupVolumeResult>(nodeId, 'backup.run', {
         jobId: snapshot.id,
         repo: toRepo(target),
         volume: sched.volume,
         tags: [`org:${sched.orgId}`, `volume:${sched.volume}`],
+        ...(retentionDays != null ? { retentionDays } : {}),
       });
       await db.snapshot.update({
         where: { id: snapshot.id },
@@ -153,6 +202,7 @@ async function runDue(): Promise<void> {
         where: { id: job.id },
         data: { status: 'SUCCEEDED', finishedAt: new Date(), snapshotId: snapshot.id },
       });
+      await auditRetention(sched.orgId, sched.volume, snapshot.id, result.retention);
     } catch (e) {
       await db.snapshot.update({
         where: { id: snapshot.id },

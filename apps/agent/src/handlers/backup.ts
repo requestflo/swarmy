@@ -21,6 +21,7 @@ import type {
   ResticRepo,
   ResticSnapshotInfo,
   RestoreVolumePayload,
+  RetentionOutcome,
 } from '@swarmy/core/protocol';
 import {
   DEFAULT_PG_CLIENT_IMAGE,
@@ -140,6 +141,106 @@ async function ensureRepo(
   }).catch(() => undefined);
 }
 
+// ── retention (restic forget --keep-within --prune) ──────────────────────────
+
+/**
+ * Build the `restic forget` invocation for a retention window, scoped to
+ * exactly the snapshots the just-finished backup belongs to. Returns null when
+ * no retention was requested — the caller must never prune without an explicit
+ * `retentionDays`.
+ *
+ * Scoping matters: restic treats repeated `--tag` flags as OR, so passing the
+ * backup's tags one-per-flag would match (and forget!) every snapshot carrying
+ * ANY of them — e.g. every snapshot in the org. All tags are therefore joined
+ * into ONE comma-separated `--tag` value (AND semantics), plus `--host` (the
+ * same host the backup stamped), mirroring how tightly the snapshot was tagged.
+ */
+export function forgetArgsFor(p: {
+  retentionDays?: number;
+  tags: string[];
+  host?: string;
+}): string[] | null {
+  if (p.retentionDays == null) return null;
+  const args = ['forget', '--keep-within', `${p.retentionDays}d`, '--prune', '--json'];
+  if (p.tags.length > 0) args.push('--tag', p.tags.join(','));
+  if (p.host) args.push('--host', p.host);
+  return args;
+}
+
+/**
+ * Count removed snapshots in `restic forget --json` output: an array of groups,
+ * each with `keep`/`remove` snapshot lists. `--prune` appends non-JSON prune
+ * progress after the array, so scan line-wise for the parseable array.
+ */
+export function parseForgetRemoved(stdout: string): number {
+  for (const line of stdout.split('\n')) {
+    const t = line.trim();
+    if (!t.startsWith('[')) continue;
+    try {
+      const groups = JSON.parse(t) as Array<{ remove?: unknown }>;
+      if (!Array.isArray(groups)) continue;
+      return groups.reduce(
+        (n, g) => n + (Array.isArray(g.remove) ? g.remove.length : 0),
+        0,
+      );
+    } catch {
+      // not the forget summary (e.g. a progress line) — keep scanning
+    }
+  }
+  return 0;
+}
+
+/**
+ * Enforce a retention window after a SUCCESSFUL backup. Never throws: the
+ * backup already succeeded, so a forget/prune failure is reported in the
+ * outcome (`error`) rather than failing the command.
+ */
+async function applyRetention(
+  docker: DockerClient,
+  opts: {
+    image: string;
+    repo: ResticRepo;
+    retentionDays: number;
+    tags: string[];
+    host?: string;
+    network?: string;
+  },
+  onLine?: (line: string) => void,
+): Promise<RetentionOutcome> {
+  const args = forgetArgsFor(opts);
+  if (!args) return { retentionDays: opts.retentionDays, snapshotsRemoved: 0 };
+  try {
+    const res = await runSidecar(
+      docker,
+      {
+        image: opts.image,
+        args,
+        env: repoEnv(opts.repo),
+        binds: [],
+        networkMode: opts.network,
+      },
+      onLine,
+    );
+    if (res.exitCode !== 0) {
+      return {
+        retentionDays: opts.retentionDays,
+        snapshotsRemoved: 0,
+        error: res.stderr.trim() || `restic forget exited ${res.exitCode}`,
+      };
+    }
+    return {
+      retentionDays: opts.retentionDays,
+      snapshotsRemoved: parseForgetRemoved(res.stdout),
+    };
+  } catch (e) {
+    return {
+      retentionDays: opts.retentionDays,
+      snapshotsRemoved: 0,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
 function streamer(conn: AgentConnection, commandId: string): (line: string) => void {
   let seq = 0;
   return (line: string) =>
@@ -153,6 +254,7 @@ export async function backupVolume(
 ): Promise<import('@swarmy/core/protocol').BackupVolumeResult> {
   const image = p.image ?? DEFAULT_RESTIC_IMAGE;
   const started = Date.now();
+  const onLine = streamer(conn, p.commandId);
   await ensureRepo(docker, image, p.repo, p.network);
 
   const tagArgs = p.tags.flatMap((t) => ['--tag', t]);
@@ -165,7 +267,7 @@ export async function backupVolume(
       binds: [`${p.volume}:${MOUNT}:ro`],
       networkMode: p.network,
     },
-    streamer(conn, p.commandId),
+    onLine,
   );
   if (res.exitCode !== 0) {
     throw new Error(res.stderr.trim() || `restic backup exited ${res.exitCode}`);
@@ -173,11 +275,31 @@ export async function backupVolume(
 
   // restic --json emits one summary object on the final line.
   const summary = parseSummary(res.stdout);
+
+  // Enforce retention only AFTER a successful backup; a prune failure is
+  // reported in the outcome, never as a command failure.
+  const retention =
+    p.retentionDays != null
+      ? await applyRetention(
+          docker,
+          {
+            image,
+            repo: p.repo,
+            retentionDays: p.retentionDays,
+            tags: p.tags,
+            host: p.volume,
+            network: p.network,
+          },
+          onLine,
+        )
+      : undefined;
+
   return {
     snapshotId: summary.snapshot_id ?? 'unknown',
     sizeBytes: summary.total_bytes_processed ?? 0,
     filesNew: summary.files_new,
     durationMs: Date.now() - started,
+    ...(retention ? { retention } : {}),
   };
 }
 
@@ -396,12 +518,31 @@ async function backupDbLogical(
       throw new Error(store.stderr.trim() || `restic backup exited ${store.exitCode}`);
     }
     const summary = parseSummary(store.stdout);
+
+    // Retention runs only after the dump is safely in the repo; scoped to this
+    // cluster's tags + host so no other cluster's snapshots can be forgotten.
+    const retention =
+      p.retentionDays != null
+        ? await applyRetention(
+            docker,
+            {
+              image: resticImage,
+              repo: p.repo,
+              retentionDays: p.retentionDays,
+              tags: p.tags,
+              host: p.conn.database,
+            },
+            onLine,
+          )
+        : undefined;
+
     return {
       snapshotId: summary.snapshot_id ?? 'unknown',
       engine: p.engine,
       sizeBytes: summary.total_bytes_processed ?? 0,
       databases: dumpAll ? ['*'] : [p.conn.database],
       durationMs: Date.now() - started,
+      ...(retention ? { retention } : {}),
     };
   } finally {
     await docker.docker.getVolume(scratch).remove({ force: true }).catch(() => undefined);

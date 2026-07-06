@@ -264,6 +264,8 @@ interface DataState {
   dbSnapshots: DbSnapshotState[];
   /** slice A2: live-topology seeds behind `db.get` (lag badges, leader crown). */
   dbTopologies: DbTopoState[];
+  /** WS6: per-stack volume-backup retention (mirrors the swarmy.backup.retentionDays label). */
+  retention?: Record<string, number>;
 }
 
 const GARAGE_S3_PORT = 3900;
@@ -487,6 +489,21 @@ export const data: DomainResolvers = {
 
     // ── backups ──────────────────────────────────────────────────────────────
     'backups.listTargets': (_i, s): BackupTargetView[] => getState(s).targets,
+
+    // Retention (WS6): production keeps this on the swarmy.backup.retentionDays
+    // stack label; the demo mirrors it in session state.
+    'backups.stackRetention': (i, s): { stack: string; retentionDays: number | null } => {
+      const stack = (i as { stack: string }).stack;
+      return { stack, retentionDays: getState(s).retention?.[stack] ?? null };
+    },
+    'backups.setStackRetention': (i, s): { stack: string; retentionDays: number | null } => {
+      const { stack, retentionDays } = i as { stack: string; retentionDays: number | null };
+      const st = getState(s);
+      st.retention = st.retention ?? {};
+      if (retentionDays == null) delete st.retention[stack];
+      else st.retention[stack] = retentionDays;
+      return { stack, retentionDays };
+    },
 
     'backups.addTarget': (i, s): BackupTargetView => {
       const b = i as {
