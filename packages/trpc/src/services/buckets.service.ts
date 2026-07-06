@@ -35,13 +35,15 @@ import {
   type SetBucketWebsiteInput,
   type StorageAccessKeyView,
 } from '@swarmy/core';
-import { decryptSecret } from '@swarmy/core/crypto';
+import { decryptSecret, encryptSecret } from '@swarmy/core/crypto';
 import type { RunOnceResult, ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { GARAGE_ADMIN_PORT, GARAGE_S3_PORT } from './garage-render';
+import { MAX_PRESIGN_EXPIRES_SECONDS, presignS3Url } from './s3-presign';
+import { parsePhysicalSecretName, physicalSecretName, secretRefsFor } from './secretsMgr.service';
 
 // Keep in lockstep with replicatedStore.service.ts (same deployment).
 const STORE_SERVICE_NAME = 'swarmy-garage';
@@ -263,6 +265,21 @@ export function buildAttachEnv(input: {
     S3_ACCESS_KEY_ID: input.accessKeyId,
     S3_SECRET_ACCESS_KEY_FILE: `/run/secrets/${input.secretName}`,
   };
+}
+
+/**
+ * Next Docker-secret name for a key rotation, following the secret-family
+ * versioning codec from `secretsMgr.service.ts`: the attach-time secret
+ * (`swarmy-s3-<svc>-<bucket>`) becomes the family; each rotation appends
+ * `__v<n>`. The family doubles as the stable mount target so the app's
+ * `S3_SECRET_ACCESS_KEY_FILE` path survives every subsequent rotation.
+ */
+export function rotatedSecretName(current: string): { family: string; name: string } {
+  const parsed = parsePhysicalSecretName(current);
+  // ≤56 chars leaves room for the `__v<n>` suffix inside Docker's 64-char cap.
+  const family = (parsed?.family ?? current).slice(0, 56);
+  const name = physicalSecretName(family, (parsed?.version ?? 1) + 1);
+  return { family, name };
 }
 
 /** Env var keys `buildAttachEnv` owns (removed again on detach). */
@@ -531,12 +548,12 @@ export async function deleteBucket(
   return { id: bucketId, removed: true };
 }
 
-/**
- * Mint an access key. The secret is returned ONCE here and never persisted
- * controller-side — Garage will not reveal it again.
- */
-export async function createKey(ctx: OrgContext, name: string): Promise<BucketKeyCreatedView> {
-  const store = await requireStore(ctx);
+/** Mint a key in Garage (no audit — the callers record their own action). */
+async function mintKey(
+  ctx: OrgContext,
+  store: StoreHandle,
+  name: string,
+): Promise<BucketKeyCreatedView> {
   const body = await garageAdmin(ctx, store, {
     method: 'POST',
     path: '/key',
@@ -549,13 +566,27 @@ export async function createKey(ctx: OrgContext, name: string): Promise<BucketKe
   if (!raw.accessKeyId || !raw.secretAccessKey) {
     throw commandRejected('object store did not return a key');
   }
+  return {
+    accessKeyId: raw.accessKeyId,
+    secretAccessKey: raw.secretAccessKey,
+    name: raw.name ?? name,
+  };
+}
+
+/**
+ * Mint an access key. The secret is returned ONCE here and never persisted
+ * controller-side — Garage will not reveal it again.
+ */
+export async function createKey(ctx: OrgContext, name: string): Promise<BucketKeyCreatedView> {
+  const store = await requireStore(ctx);
+  const key = await mintKey(ctx, store, name);
   await writeAudit(ctx, {
     action: 'buckets.createKey',
     targetType: 'bucketKey',
-    targetId: raw.accessKeyId,
+    targetId: key.accessKeyId,
     metadata: { name },
   });
-  return { accessKeyId: raw.accessKeyId, secretAccessKey: raw.secretAccessKey, name: raw.name ?? name };
+  return key;
 }
 
 export async function deleteKey(
@@ -579,6 +610,267 @@ export async function deleteKey(
     targetId: accessKeyId,
   });
   return { accessKeyId, removed: true };
+}
+
+/** Garage `GetKeyInfo` — the fields rotation consumes. */
+interface GarageKeyInfo {
+  name?: string;
+  accessKeyId?: string;
+  buckets?: Array<{
+    id?: string;
+    globalAliases?: string[];
+    permissions?: { read?: boolean; write?: boolean; owner?: boolean };
+  }>;
+}
+
+export interface RotateKeyResult {
+  oldAccessKeyId: string;
+  /** The replacement key id (grants identical to the old key's). */
+  accessKeyId: string;
+  name: string;
+  /** App services re-deployed onto the new key + rotated Docker secret. */
+  redeployed: string[];
+  /**
+   * The new secret — returned ONCE, and only when no attachment consumed it
+   * (attached rotations land the secret straight in the Docker secret).
+   */
+  secretAccessKey: string | null;
+}
+
+/**
+ * Rotate an access key: mint a replacement with identical bucket grants, swap
+ * every attached app onto it (new versioned Docker secret + redeploy, the
+ * secret-family pattern from `secretsMgr.service.ts`), then retire the old
+ * Garage key. The old credential is dead when this returns.
+ */
+export async function rotateAccessKey(
+  ctx: OrgContext,
+  accessKeyId: string,
+): Promise<RotateKeyResult> {
+  const store = await requireStore(ctx);
+  const infoBody = await garageAdmin(ctx, store, {
+    method: 'GET',
+    path: `/key?id=${encodeURIComponent(accessKeyId)}`,
+  });
+  const info = parseJson<GarageKeyInfo>(infoBody, 'key info');
+  const name = info.name ?? '';
+
+  // 1. Replacement key, same display name, identical grants.
+  const next = await mintKey(ctx, store, name || `rotated-${accessKeyId}`);
+  for (const b of info.buckets ?? []) {
+    if (typeof b.id !== 'string' || !b.id) continue;
+    await garageAdmin(ctx, store, {
+      method: 'POST',
+      path: '/bucket/allow',
+      body: buildGrantBody(b.id, next.accessKeyId, {
+        read: Boolean(b.permissions?.read),
+        write: Boolean(b.permissions?.write),
+        owner: Boolean(b.permissions?.owner),
+      }),
+    });
+  }
+
+  // 2. Re-wire attached apps: versioned Docker secret + redeploy (env + labels).
+  const attached = liveOrgServices(ctx).filter((s) => s.labels[S3_KEY_LABEL] === accessKeyId);
+  const redeployed: string[] = [];
+  if (attached.length > 0) {
+    const node = await resolveManagerNode(ctx);
+    for (const app of attached) {
+      const bucketName = app.labels[S3_BUCKET_LABEL] ?? '';
+      const oldSecretName = app.labels[S3_SECRET_LABEL] ?? attachSecretName(app.name, bucketName);
+      const { family, name: newSecretName } = rotatedSecretName(oldSecretName);
+      const dataB64 = Buffer.from(next.secretAccessKey, 'utf8').toString('base64');
+      try {
+        try {
+          await ctx.hub.dispatch(node.id, 'secret.create', {
+            name: newSecretName,
+            dataB64,
+            labels: { 'swarmy.managed': 'true', [S3_BUCKET_LABEL]: bucketName },
+          });
+        } catch (e) {
+          if (!/already exists|conflict/i.test(e instanceof Error ? e.message : String(e))) throw e;
+          await ctx.hub.dispatch(node.id, 'secret.remove', { name: newSecretName });
+          await ctx.hub.dispatch(node.id, 'secret.create', {
+            name: newSecretName,
+            dataB64,
+            labels: { 'swarmy.managed': 'true', [S3_BUCKET_LABEL]: bucketName },
+          });
+        }
+
+        const env: Record<string, string> = {};
+        for (const kv of app.env) {
+          const i = kv.indexOf('=');
+          env[i >= 0 ? kv.slice(0, i) : kv] = i >= 0 ? kv.slice(i + 1) : '';
+        }
+        env.S3_ACCESS_KEY_ID = next.accessKeyId;
+        // target = family keeps this path stable across every later rotation.
+        env.S3_SECRET_ACCESS_KEY_FILE = `/run/secrets/${family}`;
+
+        const otherSecrets = (app.secrets ?? []).filter(
+          (n) =>
+            n !== newSecretName &&
+            n !== oldSecretName &&
+            parsePhysicalSecretName(n)?.family !== family,
+        );
+        const spec: ServiceSpec = {
+          name: app.name,
+          image: app.image,
+          mode: { replicated: { replicas: app.replicas.desired } },
+          labels: {
+            ...app.labels,
+            ...(app.stack !== 'UNGROUPED' ? { [STACK_LABEL]: app.stack } : {}),
+            [S3_KEY_LABEL]: next.accessKeyId,
+            [S3_SECRET_LABEL]: newSecretName,
+          },
+          env,
+          ports: app.ports.map((p) => ({
+            target: p.target,
+            published: p.published,
+            protocol: p.protocol === 'udp' ? ('udp' as const) : ('tcp' as const),
+            mode: 'ingress' as const,
+          })),
+          networks: app.networks.map((n) => n.name),
+          secrets: [...secretRefsFor(otherSecrets), { source: newSecretName, target: family }],
+          ...(app.configs && app.configs.length > 0
+            ? { configs: app.configs.map((n) => ({ source: n })) }
+            : {}),
+        };
+        await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'missing' });
+      } catch (e) {
+        throw mapDispatchError(e);
+      }
+      redeployed.push(app.name);
+      // Best-effort: the redeploy already moved the app off the old secret.
+      await ctx.hub
+        .dispatch(node.id, 'secret.remove', { name: oldSecretName })
+        .catch(() => undefined);
+    }
+  }
+
+  // 3. Retire the old key — apps are already off it.
+  await garageAdmin(ctx, store, {
+    method: 'DELETE',
+    path: `/key?id=${encodeURIComponent(accessKeyId)}`,
+  });
+
+  await writeAudit(ctx, {
+    action: 'buckets.rotateKey',
+    targetType: 'bucketKey',
+    targetId: next.accessKeyId,
+    metadata: { oldAccessKeyId: accessKeyId, name, redeployed },
+  });
+  return {
+    oldAccessKeyId: accessKeyId,
+    accessKeyId: next.accessKeyId,
+    name: next.name,
+    redeployed: redeployed.sort(),
+    secretAccessKey: attached.length === 0 ? next.secretAccessKey : null,
+  };
+}
+
+// ── Presigned URLs ────────────────────────────────────────────────────────────
+
+/** Display name of the controller-held key that signs presigned URLs. */
+export const PRESIGN_KEY_NAME = 'swarmy-presign';
+
+/**
+ * The controller-held signing key (the ONE credential the DB may hold, as
+ * encrypted `*Ref` columns on the StorageCluster row — same pattern as the
+ * admin token). Minted lazily on first presign.
+ */
+async function ensurePresignKey(
+  ctx: OrgContext,
+  store: StoreHandle,
+): Promise<{ accessKeyId: string; secretAccessKey: string }> {
+  const row = await ctx.db.storageCluster.findUnique({ where: { orgId: ctx.activeOrgId } });
+  if (!row) throw notFound('storage cluster', ctx.activeOrgId);
+  if (row.accessKeyRef && row.secretKeyRef) {
+    return {
+      accessKeyId: decryptSecret(row.accessKeyRef),
+      secretAccessKey: decryptSecret(row.secretKeyRef),
+    };
+  }
+  const key = await mintKey(ctx, store, PRESIGN_KEY_NAME);
+  await ctx.db.storageCluster.update({
+    where: { orgId: ctx.activeOrgId },
+    data: {
+      accessKeyRef: encryptSecret(key.accessKeyId),
+      secretKeyRef: encryptSecret(key.secretAccessKey),
+    },
+  });
+  return { accessKeyId: key.accessKeyId, secretAccessKey: key.secretAccessKey };
+}
+
+export interface PresignUrlInput {
+  bucketId: string;
+  key: string;
+  method: 'GET' | 'PUT';
+  expiresSeconds: number;
+}
+
+export interface PresignedUrlView {
+  url: string;
+  bucket: string;
+  key: string;
+  method: 'GET' | 'PUT';
+  expiresAt: string;
+}
+
+/**
+ * Mint a time-limited presigned GET/PUT URL for one object. Signing is the
+ * pure SigV4 presigner (`s3-presign.ts`); the signing key is the cluster's
+ * controller-held presign key, granted read+write on the bucket on demand.
+ */
+export async function presignObjectUrl(
+  ctx: OrgContext,
+  input: PresignUrlInput,
+): Promise<PresignedUrlView> {
+  if (input.expiresSeconds < 1 || input.expiresSeconds > MAX_PRESIGN_EXPIRES_SECONDS) {
+    throw commandRejected(`expiry must be between 1s and ${MAX_PRESIGN_EXPIRES_SECONDS}s (7 days)`);
+  }
+  const store = await requireStore(ctx);
+  // Also proves the bucket belongs to THIS org's store (404 otherwise).
+  const bucket = await getBucket(ctx, input.bucketId);
+  const creds = await ensurePresignKey(ctx, store);
+
+  const grant = bucket.keys.find((k) => k.accessKeyId === creds.accessKeyId);
+  if (!grant?.permissions.read || !grant.permissions.write) {
+    await garageAdmin(ctx, store, {
+      method: 'POST',
+      path: '/bucket/allow',
+      body: buildGrantBody(bucket.id, creds.accessKeyId, {
+        read: true,
+        write: true,
+        owner: false,
+      }),
+    });
+  }
+
+  const now = new Date();
+  const url = presignS3Url({
+    endpoint: garageS3Endpoint(),
+    region: store.region,
+    bucket: bucket.name,
+    key: input.key,
+    accessKeyId: creds.accessKeyId,
+    secretAccessKey: creds.secretAccessKey,
+    method: input.method,
+    expiresSeconds: input.expiresSeconds,
+    now,
+  });
+  await writeAudit(ctx, {
+    action: 'buckets.presign',
+    targetType: 'bucket',
+    targetId: bucket.id,
+    metadata: { key: input.key, method: input.method, expiresSeconds: input.expiresSeconds },
+  });
+  return {
+    url,
+    bucket: bucket.name,
+    key: input.key,
+    method: input.method,
+    expiresAt: new Date(now.getTime() + input.expiresSeconds * 1000).toISOString(),
+  };
 }
 
 export async function grantKeyOnBucket(
@@ -681,11 +973,19 @@ export async function attachToService(
   const node = await resolveManagerNode(ctx);
   try {
     try {
-      await ctx.hub.dispatch(node.id, 'secret.create', { name: secretName, dataB64, labels: secretLabels });
+      await ctx.hub.dispatch(node.id, 'secret.create', {
+        name: secretName,
+        dataB64,
+        labels: secretLabels,
+      });
     } catch (e) {
       if (!/already exists|conflict/i.test(e instanceof Error ? e.message : String(e))) throw e;
       await ctx.hub.dispatch(node.id, 'secret.remove', { name: secretName });
-      await ctx.hub.dispatch(node.id, 'secret.create', { name: secretName, dataB64, labels: secretLabels });
+      await ctx.hub.dispatch(node.id, 'secret.create', {
+        name: secretName,
+        dataB64,
+        labels: secretLabels,
+      });
     }
 
     // 3. Redeploy the app with merged env + secret ref + wiring labels.

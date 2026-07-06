@@ -126,7 +126,9 @@ Four ideas, one story:
   S3 endpoint (`swarmy-garage:3900`, region `swarmy`), one member per selected
   node, each in its own Garage zone so replication (default factor 3) spreads
   across machines. It's grouped under the `swarmy-system` stack — platform
-  plumbing, not a tenant app.
+  plumbing, not a tenant app. Node replacement and resync now converge
+  automatically via the `storage-reconcile` worker (member discovery, two-step
+  layout stage+apply, partition-sync progress surfaced on the cluster status).
 - **DR is layered, not assumed.** Cluster volumes register against an *existing*
   CSI plugin (swarmy ships no driver) so swarm republishes the volume on
   reschedule — live failover. restic backups still layer on top: availability is

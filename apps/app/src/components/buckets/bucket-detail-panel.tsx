@@ -19,6 +19,7 @@ import {
 import { useTRPC } from '@/integrations/trpc';
 import { BucketAttachSection } from './bucket-attach-section';
 import { BucketKeysSection } from './bucket-keys-section';
+import { BucketPresignSection } from './bucket-presign-section';
 import { BucketQuotaField } from './bucket-quota-field';
 import { fmtBytes, fmtCount } from './format';
 
@@ -28,7 +29,10 @@ interface BucketDetailPanelProps {
 }
 
 /** Row-expand content: usage, quota, website toggle, key grants, app attachment, delete. */
-export function BucketDetailPanel({ bucketId, onDeleted }: BucketDetailPanelProps): React.JSX.Element {
+export function BucketDetailPanel({
+  bucketId,
+  onDeleted,
+}: BucketDetailPanelProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const detail = useQuery({
@@ -40,7 +44,9 @@ export function BucketDetailPanel({ bucketId, onDeleted }: BucketDetailPanelProp
     trpc.buckets.setWebsite.mutationOptions({
       onSuccess: (b) => {
         toast[b.website ? 'warning' : 'success'](
-          b.website ? `"${b.name}" is now PUBLIC — anyone can read it over HTTP` : `"${b.name}" is private again`,
+          b.website
+            ? `"${b.name}" is now PUBLIC — anyone can read it over HTTP`
+            : `"${b.name}" is private again`,
         );
         void qc.invalidateQueries();
       },
@@ -105,6 +111,8 @@ export function BucketDetailPanel({ bucketId, onDeleted }: BucketDetailPanelProp
       <BucketKeysSection bucket={b} />
       <Separator />
       <BucketAttachSection bucket={b} />
+      <Separator />
+      <BucketPresignSection bucket={b} />
       <Separator />
 
       <div className="flex items-center justify-between gap-3">

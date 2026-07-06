@@ -14,6 +14,7 @@ import { startManagedDbReconcile } from './manageddb-reconcile';
 import { startCacheReconcile } from './cache-reconcile';
 import { startSearchReconcile } from './search-reconcile';
 import { startVectorReconcile } from './vector-reconcile';
+import { startStorageReconcile } from './storage-reconcile';
 import { startQueueReconcile } from './queue-reconcile';
 import { startJobScheduler } from './job-scheduler';
 import { startWorkflowRunner } from './workflow-runner';
@@ -42,6 +43,7 @@ export function startWorkers(): () => void {
     startCacheReconcile(),
     startSearchReconcile(),
     startVectorReconcile(),
+    startStorageReconcile(),
     startQueueReconcile(),
     startJobScheduler(),
     startWorkflowRunner(),

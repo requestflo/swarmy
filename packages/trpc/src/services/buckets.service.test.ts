@@ -16,6 +16,7 @@ import {
   parseAdminOutput,
   parseBucketDump,
   parseBucketIds,
+  rotatedSecretName,
   STATUS_MARKER,
 } from './buckets.service';
 
@@ -45,7 +46,9 @@ describe('garage admin request builders', () => {
       websiteAccess: { enabled: true, indexDocument: 'index.html' },
     });
     expect(
-      JSON.parse(buildWebsiteBody({ enabled: true, indexDocument: 'home.html', errorDocument: '404.html' })),
+      JSON.parse(
+        buildWebsiteBody({ enabled: true, indexDocument: 'home.html', errorDocument: '404.html' }),
+      ),
     ).toEqual({
       websiteAccess: { enabled: true, indexDocument: 'home.html', errorDocument: '404.html' },
     });
@@ -182,5 +185,29 @@ describe('attach naming + env', () => {
     expect(Object.keys(env).sort()).toEqual([...ATTACH_ENV_KEYS].sort());
     // the actual secret value must never be an env var
     expect(Object.keys(env)).not.toContain('S3_SECRET_ACCESS_KEY');
+  });
+});
+
+describe('rotatedSecretName (secret-family versioning for key rotation)', () => {
+  it('turns the attach-time secret into a __v2 family member', () => {
+    expect(rotatedSecretName('swarmy-s3-api-app-uploads')).toEqual({
+      family: 'swarmy-s3-api-app-uploads',
+      name: 'swarmy-s3-api-app-uploads__v2',
+    });
+  });
+
+  it('bumps an already-rotated secret to the next version', () => {
+    expect(rotatedSecretName('swarmy-s3-api-app-uploads__v2')).toEqual({
+      family: 'swarmy-s3-api-app-uploads',
+      name: 'swarmy-s3-api-app-uploads__v3',
+    });
+  });
+
+  it("keeps the physical name inside Docker's 64-char cap", () => {
+    const long = `swarmy-s3-${'a'.repeat(60)}`;
+    const { family, name } = rotatedSecretName(long);
+    expect(family.length).toBeLessThanOrEqual(56);
+    expect(name.length).toBeLessThanOrEqual(64);
+    expect(name).toBe(`${family}__v2`);
   });
 });

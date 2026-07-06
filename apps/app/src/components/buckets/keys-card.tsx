@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyIcon, PlusIcon, Trash2Icon } from 'lucide-react';
+import { KeyIcon, PlusIcon, RefreshCwIcon, Trash2Icon } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,11 +37,31 @@ export function KeysCard(): React.JSX.Element {
     }),
   );
 
+  const rotate = useMutation(
+    trpc.buckets.rotateKey.mutationOptions({
+      onSuccess: (r) => {
+        toast.success(
+          r.redeployed.length > 0
+            ? `Key rotated — ${r.redeployed.join(', ')} redeployed onto ${r.accessKeyId}`
+            : `Key rotated — new key ${r.accessKeyId}`,
+        );
+        // Unattached rotations return the new secret exactly once.
+        if (r.secretAccessKey) {
+          setRevealed({ accessKeyId: r.accessKeyId, secretAccessKey: r.secretAccessKey });
+        }
+        void qc.invalidateQueries();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+
   const rows = keys.data?.keys ?? [];
 
   return (
     <section className="space-y-3">
-      {revealed ? <KeyRevealBanner revealed={revealed} onDismiss={() => setRevealed(null)} /> : null}
+      {revealed ? (
+        <KeyRevealBanner revealed={revealed} onDismiss={() => setRevealed(null)} />
+      ) : null}
       <div className="card-pop overflow-hidden">
         <div className="flex items-center justify-between border-b px-5 py-3">
           <div>
@@ -82,33 +102,64 @@ export function KeysCard(): React.JSX.Element {
                   <p className="truncate text-sm font-medium">{k.name || 'unnamed key'}</p>
                   <p className="mono-data text-muted-foreground truncate text-xs">{k.id}</p>
                 </div>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="text-status-offline shrink-0"
-                      aria-label={`Delete key ${k.name || k.id}`}
-                      disabled={del.isPending}
-                    >
-                      <Trash2Icon className="size-4" />
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete key "{k.name || k.id}"?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Apps and tools using this key lose access immediately. There is no undo.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Keep it</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => del.mutate({ accessKeyId: k.id })}>
-                        Delete key
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="shrink-0"
+                        aria-label={`Rotate key ${k.name || k.id}`}
+                        disabled={rotate.isPending}
+                      >
+                        <RefreshCwIcon className="size-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Rotate key "{k.name || k.id}"?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Mints a replacement with identical bucket access, swaps any attached app
+                          onto it (redeploy), then deletes this key. Tools using the old secret
+                          directly must be updated with the new one.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Keep it</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => rotate.mutate({ accessKeyId: k.id })}>
+                          Rotate key
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="text-status-offline shrink-0"
+                        aria-label={`Delete key ${k.name || k.id}`}
+                        disabled={del.isPending}
+                      >
+                        <Trash2Icon className="size-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete key "{k.name || k.id}"?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Apps and tools using this key lose access immediately. There is no undo.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Keep it</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => del.mutate({ accessKeyId: k.id })}>
+                          Delete key
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
               </li>
             ))}
           </ul>

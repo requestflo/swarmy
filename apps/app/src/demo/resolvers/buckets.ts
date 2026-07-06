@@ -65,7 +65,10 @@ function getState(store: DemoStore): BucketsState {
 
 function hexId(): string {
   let out = '';
-  for (let i = 0; i < 8; i++) out += Math.floor(Math.random() * 0xffff).toString(16).padStart(4, '0');
+  for (let i = 0; i < 8; i++)
+    out += Math.floor(Math.random() * 0xffff)
+      .toString(16)
+      .padStart(4, '0');
   return out;
 }
 
@@ -100,9 +103,7 @@ export const buckets: DomainResolvers = {
         state: 'ready' as const,
         endpoint: st.endpoint,
         region: st.region,
-        buckets: [...st.buckets]
-          .sort((a, b) => (a.name < b.name ? -1 : 1))
-          .map(summary),
+        buckets: [...st.buckets].sort((a, b) => (a.name < b.name ? -1 : 1)).map(summary),
       };
     },
 
@@ -120,7 +121,8 @@ export const buckets: DomainResolvers = {
     'buckets.createBucket': (i, s) => {
       const { name } = i as { name: string };
       const st = getState(s);
-      if (st.buckets.some((b) => b.name === name)) throw new Error(`bucket "${name}" already exists`);
+      if (st.buckets.some((b) => b.name === name))
+        throw new Error(`bucket "${name}" already exists`);
       const b: DemoBucket = {
         id: hexId(),
         name,
@@ -142,10 +144,14 @@ export const buckets: DomainResolvers = {
       const st = getState(s);
       const b = requireBucket(st, bucketId);
       if (b.objects > 0) {
-        throw new Error(`bucket "${b.name}" still holds ${b.objects} object(s) — empty it before deleting`);
+        throw new Error(
+          `bucket "${b.name}" still holds ${b.objects} object(s) — empty it before deleting`,
+        );
       }
       if (b.attachments.length > 0) {
-        throw new Error(`bucket "${b.name}" is attached to ${b.attachments.map((a) => a.service).join(', ')} — detach first`);
+        throw new Error(
+          `bucket "${b.name}" is attached to ${b.attachments.map((a) => a.service).join(', ')} — detach first`,
+        );
       }
       st.buckets = st.buckets.filter((x) => x.id !== bucketId);
       return { id: bucketId, removed: true as const };
@@ -159,10 +165,73 @@ export const buckets: DomainResolvers = {
       return { accessKeyId: id, secretAccessKey: keySecret(), name };
     },
 
+    'buckets.rotateKey': (i, s) => {
+      const { accessKeyId } = i as { accessKeyId: string };
+      const st = getState(s);
+      const old = st.keys.find((k) => k.id === accessKeyId);
+      if (!old) throw new Error(`key ${accessKeyId} not found`);
+      const newId = keyId();
+      st.keys = st.keys.map((k) => (k.id === accessKeyId ? { id: newId, name: k.name } : k));
+      const redeployed: string[] = [];
+      for (const b of st.buckets) {
+        b.grants = b.grants.map((g) =>
+          g.accessKeyId === accessKeyId ? { ...g, accessKeyId: newId } : g,
+        );
+        b.attachments = b.attachments.map((a) => {
+          if (a.accessKeyId !== accessKeyId) return a;
+          redeployed.push(a.service);
+          return { ...a, accessKeyId: newId };
+        });
+      }
+      return {
+        oldAccessKeyId: accessKeyId,
+        accessKeyId: newId,
+        name: old.name,
+        redeployed: redeployed.sort(),
+        // Mirrors the controller: attached rotations land the secret straight
+        // in the Docker secret; only an unattached key reveals it once.
+        secretAccessKey: redeployed.length === 0 ? keySecret() : null,
+      };
+    },
+
+    'buckets.presignUrl': (i, s) => {
+      const input = i as {
+        bucketId: string;
+        key: string;
+        method?: 'GET' | 'PUT';
+        expiresSeconds?: number;
+      };
+      const st = getState(s);
+      const b = requireBucket(st, input.bucketId);
+      const method = input.method ?? 'GET';
+      const expiresSeconds = input.expiresSeconds ?? 3600;
+      const now = new Date();
+      const amz = now
+        .toISOString()
+        .replace(/[-:]/g, '')
+        .replace(/\.\d{3}Z$/, 'Z');
+      const path = input.key.split('/').map(encodeURIComponent).join('/');
+      const url =
+        `${st.endpoint}/${b.name}/${path}` +
+        `?X-Amz-Algorithm=AWS4-HMAC-SHA256` +
+        `&X-Amz-Credential=GK0presigndemo%2F${amz.slice(0, 8)}%2F${st.region}%2Fs3%2Faws4_request` +
+        `&X-Amz-Date=${amz}&X-Amz-Expires=${expiresSeconds}&X-Amz-SignedHeaders=host` +
+        `&X-Amz-Signature=${hexId()}`;
+      return {
+        url,
+        bucket: b.name,
+        key: input.key,
+        method,
+        expiresAt: new Date(now.getTime() + expiresSeconds * 1000).toISOString(),
+      };
+    },
+
     'buckets.deleteKey': (i, s) => {
       const { accessKeyId } = i as { accessKeyId: string };
       const st = getState(s);
-      const used = st.buckets.filter((b) => b.attachments.some((a) => a.accessKeyId === accessKeyId));
+      const used = st.buckets.filter((b) =>
+        b.attachments.some((a) => a.accessKeyId === accessKeyId),
+      );
       if (used.length > 0) {
         throw new Error(`key ${accessKeyId} is used by an attached app — detach first`);
       }
@@ -206,7 +275,11 @@ export const buckets: DomainResolvers = {
     },
 
     'buckets.setQuota': (i, s) => {
-      const input = i as { bucketId: string; maxSizeBytes: number | null; maxObjects: number | null };
+      const input = i as {
+        bucketId: string;
+        maxSizeBytes: number | null;
+        maxObjects: number | null;
+      };
       const b = requireBucket(getState(s), input.bucketId);
       b.quotas = { maxSizeBytes: input.maxSizeBytes, maxObjects: input.maxObjects };
       return summary(b);
@@ -227,7 +300,9 @@ export const buckets: DomainResolvers = {
       if (!app) throw new Error(`service "${input.appService}" not found`);
       const already = st.buckets.find((x) => x.attachments.some((a) => a.service === app.name));
       if (already) {
-        throw new Error(`service "${app.name}" is already attached to bucket "${already.name}" — detach first`);
+        throw new Error(
+          `service "${app.name}" is already attached to bucket "${already.name}" — detach first`,
+        );
       }
       const accessKeyId = keyId();
       const keyName = `swarmy-attach-${app.name}-${b.name}`;
@@ -252,9 +327,7 @@ export const buckets: DomainResolvers = {
     'buckets.detach': (i, s) => {
       const { appService } = i as { appService: string };
       const st = getState(s);
-      const b = st.buckets.find((x) =>
-        x.attachments.some((a) => a.service === appService),
-      );
+      const b = st.buckets.find((x) => x.attachments.some((a) => a.service === appService));
       if (!b) throw new Error(`service "${appService}" has no bucket attached`);
       const att = b.attachments.find((a) => a.service === appService)!;
       b.attachments = b.attachments.filter((a) => a.service !== appService);

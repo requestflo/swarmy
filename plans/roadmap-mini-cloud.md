@@ -83,6 +83,23 @@ providers (ngrok, tailscale-funnel — CF covers the direction); active-active
 Postgres logical-replication wiring (direction explicitly prefers
 single-writer); macOS/Windows agent targets beyond a darwin dev build.
 
+Phase-A follow-ups (verifiers' findings, deliberately deferred):
+- **WS3**: the exposure-audit *worker* mirrors the classifier (can't subpath-
+  import trpc internals) and doesn't yet alert on declared-intent drift — the
+  Exposure page does; mirror the drift check into the worker next pass. Ingress
+  *render* doesn't consult `swarmy.expose` — admission blocks bad specs and the
+  audit flags drift, which covers the promise; render-level refusal is belt+braces.
+- **WS4**: `geoipMmdbPath` is extraConfig-only (no UI, no edge mmdb
+  auto-download — reuse `apps/dns` geoip-manager later); country rules degrade
+  to a validate() warning until a path is set. The `docker/caddy-swarmy` image
+  (now + cache-handler + maxmind modules) must be built, pushed, and set as the
+  controller image before cache/geo/rate-limit enforce on a real swarm.
+- **WS5**: Garage admin layout/health API shapes written from docs — needs one
+  live pass against `dxflrs/garage` on the local VMs. `swarmy-garage` still
+  deploys replicated:1 (true multi-member needs per-node deployment in
+  garage-render + the agent storage handler). Presigned URLs sign the in-swarm
+  endpoint; a public S3 edge endpoint + endpoint knob is the follow-up.
+
 ## 4. Execution order
 
 1. **WS1 first, serially** — it is the keystone the direction doc leads
@@ -103,9 +120,9 @@ single-writer); macOS/Windows agent targets beyond a darwin dev build.
 | WS0 docs + roadmap | done |
 | WS1 host-binary agent + self-update | in progress |
 | WS2 swarm quorum & recovery | queued |
-| WS3 declared exposure modes | queued |
-| WS4 protection completion | queued |
-| WS5 Garage lifecycle | queued |
+| WS3 declared exposure modes | built (pending integration) |
+| WS4 protection completion | built (pending integration) |
+| WS5 Garage lifecycle | built (pending integration) |
 | WS6 retention enforcement | queued |
 | WS7 install profiles + data roles | queued |
 

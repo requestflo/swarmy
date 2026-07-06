@@ -22,9 +22,12 @@ import {
   grantKeyOnBucket,
   listKeys,
   overview,
+  presignObjectUrl,
+  rotateAccessKey,
   setQuota,
   setWebsite,
 } from '../services/buckets.service';
+import { MAX_PRESIGN_EXPIRES_SECONDS } from '../services/s3-presign';
 
 /**
  * Object storage buckets — Garage bucket/key CRUD, quotas, usage, service
@@ -61,6 +64,27 @@ export const objectStorageRouter = router({
   deleteKey: adminProcedure
     .input(DeleteBucketKeyInput)
     .mutation(({ ctx, input }) => deleteKey(ctx, input.accessKeyId)),
+
+  /**
+   * Mint a replacement key with identical grants, swap attached apps onto it
+   * (versioned Docker secret + redeploy), delete the old key. The new secret is
+   * returned ONCE, and only when no attachment consumed it.
+   */
+  rotateKey: adminProcedure
+    .input(z.object({ accessKeyId: z.string().min(1) }))
+    .mutation(({ ctx, input }) => rotateAccessKey(ctx, input.accessKeyId)),
+
+  /** Time-limited presigned GET/PUT URL for one object (SigV4, max 7 days). */
+  presignUrl: orgProcedure
+    .input(
+      z.object({
+        bucketId: z.string().min(1),
+        key: z.string().min(1).max(1024),
+        method: z.enum(['GET', 'PUT']).default('GET'),
+        expiresSeconds: z.number().int().min(1).max(MAX_PRESIGN_EXPIRES_SECONDS).default(3600),
+      }),
+    )
+    .mutation(({ ctx, input }) => presignObjectUrl(ctx, input)),
 
   /** Grant (allow) or revoke (deny) read/write/owner for a key on a bucket. */
   grantKeyOnBucket: adminProcedure
