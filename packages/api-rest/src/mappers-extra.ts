@@ -43,19 +43,54 @@ export function apiKeyIssuedToDto(k: ApiKeyViewShape & { key: string }) {
 
 export interface DnsRecordViewShape {
   id: string;
-  host: string;
-  region: string;
-  targetIngress: string;
-  healthy: boolean;
+  zoneId: string;
+  name: string;
+  type: string;
+  value: string;
+  ttl: number | null;
+  priority: number | null;
+}
+
+export interface DnsZoneViewShape {
+  id: string;
+  zone: string;
+  mode: string;
+  enabled: boolean;
+  ttl: number;
+  serial: number;
+  apexToEdge: boolean;
+  autoWww: boolean;
+  nameservers: Array<{ label: string; fqdn: string; ip: string; nodeId: string }>;
+}
+
+export function dnsZoneToDto(zone: DnsZoneViewShape) {
+  return {
+    id: zone.id,
+    zone: zone.zone,
+    mode: zone.mode as 'swarmy-ns' | 'cloudflare' | 'route53',
+    enabled: zone.enabled,
+    ttl: zone.ttl,
+    serial: zone.serial,
+    apex_to_edge: zone.apexToEdge,
+    auto_www: zone.autoWww,
+    nameservers: zone.nameservers.map((ns) => ({
+      label: ns.label,
+      fqdn: ns.fqdn,
+      ip: ns.ip,
+      node_id: ns.nodeId,
+    })),
+  };
 }
 
 export function dnsRecordToDto(r: DnsRecordViewShape) {
   return {
     id: r.id,
-    host: r.host,
-    region: r.region,
-    target_ingress: r.targetIngress,
-    healthy: r.healthy,
+    zone_id: r.zoneId,
+    name: r.name,
+    type: r.type,
+    value: r.value,
+    ttl: r.ttl,
+    priority: r.priority,
   };
 }
 

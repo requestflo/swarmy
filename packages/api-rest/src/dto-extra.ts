@@ -57,22 +57,48 @@ export const SetNodeLabelsBody = z
 
 // ── Geo-DNS records ──────────────────────────────────────────────────────────
 
+export const DnsZoneDto = z
+  .object({
+    id: z.string(),
+    zone: z.string(),
+    mode: z.enum(['swarmy-ns', 'cloudflare', 'route53']),
+    enabled: z.boolean(),
+    ttl: z.number().int(),
+    serial: z.number().int(),
+    apex_to_edge: z.boolean(),
+    auto_www: z.boolean(),
+    nameservers: z.array(
+      z.object({ label: z.string(), fqdn: z.string(), ip: z.string(), node_id: z.string() }),
+    ),
+  })
+  .openapi('DnsZone');
+
+export const CreateDnsZoneBody = z
+  .object({
+    zone: z.string().min(4),
+    mode: z.enum(['swarmy-ns', 'cloudflare', 'route53']).optional(),
+  })
+  .openapi('CreateDnsZoneRequest');
+
 export const DnsRecordDto = z
   .object({
     id: z.string(),
-    host: z.string(),
-    region: z.string(),
-    target_ingress: z.string(),
-    healthy: z.boolean(),
+    zone_id: z.string(),
+    name: z.string(),
+    type: z.string(),
+    value: z.string(),
+    ttl: z.number().int().nullable(),
+    priority: z.number().int().nullable(),
   })
   .openapi('DnsRecord');
 
 export const UpsertDnsRecordBody = z
   .object({
-    host: z.string().min(1),
-    region: z.string().min(1),
-    target_ingress: z.string().min(1),
-    healthy: z.boolean().optional(),
+    name: z.string().min(1).max(253),
+    type: z.enum(['A', 'AAAA', 'CNAME', 'TXT', 'MX', 'SRV', 'CAA', 'NS']),
+    value: z.string().min(1).max(4096),
+    ttl: z.number().int().min(10).max(86400).optional(),
+    priority: z.number().int().min(0).max(65535).optional(),
   })
   .openapi('UpsertDnsRecordRequest');
 

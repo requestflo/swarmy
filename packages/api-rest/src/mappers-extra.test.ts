@@ -48,15 +48,25 @@ describe('apiKeyToDto', () => {
 });
 
 describe('dnsRecordToDto', () => {
-  it('maps targetIngress → target_ingress', () => {
+  it('maps zoneId → zone_id and passes record fields through', () => {
     expect(
-      dnsRecordToDto({ id: 'r1', host: 'app.example.com', region: 'us', targetIngress: '1.2.3.4', healthy: true }),
+      dnsRecordToDto({
+        id: 'r1',
+        zoneId: 'z1',
+        name: '@',
+        type: 'MX',
+        value: 'mail.example.com',
+        ttl: null,
+        priority: 10,
+      }),
     ).toEqual({
       id: 'r1',
-      host: 'app.example.com',
-      region: 'us',
-      target_ingress: '1.2.3.4',
-      healthy: true,
+      zone_id: 'z1',
+      name: '@',
+      type: 'MX',
+      value: 'mail.example.com',
+      ttl: null,
+      priority: 10,
     });
   });
 });

@@ -627,31 +627,205 @@
           "revoked"
         ]
       },
+      "DnsZone": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "zone": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "swarmy-ns",
+              "cloudflare",
+              "route53"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "ttl": {
+            "type": "integer"
+          },
+          "serial": {
+            "type": "integer"
+          },
+          "apex_to_edge": {
+            "type": "boolean"
+          },
+          "auto_www": {
+            "type": "boolean"
+          },
+          "nameservers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "fqdn": {
+                  "type": "string"
+                },
+                "ip": {
+                  "type": "string"
+                },
+                "node_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "fqdn",
+                "ip",
+                "node_id"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "zone",
+          "mode",
+          "enabled",
+          "ttl",
+          "serial",
+          "apex_to_edge",
+          "auto_www",
+          "nameservers"
+        ]
+      },
+      "DnsZoneList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DnsZone"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "CreateDnsZoneRequest": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string",
+            "minLength": 4
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "swarmy-ns",
+              "cloudflare",
+              "route53"
+            ]
+          }
+        },
+        "required": [
+          "zone"
+        ]
+      },
+      "DnsDelegationCheck": {
+        "type": "object",
+        "properties": {
+          "zone": {
+            "type": "string"
+          },
+          "delegated": {
+            "type": "boolean"
+          },
+          "public_ns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "nameservers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "fqdn": {
+                  "type": "string"
+                },
+                "ip": {
+                  "type": "string"
+                },
+                "reachable": {
+                  "type": "boolean"
+                },
+                "serial": {
+                  "type": "number",
+                  "nullable": true
+                },
+                "serial_matches": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "fqdn",
+                "ip",
+                "reachable",
+                "serial",
+                "serial_matches"
+              ]
+            }
+          }
+        },
+        "required": [
+          "zone",
+          "delegated",
+          "public_ns",
+          "nameservers"
+        ]
+      },
       "DnsRecord": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string"
           },
-          "host": {
+          "zone_id": {
             "type": "string"
           },
-          "region": {
+          "name": {
             "type": "string"
           },
-          "target_ingress": {
+          "type": {
             "type": "string"
           },
-          "healthy": {
-            "type": "boolean"
+          "value": {
+            "type": "string"
+          },
+          "ttl": {
+            "type": "integer",
+            "nullable": true
+          },
+          "priority": {
+            "type": "integer",
+            "nullable": true
           }
         },
         "required": [
           "id",
-          "host",
-          "region",
-          "target_ingress",
-          "healthy"
+          "zone_id",
+          "name",
+          "type",
+          "value",
+          "ttl",
+          "priority"
         ]
       },
       "DnsRecordList": {
@@ -676,26 +850,44 @@
       "UpsertDnsRecordRequest": {
         "type": "object",
         "properties": {
-          "host": {
+          "name": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 253
           },
-          "region": {
+          "type": {
             "type": "string",
-            "minLength": 1
+            "enum": [
+              "A",
+              "AAAA",
+              "CNAME",
+              "TXT",
+              "MX",
+              "SRV",
+              "CAA",
+              "NS"
+            ]
           },
-          "target_ingress": {
+          "value": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 4096
           },
-          "healthy": {
-            "type": "boolean"
+          "ttl": {
+            "type": "integer",
+            "minimum": 10,
+            "maximum": 86400
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
           }
         },
         "required": [
-          "host",
-          "region",
-          "target_ingress"
+          "name",
+          "type",
+          "value"
         ]
       },
       "BackupTarget": {
@@ -1207,6 +1399,65 @@
         },
         "required": [
           "principal_id"
+        ]
+      },
+      "NotifyQueued": {
+        "type": "object",
+        "properties": {
+          "queued": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "queued",
+          "to"
+        ]
+      },
+      "NotifyBody": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "maxLength": 254,
+            "format": "email",
+            "example": "ops@example.com"
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "example": "Deploy finished"
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "html": {
+            "type": "string",
+            "maxLength": 50000
+          },
+          "template": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "vars": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          }
+        },
+        "required": [
+          "to",
+          "subject"
         ]
       }
     },
@@ -2228,12 +2479,12 @@
         }
       }
     },
-    "/dns/records": {
+    "/dns/zones": {
       "get": {
         "tags": [
           "DNS"
         ],
-        "summary": "List geo-DNS records",
+        "summary": "List DNS zones",
         "security": [
           {
             "bearerApiKey": []
@@ -2241,11 +2492,11 @@
         ],
         "responses": {
           "200": {
-            "description": "Records",
+            "description": "Zones",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DnsRecordList"
+                  "$ref": "#/components/schemas/DnsZoneList"
                 }
               }
             }
@@ -2266,10 +2517,198 @@
         "tags": [
           "DNS"
         ],
-        "summary": "Create or update a geo-DNS record (upsert by host+region)",
+        "summary": "Create a DNS zone",
         "security": [
           {
             "bearerApiKey": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDnsZoneRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsZone"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dns/zones/{id}": {
+      "delete": {
+        "tags": [
+          "DNS"
+        ],
+        "summary": "Remove a DNS zone",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Removed"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dns/zones/{id}/delegation": {
+      "get": {
+        "tags": [
+          "DNS"
+        ],
+        "summary": "Check registrar delegation for a zone",
+        "description": "Public NS lookup compared to the advertised nameserver set, plus a direct SOA probe of each glue IP.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Delegation status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsDelegationCheck"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dns/zones/{id}/records": {
+      "get": {
+        "tags": [
+          "DNS"
+        ],
+        "summary": "List manual records in a zone (MX/TXT/CNAME/…)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DnsRecordList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "DNS"
+        ],
+        "summary": "Create or update a manual record (upsert by name+type+value)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
           }
         ],
         "requestBody": {
@@ -2310,7 +2749,7 @@
         "tags": [
           "DNS"
         ],
-        "summary": "Remove a geo-DNS record",
+        "summary": "Remove a manual record",
         "security": [
           {
             "bearerApiKey": []
@@ -2863,6 +3302,202 @@
             }
           },
           "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/audit/export": {
+      "get": {
+        "tags": [
+          "Audit"
+        ],
+        "summary": "Export the org audit log (CSV or JSON, max 10 000 rows)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "Exact actor id"
+            },
+            "required": false,
+            "name": "actor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "user",
+                "apikey",
+                "system",
+                "agent"
+              ]
+            },
+            "required": false,
+            "name": "actor_type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Action PREFIX, e.g. `secrets.`"
+            },
+            "required": false,
+            "name": "action",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "resource_type",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "resource_id",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "ISO date/datetime lower bound"
+            },
+            "required": false,
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "ISO date/datetime upper bound"
+            },
+            "required": false,
+            "name": "to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "csv",
+                "json"
+              ],
+              "default": "csv"
+            },
+            "required": false,
+            "name": "format",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The export body. `X-Swarmy-Row-Count` carries the row count; `X-Swarmy-Truncated: true` means the filter matched more than the 10k cap.",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notify": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Send an email via the org’s configured provider",
+        "description": "Queues the message on the org’s notification outbox; the dispatch worker delivers it (with retries) via the provider configured in Settings → Notifications.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotifyBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Queued for delivery",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotifyQueued"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "Problem",
             "content": {
               "application/problem+json": {
