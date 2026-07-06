@@ -34,7 +34,9 @@ export function ManagedDbPanel({ stack }: { stack: string }): React.JSX.Element 
           <div>
             <h3 className="font-semibold leading-tight">Managed databases</h3>
             <p className="text-muted-foreground mono-label">
-              Postgres primary/replica · provisioned + wired automatically
+              {clusters.length > 0
+                ? `${clusters.length} database${clusters.length === 1 ? '' : 's'} · add as many as the stack needs`
+                : 'Postgres primary/replica · provisioned + wired automatically'}
             </p>
           </div>
         </div>
@@ -47,7 +49,7 @@ export function ManagedDbPanel({ stack }: { stack: string }): React.JSX.Element 
           </div>
         )}
 
-        <DbDeclareClusterForm stack={stack} />
+        <DbDeclareClusterForm stack={stack} existingNames={clusters.map((c) => c.name)} />
       </CardContent>
     </Card>
   );

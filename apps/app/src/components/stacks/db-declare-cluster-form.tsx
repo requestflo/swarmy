@@ -4,21 +4,39 @@ import { DatabaseIcon, ZapIcon } from 'lucide-react';
 import { Button, CopyButton, Input, Label, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 
-/** Declare a new managed-Postgres cluster on this stack; shows the one-time superuser password. */
-export function DbDeclareClusterForm({ stack }: { stack: string }): React.JSX.Element {
+/**
+ * Declare a managed-Postgres cluster on this stack; shows the one-time
+ * superuser password. A stack can hold ANY NUMBER of independent clusters
+ * (`main`, `analytics`, …) — `existingNames` lets this form reframe itself as
+ * "add another" and refuse a name that's already taken.
+ */
+export function DbDeclareClusterForm({
+  stack,
+  existingNames = [],
+}: {
+  stack: string;
+  existingNames?: string[];
+}): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
-  const [name, setName] = React.useState('main');
+  const hasClusters = existingNames.length > 0;
+  // First database defaults to "main"; once one exists the field starts empty
+  // (placeholder-guided) so you name a NEW one instead of re-declaring "main".
+  const [name, setName] = React.useState(hasClusters ? '' : 'main');
   const [replicas, setReplicas] = React.useState(2);
   const [creds, setCreds] = React.useState<{ rwHost: string; roHost: string; password: string } | null>(
     null,
   );
+
+  const trimmed = name.trim();
+  const duplicate = existingNames.includes(trimmed);
 
   const provision = useMutation(
     trpc.db.provision.mutationOptions({
       onSuccess: (res) => {
         toast.success(`Provisioning ${res.cluster} — 1 primary + ${res.replicas} replicas`);
         setCreds({ rwHost: res.rwHost, roHost: res.roHost, password: res.password });
+        setName(hasClusters ? '' : 'main');
         void qc.invalidateQueries();
       },
       onError: (e) => toast.error(e.message),
@@ -44,7 +62,9 @@ export function DbDeclareClusterForm({ stack }: { stack: string }): React.JSX.El
       )}
 
       <div className="border-border space-y-3 border-t pt-5">
-        <p className="mono-label text-muted-foreground">Declare a cluster</p>
+        <p className="mono-label text-muted-foreground">
+          {hasClusters ? 'Add another database' : 'Declare a database'}
+        </p>
         <div className="flex flex-wrap items-end gap-3">
           <div className="grid gap-1.5">
             <Label htmlFor="db-name" className="mono-label">
@@ -54,8 +74,9 @@ export function DbDeclareClusterForm({ stack }: { stack: string }): React.JSX.El
               id="db-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="main"
+              placeholder={hasClusters ? 'analytics' : 'main'}
               className="w-40"
+              aria-invalid={duplicate}
             />
           </div>
           <div className="grid gap-1.5">
@@ -73,17 +94,23 @@ export function DbDeclareClusterForm({ stack }: { stack: string }): React.JSX.El
             />
           </div>
           <Button
-            onClick={() => provision.mutate({ stack, name, engine: 'postgres', replicas })}
-            disabled={provision.isPending || !name.trim()}
+            onClick={() => provision.mutate({ stack, name: trimmed, engine: 'postgres', replicas })}
+            disabled={provision.isPending || !trimmed || duplicate}
           >
             <DatabaseIcon className="size-4" /> Provision
           </Button>
         </div>
-        <p className="text-muted-foreground mono-label">
-          Deploys <code className="mono-data">{stack}_{name || 'main'}-primary</code> +{' '}
-          <code className="mono-data">{stack}_{name || 'main'}-replica</code> on a per-cluster
-          overlay network.
-        </p>
+        {duplicate ? (
+          <p className="text-destructive mono-label">
+            <code className="mono-data">{trimmed}</code> already exists in this stack — pick a different name.
+          </p>
+        ) : (
+          <p className="text-muted-foreground mono-label">
+            Deploys <code className="mono-data">{stack}_{trimmed || (hasClusters ? 'analytics' : 'main')}-primary</code>{' '}
+            + <code className="mono-data">{stack}_{trimmed || (hasClusters ? 'analytics' : 'main')}-replica</code> on
+            its own overlay network — independent of {hasClusters ? 'your other databases' : 'anything else'}.
+          </p>
+        )}
       </div>
     </div>
   );

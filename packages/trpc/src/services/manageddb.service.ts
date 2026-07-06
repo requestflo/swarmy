@@ -356,6 +356,21 @@ export async function provisionDb(
   };
 
   try {
+    // Ensure the per-cluster overlay network exists BEFORE deploying onto it —
+    // otherwise the service.deploy fails with "network <stack>_<cluster>-net not
+    // found" (the reconcile worker also ensures it, but provision must not race
+    // that first tick). Idempotent.
+    await ctx.hub.dispatch(
+      node.id,
+      'network.ensure',
+      {
+        name: network,
+        driver: 'overlay',
+        attachable: true,
+        labels: { [MANAGED_LABEL]: 'true', [DB_CLUSTER_LABEL]: cluster },
+      },
+      { timeoutMs: DISPATCH_TIMEOUT_MS },
+    );
     await ctx.hub.dispatch(node.id, 'service.deploy', { spec: primarySpec, pullPolicy: 'always' }, { timeoutMs: DISPATCH_TIMEOUT_MS });
     await ctx.hub.dispatch(node.id, 'service.deploy', { spec: replicaSpec, pullPolicy: 'always' }, { timeoutMs: DISPATCH_TIMEOUT_MS });
   } catch (e) {
