@@ -300,7 +300,7 @@ async function deployOrUpdate(
     return { serviceId: id, created: true };
   }
   const inspect = await existing.inspect();
-  const opts = toServiceCreateOptions(spec) as Record<string, unknown>;
+  const opts = (await docker.prepareServiceOptions(spec)) as Record<string, unknown>;
   await existing.update({ version: inspect.Version.Index, ...opts });
   return { serviceId: inspect.ID, created: false };
 }

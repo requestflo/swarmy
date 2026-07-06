@@ -3,7 +3,7 @@ import { AGENT_VERSION } from '@swarmy/core';
 import { PROTOCOL_VERSION, type NodeFacts, type RegisterPayload } from '@swarmy/core/protocol';
 import { DockerClient } from '@swarmy/core/docker';
 import { env } from './env';
-import { loadState, saveState, type AgentState } from './state';
+import { clearState, loadState, saveState, type AgentState } from './state';
 import { AgentConnection } from './connection';
 import { collectMetrics } from './stats';
 import { sendContainerList, sendServiceState, sendNodeList } from './snapshots';
@@ -131,6 +131,19 @@ async function main(): Promise<void> {
     },
     onCommand: (envlp) => {
       void handleCommand(docker, conn, envlp);
+    },
+    onAuthRejected: (code, reason) => {
+      // A rotated-but-unacked session secret (controller crash mid-register)
+      // otherwise dead-loops forever. Drop the session; if a join token is
+      // present the next dial re-enrolls, which upserts the SAME node row
+      // (keyed org+hostname) — identity is preserved.
+      if (state && env.JOIN_TOKEN) {
+        log(`controller rejected our session (${code} ${reason}) — re-enrolling with the join token`);
+        state = null;
+        void clearState();
+      } else if (state) {
+        log(`controller rejected our session (${code} ${reason}) and no SWARMY_JOIN_TOKEN is set — cannot re-enroll`);
+      }
     },
   });
 

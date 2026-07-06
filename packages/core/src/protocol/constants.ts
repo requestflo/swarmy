@@ -29,6 +29,8 @@ export const BACKOFF = {
   factor: 2,
   /** A connection up at least this long resets the attempt counter. */
   stableMs: 60_000,
+  /** Abort a dial that hasn't reached OPEN by this deadline (hung SYN/upgrade). */
+  dialTimeoutMs: 15_000,
 } as const;
 
 /** Idempotency cache for already-seen command ids. */

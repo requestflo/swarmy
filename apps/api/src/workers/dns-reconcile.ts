@@ -20,7 +20,10 @@ const TICK_MS = 15_000;
 const CONVERGE_EVERY = 20; // ≈ every 5 minutes
 
 export function startDnsReconcile(): () => void {
-  const lastSignature = new Map<string, string>();
+  // orgId → (nodeId → last bundle signature that node ACKED). Per-node, so a
+  // node that failed an apply or joined after the last content change keeps
+  // getting pushed until it confirms — see composeAndPushDns.
+  const acked = new Map<string, Map<string, string>>();
   let tick = 0;
   let running = false;
 
@@ -35,15 +38,17 @@ export function startDnsReconcile(): () => void {
       });
       for (const { orgId } of orgs) {
         try {
+          const orgAcked = acked.get(orgId) ?? new Map<string, string>();
+          acked.set(orgId, orgAcked);
           const result = await reconcileDnsOrg({
             db: prisma,
             hub,
             orgId,
-            lastSignature: lastSignature.get(orgId),
+            acked: orgAcked,
             converge: tick % CONVERGE_EVERY === 1,
           });
+          for (const nodeId of result.push.pushed) orgAcked.set(nodeId, result.push.signature);
           if (!result.push.skipped) {
-            lastSignature.set(orgId, result.push.signature);
             console.log(
               `[dns-reconcile] org=${orgId} pushed ${result.push.zones} zone(s) to ${result.push.pushed.length} node(s)` +
                 (result.push.failed.length ? ` (${result.push.failed.length} failed)` : '') +

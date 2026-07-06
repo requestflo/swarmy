@@ -422,8 +422,9 @@ export interface DnsReconcileDeps {
   db: OrgContext['db'];
   hub: OrgContext['hub'];
   orgId: string;
-  /** Previous tick's bundle signature (skip pushes when content is unchanged). */
-  lastSignature?: string;
+  /** Per-node last-acked bundle signatures — nodes not at the current signature
+   *  get (re)pushed every tick until they ack (new nodes, failed applies). */
+  acked?: ReadonlyMap<string, string>;
   /** Converge the swarmy-dns service too (heavier — run every Nth tick). */
   converge?: boolean;
 }
@@ -455,9 +456,16 @@ export async function reconcileDnsOrg(
     };
   }
   if (deps.converge) {
-    await ensureDnsService(ctx, parseDnsOrgSettings(cfg.settings)).catch(() => undefined);
+    // Converge failures must be visible — a swallowed deploy error looks like
+    // "enabled but no nameservers anywhere" with nothing in the logs.
+    await ensureDnsService(ctx, parseDnsOrgSettings(cfg.settings)).catch((err) => {
+      console.warn(
+        `[dns-reconcile] org=${deps.orgId} swarmy-dns converge failed:`,
+        err instanceof Error ? err.message : err,
+      );
+    });
   }
-  const push = await composeAndPushDns(ctx, deps.lastSignature);
+  const push = await composeAndPushDns(ctx, deps.acked);
   // Provider zones ride the same gate: unchanged content → no API calls.
   const providerSynced = push.skipped ? 0 : (await syncProviderZones(ctx).catch(() => [])).length;
   return { push, providerSynced };

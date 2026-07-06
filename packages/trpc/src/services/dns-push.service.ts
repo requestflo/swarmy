@@ -30,9 +30,10 @@ export function dnsNodeIds(ctx: OrgContext): string[] {
 export async function pushDnsBundle(
   ctx: OrgContext,
   bundle: DnsSnapshotBundle,
+  targets?: string[],
 ): Promise<PushResult> {
   const token = dnsAdminToken(ctx.activeOrgId);
-  const nodes = dnsNodeIds(ctx);
+  const nodes = targets ?? dnsNodeIds(ctx);
   const pushed: string[] = [];
   const failed: Array<{ nodeId: string; error: string }> = [];
 
@@ -62,20 +63,28 @@ export async function pushDnsBundle(
 
 /**
  * Compose + push in one step (the `applyNow` path and the reconcile worker
- * body). `lastSignature` short-circuits unchanged content — pass the previous
- * tick's signature to make the worker cheap; omit to force a push.
+ * body). The gate is PER NODE: `acked` maps nodeId → the bundle signature that
+ * node last confirmed, and only nodes out of date get a push. A node whose
+ * apply failed last tick (service still deploying, admin hiccup) or that came
+ * online after the last content change retries every tick until it acks —
+ * an org-wide "did the content change" gate would mark all nodes done the
+ * first time ANY tick ran and strand empty nameservers. Omit `acked` to force
+ * a push to every DNS node.
  */
 export async function composeAndPushDns(
   ctx: OrgContext,
-  lastSignature?: string,
+  acked?: ReadonlyMap<string, string>,
 ): Promise<PushResult> {
   const { bundle } = await buildDnsSnapshotBundle(ctx);
   const signature = bundleSignature(bundle);
-  if (lastSignature !== undefined && signature === lastSignature) {
-    return { signature, zones: bundle.zones.length, pushed: [], failed: [], skipped: true };
-  }
   if (bundle.zones.length === 0) {
     return { signature, zones: 0, pushed: [], failed: [], skipped: true };
   }
-  return pushDnsBundle(ctx, bundle);
+  const targets = acked
+    ? dnsNodeIds(ctx).filter((id) => acked.get(id) !== signature)
+    : undefined;
+  if (targets && targets.length === 0) {
+    return { signature, zones: bundle.zones.length, pushed: [], failed: [], skipped: true };
+  }
+  return pushDnsBundle(ctx, bundle, targets);
 }

@@ -435,11 +435,23 @@ export class DockerClient {
   }
 
   async createService(spec: ServiceSpec): Promise<string> {
+    const options = await this.prepareServiceOptions(spec);
+    const created = await this.docker.createService(options);
+    return (created as unknown as { id?: string; ID?: string }).id ?? (created as { ID?: string }).ID ?? '';
+  }
+
+  /**
+   * Spec → API options with names resolved to ids (networks, secrets, configs).
+   * BOTH deploy paths must use this: the swarm API rejects name-only secret/
+   * config references ("malformed secret reference") on update exactly like on
+   * create, so an update built from raw toServiceCreateOptions() breaks for any
+   * service that mounts a secret (e.g. swarmy-dns's admin token).
+   */
+  async prepareServiceOptions(spec: ServiceSpec): Promise<Docker.CreateServiceOptions> {
     const resolved = await this.resolveSpecNetworks(spec);
     const options = toServiceCreateOptions(resolved);
     await this.resolveSecretConfigIds(options);
-    const created = await this.docker.createService(options);
-    return (created as unknown as { id?: string; ID?: string }).id ?? (created as { ID?: string }).ID ?? '';
+    return options;
   }
 
   /**
