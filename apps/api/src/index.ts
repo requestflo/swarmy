@@ -133,8 +133,23 @@ app.get('/install/bin/manifest.json', (c) => {
   return c.json(release, 200, { 'cache-control': 'no-store' });
 });
 
-app.get('/install/bin/:platform{[a-z0-9-]+}', (c) => {
-  const platform = c.req.param('platform');
+// A single catch-all for `<platform>` and `<platform>.sha256` — a regex-param
+// with a literal `.sha256` suffix doesn't match reliably in Hono's router, so
+// capture the whole filename (dots allowed) and branch here.
+app.get('/install/bin/:file{[a-z0-9.-]+}', (c) => {
+  const file = c.req.param('file');
+  const checksum = file.endsWith('.sha256');
+  const platform = checksum ? file.slice(0, -'.sha256'.length) : file;
+
+  if (checksum) {
+    const meta = agentRelease()?.platforms[platform];
+    if (!meta) return c.text(`no agent binary for platform ${platform}`, 404);
+    return c.text(`${meta.sha256}  swarmy-agent-${platform}\n`, 200, {
+      'content-type': 'text/plain; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+  }
+
   const binPath = agentBinaryPath(platform);
   if (!binPath) return c.text(`no agent binary for platform ${platform}`, 404);
   return new Response(Bun.file(binPath), {
@@ -143,17 +158,6 @@ app.get('/install/bin/:platform{[a-z0-9-]+}', (c) => {
       'content-disposition': `attachment; filename="swarmy-agent-${platform}"`,
       'cache-control': 'no-store',
     },
-  });
-});
-
-app.get('/install/bin/:platform{[a-z0-9-]+}.sha256', (c) => {
-  const platform = c.req.param('platform');
-  const release = agentRelease();
-  const meta = release?.platforms[platform];
-  if (!meta) return c.text(`no agent binary for platform ${platform}`, 404);
-  return c.text(`${meta.sha256}  swarmy-agent-${platform}\n`, 200, {
-    'content-type': 'text/plain; charset=utf-8',
-    'cache-control': 'no-store',
   });
 });
 app.on(['GET', 'POST'], '/api/auth/*', (c) => authRegistry.getAuth().handler(c.req.raw));
