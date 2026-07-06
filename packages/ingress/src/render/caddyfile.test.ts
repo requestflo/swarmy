@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { IngressConfigSchema, type IngressConfig } from '../types';
-import { buildCaddyfile } from './caddyfile';
+import { WAF_SCANNER_PATHS, buildCaddyfile } from './caddyfile';
 
 function cfg(domains: Record<string, unknown>[], globalOptions: Record<string, unknown> = {}): IngressConfig {
   return IngressConfigSchema.parse({ driver: 'caddy', orgId: 'org_1', domains, globalOptions });
@@ -401,6 +401,382 @@ describe('caddy route protections — rate limit, IP rules, body cap, bots, head
       cfg([{ domain: 'solo.xyz.com', service: 'web', port: 3000, pathPrefix: '/', tls: 'auto' }]),
     );
     expect(out).toBe(['solo.xyz.com {', '  reverse_proxy web:3000', '}', ''].join('\n'));
+  });
+});
+
+describe('caddy response caching — cache-handler directive', () => {
+  it('GOLDEN: a cached root route renders the global cache order + a per-route cache block', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'assets.xyz.com',
+          service: 'web',
+          port: 3000,
+          pathPrefix: '/',
+          tls: 'auto',
+          protection: {
+            cache: {
+              ttlSeconds: 300,
+              staleWhileRevalidateSeconds: 60,
+              keyHeaders: ['Accept-Language', 'X-Tenant'],
+            },
+          },
+        },
+      ]),
+    );
+    expect(out).toBe(
+      [
+        '{',
+        '  order cache before rewrite',
+        '  cache',
+        '}',
+        '',
+        'assets.xyz.com {',
+        '  cache {',
+        '    ttl 300s',
+        '    stale 60s',
+        '    key {',
+        '      headers Accept-Language X-Tenant',
+        '    }',
+        '  }',
+        '  reverse_proxy web:3000',
+        '}',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('ttl-only cache renders without stale/key sub-blocks', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'assets.xyz.com',
+          service: 'web',
+          port: 3000,
+          pathPrefix: '/',
+          tls: 'auto',
+          protection: { cache: { ttlSeconds: 30 } },
+        },
+      ]),
+    );
+    expect(out).toContain('cache {');
+    expect(out).toContain('ttl 30s');
+    expect(out).not.toContain('stale');
+    expect(out).not.toContain('headers');
+  });
+
+  it('no cache anywhere → no global cache option, no order override (byte-identical legacy)', () => {
+    const out = buildCaddyfile(
+      cfg([{ domain: 'solo.xyz.com', service: 'web', port: 3000, pathPrefix: '/', tls: 'auto' }]),
+    );
+    expect(out).toBe(['solo.xyz.com {', '  reverse_proxy web:3000', '}', ''].join('\n'));
+  });
+
+  it('a COLD route never caches: the wake redirect must not stick in a cache', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'app.xyz.com',
+          service: 'web',
+          port: 3000,
+          pathPrefix: '/',
+          tls: 'auto',
+          cold: { upstream: 'host.docker.internal:3001', wakePath: '/_wake/web' },
+          protection: { cache: { ttlSeconds: 300 } },
+        },
+      ]),
+    );
+    expect(out).not.toContain('cache');
+    expect(out).toContain('rewrite * /_wake/web');
+  });
+
+  it('cache runs AFTER the gates (abort/rate_limit precede it) and before the proxy', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'api.xyz.com',
+          service: 'api',
+          port: 8080,
+          pathPrefix: '/',
+          tls: 'auto',
+          protection: {
+            ipDeny: ['203.0.113.7'],
+            rateLimit: { requests: 100, windowSeconds: 60, key: 'ip' },
+            cache: { ttlSeconds: 120 },
+          },
+        },
+      ]),
+    );
+    const body = siteBlock(out, 'api.xyz.com').map((l) => l.trim());
+    const denyIdx = body.findIndex((l) => l.startsWith('abort @deny_'));
+    const rlIdx = body.findIndex((l) => l.startsWith('rate_limit'));
+    const cacheIdx = body.findIndex((l) => l.startsWith('cache {'));
+    const proxyIdx = body.findIndex((l) => l.startsWith('reverse_proxy'));
+    expect(denyIdx).toBeLessThan(rlIdx);
+    expect(rlIdx).toBeLessThan(cacheIdx);
+    expect(cacheIdx).toBeLessThan(proxyIdx);
+  });
+});
+
+describe('caddy country rules — maxmind_geolocation matcher', () => {
+  const geoExtra = { extraConfig: { geoipMmdbPath: '/geoip/country.mmdb' } };
+
+  it('GOLDEN: countryAllow with an mmdb path aborts everything outside the allow set', () => {
+    const out = buildCaddyfile(
+      cfg(
+        [
+          {
+            domain: 'uk.xyz.com',
+            service: 'web',
+            port: 3000,
+            pathPrefix: '/',
+            tls: 'auto',
+            protection: { countryAllow: ['GB', 'IE'] },
+          },
+        ],
+        geoExtra,
+      ),
+    );
+    expect(out).toBe(
+      [
+        'uk.xyz.com {',
+        '  @geonotallowed_uk_xyz_com {',
+        '    not maxmind_geolocation {',
+        '      db_path /geoip/country.mmdb',
+        '      allow_countries GB IE',
+        '    }',
+        '  }',
+        '  abort @geonotallowed_uk_xyz_com',
+        '  reverse_proxy web:3000',
+        '}',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('GOLDEN: countryDeny matches the denied countries directly and aborts them', () => {
+    const out = buildCaddyfile(
+      cfg(
+        [
+          {
+            domain: 'xyz.com',
+            service: 'web',
+            port: 3000,
+            pathPrefix: '/',
+            tls: 'auto',
+            protection: { countryDeny: ['RU', 'KP'] },
+          },
+        ],
+        geoExtra,
+      ),
+    );
+    expect(out).toBe(
+      [
+        'xyz.com {',
+        '  @geodeny_xyz_com {',
+        '    maxmind_geolocation {',
+        '      db_path /geoip/country.mmdb',
+        '      allow_countries RU KP',
+        '    }',
+        '  }',
+        '  abort @geodeny_xyz_com',
+        '  reverse_proxy web:3000',
+        '}',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('deny renders before allow (deny wins on overlap, mirroring the IP rules)', () => {
+    const out = buildCaddyfile(
+      cfg(
+        [
+          {
+            domain: 'xyz.com',
+            service: 'web',
+            port: 3000,
+            pathPrefix: '/',
+            tls: 'auto',
+            protection: { countryAllow: ['GB'], countryDeny: ['RU'] },
+          },
+        ],
+        geoExtra,
+      ),
+    );
+    expect(out.indexOf('@geodeny_')).toBeLessThan(out.indexOf('@geonotallowed_'));
+  });
+
+  it('NO mmdb path configured → country rules render NOTHING (never a blind lockout)', () => {
+    const withGeo = buildCaddyfile(
+      cfg([
+        {
+          domain: 'xyz.com',
+          service: 'web',
+          port: 3000,
+          pathPrefix: '/',
+          tls: 'auto',
+          protection: { countryAllow: ['GB'], countryDeny: ['RU'] },
+        },
+      ]),
+    );
+    const without = buildCaddyfile(
+      cfg([{ domain: 'xyz.com', service: 'web', port: 3000, pathPrefix: '/', tls: 'auto' }]),
+    );
+    expect(withGeo).toBe(without);
+    expect(withGeo).not.toContain('maxmind_geolocation');
+  });
+
+  it('geo rules order between IP rules and bot block', () => {
+    const out = buildCaddyfile(
+      cfg(
+        [
+          {
+            domain: 'xyz.com',
+            service: 'web',
+            port: 3000,
+            pathPrefix: '/',
+            tls: 'auto',
+            protection: { ipDeny: ['203.0.113.7'], countryDeny: ['RU'], blockBots: true },
+          },
+        ],
+        geoExtra,
+      ),
+    );
+    const body = siteBlock(out, 'xyz.com').map((l) => l.trim());
+    const ipIdx = body.findIndex((l) => l.startsWith('@deny_'));
+    const geoIdx = body.findIndex((l) => l.startsWith('@geodeny_'));
+    const botIdx = body.findIndex((l) => l.startsWith('@bots_'));
+    expect(ipIdx).toBeLessThan(geoIdx);
+    expect(geoIdx).toBeLessThan(botIdx);
+  });
+});
+
+describe('caddy WAF-lite — scanner paths, methods, query patterns (no plugin)', () => {
+  it('pins the curated scanner-path list', () => {
+    expect(WAF_SCANNER_PATHS).toEqual([
+      '/wp-login.php',
+      '/.env*',
+      '/.git/*',
+      '/phpmyadmin*',
+      '/vendor/phpunit/*',
+      '/cgi-bin/*',
+      '/wp-content/uploads/*.php',
+    ]);
+  });
+
+  it('GOLDEN: waf with defaults renders ONLY the scanner-path 403', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'xyz.com',
+          service: 'web',
+          port: 3000,
+          pathPrefix: '/',
+          tls: 'auto',
+          protection: { waf: {} },
+        },
+      ]),
+    );
+    expect(out).toBe(
+      [
+        'xyz.com {',
+        `  @wafscan_xyz_com path ${WAF_SCANNER_PATHS.join(' ')}`,
+        '  respond @wafscan_xyz_com 403',
+        '  reverse_proxy web:3000',
+        '}',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('blockScannerPaths: false suppresses the path matcher', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'xyz.com',
+          service: 'web',
+          port: 3000,
+          pathPrefix: '/',
+          tls: 'auto',
+          protection: { waf: { blockScannerPaths: false, blockMethods: ['TRACE'] } },
+        },
+      ]),
+    );
+    expect(out).not.toContain('@wafscan_');
+    expect(out).toContain('@wafmeth_xyz_com method TRACE');
+    expect(out).toContain('respond @wafmeth_xyz_com 403');
+  });
+
+  it('denyQueryPatterns render one CEL expression matcher per pattern, indexed', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'xyz.com',
+          service: 'web',
+          port: 3000,
+          pathPrefix: '/',
+          tls: 'auto',
+          protection: {
+            waf: {
+              blockScannerPaths: false,
+              denyQueryPatterns: ['(?i)union.*select', '\\.\\./'],
+            },
+          },
+        },
+      ]),
+    );
+    expect(out).toContain(
+      '@wafq0_xyz_com expression `{http.request.uri.query}.matches("(?i)union.*select")`',
+    );
+    expect(out).toContain('respond @wafq0_xyz_com 403');
+    expect(out).toContain(
+      '@wafq1_xyz_com expression `{http.request.uri.query}.matches("\\.\\./")`',
+    );
+    expect(out).toContain('respond @wafq1_xyz_com 403');
+  });
+
+  it('waf renders after bots, before required headers', () => {
+    const out = buildCaddyfile(
+      cfg([
+        {
+          domain: 'xyz.com',
+          service: 'web',
+          port: 3000,
+          pathPrefix: '/',
+          tls: 'auto',
+          protection: {
+            blockBots: true,
+            waf: { blockMethods: ['TRACE'] },
+            requiredHeaders: [{ name: 'X-Api-Key' }],
+          },
+        },
+      ]),
+    );
+    const body = siteBlock(out, 'xyz.com').map((l) => l.trim());
+    const botIdx = body.findIndex((l) => l.startsWith('@bots_'));
+    const wafIdx = body.findIndex((l) => l.startsWith('@wafmeth_'));
+    const hdrIdx = body.findIndex((l) => l.startsWith('@nohdr0_'));
+    expect(botIdx).toBeLessThan(wafIdx);
+    expect(wafIdx).toBeLessThan(hdrIdx);
+  });
+
+  it('waf inside a path handle carries the route key so siblings never collide', () => {
+    const out = buildCaddyfile(
+      cfg([
+        { domain: 'xyz.com', service: 'web', port: 3000, pathPrefix: '/', tls: 'auto' },
+        {
+          domain: 'xyz.com',
+          service: 'api',
+          port: 8080,
+          pathPrefix: '/api',
+          tls: 'auto',
+          protection: { waf: {} },
+        },
+      ]),
+    );
+    expect(out).toContain('@wafscan_xyz_com_api path');
+    // The unprotected root gets no waf lines.
+    expect(out.match(/@wafscan_/g)?.length).toBe(2); // matcher def + respond
   });
 });
 

@@ -105,13 +105,21 @@ export function compactProtection(p: RouteProtection): RouteProtection | undefin
   };
   if (p.rateLimit) out.rateLimit = p.rateLimit;
   if (p.bodyMaxSize) out.bodyMaxSize = p.bodyMaxSize;
+  if (p.cache) out.cache = p.cache;
+  if (p.countryAllow && p.countryAllow.length > 0) out.countryAllow = p.countryAllow;
+  if (p.countryDeny && p.countryDeny.length > 0) out.countryDeny = p.countryDeny;
+  if (p.waf) out.waf = p.waf;
   const active =
     out.rateLimit !== undefined ||
     out.ipAllow.length > 0 ||
     out.ipDeny.length > 0 ||
     out.bodyMaxSize !== undefined ||
     out.blockBots ||
-    out.requiredHeaders.length > 0;
+    out.requiredHeaders.length > 0 ||
+    out.cache !== undefined ||
+    out.countryAllow !== undefined ||
+    out.countryDeny !== undefined ||
+    out.waf !== undefined;
   return active ? out : undefined;
 }
 

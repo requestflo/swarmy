@@ -17,7 +17,7 @@ export { NoneDriver } from './drivers/none';
 export { CloudflaredDriver } from './drivers/cloudflared';
 export { NginxDriver } from './drivers/nginx';
 export { HaproxyDriver } from './drivers/haproxy';
-export { buildCaddyfile } from './render/caddyfile';
+export { buildCaddyfile, WAF_SCANNER_PATHS } from './render/caddyfile';
 export { buildNginxConfig, NGINX_CONFIG_PATH } from './render/nginx';
 export { buildHaproxyConfig, HAPROXY_CONFIG_PATH, HAPROXY_CERT_DIR } from './render/haproxy';
 export { buildConnectorServiceSpec, CLOUDFLARED_SECRET_NAME } from './render/connector';

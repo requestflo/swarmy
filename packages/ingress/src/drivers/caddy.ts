@@ -91,6 +91,53 @@ export class CaddyDriver implements IngressDriver {
           'cannot load the `storage redis` block and every node would race ACME issuance.',
       });
     }
+    // Response caching is also plugin-borne (caddyserver/cache-handler) — same
+    // deal as rate_limit: renders fine, stock image rejects the config at load.
+    const cached = config.domains.filter((d) => d.protection?.cache && !d.cold);
+    if (cached.length > 0 && (image === '' || image === 'caddy:2-alpine')) {
+      warnings.push({
+        path: 'globalOptions.extraConfig.controllerImage',
+        message:
+          `${cached.length} route(s) carry a response cache, but the controller image is the stock ` +
+          'caddy:2-alpine — the cache directive needs the swarmy Caddy build (docker/caddy-swarmy, ' +
+          'xcaddy --with github.com/caddyserver/cache-handler). Set a custom controller image.',
+      });
+    }
+    const coldCached = config.domains.filter((d) => d.protection?.cache && d.cold);
+    if (coldCached.length > 0) {
+      warnings.push({
+        path: 'domains',
+        message:
+          `${coldCached.length} scale-to-zero route(s) carry a response cache — a cold route's ` +
+          'response is the activator wake redirect, so caching is skipped until the route is warm.',
+      });
+    }
+    // Country rules render as NOTHING without an mmdb path — a half-configured
+    // geo rule must degrade to "not enforced + loud warning", never a lockout.
+    const geoRouted = config.domains.filter(
+      (d) =>
+        (d.protection?.countryAllow?.length ?? 0) > 0 || (d.protection?.countryDeny?.length ?? 0) > 0,
+    );
+    const geoipMmdbPath = typeof extra.geoipMmdbPath === 'string' ? extra.geoipMmdbPath : '';
+    if (geoRouted.length > 0 && geoipMmdbPath === '') {
+      warnings.push({
+        path: 'globalOptions.extraConfig.geoipMmdbPath',
+        message:
+          `${geoRouted.length} route(s) carry country allow/deny rules, but no GeoIP database path ` +
+          'is configured (extraConfig.geoipMmdbPath) — the rules are NOT enforced. Mount a country ' +
+          'mmdb into the ingress container and set the path.',
+      });
+    }
+    if (geoRouted.length > 0 && geoipMmdbPath !== '' && (image === '' || image === 'caddy:2-alpine')) {
+      warnings.push({
+        path: 'globalOptions.extraConfig.controllerImage',
+        message:
+          `${geoRouted.length} route(s) carry country allow/deny rules, but the controller image is ` +
+          'the stock caddy:2-alpine — maxmind_geolocation needs the swarmy Caddy build ' +
+          '(docker/caddy-swarmy, xcaddy --with github.com/porech/caddy-maxmind-geolocation). ' +
+          'Set a custom controller image.',
+      });
+    }
     const canaryAndRegion = config.domains.filter(
       (d) => d.canary && d.canary.weightPct > 0 && d.regionUpstreams?.length,
     );

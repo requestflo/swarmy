@@ -12,6 +12,18 @@ export interface RateLimitRule {
   header?: string;
 }
 
+export interface CacheRule {
+  ttlSeconds: number;
+  keyHeaders?: string[];
+  staleWhileRevalidateSeconds?: number;
+}
+
+export interface WafRule {
+  blockScannerPaths: boolean;
+  blockMethods: string[];
+  denyQueryPatterns: string[];
+}
+
 export interface RouteProtection {
   rateLimit?: RateLimitRule;
   ipAllow: string[];
@@ -19,6 +31,10 @@ export interface RouteProtection {
   bodyMaxSize?: string;
   blockBots: boolean;
   requiredHeaders: { name: string; value?: string }[];
+  cache?: CacheRule;
+  countryAllow?: string[];
+  countryDeny?: string[];
+  waf?: WafRule;
 }
 
 /** Editable string/boolean form state for the inline protection editor. */
@@ -33,6 +49,21 @@ export interface ProtectionDraft {
   bodyMaxSize: string;
   blockBots: boolean;
   requiredHeaders: string;
+  cacheOn: boolean;
+  cacheTtlSeconds: number;
+  /** Empty = no stale-while-revalidate window. */
+  cacheStaleSeconds: string;
+  /** Comma/space-separated header names folded into the cache key. */
+  cacheKeyHeaders: string;
+  /** Comma/space-separated ISO country codes (uppercased on save). */
+  countryAllow: string;
+  countryDeny: string;
+  wafOn: boolean;
+  wafScannerPaths: boolean;
+  /** Comma/space-separated HTTP methods to reject (uppercased on save). */
+  wafMethods: string;
+  /** One regex per line, 403'd when it matches the query string. */
+  wafQueryPatterns: string;
 }
 
 /** Seed the editor draft from a route's persisted protection (or none). */
@@ -50,6 +81,19 @@ export function toDraft(p: RouteProtection | null | undefined): ProtectionDraft 
     requiredHeaders: (p?.requiredHeaders ?? [])
       .map((h) => (h.value ? `${h.name}: ${h.value}` : h.name))
       .join('\n'),
+    cacheOn: Boolean(p?.cache),
+    cacheTtlSeconds: p?.cache?.ttlSeconds ?? 60,
+    cacheStaleSeconds:
+      p?.cache?.staleWhileRevalidateSeconds !== undefined
+        ? String(p.cache.staleWhileRevalidateSeconds)
+        : '',
+    cacheKeyHeaders: (p?.cache?.keyHeaders ?? []).join(', '),
+    countryAllow: (p?.countryAllow ?? []).join(', '),
+    countryDeny: (p?.countryDeny ?? []).join(', '),
+    wafOn: Boolean(p?.waf),
+    wafScannerPaths: p?.waf?.blockScannerPaths ?? true,
+    wafMethods: (p?.waf?.blockMethods ?? []).join(', '),
+    wafQueryPatterns: (p?.waf?.denyQueryPatterns ?? []).join('\n'),
   };
 }
 
@@ -57,6 +101,14 @@ function lines(text: string): string[] {
   return text
     .split('\n')
     .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+/** Comma/whitespace-separated tokens, uppercased (country codes, HTTP methods). */
+function upperTokens(text: string): string[] {
+  return text
+    .split(/[\s,]+/)
+    .map((t) => t.trim().toUpperCase())
     .filter(Boolean);
 }
 
@@ -73,6 +125,10 @@ export function fromDraft(d: ProtectionDraft): RouteProtection | null {
       return value ? { name: l.slice(0, sep).trim(), value } : { name: l.slice(0, sep).trim() };
     }),
   };
+  const countryAllow = upperTokens(d.countryAllow);
+  const countryDeny = upperTokens(d.countryDeny);
+  if (countryAllow.length > 0) out.countryAllow = countryAllow;
+  if (countryDeny.length > 0) out.countryDeny = countryDeny;
   if (d.rateLimitOn && d.requests > 0 && d.windowSeconds > 0) {
     out.rateLimit = {
       requests: Math.round(d.requests),
@@ -82,13 +138,38 @@ export function fromDraft(d: ProtectionDraft): RouteProtection | null {
     };
   }
   if (d.bodyMaxSize.trim()) out.bodyMaxSize = d.bodyMaxSize.trim();
+  if (d.cacheOn && d.cacheTtlSeconds > 0) {
+    const stale = Number(d.cacheStaleSeconds.trim());
+    const keyHeaders = d.cacheKeyHeaders
+      .split(/[\s,]+/)
+      .map((h) => h.trim())
+      .filter(Boolean);
+    out.cache = {
+      ttlSeconds: Math.round(d.cacheTtlSeconds),
+      ...(d.cacheStaleSeconds.trim() && Number.isFinite(stale) && stale > 0
+        ? { staleWhileRevalidateSeconds: Math.round(stale) }
+        : {}),
+      ...(keyHeaders.length > 0 ? { keyHeaders } : {}),
+    };
+  }
+  if (d.wafOn) {
+    out.waf = {
+      blockScannerPaths: d.wafScannerPaths,
+      blockMethods: upperTokens(d.wafMethods),
+      denyQueryPatterns: lines(d.wafQueryPatterns),
+    };
+  }
   const active =
     out.rateLimit !== undefined ||
     out.ipAllow.length > 0 ||
     out.ipDeny.length > 0 ||
     out.bodyMaxSize !== undefined ||
     out.blockBots ||
-    out.requiredHeaders.length > 0;
+    out.requiredHeaders.length > 0 ||
+    out.cache !== undefined ||
+    out.countryAllow !== undefined ||
+    out.countryDeny !== undefined ||
+    out.waf !== undefined;
   return active ? out : null;
 }
 
@@ -102,6 +183,10 @@ export function summarizeProtection(p: RouteProtection | null | undefined): stri
   }
   const ipRules = (p.ipAllow?.length ?? 0) + (p.ipDeny?.length ?? 0);
   if (ipRules > 0) chips.push(`${ipRules} IP rule${ipRules === 1 ? '' : 's'}`);
+  const countryRules = (p.countryAllow?.length ?? 0) + (p.countryDeny?.length ?? 0);
+  if (countryRules > 0) chips.push(`${countryRules} country rule${countryRules === 1 ? '' : 's'}`);
+  if (p.cache) chips.push(`cache ${p.cache.ttlSeconds}s`);
+  if (p.waf) chips.push('WAF-lite');
   if (p.bodyMaxSize) chips.push(`body ≤ ${p.bodyMaxSize}`);
   if (p.blockBots) chips.push('bots blocked');
   const hdrs = p.requiredHeaders?.length ?? 0;

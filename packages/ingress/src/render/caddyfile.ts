@@ -6,6 +6,28 @@ import type {
   RouteProtection,
 } from '../types';
 
+/**
+ * Curated scanner-path list backing `waf.blockScannerPaths` — the endpoints
+ * every internet-facing host gets probed for within minutes. Caddy `path`
+ * matcher patterns (globbed where a bare path would be uselessly exact).
+ * Pinned by tests; extend deliberately — a wrong entry here 403s real traffic
+ * on every WAF-enabled route at once.
+ */
+export const WAF_SCANNER_PATHS: readonly string[] = [
+  '/wp-login.php',
+  '/.env*',
+  '/.git/*',
+  '/phpmyadmin*',
+  '/vendor/phpunit/*',
+  '/cgi-bin/*',
+  '/wp-content/uploads/*.php',
+];
+
+/** Does any route cache? (Cold routes never cache — the wake redirect must not stick.) */
+function anyCached(config: IngressConfig): boolean {
+  return config.domains.some((d) => d.protection?.cache && !d.cold);
+}
+
 /** Build a Caddyfile from an org ingress config. Pure string construction. */
 export function buildCaddyfile(config: IngressConfig): string {
   const out: string[] = [];
@@ -24,6 +46,14 @@ export function buildCaddyfile(config: IngressConfig): string {
   }
   // Tracing runs first so its span wraps the whole request (incl. the proxy).
   if (config.globalOptions.tracing) global.push('  order tracing first');
+  // Response caching (caddyserver/cache-handler — swarmy Caddy build only):
+  // the nonstandard `cache` directive needs an explicit slot in Caddy's
+  // directive order, and the bare global `cache` option provisions the module.
+  // Per-route knobs (ttl/stale/key) live on each route's own cache block.
+  if (anyCached(config)) {
+    global.push('  order cache before rewrite');
+    global.push('  cache');
+  }
   if (config.globalOptions.email) global.push(`  email ${config.globalOptions.email}`);
   if (config.globalOptions.onDemandTls) {
     global.push('  on_demand_tls {');
@@ -176,7 +206,7 @@ function buildSite(host: string, routes: DomainRoute[], config: IngressConfig): 
   // WITHOUT a handle wrapper, byte-for-byte identical to the pre-grouping output.
   const only = ordered.length === 1 ? ordered[0] : undefined;
   const bareRoot = only !== undefined && routePath(only) === '/';
-  for (const r of ordered) appendRoute(out, r, bareRoot, config.localRegion);
+  for (const r of ordered) appendRoute(out, r, bareRoot, config);
 
   out.push('}');
   return out;
@@ -249,11 +279,12 @@ function routeKey(r: DomainRoute): string {
 /**
  * Edge-protection directives for one route, emitted BEFORE its proxy body so a
  * blocked request never reaches the upstream. Order: IP deny → IP allow →
- * bot block → required headers → body cap → rate limit (mholt/caddy-ratelimit —
- * needs the swarmy Caddy build, see docker/caddy-swarmy). Matcher names carry
- * the route key so sibling routes on one host never collide.
+ * country deny → country allow → bot block → WAF-lite → required headers →
+ * body cap → rate limit (mholt/caddy-ratelimit — needs the swarmy Caddy build,
+ * see docker/caddy-swarmy) → cache. Matcher names carry the route key so
+ * sibling routes on one host never collide.
  */
-function protectionLines(r: DomainRoute): string[] {
+function protectionLines(r: DomainRoute, geoipMmdbPath?: string): string[] {
   const p: RouteProtection | undefined = r.protection;
   if (!p) return [];
   const key = routeKey(r);
@@ -269,11 +300,64 @@ function protectionLines(r: DomainRoute): string[] {
       `abort @notallowed_${key}`,
     );
   }
+  // Country rules (porech/caddy-maxmind-geolocation — swarmy Caddy build only).
+  // Without a configured mmdb path the matcher would fail EVERY request open or
+  // closed at Caddy's whim, so we render NOTHING and validate() warns instead.
+  // Deny before allow, mirroring the IP rules: deny wins on overlap.
+  if (geoipMmdbPath) {
+    if (p.countryDeny && p.countryDeny.length > 0) {
+      out.push(
+        `@geodeny_${key} {`,
+        '  maxmind_geolocation {',
+        `    db_path ${geoipMmdbPath}`,
+        // allow_countries = "match requests FROM these countries" — the abort
+        // below is what makes it a deny (the module's own deny_* keys match the
+        // complement, which would need double negation here).
+        `    allow_countries ${p.countryDeny.join(' ')}`,
+        '  }',
+        '}',
+        `abort @geodeny_${key}`,
+      );
+    }
+    if (p.countryAllow && p.countryAllow.length > 0) {
+      out.push(
+        `@geonotallowed_${key} {`,
+        '  not maxmind_geolocation {',
+        `    db_path ${geoipMmdbPath}`,
+        `    allow_countries ${p.countryAllow.join(' ')}`,
+        '  }',
+        '}',
+        `abort @geonotallowed_${key}`,
+      );
+    }
+  }
   if (p.blockBots) {
     out.push(
       `@bots_${key} header_regexp User-Agent (?i)(bot|crawler|spider|scan)`,
       `abort @bots_${key}`,
     );
+  }
+  // WAF-lite: plain matchers + 403, no plugin. This tier is deliberately thin —
+  // the escalation path for real rule-set inspection is Coraza (OWASP CRS),
+  // NOT more patterns here. 403 (respond) rather than abort: scanners treat a
+  // dropped connection as "retry", a status code as an answer.
+  const waf = p.waf;
+  if (waf) {
+    if (waf.blockMethods.length > 0) {
+      out.push(`@wafmeth_${key} method ${waf.blockMethods.join(' ')}`, `respond @wafmeth_${key} 403`);
+    }
+    if (waf.blockScannerPaths) {
+      out.push(`@wafscan_${key} path ${WAF_SCANNER_PATHS.join(' ')}`, `respond @wafscan_${key} 403`);
+    }
+    waf.denyQueryPatterns.forEach((pattern, i) => {
+      const m = `@wafq${i}_${key}`;
+      // Backtick-quoted CEL expression; the schema rejects patterns carrying
+      // backticks or double quotes so this token can never be broken out of.
+      out.push(
+        `${m} expression \`{http.request.uri.query}.matches("${pattern}")\``,
+        `respond ${m} 403`,
+      );
+    });
   }
   p.requiredHeaders.forEach((h, i) => {
     const m = `@nohdr${i}_${key}`;
@@ -295,6 +379,20 @@ function protectionLines(r: DomainRoute): string[] {
       '}',
     );
   }
+  // Response cache (caddyserver/cache-handler — swarmy Caddy build only), last:
+  // a request must clear every gate above before it can hit or fill the cache.
+  // Cold routes never cache — the body is the activator's wake redirect.
+  const cache = p.cache;
+  if (cache && !r.cold) {
+    out.push('cache {', `  ttl ${cache.ttlSeconds}s`);
+    if (cache.staleWhileRevalidateSeconds !== undefined) {
+      out.push(`  stale ${cache.staleWhileRevalidateSeconds}s`);
+    }
+    if (cache.keyHeaders && cache.keyHeaders.length > 0) {
+      out.push('  key {', `    headers ${cache.keyHeaders.join(' ')}`, '  }');
+    }
+    out.push('}');
+  }
   return out;
 }
 
@@ -310,18 +408,20 @@ function protectionLines(r: DomainRoute): string[] {
  * sibling routes on the same host stay direct (a cold `/api` never sleeps `/`).
  * A cold route ignores any canary fragment — waking the stable service comes first.
  */
-function appendRoute(out: string[], r: DomainRoute, bare: boolean, localRegion?: string): void {
+function appendRoute(out: string[], r: DomainRoute, bare: boolean, config: IngressConfig): void {
   const path = routePath(r);
+  const extra = config.globalOptions.extraConfig as Record<string, unknown>;
+  const geoipMmdbPath = typeof extra.geoipMmdbPath === 'string' ? extra.geoipMmdbPath : undefined;
   // Protections run first so a blocked request never reaches the upstream —
   // and never wakes a cold service.
   const body: string[] = [
-    ...protectionLines(r),
+    ...protectionLines(r, geoipMmdbPath),
     ...(r.cold
       ? [
           `rewrite * ${r.cold.wakePath}?return={scheme}://{host}{uri}`,
           `reverse_proxy ${r.cold.upstream}`,
         ]
-      : warmProxy(r, localRegion)),
+      : warmProxy(r, config.localRegion)),
   ];
 
   if (bare) {

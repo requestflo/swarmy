@@ -52,7 +52,10 @@ Three layers, one story:
   runs Caddy with a config rendered FOR that node: upstreams ordered
   same-region-first with cross-region fallback (`lb_policy first` + health
   checks). If the local region's tasks die, requests transparently spill to the
-  next region over the mesh.
+  next region over the mesh. The per-route protection layer (rate limits, IP
+  and country rules, response caching, WAF-lite) is enforced here too — it is
+  HTTP-layer protection at the Caddy edge; volumetric/upstream DDoS absorption
+  stays with Cloudflare or the hosting provider.
 - **The mesh makes all of it one network.** Swarm's overlay (and therefore
   cross-region fallback and cert-storage coordination) rides the WireGuard mesh.
   This is why mesh linking of ALL nodes is a hard requirement, not an add-on.

@@ -77,6 +77,78 @@ export const RateLimitRuleSchema = z.object({
 });
 export type RateLimitRule = z.infer<typeof RateLimitRuleSchema>;
 
+/**
+ * Per-route response cache (Caddy: `cache` directive from
+ * caddyserver/cache-handler — needs the swarmy Caddy build, see
+ * docker/caddy-swarmy). Cold (scale-to-zero) routes never cache: the response
+ * is the activator's wake redirect, not the service's.
+ */
+export const CacheRuleSchema = z.object({
+  /** Response TTL in seconds (1s .. 24h). */
+  ttlSeconds: z.number().int().min(1).max(86400),
+  /** Extra request headers folded into the cache key (e.g. Accept-Language). */
+  keyHeaders: z.array(z.string().min(1)).optional(),
+  /** How long a stale entry may be served while revalidating upstream. */
+  staleWhileRevalidateSeconds: z.number().int().min(1).max(86400).optional(),
+});
+export type CacheRule = z.infer<typeof CacheRuleSchema>;
+
+/** ISO 3166-1 alpha-2, uppercase — the only shape mmdb country lookups return. */
+export const CountryCodeSchema = z
+  .string()
+  .regex(/^[A-Z]{2}$/, 'ISO 3166-1 alpha-2 country code (uppercase), e.g. "GB"');
+
+/**
+ * WAF-lite: plain Caddy matchers + 403, no plugin. Deliberately a thin tier —
+ * a real rule engine (OWASP CRS via Coraza) is the escalation path, not this.
+ */
+export const WafRuleSchema = z.object({
+  /** Block the curated scanner-path list (WAF_SCANNER_PATHS). Default on. */
+  blockScannerPaths: z.boolean().default(true),
+  /** HTTP methods to reject outright (e.g. TRACE, DELETE). */
+  blockMethods: z
+    .array(z.string().regex(/^[A-Z]+$/, 'HTTP method, uppercase (e.g. TRACE)'))
+    .default([]),
+  /**
+   * Regex patterns 403'd when they match the raw query string. Must compile
+   * (checked with JS RegExp after normalising Go/RE2 inline-flag groups like
+   * `(?i)`, which Caddy accepts but JS rejects) and must not carry
+   * backticks/double-quotes, which cannot be escaped safely into the rendered
+   * CEL expression matcher.
+   */
+  denyQueryPatterns: z
+    .array(
+      z
+        .string()
+        .min(1)
+        .refine((s) => !s.includes('`') && !s.includes('"'), {
+          message: 'pattern must not contain backticks or double quotes',
+        })
+        .refine(isCompilableRe2Pattern, {
+          message: 'pattern must be a valid regular expression',
+        }),
+    )
+    .default([]),
+});
+export type WafRule = z.infer<typeof WafRuleSchema>;
+
+/**
+ * Best-effort compile check for a Go/RE2 pattern using the JS engine: RE2
+ * inline flag syntax (`(?i)…`, `(?i:…)`) is valid for Caddy but throws in JS,
+ * so those groups are normalised away before compiling. A pattern passing here
+ * can still be rejected by RE2 in edge cases — this catches the typo class
+ * (unbalanced brackets/parens), not full RE2 equivalence.
+ */
+function isCompilableRe2Pattern(s: string): boolean {
+  const jsCompat = s.replace(/\(\?[ims]+(-[ims]+)?:/g, '(?:').replace(/\(\?[ims]+(-[ims]+)?\)/g, '');
+  try {
+    new RegExp(jsCompat);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const RouteProtectionSchema = z.object({
   /** Sliding-window rate limit for this route. */
   rateLimit: RateLimitRuleSchema.optional(),
@@ -92,6 +164,21 @@ export const RouteProtectionSchema = z.object({
   requiredHeaders: z
     .array(z.object({ name: z.string().min(1), value: z.string().optional() }))
     .default([]),
+  /** Response caching (cache-handler plugin — swarmy Caddy build only). */
+  cache: CacheRuleSchema.optional(),
+  /**
+   * Countries allowed — requests from anywhere else are aborted. Absent/empty =
+   * allow all. Rendered with the maxmind_geolocation matcher, which needs BOTH
+   * the swarmy Caddy build AND `extraConfig.geoipMmdbPath`; without the mmdb
+   * path the rule renders as NOTHING (validate() warns — never a silent
+   * lockout). Optional (not defaulted) so pre-existing compacted label shapes
+   * round-trip unchanged.
+   */
+  countryAllow: z.array(CountryCodeSchema).optional(),
+  /** Countries denied — matching requests are aborted. Deny wins over allow. */
+  countryDeny: z.array(CountryCodeSchema).optional(),
+  /** WAF-lite (scanner paths / methods / query patterns) — plain matchers. */
+  waf: WafRuleSchema.optional(),
 });
 export type RouteProtection = z.infer<typeof RouteProtectionSchema>;
 
@@ -201,7 +288,11 @@ export const IngressGlobalOptionsSchema = z.object({
    * hit to a fronted service then shows up as an edge span in Observability.
    */
   tracing: z.boolean().default(false),
-  /** Raw escape hatch (driver-typed): applyVia, provider, certs, onDemandAsk, etc. */
+  /**
+   * Raw escape hatch (driver-typed): applyVia, provider, certs, onDemandAsk,
+   * geoipMmdbPath (country-mmdb path inside the ingress container — enables
+   * countryAllow/countryDeny rendering), etc.
+   */
   extraConfig: z.record(z.unknown()).default({}),
 });
 export type IngressGlobalOptions = z.infer<typeof IngressGlobalOptionsSchema>;

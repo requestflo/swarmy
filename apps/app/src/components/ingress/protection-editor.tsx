@@ -81,6 +81,58 @@ export function ProtectionEditor({ initial, saving, onSave, onCancel }: Protecti
         <Textarea rows={2} className="mono-data" placeholder={'X-Api-Key\nX-Env: prod'} value={d.requiredHeaders} onChange={(e) => patch({ requiredHeaders: e.target.value })} />
       </Field>
 
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Allow countries (ISO codes, comma-separated — empty allows all)">
+          <Input className="mono-data" placeholder="GB, IE" value={d.countryAllow} onChange={(e) => patch({ countryAllow: e.target.value })} />
+        </Field>
+        <Field label="Deny countries (ISO codes, comma-separated)">
+          <Input className="mono-data" placeholder="RU, KP" value={d.countryDeny} onChange={(e) => patch({ countryDeny: e.target.value })} />
+        </Field>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex items-center gap-2 pb-2">
+          <Switch id="cache-on" checked={d.cacheOn} onCheckedChange={(v) => patch({ cacheOn: v })} />
+          <Label htmlFor="cache-on" className="font-medium">Cache responses</Label>
+        </div>
+        {d.cacheOn ? (
+          <>
+            <Field label="TTL (s)">
+              <Input type="number" min={1} max={86400} className="w-24" value={d.cacheTtlSeconds} onChange={(e) => patch({ cacheTtlSeconds: Number(e.target.value) })} />
+            </Field>
+            <Field label="Serve stale for (s)">
+              <Input type="number" min={1} className="w-28" placeholder="off" value={d.cacheStaleSeconds} onChange={(e) => patch({ cacheStaleSeconds: e.target.value })} />
+            </Field>
+            <Field label="Key headers (comma-separated)">
+              <Input className="w-56 mono-data" placeholder="Accept-Language" value={d.cacheKeyHeaders} onChange={(e) => patch({ cacheKeyHeaders: e.target.value })} />
+            </Field>
+          </>
+        ) : null}
+      </div>
+
+      <div className="grid gap-3">
+        <div className="flex items-center gap-2">
+          <Switch id="waf-on" checked={d.wafOn} onCheckedChange={(v) => patch({ wafOn: v })} />
+          <Label htmlFor="waf-on" className="font-medium">WAF-lite</Label>
+        </div>
+        {d.wafOn ? (
+          <>
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="flex items-center gap-2 pb-2">
+                <Switch id="waf-scan" checked={d.wafScannerPaths} onCheckedChange={(v) => patch({ wafScannerPaths: v })} />
+                <Label htmlFor="waf-scan" className="font-medium">Block known scanner paths</Label>
+              </div>
+              <Field label="Block methods (comma-separated)">
+                <Input className="w-48 mono-data" placeholder="TRACE, DELETE" value={d.wafMethods} onChange={(e) => patch({ wafMethods: e.target.value })} />
+              </Field>
+            </div>
+            <Field label="Deny query patterns (one regex per line — matching requests get 403)">
+              <Textarea rows={2} className="mono-data" placeholder={'(?i)union.*select\n\\.\\./'} value={d.wafQueryPatterns} onChange={(e) => patch({ wafQueryPatterns: e.target.value })} />
+            </Field>
+          </>
+        ) : null}
+      </div>
+
       <div className="flex items-center justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel} disabled={saving}>Cancel</Button>
         <Button variant="outline" size="sm" onClick={() => onSave(fromDraft(d))} disabled={saving}>
