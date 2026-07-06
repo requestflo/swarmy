@@ -103,6 +103,16 @@ export const core: DomainResolvers = {
       }
       return { id, region };
     },
+    // Mirrors the real handler: the override label wins over the detected IP.
+    'nodes.setPublicIpOverride': (i, s) => {
+      const { id, ip } = i as { id: string; ip: string | null };
+      const n = byId(s.nodes, id) as (NodeSummary & { labels?: Record<string, string> }) | undefined;
+      if (n) {
+        n.labels = { ...(n.labels ?? {}), 'swarmy.node.public-ip.override': ip ?? '' };
+        n.publicIp = ip ?? n.labels['swarmy.node.public-ip'] ?? null;
+      }
+      return { id, publicIp: n?.publicIp ?? null };
+    },
     'nodes.setCanvasPosition': (i) => {
       const { id } = i as { id: string; x: number; y: number };
       return { id };

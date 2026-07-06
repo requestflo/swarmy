@@ -6,11 +6,12 @@ import { useTRPC } from '@/integrations/trpc';
 /**
  * Green / amber / red DNS health.
  *
- * - `healthy`  — resolves, reachable, and the served IP matches what swarmy intends.
- * - `degraded` — resolves but unreachable, or the public answer ≠ swarmy's target.
- * - `down`     — does not resolve (no A record).
+ * - `healthy`  — at least one healthy region answers for the host.
+ * - `degraded` — swarmy answers but no region is healthy (degraded spill), or
+ *                the public answer disagrees with what swarmy intends.
+ * - `down`     — swarmy has nothing to answer with (no endpoints).
  * - `checking` — a live probe is in flight.
- * - `unknown`  — no record / nothing to say yet.
+ * - `unknown`  — no zone covers the host / nothing to say yet.
  */
 export type DnsHealth = 'healthy' | 'degraded' | 'down' | 'checking' | 'unknown';
 
@@ -26,7 +27,8 @@ const STYLES: Record<DnsHealth, { dot: string; text: string; label: string }> = 
 export interface DnsCheck {
   resolves: boolean;
   reachable: boolean;
-  expectedIp: string;
+  served: boolean;
+  expectedIps: string[];
   gotIp: string;
 }
 
@@ -34,15 +36,17 @@ export interface DnsCheck {
 export function dnsHealthFromCheck(c: DnsCheck): DnsHealth {
   if (!c.resolves) return 'down';
   if (!c.reachable) return 'degraded';
-  if (c.expectedIp && c.gotIp && c.expectedIp !== c.gotIp) return 'degraded';
+  if (!c.served) return 'degraded';
   return 'healthy';
 }
 
-/** Health for one host from the live DNS view rows (cheap, shared-cache friendly). */
-function dnsHealthFromView(rows: { host: string; ip: string; healthy: boolean }[]): DnsHealth {
+/** Health for one host from the derived DNS view rows (cheap, shared-cache friendly). */
+function dnsHealthFromView(
+  rows: Array<{ host: string; endpoints: Array<{ ip: string; healthy: boolean }>; healthyCount: number }>,
+): DnsHealth {
   if (rows.length === 0) return 'unknown';
-  if (rows.some((r) => r.healthy)) return 'healthy';
-  if (rows.some((r) => r.ip)) return 'degraded';
+  if (rows.some((r) => r.healthyCount > 0)) return 'healthy';
+  if (rows.some((r) => r.endpoints.some((e) => e.ip))) return 'degraded';
   return 'down';
 }
 
@@ -73,7 +77,7 @@ export function DnsHealthBadge({
   const trpc = useTRPC();
   const selfProbe = status === undefined && !!host;
   const view = useQuery({
-    ...trpc.geodns.dnsView.queryOptions(),
+    ...trpc.geodns.dnsView.queryOptions({}),
     enabled: selfProbe,
     staleTime: 30_000,
   });

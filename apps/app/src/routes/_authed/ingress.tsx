@@ -12,7 +12,7 @@ import { TargetNodesCard } from '@/components/ingress/target-nodes-card';
 import { CloudflareTunnelCard } from '@/components/ingress/cloudflare-tunnel-card';
 import { ExternalAcmeNoticeCard } from '@/components/ingress/external-acme-notice-card';
 import { DomainsList } from '@/components/ingress/domains-list';
-import { GlobalGeoDnsFooter } from '@/components/geo/global-geodns-footer';
+import { GeoDnsSection } from '@/components/geo/geodns-section';
 import { DRIVER_LABELS, type IngressDriverId } from '@/components/ingress/driver-config';
 
 /** Global "Edge & ingress" page: fleet-wide edge config, not per-route detail. */
@@ -127,7 +127,7 @@ function IngressPage(): React.JSX.Element {
 
       <DomainsList domains={domains.data ?? []} />
 
-      <GlobalGeoDnsFooter />
+      <GeoDnsSection />
     </div>
   );
 }

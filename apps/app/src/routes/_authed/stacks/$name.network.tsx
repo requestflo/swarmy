@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { StackDomainsSection } from '@/components/ingress/stack-domains-section';
-import { StackGeoSection } from '@/components/geo/stack-geo-section';
+import { StackDnsStatus } from '@/components/geo/stack-dns-status';
 
-/** Network tab: ingress routes, protections & geo DNS for this stack. */
+/** Network tab: ingress routes, protections & geo-DNS status for this stack. */
 export const Route = createFileRoute('/_authed/stacks/$name/network')({
   component: NetworkTab,
 });
@@ -13,7 +13,7 @@ function NetworkTab(): React.JSX.Element {
   return (
     <div className="space-y-10">
       <StackDomainsSection stack={name} />
-      <StackGeoSection stack={name} />
+      <StackDnsStatus stack={name} />
     </div>
   );
 }
