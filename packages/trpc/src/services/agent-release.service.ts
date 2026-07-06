@@ -28,7 +28,13 @@ const MANIFEST_TTL_MS = 30_000;
 let cached: { manifest: AgentReleaseManifest | null; dir: string; at: number } | null = null;
 
 export function agentBinDir(): string {
-  return process.env.SWARMY_AGENT_BIN_DIR ?? path.resolve(process.cwd(), 'apps/agent/dist-bin');
+  if (process.env.SWARMY_AGENT_BIN_DIR) return process.env.SWARMY_AGENT_BIN_DIR;
+  // Anchor at the repo root via this module's location, NOT process.cwd():
+  // the dev controller runs from apps/api/ (turbo), so a cwd-relative default
+  // never finds the binaries. This module lives at
+  // packages/trpc/src/services/, so four levels up is the repo root.
+  const repoRoot = path.resolve(import.meta.dir, '../../../..');
+  return path.join(repoRoot, 'apps/agent/dist-bin');
 }
 
 /** The manifest of locally-available agent binaries, or null when none are built. */

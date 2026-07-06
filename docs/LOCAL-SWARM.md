@@ -88,6 +88,50 @@ real Docker daemon.
 
 ---
 
+## 4. Multi-node: real VMs via the systemd installer
+
+To exercise a genuine multi-node swarm — and the **production install path** (the
+Bun-compiled agent binary under systemd, downloaded from your controller) — use
+[multipass](https://multipass.run) VMs. One command:
+
+```bash
+bun run dev:vms up          # launch 2 Ubuntu VMs, enroll each via curl | sh
+```
+
+It compiles the linux agent binaries, checks your controller is serving them at
+your Mac's LAN IP, mints a fresh join token, launches the VMs, and runs the real
+installer on each (`SWARMY_BACKEND=systemd`). Within seconds both nodes flip to
+ONLINE on the Infrastructure plane, streaming live CPU/memory.
+
+```bash
+bun run dev:vms status      # multipass state + `systemctl is-active swarmy-agent`
+bun run dev:vms logs 1      # follow the agent journal on node 1
+bun run dev:vms reenroll    # re-run the installer (after a new agent build / token)
+bun run dev:vms down        # delete + purge the VMs
+```
+
+Requirements the script checks for you:
+
+- **The controller must be reachable from the VMs.** It binds all interfaces, so
+  the VMs reach it at your Mac's LAN IP (auto-detected from `en0`/`en1`; override
+  with `SWARMY_CONTROLLER_IP`). Run the dashboard/controller with the usual
+  `bun dev:app`.
+- **The controller must be serving the compiled binaries.** It looks in
+  `apps/agent/dist-bin` automatically — `dev:vms up` builds them, or run
+  `bun run build:agent-bin` yourself. (In production the controller image ships
+  them; `SWARMY_AGENT_BIN_DIR` overrides the path.)
+
+Knobs: `SWARMY_VM_COUNT` (default 2), `SWARMY_VM_CPUS`/`MEM`/`DISK`,
+`SWARMY_BACKEND` (`systemd` | `docker`), `SWARMY_JOIN_TOKEN` (default: a freshly
+minted one). See the header of `scripts/local-vms.sh`.
+
+> Apple-Silicon multipass VMs are `arm64`; the installer downloads the
+> `linux-arm64` binary automatically. `multipassd` occasionally wedges a
+> `multipass exec` — the script caps each call and prints a recover hint
+> (`multipass restart <vm> && bun run dev:vms reenroll`).
+
+---
+
 ## The genuine onboarding flow (for a remote box)
 
 The seed token is a shortcut for the local node. The real product flow — the one
@@ -134,9 +178,18 @@ up any of the above. (Owned by `apps/app/src/demo`.)
   retries with `--advertise-addr 127.0.0.1`; if it still fails, run
   `docker swarm init --advertise-addr <your-ip>` once by hand, then re-run.
 - **Node never goes ONLINE / `invalid join token`** — the controller hashes the
-  raw token and looks up the `JoinToken` row; a mismatch means the token in
-  `.swarmy-dev-token` doesn't match the DB. Re-seed: delete `.swarmy-dev-token`,
-  revoke the old token in **Settings → Tokens**, then `bun run seed-dev`.
+  raw token and looks up the `JoinToken` row; a mismatch (or an **expired** token —
+  they last 7 days) means the token in `.swarmy-dev-token` isn't a live DB row.
+  Mint a fresh one with `bun run mint-token` (always writes a new one, unlike
+  `seed-dev` which keeps an existing usable token). `dev:vms` mints for you.
+- **Controller crashes on boot with Prisma `P2022` (column does not exist)** —
+  the DB schema drifted from the Prisma models (e.g. after pulling a migration).
+  Re-sync: `bun db:push`, then restart the controller.
+- **`dev:vms` says the controller isn't serving binaries** — build them
+  (`bun run build:agent-bin`) and confirm `bun dev:app` is running; the VMs reach
+  it at your Mac's LAN IP. The dashboard's own "Add a node" one-liner points at
+  the dashboard origin (`localhost:3003`), which a VM can't reach — use `dev:vms`
+  for local VMs, or set the controller's `CONTROLLER_PUBLIC_URL` to its LAN URL.
 - **`Bind for 0.0.0.0:5678 failed: port is already allocated`** — another
   Postgres owns 5678. Set `SWARMY_DB_PORT` to a free port in `.env` **and** match
   the port in `DATABASE_URL`, then re-run `bun run dev:up`.

@@ -1,45 +1,49 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: FSL-1.1-ALv2
 #
-# Spin up a few local multipass VMs as REAL swarmy nodes that join the
-# controller running on this Mac. Each VM gets Docker + a single-node swarm,
-# then runs the swarmy agent (built locally — no registry needed) which dials
-# the controller over the WebSocket gateway. Watch them flip to ONLINE on the
-# Infrastructure plane.
+# Spin up local multipass VMs as REAL swarmy nodes, enrolled the SAME WAY a
+# production box is: the two-stage `curl … | sh` installer downloads the
+# Bun-compiled agent binary from your controller, installs it as a systemd
+# service, and the node dials home. No Docker image to build or transfer.
 #
-#   bash scripts/local-vms.sh up        # launch (default 3 nodes)
-#   bash scripts/local-vms.sh status    # multipass list + per-node agent state
-#   bash scripts/local-vms.sh logs 1    # tail agent logs on swarmy-node-1
+#   bash scripts/local-vms.sh up        # launch + enroll (default 2 nodes)
+#   bash scripts/local-vms.sh status    # multipass state + per-node agent state
+#   bash scripts/local-vms.sh logs 1    # follow the agent journal on node 1
+#   bash scripts/local-vms.sh reenroll  # re-run the installer on existing VMs
 #   bash scripts/local-vms.sh down      # delete + purge all swarmy-node-* VMs
 #
+# PREREQUISITE: a controller running on this Mac, reachable on your LAN and
+# serving the agent binaries. From the repo root:
+#     bun run dev:up          # Postgres + schema + seed (one time / after resets)
+#     bun run build:agent-bin # compile the linux agent binaries (this script also does it)
+#     bun dev:app             # controller :3001 + dashboard :3003
+# The controller serves binaries automatically once they're built (it looks in
+# apps/agent/dist-bin); this script builds them for you and checks reachability.
+#
 # Tunables (env):
-#   SWARMY_VM_COUNT=3            how many VMs
-#   SWARMY_VM_CPUS=1 MEM=1G DISK=5G
+#   SWARMY_VM_COUNT=2            how many VMs
+#   SWARMY_VM_CPUS=1 MEM=1G DISK=6G
 #   SWARMY_VM_RELEASE=24.04      Ubuntu release
-#   SWARMY_CONTROLLER_IP=…       host IP the VMs dial (default: en0 LAN IP)
+#   SWARMY_BACKEND=systemd       agent backend: systemd (native binary) | docker
+#   SWARMY_CONTROLLER_IP=…       host IP the VMs dial (default: en0/en1 LAN IP)
 #   SWARMY_CONTROLLER_PORT=3001
-#   SWARMY_JOIN_TOKEN=…          (default: .swarmy-dev-token)
-#   SWARMY_VM_BRIDGE=en0         bridge VMs onto your LAN (same IP range) instead
-#                                of NAT. Auto-used if en0 is bridgeable.
-#   SWARMY_ALLOW_MESH=false      agent capability flags (off by default here)
+#   SWARMY_JOIN_TOKEN=…          (default: mint a fresh one via scripts/mint-token.ts)
+#   SWARMY_VM_BRIDGE=en0         bridge VMs onto your LAN instead of NAT
+#   SWARMY_ALLOW_MESH=false      agent capability flags
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 PREFIX="swarmy-node"
-IMAGE_TAG="swarmy-agent:local"
-IMAGE_TAR="/tmp/swarmy-agent-local.tar"
-
-COUNT="${SWARMY_VM_COUNT:-3}"
+COUNT="${SWARMY_VM_COUNT:-2}"
 CPUS="${SWARMY_VM_CPUS:-1}"
 MEM="${SWARMY_VM_MEM:-1G}"
-DISK="${SWARMY_VM_DISK:-5G}"
+DISK="${SWARMY_VM_DISK:-6G}"
 RELEASE="${SWARMY_VM_RELEASE:-24.04}"
 CONTROLLER_PORT="${SWARMY_CONTROLLER_PORT:-3001}"
+BACKEND="${SWARMY_BACKEND:-systemd}"
 ALLOW_MESH="${SWARMY_ALLOW_MESH:-false}"
-ALLOW_BUILD="${SWARMY_ALLOW_BUILD:-false}"
-ALLOW_EXEC="${SWARMY_ALLOW_EXEC:-false}"
 
 say()  { printf '\033[1;36m▸ %s\033[0m\n' "$*"; }
 ok()   { printf '\033[32m✓ %s\033[0m\n' "$*"; }
@@ -56,43 +60,54 @@ need_multipass() {
 resolve_controller_ip() {
   HOST_IP="${SWARMY_CONTROLLER_IP:-$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)}"
   [ -n "$HOST_IP" ] || die "Could not determine this Mac's LAN IP. Set SWARMY_CONTROLLER_IP=…"
-  WS_URL="ws://${HOST_IP}:${CONTROLLER_PORT}/agent/ws"
+  CONTROLLER_URL="http://${HOST_IP}:${CONTROLLER_PORT}"
 }
 
-resolve_token() {
-  TOKEN="${SWARMY_JOIN_TOKEN:-$(tr -d '[:space:]' < .swarmy-dev-token 2>/dev/null || true)}"
-  [ -n "$TOKEN" ] || die "No join token. Run 'bun run dev:up' (writes .swarmy-dev-token) or set SWARMY_JOIN_TOKEN=…"
-}
-
-# Pick a bridged LAN interface if one is available (so VMs share the Mac's IP
-# range), otherwise fall back to NAT (still reaches the controller via HOST_IP).
+# Pick a bridged LAN interface if available (VMs share the Mac's IP range),
+# else NAT (still reaches the controller at HOST_IP).
 resolve_network() {
   local want="${SWARMY_VM_BRIDGE:-en0}"
   NETWORK_ARGS=()
   if multipass networks 2>/dev/null | awk 'NR>1{print $1}' | grep -qx "$want"; then
     NETWORK_ARGS=(--network "name=${want},mode=auto")
-    NET_DESC="bridged via ${want} (LAN IP range)"
+    NET_DESC="bridged via ${want}"
   else
     NET_DESC="NAT (reaches controller at ${HOST_IP})"
   fi
 }
 
-cloud_init_file() {
-  # Docker from Ubuntu's repo; add the default user to the docker group.
-  cat <<'YAML'
-#cloud-config
-package_update: true
-packages:
-  - docker.io
-runcmd:
-  - [ systemctl, enable, --now, docker ]
-  - [ usermod, -aG, docker, ubuntu ]
-YAML
+# Build the linux agent binaries + manifest the controller serves at
+# /install/bin/<platform>. Fast (a few hundred ms per target) and idempotent.
+build_binaries() {
+  say "Compiling linux agent binaries (bun --compile)…"
+  SWARMY_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" \
+    bun run scripts/build-agent-binaries.ts >/dev/null
+  ok "Agent binaries built (apps/agent/dist-bin)."
 }
 
-# Run a command with a hard wall-clock cap (macOS has no `timeout` by default).
-# multipassd (1.16.x + qemu on macOS) intermittently wedges a `multipass exec`
-# SSH session; the cap turns an indefinite hang into a recoverable failure.
+# The controller must be reachable at the LAN IP AND serving the binaries.
+preflight_controller() {
+  MANIFEST="$(curl -fsS --max-time 5 "${CONTROLLER_URL}/install/bin/manifest.json" 2>/dev/null || true)"
+  [ -n "$MANIFEST" ] || die "Controller not serving agent binaries at ${CONTROLLER_URL}/install/bin/manifest.json.
+    Is 'bun dev:app' running, and were the binaries built? This machine reaches it at ${HOST_IP};
+    the controller binds all interfaces by default. If it only answers on localhost, restart it."
+  AGENT_VERSION="$(printf '%s' "$MANIFEST" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"
+  [ -n "$AGENT_VERSION" ] || die "Could not read agent version from the manifest."
+  ok "Controller serving agent binaries at ${CONTROLLER_URL} (version ${AGENT_VERSION})."
+}
+
+resolve_token() {
+  if [ -n "${SWARMY_JOIN_TOKEN:-}" ]; then
+    TOKEN="$SWARMY_JOIN_TOKEN"; return
+  fi
+  say "Minting a fresh join token…"
+  TOKEN="$(bun --env-file=.env run scripts/mint-token.ts 2>/dev/null | tail -1 | tr -d '[:space:]')"
+  [ -n "$TOKEN" ] || die "Could not mint a join token. Run 'bun run dev:up' first (seeds the dev org)."
+}
+
+# Run a command with a hard wall-clock cap (macOS has no `timeout`).
+# multipassd (1.16.x + qemu) intermittently wedges a `multipass exec`; the cap
+# turns an indefinite hang into a recoverable failure.
 guarded() {
   local secs="$1"; shift
   ( "$@" & local p=$!
@@ -100,91 +115,65 @@ guarded() {
     wait "$p"; local rc=$?; kill "$k" 2>/dev/null; return "$rc" )
 }
 
-# The ENTIRE per-node setup, run in ONE `multipass exec` so we open a single SSH
-# session per VM instead of one per step (sequential exec sessions are what wedge
-# multipassd). Waits for Docker locally, inits a single-node swarm, loads the
-# agent image from the transferred tar, and (re)starts the agent. Idempotent.
-node_setup_script() {
-  cat <<'SETUP'
-#!/usr/bin/env bash
-set -eu
-WS_URL="$1"; TOKEN="$2"; NAME="$3"; ALLOW_MESH="$4"; ALLOW_BUILD="$5"; ALLOW_EXEC="$6"
-
-# Docker may still be installing via cloud-init — wait for it locally.
-for _ in $(seq 1 120); do docker info >/dev/null 2>&1 && break; sleep 3; done
-docker info >/dev/null 2>&1 || { echo "DOCKER_NOT_READY"; exit 1; }
-
-# Single-node swarm so swarmy can drive `docker service` on this node.
-if ! docker info --format '{{.Swarm.LocalNodeState}}' | grep -q active; then
-  docker swarm init --advertise-addr "$(hostname -I | awk '{print $1}')" >/dev/null 2>&1 || true
-fi
-
-docker image inspect swarmy-agent:local >/dev/null 2>&1 || docker load -i /tmp/agent.tar >/dev/null
-
-docker rm -f swarmy-agent >/dev/null 2>&1 || true
-docker run -d --name swarmy-agent --restart unless-stopped \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v swarmy-agent:/var/lib/swarmy \
-  -e AGENT_WS_URL="$WS_URL" \
-  -e SWARMY_JOIN_TOKEN="$TOKEN" \
-  -e SWARMY_NODE_LABELS="local-vm,$NAME" \
-  -e SWARMY_ALLOW_MESH="$ALLOW_MESH" \
-  -e SWARMY_ALLOW_BUILD="$ALLOW_BUILD" \
-  -e SWARMY_ALLOW_EXEC="$ALLOW_EXEC" \
-  -e SWARMY_AGENT_STATE=/var/lib/swarmy/agent.json \
-  swarmy-agent:local >/dev/null
-echo "AGENT_STARTED $NAME"
-SETUP
+# Fetch + run the installer on a VM, pointing every URL at the LAN controller.
+# We fetch the installer DIRECTLY (skipping the two-stage checksum loader — the
+# loader's job is to protect an untrusted `curl|sh`, which local dev doesn't
+# need) and pass SWARMY_CONTROLLER_URL / SWARMY_BINARY_BASE_URL so it works no
+# matter what CONTROLLER_PUBLIC_URL the controller bakes. The installer still
+# sha256-verifies the downloaded binary against the manifest.
+enroll_node() {
+  local name="$1"
+  local install_url="${CONTROLLER_URL}/install/${AGENT_VERSION}/install.sh"
+  guarded 300 multipass exec "$name" -- sudo env \
+    SWARMY_JOIN_TOKEN="$TOKEN" \
+    SWARMY_BACKEND="$BACKEND" \
+    SWARMY_CONTROLLER_URL="$CONTROLLER_URL" \
+    SWARMY_BINARY_BASE_URL="${CONTROLLER_URL}/install/bin" \
+    SWARMY_NODE_LABELS="local-vm,${name}" \
+    SWARMY_ALLOW_MESH="$ALLOW_MESH" \
+    bash -c "curl -fsSL '$install_url' | sh"
 }
 
 up() {
-  need_multipass; resolve_controller_ip; resolve_token; resolve_network
-
-  docker image inspect "$IMAGE_TAG" >/dev/null 2>&1 || die "Image $IMAGE_TAG not found. Build it:
-    docker build -t $IMAGE_TAG --build-arg SWARMY_COMMIT=\$(git rev-parse --short HEAD) -f apps/agent/Dockerfile ."
-  say "Refreshing image tar ($IMAGE_TAR)…"
-  docker save "$IMAGE_TAG" -o "$IMAGE_TAR"
-
-  # Make sure the controller is actually reachable from where the VMs will dial.
-  if ! curl -fsS -o /dev/null --max-time 4 "http://${HOST_IP}:${CONTROLLER_PORT}/install.sh"; then
-    warn "Controller not answering at http://${HOST_IP}:${CONTROLLER_PORT} — is 'bun dev' running? Continuing anyway."
-  fi
+  need_multipass; resolve_controller_ip; resolve_network
+  build_binaries; preflight_controller; resolve_token
 
   say "Launching ${COUNT} × Ubuntu ${RELEASE} (${CPUS} CPU / ${MEM} / ${DISK}) — ${NET_DESC}"
-  printf '    controller : %s\n    join token : %s…\n\n' "$WS_URL" "${TOKEN:0:12}"
-
-  local ci setup; ci="$(mktemp -t swarmy-ci)"; setup="$(mktemp -t swarmy-setup)"
-  cloud_init_file >"$ci"; node_setup_script >"$setup"
-  trap 'rm -f "$ci" "$setup"' RETURN
+  printf '    controller : %s\n    backend    : %s\n    join token : %s…\n\n' \
+    "$CONTROLLER_URL" "$BACKEND" "${TOKEN:0:14}"
 
   for i in $(seq 1 "$COUNT"); do
     local name="${PREFIX}-${i}"
     if multipass info "$name" >/dev/null 2>&1; then
-      warn "[$name] already exists — reusing (use 'down' to reset)."
+      warn "[$name] exists — re-running the installer (idempotent)."
     else
-      say "[$name] launching Ubuntu ${RELEASE}…"
+      say "[$name] launching…"
       multipass launch "$RELEASE" --name "$name" \
-        --cpus "$CPUS" --memory "$MEM" --disk "$DISK" \
-        --cloud-init "$ci" "${NETWORK_ARGS[@]}"
+        --cpus "$CPUS" --memory "$MEM" --disk "$DISK" "${NETWORK_ARGS[@]}"
     fi
-
-    # One SSH session per VM: ship the image tar + setup script, then run it once.
-    say "[$name] transferring agent image + setup…"
-    multipass transfer "$IMAGE_TAR" "${name}:/tmp/agent.tar"
-    multipass transfer "$setup"    "${name}:/tmp/node-setup.sh"
-
-    say "[$name] configuring (Docker wait → swarm → agent) → ${WS_URL}"
-    if guarded 600 multipass exec "$name" -- sudo bash /tmp/node-setup.sh \
-         "$WS_URL" "$TOKEN" "$name" "$ALLOW_MESH" "$ALLOW_BUILD" "$ALLOW_EXEC"; then
-      ok "[$name] agent up"
+    say "[$name] installing agent (${BACKEND}) ← ${CONTROLLER_URL}"
+    if enroll_node "$name"; then
+      ok "[$name] agent installed — should reach ONLINE shortly."
     else
-      warn "[$name] setup hung or failed. Recover: multipass restart $name && bash scripts/local-vms.sh up"
+      warn "[$name] install hung/failed. Recover: multipass restart $name && bash scripts/local-vms.sh reenroll"
     fi
   done
 
-  echo
-  ok "Done. Open the dashboard → Infrastructure; ${COUNT} nodes should go ONLINE shortly."
+  echo; ok "Done. Dashboard → Infrastructure; ${COUNT} node(s) should go ONLINE within seconds."
   say "Tail an agent:  bash scripts/local-vms.sh logs 1"
+}
+
+# Re-run the installer on already-launched VMs (e.g. after a fresh token or a
+# new agent build). The installer's systemd path restarts the running unit.
+reenroll() {
+  need_multipass; resolve_controller_ip
+  build_binaries; preflight_controller; resolve_token
+  for i in $(seq 1 "$COUNT"); do
+    local name="${PREFIX}-${i}"
+    multipass info "$name" >/dev/null 2>&1 || continue
+    say "[$name] re-enrolling ← ${CONTROLLER_URL}"
+    enroll_node "$name" && ok "[$name] re-enrolled." || warn "[$name] failed."
+  done
 }
 
 status() {
@@ -195,15 +184,19 @@ status() {
     local name="${PREFIX}-${i}"
     multipass info "$name" >/dev/null 2>&1 || continue
     printf '\033[1m%s\033[0m: ' "$name"
-    guarded 20 multipass exec "$name" -- sudo docker ps --filter name=swarmy-agent \
-      --format '{{.Status}}' 2>/dev/null || echo "(unreachable/timed out)"
+    guarded 20 multipass exec "$name" -- systemctl is-active swarmy-agent 2>/dev/null \
+      || echo "(container backend or unreachable — try: logs $i)"
   done
 }
 
 logs() {
   need_multipass
   local name="${PREFIX}-${1:-1}"
-  multipass exec "$name" -- sudo docker logs -f swarmy-agent
+  if multipass exec "$name" -- systemctl is-active swarmy-agent >/dev/null 2>&1; then
+    multipass exec "$name" -- sudo journalctl -u swarmy-agent -f
+  else
+    multipass exec "$name" -- sudo docker logs -f swarmy-agent
+  fi
 }
 
 down() {
@@ -217,9 +210,10 @@ down() {
 }
 
 case "${1:-up}" in
-  up)     up ;;
-  status) status ;;
-  logs)   shift; logs "${1:-1}" ;;
-  down)   down ;;
-  *) die "usage: $0 {up|status|logs [n]|down}" ;;
+  up)       up ;;
+  reenroll) reenroll ;;
+  status)   status ;;
+  logs)     shift; logs "${1:-1}" ;;
+  down)     down ;;
+  *) die "usage: $0 {up|reenroll|status|logs [n]|down}" ;;
 esac

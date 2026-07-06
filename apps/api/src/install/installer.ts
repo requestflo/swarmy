@@ -166,7 +166,11 @@ install_systemd() {
   cat > "/etc/systemd/system/$UNIT_NAME" <<'SWARMY_UNIT_EOF'
 ${unit}SWARMY_UNIT_EOF
   systemctl daemon-reload
-  systemctl enable --now "$UNIT_NAME"
+  systemctl enable "$UNIT_NAME"
+  # restart (not just enable --now): on a re-install the unit is already running
+  # with the OLD binary + token, and enable --now won't replace it. Always
+  # restart so the freshly-written binary and env file take effect.
+  systemctl restart "$UNIT_NAME"
   ok "swarmy-agent running under systemd ($BIN_PATH)."
   say "Logs: journalctl -u $UNIT_NAME -f"
 }
