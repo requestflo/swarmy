@@ -10,6 +10,7 @@
  * Secrets (RPC secret, admin token, S3 access keys) are encrypted at rest via
  * the vault and only decrypted in-memory when rendering a deployment.
  */
+import { NODE_STORAGE_LABEL } from '@swarmy/core';
 import { decryptSecret, encryptSecret, randomToken } from '@swarmy/core/crypto';
 import type { OrgContext } from '../context';
 import { mapDispatchError, notFound } from '../errors';
@@ -224,6 +225,20 @@ export async function previewDeployment(ctx: OrgContext) {
   return renderGarageDeployment(renderInput(ctx, row));
 }
 
+/** Online org nodes carrying the storage role label (`swarmy.node.storage=true`, WS7). */
+async function storageRoleNodes(ctx: OrgContext): Promise<string[]> {
+  const rows = (await ctx.db.node.findMany({
+    where: { orgId: ctx.activeOrgId },
+    select: { id: true },
+  })) as { id: string }[];
+  return rows
+    .map((r) => r.id)
+    .filter(
+      (id) =>
+        ctx.hub.isOnline(id) && ctx.hub.nodeInfoFor(id)?.labels?.[NODE_STORAGE_LABEL] === 'true',
+    );
+}
+
 /** Deploy Garage members to every selected node and mark the cluster enabled. */
 export async function enable(ctx: OrgContext): Promise<StorageClusterView> {
   const row = await load(ctx);
@@ -232,9 +247,15 @@ export async function enable(ctx: OrgContext): Promise<StorageClusterView> {
 
   const nodeIds = members(row);
   if (nodeIds.length === 0) {
-    // Fall back to a single manager so a one-node store still works.
-    const mgr = await resolveManagerNode(ctx);
-    nodeIds.push(mgr.id);
+    // No explicit members: prefer online nodes carrying the storage role label
+    // (`swarmy.node.storage=true`, WS7); fall back to a single manager so a
+    // one-node store still works.
+    const storageNodes = await storageRoleNodes(ctx);
+    if (storageNodes.length > 0) nodeIds.push(...storageNodes);
+    else {
+      const mgr = await resolveManagerNode(ctx);
+      nodeIds.push(mgr.id);
+    }
   }
 
   try {

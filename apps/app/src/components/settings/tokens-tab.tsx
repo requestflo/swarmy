@@ -17,6 +17,7 @@ import {
   cn,
   toast,
 } from '@swarmy/ui';
+import { NODE_PROFILE_LABELS, NODE_PROFILE_VALUES, type NodeProfile } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { relTime } from '@/lib/format';
 
@@ -61,12 +62,14 @@ export function TokensTab(): React.JSX.Element {
   const tokens = useQuery(trpc.nodes.listJoinTokens.queryOptions());
   const [issued, setIssued] = React.useState<string | null>(null);
   const [label, setLabel] = React.useState('');
+  const [profile, setProfile] = React.useState<NodeProfile>('default');
 
   const generate = useMutation(
     trpc.nodes.generateJoinToken.mutationOptions({
       onSuccess: (res) => {
         setIssued(res.token);
         setLabel('');
+        setProfile('default');
         void qc.invalidateQueries();
       },
       onError: (e) => toast.error(e.message),
@@ -110,13 +113,37 @@ export function TokensTab(): React.JSX.Element {
                 placeholder="prod-worker-1"
               />
             </div>
+            <div className="grid min-w-[11rem] gap-1.5">
+              <Label htmlFor="token-profile" className="mono-label">
+                Profile
+              </Label>
+              <select
+                id="token-profile"
+                value={profile}
+                onChange={(e) => setProfile(e.target.value as NodeProfile)}
+                title={NODE_PROFILE_LABELS[profile].description}
+                className="border-input bg-background h-9 rounded-md border px-3 text-sm"
+              >
+                {NODE_PROFILE_VALUES.map((p) => (
+                  <option key={p} value={p}>
+                    {NODE_PROFILE_LABELS[p].title}
+                  </option>
+                ))}
+              </select>
+            </div>
             <Button
-              onClick={() => generate.mutate({ label: label || undefined })}
+              onClick={() =>
+                generate.mutate({
+                  label: label || undefined,
+                  profile: profile === 'default' ? undefined : profile,
+                })
+              }
               disabled={generate.isPending}
             >
               <PlusIcon className="size-4" /> Generate token
             </Button>
           </div>
+          <p className="text-muted-foreground -mt-2 text-xs">{NODE_PROFILE_LABELS[profile].description}</p>
         </CardContent>
       </Card>
 
@@ -145,7 +172,14 @@ export function TokensTab(): React.JSX.Element {
                 className="hover:bg-accent/50 flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-4 transition-colors"
               >
                 <div className="min-w-[10rem] flex-1">
-                  <p className="truncate font-medium">{t.label ?? 'Unlabelled token'}</p>
+                  <p className="truncate font-medium">
+                    {t.label ?? 'Unlabelled token'}
+                    {t.profile ? (
+                      <span className="text-muted-foreground ml-2 text-xs font-normal">
+                        {NODE_PROFILE_LABELS[t.profile].title}
+                      </span>
+                    ) : null}
+                  </p>
                   <p className="mono-data text-muted-foreground text-xs">{t.tokenPrefix}…</p>
                 </div>
                 <div className="hidden sm:block">

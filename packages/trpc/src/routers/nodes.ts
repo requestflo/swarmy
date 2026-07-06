@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { NODE_PROFILE_VALUES } from '@swarmy/core';
 import { orgProcedure, adminProcedure, router } from '../trpc';
 import {
   getNode,
@@ -42,10 +43,17 @@ export const nodesRouter = router({
         id: z.string(),
         ingress: z.boolean().optional(),
         outlet: z.boolean().optional(),
+        storage: z.boolean().optional(),
+        database: z.boolean().optional(),
       }),
     )
     .mutation(({ ctx, input }) =>
-      setNodeRole(ctx, input.id, { ingress: input.ingress, outlet: input.outlet }),
+      setNodeRole(ctx, input.id, {
+        ingress: input.ingress,
+        outlet: input.outlet,
+        storage: input.storage,
+        database: input.database,
+      }),
     ),
 
   /** Assign a node's region (`swarmy.region` label via updateSwarmNode). */
@@ -106,6 +114,8 @@ export const nodesRouter = router({
         ttlSeconds: z.number().int().min(60).max(604_800).optional(),
         maxUses: z.number().int().min(1).max(100).optional(),
         label: z.string().max(80).optional(),
+        /** WS7 install profile: the label bundle nodes enroll with. */
+        profile: z.enum(NODE_PROFILE_VALUES).optional(),
       }),
     )
     .mutation(({ ctx, input }) => generateJoinToken(ctx, input)),

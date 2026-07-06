@@ -35,6 +35,10 @@ export interface NodeSummary {
   ingress?: boolean;
   /** Carries the egress-outlet role label (`swarmy.node.outlet=true`). */
   outlet?: boolean;
+  /** Carries the object-storage role label (`swarmy.node.storage=true`). */
+  storage?: boolean;
+  /** Carries the managed-database role label (`swarmy.node.database=true`). */
+  database?: boolean;
   /** Region label (`swarmy.region`), or null if unset. */
   region?: string | null;
   /** Effective public IP (`swarmy.node.public-ip`; override label wins). */

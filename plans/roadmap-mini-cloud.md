@@ -99,6 +99,11 @@ Phase-A follow-ups (verifiers' findings, deliberately deferred):
   deploys replicated:1 (true multi-member needs per-node deployment in
   garage-render + the agent storage handler). Presigned URLs sign the in-swarm
   endpoint; a public S3 edge endpoint + endpoint knob is the follow-up.
+- **WS7**: the `swarmy.node.database` role label + toggle exist and Garage
+  member selection prefers `swarmy.node.storage` nodes — but the managed-DB
+  reconcile worker does not yet consume the database role in its placement
+  constraints (six spec-building sites in `manageddb-reconcile.ts`; wants its
+  own careful pass with tests rather than a rushed edit).
 
 ## 4. Execution order
 
@@ -124,7 +129,7 @@ Phase-A follow-ups (verifiers' findings, deliberately deferred):
 | WS4 protection completion | built (pending integration) |
 | WS5 Garage lifecycle | built (pending integration) |
 | WS6 retention enforcement | built (pending integration) |
-| WS7 install profiles + data roles | in progress |
+| WS7 install profiles + data roles | built (pending integration) |
 
 ## 6. Supersessions
 

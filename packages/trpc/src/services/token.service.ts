@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { JOIN_TOKEN_PREFIX } from '@swarmy/core';
+import { JOIN_TOKEN_PREFIX, parseNodeProfile, type NodeProfile } from '@swarmy/core';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 
@@ -13,11 +13,13 @@ export interface JoinTokenIssued {
   expiresAt: Date;
   maxUses: number;
   label: string | null;
+  profile: NodeProfile | null;
 }
 
 export interface JoinTokenView {
   id: string;
   label: string | null;
+  profile: NodeProfile | null;
   tokenPrefix: string;
   createdAt: Date;
   expiresAt: Date | null;
@@ -29,7 +31,7 @@ export interface JoinTokenView {
 
 export async function generateJoinToken(
   ctx: OrgContext,
-  args: { ttlSeconds?: number; maxUses?: number; label?: string },
+  args: { ttlSeconds?: number; maxUses?: number; label?: string; profile?: NodeProfile },
 ): Promise<JoinTokenIssued> {
   const prefix = randomBytes(4).toString('hex');
   const secret = randomBytes(32).toString('base64url');
@@ -37,6 +39,9 @@ export async function generateJoinToken(
   const ttl = Math.min(args.ttlSeconds ?? 3600, 604_800);
   const maxUses = Math.min(args.maxUses ?? 1, 100);
   const expiresAt = new Date(Date.now() + ttl * 1000);
+  // 'default' is the absence of a profile — store null so the register path
+  // has nothing to resolve.
+  const profile = args.profile && args.profile !== 'default' ? args.profile : null;
 
   const row = await ctx.db.joinToken.create({
     data: {
@@ -44,12 +49,13 @@ export async function generateJoinToken(
       tokenHash: hashToken(token),
       tokenPrefix: prefix,
       label: args.label ?? null,
+      profile,
       maxUses,
       expiresAt,
       createdById: ctx.user.id,
     },
   });
-  return { id: row.id, token, expiresAt, maxUses, label: row.label };
+  return { id: row.id, token, expiresAt, maxUses, label: row.label, profile };
 }
 
 function tokenStatus(row: {
@@ -72,6 +78,7 @@ export async function listJoinTokens(ctx: OrgContext): Promise<JoinTokenView[]> 
   return rows.map((r) => ({
     id: r.id,
     label: r.label,
+    profile: parseNodeProfile(r.profile),
     tokenPrefix: r.tokenPrefix,
     createdAt: r.createdAt,
     expiresAt: r.expiresAt,

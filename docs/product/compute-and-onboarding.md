@@ -158,7 +158,12 @@ Four ideas, one story:
 ## Onboarding (the one part we hand-hold)
 
 The dashboard's "Add a node" flow is the only manual step, and it is guided: mint
-or reuse a join token (optionally with labels + a role hint), show the copy-paste
+or reuse a join token (optionally with labels + a role hint **and an install
+profile** — Default / Edge / Storage / Database / Private-mesh; the profile is a
+label bundle stamped once at enrollment, so an "edge" token yields a node that's
+already an ingress edge, and a "private-mesh" token yields a node with no public
+roles that auto-joins the org mesh when one is enabled — always just a starting
+point the role switches can change), show the copy-paste
 one-liner, and watch the node transition to ONLINE live. The installer is
 two-stage on purpose — a tiny reviewable loader prints the pinned version +
 checksums, then fetches a checksum-pinned installer and agent binary — so

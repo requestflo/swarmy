@@ -7,10 +7,17 @@ import {
   parseAgentEnvelope,
   type RegisterPayload,
 } from '@swarmy/core/protocol';
-import { SESSION_TOKEN_PREFIX } from '@swarmy/core';
+import { SESSION_TOKEN_PREFIX, parseNodeProfile, type NodeProfile } from '@swarmy/core';
 import type { LogLine } from '@swarmy/core/views';
 import { prisma } from '@swarmy/db';
-import { orchestrateSwarmMembership, stampReportedPublicIp } from '@swarmy/trpc';
+import {
+  enrollMeshNode,
+  orchestrateSwarmMembership,
+  stampProfileLabels,
+  stampReportedPublicIp,
+  systemContext,
+} from '@swarmy/trpc';
+import { authRegistry } from '@swarmy/auth';
 import type { AgentHubImpl } from './hub';
 import type { GatewayStore } from './store';
 import type { AgentSocket, ConnectionRegistry } from './registry';
@@ -205,6 +212,7 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
   let nodeId: string | null = null;
   let orgId: string | null = null;
   let roleHint: 'manager' | 'worker' | null = null;
+  let profile: NodeProfile | null = null;
 
   if (auth.kind === 'join') {
     const token = await prisma.joinToken.findUnique({ where: { tokenHash: sha256(auth.joinToken) } });
@@ -226,6 +234,7 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
     });
     nodeId = node.id;
     roleHint = token.roleHint === 'MANAGER' ? 'manager' : token.roleHint === 'WORKER' ? 'worker' : null;
+    profile = parseNodeProfile(token.profile);
     await prisma.joinToken.update({ where: { id: token.id }, data: { uses: { increment: 1 } } });
   } else {
     const node = await prisma.node.findUnique({ where: { id: auth.nodeId } });
@@ -275,6 +284,23 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
   // Geo-edge: stamp the self-detected public IP once the node's swarm identity
   // is known (label dispatch no-ops until then; heartbeats re-try it anyway).
   void stampReportedPublicIp(deps.hub, orgId, nodeId, facts.publicIp, ws.remoteAddress);
+
+  // WS7 install profiles: first-register-with-token only. The label bundle
+  // stamps once the swarm join lands (retried inside); private-mesh nodes are
+  // auto-enrolled into the org mesh when a driver is enabled — quietly a no-op
+  // otherwise (the profile is a starting point, never a hard requirement).
+  if (profile) {
+    void stampProfileLabels(deps.hub, orgId, nodeId, profile);
+    if (profile === 'private-mesh') {
+      const ctx = systemContext({ db: prisma as never, hub: deps.hub, auth: authRegistry as never }, orgId);
+      void enrollMeshNode(ctx, { nodeId }).catch((err) => {
+        console.warn(
+          `[profiles] node ${nodeId}: private-mesh auto-enroll skipped:`,
+          err instanceof Error ? err.message : err,
+        );
+      });
+    }
+  }
 
   // node-onboarding P2: init or join the org's Docker Swarm (best-effort, async).
   // Surface failures (e.g. a missing SWARMY_SECRET_KEY blocking the token vault)

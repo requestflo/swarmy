@@ -71,6 +71,55 @@ export function parseExposeMode(raw: string | null | undefined): ExposeMode | nu
     : null;
 }
 
+// ── Node data roles + install profiles (roadmap WS7) ─────────────────────────
+
+/** This node hosts object-storage members (Garage placement prefers it). */
+export const NODE_STORAGE_LABEL = 'swarmy.node.storage';
+/** This node hosts managed databases (managed-DB placement prefers it). */
+export const NODE_DATABASE_LABEL = 'swarmy.node.database';
+
+export const NODE_PROFILE_VALUES = ['default', 'edge', 'storage', 'database', 'private-mesh'] as const;
+/** Install profile carried on a join token: the label bundle a node enrolls with. */
+export type NodeProfile = (typeof NODE_PROFILE_VALUES)[number];
+
+/** One-line descriptions for the token-mint profile picker. */
+export const NODE_PROFILE_LABELS: Record<NodeProfile, { title: string; description: string }> = {
+  default: { title: 'Default', description: 'A plain worker — assign roles later.' },
+  edge: { title: 'Edge', description: 'Terminates public traffic (ingress role).' },
+  storage: { title: 'Storage', description: 'Hosts object-storage members.' },
+  database: { title: 'Database', description: 'Hosts managed databases.' },
+  'private-mesh': { title: 'Private (mesh)', description: 'No public roles; joins the private mesh when enabled.' },
+};
+
+/**
+ * The Docker node labels a profile bundles. Applied once at enrollment via the
+ * normal label dispatch — after that the labels are ordinary Docker truth the
+ * role switches edit; the profile is a starting point, never a sync source.
+ */
+export function profileToLabels(profile: NodeProfile | null | undefined): Record<string, string> {
+  switch (profile) {
+    case 'edge':
+      return { 'swarmy.node.ingress': 'true' };
+    case 'storage':
+      return { [NODE_STORAGE_LABEL]: 'true' };
+    case 'database':
+      return { [NODE_DATABASE_LABEL]: 'true' };
+    // private-mesh bundles NO labels — its meaning is the absence of public
+    // roles plus mesh enrollment, which the register path triggers separately.
+    case 'private-mesh':
+    case 'default':
+    default:
+      return {};
+  }
+}
+
+/** Parse a raw JoinToken.profile value; unknown/absent → null (default). */
+export function parseNodeProfile(raw: string | null | undefined): NodeProfile | null {
+  return raw != null && (NODE_PROFILE_VALUES as readonly string[]).includes(raw)
+    ? (raw as NodeProfile)
+    : null;
+}
+
 /** `violation` = declared intent is contradicted; `warning` = declared but unrealised. */
 export type ExposureDriftLevel = 'violation' | 'warning';
 

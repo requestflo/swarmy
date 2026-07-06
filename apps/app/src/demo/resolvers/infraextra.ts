@@ -40,6 +40,8 @@ import type { DemoStore, DomainResolvers } from '../types';
 interface JoinTokenView {
   id: string;
   label: string | null;
+  /** WS7 install profile the token enrolls nodes with (null = default). */
+  profile: 'default' | 'edge' | 'storage' | 'database' | 'private-mesh' | null;
   tokenPrefix: string;
   createdAt: string;
   expiresAt: string | null;
@@ -56,6 +58,7 @@ interface JoinTokenIssued {
   expiresAt: string;
   maxUses: number;
   label: string | null;
+  profile: JoinTokenView['profile'];
 }
 
 type TermTargetKind = 'container' | 'nodeShell';
@@ -190,6 +193,7 @@ function seedTokens(): { tokens: JoinTokenView[]; issued: Record<string, string>
     const t: JoinTokenView = {
       id,
       label,
+      profile: null,
       tokenPrefix: prefix,
       createdAt: iso(createdMsAgo),
       expiresAt: isoIn(ttlMs - createdMsAgo),
@@ -464,7 +468,12 @@ export const infraextra: DomainResolvers = {
   handlers: {
     // ── nodes: join tokens ──────────────────────────────────────────────────
     'nodes.generateJoinToken': (input, store): JoinTokenIssued => {
-      const args = (input ?? {}) as { ttlSeconds?: number; maxUses?: number; label?: string };
+      const args = (input ?? {}) as {
+        ttlSeconds?: number;
+        maxUses?: number;
+        label?: string;
+        profile?: JoinTokenView['profile'];
+      };
       const s = state(store);
       const ttlMs = Math.min(args.ttlSeconds ?? 3600, 604_800) * 1000;
       const maxUses = Math.min(args.maxUses ?? 1, 100);
@@ -475,6 +484,7 @@ export const infraextra: DomainResolvers = {
       const row: JoinTokenView = {
         id,
         label: args.label ?? null,
+        profile: args.profile && args.profile !== 'default' ? args.profile : null,
         tokenPrefix: prefix,
         createdAt: new Date().toISOString(),
         expiresAt,
@@ -485,7 +495,7 @@ export const infraextra: DomainResolvers = {
       };
       s.tokens.unshift(row);
       s.issued[id] = token;
-      return { id, token, expiresAt, maxUses, label: row.label };
+      return { id, token, expiresAt, maxUses, label: row.label, profile: row.profile };
     },
 
     'nodes.listJoinTokens': (_input, store): JoinTokenView[] =>

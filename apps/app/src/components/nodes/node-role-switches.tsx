@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { RouteIcon, ShieldIcon } from 'lucide-react';
+import { DatabaseIcon, HardDriveIcon, RouteIcon, ShieldIcon } from 'lucide-react';
 import { Label, Switch, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 
@@ -8,10 +8,18 @@ interface NodeRoleSwitchesProps {
   nodeId: string;
   ingress: boolean;
   outlet: boolean;
+  storage?: boolean;
+  database?: boolean;
 }
 
-/** Ingress-edge / egress-outlet role toggles — `swarmy.node.{ingress,outlet}` labels. */
-export function NodeRoleSwitches({ nodeId, ingress, outlet }: NodeRoleSwitchesProps): React.JSX.Element {
+/** Node role toggles — the `swarmy.node.{ingress,outlet,storage,database}` labels. */
+export function NodeRoleSwitches({
+  nodeId,
+  ingress,
+  outlet,
+  storage = false,
+  database = false,
+}: NodeRoleSwitchesProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
 
@@ -39,6 +47,22 @@ export function NodeRoleSwitches({ nodeId, ingress, outlet }: NodeRoleSwitchesPr
         checked={outlet}
         disabled={setRole.isPending}
         onCheckedChange={(v) => setRole.mutate({ id: nodeId, outlet: v })}
+      />
+      <RoleRow
+        icon={<HardDriveIcon className="size-3.5" />}
+        label="Storage"
+        hint="Preferred home for object-storage members."
+        checked={storage}
+        disabled={setRole.isPending}
+        onCheckedChange={(v) => setRole.mutate({ id: nodeId, storage: v })}
+      />
+      <RoleRow
+        icon={<DatabaseIcon className="size-3.5" />}
+        label="Database"
+        hint="Preferred home for managed databases."
+        checked={database}
+        disabled={setRole.isPending}
+        onCheckedChange={(v) => setRole.mutate({ id: nodeId, database: v })}
       />
     </div>
   );

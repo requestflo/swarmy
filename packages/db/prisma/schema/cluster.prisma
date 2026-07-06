@@ -43,6 +43,10 @@ model JoinToken {
   uses        Int       @default(0)
   // node-onboarding P2: preferred swarm role for nodes minted from this token.
   roleHint    NodeRole?
+  // WS7 install profiles: label bundle stamped onto nodes enrolled with this
+  // token — 'edge' | 'storage' | 'database' | 'private-mesh' (see
+  // NODE_PROFILE_VALUES in @swarmy/core). Null = default (no bundle).
+  profile     String?
   expiresAt   DateTime?
   revokedAt   DateTime?
   createdById String?

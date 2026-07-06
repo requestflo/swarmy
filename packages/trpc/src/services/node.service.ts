@@ -1,3 +1,4 @@
+import { NODE_DATABASE_LABEL, NODE_STORAGE_LABEL, profileToLabels, type NodeProfile } from '@swarmy/core';
 import type { SwarmNodeInfo, SwarmState } from '@swarmy/core/protocol';
 import type { NodeDetail, NodeStatusView, NodeSummary } from '@swarmy/core/views';
 import type { OrgContext } from '../context';
@@ -58,11 +59,15 @@ export const CANVAS_Y_LABEL = 'swarmy.canvas.y';
 function rolesFromLabels(labels: Record<string, string> | undefined): {
   ingress: boolean;
   outlet: boolean;
+  storage: boolean;
+  database: boolean;
   region: string | null;
 } {
   return {
     ingress: labels?.[NODE_INGRESS_LABEL] === 'true',
     outlet: labels?.[NODE_OUTLET_LABEL] === 'true',
+    storage: labels?.[NODE_STORAGE_LABEL] === 'true',
+    database: labels?.[NODE_DATABASE_LABEL] === 'true',
     region: labels?.[NODE_REGION_LABEL] ?? null,
   };
 }
@@ -106,6 +111,8 @@ function toSummary(ctx: OrgContext, n: NodeRow): NodeSummary {
     role: info?.role ?? 'worker',
     ingress: roles.ingress,
     outlet: roles.outlet,
+    storage: roles.storage,
+    database: roles.database,
     region: roles.region,
     publicIp: publicIpFromLabels(info?.labels),
     status: statusOf(info, online, lastSeen != null, ctx.hub.swarmStateFor(n.id)),
@@ -198,8 +205,8 @@ export async function setNodeLabels(
 export async function setNodeRole(
   ctx: OrgContext,
   id: string,
-  roles: { ingress?: boolean; outlet?: boolean },
-): Promise<{ id: string; ingress: boolean; outlet: boolean }> {
+  roles: { ingress?: boolean; outlet?: boolean; storage?: boolean; database?: boolean },
+): Promise<{ id: string; ingress: boolean; outlet: boolean; storage: boolean; database: boolean }> {
   const node = await ctx.db.node.findFirst({
     where: { id, orgId: ctx.activeOrgId },
     select: { id: true },
@@ -209,6 +216,8 @@ export async function setNodeRole(
   const patch: Record<string, string> = {};
   if (roles.ingress !== undefined) patch[NODE_INGRESS_LABEL] = roles.ingress ? 'true' : '';
   if (roles.outlet !== undefined) patch[NODE_OUTLET_LABEL] = roles.outlet ? 'true' : '';
+  if (roles.storage !== undefined) patch[NODE_STORAGE_LABEL] = roles.storage ? 'true' : '';
+  if (roles.database !== undefined) patch[NODE_DATABASE_LABEL] = roles.database ? 'true' : '';
 
   if (Object.keys(patch).length > 0) {
     await dispatchNodeLabels(ctx.hub, ctx.activeOrgId, id, patch);
@@ -217,7 +226,13 @@ export async function setNodeRole(
   // Reflect the resulting state: live labels merged with the patch we just sent.
   const merged = { ...(ctx.hub.nodeInfoFor(id)?.labels ?? {}), ...patch };
   const result = rolesFromLabels(merged);
-  return { id, ingress: result.ingress, outlet: result.outlet };
+  return {
+    id,
+    ingress: result.ingress,
+    outlet: result.outlet,
+    storage: result.storage,
+    database: result.database,
+  };
 }
 
 /**
@@ -250,6 +265,37 @@ export async function setPublicIpOverride(
  * an outbound check) but log it. No-ops when unchanged, so heartbeat-frequency
  * calls cost one label lookup.
  */
+/**
+ * Apply a join token's install-profile label bundle to a freshly-enrolled node
+ * (roadmap WS7). Enrollment races the swarm join — the node has no swarm labels
+ * to patch until `swarm.join` completes — so this retries with a fixed cadence
+ * for a couple of minutes, then gives up quietly (the profile is a starting
+ * point; the role switches always work). Fire-and-forget from the register path.
+ */
+export async function stampProfileLabels(
+  hub: AgentHub,
+  orgId: string,
+  nodeId: string,
+  profile: NodeProfile,
+  opts: { attempts?: number; delayMs?: number } = {},
+): Promise<boolean> {
+  const patch = profileToLabels(profile);
+  if (Object.keys(patch).length === 0) return true;
+  const attempts = opts.attempts ?? 24;
+  const delayMs = opts.delayMs ?? 5_000;
+  for (let i = 0; i < attempts; i++) {
+    const existing = hub.nodeInfoFor(nodeId)?.labels;
+    if (existing && Object.entries(patch).every(([k, v]) => existing[k] === v)) return true;
+    if (existing) {
+      const stamped = await dispatchNodeLabels(hub, orgId, nodeId, patch).catch(() => false);
+      if (stamped) return true;
+    }
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  console.warn(`[profiles] node ${nodeId}: could not stamp '${profile}' labels (node never joined the swarm?)`);
+  return false;
+}
+
 export async function stampReportedPublicIp(
   hub: AgentHub,
   orgId: string,

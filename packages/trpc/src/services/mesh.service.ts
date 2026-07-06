@@ -189,13 +189,20 @@ export async function setDriver(ctx: OrgContext, driver: MeshDriverId): Promise<
 }
 
 export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<MeshConfigView> {
-  await ensureConfig(ctx);
-  await ctx.db.meshConfig.update({ where: { orgId: ctx.activeOrgId }, data: { enabled } });
+  const row = await ensureConfig(ctx);
+  // NetBird is the default once mesh is enabled (see @swarmy/mesh registry):
+  // enabling with no driver chosen means "give me the recommended mesh", not
+  // "enable nothing". An explicitly-chosen driver is never overridden.
+  const defaultedDriver = enabled && row.driver === 'NONE' ? DRIVER_TO_ENUM.netbird : undefined;
+  await ctx.db.meshConfig.update({
+    where: { orgId: ctx.activeOrgId },
+    data: { enabled, ...(defaultedDriver ? { driver: defaultedDriver } : {}) },
+  });
   await writeAudit(ctx, {
     action: 'mesh.setEnabled',
     targetType: 'meshConfig',
     targetId: ctx.activeOrgId,
-    metadata: { enabled },
+    metadata: { enabled, ...(defaultedDriver ? { driverDefaulted: 'netbird' } : {}) },
   });
   return getConfig(ctx);
 }

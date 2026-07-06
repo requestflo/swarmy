@@ -72,7 +72,15 @@ export type {
 
 // ── public-api-terraform P2 (Wave G1): REST CRUD service fns ──
 export { listApiKeys, createApiKey, revokeApiKey } from './services/apiKeys.service';
-export { setNodeAvailability, setNodeLabels, removeNode, stampReportedPublicIp } from './services/node.service';
+export {
+  setNodeAvailability,
+  setNodeLabels,
+  removeNode,
+  stampReportedPublicIp,
+  stampProfileLabels,
+} from './services/node.service';
+// WS7 private-mesh profile: the register path auto-enrolls the node into the mesh.
+export { enrollNode as enrollMeshNode } from './services/mesh.service';
 // ── geo-dns ("swarmy is the nameserver"): worker + REST seams ──
 export {
   listDnsView,
