@@ -1,5 +1,9 @@
 # swarmy — Execution Roadmap
 
+> **Superseded (2026-07)** as the forward plan by
+> [`plans/roadmap-mini-cloud.md`](./roadmap-mini-cloud.md) — the phases below
+> are substantially shipped. §5 (cross-cutting concerns) remains binding.
+
 > Lead architect/PM roadmap synthesizing the 13 epic plan docs in `plans/`.
 > Companion doc: `plans/RECOMMENDATIONS.md` (founder decisions).
 

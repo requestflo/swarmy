@@ -5,6 +5,21 @@ other product doc and states the promises they all keep. No single skill owns it
 it references the `hot-signal-design`, `docker-native-storage`, `add-feature-slice`,
 and `start-epic` skills where they apply.**
 
+## What swarmy is (positioning)
+
+swarmy is **your own cloud, on your own hardware**: a self-hosted mini-cloud
+platform for VPSs, home servers, office boxes and bare metal. Docker Swarm is
+the substrate; swarmy adds the cloud-shaped layers — private mesh, a public
+edge with protection, tunnels for zero-firewall exposure, object storage,
+managed databases with PITR, GeoDNS, backups/DR, governance — so a person or
+small team gets cloud-like power **without cloud-provider lock-in**. Two
+commitments follow: the first node bootstraps everything (**no required
+swarmy cloud** — your cloud must not depend on ours), and the agent that
+manages Docker lives *outside* Docker (a host-level binary), because the
+thing that repairs the platform can't ride on the platform being healthy.
+The current delta between this positioning and the code is tracked in
+`plans/roadmap-mini-cloud.md`.
+
 ## The feeling we are building
 
 swarmy should feel like it has exactly two altitudes, and you always know which

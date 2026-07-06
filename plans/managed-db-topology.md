@@ -1,5 +1,12 @@
 # Design: managed database topology at the stack level
 
+> **Superseded (2026-07).** The managed-DB plane is implemented well beyond
+> this design — Postgres-only engines via bitnami streaming replication (not
+> Patroni/Stolon), automatic promote, PITR, geo topologies — see
+> `packages/trpc/src/services/manageddb.service.ts` +
+> `apps/api/src/workers/manageddb-reconcile.ts` and
+> `docs/product/managed-data.md`. Kept for `swarmy.db.*` label-schema history.
+
 Status: future / design-only (roadmap #8). No code. This anchors how swarmy will
 let an operator declare a managed datastore — Postgres, MySQL, Redis — as part of a
 stack, and have swarmy provision, wire, and keep it healthy. It builds on the

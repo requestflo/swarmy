@@ -103,6 +103,14 @@ Four ideas, one story:
 - **The exposure verdict is derived every time, never stored.** `auditExposure`
   classifies each live service on read; the only persisted thing is the rule
   toggles.
+- **Direction (adopted 2026-07, being built): exposure becomes *declared*, not
+  just inferred.** Every service will carry an intent — `swarmy.expose` ∈
+  `public | tunnel | private | mesh` (a service label, Docker truth) — chosen
+  in the UI. Admission enforces intent-vs-spec (a `private` service with a
+  published port is refused), and the audit gains drift detection: declared ≠
+  observed is itself a violation. The inferred classifier stays — it becomes
+  the *observed* half of the comparison. See `plans/roadmap-mini-cloud.md`
+  (WS3).
 
 ## Ingress & exposure behaviour
 

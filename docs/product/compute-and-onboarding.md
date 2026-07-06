@@ -50,8 +50,15 @@ registerAck { nodeId, sessionCredential, heartbeat/metrics intervals }
 node ONLINE on the Infrastructure canvas
 ```
 
-Three ideas, one story:
+Four ideas, one story:
 
+- **The agent lives outside Docker.** It is a host-level reconciler — a
+  Bun-compiled binary under systemd (`/usr/local/bin/swarmy-agent`), with the
+  Docker-container install only as a fallback for hosts without systemd. The
+  agent is the thing that manages, inspects, and repairs Docker; it must not
+  depend on Docker being healthy to run. A wedged daemon, a full disk, a
+  broken swarm — the agent survives all of them and is the hand that fixes
+  them.
 - **The agent dials out; the controller never reaches in.** The only runtime
   network dependency is the agent's outbound WSS. This is why swarmy works on a
   box behind NAT with zero inbound ports — and why swarm `init`/`join` happen on
@@ -127,6 +134,11 @@ Three ideas, one story:
 
 ## Explicitly rejected
 
+- **Running the agent inside Docker as the primary install.** An agent that
+  rides the thing it manages can't repair it: Docker breaks → the agent
+  container breaks → nobody's left to fix Docker. The container backend
+  exists only as a fallback for systemd-less hosts, and it is the degraded
+  mode, not the model.
 - **Controller-initiated SSH / Ansible / cloud-init push.** Requires the
   controller to hold node credentials and reach in — violating the dial-out,
   NAT-friendly, "controller never touches the node" principle. `curl | sh` is
