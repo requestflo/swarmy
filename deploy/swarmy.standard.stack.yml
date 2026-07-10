@@ -52,6 +52,9 @@ services:
       ADMIN_EMAIL: ${SWARMY_ADMIN_EMAIL}
       SWARM_ID: ${SWARMY_SWARM_ID}
       SWARM_MANAGER_ADDR: ${SWARMY_MANAGER_ADDR}
+      # Mesh (opt-in): empty driver/url are no-ops — ensureMeshConfig skips when unset.
+      SWARMY_MESH_DRIVER: ${SWARMY_MESH_DRIVER:-}
+      SWARMY_MESH_MANAGEMENT_URL: ${SWARMY_MESH_MANAGEMENT_URL:-}
       # DATABASE_URL is composed by docker-entrypoint.sh from POSTGRES_* + the secret.
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -64,6 +67,7 @@ services:
       SWARMY_BOOTSTRAP_JOIN_TOKEN_FILE: /run/secrets/bootstrap_join_token
       SWARM_WORKER_TOKEN_FILE: /run/secrets/swarm_worker_token
       SWARM_MANAGER_TOKEN_FILE: /run/secrets/swarm_manager_token
+      SWARMY_MESH_SERVICE_TOKEN_FILE: /run/secrets/mesh_service_token
     secrets:
       - postgres_password
       - swarmy_secret_key
@@ -72,6 +76,7 @@ services:
       - bootstrap_join_token
       - swarm_worker_token
       - swarm_manager_token
+      - mesh_service_token
     ports:
       - target: 3001
         published: ${SWARMY_PUBLISH_PORT}
@@ -120,4 +125,6 @@ secrets:
   swarm_worker_token:
     external: true
   swarm_manager_token:
+    external: true
+  mesh_service_token:
     external: true

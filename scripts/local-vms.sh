@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: FSL-1.1-ALv2
 #
-# Spin up local multipass VMs as REAL swarmy nodes, enrolled the SAME WAY a
+# Spin up local Lima VMs as REAL swarmy nodes, enrolled the SAME WAY a
 # production box is: the two-stage `curl … | sh` installer downloads the
 # Bun-compiled agent binary from your controller, installs it as a systemd
 # service, and the node dials home. No Docker image to build or transfer.
 #
 #   bash scripts/local-vms.sh up        # launch + enroll (default 2 nodes)
-#   bash scripts/local-vms.sh status    # multipass state + per-node agent state
+#   bash scripts/local-vms.sh status    # Lima state + per-node agent state
 #   bash scripts/local-vms.sh logs 1    # follow the agent journal on node 1
 #   bash scripts/local-vms.sh reenroll  # re-run the installer on existing VMs
 #   bash scripts/local-vms.sh down      # delete + purge all swarmy-node-* VMs
@@ -22,14 +22,19 @@
 #
 # Tunables (env):
 #   SWARMY_VM_COUNT=2            how many VMs
-#   SWARMY_VM_CPUS=1 MEM=1G DISK=6G
-#   SWARMY_VM_RELEASE=24.04      Ubuntu release
+#   SWARMY_VM_CPUS=1 MEM=1G DISK=6G   (MEM/DISK in GiB, trailing 'G' optional)
+#   SWARMY_VM_RELEASE=24.04      Ubuntu release (maps to template:ubuntu-<release>)
 #   SWARMY_BACKEND=systemd       agent backend: systemd (native binary) | docker
 #   SWARMY_CONTROLLER_IP=…       host IP the VMs dial (default: en0/en1 LAN IP)
 #   SWARMY_CONTROLLER_PORT=3001
 #   SWARMY_JOIN_TOKEN=…          (default: mint a fresh one via scripts/mint-token.ts)
-#   SWARMY_VM_BRIDGE=en0         bridge VMs onto your LAN instead of NAT
+#   SWARMY_VM_BRIDGE=            extra Lima network, e.g. "lima:shared" (default: none, slirp)
 #   SWARMY_ALLOW_MESH=false      agent capability flags
+#   SWARMY_MESH_DRIVER=          e.g. "netbird" — enables mesh for the dev org (see
+#                                 docs/LOCAL-SWARM.md). Unset (default): no mesh, VMs
+#                                 enroll exactly as before, over LAN.
+#   SWARMY_NB_MANAGEMENT_URL=    NetBird Cloud management URL (https://api.netbird.io)
+#   SWARMY_NB_SERVICE_TOKEN=     NetBird Personal Access Token (mints setup keys)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -44,17 +49,28 @@ RELEASE="${SWARMY_VM_RELEASE:-24.04}"
 CONTROLLER_PORT="${SWARMY_CONTROLLER_PORT:-3001}"
 BACKEND="${SWARMY_BACKEND:-systemd}"
 ALLOW_MESH="${SWARMY_ALLOW_MESH:-false}"
+MESH_DRIVER="${SWARMY_MESH_DRIVER:-}"
+NB_MANAGEMENT_URL="${SWARMY_NB_MANAGEMENT_URL:-}"
+NB_SERVICE_TOKEN="${SWARMY_NB_SERVICE_TOKEN:-}"
+
+# Lima takes CPU count as int, memory + disk as GiB floats. Strip a trailing
+# unit (1G → 1, 1.5G → 1.5) so the env vars stay human-friendly.
+MEM_GB="${MEM%G}"; MEM_GB="${MEM_GB%g}"
+DISK_GB="${DISK%G}"; DISK_GB="${DISK_GB%g}"
 
 say()  { printf '\033[1;36m▸ %s\033[0m\n' "$*"; }
 ok()   { printf '\033[32m✓ %s\033[0m\n' "$*"; }
 warn() { printf '\033[33m! %s\033[0m\n' "$*" >&2; }
 die()  { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 
-need_multipass() {
-  command -v multipass >/dev/null 2>&1 || die "multipass not installed (brew install --cask multipass)."
-  multipass version >/dev/null 2>&1 || die "Can't reach multipassd. Start it:
-    sudo launchctl bootstrap system /Library/LaunchDaemons/com.canonical.multipassd.plist
-    sudo launchctl kickstart -k system/com.canonical.multipassd"
+need_lima() {
+  command -v limactl >/dev/null 2>&1 || die "Lima not installed (brew install lima)."
+  limactl --version >/dev/null 2>&1 || die "limactl not functional."
+}
+
+# True (exit 0) if a Lima instance with the given name exists.
+vm_exists() {
+  limactl list "$1" --quiet >/dev/null 2>&1
 }
 
 resolve_controller_ip() {
@@ -63,16 +79,18 @@ resolve_controller_ip() {
   CONTROLLER_URL="http://${HOST_IP}:${CONTROLLER_PORT}"
 }
 
-# Pick a bridged LAN interface if available (VMs share the Mac's IP range),
-# else NAT (still reaches the controller at HOST_IP).
+# Lima's default networking (slirp) lets VMs reach the host's LAN IP and
+# external hosts — sufficient for dialing the controller. An extra vmnet
+# network (e.g. "lima:shared" for a routable 192.168.205.0/24 address) can be
+# added via SWARMY_VM_BRIDGE for cases that need the VM directly on a network.
 resolve_network() {
-  local want="${SWARMY_VM_BRIDGE:-en0}"
+  local want="${SWARMY_VM_BRIDGE:-}"
   NETWORK_ARGS=()
-  if multipass networks 2>/dev/null | awk 'NR>1{print $1}' | grep -qx "$want"; then
-    NETWORK_ARGS=(--network "name=${want},mode=auto")
-    NET_DESC="bridged via ${want}"
+  if [ -n "$want" ]; then
+    NETWORK_ARGS=(--network "$want")
+    NET_DESC="via ${want}"
   else
-    NET_DESC="NAT (reaches controller at ${HOST_IP})"
+    NET_DESC="default slirp (reaches controller at ${HOST_IP})"
   fi
 }
 
@@ -96,18 +114,43 @@ preflight_controller() {
   ok "Controller serving agent binaries at ${CONTROLLER_URL} (version ${AGENT_VERSION})."
 }
 
+# When SWARMY_MESH_DRIVER/SWARMY_NB_MANAGEMENT_URL/SWARMY_NB_SERVICE_TOKEN are
+# set, upsert the dev org's MeshConfig (scripts/seed-dev.ts's ensureMeshConfig)
+# before minting a token, so the mint below picks up an embedded NetBird setup
+# key. No-op — and no behavior change — when SWARMY_MESH_DRIVER is unset.
+ensure_mesh_seed() {
+  [ -n "$MESH_DRIVER" ] || return 0
+  say "Enabling mesh (${MESH_DRIVER}) for the dev org…"
+  SWARMY_MESH_DRIVER="$MESH_DRIVER" \
+    SWARMY_NB_MANAGEMENT_URL="$NB_MANAGEMENT_URL" \
+    SWARMY_NB_SERVICE_TOKEN="$NB_SERVICE_TOKEN" \
+    bun --env-file=.env run scripts/seed-dev.ts >/dev/null
+  ok "Mesh config applied."
+}
+
+# Sets TOKEN, and (only when mesh is enabled for the org) MESH_SETUP_KEY /
+# MESH_MANAGEMENT_URL / MESH_DRIVER_OUT from scripts/mint-token.ts's
+# `KEY=value` stdout lines.
 resolve_token() {
+  MESH_SETUP_KEY=""
+  MESH_MANAGEMENT_URL=""
+  MESH_DRIVER_OUT=""
   if [ -n "${SWARMY_JOIN_TOKEN:-}" ]; then
     TOKEN="$SWARMY_JOIN_TOKEN"; return
   fi
   say "Minting a fresh join token…"
-  TOKEN="$(bun --env-file=.env run scripts/mint-token.ts 2>/dev/null | tail -1 | tr -d '[:space:]')"
+  local out
+  out="$(bun --env-file=.env run scripts/mint-token.ts 2>/dev/null)"
+  TOKEN="$(printf '%s\n' "$out" | sed -n 's/^TOKEN=//p' | tr -d '[:space:]')"
+  MESH_SETUP_KEY="$(printf '%s\n' "$out" | sed -n 's/^MESH_SETUP_KEY=//p' | tr -d '[:space:]')"
+  MESH_MANAGEMENT_URL="$(printf '%s\n' "$out" | sed -n 's/^MESH_MANAGEMENT_URL=//p' | tr -d '[:space:]')"
+  MESH_DRIVER_OUT="$(printf '%s\n' "$out" | sed -n 's/^MESH_DRIVER=//p' | tr -d '[:space:]')"
   [ -n "$TOKEN" ] || die "Could not mint a join token. Run 'bun run dev:up' first (seeds the dev org)."
+  [ -z "$MESH_SETUP_KEY" ] || ok "Join token embeds a NetBird setup key (${MESH_DRIVER_OUT}) — single-use."
 }
 
 # Run a command with a hard wall-clock cap (macOS has no `timeout`).
-# multipassd (1.16.x + qemu) intermittently wedges a `multipass exec`; the cap
-# turns an indefinite hang into a recoverable failure.
+# Turns an indefinite hang into a recoverable failure.
 guarded() {
   local secs="$1"; shift
   ( "$@" & local p=$!
@@ -124,19 +167,28 @@ guarded() {
 enroll_node() {
   local name="$1"
   local install_url="${CONTROLLER_URL}/install/${AGENT_VERSION}/install.sh"
-  guarded 300 multipass exec "$name" -- sudo env \
+  local mesh_env=()
+  if [ -n "${MESH_SETUP_KEY:-}" ]; then
+    mesh_env=(
+      SWARMY_MESH_SETUP_KEY="$MESH_SETUP_KEY"
+      SWARMY_MESH_MANAGEMENT_URL="$MESH_MANAGEMENT_URL"
+      SWARMY_MESH_DRIVER="$MESH_DRIVER_OUT"
+    )
+  fi
+  guarded 300 limactl shell "$name" -- sudo env \
     SWARMY_JOIN_TOKEN="$TOKEN" \
     SWARMY_BACKEND="$BACKEND" \
     SWARMY_CONTROLLER_URL="$CONTROLLER_URL" \
     SWARMY_BINARY_BASE_URL="${CONTROLLER_URL}/install/bin" \
     SWARMY_NODE_LABELS="local-vm,${name}" \
     SWARMY_ALLOW_MESH="$ALLOW_MESH" \
+    "${mesh_env[@]}" \
     bash -c "curl -fsSL '$install_url' | sh"
 }
 
 up() {
-  need_multipass; resolve_controller_ip; resolve_network
-  build_binaries; preflight_controller; resolve_token
+  need_lima; resolve_controller_ip; resolve_network
+  build_binaries; preflight_controller; ensure_mesh_seed; resolve_token
 
   say "Launching ${COUNT} × Ubuntu ${RELEASE} (${CPUS} CPU / ${MEM} / ${DISK}) — ${NET_DESC}"
   printf '    controller : %s\n    backend    : %s\n    join token : %s…\n\n' \
@@ -144,18 +196,22 @@ up() {
 
   for i in $(seq 1 "$COUNT"); do
     local name="${PREFIX}-${i}"
-    if multipass info "$name" >/dev/null 2>&1; then
-      warn "[$name] exists — re-running the installer (idempotent)."
+    if vm_exists "$name"; then
+      warn "[$name] exists — ensuring it's running, then re-running the installer (idempotent)."
+      limactl start --tty=false "$name" >/dev/null 2>&1 || true
     else
       say "[$name] launching…"
-      multipass launch "$RELEASE" --name "$name" \
-        --cpus "$CPUS" --memory "$MEM" --disk "$DISK" "${NETWORK_ARGS[@]}"
+      limactl start --tty=false --timeout=10m \
+        --name="$name" \
+        --cpus="$CPUS" --memory="$MEM_GB" --disk="$DISK_GB" \
+        "${NETWORK_ARGS[@]}" \
+        "template:ubuntu-${RELEASE}"
     fi
     say "[$name] installing agent (${BACKEND}) ← ${CONTROLLER_URL}"
     if enroll_node "$name"; then
       ok "[$name] agent installed — should reach ONLINE shortly."
     else
-      warn "[$name] install hung/failed. Recover: multipass restart $name && bash scripts/local-vms.sh reenroll"
+      warn "[$name] install hung/failed. Recover: limactl restart $name && bash scripts/local-vms.sh reenroll"
     fi
   done
 
@@ -166,46 +222,46 @@ up() {
 # Re-run the installer on already-launched VMs (e.g. after a fresh token or a
 # new agent build). The installer's systemd path restarts the running unit.
 reenroll() {
-  need_multipass; resolve_controller_ip
-  build_binaries; preflight_controller; resolve_token
+  need_lima; resolve_controller_ip
+  build_binaries; preflight_controller; ensure_mesh_seed; resolve_token
   for i in $(seq 1 "$COUNT"); do
     local name="${PREFIX}-${i}"
-    multipass info "$name" >/dev/null 2>&1 || continue
+    vm_exists "$name" || continue
     say "[$name] re-enrolling ← ${CONTROLLER_URL}"
     enroll_node "$name" && ok "[$name] re-enrolled." || warn "[$name] failed."
   done
 }
 
 status() {
-  need_multipass
-  multipass list 2>/dev/null | grep -E "Name|^${PREFIX}-" || true
+  need_lima
+  limactl list 2>/dev/null | awk 'NR==1 || /^'"$PREFIX"'-/' || true
   echo
   for i in $(seq 1 "$COUNT"); do
     local name="${PREFIX}-${i}"
-    multipass info "$name" >/dev/null 2>&1 || continue
+    vm_exists "$name" || continue
     printf '\033[1m%s\033[0m: ' "$name"
-    guarded 20 multipass exec "$name" -- systemctl is-active swarmy-agent 2>/dev/null \
+    guarded 20 limactl shell "$name" -- systemctl is-active swarmy-agent 2>/dev/null \
       || echo "(container backend or unreachable — try: logs $i)"
   done
 }
 
 logs() {
-  need_multipass
+  need_lima
   local name="${PREFIX}-${1:-1}"
-  if multipass exec "$name" -- systemctl is-active swarmy-agent >/dev/null 2>&1; then
-    multipass exec "$name" -- sudo journalctl -u swarmy-agent -f
+  if limactl shell "$name" -- systemctl is-active swarmy-agent >/dev/null 2>&1; then
+    limactl shell "$name" -- sudo journalctl -u swarmy-agent -f
   else
-    multipass exec "$name" -- sudo docker logs -f swarmy-agent
+    limactl shell "$name" -- sudo docker logs -f swarmy-agent
   fi
 }
 
 down() {
-  need_multipass
-  local names; names="$(multipass list --format csv 2>/dev/null | awk -F, 'NR>1 && $1 ~ /^'"$PREFIX"'-/ {print $1}')"
+  need_lima
+  local names; names="$(limactl list --quiet 2>/dev/null | grep "^${PREFIX}-" || true)"
   [ -n "$names" ] || { warn "No ${PREFIX}-* VMs to remove."; return; }
   say "Deleting: $(echo "$names" | tr '\n' ' ')"
   # shellcheck disable=SC2086
-  multipass delete --purge $names
+  limactl delete --force $names
   ok "Removed."
 }
 

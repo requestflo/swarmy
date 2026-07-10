@@ -31,6 +31,10 @@
     "./crypto": {
       "types": "./src/crypto.ts",
       "import": "./src/crypto.ts"
+    },
+    "./mesh-bootstrap": {
+      "types": "./src/mesh-bootstrap.ts",
+      "import": "./src/mesh-bootstrap.ts"
     }
   },
   "scripts": {

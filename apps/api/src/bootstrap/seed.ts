@@ -23,10 +23,15 @@
  *                                             that is already in a swarm — swarm.service.ts — so
  *                                             a directly-`docker swarm init`'d host never persists
  *                                             its join tokens. We persist them here.)
+ *   SWARMY_MESH_DRIVER, SWARMY_MESH_MANAGEMENT_URL,
+ *   SWARMY_MESH_SERVICE_TOKEN                — from the installer's mesh wizard, when the operator
+ *                                             opts into mesh. Skipped entirely when unset (mesh
+ *                                             stays opt-in for self-host too).
  */
 import { randomUUID } from 'node:crypto';
 import { auth } from '@swarmy/auth';
 import { encryptSecret, hashToken } from '@swarmy/core/crypto';
+import { buildMeshConfigRow } from '@swarmy/core/mesh-bootstrap';
 import { prisma } from '@swarmy/db';
 
 const ORG_NAME = process.env.SWARMY_ORG_NAME ?? 'swarmy';
@@ -55,6 +60,7 @@ export async function maybeBootstrapSeed(): Promise<void> {
   if (rawToken) await ensureJoinToken(orgId, userId, rawToken);
 
   await ensureSwarmConfig(orgId);
+  await ensureMeshConfig(orgId);
 
   log(`bootstrap complete — org "${ORG_NAME}", owner ${email}.`);
 }
@@ -140,4 +146,25 @@ async function ensureSwarmConfig(orgId: string): Promise<void> {
   };
   await prisma.swarmConfig.upsert({ where: { orgId }, create: row, update: row });
   log('persisted SwarmConfig (join tokens) so added nodes join this swarm.');
+}
+
+/**
+ * Enable mesh for the bootstrap org when the installer wizard collected NetBird
+ * Cloud (or another driver's) management URL + service token. Skips entirely
+ * when unset — self-host stays mesh-opt-in, same as every other onboarding path
+ * (epic: zero-trust-networking). Row shape (and validation) is shared with
+ * scripts/seed-dev.ts via @swarmy/core/mesh-bootstrap so the `controlPlane`
+ * JSON stays in sync with what mesh.service.ts's `toOrgConfig` expects.
+ */
+async function ensureMeshConfig(orgId: string): Promise<void> {
+  const row = buildMeshConfigRow(orgId, {
+    driver: process.env.SWARMY_MESH_DRIVER,
+    managementUrl: process.env.SWARMY_MESH_MANAGEMENT_URL,
+    serviceToken: process.env.SWARMY_MESH_SERVICE_TOKEN,
+    onInvalidDriver: (raw) => log(`SWARMY_MESH_DRIVER="${raw}" is not a recognized driver — skipping mesh bootstrap.`),
+  });
+  if (!row) return;
+
+  await prisma.meshConfig.upsert({ where: { orgId }, create: row, update: row });
+  log(`persisted MeshConfig (${row.driver}) — mesh enabled for this org.`);
 }

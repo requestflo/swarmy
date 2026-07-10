@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url';
 import { prisma } from '@swarmy/db';
 import { auth } from '@swarmy/auth';
 import { JOIN_TOKEN_PREFIX } from '@swarmy/core';
+import { buildMeshConfigRow } from '@swarmy/core/mesh-bootstrap';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TOKEN_FILE = join(repoRoot, '.swarmy-dev-token');
@@ -143,6 +144,25 @@ async function ensureJoinToken(orgId: string, userId: string): Promise<string | 
   return token;
 }
 
+/**
+ * Enable mesh for the dev org when SWARMY_MESH_DRIVER/SWARMY_NB_MANAGEMENT_URL/
+ * SWARMY_NB_SERVICE_TOKEN are set in .env (a NetBird Cloud management URL + PAT).
+ * Shares its row shape with apps/api/src/bootstrap/seed.ts's ensureMeshConfig via
+ * @swarmy/core/mesh-bootstrap. Unset → skip; dev stays mesh-off, today's behavior.
+ */
+async function ensureMeshConfig(orgId: string): Promise<void> {
+  const row = buildMeshConfigRow(orgId, {
+    driver: process.env.SWARMY_MESH_DRIVER,
+    managementUrl: process.env.SWARMY_NB_MANAGEMENT_URL,
+    serviceToken: process.env.SWARMY_NB_SERVICE_TOKEN,
+    onInvalidDriver: (raw) => console.warn(`seed-dev: SWARMY_MESH_DRIVER="${raw}" is not a recognized driver — skipping mesh.`),
+  });
+  if (!row) return;
+
+  await prisma.meshConfig.upsert({ where: { orgId }, create: row, update: row });
+  console.log(`seed-dev: persisted MeshConfig (${row.driver}) — mesh enabled for the dev org.`);
+}
+
 async function main(): Promise<void> {
   if (!process.env.DATABASE_URL) {
     console.warn('seed-dev: DATABASE_URL not set; Prisma will fall back to localhost:5678 (run via `bun run seed-dev`).');
@@ -151,6 +171,7 @@ async function main(): Promise<void> {
   const userId = await ensureUser();
   const orgId = await ensureOrg();
   await ensureMember(orgId, userId);
+  await ensureMeshConfig(orgId);
   const minted = await ensureJoinToken(orgId, userId);
 
   console.log('');

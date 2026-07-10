@@ -17,6 +17,9 @@ export function AddNodeFlow(): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const [token, setToken] = React.useState<string | null>(null);
+  const [mesh, setMesh] = React.useState<{ setupKey: string; managementUrl?: string; driver?: string } | null>(
+    null,
+  );
   const [label, setLabel] = React.useState('');
   const [nodeLabels, setNodeLabels] = React.useState('');
   const [role, setRole] = React.useState<NodeRoleChoice>('auto');
@@ -27,6 +30,11 @@ export function AddNodeFlow(): React.JSX.Element {
     trpc.nodes.generateJoinToken.mutationOptions({
       onSuccess: (res) => {
         setToken(res.token);
+        setMesh(
+          res.meshSetupKey
+            ? { setupKey: res.meshSetupKey, managementUrl: res.meshManagementUrl, driver: res.meshDriver }
+            : null,
+        );
         void qc.invalidateQueries();
       },
       onError: (e) => toast.error(e.message),
@@ -49,7 +57,7 @@ export function AddNodeFlow(): React.JSX.Element {
           pending={generate.isPending}
         />
       ) : (
-        <InstallCommandPanel token={token} labels={nodeLabels} role={role} arrived={arrived} />
+        <InstallCommandPanel token={token} labels={nodeLabels} role={role} mesh={mesh} arrived={arrived} />
       )}
     </div>
   );

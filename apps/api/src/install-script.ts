@@ -109,6 +109,10 @@ JOIN_TOKEN="\${SWARMY_JOIN_TOKEN:-}"
 AGENT_IMAGE="\${SWARMY_AGENT_IMAGE:-${agentImage}}"
 STATE_VOLUME="\${SWARMY_STATE_VOLUME:-swarmy-agent}"
 NODE_LABELS="\${SWARMY_NODE_LABELS:-}"
+ALLOW_MESH="\${SWARMY_ALLOW_MESH:-true}"
+MESH_SETUP_KEY="\${SWARMY_MESH_SETUP_KEY:-}"
+MESH_MANAGEMENT_URL="\${SWARMY_MESH_MANAGEMENT_URL:-}"
+MESH_DRIVER="\${SWARMY_MESH_DRIVER:-netbird}"
 CONTAINER_NAME="swarmy-agent"
 
 # --uninstall may also be passed as the first arg (… | sh -s -- --uninstall).
@@ -179,9 +183,14 @@ docker run -d \\
   -e SWARMY_JOIN_TOKEN="$JOIN_TOKEN" \\
   -e SWARMY_NODE_LABELS="$NODE_LABELS" \\
   -e SWARMY_AGENT_STATE=/var/lib/swarmy/agent.json \\
+  -e SWARMY_ALLOW_MESH="$ALLOW_MESH" \\
+  -e SWARMY_MESH_SETUP_KEY="$MESH_SETUP_KEY" \\
+  -e SWARMY_MESH_MANAGEMENT_URL="$MESH_MANAGEMENT_URL" \\
+  -e SWARMY_MESH_DRIVER="$MESH_DRIVER" \\
   "$AGENT_IMAGE" >/dev/null || die "Failed to start the agent container."
 
 [ -z "$NODE_LABELS" ] || ok "Node labels: $NODE_LABELS"
+[ -z "$MESH_SETUP_KEY" ] || ok "Mesh: joining \${MESH_DRIVER} before swarm formation."
 ok "Done. This node should appear ONLINE in your dashboard within a few seconds."
 say "Logs:      docker logs -f $CONTAINER_NAME"
 say "Uninstall: curl -fsSL $CONTROLLER_URL/install.sh | sh -s -- --uninstall"

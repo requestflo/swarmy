@@ -5,18 +5,32 @@ import { CopyButton, StatusBadge, cn } from '@swarmy/ui';
 import type { AwaitedNode } from './use-await-node';
 import type { NodeRoleChoice } from './node-role-picker';
 
-function installOneLiner(token: string, labels: string, role: NodeRoleChoice): string {
+export interface MeshSetupKey {
+  setupKey: string;
+  managementUrl?: string;
+  driver?: string;
+}
+
+/** Build the paste-on-the-box install command (also used by the node repair card). */
+export function installOneLiner(token: string, labels: string, role: NodeRoleChoice, mesh: MeshSetupKey | null): string {
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const labelEnv = labels.trim() ? `SWARMY_NODE_LABELS=${labels.trim()} ` : '';
   // `auto` lets the controller decide (first node → manager, rest → worker).
   const roleEnv = role === 'auto' ? '' : `SWARMY_ROLE_HINT=${role} `;
-  return `curl -fsSL ${origin}/install.sh | SWARMY_JOIN_TOKEN=${token} ${roleEnv}${labelEnv}sh`;
+  // Mesh-first join (epic: zero-trust-networking): when the org has mesh
+  // enabled, the token carries a single-use NetBird setup key so the agent
+  // joins the mesh and confirms connectivity before it registers.
+  const meshEnv = mesh
+    ? `SWARMY_MESH_SETUP_KEY=${mesh.setupKey} ${mesh.managementUrl ? `SWARMY_MESH_MANAGEMENT_URL=${mesh.managementUrl} ` : ''}${mesh.driver ? `SWARMY_MESH_DRIVER=${mesh.driver} ` : ''}`
+    : '';
+  return `curl -fsSL ${origin}/install.sh | SWARMY_JOIN_TOKEN=${token} ${roleEnv}${labelEnv}${meshEnv}sh`;
 }
 
 interface InstallCommandPanelProps {
   token: string;
   labels: string;
   role: NodeRoleChoice;
+  mesh: MeshSetupKey | null;
   arrived: AwaitedNode | null;
 }
 
@@ -28,9 +42,10 @@ export function InstallCommandPanel({
   token,
   labels,
   role,
+  mesh,
   arrived,
 }: InstallCommandPanelProps): React.JSX.Element {
-  const oneLiner = installOneLiner(token, labels, role);
+  const oneLiner = installOneLiner(token, labels, role, mesh);
   return (
     <div className="ink-block grid gap-5 rounded-2xl border-0 p-6 sm:p-8">
       <div className="flex items-start gap-3">
@@ -43,6 +58,12 @@ export function InstallCommandPanel({
             Copy it now — the token won&apos;t be shown again. It installs Docker if needed, starts the
             agent, and the node phones home.
           </p>
+          {mesh ? (
+            <p className="text-primary/80 mt-1 text-xs font-medium">
+              Mesh enabled — this node joins {mesh.driver ?? 'the mesh'} and confirms connectivity before
+              joining the swarm.
+            </p>
+          ) : null}
         </div>
       </div>
 

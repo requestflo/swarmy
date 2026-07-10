@@ -30,7 +30,7 @@
 #   --agent-image <ref>          SWARMY_AGENT_IMAGE
 #   --port <n>                   SWARMY_PUBLISH_PORT (default 3001)
 # Cloudflare (when --ingress cloudflare): CF_API_TOKEN, CF_ACCOUNT_ID, CF_ZONE_ID
-# NetBird (when --mesh netbird-*):        NB_SETUP_KEY, NB_MANAGEMENT_URL
+# NetBird (when --mesh netbird-*):        NB_SERVICE_TOKEN, NB_MANAGEMENT_URL
 set -euo pipefail
 
 # ── constants ───────────────────────────────────────────────────────────────
@@ -213,8 +213,16 @@ wizard() {
     MESH="$(choose 'Overlay mesh (for adding remote nodes later)' none none netbird-cloud netbird-external)"
   fi
   if [ "$MESH" = netbird-cloud ] || [ "$MESH" = netbird-external ]; then
-    [ "$MESH" = netbird-external ] && NB_MANAGEMENT_URL="${NB_MANAGEMENT_URL:-$(prompt 'NetBird management URL')}"
-    NB_SETUP_KEY="${NB_SETUP_KEY:-$(prompt_secret 'NetBird setup key')}"
+    if [ "$MESH" = netbird-external ]; then
+      NB_MANAGEMENT_URL="${NB_MANAGEMENT_URL:-$(prompt 'NetBird management URL')}"
+    else
+      NB_MANAGEMENT_URL="${NB_MANAGEMENT_URL:-$(prompt 'NetBird management URL' 'https://api.netbird.io')}"
+    fi
+    # A Personal Access Token (Settings → Personal Access Tokens), NOT a one-time
+    # setup key — the controller uses it to mint a fresh single-use setup key per
+    # node via the Admin API (mintSetupKeyForOrg), so every "Add a node" one-liner
+    # gets its own key instead of operators sharing one across nodes.
+    NB_SERVICE_TOKEN="${NB_SERVICE_TOKEN:-$(prompt_secret 'NetBird API access token (Personal Access Token)')}"
   fi
 
   # First login always happens over the host IP:port — ingress is applied later in
@@ -240,6 +248,10 @@ ensure_secrets() {  # persist-once into state.env (NEVER regenerate)
   if [ -z "${BOOTSTRAP_JOIN_TOKEN:-}" ]; then
     state_set BOOTSTRAP_JOIN_TOKEN "swt_$(openssl rand -hex 2)_$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"
   fi
+  # Mesh (opt-in): persisted even when blank so re-runs without --mesh don't
+  # silently drop a previously-configured token (mirrors ADMIN_PASSWORD above).
+  state_set NB_MANAGEMENT_URL "${NB_MANAGEMENT_URL:-}"
+  state_set NB_SERVICE_TOKEN "${NB_SERVICE_TOKEN:-}"
   ok "secrets persisted to $STATE_FILE (back this up — SWARMY_SECRET_KEY is unrecoverable)."
 }
 
@@ -273,6 +285,10 @@ ensure_docker_secrets() {
   secret_put bootstrap_join_token  "$BOOTSTRAP_JOIN_TOKEN"
   secret_put swarm_worker_token    "$SWARM_WORKER_TOKEN"
   secret_put swarm_manager_token   "$SWARM_MANAGER_TOKEN"
+  # Always created (possibly empty) so the stack file can reference it
+  # unconditionally — an empty token makes ensureMeshConfig() skip, same
+  # opt-in-by-absence behavior as every other mesh env var.
+  secret_put mesh_service_token    "${NB_SERVICE_TOKEN:-}"
   [ "$DB_TIER" = standard ] && secret_put postgres_password "$POSTGRES_PASSWORD"
   ok "secrets present."
 }
@@ -290,6 +306,8 @@ write_stack_file() {  # emit the chosen stack file to $STATE_DIR (self-contained
 deploy_stack() {
   state_load
   local f; f="$(write_stack_file)"
+  local mesh_driver=""
+  [ "$MESH" = none ] || mesh_driver="netbird"
   say "Deploying the swarmy control plane (${DB_TIER})…"
   SWARMY_IMAGE="$IMAGE" \
   SWARMY_PUBLIC_URL="$PUBLIC_URL" \
@@ -298,6 +316,8 @@ deploy_stack() {
   SWARMY_MANAGER_ADDR="$SWARM_MANAGER_ADDR" \
   SWARMY_PUBLISH_PORT="$PUBLISH_PORT" \
   SWARMY_NODE_HOSTNAME="$NODE_HOSTNAME" \
+  SWARMY_MESH_DRIVER="$mesh_driver" \
+  SWARMY_MESH_MANAGEMENT_URL="${NB_MANAGEMENT_URL:-}" \
     docker stack deploy --with-registry-auth -c "$f" "$STACK_NAME" >/dev/null \
     || die "docker stack deploy failed."
   say "Waiting for the controller to become healthy…"
@@ -351,7 +371,10 @@ configure_ingress() {
 }
 configure_mesh() {
   [ "$MESH" = none ] && return
-  warn "Mesh '${MESH}': open the dashboard → Networking → Mesh, then add remote nodes with the printed setup key."
+  # deploy_stack() already ran bootstrap (ensureMeshConfig persists MeshConfig
+  # directly via Prisma) before this runs, so mesh is live — every "Add a node"
+  # token minted from here embeds a fresh single-use NetBird setup key.
+  ok "Mesh '${MESH}' is configured — new join tokens (dashboard → Add a node) auto-join NetBird before the swarm."
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -380,7 +403,7 @@ do_uninstall() {
   docker rm -f "$AGENT_CONTAINER" >/dev/null 2>&1 || true
   docker stack rm "$STACK_NAME" >/dev/null 2>&1 || true
   sleep 3
-  for s in swarmy_secret_key better_auth_secret admin_password bootstrap_join_token swarm_worker_token swarm_manager_token postgres_password; do
+  for s in swarmy_secret_key better_auth_secret admin_password bootstrap_join_token swarm_worker_token swarm_manager_token mesh_service_token postgres_password; do
     docker secret rm "$s" >/dev/null 2>&1 || true
   done
   ok "removed. Data volumes (swarmy-data / swarmy-pgdata) and $STATE_FILE are preserved; delete them manually to wipe state."

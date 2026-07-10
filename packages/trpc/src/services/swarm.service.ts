@@ -72,6 +72,15 @@ export interface OrchestrateArgs {
   roleHint?: 'manager' | 'worker' | null;
   /** True when the node already reported an active swarm membership (no-op). */
   alreadyInSwarm?: boolean;
+  /**
+   * The node's confirmed mesh IP (epic: zero-trust-networking, mesh-first
+   * join), when mesh is enabled for the org and the agent joined + confirmed
+   * connectivity before registering. Used as `advertiseAddr` so swarm control
+   * + data-plane traffic rides the mesh instead of the LAN. `null`/absent ⇒
+   * falls back to the agent's own LAN-address self-derivation, unchanged from
+   * before this feature.
+   */
+  meshIp?: string | null;
 }
 
 export type OrchestrateOutcome =
@@ -95,7 +104,7 @@ const SWARM_DISPATCH_TIMEOUT_MS = 60_000;
  *  - org has a swarm + manager  → `join` this node (worker, or manager if hinted)
  */
 export async function orchestrateSwarmMembership(args: OrchestrateArgs): Promise<OrchestrateOutcome> {
-  const { db, hub, orgId, nodeId } = args;
+  const { db, hub, orgId, nodeId, meshIp } = args;
 
   if (args.alreadyInSwarm) {
     return { action: 'noop', reason: 'node already in a swarm' };
@@ -111,7 +120,7 @@ export async function orchestrateSwarmMembership(args: OrchestrateArgs): Promise
     const res = await hub.dispatch<SwarmJoinResultLike>(
       nodeId,
       SWARM_COMMAND,
-      { mode: 'init', advertiseAddr: undefined },
+      { mode: 'init', advertiseAddr: meshIp ?? undefined },
       { timeoutMs: SWARM_DISPATCH_TIMEOUT_MS },
     );
     const tokens = res.joinTokens ?? { worker: '', manager: '' };
@@ -145,6 +154,7 @@ export async function orchestrateSwarmMembership(args: OrchestrateArgs): Promise
       role,
       joinToken: decryptSecret(tokenEnc),
       managerAddr: cfg.managerAddr,
+      advertiseAddr: meshIp ?? undefined,
     },
     { timeoutMs: SWARM_DISPATCH_TIMEOUT_MS },
   );

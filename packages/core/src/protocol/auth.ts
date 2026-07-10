@@ -28,6 +28,15 @@ export const NodeFacts = z.object({
    * `swarmy.node.public-ip` node label; the override label wins.
    */
   publicIp: z.string().optional(),
+  /**
+   * Mesh IP + connectivity resolved BEFORE registration (mesh-first join,
+   * epic: zero-trust-networking). Set only when the agent was launched with
+   * a mesh setup key and successfully joined + confirmed connectivity ahead
+   * of this register call. Absent/false ⇒ orchestrateSwarmMembership falls
+   * back to LAN-address advertisement exactly as before this feature.
+   */
+  meshIp: z.string().optional(),
+  meshConnected: z.boolean().optional(),
 });
 export type NodeFacts = z.infer<typeof NodeFacts>;
 

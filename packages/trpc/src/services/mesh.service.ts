@@ -154,6 +154,31 @@ function makeControlPlane(config: OrgMeshConfig): DriverControlPlane {
   };
 }
 
+export interface MintedSetupKey {
+  setupKey: string;
+  managementUrl?: string;
+  driver: MeshDriverId;
+}
+
+/**
+ * Mint a single-use NetBird setup key for a not-yet-enrolled node, to embed in
+ * a join token (epic: zero-trust-networking, mesh-first join). Returns `null`
+ * when the org hasn't enabled mesh — the opt-in gate — so tokens minted for a
+ * mesh-off org carry no mesh material and install exactly as before this
+ * feature. Not persisted anywhere; the caller (token.service.ts) is the only
+ * consumer, and it flows through the tRPC response once, same one-shot-reveal
+ * discipline as the raw join token itself.
+ */
+export async function mintSetupKeyForOrg(ctx: OrgContext): Promise<MintedSetupKey | null> {
+  const row = await ensureConfig(ctx);
+  if (!row.enabled || driverLower(row.driver) === 'none') return null;
+
+  const config = toOrgConfig(ctx, row);
+  const control = makeControlPlane(config);
+  const minted = await control.createSetupKey({ nodeId: `join-${randomToken('n')}` });
+  return { setupKey: minted.setupKey, managementUrl: config.managementUrl, driver: driverLower(row.driver) };
+}
+
 export async function getConfig(ctx: OrgContext): Promise<MeshConfigView> {
   const row = await ensureConfig(ctx);
   const cp = readControlPlane(row);

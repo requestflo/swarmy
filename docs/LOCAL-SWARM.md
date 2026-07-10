@@ -92,7 +92,7 @@ real Docker daemon.
 
 To exercise a genuine multi-node swarm — and the **production install path** (the
 Bun-compiled agent binary under systemd, downloaded from your controller) — use
-[multipass](https://multipass.run) VMs. One command:
+[Lima](https://lima-vm.io) VMs. One command:
 
 ```bash
 bun run dev:vms up          # launch 2 Ubuntu VMs, enroll each via curl | sh
@@ -104,7 +104,7 @@ installer on each (`SWARMY_BACKEND=systemd`). Within seconds both nodes flip to
 ONLINE on the Infrastructure plane, streaming live CPU/memory.
 
 ```bash
-bun run dev:vms status      # multipass state + `systemctl is-active swarmy-agent`
+bun run dev:vms status      # Lima state + `systemctl is-active swarmy-agent`
 bun run dev:vms logs 1      # follow the agent journal on node 1
 bun run dev:vms reenroll    # re-run the installer (after a new agent build / token)
 bun run dev:vms down        # delete + purge the VMs
@@ -125,10 +125,52 @@ Knobs: `SWARMY_VM_COUNT` (default 2), `SWARMY_VM_CPUS`/`MEM`/`DISK`,
 `SWARMY_BACKEND` (`systemd` | `docker`), `SWARMY_JOIN_TOKEN` (default: a freshly
 minted one). See the header of `scripts/local-vms.sh`.
 
-> Apple-Silicon multipass VMs are `arm64`; the installer downloads the
-> `linux-arm64` binary automatically. `multipassd` occasionally wedges a
-> `multipass exec` — the script caps each call and prints a recover hint
-> (`multipass restart <vm> && bun run dev:vms reenroll`).
+> Apple-Silicon Lima VMs are `arm64`; the installer downloads the
+> `linux-arm64` binary automatically. Lima uses QEMU + the native `hvf`
+> accelerator, so VMs are fast. If a `limactl shell` call hangs, the script
+> caps each call and prints a recover hint
+> (`limactl restart <vm> && bun run dev:vms reenroll`).
+
+---
+
+## 5. Optional: mesh-first onboarding (NetBird Cloud)
+
+By default, VMs enroll exactly as above — over LAN, no mesh. To also exercise
+the **mesh-first join** (agent connects to NetBird, confirms connectivity,
+*then* registers and joins the swarm using its mesh IP as the advertise
+address), point `dev:vms` at a [NetBird Cloud](https://netbird.io) account:
+
+1. Sign up at [app.netbird.io](https://app.netbird.io) (a free account is
+   enough for a couple of dev VMs) and note the management URL — for NetBird
+   Cloud this is `https://api.netbird.io`.
+2. In the NetBird dashboard, go to **Settings → Access Tokens** and create a
+   **Personal Access Token (PAT)**. This is a token that can *mint* setup
+   keys via the Admin API — different from a one-time device setup key, and
+   what swarmy's control-plane client actually needs.
+3. Run `dev:vms up` (or `reenroll`) with the three mesh env vars set:
+
+   ```bash
+   SWARMY_MESH_DRIVER=netbird \
+   SWARMY_NB_MANAGEMENT_URL=https://api.netbird.io \
+   SWARMY_NB_SERVICE_TOKEN=<your PAT> \
+     bun run dev:vms up
+   ```
+
+   This upserts the dev org's `MeshConfig` (same row shape the self-host
+   installer's wizard writes) before minting a join token, so the token mint
+   embeds a fresh, single-use NetBird setup key. `enroll_node` passes it to
+   the installer as `SWARMY_MESH_SETUP_KEY`/`SWARMY_MESH_MANAGEMENT_URL`/
+   `SWARMY_MESH_DRIVER`, alongside `SWARMY_ALLOW_MESH=true` (also required —
+   it's the agent's own capability gate).
+
+4. Watch a VM's agent log (`bun run dev:vms logs 1`) — you should see it join
+   NetBird and confirm connectivity *before* the WS `register` call. Once
+   ONLINE, `limactl shell swarmy-node-1 -- sudo docker node ls` shows the
+   node's advertised address is its NetBird mesh IP, not its Lima LAN IP.
+
+Leaving `SWARMY_MESH_DRIVER` unset (the default) skips all of this — the dev
+org's `MeshConfig` is never touched and nodes enroll exactly as they did
+before this feature existed.
 
 ---
 

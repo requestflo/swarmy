@@ -28,6 +28,7 @@ file_env CLOUDFLARE_API_TOKEN
 file_env SWARMY_BOOTSTRAP_JOIN_TOKEN
 file_env SWARM_WORKER_TOKEN
 file_env SWARM_MANAGER_TOKEN
+file_env SWARMY_MESH_SERVICE_TOKEN
 
 # Standard tier (managed Postgres service): build DATABASE_URL if absent.
 if [ "${SWARMY_DB_DRIVER:-postgres}" = "postgres" ] && [ -z "${DATABASE_URL:-}" ] && [ -n "${POSTGRES_PASSWORD:-}" ]; then
