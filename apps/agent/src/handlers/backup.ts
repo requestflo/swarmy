@@ -46,7 +46,7 @@ interface RunOutput {
 }
 
 /** Build the env array (`KEY=VALUE`) restic needs for the repo. */
-function repoEnv(repo: ResticRepo): string[] {
+export function repoEnv(repo: ResticRepo): string[] {
   const env = [`RESTIC_REPOSITORY=${repo.repo}`, `RESTIC_PASSWORD=${repo.password}`];
   if (repo.accessKeyId) env.push(`AWS_ACCESS_KEY_ID=${repo.accessKeyId}`);
   if (repo.secretAccessKey) env.push(`AWS_SECRET_ACCESS_KEY=${repo.secretAccessKey}`);
@@ -61,7 +61,7 @@ function repoEnv(repo: ResticRepo): string[] {
  * DNS names. The container is auto-removed. Used by both the restic and the DB
  * engines — credentials only ever exist as `env` here, never on disk.
  */
-async function runSidecar(
+export async function runSidecar(
   docker: DockerClient,
   opts: {
     image: string;
@@ -126,7 +126,7 @@ async function runSidecar(
 }
 
 /** Ensure the restic repo exists (idempotent — `init` no-ops on an existing repo). */
-async function ensureRepo(
+export async function ensureRepo(
   docker: DockerClient,
   image: string,
   repo: ResticRepo,
@@ -382,7 +382,7 @@ interface ResticSummary {
 }
 
 /** restic streams ndjson; the last `summary`/`restore` object holds the totals. */
-function parseSummary(stdout: string): ResticSummary {
+export function parseSummary(stdout: string): ResticSummary {
   const lines = stdout.split('\n').filter((l) => l.trim());
   for (let i = lines.length - 1; i >= 0; i--) {
     try {

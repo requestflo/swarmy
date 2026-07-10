@@ -178,6 +178,16 @@ export function parseWgConnected(dump: string): { connected: boolean; lastHandsh
 }
 
 /**
+ * Strip a CIDR prefix from a mesh address so it's a bare host IP. NetBird's
+ * `status --json` reports `netbirdIp` as `100.71.108.238/16`, but the value is
+ * used verbatim as a Docker Swarm `--advertise-addr`, which rejects anything
+ * that isn't a plain IP (or IP:port). Idempotent for already-bare IPs.
+ */
+function bareMeshIp(ip: string | undefined): string | undefined {
+  return ip ? ip.split('/')[0] : ip;
+}
+
+/**
  * Sample the live mesh state from whichever client is present and return a
  * `meshState` payload, or null if no mesh is running. Best-effort: any error is
  * reported in the payload's `error` field rather than thrown.
@@ -197,13 +207,13 @@ export async function sampleMeshState(): Promise<MeshStatePayload | null> {
         peers?: { details?: { ip?: string; status?: string; relayed?: boolean }[] };
       };
       const peers = (j.peers?.details ?? []).map((p) => ({
-        meshIp: p.ip,
+        meshIp: bareMeshIp(p.ip),
         connected: p.status === 'Connected',
         relayed: Boolean(p.relayed),
       }));
       return {
         driver: 'netbird',
-        meshIp: j.netbirdIp,
+        meshIp: bareMeshIp(j.netbirdIp),
         connected: Boolean(j.management?.connected),
         relayed: peers.some((p) => p.relayed),
         advertisedRoutes: [],
@@ -227,7 +237,7 @@ export async function sampleMeshState(): Promise<MeshStatePayload | null> {
       };
       return {
         driver: 'tailscale',
-        meshIp: j.Self?.TailscaleIPs?.[0],
+        meshIp: bareMeshIp(j.Self?.TailscaleIPs?.[0]),
         connected: j.BackendState === 'Running',
         relayed: true,
         advertisedRoutes: [],

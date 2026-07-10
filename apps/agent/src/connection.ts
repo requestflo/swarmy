@@ -116,6 +116,25 @@ export class AgentConnection {
     return this.ws?.readyState === 1;
   }
 
+  /**
+   * Force a fresh dial NOW (CLI `swarmy-agent reconnect`). Closing an open
+   * socket lets the close handler schedule the redial through the normal
+   * path; resetting `attempt` first collapses any accumulated backoff so the
+   * redial is immediate instead of minutes away.
+   */
+  redial(): void {
+    this.attempt = 0;
+    if (this.ws && this.ws.readyState <= 1) {
+      try {
+        this.ws.close();
+      } catch {
+        // close handler still fires / reconnect already scheduled
+      }
+    } else {
+      this.connect();
+    }
+  }
+
   stop(): void {
     this.closed = true;
     this.ws?.close();

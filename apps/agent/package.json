@@ -12,11 +12,14 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@opentui/core": "^0.4.3",
     "@swarmy/core": "workspace:*",
     "@swarmy/mesh": "workspace:*",
     "dockerode": "^4.0.2"
   },
   "devDependencies": {
+    "@opentui/core-linux-arm64": "^0.4.3",
+    "@opentui/core-linux-x64": "^0.4.3",
     "@types/bun": "latest",
     "@types/dockerode": "^3.3.31",
     "typescript": "^5.5.4"
