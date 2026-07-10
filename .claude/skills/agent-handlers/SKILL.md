@@ -11,6 +11,13 @@ must keep, and where everything lives. For adding a full feature slice
 (db → protocol → service → router → UI) see `skill("add-feature-slice")`; this
 skill is the agent-and-protocol third of that.
 
+> The agent binary is also an operator CLI/TUI, and it self-heals when a node
+> goes dark (repair one-liner, hostname re-adoption, recovery beacon, on-box
+> `doctor`). That layer — the CLI dispatch in `main.ts`, `daemon.ts`, the
+> `cli/*` commands, `join-auth.ts`, and `recovery.service.ts` — is owned by
+> `skill("node-recovery")`. Load it before touching those; this skill stays
+> focused on the dial-out/command/handler core underneath.
+
 ## Invariants (violating any of these is a bug, not a style choice)
 
 1. **The agent dials OUT; the controller never connects IN.** All node work
@@ -87,8 +94,9 @@ skill is the agent-and-protocol third of that.
 
 | Concern | Where |
 |---|---|
-| Dial-out entry: facts, watchdog, heartbeat/metrics loops | `apps/agent/src/index.ts` |
-| Reconnecting WS client (backoff, register on open) | `apps/agent/src/connection.ts` |
+| Binary entrypoint: CLI dispatch (`--version`, TTY→TUI, no-args→daemon) | `apps/agent/src/main.ts` (see `skill("node-recovery")`) |
+| Dial-out daemon: facts, watchdog, heartbeat/metrics loops, session persist | `apps/agent/src/daemon.ts` (`index.ts` is a back-compat shim) |
+| Reconnecting WS client (backoff, register on open, `redial()`) | `apps/agent/src/connection.ts` |
 | Command dispatch (switch on envelope `type`) + `run()` | `apps/agent/src/executor.ts` |
 | Capabilities (deploy/mesh/dns/backup/build/storage/terminal/…) | `apps/agent/src/handlers/*` |
 | Node facts, public-IP detect, snapshots, stats | `apps/agent/src/{public-ip,snapshots,stats,state}.ts` |

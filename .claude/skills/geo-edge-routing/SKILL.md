@@ -100,6 +100,6 @@ invariants that must survive every change, and where everything lives.
 - `dig` verification: `dig @<node> -p 53 <host> +subnet=196.25.0.0/16` (ZA),
   `+tcp` for TCP framing, `NS`/`SOA`/`MX` for zone completeness. Local server:
   run `apps/dns` with `SWARMY_DNS_PORT=5300` and POST a fixture bundle.
-- Multi-node verification: `scripts/local-vms.sh` multipass swarm (see
+- Multi-node verification: `scripts/local-vms.sh` Lima swarm (see
   LOCAL-SWARM.md + memory notes) — two VMs, two regions, kill one agent and
   watch its IP leave the answers.

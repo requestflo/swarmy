@@ -103,13 +103,20 @@ Four ideas, one story:
 - **One reconnecting outbound WebSocket per node.** The agent connects with a
   subprotocol, full-jitter backoff, and a stability timer that resets the
   attempt counter once a connection holds. It re-registers on every reconnect.
-- **Join once, session thereafter.** First contact authenticates with the join
-  token (`kind:'join'`); the controller upserts the `Node`, increments the
-  token's `uses`, and mints a fresh `sessionSecret`. From then on the agent
-  reconnects with `kind:'session'`. **The session secret is rotated on every
-  successful register** and `sessionVersion` increments; a newer session closes
-  the older socket (`DUPLICATE_SESSION`). The join token is single-use-effective
-  — the installer shreds it from the env file after first register.
+- **Join once, session thereafter — and the session is durable.** First contact
+  authenticates with the join token (`kind:'join'`); the controller upserts the
+  `Node`, increments the token's `uses`, and mints a fresh `sessionSecret`. From
+  then on the agent reconnects with `kind:'session'`. **The session secret is
+  rotated on every successful register** and `sessionVersion` increments; a newer
+  session closes the older socket (`DUPLICATE_SESSION`). The session is persisted
+  with retry + read-back verification so a reboot reconnects on its own, and the
+  join token stays valid *for the one node it enrolled* (hostname **re-adoption**)
+  as a durable fallback credential — so re-running the one-liner or a plain reboot
+  always heals rather than stranding the node. "Single-use" therefore means
+  single-*node*: a consumed token can re-authenticate its own box but can never
+  enroll a new one, and revoking it is still the absolute kill switch. The full
+  recovery story (repair one-liner, on-box `doctor`, the recovery beacon, rescue
+  backups) lives in [`node-recovery.md`](./node-recovery.md).
 - **Reads are not commands.** `list`/`inspect`/`stats` are served from the hub's
   in-memory snapshots the agent already streams (containers, services, nodes,
   metrics). Only mutations dispatch a command to the node. This keeps the
@@ -129,7 +136,11 @@ Four ideas, one story:
 | Node loses connectivity / box powers off | Socket closes; controller marks the node offline after the missed heartbeat. Its swarm services reschedule per Docker; the agent reconnects with backoff and re-registers when the box returns. |
 | Operator runs `docker swarm leave` on a live node | Watchdog sends `swarmLeft`, then exits; container restarts and waits to rejoin. Controller marks it left-swarm + audits — never a phantom "healthy" member. |
 | Controller down while a node is enrolling | The agent retries the outbound WSS with jittered backoff; nothing on the box needs the controller except registration. Once the controller returns, `register` completes. |
-| Duplicate agent for one node (re-run installer) | Enrollment is idempotent: same hostname upserts the same `Node`; the newer session wins and the stale socket is closed. |
+| Duplicate agent for one node (re-run installer) | Enrollment is idempotent: same hostname upserts (or **re-adopts**) the same `Node`; the newer session wins and the stale socket is closed. Re-running the one-liner switches to repair mode and never creates a duplicate. |
+| Node reboots / loses its session file | The session was persisted durably (retry + read-back), so it reconnects on its own. If the session is gone, the env-file join token re-adopts the same node by hostname. |
+| Node won't reconnect, machine is up | **Repair this node** in the dashboard (re-mints the one-liner) or `swarmy-agent doctor --fix` on the box. See [`node-recovery.md`](./node-recovery.md). |
+| Node lost every credential (session + token) | The recovery beacon: the agent prints a fingerprint in its journal and posts a claim; a dashboard banner lets the operator approve it after matching the fingerprint (SSH-host-key trust). |
+| Controller down, data at risk on a cut-off node | `swarmy-agent backup export`/`push` moves the node's volumes with zero controller contact. |
 | Docker not yet installed / unavailable | Install script installs Docker first; a running agent that can't reach Docker still reports OS-only node facts and stays connected rather than crash-looping. |
 | A manager dies / quorum is at risk | The Swarm health card + resilience score say it in plain words ("3 managers, 1 offline — one more failure loses quorum") before it becomes an outage. Promote/demote are quorum-guarded: swarmy refuses a demote that would leave the swarm headless or below majority. With autolock on, the unlock key is stored encrypted next to the join tokens (or shown once for self-storage) so a restarted manager can always be unlocked. |
 
@@ -168,20 +179,33 @@ one-liner, and watch the node transition to ONLINE live. The installer is
 two-stage on purpose — a tiny reviewable loader prints the pinned version +
 checksums, then fetches a checksum-pinned installer and agent binary — so
 `curl | sh` is honest: what you pipe to your shell is small, and everything it
-downloads afterward is content-addressed. Re-running is safe; `systemctl disable
---now` (or removing the container) uninstalls cleanly.
+downloads afterward is content-addressed. Re-running is safe and is the
+supported **repair** path — on an already-enrolled box the installer detects the
+existing install, refreshes the binary + credentials, keeps the node's identity
+(hostname re-adoption), and runs the on-box doctor; `systemctl disable --now` (or
+removing the container) uninstalls cleanly. When a node won't come back, the
+dashboard offers **Repair this node** on its detail page; the full ladder is in
+[`node-recovery.md`](./node-recovery.md).
 
 ## Implementation map
 
-The operational conventions and invariants live in the `agent-handlers` skill
+The operational conventions and invariants live in two skills: `agent-handlers`
 (`.claude/skills/agent-handlers/SKILL.md`) — how the agent executes commands and
-how to add one. Key homes: `apps/agent/src/index.ts` (dial-out, node facts,
-swarm watchdog, heartbeat/metrics loops), `apps/agent/src/connection.ts`
-(reconnecting WS client), `apps/agent/src/executor.ts` (command dispatch),
+how to add one — and `node-recovery` (`.claude/skills/node-recovery/SKILL.md`) —
+the CLI/TUI, self-healing one-liner, re-adoption, and the recovery beacon (its
+product doc is [`node-recovery.md`](./node-recovery.md); the operator runbook is
+[`../NODE-RECOVERY.md`](../NODE-RECOVERY.md)). Key homes:
+`apps/agent/src/main.ts` (binary entrypoint / CLI dispatch),
+`apps/agent/src/daemon.ts` (dial-out, node facts, swarm watchdog, session
+persistence, recovery beacon; `index.ts` is a back-compat daemon shim),
+`apps/agent/src/cli/*` (CLI commands + the OpenTUI doctor),
+`apps/agent/src/connection.ts` (reconnecting WS client),
+`apps/agent/src/executor.ts` (command dispatch),
 `apps/agent/src/handlers/*` (capabilities via `@swarmy/core/docker`),
 `packages/core/src/protocol/*` (the wire contract),
 `packages/trpc/src/hub/types.ts` (`CommandName` → wire `type`),
-`apps/api/src/gateway/protocol-handlers.ts` (`register`/session handshake),
+`apps/api/src/gateway/protocol-handlers.ts` (`register`/session handshake) +
+`apps/api/src/gateway/join-auth.ts` (the re-adoption decision),
 `packages/trpc/src/services/node.service.ts` (roles/region/public-ip labels,
-drain), and the `apps/api` install routes + `plans/epic-node-onboarding.md` for
-the install script.
+drain), and the `apps/api/src/install/*` routes + `plans/epic-node-onboarding.md`
+for the install script.

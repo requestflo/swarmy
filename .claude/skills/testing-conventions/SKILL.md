@@ -141,7 +141,7 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
   A diff that flips a golden without a matching source change is the tell.
 - The full headline e2e needs the controller + app + Postgres up (point Playwright
   `baseURL` at `:3003` per `playwright.config.ts`'s note) and a box to enroll — use
-  the `scripts/local-vms.sh` multipass swarm (`skill("run-local")`), not the
+  the `scripts/local-vms.sh` Lima swarm (`skill("run-local")`), not the
   marketing `webServer`.
 - Don't add a `scope` to a PR title that isn't in `commitlint.config.mjs`'s
   `scope-enum` — commitlint warns (level 1) but a typo'd scope still muddies the

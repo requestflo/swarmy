@@ -32,6 +32,10 @@ go deep on one area each.
 
 - [`compute-and-onboarding.md`](./compute-and-onboarding.md) — nodes, the agent
   dial-out model, and one-command onboarding. _Skill: `agent-handlers`._
+- [`node-recovery.md`](./node-recovery.md) — how a dark node always comes home:
+  the on-box `swarmy-agent` CLI/TUI, the self-healing one-liner + hostname
+  re-adoption, the recovery beacon, and controller-dark rescue backups. (Operator
+  runbook: [`../NODE-RECOVERY.md`](../NODE-RECOVERY.md).) _Skill: `node-recovery`._
 - [`deploy-and-releases.md`](./deploy-and-releases.md) — the service canvas, GUI
   builder + lossless compose, blueprints, previews, and canary/rollback releases.
   _Skills: `add-feature-slice`, `docker-native-storage`._

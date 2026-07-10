@@ -108,11 +108,18 @@ Open http://localhost:3003, create an account, then mint a join token
 
 ```bash
 # Dev: run the agent from source
-SWARMY_JOIN_TOKEN=swt_… AGENT_WS_URL=ws://controller:3001/agent/ws bun apps/agent/src/index.ts
+SWARMY_JOIN_TOKEN=swt_… AGENT_WS_URL=ws://controller:3001/agent/ws bun apps/agent/src/main.ts
 
 # Or use the install script / prebuilt binary / agent container
 # (see apps/api install routes and apps/agent/Dockerfile)
 ```
+
+The agent binary is also an operator CLI/TUI: `swarmy-agent` (no args) opens an
+on-box diagnostics dashboard, and `swarmy-agent doctor` / `status` / `backup` /
+`rejoin` / `reconnect` cover node health and recovery. If a node won't come back
+online, re-run the same install one-liner (it repairs in place) or click
+**Repair this node** in the dashboard — see
+[`docs/NODE-RECOVERY.md`](./docs/NODE-RECOVERY.md).
 
 ## Scripts
 
@@ -126,7 +133,7 @@ SWARMY_JOIN_TOKEN=swt_… AGENT_WS_URL=ws://controller:3001/agent/ws bun apps/ag
 | `bun db:push` / `bun db:migrate` / `bun db:studio` | Prisma helpers |
 | `bun docker:up` / `bun docker:down` | Local Postgres |
 | `bun openapi:dump` / `bun gen:sdks` | Refresh OpenAPI + SDKs |
-| `bun build:agent-bin` | Compile linux-x64/arm64 agent binaries |
+| `bun build:agent-bin` | Compile linux-x64/arm64 agent binaries (CLI/TUI included) |
 
 ## Pluggable by design
 
@@ -148,6 +155,7 @@ audit — not a shadow copy of your cluster.
 | Doc | What |
 |---|---|
 | [`docs/product/`](./docs/product/) | Product vision and area design ("why") |
+| [`docs/LOCAL-SWARM.md`](./docs/LOCAL-SWARM.md) · [`docs/NODE-RECOVERY.md`](./docs/NODE-RECOVERY.md) | Operator runbooks — run a local swarm; recover a node |
 | [`plans/roadmap-mini-cloud.md`](./plans/roadmap-mini-cloud.md) | Governing roadmap — code vs direction |
 | [`plans/`](./plans/) | Epic design docs and platform buildout notes |
 | [`.claude/skills/`](./.claude/skills/) | Implementation invariants for contributors |

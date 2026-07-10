@@ -75,6 +75,12 @@ Wired as root scripts `dev:up`, `seed-dev`, `dev:agent`. Full walkthrough +
 troubleshooting (swarm init, socket perms, remote-node onboarding, demo mode):
 **`docs/LOCAL-SWARM.md`**.
 
+**Multi-node (real VMs)** — for a genuine multi-node swarm with the production
+install path (Bun-compiled agent binary under systemd, downloaded from the
+controller), use `bun run dev:vms up`. It launches [Lima](https://lima-vm.io)
+VMs (native arm64, QEMU + `hvf` on Apple Silicon) and enrolls each via
+`curl | sh`. See `scripts/local-vms.sh` and `docs/LOCAL-SWARM.md` §4.
+
 **Demo mode** — visit the dashboard with `?demo=1` for a zero-backend, in-memory
 interactive demo (no Docker/DB/agent needed). The flag is sticky in
 `localStorage` until the "Get swarmy" CTA clears it.

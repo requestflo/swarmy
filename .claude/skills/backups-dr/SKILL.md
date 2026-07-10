@@ -18,6 +18,13 @@ and where everything lives. Backups are dispatched to the agent as commands — 
    the repo password + S3 creds arrive over the authenticated WS and exist ONLY
    as container `env` — never written to a file, never baked into an image, never
    logged. See `apps/agent/src/handlers/backup.ts` (`repoEnv`/`runSidecar`).
+   The controller-driven path is the norm; the **operator CLI can also run
+   backups with the controller DARK** (`swarmy-agent backup export|restore|push`
+   in `apps/agent/src/cli/backup.ts`), reusing the same exported sidecar
+   internals (`runSidecar`/`repoEnv`/`ensureRepo`/`parseSummary`). There the
+   operator supplies credentials by env/prompt (never argv); local export needs
+   none at all. That rescue path is owned by `skill("node-recovery")`; keep those
+   restic helpers exported for it.
 2. **Every credential at rest is a `*Ref` ciphertext.** `BackupTarget.
    resticPasswordRef` / `credentialRef` / `secretKeyRef` and
    `ControllerBackupConfig.restorePassphraseRef` are `encryptSecret(...)` under
@@ -106,6 +113,7 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 |---|---|
 | Prisma models (targets/snapshots/schedules/restore ops/controller backup) | `packages/db/prisma/schema/backups.prisma` |
 | Agent restic + DB-engine sidecars (backup/restore/list, logical+physical) | `apps/agent/src/handlers/backup.ts` |
+| Controller-dark operator rescue backups (export/restore/push/list) | `apps/agent/src/cli/backup.ts` (see `skill("node-recovery")`) |
 | Backup wire types (`ResticRepo`, payloads, default images) | `packages/core/src/protocol/backup.ts` |
 | Volume backups: targets CRUD, native Garage target, backup/restore/list | `packages/trpc/src/services/backups.service.ts` (+ `routers/backups.ts`) |
 | Volume backup schedules + restore-op history | `packages/trpc/src/services/backupSchedule.service.ts` |
