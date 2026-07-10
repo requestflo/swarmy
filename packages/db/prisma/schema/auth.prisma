@@ -148,6 +148,7 @@ model Organization {
   aiVirtualKeys          AiVirtualKey[]
   aiUsage                AiUsage[]
   aiRequestLogs          AiRequestLog[]
+  recoveryClaims         RecoveryClaim[]
 
   @@map("organization")
 }

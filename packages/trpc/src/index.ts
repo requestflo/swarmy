@@ -140,7 +140,10 @@ export {
   listRoutes as listMeshRoutes,
   grantDirectRoute,
   revokeDirectRoute,
+  mintSetupKeyForOrg,
 } from './services/mesh.service';
+export type { MintedSetupKey } from './services/mesh.service';
+export { submitRecoveryClaim, pollRecoveryClaim } from './services/recovery.service';
 
 // ── public-api-terraform P2: OAuth2 client-credentials seam ──
 export {

@@ -4,7 +4,7 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { authRegistry } from '@swarmy/auth';
 import { prisma, ensureSchema, buildAdapter, resolveDbDriver } from '@swarmy/db';
-import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath } from '@swarmy/trpc';
+import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim } from '@swarmy/trpc';
 import { createRestApp } from '@swarmy/api-rest';
 import { env } from './env';
 import { maybeBootstrapSeed } from './bootstrap/seed';
@@ -122,6 +122,23 @@ app.get('/install/:version/install.sh.sha256', (c) => {
     'content-type': 'text/plain; charset=utf-8',
     'cache-control': 'public, max-age=300',
   });
+});
+
+// Recovery beacon (self-healing epic): a node that lost every credential
+// posts a claim here and polls for the operator's approval. Deliberately
+// unauthenticated — see recovery.service.ts for the trust model (fingerprint
+// comparison, existing-nodes-only, claim-secret binding, one-shot delivery).
+app.post('/agent/recovery/claim', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { hostname?: string; claimHash?: string } | null;
+  if (!body?.hostname || !body.claimHash) return c.json({ accepted: false }, 400);
+  const result = await submitRecoveryClaim(prisma, { hostname: body.hostname, claimHash: body.claimHash });
+  return c.json(result, 202);
+});
+app.post('/agent/recovery/poll', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { claimId?: string; claimSecret?: string } | null;
+  if (!body?.claimId || !body.claimSecret) return c.json({ status: 'unknown' }, 400);
+  const result = await pollRecoveryClaim(prisma, { claimId: body.claimId, claimSecret: body.claimSecret });
+  return c.json(result, 200, { 'cache-control': 'no-store' });
 });
 
 // Compiled agent binaries, served by the controller itself (self-hosted end to

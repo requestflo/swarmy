@@ -25,12 +25,44 @@ model Node {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  joinToken     JoinToken?     @relation(fields: [joinTokenId], references: [id], onDelete: SetNull)
-  metricSamples MetricSample[]
+  org            Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  joinToken      JoinToken?      @relation(fields: [joinTokenId], references: [id], onDelete: SetNull)
+  metricSamples  MetricSample[]
+  recoveryClaims RecoveryClaim[]
 
   @@unique([orgId, name])
   @@map("node")
+}
+
+// Recovery beacon (self-healing epic): a node that lost every credential
+// (session file gone AND its env-file token revoked) posts a claim; the
+// operator approves it in the dashboard after verifying the fingerprint the
+// machine prints. Approval mints a fresh session credential, stored encrypted
+// for ONE delivery to whoever presents the claim secret, then wiped.
+model RecoveryClaim {
+  id        String @id @default(cuid())
+  orgId     String
+  nodeId    String?
+  hostname  String
+  // sha256(claimSecret): the agent proves claim continuity on every poll.
+  claimHash String @unique
+  // Short human code derived from claimHash — shown on the machine AND in the
+  // dashboard; the operator matches them before approving (SSH-key model).
+  fingerprint String
+  status      String    @default("pending") // pending | approved | denied | delivered | expired
+  // encryptSecret(JSON{nodeId,sessionSecret,sessionVersion}) — set on approve,
+  // wiped at delivery.
+  credentialEnc String?
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime
+  resolvedAt    DateTime?
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  node Node?        @relation(fields: [nodeId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, status])
+  @@index([hostname])
+  @@map("recovery_claim")
 }
 
 model JoinToken {

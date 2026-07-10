@@ -9,6 +9,7 @@ import { CountUp } from '@/components/count-up';
 import { ClusterHero } from '@/components/infra/cluster-hero';
 import { NodeList } from '@/components/nodes/node-list';
 import { SwarmHealthCard } from '@/components/nodes/swarm-health-card';
+import { RecoveryClaimsBanner } from '@/components/nodes/recovery-claims-banner';
 import { InfraCanvas } from '@/components/infrastructure/infra-canvas';
 import {
   InfraGlobeFallback,
@@ -65,6 +66,10 @@ function InfrastructurePlane(): React.JSX.Element {
       />
 
       <ClusterHero />
+
+      <div className="mt-4">
+        <RecoveryClaimsBanner />
+      </div>
 
       <div className="mt-8">
         <NodeList />

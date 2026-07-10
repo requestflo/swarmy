@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { NODE_PROFILE_VALUES } from '@swarmy/core';
 import { orgProcedure, adminProcedure, router } from '../trpc';
+import { listRecoveryClaims, resolveRecoveryClaim } from '../services/recovery.service';
 import {
   getNode,
   listNodeCanvasPositions,
@@ -25,6 +26,14 @@ import { setNodeCost } from '../services/cost.service';
 
 export const nodesRouter = router({
   list: orgProcedure.query(({ ctx }) => listNodes(ctx)),
+
+  // Recovery beacon (self-healing epic): pending device-pairing-style claims
+  // from nodes that lost every credential; approve after comparing the
+  // fingerprint the machine printed in its journal.
+  recoveryClaims: orgProcedure.query(({ ctx }) => listRecoveryClaims(ctx)),
+  resolveRecoveryClaim: adminProcedure
+    .input(z.object({ id: z.string(), approve: z.boolean() }))
+    .mutation(({ ctx, input }) => resolveRecoveryClaim(ctx, input)),
 
   get: orgProcedure.input(z.object({ id: z.string() })).query(({ ctx, input }) => getNode(ctx, input.id)),
 

@@ -511,6 +511,14 @@ export const infraextra: DomainResolvers = {
       return { id, revoked: true };
     },
 
+    // Recovery beacon (self-healing epic): demo has no dark nodes, so no
+    // pending claims — the banner hides itself on an empty list.
+    'nodes.recoveryClaims': (): unknown[] => [],
+    'nodes.resolveRecoveryClaim': (input): { status: string } => {
+      const { approve } = input as { approve: boolean };
+      return { status: approve ? 'approved' : 'denied' };
+    },
+
     // ── terminal: control plane ─────────────────────────────────────────────
     'terminal.open': (input, store): { sessionId: string; ticket: string } => {
       const { serviceId } = input as { serviceId: string };
