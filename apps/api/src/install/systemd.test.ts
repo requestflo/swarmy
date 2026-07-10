@@ -21,11 +21,13 @@ Type=simple
 User=root
 EnvironmentFile=/etc/swarmy/agent.env
 Environment=SWARMY_AGENT_STATE=/var/lib/swarmy/agent.json
-ExecStart=/usr/local/bin/swarmy-agent
+ExecStart=/usr/local/bin/swarmy-agent daemon
 # always (not on-failure): the agent exits ON PURPOSE after a self-update swap
 # (and the swarm watchdog exits cleanly too) — systemd must bring it back up.
 Restart=always
 RestartSec=5
+# Capture a doctor snapshot at crash time (last-failure.json) for post-mortems.
+OnFailure=swarmy-doctor-snapshot.service
 # Persist the agent's session credential across restarts/reboots.
 StateDirectory=swarmy
 RuntimeDirectory=swarmy

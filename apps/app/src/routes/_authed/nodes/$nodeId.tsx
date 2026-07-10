@@ -9,6 +9,7 @@ import { NodeLivePanel } from '@/components/nodes/node-live-panel';
 import { NodeDetailsPanel } from '@/components/nodes/node-details-panel';
 import { NodeContainersPanel } from '@/components/nodes/node-containers-panel';
 import { NodeControlsPanel } from '@/components/nodes/node-controls-panel';
+import { NodeRepairCard } from '@/components/nodes/node-repair-card';
 
 export const Route = createFileRoute('/_authed/nodes/$nodeId')({
   component: NodeDetailPage,
@@ -61,6 +62,8 @@ function NodeDetailPage(): React.JSX.Element {
         }
         actions={<NodeActions nodeId={nodeId} />}
       />
+
+      <NodeRepairCard node={n} />
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <NodeLivePanel live={live.data} trend={trend} />

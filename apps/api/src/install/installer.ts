@@ -15,7 +15,15 @@
  *
  * Pure render so it is checksum-stable + unit-testable.
  */
-import { renderSystemdUnit, SYSTEMD_UNIT_NAME, DEFAULT_ENV_FILE, DEFAULT_BINARY_PATH, DEFAULT_STATE_DIR } from './systemd';
+import {
+  renderSystemdUnit,
+  renderSnapshotUnit,
+  SYSTEMD_UNIT_NAME,
+  SNAPSHOT_UNIT_NAME,
+  DEFAULT_ENV_FILE,
+  DEFAULT_BINARY_PATH,
+  DEFAULT_STATE_DIR,
+} from './systemd';
 
 export interface RenderInstallerOptions {
   controllerUrl: string;
@@ -43,6 +51,7 @@ export function renderInstaller(opts: RenderInstallerOptions): string {
     .map(([platform, sha]) => `    ${platform}) echo "${sha.toLowerCase()}" ;;`)
     .join('\n');
   const unit = unitTemplate();
+  const snapshotUnit = renderSnapshotUnit({ binaryPath: DEFAULT_BINARY_PATH, stateDir: DEFAULT_STATE_DIR });
   return `#!/usr/bin/env sh
 # swarmy node installer (stage 2 of 2) — version ${version}
 # Verified by the loader's pinned sha256 before reaching here.
@@ -55,11 +64,16 @@ BACKEND="\${SWARMY_BACKEND:-auto}"
 AGENT_IMAGE="\${SWARMY_AGENT_IMAGE:-${agentImage}}"
 BINARY_BASE_URL="\${SWARMY_BINARY_BASE_URL:-${binaryBaseUrl}}"
 STATE_VOLUME="\${SWARMY_STATE_VOLUME:-swarmy-agent}"
+ALLOW_MESH="\${SWARMY_ALLOW_MESH:-true}"
+MESH_SETUP_KEY="\${SWARMY_MESH_SETUP_KEY:-}"
+MESH_MANAGEMENT_URL="\${SWARMY_MESH_MANAGEMENT_URL:-}"
+MESH_DRIVER="\${SWARMY_MESH_DRIVER:-netbird}"
 CONTAINER_NAME="swarmy-agent"
 BIN_PATH="${DEFAULT_BINARY_PATH}"
 ENV_FILE="${DEFAULT_ENV_FILE}"
 STATE_DIR="${DEFAULT_STATE_DIR}"
 UNIT_NAME="${SYSTEMD_UNIT_NAME}"
+SNAPSHOT_UNIT="${SNAPSHOT_UNIT_NAME}"
 
 UNINSTALL=""
 for arg in "$@"; do
@@ -109,7 +123,7 @@ if [ -n "$UNINSTALL" ]; then
   say "Removing the swarmy agent…"
   if have systemctl && systemctl list-unit-files 2>/dev/null | grep -q "$UNIT_NAME"; then
     systemctl disable --now "$UNIT_NAME" >/dev/null 2>&1 || true
-    rm -f "/etc/systemd/system/$UNIT_NAME"
+    rm -f "/etc/systemd/system/$UNIT_NAME" "/etc/systemd/system/$SNAPSHOT_UNIT"
     systemctl daemon-reload >/dev/null 2>&1 || true
   fi
   if have docker; then
@@ -120,6 +134,26 @@ if [ -n "$UNINSTALL" ]; then
   [ -f "$ENV_FILE" ] && { command -v shred >/dev/null 2>&1 && shred -u "$ENV_FILE" || rm -f "$ENV_FILE"; }
   ok "swarmy agent removed. Docker and any swarm membership were left untouched."
   exit 0
+fi
+
+# --- repair mode --------------------------------------------------------------
+# Re-running the one-liner on an already-enrolled box is the SUPPORTED way to
+# fix it: refresh the binary + credentials, keep the node identity (the saved
+# session and the controller's node-bound token re-adoption preserve it), then
+# run the doctor's repair ladder instead of blindly hoping.
+REPAIR=""
+if [ -f "$ENV_FILE" ] || [ -f "$STATE_DIR/agent.json" ] || { have docker && docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; }; then
+  REPAIR=1
+  say "Existing swarmy installation detected — running in REPAIR mode (identity is preserved)."
+fi
+
+# On repair, values not supplied with the one-liner are salvaged from the
+# existing env file so a bare re-run never LOSES configuration.
+if [ -n "$REPAIR" ] && [ -f "$ENV_FILE" ]; then
+  [ -n "$JOIN_TOKEN" ]         || JOIN_TOKEN="$(sed -n 's/^SWARMY_JOIN_TOKEN=//p' "$ENV_FILE" | head -1)"
+  [ -n "$MESH_SETUP_KEY" ]     || MESH_SETUP_KEY="$(sed -n 's/^SWARMY_MESH_SETUP_KEY=//p' "$ENV_FILE" | head -1)"
+  [ -n "$MESH_MANAGEMENT_URL" ] || MESH_MANAGEMENT_URL="$(sed -n 's/^SWARMY_MESH_MANAGEMENT_URL=//p' "$ENV_FILE" | head -1)"
+  [ -n "$NODE_LABELS" ]        || NODE_LABELS="$(sed -n 's/^SWARMY_NODE_LABELS=//p' "$ENV_FILE" | head -1)"
 fi
 
 # --- derive WS URL ------------------------------------------------------------
@@ -146,7 +180,11 @@ write_env() {
     echo "AGENT_WS_URL=$WS_URL"
     echo "SWARMY_AGENT_STATE=$STATE_DIR/agent.json"
     echo "SWARMY_JOIN_TOKEN=$JOIN_TOKEN"
+    echo "SWARMY_ALLOW_MESH=$ALLOW_MESH"
     [ -z "$NODE_LABELS" ] || echo "SWARMY_NODE_LABELS=$NODE_LABELS"
+    [ -z "$MESH_SETUP_KEY" ] || echo "SWARMY_MESH_SETUP_KEY=$MESH_SETUP_KEY"
+    [ -z "$MESH_MANAGEMENT_URL" ] || echo "SWARMY_MESH_MANAGEMENT_URL=$MESH_MANAGEMENT_URL"
+    echo "SWARMY_MESH_DRIVER=$MESH_DRIVER"
   } > "$ENV_FILE"
 }
 
@@ -165,6 +203,8 @@ install_systemd() {
   write_env
   cat > "/etc/systemd/system/$UNIT_NAME" <<'SWARMY_UNIT_EOF'
 ${unit}SWARMY_UNIT_EOF
+  cat > "/etc/systemd/system/$SNAPSHOT_UNIT" <<'SWARMY_SNAPSHOT_EOF'
+${snapshotUnit}SWARMY_SNAPSHOT_EOF
   systemctl daemon-reload
   systemctl enable "$UNIT_NAME"
   # restart (not just enable --now): on a re-install the unit is already running
@@ -188,6 +228,10 @@ install_docker() {
     -e SWARMY_JOIN_TOKEN="$JOIN_TOKEN" \\
     -e SWARMY_NODE_LABELS="$NODE_LABELS" \\
     -e SWARMY_AGENT_STATE=/var/lib/swarmy/agent.json \\
+    -e SWARMY_ALLOW_MESH="$ALLOW_MESH" \\
+    -e SWARMY_MESH_SETUP_KEY="$MESH_SETUP_KEY" \\
+    -e SWARMY_MESH_MANAGEMENT_URL="$MESH_MANAGEMENT_URL" \\
+    -e SWARMY_MESH_DRIVER="$MESH_DRIVER" \\
     "$AGENT_IMAGE" >/dev/null || die "Failed to start the agent container."
   ok "swarmy-agent running as a container ($CONTAINER_NAME)."
   say "Logs: docker logs -f $CONTAINER_NAME"
@@ -199,7 +243,24 @@ else
   install_docker
 fi
 
+# --- verify -------------------------------------------------------------------
+# Fresh installs: informational check (swarm join is controller-driven and may
+# land seconds later — a warn here is normal). Repairs: run the doctor's FIX
+# ladder so the one-liner actually heals what it can, then show the state.
+if use_systemd; then
+  sleep 5
+  if [ -n "$REPAIR" ]; then
+    say "Repair: running diagnostics + safe fixes (swarmy-agent doctor --repair)…"
+    "$BIN_PATH" doctor --repair || warn "Some checks still failing — re-run 'swarmy-agent doctor' in a minute; mesh/swarm formation can lag."
+  else
+    "$BIN_PATH" doctor || warn "Checks above settle once the controller finishes orchestrating (mesh join + swarm formation)."
+  fi
+else
+  [ -z "$REPAIR" ] || say "Repair (container backend): agent container re-created. Diagnostics: docker exec $CONTAINER_NAME bun run apps/agent/src/main.ts doctor"
+fi
+
 [ -z "$NODE_LABELS" ] || ok "Node labels: $NODE_LABELS"
+[ -z "$MESH_SETUP_KEY" ] || ok "Mesh: joining \${MESH_DRIVER} before swarm formation."
 ok "Done. This node should appear ONLINE in your dashboard within a few seconds."
 `;
 }

@@ -23,6 +23,7 @@ export interface SystemdUnitOptions {
 }
 
 export const SYSTEMD_UNIT_NAME = 'swarmy-agent.service';
+export const SNAPSHOT_UNIT_NAME = 'swarmy-doctor-snapshot.service';
 export const DEFAULT_ENV_FILE = '/etc/swarmy/agent.env';
 export const DEFAULT_BINARY_PATH = '/usr/local/bin/swarmy-agent';
 export const DEFAULT_STATE_DIR = '/var/lib/swarmy';
@@ -47,11 +48,13 @@ Type=simple
 User=${user}
 EnvironmentFile=${envFilePath}
 Environment=SWARMY_AGENT_STATE=${stateDir}/agent.json
-ExecStart=${binaryPath}
+ExecStart=${binaryPath} daemon
 # always (not on-failure): the agent exits ON PURPOSE after a self-update swap
 # (and the swarm watchdog exits cleanly too) — systemd must bring it back up.
 Restart=always
 RestartSec=5
+# Capture a doctor snapshot at crash time (last-failure.json) for post-mortems.
+OnFailure=${SNAPSHOT_UNIT_NAME}
 # Persist the agent's session credential across restarts/reboots.
 StateDirectory=swarmy
 RuntimeDirectory=swarmy
@@ -62,6 +65,23 @@ ProtectControlGroups=true
 
 [Install]
 WantedBy=multi-user.target
+`;
+}
+
+/**
+ * Render the `swarmy-doctor-snapshot.service` unit — fired by the agent
+ * unit's OnFailure=. Writes a full doctor report to
+ * `<stateDir>/last-failure.json` so "why did it crash last night?" has an
+ * answer even after journald rotates.
+ */
+export function renderSnapshotUnit(opts: { binaryPath: string; stateDir?: string }): string {
+  const stateDir = opts.stateDir || DEFAULT_STATE_DIR;
+  return `[Unit]
+Description=swarmy doctor snapshot (captured when swarmy-agent fails)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '${opts.binaryPath} doctor --json > ${stateDir}/last-failure.json 2>&1 || true'
 `;
 }
 

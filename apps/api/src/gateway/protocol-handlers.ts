@@ -18,6 +18,7 @@ import {
   systemContext,
 } from '@swarmy/trpc';
 import { authRegistry } from '@swarmy/auth';
+import { decideJoinAuth } from './join-auth';
 import type { AgentHubImpl } from './hub';
 import type { GatewayStore } from './store';
 import type { AgentSocket, ConnectionRegistry } from './registry';
@@ -216,26 +217,41 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
 
   if (auth.kind === 'join') {
     const token = await prisma.joinToken.findUnique({ where: { tokenHash: sha256(auth.joinToken) } });
-    if (!token || token.revokedAt || (token.expiresAt && token.expiresAt.getTime() < Date.now())) {
-      ws.close(CloseCode.UNAUTHORIZED, 'invalid join token');
+    // The re-adoption target: the existing node for this org+hostname (if any).
+    // Its token binding is what makes a consumed token still valid for the ONE
+    // box it enrolled — the durable fallback credential that lets reboots and
+    // "re-run the one-liner" self-heal. Decision logic (incl. the revocation
+    // kill switch) lives in decideJoinAuth so it's unit-tested in isolation.
+    const owner = token
+      ? await prisma.node.findUnique({
+          where: { orgId_name: { orgId: token.orgId, name: facts.hostname } },
+          select: { id: true, joinTokenId: true },
+        })
+      : null;
+    const decision = decideJoinAuth(token, owner);
+
+    if (decision.kind === 'reject') {
+      ws.close(decision.code === 'forbidden' ? CloseCode.FORBIDDEN : CloseCode.UNAUTHORIZED, decision.reason);
       return;
     }
-    if (token.maxUses != null && token.uses >= token.maxUses) {
-      ws.close(CloseCode.FORBIDDEN, 'token exhausted');
-      return;
+    // token is non-null past a non-reject decision.
+    orgId = token!.orgId;
+
+    if (decision.kind === 'readopt') {
+      nodeId = decision.nodeId; // re-adoption, not an enrollment — uses stays put
+    } else {
+      // The Node row is now an enrollment/identity record only — role/status/labels/
+      // resources/version are Docker-truth and live in the hub (serviceState/nodeList).
+      const node = await prisma.node.upsert({
+        where: { orgId_name: { orgId, name: facts.hostname } },
+        create: { orgId, name: facts.hostname, hostname: facts.hostname, joinTokenId: token!.id },
+        update: { joinTokenId: token!.id },
+      });
+      nodeId = node.id;
+      await prisma.joinToken.update({ where: { id: token!.id }, data: { uses: { increment: 1 } } });
     }
-    orgId = token.orgId;
-    // The Node row is now an enrollment/identity record only — role/status/labels/
-    // resources/version are Docker-truth and live in the hub (serviceState/nodeList).
-    const node = await prisma.node.upsert({
-      where: { orgId_name: { orgId, name: facts.hostname } },
-      create: { orgId, name: facts.hostname, hostname: facts.hostname, joinTokenId: token.id },
-      update: { joinTokenId: token.id },
-    });
-    nodeId = node.id;
-    roleHint = token.roleHint === 'MANAGER' ? 'manager' : token.roleHint === 'WORKER' ? 'worker' : null;
-    profile = parseNodeProfile(token.profile);
-    await prisma.joinToken.update({ where: { id: token.id }, data: { uses: { increment: 1 } } });
+    roleHint = token!.roleHint === 'MANAGER' ? 'manager' : token!.roleHint === 'WORKER' ? 'worker' : null;
+    profile = parseNodeProfile(token!.profile);
   } else {
     const node = await prisma.node.findUnique({ where: { id: auth.nodeId } });
     if (!node || !node.sessionSecretHash || !safeEqualHex(node.sessionSecretHash, sha256(auth.sessionSecret))) {
@@ -244,6 +260,13 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
     }
     nodeId = node.id;
     orgId = node.orgId;
+  }
+
+  // Both auth branches either assigned these or returned; assert for the type
+  // narrower and as a defensive backstop.
+  if (!nodeId || !orgId) {
+    ws.close(CloseCode.UNAUTHORIZED, 'registration failed');
+    return;
   }
 
   // Rotate the per-node session secret on every successful register.
@@ -291,7 +314,13 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
   // otherwise (the profile is a starting point, never a hard requirement).
   if (profile) {
     void stampProfileLabels(deps.hub, orgId, nodeId, profile);
-    if (profile === 'private-mesh') {
+    // Mesh-first join (epic: zero-trust-networking): a node launched with an
+    // embedded setup key already joined + confirmed mesh connectivity before
+    // this register call (facts.meshConnected). Only fall back to the
+    // profile-triggered dashboard-driven enrollment path for nodes that
+    // didn't self-enroll — otherwise this would mint/dispatch a second,
+    // redundant (and wasted, since NetBird setup keys are single-use) join.
+    if (profile === 'private-mesh' && !facts.meshConnected) {
       const ctx = systemContext({ db: prisma as never, hub: deps.hub, auth: authRegistry as never }, orgId);
       void enrollMeshNode(ctx, { nodeId }).catch((err) => {
         console.warn(
@@ -313,6 +342,10 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
     nodeId,
     roleHint,
     alreadyInSwarm: facts.swarmRole !== 'none',
+    // Mesh-first join: advertise the node's confirmed mesh IP instead of its
+    // LAN address so swarm control + data-plane traffic rides the mesh.
+    // Absent/unconnected ⇒ undefined ⇒ agent's existing LAN self-derivation.
+    meshIp: facts.meshConnected ? (facts.meshIp ?? null) : null,
   }).catch((err) => {
     console.error('[swarm] membership orchestration failed:', err instanceof Error ? err.message : err);
   });
