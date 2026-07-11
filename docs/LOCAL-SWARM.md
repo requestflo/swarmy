@@ -55,7 +55,7 @@ It finishes by printing the two commands to run next.
 ## 2. Two terminals: controller + node
 
 ```bash
-# Terminal 1 — controller API (:3001) + dashboard (:3003)
+# Terminal 1 — controller API (:3021) + dashboard (:3023)
 bun dev
 
 # Terminal 2 — a local agent against THIS laptop's Docker socket
@@ -63,7 +63,7 @@ bun run dev:agent
 ```
 
 `bun run dev:agent` reads the token from `$SWARMY_JOIN_TOKEN` or
-`.swarmy-dev-token`, points the agent at `ws://localhost:3001/agent/ws`, mounts
+`.swarmy-dev-token`, points the agent at `ws://localhost:3021/agent/ws`, mounts
 `/var/run/docker.sock`, and starts the agent. On a successful register you'll see
 `registered as node <id>` in its log.
 
@@ -71,7 +71,7 @@ bun run dev:agent
 
 ## 3. Log in and SEE the node
 
-Open **<http://localhost:3003>** and sign in:
+Open **<http://localhost:3023>** and sign in:
 
 | field    | value             |
 | -------- | ----------------- |
@@ -184,14 +184,14 @@ a teammate uses to add a server — is in the dashboard:
 3. Copy the one-liner and run it on a **fresh Linux box**:
 
    ```bash
-   curl -fsSL http://localhost:3001/install.sh | SWARMY_JOIN_TOKEN=<token> sh
+   curl -fsSL http://localhost:3021/install.sh | SWARMY_JOIN_TOKEN=<token> sh
    ```
 
    It installs Docker if needed, starts the agent, and the node phones home —
    the "Add a node" panel flips to a success link when it connects.
 
 `seed-dev` prints this same one-liner with the dev token so you can try it
-against a VM. For a box that isn't your laptop, replace `localhost:3001` with a
+against a VM. For a box that isn't your laptop, replace `localhost:3021` with a
 URL the box can actually reach (`CONTROLLER_PUBLIC_URL`).
 
 ---
@@ -202,7 +202,7 @@ Want to click around with **no Docker, no DB, no agent**? Visit the dashboard
 with `?demo=1`:
 
 ```
-http://localhost:3003/?demo=1
+http://localhost:3023/?demo=1
 ```
 
 This runs a fully interactive demo against an in-memory store (auth is bypassed,
@@ -230,7 +230,7 @@ up any of the above. (Owned by `apps/app/src/demo`.)
 - **`dev:vms` says the controller isn't serving binaries** — build them
   (`bun run build:agent-bin`) and confirm `bun dev:app` is running; the VMs reach
   it at your Mac's LAN IP. The dashboard's own "Add a node" one-liner points at
-  the dashboard origin (`localhost:3003`), which a VM can't reach — use `dev:vms`
+  the dashboard origin (`localhost:3023`), which a VM can't reach — use `dev:vms`
   for local VMs, or set the controller's `CONTROLLER_PUBLIC_URL` to its LAN URL.
 - **`Bind for 0.0.0.0:5678 failed: port is already allocated`** — another
   Postgres owns 5678. Set `SWARMY_DB_PORT` to a free port in `.env` **and** match

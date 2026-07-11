@@ -42,7 +42,7 @@ services:
     hostname: swarmy_controller
     environment:
       NODE_ENV: production
-      PORT: "3001"
+      PORT: "3021"
       SWARMY_DB_DRIVER: postgres
       SWARMY_STATIC_DIR: /app/public
       SWARMY_SELF_MIGRATE: "1"
@@ -78,7 +78,7 @@ services:
       - swarm_manager_token
       - mesh_service_token
     ports:
-      - target: 3001
+      - target: 3021
         published: ${SWARMY_PUBLISH_PORT}
         protocol: tcp
         mode: host
@@ -95,7 +95,7 @@ services:
         condition: any
         delay: 5s
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:3021/health"]
       interval: 10s
       timeout: 5s
       retries: 12

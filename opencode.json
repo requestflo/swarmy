@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "opencode-browser",
+    "opencode-see-image"
+  ],
+  "mcp": {
+    "browsermcp": {
+      "type": "local",
+      "cwd": ".",
+      "command": [
+        "sh",
+        "-lc",
+        "mkdir -p .opencode/screenshots && SCREENSHOT_DIR=\"$PWD/.opencode/screenshots\" npx -y @browsermcp/mcp@0.1.3"
+      ],
+      "enabled": true
+    }
+  }
+}

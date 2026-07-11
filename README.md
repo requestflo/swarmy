@@ -68,8 +68,8 @@ and code is tracked in [`plans/roadmap-mini-cloud.md`](./plans/roadmap-mini-clou
 ```
 apps/
   web      Marketing site
-  app      Dashboard SPA              (:3003 → proxies /api, /agent → :3001)
-  api      Controller                 (Hono + tRPC + REST + agent WS + workers, :3001)
+  app      Dashboard SPA              (:3023 → proxies /api, /agent → :3021)
+  api      Controller                 (Hono + tRPC + REST + agent WS + workers, :3021)
   agent    Node agent                 (host binary or container; dockerode)
   dns      Authoritative geo-DNS      (UDP/TCP nameserver)
   e2e      Playwright smoke tests
@@ -96,19 +96,19 @@ cp .env.example .env   # set BETTER_AUTH_SECRET (openssl rand -base64 32)
 bun docker:up          # Postgres on :5678 (or use SWARMY_DB_DRIVER=pglite for zero deps)
 bun db:generate        # generate Prisma client
 bun db:push            # create the schema
-bun dev                # api (:3001) + app (:3003)
+bun dev                # api (:3021) + app (:3023)
 ```
 
 > **Port 5678 already taken?** Set `SWARMY_DB_PORT` in `.env` to a free port
 > (e.g. `5679`) and change the port in `DATABASE_URL` to match. `bun docker:up`
 > and the Prisma helpers both read `.env`, so everything follows automatically.
 
-Open http://localhost:3003, create an account, then mint a join token
+Open http://localhost:3023, create an account, then mint a join token
 (**Nodes → Add node**, or Settings). On each node:
 
 ```bash
 # Dev: run the agent from source
-SWARMY_JOIN_TOKEN=swt_… AGENT_WS_URL=ws://controller:3001/agent/ws bun apps/agent/src/main.ts
+SWARMY_JOIN_TOKEN=swt_… AGENT_WS_URL=ws://controller:3021/agent/ws bun apps/agent/src/main.ts
 
 # Or use the install script / prebuilt binary / agent container
 # (see apps/api install routes and apps/agent/Dockerfile)

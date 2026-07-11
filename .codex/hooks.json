@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun scripts/sync-claude-skills.ts"
+          }
+        ]
+      }
+    ]
+  }
+}

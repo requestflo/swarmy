@@ -7,7 +7,7 @@ bun install
 cp .env.example .env   # set BETTER_AUTH_SECRET (openssl rand -base64 32)
 bun docker:up          # Postgres on :5678 (reads .env; set SWARMY_DB_PORT if taken)
 bun db:generate && bun db:push
-bun dev                # controller (:3001) + dashboard (:3003)
+bun dev                # controller (:3021) + dashboard (:3023)
 ```
 
 `bun typecheck` and `bun build` run the whole graph through Turbo.
