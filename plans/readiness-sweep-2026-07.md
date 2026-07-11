@@ -1,24 +1,70 @@
 # Readiness sweep: test every feature against a live (non-demo) backend
 
-**Goal:** systematically exercise swarmy end-to-end on real infrastructure (two Lima VMs,
-NetBird mesh, a live Docker Swarm, a real Postgres-backed API — no demo/mock mode), fix what's
-broken where feasible, and document what isn't in `issues/`.
+**Goal (updated 2026-07-11 per the user's `/goal` directive):** determine whether swarmy can
+actually be *deployed* by a real user — through the dashboard UI, the literal one-line install
+command, and the deploy/blueprint flow only. No code changes, no env-var tweaks, no SSH/manual
+fixes to make a test pass: any of those is itself a FAIL to document, not a valid path to green.
+Start small (ingress + a browser-reachable app locally), then scale to DigitalOcean droplets across
+regions to test global DNS/geo-routing for real. Stop and write up precisely where/why whenever
+genuinely blocked.
 
 **Environment:** `swarmy-node-1` (manager) + `swarmy-node-2` (worker), both Lima VMs, mesh-joined
 via NetBird, enrolled to org `Calum MacRae's team` (`orgId` starts `hRQ9kThFFZIy...`) through the
 dashboard's real "Add a node" install-script flow — not `scripts/mint-token.ts` (hardcoded to the
 old `swarmy-dev` org) and not seeded/demo data.
 
+## Methodology correction (2026-07-11)
+
+The first pass of this sweep (rows 1-2 below, done in an earlier segment) used manual SSH recovery
+(`rejoin --force`, hand-editing swarm state, manual `docker swarm join`) to get nodes healthy after
+hitting bugs. That is a testing-methodology mistake, not a success — see
+[[manual-recovery-required-not-magical]]. **From this point on, testing goes through the product
+surface only** (dashboard UI, the literal one-line install command, the deploy UI). If a step needs
+SSH to fix (not just to read logs), that surface fails, gets written up immediately, and testing
+does not route around it by hand.
+
+Acting on that correction, the polluted two-node environment was torn down and a **fresh** Lima VM
+was provisioned, enrolled using nothing but the exact command the dashboard's "Add a node" flow
+generates (obtained by actually driving that UI, not hand-constructed). Result: **it fails at the
+very first step, for every fresh node, unconditionally.** See row 1 below — this reverses the
+earlier "✅ Done" status, which was only true because it was reached by hand-fixing, not because the
+real flow works.
+
 ## Status
 
 | # | Feature | Status | Notes |
 |---|---|---|---|
-| 1 | Node onboarding + mesh connectivity | ✅ Done | Both nodes enrolled, `Ready` in swarm, direct NetBird ping confirmed (33-36ms). Found + fixed [[node-rejoin-wrong-org]] along the way. |
-| 2 | WordPress blueprint deploy (stacks/deploy pipeline) | 🔴 **Blocked** | See below. |
-| 3 | Issue documentation | ✅ Done (ongoing) | 5 issues written so far in `issues/`. |
-| 4 | This plan | ✅ Done | |
-| 5 | Remaining feature sweep (backups-dr, CI/CD+registry, managed-data-services, observability/OTEL, geo-edge-routing/DNS, auth/ABAC, REST API surface, node recovery, ingress, terminal/web-SSH, licensing) | ⏸️ Paused | Blocked by #2 — most of these involve deploying a stack, which needs a working overlay network. |
-| 6 | Scratch file cleanup | ⏳ Pending | `apps/api/diag-org.ts`, `apps/api/scratch-check-mesh.ts` still present, untracked. |
+| 1 | Node onboarding via the real dashboard one-liner | ✅ **Fixed and verified (2026-07-11)** | Was blocked 100% of the time by a GHCR `denied` pull. User explicitly authorized the one-line fix documented in [[install-defaults-to-unpullable-ghcr-image]] (repoint the dashboard one-liner from `/install.sh` to the already-live, already-tested `/install/loader.sh`). Verified on a fresh Lima VM through the real, unmodified-except-for-that-one-line dashboard flow: Docker installs, systemd backend auto-selected, agent installs/starts/registers, mesh joins. No manual SSH steps needed for this stage. |
+| 2 | New nodes reach a working swarm | ✅ **Confirmed working for a clean org (2026-07-11)** | Root cause: this org's `swarm_config` DB row pointed at a dead manager address from an earlier, since-destroyed test VM — every new node silently tried to "join" it instead of falling back to `init`. Fully root-caused in [[stale-swarm-config-blocks-new-nodes-after-manager-loss]]. **Retested against a genuinely fresh org** ("Sweep Tester's team", created via the real signup flow — no in-app multi-org support exists, so a new account was the only product-surface path to an unpolluted org) on a fresh Lima VM: the real, unmodified dashboard one-liner reached a healthy single-manager swarm with zero manual intervention. Confirms the bug is stale-manager-pollution-specific, not a defect in the init path itself — **the bug itself is still open and unfixed** (a real production risk for any org that permanently loses its manager), but testing continues under this fresh org since it's clean. |
+| 3 | Static-site blueprint deploy (stacks/deploy pipeline) | ✅ **Works** | Deployed via the real Deploy → Blueprints flow to the fresh org's healthy 1-node swarm: converged cleanly, 1/1 replicas, zero manual intervention. The deploy pipeline itself is solid — see row 8 for what happened next (ingress). |
+| 4 | Issue documentation | ✅ Done (ongoing) | 9 issues written so far in `issues/`. |
+| 5 | This plan | ✅ Done (ongoing) | |
+| 6 | Remaining feature sweep (backups-dr, CI/CD+registry, managed-data-services, observability/OTEL, geo-edge-routing/DNS, auth/ABAC, REST API surface, node recovery, terminal/web-SSH, licensing) | ⏳ Next up | Ingress (row 8) is done. Continuing the sweep feature-by-feature through the same fresh org/node, still via product surface only. |
+| 7 | Scratch file cleanup | ⏳ Pending | `apps/api/diag-org.ts`, `apps/api/diag-org2.ts` still present, untracked. |
+| 8 | Ingress: get one browser-reachable, secured route ("start small" milestone) | ❌ **FAIL — fully root-caused, documented** | Deployed the static-site blueprint, then drove the real Platform → Edge & ingress UI through every legitimate step (driver select, Enabled toggle, the separate "Deploy / converge controller" button, the separate "Target nodes" toggle). Result: **total unreachability** at every stage, confirmed three independent ways (direct node/Docker inspection, SSH-port-forwarded curl, an actual Chrome navigation), despite the dashboard confidently showing "1/1 SECURED" / "TLS auto" throughout. Four stacked root causes, one of them a deterministic, always-reproducible Docker Swarm placement-constraint bug (wrong node-ID namespace) that makes the "pin ingress to one node" path permanently unschedulable for every org, always. Full writeup: [[ingress-never-actually-serves-traffic]]. This is the literal milestone the governing directive named as the first thing to prove out, and it is not achievable today through the product surface alone. |
+
+## Resolved decision: step-zero fix was authorized (2026-07-11)
+
+The prior version of this section laid out three options for the GHCR blocker (stay blocked / ask
+for one-time authorization / bypass via `local-vms.sh`) and deferred to the user rather than
+deciding unilaterally. **The user chose option 2 — one-time authorization for the specific,
+already-scoped fix** (repoint one URL, described above). It was applied and verified working for
+that specific failure mode. See [[install-defaults-to-unpullable-ghcr-image]] for the full record.
+
+That authorization was scoped to exactly that one change — it does not extend to the new blocker
+in row #2 above. The same pattern (root-cause and document first, then ask before code-fixing) is
+being followed again for that issue.
+
+## Note on the overlay-networking blocker section below
+
+The "Current blocker: Docker Swarm overlay networking is broken on both nodes" section further
+down in this file describes the **earlier, two-node environment that was torn down** per the
+methodology correction above (manual `rejoin --force` recovery, stale manager address, VXLAN
+gossip failure). It's kept here for the underlying agent-code lesson it points at
+([[rejoin-force-can-corrupt-manager]]'s suggested fix for `forceManagerReform()`), but it is not
+the current blocker — the current blocker is row #2 in the status table, a completely different
+(and earlier-in-the-flow) bug on a fresh single-node environment that never had a chance to reach
+`rejoin --force` at all.
 
 ## Current blocker: Docker Swarm overlay networking is broken on both nodes
 

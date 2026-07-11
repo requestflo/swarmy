@@ -23,7 +23,7 @@ export function installOneLiner(token: string, labels: string, role: NodeRoleCho
   const meshEnv = mesh
     ? `SWARMY_MESH_SETUP_KEY=${mesh.setupKey} ${mesh.managementUrl ? `SWARMY_MESH_MANAGEMENT_URL=${mesh.managementUrl} ` : ''}${mesh.driver ? `SWARMY_MESH_DRIVER=${mesh.driver} ` : ''}`
     : '';
-  return `curl -fsSL ${origin}/install.sh | SWARMY_JOIN_TOKEN=${token} ${roleEnv}${labelEnv}${meshEnv}sh`;
+  return `curl -fsSL ${origin}/install/loader.sh | SWARMY_JOIN_TOKEN=${token} ${roleEnv}${labelEnv}${meshEnv}sh`;
 }
 
 interface InstallCommandPanelProps {
