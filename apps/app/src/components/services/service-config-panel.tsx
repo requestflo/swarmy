@@ -1,24 +1,23 @@
 import * as React from 'react';
 import type { ServiceDetail } from '@swarmy/core';
-import { Badge, Card, CardContent, CardHeader, CardTitle } from '@swarmy/ui';
+import { Card, CardContent, CardHeader, CardTitle } from '@swarmy/ui';
+import { ServiceDefinitionSection } from './service-definition-section';
 
 interface ServiceConfigPanelProps {
-  service: ServiceDetail | undefined;
+  service: ServiceDetail;
 }
 
-/** Read-only environment + published ports for the running spec. */
+/** "Config" — the running spec's environment plus the raw definition underneath. */
 export function ServiceConfigPanel({ service }: ServiceConfigPanelProps): React.JSX.Element {
-  const env = Object.entries(service?.env ?? {});
-  const ports = service?.ports ?? [];
+  const env = Object.entries(service.env ?? {});
 
   return (
-    <Card className="card-pop mt-6 border-0">
-      <CardHeader>
-        <CardTitle className="text-base">Environment & ports</CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-6 text-sm">
-        <div>
-          <p className="mono-label text-muted-foreground mb-2">Environment</p>
+    <div className="mt-6 grid gap-4">
+      <Card className="card-pop border-0">
+        <CardHeader>
+          <CardTitle className="text-base">Environment</CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm">
           {env.length ? (
             <pre className="bg-muted overflow-x-auto rounded-xl p-3 font-mono text-xs">
               {env.map(([k, v]) => `${k}=${v}`).join('\n')}
@@ -26,23 +25,10 @@ export function ServiceConfigPanel({ service }: ServiceConfigPanelProps): React.
           ) : (
             <p className="text-muted-foreground">Nothing set. This service runs clean.</p>
           )}
-        </div>
-        <div>
-          <p className="mono-label text-muted-foreground mb-2">Ports</p>
-          {ports.length ? (
-            <div className="flex flex-wrap gap-2">
-              {ports.map((p, i) => (
-                <Badge key={i} variant="outline" className="mono-data">
-                  {p.published ? `${p.published}:` : ''}
-                  {p.target}/{p.protocol}
-                </Badge>
-              ))}
-            </div>
-          ) : (
-            <p className="text-muted-foreground">No ports published.</p>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+
+      <ServiceDefinitionSection serviceId={service.id} />
+    </div>
   );
 }

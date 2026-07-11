@@ -4,7 +4,7 @@ import { SirenIcon } from 'lucide-react';
 import type { IncidentView } from '@swarmy/core';
 import { Button, Card, CardContent, EmptyState, Skeleton } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { IncidentRow } from './incident-row';
 
 function IncidentList({ incidents }: { incidents: IncidentView[] }): React.JSX.Element {
@@ -55,8 +55,8 @@ export function IncidentsPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Operations · Incidents"
+      <SectionHeader
+        section="Operations"
         title={hero}
         description="When something breaks, the whole story lands here — what fired, what swarmy did, when it resolved."
       />

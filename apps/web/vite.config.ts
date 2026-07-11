@@ -14,5 +14,5 @@ export default defineConfig({
       { find: /^@swarmy\/ui\/(.*)$/, replacement: ui('$1') },
     ],
   },
-  server: { port: 4000, strictPort: true },
+  server: { port: 4020, strictPort: true },
 });

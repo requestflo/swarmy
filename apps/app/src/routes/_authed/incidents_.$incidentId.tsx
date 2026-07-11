@@ -2,7 +2,7 @@ import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { IncidentDetailPage } from '@/components/incidents/incident-detail-page';
 
-export const Route = createFileRoute('/_authed/incidents/$incidentId')({
+export const Route = createFileRoute('/_authed/incidents_/$incidentId')({
   component: IncidentDetailRoute,
 });
 

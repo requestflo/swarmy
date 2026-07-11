@@ -210,7 +210,7 @@ app.route('/_wake', activatorApp);
 // In production the controller image bundles the built dashboard and serves it
 // same-origin: the SPA calls /api/trpc + /api/auth and upgrades /agent + /term on
 // this very origin. SWARMY_STATIC_DIR points at the built assets (the image sets
-// it to ./public). It is unset in dev — Vite serves :3003 and proxies back here —
+// it to ./public). It is unset in dev — Vite serves :3023 and proxies back here —
 // so this whole block is inert locally. Mounted AFTER every functional route so
 // those win, and the SPA fallback below preserves JSON 404s for API namespaces.
 const STATIC_DIR = process.env.SWARMY_STATIC_DIR;

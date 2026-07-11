@@ -2,21 +2,21 @@ import * as React from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { UsersIcon } from 'lucide-react';
 import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@swarmy/ui';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { ProvidersTab } from '@/components/access/providers-tab';
 import { SsoTab } from '@/components/access/sso-tab';
 import { MembersTab } from '@/components/access/members-tab';
 import { PoliciesTab } from '@/components/access/policies-tab';
 
-export const Route = createFileRoute('/_authed/settings/access')({
+export const Route = createFileRoute('/_authed/settings_/access')({
   component: AccessPage,
 });
 
 function AccessPage(): React.JSX.Element {
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Access"
+      <SectionHeader
+        section="Governance"
         title={
           <>
             Who gets <em>in</em>, and what they can do.

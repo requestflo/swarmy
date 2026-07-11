@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { GlobeIcon, PlusIcon } from 'lucide-react';
 import { Badge, Button, Skeleton, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { AppIngressRouteRow } from './app-ingress-route-row';
+import { ServiceIngressRouteRow } from './service-ingress-route-row';
 
 /**
  * One editable ingress route, mirroring the server `Route` on the
@@ -21,7 +21,7 @@ export interface RouteDraft {
   driver?: string;
 }
 
-interface AppIngressPanelProps {
+interface ServiceIngressPanelProps {
   serviceId: string;
   serviceName: string;
 }
@@ -32,11 +32,11 @@ function toDraft(r: RouteDraft): RouteDraft {
 }
 
 /**
- * Per-service ingress routes on the canvas service sheet: list / add / remove the
+ * Per-service ingress routes on the service page: list / add / remove the
  * routes carried on this service's `swarmy.ingress.routes` label and write them
  * back in one shot via `ingress.setServiceRoutes`. Gated on org ingress being on.
  */
-export function AppIngressPanel({ serviceId, serviceName }: AppIngressPanelProps): React.JSX.Element {
+export function ServiceIngressPanel({ serviceId, serviceName }: ServiceIngressPanelProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const config = useQuery(trpc.ingress.getConfig.queryOptions());
@@ -121,7 +121,7 @@ export function AppIngressPanel({ serviceId, serviceName }: AppIngressPanelProps
       ) : (
         <div className="space-y-2">
           {rows.map((r, i) => (
-            <AppIngressRouteRow
+            <ServiceIngressRouteRow
               key={i}
               route={r}
               detectedPorts={detected}

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { ProviderCard } from './provider-card';
 import { TemplatesCard } from './templates-card';
 import { DeliveryLog } from './delivery-log';
@@ -34,8 +34,8 @@ export function NotificationsPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Settings · Notifications"
+      <SectionHeader
+        section="Settings"
         title={headline}
         description="Connect an email provider once — alerts, approvals and your apps (POST /api/v1/notify) all send through it."
       />

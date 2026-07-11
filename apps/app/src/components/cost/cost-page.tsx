@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { CircleDollarSignIcon } from 'lucide-react';
 import { Button, EmptyState } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { CostNodeTable } from './cost-node-table';
 import { CostRecommendations } from './cost-recommendations';
 import { CostStackTable } from './cost-stack-table';
@@ -42,8 +42,8 @@ export function CostPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Governance · Cost"
+      <SectionHeader
+        section="Governance"
         title={title}
         description="Set each node's monthly price and swarmy breaks spend down per stack, spots idle services and oversized nodes, and suggests savings."
       />

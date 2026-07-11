@@ -2,7 +2,7 @@ import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { CountUp } from '@/components/count-up';
 import { NativeTargetHero } from '@/components/backups/native-target-hero';
 import { DestinationsCard } from '@/components/backups/destinations-card';
@@ -28,8 +28,8 @@ function BackupDestinationsPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Backup destinations"
+      <SectionHeader
+        section="Platform"
         title={
           targetRows.length > 0 ? (
             <>

@@ -1,6 +1,8 @@
 import {
+  ActivityIcon,
   ArchiveIcon,
   BellIcon,
+  BlocksIcon,
   BoxesIcon,
   CircleDollarSignIcon,
   DatabaseBackupIcon,
@@ -13,6 +15,7 @@ import {
   MailIcon,
   NetworkIcon,
   PackageIcon,
+  RocketIcon,
   ScrollTextIcon,
   ServerIcon,
   SettingsIcon,
@@ -106,9 +109,9 @@ export const SECTIONS: Destination[] = [
   { to: '/ci', label: 'CI & builds', icon: GitBranchIcon, group: 'Deploy', blurb: 'Git → build → registry', keywords: 'git pipelines builds registry images previews' },
 
   // ── Platform (global, estate-level services) ────────────────────────────
-  { to: '/data/buckets', label: 'Object storage', icon: ArchiveIcon, group: 'Platform', blurb: 'S3 buckets on your nodes', keywords: 's3 object storage garage buckets keys minio' },
-  { to: '/networking', label: 'Mesh', icon: GlobeIcon, group: 'Platform', blurb: 'WireGuard overlay & peers', keywords: 'mesh wireguard overlay peers routes acl netbird zero trust' },
   { to: '/ingress', label: 'Edge & ingress', icon: NetworkIcon, group: 'Platform', blurb: 'The edge fleet: driver, TLS, tunnel', keywords: 'caddy driver tls https ha storage tunnel cloudflare edge controller — per-stack domains live in each stack' },
+  { to: '/networking', label: 'Mesh', icon: GlobeIcon, group: 'Platform', blurb: 'WireGuard overlay & peers', keywords: 'mesh wireguard overlay peers routes acl netbird zero trust' },
+  { to: '/data/buckets', label: 'Object storage', icon: ArchiveIcon, group: 'Platform', blurb: 'S3 buckets on your nodes', keywords: 's3 object storage garage buckets keys minio' },
   { to: '/ai', label: 'AI gateway', icon: SparklesIcon, group: 'Platform', blurb: 'Providers, keys & metering', keywords: 'llm anthropic openai openrouter models virtual keys usage tokens embeddings gateway' },
   { to: '/backups', label: 'Backup destinations', icon: DatabaseBackupIcon, group: 'Platform', blurb: 'Where backups go — incl. your own buckets', keywords: 'targets restic s3 destinations snapshots volumes restore dr' },
   { to: '/settings/backup', label: 'Controller backup', icon: ShieldIcon, group: 'Platform', blurb: 'Back up swarmy itself', keywords: 'control plane bundle dump restore passphrase' },
@@ -125,14 +128,14 @@ export const SECTIONS: Destination[] = [
   { to: '/cost', label: 'Cost & capacity', icon: CircleDollarSignIcon, group: 'Governance', blurb: 'Spend & right-sizing tips', keywords: 'spend usd nodes utilization idle savings recommendations capacity' },
 
   // ── Settings ────────────────────────────────────────────────────────────
-  { to: '/settings', label: 'Settings', icon: SettingsIcon, group: 'Settings', blurb: 'Org profile & preferences', keywords: 'org profile general preferences' },
+  { to: '/settings', label: 'General', icon: SettingsIcon, group: 'Settings', blurb: 'Org profile & preferences', keywords: 'settings org profile general preferences' },
   { to: '/settings/api-keys', label: 'API keys', icon: KeyRoundIcon, group: 'Settings', blurb: 'Tokens for the API & Terraform', keywords: 'tokens swk oauth terraform api keys' },
   { to: '/settings/notifications', label: 'Notifications', icon: MailIcon, group: 'Settings', blurb: 'Email / SMTP delivery', keywords: 'email smtp resend postmark mailgun templates delivery' },
 ];
 
 export const ALL_DESTINATIONS: Destination[] = [...PRIMARY, ...SECTIONS];
 
-/** Sidenav / palette group order (Primary is rendered separately, headerless). */
+/** Palette / mobile-sheet group order (Primary is rendered separately, headerless). */
 export const NAV_GROUP_ORDER: DestinationGroup[] = [
   'Deploy',
   'Platform',
@@ -140,6 +143,40 @@ export const NAV_GROUP_ORDER: DestinationGroup[] = [
   'Governance',
   'Settings',
 ];
+
+/**
+ * A top-level sidenav destination for a group: the sidenav shows the 3 PRIMARY
+ * anchors + these 5 rows — 8 flat items, nothing collapsed. Clicking one lands
+ * on the group's first surface; the group's children render as in-page tabs
+ * (see `components/section-header.tsx`). Badges roll up every child signal so
+ * attention is never hidden behind navigation.
+ */
+export interface NavGroup {
+  group: Exclude<DestinationGroup, 'Primary'>;
+  label: string;
+  icon: LucideIcon;
+  /** Where the sidenav row lands: the group's first tab. */
+  to: string;
+  /** Child badge signals summed into the row's attention count. */
+  badges: BadgeKey[];
+}
+
+export const NAV_GROUPS: NavGroup[] = [
+  { group: 'Deploy', label: 'Deploy', icon: RocketIcon, to: '/blueprints', badges: [] },
+  { group: 'Platform', label: 'Platform', icon: BlocksIcon, to: '/ingress', badges: [] },
+  { group: 'Operations', label: 'Operations', icon: ActivityIcon, to: '/alerts', badges: ['alertsFiring', 'incidentsOpen'] },
+  { group: 'Governance', label: 'Governance', icon: ShieldCheckIcon, to: '/governance', badges: [] },
+  { group: 'Settings', label: 'Settings', icon: SettingsIcon, to: '/settings', badges: [] },
+];
+
+/** The group a pathname belongs to — most-specific destination match wins. */
+export function groupForPathname(pathname: string): DestinationGroup | null {
+  const matches = ALL_DESTINATIONS.filter((d) =>
+    d.exact ? pathname === d.to : pathname === d.to || pathname.startsWith(`${d.to}/`),
+  );
+  const best = matches.sort((a, b) => b.to.length - a.to.length)[0];
+  return best?.group ?? null;
+}
 
 /** Quick-action verbs surfaced in the palette + the global Create menu. */
 export interface CommandAction {

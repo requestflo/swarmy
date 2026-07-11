@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PlusIcon } from 'lucide-react';
 import { Button } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { CountUp } from '@/components/count-up';
 import { RegistryCard } from '@/components/ci/registry-card';
 import { GcPolicyCard } from '@/components/ci/gc-policy-card';
@@ -34,8 +34,8 @@ function CiPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Delivery · CI / CD"
+      <SectionHeader
+        section="Deploy"
         title={
           repoCount > 0 ? (
             <>

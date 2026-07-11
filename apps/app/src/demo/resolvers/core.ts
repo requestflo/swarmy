@@ -215,7 +215,15 @@ export const core: DomainResolvers = {
           (!f.search || sv.name.includes(f.search) || sv.image.includes(f.search)),
       );
     },
-    'services.get': (i, s) => byId(s.services, (i as { id: string }).id) ?? null,
+    // Production `stackId` is the docker stack NAME (the /stacks/$name segment),
+    // while the demo store keys stacks by internal id — map at the boundary so
+    // breadcrumbs and stack links resolve.
+    'services.get': (i, s) => {
+      const sv = byId(s.services, (i as { id: string }).id);
+      if (!sv) return null;
+      const stackName = s.stacks.find((st) => st.id === sv.stackId)?.name ?? sv.stackId;
+      return { ...sv, stackId: stackName };
+    },
     // Synthesized from the service's live replica counts (no Deployment row in the
     // backendless demo), mirroring the controller's new inventory-derived status:
     // `complete` once running >= desired, else still `converging`.

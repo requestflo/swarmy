@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { ChannelsPanel } from './channels-panel';
 import { FiringEvents } from './firing-events';
 import { RulesTable } from './rules-table';
@@ -37,8 +37,8 @@ export function AlertsPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Operations · Alerts"
+      <SectionHeader
+        section="Operations"
         title={title}
         description="swarmy watches nodes, services, databases, backups, disks, queues and error rates — and tells you before your users do. Pick where the messages land, tune the rules if you like."
       />

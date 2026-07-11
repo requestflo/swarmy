@@ -2,19 +2,19 @@ import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { BookOpenIcon } from 'lucide-react';
 import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@swarmy/ui';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { ApiKeysTab } from '@/components/apikeys/api-keys-tab';
 import { OauthClientsTab } from '@/components/apikeys/oauth-clients-tab';
 
-export const Route = createFileRoute('/_authed/settings/api-keys')({
+export const Route = createFileRoute('/_authed/settings_/api-keys')({
   component: ApiKeysPage,
 });
 
 function ApiKeysPage(): React.JSX.Element {
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="API keys"
+      <SectionHeader
+        section="Settings"
         title={
           <>
             Make swarmy <em>programmable</em>.

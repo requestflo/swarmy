@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArchiveIcon, PlusIcon } from 'lucide-react';
 import { Button, CopyButton, EmptyState } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { BucketsTable } from './buckets-table';
 import { CreateBucketCard } from './create-bucket-card';
 import { fmtBytes } from './format';
@@ -29,8 +29,8 @@ export function BucketsPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Data"
+      <SectionHeader
+        section="Platform"
         title={
           ready && buckets.length > 0 ? (
             <>

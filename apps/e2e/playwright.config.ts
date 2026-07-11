@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * Smoke tests run against the marketing site (no backend required).
- * To exercise the dashboard end-to-end, point baseURL at :3003 and start
+ * To exercise the dashboard end-to-end, point baseURL at :3023 and start
  * `bun dev` (controller + app) with Postgres up.
  */
 export default defineConfig({
@@ -12,7 +12,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: 'list',
   use: {
-    baseURL: 'http://localhost:4000',
+    baseURL: 'http://localhost:4020',
     trace: 'on-first-retry',
   },
   projects: [
@@ -29,7 +29,7 @@ export default defineConfig({
   ],
   webServer: {
     command: 'bun --filter @swarmy/web dev',
-    url: 'http://localhost:4000',
+    url: 'http://localhost:4020',
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },

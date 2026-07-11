@@ -4,9 +4,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { HammerIcon, RocketIcon, Trash2Icon } from 'lucide-react';
 import { Badge, Button, Skeleton, StatusBadge, type StatusTone, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { AppCicdLinkForm } from './app-cicd-link-form';
+import { ServiceCicdLinkForm } from './service-cicd-link-form';
 
-interface AppCicdPanelProps {
+interface ServiceCicdPanelProps {
   serviceId: string;
   serviceName: string;
 }
@@ -22,11 +22,11 @@ const BUILD_TONE: Record<string, StatusTone> = {
 const buildTone = (s: string): StatusTone => BUILD_TONE[s] ?? 'neutral';
 
 /**
- * Per-service CI/CD on the canvas service sheet: link a git repo to this
+ * Per-service CI/CD on the service page: link a git repo to this
  * `serviceId`, build a ref on demand, and watch recent builds. With autodeploy on,
  * a successful build redeploys this service — the build-before-run path, surfaced.
  */
-export function AppCicdPanel({ serviceId, serviceName }: AppCicdPanelProps): React.JSX.Element {
+export function ServiceCicdPanel({ serviceId, serviceName }: ServiceCicdPanelProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const repos = useQuery(trpc.cicd.listRepos.queryOptions());
@@ -61,7 +61,7 @@ export function AppCicdPanel({ serviceId, serviceName }: AppCicdPanelProps): Rea
       {repos.isLoading ? (
         <Skeleton className="h-24 w-full rounded-xl" />
       ) : linked.length === 0 ? (
-        <AppCicdLinkForm serviceId={serviceId} />
+        <ServiceCicdLinkForm serviceId={serviceId} />
       ) : (
         <div className="space-y-3">
           {linked.map((r) => (

@@ -2,11 +2,12 @@ import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { TerminalIcon } from 'lucide-react';
 import { useSubscription } from '@trpc/tanstack-react-query';
-import { Button, Card, CardContent } from '@swarmy/ui';
+import { Button, Card, CardContent, cn } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 
 interface ServiceLogsPanelProps {
   serviceId: string;
+  className?: string;
 }
 
 interface LogLine {
@@ -20,7 +21,7 @@ interface LogLine {
  * controller resolves the service + a manager from the live inventory (no DB) and
  * relays `docker service logs` from the node agent. Auto-scrolls while pinned.
  */
-export function ServiceLogsPanel({ serviceId }: ServiceLogsPanelProps): React.JSX.Element {
+export function ServiceLogsPanel({ serviceId, className }: ServiceLogsPanelProps): React.JSX.Element {
   const trpc = useTRPC();
   const [lines, setLines] = React.useState<LogLine[]>([]);
   const boxRef = React.useRef<HTMLDivElement>(null);
@@ -45,7 +46,7 @@ export function ServiceLogsPanel({ serviceId }: ServiceLogsPanelProps): React.JS
   };
 
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className={cn('card-pop border-0', className)}>
       <CardContent className="p-6">
         <div className="mb-3 flex items-center justify-between">
           <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">Live logs</p>

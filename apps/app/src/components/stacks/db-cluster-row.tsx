@@ -4,6 +4,7 @@ import { MinusIcon, PlusIcon, ServerIcon } from 'lucide-react';
 import { Button, CopyButton, StatusBadge, type StatusTone, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { CountUp } from '@/components/count-up';
+import { DbClusterRowDetail } from './db-cluster-row-detail';
 
 export type ClusterStatus = 'running' | 'degraded' | 'deploying' | 'idle' | 'stopped' | 'absent';
 
@@ -108,6 +109,8 @@ export function DbClusterRow({
           <HostRow kind="RO" host={c.roHost} />
         </div>
       </div>
+
+      <DbClusterRowDetail stack={stack} cluster={c.name} />
     </div>
   );
 }

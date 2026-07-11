@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ShieldAlertIcon } from 'lucide-react';
 import { Button, EmptyState } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { ExposureRulesCard } from './exposure-rules-card';
 import { ExposureTable } from './exposure-table';
 import { ExposureViolations } from './exposure-violations';
@@ -46,8 +46,8 @@ export function ExposurePage(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Network · Exposure"
+      <SectionHeader
+        section="Governance"
         title={title}
         description="Every service, audited: what faces the internet (domains and published ports), what stays private, and what your rules say about it."
       />

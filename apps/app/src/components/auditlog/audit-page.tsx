@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type { AuditFilterInput } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { AuditFilters, EMPTY_FILTERS, type AuditFilterState } from './audit-filters';
 import { AuditTable } from './audit-table';
 import { CannedChips } from './canned-chips';
@@ -50,8 +50,8 @@ export function AuditPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Governance · Audit"
+      <SectionHeader
+        section="Governance"
         title={
           <>
             Who did <em>what</em>, when.

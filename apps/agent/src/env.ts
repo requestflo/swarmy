@@ -40,7 +40,7 @@ function expandHome(p: string): string {
 const statePath = expandHome(process.env.SWARMY_AGENT_STATE ?? '~/.swarmy/agent.json');
 
 export const env = {
-  AGENT_WS_URL: process.env.AGENT_WS_URL ?? 'ws://localhost:3001/agent/ws',
+  AGENT_WS_URL: process.env.AGENT_WS_URL ?? 'ws://localhost:3021/agent/ws',
   JOIN_TOKEN: process.env.SWARMY_JOIN_TOKEN ?? '',
   DOCKER_SOCKET: process.env.DOCKER_SOCKET ?? '/var/run/docker.sock',
   STATE_PATH: statePath,

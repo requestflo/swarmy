@@ -1,8 +1,8 @@
 import * as React from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useMatchRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeftIcon, BoxesIcon, ShieldIcon } from 'lucide-react';
-import { EmptyState } from '@swarmy/ui';
+import { cn, EmptyState } from '@swarmy/ui';
 import { isSystemStack } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { computeStackStats, type StackStat } from '@/components/canvas/stack-aggregates';
@@ -33,11 +33,20 @@ const TONE_WORD: Record<string, TonePhrase> = {
  * needs (data, messaging, observability, network, config, backups, releases)
  * lives here as a tab, each a real URL. The header stays lightweight: back
  * link, the stack's health as a statement, live counts, then the tab strip.
+ *
+ * The Overview tab runs in "fit mode": the workspace caps itself to the
+ * viewport (mobile: 100dvh minus the shell's 3.5rem header + 7rem tab-bar
+ * clearance; lg: a clean h-dvh — nothing sits above <main>) and compacts the
+ * header, so the canvas always ends on screen with zero page scroll. Every
+ * other tab keeps the full hero and scrolls normally. (Demo mode's banner adds
+ * height above <main> and is the one accepted misfit.)
  */
 export function StackWorkspaceLayout({
   stack,
   children,
 }: StackWorkspaceLayoutProps): React.JSX.Element {
+  const matchRoute = useMatchRoute();
+  const fit = !!matchRoute({ to: '/stacks/$name' });
   const trpc = useTRPC();
   const inventory = useQuery({ ...trpc.inventory.get.queryOptions(), refetchInterval: 4_000 });
   const stat: StackStat | undefined = React.useMemo(
@@ -55,13 +64,22 @@ export function StackWorkspaceLayout({
   const phrase = TONE_WORD[tone] ?? IDLE_PHRASE;
 
   return (
-    <div className="mx-auto flex w-full max-w-[1600px] flex-col px-6 pt-6 lg:pb-10 xl:px-10">
-      <Link
-        to="/"
-        className="text-muted-foreground hover:text-foreground mb-3 inline-flex w-fit items-center gap-1.5 text-sm font-medium transition-colors"
-      >
-        <ArrowLeftIcon className="size-3.5" /> Stacks
-      </Link>
+    <div
+      className={cn(
+        'mx-auto flex w-full max-w-[1600px] flex-col px-6 pt-6 xl:px-10',
+        fit
+          ? 'h-[calc(100dvh-10.5rem)] min-h-[480px] overflow-hidden lg:h-dvh lg:pb-6'
+          : 'lg:pb-10',
+      )}
+    >
+      {!fit && (
+        <Link
+          to="/"
+          className="text-muted-foreground hover:text-foreground mb-3 inline-flex w-fit items-center gap-1.5 text-sm font-medium transition-colors"
+        >
+          <ArrowLeftIcon className="size-3.5" /> Stacks
+        </Link>
+      )}
 
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -72,7 +90,7 @@ export function StackWorkspaceLayout({
           ) : (
             <div className="eyebrow mb-2">Stack</div>
           )}
-          <h1 className="headline text-[2rem] leading-[1.05] sm:text-4xl">
+          <h1 className={cn('headline leading-[1.05]', fit ? 'text-2xl sm:text-3xl' : 'text-[2rem] sm:text-4xl')}>
             {stack}
             {stat && (
               <span className="text-muted-foreground/80 font-display ml-3 text-[0.55em] font-semibold">

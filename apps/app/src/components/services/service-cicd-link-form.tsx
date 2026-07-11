@@ -15,14 +15,14 @@ import {
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 
-interface AppCicdLinkFormProps {
+interface ServiceCicdLinkFormProps {
   serviceId: string;
 }
 
 type Provider = 'github' | 'gitlab';
 
 /** Compact "link a git repo to this service" form (provider, url, branch, autodeploy). */
-export function AppCicdLinkForm({ serviceId }: AppCicdLinkFormProps): React.JSX.Element {
+export function ServiceCicdLinkForm({ serviceId }: ServiceCicdLinkFormProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const [provider, setProvider] = React.useState<Provider>('github');

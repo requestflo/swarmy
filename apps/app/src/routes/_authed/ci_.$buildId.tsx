@@ -7,7 +7,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
 import { BuildLogViewer } from '@/components/ci/build-log-viewer';
 
-export const Route = createFileRoute('/_authed/ci/$buildId')({
+export const Route = createFileRoute('/_authed/ci_/$buildId')({
   component: BuildDetailPage,
 });
 

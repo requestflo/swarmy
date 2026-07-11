@@ -1,21 +1,21 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { BackupNowButton } from '@/components/controllerbackup/backup-now-button';
 import { DataStoreCard } from '@/components/controllerbackup/data-store-card';
 import { PassphraseCard } from '@/components/controllerbackup/passphrase-card';
 import { ScheduleCard } from '@/components/controllerbackup/schedule-card';
 import { SnapshotsList } from '@/components/controllerbackup/snapshots-list';
 
-export const Route = createFileRoute('/_authed/settings/backup')({
+export const Route = createFileRoute('/_authed/settings_/backup')({
   component: ControllerBackupPage,
 });
 
 function ControllerBackupPage(): React.JSX.Element {
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Controller backup"
+      <SectionHeader
+        section="Platform"
         title={
           <>
             Protect the <em>brain</em>.

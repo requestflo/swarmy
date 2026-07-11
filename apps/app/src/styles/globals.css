@@ -38,3 +38,76 @@ body,
 .react-flow__node:focus-visible {
   outline: none;
 }
+
+/* ── Data-flow strip: dashes marching toward the arrowhead ── */
+.flow-dashes {
+  width: 30px;
+  height: 2px;
+  background: repeating-linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--primary) 70%, transparent) 0 6px,
+    transparent 6px 12px
+  );
+  animation: flow-dash-march 0.7s linear infinite;
+}
+.flow-dashes-muted {
+  background: repeating-linear-gradient(90deg, var(--border) 0 6px, transparent 6px 12px);
+  animation: none;
+}
+@keyframes flow-dash-march {
+  to {
+    background-position-x: 12px;
+  }
+}
+
+/* ── Service overlay: zoom out of the tapped node, coverflow between siblings ── */
+.overlay-backdrop-in {
+  animation: overlay-fade-in 0.25s ease-out both;
+}
+@keyframes overlay-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.overlay-zoom-in {
+  animation: overlay-zoom 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes overlay-zoom {
+  from {
+    opacity: 0;
+    transform: scale(0.35);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.overlay-slide-left {
+  animation: overlay-from-right 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.overlay-slide-right {
+  animation: overlay-from-left 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes overlay-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(64px) rotateY(-8deg) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes overlay-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-64px) rotateY(8deg) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

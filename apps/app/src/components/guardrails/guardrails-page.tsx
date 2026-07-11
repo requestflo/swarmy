@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ShieldAlertIcon } from 'lucide-react';
 import { Button, EmptyState } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { DecisionsFeed } from './decisions-feed';
 import { RulesList } from './rules-list';
 import { SafetyModeCard } from './safety-mode-card';
@@ -33,8 +33,8 @@ export function GuardrailsPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Governance · Guardrails"
+      <SectionHeader
+        section="Governance"
         title={title}
         description="Rules that keep production safe — pinned images, database replicas, backups, limits. Violating deploys are refused; every block and override is on the record."
       />

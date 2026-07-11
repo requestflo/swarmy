@@ -1,16 +1,16 @@
 import * as React from 'react';
 import { Link, useLocation } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRightIcon, SearchIcon } from 'lucide-react';
+import { SearchIcon } from 'lucide-react';
 import { cn } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { Wordmark } from '@/components/wordmark';
 import {
   PRIMARY,
-  SECTIONS,
-  NAV_GROUP_ORDER,
+  NAV_GROUPS,
+  groupForPathname,
   type Destination,
-  type DestinationGroup,
+  type NavGroup,
 } from '@/lib/destinations';
 import { useNavBadges } from '@/lib/use-nav-badges';
 import { CreateMenu } from './create-menu';
@@ -19,19 +19,18 @@ import { useCommandPalette } from './command-palette-provider';
 
 /**
  * The desktop shell: a fixed navy sidenav (the Hot Signal statement surface).
- * Three headerless anchors (Overview / Stacks / Infrastructure) sit above the
- * grouped, collapsible sections so all 40 destinations are discoverable at a
- * glance instead of buried in a dropdown. The group containing the current
- * route auto-expands; attention badges (offline nodes, firing alerts, open
- * incidents) surface where the work is.
+ * Eight flat destinations, nothing collapsed: the 3 anchors (Overview / Stacks
+ * / Infrastructure) then one row per section (Deploy / Platform / Operations /
+ * Governance / Settings). A section's surfaces live as in-page tabs
+ * (`SectionHeader`), so the nav never rearranges itself and attention badges
+ * (offline nodes, firing alerts, open incidents) are always visible — rolled
+ * up onto the section row they belong to.
  */
 export function Sidenav(): React.JSX.Element {
   const { pathname } = useLocation();
-  const activeTo = useActiveDestination(pathname);
-  const activeGroup = React.useMemo<DestinationGroup | null>(
-    () => SECTIONS.find((s) => s.to === activeTo)?.group ?? null,
-    [activeTo],
-  );
+  const activeTo = useActivePrimary(pathname);
+  const activeGroup = React.useMemo(() => groupForPathname(pathname), [pathname]);
+  const badges = useNavBadges();
 
   return (
     <aside className="ink-block fixed inset-y-0 left-0 z-30 hidden w-64 flex-col lg:flex">
@@ -47,14 +46,27 @@ export function Sidenav(): React.JSX.Element {
         <SearchButton />
       </div>
 
-      <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-2">
-        <div className="space-y-0.5">
-          {PRIMARY.map((d) => (
-            <NavRow key={d.to} d={d} activeTo={activeTo} />
-          ))}
-        </div>
-        {NAV_GROUP_ORDER.map((group) => (
-          <NavGroup key={group} group={group} activeTo={activeTo} defaultOpen={group === activeGroup} />
+      <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
+        {PRIMARY.map((d) => (
+          <NavRow
+            key={d.to}
+            to={d.to}
+            label={d.label}
+            icon={d.icon}
+            active={activeTo === d.to}
+            count={d.badge ? badges[d.badge] : 0}
+          />
+        ))}
+        <div className="pt-3" />
+        {NAV_GROUPS.map((g) => (
+          <NavRow
+            key={g.group}
+            to={g.to}
+            label={g.label}
+            icon={g.icon}
+            active={activeGroup === g.group}
+            count={g.badges.reduce((n, key) => n + badges[key], 0)}
+          />
         ))}
       </nav>
 
@@ -68,60 +80,32 @@ export function Sidenav(): React.JSX.Element {
   );
 }
 
-/** Most-specific active destination wins (so /settings/access ≠ /settings). */
-function useActiveDestination(pathname: string): string | null {
+/** Most-specific active anchor (so /nodes/new still lights Infrastructure). */
+function useActivePrimary(pathname: string): string | null {
   return React.useMemo(() => {
-    const all: Destination[] = [...PRIMARY, ...SECTIONS];
-    const matches = all.filter((d) =>
+    const matches = PRIMARY.filter((d) =>
       d.exact ? pathname === d.to : pathname === d.to || pathname.startsWith(`${d.to}/`),
     );
     return matches.sort((a, b) => b.to.length - a.to.length)[0]?.to ?? null;
   }, [pathname]);
 }
 
-function NavGroup({
-  group,
-  activeTo,
-  defaultOpen,
+function NavRow({
+  to,
+  label,
+  icon: Icon,
+  active,
+  count,
 }: {
-  group: DestinationGroup;
-  activeTo: string | null;
-  defaultOpen: boolean;
+  to: string;
+  label: string;
+  icon: Destination['icon'] | NavGroup['icon'];
+  active: boolean;
+  count: number;
 }): React.JSX.Element {
-  const [open, setOpen] = React.useState(defaultOpen);
-  // Re-open when navigation lands inside this group.
-  React.useEffect(() => {
-    if (defaultOpen) setOpen(true);
-  }, [defaultOpen]);
-  const items = SECTIONS.filter((s) => s.group === group);
-
-  return (
-    <div>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="text-ink-foreground/45 hover:text-ink-foreground/70 flex w-full items-center gap-1.5 px-3 py-1 text-[11px] font-semibold tracking-wider uppercase transition-colors"
-      >
-        <ChevronRightIcon className={cn('size-3 transition-transform', open && 'rotate-90')} />
-        {group}
-      </button>
-      {open && (
-        <div className="mt-0.5 space-y-0.5">
-          {items.map((d) => (
-            <NavRow key={d.to} d={d} activeTo={activeTo} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function NavRow({ d, activeTo }: { d: Destination; activeTo: string | null }): React.JSX.Element {
-  const badges = useNavBadges();
-  const active = activeTo === d.to;
-  const count = d.badge ? badges[d.badge] : 0;
   return (
     <Link
-      to={d.to}
+      to={to}
       className={cn(
         'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
         active
@@ -129,15 +113,10 @@ function NavRow({ d, activeTo }: { d: Destination; activeTo: string | null }): R
           : 'text-ink-foreground/75 hover:text-ink-foreground hover:bg-white/5',
       )}
     >
-      <d.icon className="size-4 shrink-0" />
-      <span className="flex-1 truncate">{d.label}</span>
+      <Icon className="size-4 shrink-0" />
+      <span className="flex-1 truncate">{label}</span>
       {count > 0 && (
-        <span
-          className={cn(
-            'flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold',
-            active ? 'bg-primary text-primary-foreground' : 'bg-primary/90 text-primary-foreground',
-          )}
-        >
+        <span className="bg-primary text-primary-foreground flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold">
           {count}
         </span>
       )}

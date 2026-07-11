@@ -6,10 +6,10 @@ function required(name: string, fallback?: string): string {
 
 export const env = {
   NODE_ENV: process.env.NODE_ENV ?? 'development',
-  PORT: Number(process.env.PORT ?? 3001),
+  PORT: Number(process.env.PORT ?? 3021),
   DATABASE_URL: required('DATABASE_URL', 'postgresql://swarmy:swarmy@localhost:5678/swarmy'),
-  BETTER_AUTH_URL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3001',
-  CONTROLLER_PUBLIC_URL: process.env.CONTROLLER_PUBLIC_URL ?? 'http://localhost:3001',
+  BETTER_AUTH_URL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3021',
+  CONTROLLER_PUBLIC_URL: process.env.CONTROLLER_PUBLIC_URL ?? 'http://localhost:3021',
   /** Metrics rollup flush + retention. */
   METRICS_SAMPLE_INTERVAL_MS: Number(process.env.METRICS_SAMPLE_INTERVAL_MS ?? 60_000),
   METRICS_RETENTION_DAYS: Number(process.env.METRICS_RETENTION_DAYS ?? 14),
@@ -28,7 +28,7 @@ export const env = {
   AGENT_IMAGE: process.env.SWARMY_AGENT_IMAGE ?? 'ghcr.io/requestflo/swarmy-agent:latest',
   AGENT_BINARY_BASE_URL:
     process.env.SWARMY_AGENT_BINARY_BASE_URL ??
-    `${process.env.CONTROLLER_PUBLIC_URL ?? 'http://localhost:3001'}/install/bin`,
+    `${process.env.CONTROLLER_PUBLIC_URL ?? 'http://localhost:3021'}/install/bin`,
   /** JSON map of `{ "linux-x64": "<sha256>", … }`; empty until release artifacts are published. */
   AGENT_BINARY_SHA256: process.env.SWARMY_AGENT_BINARY_SHA256 ?? '{}',
 };

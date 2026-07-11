@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { LayoutTemplateIcon } from 'lucide-react';
 import { Button, EmptyState } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { BlueprintCard } from './blueprint-card';
 
 /**
@@ -19,8 +19,8 @@ export function BlueprintsPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Deploy · Blueprints"
+      <SectionHeader
+        section="Deploy"
         title={
           <>
             Ship a whole stack in <em>one</em> deploy.

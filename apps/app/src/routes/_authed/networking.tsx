@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, StatusBadge, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { CountUp } from '@/components/count-up';
 import {
   MeshDriverCard,
@@ -57,8 +57,8 @@ function NetworkingPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Networking"
+      <SectionHeader
+        section="Platform"
         title={
           peerCount > 0 ? (
             <>

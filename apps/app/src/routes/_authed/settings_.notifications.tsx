@@ -2,7 +2,7 @@ import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { NotificationsPage } from '@/components/notify/notifications-page';
 
-export const Route = createFileRoute('/_authed/settings/notifications')({
+export const Route = createFileRoute('/_authed/settings_/notifications')({
   component: SettingsNotificationsPage,
 });
 

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { KeysCard } from './keys-card';
 import { ProvidersCard } from './providers-card';
 import { RequestLogCard } from './request-log-card';
@@ -22,8 +22,8 @@ export function AiPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="AI"
+      <SectionHeader
+        section="Platform"
         title={
           configured === 0 ? (
             <>

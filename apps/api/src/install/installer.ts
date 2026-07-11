@@ -59,6 +59,7 @@ set -eu
 
 CONTROLLER_URL="\${SWARMY_CONTROLLER_URL:-${controllerUrl}}"
 JOIN_TOKEN="\${SWARMY_JOIN_TOKEN:-}"
+EXPLICIT_JOIN_TOKEN="$JOIN_TOKEN"
 NODE_LABELS="\${SWARMY_NODE_LABELS:-}"
 BACKEND="\${SWARMY_BACKEND:-auto}"
 AGENT_IMAGE="\${SWARMY_AGENT_IMAGE:-${agentImage}}"
@@ -150,10 +151,26 @@ fi
 # On repair, values not supplied with the one-liner are salvaged from the
 # existing env file so a bare re-run never LOSES configuration.
 if [ -n "$REPAIR" ] && [ -f "$ENV_FILE" ]; then
-  [ -n "$JOIN_TOKEN" ]         || JOIN_TOKEN="$(sed -n 's/^SWARMY_JOIN_TOKEN=//p' "$ENV_FILE" | head -1)"
+  OLD_JOIN_TOKEN="$(sed -n 's/^SWARMY_JOIN_TOKEN=//p' "$ENV_FILE" | head -1)"
+  [ -n "$JOIN_TOKEN" ]         || JOIN_TOKEN="$OLD_JOIN_TOKEN"
   [ -n "$MESH_SETUP_KEY" ]     || MESH_SETUP_KEY="$(sed -n 's/^SWARMY_MESH_SETUP_KEY=//p' "$ENV_FILE" | head -1)"
   [ -n "$MESH_MANAGEMENT_URL" ] || MESH_MANAGEMENT_URL="$(sed -n 's/^SWARMY_MESH_MANAGEMENT_URL=//p' "$ENV_FILE" | head -1)"
   [ -n "$NODE_LABELS" ]        || NODE_LABELS="$(sed -n 's/^SWARMY_NODE_LABELS=//p' "$ENV_FILE" | head -1)"
+
+  # A NEW, explicit join token (different from what's on disk) means the operator
+  # wants this box to (re-)enroll under a possibly different org/controller — not
+  # just refresh its binary/creds. The agent otherwise ignores SWARMY_JOIN_TOKEN
+  # entirely whenever a local session file exists (it always prefers resuming its
+  # saved session over joining fresh — see apps/agent/src/daemon.ts buildRegister),
+  # which silently re-adopts the OLD node identity under the OLD org. Drop the
+  # stale session so the agent is forced to perform a fresh join with the new token.
+  if [ -n "$EXPLICIT_JOIN_TOKEN" ] && [ "$EXPLICIT_JOIN_TOKEN" != "$OLD_JOIN_TOKEN" ]; then
+    DROP_AGENT_STATE=1
+    if [ -f "$STATE_DIR/agent.json" ]; then
+      say "New join token differs from the existing installation — dropping the saved agent session so this node re-enrolls fresh."
+      rm -f "$STATE_DIR/agent.json"
+    fi
+  fi
 fi
 
 # --- derive WS URL ------------------------------------------------------------
@@ -219,6 +236,10 @@ install_docker() {
   say "Installing the Docker-container backend…"
   docker pull "$AGENT_IMAGE" >/dev/null 2>&1 || warn "Could not pull a newer image; using local copy if present."
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+  if [ -n "$DROP_AGENT_STATE" ]; then
+    say "New join token differs from the existing installation — dropping the saved agent session volume so this node re-enrolls fresh."
+    docker volume rm "$STATE_VOLUME" >/dev/null 2>&1 || true
+  fi
   docker run -d \\
     --name "$CONTAINER_NAME" \\
     --restart unless-stopped \\

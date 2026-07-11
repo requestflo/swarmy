@@ -56,24 +56,20 @@ function ContainerDots({ containers }: { containers: InvContainer[] }): React.JS
 /**
  * A live service as a draggable canvas card (Hot Signal): status dot, image tag,
  * replica health, a dot per container, exposed ports, and a quiet scale-to-zero /
- * idle affordance (idle is intentional — a paused moon, never an error). Selection
- * and click are owned by the ReactFlow orchestrator.
+ * idle affordance (idle is intentional — a paused moon, never an error). Tapping
+ * the card transports you into the service page — the hover "Open" chip sells it.
  */
-export function ServiceNode({ data, selected }: NodeProps<ServiceFlowNode>): React.JSX.Element {
+export function ServiceNode({ data }: NodeProps<ServiceFlowNode>): React.JSX.Element {
   const { service, tone } = data;
   const { replicas, containers, ports, status, scaleToZero } = service;
   const idle = status === 'idle';
   const replicasOk = replicas.desired > 0 && replicas.running >= replicas.desired;
 
   return (
-    <div
-      className={cn(
-        'card-pop w-[248px] cursor-pointer rounded-2xl px-4 py-3 transition-shadow',
-        selected
-          ? 'ring-primary shadow-[0_12px_32px_-10px_var(--primary)] ring-2'
-          : 'hover:shadow-[0_14px_34px_-16px_rgba(0,0,0,0.4)]',
-      )}
-    >
+    <div className="card-pop group hover:ring-primary/60 relative w-[248px] cursor-pointer rounded-2xl px-4 py-3 transition-shadow hover:shadow-[0_14px_34px_-14px_var(--primary)] hover:ring-2">
+      <span className="bg-primary text-primary-foreground pointer-events-none absolute -top-2.5 right-3 rounded-full px-2 py-0.5 text-[10px] font-bold opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+        Open →
+      </span>
       <Handle id="l1" type="target" position={Position.Left} style={{ ...HANDLE, top: '40%' }} isConnectable={false} />
       <Handle id="l2" type="target" position={Position.Left} style={{ ...HANDLE, top: '68%' }} isConnectable={false} />
       <Handle id="r1" type="source" position={Position.Right} style={{ ...HANDLE, top: '40%' }} isConnectable={false} />

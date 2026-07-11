@@ -2,9 +2,9 @@ import * as React from 'react';
 import { Trash2Icon } from 'lucide-react';
 import { Badge, Button, Input, Label, Switch, cn } from '@swarmy/ui';
 import { DnsHealthBadge } from '@/components/geo/dns-health-badge';
-import type { RouteDraft } from './app-ingress-panel';
+import type { RouteDraft } from './service-ingress-panel';
 
-interface AppIngressRouteRowProps {
+interface ServiceIngressRouteRowProps {
   route: RouteDraft;
   /** Ports detected from the live service — one-tap fill for the port field. */
   detectedPorts: number[];
@@ -14,13 +14,13 @@ interface AppIngressRouteRowProps {
 }
 
 /** One editable ingress route row: host + port (auto-detect) + path/strip + TLS. */
-export function AppIngressRouteRow({
+export function ServiceIngressRouteRow({
   route,
   detectedPorts,
   disabled,
   onChange,
   onRemove,
-}: AppIngressRouteRowProps): React.JSX.Element {
+}: ServiceIngressRouteRowProps): React.JSX.Element {
   const host = route.host.trim();
   return (
     <div className="border-border space-y-3 rounded-xl border p-3">
