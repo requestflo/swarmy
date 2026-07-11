@@ -179,7 +179,7 @@ async function main(): Promise<void> {
   console.log('  ─────────────────────────────────────────────────────────────');
   console.log(`  1. Start the controller + dashboard:   bun dev`);
   console.log(`  2. In a second terminal, start a node:  bun run dev:agent`);
-  console.log(`  3. Open http://localhost:3003 and log in:`);
+  console.log(`  3. Open http://localhost:3023 and log in:`);
   console.log(`       email:    ${DEV_EMAIL}`);
   console.log(`       password: ${DEV_PASSWORD}`);
   console.log(`     Your node appears ONLINE on the Infrastructure plane.`);
@@ -189,7 +189,7 @@ async function main(): Promise<void> {
     console.log(`    ${minted}`);
     console.log('');
     console.log('  Onboard a REMOTE box with the same one-liner the dashboard mints:');
-    console.log(`    curl -fsSL http://localhost:3001/install.sh | SWARMY_JOIN_TOKEN=${minted} sh`);
+    console.log(`    curl -fsSL http://localhost:3021/install.sh | SWARMY_JOIN_TOKEN=${minted} sh`);
   } else {
     console.log('  Reusing the existing join token in .swarmy-dev-token (if present).');
   }

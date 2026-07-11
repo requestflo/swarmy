@@ -28,7 +28,7 @@
 #   --mesh none|netbird-cloud|netbird-external   SWARMY_MESH
 #   --image <ref>                SWARMY_IMAGE       (controller image)
 #   --agent-image <ref>          SWARMY_AGENT_IMAGE
-#   --port <n>                   SWARMY_PUBLISH_PORT (default 3001)
+#   --port <n>                   SWARMY_PUBLISH_PORT (default 3021)
 # Cloudflare (when --ingress cloudflare): CF_API_TOKEN, CF_ACCOUNT_ID, CF_ZONE_ID
 # NetBird (when --mesh netbird-*):        NB_SERVICE_TOKEN, NB_MANAGEMENT_URL
 set -euo pipefail
@@ -40,7 +40,7 @@ STACK_NAME="swarmy"
 STATE_DIR="/var/lib/swarmy/install"
 STATE_FILE="$STATE_DIR/state.env"
 OVERLAY_NET="${STACK_NAME}_swarmy"            # docker stack prefixes the network name
-CONTROLLER_DNS="swarmy_controller:3001"        # service name on the overlay
+CONTROLLER_DNS="swarmy_controller:3021"        # service name on the overlay
 AGENT_CONTAINER="swarmy-agent"
 
 # ── logging ─────────────────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ INGRESS="${SWARMY_INGRESS:-none}"
 MESH="${SWARMY_MESH:-none}"
 IMAGE="${SWARMY_IMAGE:-$DEFAULT_IMAGE}"
 AGENT_IMAGE="${SWARMY_AGENT_IMAGE:-$DEFAULT_AGENT_IMAGE}"
-PUBLISH_PORT="${SWARMY_PUBLISH_PORT:-3001}"
+PUBLISH_PORT="${SWARMY_PUBLISH_PORT:-3021}"
 
 while [ $# -gt 0 ]; do
   case "$1" in

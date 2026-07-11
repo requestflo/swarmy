@@ -37,7 +37,7 @@ if [[ ! -S "$DOCKER_SOCKET" ]]; then
 fi
 
 # ── Controller endpoint + capability flags ──────────────────────────────────
-export AGENT_WS_URL="${AGENT_WS_URL:-ws://localhost:3001/agent/ws}"
+export AGENT_WS_URL="${AGENT_WS_URL:-ws://localhost:3021/agent/ws}"
 # Default-off image builds + container exec; mesh is on by default (see apps/agent/src/env.ts).
 export SWARMY_ALLOW_BUILD="${SWARMY_ALLOW_BUILD:-false}"
 export SWARMY_ALLOW_MESH="${SWARMY_ALLOW_MESH:-true}"

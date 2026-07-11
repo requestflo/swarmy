@@ -119,13 +119,13 @@ cat <<'EOF'
 ────────────────────────────────────────────────────────────────────────────
  Setup complete. Now run TWO terminals:
 
-   Terminal 1 (controller API :3001 + dashboard :3003):
+   Terminal 1 (controller API :3021 + dashboard :3023):
      bun dev
 
    Terminal 2 (a local node against this laptop's Docker):
      bun run dev:agent
 
- Then open  http://localhost:3003  and log in:
+ Then open  http://localhost:3023  and log in:
      email:    dev@swarmy.local
      password: swarmy-dev
 

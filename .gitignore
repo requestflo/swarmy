@@ -54,3 +54,5 @@ test-results/
 .cache/
 tmp/
 packages/db/prisma/src/generated/
+.codex/config.toml
+.grok/config.toml

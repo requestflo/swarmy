@@ -16,7 +16,7 @@
 # serving the agent binaries. From the repo root:
 #     bun run dev:up          # Postgres + schema + seed (one time / after resets)
 #     bun run build:agent-bin # compile the linux agent binaries (this script also does it)
-#     bun dev:app             # controller :3001 + dashboard :3003
+#     bun dev:app             # controller :3021 + dashboard :3023
 # The controller serves binaries automatically once they're built (it looks in
 # apps/agent/dist-bin); this script builds them for you and checks reachability.
 #
@@ -26,7 +26,7 @@
 #   SWARMY_VM_RELEASE=24.04      Ubuntu release (maps to template:ubuntu-<release>)
 #   SWARMY_BACKEND=systemd       agent backend: systemd (native binary) | docker
 #   SWARMY_CONTROLLER_IP=…       host IP the VMs dial (default: en0/en1 LAN IP)
-#   SWARMY_CONTROLLER_PORT=3001
+#   SWARMY_CONTROLLER_PORT=3021
 #   SWARMY_JOIN_TOKEN=…          (default: mint a fresh one via scripts/mint-token.ts)
 #   SWARMY_VM_BRIDGE=            extra Lima network, e.g. "lima:shared" (default: none, slirp)
 #   SWARMY_ALLOW_MESH=false      agent capability flags
@@ -46,7 +46,7 @@ CPUS="${SWARMY_VM_CPUS:-1}"
 MEM="${SWARMY_VM_MEM:-1G}"
 DISK="${SWARMY_VM_DISK:-6G}"
 RELEASE="${SWARMY_VM_RELEASE:-24.04}"
-CONTROLLER_PORT="${SWARMY_CONTROLLER_PORT:-3001}"
+CONTROLLER_PORT="${SWARMY_CONTROLLER_PORT:-3021}"
 BACKEND="${SWARMY_BACKEND:-systemd}"
 ALLOW_MESH="${SWARMY_ALLOW_MESH:-false}"
 MESH_DRIVER="${SWARMY_MESH_DRIVER:-}"

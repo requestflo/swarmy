@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "build": "turbo run build",
-    "predev": "kill-port 3001 3003 4000 || true",
+    "predev": "kill-port 3021 3023 4020 || true",
     "dev": "turbo run dev",
     "dev:app": "turbo run dev --filter=@swarmy/app --filter=@swarmy/api",
     "dev:web": "turbo run dev --filter=@swarmy/web",

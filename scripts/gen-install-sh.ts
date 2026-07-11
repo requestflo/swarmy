@@ -33,7 +33,7 @@ const outFile = resolve(process.argv[3] ?? join(repoRoot, 'dist', 'install.sh'))
 // SWARMY_CONTROLLER_URL when they pipe the script. The image owner can be
 // overridden via SWARMY_IMAGE_OWNER at generation time (defaults to requestflo,
 // matching the live route + Dockerfile headers).
-const controllerUrl = process.env.SWARMY_CONTROLLER_URL ?? 'http://localhost:3001';
+const controllerUrl = process.env.SWARMY_CONTROLLER_URL ?? 'http://localhost:3021';
 const owner = process.env.SWARMY_IMAGE_OWNER ?? 'requestflo';
 
 // Pin the agent image to the released version for the generated asset.
