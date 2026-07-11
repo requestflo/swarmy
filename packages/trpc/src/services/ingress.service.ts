@@ -77,7 +77,7 @@ function tlsModeToRouteTls(tls: TlsMode): Route['tls'] {
  * from inside the ingress container. Overridable for multi-host / non-default ports.
  */
 function activatorBaseUrl(): string {
-  return process.env.SWARMY_ACTIVATOR_URL ?? 'http://host.docker.internal:3001';
+  return process.env.SWARMY_ACTIVATOR_URL ?? 'http://host.docker.internal:3021';
 }
 
 /** Activator dial target `host:port` (path stripped — the wake path is per-service). */
@@ -85,7 +85,7 @@ function activatorUpstream(): string {
   try {
     return new URL(activatorBaseUrl()).host;
   } catch {
-    return 'host.docker.internal:3001';
+    return 'host.docker.internal:3021';
   }
 }
 

@@ -220,7 +220,7 @@ export function deliveryStatusFromDb(v: string): InboundDeliveryStatusView {
 // ── Row shapes + view projection ──────────────────────────────────────────────
 
 const CONTROLLER_PUBLIC_URL =
-  process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3001';
+  process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3021';
 
 interface EndpointRow {
   id: string;

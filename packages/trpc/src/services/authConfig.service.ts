@@ -21,7 +21,7 @@ import { writeAudit } from './audit.service';
  */
 
 const CALLBACK_BASE =
-  process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3001';
+  process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3021';
 
 /** The exact callback/redirect URL to paste into the provider's OAuth app. */
 export function callbackUrl(type: string): string {

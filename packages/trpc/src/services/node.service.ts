@@ -436,7 +436,7 @@ export async function upgradeAgent(
   if (build?.version === release.version) return { id, upToDate: true };
 
   const controllerUrl =
-    process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3001';
+    process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3021';
 
   if (build?.packaging === 'binary') {
     const platform = platformForArch(ctx.hub.nodeInfoFor(id)?.arch);

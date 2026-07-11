@@ -17,7 +17,7 @@ import {
 import { runImageGcForOrg } from '../services/image-gc.service';
 
 const CONTROLLER_PUBLIC_URL =
-  process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3001';
+  process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3021';
 
 const providerEnum = z.enum(['github', 'gitlab']);
 

@@ -34,7 +34,7 @@ import type { RenderedConfig, IngressStatus } from '@swarmy/core/protocol';
 export const ColdRouteSchema = z.object({
   /**
    * Activator dial target as `host:port`. On a single-node Docker Desktop swarm
-   * this is `host.docker.internal:3001` (the host, reachable from containers).
+   * this is `host.docker.internal:3021` (the host, reachable from containers).
    */
   upstream: z.string().min(1),
   /** Wake endpoint path for THIS service, e.g. `/_wake/<service>`. */

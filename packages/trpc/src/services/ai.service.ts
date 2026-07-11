@@ -53,7 +53,7 @@ import { resolveManagerNode } from './dispatch.service';
 
 export const GATEWAY_PATH = '/ai/v1';
 const CONTROLLER_PUBLIC_URL =
-  process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3001';
+  process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3021';
 
 export function gatewayUrl(): string {
   return `${CONTROLLER_PUBLIC_URL.replace(/\/+$/, '')}${GATEWAY_PATH}`;

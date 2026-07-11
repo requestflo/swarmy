@@ -169,7 +169,7 @@ export function bounceEndpointSlug(orgId: string): string {
 export const BOUNCE_TARGET = { kind: 'internal', handler: 'notifications.bounce' } as const;
 
 const CONTROLLER_PUBLIC_URL =
-  process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3001';
+  process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3021';
 
 /**
  * Idempotently create the bounce-webhook inbound endpoint for the org and

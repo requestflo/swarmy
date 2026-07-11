@@ -119,10 +119,10 @@ export function buildAuth(
   return betterAuth({
     database: prismaAdapter(db, { provider: 'postgresql' }),
     secret: process.env.BETTER_AUTH_SECRET,
-    baseURL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3001',
+    baseURL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3021',
     trustedOrigins: [
-      process.env.CONTROLLER_PUBLIC_URL ?? 'http://localhost:3001',
-      'http://localhost:3003',
+      process.env.CONTROLLER_PUBLIC_URL ?? 'http://localhost:3021',
+      'http://localhost:3023',
     ],
     // Auto-select an active organization when a session is created and the user
     // belongs to one. The org plugin only sets `activeOrganizationId` when
