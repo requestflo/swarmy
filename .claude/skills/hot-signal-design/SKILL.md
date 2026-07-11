@@ -101,12 +101,24 @@ First-class, not an afterthought.
 **Desktop (`lg` ≥ 1024px)** — fixed left **navy sidenav** (`w-64`, `.ink-block`),
 `apps/app/src/components/shell/sidenav.tsx`:
 1. Wordmark (white "swarm" + coral "y").
-2. Coral "New service" pill.
-3. Nav: Overview / Nodes / Services / Stacks / Ingress / Settings — active item is
-   a **white pill with navy text** (`bg-ink-foreground text-ink`); items needing
-   attention carry a coral count badge (e.g. nodes offline, deploys failed).
+2. Coral "Create" pill + ⌘K search.
+3. Nav: **8 flat destinations, never accordions/collapsing groups** — the 3
+   anchors (Overview / Stacks / Infrastructure) then one row per section
+   (Deploy / Platform / Operations / Governance / Settings, from `NAV_GROUPS`
+   in `lib/destinations.ts`). Active item is a **white pill with navy text**
+   (`bg-ink-foreground text-ink`); attention badges are coral counts rolled up
+   onto the row they belong to (nodes offline on Infrastructure, alerts +
+   incidents on Operations).
 4. A quiet status footer: "N/M nodes online" with a `.pulse-dot`.
 5. User row + theme menu + sign-out at the bottom.
+
+**Section surfaces** — a section's children (e.g. Governance → Guardrails /
+Exposure / Access & roles / Audit log / Cost) are **in-page tabs, not nav
+rows**: every page in a section renders `SectionHeader`
+(`apps/app/src/components/section-header.tsx`) instead of `PageHeader` — the
+section supplies the eyebrow and a coral-underline tab row with live badges;
+the page keeps its own data-driven headline. A new feature in a section
+becomes a tab, never a new sidenav row.
 
 **Mobile (< 1024px)** — `apps/app/src/components/shell/mobile-chrome.tsx`:
 - `MobileHeader` — compact sticky header: wordmark + avatar only.

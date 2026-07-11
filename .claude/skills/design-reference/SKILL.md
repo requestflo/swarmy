@@ -7,7 +7,7 @@ description: Reference for the shared @swarmy/ui package and the apps/web market
 
 Load this skill when:
 - Working in the shared **`@swarmy/ui`** package (adding/using primitives, import paths, package boundaries).
-- Building or editing the **`apps/web` marketing site** (Vite, port 4000).
+- Building or editing the **`apps/web` marketing site** (Vite, port 4020).
 
 > **For `apps/app` product UI, load `skill("hot-signal-design")`** — the source of
 > truth for the product experience (tokens, classes, shell, copy).
@@ -64,7 +64,7 @@ Export roots: `@swarmy/ui` (barrel), `@swarmy/ui/components/*`, `@swarmy/ui/lib/
 
 ## apps/web marketing site
 
-`apps/web` (port **4000**, Vite + React) is a thin landing site: hero, features,
+`apps/web` (port **4020**, Vite + React) is a thin landing site: hero, features,
 CTA, footer, using Hot Signal tokens + framer-motion reveals. It mirrors the
 product's tokens so the jump to the dashboard is zero-surprise. Not the product
 app; no `/app` shell.

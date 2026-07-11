@@ -148,7 +148,7 @@ adapter contract.
    diff IS the public-contract review.
 6. **Verify**: `bun --filter @swarmy/api-rest typecheck` and the package tests
    (`idempotency.test.ts`, `mappers-extra.test.ts`). Round-trip a call with a
-   real key: `curl -H 'Authorization: Bearer swk_…' localhost:3001/api/v1/nodes`
+   real key: `curl -H 'Authorization: Bearer swk_…' localhost:3021/api/v1/nodes`
    (see `skill("run-local")`), and confirm the spec renders at
    `/api/v1/docs`.
 
