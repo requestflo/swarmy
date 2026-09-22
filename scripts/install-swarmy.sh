@@ -29,6 +29,9 @@
 #   --image <ref>                SWARMY_IMAGE       (controller image)
 #   --agent-image <ref>          SWARMY_AGENT_IMAGE
 #   --port <n>                   SWARMY_PUBLISH_PORT (default 3021)
+#   --allow-signup               SWARMY_ALLOW_SIGNUP=true — open self-registration.
+#                                Default (unset): invite-only — only the seeded owner
+#                                and people an admin invites can create accounts.
 # Cloudflare (when --ingress cloudflare): CF_API_TOKEN, CF_ACCOUNT_ID, CF_ZONE_ID
 # NetBird (when --mesh netbird-*):        NB_SERVICE_TOKEN, NB_MANAGEMENT_URL
 set -euo pipefail
@@ -68,6 +71,7 @@ MESH="${SWARMY_MESH:-none}"
 IMAGE="${SWARMY_IMAGE:-$DEFAULT_IMAGE}"
 AGENT_IMAGE="${SWARMY_AGENT_IMAGE:-$DEFAULT_AGENT_IMAGE}"
 PUBLISH_PORT="${SWARMY_PUBLISH_PORT:-3021}"
+ALLOW_SIGNUP="${SWARMY_ALLOW_SIGNUP:-}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -83,6 +87,7 @@ while [ $# -gt 0 ]; do
     --image) IMAGE="${2:?}"; shift ;;
     --agent-image) AGENT_IMAGE="${2:?}"; shift ;;
     --port) PUBLISH_PORT="${2:?}"; shift ;;
+    --allow-signup) ALLOW_SIGNUP="true" ;;
     -h|--help) grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (try --help)" ;;
   esac
@@ -336,6 +341,7 @@ deploy_stack() {
   SWARMY_SWARM_ID="$SWARM_ID" \
   SWARMY_MANAGER_ADDR="$SWARM_MANAGER_ADDR" \
   SWARMY_PUBLISH_PORT="$PUBLISH_PORT" \
+  SWARMY_ALLOW_SIGNUP="$ALLOW_SIGNUP" \
   SWARMY_NODE_HOSTNAME="$NODE_HOSTNAME" \
   SWARMY_MESH_DRIVER="$mesh_driver" \
   SWARMY_MESH_MANAGEMENT_URL="${NB_MANAGEMENT_URL:-}" \

@@ -672,6 +672,7 @@ export const access: DomainResolvers = {
 
     // ── authConfig (sign-in providers) ─────────────────────────────────────────
     'authConfig.listProviders': (_i, store): ProviderListEntry[] => state(store).providers,
+    'authConfig.publicConfig': (): { signupMode: 'open' | 'invite-only' } => ({ signupMode: 'open' }),
 
     'authConfig.setProvider': (input, store): ProviderListEntry => {
       const args = input as {

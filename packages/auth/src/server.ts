@@ -1,5 +1,6 @@
 import { betterAuth, type BetterAuthPlugin } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
+import { APIError } from 'better-auth/api';
 import { organization, magicLink } from 'better-auth/plugins';
 import { genericOAuth } from 'better-auth/plugins/generic-oauth';
 import { prisma, type DB } from '@swarmy/db';
@@ -9,6 +10,11 @@ import {
   type ResolvedSsoProvider,
 } from './config';
 import { CLIENT_IP_HEADER } from './client-ip';
+import {
+  assertSignupAllowed,
+  canCreateOrganization,
+  ORG_CREATE_FORBIDDEN_MESSAGE,
+} from './signup-policy';
 
 /**
  * Per-IP limits for the credential endpoints. Keyed on the IP the host resolved
@@ -154,6 +160,17 @@ export function buildAuth(
     // otherwise land with no active org and `orgProcedure` would 403. This makes
     // single-org users (the seeded dev user, returning users) land on their org.
     databaseHooks: {
+      // Invite-only registration (signup-policy.ts). This hook sits under EVERY
+      // user-creating path — email/password sign-up, social + OIDC-SSO first
+      // login, magic-link, passkey — so none of them can mint an account for a
+      // stranger. Refusal surfaces as a 403 with the invite-only message.
+      user: {
+        create: {
+          before: async (user) => {
+            await assertSignupAllowed(db, user.email);
+          },
+        },
+      },
       session: {
         create: {
           before: async (session) => {
@@ -197,7 +214,28 @@ export function buildAuth(
       ...(process.env.SWARMY_AUTH_RATE_LIMIT === '0' ? { enabled: false } : {}),
       customRules: { ...AUTH_RATE_LIMIT_RULES },
     },
-    plugins: [organization(), ...optional],
+    plugins: [
+      organization({
+        // Same policy for org creation: a signed-in user with no org cannot mint
+        // one (and from it join tokens) unless registration is open, it is the
+        // first-run bootstrap, or they already own an org (instance admin).
+        allowUserToCreateOrganization: (user) => canCreateOrganization(db, user.id),
+        organizationHooks: {
+          beforeCreateOrganization: async ({ user }) => {
+            // Belt-and-braces for Better Auth's server-side `userId` system path,
+            // which skips `allowUserToCreateOrganization`. Only swarmy code calls
+            // that path, but keep the policy total.
+            if (user?.id && !(await canCreateOrganization(db, user.id))) {
+              throw new APIError('FORBIDDEN', {
+                message: ORG_CREATE_FORBIDDEN_MESSAGE,
+                code: 'ORG_CREATE_FORBIDDEN',
+              });
+            }
+          },
+        },
+      }),
+      ...optional,
+    ],
   });
 }
 

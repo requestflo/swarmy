@@ -53,6 +53,12 @@ Then, in the dashboard:
 3. **Add a domain**: point DNS at a node (or use `app.<ip-with-dashes>.sslip.io`)
    and swarmy's Caddy edge serves it over HTTPS automatically.
 
+> **Invite-only by default.** Only the seeded owner and people an admin invites
+> can create accounts; the login page hides "Sign up". To allow open
+> self-registration set `SWARMY_ALLOW_SIGNUP=true` (installer: `--allow-signup`)
+> on the controller. Dev (`bun dev`, non-production) allows sign-up unless
+> `SWARMY_ALLOW_SIGNUP=false`.
+
 > **Back up `/var/lib/swarmy/install/state.env`.** It holds `SWARMY_SECRET_KEY`;
 > lose it and every stored credential is unrecoverable.
 

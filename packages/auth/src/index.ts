@@ -1,3 +1,11 @@
+export {
+  resolveSignupMode,
+  isSignupAllowed,
+  assertSignupAllowed,
+  canCreateOrganization,
+  INVITE_ONLY_MESSAGE,
+} from './signup-policy';
+export type { SignupMode } from './signup-policy';
 export { auth, buildAuth, AuthRegistry, authRegistry, AUTH_RATE_LIMIT_RULES } from './server';
 export {
   CLIENT_IP_HEADER,

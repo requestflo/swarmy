@@ -26,6 +26,8 @@ services:
       CONTROLLER_PUBLIC_URL: ${SWARMY_PUBLIC_URL}
       BETTER_AUTH_URL: ${SWARMY_PUBLIC_URL}
       ADMIN_EMAIL: ${SWARMY_ADMIN_EMAIL}
+      # Registration: unset/empty = invite-only (production default); "true" = open sign-up.
+      SWARMY_ALLOW_SIGNUP: ${SWARMY_ALLOW_SIGNUP:-}
       # Non-secret swarm identity; the join tokens themselves arrive as secrets below.
       SWARM_ID: ${SWARMY_SWARM_ID}
       SWARM_MANAGER_ADDR: ${SWARMY_MANAGER_ADDR}
