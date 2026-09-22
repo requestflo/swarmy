@@ -41,6 +41,7 @@ import {
   type Route,
 } from './ingress-routes';
 import { regionUpstreamsFor } from './ingress-regions';
+import { attachRoutedServicesToEdge } from './ingress-network';
 import { publicIpFromLabels } from './node.service';
 
 /** Service label that marks a Docker service as ingress-enabled (replaces the dropped column). */
@@ -1001,6 +1002,8 @@ export function listDrivers(): IngressDriverId[] {
  * `runtime` (and the dashboard) instead of vanishing. Throws on failure.
  */
 async function applyAndRecord(ctx: OrgContext, config: OrgIngressConfig): Promise<IngressStatus> {
+  // swarmy's own Caddy can only proxy to services on its overlay.
+  if (config.driver === 'caddy') await attachRoutedServicesToEdge(ctx).catch(() => []);
   try {
     const status = await applyIngressPkg(config, makeDispatch(ctx, config));
     recordApply(ctx.activeOrgId, true, status.message ?? 'applied');

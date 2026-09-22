@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { IngressConfigSchema, type IngressConfig } from '../types';
-import { WAF_SCANNER_PATHS, buildCaddyfile } from './caddyfile';
+import { WAF_SCANNER_PATHS, buildCaddyfile, isPrivateHost } from './caddyfile';
 
 function cfg(domains: Record<string, unknown>[], globalOptions: Record<string, unknown> = {}): IngressConfig {
   return IngressConfigSchema.parse({ driver: 'caddy', orgId: 'org_1', domains, globalOptions });
@@ -1037,5 +1037,28 @@ describe('caddy region-aware upstreams (geo-edge)', () => {
     const proxyIdx = body.findIndex((l) => l.startsWith('reverse_proxy'));
     expect(denyIdx).toBeGreaterThanOrEqual(0);
     expect(denyIdx).toBeLessThan(proxyIdx);
+  });
+});
+
+describe('isPrivateHost (local CA instead of an ACME order that can never validate)', () => {
+  it('flags LAN names and wildcard-DNS names embedding a private IPv4', () => {
+    for (const h of [
+      'localhost',
+      'app.local',
+      'nas.lan',
+      'svc.internal',
+      '192.168.1.10',
+      'hello.192-168-64-4.sslip.io',
+      'app.10.0.0.5.nip.io',
+      '172-20-1-1.sslip.io',
+    ]) {
+      expect(isPrivateHost(h)).toBe(true);
+    }
+  });
+
+  it('leaves public hosts on Let\'s Encrypt', () => {
+    for (const h of ['example.com', 'app.203-0-113-7.sslip.io', '8.8.8.8', 'app.172-32-0-1.sslip.io']) {
+      expect(isPrivateHost(h)).toBe(false);
+    }
   });
 });
