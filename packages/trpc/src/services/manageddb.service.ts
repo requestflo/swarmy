@@ -1069,9 +1069,14 @@ const COPY_TIMEOUT_MS = 60 * 60_000;
 const MIGRATE_EXEC_TIMEOUT_MS = 30_000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** SQL run in the primary's own container (superuser via bitnami's env). */
+/**
+ * SQL run as the superuser from a one-shot client container on the cluster
+ * overlay (`$SRC_HOST` = the primary service, `PGPASSWORD` in env). Over the
+ * network rather than `exec` into the primary: exec is an opt-in agent
+ * capability that is off by default, and a platform operation must not need it.
+ */
 const psqlInContainer = (sql: string) =>
-  `PGPASSWORD="$POSTGRESQL_PASSWORD" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -tA ${sql}`;
+  `psql -h "$SRC_HOST" -U postgres -d postgres -w -v ON_ERROR_STOP=1 -tA ${sql}`;
 export const FREEZE_WRITES_SCRIPT = psqlInContainer(
   `-c "ALTER SYSTEM SET default_transaction_read_only = on" -c "SELECT pg_reload_conf()"`,
 );
@@ -1243,15 +1248,26 @@ export async function migrateStorage(
     }
   }
 
-  const execPrimary = async (script: string) => {
-    const res = await ctx.hub.dispatch<{ exitCode: number; output?: string }>(
-      task.nodeId,
-      'exec',
-      { target: { containerId: task.container.id }, cmd: ['sh', '-c', script], tty: false, stream: false },
-      { timeoutMs: MIGRATE_EXEC_TIMEOUT_MS },
+  const superPassword = env.POSTGRESQL_PASSWORD ?? '';
+  const sqlOnPrimary = (nodeId: string, script: string) =>
+    ctx.hub.dispatch<RunOnceResult>(
+      nodeId,
+      'container.runOnce',
+      {
+        image: live.image,
+        entrypoint: ['/bin/sh', '-c'],
+        cmd: [script],
+        env: { SRC_HOST: live.name, PGPASSWORD: superPassword },
+        networks: [network],
+        pull: false,
+        timeoutMs: MIGRATE_EXEC_TIMEOUT_MS,
+      },
+      { timeoutMs: MIGRATE_EXEC_TIMEOUT_MS + 30_000 },
     );
-    if (res.exitCode !== 0) {
-      throw new Error(`exit ${res.exitCode}: ${(res.output ?? '').trim().slice(-300)}`);
+  const execPrimary = async (script: string) => {
+    const res = await sqlOnPrimary(task.nodeId, script);
+    if (res.exitCode !== 0 || res.timedOut) {
+      throw new Error(`exit ${res.exitCode}${res.timedOut ? ' (timed out)' : ''}: ${(res.output ?? '').trim().slice(-300)}`);
     }
     return res.output ?? '';
   };
@@ -1356,12 +1372,7 @@ export async function migrateStorage(
     const onTarget = t?.container.mounts?.some((m) => m.target === BITNAMI_PG_ROOT && m.source === target);
     if (t && onTarget) {
       try {
-        const res = await ctx.hub.dispatch<{ exitCode: number; output?: string }>(
-          t.nodeId,
-          'exec',
-          { target: { containerId: t.container.id }, cmd: ['sh', '-c', WRITER_CHECK_SCRIPT], tty: false, stream: false },
-          { timeoutMs: MIGRATE_EXEC_TIMEOUT_MS },
-        );
+        const res = await sqlOnPrimary(t.nodeId, WRITER_CHECK_SCRIPT);
         const out = (res.output ?? '').trim();
         if (res.exitCode === 0 && out.includes('false|off')) break;
         lastProblem = `writer check returned "${out.slice(-120)}" (exit ${res.exitCode})`;

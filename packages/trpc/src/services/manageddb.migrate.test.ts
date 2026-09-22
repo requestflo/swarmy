@@ -121,10 +121,11 @@ function harness(b: Behaviour = {}) {
     nodeInventory: () => [{ swarmNodeId: 'swarm-node-a' }, { swarmNodeId: 'swarm-node-b' }],
     dispatch: async (nodeId: string, cmd: string, payload: Record<string, unknown>) => {
       calls.push({ nodeId, cmd, payload });
-      if (cmd === 'exec') {
-        const script = (payload.cmd as string[])[2];
-        if (script === WRITER_CHECK_SCRIPT) return { exitCode: 0, output: 'false|off\n' };
-        return { exitCode: 0, output: '' };
+      // SQL (freeze / thaw / writer check) is a bind-less runOnce psql client.
+      if (cmd === 'container.runOnce' && !payload.binds) {
+        const script = (payload.cmd as string[])[0];
+        if (script === WRITER_CHECK_SCRIPT) return { exitCode: 0, output: 'false|off\n', durationMs: 1, timedOut: false };
+        return { exitCode: 0, output: '', durationMs: 1, timedOut: false };
       }
       if (cmd === 'container.runOnce') {
         return b.copy ?? { exitCode: 0, output: `${BASEBACKUP_OK_MARKER} pg=16 kb=9000\n`, durationMs: 1, timedOut: false };
@@ -174,7 +175,9 @@ function expectNoMountBySourceName(calls: Call[]) {
 }
 
 const execScripts = (calls: Call[]) =>
-  calls.filter((c) => c.cmd === 'exec').map((c) => (c.payload.cmd as string[])[2]);
+  calls
+    .filter((c) => c.cmd === 'container.runOnce' && !c.payload.binds)
+    .map((c) => (c.payload.cmd as string[])[0]);
 
 describe('basebackupRunOncePayload — golden', () => {
   it('online pg_basebackup on the cluster overlay into the named volume, env-only creds', () => {
@@ -218,7 +221,8 @@ describe('migrateStorage — online copy, stop only after verification', () => {
     });
 
     const seq = calls.map((c) => c.cmd);
-    const copyIdx = seq.indexOf('container.runOnce');
+    // The copy is the runOnce that binds the named volume (SQL runOnces bind nothing).
+    const copyIdx = calls.findIndex((c) => c.cmd === 'container.runOnce' && Boolean(c.payload.binds));
     const firstDeploy = seq.indexOf('service.deploy');
     expect(copyIdx).toBeGreaterThan(-1);
     expect(copyIdx).toBeLessThan(firstDeploy);
