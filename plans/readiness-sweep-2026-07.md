@@ -115,6 +115,30 @@ that is the next phase (below). Each issue file carries a `## Fix applied (2026-
 2. Two-node Lima: kill the manager VM, add a new node — must self-heal (row 2 issues).
 3. DigitalOcean: 3 droplets / 2 regions — routing mesh (row 23), real public-IP ingress + ACME, geo-DNS (row 31).
 
+## Live local verification (2026-09-22/23) — fresh Lima VMs, product surface + API
+
+Fresh `swarmy-launch-1` (manager, containerised agent) + `swarmy-launch-2` (worker, systemd agent),
+plus `swarmy-oss-1` installed with the **public** one-liner and **public GHCR images** only.
+
+| Flow | Result |
+|---|---|
+| `curl …/install-swarmy.sh \| sudo bash` on a clean VM (no Docker, no checkout) | ✅ after 5 installer fixes (egress gate, empty secret, NAT login URL, stack file fetch, shared overlay) |
+| Second node via dashboard one-liner; repair via the same one-liner | ✅ first try; repair keeps the node id |
+| Deploy compose → add domain → HTTPS in browser | ✅ (routed services auto-join the edge overlay; private hosts get `tls internal`) |
+| Managed Postgres primary + streaming replica across nodes | ✅ now on named volumes, pinned, anti-affine |
+| Legacy (unmounted) cluster → Migrate storage | ✅ online pg_basebackup; all rows in `app` + a second DB intact, writable, survives restart |
+| Cache, node-path backup, restore, controller self-backup | ✅ (controller backups refuse node-path targets) |
+| swarmy object storage (Garage) → native S3 target → volume backup from the worker | ✅ Garage on the overlay, nothing published |
+| CI: link repo → build on Builder node → push → other node pulls + runs | ✅ after 6 build fixes (`localhost:5000` registry) |
+| Guardrails block `:latest` into prod; admin override | ✅ |
+| Org signing key; Observability store | ✅ (configs via Docker configs; self-healed) |
+
+### Open decisions (security)
+
+- In-swarm registry is plain HTTP with **no auth**, published on :5000 on every node → auto-generate credentials on enable.
+- Better Auth rate limiting can't see client IPs (shared bucket) → trust the socket IP / proxy header.
+- Garage `garage.toml` and the collector config (secrets inside) are readable via `docker config inspect` → move to Docker secrets.
+
 ## Resolved decision: step-zero fix was authorized (2026-07-11)
 
 The prior version of this section laid out three options for the GHCR blocker (stay blocked / ask
