@@ -7,6 +7,7 @@ import {
   scheduleView,
   snapshotView,
   type DbBackupSchedule,
+  effectiveDataVolume,
 } from './dbBackup.service';
 
 const SCHEDULE: DbBackupSchedule = {
@@ -262,5 +263,14 @@ describe('runDueDbBackups (schedule sweep passes retention through)', () => {
     expect(prune).toBeDefined();
     expect(prune!.metadata.snapshotsRemoved).toBe(3);
     expect(prune!.metadata.retentionDays).toBe(21);
+  });
+});
+
+describe('effectiveDataVolume — physical engines agree with the managed layout', () => {
+  it('explicit input wins, else the primary\'s declared swarmy.db.dataVolume', () => {
+    const labels = { 'swarmy.db.dataVolume': 'hello_main-primary-data' };
+    expect(effectiveDataVolume(undefined, labels)).toBe('hello_main-primary-data');
+    expect(effectiveDataVolume('custom', labels)).toBe('custom');
+    expect(effectiveDataVolume(undefined, {})).toBeUndefined();
   });
 });

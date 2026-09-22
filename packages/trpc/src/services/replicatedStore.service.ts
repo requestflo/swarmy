@@ -12,13 +12,19 @@
  */
 import { NODE_STORAGE_LABEL } from '@swarmy/core';
 import { decryptSecret, encryptSecret, randomToken } from '@swarmy/core/crypto';
+import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
-import { mapDispatchError, notFound } from '../errors';
+import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
-import { requireOnlineNode, resolveManagerNode } from './dispatch.service';
+import { resolveManagerNode } from './dispatch.service';
+import { dispatchNodeLabels } from './node.service';
 import {
   DEFAULT_GARAGE_IMAGE,
+  GARAGE_CONFIG_PREFIX,
+  GARAGE_MEMBER_NODE_LABEL,
   GARAGE_S3_PORT,
+  effectiveReplicationFactor,
+  garageConfigObject,
   type GarageMember,
   type GarageRenderInput,
   renderGarageDeployment,
@@ -225,59 +231,186 @@ export async function previewDeployment(ctx: OrgContext) {
   return renderGarageDeployment(renderInput(ctx, row));
 }
 
-/** Online org nodes carrying the storage role label (`swarmy.node.storage=true`, WS7). */
-async function storageRoleNodes(ctx: OrgContext): Promise<string[]> {
+/** One enrolled node as seen for default-membership selection. */
+export interface MemberCandidate {
+  id: string;
+  online: boolean;
+  /** Has a Docker swarm node id (i.e. is an active swarm member we can pin to). */
+  inSwarm: boolean;
+  /** Carries `swarmy.node.storage=true` (WS7 storage role). */
+  storageRole: boolean;
+}
+
+/**
+ * Default Garage members when none were chosen explicitly. Pure.
+ * Online swarm nodes with the storage role win; otherwise EVERY eligible
+ * (online, in-swarm) node — a 2-node swarm gets 2 members, not 1.
+ */
+export function pickDefaultMembers(candidates: MemberCandidate[]): string[] {
+  const eligible = candidates.filter((c) => c.online && c.inSwarm);
+  const storage = eligible.filter((c) => c.storageRole);
+  return (storage.length > 0 ? storage : eligible).map((c) => c.id);
+}
+
+async function memberCandidates(ctx: OrgContext): Promise<MemberCandidate[]> {
   const rows = (await ctx.db.node.findMany({
     where: { orgId: ctx.activeOrgId },
     select: { id: true },
   })) as { id: string }[];
-  return rows
-    .map((r) => r.id)
-    .filter(
-      (id) =>
-        ctx.hub.isOnline(id) && ctx.hub.nodeInfoFor(id)?.labels?.[NODE_STORAGE_LABEL] === 'true',
-    );
+  return rows.map((r) => ({
+    id: r.id,
+    online: ctx.hub.isOnline(r.id),
+    inSwarm: Boolean(ctx.hub.swarmNodeIdFor(r.id)),
+    storageRole: ctx.hub.nodeInfoFor(r.id)?.labels?.[NODE_STORAGE_LABEL] === 'true',
+  }));
 }
 
-/** Deploy Garage members to every selected node and mark the cluster enabled. */
+/**
+ * Pin the store to its members: stamp `swarmy.garage.member=true` on each
+ * member's swarm node (the global service is constrained to it) and flip it to
+ * `false` on nodes that carry it but are no longer members. Returns the member
+ * ids that were stamped.
+ */
+async function pinMembers(ctx: OrgContext, via: string, nodeIds: string[]): Promise<string[]> {
+  const stamped: string[] = [];
+  for (const id of nodeIds) {
+    if (await dispatchNodeLabels(ctx.hub, ctx.activeOrgId, id, { [GARAGE_MEMBER_NODE_LABEL]: 'true' })) {
+      stamped.push(id);
+    }
+  }
+  const memberSwarmIds = new Set(nodeIds.map((id) => ctx.hub.swarmNodeIdFor(id)).filter(Boolean));
+  for (const n of ctx.hub.nodeInventory(ctx.activeOrgId, true)) {
+    if (n.labels[GARAGE_MEMBER_NODE_LABEL] === 'true' && !memberSwarmIds.has(n.swarmNodeId)) {
+      await ctx.hub
+        .dispatch(via, 'node.update', {
+          swarmNodeId: n.swarmNodeId,
+          labels: { [GARAGE_MEMBER_NODE_LABEL]: 'false' },
+        })
+        .catch(() => undefined);
+    }
+  }
+  return stamped;
+}
+
+/** Best-effort removal of superseded `swarmy-garage-config-*` Docker configs. */
+async function sweepGarageConfigs(ctx: OrgContext, via: string, keep: string): Promise<void> {
+  try {
+    const res = await ctx.hub.dispatch<{ configs?: Array<{ name: string }> }>(via, 'config.list', {});
+    for (const c of res.configs ?? []) {
+      if (c.name.startsWith(`${GARAGE_CONFIG_PREFIX}-`) && c.name !== keep) {
+        await ctx.hub.dispatch(via, 'config.remove', { name: c.name }).catch(() => undefined);
+      }
+    }
+  } catch {
+    // best-effort — an in-use config refuses removal; retried on the next enable.
+  }
+}
+
+/**
+ * Deploy the Garage store onto every member node and mark the cluster enabled.
+ *
+ * One global-mode `swarmy-garage` service, constrained to member-labelled
+ * nodes: each member gets exactly one task that stays on its node (meta/data
+ * are node-local volumes). `garage.toml` is a content-addressed swarm Docker
+ * config — zero host files. The service is swarm-wide, so it is dispatched
+ * ONCE through a manager (a worker agent cannot create services).
+ *
+ * The replication factor is clamped to the member count (factor 3 on 2 nodes
+ * never becomes healthy) and the clamped value is persisted so the view is
+ * truthful.
+ */
 export async function enable(ctx: OrgContext): Promise<StorageClusterView> {
   const row = await load(ctx);
   if (!row) throw notFound('storage cluster', ctx.activeOrgId);
-  const rendered = renderGarageDeployment(renderInput(ctx, row));
 
-  const nodeIds = members(row);
+  const nodeIds = members(row).length > 0 ? [...members(row)] : pickDefaultMembers(await memberCandidates(ctx));
   if (nodeIds.length === 0) {
-    // No explicit members: prefer online nodes carrying the storage role label
-    // (`swarmy.node.storage=true`, WS7); fall back to a single manager so a
-    // one-node store still works.
-    const storageNodes = await storageRoleNodes(ctx);
-    if (storageNodes.length > 0) nodeIds.push(...storageNodes);
-    else {
-      const mgr = await resolveManagerNode(ctx);
-      nodeIds.push(mgr.id);
-    }
+    throw commandRejected('No online swarm node is available to host the object store.');
   }
+  const replicationFactor = effectiveReplicationFactor(row.replicationFactor, nodeIds.length);
+  const input = renderInput(ctx, { ...row, memberNodeIds: nodeIds, replicationFactor });
+  const rendered = renderGarageDeployment(input);
+  const config = garageConfigObject(input);
 
   try {
-    for (const nodeId of nodeIds) {
-      const node = await requireOnlineNode(ctx, nodeId);
-      await ctx.hub.dispatch<ApplyStorageNodeResult>(node.id, 'storage.apply', { rendered });
+    const mgr = await resolveManagerNode(ctx);
+    const pinned = await pinMembers(ctx, mgr.id, nodeIds);
+    if (pinned.length === 0) {
+      throw commandRejected(
+        'Could not pin the object store to any member node (no member has reported its swarm node id yet).',
+      );
     }
+    try {
+      await ctx.hub.dispatch(mgr.id, 'config.create', {
+        name: config.name,
+        dataB64: Buffer.from(config.contents, 'utf8').toString('base64'),
+        labels: { 'swarmy.managed': 'true', 'swarmy.component': 'storage' },
+      });
+    } catch (e) {
+      if (!/already exists|conflict/i.test(e instanceof Error ? e.message : String(e))) throw e;
+    }
+    await ctx.hub.dispatch<ApplyStorageNodeResult>(mgr.id, 'storage.apply', { rendered });
+    await sweepGarageConfigs(ctx, mgr.id, config.name);
+
     const updated = await db(ctx).update({
       where: { orgId: ctx.activeOrgId },
-      data: { enabled: true, memberNodeIds: nodeIds },
+      data: { enabled: true, memberNodeIds: nodeIds, replicationFactor },
     });
     await writeAudit(ctx, {
       action: 'storage.enable',
       targetType: 'storageCluster',
       targetId: updated.id,
-      metadata: { members: nodeIds },
+      metadata: {
+        members: nodeIds,
+        replicationFactor,
+        ...(replicationFactor !== row.replicationFactor
+          ? { requestedReplicationFactor: row.replicationFactor }
+          : {}),
+      },
     });
     return toView(updated);
   } catch (e) {
     throw mapDispatchError(e);
   }
 }
+
+/**
+ * Whether the live store service predates the zero-host-files / pinned shape
+ * and must be redeployed: missing, still bind-mounting a host `garage.toml`,
+ * not mounting a `swarmy-garage-config-*` Docker config, or not global-mode
+ * (i.e. not one pinned task per member). Pure.
+ */
+export function storeNeedsConverge(
+  svc: Pick<SwarmServiceInfo, 'mode' | 'configs' | 'mounts'> | undefined,
+): boolean {
+  if (!svc) return true;
+  if ((svc.mounts ?? []).some((m) => m.type === 'bind')) return true;
+  if (!(svc.configs ?? []).some((n) => n.startsWith(`${GARAGE_CONFIG_PREFIX}-`))) return true;
+  return svc.mode !== 'global';
+}
+
+/**
+ * Storage-reconcile hook: re-run `enable` for an enabled cluster whose live
+ * service is legacy (see {@link storeNeedsConverge}), so installs deployed
+ * with the old host-bind spec heal without an operator click. Returns whether
+ * a redeploy was attempted.
+ */
+export async function convergeStoreDeployment(ctx: OrgContext, now = Date.now()): Promise<boolean> {
+  const row = await load(ctx);
+  if (!row?.enabled || row.driver.toLowerCase() !== 'garage') return false;
+  const svc = ctx.hub.liveInventory(ctx.activeOrgId).services.find((s) => s.name === SERVICE_NAME);
+  if (!storeNeedsConverge(svc)) return false;
+  // Throttle: a converge that cannot take (e.g. an older agent that does not
+  // report configs/mounts) must not redeploy + audit every worker tick.
+  const last = lastConvergeAt.get(ctx.activeOrgId) ?? 0;
+  if (now - last < CONVERGE_COOLDOWN_MS) return false;
+  lastConvergeAt.set(ctx.activeOrgId, now);
+  await enable(ctx);
+  return true;
+}
+
+const CONVERGE_COOLDOWN_MS = 10 * 60_000;
+const lastConvergeAt = new Map<string, number>();
 
 export async function disable(ctx: OrgContext): Promise<StorageClusterView> {
   const row = await load(ctx);

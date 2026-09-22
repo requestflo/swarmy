@@ -20,6 +20,7 @@ import {
   type CommandName,
 } from '@swarmy/trpc';
 import { asyncQueue, GatewayStore } from './store';
+import { pickCommandId } from './command-id';
 import { ConnectionRegistry } from './registry';
 
 interface Pending {
@@ -84,7 +85,7 @@ export class AgentHubImpl implements AgentHub {
     opts?: { timeoutMs?: number },
   ): Promise<R> {
     if (!this.registry.isOnline(nodeId)) throw new Error(`node ${nodeId} is offline`);
-    const commandId = crypto.randomUUID();
+    const commandId = pickCommandId(payload, (id) => this.pending.has(id));
     const type = COMMAND_PROTOCOL_TYPE[cmd];
     const body = { ...(payload as Record<string, unknown>), commandId };
     const promise = new Promise<R>((resolve, reject) => {

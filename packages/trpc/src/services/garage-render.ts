@@ -9,6 +9,7 @@
  * an admin-API layout assignment per member is all it needs. We replicate
  * (factor N) rather than erasure-code — simplest failure model for small swarms.
  */
+import { createHash } from 'node:crypto';
 import { STACK_LABEL, SYSTEM_STACK, SYSTEM_STACK_LABEL } from '@swarmy/core';
 
 /**
@@ -26,6 +27,12 @@ export interface RenderedStoreDeployment {
   adminPort?: number;
   /** Extra labels the agent merges onto the store service's `labels` (see the Zod schema). */
   labels?: Record<string, string>;
+  /** Swarm Docker config refs (replace host-file bind mounts; see the Zod schema). */
+  configs?: { source: string; target: string; mode?: number }[];
+  /** Swarm placement for the store service (member pinning). */
+  placement?: { constraints: string[] };
+  /** `global` = one task per eligible (member) node. */
+  serviceMode?: 'replicated' | 'global';
   adminApi?: {
     method: 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'GET';
     url: string;
@@ -42,6 +49,36 @@ export const DEFAULT_GARAGE_IMAGE = 'dxflrs/garage:v1.0.1';
 export const GARAGE_S3_PORT = 3900;
 export const GARAGE_RPC_PORT = 3901;
 export const GARAGE_ADMIN_PORT = 3903;
+
+/** In-container path Garage reads its config from. */
+export const GARAGE_CONFIG_PATH = '/etc/garage.toml';
+/** Content-addressed Docker config name prefix: `<prefix>-<sha8>`. */
+export const GARAGE_CONFIG_PREFIX = 'swarmy-garage-config';
+/**
+ * Swarm NODE label marking a Garage member. The store runs as ONE global-mode
+ * service constrained to this label, so each member node gets exactly one task
+ * that never moves (meta/data are node-local named volumes — a floating task
+ * would come up empty elsewhere). A label, not `node.id==`, because swarm
+ * constraints AND together: a set of member ids cannot be expressed with ids.
+ * Ex-members are set to `false` (node-label writes merge, never delete).
+ */
+export const GARAGE_MEMBER_NODE_LABEL = 'swarmy.garage.member';
+
+/** The rendered `garage.toml` as a content-addressed swarm Docker config. */
+export function garageConfigObject(input: GarageRenderInput): { name: string; contents: string } {
+  const contents = renderGarageToml(input);
+  const sha8 = createHash('sha256').update(contents, 'utf8').digest('hex').slice(0, 8);
+  return { name: `${GARAGE_CONFIG_PREFIX}-${sha8}`, contents };
+}
+
+/**
+ * Replication factor Garage can actually satisfy: never more than the member
+ * count (a factor-3 layout on 2 nodes never becomes healthy), never below 1.
+ */
+export function effectiveReplicationFactor(requested: number, memberCount: number): number {
+  const req = Number.isFinite(requested) ? Math.floor(requested) : 1;
+  return Math.max(1, Math.min(req, Math.max(1, memberCount)));
+}
 
 export interface GarageMember {
   /** swarmy Node id (used as the Garage node tag / zone hint). */
@@ -114,20 +151,25 @@ export function renderLayoutBody(input: GarageRenderInput): string {
   return JSON.stringify(assignments);
 }
 
-/** Full render: config file + service coordinates + layout admin call. */
+/**
+ * Full render: service coordinates + config ref + layout admin call.
+ *
+ * ZERO host files: `garage.toml` rides as a content-addressed swarm Docker
+ * config (`garageConfigObject`, created controller-side before dispatch), so
+ * the task can start on any node and a containerised agent never has to write
+ * to the host. `files` stays empty. The service is global-mode, constrained to
+ * member-labelled nodes (one pinned task per member).
+ */
 export function renderGarageDeployment(input: GarageRenderInput): RenderedStoreDeployment {
   const image = input.image ?? DEFAULT_GARAGE_IMAGE;
   const joined = input.members.filter((m) => m.garageNodeId);
   const adminBase = input.members[0]?.rpcHost ?? input.serviceName;
   return {
     driver: 'garage',
-    files: [
-      {
-        path: `/etc/swarmy/${input.serviceName}/garage.toml`,
-        contents: renderGarageToml(input),
-        mode: 0o600,
-      },
-    ],
+    files: [],
+    configs: [{ source: garageConfigObject(input).name, target: GARAGE_CONFIG_PATH, mode: 0o400 }],
+    placement: { constraints: [`node.labels.${GARAGE_MEMBER_NODE_LABEL}==true`] },
+    serviceMode: 'global',
     serviceName: input.serviceName,
     image,
     s3Port: GARAGE_S3_PORT,

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import type { OrgContext } from '../context';
 import {
+  DEFAULT_REGISTRY_HOST,
   KEYGEN_USER,
+  LEGACY_REGISTRY_HOST,
+  canonicalRegistryHost,
+  hostReachableRef,
   MAX_REPORT_CVES,
   enableSigning,
   extractJsonBlock,
@@ -15,9 +19,9 @@ import {
 function trivyDoc(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
     SchemaVersion: 2,
-    ArtifactName: 'swarmy-registry:5000/northwind-api:2.4.0',
+    ArtifactName: 'localhost:5000/northwind-api:2.4.0',
     Metadata: {
-      RepoDigests: ['swarmy-registry:5000/northwind-api@sha256:abc123'],
+      RepoDigests: ['localhost:5000/northwind-api@sha256:abc123'],
     },
     Results: [
       {
@@ -136,31 +140,55 @@ describe('extractJsonBlock', () => {
 
 describe('ref helpers', () => {
   it('stripTag drops the tag but never the registry port', () => {
-    expect(stripTag('swarmy-registry:5000/northwind-api:2.4.0')).toBe(
-      'swarmy-registry:5000/northwind-api',
+    expect(stripTag('localhost:5000/northwind-api:2.4.0')).toBe(
+      'localhost:5000/northwind-api',
     );
-    expect(stripTag('swarmy-registry:5000/northwind-api')).toBe(
-      'swarmy-registry:5000/northwind-api',
+    expect(stripTag('localhost:5000/northwind-api')).toBe(
+      'localhost:5000/northwind-api',
     );
     expect(stripTag('nginx:1.27')).toBe('nginx');
   });
 
   it('refAtDigest pins a tagged ref to a digest', () => {
-    expect(refAtDigest('swarmy-registry:5000/app:main', 'sha256:beef')).toBe(
-      'swarmy-registry:5000/app@sha256:beef',
+    expect(refAtDigest('localhost:5000/app:main', 'sha256:beef')).toBe(
+      'localhost:5000/app@sha256:beef',
     );
   });
 
   it('refAtDigest replaces an existing digest', () => {
-    expect(refAtDigest('swarmy-registry:5000/app@sha256:old', 'sha256:new')).toBe(
-      'swarmy-registry:5000/app@sha256:new',
+    expect(refAtDigest('localhost:5000/app@sha256:old', 'sha256:new')).toBe(
+      'localhost:5000/app@sha256:new',
     );
   });
 
   it('isOrgRegistryImage matches only the org registry prefix', () => {
-    expect(isOrgRegistryImage('swarmy-registry:5000/app:main', 'swarmy-registry:5000')).toBe(true);
-    expect(isOrgRegistryImage('docker.io/library/nginx:1.27', 'swarmy-registry:5000')).toBe(false);
-    expect(isOrgRegistryImage('swarmy-registry:5000x/app', 'swarmy-registry:5000')).toBe(false);
+    expect(isOrgRegistryImage('localhost:5000/app:main', 'localhost:5000')).toBe(true);
+    expect(isOrgRegistryImage('docker.io/library/nginx:1.27', 'localhost:5000')).toBe(false);
+    expect(isOrgRegistryImage('localhost:5000x/app', 'localhost:5000')).toBe(false);
+  });
+
+  it('isOrgRegistryImage recognises both the canonical and the legacy host', () => {
+    expect(isOrgRegistryImage('swarmy-registry:5000/app@sha256:a', 'localhost:5000')).toBe(true);
+    expect(isOrgRegistryImage('localhost:5000/app@sha256:a', 'swarmy-registry:5000')).toBe(true);
+    expect(isOrgRegistryImage('registry.example.com/app:1', 'registry.example.com')).toBe(true);
+    expect(isOrgRegistryImage('localhost:5000/app:1', 'registry.example.com')).toBe(true);
+    expect(isOrgRegistryImage('swarmy-registry:5000x/app', 'localhost:5000')).toBe(false);
+    expect(isOrgRegistryImage('localhost:5001/app', 'localhost:5000')).toBe(false);
+  });
+
+  it('canonicalRegistryHost maps unset/legacy to localhost:5000, keeps custom', () => {
+    expect(DEFAULT_REGISTRY_HOST).toBe('localhost:5000');
+    expect(canonicalRegistryHost(null)).toBe('localhost:5000');
+    expect(canonicalRegistryHost(undefined)).toBe('localhost:5000');
+    expect(canonicalRegistryHost('')).toBe('localhost:5000');
+    expect(canonicalRegistryHost(LEGACY_REGISTRY_HOST)).toBe('localhost:5000');
+    expect(canonicalRegistryHost('registry.example.com')).toBe('registry.example.com');
+  });
+
+  it('hostReachableRef rewrites only the legacy overlay host', () => {
+    expect(hostReachableRef('swarmy-registry:5000/app@sha256:a')).toBe('localhost:5000/app@sha256:a');
+    expect(hostReachableRef('localhost:5000/app:main')).toBe('localhost:5000/app:main');
+    expect(hostReachableRef('docker.io/library/nginx:1')).toBe('docker.io/library/nginx:1');
   });
 });
 

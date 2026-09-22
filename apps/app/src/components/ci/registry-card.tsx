@@ -47,8 +47,9 @@ export function RegistryCard({ config }: RegistryCardProps): React.JSX.Element {
           <StatusBadge tone={online ? 'online' : 'neutral'} label={online ? 'Live' : 'Off'} />
         </CardTitle>
         <CardDescription>
-          A single-replica <span className="mono-data">registry:2</span> on the{' '}
-          <span className="mono-data">swarmy</span> overlay. Every node pulls over the network — never public.
+          A single-replica <span className="mono-data">registry:2</span> on the swarm routing mesh. Every node
+          pulls from <span className="mono-data">localhost:5000</span> with no Docker daemon config — keep port
+          5000 firewalled from outside the swarm.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">

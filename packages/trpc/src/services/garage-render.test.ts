@@ -5,6 +5,10 @@ import {
   renderGarageDeployment,
   renderGarageToml,
   renderLayoutBody,
+  GARAGE_CONFIG_PATH,
+  GARAGE_MEMBER_NODE_LABEL,
+  effectiveReplicationFactor,
+  garageConfigObject,
   type GarageRenderInput,
 } from './garage-render';
 
@@ -38,9 +42,11 @@ describe('garage config render', () => {
     expect(r.adminApi).toBeUndefined();
     expect(r.driver).toBe('garage');
     expect(r.image).toBe(DEFAULT_GARAGE_IMAGE);
-    expect(r.files).toHaveLength(1);
-    expect(r.files[0]!.path).toContain('garage.toml');
-    expect(r.files[0]!.mode).toBe(0o600);
+    // Zero host files: garage.toml rides as a swarm Docker config.
+    expect(r.files).toEqual([]);
+    expect(r.configs).toEqual([
+      { source: garageConfigObject(BASE).name, target: GARAGE_CONFIG_PATH, mode: 0o400 },
+    ]);
   });
 
   it('emits a layout assignment per joined member', () => {
@@ -68,5 +74,31 @@ describe('garage config render', () => {
     expect(r.adminApi?.method).toBe('POST');
     expect(r.adminApi?.url).toContain('/v1/layout');
     expect(r.adminApi?.bearerToken).toBe(BASE.adminToken);
+  });
+});
+
+describe('garage deployment — Docker config + member pinning', () => {
+  it('config name is content-addressed: stable per render, rotates on change', () => {
+    const a = garageConfigObject(BASE);
+    expect(a.name).toMatch(/^swarmy-garage-config-[0-9a-f]{8}$/);
+    expect(garageConfigObject(BASE)).toEqual(a);
+    expect(a.contents).toBe(renderGarageToml(BASE));
+    expect(garageConfigObject({ ...BASE, replicationFactor: 2 }).name).not.toBe(a.name);
+  });
+
+  it('is one global service pinned to member-labelled nodes (node-local volumes)', () => {
+    const r = renderGarageDeployment(BASE);
+    expect(r.serviceMode).toBe('global');
+    expect(r.placement).toEqual({ constraints: [`node.labels.${GARAGE_MEMBER_NODE_LABEL}==true`] });
+  });
+});
+
+describe('effectiveReplicationFactor', () => {
+  it('clamps to the member count and never below 1', () => {
+    expect(effectiveReplicationFactor(3, 2)).toBe(2);
+    expect(effectiveReplicationFactor(3, 1)).toBe(1);
+    expect(effectiveReplicationFactor(3, 5)).toBe(3);
+    expect(effectiveReplicationFactor(0, 2)).toBe(1);
+    expect(effectiveReplicationFactor(2, 0)).toBe(1);
   });
 });

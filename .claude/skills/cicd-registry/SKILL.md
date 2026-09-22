@@ -42,8 +42,13 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
    depth. `keepProd:false` is the explicit hobby opt-out.
 5. **The registry is a swarm service swarmy manages, never public.** Enabling it
    is one `service.deploy` of `registry:2` (`REGISTRY_IMAGE`), replicas 1, on the
-   `swarmy` overlay, volume `swarmy-registry-data`, reachable at
-   `swarmy-registry:5000` (`DEFAULT_REGISTRY_HOST`). Do not add a public port;
+   `swarmy` overlay, volume `swarmy-registry-data`, port 5000 on the routing
+   mesh so every node's dockerd pulls `localhost:5000` (`DEFAULT_REGISTRY_HOST`;
+   127.0.0.0/8 is insecure-trusted by default). `swarmy-registry:5000` is the
+   LEGACY overlay-only host — `canonicalRegistryHost` maps it, and
+   `isOrgRegistryImage` still recognises it. The builder runs host-network and
+   pushes with `registry.insecure=true`; trivy/cosign `runOnce` use `host` too.
+   Firewall 5000 from outside the swarm;
    the agent only RENDERS TLS/insecure-registry hints — it never rewrites
    `/etc/docker/daemon.json` itself (`handlers/registry-tls.ts`).
 6. **Secrets are JIT-resolved and never baked in.** Git tokens, registry creds,

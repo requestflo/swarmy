@@ -34,7 +34,16 @@ const KEYGEN_VOLUME = 'swarmy-cosign-keygen';
 /** Root, so cosign can write into the lazily-created root-owned keygen volume. */
 export const KEYGEN_USER = '0:0';
 const KEYGEN_SPLIT_MARKER = '@@SWARMY-COSIGN-SPLIT@@';
-export const DEFAULT_REGISTRY_HOST = 'swarmy-registry:5000';
+/**
+ * Canonical address of the in-swarm registry. The `registry:2` service publishes
+ * 5000 on the swarm routing mesh, so `localhost:5000` answers on EVERY node — and
+ * dockerd trusts 127.0.0.0/8 registries as insecure by default, so every node
+ * pulls plain-HTTP with zero daemon config. (The overlay name below only
+ * resolves inside containers on the `swarmy` network, never for node dockerd.)
+ */
+export const DEFAULT_REGISTRY_HOST = 'localhost:5000';
+/** Pre-routing-mesh host; stored configs + existing image refs may still carry it. */
+export const LEGACY_REGISTRY_HOST = 'swarmy-registry:5000';
 /** Trivy's own scan timeout (`--timeout 8m`) + container/dispatch headroom. */
 const SCAN_TIMEOUT_MS = 9 * 60_000;
 const SIGN_TIMEOUT_MS = 2 * 60_000;
@@ -146,9 +155,35 @@ export function refAtDigest(imageRef: string, digest: string): string {
   return `${stripTag(imageRef)}@${digest}`;
 }
 
-/** True when the image was pushed to the org's in-swarm registry. */
+/**
+ * The host builds push to / nodes pull from. An unset or legacy
+ * (`swarmy-registry:5000`, overlay-only — node dockerd can never pull it) stored
+ * host maps to the canonical `localhost:5000`; a custom host is kept.
+ */
+export function canonicalRegistryHost(stored: string | null | undefined): string {
+  if (!stored || stored === LEGACY_REGISTRY_HOST) return DEFAULT_REGISTRY_HOST;
+  return stored;
+}
+
+/**
+ * Rewrite a legacy `swarmy-registry:5000/…` ref to the host-reachable
+ * `localhost:5000/…` (same registry, same repo/digest) for tools that run on
+ * the host network. Other refs pass through unchanged.
+ */
+export function hostReachableRef(ref: string): string {
+  const legacy = `${LEGACY_REGISTRY_HOST}/`;
+  return ref.startsWith(legacy) ? `${DEFAULT_REGISTRY_HOST}/${ref.slice(legacy.length)}` : ref;
+}
+
+/**
+ * True when the image was pushed to the org's in-swarm registry. Recognises the
+ * org's configured host plus both the canonical and the legacy default host, so
+ * services still referencing `swarmy-registry:5000/…` stay in scope.
+ */
 export function isOrgRegistryImage(image: string, registryHost: string): boolean {
-  return image.startsWith(`${registryHost}/`);
+  const hosts = new Set([registryHost, DEFAULT_REGISTRY_HOST, LEGACY_REGISTRY_HOST]);
+  for (const h of hosts) if (h && image.startsWith(`${h}/`)) return true;
+  return false;
 }
 
 /** Split the keygen shell output into the two PEMs (unit-tested). */
@@ -309,7 +344,7 @@ export async function scanDetail(ctx: OrgContext, id: string): Promise<ImageScan
 
 /**
  * Run a trivy scan of `imageRef` on a node (via `container.runOnce`, attached
- * to the `swarmy` overlay so the in-swarm registry resolves) and persist the
+ * to the host network so the routing-mesh registry at `localhost:5000` resolves) and persist the
  * `ImageScan`. Status is `passed` unless the exec/parse failed (`error`) —
  * criticals showing up is a *policy* matter, decided at admission time.
  */
@@ -336,13 +371,15 @@ async function runScan(
           '--timeout',
           '8m',
           '--quiet',
-          // The in-swarm registry:2 speaks plain HTTP on the overlay.
+          // The in-swarm registry:2 speaks plain HTTP.
           '--insecure',
-          imageRef,
+          hostReachableRef(imageRef),
         ],
         // Reuse the registry auth builds push with (trivy reads TRIVY_USERNAME/PASSWORD).
         env: creds ? { TRIVY_USERNAME: creds.username, TRIVY_PASSWORD: creds.password } : undefined,
-        networks: ['swarmy'],
+        // Host network: reach the registry at `localhost:5000` via the routing
+      // mesh, exactly as the node's dockerd does.
+      networks: ['host'],
         timeoutMs: SCAN_TIMEOUT_MS,
       },
       { timeoutMs: SCAN_TIMEOUT_MS + 30_000 },
@@ -505,10 +542,12 @@ async function signImage(
         '--tlog-upload=false',
         '--allow-insecure-registry',
         ...(creds ? ['--registry-username', creds.username, '--registry-password', creds.password] : []),
-        ref,
+        hostReachableRef(ref),
       ],
       env: { COSIGN_PRIVATE_KEY: privateKey, COSIGN_PASSWORD: password },
-      networks: ['swarmy'],
+      // Host network: reach the registry at `localhost:5000` via the routing
+      // mesh, exactly as the node's dockerd does.
+      networks: ['host'],
       timeoutMs: SIGN_TIMEOUT_MS,
     },
     { timeoutMs: SIGN_TIMEOUT_MS + 30_000 },
@@ -550,10 +589,12 @@ export async function verifyImageSignature(
         '--insecure-ignore-tlog',
         '--allow-insecure-registry',
         ...(creds ? ['--registry-username', creds.username, '--registry-password', creds.password] : []),
-        ref,
+        hostReachableRef(ref),
       ],
       env: { COSIGN_PUBLIC_KEY: cfg.cosignPublicKey },
-      networks: ['swarmy'],
+      // Host network: reach the registry at `localhost:5000` via the routing
+      // mesh, exactly as the node's dockerd does.
+      networks: ['host'],
       timeoutMs: VERIFY_TIMEOUT_MS,
     },
     { timeoutMs: VERIFY_TIMEOUT_MS + 15_000 },

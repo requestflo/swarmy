@@ -22,7 +22,12 @@
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import { decryptSecret, randomToken } from '@swarmy/core/crypto';
-import { buildInventory, type InvService } from '@swarmy/core';
+import {
+  DB_DATA_VOLUME_LABEL,
+  DB_PIN_NODE_LABEL,
+  buildInventory,
+  type InvService,
+} from '@swarmy/core';
 import type {
   DbBackupOverviewRow,
   DbBackupRunStatus,
@@ -305,6 +310,32 @@ function findCluster(
   };
 }
 
+/**
+ * The PGDATA volume a physical engine should use: explicit input wins, else the
+ * primary's declared `swarmy.db.dataVolume` (the persistent-layout volume,
+ * `<stack>_<cluster>-primary-data`, mounted at `/bitnami/postgresql`).
+ */
+export function effectiveDataVolume(
+  explicit: string | undefined,
+  primaryLabels: Record<string, string> | undefined,
+): string | undefined {
+  return explicit || primaryLabels?.[DB_DATA_VOLUME_LABEL] || undefined;
+}
+
+/**
+ * Where a physical (volume-reading) engine must run: the node the primary is
+ * pinned to (`swarmy.db.node`), because the data volume is node-local. Falls
+ * back to a manager when unpinned or that node is offline.
+ */
+async function physicalNode(ctx: OrgContext, primaryLabels: Record<string, string>): Promise<{ id: string }> {
+  const pin = primaryLabels[DB_PIN_NODE_LABEL];
+  if (pin) {
+    const onNode = ctx.hub.onlineNodeIds().find((id) => ctx.hub.swarmNodeIdFor(id) === pin);
+    if (onNode) return { id: onNode };
+  }
+  return resolveManagerNode(ctx);
+}
+
 /** Build a one-shot DB connection from a live DB-role service. */
 function connFrom(svc: InvService, database?: string): DbConnection {
   const env = envRecord(svc);
@@ -377,11 +408,13 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
   }
   const source = fromReplica ? replica! : primary;
   const conn = connFrom(source, input.database);
-  if (isPhysicalEngine(input.engine) && !input.dataVolume) {
+  const physical = isPhysicalEngine(input.engine);
+  const dataVolume = physical ? effectiveDataVolume(input.dataVolume, primary.labels) : input.dataVolume;
+  if (physical && !dataVolume) {
     throw commandRejected(`engine "${input.engine}" requires a PGDATA volume (dataVolume)`);
   }
 
-  const node = await resolveManagerNode(ctx);
+  const node = physical ? await physicalNode(ctx, primary.labels) : await resolveManagerNode(ctx);
   try {
     const result = await ctx.hub.dispatch<DbBackupResult>(node.id, 'db.backup', {
       jobId: randomToken('dbk'),
@@ -391,7 +424,7 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
       tags: dbTags(ctx.activeOrgId, input.stack, input.cluster, input.engine),
       retentionDays: input.retentionDays,
       network: clusterNetworkName(input.stack, input.cluster),
-      dataVolume: input.dataVolume,
+      dataVolume,
     });
     await writeAudit(ctx, {
       action: 'db.backup',
@@ -504,7 +537,7 @@ export async function setDbBackupSchedule(
       `invalid cron "${input.cron}": ${e instanceof Error ? e.message : String(e)}`,
     );
   }
-  if (isPhysicalEngine(input.engine) && !input.dataVolume) {
+  if (isPhysicalEngine(input.engine) && !effectiveDataVolume(input.dataVolume, primary.labels)) {
     throw commandRejected(
       `engine "${input.engine}" needs the primary's PGDATA volume (dataVolume) to schedule`,
     );
@@ -659,7 +692,9 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
   const destCluster = input.targetCluster ?? input.cluster;
   const { primary } = findCluster(ctx, destStack, destCluster);
   if (!primary) throw notFound('db cluster primary', destCluster);
-  if (input.mode === 'pitr' && !input.dataVolume) {
+  const dataVolume =
+    input.mode === 'pitr' ? effectiveDataVolume(input.dataVolume, primary.labels) : input.dataVolume;
+  if (input.mode === 'pitr' && !dataVolume) {
     throw commandRejected('pitr restore requires the target PGDATA volume (dataVolume)');
   }
   const source = findCluster(ctx, input.stack, input.cluster).primary;
@@ -667,7 +702,8 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
   const target = await loadTarget(ctx, await resolveTargetId(ctx, input.targetId, schedule));
 
   const conn = connFrom(primary, input.database);
-  const node = await resolveManagerNode(ctx);
+  const node =
+    input.mode === 'pitr' ? await physicalNode(ctx, primary.labels) : await resolveManagerNode(ctx);
   try {
     const result = await ctx.hub.dispatch<DbRestoreResult>(node.id, 'db.restore', {
       engine: input.engine,
@@ -679,7 +715,7 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
       database: input.database,
       tags: dbTags(ctx.activeOrgId, destStack, destCluster, input.engine),
       network: clusterNetworkName(destStack, destCluster),
-      dataVolume: input.dataVolume,
+      dataVolume,
     });
     await writeAudit(ctx, {
       action: 'db.restore',

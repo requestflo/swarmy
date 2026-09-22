@@ -14,7 +14,7 @@ import type { OrgContext } from '../context';
 import { mapDispatchError, notFound } from '../errors';
 import { enforceAdmission } from './admission-gate';
 import { writeAudit } from './audit.service';
-import { resolveManagerNode } from './dispatch.service';
+import { pinToNodeConstraint, resolveManagerNode } from './dispatch.service';
 import { enqueueEvent } from './webhooks-out.service';
 
 function envArrayToRecord(env: { key: string; value: string }[]): Record<string, string> {
@@ -61,6 +61,7 @@ function buildServiceSpec(row: {
       readOnly: v.readOnly,
     })),
     networks: row.networks,
+    ...(row.constraints.length ? { placement: { constraints: row.constraints } } : {}),
   };
 }
 
@@ -162,7 +163,7 @@ export async function createService(
   ctx: OrgContext,
   input: CreateServiceInput,
 ): Promise<{ id: string; deploymentId: string }> {
-  const node = await resolveManagerNode(ctx, input.nodeId);
+  const node = await resolveManagerNode(ctx);
   const spec = buildServiceSpec({
     name: input.name,
     image: input.image,
@@ -172,7 +173,7 @@ export async function createService(
     ports: input.ports,
     volumes: input.volumes,
     networks: input.networks,
-    constraints: input.constraints,
+    constraints: input.nodeId ? [...input.constraints, pinToNodeConstraint(ctx, input.nodeId)] : input.constraints,
     project: input.project,
   });
 

@@ -36,8 +36,13 @@ import type { AgentConnection } from '../connection';
 const MOUNT = '/data';
 /** Where the logical dump is staged (scratch volume) inside the db sidecars. */
 const DUMP_MOUNT = '/backup';
-/** Where the primary's PGDATA is mounted for physical engines. */
-const PGDATA_MOUNT = '/pgdata';
+/**
+ * The managed primary's data volume is its bitnami persistence ROOT (mounted at
+ * `/bitnami/postgresql` in the service — see @swarmy/core manageddb-storage), so
+ * the cluster's PGDATA is the `data/` subdirectory of the volume, not its root.
+ */
+const PGVOL_MOUNT = '/pgvol';
+const PGDATA_MOUNT = `${PGVOL_MOUNT}/data`;
 
 interface RunOutput {
   exitCode: number;
@@ -577,7 +582,7 @@ async function backupDbPhysical(
         entrypoint: ['/bin/sh', '-c'],
         args: ['set -e; export PGDATA=' + PGDATA_MOUNT + '; wal-g backup-push "$PGDATA"'],
         env: [...env, `PGDATA=${PGDATA_MOUNT}`],
-        binds: [`${p.dataVolume}:${PGDATA_MOUNT}:ro`],
+        binds: [`${p.dataVolume}:${PGVOL_MOUNT}:ro`],
         networkMode: p.network,
       },
       onLine,
@@ -606,7 +611,7 @@ async function backupDbPhysical(
           `pgbackrest --stanza=swarmy --pg1-path=${PGDATA_MOUNT} ${flags} --type=full backup`,
       ],
       env,
-      binds: [`${p.dataVolume}:${PGDATA_MOUNT}`],
+      binds: [`${p.dataVolume}:${PGVOL_MOUNT}`],
       networkMode: p.network,
     },
     onLine,
@@ -758,7 +763,7 @@ async function restoreDbPitr(
           `set -e; export PGDATA=${PGDATA_MOUNT}; wal-g backup-fetch "$PGDATA" ${p.snapshotId || 'LATEST'}; ${recoveryConf}`,
         ],
         env: [...env, `PGDATA=${PGDATA_MOUNT}`],
-        binds: [`${p.dataVolume}:${PGDATA_MOUNT}`],
+        binds: [`${p.dataVolume}:${PGVOL_MOUNT}`],
         networkMode: p.network,
       },
       onLine,
@@ -779,7 +784,7 @@ async function restoreDbPitr(
           `set -e; pgbackrest --stanza=swarmy --pg1-path=${PGDATA_MOUNT} ${flags} ${typeFlag} --delta restore`,
         ],
         env,
-        binds: [`${p.dataVolume}:${PGDATA_MOUNT}`],
+        binds: [`${p.dataVolume}:${PGVOL_MOUNT}`],
         networkMode: p.network,
       },
       onLine,

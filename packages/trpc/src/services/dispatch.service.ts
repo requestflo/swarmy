@@ -1,5 +1,5 @@
 import type { OrgContext } from '../context';
-import { noManager, nodeOffline, notFound } from '../errors';
+import { commandRejected, noManager, nodeOffline, notFound } from '../errors';
 
 /** Resolve a connected swarm-manager node (Docker truth) to route commands to. */
 export async function resolveManagerNode(
@@ -34,4 +34,15 @@ export async function failDeployment(
   _e: unknown,
 ): Promise<void> {
   // no-op: nothing to persist
+}
+
+/**
+ * Placement constraint pinning a service to one enrolled node. Service deploys
+ * always dispatch to a MANAGER (workers can't create services); the pin rides
+ * in the spec as `node.id==<docker swarm node id>`.
+ */
+export function pinToNodeConstraint(ctx: OrgContext, nodeId: string): string {
+  const swarmNodeId = ctx.hub.swarmNodeIdFor(nodeId);
+  if (!swarmNodeId) throw commandRejected(`node ${nodeId} has not joined the swarm yet — can't pin a service to it`);
+  return `node.id==${swarmNodeId}`;
 }

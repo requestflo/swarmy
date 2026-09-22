@@ -4,7 +4,9 @@
  * Runs a BuildKit-style builder container (`moby/buildkit:rootless` via `buildctl`,
  * or the bundled `img`) via dockerode to: shallow-clone the git source, build the
  * Dockerfile, and push the resulting image to the in-swarm registry in one step
- * (`--output type=image,push=true`), then parse the pushed digest.
+ * (`--output type=image,push=true,registry.insecure=true`), then parse the pushed
+ * digest. The builder runs on the HOST network so it pushes to the routing-mesh
+ * registry at `localhost:5000` — the same address every node's dockerd pulls.
  *
  * Mirrors `applyMesh`/`joinNetbird` in the executor: it consumes a resolved
  * payload and applies it on the node, streaming build output as `logChunk`s
@@ -24,6 +26,10 @@ import type { AgentConnection } from '../connection';
 
 const DEFAULT_BUILDER_IMAGE = 'moby/buildkit:rootless';
 const CONTAINER_PREFIX = 'swarmy-build-';
+/** How many trailing log lines a failed build's error message carries. */
+const ERROR_TAIL_LINES = 15;
+/** Bounded tail of combined output kept for digest parsing + error context. */
+const MAX_TAIL_CHARS = 64 * 1024;
 
 /** Resolve the auth header git fetch uses, without baking it into a layer. */
 function authedGitUrl(url: string, token?: string): string {
@@ -40,6 +46,125 @@ function authedGitUrl(url: string, token?: string): string {
 }
 
 /**
+ * Render the shell program the builder container runs (pure, golden-tested).
+ *
+ * `moby/buildkit:rootless` runs as uid 1000, so everything writable lives
+ * under `$HOME` (the workspace and the one-shot `DOCKER_CONFIG`, exported so
+ * buildctl/buildkitd read the push auth). buildkitd must be started through
+ * `rootlesskit`, and we poll `buildctl debug workers` for readiness instead of
+ * a fixed sleep. The in-swarm registry is plain HTTP, so the push sets
+ * `registry.insecure=true`. The digest is extracted from BuildKit's metadata
+ * file with a whitespace-tolerant pattern (`"containerimage.digest": "…"`).
+ */
+export function renderBuildProgram(p: BuildImagePayload): string {
+  const dockerfile = p.source.dockerfile ?? 'Dockerfile';
+  const subdir = p.source.subdir ?? '.';
+  const cloneUrl = authedGitUrl(p.source.url, p.source.token);
+  const buildArgFlags = Object.entries(p.buildArgs ?? {})
+    .map(([k, v]) => `--opt build-arg:${k}=${shq(v)}`)
+    .join(' ');
+  const push = p.pushPolicy === 'always';
+  const primaryRef = p.imageRefs[0] ?? '';
+  const outputs = p.imageRefs
+    .map(
+      (ref) =>
+        `--output ${shq(`type=image,name=${ref},push=${push ? 'true' : 'false'},registry.insecure=true`)}`,
+    )
+    .join(' ');
+
+  // Registry auth for the push, written to a one-shot docker config consumed by
+  // buildctl, never persisted past the container's lifetime.
+  const auth = p.registryAuth;
+  const dockerConfig = auth
+    ? JSON.stringify({
+        auths: {
+          [auth.server ?? primaryRef.split('/')[0] ?? '']: {
+            auth: Buffer.from(`${auth.username}:${auth.password}`).toString('base64'),
+          },
+        },
+      })
+    : '';
+  const ctxDir = `"$W"/${shq(subdir)}`;
+
+  return [
+    'set -e',
+    'W="$HOME/workspace"',
+    'export DOCKER_CONFIG="$HOME/.docker"',
+    'rm -rf "$W" && mkdir -p "$W"',
+    `git clone --depth 1 --branch ${shq(p.source.ref)} ${shq(cloneUrl)} "$W"`,
+    dockerConfig
+      ? `mkdir -p "$DOCKER_CONFIG" && printf %s ${shq(dockerConfig)} > "$DOCKER_CONFIG/config.json"`
+      : ':',
+    'rootlesskit buildkitd --oci-worker-no-process-sandbox >/tmp/buildkitd.log 2>&1 &',
+    'ready=0',
+    'for i in $(seq 1 30); do buildctl debug workers >/dev/null 2>&1 && ready=1 && break; sleep 1; done',
+    'if [ "$ready" != 1 ]; then echo "buildkitd did not become ready within 30s" >&2; cat /tmp/buildkitd.log >&2; exit 1; fi',
+    [
+      'buildctl build',
+      '--frontend dockerfile.v0',
+      `--local context=${ctxDir}`,
+      `--local dockerfile=${ctxDir}`,
+      `--opt filename=${shq(dockerfile)}`,
+      p.target ? `--opt target=${shq(p.target)}` : '',
+      p.platform ? `--opt platform=${shq(p.platform)}` : '',
+      buildArgFlags,
+      outputs,
+      '--metadata-file /tmp/meta.json',
+    ]
+      .filter(Boolean)
+      .join(' '),
+    // Surface the digest on a parseable line for the agent to capture. BuildKit
+    // pretty-prints meta.json (`"key": "value"`), so tolerate optional spaces.
+    `echo "SWARMY_DIGEST=$(tr -d '\\n' < /tmp/meta.json | sed -n 's/.*"containerimage.digest": *"\\([^"]*\\)".*/\\1/p')"`,
+  ].join('\n');
+}
+
+/**
+ * Extract the pushed digest from the builder's output. Prefers the explicit
+ * `SWARMY_DIGEST=` marker; falls back to a raw BuildKit metadata blob
+ * (`"containerimage.digest": "sha256:…"`, any whitespace around the colon).
+ */
+export function parseBuildDigest(output: string): string | null {
+  const marker = [...output.matchAll(/SWARMY_DIGEST=(sha256:[a-f0-9]{64})/g)].pop();
+  if (marker?.[1]) return marker[1];
+  const meta = output.match(/"containerimage\.digest"\s*:\s*"(sha256:[a-f0-9]{64})"/);
+  return meta?.[1] ?? null;
+}
+
+/** Last `n` non-empty lines of output, for a failed build's error message. */
+export function tailLines(output: string, n = ERROR_TAIL_LINES): string[] {
+  return output
+    .split(/\r?\n/)
+    .map((l) => l.trimEnd())
+    .filter((l) => l.trim().length > 0)
+    .slice(-n);
+}
+
+/**
+ * dockerode `createContainer` options for the builder (pure, unit-tested).
+ * Host networking so buildctl reaches the registry at `localhost:5000` via the
+ * swarm routing mesh — exactly the address every node's dockerd pulls from.
+ */
+export function builderContainerOptions(name: string, image: string, program: string) {
+  return {
+    name,
+    Image: image,
+    // Override the image ENTRYPOINT (`rootlesskit buildkitd`): the program starts
+    // its own rootlesskit, and a nested one is refused a user namespace.
+    Entrypoint: ['sh', '-c'],
+    Cmd: [program],
+    Tty: false,
+    HostConfig: {
+      NetworkMode: 'host',
+      // Rootless BuildKit needs these to set up its user namespaces.
+      Privileged: false,
+      SecurityOpt: ['seccomp=unconfined', 'apparmor=unconfined'],
+      AutoRemove: false,
+    },
+  };
+}
+
+/**
  * Build + push an image, streaming logs. The actual build runs inside a builder
  * container which has the BuildKit toolchain; we drive it with a shell program
  * that clones, builds, and pushes, emitting the final digest on stdout.
@@ -52,100 +177,50 @@ export async function buildImage(
   const image = p.builderImage ?? DEFAULT_BUILDER_IMAGE;
   const d = docker.docker;
   const name = `${CONTAINER_PREFIX}${p.commandId.slice(0, 8)}`;
+  const primaryRef = p.imageRefs[0] ?? '';
 
   await docker.pullImage(image).catch(() => undefined);
   await d.getContainer(name).remove({ force: true }).catch(() => undefined);
 
-  const dockerfile = p.source.dockerfile ?? 'Dockerfile';
-  const subdir = p.source.subdir ?? '.';
-  const cloneUrl = authedGitUrl(p.source.url, p.source.token);
-  const buildArgFlags = Object.entries(p.buildArgs ?? {})
-    .map(([k, v]) => `--opt build-arg:${k}=${shq(v)}`)
-    .join(' ');
-  const push = p.pushPolicy === 'always';
-  const primaryRef = p.imageRefs[0] ?? '';
-  const outputs = p.imageRefs
-    .map((ref) => `--output type=image,name=${shq(ref)},push=${push ? 'true' : 'false'}`)
-    .join(' ');
-
-  // Registry auth for the push, written to a one-shot docker config consumed by
-  // buildkitd, never persisted past the container's lifetime.
-  const auth = p.registryAuth;
-  const dockerConfig = auth
-    ? JSON.stringify({
-        auths: {
-          [auth.server ?? primaryRef.split('/')[0] ?? '']: {
-            auth: Buffer.from(`${auth.username}:${auth.password}`).toString('base64'),
-          },
-        },
-      })
-    : '';
-
-  const program = [
-    'set -e',
-    'rm -rf /workspace && mkdir -p /workspace',
-    `git clone --depth 1 --branch ${shq(p.source.ref)} ${shq(cloneUrl)} /workspace`,
-    dockerConfig ? `mkdir -p /root/.docker && printf %s ${shq(dockerConfig)} > /root/.docker/config.json` : ':',
-    'buildkitd --oci-worker-no-process-sandbox & sleep 2',
-    [
-      'buildctl build',
-      '--frontend dockerfile.v0',
-      `--local context=/workspace/${subdir}`,
-      `--local dockerfile=/workspace/${subdir}`,
-      `--opt filename=${shq(dockerfile)}`,
-      p.target ? `--opt target=${shq(p.target)}` : '',
-      p.platform ? `--opt platform=${shq(p.platform)}` : '',
-      buildArgFlags,
-      outputs,
-      '--metadata-file /tmp/meta.json',
-    ]
-      .filter(Boolean)
-      .join(' '),
-    // Surface the digest on a parseable line for the agent to capture.
-    `echo "SWARMY_DIGEST=$(grep -o '"containerimage.digest":"[^"]*"' /tmp/meta.json | head -1 | cut -d'"' -f4)"`,
-  ].join('\n');
-
-  const container = await d.createContainer({
-    name,
-    Image: image,
-    Cmd: ['sh', '-c', program],
-    Tty: false,
-    HostConfig: {
-      // Rootless BuildKit needs these to set up its user namespaces.
-      Privileged: false,
-      SecurityOpt: ['seccomp=unconfined', 'apparmor=unconfined'],
-      AutoRemove: false,
-    },
-  });
+  const container = await d.createContainer(builderContainerOptions(name, image, renderBuildProgram(p)));
 
   let seq = 0;
-  let digest = '';
+  let tail = '';
+  const secrets = [p.source.token, p.registryAuth?.password].filter((x): x is string => Boolean(x));
+  const emit = (stream: 'stdout' | 'stderr', raw: string) => {
+    // Never echo the git token / registry password into logs or error text.
+    const text = redact(raw, secrets);
+    tail = (tail + text).slice(-MAX_TAIL_CHARS);
+    conn.send('logChunk', { commandId: p.commandId, stream, seq: seq++, data: text, eof: false });
+  };
   try {
     const stream = (await container.attach({
       stream: true,
       stdout: true,
       stderr: true,
     })) as unknown as NodeJS.ReadableStream;
-    stream.on('data', (chunk: Buffer) => {
-      const text = chunk.toString('utf8');
-      const m = text.match(/SWARMY_DIGEST=(\S+)/);
-      if (m?.[1]) digest = m[1];
-      conn.send('logChunk', {
-        commandId: p.commandId,
-        stream: 'stdout',
-        seq: seq++,
-        data: text,
-        eof: false,
-      });
+    const ended = new Promise<void>((resolve) => {
+      stream.on('end', () => resolve());
+      stream.on('close', () => resolve());
+      stream.on('error', () => resolve());
     });
+    // Non-TTY attach is multiplexed; demux so frame headers never reach the log.
+    const sink = (s: 'stdout' | 'stderr') =>
+      ({ write: (b: Buffer) => (emit(s, b.toString('utf8')), true) }) as unknown as NodeJS.WritableStream;
+    (d.modem as unknown as {
+      demuxStream(s: NodeJS.ReadableStream, o: NodeJS.WritableStream, e: NodeJS.WritableStream): void;
+    }).demuxStream(stream, sink('stdout'), sink('stderr'));
 
     await container.start();
     const result = await container.wait();
+    // Let the attach stream drain so the final lines (incl. the digest) land.
+    await Promise.race([ended, new Promise((r) => setTimeout(r, 2_000))]);
     conn.send('logChunk', { commandId: p.commandId, stream: 'stdout', seq: seq++, data: '', eof: true });
 
     const code = (result as { StatusCode?: number }).StatusCode ?? 0;
-    if (code !== 0) throw new Error(`build exited ${code}`);
-    if (!digest) throw new Error('build finished but no image digest was produced');
+    if (code !== 0) throw new Error(withTail(`build exited ${code}`, tail));
+    const digest = parseBuildDigest(tail);
+    if (!digest) throw new Error(withTail('build finished but no image digest was produced', tail));
 
     return {
       imageRef: primaryRef,
@@ -155,6 +230,18 @@ export async function buildImage(
   } finally {
     await d.getContainer(name).remove({ force: true }).catch(() => undefined);
   }
+}
+
+/** Replace every occurrence of each secret with `***`. */
+export function redact(text: string, secrets: string[]): string {
+  let out = text;
+  for (const s of secrets) if (s) out = out.split(s).join('***');
+  return out;
+}
+
+function withTail(message: string, output: string): string {
+  const lines = tailLines(output);
+  return lines.length ? `${message}\n${lines.join('\n')}` : message;
 }
 
 /** Minimal single-quote shell escaping for values interpolated into the program. */

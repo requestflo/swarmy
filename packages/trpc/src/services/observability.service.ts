@@ -30,12 +30,21 @@ import { OTEL_ENABLED_LABEL } from './otel-injection';
 import {
   collectorServiceSpec,
   clickhouseServiceSpec,
-  observabilityConfigFiles,
+  deriveSuiteServiceStatus,
+  observabilityConfigs,
+  observabilityNeedsConverge,
+  resolveStorePin,
+  staleObservabilityConfigs,
   CLICKHOUSE_HTTP_PORT,
+  CLICKHOUSE_NODE_LABEL,
+  CLICKHOUSE_SERVICE,
   CLICKHOUSE_SERVICE_HOST,
+  COLLECTOR_SERVICE,
+  OBS_CONFIG_LABEL,
   OTEL_OVERLAY_NETWORK,
+  type ObservabilityConfigObject,
+  type ObservabilityConfigSet,
 } from './observability-stack';
-import { renderClickhouseInitSql } from './observability-render';
 import {
   buildTracesQuery,
   buildTraceDetailQuery,
@@ -67,6 +76,8 @@ export interface ObservabilityConfigView {
 export interface ObservabilityStatusView extends ObservabilityConfigView {
   /** Live reachability of the ClickHouse HTTP endpoint, probed on read. */
   storeReachable: boolean;
+  /** Live ClickHouse service status (running tasks), same derivation as the collector. */
+  storeStatus: CollectorStatus;
   stacksEnabled: number;
 }
 
@@ -151,10 +162,39 @@ function endpointSummary(dsn: string | null): string | null {
   }
 }
 
-function toView(row: ObsConfigRow): ObservabilityConfigView {
+/**
+ * Live collector/store status from Docker truth — running tasks on the live
+ * inventory, never the optimistic value recorded at deploy time. The row only
+ * contributes "when was it requested" (start grace) and "did the dispatch
+ * itself fail".
+ */
+function liveSuiteStatus(
+  ctx: OrgContext,
+  row: Pick<ObsConfigRow, 'enabled' | 'collectorStatus' | 'updatedAt'>,
+): { collector: CollectorStatus; store: CollectorStatus } {
+  const services = ctx.hub.liveInventory(ctx.activeOrgId).services;
+  const base = {
+    enabled: row.enabled,
+    requestedAt: row.updatedAt.getTime(),
+    deployFailed: row.collectorStatus === 'FAILED',
+    now: Date.now(),
+  };
+  return {
+    collector: deriveSuiteServiceStatus({
+      ...base,
+      service: services.find((s) => s.name === COLLECTOR_SERVICE),
+    }),
+    store: deriveSuiteServiceStatus({
+      ...base,
+      service: services.find((s) => s.name === CLICKHOUSE_SERVICE),
+    }),
+  };
+}
+
+function toView(ctx: OrgContext, row: ObsConfigRow): ObservabilityConfigView {
   return {
     enabled: row.enabled,
-    collectorStatus: (row.collectorStatus as CollectorStatus) ?? 'OFFLINE',
+    collectorStatus: liveSuiteStatus(ctx, row).collector,
     retentionDays: row.retentionDays,
     storeConfigured: Boolean(row.clickhouseDsn),
     storeEndpoint: endpointSummary(row.clickhouseDsn ? safeDecrypt(row.clickhouseDsn) : null),
@@ -176,12 +216,13 @@ function safeDecrypt(blob: string): string {
 
 export async function getConfig(ctx: OrgContext): Promise<ObservabilityConfigView> {
   const row = await ensureConfig(ctx);
-  return toView(row);
+  return toView(ctx, row);
 }
 
 export async function getStatus(ctx: OrgContext): Promise<ObservabilityStatusView> {
   const row = await ensureConfig(ctx);
-  const base = toView(row);
+  const base = toView(ctx, row);
+  const storeStatus = liveSuiteStatus(ctx, row).store;
   // Opted-in stacks are Docker truth: count distinct stacks whose live services
   // carry the `swarmy.otel.enabled` label (never a DB column).
   const stacksEnabled = enabledStacks(ctx).size;
@@ -189,7 +230,7 @@ export async function getStatus(ctx: OrgContext): Promise<ObservabilityStatusVie
   if (row.clickhouseDsn) {
     storeReachable = await pingStore(safeDecrypt(row.clickhouseDsn));
   }
-  return { ...base, storeReachable, stacksEnabled };
+  return { ...base, storeReachable, storeStatus, stacksEnabled };
 }
 
 /**
@@ -210,7 +251,7 @@ export async function setEnabled(
       data: { enabled: false, collectorStatus: 'OFFLINE' },
     });
     await writeAudit(ctx, { action: 'observability.disable', targetType: 'org', targetId: ctx.activeOrgId });
-    return toView(row);
+    return toView(ctx, row);
   }
 
   // Generate a store credential once and keep it stable across re-enables.
@@ -229,9 +270,10 @@ export async function setEnabled(
 
   try {
     await deployStore(ctx, dsnPlain);
+    // Dispatched, not yet running: the view derives RUNNING from live tasks.
     const row = await obsDb(ctx).update({
       where: { orgId: ctx.activeOrgId },
-      data: { collectorStatus: 'RUNNING' },
+      data: { collectorStatus: 'DEPLOYING' },
     });
     await writeAudit(ctx, {
       action: 'observability.enable',
@@ -239,7 +281,7 @@ export async function setEnabled(
       targetId: ctx.activeOrgId,
       metadata: { retentionDays: row.retentionDays },
     });
-    return toView(row);
+    return toView(ctx, row);
   } catch (e) {
     await obsDb(ctx).update({
       where: { orgId: ctx.activeOrgId },
@@ -264,7 +306,7 @@ export async function setRetention(
     targetId: ctx.activeOrgId,
     metadata: { retentionDays },
   });
-  return toView(row);
+  return toView(ctx, row);
 }
 
 /* ----------------------------------------------------------------------------
@@ -427,46 +469,145 @@ async function activeDsn(ctx: OrgContext): Promise<string | null> {
  * Deploy the collector + ClickHouse through the shared `service.deploy` path.
  *
  * Order matters:
- *  1. Write the rendered collector `config.yaml` + ClickHouse init DDL to the
- *     manager host (via the existing `applyIngress` file-write capability) so the
- *     services' bind mounts resolve.
- *  2. Deploy ClickHouse, then the collector (which depends on the store).
- *  3. Replay the init DDL over the ClickHouse HTTP interface as a belt-and-braces
- *     step (idempotent `CREATE ... IF NOT EXISTS`), so tables/TTLs exist even if
- *     the entrypoint init dir was skipped (e.g. a re-used data volume).
+ *  1. Create the rendered collector `config.yaml` + ClickHouse init DDL as
+ *     swarm Docker CONFIGS (content-addressed, so re-creating the same render
+ *     is a no-op) — the managers replicate them to whichever node a task lands
+ *     on. No host files, so any topology / containerised agent works.
+ *  2. Deploy ClickHouse (pinned to one node: its data volume is node-local),
+ *     then the collector. A deploy onto an existing service is a full spec
+ *     update, so legacy bind-mount specs converge here too.
+ *  3. Sweep superseded observability configs (best-effort; an in-use config
+ *     refuses removal and is retried on the next converge).
+ *  4. Replay the init DDL over the ClickHouse HTTP interface as a belt-and-braces
+ *     step (idempotent `CREATE ... IF NOT EXISTS`), so the database exists even
+ *     if the entrypoint init dir was skipped (e.g. a re-used data volume).
  */
 async function deployStore(ctx: OrgContext, dsnPlain: string): Promise<void> {
   const node = await resolveManagerNode(ctx);
   const dsn = parseDsn(dsnPlain);
   const retentionDays = await retentionFor(ctx);
+  const configs = desiredConfigs(dsn, retentionDays);
 
-  // 1. Write config files for the bind mounts (reuses the agent file-writer).
-  const files = observabilityConfigFiles({
-    password: dsn.password,
-    retentionDays,
-    database: dsn.database,
-  });
-  await ctx.hub.dispatch(node.id, 'applyIngress', {
-    rendered: {
-      driver: 'observability-files',
-      files,
-      serviceLabels: [],
-    },
-  });
+  // 1. Docker configs first — the specs reference them by name.
+  for (const cfg of [configs.clickhouseInit, configs.collector]) {
+    await createConfigIdempotent(ctx, node.id, cfg);
+  }
 
-  // 2. Deploy the store, then the collector.
+  // 2. Deploy the store (pinned), then the collector.
   const specs: ServiceSpec[] = [
-    clickhouseServiceSpec({ password: dsn.password, retentionDays }),
-    collectorServiceSpec({ clickhouseDsn: dsnPlain }),
+    clickhouseServiceSpec({
+      password: dsn.password,
+      retentionDays,
+      initConfig: configs.clickhouseInit.name,
+      pinSwarmNodeId: storePin(ctx, node.id),
+    }),
+    collectorServiceSpec({ clickhouseDsn: dsnPlain, config: configs.collector.name }),
   ];
   for (const spec of specs) {
     await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'missing' });
   }
 
-  // 3. Replay the idempotent init DDL over HTTP (best-effort; store may still be
+  // 3. Drop superseded configs now that no spec references them.
+  await sweepStaleConfigs(ctx, node.id, [configs.clickhouseInit.name, configs.collector.name]);
+
+  // 4. Replay the idempotent init DDL over HTTP (best-effort; store may still be
   //    booting on first enable — the entrypoint init covers that case).
-  const initSql = renderClickhouseInitSql({ database: dsn.database, retentionDays });
-  await applyInitDdl(dsnPlain, initSql).catch(() => undefined);
+  await applyInitDdl(dsnPlain, configs.clickhouseInit.contents).catch(() => undefined);
+}
+
+function desiredConfigs(dsn: ClickhouseDsn, retentionDays: number): ObservabilityConfigSet {
+  return observabilityConfigs({ password: dsn.password, retentionDays, database: dsn.database });
+}
+
+/** Where ClickHouse is pinned: its existing pin label, else the dispatch manager. */
+function storePin(ctx: OrgContext, managerNodeId: string): string | undefined {
+  const live = ctx.hub
+    .liveInventory(ctx.activeOrgId)
+    .services.find((s) => s.name === CLICKHOUSE_SERVICE);
+  return resolveStorePin({
+    labelled: live?.labels[CLICKHOUSE_NODE_LABEL],
+    managerSwarmNodeId: ctx.hub.swarmNodeIdFor(managerNodeId),
+    knownSwarmNodeIds: new Set(
+      ctx.hub.nodeInventory(ctx.activeOrgId, true).map((n) => n.swarmNodeId),
+    ),
+  });
+}
+
+/** `config.create`, tolerating "already exists" (content-addressed ⇒ same bytes). */
+async function createConfigIdempotent(
+  ctx: OrgContext,
+  nodeId: string,
+  cfg: ObservabilityConfigObject,
+): Promise<void> {
+  try {
+    await ctx.hub.dispatch(nodeId, 'config.create', {
+      name: cfg.name,
+      dataB64: Buffer.from(cfg.contents, 'utf8').toString('base64'),
+      labels: { 'swarmy.managed': 'true', [OBS_CONFIG_LABEL]: 'true' },
+    });
+  } catch (e) {
+    if (!/already exists|conflict/i.test(e instanceof Error ? e.message : String(e))) throw e;
+  }
+}
+
+/** Best-effort removal of observability configs not in `keep`. */
+async function sweepStaleConfigs(ctx: OrgContext, nodeId: string, keep: string[]): Promise<void> {
+  try {
+    const res = await ctx.hub.dispatch<{ configs?: Array<{ name: string }> }>(nodeId, 'config.list', {});
+    const stale = staleObservabilityConfigs((res.configs ?? []).map((c) => c.name), keep);
+    for (const name of stale) {
+      await ctx.hub.dispatch(nodeId, 'config.remove', { name }).catch(() => undefined);
+    }
+  } catch {
+    // best-effort — retried on the next converge / teardown.
+  }
+}
+
+/**
+ * Converge the deployed suite onto the current render (reconcile worker hook).
+ * Redeploys when a service is missing, still carries a legacy host bind mount,
+ * references a stale config, or has lost/moved its store pin — so deployments
+ * made with the old bind-mount specs heal on the next tick. No-op when the suite
+ * is off or already converged. Returns whether a redeploy was dispatched.
+ */
+const CONVERGE_COOLDOWN_MS = 5 * 60_000;
+const lastConvergeAt = new Map<string, number>();
+
+export async function reconcileObservabilitySuite(ctx: OrgContext): Promise<boolean> {
+  const row = await obsDb(ctx).findUnique({ where: { orgId: ctx.activeOrgId } });
+  if (!row?.enabled || !row.clickhouseDsn) return false;
+  const managerId = ctx.hub.managerNode(ctx.activeOrgId);
+  if (!managerId) return false;
+  const dsnPlain = safeDecrypt(row.clickhouseDsn);
+  const services = ctx.hub.liveInventory(ctx.activeOrgId).services;
+  const needs = observabilityNeedsConverge({
+    store: services.find((s) => s.name === CLICKHOUSE_SERVICE),
+    collector: services.find((s) => s.name === COLLECTOR_SERVICE),
+    desired: desiredConfigs(parseDsn(dsnPlain), row.retentionDays),
+    desiredPin: storePin(ctx, managerId),
+  });
+  if (!needs) return false;
+  // Throttle: a converge that cannot take (e.g. an older agent that does not
+  // report configs/mounts) must not redeploy every worker tick.
+  const now = Date.now();
+  if (now - (lastConvergeAt.get(ctx.activeOrgId) ?? 0) < CONVERGE_COOLDOWN_MS) return false;
+  lastConvergeAt.set(ctx.activeOrgId, now);
+  try {
+    await deployStore(ctx, dsnPlain);
+    // Only touch the row on a transition: `updatedAt` anchors the start grace,
+    // so re-stamping it every tick would hide a service that never comes up.
+    if (row.collectorStatus !== 'DEPLOYING') {
+      await obsDb(ctx).update({
+        where: { orgId: ctx.activeOrgId },
+        data: { collectorStatus: 'DEPLOYING' },
+      });
+    }
+  } catch {
+    await obsDb(ctx)
+      .update({ where: { orgId: ctx.activeOrgId }, data: { collectorStatus: 'FAILED' } })
+      .catch(() => undefined);
+  }
+  return true;
 }
 
 /** Run multi-statement init DDL over ClickHouse HTTP (statement by statement). */
@@ -483,9 +624,11 @@ async function applyInitDdl(dsnPlain: string, sql: string): Promise<void> {
 async function teardownStore(ctx: OrgContext): Promise<void> {
   const node = await resolveManagerNode(ctx).catch(() => null);
   if (!node) return;
-  for (const name of ['swarmy-otel-collector', 'swarmy-clickhouse']) {
+  for (const name of [COLLECTOR_SERVICE, CLICKHOUSE_SERVICE]) {
     await ctx.hub.dispatch(node.id, 'service.remove', { service: name }).catch(() => undefined);
   }
+  // The rendered configs go with the services (zero footprint when off).
+  await sweepStaleConfigs(ctx, node.id, []);
 }
 
 async function retentionFor(ctx: OrgContext): Promise<number> {
@@ -657,7 +800,7 @@ export async function redSnapshot(
     .findUnique({ where: { orgId: ctx.activeOrgId } })
     .catch(() => null);
   const enabled = Boolean(row?.enabled);
-  const collectorStatus = (row?.collectorStatus as CollectorStatus) ?? 'OFFLINE';
+  const collectorStatus: CollectorStatus = row ? liveSuiteStatus(ctx, row).collector : 'OFFLINE';
   if (!row || !enabled || !row.clickhouseDsn) {
     return { enabled, collectorStatus, reachable: false, rows: [], windowMinutes };
   }

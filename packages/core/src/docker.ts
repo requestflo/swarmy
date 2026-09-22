@@ -25,6 +25,7 @@ interface SwarmSpecLike {
       Env?: string[];
       Secrets?: Array<{ SecretName?: string }>;
       Configs?: Array<{ ConfigName?: string }>;
+      Mounts?: Array<{ Type?: string; Source?: string; Target?: string }>;
     };
     Networks?: SwarmNetworkAttachment[];
   };
@@ -273,6 +274,15 @@ export class DockerClient {
       })),
       labels: c.Labels || {},
       serviceId: c.Labels?.['com.docker.swarm.service.id'],
+      // Volumes report their NAME (anonymous volumes: the hash name) so the
+      // managed-DB storage migration can bind the exact volume a task used.
+      mounts: (c.Mounts || [])
+        .filter((m) => Boolean(m.Destination))
+        .map((m) => ({
+          ...(m.Type ? { type: m.Type } : {}),
+          ...((m.Type === 'volume' ? m.Name : m.Source) ? { source: (m.Type === 'volume' ? m.Name : m.Source)! } : {}),
+          target: m.Destination,
+        })),
     }));
   }
 
@@ -338,6 +348,13 @@ export class DockerClient {
         ports,
         secrets: (tt.ContainerSpec?.Secrets ?? []).map((r) => r.SecretName ?? '').filter(Boolean),
         configs: (tt.ContainerSpec?.Configs ?? []).map((r) => r.ConfigName ?? '').filter(Boolean),
+        mounts: (tt.ContainerSpec?.Mounts ?? [])
+          .filter((m) => Boolean(m.Target))
+          .map((m) => ({
+            ...(m.Type ? { type: m.Type } : {}),
+            ...(m.Source ? { source: m.Source } : {}),
+            target: m.Target!,
+          })),
       });
     }
     return out;

@@ -48,10 +48,11 @@ controller resolves the GitRepo → SYSTEM build (audited actorType:system)
    │  ② dispatch image.build { source, imageRefs, registryAuth, builderCapable } → that node
    ▼
 agent (Builder role, or SWARMY_ALLOW_BUILD=true): moby/buildkit:rootless + buildctl
-   │  ③ shallow-clone → build Dockerfile → --output type=image,push=true
+   │  ③ shallow-clone → build Dockerfile → --output type=image,push=true,registry.insecure=true
+   │     (builder on the host network; rootlesskit buildkitd; workspace under $HOME)
    │     logChunk stream keyed by commandId (== Build.logsRef) → live viewer
    ▼
-in-swarm registry  swarmy-registry:5000  (single registry:2 on `swarmy` overlay)
+in-swarm registry  localhost:5000  (single registry:2, port 5000 on the routing mesh)
    │  ④ digest parsed from containerimage.digest → Build row SUCCEEDED
    │  ⑤ Trivy scan + cosign sign (fire-and-forget); admission gates future deploys
    ▼
@@ -70,9 +71,14 @@ Four ideas, one story:
   frames service logs use. See `skill("agent-handlers")`.
 - **The registry is a swarm service swarmy manages.** Enabling it is one
   `service.deploy` of `registry:2`, replicas 1, on the shared `swarmy` overlay,
-  reachable cluster-wide at `swarmy-registry:5000` and never published to the
-  internet. Images live in a standard OCI registry any tool can pull from — no
-  lock-in.
+  with port 5000 published on the swarm routing mesh — so it answers at
+  `localhost:5000` on EVERY node. Docker trusts 127.0.0.0/8 registries as
+  insecure by default, so every node's dockerd pulls plain-HTTP with zero daemon
+  config. (The overlay name `swarmy-registry:5000` only resolves inside
+  containers on the overlay — node dockerd can never pull it; it is still
+  recognised as an org-registry prefix for legacy refs.) Port 5000 must be
+  firewalled from outside the swarm. Images live in a standard OCI registry any
+  tool can pull from — no lock-in.
 - **Deploy by digest, never by tag.** Every build resolves to
   `host/name@sha256:…`, and autodeploy pins that digest. This is what makes GC's
   "in prod" reasoning and rollback correct — a floating tag would break both.

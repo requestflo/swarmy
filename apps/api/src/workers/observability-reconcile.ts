@@ -7,15 +7,24 @@
  * `ObservabilityStoreState` so the UI can surface store health + growth without
  * the read path having to probe on every request.
  *
+ * Before probing, it CONVERGES the deployed suite onto the current render
+ * (`reconcileObservabilitySuite`): a missing service, a legacy host bind-mount
+ * spec, a stale content-addressed Docker config or a lost store pin triggers a
+ * redeploy through the normal `service.deploy` path — so installs deployed
+ * with the old bind-mount specs heal on the next tick.
+ *
  * Retention itself is TTL-driven inside ClickHouse (see `renderClickhouseInitSql`),
- * so this worker is light: it observes, it does not delete.
+ * so this worker never deletes telemetry.
  *
  * `ObservabilityConfig` / `ObservabilityStoreState` are reached through a narrow
  * typed view (`obsDb`) until the Prisma client is regenerated with the new
  * models (see the INTEGRATION snippet) — same pattern as `dr-reconcile.ts`.
  */
 import { prisma } from '@swarmy/db';
+import { authRegistry } from '@swarmy/auth';
 import { decryptSecret } from '@swarmy/core/crypto';
+import { reconcileObservabilitySuite, systemContext } from '@swarmy/trpc';
+import { hub } from '../gateway';
 
 const TICK_MS = 60_000;
 
@@ -139,6 +148,8 @@ async function tick(): Promise<void> {
     })
     .catch(() => [] as ObsConfigRow[]);
   for (const cfg of configs) {
+    const ctx = systemContext({ db: prisma, hub, auth: authRegistry.getAuth() }, cfg.orgId);
+    await reconcileObservabilitySuite(ctx).catch(() => undefined);
     await reconcileOrg(cfg).catch(() => undefined);
   }
 }

@@ -54,7 +54,7 @@ interface RegistryPolicyState {
   scans: ScanRow[];
 }
 
-const REGISTRY_HOST = 'swarmy-registry:5000';
+const REGISTRY_HOST = 'localhost:5000';
 const DEMO_PUBLIC_KEY =
   '-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE2fZkq5o1QeXhCu4XxVc9rDemoKEY\ndemoDEMOdemoDEMOdemoDEMOdemoDEMOdemoDEMOdemoDEMOdemoDEMOdA==\n-----END PUBLIC KEY-----';
 

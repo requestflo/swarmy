@@ -36,7 +36,7 @@ function fakeCtx(opts: {
   role?: 'owner' | 'admin' | 'member';
 }) {
   const audit: AuditRow[] = [];
-  const dispatched: { command: string; payload: unknown }[] = [];
+  const dispatched: { node: string; command: string; payload: unknown }[] = [];
   const ctx = {
     activeOrgId: 'org1',
     user: { id: 'user1' },
@@ -76,8 +76,9 @@ function fakeCtx(opts: {
       }),
       isOnline: () => true,
       managerNode: () => 'node1',
-      dispatch: async (_node: string, command: string, payload: unknown) => {
-        dispatched.push({ command, payload });
+      swarmNodeIdFor: (id: string) => (id === 'worker1' ? 'swarm-worker-1' : undefined),
+      dispatch: async (node: string, command: string, payload: unknown) => {
+        dispatched.push({ node, command, payload });
         return {};
       },
     },
@@ -180,5 +181,16 @@ describe('updateService admission', () => {
       action: 'service.deploy',
       metadata: { image: 'ghcr.io/acme/api:1.3.0', previousImage: 'ghcr.io/acme/api:1.2.3', update: true },
     });
+  });
+});
+
+describe('createService pinned to a node', () => {
+  it('dispatches to the manager with a node.id constraint, never to the worker itself', async () => {
+    const { ctx, dispatched } = fakeCtx({ safetyMode: false });
+    await createService(ctx, input('nginx:1.27', { nodeId: 'worker1', project: 'other' }));
+    const deploy = dispatched.find((d) => d.command === 'service.deploy');
+    expect(deploy?.node).toBe('node1');
+    const spec = (deploy?.payload as { spec: { placement?: { constraints?: string[] } } }).spec;
+    expect(spec.placement?.constraints).toContain('node.id==swarm-worker-1');
   });
 });

@@ -24,14 +24,14 @@ import type { LogLine } from '@swarmy/core/views';
 import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
 import { TRPCError } from '@trpc/server';
-import { mapDispatchError, notFound } from '../errors';
+import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { enforceAdmission } from './admission-gate';
 import { resolveManagerNode } from './dispatch.service';
 import { writeAudit } from './audit.service';
 import { buildLogBus } from './build-log-bus';
 import { liveService } from './service.service';
 import { promoteSpecFrom } from './releases.service';
-import { onImageBuilt } from './registryPolicy.service'; // D3 hook
+import { DEFAULT_REGISTRY_HOST, canonicalRegistryHost, onImageBuilt } from './registryPolicy.service'; // D3 hook
 
 export type GitProvider = 'github' | 'gitlab';
 
@@ -231,7 +231,7 @@ async function runBuild(
 ): Promise<BuildView> {
   const node = await resolveBuilderNode(ctx);
   const reg = await ensureRegistryConfig(ctx);
-  const host = reg.host ?? `${REGISTRY_SERVICE_NAME}:${REGISTRY_PORT}`;
+  const host = canonicalRegistryHost(reg.host);
   const ref = opts.ref ?? repo.branch;
   const commandId = randomUUID();
   const imageName = repoImageName(repo.url);
@@ -305,8 +305,34 @@ async function runBuild(
       where: { id: build.id },
       data: { status: 'FAILED', finishedAt: new Date() },
     });
-    throw mapDispatchError(e);
+    throw buildFailureError(e, buildLogBus.snapshot(commandId).lines);
   }
+}
+
+/** How many trailing build-log lines a failed build's error carries. */
+const BUILD_ERROR_TAIL_LINES = 15;
+
+/**
+ * Map a failed build dispatch to a TRPCError whose message carries the last
+ * few build-log lines, so the toast says WHY (not just "build exited 1").
+ * An agent-side build failure (`build …`) is already self-describing (the agent
+ * appends its own output tail) and must not be re-classified by
+ * `mapDispatchError`'s keyword sniffing (a log line mentioning "timeout").
+ */
+export function buildFailureError(e: unknown, lines: Array<{ message: string }>): TRPCError {
+  const message = e instanceof Error ? e.message : String(e);
+  if (/^build (exited|finished)/.test(message)) {
+    return commandRejected(message);
+  }
+  const mapped = mapDispatchError(e);
+  const tail = lines
+    .flatMap((l) => l.message.split(/\r?\n/))
+    .map((l) => l.trimEnd())
+    .filter((l) => l.trim().length > 0)
+    .slice(-BUILD_ERROR_TAIL_LINES);
+  if (tail.length === 0) return mapped;
+  // Keep the code + `cause.swarmyCode` the errorFormatter surfaces.
+  return new TRPCError({ code: mapped.code, message: `${mapped.message}\n${tail.join('\n')}`, cause: mapped.cause });
 }
 
 /**
@@ -407,7 +433,7 @@ export async function getRegistryConfig(ctx: OrgContext): Promise<RegistryConfig
   const row = await ensureRegistryConfig(ctx);
   return {
     enabled: row.enabled,
-    host: row.host,
+    host: canonicalRegistryHost(row.host),
     hasCreds: Boolean(row.credentialsEnc),
     online: row.enabled && (await registryNodeOnline(ctx)),
     updatedAt: row.updatedAt.toISOString(),
@@ -424,7 +450,8 @@ export async function setRegistryEnabled(
   input: { enabled: boolean; username?: string; password?: string },
 ): Promise<RegistryConfigView> {
   const row = await ensureRegistryConfig(ctx);
-  const host = row.host ?? `${REGISTRY_SERVICE_NAME}:${REGISTRY_PORT}`;
+  // Persisting the canonical host also migrates a legacy `swarmy-registry:5000` row.
+  const host = canonicalRegistryHost(row.host);
   const credentialsEnc =
     input.username && input.password
       ? encryptSecret(JSON.stringify({ username: input.username, password: input.password }))
@@ -672,7 +699,7 @@ export function systemContext(deps: { db: DB; hub: AgentHub; auth: Auth }, orgId
 async function ensureRegistryConfig(ctx: OrgContext): Promise<RegistryRow> {
   return ctx.db.registryConfig.upsert({
     where: { orgId: ctx.activeOrgId },
-    create: { orgId: ctx.activeOrgId, enabled: false, host: `${REGISTRY_SERVICE_NAME}:${REGISTRY_PORT}` },
+    create: { orgId: ctx.activeOrgId, enabled: false, host: DEFAULT_REGISTRY_HOST },
     update: {},
   });
 }

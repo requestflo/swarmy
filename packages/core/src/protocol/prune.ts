@@ -31,7 +31,7 @@ export const PruneImagesPayload = z.object({
    */
   keepDigests: z.array(z.string()).default([]),
   /**
-   * Image reference prefix to scope pruning to (e.g. `swarmy-registry:5000/`), so
+   * Image reference prefix to scope pruning to (e.g. `localhost:5000/`), so
    * GC only ever touches images swarmy built/pushed — never the operator's base
    * images. Optional: omitted = consider all images.
    */

@@ -1,9 +1,11 @@
 /**
  * Registry TLS / insecure-registry node config (epic: git-cicd-registry, PHASE-2).
  *
- * The in-swarm `registry:2` is reachable cluster-wide over the `swarmy` overlay
- * at `swarmy-registry:5000`, never publicly exposed. Two ways nodes can pull
- * from it:
+ * The in-swarm `registry:2` publishes 5000 on the swarm routing mesh, so every
+ * node pulls it at `localhost:5000` — and dockerd trusts 127.0.0.0/8 registries
+ * as insecure by default, so the default needs NO node config. These hints only
+ * matter for a custom (non-loopback) registry host. Two ways nodes can pull
+ * from such a host:
  *
  *  1. **TLS-by-default (recommended).** Once an ingress driver is configured,
  *     front the registry with the existing Caddy/Traefik pipeline so it serves
@@ -25,7 +27,7 @@ export function renderInsecureRegistryDaemonJson(registryHost: string): string {
 }
 
 /** Human-readable, copy-pasteable setup hint shown in the dashboard / docs. */
-export function renderRegistryTlsHint(registryHost = 'swarmy-registry:5000'): string {
+export function renderRegistryTlsHint(registryHost = 'localhost:5000'): string {
   return [
     '# Option A — TLS (recommended): front the registry with your ingress driver.',
     '#   No per-node config; dockerd trusts the issued certificate.',

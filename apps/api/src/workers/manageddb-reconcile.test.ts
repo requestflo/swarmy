@@ -9,7 +9,9 @@ import {
   parseLagOutput,
   parseLsn,
   parseScheduleLite,
+  pinnedRegionFit,
   pitrVersion,
+  planClusterStorage,
   promotionDue,
   renderWalCredsEnv,
   shipperScript,
@@ -223,5 +225,116 @@ describe('shipperScript — the wal-push loop', () => {
     expect(s).toContain('wal-g wal-push "$f"');
     expect(s).toContain('rm -f -- "$f"');
     expect(s).toContain('/wal-archive/*');
+  });
+});
+
+describe('planClusterStorage — persistent layout convergence', () => {
+  const base = 'hello_main';
+  const PG = '/bitnami/postgresql';
+  const persistentPrimary = {
+    name: `${base}-primary`,
+    labels: { 'swarmy.db.dataVolume': `${base}-primary-data`, 'swarmy.db.node': 'n1' },
+    mounts: [{ type: 'volume', source: `${base}-primary-data`, target: PG }],
+  };
+  const convergedReplica = {
+    name: `${base}-replica`,
+    labels: { 'swarmy.db.dataVolume': `${base}-replica-data`, 'swarmy.db.avoidNode': 'n1' },
+    mounts: [{ type: 'volume', source: `${base}-replica-data`, target: PG }],
+  };
+
+  it('LEGACY: an unmounted primary (live bug: Mounts=null) only warns — never redeploys', () => {
+    const plan = planClusterStorage({
+      base,
+      primary: { name: `${base}-primary`, labels: {}, mounts: [] },
+      replica: { name: `${base}-replica`, labels: {}, mounts: [] },
+      primaryTaskSwarmNode: 'n1',
+      multiNode: true,
+    });
+    expect(plan.storage?.state).toBe('unmounted');
+    expect(plan.actions).toHaveLength(1);
+    expect(plan.actions[0]!.kind).toBe('warnLegacy');
+  });
+
+  it('steady state: persistent + pinned + converged replica → no actions', () => {
+    const plan = planClusterStorage({
+      base,
+      primary: persistentPrimary,
+      replica: convergedReplica,
+      multiNode: true,
+    });
+    expect(plan.actions).toEqual([]);
+  });
+
+  it('converges a legacy replica onto its per-node volume + anti-affinity', () => {
+    const plan = planClusterStorage({
+      base,
+      primary: persistentPrimary,
+      replica: { name: `${base}-replica`, labels: { 'swarmy.db.role': 'replica' }, mounts: [] },
+      multiNode: true,
+    });
+    expect(plan.actions).toEqual([
+      {
+        kind: 'convergeReplica',
+        labels: {
+          'swarmy.db.role': 'replica',
+          'swarmy.db.dataVolume': `${base}-replica-data`,
+          'swarmy.db.avoidNode': 'n1',
+        },
+      },
+    ]);
+  });
+
+  it('single-node swarm: no anti-affinity (and drops a stale one)', () => {
+    const plan = planClusterStorage({
+      base,
+      primary: persistentPrimary,
+      replica: convergedReplica,
+      multiNode: false,
+    });
+    expect(plan.actions).toHaveLength(1);
+    const a = plan.actions[0]!;
+    expect(a.kind).toBe('convergeReplica');
+    expect(a.kind === 'convergeReplica' && 'swarmy.db.avoidNode' in a.labels).toBe(false);
+  });
+
+  it('adopts a mounted-but-undeclared primary onto the node it runs on', () => {
+    const plan = planClusterStorage({
+      base,
+      primary: {
+        name: `${base}-primary`,
+        labels: { 'swarmy.db.backup.pitr': 'true', 'swarmy.db.pitr.applied': 'abc' },
+        mounts: [{ type: 'volume', source: 'pgdata', target: PG }],
+      },
+      primaryTaskSwarmNode: 'n2',
+      multiNode: false,
+    });
+    expect(plan.actions[0]).toEqual({
+      kind: 'adopt',
+      add: { 'swarmy.db.dataVolume': 'pgdata', 'swarmy.db.node': 'n2' },
+      removeKeys: ['swarmy.db.pitr.applied'],
+      redeploy: false,
+    });
+  });
+
+  it('leaves a failover-promoted (non-canonical) primary alone', () => {
+    const plan = planClusterStorage({
+      base,
+      primary: { name: `${base}-replica`, labels: {}, mounts: [] },
+      multiNode: true,
+    });
+    expect(plan.actions).toEqual([]);
+  });
+});
+
+describe('pinnedRegionFit — a node-local volume cannot follow a write-region change', () => {
+  const nodes = [
+    { swarmNodeId: 'n1', labels: { 'swarmy.region': 'eu' } },
+    { swarmNodeId: 'n2', labels: { 'swarmy.region': 'us' } },
+  ];
+  it('ok only when the pinned node is in the region', () => {
+    expect(pinnedRegionFit('n1', 'eu', nodes)).toBe('ok');
+    expect(pinnedRegionFit('n1', 'us', nodes)).toBe('mismatch');
+    expect(pinnedRegionFit('n9', 'us', nodes)).toBe('unknown');
+    expect(pinnedRegionFit(undefined, 'us', nodes)).toBe('unpinned');
   });
 });

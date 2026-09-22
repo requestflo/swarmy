@@ -32,6 +32,14 @@ export const ContainerInfo = z.object({
   labels: z.record(z.string()),
   /** Swarm task → service link, when present. */
   serviceId: z.string().optional(),
+  /**
+   * Mounts (`docker ps` Mounts). `source` = volume NAME for volumes (anonymous
+   * volumes report their hash name), host path for binds. Optional + no default
+   * so an older agent reads as "unknown", never as "no mounts".
+   */
+  mounts: z
+    .array(z.object({ type: z.string().optional(), source: z.string().optional(), target: z.string() }))
+    .optional(),
 });
 export type ContainerInfo = z.infer<typeof ContainerInfo>;
 
@@ -83,6 +91,14 @@ export const SwarmServiceInfo = z.object({
   secrets: z.array(z.string()).default([]),
   /** Docker config NAMES the service spec references (configs-mgr, E2). */
   configs: z.array(z.string()).default([]),
+  /**
+   * TaskTemplate mounts. Optional with NO default: an older agent that does not
+   * report mounts must read as "unknown", never as "has no mounts" (managed-DB
+   * legacy-storage detection keys off this).
+   */
+  mounts: z
+    .array(z.object({ type: z.string().optional(), source: z.string().optional(), target: z.string() }))
+    .optional(),
 });
 export type SwarmServiceInfo = z.infer<typeof SwarmServiceInfo>;
 

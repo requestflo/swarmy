@@ -87,7 +87,7 @@ interface CicdState {
   gc: GcPolicyView;
 }
 
-const REGISTRY_HOST = 'swarmy-registry:5000';
+const REGISTRY_HOST = 'localhost:5000';
 
 const now = Date.now();
 const iso = (msAgo: number): string => new Date(now - msAgo).toISOString();

@@ -1,7 +1,18 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
 import type { OrgContext } from '@swarmy/trpc';
-import { STACK_LABEL } from '@swarmy/core';
+import {
+  DB_DATA_VOLUME_LABEL,
+  DB_PIN_NODE_LABEL,
+  STACK_LABEL,
+  applyDbStorage,
+  choosePinNode,
+  dbStorageLabels,
+  dbStorageState,
+  extraPrimaryDataVolumeName,
+  pinnedPrimaryCounts,
+  regionReplicaDataVolumeName,
+} from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import {
   BITNAMI_PGDATA,
@@ -20,6 +31,8 @@ import {
   lsnDiffBytes,
   minuteDue,
   parseLagOutput,
+  pinnedRegionFit,
+  planClusterStorage,
   parseScheduleLite,
   pitrVersion,
   promotionDue,
@@ -86,6 +99,16 @@ import {
  *
  *   Scheduled backups — once per minute the worker calls A1's
  *   `runDueDbBackups(now, deps)` seam so `swarmy.db.backup.schedule` labels fire.
+ *
+ * Storage (the persistent layout — see @swarmy/core manageddb-storage): every
+ * spec this worker rebuilds re-derives the member's data mount + node pin /
+ * anti-affinity from its `swarmy.db.dataVolume|node|avoidNode` labels via
+ * `applyDbStorage` — never a bare spec. A LEGACY primary (data on an anonymous
+ * volume) is never redeployed here (that would start it empty): the tick fires
+ * a `db-storage` warning and the operator runs `db.migrateStorage`. A mounted
+ * but undeclared primary (pre-label PITR `dataVolume`) is adopted (labels
+ * stamped, pinned to the node it runs on); legacy replicas are converged onto
+ * the per-node volume + anti-affinity (safe: a replica re-syncs).
  *
  * The label scheme is mirrored from `@swarmy/trpc` manageddb.service.ts /
  * dbBackup.service.ts — a worker cannot subpath-import an internal trpc module
@@ -224,10 +247,25 @@ function dcsSpec(c: Cluster): ServiceSpec {
 }
 
 /** A region-pinned streaming read replica (geo). Mirrors region-reconcile placement. */
-function regionReplicaSpec(c: Cluster, primary: SwarmServiceInfo, region: string, n: number): ServiceSpec {
+function regionReplicaSpec(
+  c: Cluster,
+  primary: SwarmServiceInfo,
+  region: string,
+  n: number,
+  multiNode: boolean,
+): ServiceSpec {
   const env = envRecord(primary.env ?? []);
   const password = env.POSTGRESQL_PASSWORD ?? '';
-  return {
+  const pin = primary.labels[DB_PIN_NODE_LABEL];
+  const labels = memberLabels(c, 'replica', 'geo', {
+    [DB_REGION_LABEL]: region,
+    [DB_REPLICAS_LABEL]: String(n),
+    ...dbStorageLabels({
+      dataVolume: regionReplicaDataVolumeName(c.base, region),
+      ...(multiNode && pin ? { avoidNode: pin } : {}),
+    }),
+  });
+  return applyDbStorage<ServiceSpec>({
     name: `${c.base}-replica-${region}`,
     image: primary.image,
     mode: { replicated: { replicas: n } },
@@ -239,19 +277,25 @@ function regionReplicaSpec(c: Cluster, primary: SwarmServiceInfo, region: string
       POSTGRESQL_MASTER_PORT_NUMBER: String(PG_PORT),
       POSTGRESQL_PASSWORD: password,
     },
-    labels: memberLabels(c, 'replica', 'geo', {
-      [DB_REGION_LABEL]: region,
-      [DB_REPLICAS_LABEL]: String(n),
-    }),
+    labels,
     networks: [clusterNet(c)],
     placement: { constraints: [`node.labels.${REGION_NODE_LABEL}==${region}`] },
-  };
+  }, labels);
 }
 
 /** An additional writable primary (active-active). */
-function extraPrimarySpec(c: Cluster, primary: SwarmServiceInfo, index: number): ServiceSpec {
+function extraPrimarySpec(
+  c: Cluster,
+  primary: SwarmServiceInfo,
+  index: number,
+  pinNode: string | undefined,
+): ServiceSpec {
   const env = envRecord(primary.env ?? []);
-  return {
+  const labels = memberLabels(c, 'primary', 'active-active', {
+    [DB_MEMBER_LABEL]: String(index),
+    ...dbStorageLabels({ dataVolume: extraPrimaryDataVolumeName(c.base, index), pinNode }),
+  });
+  return applyDbStorage<ServiceSpec>({
     name: `${c.base}-primary-${index}`,
     image: primary.image,
     mode: { replicated: { replicas: 1 } },
@@ -262,31 +306,57 @@ function extraPrimarySpec(c: Cluster, primary: SwarmServiceInfo, index: number):
       POSTGRESQL_PASSWORD: env.POSTGRESQL_PASSWORD ?? '',
       POSTGRESQL_DATABASE: env.POSTGRESQL_DATABASE ?? DEFAULT_DATABASE,
     },
-    labels: memberLabels(c, 'primary', 'active-active', { [DB_MEMBER_LABEL]: String(index) }),
+    labels,
     networks: [clusterNet(c)],
-  };
+  }, labels);
 }
 
 /**
  * Re-place the primary onto a node in `region` (geo). Rebuilt from live truth
  * (image + env + networks + labels) with a region-pinning placement constraint,
  * and stamps `swarmy.db.placedRegion` so this is a one-shot per write-region
- * change (steady state diffs equal → no redeploy). Same lossy-merge caveat as
- * manageddb.service.ts#injectConnection: mounts/healthcheck are not surfaced by
- * the live inventory and are not re-applied here.
+ * change (steady state diffs equal → no redeploy). The data mount + node pin
+ * are re-derived from the storage labels (the caller only re-places when the
+ * pinned node is IN the write region — a node-local volume cannot move).
  */
 function placePrimarySpec(primary: SwarmServiceInfo, region: string, net: string): ServiceSpec {
   const networks = (primary.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
-  return {
+  const labels = { ...primary.labels, [DB_PLACED_REGION_LABEL]: region };
+  return applyDbStorage<ServiceSpec>({
     name: primary.name,
     image: primary.image,
     mode: { replicated: { replicas: primary.desiredReplicas ?? 1 } },
     env: envRecord(primary.env ?? []),
-    labels: { ...primary.labels, [DB_PLACED_REGION_LABEL]: region },
+    labels,
     networks: networks.length > 0 ? networks : [net],
     placement: { constraints: [`node.labels.${REGION_NODE_LABEL}==${region}`] },
-  };
+  }, labels);
 }
+
+/** Base read-replica rebuilt from live truth with its storage re-derived from `labels`. */
+function replicaStorageSpec(replica: SwarmServiceInfo, labels: Record<string, string>, net: string): ServiceSpec {
+  const networks = (replica.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
+  return applyDbStorage<ServiceSpec>(
+    {
+      name: replica.name,
+      image: replica.image,
+      mode: { replicated: { replicas: replica.desiredReplicas ?? 0 } },
+      env: envRecord(replica.env ?? []),
+      labels,
+      networks: networks.length > 0 ? networks : [net],
+      ...((replica.secrets ?? []).length > 0
+        ? { secrets: (replica.secrets ?? []).map((n) => ({ source: n })) }
+        : {}),
+    },
+    labels,
+  );
+}
+
+/** `${orgId}/${stack}/${cluster}` clusters currently warned for legacy storage
+ *  (module-level: the alert fires once per episode, resolves when fixed). */
+const legacyWarned = new Set<string>();
+/** `${warnKey}/${region}` geo re-placements refused because the data is pinned elsewhere. */
+const regionMismatchWarned = new Set<string>();
 
 // ── @swarmy/trpc contract seams (lazy) ────────────────────────────────────────
 // Loaded on first use rather than at module load, so this worker's pure-helper
@@ -479,12 +549,14 @@ function pitrPrimarySpec(
   const networks = (primary.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
   const placedRegion = primary.labels[DB_PLACED_REGION_LABEL];
   const confName = `${c.base}-pitr-conf`;
-  return {
+  const labels = { ...primary.labels, [DB_PITR_APPLIED_LABEL]: version };
+  // The declared storage volume (applyDbStorage below) wins /bitnami/postgresql.
+  return applyDbStorage<ServiceSpec>({
     name: primary.name,
     image: primary.image,
     mode: { replicated: { replicas: primary.desiredReplicas ?? 1 } },
     env: envRecord(primary.env ?? []),
-    labels: { ...primary.labels, [DB_PITR_APPLIED_LABEL]: version },
+    labels,
     networks: networks.length > 0 ? networks : [clusterNet(c)],
     mounts: [
       { type: 'volume' as const, source: `${c.base}-wal-archive`, target: WAL_ARCHIVE_MOUNT },
@@ -504,16 +576,16 @@ function pitrPrimarySpec(
     ...(placedRegion
       ? { placement: { constraints: [`node.labels.${REGION_NODE_LABEL}==${placedRegion}`] } }
       : {}),
-  };
+  }, labels);
 }
 
-/** Primary spec with the PITR bits dropped (live truth carries no mounts/configs). */
+/** Primary spec with the PITR bits dropped — the data mount + pin are kept. */
 function stripPitrSpec(primary: SwarmServiceInfo, c: Cluster): ServiceSpec {
   const labels = { ...primary.labels };
   delete labels[DB_PITR_APPLIED_LABEL];
   const networks = (primary.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
   const placedRegion = primary.labels[DB_PLACED_REGION_LABEL];
-  return {
+  return applyDbStorage<ServiceSpec>({
     name: primary.name,
     image: primary.image,
     mode: { replicated: { replicas: primary.desiredReplicas ?? 1 } },
@@ -523,7 +595,7 @@ function stripPitrSpec(primary: SwarmServiceInfo, c: Cluster): ServiceSpec {
     ...(placedRegion
       ? { placement: { constraints: [`node.labels.${REGION_NODE_LABEL}==${placedRegion}`] } }
       : {}),
-  };
+  }, labels);
 }
 
 /** The per-cluster wal-shipper sidecar (wal-g loop, creds via Docker secret). */
@@ -534,6 +606,12 @@ function walShipperSpec(
   primary: SwarmServiceInfo,
 ): ServiceSpec {
   const placedRegion = primary.labels[DB_PLACED_REGION_LABEL];
+  // The archive volume is node-local: follow the primary's node pin exactly.
+  const pin = primary.labels[DB_PIN_NODE_LABEL];
+  const constraints = [
+    ...(placedRegion ? [`node.labels.${REGION_NODE_LABEL}==${placedRegion}`] : []),
+    ...(pin ? [`node.id==${pin}`] : []),
+  ];
   return {
     name: `${c.base}-wal-shipper`,
     image: DEFAULT_WALG_IMAGE,
@@ -550,9 +628,7 @@ function walShipperSpec(
     mounts: [{ type: 'volume' as const, source: `${c.base}-wal-archive`, target: WAL_ARCHIVE_MOUNT }],
     secrets: [{ source: secretName, target: 'wal-creds' }],
     networks: [clusterNet(c)],
-    ...(placedRegion
-      ? { placement: { constraints: [`node.labels.${REGION_NODE_LABEL}==${placedRegion}`] } }
-      : {}),
+    ...(constraints.length > 0 ? { placement: { constraints } } : {}),
   };
 }
 
@@ -597,6 +673,9 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
   const { ctx, seams } = contract;
   const primary = c.primary;
   const enabled = primary?.labels[DB_BACKUP_PITR_LABEL] === 'true';
+  // Never redeploy a primary whose data is not on a persistent volume: the new
+  // task would start on a fresh anonymous volume (an EMPTY database).
+  const primaryRedeployable = Boolean(primary) && dbStorageState(primary!).state === 'persistent';
 
   if (!primary || !enabled) {
     // Teardown: drop the shipper; a marked primary is redeployed without the
@@ -604,7 +683,7 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
     if (c.shipper) {
       await hub.dispatch(node, 'service.remove', { service: c.shipper.name }).catch(() => undefined);
     }
-    if (primary?.labels[DB_PITR_APPLIED_LABEL]) {
+    if (primary?.labels[DB_PITR_APPLIED_LABEL] && primaryRedeployable) {
       await hub
         .dispatch(node, 'service.deploy', { spec: stripPitrSpec(primary, c), pullPolicy: 'missing' })
         .catch(() => undefined);
@@ -615,6 +694,7 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
   // Never redeploy an in-place-promoted primary: its env still says slave-mode,
   // so a restart would rejoin it as a replica of the dead old writer.
   if (envRecord(primary.env ?? []).POSTGRESQL_REPLICATION_MODE === 'slave') return;
+  if (!primaryRedeployable) return; // legacy storage — surfaced as a db-storage warning
 
   const schedule = parseScheduleLite(primary.labels[DB_BACKUP_SCHEDULE_LABEL]);
   const target = await loadWalTarget(orgId, schedule?.targetId).catch(() => null);
@@ -637,7 +717,9 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
     accessKeyId: target.credentialRef ? decryptSecret(target.credentialRef) : null,
     secretAccessKey: target.secretKeyRef ? decryptSecret(target.secretKeyRef) : null,
   });
-  const version = pitrVersion(creds, schedule?.dataVolume);
+  // The declared persistent volume wins over a schedule-supplied one.
+  const dataVolume = primary.labels[DB_DATA_VOLUME_LABEL] ?? schedule?.dataVolume;
+  const version = pitrVersion(creds, dataVolume);
   const secretName = `${c.base}-wal-creds-${version}`;
   const primaryOk = primary.labels[DB_PITR_APPLIED_LABEL] === version;
   const shipperOk = c.shipper?.labels[DB_PITR_APPLIED_LABEL] === version;
@@ -660,7 +742,7 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
   if (!primaryOk) {
     await hub
       .dispatch(node, 'service.deploy', {
-        spec: pitrPrimarySpec(primary, c, version, schedule?.dataVolume),
+        spec: pitrPrimarySpec(primary, c, version, dataVolume),
         pullPolicy: 'missing',
       })
       .catch(() => undefined);
@@ -680,7 +762,7 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
     actorType: 'system',
     targetType: 'dbCluster',
     targetId: `${c.stack}/${c.cluster}`,
-    metadata: { version, targetId: target.id, dataVolume: schedule?.dataVolume ?? null },
+    metadata: { version, targetId: target.id, dataVolume: dataVolume ?? null },
   }).catch(() => undefined);
   await seams.fireEvent(ctx, {
     signal: 'db-pitr',
@@ -711,7 +793,9 @@ function repointSpec(s: SwarmServiceInfo, promoted: string, net: string): Servic
   // redeploy (live truth carries no mounts/configs) and the new writer re-earns
   // them from the PITR convergence.
   delete labels[DB_PITR_APPLIED_LABEL];
-  return {
+  // Storage is carried forward from the member's own labels: the demoted
+  // ex-primary keeps its pinned data volume, replicas keep their per-node one.
+  return applyDbStorage<ServiceSpec>({
     name: s.name,
     image: s.image,
     mode: { replicated: { replicas: s.desiredReplicas ?? 1 } },
@@ -726,7 +810,7 @@ function repointSpec(s: SwarmServiceInfo, promoted: string, net: string): Servic
     ...((s.secrets ?? []).length > 0 ? { secrets: (s.secrets ?? []).map((n) => ({ source: n })) } : {}),
     ...((s.configs ?? []).length > 0 ? { configs: (s.configs ?? []).map((n) => ({ source: n })) } : {}),
     ...(region ? { placement: { constraints: [`node.labels.${REGION_NODE_LABEL}==${region}`] } } : {}),
-  };
+  }, labels);
 }
 
 /** exec `pg_ctl promote` in one running task + verify recovery ended. */
@@ -997,6 +1081,9 @@ async function reconcileOrg(orgId: string): Promise<void> {
       })
       .catch(() => undefined);
 
+  const nodes = hub.nodeInventory(orgId);
+  const multiNode = nodes.length > 1;
+
   for (const c of clusters.values()) {
     const primary = c.primary;
     const topology = topologyOf(primary?.labels ?? c.replica?.labels);
@@ -1005,6 +1092,56 @@ async function reconcileOrg(orgId: string): Promise<void> {
     if (!primary && !c.replica && c.extraPrimaries.size === 0 && c.regionReplicas.size === 0) {
       if (c.shipper) await remove(c.shipper.name);
       continue;
+    }
+
+    // (0) Storage layout — legacy detection (warn, never redeploy), adoption of
+    //     mounted-but-undeclared primaries, replica volume/anti-affinity.
+    const warnKey = `${orgId}/${c.stack}/${c.cluster}`;
+    const task = primary ? execTarget(orgId, primary) : undefined;
+    const plan = planClusterStorage({
+      base: c.base,
+      primary,
+      replica: c.replica,
+      primaryTaskSwarmNode: task ? hub.swarmNodeIdFor(task.nodeId) : undefined,
+      multiNode,
+    });
+    const primaryPersistent = plan.storage?.state === 'persistent';
+    if (plan.actions.some((a) => a.kind === 'warnLegacy')) {
+      if (!legacyWarned.has(warnKey) && contract) {
+        legacyWarned.add(warnKey);
+        const { seams, ctx } = contract;
+        await seams.fireEvent(ctx, {
+          signal: 'db-storage',
+          severity: 'warning',
+          resource: `db:${c.stack}/${c.cluster}`,
+          message: `${c.cluster}: data is not on a persistent volume — any restart, update or reschedule starts an EMPTY database. Back up, then click Migrate storage.`,
+        }).catch(() => undefined);
+      }
+    } else if (legacyWarned.delete(warnKey) && contract) {
+      await contract.seams.fireEvent(contract.ctx, {
+        signal: 'db-storage',
+        severity: 'info',
+        resource: `db:${c.stack}/${c.cluster}`,
+        message: `${c.cluster}: data is on a persistent volume`,
+        status: 'resolved',
+      }).catch(() => undefined);
+    }
+    for (const action of plan.actions) {
+      if (action.kind === 'adopt' && primary) {
+        await hub
+          .dispatch(node, 'service.updateLabels', {
+            service: primary.name,
+            add: action.add,
+            removeKeys: action.removeKeys,
+          })
+          .catch(() => undefined);
+        if (action.redeploy) {
+          const adopted = { ...primary, labels: { ...primary.labels, ...action.add } };
+          await deploy(stripPitrSpec(adopted, c));
+        }
+      } else if (action.kind === 'convergeReplica' && c.replica) {
+        await deploy(replicaStorageSpec(c.replica, action.labels, clusterNet(c)));
+      }
     }
 
     const declaredRaw = Number.parseInt(
@@ -1043,7 +1180,23 @@ async function reconcileOrg(orgId: string): Promise<void> {
       await ensureNet(c);
       const writeRegion = primary?.labels[DB_WRITE_REGION_LABEL];
       if (primary && writeRegion && primary.labels[DB_PLACED_REGION_LABEL] !== writeRegion) {
-        await deploy(placePrimarySpec(primary, writeRegion, clusterNet(c)));
+        // The primary's data volume is node-local: it can only be (re-)placed
+        // when its pinned node already sits in the write region. Moving the data
+        // across nodes is a backup→restore, never an implicit redeploy.
+        const fit = primaryPersistent
+          ? pinnedRegionFit(primary.labels[DB_PIN_NODE_LABEL], writeRegion, nodes, REGION_NODE_LABEL)
+          : 'unpinned';
+        if (fit === 'ok') {
+          await deploy(placePrimarySpec(primary, writeRegion, clusterNet(c)));
+        } else if (fit === 'mismatch' && contract && !regionMismatchWarned.has(`${warnKey}/${writeRegion}`)) {
+          regionMismatchWarned.add(`${warnKey}/${writeRegion}`);
+          await contract.seams.fireEvent(contract.ctx, {
+            signal: 'db-storage',
+            severity: 'warning',
+            resource: `db:${c.stack}/${c.cluster}`,
+            message: `${c.cluster}: write region "${writeRegion}" requested, but the primary's data lives on a node outside it — move it with a backup + restore into a cluster provisioned in that region`,
+          }).catch(() => undefined);
+        }
       }
       const wanted = primary ? parseRegionReplicas(primary.labels) : new Map<string, number>();
       // Create missing / scale drifted region siblings.
@@ -1054,7 +1207,7 @@ async function reconcileOrg(orgId: string): Promise<void> {
           continue;
         }
         if (!sib) {
-          if (primary) await deploy(regionReplicaSpec(c, primary, region, n));
+          if (primary) await deploy(regionReplicaSpec(c, primary, region, n, multiNode));
         } else if ((sib.desiredReplicas ?? 0) !== n) {
           await scale(sib.name, n);
         }
@@ -1077,7 +1230,14 @@ async function reconcileOrg(orgId: string): Promise<void> {
       );
       if (primary) {
         for (let i = 2; i <= wantPrimaries; i++) {
-          if (!c.extraPrimaries.has(i)) await deploy(extraPrimarySpec(c, primary, i));
+          if (!c.extraPrimaries.has(i)) {
+            const pin = choosePinNode({
+              nodes,
+              pinnedCounts: pinnedPrimaryCounts(hub.liveInventory(orgId).services),
+              fallback: hub.swarmNodeIdFor(node),
+            });
+            await deploy(extraPrimarySpec(c, primary, i, pin));
+          }
         }
       }
       for (const [i, ex] of c.extraPrimaries) {

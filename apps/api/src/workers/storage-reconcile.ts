@@ -1,6 +1,6 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { fireEvent, systemContext } from '@swarmy/trpc';
+import { convergeStoreDeployment, fireEvent, systemContext } from '@swarmy/trpc';
 import { decryptSecret } from '@swarmy/core/crypto';
 import type { ContainerInfo, RunOnceResult } from '@swarmy/core/protocol';
 import { hub } from '../gateway';
@@ -278,6 +278,10 @@ export function startStorageReconcile(): () => void {
         .findMany({ where: { enabled: true } })
         .catch(() => [])) as ClusterRow[];
       for (const row of rows) {
+        // Heal legacy host-bind / unpinned store specs before probing layout.
+        await convergeStoreDeployment(
+          systemContext({ db: prisma, hub, auth: authRegistry.getAuth() }, row.orgId),
+        ).catch(() => undefined);
         await reconcileOrg(row, t).catch(() => undefined);
       }
     })().finally(() => {

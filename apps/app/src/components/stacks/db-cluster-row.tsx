@@ -5,6 +5,7 @@ import { Button, CopyButton, StatusBadge, type StatusTone, toast } from '@swarmy
 import { useTRPC } from '@/integrations/trpc';
 import { CountUp } from '@/components/count-up';
 import { DbClusterRowDetail } from './db-cluster-row-detail';
+import { DbStorageWarning, type DbStorageView } from './db-storage-warning';
 
 export type ClusterStatus = 'running' | 'degraded' | 'deploying' | 'idle' | 'stopped' | 'absent';
 
@@ -15,6 +16,8 @@ export interface DbClusterRowView {
   roHost: string;
   primary: { status: ClusterStatus };
   replicas: { desired: number; running: number };
+  /** Where the primary's data lives (`unmounted` = legacy anonymous volume). */
+  storage?: DbStorageView;
 }
 
 function toneFor(status: ClusterStatus): StatusTone {
@@ -109,6 +112,8 @@ export function DbClusterRow({
           <HostRow kind="RO" host={c.roHost} />
         </div>
       </div>
+
+      {c.storage ? <DbStorageWarning stack={stack} cluster={c.name} storage={c.storage} /> : null}
 
       <DbClusterRowDetail stack={stack} cluster={c.name} />
     </div>

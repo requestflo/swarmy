@@ -8,7 +8,8 @@ import {
   readVerifyCache,
 } from './admission-images';
 
-const HOST = 'swarmy-registry:5000';
+const HOST = 'localhost:5000';
+const LEGACY = 'swarmy-registry:5000';
 
 function img(image: string, service = 'api'): CandidateImage {
   return { service, image, digest: digestOf(image) };
@@ -30,6 +31,11 @@ describe('extractOrgImages', () => {
       image: `${HOST}/northwind-api@sha256:aaa`,
       digest: 'sha256:aaa',
     });
+  });
+
+  it('keeps legacy swarmy-registry:5000 images in scope', () => {
+    const out = extractOrgImages([{ name: 'old', image: `${LEGACY}/app@sha256:bbb` }], HOST);
+    expect(out).toEqual([{ service: 'old', image: `${LEGACY}/app@sha256:bbb`, digest: 'sha256:bbb' }]);
   });
 
   it('returns empty for empty/no-op specs', () => {

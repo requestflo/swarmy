@@ -12,6 +12,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { DockerClient } from '@swarmy/core/docker';
+import type { ServiceSpec } from '@swarmy/core/protocol';
 
 // NOTE: the canonical Zod schemas live in `@swarmy/core/protocol/storage` (new
 // file, registered in the protocol index/union via the INTEGRATION snippets).
@@ -31,6 +32,10 @@ interface RenderedStoreDeployment {
   adminPort?: number;
   /** Extra labels the agent merges onto the store service's `labels` (see the Zod schema). */
   labels?: Record<string, string>;
+  /** Swarm Docker config refs (replace the host-file bind mount; see the Zod schema). */
+  configs?: { source: string; target: string; mode?: number }[];
+  placement?: { constraints: string[] };
+  serviceMode?: 'replicated' | 'global';
   adminApi?: {
     method: 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'GET';
     url: string;
@@ -83,11 +88,16 @@ export async function applyStorageNode(
     await writeFile(file.path, file.contents, { mode: file.mode ?? 0o600 });
   }
 
+  // Config delivered as swarm Docker configs (controller-created) ⇒ no host
+  // file and no bind mount: the task can land on any node, and a containerised
+  // agent never writes into its own filesystem by mistake.
+  const useConfigs = Boolean(r.configs?.length);
+
   // Deploy/update the store member as a swarm service via the existing helpers.
-  const spec = {
+  const spec: ServiceSpec = {
     name: r.serviceName,
     image: r.image,
-    mode: { replicated: { replicas: 1 } },
+    mode: r.serviceMode === 'global' ? { global: {} } : { replicated: { replicas: 1 } },
     // `r.labels` carries controller-side additions (e.g. the swarmy-system
     // stack namespace) layered over the agent's own base labels.
     labels: {
@@ -105,7 +115,7 @@ export async function applyStorageNode(
     mounts: [
       { type: 'volume' as const, source: `${r.serviceName}-meta`, target: '/var/lib/garage/meta' },
       { type: 'volume' as const, source: `${r.serviceName}-data`, target: '/var/lib/garage/data' },
-      ...(r.files.length
+      ...(!useConfigs && r.files.length
         ? [
             {
               type: 'bind' as const,
@@ -116,6 +126,8 @@ export async function applyStorageNode(
           ]
         : []),
     ],
+    ...(useConfigs ? { configs: r.configs } : {}),
+    ...(r.placement ? { placement: { constraints: r.placement.constraints } } : {}),
   };
 
   let serviceId = '';
@@ -125,6 +137,24 @@ export async function applyStorageNode(
   } else {
     const inspect = await existing.inspect();
     serviceId = inspect.ID;
+    const liveGlobal = Boolean((inspect.Spec as { Mode?: { Global?: unknown } } | undefined)?.Mode?.Global);
+    const wantGlobal = r.serviceMode === 'global';
+    if (useConfigs && liveGlobal !== wantGlobal) {
+      // Swarm cannot change a service's mode in place: recreate it. The named
+      // meta/data volumes are untouched, so a member keeps its data.
+      await existing.remove();
+      serviceId = await docker.createService(spec);
+    } else if (useConfigs) {
+      // Converge an existing member (e.g. a legacy host-bind spec, or a
+      // rotated config) with a full spec update. Keep labels other writers
+      // stamped (the storage-reconcile stats label), ours win on conflict.
+      const liveLabels = (inspect.Spec as { Labels?: Record<string, string> } | undefined)?.Labels ?? {};
+      const opts = (await docker.prepareServiceOptions({
+        ...spec,
+        labels: { ...liveLabels, ...spec.labels },
+      })) as Record<string, unknown>;
+      await existing.update({ version: inspect.Version.Index, ...opts });
+    }
   }
 
   let layoutApplied = false;

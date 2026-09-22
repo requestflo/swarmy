@@ -54,7 +54,14 @@ export function ReposList({
         toast.success('Build started');
         qc.invalidateQueries();
       },
-      onError: (e) => toast.error(e.message),
+      onError: (e) => {
+        // A failed build's message is "build exited N" + the last log lines.
+        const [title, ...tail] = e.message.split('\n');
+        toast.error(title, {
+          description: tail.length ? <pre className="mono-data whitespace-pre-wrap text-xs">{tail.join('\n')}</pre> : undefined,
+        });
+        qc.invalidateQueries();
+      },
     }),
   );
 

@@ -1,7 +1,7 @@
 import type { OrgContext } from '../context';
 import type { AdmissionIntent, Violation } from './admission.service';
 import {
-  DEFAULT_REGISTRY_HOST,
+  canonicalRegistryHost,
   isOrgRegistryImage,
   refAtDigest,
   verifyImageSignature,
@@ -154,7 +154,7 @@ export async function evaluate(ctx: OrgContext, intent: AdmissionIntent): Promis
   const cfg = await ctx.db.registryConfig.findUnique({ where: { orgId: ctx.activeOrgId } });
   if (!cfg || (!cfg.requireSignedImages && !cfg.blockCriticalCves)) return [];
 
-  const host = cfg.host ?? DEFAULT_REGISTRY_HOST;
+  const host = canonicalRegistryHost(cfg.host);
   const images = extractOrgImages(intent.specs ?? [], host);
   if (images.length === 0) return [];
 

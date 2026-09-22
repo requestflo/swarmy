@@ -1,8 +1,20 @@
 import { randomBytes } from 'node:crypto';
 import {
+  BITNAMI_PG_ROOT,
+  DB_DATA_VOLUME_LABEL,
+  DB_STORAGE_MIGRATE_IMAGE,
+  applyDbStorage,
   buildInventory,
+  choosePinNode,
+  dbStorageLabels,
+  dbStorageState,
+  pinnedPrimaryCounts,
+  primaryDataVolumeName,
+  replicaDataVolumeName,
+  storageMigrateScript,
   STACK_LABEL,
   type DbClusterMemberView,
+  type DbStorageState,
   type DbWalShipperView,
   type InvService,
   type InvServiceStatus,
@@ -11,10 +23,14 @@ import {
   DEFAULT_MANAGED_PG_IMAGE,
   MANAGED_PG_IMAGE_REPO,
   migrateDeadBitnamiImage,
+  type ContainerInfo,
+  type RunOnceResult,
   type ServiceSpec,
+  type SwarmServiceInfo,
 } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
+import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 
 /**
@@ -240,6 +256,45 @@ function findCluster(
   };
 }
 
+/** The raw live swarm service (carries `mounts`, which InvService does not). */
+function liveSwarmService(ctx: OrgContext, name: string): SwarmServiceInfo | undefined {
+  return ctx.hub.liveInventory(ctx.activeOrgId).services.find((s) => s.name === name);
+}
+
+/** A running task container of `service` + the (controller) node hosting it. */
+export function runningTaskOf(
+  ctx: OrgContext,
+  service: SwarmServiceInfo,
+): { nodeId: string; container: ContainerInfo } | undefined {
+  const orgContainerIds = new Set(ctx.hub.liveInventory(ctx.activeOrgId).containers.map((c) => c.id));
+  for (const nodeId of ctx.hub.onlineNodeIds()) {
+    const container = ctx.hub.latestContainers(nodeId).find((c) => {
+      if (!orgContainerIds.has(c.id)) return false;
+      const sid = c.serviceId ?? c.labels?.['com.docker.swarm.service.id'];
+      return sid === service.id && c.state === 'running';
+    });
+    if (container) return { nodeId, container };
+  }
+  return undefined;
+}
+
+/** More than one swarm node ⇒ replicas get anti-affinity from the primary's node. */
+function isMultiNode(ctx: OrgContext): boolean {
+  return ctx.hub.nodeInventory(ctx.activeOrgId).length > 1;
+}
+
+/**
+ * The swarm node a NEW primary is pinned to: the node with the fewest pinned
+ * primaries (ready + active), ties to the manager we dispatch through.
+ */
+function choosePrimaryPin(ctx: OrgContext, managerNodeId: string): string | undefined {
+  return choosePinNode({
+    nodes: ctx.hub.nodeInventory(ctx.activeOrgId),
+    pinnedCounts: pinnedPrimaryCounts(ctx.hub.liveInventory(ctx.activeOrgId).services),
+    fallback: ctx.hub.swarmNodeIdFor(managerNodeId),
+  });
+}
+
 /** Common labels stamped on every DB-role service (primary + replica). */
 function dbLabels(
   stack: string,
@@ -324,6 +379,99 @@ export interface ProvisionDbResult {
   password: string;
 }
 
+function omit(labels: Record<string, string>, keys: string[]): Record<string, string> {
+  const out = { ...labels };
+  for (const k of keys) delete out[k];
+  return out;
+}
+
+export interface ManagedPgSpecInput {
+  stack: string;
+  cluster: string;
+  image: string;
+  password: string;
+  database: string;
+  replicas: number;
+  /** Named volume holding the primary's `/bitnami/postgresql`. */
+  dataVolume: string;
+  /** Per-node replica volume name. */
+  replicaVolume: string;
+  /** Docker swarm node id the primary is pinned to. */
+  pinNode: string;
+  /** >1 swarm node ⇒ replicas avoid the primary's node. */
+  multiNode: boolean;
+  /** Live primary labels to carry forward (declared by later mutations). */
+  carryLabels?: Record<string, string>;
+}
+
+/**
+ * The primary + replica ServiceSpecs of a managed Postgres cluster. Pure —
+ * exported for the golden test. The storage layout (mount + pin + anti-affinity
+ * + one-task-per-node) is declared on labels and derived by `applyDbStorage`,
+ * the same function every reconcile rebuild uses, so they can never disagree.
+ */
+export function managedPgSpecs(input: ManagedPgSpecInput): {
+  primarySpec: ServiceSpec;
+  replicaSpec: ServiceSpec;
+} {
+  const { stack, cluster, password } = input;
+  const primary = primaryServiceName(stack, cluster);
+  const network = clusterNetworkName(stack, cluster);
+  const primaryLabels = {
+    ...(input.carryLabels ?? {}),
+    ...dbLabels(stack, cluster, 'primary', input.replicas),
+    ...dbStorageLabels({ dataVolume: input.dataVolume, pinNode: input.pinNode }),
+  };
+  // A re-provision keeps a selected topology rather than resetting it.
+  if (input.carryLabels?.[DB_TOPOLOGY_LABEL]) {
+    primaryLabels[DB_TOPOLOGY_LABEL] = input.carryLabels[DB_TOPOLOGY_LABEL];
+  }
+  const primarySpec: ServiceSpec = applyDbStorage<ServiceSpec>(
+    {
+      name: primary,
+      image: input.image,
+      mode: { replicated: { replicas: 1 } },
+      labels: primaryLabels,
+      env: {
+        POSTGRESQL_REPLICATION_MODE: 'master',
+        POSTGRESQL_REPLICATION_USER: REPLICATION_USER,
+        POSTGRESQL_REPLICATION_PASSWORD: password,
+        POSTGRESQL_PASSWORD: password,
+        POSTGRESQL_DATABASE: input.database,
+      },
+      networks: [network],
+    },
+    primaryLabels,
+  );
+
+  const replicaLabels = {
+    ...dbLabels(stack, cluster, 'replica', input.replicas, topologyOf(primaryLabels)),
+    ...dbStorageLabels({
+      dataVolume: input.replicaVolume,
+      ...(input.multiNode ? { avoidNode: input.pinNode } : {}),
+    }),
+  };
+  const replicaSpec: ServiceSpec = applyDbStorage<ServiceSpec>(
+    {
+      name: replicaServiceName(stack, cluster),
+      image: input.image,
+      mode: { replicated: { replicas: input.replicas } },
+      labels: replicaLabels,
+      env: {
+        POSTGRESQL_REPLICATION_MODE: 'slave',
+        POSTGRESQL_REPLICATION_USER: REPLICATION_USER,
+        POSTGRESQL_REPLICATION_PASSWORD: password,
+        POSTGRESQL_MASTER_HOST: primary,
+        POSTGRESQL_MASTER_PORT_NUMBER: String(PG_PORT),
+        POSTGRESQL_PASSWORD: password,
+      },
+      networks: [network],
+    },
+    replicaLabels,
+  );
+  return { primarySpec, replicaSpec };
+}
+
 /**
  * Provision a managed Postgres cluster on the swarm.
  *
@@ -360,36 +508,55 @@ export async function provisionDb(
     (existing ? envRecord(existing).POSTGRESQL_PASSWORD : '') ||
     generatePassword();
 
-  const primarySpec: ServiceSpec = {
-    name: primary,
-    image,
-    mode: { replicated: { replicas: 1 } },
-    labels: dbLabels(stack, cluster, 'primary', replicas),
-    env: {
-      POSTGRESQL_REPLICATION_MODE: 'master',
-      POSTGRESQL_REPLICATION_USER: REPLICATION_USER,
-      POSTGRESQL_REPLICATION_PASSWORD: password,
-      POSTGRESQL_PASSWORD: password,
-      POSTGRESQL_DATABASE: database,
-    },
-    networks: [network],
-  };
+  // ── Storage: never let a (re-)provision move a live writer onto an empty volume.
+  const existingLive = existing ? liveSwarmService(ctx, existing.name) : undefined;
+  let dataVolume = primaryDataVolumeName(stack, cluster);
+  let pinNode: string | undefined;
+  if (existingLive) {
+    const storage = dbStorageState(existingLive);
+    if (storage.state === 'unmounted') {
+      throw commandRejected(
+        `cluster "${cluster}" keeps its data on an anonymous volume — re-provisioning would start an EMPTY database. Back up, then run Migrate storage (db.migrateStorage) first.`,
+      );
+    }
+    if (storage.state === 'unknown') {
+      throw commandRejected(
+        `cannot verify where cluster "${cluster}" keeps its data (the node agent is too old to report mounts) — update the agent before re-provisioning`,
+      );
+    }
+    dataVolume = storage.dataVolume ?? dataVolume;
+    pinNode =
+      storage.pinnedNode ??
+      // Mounted but never pinned (pre-label PITR dataVolume): pin to where it runs now.
+      (() => {
+        const task = runningTaskOf(ctx, existingLive);
+        return task ? ctx.hub.swarmNodeIdFor(task.nodeId) : undefined;
+      })();
+  }
+  pinNode ??= choosePrimaryPin(ctx, node.id);
+  if (!pinNode) {
+    throw commandRejected(
+      'cannot resolve a swarm node to pin the Postgres primary to (no node has reported yet) — retry in a few seconds',
+    );
+  }
+  const existingReplica = findCluster(ctx, stack, cluster).replica;
 
-  const replicaSpec: ServiceSpec = {
-    name: replica,
+  const { primarySpec, replicaSpec } = managedPgSpecs({
+    stack,
+    cluster,
     image,
-    mode: { replicated: { replicas } },
-    labels: dbLabels(stack, cluster, 'replica', replicas),
-    env: {
-      POSTGRESQL_REPLICATION_MODE: 'slave',
-      POSTGRESQL_REPLICATION_USER: REPLICATION_USER,
-      POSTGRESQL_REPLICATION_PASSWORD: password,
-      POSTGRESQL_MASTER_HOST: primary,
-      POSTGRESQL_MASTER_PORT_NUMBER: String(PG_PORT),
-      POSTGRESQL_PASSWORD: password,
-    },
-    networks: [network],
-  };
+    password,
+    database,
+    replicas,
+    dataVolume,
+    replicaVolume: existingReplica?.labels[DB_DATA_VOLUME_LABEL] ?? replicaDataVolumeName(stack, cluster),
+    pinNode,
+    multiNode: isMultiNode(ctx),
+    // Carry declarations the primary accumulated (backup schedule, topology
+    // inputs, …) — minus the PITR marker, whose mounts/conf this base spec does
+    // not carry: dropping it makes the reconcile re-apply WAL archiving.
+    carryLabels: existing ? omit(existing.labels, [DB_PITR_APPLIED_LABEL]) : undefined,
+  });
 
   try {
     // Ensure the per-cluster overlay network exists BEFORE deploying onto it —
@@ -462,6 +629,11 @@ export interface DbClusterView {
   regionReplicas?: Record<string, number>;
   /** active-active: declared number of writable primaries. */
   primaries?: number;
+  /**
+   * Where the primary's data lives. `unmounted` = the legacy data-loss layout
+   * (anonymous volume) — the dashboard warns and offers Migrate storage.
+   */
+  storage?: DbStorageState;
 }
 
 export interface DbTopologyView {
@@ -529,6 +701,9 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
       })
       .sort((a, b) => a.service.localeCompare(b.service));
 
+    const primaryLive = primary ? liveSwarmService(ctx, primary.name) : undefined;
+    const storage = primaryLive ? dbStorageState(primaryLive) : undefined;
+
     const measuredLags = memberViews
       .map((m) => m.lagSeconds)
       .filter((v): v is number => v !== undefined);
@@ -558,6 +733,7 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
       ...(Number.isFinite(primariesDeclared) && primariesDeclared >= 2
         ? { primaries: primariesDeclared }
         : {}),
+      ...(storage ? { storage } : {}),
     });
   }
 
@@ -806,4 +982,244 @@ export async function injectConnection(
     throw mapDispatchError(e);
   }
   return { appService: app.name, cluster: input.cluster, envVar, roVar, rwUrl, roUrl };
+}
+
+// ── Storage migration (legacy anonymous-volume clusters → named volume + pin) ──
+
+/**
+ * Rebuild a DB member's spec from live truth: image, env, networks, labels and
+ * secrets, with its storage layout re-derived from its labels. Configs are NOT
+ * carried (the only one is the PITR conf, which needs its target path) — callers
+ * drop the `swarmy.db.pitr.applied` marker so the reconcile re-applies it.
+ */
+export function rebuildDbMemberSpec(
+  live: SwarmServiceInfo,
+  labels: Record<string, string>,
+  replicas: number,
+): ServiceSpec {
+  const networks = (live.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
+  const env: Record<string, string> = {};
+  for (const kv of live.env ?? []) {
+    const i = kv.indexOf('=');
+    env[i >= 0 ? kv.slice(0, i) : kv] = i >= 0 ? kv.slice(i + 1) : '';
+  }
+  return applyDbStorage<ServiceSpec>(
+    {
+      name: live.name,
+      image: live.image,
+      mode: { replicated: { replicas } },
+      env,
+      labels,
+      networks,
+      ...((live.secrets ?? []).length > 0 ? { secrets: live.secrets.map((n) => ({ source: n })) } : {}),
+    },
+    labels,
+  );
+}
+
+export interface MigrateStorageInput {
+  stack: string;
+  cluster: string;
+  /** Skip the pre-migration pg_dump (only when no backup destination exists). */
+  skipBackup?: boolean;
+}
+
+export interface MigrateStorageResult {
+  cluster: string;
+  /** `already` = nothing to do; `adopted` = labels stamped on an existing mount. */
+  outcome: 'migrated' | 'already' | 'adopted';
+  dataVolume: string;
+  pinnedNode: string;
+  /** The legacy anonymous volume (left in place — remove it once satisfied). */
+  sourceVolume?: string;
+  backupSnapshotId?: string;
+}
+
+const STOP_POLL_MS = 2_000;
+const STOP_WAIT_MS = 120_000;
+const COPY_TIMEOUT_MS = 30 * 60_000;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Move a legacy cluster (primary on an ANONYMOUS volume — any restart would
+ * start it empty) onto the persistent layout, without losing data:
+ *
+ *   1. pg_dump via the existing DB-backup path (skippable only explicitly),
+ *   2. scale the primary to 0 and wait for its task container to STOP (a clean
+ *      shutdown; the stopped container — and its anonymous volume — stays in
+ *      the task history),
+ *   3. one-shot busybox on the node that holds the volume: `cp -a` the
+ *      anonymous volume into `<stack>_<cluster>-primary-data` (existing content
+ *      moved aside, source never deleted, PGDATA verified),
+ *   4. redeploy the primary with the mount + `node.id==<that node>` pin and the
+ *      replicas with their per-node volume + anti-affinity (they re-sync).
+ *
+ * If anything fails after the primary is stopped, the primary is redeployed
+ * mounting the ANONYMOUS volume by name, pinned to its node — the data stays
+ * live and the error is surfaced; nothing is ever started on an empty volume.
+ */
+export async function migrateStorage(
+  ctx: OrgContext,
+  input: MigrateStorageInput,
+): Promise<MigrateStorageResult> {
+  const { stack, cluster } = input;
+  const { primary, replica } = findCluster(ctx, stack, cluster);
+  if (!primary) throw notFound('db cluster primary', cluster);
+  const live = liveSwarmService(ctx, primary.name);
+  if (!live) throw notFound('db cluster primary', cluster);
+  const storage = dbStorageState(live);
+  const manager = await resolveManagerNode(ctx);
+  const target = primaryDataVolumeName(stack, cluster);
+
+  if (storage.state === 'unknown') {
+    throw commandRejected(
+      'cannot see this primary\'s mounts — the node agent is too old. Update the agent, then retry.',
+    );
+  }
+  const task = runningTaskOf(ctx, live);
+  if (storage.state === 'persistent') {
+    if (!storage.undeclared && storage.pinnedNode) {
+      return { cluster, outcome: 'already', dataVolume: storage.dataVolume!, pinnedNode: storage.pinnedNode };
+    }
+    // Mounted but undeclared/unpinned: adopt the live volume + node on labels.
+    const pin = storage.pinnedNode ?? (task ? ctx.hub.swarmNodeIdFor(task.nodeId) : undefined);
+    if (!pin) throw commandRejected('primary has no running task to pin — retry once it is running');
+    try {
+      await ctx.hub.dispatch(manager.id, 'service.updateLabels', {
+        service: live.name,
+        add: dbStorageLabels({ dataVolume: storage.dataVolume!, pinNode: pin }),
+        // The PITR primary spec re-derives mount + pin from these labels.
+        removeKeys: [DB_PITR_APPLIED_LABEL],
+      });
+    } catch (e) {
+      throw mapDispatchError(e);
+    }
+    return { cluster, outcome: 'adopted', dataVolume: storage.dataVolume!, pinnedNode: pin };
+  }
+
+  // ── unmounted: the data lives in the running task's anonymous volume.
+  if (!task) {
+    throw commandRejected(
+      'the primary has no running task, so its anonymous data volume cannot be located safely. ' +
+        'Manual path: on the node, `docker ps -a --filter label=com.docker.swarm.service.name=' +
+        `${live.name}\` → \`docker inspect\` the newest container's /bitnami/postgresql volume, copy it into ` +
+        `${target}, then re-provision.`,
+    );
+  }
+  const source = task.container.mounts?.find(
+    (m) => m.target === BITNAMI_PG_ROOT && (m.type === undefined || m.type === 'volume') && m.source,
+  )?.source;
+  if (!source) {
+    throw commandRejected(
+      'cannot identify the primary\'s anonymous data volume (agent too old to report container mounts, or no volume at /bitnami/postgresql) — update the agent, then retry',
+    );
+  }
+  const pin = ctx.hub.swarmNodeIdFor(task.nodeId);
+  if (!pin) throw commandRejected('cannot resolve the swarm node id of the node hosting the primary');
+
+  // 1. Logical safety net first — nothing has been touched yet if this fails.
+  let backupSnapshotId: string | undefined;
+  if (!input.skipBackup) {
+    const { runDbBackup } = await import('./dbBackup.service');
+    try {
+      const run = await runDbBackup(ctx, { stack, cluster, engine: 'pg_dump' });
+      backupSnapshotId = run.snapshotId;
+    } catch (e) {
+      throw commandRejected(
+        `pre-migration backup failed, nothing was changed: ${e instanceof Error ? e.message : String(e)} (configure a backup destination, or migrate with skipBackup)`,
+      );
+    }
+  }
+
+  const baseLabels = omit(live.labels, [DB_PITR_APPLIED_LABEL]);
+  const rescue = () =>
+    ctx.hub
+      .dispatch(
+        manager.id,
+        'service.deploy',
+        // Keep the live data reachable: mount the anonymous volume BY NAME, pinned.
+        { spec: rebuildDbMemberSpec(live, { ...baseLabels, ...dbStorageLabels({ dataVolume: source, pinNode: pin }) }, 1), pullPolicy: 'missing' },
+        { timeoutMs: DISPATCH_TIMEOUT_MS },
+      )
+      .catch(() => undefined);
+
+  try {
+    // 2. Clean stop.
+    await ctx.hub.dispatch(manager.id, 'service.scale', { service: live.name, replicas: 0 });
+    const deadline = Date.now() + STOP_WAIT_MS;
+    for (;;) {
+      const c = ctx.hub.latestContainers(task.nodeId).find((x) => x.id === task.container.id);
+      if (!c || c.state !== 'running') break;
+      if (Date.now() > deadline) throw new Error('primary did not stop within 120s');
+      await sleep(STOP_POLL_MS);
+    }
+
+    // 3. Copy on the node that holds the anonymous volume.
+    const copy = await ctx.hub.dispatch<RunOnceResult>(
+      task.nodeId,
+      'container.runOnce',
+      {
+        image: DB_STORAGE_MIGRATE_IMAGE,
+        entrypoint: ['/bin/sh', '-c'],
+        cmd: [storageMigrateScript(String(Date.now()))],
+        binds: [`${source}:/from:ro`, `${target}:/to`],
+        user: '0:0',
+      },
+      { timeoutMs: COPY_TIMEOUT_MS },
+    );
+    if (copy.exitCode !== 0) {
+      throw new Error(`volume copy failed (exit ${copy.exitCode}): ${copy.output.trim().slice(-400)}`);
+    }
+
+    // 4. Redeploy onto the persistent layout.
+    const primaryLabels = { ...baseLabels, ...dbStorageLabels({ dataVolume: target, pinNode: pin }) };
+    await ctx.hub.dispatch(
+      manager.id,
+      'service.deploy',
+      { spec: rebuildDbMemberSpec(live, primaryLabels, 1), pullPolicy: 'missing' },
+      { timeoutMs: DISPATCH_TIMEOUT_MS },
+    );
+  } catch (e) {
+    await rescue();
+    throw commandRejected(
+      `storage migration failed; the primary was restarted on its original volume (${source}) pinned to its node, no data was discarded: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
+  // Replicas: per-node volume + anti-affinity; safe to redeploy (they re-sync).
+  const replicaLive = replica ? liveSwarmService(ctx, replica.name) : undefined;
+  if (replicaLive) {
+    const labels = {
+      ...replicaLive.labels,
+      ...dbStorageLabels({
+        dataVolume: replicaLive.labels[DB_DATA_VOLUME_LABEL] ?? replicaDataVolumeName(stack, cluster),
+        ...(isMultiNode(ctx) ? { avoidNode: pin } : {}),
+      }),
+    };
+    await ctx.hub
+      .dispatch(
+        manager.id,
+        'service.deploy',
+        { spec: rebuildDbMemberSpec(replicaLive, labels, replicaLive.desiredReplicas ?? 0), pullPolicy: 'missing' },
+        { timeoutMs: DISPATCH_TIMEOUT_MS },
+      )
+      .catch(() => undefined); // best-effort: the reconcile re-converges replicas
+  }
+
+  await writeAudit(ctx, {
+    action: 'db.storage.migrate',
+    actorType: ctx.user ? 'user' : 'system',
+    targetType: 'dbCluster',
+    targetId: `${stack}/${cluster}`,
+    metadata: { sourceVolume: source, dataVolume: target, pinnedNode: pin, backupSnapshotId: backupSnapshotId ?? null },
+  }).catch(() => undefined);
+
+  return {
+    cluster,
+    outcome: 'migrated',
+    dataVolume: target,
+    pinnedNode: pin,
+    sourceVolume: source,
+    ...(backupSnapshotId ? { backupSnapshotId } : {}),
+  };
 }

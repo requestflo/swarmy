@@ -52,6 +52,18 @@ export const RenderedStoreDeployment = z.object({
    * renders without it still validate.
    */
   labels: z.record(z.string()).optional(),
+  /**
+   * Swarm Docker config refs mounted into the store (e.g. `garage.toml`),
+   * created controller-side before dispatch. When present the agent mounts
+   * these instead of bind-mounting `files` (zero host files). Optional/additive.
+   */
+  configs: z
+    .array(z.object({ source: z.string(), target: z.string(), mode: z.number().int().optional() }))
+    .optional(),
+  /** Swarm placement for the store service (member pinning). Optional/additive. */
+  placement: z.object({ constraints: z.array(z.string()) }).optional(),
+  /** `global` = one task per eligible (member) node. Omitted ⇒ replicated x1 (legacy). */
+  serviceMode: z.enum(['replicated', 'global']).optional(),
   /** Optional layout/admin call to run after the service is up. */
   adminApi: z
     .object({

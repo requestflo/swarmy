@@ -4,6 +4,7 @@ import {
   DB_TOPOLOGIES,
   getDbTopology,
   injectConnection,
+  migrateStorage,
   provisionDb,
   setRegionReplicas,
   setReplicas,
@@ -123,6 +124,22 @@ export const managedDbRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => setRegionReplicas(ctx, input)),
+
+  /**
+   * Move a legacy cluster whose primary keeps its data on an ANONYMOUS volume
+   * (any restart would start it empty) onto the persistent layout: pg_dump
+   * first, stop the primary, copy the volume into `<stack>_<cluster>-primary-data`
+   * on its node, redeploy mounted + pinned. Idempotent (`already` when done).
+   */
+  migrateStorage: orgProcedure
+    .input(
+      z.object({
+        stack: stackName,
+        cluster: clusterName,
+        skipBackup: z.boolean().optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => migrateStorage(ctx, input)),
 
   /** Inject DATABASE_URL (+ *_RO_URL) env onto an app service in the stack. */
   inject: orgProcedure

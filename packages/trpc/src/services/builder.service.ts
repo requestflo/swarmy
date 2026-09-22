@@ -14,7 +14,7 @@ import { writeAudit } from '../services/audit.service';
 import type { OrgContext } from '../context';
 import { mapDispatchError } from '../errors';
 import { enforceAdmission } from './admission-gate';
-import { resolveManagerNode } from './dispatch.service';
+import { pinToNodeConstraint, resolveManagerNode } from './dispatch.service';
 import { liveService } from './service.service';
 
 /**
@@ -100,8 +100,12 @@ export async function deployFromModel(
     throw new Error('Service name and image are required.');
   }
 
-  const node = await resolveManagerNode(ctx, input.nodeId);
+  const node = await resolveManagerNode(ctx);
   const spec = modelToServiceSpec(model);
+  if (input.nodeId) {
+    const pin = pinToNodeConstraint(ctx, input.nodeId);
+    spec.placement = { ...spec.placement, constraints: [...(spec.placement?.constraints ?? []), pin] };
+  }
 
   // The builder is a service deploy — same admission gate as every other path.
   const stackName = spec.labels?.['com.docker.stack.namespace'];

@@ -20,6 +20,7 @@ import {
   systemContext,
   type GcCandidate,
 } from './cicd.service';
+import { canonicalRegistryHost } from './registryPolicy.service';
 
 export interface GcRunResult {
   orgId: string;
@@ -93,7 +94,9 @@ export async function runImageGcForOrg(
   // Dispatch a prune to every online builder-capable node in the org. The keep set is the pinned
   // digests (defence-in-depth: the agent ALSO refuses to delete a pinned digest).
   const reg = await db.registryConfig.findUnique({ where: { orgId }, select: { host: true } });
-  const repoPrefix = reg?.host ? `${reg.host}/` : undefined;
+  // Scope to the canonical push host (a legacy `swarmy-registry:5000` row maps
+  // to `localhost:5000`, where builds now push).
+  const repoPrefix = reg ? `${canonicalRegistryHost(reg.host)}/` : undefined;
   const nodes = await db.node.findMany({ where: { orgId }, select: { id: true } });
 
   let dispatchedNodes = 0;

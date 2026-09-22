@@ -1,4 +1,12 @@
 import { createHash } from 'node:crypto';
+import {
+  DB_AVOID_NODE_LABEL,
+  DB_DATA_VOLUME_LABEL,
+  dbStorageLabels,
+  dbStorageState,
+  type DbStorageState,
+  type ObservedMount,
+} from '@swarmy/core';
 import { WAL_ARCHIVE_MOUNT } from '@swarmy/core/protocol';
 
 /**
@@ -185,4 +193,102 @@ export function parseScheduleLite(
   } catch {
     return null;
   }
+}
+
+// ── Storage layout convergence (persistent volumes + node pin) ────────────────
+
+/** Mirror of manageddb.service `DB_PITR_APPLIED_LABEL`. */
+const PITR_APPLIED_LABEL = 'swarmy.db.pitr.applied';
+const BACKUP_PITR_LABEL = 'swarmy.db.backup.pitr';
+
+interface StorageMember {
+  name: string;
+  labels: Record<string, string>;
+  mounts?: readonly ObservedMount[];
+}
+
+export type StorageAction =
+  /** Legacy primary on an anonymous volume — warn, NEVER redeploy. */
+  | { kind: 'warnLegacy'; message: string }
+  /** Mounted-but-undeclared primary: stamp its live volume + node on labels. */
+  | {
+      kind: 'adopt';
+      add: Record<string, string>;
+      removeKeys: string[];
+      /** Redeploy now so the pin becomes a constraint (PITR clusters instead
+       *  drop the applied marker and let the PITR convergence redeploy). */
+      redeploy: boolean;
+    }
+  /** Replica not yet on its per-node volume / anti-affinity — safe to redeploy. */
+  | { kind: 'convergeReplica'; labels: Record<string, string> };
+
+/**
+ * Decide the storage actions for one cluster this tick. Pure. Only the
+ * canonical `<base>-primary` / `<base>-replica` pair is managed here (a
+ * failover-promoted replica keeps whatever its own labels declare). Steady
+ * state (persistent + declared + pinned, replica converged) returns no actions.
+ */
+export function planClusterStorage(input: {
+  base: string;
+  primary?: StorageMember;
+  replica?: StorageMember;
+  /** Swarm node id currently running the primary's task (adoption pin). */
+  primaryTaskSwarmNode?: string;
+  multiNode: boolean;
+}): { storage?: DbStorageState; actions: StorageAction[] } {
+  const { base, primary, replica } = input;
+  if (!primary) return { actions: [] };
+  const storage = dbStorageState(primary);
+  if (primary.name !== `${base}-primary`) return { storage, actions: [] };
+
+  const actions: StorageAction[] = [];
+  if (storage.state === 'unmounted') {
+    actions.push({ kind: 'warnLegacy', message: storage.message ?? 'data is not on a persistent volume' });
+    return { storage, actions };
+  }
+  if (storage.state !== 'persistent') return { storage, actions };
+
+  let pin = storage.pinnedNode;
+  if (storage.undeclared || !pin) {
+    pin = pin ?? input.primaryTaskSwarmNode;
+    if (!pin) return { storage, actions }; // not running — retry next tick
+    const pitr = primary.labels[BACKUP_PITR_LABEL] === 'true';
+    actions.push({
+      kind: 'adopt',
+      add: dbStorageLabels({ dataVolume: storage.dataVolume!, pinNode: pin }),
+      removeKeys: pitr && primary.labels[PITR_APPLIED_LABEL] ? [PITR_APPLIED_LABEL] : [],
+      redeploy: !pitr,
+    });
+  }
+
+  if (replica && replica.name === `${base}-replica`) {
+    const dataVolume = replica.labels[DB_DATA_VOLUME_LABEL] ?? `${base}-replica-data`;
+    const avoid = input.multiNode ? pin : undefined;
+    const drift =
+      replica.labels[DB_DATA_VOLUME_LABEL] !== dataVolume ||
+      replica.labels[DB_AVOID_NODE_LABEL] !== avoid ||
+      dbStorageState(replica).state === 'unmounted';
+    if (drift) {
+      const labels = { ...replica.labels, ...dbStorageLabels({ dataVolume, avoidNode: avoid }) };
+      if (!avoid) delete labels[DB_AVOID_NODE_LABEL];
+      actions.push({ kind: 'convergeReplica', labels });
+    }
+  }
+  return { storage, actions };
+}
+
+/**
+ * Can a pinned primary be (re-)placed into `region`? Its data volume is
+ * node-local, so only when the pinned node itself is in that region.
+ */
+export function pinnedRegionFit(
+  pin: string | undefined,
+  region: string,
+  nodes: ReadonlyArray<{ swarmNodeId: string; labels: Record<string, string> }>,
+  regionLabel = 'swarmy.region',
+): 'ok' | 'mismatch' | 'unknown' | 'unpinned' {
+  if (!pin) return 'unpinned';
+  const node = nodes.find((n) => n.swarmNodeId === pin);
+  if (!node) return 'unknown';
+  return node.labels[regionLabel] === region ? 'ok' : 'mismatch';
 }
