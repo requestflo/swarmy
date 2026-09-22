@@ -304,10 +304,17 @@ function resolveTunnel(s: IngressSettings): TunnelOptions | undefined {
   };
 }
 
+/**
+ * New orgs start with swarmy's own Caddy edge ON, so a deployed app is
+ * browser-reachable with zero setup. Existing rows are never touched — an org
+ * that chose NONE (or anything else) keeps it.
+ */
+export const DEFAULT_INGRESS = { driver: 'CADDY', enabled: true } as const;
+
 async function ensureConfig(ctx: OrgContext): Promise<ConfigRow> {
   return ctx.db.ingressConfig.upsert({
     where: { orgId: ctx.activeOrgId },
-    create: { orgId: ctx.activeOrgId, driver: 'NONE', enabled: false },
+    create: { orgId: ctx.activeOrgId, ...DEFAULT_INGRESS },
     update: {},
   });
 }
@@ -1189,6 +1196,9 @@ export async function reconcileIngressOrg(
   const extra = (config.globalOptions?.extraConfig ?? {}) as Record<string, unknown>;
   const swarmyRunsCaddy = config.driver === 'caddy' && extra.applyVia !== 'file';
   if (swarmyRunsCaddy && !edgeServiceDeployed(ctx)) {
+    // No manager connected yet (fresh org, nodes still installing): nothing to
+    // deploy onto — wait quietly instead of recording a failure.
+    if (!ctx.hub.managerNode(orgId)) return { signature: null, skipped: true, applied: false };
     const last = lastConvergeAt.get(orgId) ?? 0;
     if (Date.now() - last >= CONVERGE_RETRY_MS) {
       lastConvergeAt.set(orgId, Date.now());
