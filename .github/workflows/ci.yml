@@ -42,7 +42,8 @@ jobs:
       - name: Generate Prisma client
         run: bun run db:generate
       - name: Validate schema applies
-        run: bun --filter @swarmy/db exec prisma db push --skip-generate --accept-data-loss
+        working-directory: packages/db
+        run: bunx prisma db push --skip-generate --accept-data-loss
       - name: Typecheck
         run: bun run typecheck
       - name: Build

@@ -27,7 +27,9 @@ RUN bun --filter @swarmy/app build
 # linux targets (bun downloads the target runtimes), instead of per-arch under
 # QEMU. The controller serves these at /install/bin/<platform> so the systemd
 # install backend + agent self-update work fully self-hosted.
-FROM --platform=$BUILDPLATFORM oven/bun:1.3-alpine AS agentbin
+# Debian (glibc) base on purpose: on an Alpine builder `--target=bun-linux-x64`
+# resolves to the musl runtime, which won't run on the glibc hosts nodes use.
+FROM --platform=$BUILDPLATFORM oven/bun:1.3-debian AS agentbin
 WORKDIR /app
 COPY package.json bun.lock ./
 COPY tsconfig.base.json tsconfig.json ./

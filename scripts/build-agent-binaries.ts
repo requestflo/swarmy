@@ -97,6 +97,10 @@ for (const platform of targets) {
     // poison the agent's configuration (/etc/swarmy/agent.env + real env are
     // the only config sources).
     '--compile-exec-argv=--env-file=/dev/null',
+    // ssh2's optional native `cpu-features` (loaded in a try/catch) is absent
+    // whenever its node-gyp build is skipped (e.g. the controller image), and
+    // its dangling symlink otherwise fails the compile. ssh2 runs fine without.
+    '--external=cpu-features',
   ];
   const proc = Bun.spawn(args, { cwd: ROOT, stdout: 'inherit', stderr: 'inherit' });
   if ((await proc.exited) !== 0) {
