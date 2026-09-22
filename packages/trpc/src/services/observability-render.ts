@@ -37,7 +37,14 @@ export interface CollectorRenderInput {
   clickhouseHost: string;
   clickhousePort?: number;
   clickhouseUser: string;
-  clickhousePassword: string;
+  /**
+   * In-container path of the Docker SECRET holding the ClickHouse password
+   * (e.g. `/run/secrets/clickhouse-password`). The rendered config references
+   * it via the collector's `${file:…}` config provider — the password itself
+   * NEVER appears in the config (Docker configs are readable by anyone with
+   * `docker config inspect` on a manager).
+   */
+  clickhousePasswordFile: string;
   clickhouseDatabase: string;
   /** Batch flush interval; bounded for determinism. Default 5s. */
   batchTimeoutSeconds?: number;
@@ -103,7 +110,8 @@ export function renderCollectorConfig(input: CollectorRenderInput): string {
     `    endpoint: ${endpoint}`,
     `    database: ${input.clickhouseDatabase}`,
     `    username: ${input.clickhouseUser}`,
-    `    password: ${input.clickhousePassword}`,
+    // Resolved at collector start from the mounted Docker secret.
+    `    password: \${file:${input.clickhousePasswordFile}}`,
     '    traces_table_name: otel_traces',
     '    logs_table_name: otel_logs',
     // The exporter OWNS the schema: its INSERT always references its full column

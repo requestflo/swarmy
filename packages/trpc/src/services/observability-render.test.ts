@@ -10,7 +10,7 @@ import {
 const COLLECTOR_INPUT = {
   clickhouseHost: 'swarmy-clickhouse',
   clickhouseUser: 'default',
-  clickhousePassword: 's3cr3t-pw',
+  clickhousePasswordFile: '/run/secrets/clickhouse-password',
   clickhouseDatabase: 'otel',
 } as const;
 
@@ -27,7 +27,8 @@ describe('renderCollectorConfig', () => {
     expect(yaml).toContain('clickhouse:');
     expect(yaml).toContain('tcp://swarmy-clickhouse:9000');
     expect(yaml).toContain('database: otel');
-    expect(yaml).toContain('password: s3cr3t-pw');
+    // The password is a Docker-secret file reference, never the value.
+    expect(yaml).toContain('password: ${file:/run/secrets/clickhouse-password}');
     // The exporter owns the schema so its INSERT column set always matches.
     expect(yaml).toContain('create_schema: true');
   });

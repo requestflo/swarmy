@@ -38,6 +38,7 @@ describe('storeNeedsConverge', () => {
     mounts: [{ type: 'volume', target: '/m' }],
     networks: [{ name: 'swarmy', aliases: [] }],
     ports: [],
+    secrets: ['swarmy-garage-rpc-secret-11111111', 'swarmy-garage-admin-token-22222222'],
   };
   it('converged service is a no-op', () => {
     expect(storeNeedsConverge(good)).toBe(false);
@@ -60,6 +61,12 @@ describe('storeNeedsConverge', () => {
     expect(storeNeedsConverge({ ...good, networks: [] })).toBe(true);
     expect(storeNeedsConverge({ ...good, networks: undefined })).toBe(true);
     expect(storeNeedsConverge({ ...good, networks: [{ name: 'other', aliases: [] }] })).toBe(true);
+  });
+  it('a store whose secrets are not mounted as Docker secrets converges (legacy secrets-in-toml)', () => {
+    expect(storeNeedsConverge({ ...good, secrets: [] })).toBe(true);
+    expect(storeNeedsConverge({ ...good, secrets: undefined })).toBe(true);
+    expect(storeNeedsConverge({ ...good, secrets: ['swarmy-garage-rpc-secret-11111111'] })).toBe(true);
+    expect(storeNeedsConverge({ ...good, secrets: ['swarmy-garage-admin-token-22222222'] })).toBe(true);
   });
   it('a store publishing ports on the routing mesh converges (private-only)', () => {
     expect(
@@ -86,7 +93,7 @@ describe('enable — 2-node swarm, no explicit members', () => {
       region: 'swarmy',
       memberNodeIds: [] as string[],
       rpcSecretRef: encryptSecret('rpc'),
-      adminTokenRef: encryptSecret('adm'),
+      adminTokenRef: encryptSecret('gadm_fake-admin-token-XYZ'),
       accessKeyRef: null,
       secretKeyRef: null,
       layout: {},
@@ -117,6 +124,15 @@ describe('enable — 2-node swarm, no explicit members', () => {
         dispatch: async (node: string, cmd: string, payload: Record<string, unknown>) => {
           dispatched.push({ node, cmd, payload });
           if (cmd === 'config.list') return { configs: [{ name: 'swarmy-garage-config-00000000' }] };
+          if (cmd === 'secret.list') {
+            return {
+              secrets: [
+                { name: 'swarmy-garage-rpc-secret-00000000' },
+                { name: 'swarmy-garage-admin-token-00000000' },
+                { name: 'app-db-password' },
+              ],
+            };
+          }
           return {};
         },
       },
@@ -167,6 +183,31 @@ describe('enable — 2-node swarm, no explicit members', () => {
 
     // Superseded config swept after the apply.
     expect(dispatched.find((d) => d.cmd === 'config.remove')?.payload.name).toBe('swarmy-garage-config-00000000');
+
+    // Secrets: created as Docker SECRETS before the apply, attached to the
+    // service, and ABSENT from the config (which anyone on a manager can read).
+    const secretCreates = dispatched.filter((d) => d.cmd === 'secret.create');
+    expect(secretCreates.map((d) => d.payload.name as string)).toEqual([
+      expect.stringMatching(/^swarmy-garage-rpc-secret-[0-9a-f]{8}$/),
+      expect.stringMatching(/^swarmy-garage-admin-token-[0-9a-f]{8}$/),
+    ]);
+    const values = secretCreates.map((d) => Buffer.from(d.payload.dataB64 as string, 'base64').toString('utf8'));
+    expect(values[1]).toBe('gadm_fake-admin-token-XYZ');
+    expect(isValidGarageRpcSecret(values[0]!)).toBe(true);
+    for (const v of values) expect(toml).not.toContain(v);
+    expect(toml).toContain('rpc_secret_file = "/run/secrets/garage-rpc-secret"');
+    expect(toml).toContain('admin_token_file = "/run/secrets/garage-admin-token"');
+    const applyIdx = dispatched.findIndex((d) => d.cmd === 'storage.apply');
+    for (const c of secretCreates) expect(dispatched.indexOf(c)).toBeLessThan(applyIdx);
+    expect((rendered as unknown as { secrets: Array<{ source: string }> }).secrets.map((s) => s.source)).toEqual(
+      secretCreates.map((d) => d.payload.name as string),
+    );
+
+    // Superseded store secrets swept; foreign secrets untouched.
+    expect(dispatched.filter((d) => d.cmd === 'secret.remove').map((d) => d.payload.name)).toEqual([
+      'swarmy-garage-rpc-secret-00000000',
+      'swarmy-garage-admin-token-00000000',
+    ]);
   });
 });
 

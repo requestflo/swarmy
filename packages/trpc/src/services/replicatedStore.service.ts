@@ -21,12 +21,17 @@ import { resolveManagerNode } from './dispatch.service';
 import { dispatchNodeLabels } from './node.service';
 import {
   DEFAULT_GARAGE_IMAGE,
+  GARAGE_ADMIN_TOKEN_PREFIX,
   GARAGE_CONFIG_PREFIX,
   GARAGE_MEMBER_NODE_LABEL,
   GARAGE_NETWORK,
+  GARAGE_RPC_SECRET_PREFIX,
   GARAGE_S3_PORT,
+  GARAGE_SECRET_LABEL,
   effectiveReplicationFactor,
   garageConfigObject,
+  garageSecretObjects,
+  isGarageSecretName,
   type GarageMember,
   type GarageRenderInput,
   renderGarageDeployment,
@@ -330,6 +335,21 @@ async function sweepGarageConfigs(ctx: OrgContext, via: string, keep: string): P
   }
 }
 
+/** Best-effort removal of superseded store Docker secrets (rpc secret / admin token). */
+async function sweepGarageSecrets(ctx: OrgContext, via: string, keep: string[]): Promise<void> {
+  try {
+    const res = await ctx.hub.dispatch<{ secrets?: Array<{ name: string }> }>(via, 'secret.list', {});
+    const keepSet = new Set(keep);
+    for (const s of res.secrets ?? []) {
+      if (isGarageSecretName(s.name) && !keepSet.has(s.name)) {
+        await ctx.hub.dispatch(via, 'secret.remove', { name: s.name }).catch(() => undefined);
+      }
+    }
+  } catch {
+    // best-effort — an in-use secret refuses removal; retried on the next enable.
+  }
+}
+
 /**
  * Deploy the Garage store onto every member node and mark the cluster enabled.
  *
@@ -356,6 +376,7 @@ export async function enable(ctx: OrgContext): Promise<StorageClusterView> {
   const input = renderInput(ctx, { ...row, memberNodeIds: nodeIds, replicationFactor });
   const rendered = renderGarageDeployment(input);
   const config = garageConfigObject(input);
+  const secrets = Object.values(garageSecretObjects(input));
 
   try {
     const mgr = await resolveManagerNode(ctx);
@@ -373,6 +394,20 @@ export async function enable(ctx: OrgContext): Promise<StorageClusterView> {
       attachable: true,
       labels: { 'swarmy.managed': 'true' },
     });
+    // Secrets first: `garage.toml` only references them (`*_file` keys) — the
+    // rpc secret / admin token never ride in a (world-inspectable) config.
+    for (const secret of secrets) {
+      try {
+        await ctx.hub.dispatch(mgr.id, 'secret.create', {
+          name: secret.name,
+          dataB64: Buffer.from(secret.value, 'utf8').toString('base64'),
+          labels: { 'swarmy.managed': 'true', 'swarmy.component': 'storage', [GARAGE_SECRET_LABEL]: 'true' },
+        });
+      } catch (e) {
+        // Content-addressed ⇒ an existing secret of this name holds these bytes.
+        if (!/already exists|conflict/i.test(e instanceof Error ? e.message : String(e))) throw e;
+      }
+    }
     try {
       await ctx.hub.dispatch(mgr.id, 'config.create', {
         name: config.name,
@@ -383,7 +418,9 @@ export async function enable(ctx: OrgContext): Promise<StorageClusterView> {
       if (!/already exists|conflict/i.test(e instanceof Error ? e.message : String(e))) throw e;
     }
     await ctx.hub.dispatch<ApplyStorageNodeResult>(mgr.id, 'storage.apply', { rendered });
+    // Superseded configs (incl. legacy ones that embedded the secrets) + secrets.
     await sweepGarageConfigs(ctx, mgr.id, config.name);
+    await sweepGarageSecrets(ctx, mgr.id, secrets.map((s) => s.name));
 
     const updated = await db(ctx).update({
       where: { orgId: ctx.activeOrgId },
@@ -411,13 +448,15 @@ export async function enable(ctx: OrgContext): Promise<StorageClusterView> {
  * Whether the live store service predates the current shape and must be
  * redeployed: missing, still bind-mounting a host `garage.toml`, not mounting a
  * `swarmy-garage-config-*` Docker config, not global-mode (one pinned task per
- * member), NOT on the swarmy overlay, or still publishing any port on the
- * routing mesh (managed data is private-only). Pure.
+ * member), NOT on the swarmy overlay, still publishing any port on the
+ * routing mesh (managed data is private-only), or not mounting the rpc-secret
+ * + admin-token Docker SECRETS (a legacy render embedded both in the
+ * `garage.toml` config — secret-in-config installs migrate here). Pure.
  */
 export function storeNeedsConverge(
   svc:
     | (Pick<SwarmServiceInfo, 'mode' | 'configs' | 'mounts'> &
-        Partial<Pick<SwarmServiceInfo, 'networks' | 'ports'>>)
+        Partial<Pick<SwarmServiceInfo, 'networks' | 'ports' | 'secrets'>>)
     | undefined,
 ): boolean {
   if (!svc) return true;
@@ -425,6 +464,9 @@ export function storeNeedsConverge(
   if (!(svc.configs ?? []).some((n) => n.startsWith(`${GARAGE_CONFIG_PREFIX}-`))) return true;
   if (!(svc.networks ?? []).some((n) => n.name === GARAGE_NETWORK)) return true;
   if ((svc.ports ?? []).length > 0) return true;
+  const secrets = svc.secrets ?? [];
+  if (!secrets.some((n) => n.startsWith(`${GARAGE_RPC_SECRET_PREFIX}-`))) return true;
+  if (!secrets.some((n) => n.startsWith(`${GARAGE_ADMIN_TOKEN_PREFIX}-`))) return true;
   return svc.mode !== 'global';
 }
 

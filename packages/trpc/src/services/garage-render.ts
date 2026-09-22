@@ -29,6 +29,8 @@ export interface RenderedStoreDeployment {
   labels?: Record<string, string>;
   /** Swarm Docker config refs (replace host-file bind mounts; see the Zod schema). */
   configs?: { source: string; target: string; mode?: number }[];
+  /** Swarm Docker SECRET refs (rpc secret / admin token; see the Zod schema). */
+  secrets?: { source: string; target: string; mode?: number }[];
   /** Swarm placement for the store service (member pinning). */
   placement?: { constraints: string[] };
   /** `global` = one task per eligible (member) node. */
@@ -79,11 +81,63 @@ export const GARAGE_CONFIG_PREFIX = 'swarmy-garage-config';
  */
 export const GARAGE_MEMBER_NODE_LABEL = 'swarmy.garage.member';
 
+/**
+ * Garage secrets ride as swarm Docker SECRETS — never inside `garage.toml`
+ * (a Docker config is readable by anyone with `docker config inspect` on a
+ * manager). The toml points at them with `rpc_secret_file` / `admin_token_file`
+ * (supported since Garage v0.8.2). Names are content-addressed
+ * (`<prefix>-<sha8>`) so a rotated value is a new secret + a service update;
+ * the in-container target is stable so the toml never changes on rotation.
+ */
+export const GARAGE_RPC_SECRET_PREFIX = 'swarmy-garage-rpc-secret';
+export const GARAGE_ADMIN_TOKEN_PREFIX = 'swarmy-garage-admin-token';
+/** File names under `/run/secrets/` (stable across rotations). */
+export const GARAGE_RPC_SECRET_TARGET = 'garage-rpc-secret';
+export const GARAGE_ADMIN_TOKEN_TARGET = 'garage-admin-token';
+/** Label marking a Docker secret as part of the object store (sweep scope). */
+export const GARAGE_SECRET_LABEL = 'swarmy.storage.secret';
+
+function sha8(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex').slice(0, 8);
+}
+
 /** The rendered `garage.toml` as a content-addressed swarm Docker config. */
 export function garageConfigObject(input: GarageRenderInput): { name: string; contents: string } {
   const contents = renderGarageToml(input);
-  const sha8 = createHash('sha256').update(contents, 'utf8').digest('hex').slice(0, 8);
-  return { name: `${GARAGE_CONFIG_PREFIX}-${sha8}`, contents };
+  return { name: `${GARAGE_CONFIG_PREFIX}-${sha8(contents)}`, contents };
+}
+
+/** One Docker secret the controller `secret.create`s before `storage.apply`. */
+export interface GarageSecretObject {
+  name: string;
+  /** Plaintext — goes only onto the (authenticated) wire → Docker API. */
+  value: string;
+  /** File name under `/run/secrets/`. */
+  target: string;
+}
+
+/** The store's secrets (rpc secret + admin token) as content-addressed Docker secrets. */
+export function garageSecretObjects(input: Pick<GarageRenderInput, 'rpcSecret' | 'adminToken'>): {
+  rpcSecret: GarageSecretObject;
+  adminToken: GarageSecretObject;
+} {
+  return {
+    rpcSecret: {
+      name: `${GARAGE_RPC_SECRET_PREFIX}-${sha8(input.rpcSecret)}`,
+      value: input.rpcSecret,
+      target: GARAGE_RPC_SECRET_TARGET,
+    },
+    adminToken: {
+      name: `${GARAGE_ADMIN_TOKEN_PREFIX}-${sha8(input.adminToken)}`,
+      value: input.adminToken,
+      target: GARAGE_ADMIN_TOKEN_TARGET,
+    },
+  };
+}
+
+/** Whether a Docker secret name is one of the store's (sweep scope). */
+export function isGarageSecretName(name: string): boolean {
+  return name.startsWith(`${GARAGE_RPC_SECRET_PREFIX}-`) || name.startsWith(`${GARAGE_ADMIN_TOKEN_PREFIX}-`);
 }
 
 /**
@@ -120,7 +174,12 @@ export interface GarageRenderInput {
   image?: string;
 }
 
-/** Render `garage.toml` for a member. Deterministic for a given input. */
+/**
+ * Render `garage.toml` for a member. Deterministic for a given input. Carries
+ * NO secret material: `rpc_secret_file` / `admin_token_file` point at the
+ * mounted Docker secrets (Garage refuses world-readable secret files, so the
+ * refs are mode 0400 — the image runs as root).
+ */
 export function renderGarageToml(input: GarageRenderInput): string {
   const zones = input.members.map((m) => `node:${m.nodeId}`).join(', ');
   return [
@@ -132,7 +191,7 @@ export function renderGarageToml(input: GarageRenderInput): string {
     `replication_factor = ${input.replicationFactor}`,
     '',
     `rpc_bind_addr = "[::]:${GARAGE_RPC_PORT}"`,
-    `rpc_secret = "${input.rpcSecret}"`,
+    `rpc_secret_file = "/run/secrets/${GARAGE_RPC_SECRET_TARGET}"`,
     '',
     '[s3_api]',
     `s3_region = "${input.region}"`,
@@ -141,7 +200,7 @@ export function renderGarageToml(input: GarageRenderInput): string {
     '',
     '[admin]',
     `api_bind_addr = "[::]:${GARAGE_ADMIN_PORT}"`,
-    `admin_token = "${input.adminToken}"`,
+    `admin_token_file = "/run/secrets/${GARAGE_ADMIN_TOKEN_TARGET}"`,
     '',
     `# zones: ${zones}`,
     '',
@@ -182,6 +241,11 @@ export function renderGarageDeployment(input: GarageRenderInput): RenderedStoreD
     driver: 'garage',
     files: [],
     configs: [{ source: garageConfigObject(input).name, target: GARAGE_CONFIG_PATH, mode: 0o400 }],
+    secrets: Object.values(garageSecretObjects(input)).map((s) => ({
+      source: s.name,
+      target: s.target,
+      mode: 0o400,
+    })),
     placement: { constraints: [`node.labels.${GARAGE_MEMBER_NODE_LABEL}==true`] },
     serviceMode: 'global',
     // Overlay-only: the agent publishes no ports when `networks` is set.

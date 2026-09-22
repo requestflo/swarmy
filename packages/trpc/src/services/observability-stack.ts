@@ -11,6 +11,13 @@
  * filesystem, not the host — so the tasks were rejected forever. Config names
  * are content-addressed (`<service>-<sha8>`): a changed render is a new config
  * + a service update, and superseded configs are swept after the update.
+ *
+ * SECRETS NEVER RIDE IN A CONFIG: Docker configs are readable by anyone with
+ * `docker config inspect` on a manager. The ClickHouse password is a Docker
+ * SECRET (content-addressed `swarmy-clickhouse-password-<sha8>`, mounted at
+ * `/run/secrets/clickhouse-password`): ClickHouse reads it via
+ * `CLICKHOUSE_PASSWORD_FILE`, the collector config references it via
+ * `${file:/run/secrets/clickhouse-password}`. No plaintext env either.
  */
 import { createHash } from 'node:crypto';
 import { STACK_LABEL, SYSTEM_STACK, SYSTEM_STACK_LABEL } from '@swarmy/core';
@@ -57,6 +64,14 @@ export const COLLECTOR_CONFIG_PREFIX = `${COLLECTOR_SERVICE}-config`;
 export const CLICKHOUSE_INIT_CONFIG_PREFIX = `${CLICKHOUSE_SERVICE}-init`;
 /** Label marking a Docker config as part of the observability stack (sweep scope). */
 export const OBS_CONFIG_LABEL = 'swarmy.observability.config';
+/** Label marking a Docker secret as part of the observability stack (sweep scope). */
+export const OBS_SECRET_LABEL = 'swarmy.observability.secret';
+/** Secret-name prefix for the ClickHouse password: `<prefix>-<sha8>`. */
+export const CLICKHOUSE_PASSWORD_SECRET_PREFIX = `${CLICKHOUSE_SERVICE}-password`;
+/** In-container secret file name (under `/run/secrets/`) — stable across rotations. */
+export const CLICKHOUSE_PASSWORD_TARGET = 'clickhouse-password';
+/** Absolute in-container path of the mounted ClickHouse password secret. */
+export const CLICKHOUSE_PASSWORD_FILE = `/run/secrets/${CLICKHOUSE_PASSWORD_TARGET}`;
 /**
  * Label on the ClickHouse service recording the Docker SWARM node id it is
  * pinned to. Its data lives on a node-local named volume, so a reschedule to
@@ -81,14 +96,30 @@ export interface ObservabilityConfigObject {
   target: string;
 }
 
+/**
+ * One Docker SECRET the deploy path must `secret.create` first. `value` is the
+ * plaintext (base64'd onto the wire, straight into the Docker API — never a
+ * config, label, env, or log line).
+ */
+export interface ObservabilitySecretObject {
+  name: string;
+  value: string;
+  /** File name under `/run/secrets/`. */
+  target: string;
+}
+
 export interface ObservabilityConfigSet {
   collector: ObservabilityConfigObject;
   clickhouseInit: ObservabilityConfigObject;
+  /** The ClickHouse password as a Docker secret (shared by store + collector). */
+  clickhousePassword: ObservabilitySecretObject;
 }
 
 /**
- * The rendered Docker configs the deploy path creates (idempotently — same
- * content ⇒ same name) BEFORE deploying the specs that reference them.
+ * The rendered Docker configs + secret the deploy path creates (idempotently —
+ * same content ⇒ same name) BEFORE deploying the specs that reference them.
+ * The configs carry NO secret material; the password rides only in the secret
+ * (content-addressed, so a rotated password is a new secret + service update).
  */
 export function observabilityConfigs(opts: {
   password: string;
@@ -100,8 +131,9 @@ export function observabilityConfigs(opts: {
   const collectorYaml = renderCollectorConfig({
     clickhouseHost: CLICKHOUSE_SERVICE_HOST,
     clickhouseUser: 'default',
-    clickhousePassword: opts.password,
+    clickhousePasswordFile: CLICKHOUSE_PASSWORD_FILE,
     clickhouseDatabase: database,
+    retentionDays: opts.retentionDays,
   });
   return {
     collector: {
@@ -113,6 +145,11 @@ export function observabilityConfigs(opts: {
       name: contentConfigName(CLICKHOUSE_INIT_CONFIG_PREFIX, initSql),
       contents: initSql,
       target: CLICKHOUSE_INIT_PATH,
+    },
+    clickhousePassword: {
+      name: contentConfigName(CLICKHOUSE_PASSWORD_SECRET_PREFIX, opts.password),
+      value: opts.password,
+      target: CLICKHOUSE_PASSWORD_TARGET,
     },
   };
 }
@@ -131,6 +168,21 @@ export function staleObservabilityConfigs(
     (n) =>
       (n.startsWith(`${COLLECTOR_CONFIG_PREFIX}-`) || n.startsWith(`${CLICKHOUSE_INIT_CONFIG_PREFIX}-`)) &&
       !keepSet.has(n),
+  );
+}
+
+/**
+ * Observability secrets safe to remove: carry our prefix, are not kept, and no
+ * live service still references them. Pure.
+ */
+export function staleObservabilitySecrets(
+  existing: readonly string[],
+  keep: readonly string[],
+  referenced: readonly string[] = [],
+): string[] {
+  const keepSet = new Set([...keep, ...referenced]);
+  return existing.filter(
+    (n) => n.startsWith(`${CLICKHOUSE_PASSWORD_SECRET_PREFIX}-`) && !keepSet.has(n),
   );
 }
 
@@ -156,8 +208,16 @@ export function resolveStorePin(input: StorePinInput): string | undefined {
   return input.managerSwarmNodeId || undefined;
 }
 
+/** Secret ref mounting the ClickHouse password at {@link CLICKHOUSE_PASSWORD_FILE}. */
+function passwordSecretRef(secret: string) {
+  // 0444: the collector image runs as a non-root uid; the file only exists on
+  // the task's in-memory secrets tmpfs.
+  return { source: secret, target: CLICKHOUSE_PASSWORD_TARGET, mode: 0o444 };
+}
+
 export function clickhouseServiceSpec(opts: {
-  password: string;
+  /** Content-addressed Docker SECRET carrying the password ({@link ObservabilityConfigSet}). */
+  passwordSecret: string;
   retentionDays: number;
   /** Content-addressed Docker config carrying the init DDL. */
   initConfig: string;
@@ -175,7 +235,8 @@ export function clickhouseServiceSpec(opts: {
     },
     env: {
       CLICKHOUSE_USER: 'default',
-      CLICKHOUSE_PASSWORD: opts.password,
+      // The entrypoint reads the password from the mounted secret file.
+      CLICKHOUSE_PASSWORD_FILE: CLICKHOUSE_PASSWORD_FILE,
       CLICKHOUSE_DB: 'otel',
       // Surfaced for the init DDL / TTL setup; harmless otherwise.
       SWARMY_RETENTION_DAYS: String(opts.retentionDays),
@@ -187,6 +248,7 @@ export function clickhouseServiceSpec(opts: {
     mounts: [{ type: 'volume', source: CLICKHOUSE_DATA_VOLUME, target: '/var/lib/clickhouse' }],
     // Init DDL runs on first boot from the entrypoint dir.
     configs: [{ source: opts.initConfig, target: CLICKHOUSE_INIT_PATH, mode: 0o444 }],
+    secrets: [passwordSecretRef(opts.passwordSecret)],
     ...(opts.pinSwarmNodeId
       ? { placement: { constraints: [`node.id==${opts.pinSwarmNodeId}`] } }
       : {}),
@@ -195,7 +257,8 @@ export function clickhouseServiceSpec(opts: {
 }
 
 export function collectorServiceSpec(opts: {
-  clickhouseDsn: string;
+  /** Content-addressed Docker SECRET carrying the ClickHouse password. */
+  passwordSecret: string;
   /** Content-addressed Docker config carrying the collector `config.yaml`. */
   config: string;
 }): ServiceSpec {
@@ -206,28 +269,46 @@ export function collectorServiceSpec(opts: {
     labels: { ...MANAGED_LABELS, 'swarmy.role': 'collector' },
     args: ['--config', COLLECTOR_CONFIG_PATH],
     env: {
-      // Retained for reference / debugging; the wiring lives in the config file.
-      CLICKHOUSE_ENDPOINT: opts.clickhouseDsn,
+      // Reference / debugging only — host:port, NEVER credentials (the old
+      // full DSN leaked the password into `docker service inspect`).
+      CLICKHOUSE_ENDPOINT: `tcp://${CLICKHOUSE_SERVICE_HOST}:${CLICKHOUSE_NATIVE_PORT}`,
     },
     ports: [
       { target: OTLP_GRPC_PORT, protocol: 'tcp', mode: 'ingress' },
       { target: OTLP_HTTP_PORT, protocol: 'tcp', mode: 'ingress' },
     ],
     configs: [{ source: opts.config, target: COLLECTOR_CONFIG_PATH, mode: 0o444 }],
+    // `${file:/run/secrets/clickhouse-password}` in the config resolves here.
+    secrets: [passwordSecretRef(opts.passwordSecret)],
     networks: [OTEL_OVERLAY_NETWORK],
   };
 }
 
 /**
+ * Env entries that embed ClickHouse credentials in plaintext: the legacy
+ * `CLICKHOUSE_PASSWORD=` on the store and a DSN with userinfo
+ * (`CLICKHOUSE_ENDPOINT=http://user:pw@…`) on the collector. Pure.
+ */
+export function envEmbedsClickhouseSecret(env: readonly string[] | undefined): boolean {
+  return (env ?? []).some(
+    (e) => e.startsWith('CLICKHOUSE_PASSWORD=') || /^CLICKHOUSE_ENDPOINT=[a-z]+:\/\/[^/@]*@/i.test(e),
+  );
+}
+
+type ConvergeView = Pick<SwarmServiceInfo, 'configs' | 'mounts' | 'labels'> &
+  Partial<Pick<SwarmServiceInfo, 'secrets' | 'env'>>;
+
+/**
  * Whether the live suite has drifted from what we'd deploy now: a service is
  * missing, still carries a legacy host bind mount, references a different
- * config than the current render, or ClickHouse lacks its pin. Pure — the
- * reconcile worker redeploys when this is true (legacy bind-mount specs
- * converge on the next tick).
+ * config than the current render, does not mount the current password SECRET,
+ * still embeds the password in plaintext env (secret-in-config/env installs
+ * migrate), or ClickHouse lacks its pin. Pure — the reconcile worker redeploys
+ * when this is true.
  */
 export function observabilityNeedsConverge(input: {
-  store?: Pick<SwarmServiceInfo, 'configs' | 'mounts' | 'labels'>;
-  collector?: Pick<SwarmServiceInfo, 'configs' | 'mounts' | 'labels'>;
+  store?: ConvergeView;
+  collector?: ConvergeView;
   desired: ObservabilityConfigSet;
   /** Where the store should be pinned now ({@link resolveStorePin}). */
   desiredPin?: string;
@@ -238,6 +319,9 @@ export function observabilityNeedsConverge(input: {
   if (hasBind(store) || hasBind(collector)) return true;
   if (!(store.configs ?? []).includes(desired.clickhouseInit.name)) return true;
   if (!(collector.configs ?? []).includes(desired.collector.name)) return true;
+  const secret = desired.clickhousePassword.name;
+  if (!(store.secrets ?? []).includes(secret) || !(collector.secrets ?? []).includes(secret)) return true;
+  if (envEmbedsClickhouseSecret(store.env) || envEmbedsClickhouseSecret(collector.env)) return true;
   const pinned = store.labels?.[CLICKHOUSE_NODE_LABEL];
   if (!pinned) return input.desiredPin !== undefined;
   if (input.desiredPin !== undefined && pinned !== input.desiredPin) return true;

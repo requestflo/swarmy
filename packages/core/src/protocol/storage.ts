@@ -60,6 +60,15 @@ export const RenderedStoreDeployment = z.object({
   configs: z
     .array(z.object({ source: z.string(), target: z.string(), mode: z.number().int().optional() }))
     .optional(),
+  /**
+   * Swarm Docker SECRET refs mounted into the store (e.g. Garage's rpc secret +
+   * admin token, referenced from `garage.toml` via `*_file` keys), created
+   * controller-side before dispatch — secrets never ride inside a config.
+   * `target` is the file name under `/run/secrets/`. Optional/additive.
+   */
+  secrets: z
+    .array(z.object({ source: z.string(), target: z.string(), mode: z.number().int().optional() }))
+    .optional(),
   /** Swarm placement for the store service (member pinning). Optional/additive. */
   placement: z.object({ constraints: z.array(z.string()) }).optional(),
   /** `global` = one task per eligible (member) node. Omitted ⇒ replicated x1 (legacy). */

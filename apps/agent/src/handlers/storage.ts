@@ -35,6 +35,8 @@ interface RenderedStoreDeployment {
   labels?: Record<string, string>;
   /** Swarm Docker config refs (replace the host-file bind mount; see the Zod schema). */
   configs?: { source: string; target: string; mode?: number }[];
+  /** Swarm Docker SECRET refs (rpc secret / admin token; see the Zod schema). */
+  secrets?: { source: string; target: string; mode?: number }[];
   placement?: { constraints: string[] };
   serviceMode?: 'replicated' | 'global';
   /** Overlay networks the store joins; present ⇒ NO published ports (see the Zod schema). */
@@ -137,6 +139,7 @@ export async function applyStorageNode(
         : []),
     ],
     ...(useConfigs ? { configs: r.configs } : {}),
+    ...(r.secrets?.length ? { secrets: r.secrets } : {}),
     ...(r.placement ? { placement: { constraints: r.placement.constraints } } : {}),
   };
 

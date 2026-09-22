@@ -71,6 +71,23 @@ describe('applyStorageNode — Docker configs, no host files', () => {
   });
 });
 
+describe('applyStorageNode — Docker secrets (rpc secret / admin token)', () => {
+  const secrets = [
+    { source: 'swarmy-garage-rpc-secret-11111111', target: 'garage-rpc-secret', mode: 0o400 },
+    { source: 'swarmy-garage-admin-token-22222222', target: 'garage-admin-token', mode: 0o400 },
+  ];
+  it('attaches the rendered secrets to the store service spec', async () => {
+    const { docker, calls } = fakeDocker();
+    await applyStorageNode(docker, { commandId: 'c1', rendered: { ...rendered, secrets } });
+    expect(calls.created?.secrets).toEqual(secrets);
+  });
+  it('no secrets in the render ⇒ none on the spec (legacy renders unchanged)', async () => {
+    const { docker, calls } = fakeDocker();
+    await applyStorageNode(docker, { commandId: 'c1', rendered });
+    expect(calls.created?.secrets).toBeUndefined();
+  });
+});
+
 describe('applyStorageNode — overlay-only (networks set)', () => {
   it('joins the overlay and publishes NO ports', async () => {
     const { docker, calls } = fakeDocker();

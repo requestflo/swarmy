@@ -45,3 +45,54 @@ describe('ServiceSpec.configs round-trip', () => {
     expect(opts.TaskTemplate.Placement?.Constraints).toEqual(['node.id==swarmnode1']);
   });
 });
+
+/**
+ * Docker SECRETS on a ServiceSpec survive the wire and map onto
+ * ContainerSpec.Secrets with the `/run/secrets/<target>` file name — how
+ * managed-service credentials (ClickHouse password, Garage rpc secret / admin
+ * token) reach a task without ever riding in a (world-inspectable) config.
+ */
+describe('ServiceSpec.secrets round-trip', () => {
+  const spec = {
+    name: 'swarmy-clickhouse',
+    image: 'clickhouse/clickhouse-server:24.8-alpine',
+    env: { CLICKHOUSE_PASSWORD_FILE: '/run/secrets/clickhouse-password' },
+    secrets: [{ source: 'swarmy-clickhouse-password-abcd1234', target: 'clickhouse-password', mode: 0o444 }],
+  };
+
+  it('parses through ControllerToAgentMessage unchanged', () => {
+    const wire = JSON.parse(
+      JSON.stringify({ type: 'deployService', payload: { commandId: CMD_ID, spec } }),
+    );
+    const parsed = ControllerToAgentMessage.parse(wire);
+    if (parsed.type !== 'deployService') throw new Error('wrong type');
+    expect(parsed.payload.spec.secrets).toEqual(spec.secrets);
+  });
+
+  it('maps to ContainerSpec.Secrets with File.Name = target', () => {
+    const opts = toServiceCreateOptions(spec) as {
+      TaskTemplate: { ContainerSpec: { Secrets?: unknown[] } };
+    };
+    expect(opts.TaskTemplate.ContainerSpec.Secrets).toEqual([
+      {
+        SecretName: 'swarmy-clickhouse-password-abcd1234',
+        File: { Name: 'clickhouse-password', UID: '0', GID: '0', Mode: 0o444 },
+      },
+    ]);
+  });
+
+  it('applyStorageNode carries rendered.secrets over the wire (Garage *_file secrets)', () => {
+    const rendered = {
+      driver: 'garage',
+      serviceName: 'swarmy-garage',
+      image: 'dxflrs/garage:v1.0.1',
+      s3Port: 3900,
+      secrets: [{ source: 'swarmy-garage-rpc-secret-11111111', target: 'garage-rpc-secret', mode: 0o400 }],
+    };
+    const parsed = ControllerToAgentMessage.parse(
+      JSON.parse(JSON.stringify({ type: 'applyStorageNode', payload: { commandId: CMD_ID, rendered } })),
+    );
+    if (parsed.type !== 'applyStorageNode') throw new Error('wrong type');
+    expect(parsed.payload.rendered.secrets).toEqual(rendered.secrets);
+  });
+});

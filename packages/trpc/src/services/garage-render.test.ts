@@ -11,6 +11,8 @@ import {
   garageAdminUrl,
   effectiveReplicationFactor,
   garageConfigObject,
+  garageSecretObjects,
+  isGarageSecretName,
   type GarageRenderInput,
 } from './garage-render';
 
@@ -31,10 +33,10 @@ describe('garage config render', () => {
   it('renders a deterministic garage.toml (golden)', () => {
     const toml = renderGarageToml(BASE);
     expect(toml).toContain('replication_factor = 3');
-    expect(toml).toContain(`rpc_secret = "${BASE.rpcSecret}"`);
+    expect(toml).toContain('rpc_secret_file = "/run/secrets/garage-rpc-secret"');
     expect(toml).toContain(`api_bind_addr = "[::]:${GARAGE_S3_PORT}"`);
     expect(toml).toContain('s3_region = "swarmy"');
-    expect(toml).toContain(`admin_token = "${BASE.adminToken}"`);
+    expect(toml).toContain('admin_token_file = "/run/secrets/garage-admin-token"');
     // stable across calls
     expect(renderGarageToml(BASE)).toBe(toml);
   });
@@ -93,6 +95,44 @@ describe('garage deployment — Docker config + member pinning', () => {
     const r = renderGarageDeployment(BASE);
     expect(r.serviceMode).toBe('global');
     expect(r.placement).toEqual({ constraints: [`node.labels.${GARAGE_MEMBER_NODE_LABEL}==true`] });
+  });
+});
+
+describe('garage secrets — Docker secrets, never inside the config', () => {
+  it('garage.toml (a world-inspectable Docker config) carries NO secret material', () => {
+    const cfg = garageConfigObject(BASE);
+    expect(cfg.contents).not.toContain(BASE.rpcSecret);
+    expect(cfg.contents).not.toContain(BASE.adminToken);
+    expect(cfg.contents).not.toMatch(/^\s*(rpc_secret|admin_token|metrics_token)\s*=/m);
+    // The whole render (what rides the wire as `rendered`) never embeds the rpc secret.
+    expect(JSON.stringify({ ...renderGarageDeployment(BASE), adminApi: undefined })).not.toContain(BASE.rpcSecret);
+  });
+
+  it('attaches the rpc secret + admin token as content-addressed secrets at the *_file targets', () => {
+    const s = garageSecretObjects(BASE);
+    expect(s.rpcSecret.name).toMatch(/^swarmy-garage-rpc-secret-[0-9a-f]{8}$/);
+    expect(s.adminToken.name).toMatch(/^swarmy-garage-admin-token-[0-9a-f]{8}$/);
+    expect(s.rpcSecret.value).toBe(BASE.rpcSecret);
+    expect(s.adminToken.value).toBe(BASE.adminToken);
+    // Garage refuses world-readable secret files ⇒ 0400.
+    expect(renderGarageDeployment(BASE).secrets).toEqual([
+      { source: s.rpcSecret.name, target: 'garage-rpc-secret', mode: 0o400 },
+      { source: s.adminToken.name, target: 'garage-admin-token', mode: 0o400 },
+    ]);
+  });
+
+  it('rotation: a new secret value is a new secret name, same toml/config', () => {
+    const rotated = { ...BASE, adminToken: 'rotated-token' };
+    expect(garageSecretObjects(rotated).adminToken.name).not.toBe(garageSecretObjects(BASE).adminToken.name);
+    expect(garageSecretObjects(rotated).rpcSecret.name).toBe(garageSecretObjects(BASE).rpcSecret.name);
+    expect(garageConfigObject(rotated).name).toBe(garageConfigObject(BASE).name);
+  });
+
+  it('isGarageSecretName scopes the sweep to our prefixes', () => {
+    expect(isGarageSecretName(garageSecretObjects(BASE).rpcSecret.name)).toBe(true);
+    expect(isGarageSecretName(garageSecretObjects(BASE).adminToken.name)).toBe(true);
+    expect(isGarageSecretName('swarmy-cache-shop_main-password')).toBe(false);
+    expect(isGarageSecretName('swarmy-garage-rpc-secret')).toBe(false);
   });
 });
 

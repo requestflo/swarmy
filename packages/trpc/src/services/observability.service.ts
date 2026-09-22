@@ -35,15 +35,18 @@ import {
   observabilityNeedsConverge,
   resolveStorePin,
   staleObservabilityConfigs,
+  staleObservabilitySecrets,
   CLICKHOUSE_HTTP_PORT,
   CLICKHOUSE_NODE_LABEL,
   CLICKHOUSE_SERVICE,
   CLICKHOUSE_SERVICE_HOST,
   COLLECTOR_SERVICE,
   OBS_CONFIG_LABEL,
+  OBS_SECRET_LABEL,
   OTEL_OVERLAY_NETWORK,
   type ObservabilityConfigObject,
   type ObservabilityConfigSet,
+  type ObservabilitySecretObject,
 } from './observability-stack';
 import {
   buildTracesQuery,
@@ -488,7 +491,9 @@ async function deployStore(ctx: OrgContext, dsnPlain: string): Promise<void> {
   const retentionDays = await retentionFor(ctx);
   const configs = desiredConfigs(dsn, retentionDays);
 
-  // 1. Docker configs first — the specs reference them by name.
+  // 1. Docker secret + configs first — the specs reference them by name. The
+  //    password rides ONLY in the secret; the configs carry no secret material.
+  await createSecretIdempotent(ctx, node.id, configs.clickhousePassword);
   for (const cfg of [configs.clickhouseInit, configs.collector]) {
     await createConfigIdempotent(ctx, node.id, cfg);
   }
@@ -496,19 +501,21 @@ async function deployStore(ctx: OrgContext, dsnPlain: string): Promise<void> {
   // 2. Deploy the store (pinned), then the collector.
   const specs: ServiceSpec[] = [
     clickhouseServiceSpec({
-      password: dsn.password,
+      passwordSecret: configs.clickhousePassword.name,
       retentionDays,
       initConfig: configs.clickhouseInit.name,
       pinSwarmNodeId: storePin(ctx, node.id),
     }),
-    collectorServiceSpec({ clickhouseDsn: dsnPlain, config: configs.collector.name }),
+    collectorServiceSpec({ passwordSecret: configs.clickhousePassword.name, config: configs.collector.name }),
   ];
   for (const spec of specs) {
     await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'missing' });
   }
 
-  // 3. Drop superseded configs now that no spec references them.
+  // 3. Drop superseded configs (incl. legacy ones that embedded the password)
+  //    and secrets now that no spec references them.
   await sweepStaleConfigs(ctx, node.id, [configs.clickhouseInit.name, configs.collector.name]);
+  await sweepStaleSecrets(ctx, node.id, [configs.clickhousePassword.name]);
 
   // 4. Replay the idempotent init DDL over HTTP (best-effort; store may still be
   //    booting on first enable — the entrypoint init covers that case).
@@ -547,6 +554,35 @@ async function createConfigIdempotent(
     });
   } catch (e) {
     if (!/already exists|conflict/i.test(e instanceof Error ? e.message : String(e))) throw e;
+  }
+}
+
+/** `secret.create`, tolerating "already exists" (content-addressed ⇒ same value). */
+async function createSecretIdempotent(
+  ctx: OrgContext,
+  nodeId: string,
+  secret: ObservabilitySecretObject,
+): Promise<void> {
+  try {
+    await ctx.hub.dispatch(nodeId, 'secret.create', {
+      name: secret.name,
+      dataB64: Buffer.from(secret.value, 'utf8').toString('base64'),
+      labels: { 'swarmy.managed': 'true', [OBS_SECRET_LABEL]: 'true' },
+    });
+  } catch (e) {
+    if (!/already exists|conflict/i.test(e instanceof Error ? e.message : String(e))) throw e;
+  }
+}
+
+/** Best-effort removal of observability secrets not in `keep`. */
+async function sweepStaleSecrets(ctx: OrgContext, nodeId: string, keep: string[]): Promise<void> {
+  try {
+    const res = await ctx.hub.dispatch<{ secrets?: Array<{ name: string }> }>(nodeId, 'secret.list', {});
+    for (const name of staleObservabilitySecrets((res.secrets ?? []).map((s) => s.name), keep)) {
+      await ctx.hub.dispatch(nodeId, 'secret.remove', { name }).catch(() => undefined);
+    }
+  } catch {
+    // best-effort — an in-use secret refuses removal; retried on the next converge.
   }
 }
 
@@ -627,8 +663,9 @@ async function teardownStore(ctx: OrgContext): Promise<void> {
   for (const name of [COLLECTOR_SERVICE, CLICKHOUSE_SERVICE]) {
     await ctx.hub.dispatch(node.id, 'service.remove', { service: name }).catch(() => undefined);
   }
-  // The rendered configs go with the services (zero footprint when off).
+  // The rendered configs + password secret go with the services (zero footprint when off).
   await sweepStaleConfigs(ctx, node.id, []);
+  await sweepStaleSecrets(ctx, node.id, []);
 }
 
 async function retentionFor(ctx: OrgContext): Promise<number> {
