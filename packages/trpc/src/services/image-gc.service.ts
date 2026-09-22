@@ -17,6 +17,7 @@ import type { AgentHub } from '../hub/types';
 import {
   bareDigest,
   computeGcPlan,
+  convergeRegistryAuth,
   systemContext,
   type GcCandidate,
 } from './cicd.service';
@@ -139,6 +140,16 @@ export async function runImageGcForOrg(
 
 /** Run GC across every org that has a policy. Used by the worker tick. */
 export async function runImageGcAllOrgs(deps: { db: DB; hub: AgentHub; auth: Auth }): Promise<GcRunResult[]> {
+  // Registry auth converge rides the same tick: an enabled registry that is
+  // still open (pre-auth install) or drifted from its stored login is closed.
+  try {
+    const registries = await deps.db.registryConfig.findMany({ where: { enabled: true }, select: { orgId: true } });
+    for (const r of registries) {
+      await convergeRegistryAuth(systemContext(deps, r.orgId)).catch(() => undefined);
+    }
+  } catch {
+    // Never let the registry converge break GC.
+  }
   const policies = await deps.db.imageGcPolicy.findMany({ select: { orgId: true } });
   const out: GcRunResult[] = [];
   for (const p of policies) {

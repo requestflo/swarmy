@@ -31,13 +31,22 @@ import { writeAudit } from './audit.service';
 import { buildLogBus } from './build-log-bus';
 import { liveService } from './service.service';
 import { promoteSpecFrom } from './releases.service';
-import { DEFAULT_REGISTRY_HOST, canonicalRegistryHost, onImageBuilt } from './registryPolicy.service'; // D3 hook
+import { DEFAULT_REGISTRY_HOST, canonicalRegistryHost, isOrgRegistryImage, onImageBuilt } from './registryPolicy.service'; // D3 hook
 
 export type GitProvider = 'github' | 'gitlab';
 
-const REGISTRY_SERVICE_NAME = 'swarmy-registry';
-const REGISTRY_IMAGE = 'registry:2';
-const REGISTRY_PORT = 5000;
+import {
+  REGISTRY_AUTH_USERNAME,
+  REGISTRY_HTPASSWD_SECRET_PREFIX,
+  REGISTRY_SERVICE_NAME,
+  decodeRegistryCreds,
+  generateRegistryCreds,
+  htpasswdSecretName,
+  registryAuthConverged,
+  registryServiceSpec,
+  renderHtpasswd,
+  type RegistryCreds,
+} from './registry-auth';
 
 // ── Views (secrets never included) ──────────────────────────────────────────
 
@@ -68,6 +77,12 @@ export interface RegistryConfigView {
   enabled: boolean;
   host: string | null;
   hasCreds: boolean;
+  /** Login username (never the password). `swarmy` = the auto-generated login. */
+  username: string | null;
+  /** 'auto-generated' (swarmy minted it), 'custom' (operator-supplied), or null (no login). */
+  login: 'auto-generated' | 'custom' | null;
+  /** The LIVE registry service enforces htpasswd auth with the stored login. */
+  authEnforced: boolean;
   online: boolean;
   updatedAt: string;
 }
@@ -230,6 +245,8 @@ async function runBuild(
   opts: { ref?: string; commit?: string; triggeredBy?: 'user' | 'system' },
 ): Promise<BuildView> {
   const node = await resolveBuilderNode(ctx);
+  // Close an open (pre-auth) registry before pushing to it — best-effort.
+  await convergeRegistryAuth(ctx).catch(() => undefined);
   const reg = await ensureRegistryConfig(ctx);
   const host = canonicalRegistryHost(reg.host);
   const ref = opts.ref ?? repo.branch;
@@ -249,9 +266,7 @@ async function runBuild(
     },
   });
 
-  const credsEnc = reg.credentialsEnc
-    ? (JSON.parse(decryptSecret(reg.credentialsEnc)) as { username: string; password: string })
-    : null;
+  const credsEnc = decodeRegistryCreds(reg.credentialsEnc);
 
   try {
     const result = await ctx.hub.dispatch<{ digest: string; imageRefs: string[] }>(
@@ -431,10 +446,15 @@ function toBuildView(
 
 export async function getRegistryConfig(ctx: OrgContext): Promise<RegistryConfigView> {
   const row = await ensureRegistryConfig(ctx);
+  const creds = decodeRegistryCreds(row.credentialsEnc);
+  const live = liveRegistryService(ctx);
   return {
     enabled: row.enabled,
     host: canonicalRegistryHost(row.host),
-    hasCreds: Boolean(row.credentialsEnc),
+    hasCreds: Boolean(creds),
+    username: creds?.username ?? null,
+    login: creds ? (creds.username === REGISTRY_AUTH_USERNAME ? 'auto-generated' : 'custom') : null,
+    authEnforced: Boolean(creds && live && registryAuthConverged(live, htpasswdSecretName(creds))),
     online: row.enabled && (await registryNodeOnline(ctx)),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -443,7 +463,10 @@ export async function getRegistryConfig(ctx: OrgContext): Promise<RegistryConfig
 /**
  * Enable/disable the in-swarm registry. Enabling deploys a single-replica
  * `registry:2` swarm service on the `swarmy` overlay via the existing
- * `service.deploy` command path (it's just a swarm service swarmy manages).
+ * `service.deploy` command path (it's just a swarm service swarmy manages),
+ * with htpasswd auth ENFORCED: a login is auto-generated on first enable (or an
+ * operator-supplied one is used) and stored encrypted; every push/pull swarmy
+ * makes carries it automatically.
  */
 export async function setRegistryEnabled(
   ctx: OrgContext,
@@ -452,32 +475,24 @@ export async function setRegistryEnabled(
   const row = await ensureRegistryConfig(ctx);
   // Persisting the canonical host also migrates a legacy `swarmy-registry:5000` row.
   const host = canonicalRegistryHost(row.host);
-  const credentialsEnc =
-    input.username && input.password
-      ? encryptSecret(JSON.stringify({ username: input.username, password: input.password }))
-      : row.credentialsEnc;
+  const supplied = input.username && input.password ? { username: input.username, password: input.password } : null;
+  const existing = decodeRegistryCreds(row.credentialsEnc);
+  // Enabling never leaves the registry open: reuse the stored login, else mint one.
+  const creds = supplied ?? existing ?? (input.enabled ? generateRegistryCreds() : null);
+  const credsChanged = Boolean(creds) && (creds?.username !== existing?.username || creds?.password !== existing?.password);
+  const credentialsEnc = creds && credsChanged ? encryptSecret(JSON.stringify(creds)) : row.credentialsEnc;
 
   await ctx.db.registryConfig.update({
     where: { orgId: ctx.activeOrgId },
     data: { enabled: input.enabled, host, credentialsEnc },
   });
 
-  if (input.enabled) {
-    const node = await resolveManagerNode(ctx);
-    await ctx.hub
-      .dispatch(node.id, 'service.deploy', {
-        spec: {
-          name: REGISTRY_SERVICE_NAME,
-          image: REGISTRY_IMAGE,
-          mode: { replicated: { replicas: 1 } },
-          ports: [{ target: REGISTRY_PORT, published: REGISTRY_PORT, protocol: 'tcp', mode: 'ingress' }],
-          networks: ['swarmy'],
-          mounts: [{ type: 'volume', source: 'swarmy-registry-data', target: '/var/lib/registry' }],
-        },
-        pullPolicy: 'missing',
-      })
-      .catch(() => undefined);
-  } else {
+  if (input.enabled && creds) {
+    await deployAuthedRegistry(ctx, creds).catch(() => undefined);
+    // A new login invalidates the pull creds services already carry (and
+    // services deployed while the registry was open carry none).
+    if (credsChanged) void reauthOrgRegistryServices(ctx, host).catch(() => undefined);
+  } else if (!input.enabled) {
     const node = await resolveManagerNode(ctx).catch(() => null);
     if (node) await ctx.hub.dispatch(node.id, 'service.remove', { service: REGISTRY_SERVICE_NAME }).catch(() => undefined);
   }
@@ -486,8 +501,130 @@ export async function setRegistryEnabled(
     action: input.enabled ? 'cicd.registry.enable' : 'cicd.registry.disable',
     targetType: 'registryConfig',
     targetId: ctx.activeOrgId,
+    metadata: { login: supplied ? 'custom' : creds ? 'auto-generated' : 'none', credsChanged },
   });
   return getRegistryConfig(ctx);
+}
+
+/**
+ * Rotate the registry login: mint a new password, re-render the htpasswd secret
+ * (new content-addressed name), update the registry, then re-stamp the pull
+ * creds on every live service that pulls from it (a rolling update, exactly
+ * like `docker service update --with-registry-auth`).
+ */
+export async function rotateRegistryCredentials(ctx: OrgContext): Promise<RegistryConfigView> {
+  const row = await ensureRegistryConfig(ctx);
+  if (!row.enabled) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Enable the registry first.' });
+  const creds = generateRegistryCreds();
+  await ctx.db.registryConfig.update({
+    where: { orgId: ctx.activeOrgId },
+    data: { credentialsEnc: encryptSecret(JSON.stringify(creds)) },
+  });
+  await deployAuthedRegistry(ctx, creds);
+  const host = canonicalRegistryHost(row.host);
+  const reauthed = await reauthOrgRegistryServices(ctx, host).catch(() => 0);
+  await writeAudit(ctx, {
+    action: 'cicd.registry.rotate',
+    targetType: 'registryConfig',
+    targetId: ctx.activeOrgId,
+    metadata: { reauthedServices: reauthed },
+  });
+  return getRegistryConfig(ctx);
+}
+
+/**
+ * Converge an ENABLED registry onto enforced auth: mints + stores a login when
+ * none exists (a pre-auth install), and redeploys the registry when the live
+ * service is not running htpasswd auth with the stored login's secret. Reads
+ * the live service from the hub (Docker truth); a registry the hub cannot see
+ * (not deployed / hub warming up) is left alone. Called before builds and by
+ * the image-gc worker tick.
+ */
+export async function convergeRegistryAuth(ctx: OrgContext): Promise<'noop' | 'converged' | 'skipped'> {
+  const row = await ensureRegistryConfig(ctx);
+  if (!row.enabled) return 'skipped';
+  const live = liveRegistryService(ctx);
+  if (!live) return 'skipped';
+  const existing = decodeRegistryCreds(row.credentialsEnc);
+  if (existing && registryAuthConverged(live, htpasswdSecretName(existing))) return 'noop';
+  const creds = existing ?? generateRegistryCreds();
+  if (!existing) {
+    await ctx.db.registryConfig.update({
+      where: { orgId: ctx.activeOrgId },
+      data: { credentialsEnc: encryptSecret(JSON.stringify(creds)) },
+    });
+  }
+  await deployAuthedRegistry(ctx, creds);
+  // Services deployed while the registry was open carry no pull creds.
+  const reauthed = await reauthOrgRegistryServices(ctx, canonicalRegistryHost(row.host)).catch(() => 0);
+  await writeAudit(ctx, {
+    action: 'cicd.registry.authConverge',
+    targetType: 'registryConfig',
+    targetId: ctx.activeOrgId,
+    actorType: ctx.user ? 'user' : 'system',
+    metadata: { minted: !existing, reauthedServices: reauthed },
+  });
+  return 'converged';
+}
+
+/**
+ * Deliver the htpasswd as a content-addressed Docker secret, deploy the
+ * registry with auth enforced, then best-effort remove superseded htpasswd
+ * secrets (no longer referenced once the service spec moved on).
+ */
+async function deployAuthedRegistry(ctx: OrgContext, creds: RegistryCreds): Promise<void> {
+  const node = await resolveManagerNode(ctx);
+  const secretName = htpasswdSecretName(creds);
+  const dataB64 = Buffer.from(await renderHtpasswd(creds), 'utf8').toString('base64');
+  try {
+    await ctx.hub.dispatch(node.id, 'secret.create', {
+      name: secretName,
+      dataB64,
+      labels: { 'swarmy.managed': 'true', 'swarmy.registry.htpasswd': 'true' },
+    });
+  } catch (e) {
+    // Same name ⇒ same login (content-addressed): an existing secret is fine.
+    if (!/already exists|conflict/i.test(e instanceof Error ? e.message : String(e))) throw e;
+  }
+  await ctx.hub.dispatch(node.id, 'service.deploy', { spec: registryServiceSpec(secretName), pullPolicy: 'missing' });
+  try {
+    const listed = await ctx.hub.dispatch<{ secrets?: Array<{ name: string }> }>(node.id, 'secret.list', {});
+    for (const s of listed?.secrets ?? []) {
+      if (s.name.startsWith(REGISTRY_HTPASSWD_SECRET_PREFIX) && s.name !== secretName) {
+        await ctx.hub.dispatch(node.id, 'secret.remove', { name: s.name }).catch(() => undefined);
+      }
+    }
+  } catch {
+    // Stale secrets are harmless (the registry no longer mounts them).
+  }
+}
+
+/**
+ * Re-stamp pull creds on every live service pulling from the org registry: a
+ * full-spec redeploy (rebuilt from the live inspect, image unchanged) through
+ * `service.deploy`, which the hub decorator decorates with the CURRENT login.
+ * Returns how many services were updated.
+ */
+async function reauthOrgRegistryServices(ctx: OrgContext, host: string): Promise<number> {
+  const node = await resolveManagerNode(ctx);
+  let n = 0;
+  for (const svc of ctx.hub.liveInventory(ctx.activeOrgId).services) {
+    if (svc.name === REGISTRY_SERVICE_NAME || !isOrgRegistryImage(svc.image, host)) continue;
+    try {
+      const raw = await ctx.hub.dispatch<{ inspect?: unknown }>(node.id, 'service.inspect', { service: svc.name });
+      const spec = promoteSpecFrom(raw?.inspect, svc.image, svc.networks.map((x) => x.name));
+      if (!spec) continue;
+      await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'missing' });
+      n++;
+    } catch {
+      // Best-effort per service; the next converge/rotation retries.
+    }
+  }
+  return n;
+}
+
+function liveRegistryService(ctx: OrgContext) {
+  return ctx.hub.liveInventory(ctx.activeOrgId).services.find((s) => s.name === REGISTRY_SERVICE_NAME);
 }
 
 // ── GC policy ────────────────────────────────────────────────────────────────

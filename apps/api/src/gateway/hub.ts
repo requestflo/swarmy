@@ -18,6 +18,7 @@ import {
   COMMAND_PROTOCOL_TYPE,
   type AgentHub,
   type CommandName,
+  type DispatchDecorator,
 } from '@swarmy/trpc';
 import { asyncQueue, GatewayStore } from './store';
 import { pickCommandId } from './command-id';
@@ -35,6 +36,7 @@ function frame(type: string, payload: unknown) {
 
 export class AgentHubImpl implements AgentHub {
   private pending = new Map<string, Pending>();
+  private decorate: DispatchDecorator | undefined;
 
   constructor(
     readonly store: GatewayStore,
@@ -64,6 +66,14 @@ export class AgentHubImpl implements AgentHub {
     return terminalHub.killSession(sessionId);
   }
 
+  /**
+   * Install the payload hook every dispatch passes through (e.g. registry pull
+   * auth for org-registry deploys). One place, so no call site can forget it.
+   */
+  setDispatchDecorator(fn: DispatchDecorator | undefined): void {
+    this.decorate = fn;
+  }
+
   /** Called by the protocol handler when a `commandResult` arrives. */
   settleCommand(commandId: string, ok: boolean, data?: unknown, error?: { message: string }): void {
     const p = this.pending.get(commandId);
@@ -85,6 +95,11 @@ export class AgentHubImpl implements AgentHub {
     opts?: { timeoutMs?: number },
   ): Promise<R> {
     if (!this.registry.isOnline(nodeId)) throw new Error(`node ${nodeId} is offline`);
+    const orgId = this.store.nodeOrg.get(nodeId);
+    if (this.decorate && orgId) {
+      // Fail open: a decorator error must never block the command itself.
+      payload = await this.decorate(orgId, cmd, payload).catch(() => payload);
+    }
     const commandId = pickCommandId(payload, (id) => this.pending.has(id));
     const type = COMMAND_PROTOCOL_TYPE[cmd];
     const body = { ...(payload as Record<string, unknown>), commandId };

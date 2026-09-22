@@ -45,6 +45,9 @@ interface RegistryConfigView {
   enabled: boolean;
   host: string | null;
   hasCreds: boolean;
+  username: string | null;
+  login: 'auto-generated' | 'custom' | null;
+  authEnforced: boolean;
   online: boolean;
   updatedAt: string;
 }
@@ -209,6 +212,9 @@ function buildSeed(): CicdState {
       enabled: true,
       host: REGISTRY_HOST,
       hasCreds: true,
+      username: 'swarmy',
+      login: 'auto-generated',
+      authEnforced: true,
       online: true,
       updatedAt: iso(3 * DAY),
     },
@@ -400,10 +406,19 @@ export const cicd: DomainResolvers = {
         ...st.registry,
         enabled: b.enabled,
         host: REGISTRY_HOST,
-        hasCreds: st.registry.hasCreds || Boolean(b.username && b.password),
+        hasCreds: true,
+        username: b.username && b.password ? b.username : (st.registry.username ?? 'swarmy'),
+        login: b.username && b.password ? 'custom' : (st.registry.login ?? 'auto-generated'),
+        authEnforced: b.enabled,
         online: b.enabled,
         updatedAt: new Date().toISOString(),
       };
+      return st.registry;
+    },
+
+    'cicd.rotateRegistryCredentials': (_i, s): RegistryConfigView => {
+      const st = state(s);
+      st.registry = { ...st.registry, username: 'swarmy', login: 'auto-generated', updatedAt: new Date().toISOString() };
       return st.registry;
     },
 

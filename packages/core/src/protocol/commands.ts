@@ -120,6 +120,13 @@ export const DeployServicePayload = z.object({
   ...cmd,
   spec: ServiceSpec,
   pullPolicy: z.enum(['always', 'missing', 'never']).default('missing'),
+  /**
+   * Pull credentials the swarm stores with the service (`X-Registry-Auth`, the
+   * `docker stack deploy --with-registry-auth` equivalent) so EVERY node can
+   * pull a private image. Attached centrally by the controller hub for
+   * org-registry images; additive — older agents ignore it.
+   */
+  registryAuth: RegistryAuth.optional(),
 });
 export const DeployServiceMsg = z.object({
   type: z.literal('deployService'),

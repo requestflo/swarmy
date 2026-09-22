@@ -11,6 +11,7 @@ import {
   removeRepo,
   setGcPolicy,
   setRegistryEnabled,
+  rotateRegistryCredentials,
   subscribeBuildLog,
   triggerBuild,
 } from '../services/cicd.service';
@@ -69,6 +70,8 @@ export const cicdRouter = router({
   setRegistryEnabled: adminProcedure
     .input(z.object({ enabled: z.boolean(), username: z.string().optional(), password: z.string().optional() }))
     .mutation(({ ctx, input }) => setRegistryEnabled(ctx, input)),
+  /** Mint a new auto-generated login; re-stamps pull creds on registry-backed services. */
+  rotateRegistryCredentials: adminProcedure.mutation(({ ctx }) => rotateRegistryCredentials(ctx)),
 
   // ── GC policy ──
   getGcPolicy: orgProcedure.query(({ ctx }) => getGcPolicy(ctx)),

@@ -64,6 +64,13 @@ interface DockerInfoLike {
  * shapes onto the swarmy wire protocol. The controller never imports this — it
  * only ever sees the protocol types the agent emits.
  */
+/** dockerode auth object → `X-Registry-Auth` (base64 JSON) on service create/update. */
+export interface ServiceAuthConfig {
+  username: string;
+  password: string;
+  serveraddress?: string;
+}
+
 export class DockerClient {
   readonly docker: Docker;
 
@@ -520,10 +527,40 @@ export class DockerClient {
     }
   }
 
-  async createService(spec: ServiceSpec): Promise<string> {
+  /**
+   * Create a swarm service. `authconfig` (optional) becomes the `X-Registry-Auth`
+   * header, so the swarm stores the pull credentials with the service and every
+   * node can pull a private image (`docker service create --with-registry-auth`).
+   */
+  async createService(spec: ServiceSpec, authconfig?: ServiceAuthConfig): Promise<string> {
     const options = await this.prepareServiceOptions(spec);
-    const created = await this.docker.createService(options);
-    return (created as unknown as { id?: string; ID?: string }).id ?? (created as { ID?: string }).ID ?? '';
+    const created = authconfig
+      ? // dockerode's (auth, opts) overload is untyped; passing auth positionally
+        // keeps it OUT of the JSON body (header only).
+        await (this.docker.createService as unknown as (a: ServiceAuthConfig, o: unknown) => Promise<unknown>).call(
+          this.docker,
+          authconfig,
+          options,
+        )
+      : await this.docker.createService(options);
+    return (created as { id?: string; ID?: string }).id ?? (created as { ID?: string }).ID ?? '';
+  }
+
+  /**
+   * Update a service with a full options body, optionally re-stamping the pull
+   * credentials (`docker service update --with-registry-auth`). Without auth the
+   * swarm keeps whatever credentials the service already carries.
+   */
+  async updateServiceWithAuth(
+    svc: Docker.Service,
+    body: Record<string, unknown>,
+    authconfig?: ServiceAuthConfig,
+  ): Promise<void> {
+    if (!authconfig) {
+      await svc.update(body);
+      return;
+    }
+    await (svc.update as unknown as (a: ServiceAuthConfig, o: unknown) => Promise<unknown>).call(svc, authconfig, body);
   }
 
   /**

@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DockerClient, toServiceCreateOptions } from '@swarmy/core/docker';
-import type { ControllerEnvelope, RenderedConfig, ServiceSpec } from '@swarmy/core/protocol';
+import type { ControllerEnvelope, RegistryAuth, RenderedConfig, ServiceSpec } from '@swarmy/core/protocol';
 import type { AgentConnection } from './connection';
 import { buildGateAllows, BUILDER_ENABLE_HINT } from '@swarmy/core';
 import { env } from './env';
@@ -53,8 +53,8 @@ export async function handleCommand(
       conn.send('ack', { refId: envlp.id, accepted: true });
       return;
     case 'deployService': {
-      const { commandId, spec } = envlp.payload;
-      await run(conn, commandId, () => deployOrUpdate(docker, spec));
+      const { commandId, spec, registryAuth } = envlp.payload;
+      await run(conn, commandId, () => deployOrUpdate(docker, spec, registryAuth ?? spec.registryAuth));
       pushInventory(docker, conn);
       return;
     }
@@ -318,18 +318,24 @@ async function run(
   }
 }
 
-async function deployOrUpdate(
+export async function deployOrUpdate(
   docker: DockerClient,
   spec: ServiceSpec,
+  registryAuth?: RegistryAuth,
 ): Promise<{ serviceId: string; created: boolean }> {
+  // Pull creds ride the X-Registry-Auth header (never the spec body) so the swarm
+  // stores them with the service and every node can pull a private image.
+  const auth = registryAuth
+    ? { username: registryAuth.username, password: registryAuth.password, serveraddress: registryAuth.server }
+    : undefined;
   const existing = await docker.getServiceByName(spec.name);
   if (!existing) {
-    const id = await docker.createService(spec);
+    const id = await docker.createService(spec, auth);
     return { serviceId: id, created: true };
   }
   const inspect = await existing.inspect();
   const opts = (await docker.prepareServiceOptions(spec)) as Record<string, unknown>;
-  await existing.update({ version: inspect.Version.Index, ...opts });
+  await docker.updateServiceWithAuth(existing, { version: inspect.Version.Index, ...opts }, auth);
   return { serviceId: inspect.ID, created: false };
 }
 

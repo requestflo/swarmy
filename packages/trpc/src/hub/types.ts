@@ -51,6 +51,14 @@ export type CommandName =
   | 'container.runOnce' // one-shot utility container → { exitCode, output }
   | 'agent.update'; // self-update: download + verify + swap the agent binary (or recreate its container)
 
+/**
+ * Hub-level payload hook applied to EVERY dispatch before it is sent (e.g. the
+ * registry-auth decorator attaching pull creds to org-registry deploys). Gets the
+ * node's org; returns the (possibly augmented) payload. Must not throw — the hub
+ * falls back to the original payload if it does.
+ */
+export type DispatchDecorator = (orgId: string, cmd: CommandName, payload: unknown) => Promise<unknown>;
+
 /** CommandName → wire protocol message `type` (see @swarmy/core/protocol). */
 export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'service.deploy': 'deployService',

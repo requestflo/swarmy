@@ -5,6 +5,7 @@ export type {
   AgentHub,
   CommandName,
   CommandResult,
+  DispatchDecorator,
 } from './hub/types';
 export { COMMAND_PROTOCOL_TYPE } from './hub/types';
 export { writeAudit } from './services/audit.service';
@@ -60,6 +61,9 @@ export {
   computePinnedDigests,
 } from './services/image-gc.service';
 export type { GcRunResult } from './services/image-gc.service';
+// In-swarm registry auth: the hub dispatch decorator attaching pull creds to
+// org-registry deploys (wired onto AgentHubImpl in apps/api).
+export { createRegistryAuthDecorator } from './services/registry-auth';
 
 // ── data-store P1: controller-state backup/restore seams ──
 export { isBackupDue, runControllerBackup } from './services/controllerBackup.service';
