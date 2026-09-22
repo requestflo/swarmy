@@ -1,8 +1,10 @@
 name: Release
 
+# Manual until launch: the first release off `main` is v1.0.0, so it is cut
+# deliberately (Actions → Release → Run workflow), not by the next push.
+# Restore `push: branches: [main]` after launch for continuous releases.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
