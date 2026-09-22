@@ -356,6 +356,13 @@ deploy_stack() {
 enrol_node1() {
   state_load
   if docker ps --format '{{.Names}}' | grep -qx "$AGENT_CONTAINER"; then
+    # Older installs attached the agent to the stack-prefixed `swarmy_swarmy`;
+    # move it onto the shared overlay the controller now lives on.
+    if ! docker inspect "$AGENT_CONTAINER" --format '{{json .NetworkSettings.Networks}}' | grep -q "\"$OVERLAY_NET\""; then
+      docker network connect "$OVERLAY_NET" "$AGENT_CONTAINER" >/dev/null 2>&1 || true
+      docker network disconnect "${STACK_NAME}_swarmy" "$AGENT_CONTAINER" >/dev/null 2>&1 || true
+      ok "node #1 agent moved onto the $OVERLAY_NET overlay."
+    fi
     ok "node #1 agent already running."
     return
   fi
