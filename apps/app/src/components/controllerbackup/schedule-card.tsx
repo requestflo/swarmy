@@ -75,11 +75,14 @@ export function ScheduleCard(): React.JSX.Element {
                 <SelectValue placeholder="Pick a target" />
               </SelectTrigger>
               <SelectContent>
-                {(targets.data ?? []).map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.name} ({t.kind})
-                  </SelectItem>
-                ))}
+                {/* Node paths would live inside the controller container — off-box only. */}
+                {(targets.data ?? [])
+                  .filter((t) => t.kind !== 'node')
+                  .map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name} ({t.kind})
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>

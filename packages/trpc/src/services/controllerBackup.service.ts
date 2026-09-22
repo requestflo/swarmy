@@ -20,7 +20,7 @@ import {
 import type { ResticRepo } from '@swarmy/core/protocol';
 import type { DB } from '@swarmy/db';
 import { resolveDbDriver } from '@swarmy/db';
-import { notFound } from '../errors';
+import { commandRejected, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { dumpControlPlane, loadControlPlane } from './controllerBackup.dump';
 import {
@@ -191,6 +191,7 @@ export async function setConfig(
   if (input.targetId) {
     const target = await models(ctx.db).backupTarget.findFirst({ where: { id: input.targetId } });
     if (!target) throw notFound('backup target', input.targetId);
+    if (isNodeKind(target.kind)) throw commandRejected(NODE_TARGET_REFUSAL);
   }
   const row = await models(ctx.db).controllerBackupConfig.update({
     where: { id: SINGLETON_ID },
@@ -239,6 +240,20 @@ export async function setRestorePassphrase(
 }
 
 // ── repo resolution ───────────────────────────────────────────────────────────
+
+/**
+ * restic runs inside the controller container, so a node-path repo would land
+ * in that container's ephemeral filesystem — gone on the next restart, and on
+ * the very box the backup exists to survive. Controller backups need off-box
+ * storage.
+ */
+export const NODE_TARGET_REFUSAL =
+  'Controller backups need an off-box destination (S3-compatible or swarmy object storage). ' +
+  'A node path would be written inside the controller container and lost on restart.';
+
+export function isNodeKind(kind: string): boolean {
+  return String(kind).toLowerCase() === 'node';
+}
 
 function repoUrl(row: BackupTargetRow): string {
   const prefix = row.prefix ? `/${row.prefix.replace(/^\/+/, '')}` : '';
@@ -316,6 +331,7 @@ export async function runControllerBackup(
   }
   const target = await models(ctx.db).backupTarget.findFirst({ where: { id: config.targetId } });
   if (!target) throw notFound('backup target', config.targetId);
+  if (isNodeKind(target.kind)) throw commandRejected(NODE_TARGET_REFUSAL);
   const passphrase = decryptSecret(config.restorePassphraseRef);
 
   const snapshot = await models(ctx.db).controllerSnapshot.create({
