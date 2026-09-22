@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import {
   BITNAMI_PG_ROOT,
   DB_DATA_VOLUME_LABEL,
-  DB_STORAGE_MIGRATE_IMAGE,
+  BASEBACKUP_OK_MARKER,
   applyDbStorage,
   buildInventory,
   choosePinNode,
@@ -11,7 +11,7 @@ import {
   pinnedPrimaryCounts,
   primaryDataVolumeName,
   replicaDataVolumeName,
-  storageMigrateScript,
+  storageBasebackupScript,
   STACK_LABEL,
   type DbClusterMemberView,
   type DbStorageState,
@@ -24,6 +24,7 @@ import {
   MANAGED_PG_IMAGE_REPO,
   migrateDeadBitnamiImage,
   type ContainerInfo,
+  type RunOncePayload,
   type RunOnceResult,
   type ServiceSpec,
   type SwarmServiceInfo,
@@ -1022,6 +1023,23 @@ export interface MigrateStorageInput {
   cluster: string;
   /** Skip the pre-migration pg_dump (only when no backup destination exists). */
   skipBackup?: boolean;
+  /**
+   * Keep accepting writes while the physical copy runs. Default `false`: the
+   * primary is put in `default_transaction_read_only` for the copy so nothing
+   * committed after the basebackup can be lost at cutover. With `true` the
+   * primary stays writable and writes committed between the end of the copy and
+   * the cutover (typically seconds) are NOT carried over.
+   */
+  allowWritesDuringCopy?: boolean;
+}
+
+/** What the pre-migration logical backup does — and does not — cover. */
+export interface MigrateBackupScope {
+  engine: 'pg_dump';
+  /** Databases the dump holds (only the cluster's app database). */
+  databases: string[];
+  /** Plain-words limits for the UI. */
+  note: string;
 }
 
 export interface MigrateStorageResult {
@@ -1030,39 +1048,113 @@ export interface MigrateStorageResult {
   outcome: 'migrated' | 'already' | 'adopted';
   dataVolume: string;
   pinnedNode: string;
-  /** The legacy anonymous volume (left in place — remove it once satisfied). */
+  /** The legacy anonymous volume (swarm removes it with the old task at cutover). */
   sourceVolume?: string;
   backupSnapshotId?: string;
+  backupScope?: MigrateBackupScope;
+  /** Whether writes were frozen during the copy (lossless) or allowed (see input). */
+  writesFrozen?: boolean;
 }
 
-const STOP_POLL_MS = 2_000;
-const STOP_WAIT_MS = 120_000;
-const COPY_TIMEOUT_MS = 30 * 60_000;
+/** Test seam: poll cadence / deadlines (defaults are production values). */
+export interface MigrateStorageTiming {
+  pollMs?: number;
+  cutoverWaitMs?: number;
+  copyTimeoutMs?: number;
+}
+
+const CUTOVER_POLL_MS = 3_000;
+const CUTOVER_WAIT_MS = 5 * 60_000;
+const COPY_TIMEOUT_MS = 60 * 60_000;
+const MIGRATE_EXEC_TIMEOUT_MS = 30_000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** SQL run in the primary's own container (superuser via bitnami's env). */
+const psqlInContainer = (sql: string) =>
+  `PGPASSWORD="$POSTGRESQL_PASSWORD" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -tA ${sql}`;
+export const FREEZE_WRITES_SCRIPT = psqlInContainer(
+  `-c "ALTER SYSTEM SET default_transaction_read_only = on" -c "SELECT pg_reload_conf()"`,
+);
+export const THAW_WRITES_SCRIPT = psqlInContainer(
+  `-c "ALTER SYSTEM RESET default_transaction_read_only" -c "SELECT pg_reload_conf()"`,
+);
+/** Prints `false|off` on a writable, non-recovering primary. */
+export const WRITER_CHECK_SCRIPT = psqlInContainer(
+  `-c "SELECT pg_is_in_recovery()::text || '|' || current_setting('default_transaction_read_only')"`,
+);
+
+/**
+ * The `container.runOnce` payload of the ONLINE physical copy. Pure — exported
+ * for the golden test. Runs in the primary's own image (pg_basebackup matches
+ * the server major; already on the node, so no pull), on the cluster overlay so
+ * it resolves the primary by swarm DNS, with the named volume mounted at the
+ * bitnami root. The replication credential rides container env only.
+ */
+export function basebackupRunOncePayload(input: {
+  image: string;
+  primaryService: string;
+  network: string;
+  dataVolume: string;
+  replicationUser: string;
+  replicationPassword: string;
+  stamp: string;
+  timeoutMs?: number;
+}): RunOncePayloadInput {
+  return {
+    image: input.image,
+    entrypoint: ['/bin/sh', '-c'],
+    cmd: [storageBasebackupScript(input.stamp)],
+    env: {
+      SRC_HOST: input.primaryService,
+      PGUSER: input.replicationUser,
+      PGPASSWORD: input.replicationPassword,
+    },
+    binds: [`${input.dataVolume}:${BITNAMI_PG_ROOT}`],
+    networks: [input.network],
+    // root: move aside + chown to bitnami's uid 1001 after the copy.
+    user: '0:0',
+    pull: false,
+    timeoutMs: input.timeoutMs ?? COPY_TIMEOUT_MS,
+  };
+}
+type RunOncePayloadInput = Omit<RunOncePayload, 'commandId'>;
 
 /**
  * Move a legacy cluster (primary on an ANONYMOUS volume — any restart would
- * start it empty) onto the persistent layout, without losing data:
+ * start it empty) onto the persistent layout WITHOUT EVER STOPPING the primary
+ * before a verified copy exists:
  *
- *   1. pg_dump via the existing DB-backup path (skippable only explicitly),
- *   2. scale the primary to 0 and wait for its task container to STOP (a clean
- *      shutdown; the stopped container — and its anonymous volume — stays in
- *      the task history),
- *   3. one-shot busybox on the node that holds the volume: `cp -a` the
- *      anonymous volume into `<stack>_<cluster>-primary-data` (existing content
- *      moved aside, source never deleted, PGDATA verified),
- *   4. redeploy the primary with the mount + `node.id==<that node>` pin and the
- *      replicas with their per-node volume + anti-affinity (they re-sync).
+ *   0. preflight (nothing touched): running task + node, replication creds,
+ *   1. pg_dump safety net via the DB-backup path (app database only — the
+ *      physical copy is what carries every database/role),
+ *   2. freeze writes (`default_transaction_read_only`, unless opted out),
+ *   3. ONLINE `pg_basebackup` from the running primary into
+ *      `<stack>_<cluster>-primary-data` on the primary's CURRENT node (a
+ *      runOnce on that node's agent, on the cluster overlay), verified by exit
+ *      0 + `data/PG_VERSION`,
+ *   4. cutover: redeploy the primary mounted + pinned to that node, then wait
+ *      for a writable, non-recovering writer on the named volume,
+ *   5. replicas onto their per-node volume + anti-affinity (they re-sync).
  *
- * If anything fails after the primary is stopped, the primary is redeployed
- * mounting the ANONYMOUS volume by name, pinned to its node — the data stays
- * live and the error is surfaced; nothing is ever started on an empty volume.
+ * Why online: swarm REMOVES a stopped task's container together with its
+ * anonymous volumes, so a stop-then-copy finds nothing to copy — and mounting
+ * the anonymous volume "by name" afterwards silently creates an EMPTY volume
+ * that bitnami initdb's. This flow therefore never stops the primary before
+ * the copy is verified, and never rolls back by mounting a volume by name.
+ *
+ * Failure before cutover: writes are thawed, nothing else was touched (the
+ * primary never stopped). Failure at/after cutover: no automatic rollback
+ * (re-deploying the legacy spec would start a task on a FRESH anonymous volume
+ * — an empty database); the error names the verified copy's volume + node and
+ * the backup snapshot for manual recovery.
  */
 export async function migrateStorage(
   ctx: OrgContext,
   input: MigrateStorageInput,
+  timing: MigrateStorageTiming = {},
 ): Promise<MigrateStorageResult> {
   const { stack, cluster } = input;
+  const pollMs = timing.pollMs ?? CUTOVER_POLL_MS;
   const { primary, replica } = findCluster(ctx, stack, cluster);
   if (!primary) throw notFound('db cluster primary', cluster);
   const live = liveSwarmService(ctx, primary.name);
@@ -1097,33 +1189,53 @@ export async function migrateStorage(
     return { cluster, outcome: 'adopted', dataVolume: storage.dataVolume!, pinnedNode: pin };
   }
 
-  // ── unmounted: the data lives in the running task's anonymous volume.
+  // ── 0. Preflight — nothing is touched until every check passes.
   if (!task) {
     throw commandRejected(
-      'the primary has no running task, so its anonymous data volume cannot be located safely. ' +
-        'Manual path: on the node, `docker ps -a --filter label=com.docker.swarm.service.name=' +
-        `${live.name}\` → \`docker inspect\` the newest container's /bitnami/postgresql volume, copy it into ` +
-        `${target}, then re-provision.`,
+      'the primary has no running task, so there is nothing live to copy from — nothing was changed. ' +
+        'Bring the primary back up (or restore from a backup), then retry.',
     );
   }
   const source = task.container.mounts?.find(
     (m) => m.target === BITNAMI_PG_ROOT && (m.type === undefined || m.type === 'volume') && m.source,
   )?.source;
-  if (!source) {
+  const pin = ctx.hub.swarmNodeIdFor(task.nodeId);
+  if (!pin) throw commandRejected('cannot resolve the swarm node id of the node hosting the primary — nothing was changed');
+  const env = envRecord(primary);
+  if (env.POSTGRESQL_REPLICATION_MODE === 'slave') {
     throw commandRejected(
-      'cannot identify the primary\'s anonymous data volume (agent too old to report container mounts, or no volume at /bitnami/postgresql) — update the agent, then retry',
+      'this primary still runs in replica mode (an in-place failover promotion) — nothing was changed. Re-provision it as a primary first.',
     );
   }
-  const pin = ctx.hub.swarmNodeIdFor(task.nodeId);
-  if (!pin) throw commandRejected('cannot resolve the swarm node id of the node hosting the primary');
+  const replUser = env.POSTGRESQL_REPLICATION_USER ?? '';
+  const replPassword = env.POSTGRESQL_REPLICATION_PASSWORD ?? '';
+  if (!replUser || !replPassword) {
+    throw commandRejected(
+      'the primary has no replication credentials (POSTGRESQL_REPLICATION_USER/_PASSWORD) to run pg_basebackup with — nothing was changed',
+    );
+  }
+  const clusterNet = clusterNetworkName(stack, cluster);
+  const liveNets = (live.networks ?? []).map((n) => n.name);
+  const network = liveNets.includes(clusterNet) ? clusterNet : liveNets[0];
+  if (!network) {
+    throw commandRejected('the primary is on no overlay network the copy can reach it over — nothing was changed');
+  }
+  const database = env.POSTGRESQL_DATABASE ?? DEFAULT_DATABASE;
 
-  // 1. Logical safety net first — nothing has been touched yet if this fails.
+  // ── 1. Logical safety net — covers the app database ONLY.
   let backupSnapshotId: string | undefined;
+  let backupScope: MigrateBackupScope | undefined;
   if (!input.skipBackup) {
     const { runDbBackup } = await import('./dbBackup.service');
     try {
       const run = await runDbBackup(ctx, { stack, cluster, engine: 'pg_dump' });
       backupSnapshotId = run.snapshotId;
+      const databases = run.databases && run.databases.length > 0 ? run.databases : [database];
+      backupScope = {
+        engine: 'pg_dump',
+        databases,
+        note: `The pre-migration backup is a pg_dump of ${databases.join(', ')} only — other databases, roles and cluster-wide settings are not in it. The physical copy carries everything.`,
+      };
     } catch (e) {
       throw commandRejected(
         `pre-migration backup failed, nothing was changed: ${e instanceof Error ? e.message : String(e)} (configure a backup destination, or migrate with skipBackup)`,
@@ -1131,48 +1243,82 @@ export async function migrateStorage(
     }
   }
 
-  const baseLabels = omit(live.labels, [DB_PITR_APPLIED_LABEL]);
-  const rescue = () =>
-    ctx.hub
-      .dispatch(
-        manager.id,
-        'service.deploy',
-        // Keep the live data reachable: mount the anonymous volume BY NAME, pinned.
-        { spec: rebuildDbMemberSpec(live, { ...baseLabels, ...dbStorageLabels({ dataVolume: source, pinNode: pin }) }, 1), pullPolicy: 'missing' },
-        { timeoutMs: DISPATCH_TIMEOUT_MS },
-      )
-      .catch(() => undefined);
-
-  try {
-    // 2. Clean stop.
-    await ctx.hub.dispatch(manager.id, 'service.scale', { service: live.name, replicas: 0 });
-    const deadline = Date.now() + STOP_WAIT_MS;
-    for (;;) {
-      const c = ctx.hub.latestContainers(task.nodeId).find((x) => x.id === task.container.id);
-      if (!c || c.state !== 'running') break;
-      if (Date.now() > deadline) throw new Error('primary did not stop within 120s');
-      await sleep(STOP_POLL_MS);
+  const execPrimary = async (script: string) => {
+    const res = await ctx.hub.dispatch<{ exitCode: number; output?: string }>(
+      task.nodeId,
+      'exec',
+      { target: { containerId: task.container.id }, cmd: ['sh', '-c', script], tty: false, stream: false },
+      { timeoutMs: MIGRATE_EXEC_TIMEOUT_MS },
+    );
+    if (res.exitCode !== 0) {
+      throw new Error(`exit ${res.exitCode}: ${(res.output ?? '').trim().slice(-300)}`);
     }
+    return res.output ?? '';
+  };
+  const stillServing = () => {
+    const now = liveSwarmService(ctx, live.name);
+    const t = now ? runningTaskOf(ctx, now) : undefined;
+    return t?.container.id === task.container.id;
+  };
+  const refs = () =>
+    `copy volume ${target} on swarm node ${pin}` +
+    (backupSnapshotId ? `; logical backup snapshot ${backupSnapshotId} (database ${database} only)` : '; no logical backup was taken');
+  const stamp = String(Date.now());
 
-    // 3. Copy on the node that holds the anonymous volume.
+  // ── 2 + 3. Freeze writes, copy ONLINE, verify. The primary is never stopped.
+  const freeze = !input.allowWritesDuringCopy;
+  let frozen = false;
+  try {
+    if (freeze) {
+      await execPrimary(FREEZE_WRITES_SCRIPT);
+      frozen = true;
+    }
     const copy = await ctx.hub.dispatch<RunOnceResult>(
       task.nodeId,
       'container.runOnce',
-      {
-        image: DB_STORAGE_MIGRATE_IMAGE,
-        entrypoint: ['/bin/sh', '-c'],
-        cmd: [storageMigrateScript(String(Date.now()))],
-        binds: [`${source}:/from:ro`, `${target}:/to`],
-        user: '0:0',
-      },
-      { timeoutMs: COPY_TIMEOUT_MS },
+      basebackupRunOncePayload({
+        image: live.image,
+        primaryService: live.name,
+        network,
+        dataVolume: target,
+        replicationUser: replUser,
+        replicationPassword: replPassword,
+        stamp,
+        timeoutMs: timing.copyTimeoutMs ?? COPY_TIMEOUT_MS,
+      }),
+      { timeoutMs: (timing.copyTimeoutMs ?? COPY_TIMEOUT_MS) + 60_000 },
     );
-    if (copy.exitCode !== 0) {
-      throw new Error(`volume copy failed (exit ${copy.exitCode}): ${copy.output.trim().slice(-400)}`);
+    if (copy.exitCode !== 0 || copy.timedOut || !copy.output.includes(BASEBACKUP_OK_MARKER)) {
+      throw new Error(
+        `pg_basebackup failed (exit ${copy.exitCode}${copy.timedOut ? ', timed out' : ''}): ${copy.output.trim().slice(-400)}`,
+      );
     }
+  } catch (e) {
+    const why = e instanceof Error ? e.message : String(e);
+    let thawNote = '';
+    if (frozen) {
+      try {
+        await execPrimary(THAW_WRITES_SCRIPT);
+        thawNote = ' Writes were re-enabled.';
+      } catch (te) {
+        thawNote =
+          ` WARNING: the primary is still READ-ONLY — re-enable writes with ` +
+          `\`ALTER SYSTEM RESET default_transaction_read_only; SELECT pg_reload_conf();\` (${te instanceof Error ? te.message : String(te)}).`;
+      }
+    }
+    const serving = stillServing()
+      ? 'the primary was never stopped and is still running on its original volume'
+      : 'the primary was never stopped by swarmy, but its task is no longer reported running — check it now';
+    throw commandRejected(
+      `storage migration aborted before cutover; ${serving}.${thawNote} Cause: ${why}`,
+    );
+  }
 
-    // 4. Redeploy onto the persistent layout.
-    const primaryLabels = { ...baseLabels, ...dbStorageLabels({ dataVolume: target, pinNode: pin }) };
+  // ── 4. Cutover: redeploy mounted + pinned. The old task (and, with it, its
+  //       anonymous volume) is removed by swarm from here on.
+  const baseLabels = omit(live.labels, [DB_PITR_APPLIED_LABEL]);
+  const primaryLabels = { ...baseLabels, ...dbStorageLabels({ dataVolume: target, pinNode: pin }) };
+  try {
     await ctx.hub.dispatch(
       manager.id,
       'service.deploy',
@@ -1180,13 +1326,58 @@ export async function migrateStorage(
       { timeoutMs: DISPATCH_TIMEOUT_MS },
     );
   } catch (e) {
-    await rescue();
-    throw commandRejected(
-      `storage migration failed; the primary was restarted on its original volume (${source}) pinned to its node, no data was discarded: ${e instanceof Error ? e.message : String(e)}`,
-    );
+    const why = e instanceof Error ? e.message : String(e);
+    const now = liveSwarmService(ctx, live.name);
+    const specUnchanged = now ? dbStorageState(now).state === 'unmounted' : false;
+    if (specUnchanged && stillServing()) {
+      // The update never applied: the original task is verifiably still the
+      // writer. Nothing to roll back — just lift the write freeze.
+      let thawNote = '';
+      if (frozen) {
+        thawNote = await execPrimary(THAW_WRITES_SCRIPT).then(
+          () => ' Writes were re-enabled.',
+          (te) =>
+            ` WARNING: the primary is still READ-ONLY — run \`ALTER SYSTEM RESET default_transaction_read_only; SELECT pg_reload_conf();\` (${te instanceof Error ? te.message : String(te)}).`,
+        );
+      }
+      throw commandRejected(
+        `storage migration cutover did not apply; the primary is still running on its original volume${source ? ` (${source})` : ''}.${thawNote} Verified copy left in place: ${refs()}. Cause: ${why}`,
+      );
+    }
+    throw commandRejected(cutoverFailureMessage(live.name, source, refs(), why));
   }
 
-  // Replicas: per-node volume + anti-affinity; safe to redeploy (they re-sync).
+  // Wait for a writable, non-recovering writer on the named volume.
+  const deadline = Date.now() + (timing.cutoverWaitMs ?? CUTOVER_WAIT_MS);
+  let lastProblem = 'no running task on the new volume yet';
+  for (;;) {
+    const now = liveSwarmService(ctx, live.name);
+    const t = now ? runningTaskOf(ctx, now) : undefined;
+    const onTarget = t?.container.mounts?.some((m) => m.target === BITNAMI_PG_ROOT && m.source === target);
+    if (t && onTarget) {
+      try {
+        const res = await ctx.hub.dispatch<{ exitCode: number; output?: string }>(
+          t.nodeId,
+          'exec',
+          { target: { containerId: t.container.id }, cmd: ['sh', '-c', WRITER_CHECK_SCRIPT], tty: false, stream: false },
+          { timeoutMs: MIGRATE_EXEC_TIMEOUT_MS },
+        );
+        const out = (res.output ?? '').trim();
+        if (res.exitCode === 0 && out.includes('false|off')) break;
+        lastProblem = `writer check returned "${out.slice(-120)}" (exit ${res.exitCode})`;
+      } catch (e) {
+        lastProblem = `writer check failed: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+    if (Date.now() > deadline) {
+      throw commandRejected(
+        cutoverFailureMessage(live.name, source, refs(), `the new primary did not come up writable in time (${lastProblem})`),
+      );
+    }
+    await sleep(pollMs);
+  }
+
+  // ── 5. Replicas: per-node volume + anti-affinity; safe to redeploy (they re-sync).
   const replicaLive = replica ? liveSwarmService(ctx, replica.name) : undefined;
   if (replicaLive) {
     const labels = {
@@ -1211,7 +1402,14 @@ export async function migrateStorage(
     actorType: ctx.user ? 'user' : 'system',
     targetType: 'dbCluster',
     targetId: `${stack}/${cluster}`,
-    metadata: { sourceVolume: source, dataVolume: target, pinnedNode: pin, backupSnapshotId: backupSnapshotId ?? null },
+    metadata: {
+      method: 'pg_basebackup',
+      sourceVolume: source ?? null,
+      dataVolume: target,
+      pinnedNode: pin,
+      writesFrozen: freeze,
+      backupSnapshotId: backupSnapshotId ?? null,
+    },
   }).catch(() => undefined);
 
   return {
@@ -1219,7 +1417,25 @@ export async function migrateStorage(
     outcome: 'migrated',
     dataVolume: target,
     pinnedNode: pin,
-    sourceVolume: source,
+    ...(source ? { sourceVolume: source } : {}),
     ...(backupSnapshotId ? { backupSnapshotId } : {}),
+    ...(backupScope ? { backupScope } : {}),
+    writesFrozen: freeze,
   };
+}
+
+/** The loud, never-reassuring message for a failure at/after cutover. */
+function cutoverFailureMessage(
+  service: string,
+  source: string | undefined,
+  refs: string,
+  why: string,
+): string {
+  return (
+    `STORAGE MIGRATION CUTOVER FAILED — manual recovery needed. ${why}. ` +
+    `The primary service ${service} may be down. Its original anonymous volume${source ? ` (${source})` : ''} ` +
+    'is removed by swarm together with the old task, so do NOT redeploy the old spec — it would start an EMPTY database. ' +
+    `Recover from: ${refs}. The copy was verified (pg_basebackup exit 0, data/PG_VERSION present) before cutover; ` +
+    `inspect \`docker service ps ${service} --no-trunc\` and the task logs, and do not remove that volume.`
+  );
 }

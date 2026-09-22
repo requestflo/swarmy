@@ -236,26 +236,52 @@ export function pinnedPrimaryCounts(
   return out;
 }
 
-/** Busybox image the storage migration's one-shot copy runs in. */
-export const DB_STORAGE_MIGRATE_IMAGE = 'busybox:1.36';
+/** Bitnami's non-root postgres uid (image `USER 1001`, group root). */
+export const BITNAMI_PG_UID = '1001';
+/** Marker the basebackup script prints on a verified copy (the controller checks it). */
+export const BASEBACKUP_OK_MARKER = 'SWARMY_PGDATA_OK';
 
 /**
- * The one-shot copy that moves a legacy primary's anonymous volume (bound at
- * `/from`, read-only) onto its named volume (bound at `/to`). Runs only after
- * the primary task has STOPPED. Never deletes the source; anything already in
- * the destination is moved aside to `.swarmy-premigrate-<stamp>` first. Exits
- * non-zero unless the copy yields a PGDATA (`data/PG_VERSION`).
+ * The one-shot ONLINE copy that seeds a legacy primary's named volume
+ * (mounted at `/bitnami/postgresql`) from the RUNNING primary with
+ * `pg_basebackup` over the cluster overlay — the primary keeps serving and is
+ * never stopped. Runs as root in the primary's OWN image (so pg_basebackup
+ * matches the server major), reading `SRC_HOST` / `PGUSER` / `PGPASSWORD` from
+ * container env (the replication credential never rides argv).
+ *
+ * - Anything already in the volume (a previous failed attempt) is moved aside
+ *   to `.swarmy-premigrate-<stamp>`, never deleted.
+ * - `-X stream` makes the copy self-consistent (backup_label + WAL kept, so the
+ *   first start crash-recovers to the backup end point).
+ * - `standby.signal`/`recovery.signal` are removed (this copy becomes the
+ *   WRITER; bitnami also clears them on start), and a
+ *   `default_transaction_read_only` the migration's write-freeze put in
+ *   `postgresql.auto.conf` is stripped so the new primary starts writable.
+ * - `conf/conf.d` is recreated (bitnami's mounted-conf dir; an empty volume is
+ *   not seeded from the image once we have written to it).
+ * - Ownership → bitnami's uid 1001 (group root), PGDATA mode 0700.
+ *
+ * bitnami treats a non-empty PGDATA as "persisted data" (no initdb, users not
+ * re-created) and regenerates postgresql.conf/pg_hba.conf in its own conf dir
+ * from env, so a basebackup PGDATA boots as-is. Exits non-zero unless
+ * `data/PG_VERSION` exists; prints {@link BASEBACKUP_OK_MARKER} on success.
  */
-export function storageMigrateScript(stamp: string): string {
+export function storageBasebackupScript(stamp: string): string {
+  const R = BITNAMI_PG_ROOT;
+  const aside = `${R}/.swarmy-premigrate-${stamp}`;
   return [
     'set -eu',
-    'test -f /from/data/PG_VERSION || { echo "source has no PGDATA (data/PG_VERSION missing)"; exit 3; }',
-    `if [ -n "$(ls -A /to 2>/dev/null)" ]; then mkdir -p /to/.swarmy-premigrate-${stamp}; ` +
-      `for f in /to/* /to/.[!.]*; do [ -e "$f" ] || continue; case "$f" in /to/.swarmy-premigrate-*) continue;; esac; ` +
-      `mv "$f" /to/.swarmy-premigrate-${stamp}/; done; fi`,
-    'cp -a /from/. /to/',
-    'chown "$(stat -c %u:%g /from)" /to && chmod "$(stat -c %a /from)" /to',
-    'test -f /to/data/PG_VERSION || { echo "copy verification failed"; exit 4; }',
-    'du -s /to/data | cut -f1',
+    'if [ -z "${SRC_HOST:-}" ] || [ -z "${PGUSER:-}" ] || [ -z "${PGPASSWORD:-}" ]; then echo "missing replication credentials"; exit 2; fi',
+    `if [ -n "$(ls -A ${R} 2>/dev/null)" ]; then mkdir -p ${aside}; ` +
+      `for f in ${R}/* ${R}/.[!.]*; do [ -e "$f" ] || continue; case "$f" in ${R}/.swarmy-premigrate-*) continue;; esac; ` +
+      `mv "$f" ${aside}/; done; fi`,
+    `mkdir -p ${R}/data ${R}/conf/conf.d`,
+    `pg_basebackup -h "$SRC_HOST" -p 5432 -U "$PGUSER" -w -D ${R}/data -X stream -c fast -P`,
+    `test -f ${R}/data/PG_VERSION || { echo "basebackup verification failed (data/PG_VERSION missing)"; exit 4; }`,
+    `rm -f ${R}/data/standby.signal ${R}/data/recovery.signal ${R}/data/postmaster.pid`,
+    `if [ -f ${R}/data/postgresql.auto.conf ]; then sed -i '/^[[:space:]]*default_transaction_read_only[[:space:]]*=/d' ${R}/data/postgresql.auto.conf; fi`,
+    `chown -R ${BITNAMI_PG_UID}:0 ${R}`,
+    `chmod 700 ${R}/data`,
+    `echo "${BASEBACKUP_OK_MARKER} pg=$(cat ${R}/data/PG_VERSION) kb=$(du -sk ${R}/data | cut -f1)"`,
   ].join('\n');
 }

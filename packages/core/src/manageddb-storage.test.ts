@@ -10,7 +10,8 @@ import {
   pinnedPrimaryCounts,
   primaryDataVolumeName,
   replicaDataVolumeName,
-  storageMigrateScript,
+  storageBasebackupScript,
+  BASEBACKUP_OK_MARKER,
   type StorageSpecLike,
 } from './manageddb-storage';
 import { SwarmServiceInfo, ContainerInfo } from './protocol';
@@ -143,13 +144,30 @@ describe('choosePinNode', () => {
   });
 });
 
-describe('storageMigrateScript', () => {
-  it('verifies the source, moves existing contents aside, never deletes the source', () => {
-    const s = storageMigrateScript('123');
-    expect(s).toContain('test -f /from/data/PG_VERSION');
+describe('storageBasebackupScript — online copy into the named volume', () => {
+  const s = storageBasebackupScript('123');
+  it('pg_basebackups from the RUNNING primary into PGDATA (stream WAL, fast checkpoint)', () => {
+    expect(s).toContain(
+      'pg_basebackup -h "$SRC_HOST" -p 5432 -U "$PGUSER" -w -D /bitnami/postgresql/data -X stream -c fast -P',
+    );
+  });
+  it('credentials come from env only — never argv', () => {
+    expect(s).not.toMatch(/PGPASSWORD=/);
+    expect(s).toContain('[ -z "${PGPASSWORD:-}" ]');
+  });
+  it('verifies PGDATA, strips standby/recovery signals + the write-freeze, fixes ownership', () => {
+    expect(s).toContain('test -f /bitnami/postgresql/data/PG_VERSION');
+    expect(s).toContain('rm -f /bitnami/postgresql/data/standby.signal /bitnami/postgresql/data/recovery.signal');
+    expect(s).toContain('default_transaction_read_only');
+    expect(s).toContain('chown -R 1001:0 /bitnami/postgresql');
+    expect(s).toContain('chmod 700 /bitnami/postgresql/data');
+    expect(s).toContain(BASEBACKUP_OK_MARKER);
+    // backup_label must survive: it is what makes the first start consistent.
+    expect(s).not.toContain('backup_label');
+  });
+  it('moves existing volume contents aside, never deletes them', () => {
     expect(s).toContain('.swarmy-premigrate-123');
-    expect(s).toContain('cp -a /from/. /to/');
-    expect(s).not.toMatch(/rm -rf? \/from/);
+    expect(s).not.toMatch(/rm -rf/);
   });
 });
 

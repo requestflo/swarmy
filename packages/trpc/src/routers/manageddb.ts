@@ -127,9 +127,12 @@ export const managedDbRouter = router({
 
   /**
    * Move a legacy cluster whose primary keeps its data on an ANONYMOUS volume
-   * (any restart would start it empty) onto the persistent layout: pg_dump
-   * first, stop the primary, copy the volume into `<stack>_<cluster>-primary-data`
-   * on its node, redeploy mounted + pinned. Idempotent (`already` when done).
+   * (any restart would start it empty) onto the persistent layout: pg_dump of
+   * the app database first, then an ONLINE pg_basebackup from the running
+   * primary into `<stack>_<cluster>-primary-data` on its node (writes frozen
+   * unless `allowWritesDuringCopy`), and only after the copy is verified a
+   * redeploy mounted + pinned. The primary is never stopped before that.
+   * Idempotent (`already` when done).
    */
   migrateStorage: orgProcedure
     .input(
@@ -137,6 +140,7 @@ export const managedDbRouter = router({
         stack: stackName,
         cluster: clusterName,
         skipBackup: z.boolean().optional(),
+        allowWritesDuringCopy: z.boolean().optional(),
       }),
     )
     .mutation(({ ctx, input }) => migrateStorage(ctx, input)),

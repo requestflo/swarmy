@@ -24,7 +24,8 @@ export interface DbStorageView {
 /**
  * Legacy-storage banner on a managed-DB cluster row: the primary keeps its data
  * on an anonymous volume, so any restart starts it EMPTY. Offers the guarded
- * `db.migrateStorage` (pg_dump → stop → copy → redeploy mounted + pinned).
+ * `db.migrateStorage` (pg_dump → online pg_basebackup → verify → redeploy
+ * mounted + pinned; the primary is never stopped before the copy is verified).
  */
 export function DbStorageWarning({
   stack,
@@ -44,6 +45,7 @@ export function DbStorageWarning({
           res.outcome === 'already'
             ? `${res.cluster} is already on persistent storage`
             : `${res.cluster} now stores data on ${res.dataVolume}`,
+          res.backupScope ? { description: res.backupScope.note } : undefined,
         );
         void qc.invalidateQueries();
       },
@@ -71,9 +73,11 @@ export function DbStorageWarning({
             <AlertDialogHeader>
               <AlertDialogTitle>Move {cluster} onto a persistent volume?</AlertDialogTitle>
               <AlertDialogDescription>
-                swarmy takes a pg_dump backup first, stops the primary, copies its data into a
-                named volume on the same node, and restarts it there. Expect a short outage.
-                Nothing is deleted: the old volume stays on the node until you remove it.
+                swarmy takes a pg_dump backup of the app database first (other databases and
+                roles are not in that dump), then copies the running primary into a named
+                volume on the same node with pg_basebackup. The database is read-only while
+                the copy runs, then restarts on the new volume: expect a short write outage.
+                If anything fails before the restart, the primary is left running as it was.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

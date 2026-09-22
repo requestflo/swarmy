@@ -316,6 +316,36 @@ describe('planClusterStorage — persistent layout convergence', () => {
     });
   });
 
+  it('LEGACY primary never yields a primary-affecting action (adopt/redeploy), whatever its labels', () => {
+    for (const labels of <Array<Record<string, string>>>[
+      {},
+      { 'swarmy.db.backup.pitr': 'true', 'swarmy.db.pitr.applied': 'abc' },
+      // declared but the live mount is gone (a bare rebuild dropped it)
+      { 'swarmy.db.dataVolume': `${base}-primary-data`, 'swarmy.db.node': 'n1' },
+    ]) {
+      const plan = planClusterStorage({
+        base,
+        primary: { name: `${base}-primary`, labels, mounts: [] },
+        replica: { name: `${base}-replica`, labels: {}, mounts: [] },
+        primaryTaskSwarmNode: 'n1',
+        multiNode: true,
+      });
+      expect(plan.actions.map((a) => a.kind)).toEqual(['warnLegacy']);
+    }
+  });
+
+  it('UNKNOWN storage (agent too old to report mounts) → no actions at all', () => {
+    const plan = planClusterStorage({
+      base,
+      primary: { name: `${base}-primary`, labels: {} },
+      replica: { name: `${base}-replica`, labels: {}, mounts: [] },
+      primaryTaskSwarmNode: 'n1',
+      multiNode: true,
+    });
+    expect(plan.storage?.state).toBe('unknown');
+    expect(plan.actions).toEqual([]);
+  });
+
   it('leaves a failover-promoted (non-canonical) primary alone', () => {
     const plan = planClusterStorage({
       base,
