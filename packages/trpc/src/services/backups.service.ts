@@ -11,7 +11,7 @@ import {
   encryptSecret,
   randomToken,
 } from '@swarmy/core/crypto';
-import { buildInventory } from '@swarmy/core';
+import { buildInventory, SWARMY_OVERLAY_NETWORK } from '@swarmy/core';
 import type {
   BackupVolumeResult,
   ListSnapshotsResult,
@@ -97,8 +97,8 @@ function toView(row: TargetRow): BackupTargetView {
   };
 }
 
-/** The shared overlay network every swarmy-managed platform service joins. */
-export const SWARMY_OVERLAY_NETWORK = 'swarmy';
+/** The shared overlay network every swarmy-managed platform service joins (canonical in @swarmy/core). */
+export { SWARMY_OVERLAY_NETWORK };
 
 /** Hostnames that only resolve on the swarmy overlay (in-cluster endpoints). */
 const IN_CLUSTER_HOSTS = new Set(['swarmy-garage']);

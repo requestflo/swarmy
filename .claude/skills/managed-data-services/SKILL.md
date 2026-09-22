@@ -49,9 +49,11 @@ state belongs see `skill("docker-native-storage")`.
    DNS worker in `skill("geo-edge-routing")`.
 7. **Object-storage state is Garage's, reached by one-shot curl.** Every bucket,
    key, quota, and grant lives in the Garage admin API (source of truth), NOT in
-   Prisma. The controller calls it via `container.runOnce` curl on a storage
-   member node (host network → `127.0.0.1:${GARAGE_ADMIN_PORT}`), admin token as
-   container ENV — never argv, never disk. Prisma holds only the `StorageCluster`
+   Prisma. The controller calls it via `container.runOnce` curl dispatched to a
+   manager, attached to the `swarmy` overlay (`SWARMY_OVERLAY_NETWORK`) →
+   `http://swarmy-garage:3903/v1`, admin token as container ENV — never argv,
+   never disk. The store publishes NO ports (`networks` on the render ⇒ agent
+   sets `ports: []`). Prisma holds only the `StorageCluster`
    pointer + token ref.
 8. **pgvector is enable-in-place, not a new instance.** On an existing managed
    Postgres, exec `CREATE EXTENSION IF NOT EXISTS vector` on the primary and
@@ -134,6 +136,8 @@ state belongs see `skill("docker-native-storage")`.
   reconcile worker treats an `appliedMemoryMb` label mismatch as drift.
 - Bucket delete is refused while objects or attachments remain; `createKey`
   returns the secret access key once — there is no "reveal key" path by design.
-- Garage admin calls prefer an ONLINE store member (the admin port is published
-  on host network there) and fall back to a manager; never expose the admin port
-  publicly — same node-local-admin bearer discipline as `skill("geo-edge-routing")`.
+- Garage admin calls run via a manager as overlay one-shots (never host network,
+  never an agent-process `fetch` — a systemd agent can't resolve overlay names);
+  never publish the admin port. `storeNeedsConverge` redeploys a store that is
+  off the overlay or publishes ports. Multi-member RPC (3901) is bootstrapped
+  best-effort by storage-reconcile (`tasks.swarmy-garage` probe + `/v1/connect`).

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  adminRunOncePayload,
   backoffTicks,
+  buildTaskProbeScript,
+  garageAdminBase,
+  needsRpcBootstrap,
+  parseTaskProbe,
+  planConnects,
+  TASK_MARKER,
   buildStats,
   matchGarageNodes,
   mergeNodeMapping,
@@ -281,5 +288,59 @@ describe('planSignature / statsChanged / backoffTicks', () => {
 
   it('backs off exponentially and caps at 8 ticks', () => {
     expect([0, 1, 2, 3, 4, 5, 6].map(backoffTicks)).toEqual([0, 1, 2, 4, 8, 8, 8]);
+  });
+});
+
+describe('admin calls ride the swarmy overlay (nothing published)', () => {
+  it('admin base is the service name, or one task IP when targeted', () => {
+    expect(garageAdminBase()).toBe('http://swarmy-garage:3903/v1');
+    expect(garageAdminBase('10.0.1.5')).toBe('http://10.0.1.5:3903/v1');
+  });
+  it('runOnce payload attaches to the overlay, never host networking', () => {
+    const p = adminRunOncePayload('echo', { GARAGE_ADMIN_TOKEN: 't' }, 1000);
+    expect(p.networks).toEqual(['swarmy']);
+    expect(p.cmd.join(' ')).not.toContain('Bearer t');
+  });
+});
+
+describe('multi-member RPC bootstrap', () => {
+  const out = [
+    `${TASK_MARKER}10.0.1.9`,
+    '{"node":"bbbb","garageVersion":"v1.0.1"}',
+    `${TASK_MARKER}10.0.1.5`,
+    '{"node":"aaaa"}',
+    `${TASK_MARKER}10.0.1.7`,
+    'curl: (7) Failed to connect',
+    `${TASK_MARKER}not-an-ip`,
+    '{"node":"zzzz"}',
+    '',
+  ].join('\n');
+
+  it('probe script resolves tasks.<service> and reads each task status', () => {
+    const s = buildTaskProbeScript();
+    expect(s).toContain('tasks.$GARAGE_SERVICE');
+    expect(s).toContain('/v1/status');
+  });
+
+  it('parses reachable tasks only, sorted by ip', () => {
+    expect(parseTaskProbe(out)).toEqual([
+      { ip: '10.0.1.5', garageNodeId: 'aaaa' },
+      { ip: '10.0.1.9', garageNodeId: 'bbbb' },
+    ]);
+  });
+
+  it('plans a full mesh of connects; single member needs none', () => {
+    expect(planConnects(parseTaskProbe(out))).toEqual([
+      { ip: '10.0.1.5', peers: ['bbbb@10.0.1.9:3901'] },
+      { ip: '10.0.1.9', peers: ['aaaa@10.0.1.5:3901'] },
+    ]);
+    expect(planConnects([{ ip: '10.0.1.5', garageNodeId: 'aaaa' }])).toEqual([]);
+  });
+
+  it('bootstraps only for >1 member with fewer connected than members', () => {
+    expect(needsRpcBootstrap(1, null)).toBe(false);
+    expect(needsRpcBootstrap(2, null)).toBe(true);
+    expect(needsRpcBootstrap(2, { connectedNodes: 1 })).toBe(true);
+    expect(needsRpcBootstrap(2, { connectedNodes: 2 })).toBe(false);
   });
 });

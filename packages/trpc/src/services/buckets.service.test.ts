@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  adminRunOncePayload,
   ATTACH_ENV_KEYS,
   attachKeyName,
   attachSecretName,
@@ -18,6 +19,7 @@ import {
   parseBucketIds,
   rotatedSecretName,
   STATUS_MARKER,
+  withStoreNetwork,
 } from './buckets.service';
 
 describe('garage admin request builders', () => {
@@ -73,8 +75,22 @@ describe('garage admin request builders', () => {
   });
 
   it('endpoints are stable strings', () => {
-    expect(garageAdminBase()).toBe('http://127.0.0.1:3903/v1');
+    // Overlay DNS — the store publishes nothing, so 127.0.0.1 would reach nothing.
+    expect(garageAdminBase()).toBe('http://swarmy-garage:3903/v1');
     expect(garageS3Endpoint()).toBe('http://swarmy-garage:3900');
+  });
+
+  it('admin one-shots attach to the swarmy overlay, never host networking', () => {
+    const p = adminRunOncePayload('echo', { GARAGE_ADMIN_TOKEN: 'gk' });
+    expect(p.networks).toEqual(['swarmy']);
+    expect(p.env).toEqual({ GARAGE_ADMIN_TOKEN: 'gk' });
+    // token is env-only, never argv
+    expect(p.cmd.join(' ')).not.toContain('gk');
+  });
+
+  it('attached apps join the store overlay exactly once', () => {
+    expect(withStoreNetwork(['app_default'])).toEqual(['app_default', 'swarmy']);
+    expect(withStoreNetwork(['swarmy', 'x'])).toEqual(['swarmy', 'x']);
   });
 });
 

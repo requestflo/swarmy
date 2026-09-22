@@ -3,14 +3,14 @@
 // compose file never declares swarmy's edge network, so before every apply we
 // attach any routed service that is missing it — a full-spec update rebuilt from
 // the live inspect, so nothing else about the service changes.
-import { buildInventory } from '@swarmy/core';
+import { buildInventory, SWARMY_OVERLAY_NETWORK } from '@swarmy/core';
 import type { OrgContext } from '../context';
 import { resolveManagerNode } from './dispatch.service';
 import { readRoutes } from './ingress-routes';
 import { promoteSpecFrom } from './releases.service';
 
 /** The overlay the swarmy Caddy controller joins (`ensureCaddyController`'s default). */
-export const EDGE_NETWORK = 'swarmy';
+export const EDGE_NETWORK = SWARMY_OVERLAY_NETWORK;
 
 /** Routed services (by name) that are not yet on `network`. Pure — exported for tests. */
 export function servicesMissingEdge(

@@ -32,7 +32,13 @@ describe('pickDefaultMembers', () => {
 });
 
 describe('storeNeedsConverge', () => {
-  const good = { mode: 'global' as const, configs: ['swarmy-garage-config-abcd1234'], mounts: [{ type: 'volume', target: '/m' }] };
+  const good = {
+    mode: 'global' as const,
+    configs: ['swarmy-garage-config-abcd1234'],
+    mounts: [{ type: 'volume', target: '/m' }],
+    networks: [{ name: 'swarmy', aliases: [] }],
+    ports: [],
+  };
   it('converged service is a no-op', () => {
     expect(storeNeedsConverge(good)).toBe(false);
   });
@@ -49,6 +55,22 @@ describe('storeNeedsConverge', () => {
     expect(storeNeedsConverge(undefined)).toBe(true);
     expect(storeNeedsConverge({ ...good, configs: [] })).toBe(true);
     expect(storeNeedsConverge({ ...good, mode: 'replicated' })).toBe(true);
+  });
+  it('a store off the swarmy overlay converges (swarmy-garage:3900 resolves nowhere)', () => {
+    expect(storeNeedsConverge({ ...good, networks: [] })).toBe(true);
+    expect(storeNeedsConverge({ ...good, networks: undefined })).toBe(true);
+    expect(storeNeedsConverge({ ...good, networks: [{ name: 'other', aliases: [] }] })).toBe(true);
+  });
+  it('a store publishing ports on the routing mesh converges (private-only)', () => {
+    expect(
+      storeNeedsConverge({
+        ...good,
+        ports: [
+          { target: 3900, published: 30006, protocol: 'tcp' },
+          { target: 3903, published: 30007, protocol: 'tcp' },
+        ],
+      }),
+    ).toBe(true);
   });
 });
 
@@ -135,6 +157,13 @@ describe('enable — 2-node swarm, no explicit members', () => {
     expect(rendered.files).toEqual([]);
     expect(rendered.configs[0]!.source).toBe(create.payload.name as string);
     expect(rendered.serviceMode).toBe('global');
+    expect((rendered as unknown as { networks: string[] }).networks).toEqual(['swarmy']);
+
+    // The overlay is ensured (attachable) before the service references it.
+    const ensure = dispatched.findIndex((d) => d.cmd === 'network.ensure');
+    expect(ensure).toBeGreaterThanOrEqual(0);
+    expect(dispatched[ensure]!.payload).toMatchObject({ name: 'swarmy', driver: 'overlay', attachable: true });
+    expect(ensure).toBeLessThan(dispatched.findIndex((d) => d.cmd === 'storage.apply'));
 
     // Superseded config swept after the apply.
     expect(dispatched.find((d) => d.cmd === 'config.remove')?.payload.name).toBe('swarmy-garage-config-00000000');

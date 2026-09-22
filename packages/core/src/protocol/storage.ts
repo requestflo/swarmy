@@ -64,6 +64,15 @@ export const RenderedStoreDeployment = z.object({
   placement: z.object({ constraints: z.array(z.string()) }).optional(),
   /** `global` = one task per eligible (member) node. Omitted ⇒ replicated x1 (legacy). */
   serviceMode: z.enum(['replicated', 'global']).optional(),
+  /**
+   * Overlay networks the store service joins (e.g. the shared `swarmy`
+   * overlay). When present the agent publishes NO ports — S3/admin/RPC are
+   * reached by swarm DNS (`swarmy-garage:3900`) on the overlay only, and the
+   * `adminApi` call runs as a one-shot container attached to `networks[0]`
+   * (so a systemd agent that cannot resolve overlay names still works).
+   * Optional/additive: omitted ⇒ legacy routing-mesh ports + in-process fetch.
+   */
+  networks: z.array(z.string().min(1)).optional(),
   /** Optional layout/admin call to run after the service is up. */
   adminApi: z
     .object({

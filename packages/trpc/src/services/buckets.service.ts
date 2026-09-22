@@ -6,9 +6,10 @@
  * no Prisma model. The controller reaches the admin API the same way the
  * replicated-store slice does: it never talks to the overlay itself, it
  * dispatches to an agent. Concretely each admin call is a `container.runOnce`
- * curl on a storage member node (host network → the ingress-published admin
- * port on 127.0.0.1), with the admin token riding as one-shot container env —
- * mirroring the agent-side fetch in `handlers/storage.ts#applyStorageNode`.
+ * curl dispatched via a swarm MANAGER, attached to the shared `swarmy`
+ * overlay, hitting `http://swarmy-garage:3903/v1` by swarm DNS — the store
+ * publishes NO ports. The admin token rides as one-shot container env —
+ * mirroring `handlers/storage.ts#adminCallOnOverlay` on the agent side.
  *
  * Attach mirrors `manageddb.service.ts#injectConnection` / cache attach:
  * a bucket-scoped Garage key is minted, its secret becomes a Docker secret
@@ -41,7 +42,7 @@ import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
-import { GARAGE_ADMIN_PORT, GARAGE_S3_PORT } from './garage-render';
+import { GARAGE_NETWORK, GARAGE_S3_PORT, garageAdminUrl } from './garage-render';
 import { MAX_PRESIGN_EXPIRES_SECONDS, presignS3Url } from './s3-presign';
 import { parsePhysicalSecretName, physicalSecretName, secretRefsFor } from './secretsMgr.service';
 
@@ -61,9 +62,34 @@ export const S3_SECRET_LABEL = 'swarmy.s3.secret';
 
 // ── Pure request/response builders (unit-tested) ─────────────────────────────
 
-/** Admin API base as seen from a host-networked container on a swarm node. */
+/** Admin API base as seen from a one-shot container on the swarmy overlay. */
 export function garageAdminBase(): string {
-  return `http://127.0.0.1:${GARAGE_ADMIN_PORT}/v1`;
+  return garageAdminUrl(STORE_SERVICE_NAME);
+}
+
+/**
+ * The `container.runOnce` payload for one admin script: curl image, env-only
+ * secrets, attached to the store's overlay (never `host` — nothing is
+ * published on the node). Pure — exported for tests.
+ */
+export function adminRunOncePayload(script: string, env: Record<string, string>) {
+  return {
+    image: CURL_IMAGE,
+    entrypoint: ['/bin/sh', '-c'],
+    cmd: [script],
+    env,
+    networks: [GARAGE_NETWORK],
+    pull: true,
+    timeoutMs: DISPATCH_TIMEOUT_MS,
+  };
+}
+
+/**
+ * Networks an attached app must join to resolve `swarmy-garage`: its own plus
+ * the store overlay (idempotent). Pure — exported for tests.
+ */
+export function withStoreNetwork(networks: string[]): string[] {
+  return networks.includes(GARAGE_NETWORK) ? networks : [...networks, GARAGE_NETWORK];
 }
 
 /** In-swarm S3 endpoint attached apps receive (mirrors replicatedStore.endpointFor). */
@@ -320,10 +346,12 @@ async function requireStore(ctx: OrgContext): Promise<StoreHandle> {
   return store;
 }
 
-/** Prefer an online store member (the admin port is published there); fall back to a manager. */
-async function storeNode(ctx: OrgContext, store: StoreHandle): Promise<{ id: string }> {
-  const online = store.memberNodeIds.find((id) => ctx.hub.isOnline(id));
-  if (online) return { id: online };
+/**
+ * Where admin one-shots run: a swarm manager. The curl container attaches to
+ * the attachable `swarmy` overlay and reaches the store by service DNS, so no
+ * member-local published port is needed (and none exists).
+ */
+async function storeNode(ctx: OrgContext, _store: StoreHandle): Promise<{ id: string }> {
   return resolveManagerNode(ctx);
 }
 
@@ -342,20 +370,12 @@ async function garageAdmin(ctx: OrgContext, store: StoreHandle, call: AdminCall)
     res = await ctx.hub.dispatch<RunOnceResult>(
       node.id,
       'container.runOnce',
-      {
-        image: CURL_IMAGE,
-        entrypoint: ['/bin/sh', '-c'],
-        cmd: [buildAdminScript()],
-        env: {
-          GARAGE_ADMIN_TOKEN: store.adminToken,
-          GARAGE_METHOD: call.method,
-          GARAGE_URL: `${garageAdminBase()}${call.path}`,
-          ...(call.body ? { GARAGE_BODY: call.body } : {}),
-        },
-        networks: ['host'],
-        pull: true,
-        timeoutMs: DISPATCH_TIMEOUT_MS,
-      },
+      adminRunOncePayload(buildAdminScript(), {
+        GARAGE_ADMIN_TOKEN: store.adminToken,
+        GARAGE_METHOD: call.method,
+        GARAGE_URL: `${garageAdminBase()}${call.path}`,
+        ...(call.body ? { GARAGE_BODY: call.body } : {}),
+      }),
       { timeoutMs: DISPATCH_TIMEOUT_MS + 15_000 },
     );
   } catch (e) {
@@ -425,19 +445,11 @@ export async function overview(ctx: OrgContext): Promise<BucketsOverview> {
     const dump = await ctx.hub.dispatch<RunOnceResult>(
       node.id,
       'container.runOnce',
-      {
-        image: CURL_IMAGE,
-        entrypoint: ['/bin/sh', '-c'],
-        cmd: [buildBucketDumpScript()],
-        env: {
-          GARAGE_ADMIN_TOKEN: store.adminToken,
-          GARAGE_BASE: garageAdminBase(),
-          GARAGE_BUCKET_IDS: ids.join(' '),
-        },
-        networks: ['host'],
-        pull: true,
-        timeoutMs: DISPATCH_TIMEOUT_MS,
-      },
+      adminRunOncePayload(buildBucketDumpScript(), {
+        GARAGE_ADMIN_TOKEN: store.adminToken,
+        GARAGE_BASE: garageAdminBase(),
+        GARAGE_BUCKET_IDS: ids.join(' '),
+      }),
       { timeoutMs: DISPATCH_TIMEOUT_MS + 15_000 },
     );
     const buckets: BucketSummaryView[] = [];
@@ -729,7 +741,7 @@ export async function rotateAccessKey(
             protocol: p.protocol === 'udp' ? ('udp' as const) : ('tcp' as const),
             mode: 'ingress' as const,
           })),
-          networks: app.networks.map((n) => n.name),
+          networks: withStoreNetwork(app.networks.map((n) => n.name)),
           secrets: [...secretRefsFor(otherSecrets), { source: newSecretName, target: family }],
           ...(app.configs && app.configs.length > 0
             ? { configs: app.configs.map((n) => ({ source: n })) }
@@ -1026,7 +1038,8 @@ export async function attachToService(
         protocol: p.protocol === 'udp' ? ('udp' as const) : ('tcp' as const),
         mode: 'ingress' as const,
       })),
-      networks: app.networks.map((n) => n.name),
+      // Join the store overlay so `swarmy-garage:3900` (S3_ENDPOINT) resolves.
+      networks: withStoreNetwork(app.networks.map((n) => n.name)),
       secrets,
       ...(app.configs && app.configs.length > 0
         ? { configs: app.configs.map((n) => ({ source: n })) }

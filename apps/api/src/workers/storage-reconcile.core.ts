@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { SWARMY_OVERLAY_NETWORK } from '@swarmy/core';
 
 /**
  * Pure helpers for the storage-reconcile worker (WS5 — Garage lifecycle):
@@ -19,13 +20,112 @@ import { createHash } from 'node:crypto';
 export const STORE_SERVICE_NAME = 'swarmy-garage';
 export const CURL_IMAGE = 'curlimages/curl:8.10.1';
 export const GARAGE_ADMIN_PORT = 3903;
+export const GARAGE_RPC_PORT = 3901;
+/** The overlay the store joins (publishes NO ports) — admin one-shots attach here. */
+export const STORE_NETWORK = SWARMY_OVERLAY_NETWORK;
+export const TASK_MARKER = '__SWARMY_TASK__:';
 export const STATUS_MARKER = '__SWARMY_STATUS__:';
 export const STORAGE_STATS_LABEL = 'swarmy.storage.stats';
 export const DEFAULT_CAPACITY_GB = 100;
 
-/** Admin API base as seen from a host-networked container on a swarm node. */
-export function garageAdminBase(): string {
-  return `http://127.0.0.1:${GARAGE_ADMIN_PORT}/v1`;
+/**
+ * Admin API base as seen from a one-shot container on {@link STORE_NETWORK}
+ * (swarm DNS → the service VIP; any member answers cluster-wide calls).
+ */
+export function garageAdminBase(host: string = STORE_SERVICE_NAME): string {
+  return `http://${host}:${GARAGE_ADMIN_PORT}/v1`;
+}
+
+/**
+ * The `container.runOnce` payload for one admin script: env-only secrets, on
+ * the store overlay (never `host` — nothing is published). Dispatched via a
+ * manager.
+ */
+export function adminRunOncePayload(script: string, env: Record<string, string>, timeoutMs: number) {
+  return {
+    image: CURL_IMAGE,
+    entrypoint: ['/bin/sh', '-c'],
+    cmd: [script],
+    env,
+    networks: [STORE_NETWORK],
+    pull: true,
+    timeoutMs,
+  };
+}
+
+// ── Multi-member RPC bootstrap (best-effort) ─────────────────────────────────
+//
+// Members talk RPC (3901) over the overlay. One shared `garage.toml` cannot
+// carry a per-task `rpc_public_addr`, so members do not discover each other on
+// their own: the worker resolves every task's overlay IP (`tasks.<service>`
+// swarm DNS), reads each task's Garage node id from its own admin API, and asks
+// each member to `POST /v1/connect` to the others (`<id>@<ip>:3901`). Limits:
+// task IPs change when a task is rescheduled (the next tick re-connects while
+// the cluster reports fewer connected nodes than members), and Garage may
+// advertise an auto-detected (non-overlay) address to peers — connections are
+// therefore initiated from BOTH ends rather than relying on advertisement.
+
+/**
+ * Probe every store task directly: resolve `tasks.<service>` and print
+ * `__SWARMY_TASK__:<ip>` + that task's `/v1/status` body. IPv4 only.
+ */
+export function buildTaskProbeScript(): string {
+  return [
+    'set -u',
+    'H="Authorization: Bearer $GARAGE_ADMIN_TOKEN"',
+    'ips=$(nslookup "tasks.$GARAGE_SERVICE" 2>/dev/null | sed -n \'s/^Address[^:]*:[[:space:]]*\\([0-9.]*\\).*$/\\1/p\' | grep -E \'^([0-9]+[.]){3}[0-9]+$\' | grep -v \'^127[.]\' | sort -u)',
+    'for ip in $ips; do',
+    `  echo "${TASK_MARKER}$ip"`,
+    `  curl -sS -m 5 -H "$H" "http://$ip:${GARAGE_ADMIN_PORT}/v1/status" || true`,
+    '  echo ""',
+    'done',
+  ].join('\n');
+}
+
+export interface ProbedTask {
+  ip: string;
+  garageNodeId: string;
+}
+
+const IPV4 = /^(\d{1,3}\.){3}\d{1,3}$/;
+
+/** Parse `buildTaskProbeScript` output → tasks with a readable node id. */
+export function parseTaskProbe(output: string): ProbedTask[] {
+  const out: ProbedTask[] = [];
+  const seen = new Set<string>();
+  for (const chunk of output.split(TASK_MARKER).slice(1)) {
+    const nl = chunk.indexOf('\n');
+    const ip = (nl >= 0 ? chunk.slice(0, nl) : chunk).trim();
+    if (!IPV4.test(ip) || seen.has(ip)) continue;
+    let node: unknown;
+    try {
+      node = (JSON.parse(nl >= 0 ? chunk.slice(nl + 1).trim() : '') as { node?: unknown }).node;
+    } catch {
+      continue;
+    }
+    if (typeof node !== 'string' || !node) continue;
+    seen.add(ip);
+    out.push({ ip, garageNodeId: node });
+  }
+  return out.sort((a, b) => (a.ip < b.ip ? -1 : a.ip > b.ip ? 1 : 0));
+}
+
+/**
+ * Full-mesh connect plan: each probed task is asked to connect to every other
+ * one. Empty for fewer than two tasks (a single member needs no peers).
+ */
+export function planConnects(tasks: ProbedTask[]): Array<{ ip: string; peers: string[] }> {
+  if (tasks.length < 2) return [];
+  return tasks.map((t) => ({
+    ip: t.ip,
+    peers: tasks.filter((o) => o.ip !== t.ip).map((o) => `${o.garageNodeId}@${o.ip}:${GARAGE_RPC_PORT}`),
+  }));
+}
+
+/** Whether the RPC mesh needs a (re)bootstrap this tick. Pure. */
+export function needsRpcBootstrap(memberCount: number, health: { connectedNodes: number } | null): boolean {
+  if (memberCount < 2) return false;
+  return !health || health.connectedNodes < memberCount;
 }
 
 /** One-shot curl script — mirror of buckets.service.ts `buildAdminScript`. */

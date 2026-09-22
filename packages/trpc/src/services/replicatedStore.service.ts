@@ -23,6 +23,7 @@ import {
   DEFAULT_GARAGE_IMAGE,
   GARAGE_CONFIG_PREFIX,
   GARAGE_MEMBER_NODE_LABEL,
+  GARAGE_NETWORK,
   GARAGE_S3_PORT,
   effectiveReplicationFactor,
   garageConfigObject,
@@ -364,6 +365,14 @@ export async function enable(ctx: OrgContext): Promise<StorageClusterView> {
         'Could not pin the object store to any member node (no member has reported its swarm node id yet).',
       );
     }
+    // The store is overlay-only (no published ports): make sure the shared
+    // attachable overlay exists before the service references it.
+    await ctx.hub.dispatch(mgr.id, 'network.ensure', {
+      name: GARAGE_NETWORK,
+      driver: 'overlay',
+      attachable: true,
+      labels: { 'swarmy.managed': 'true' },
+    });
     try {
       await ctx.hub.dispatch(mgr.id, 'config.create', {
         name: config.name,
@@ -399,24 +408,31 @@ export async function enable(ctx: OrgContext): Promise<StorageClusterView> {
 }
 
 /**
- * Whether the live store service predates the zero-host-files / pinned shape
- * and must be redeployed: missing, still bind-mounting a host `garage.toml`,
- * not mounting a `swarmy-garage-config-*` Docker config, or not global-mode
- * (i.e. not one pinned task per member). Pure.
+ * Whether the live store service predates the current shape and must be
+ * redeployed: missing, still bind-mounting a host `garage.toml`, not mounting a
+ * `swarmy-garage-config-*` Docker config, not global-mode (one pinned task per
+ * member), NOT on the swarmy overlay, or still publishing any port on the
+ * routing mesh (managed data is private-only). Pure.
  */
 export function storeNeedsConverge(
-  svc: Pick<SwarmServiceInfo, 'mode' | 'configs' | 'mounts'> | undefined,
+  svc:
+    | (Pick<SwarmServiceInfo, 'mode' | 'configs' | 'mounts'> &
+        Partial<Pick<SwarmServiceInfo, 'networks' | 'ports'>>)
+    | undefined,
 ): boolean {
   if (!svc) return true;
   if ((svc.mounts ?? []).some((m) => m.type === 'bind')) return true;
   if (!(svc.configs ?? []).some((n) => n.startsWith(`${GARAGE_CONFIG_PREFIX}-`))) return true;
+  if (!(svc.networks ?? []).some((n) => n.name === GARAGE_NETWORK)) return true;
+  if ((svc.ports ?? []).length > 0) return true;
   return svc.mode !== 'global';
 }
 
 /**
  * Storage-reconcile hook: re-run `enable` for an enabled cluster whose live
  * service is legacy (see {@link storeNeedsConverge}), so installs deployed
- * with the old host-bind spec heal without an operator click. Returns whether
+ * with the old host-bind / routing-mesh-published spec heal without an
+ * operator click. Returns whether
  * a redeploy was attempted.
  */
 export async function convergeStoreDeployment(ctx: OrgContext, now = Date.now()): Promise<boolean> {

@@ -37,6 +37,14 @@ export const UNGROUPED = '(ungrouped)';
 export const SYSTEM_STACK = 'swarmy-system';
 export const SYSTEM_STACK_LABEL = 'swarmy.system';
 
+/**
+ * The ONE shared, attachable overlay every swarmy platform service joins (the
+ * Caddy edge, the OTel collector, the Garage object store, …) and that
+ * one-shot sidecars attach to so in-cluster names like `swarmy-garage`
+ * resolve. Canonical — every other "swarmy overlay" constant aliases this.
+ */
+export const SWARMY_OVERLAY_NETWORK = 'swarmy';
+
 /** True when `name` is the reserved swarmy-system stack namespace. */
 export function isSystemStack(name: string): boolean {
   return name === SYSTEM_STACK;

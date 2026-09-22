@@ -7,6 +7,8 @@ import {
   renderLayoutBody,
   GARAGE_CONFIG_PATH,
   GARAGE_MEMBER_NODE_LABEL,
+  GARAGE_NETWORK,
+  garageAdminUrl,
   effectiveReplicationFactor,
   garageConfigObject,
   type GarageRenderInput,
@@ -72,7 +74,8 @@ describe('garage config render', () => {
     });
     const r = renderGarageDeployment(input);
     expect(r.adminApi?.method).toBe('POST');
-    expect(r.adminApi?.url).toContain('/v1/layout');
+    // Overlay DNS (one-shot container on the swarmy overlay), never 127.0.0.1 / a node IP.
+    expect(r.adminApi?.url).toBe('http://swarmy-garage:3903/v1/layout');
     expect(r.adminApi?.bearerToken).toBe(BASE.adminToken);
   });
 });
@@ -100,5 +103,17 @@ describe('effectiveReplicationFactor', () => {
     expect(effectiveReplicationFactor(3, 5)).toBe(3);
     expect(effectiveReplicationFactor(0, 2)).toBe(1);
     expect(effectiveReplicationFactor(2, 0)).toBe(1);
+  });
+});
+
+describe('garage deployment — overlay-only, nothing published', () => {
+  it('joins the canonical swarmy overlay (agent then publishes no ports)', () => {
+    const r = renderGarageDeployment(BASE);
+    expect(GARAGE_NETWORK).toBe('swarmy');
+    expect(r.networks).toEqual([GARAGE_NETWORK]);
+  });
+
+  it('admin base URL is the service name on the overlay', () => {
+    expect(garageAdminUrl('swarmy-garage')).toBe('http://swarmy-garage:3903/v1');
   });
 });

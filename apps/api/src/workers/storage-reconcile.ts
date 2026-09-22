@@ -5,18 +5,22 @@ import { decryptSecret } from '@swarmy/core/crypto';
 import type { ContainerInfo, RunOnceResult } from '@swarmy/core/protocol';
 import { hub } from '../gateway';
 import {
+  adminRunOncePayload,
   backoffTicks,
   buildAdminScript,
   buildStats,
-  CURL_IMAGE,
+  buildTaskProbeScript,
   DEFAULT_CAPACITY_GB,
   garageAdminBase,
   matchGarageNodes,
   mergeNodeMapping,
+  needsRpcBootstrap,
   parseAdminOutput,
   parseGarageHealth,
   parseGarageLayout,
   parseGarageStatus,
+  parseTaskProbe,
+  planConnects,
   planLayout,
   planSignature,
   statsChanged,
@@ -30,8 +34,13 @@ import {
  *
  * Every ~30s, for each org whose StorageCluster is enabled (DB-gated, like the
  * dns worker), read the LIVE Garage cluster through its admin API (a one-shot
- * `container.runOnce` curl on a store member node — the same dispatch shape
- * buckets.service.ts uses) and converge:
+ * `container.runOnce` curl dispatched via a manager, attached to the `swarmy`
+ * overlay, hitting `swarmy-garage:3903` by swarm DNS — the store publishes NO
+ * ports; the same dispatch shape buckets.service.ts uses) and converge:
+ *
+ *  0. BOOTSTRAP the RPC mesh (multi-member, best-effort): while fewer nodes
+ *     are connected than there are members, probe every task's overlay IP and
+ *     `POST /v1/connect` each member to the others (see `.core`).
  *
  *  1. DISCOVER each member's Garage node id (layout zone → container-hostname
  *     match → singleton fallback) and write it back to the StorageCluster row's
@@ -86,29 +95,29 @@ interface ClusterRow {
   adminTokenRef: string | null;
 }
 
-/** One admin call via a one-shot curl container on `nodeId` (host network). */
+/**
+ * One admin call via a one-shot curl container dispatched to `nodeId` (a
+ * manager), attached to the store overlay. `host` targets one task's overlay
+ * IP directly (RPC bootstrap); default = the service VIP.
+ */
 async function garageAdmin(
   nodeId: string,
   adminToken: string,
-  call: { method: 'GET' | 'POST'; path: string; body?: string },
+  call: { method: 'GET' | 'POST'; path: string; body?: string; host?: string },
 ): Promise<string> {
   const res = await hub.dispatch<RunOnceResult>(
     nodeId,
     'container.runOnce',
-    {
-      image: CURL_IMAGE,
-      entrypoint: ['/bin/sh', '-c'],
-      cmd: [buildAdminScript()],
-      env: {
+    adminRunOncePayload(
+      buildAdminScript(),
+      {
         GARAGE_ADMIN_TOKEN: adminToken,
         GARAGE_METHOD: call.method,
-        GARAGE_URL: `${garageAdminBase()}${call.path}`,
+        GARAGE_URL: `${garageAdminBase(call.host)}${call.path}`,
         ...(call.body ? { GARAGE_BODY: call.body } : {}),
       },
-      networks: ['host'],
-      pull: true,
-      timeoutMs: DISPATCH_TIMEOUT_MS,
-    },
+      DISPATCH_TIMEOUT_MS,
+    ),
     { timeoutMs: DISPATCH_TIMEOUT_MS + 15_000 },
   );
   const { status, body } = parseAdminOutput(res.output);
@@ -147,6 +156,28 @@ function storeContainerHosts(
   return hosts;
 }
 
+/** Probe every store task on the overlay and full-mesh `POST /v1/connect` them. */
+async function bootstrapRpcMesh(target: string, adminToken: string): Promise<void> {
+  const res = await hub.dispatch<RunOnceResult>(
+    target,
+    'container.runOnce',
+    adminRunOncePayload(
+      buildTaskProbeScript(),
+      { GARAGE_ADMIN_TOKEN: adminToken, GARAGE_SERVICE: STORE_SERVICE_NAME },
+      DISPATCH_TIMEOUT_MS,
+    ),
+    { timeoutMs: DISPATCH_TIMEOUT_MS + 15_000 },
+  );
+  for (const c of planConnects(parseTaskProbe(res.output))) {
+    await garageAdmin(target, adminToken, {
+      method: 'POST',
+      path: '/connect',
+      body: JSON.stringify(c.peers),
+      host: c.ip,
+    }).catch(() => undefined);
+  }
+}
+
 async function reconcileOrg(row: ClusterRow, tick: number): Promise<void> {
   const orgId = row.orgId;
   const state = stateFor(orgId);
@@ -154,21 +185,30 @@ async function reconcileOrg(row: ClusterRow, tick: number): Promise<void> {
   if (!row.adminTokenRef) return;
 
   const memberIds = Array.isArray(row.memberNodeIds) ? (row.memberNodeIds as string[]) : [];
-  // Prefer an online store member (the admin port is published there via the
-  // routing mesh); fall back to any connected manager.
-  const target = memberIds.find((id) => hub.isOnline(id)) ?? hub.managerNode(orgId);
+  // Admin one-shots run via a manager, on the swarmy overlay (nothing is
+  // published on any node, so no member-local port exists to prefer).
+  const target = hub.managerNode(orgId);
   if (!target) return;
 
   try {
     const adminToken = decryptSecret(row.adminTokenRef);
+
+    // (0) Multi-member RPC bootstrap (best-effort; single member skips).
+    const readHealth = async () =>
+      parseGarageHealth(
+        parseJson(await garageAdmin(target, adminToken, { method: 'GET', path: '/health' })),
+      );
+    let health = await readHealth();
+    if (needsRpcBootstrap(memberIds.length, health)) {
+      await bootstrapRpcMesh(target, adminToken).catch(() => undefined);
+      health = await readHealth();
+    }
+
     const status = parseGarageStatus(
       parseJson(await garageAdmin(target, adminToken, { method: 'GET', path: '/status' })),
     );
     const layout = parseGarageLayout(
       parseJson(await garageAdmin(target, adminToken, { method: 'GET', path: '/layout' })),
-    );
-    const health = parseGarageHealth(
-      parseJson(await garageAdmin(target, adminToken, { method: 'GET', path: '/health' })),
     );
 
     // (1) Discover garage node ids and write newly-joined members back.

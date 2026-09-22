@@ -13,6 +13,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { DockerClient } from '@swarmy/core/docker';
 import type { ServiceSpec } from '@swarmy/core/protocol';
+import { runOnce } from './swarmres';
 
 // NOTE: the canonical Zod schemas live in `@swarmy/core/protocol/storage` (new
 // file, registered in the protocol index/union via the INTEGRATION snippets).
@@ -36,6 +37,8 @@ interface RenderedStoreDeployment {
   configs?: { source: string; target: string; mode?: number }[];
   placement?: { constraints: string[] };
   serviceMode?: 'replicated' | 'global';
+  /** Overlay networks the store joins; present ⇒ NO published ports (see the Zod schema). */
+  networks?: string[];
   adminApi?: {
     method: 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'GET';
     url: string;
@@ -92,6 +95,9 @@ export async function applyStorageNode(
   // file and no bind mount: the task can land on any node, and a containerised
   // agent never writes into its own filesystem by mistake.
   const useConfigs = Boolean(r.configs?.length);
+  // Overlay-only when the render names networks: the store is private, reached
+  // by swarm DNS on the overlay, and publishes nothing on the routing mesh.
+  const overlay = r.networks?.length ? r.networks : undefined;
 
   // Deploy/update the store member as a swarm service via the existing helpers.
   const spec: ServiceSpec = {
@@ -106,12 +112,16 @@ export async function applyStorageNode(
       'swarmy.driver': r.driver,
       ...r.labels,
     },
-    ports: [
-      { target: r.s3Port, protocol: 'tcp' as const, mode: 'ingress' as const },
-      ...(r.adminPort
-        ? [{ target: r.adminPort, protocol: 'tcp' as const, mode: 'ingress' as const }]
-        : []),
-    ],
+    // `[]` (not omitted) so an update also strips legacy published ports.
+    ports: overlay
+      ? []
+      : [
+          { target: r.s3Port, protocol: 'tcp' as const, mode: 'ingress' as const },
+          ...(r.adminPort
+            ? [{ target: r.adminPort, protocol: 'tcp' as const, mode: 'ingress' as const }]
+            : []),
+        ],
+    ...(overlay ? { networks: overlay } : {}),
     mounts: [
       { type: 'volume' as const, source: `${r.serviceName}-meta`, target: '/var/lib/garage/meta' },
       { type: 'volume' as const, source: `${r.serviceName}-data`, target: '/var/lib/garage/data' },
@@ -158,7 +168,14 @@ export async function applyStorageNode(
   }
 
   let layoutApplied = false;
-  if (r.adminApi) {
+  if (r.adminApi && overlay) {
+    // The admin URL is an overlay name (`swarmy-garage:3903`): a systemd agent
+    // process cannot resolve it, so run the call as a one-shot curl container
+    // attached to the overlay. Token + body ride as container env only.
+    layoutApplied = await adminCallOnOverlay(docker, p.commandId, overlay[0]!, r.adminApi).catch(
+      () => false,
+    );
+  } else if (r.adminApi) {
     const res = await fetch(r.adminApi.url, {
       method: r.adminApi.method,
       body: r.adminApi.body,
@@ -171,6 +188,45 @@ export async function applyStorageNode(
   }
 
   return { driver: r.driver, serviceId, layoutApplied };
+}
+
+/** Pinned curl image for overlay admin calls (mirrors the controller's CURL_IMAGE). */
+export const ADMIN_CURL_IMAGE = 'curlimages/curl:8.10.1';
+const ADMIN_STATUS_MARKER = '__SWARMY_STATUS__:';
+
+/** One-shot admin call: `curl` on `network`; env-only secrets. True on HTTP 2xx. */
+export async function adminCallOnOverlay(
+  docker: DockerClient,
+  commandId: string,
+  network: string,
+  call: NonNullable<RenderedStoreDeployment['adminApi']>,
+): Promise<boolean> {
+  const script = [
+    'set -eu',
+    'set -- -sS -o /dev/null -w "%{http_code}" -X "$ADMIN_METHOD"',
+    'if [ -n "${ADMIN_TOKEN:-}" ]; then set -- "$@" -H "Authorization: Bearer $ADMIN_TOKEN"; fi',
+    'if [ -n "${ADMIN_BODY:-}" ]; then set -- "$@" -H "Content-Type: $ADMIN_CONTENT_TYPE" --data-binary "$ADMIN_BODY"; fi',
+    `echo "${ADMIN_STATUS_MARKER}$(curl "$@" "$ADMIN_URL")"`,
+  ].join('\n');
+  const res = await runOnce(docker, {
+    commandId,
+    image: ADMIN_CURL_IMAGE,
+    entrypoint: ['/bin/sh', '-c'],
+    cmd: [script],
+    env: {
+      ADMIN_METHOD: call.method,
+      ADMIN_URL: call.url,
+      ADMIN_CONTENT_TYPE: call.contentType ?? 'application/json',
+      ...(call.bearerToken ? { ADMIN_TOKEN: call.bearerToken } : {}),
+      ...(call.body ? { ADMIN_BODY: call.body } : {}),
+    },
+    networks: [network],
+    pull: true,
+    timeoutMs: 30_000,
+  });
+  const m = res.output.match(/__SWARMY_STATUS__:(\d{3})/);
+  const code = m ? Number(m[1]) : 0;
+  return code >= 200 && code < 300;
 }
 
 export async function provisionVolume(

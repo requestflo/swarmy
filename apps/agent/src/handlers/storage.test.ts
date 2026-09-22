@@ -70,3 +70,33 @@ describe('applyStorageNode — Docker configs, no host files', () => {
     expect((calls.updated?.Labels as Record<string, string>)['swarmy.managed']).toBe('true');
   });
 });
+
+describe('applyStorageNode — overlay-only (networks set)', () => {
+  it('joins the overlay and publishes NO ports', async () => {
+    const { docker, calls } = fakeDocker();
+    await applyStorageNode(docker, { commandId: 'c1', rendered: { ...rendered, networks: ['swarmy'] } });
+    expect(calls.created?.networks).toEqual(['swarmy']);
+    expect(calls.created?.ports).toEqual([]);
+  });
+
+  it('an update strips legacy published ports (ports: [] is sent, not omitted)', async () => {
+    const { docker, calls } = fakeDocker({ global: true });
+    const seen: ServiceSpec[] = [];
+    (docker as unknown as { prepareServiceOptions: (s: ServiceSpec) => Promise<unknown> }).prepareServiceOptions =
+      async (s: ServiceSpec) => {
+        seen.push(s);
+        return { Name: s.name };
+      };
+    await applyStorageNode(docker, { commandId: 'c1', rendered: { ...rendered, networks: ['swarmy'] } });
+    expect(calls.updated).toBeDefined();
+    expect(seen[0]?.ports).toEqual([]);
+    expect(seen[0]?.networks).toEqual(['swarmy']);
+  });
+
+  it('legacy render (no networks) keeps the routing-mesh ports', async () => {
+    const { docker, calls } = fakeDocker();
+    await applyStorageNode(docker, { commandId: 'c1', rendered });
+    expect(calls.created?.ports?.map((p) => p.target)).toEqual([3900, 3903]);
+    expect(calls.created?.networks).toBeUndefined();
+  });
+});

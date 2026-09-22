@@ -10,7 +10,7 @@
  * (factor N) rather than erasure-code — simplest failure model for small swarms.
  */
 import { createHash } from 'node:crypto';
-import { STACK_LABEL, SYSTEM_STACK, SYSTEM_STACK_LABEL } from '@swarmy/core';
+import { STACK_LABEL, SWARMY_OVERLAY_NETWORK, SYSTEM_STACK, SYSTEM_STACK_LABEL } from '@swarmy/core';
 
 /**
  * Structural copy of `RenderedStoreDeployment` from the new
@@ -33,6 +33,8 @@ export interface RenderedStoreDeployment {
   placement?: { constraints: string[] };
   /** `global` = one task per eligible (member) node. */
   serviceMode?: 'replicated' | 'global';
+  /** Overlay networks the store joins; present ⇒ the agent publishes NO ports (see the Zod schema). */
+  networks?: string[];
   adminApi?: {
     method: 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'GET';
     url: string;
@@ -49,6 +51,19 @@ export const DEFAULT_GARAGE_IMAGE = 'dxflrs/garage:v1.0.1';
 export const GARAGE_S3_PORT = 3900;
 export const GARAGE_RPC_PORT = 3901;
 export const GARAGE_ADMIN_PORT = 3903;
+
+/**
+ * The overlay the store joins. Private-only: NO published ports — S3 (3900),
+ * RPC (3901) and admin (3903) are reached by swarm DNS on this attachable
+ * overlay (`swarmy-garage:3900` for restic sidecars + attached apps; admin
+ * calls are one-shot curl containers attached to it).
+ */
+export const GARAGE_NETWORK = SWARMY_OVERLAY_NETWORK;
+
+/** Admin API base as seen from a one-shot container on {@link GARAGE_NETWORK}. */
+export function garageAdminUrl(serviceName: string): string {
+  return `http://${serviceName}:${GARAGE_ADMIN_PORT}/v1`;
+}
 
 /** In-container path Garage reads its config from. */
 export const GARAGE_CONFIG_PATH = '/etc/garage.toml';
@@ -163,13 +178,14 @@ export function renderLayoutBody(input: GarageRenderInput): string {
 export function renderGarageDeployment(input: GarageRenderInput): RenderedStoreDeployment {
   const image = input.image ?? DEFAULT_GARAGE_IMAGE;
   const joined = input.members.filter((m) => m.garageNodeId);
-  const adminBase = input.members[0]?.rpcHost ?? input.serviceName;
   return {
     driver: 'garage',
     files: [],
     configs: [{ source: garageConfigObject(input).name, target: GARAGE_CONFIG_PATH, mode: 0o400 }],
     placement: { constraints: [`node.labels.${GARAGE_MEMBER_NODE_LABEL}==true`] },
     serviceMode: 'global',
+    // Overlay-only: the agent publishes no ports when `networks` is set.
+    networks: [GARAGE_NETWORK],
     serviceName: input.serviceName,
     image,
     s3Port: GARAGE_S3_PORT,
@@ -180,7 +196,8 @@ export function renderGarageDeployment(input: GarageRenderInput): RenderedStoreD
     adminApi: joined.length
       ? {
           method: 'POST',
-          url: `http://${adminBase}:${GARAGE_ADMIN_PORT}/v1/layout`,
+          // Resolved on the overlay by a one-shot container, never the agent process.
+          url: `${garageAdminUrl(input.serviceName)}/layout`,
           body: renderLayoutBody(input),
           contentType: 'application/json',
           bearerToken: input.adminToken,
