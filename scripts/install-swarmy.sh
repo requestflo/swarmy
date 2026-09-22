@@ -2,7 +2,7 @@
 #
 # install-swarmy.sh — stand up a self-hosted swarmy control plane on a fresh VPS.
 #
-#   curl -fsSL https://get.swarmy.dev | bash
+#   curl -fsSL https://raw.githubusercontent.com/requestflo/swarmy/main/scripts/install-swarmy.sh | sudo bash
 #   # or, from a checkout:
 #   bash scripts/install-swarmy.sh
 #
@@ -36,10 +36,12 @@ set -euo pipefail
 # ── constants ───────────────────────────────────────────────────────────────
 DEFAULT_IMAGE="ghcr.io/requestflo/swarmy-controller:latest"
 DEFAULT_AGENT_IMAGE="ghcr.io/requestflo/swarmy-agent:latest"
+# Where a curl|bash install fetches its companion files (stack files) from.
+SWARMY_RAW_BASE="${SWARMY_RAW_BASE:-https://raw.githubusercontent.com/requestflo/swarmy/${SWARMY_REF:-main}}"
 STACK_NAME="swarmy"
 STATE_DIR="/var/lib/swarmy/install"
 STATE_FILE="$STATE_DIR/state.env"
-OVERLAY_NET="${STACK_NAME}_swarmy"            # docker stack prefixes the network name
+OVERLAY_NET="swarmy"                           # shared platform overlay (external in the stack file)
 CONTROLLER_DNS="swarmy_controller:3021"        # service name on the overlay
 AGENT_CONTAINER="swarmy-agent"
 
@@ -309,9 +311,20 @@ write_stack_file() {  # emit the chosen stack file to $STATE_DIR (self-contained
   for src in "deploy/swarmy.${DB_TIER}.stack.yml" "$(dirname "$0")/../deploy/swarmy.${DB_TIER}.stack.yml"; do
     if [ -f "$src" ]; then cp "$src" "$dst"; printf '%s' "$dst"; return; fi
   done
-  die "stack file deploy/swarmy.${DB_TIER}.stack.yml not found (run from a checkout, or fetch it alongside this script)."
+  # curl | bash: no checkout on disk — fetch the stack file for the same ref.
+  local url="${SWARMY_RAW_BASE}/deploy/swarmy.${DB_TIER}.stack.yml"
+  curl -fsSL "$url" -o "$dst" 2>/dev/null \
+    || die "could not fetch the stack file from $url (set SWARMY_RAW_BASE or run from a checkout)."
+  printf '%s' "$dst"
 }
+ensure_overlay() {  # the stack file references it as external — create it first
+  docker network inspect "$OVERLAY_NET" >/dev/null 2>&1 && return 0
+  docker network create --driver overlay --attachable --opt encrypted "$OVERLAY_NET" >/dev/null \
+    || die "could not create the $OVERLAY_NET overlay network."
+}
+
 deploy_stack() {
+  ensure_overlay
   state_load
   local f; f="$(write_stack_file)"
   local mesh_driver=""

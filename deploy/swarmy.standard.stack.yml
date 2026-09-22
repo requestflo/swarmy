@@ -102,11 +102,13 @@ services:
       start_period: 30s
 
 networks:
+  # The ONE overlay every swarmy platform service shares (Caddy, registry,
+  # ClickHouse, collector…). External + literally named `swarmy` so docker stack
+  # doesn't prefix it to `swarmy_swarmy` — the controller must be on the same
+  # network as the services it creates. The installer creates it first.
   swarmy:
-    driver: overlay
-    attachable: true
-    driver_opts:
-      encrypted: "true"
+    external: true
+    name: swarmy
 
 volumes:
   swarmy-pgdata:
