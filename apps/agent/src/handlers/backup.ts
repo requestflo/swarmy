@@ -85,6 +85,8 @@ export async function runSidecar(
     networkMode?: string;
     /** Override the image ENTRYPOINT (e.g. ['/bin/sh','-c']) to run a tool directly. */
     entrypoint?: string[];
+    /** Run as this user (e.g. '0:0'): a fresh scratch volume is root-owned. */
+    user?: string;
   },
   onLine?: (line: string) => void,
 ): Promise<RunOutput> {
@@ -97,6 +99,7 @@ export async function runSidecar(
 
   const container = await d.createContainer({
     Image: opts.image,
+    ...(opts.user ? { User: opts.user } : {}),
     Cmd: opts.args,
     Env: opts.env,
     ...(opts.entrypoint ? { Entrypoint: opts.entrypoint } : {}),
@@ -508,6 +511,10 @@ async function backupDbLogical(
         env: pgEnv(p.conn),
         binds: [`${scratch}:${DUMP_MOUNT}`],
         networkMode: p.network,
+        // The Postgres client images run as a non-root uid (bitnami: 1001) and
+        // can't write the fresh, root-owned scratch volume. The dump only talks
+        // to the DB over the network, so root in this throwaway container is safe.
+        user: '0:0',
       },
       onLine,
     );
