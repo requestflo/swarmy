@@ -146,7 +146,8 @@ egress_gate() {
   command -v docker >/dev/null 2>&1 || hosts="$hosts get.docker.com"
   local h
   for h in $hosts; do
-    curl -fsS -m 6 -o /dev/null "https://$h" 2>/dev/null \
+    # Any HTTP response proves egress — registry roots answer 401/404, so no -f.
+    curl -sS -m 6 -o /dev/null "https://$h" 2>/dev/null \
       || die "no egress to https://$h — swarmy needs to pull images. Fix outbound networking and re-run."
   done
   ok "egress reachable: $hosts."
@@ -229,7 +230,11 @@ wizard() {
   # the dashboard. Auth (BETTER_AUTH_URL/CONTROLLER_PUBLIC_URL) MUST match the origin
   # the browser uses or sign-in fails CSRF, so pin it to LOGIN_URL now; applying
   # ingress in the dashboard updates the public origin to the domain.
-  LOGIN_URL="http://${PUBLIC_IP:-$LOCAL_IP}:${PUBLISH_PORT}"
+  # Behind NAT the public IP only works with a port-forward the operator hasn't
+  # set up yet; the LAN address is what a browser on the same network can reach.
+  local login_host="${LOCAL_IP:-$PUBLIC_IP}"
+  [ "$NAT_VERDICT" = bound ] && login_host="${PUBLIC_IP:-$LOCAL_IP}"
+  LOGIN_URL="http://${login_host}:${PUBLISH_PORT}"
   PUBLIC_URL="${SWARMY_PUBLIC_URL:-$LOGIN_URL}"
   ok "tier=${DB_TIER} ingress=${INGRESS} mesh=${MESH} login=${LOGIN_URL}${DOMAIN:+ domain=$DOMAIN (after ingress)}"
 }
@@ -274,6 +279,9 @@ ensure_swarm() {
 secret_put() {  # secret_put NAME VALUE — create iff missing (external secrets are immutable)
   local name="$1" val="$2"
   if docker secret inspect "$name" >/dev/null 2>&1; then return 0; fi
+  # Docker refuses empty secret data; a lone newline reads back as "" once the
+  # entrypoint's $(cat …) strips it, so "unset" survives the round trip.
+  [ -n "$val" ] || val=$'\n'
   printf '%s' "$val" | docker secret create "$name" - >/dev/null || die "failed to create docker secret $name"
 }
 ensure_docker_secrets() {
@@ -390,7 +398,8 @@ finalize() {
   if [ "${GENERATED_PW:-0}" = 1 ]; then printf '  Password:   %s   %s\n' "$ADMIN_PASSWORD" "${c_yellow}(generated — save it now)${c_reset}"; fi
   [ -n "$DOMAIN" ] && printf '  Domain:     https://%s  %s\n' "$DOMAIN" "${c_dim}(active once ingress is applied in the dashboard)${c_reset}"
   printf '\n'
-  printf '  Add a node:  curl -fsSL %s/install.sh | SWARMY_JOIN_TOKEN=%s sh\n' "${LOGIN_URL:-$PUBLIC_URL}" "$BOOTSTRAP_JOIN_TOKEN"
+  printf '  Add a node:  curl -fsSL %s/install/loader.sh | SWARMY_JOIN_TOKEN=%s sh -s -- --controller %s\n' \
+    "${LOGIN_URL:-$PUBLIC_URL}" "$BOOTSTRAP_JOIN_TOKEN" "${LOGIN_URL:-$PUBLIC_URL}"
   printf '\n'
   warn "BACK UP $STATE_FILE (esp. SWARMY_SECRET_KEY). Lose it and every stored credential is unrecoverable."
   hr
