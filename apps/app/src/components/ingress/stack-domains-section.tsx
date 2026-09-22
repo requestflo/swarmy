@@ -18,7 +18,9 @@ export function StackDomainsSection({ stack }: StackDomainsSectionProps): React.
   const domains = useQuery({ ...trpc.ingress.listDomains.queryOptions({ stack }), refetchInterval: 5000 });
 
   const rows = domains.data ?? [];
-  const secured = rows.filter((d) => d.tls === 'auto' || d.tls === 'custom').length;
+  // "Secured" = actually served over TLS right now, not merely configured for it.
+  const secured = rows.filter((d) => d.serving && (d.tls === 'auto' || d.tls === 'custom')).length;
+  const notServing = rows.length > 0 && rows.every((d) => !d.serving);
 
   return (
     <section className="space-y-4">
@@ -30,6 +32,7 @@ export function StackDomainsSection({ stack }: StackDomainsSectionProps): React.
           {rows.length > 0 ? (
             <p className="text-muted-foreground mono-label mt-1">
               <CountUp value={secured} /> / {rows.length} secured
+              {notServing ? ' · not serving' : null}
             </p>
           ) : null}
         </div>

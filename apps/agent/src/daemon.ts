@@ -237,6 +237,10 @@ export async function runDaemon(): Promise<void> {
   // matching updateAgent strategy (self-replace vs docker-recreate) from this.
   facts.agentPackaging = agentPackaging();
 
+  // Explicit SWARMY_ALLOW_BUILD override (if any) — lets the controller's
+  // builder picker honour a local allow/veto instead of dispatching blind.
+  if (env.BUILD_OVERRIDE) facts.buildOverride = env.BUILD_OVERRIDE;
+
   // Public IP for the geo-edge DNS layer: detected outbound, sent with register
   // + every heartbeat (detector caches hourly). Never blocks startup.
   facts.publicIp = await detectPublicIp();
@@ -321,7 +325,9 @@ export async function runDaemon(): Promise<void> {
       startLoops(payload.heartbeatIntervalMs, payload.metricsIntervalMs);
     },
     onCommand: (envlp) => {
-      void handleCommand(docker, conn, envlp);
+      void handleCommand(docker, conn, envlp).catch((e) => {
+        log(`command ${envlp.type} threw outside its result handler: ${e instanceof Error ? e.message : String(e)}`);
+      });
     },
     onAuthRejected: (code, reason) => {
       runtime.lastAuthReject = { code, reason, at: Date.now() };

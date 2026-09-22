@@ -19,7 +19,15 @@
 import { DockerClient } from '@swarmy/core/docker';
 import { env } from '../env';
 import { sampleMeshState } from '../handlers/mesh';
-import { confirmPhrase, daemonReconnect, daemonStatus, fail, fmt, say } from './context';
+import { confirmPhrase, daemonReconnect, daemonStatus, fail, fmt, say, timebox } from './context';
+import {
+  explainReformFailure,
+  hostOf,
+  shouldRestartDockerFirst,
+  stalePeers,
+  type ReformAttempt,
+  type RemoteManager,
+} from './rejoin-plan';
 
 export async function rejoinCommand(flags: Set<string>): Promise<void> {
   const force = flags.has('force');
@@ -105,12 +113,18 @@ async function forceWorkerRejoin(_docker: DockerClient, meshIp: string | undefin
  * worker path (the swarm survives on the remaining managers). On a SOLE
  * manager, leaving would destroy the cluster — `--force-new-cluster` re-forms
  * it in place instead, keeping services/configs/secrets, on the new address.
+ *
+ * Every Docker call here is time-boxed: `--force-new-cluster` against raft
+ * state that still lists a dead peer used to stall until `context deadline
+ * exceeded` and leave the node half-broken. We probe RemoteManagers for stale
+ * peers first, restart dockerd when the control plane is wedged / stale peers
+ * exist (what the operator had to do by hand), bound the reform, and retry
+ * once after a docker restart on a deadline.
  */
 async function forceManagerReform(docker: DockerClient, meshIp: string | undefined): Promise<void> {
-  const managers = await docker
-    .listNodes()
-    .then((nodes) => nodes.filter((n) => n.role === 'manager').length)
-    .catch(() => 1);
+  const nodes = await timebox(LIST_NODES_TIMEOUT_MS, () => docker.listNodes());
+  const controlPlaneResponsive = nodes !== null;
+  const managers = nodes ? nodes.filter((n) => n.role === 'manager').length : 1;
 
   if (managers > 1) {
     const go = await confirmPhrase(
@@ -127,23 +141,134 @@ async function forceManagerReform(docker: DockerClient, meshIp: string | undefin
     return;
   }
 
+  const stale = await detectStalePeers(docker);
+  if (!controlPlaneResponsive) say(fmt.yellow('the swarm control plane is not answering (docker node ls timed out).'));
+  if (stale.length) say(fmt.yellow(`stale swarm peer address(es) in local raft state: ${stale.join(', ')}`));
+  const restartFirst = shouldRestartDockerFirst({ controlPlaneResponsive, stale });
+
   // Sole manager.
   const go = await confirmPhrase(
     'This is the ONLY manager. The swarm will be re-formed in place with `docker swarm init --force-new-cluster`' +
       `${meshIp ? ` on the mesh IP ${meshIp}` : ''}. Services, configs and secrets are KEPT, but every other node ` +
-      'must re-join (the controller re-joins online workers automatically).',
+      'must re-join (the controller re-joins online workers automatically).' +
+      (restartFirst ? ' The Docker daemon is restarted first to clear the wedged/stale swarm state.' : ''),
     'force new cluster',
   );
   if (!go) {
     say('aborted');
     return;
   }
-  await run(['docker', 'swarm', 'init', '--force-new-cluster', ...(meshIp ? ['--advertise-addr', meshIp] : [])]);
+
+  let restarted = false;
+  if (restartFirst) restarted = await restartDocker();
+
+  const args = ['docker', 'swarm', 'init', '--force-new-cluster', ...(meshIp ? ['--advertise-addr', meshIp] : [])];
+  for (;;) {
+    say(`running: ${args.join(' ')} (time-boxed ${REFORM_TIMEOUT_MS / 1000}s)`);
+    const attempt = await runBounded(args, REFORM_TIMEOUT_MS);
+    if (!attempt.timedOut && attempt.exitCode === 0) break;
+    const verdict = explainReformFailure(attempt, stale, restarted);
+    say(fmt.red(verdict.message));
+    if (verdict.retryAfterDockerRestart && (await restartDocker())) {
+      restarted = true;
+      say('retrying once after the docker restart…');
+      continue;
+    }
+    fail(
+      'cluster NOT re-formed. Check `journalctl -u docker`, then rerun `swarmy-agent rejoin --force`. ' +
+        'If the manager is unrecoverable, the controller re-elects a new manager automatically once ' +
+        'this node is off the swarm (`docker swarm leave --force`).',
+    );
+  }
   say(`${fmt.green('✓')} cluster re-formed${meshIp ? ` on ${meshIp}` : ''}`);
-  say('Trigger a re-register so the controller stores the new join tokens: swarmy-agent reconnect');
+
+  const leftover = await detectStalePeers(docker);
+  if (leftover.length) {
+    say(
+      fmt.yellow(
+        `warning: raft state still advertises unreachable manager address(es) ${leftover.join(', ')} — ` +
+          'overlay network creation can fail ("no VNI provided") until the swarm is rebuilt.',
+      ),
+    );
+  }
+  // Let the controller see the reformed manager straight away; workers pull
+  // fresh join tokens from it (never the stale stored ones) when they re-join.
+  if (await timebox(5_000, () => daemonReconnect())) {
+    say('re-register requested so the controller picks up the reformed swarm');
+  } else {
+    say('Trigger a re-register so the controller sees the reformed swarm: swarmy-agent reconnect');
+  }
 }
 
-async function run(cmd: string[]): Promise<void> {
-  const proc = Bun.spawn(cmd, { stdout: 'inherit', stderr: 'inherit' });
-  if ((await proc.exited) !== 0) fail(`${cmd.join(' ')} failed`);
+const LIST_NODES_TIMEOUT_MS = 10_000;
+const REFORM_TIMEOUT_MS = 60_000;
+const LEAVE_TIMEOUT_MS = 60_000;
+const DOCKER_RESTART_TIMEOUT_MS = 90_000;
+const PEER_PROBE_TIMEOUT_MS = 2_000;
+
+/** RemoteManagers entries that aren't us and don't answer on their swarm port. */
+async function detectStalePeers(docker: DockerClient): Promise<string[]> {
+  const info = (await timebox(5_000, () => docker.docker.info() as Promise<unknown>)) as {
+    Swarm?: { NodeID?: string; NodeAddr?: string; RemoteManagers?: RemoteManager[] | null };
+  } | null;
+  const remote = info?.Swarm?.RemoteManagers ?? [];
+  const probed = new Map<string, boolean>();
+  await Promise.all(
+    remote
+      .filter((r) => r.Addr)
+      .map(async (r) => probed.set(r.Addr!, await tcpReachable(r.Addr!, PEER_PROBE_TIMEOUT_MS))),
+  );
+  return stalePeers(remote, { nodeId: info?.Swarm?.NodeID, nodeAddr: info?.Swarm?.NodeAddr }, (a) => probed.get(a) ?? true);
+}
+
+async function tcpReachable(addr: string, ms: number): Promise<boolean> {
+  const host = hostOf(addr);
+  const port = Number(addr.slice(addr.lastIndexOf(':') + 1)) || 2377;
+  const ok = await timebox(ms, async () => {
+    const sock = await Bun.connect({ hostname: host, port, socket: { data() {}, error() {} } });
+    sock.end();
+    return true;
+  });
+  return ok === true;
+}
+
+/** Restart dockerd (systemd hosts). Returns true when docker answers again. */
+async function restartDocker(): Promise<boolean> {
+  if (!Bun.which('systemctl')) {
+    say(fmt.yellow('cannot restart docker automatically (no systemctl) — restart the Docker daemon, then retry.'));
+    return false;
+  }
+  say('restarting the Docker daemon (clears wedged swarm/raft state)…');
+  const r = await runBounded(['systemctl', 'restart', 'docker'], DOCKER_RESTART_TIMEOUT_MS);
+  if (r.timedOut || r.exitCode !== 0) {
+    say(fmt.red(`systemctl restart docker ${r.timedOut ? 'timed out' : 'failed'}: ${r.stderr.trim()}`));
+    return false;
+  }
+  const docker = new DockerClient(env.DOCKER_SOCKET);
+  for (let i = 0; i < 30; i++) {
+    if (await timebox(2_000, () => docker.docker.ping())) return true;
+    await Bun.sleep(1_000);
+  }
+  say(fmt.red('docker did not come back within 60s of the restart'));
+  return false;
+}
+
+/** Spawn with a hard deadline; kills the process on timeout. Never hangs. */
+async function runBounded(cmd: string[], timeoutMs: number): Promise<ReformAttempt> {
+  const proc = Bun.spawn(cmd, { stdout: 'inherit', stderr: 'pipe' });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    proc.kill('SIGKILL');
+  }, timeoutMs);
+  const [exitCode, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text().catch(() => '')]);
+  clearTimeout(timer);
+  if (stderr) process.stderr.write(stderr);
+  return { timedOut, exitCode: timedOut ? null : exitCode, stderr };
+}
+
+async function run(cmd: string[], timeoutMs = LEAVE_TIMEOUT_MS): Promise<void> {
+  const r = await runBounded(cmd, timeoutMs);
+  if (r.timedOut) fail(`${cmd.join(' ')} timed out after ${timeoutMs / 1000}s — try \`systemctl restart docker\`, then retry`);
+  if (r.exitCode !== 0) fail(`${cmd.join(' ')} failed`);
 }

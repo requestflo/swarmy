@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { parseBuildOverride } from '@swarmy/core';
 
 /**
  * Fallback env bootstrap: interactive CLI invocations (`swarmy-agent status`
@@ -57,7 +58,12 @@ export const env = {
   TERM_MAX_OUTPUT_BYTES: Number(process.env.SWARMY_TERM_MAX_OUTPUT_BYTES ?? 64 * 1024 * 1024),
   // Mesh provisioning is on by default; a node can opt out (epic #6).
   ALLOW_MESH: (process.env.SWARMY_ALLOW_MESH ?? 'true') === 'true',
-  ALLOW_BUILD: (process.env.SWARMY_ALLOW_BUILD ?? 'false') === 'true',
+  // Builds/image-GC are a node CAPABILITY managed from the dashboard (the
+  // `swarmy.node.builder` role label, asserted by the controller per command).
+  // SWARMY_ALLOW_BUILD stays as an explicit local override: `true` forces
+  // builds on, `false` vetoes them even when the role is on, unset defers to
+  // the role. See buildGateAllows in @swarmy/core.
+  BUILD_OVERRIDE: parseBuildOverride(process.env.SWARMY_ALLOW_BUILD),
   // Mesh-first join (epic: zero-trust-networking): when a setup key is
   // present, the agent joins NetBird and confirms connectivity BEFORE
   // registering, so swarm formation can advertise the mesh IP. Empty by

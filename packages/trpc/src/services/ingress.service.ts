@@ -1,4 +1,5 @@
 import {
+  CADDY_CONTROLLER_SERVICE,
   applyIngress as applyIngressPkg,
   previewConfig as previewConfigPkg,
   type ColdRoute,
@@ -10,6 +11,7 @@ import {
   type TunnelOptions,
 } from '@swarmy/ingress';
 import type { IngressStatus, RenderedConfig } from '@swarmy/core/protocol';
+import { createHash } from 'node:crypto';
 import { buildInventory, type TlsMode } from '@swarmy/core';
 import { decryptSecret, encryptSecret } from '@swarmy/core/crypto';
 import type { Auth } from '@swarmy/auth';
@@ -18,7 +20,15 @@ import type { AgentHub } from '../hub/types';
 import type { OrgContext } from '../context';
 import { systemContext } from './cicd.service';
 import { writeAudit } from '../services/audit.service';
-import { ensureCaddyController, ensureCaddyEdge } from './ingress-controller';
+import {
+  deriveEdgeRuntime,
+  ensureCaddyController,
+  ensureCaddyEdge,
+  ingressTaskNodes,
+  ingressTasks,
+  type EdgeApplyRecord,
+  type EdgeRuntimeStatus,
+} from './ingress-controller';
 import { notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { resolveLiveService } from './live-resolve';
@@ -146,6 +156,12 @@ export interface IngressConfigView {
   /** Edge topology: replicated controller vs global per-node edge (geo-edge). */
   topology: 'controller' | 'edge-per-node';
   updatedAt: string;
+  /**
+   * RUNTIME truth — is a swarmy-run proxy actually up and carrying the current
+   * config? Derived from live Docker state + the last apply outcome, never from
+   * `driver`/`enabled` alone. Status badges must read this, not the config.
+   */
+  runtime: EdgeRuntimeStatus;
 }
 
 export interface DomainView {
@@ -164,6 +180,14 @@ export interface DomainView {
   protection: RouteProtection | null;
   /** Live canary traffic share (null = no canary in flight). */
   canaryPct: number | null;
+  /**
+   * Whether this route is actually being served right now (the org edge's
+   * runtime state is `serving`). A configured-but-not-served route must not
+   * render as live/secured.
+   */
+  serving: boolean;
+  /** The org edge's runtime state this route rides on (see `IngressConfigView.runtime`). */
+  edgeState: EdgeRuntimeStatus['state'];
 }
 
 interface ConfigRow {
@@ -393,6 +417,12 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
   // Edge-per-node topology renders per node and applies via the agent's
   // localReload exec (no admin API) — see caddy driver applyVia 'local'.
   if (settings.topology === 'edge-per-node') extraConfig.applyVia = 'local';
+  // Replicated controller (default topology): deliver config by exec'ing into
+  // the controller task on the node that hosts it. The legacy default ('file')
+  // wrote the Caddyfile on the AGENT host and ran `caddy reload` there — where
+  // no Caddy exists — so routes never reached the controller. An operator
+  // override (`extraConfig.applyVia`, e.g. 'admin') still wins.
+  else if (typeof extraConfig.applyVia !== 'string') extraConfig.applyVia = 'exec';
   // Observability on ⇒ render the `tracing` directive so the edge emits a span
   // per request (the controller carries the matching OTLP exporter env).
   const obs = await ctx.db.observabilityConfig.findUnique({
@@ -437,9 +467,18 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
   };
 }
 
-function makeDispatch(ctx: OrgContext): DriverDispatch {
+function usesInTaskExec(config: OrgIngressConfig): boolean {
+  const extra = (config.globalOptions?.extraConfig ?? {}) as Record<string, unknown>;
+  return config.driver === 'caddy' && extra.applyVia === 'exec';
+}
+
+function makeDispatch(ctx: OrgContext, config?: OrgIngressConfig): DriverDispatch {
+  // In-task exec (replicated controller): the only valid targets are the nodes
+  // that host a running controller task — Docker truth, not the pin/label set.
+  const execTargets = config && usesInTaskExec(config) ? () => ingressTaskNodes(ctx) : undefined;
   return {
     async resolveTargetNodes(orgId, explicit) {
+      if (execTargets) return execTargets();
       if (explicit.length) return explicit;
       // Prefer nodes tagged as the ingress (edge) tier via the node-role label;
       // fall back to the manager set when no node is marked so ingress still applies.
@@ -447,7 +486,9 @@ function makeDispatch(ctx: OrgContext): DriverDispatch {
       return marked.length ? marked : ctx.hub.managerNodes(orgId);
     },
     async resolveTargets(orgId, explicit) {
-      const ids = explicit.length
+      const ids = execTargets
+        ? await execTargets()
+        : explicit.length
         ? explicit
         : await (async () => {
             const marked = await ingressTargetNodes(ctx);
@@ -479,6 +520,90 @@ function makeDispatch(ctx: OrgContext): DriverDispatch {
   };
 }
 
+// ───────────────────────────────────────────── runtime truth + convergence ──
+
+/**
+ * Outcome of the most recent render+apply (or controller converge) per org.
+ * In-process on purpose: it is operational telemetry, not config — after a
+ * controller restart it is empty until the ingress-reconcile worker's first
+ * tick re-applies (runtime reads `deploying` meanwhile, never a false green).
+ */
+const lastApplyByOrg = new Map<string, EdgeApplyRecord>();
+
+function recordApply(orgId: string, ok: boolean, message: string): void {
+  lastApplyByOrg.set(orgId, { ok, at: new Date().toISOString(), message });
+}
+
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** Live runtime status of the org edge (Docker truth + last apply). */
+export async function edgeRuntimeStatus(
+  ctx: OrgContext,
+  row?: ConfigRow,
+): Promise<EdgeRuntimeStatus> {
+  const cfg = row ?? (await ensureConfig(ctx));
+  const svc = ctx.hub
+    .liveInventory(ctx.activeOrgId)
+    .services.find((s) => s.name === CADDY_CONTROLLER_SERVICE);
+  const taskNodes = driverLower(cfg.driver) === 'caddy' ? await ingressTaskNodes(ctx) : [];
+  return deriveEdgeRuntime({
+    driver: driverLower(cfg.driver),
+    enabled: cfg.enabled,
+    service: svc
+      ? {
+          runningReplicas: svc.runningReplicas,
+          desiredReplicas: svc.desiredReplicas,
+          mode: svc.mode,
+          updatedAt: svc.updatedAt,
+        }
+      : undefined,
+    taskHosts: taskNodes.map((id) => ctx.hub.nodeInfoFor(id)?.hostname ?? id),
+    lastApply: lastApplyByOrg.get(ctx.activeOrgId),
+    now: Date.now(),
+  });
+}
+
+/**
+ * Converge the swarmy-run Caddy for the current topology when the org's edge
+ * is Caddy + enabled — the step that used to hide behind a separate "Deploy /
+ * converge controller" button. Idempotent (`service.deploy` is create+update).
+ * A failure is RECORDED (surfaces on `runtime`) and returned, never swallowed.
+ */
+async function convergeEdge(ctx: OrgContext): Promise<string | null> {
+  const row = await ensureConfig(ctx);
+  if (driverLower(row.driver) !== 'caddy' || !row.enabled) return null;
+  const settings = readSettings(row);
+  // Operator opted into a self-run Caddy on the host (`applyVia: 'file'`):
+  // swarmy must not deploy a competing controller onto 80/443.
+  const extra = (settings.globalOptions?.extraConfig ?? {}) as Record<string, unknown>;
+  if (extra.applyVia === 'file') return null;
+  try {
+    if (settings.topology === 'edge-per-node') {
+      await ensureCaddyEdge(ctx, { image: settings.controllerImage ?? undefined });
+    } else {
+      await ensureCaddyController(ctx, {
+        image: settings.controllerImage ?? undefined,
+        targetNodes: settings.targetNodes ?? [],
+        adminOnOverlay: extra.applyVia === 'admin',
+      });
+    }
+    return null;
+  } catch (e) {
+    const message = `could not deploy the Caddy ingress controller: ${errMessage(e)}`;
+    recordApply(ctx.activeOrgId, false, message);
+    return message;
+  }
+}
+
+/** Is the swarmy Caddy service present in live inventory? */
+function edgeServiceDeployed(ctx: OrgContext): boolean {
+  return ctx.hub
+    .liveInventory(ctx.activeOrgId)
+    .services.some((s) => s.name === CADDY_CONTROLLER_SERVICE);
+}
+
 export async function getConfig(ctx: OrgContext): Promise<IngressConfigView> {
   const row = await ensureConfig(ctx);
   const settings = readSettings(row);
@@ -494,6 +619,7 @@ export async function getConfig(ctx: OrgContext): Promise<IngressConfigView> {
     controllerImage: settings.controllerImage ?? null,
     topology: settings.topology ?? 'controller',
     updatedAt: row.updatedAt.toISOString(),
+    runtime: await edgeRuntimeStatus(ctx, row),
   };
 }
 
@@ -512,12 +638,14 @@ export async function setTopology(
   if (topology === 'edge-per-node') {
     await ensureCaddyEdge(ctx, { image: settings.controllerImage ?? undefined });
   } else {
+    const extra = (settings.globalOptions?.extraConfig ?? {}) as Record<string, unknown>;
     await ensureCaddyController(ctx, {
       image: settings.controllerImage ?? undefined,
       targetNodes: settings.targetNodes,
+      adminOnOverlay: extra.applyVia === 'admin',
     });
   }
-  await reapply(ctx).catch(() => undefined);
+  await reapply(ctx);
   await writeAudit(ctx, {
     action: 'ingress.setTopology',
     targetType: 'ingressConfig',
@@ -549,6 +677,8 @@ export async function setControllerImage(
     targetId: ctx.activeOrgId,
     metadata: { image },
   });
+  // Roll the running controller onto the new image (no-op unless Caddy is live).
+  if ((await convergeEdge(ctx)) === null) await reapply(ctx);
   return getConfig(ctx);
 }
 
@@ -570,6 +700,9 @@ export async function setTargetNodes(
     targetId: ctx.activeOrgId,
     metadata: { nodeIds },
   });
+  // Re-place the controller now (no separate "redeploy" step). The pin is an
+  // enrollment id; `ensureCaddyController` translates it to the swarm node id.
+  if ((await convergeEdge(ctx)) === null) await reapply(ctx);
   return getConfig(ctx);
 }
 
@@ -590,7 +723,9 @@ export async function setDriver(
     targetId: ctx.activeOrgId,
     metadata: { driver },
   });
-  await reapply(ctx);
+  // Picking Caddy while enabled deploys it — selecting the "Recommended" driver
+  // must never silently leave nothing listening on 80/443.
+  if ((await convergeEdge(ctx)) === null) await reapply(ctx);
   return getConfig(ctx);
 }
 
@@ -729,7 +864,7 @@ export async function setTunnel(
 export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<IngressConfigView> {
   await ensureConfig(ctx);
   await ctx.db.ingressConfig.update({ where: { orgId: ctx.activeOrgId }, data: { enabled } });
-  await reapply(ctx);
+  if ((await convergeEdge(ctx)) === null) await reapply(ctx);
   return getConfig(ctx);
 }
 
@@ -737,6 +872,7 @@ export async function listDomains(ctx: OrgContext, stack?: string): Promise<Doma
   // Routes are Docker-truth: project each service's `swarmy.ingress.routes` label.
   // The DomainView id is `${serviceId}:${host}` (the handle removeDomain parses back).
   // `stack` scopes the list to services in that Docker stack (namespace label).
+  const runtime = await edgeRuntimeStatus(ctx);
   return listRoutesForOrg(ctx)
     .filter((r) => !stack || r.stack === stack)
     .map(({ serviceId, serviceName, stack: svcStack, route }) => ({
@@ -751,6 +887,8 @@ export async function listDomains(ctx: OrgContext, stack?: string): Promise<Doma
       ingressDriver: (route.driver as IngressDriverId | undefined) ?? null,
       protection: route.protection ?? null,
       canaryPct: route.canary ? route.canary.weightPct : null,
+      serving: runtime.serving,
+      edgeState: runtime.state,
     }));
 }
 
@@ -789,6 +927,7 @@ export async function addDomain(
   });
 
   await reapply(ctx);
+  const runtime = await edgeRuntimeStatus(ctx);
   return {
     id: `${service.id}:${input.host}`,
     host: input.host,
@@ -801,6 +940,8 @@ export async function addDomain(
     ingressDriver: input.ingressDriver ?? null,
     protection: null,
     canaryPct: null,
+    serving: runtime.serving,
+    edgeState: runtime.state,
   };
 }
 
@@ -848,20 +989,43 @@ export function listDrivers(): IngressDriverId[] {
   return ['none', 'caddy', 'traefik', 'cloudflared', 'nginx', 'haproxy'];
 }
 
-/** Render + dispatch the current config to the ingress nodes (best-effort). */
+/**
+ * Render + dispatch one loaded config and RECORD the outcome, so failures reach
+ * `runtime` (and the dashboard) instead of vanishing. Throws on failure.
+ */
+async function applyAndRecord(ctx: OrgContext, config: OrgIngressConfig): Promise<IngressStatus> {
+  try {
+    const status = await applyIngressPkg(config, makeDispatch(ctx, config));
+    recordApply(ctx.activeOrgId, true, status.message ?? 'applied');
+    return status;
+  } catch (e) {
+    recordApply(ctx.activeOrgId, false, errMessage(e));
+    throw e;
+  }
+}
+
+/**
+ * Render + dispatch the current config to the ingress nodes. Never throws (a
+ * config write must not fail because the proxy is down), but never hides the
+ * failure either: the outcome is recorded and read back through `runtime`.
+ * While the in-task controller has no running task yet (just deployed, still
+ * pulling) the apply is deferred — the ingress-reconcile worker applies the
+ * moment a task appears — rather than recorded as a failure.
+ */
 async function reapply(ctx: OrgContext): Promise<IngressStatus | null> {
   const config = await loadOrgConfig(ctx);
   if (config.driver === 'none' || !config.enabled) return null;
-  try {
-    return await applyIngressPkg(config, makeDispatch(ctx));
-  } catch {
+  if (usesInTaskExec(config) && (await ingressTaskNodes(ctx)).length === 0) {
+    // Self-heal: Caddy enabled but the controller is gone → deploy it again.
+    if (!edgeServiceDeployed(ctx)) await convergeEdge(ctx);
     return null;
   }
+  return applyAndRecord(ctx, config).catch(() => null);
 }
 
 export async function applyNow(ctx: OrgContext): Promise<IngressStatus> {
   const config = await loadOrgConfig(ctx);
-  return applyIngressPkg(config, makeDispatch(ctx));
+  return applyAndRecord(ctx, config);
 }
 
 /**
@@ -934,7 +1098,7 @@ export async function reapplyIngressForOrg(
   const ctx = systemContext(deps, orgId);
   const config = await loadOrgConfig(ctx);
   if (config.driver === 'none' || !config.enabled) return;
-  await applyIngressPkg(config, makeDispatch(ctx)).catch(() => undefined);
+  await applyAndRecord(ctx, config).catch(() => undefined);
 }
 
 /**
@@ -968,11 +1132,87 @@ export async function reconcileColdIngress(
     prev.length === coldHosts.length && prev.every((h, i) => h === coldHosts[i]);
   if (unchanged) return coldHosts;
   try {
-    await applyIngressPkg(config, makeDispatch(ctx));
+    await applyAndRecord(ctx, config);
     return coldHosts;
   } catch {
     // Apply failed — return the PREVIOUS set so the caller's cache is unchanged and
     // the (still-differing) cold set re-triggers a dispatch on the next tick.
     return [...prevColdHosts];
+  }
+}
+
+/** Result of one {@link reconcileIngressOrg} tick for an org. */
+export interface IngressReconcileResult {
+  /**
+   * Signature to hold for the next tick — or `null` when nothing converged
+   * (apply failed / controller not up yet), so the next tick retries.
+   */
+  signature: string | null;
+  /** Desired state unchanged since `lastSignature` — zero commands sent. */
+  skipped: boolean;
+  applied: boolean;
+  error?: string;
+}
+
+/** Last time (ms) the reconcile re-deployed a missing controller, per org. */
+const lastConvergeAt = new Map<string, number>();
+const CONVERGE_RETRY_MS = 60_000;
+
+/**
+ * Ingress reconcile (one org, one tick) — the safety net that makes routes
+ * actually get served without a human pressing "apply":
+ *
+ * - desired state = the full resolved org config (routes off live service
+ *   labels — incl. ones a blueprint deploy wrote directly — cold/scale-to-zero
+ *   upstreams, controller vhosts, TLS/HA options) PLUS the set of running Caddy
+ *   task containers. A new/rescheduled task changes the signature, so it gets
+ *   its config pushed the tick it appears.
+ * - Caddy enabled but the controller service is gone → re-deploy it
+ *   (rate-limited to once per minute per org).
+ * - Signature-gated: a steady state sends ZERO commands. Failures return a
+ *   `null` signature so the next tick retries, and are recorded for `runtime`.
+ *
+ * Runs under a SYSTEM `OrgContext` (no session).
+ */
+export async function reconcileIngressOrg(
+  deps: IngressColdReconcileDeps,
+  orgId: string,
+  lastSignature?: string | null,
+): Promise<IngressReconcileResult> {
+  const ctx = systemContext(deps, orgId);
+  const config = await loadOrgConfig(ctx);
+  if (config.driver === 'none' || !config.enabled) {
+    const signature = `off:${config.driver}:${config.enabled}`;
+    return { signature, skipped: signature === lastSignature, applied: false };
+  }
+
+  const extra = (config.globalOptions?.extraConfig ?? {}) as Record<string, unknown>;
+  const swarmyRunsCaddy = config.driver === 'caddy' && extra.applyVia !== 'file';
+  if (swarmyRunsCaddy && !edgeServiceDeployed(ctx)) {
+    const last = lastConvergeAt.get(orgId) ?? 0;
+    if (Date.now() - last >= CONVERGE_RETRY_MS) {
+      lastConvergeAt.set(orgId, Date.now());
+      const error = await convergeEdge(ctx);
+      return { signature: null, skipped: false, applied: false, error: error ?? undefined };
+    }
+    return { signature: null, skipped: true, applied: false };
+  }
+
+  const tasks = swarmyRunsCaddy ? await ingressTasks(ctx) : [];
+  const signature = createHash('sha256')
+    .update(JSON.stringify({ config, tasks }))
+    .digest('hex');
+  if (signature === lastSignature) return { signature, skipped: true, applied: false };
+
+  if (usesInTaskExec(config) && tasks.length === 0) {
+    // Deployed but no running task yet (pulling / scheduling) — nothing to
+    // apply to. Runtime reads deploying/down from Docker truth meanwhile.
+    return { signature: null, skipped: false, applied: false };
+  }
+  try {
+    await applyAndRecord(ctx, config);
+    return { signature, skipped: false, applied: true };
+  } catch (e) {
+    return { signature: null, skipped: false, applied: false, error: errMessage(e) };
   }
 }

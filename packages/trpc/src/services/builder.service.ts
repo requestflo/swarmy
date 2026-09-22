@@ -13,6 +13,7 @@ import {
 import { writeAudit } from '../services/audit.service';
 import type { OrgContext } from '../context';
 import { mapDispatchError } from '../errors';
+import { enforceAdmission } from './admission-gate';
 import { resolveManagerNode } from './dispatch.service';
 import { liveService } from './service.service';
 
@@ -91,7 +92,7 @@ export interface DeployFromBuilderResult {
  */
 export async function deployFromModel(
   ctx: OrgContext,
-  input: { model: unknown; nodeId?: string },
+  input: { model: unknown; nodeId?: string; override?: boolean },
 ): Promise<DeployFromBuilderResult> {
   const model: ServiceModelOut = ServiceModel.parse(input.model);
   const warnings = validateModel(model);
@@ -101,6 +102,20 @@ export async function deployFromModel(
 
   const node = await resolveManagerNode(ctx, input.nodeId);
   const spec = modelToServiceSpec(model);
+
+  // The builder is a service deploy — same admission gate as every other path.
+  const stackName = spec.labels?.['com.docker.stack.namespace'];
+  await enforceAdmission(
+    ctx,
+    {
+      kind: 'service.deploy',
+      orgId: ctx.activeOrgId,
+      stackName,
+      specs: [spec],
+      override: input.override,
+    },
+    { targetType: 'service', targetId: model.name },
+  );
 
   // Docker is the source of truth: the deploy no longer writes a Service or
   // Deployment row. Callers still get a `deploymentId` for correlation, but it
@@ -121,7 +136,13 @@ export async function deployFromModel(
     action: 'service.builder.deploy',
     targetType: 'service',
     targetId: id,
-    metadata: { name: model.name, image: model.image, warningCount: warnings.length },
+    metadata: {
+      name: model.name,
+      image: model.image,
+      stack: stackName ?? null,
+      warningCount: warnings.length,
+      override: input.override === true,
+    },
   });
 
   return { id, deploymentId, warnings };

@@ -38,6 +38,8 @@ export function NodeControlsPanel({ node, monthlyUsd }: NodeControlsPanelProps):
             outlet={node?.outlet ?? false}
             storage={node?.storage ?? false}
             database={node?.database ?? false}
+            builder={node?.builder ?? false}
+            buildOverride={node?.buildOverride ?? null}
           />
         </div>
         <div className="pt-5">

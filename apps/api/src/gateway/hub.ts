@@ -176,7 +176,7 @@ export class AgentHubImpl implements AgentHub {
   /** Agent build (version + packaging) from the node's last register facts. */
   agentBuildFor(
     controllerNodeId: string,
-  ): { version: string; packaging?: 'binary' | 'container' } | undefined {
+  ): { version: string; packaging?: 'binary' | 'container'; buildOverride?: 'allow' | 'deny' } | undefined {
     return this.store.agentBuild.get(controllerNodeId);
   }
 

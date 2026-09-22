@@ -45,7 +45,7 @@ export const nodesRouter = router({
     .input(z.object({ id: z.string(), labels: z.record(z.string()) }))
     .mutation(({ ctx, input }) => setNodeLabels(ctx, input.id, input.labels)),
 
-  /** Toggle ingress/outlet roles (Docker node labels). Partial — omit a role to leave it. */
+  /** Toggle ingress/outlet/storage/database/builder roles (Docker node labels). Partial — omit a role to leave it. */
   setRole: adminProcedure
     .input(
       z.object({
@@ -54,6 +54,8 @@ export const nodesRouter = router({
         outlet: z.boolean().optional(),
         storage: z.boolean().optional(),
         database: z.boolean().optional(),
+        /** CI builder capability (`swarmy.node.builder`) — builds + image GC run here. */
+        builder: z.boolean().optional(),
       }),
     )
     .mutation(({ ctx, input }) =>
@@ -62,6 +64,7 @@ export const nodesRouter = router({
         outlet: input.outlet,
         storage: input.storage,
         database: input.database,
+        builder: input.builder,
       }),
     ),
 

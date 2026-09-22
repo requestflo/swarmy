@@ -19,6 +19,10 @@ export interface OwnerNodeFacts {
   joinTokenId: string | null;
 }
 
+// WebSocket close reasons are capped at 123 bytes — keep these short + ASCII.
+export const JOIN_TOKEN_EXPIRED_REASON = 'join token expired - mint a fresh one in the dashboard (node > Repair) and re-run';
+export const JOIN_TOKEN_EXHAUSTED_REASON = 'token exhausted - mint a fresh join token in the dashboard and re-run';
+
 export type JoinAuthDecision =
   | { kind: 'reject'; code: 'unauthorized' | 'forbidden'; reason: string }
   | { kind: 'readopt'; nodeId: string }
@@ -46,11 +50,15 @@ export function decideJoinAuth(
   if (owner && owner.joinTokenId === token.id) {
     return { kind: 'readopt', nodeId: owner.id };
   }
+  // Actionable reasons (surfaced by `swarmy-agent doctor` + the install log):
+  // the holder already has the token string, so naming expiry/exhaustion leaks
+  // nothing — and "invalid" sent operators hunting for a URL bug instead of
+  // minting a fresh token.
   if (token.expiresAt && token.expiresAt.getTime() < now) {
-    return { kind: 'reject', code: 'unauthorized', reason: 'invalid join token' };
+    return { kind: 'reject', code: 'unauthorized', reason: JOIN_TOKEN_EXPIRED_REASON };
   }
   if (token.maxUses != null && token.uses >= token.maxUses) {
-    return { kind: 'reject', code: 'forbidden', reason: 'token exhausted' };
+    return { kind: 'reject', code: 'forbidden', reason: JOIN_TOKEN_EXHAUSTED_REASON };
   }
   return { kind: 'enroll' };
 }

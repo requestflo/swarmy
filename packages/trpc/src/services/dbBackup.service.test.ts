@@ -178,7 +178,7 @@ describe('runDueDbBackups (schedule sweep passes retention through)', () => {
     const primary = {
       id: 'svc1',
       name: 'shop_main-db',
-      image: 'bitnami/postgresql:16',
+      image: 'bitnamilegacy/postgresql:16',
       mode: 'replicated' as const,
       desiredReplicas: 1,
       runningReplicas: 1,

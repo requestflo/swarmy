@@ -1,29 +1,42 @@
-// Scale-to-zero ingress reconcile worker (epic #4B). Watches live Docker state per
-// org and re-renders ingress when a domain's backing service crosses 0<->N replicas:
-// asleep (0 running, scale-to-zero) -> domain flips to the activator (wake-on-request);
-// warmed up -> flips back to a direct upstream. The activator also force-reapplies the
-// instant it wakes a service (activator.ts), so this worker is the safety net that
-// catches the SLEEP (warm->cold) direction and any missed transition. Pure Docker-truth:
-// diff/render/dispatch lives in @swarmy/trpc reconcileColdIngress; the worker just holds
-// the per-org last-cold-set cache and ticks. No DB writes.
+// Ingress reconcile worker. Per org, keeps the edge converged on live Docker truth:
+// - routes read off service labels (incl. ones a blueprint/compose deploy wrote
+//   directly, which no mutation ever re-applied before) get rendered + pushed;
+// - scale-to-zero domains flip activator <-> direct as services sleep/wake (the
+//   activator also force-reapplies the instant it wakes a service; this is the
+//   safety net for the SLEEP direction and any missed transition);
+// - a freshly (re)scheduled Caddy task gets its config the tick it appears;
+// - Caddy enabled but its controller service missing -> re-deployed.
+// Pure logic lives in @swarmy/trpc `reconcileIngressOrg` (signature-gated: a
+// steady state sends zero commands); this file only ticks, loops orgs and holds
+// the per-org last signature. No DB writes.
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { reconcileColdIngress } from '@swarmy/trpc';
+import { reconcileIngressOrg } from '@swarmy/trpc';
 import { hub } from '../gateway';
 
 const TICK_MS = 10_000; // matches the scale-to-zero sleeper cadence
 
 export function startIngressReconcile(): () => void {
-  const lastCold = new Map<string, string[]>();
+  const lastSignature = new Map<string, string>();
+  let running = false;
   const tick = async (): Promise<void> => {
-    const deps = { db: prisma, hub, auth: authRegistry.getAuth() };
-    const orgs = await prisma.organization
-      .findMany({ select: { id: true } })
-      .catch(() => [] as { id: string }[]);
-    for (const org of orgs) {
-      const prev = lastCold.get(org.id) ?? [];
-      const next = await reconcileColdIngress(deps, org.id, prev).catch(() => prev);
-      lastCold.set(org.id, next);
+    if (running) return; // pushes can outrun the interval — never overlap ticks
+    running = true;
+    try {
+      const deps = { db: prisma, hub, auth: authRegistry.getAuth() };
+      const orgs = await prisma.organization
+        .findMany({ select: { id: true } })
+        .catch(() => [] as { id: string }[]);
+      for (const org of orgs) {
+        const res = await reconcileIngressOrg(deps, org.id, lastSignature.get(org.id)).catch(
+          () => null,
+        );
+        if (!res) continue;
+        if (res.signature) lastSignature.set(org.id, res.signature);
+        else lastSignature.delete(org.id);
+      }
+    } finally {
+      running = false;
     }
   };
   // Defer the first run so the gateway/hub is warm and nodes have reconnected.

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { DatabaseIcon, HardDriveIcon, RouteIcon, ShieldIcon } from 'lucide-react';
+import { DatabaseIcon, HammerIcon, HardDriveIcon, RouteIcon, ShieldIcon } from 'lucide-react';
 import { Label, Switch, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 
@@ -10,15 +10,28 @@ interface NodeRoleSwitchesProps {
   outlet: boolean;
   storage?: boolean;
   database?: boolean;
+  /** CI builder capability (`swarmy.node.builder`). */
+  builder?: boolean;
+  /** The agent's local SWARMY_ALLOW_BUILD override, if any (wins over the switch). */
+  buildOverride?: 'allow' | 'deny' | null;
 }
 
-/** Node role toggles — the `swarmy.node.{ingress,outlet,storage,database}` labels. */
+/** Local-override note under the Builder switch (the agent env wins over the label). */
+function builderHint(override: 'allow' | 'deny' | null | undefined): string {
+  if (override === 'deny') return 'Vetoed on the box: SWARMY_ALLOW_BUILD=false in its agent.env overrides this switch.';
+  if (override === 'allow') return 'Forced on by SWARMY_ALLOW_BUILD=true on the box; the switch only adds the label.';
+  return 'Runs CI builds (rootless BuildKit) and image GC for linked repos.';
+}
+
+/** Node role toggles — the `swarmy.node.{ingress,outlet,storage,database,builder}` labels. */
 export function NodeRoleSwitches({
   nodeId,
   ingress,
   outlet,
   storage = false,
   database = false,
+  builder = false,
+  buildOverride = null,
 }: NodeRoleSwitchesProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
@@ -63,6 +76,14 @@ export function NodeRoleSwitches({
         checked={database}
         disabled={setRole.isPending}
         onCheckedChange={(v) => setRole.mutate({ id: nodeId, database: v })}
+      />
+      <RoleRow
+        icon={<HammerIcon className="size-3.5" />}
+        label="Builder"
+        hint={builderHint(buildOverride)}
+        checked={builder}
+        disabled={setRole.isPending}
+        onCheckedChange={(v) => setRole.mutate({ id: nodeId, builder: v })}
       />
     </div>
   );

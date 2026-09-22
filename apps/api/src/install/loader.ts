@@ -28,38 +28,90 @@ export function renderChecksumFile(installerBody: string): string {
 }
 
 export interface RenderLoaderOptions {
-  /** Controller public base URL (e.g. https://app.swarmy.dev). */
+  /**
+   * Default controller base URL baked into the loader (e.g. https://app.swarmy.dev).
+   * The route resolves it from CONTROLLER_PUBLIC_URL, or — when that's unset /
+   * loopback — from the address the request actually reached us at. The
+   * one-liner's `--controller <base>` (or SWARMY_CONTROLLER_URL) always wins.
+   */
   controllerUrl: string;
   /** Pinned agent/installer version (path component). */
   version: string;
   /** sha256 hex of the versioned installer the loader will fetch + verify. */
   installerSha256: string;
+  /**
+   * An operator-configured agent-binary base (SWARMY_AGENT_BINARY_BASE_URL,
+   * e.g. a CDN). Omitted ⇒ derived from the controller base at run time.
+   */
+  binaryBaseUrl?: string;
+}
+
+/** Single-quote a value for safe embedding in a POSIX sh script. */
+function shq(v: string): string {
+  return `'${v.replace(/'/g, `'\\''`)}'`;
 }
 
 /**
- * Render the tiny two-stage loader. It downloads `/install/<version>/install.sh`,
- * verifies its sha256 against the pinned value, and execs it (forwarding all
+ * Render the tiny two-stage loader. It resolves ONE controller base URL
+ * (`--controller <base>` › `SWARMY_CONTROLLER_URL` › the baked default),
+ * derives every later-stage URL from it (installer, agent binaries, the
+ * agent's own dial-back), downloads `/install/<version>/install.sh`, verifies
+ * its sha256 against the pinned value, and execs it (forwarding the remaining
  * args + the SWARMY_* env). Fails loudly so a piped shell never runs an
  * unverified body.
  */
 export function renderLoader(opts: RenderLoaderOptions): string {
-  const { controllerUrl, version } = opts;
+  const { version } = opts;
+  const controllerUrl = opts.controllerUrl.replace(/\/+$/, '');
   const sha = opts.installerSha256.toLowerCase();
-  const installerUrl = `${controllerUrl}/install/${version}/install.sh`;
+  const installerPath = `/install/${version}/install.sh`;
+  const binaryDefault = opts.binaryBaseUrl ? shq(opts.binaryBaseUrl) : '"$SWARMY_CONTROLLER_URL/install/bin"';
   return `#!/usr/bin/env sh
 # swarmy install loader (stage 1 of 2) — pinned: ${version}
 #
+# Usage: curl -fsSL <controller>/install/loader.sh | SWARMY_JOIN_TOKEN=… sh -s -- --controller <controller>
 # This tiny script only downloads the real, version-pinned installer and
-# verifies its sha256 before running it. Review the installer it fetches at:
-#   ${installerUrl}
+# verifies its sha256 before running it. Every later URL (installer, agent
+# binary, the agent's dial-back) derives from the ONE controller base below.
 # Verify the checksum yourself:
-#   curl -fsSL ${installerUrl} | sha256sum   # expect: ${sha}
+#   curl -fsSL ${controllerUrl}${installerPath} | sha256sum   # expect: ${sha}
 set -eu
 
-SWARMY_INSTALLER_URL="\${SWARMY_INSTALLER_URL:-${installerUrl}}"
-SWARMY_INSTALLER_SHA256="\${SWARMY_INSTALLER_SHA256:-${sha}}"
-
 err() { printf 'swarmy: %s\\n' "$1" >&2; exit 1; }
+
+# --controller <url> / --token <tok> are consumed here; other args are forwarded.
+_want=""
+for _a do
+  shift
+  case "$_want" in
+    controller) SWARMY_CONTROLLER_URL="$_a"; _want=""; continue ;;
+    token) SWARMY_JOIN_TOKEN="$_a"; _want=""; continue ;;
+  esac
+  case "$_a" in
+    --controller) _want=controller ;;
+    --controller=*) SWARMY_CONTROLLER_URL="\${_a#--controller=}" ;;
+    --token) _want=token ;;
+    --token=*) SWARMY_JOIN_TOKEN="\${_a#--token=}" ;;
+    *) set -- "$@" "$_a" ;;
+  esac
+done
+[ -z "$_want" ] || err "--$_want needs a value"
+
+SWARMY_CONTROLLER_URL=\${SWARMY_CONTROLLER_URL:-${shq(controllerUrl)}}
+SWARMY_CONTROLLER_URL="\${SWARMY_CONTROLLER_URL%/}"
+case "$SWARMY_CONTROLLER_URL" in
+  http://*|https://*) ;;
+  *) err "controller URL must start with http:// or https:// (got: $SWARMY_CONTROLLER_URL)" ;;
+esac
+case "$SWARMY_CONTROLLER_URL" in
+  *://localhost*|*://127.*|*://\\[::1\\]*)
+    printf 'swarmy: warning: controller URL %s is loopback; pass --controller <reachable-url> if this is a different machine\\n' "$SWARMY_CONTROLLER_URL" >&2 ;;
+esac
+SWARMY_INSTALLER_URL="\${SWARMY_INSTALLER_URL:-$SWARMY_CONTROLLER_URL${installerPath}}"
+SWARMY_INSTALLER_SHA256="\${SWARMY_INSTALLER_SHA256:-${sha}}"
+SWARMY_BINARY_BASE_URL=\${SWARMY_BINARY_BASE_URL:-${binaryDefault}}
+export SWARMY_CONTROLLER_URL SWARMY_BINARY_BASE_URL
+[ -z "\${SWARMY_JOIN_TOKEN:-}" ] || export SWARMY_JOIN_TOKEN
 
 command -v curl >/dev/null 2>&1 || err "curl is required"
 
@@ -74,7 +126,7 @@ fi
 
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
-curl -fsSL "$SWARMY_INSTALLER_URL" -o "$tmp" || err "failed to download installer"
+curl -fsSL "$SWARMY_INSTALLER_URL" -o "$tmp" || err "failed to download installer from $SWARMY_INSTALLER_URL"
 
 got="$(sha_of "$tmp")"
 if [ "$got" != "$SWARMY_INSTALLER_SHA256" ]; then

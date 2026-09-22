@@ -13,6 +13,7 @@ import type { AgentHub } from '../hub/types';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
+import { enforceAdmission } from './admission-gate';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { resolveLiveService } from './live-resolve';
@@ -454,6 +455,30 @@ export async function handlePrEvent(ctx: OrgContext, event: PrEvent): Promise<Pr
     targetShort,
     host,
   });
+
+  // A preview is an (unattended) stack deploy: the admission spine still runs.
+  // A `block` refuses the preview — nobody on a webhook can override.
+  try {
+    await enforceAdmission(
+      ctx,
+      { kind: 'stack.deploy', orgId: ctx.activeOrgId, stackName, specs: finalSpecs },
+      { targetType: 'previewStack', targetId: stackName, mode: 'automation' },
+    );
+  } catch (e) {
+    await writeAudit(ctx, {
+      action: 'previews.deploy.blocked',
+      targetType: 'previewStack',
+      targetId: stackName,
+      actorType: ctx.user ? 'user' : 'system',
+      metadata: {
+        pr: event.prNumber,
+        branch: event.branch,
+        image: build.image,
+        reason: e instanceof Error ? e.message : String(e),
+      },
+    });
+    throw e;
+  }
 
   const node = await resolveManagerNode(ctx);
   try {

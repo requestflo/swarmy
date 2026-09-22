@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { forgetArgsFor, parseForgetRemoved } from './backup';
+import { forgetArgsFor, parseForgetRemoved, repoBinds } from './backup';
 
 describe('forgetArgsFor (retention → restic forget invocation)', () => {
   it('builds --keep-within <N>d --prune scoped to the backup tags + host', () => {
@@ -65,5 +65,17 @@ describe('parseForgetRemoved (restic forget --json output)', () => {
   it('returns 0 on empty or non-JSON output', () => {
     expect(parseForgetRemoved('')).toBe(0);
     expect(parseForgetRemoved('unable to open repo')).toBe(0);
+  });
+});
+
+describe('repoBinds', () => {
+  it('binds a node-path repo from the host so snapshots outlive the sidecar', () => {
+    expect(repoBinds({ kind: 'node', repo: '/srv/backups/x', password: 'p' })).toEqual([
+      '/srv/backups/x:/srv/backups/x',
+    ]);
+  });
+
+  it('binds nothing for s3 repos', () => {
+    expect(repoBinds({ kind: 's3', repo: 's3:https://h/b', password: 'p' })).toEqual([]);
   });
 });

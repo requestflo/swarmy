@@ -29,6 +29,6 @@ export const builderRouter = router({
     .query(({ input }) => exportServiceSpec(input.model)),
 
   deploy: orgProcedure
-    .input(z.object({ model: ServiceModel, nodeId: z.string().optional() }))
+    .input(z.object({ model: ServiceModel, nodeId: z.string().optional(), override: z.boolean().optional() }))
     .mutation(({ ctx, input }) => deployFromModel(ctx, input)),
 });

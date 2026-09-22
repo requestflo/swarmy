@@ -13,6 +13,7 @@ import {
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { relTime } from '@/lib/format';
+import { SnapshotFailureReason } from '@/components/backups/snapshot-failure-reason';
 
 const TONE: Record<string, StatusTone> = {
   SUCCEEDED: 'online',
@@ -73,6 +74,7 @@ export function SnapshotsList(): React.JSX.Element {
                     <div className="min-w-0">
                       <p className="mono-data truncate text-sm">{relTime(s.startedAt)}</p>
                       <StatusBadge tone={tone} label={s.status.toLowerCase()} />
+                      {s.status === 'FAILED' ? <SnapshotFailureReason error={s.error} /> : null}
                     </div>
                     <span className="mono-data hidden text-right text-xs sm:block">
                       {fmtSize(s.sizeBytes)}

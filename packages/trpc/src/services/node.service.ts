@@ -1,4 +1,12 @@
-import { NODE_DATABASE_LABEL, NODE_STORAGE_LABEL, profileToLabels, type NodeProfile } from '@swarmy/core';
+import {
+  NODE_BUILDER_LABEL,
+  NODE_DATABASE_LABEL,
+  NODE_STORAGE_LABEL,
+  LEGACY_BUILDER_ROLE_LABEL,
+  hasBuilderLabel,
+  profileToLabels,
+  type NodeProfile,
+} from '@swarmy/core';
 import type { SwarmNodeInfo, SwarmState } from '@swarmy/core/protocol';
 import type { NodeDetail, NodeStatusView, NodeSummary } from '@swarmy/core/views';
 import type { OrgContext } from '../context';
@@ -6,6 +14,7 @@ import type { AgentHub } from '../hub/types';
 import { notFound } from '../errors';
 import { agentRelease, platformForArch } from './agent-release.service';
 import { requireOnlineNode } from './dispatch.service';
+import { swarmOrchestrationStatus } from './swarm.service';
 
 /**
  * Node is now an enrollment/auth record (identity only): `{ id, orgId, name,
@@ -61,6 +70,7 @@ function rolesFromLabels(labels: Record<string, string> | undefined): {
   outlet: boolean;
   storage: boolean;
   database: boolean;
+  builder: boolean;
   region: string | null;
 } {
   return {
@@ -68,6 +78,7 @@ function rolesFromLabels(labels: Record<string, string> | undefined): {
     outlet: labels?.[NODE_OUTLET_LABEL] === 'true',
     storage: labels?.[NODE_STORAGE_LABEL] === 'true',
     database: labels?.[NODE_DATABASE_LABEL] === 'true',
+    builder: hasBuilderLabel(labels),
     region: labels?.[NODE_REGION_LABEL] ?? null,
   };
 }
@@ -113,6 +124,8 @@ function toSummary(ctx: OrgContext, n: NodeRow): NodeSummary {
     outlet: roles.outlet,
     storage: roles.storage,
     database: roles.database,
+    builder: roles.builder,
+    buildOverride: ctx.hub.agentBuildFor?.(n.id)?.buildOverride ?? null,
     region: roles.region,
     publicIp: publicIpFromLabels(info?.labels),
     status: statusOf(info, online, lastSeen != null, ctx.hub.swarmStateFor(n.id)),
@@ -152,6 +165,8 @@ export async function getNode(ctx: OrgContext, id: string): Promise<NodeDetail> 
     swarmNodeId: info?.swarmNodeId ?? ctx.hub.swarmNodeIdFor(id) ?? null,
     labels: info?.labels ?? {},
     joinedAt: row.createdAt.toISOString(),
+    // Why this node is (or isn't) in the swarm — waiting/joined/re-elected/failed.
+    swarmOrchestration: swarmOrchestrationStatus(id),
   };
 }
 
@@ -205,8 +220,8 @@ export async function setNodeLabels(
 export async function setNodeRole(
   ctx: OrgContext,
   id: string,
-  roles: { ingress?: boolean; outlet?: boolean; storage?: boolean; database?: boolean },
-): Promise<{ id: string; ingress: boolean; outlet: boolean; storage: boolean; database: boolean }> {
+  roles: { ingress?: boolean; outlet?: boolean; storage?: boolean; database?: boolean; builder?: boolean },
+): Promise<{ id: string; ingress: boolean; outlet: boolean; storage: boolean; database: boolean; builder: boolean }> {
   const node = await ctx.db.node.findFirst({
     where: { id, orgId: ctx.activeOrgId },
     select: { id: true },
@@ -218,6 +233,14 @@ export async function setNodeRole(
   if (roles.outlet !== undefined) patch[NODE_OUTLET_LABEL] = roles.outlet ? 'true' : '';
   if (roles.storage !== undefined) patch[NODE_STORAGE_LABEL] = roles.storage ? 'true' : '';
   if (roles.database !== undefined) patch[NODE_DATABASE_LABEL] = roles.database ? 'true' : '';
+  if (roles.builder !== undefined) {
+    patch[NODE_BUILDER_LABEL] = roles.builder ? 'true' : '';
+    // Turning the role OFF must also clear the legacy `swarmy.role=builder`
+    // spelling, or hasBuilderLabel would keep reporting it on.
+    if (!roles.builder && ctx.hub.nodeInfoFor(id)?.labels[LEGACY_BUILDER_ROLE_LABEL] === 'builder') {
+      patch[LEGACY_BUILDER_ROLE_LABEL] = '';
+    }
+  }
 
   if (Object.keys(patch).length > 0) {
     await dispatchNodeLabels(ctx.hub, ctx.activeOrgId, id, patch);
@@ -232,6 +255,7 @@ export async function setNodeRole(
     outlet: result.outlet,
     storage: result.storage,
     database: result.database,
+    builder: result.builder,
   };
 }
 
@@ -279,7 +303,22 @@ export async function stampProfileLabels(
   profile: NodeProfile,
   opts: { attempts?: number; delayMs?: number } = {},
 ): Promise<boolean> {
-  const patch = profileToLabels(profile);
+  const ok = await stampNodeLabelsWhenJoined(hub, orgId, nodeId, profileToLabels(profile), opts);
+  if (!ok) console.warn(`[profiles] node ${nodeId}: could not stamp '${profile}' labels (node never joined the swarm?)`);
+  return ok;
+}
+
+/**
+ * Stamp a label patch once the node has swarm identity (enrollment races the
+ * swarm join). Retries on a fixed cadence, then gives up quietly (false).
+ */
+async function stampNodeLabelsWhenJoined(
+  hub: AgentHub,
+  orgId: string,
+  nodeId: string,
+  patch: Record<string, string>,
+  opts: { attempts?: number; delayMs?: number } = {},
+): Promise<boolean> {
   if (Object.keys(patch).length === 0) return true;
   const attempts = opts.attempts ?? 24;
   const delayMs = opts.delayMs ?? 5_000;
@@ -292,8 +331,27 @@ export async function stampProfileLabels(
     }
     await new Promise((r) => setTimeout(r, delayMs));
   }
-  console.warn(`[profiles] node ${nodeId}: could not stamp '${profile}' labels (node never joined the swarm?)`);
   return false;
+}
+
+/**
+ * CI/CD default: an org whose FIRST (and only) node just enrolled gets the
+ * Builder role on that node, so "link a repo → Build" works out of the box on a
+ * single-box install. Multi-node orgs pick builders explicitly via the role
+ * switch. Called fire-and-forget from the register path for brand-new nodes
+ * only (never on re-adoption/repair, so an operator's "off" sticks).
+ */
+export async function stampDefaultBuilderRole(
+  deps: { db: { node: { count(args: { where: { orgId: string } }): Promise<number> } }; hub: AgentHub },
+  orgId: string,
+  nodeId: string,
+  opts: { attempts?: number; delayMs?: number } = {},
+): Promise<boolean> {
+  const count = await deps.db.node.count({ where: { orgId } });
+  if (count !== 1) return false;
+  const ok = await stampNodeLabelsWhenJoined(deps.hub, orgId, nodeId, { [NODE_BUILDER_LABEL]: 'true' }, opts);
+  if (!ok) console.warn(`[cicd] node ${nodeId}: could not default the Builder role (node never joined the swarm?)`);
+  return ok;
 }
 
 export async function stampReportedPublicIp(

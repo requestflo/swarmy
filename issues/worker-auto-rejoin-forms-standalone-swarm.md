@@ -1,6 +1,6 @@
 # Worker that's forced off a reformed swarm self-inits a standalone swarm instead of rejoining
 
-**Status:** Open — not fixed. Reproduced live 2026-07-10; recovered manually.
+**Status:** Fixed (2026-09) — controller-side; unit-tested, not yet re-verified on live VMs.
 
 ## Symptom
 
@@ -55,3 +55,24 @@ agent defaults to self-init instead of waiting for it), and add an integration t
 a worker off-swarm and asserts it ends up rejoined to the *same* cluster rather than forming its
 own — this is exactly the multi-node self-healing story the platform is supposed to provide
 automatically.
+
+## Fix applied (2026-09)
+
+**Root cause:** the agent never self-inits. The only `init` path is controller-side `orchestrateSwarmMembership()`, and it chose
+`init` purely from the DB row (`!cfg || !cfg.swarmId`), without checking whether any connected org node was already a manager.
+Rows with no `swarmId` (created by `setAutolock`/`rotateJoinTokens` upserts, or a missing row) or stale rows therefore sent a
+rejoining worker to `docker swarm init`. The node id `xgyt5…` in this report matches the `swarmId` in
+[[stale-swarm-config-blocks-new-nodes-after-manager-loss]], so that init also wrote the org row.
+
+**Fix** (`packages/trpc/src/services/swarm.service.ts`):
+- The invariant is enforced in `planSwarmMembership()`: if any connected org node is a live manager (`isManager && swarmState
+  active`), the plan is always `join-live` and never `init`, whatever the row says.
+- `join-live` fetches **fresh** join tokens and the advertise address from the live manager (`swarmJoin {mode:'init',
+  refreshOnly:true}`, read-only; `apps/agent/src/handlers/swarm.ts` refuses it unless the node is an active manager). It rewrites
+  the row and then joins. After a `--force-new-cluster` reform, workers rejoin the *reformed* cluster at its *new* address.
+- If peers are connected but haven't reported their role yet, orchestration defers instead of initialising.
+- `rejoin --force` on a sole manager now triggers a daemon re-register, so the controller sees the reformed manager right away.
+- Tests: `swarm.service.test.ts` covers the case "worker rejoin with NO row but a live manager joins it — never a standalone init"
+  and the refresh-then-join scenario.
+
+Not done: the multi-node integration test suggested above (it needs the Lima harness).

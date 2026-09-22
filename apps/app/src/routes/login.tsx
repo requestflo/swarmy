@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
 import { Loader2Icon } from 'lucide-react';
 import { authClient } from '@swarmy/auth/client';
 import {
@@ -13,6 +13,11 @@ import {
 import { Wordmark } from '@/components/wordmark';
 
 export const Route = createFileRoute('/login')({
+  // `redirect` = where a session loss ejected the user from; same-origin paths only.
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => {
+    const r = search.redirect;
+    return typeof r === 'string' && r.startsWith('/') && !r.startsWith('//') && !r.includes('\\') ? { redirect: r } : {};
+  },
   component: LoginPage,
 });
 
@@ -22,6 +27,8 @@ function slugify(s: string): string {
 
 function LoginPage(): React.JSX.Element {
   const navigate = useNavigate();
+  const router = useRouter();
+  const { redirect: returnTo } = Route.useSearch();
   const [mode, setMode] = React.useState<'signin' | 'signup'>('signin');
   const [name, setName] = React.useState('');
   const [email, setEmail] = React.useState('');
@@ -46,7 +53,8 @@ function LoginPage(): React.JSX.Element {
         const res = await authClient.signIn.email({ email, password });
         if (res.error) throw new Error(res.error.message ?? 'sign in failed');
       }
-      await navigate({ to: '/' });
+      if (returnTo) router.history.push(returnTo);
+      else await navigate({ to: '/' });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'authentication failed');
     } finally {

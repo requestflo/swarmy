@@ -55,12 +55,21 @@ export const RenderedConfig = z.object({
    * the agent finds THIS NODE's task of `service` via its Docker socket
    * (label com.docker.swarm.service.name) and execs `command` inside it —
    * per-node config without ever publishing the admin API. Used by the Caddy
-   * driver when `applyVia: 'local'` (edge-per-node topology).
+   * driver when `applyVia: 'local'` (edge-per-node topology) and `'exec'`
+   * (replicated controller — see `file`).
    */
   localReload: z
     .object({
       service: z.string(),
       command: z.array(z.string()),
+      /**
+       * Write this file INSIDE the task (not on the host) before running
+       * `command`. Used by the replicated Caddy controller (`applyVia: 'exec'`):
+       * the agent on the node hosting the controller task delivers the config
+       * over the docker socket — no overlay membership, no published admin API,
+       * no host bind mount. Absent for edge-per-node (host bind mount path).
+       */
+      file: z.object({ path: z.string(), contents: z.string() }).optional(),
     })
     .optional(),
   /**

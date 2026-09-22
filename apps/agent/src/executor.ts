@@ -3,6 +3,7 @@ import path from 'node:path';
 import { DockerClient, toServiceCreateOptions } from '@swarmy/core/docker';
 import type { ControllerEnvelope, RenderedConfig, ServiceSpec } from '@swarmy/core/protocol';
 import type { AgentConnection } from './connection';
+import { buildGateAllows, BUILDER_ENABLE_HINT } from '@swarmy/core';
 import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots, backupDb, restoreDb } from './handlers/backup';
 import { applyDns } from './handlers/dns';
@@ -33,6 +34,14 @@ import {
 } from './handlers/terminal';
 
 const activeLogStreams = new Map<string, () => void>();
+
+/** E_BUILD_DISABLED message: says WHY (local veto vs role off) and how to enable. */
+export function buildDisabledMessage(what: string, override = env.BUILD_OVERRIDE): string {
+  if (override === 'deny') {
+    return `${what} disabled on this agent: SWARMY_ALLOW_BUILD=false is set locally (remove it from /etc/swarmy/agent.env to let the Builder role decide)`;
+  }
+  return `${what} disabled on this agent: this node does not have the Builder role — ${BUILDER_ENABLE_HINT}`;
+}
 
 export async function handleCommand(
   docker: DockerClient,
@@ -167,11 +176,11 @@ export async function handleCommand(
     }
     case 'buildImage': {
       const p = envlp.payload;
-      if (!env.ALLOW_BUILD) {
+      if (!buildGateAllows(env.BUILD_OVERRIDE, p.builderCapable)) {
         conn.send('commandResult', {
           commandId: p.commandId,
           status: 'rejected',
-          error: { code: 'E_BUILD_DISABLED', message: 'build disabled on this agent' },
+          error: { code: 'E_BUILD_DISABLED', message: buildDisabledMessage('build') },
         });
         return;
       }
@@ -179,11 +188,11 @@ export async function handleCommand(
     }
     case 'pruneImages': {
       const p = envlp.payload;
-      if (!env.ALLOW_BUILD) {
+      if (!buildGateAllows(env.BUILD_OVERRIDE, p.builderCapable)) {
         conn.send('commandResult', {
           commandId: p.commandId,
           status: 'rejected',
-          error: { code: 'E_BUILD_DISABLED', message: 'image GC disabled on this agent' },
+          error: { code: 'E_BUILD_DISABLED', message: buildDisabledMessage('image GC') },
         });
         return;
       }
@@ -297,6 +306,9 @@ async function run(
     const result = await fn();
     conn.send('commandResult', { commandId, status: 'succeeded', finishedAt: Date.now(), result });
   } catch (e) {
+    // Never fail silently: a failed command must reach journalctl too, not
+    // only the controller (a stale-manager swarm join vanished this way).
+    console.error(`[agent] command ${commandId} failed: ${e instanceof Error ? e.message : String(e)}`);
     conn.send('commandResult', {
       commandId,
       status: 'failed',
@@ -351,15 +363,31 @@ async function applyIngress(
   }
   // Edge-per-node: reload THIS node's task of the edge service (geo-edge).
   if (rendered.localReload) {
-    await localReload(docker, rendered.localReload.service, rendered.localReload.command);
+    await localReload(
+      docker,
+      rendered.localReload.service,
+      rendered.localReload.command,
+      rendered.localReload.file,
+    );
   }
   if (rendered.reloadCommand?.length) await execShell(rendered.reloadCommand);
   if (rendered.adminApi) {
-    await fetch(rendered.adminApi.url, {
+    // A failed admin push means the routes did NOT land — surface it (the
+    // controller records it and the dashboard shows the edge as degraded)
+    // instead of reporting a successful apply over a dead proxy.
+    const res = await fetch(rendered.adminApi.url, {
       method: rendered.adminApi.method,
       body: rendered.adminApi.body,
       headers: rendered.adminApi.contentType ? { 'content-type': rendered.adminApi.contentType } : undefined,
-    }).catch(() => undefined);
+    }).catch((e: unknown) => {
+      throw new Error(
+        `ingress admin API ${rendered.adminApi?.url} unreachable: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`ingress admin API ${rendered.adminApi.url} returned ${res.status}: ${body.slice(0, 400)}`);
+    }
   }
   // Token-mode tunnels (e.g. cloudflared) deploy a connector swarm service.
   await applyIngressConnector(docker, rendered);

@@ -18,6 +18,16 @@ import { ALL_DRIVERS, DRIVER_BLURB, DRIVER_LABELS, type IngressDriverId } from '
 interface PreviewData {
   summary: string;
   files: { path: string; contents: string }[];
+  /** In-task delivery (swarmy-run Caddy): the file lands inside the controller task. */
+  localReload?: { service: string; file?: { path: string; contents: string } };
+}
+
+/** Every file the apply writes — on the host, or inside the proxy task. */
+function previewFiles(p: PreviewData): string {
+  const inTask = p.localReload?.file
+    ? [{ path: `${p.localReload.service}:${p.localReload.file.path}`, contents: p.localReload.file.contents }]
+    : [];
+  return [...p.files, ...inTask].map((f) => `# ${f.path}\n${f.contents}`).join('\n');
 }
 
 interface DriverPanelProps {
@@ -90,7 +100,7 @@ export function DriverPanel({
             <pre className="bg-muted mono-data max-h-64 overflow-auto rounded-xl p-4 text-xs">
               {preview.summary}
               {'\n\n'}
-              {preview.files.map((f) => `# ${f.path}\n${f.contents}`).join('\n')}
+              {previewFiles(preview)}
             </pre>
           ) : (
             <p className="text-muted-foreground text-sm">No preview.</p>

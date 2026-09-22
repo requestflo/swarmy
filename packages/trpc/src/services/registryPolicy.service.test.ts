@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test';
+import type { OrgContext } from '../context';
 import {
+  KEYGEN_USER,
   MAX_REPORT_CVES,
+  enableSigning,
   extractJsonBlock,
   isOrgRegistryImage,
   parseTrivyReport,
@@ -179,5 +182,55 @@ describe('splitKeygenOutput', () => {
     expect(() => splitKeygenOutput(`${priv}\n@@M@@\ncat: /keys/cosign.pub: No such file`, '@@M@@')).toThrow(
       'keypair',
     );
+  });
+});
+
+describe('enableSigning — cosign keygen runs as root on the root-owned scratch volume', () => {
+  process.env.SWARMY_SECRET_KEY ??= 'test-secret-key-for-registry-policy';
+
+  it('dispatches the cosign one-shot with user 0:0 and stores the key pair', async () => {
+    const calls: Array<{ cmd: string; payload: Record<string, unknown> }> = [];
+    let stored: Record<string, unknown> | undefined;
+    const ctx = {
+      activeOrgId: 'org_1234567890abcdef',
+      user: { id: 'u1' },
+      db: {
+        registryConfig: {
+          upsert: async () => ({ orgId: 'org_1234567890abcdef', cosignPublicKey: null }),
+          update: async ({ data }: { data: Record<string, unknown> }) => {
+            stored = data;
+            return data;
+          },
+        },
+        node: { findMany: async () => [{ id: 'n1' }] },
+        auditLog: { create: async () => ({}) },
+      },
+      hub: {
+        nodeInfoFor: () => ({ labels: {} }),
+        isOnline: () => true,
+        dispatch: async (_node: string, cmd: string, payload: Record<string, unknown>) => {
+          calls.push({ cmd, payload });
+          return calls.length === 1
+            ? { exitCode: 0, output: '', durationMs: 1, timedOut: false }
+            : {
+                exitCode: 0,
+                output: `-----BEGIN ENCRYPTED SIGSTORE PRIVATE KEY-----\nx\n@@SWARMY-COSIGN-SPLIT@@\n-----BEGIN PUBLIC KEY-----\ny\n`,
+                durationMs: 1,
+                timedOut: false,
+              };
+        },
+      },
+    } as unknown as OrgContext;
+
+    const res = await enableSigning(ctx);
+    expect(KEYGEN_USER).toBe('0:0');
+    expect(calls[0]!.cmd).toBe('container.runOnce');
+    expect(calls[0]!.payload.image).toContain('cosign');
+    expect(calls[0]!.payload.user).toBe('0:0');
+    expect(calls[0]!.payload.binds).toEqual(['swarmy-cosign-keygen-org_12345678:/keys']);
+    // readback runs in busybox (root by default) against the same volume
+    expect(calls[1]!.payload.binds).toEqual(calls[0]!.payload.binds);
+    expect(res.enabled).toBe(true);
+    expect(stored?.cosignPublicKey).toBeDefined();
   });
 });

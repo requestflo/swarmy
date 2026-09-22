@@ -150,7 +150,7 @@ export interface AgentHub {
   /** Agent build (version + packaging) from the node's last register facts — drives the update UX. */
   agentBuildFor?(
     controllerNodeId: string,
-  ): { version: string; packaging?: 'binary' | 'container' } | undefined;
+  ): { version: string; packaging?: 'binary' | 'container'; buildOverride?: 'allow' | 'deny' } | undefined;
 
   /** Latest edge health telemetry for a node (geo-edge), if it has reported. */
   ingressStatusFor(

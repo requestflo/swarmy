@@ -54,6 +54,13 @@ export const managedDbRouter = router({
           .regex(/^[A-Za-z0-9_]+$/, 'invalid database name')
           .optional(),
         imageTag: z.string().min(1).max(40).optional(),
+        /** Full engine image override (Bitnami postgresql contract); wins over imageTag. */
+        image: z
+          .string()
+          .min(1)
+          .max(255)
+          .regex(/^[a-z0-9][a-z0-9._/:@-]*$/i, 'invalid image reference')
+          .optional(),
       }),
     )
     .mutation(({ ctx, input }) => provisionDb(ctx, input)),

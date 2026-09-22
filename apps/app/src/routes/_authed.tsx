@@ -1,16 +1,17 @@
 import { Outlet, createFileRoute, redirect } from '@tanstack/react-router';
-import { authClient } from '@swarmy/auth/client';
 import { AppShell } from '@/components/shell/app-shell';
 import { isDemo } from '@/demo/is-demo';
+import { hasLiveSession } from '@/integrations/trpc-auth';
 
 export const Route = createFileRoute('/_authed')({
-  beforeLoad: async () => {
+  beforeLoad: async ({ location }) => {
     // Demo mode runs with no auth — the whole app is explorable read/write
     // against the in-memory store.
     if (isDemo()) return;
-    const { data } = await authClient.getSession();
-    if (!data?.session) {
-      throw redirect({ to: '/login' });
+    // One empty answer isn't a sign-out: hasLiveSession re-checks once with the
+    // cookie cache bypassed before we eject the user.
+    if (!(await hasLiveSession())) {
+      throw redirect({ to: '/login', search: { redirect: location.href } });
     }
   },
   component: AuthedLayout,

@@ -3,6 +3,7 @@ import { DatabaseBackupIcon } from 'lucide-react';
 import { EmptyState, StatusBadge } from '@swarmy/ui';
 import { fmtBytes, relativeTime, SNAPSHOT_TONE } from './backup-format';
 import { RestoreSnapshotConfirm } from './restore-snapshot-confirm';
+import { SnapshotFailureReason } from './snapshot-failure-reason';
 
 export interface SnapshotItem {
   id: string;
@@ -11,6 +12,8 @@ export interface SnapshotItem {
   targetName: string;
   sizeBytes: string | null;
   startedAt: string;
+  /** Captured agent/restic error when `status === 'FAILED'` (already on the wire). */
+  error?: string | null;
 }
 
 interface SnapshotRowsProps {
@@ -51,6 +54,7 @@ export function SnapshotRows({
               {snap.status.toLowerCase()} · {snap.targetName || 'unknown destination'} ·{' '}
               {relativeTime(snap.startedAt)}
             </p>
+            {snap.status === 'FAILED' ? <SnapshotFailureReason error={snap.error} /> : null}
           </div>
           <div className="hidden w-20 text-right sm:block">
             <p className="mono-data text-sm">{fmtBytes(snap.sizeBytes)}</p>

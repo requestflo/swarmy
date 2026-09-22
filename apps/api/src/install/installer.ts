@@ -34,6 +34,12 @@ export interface RenderInstallerOptions {
   binaryBaseUrl: string;
   /** Per-platform sha256 of the agent binary (e.g. { 'linux-x64': '…' }). */
   binarySha256: Record<string, string>;
+  /**
+   * True when no explicit binary base (CDN) is configured: binaries then come
+   * from `<controller>/install/bin` for WHATEVER controller base the run
+   * resolved (loader / --controller / SWARMY_CONTROLLER_URL), not the baked one.
+   */
+  binaryBaseFromController?: boolean;
 }
 
 /** A representative systemd unit baked into the installer (heredoc-written on the box). */
@@ -50,6 +56,11 @@ export function renderInstaller(opts: RenderInstallerOptions): string {
   const shaCases = Object.entries(opts.binarySha256)
     .map(([platform, sha]) => `    ${platform}) echo "${sha.toLowerCase()}" ;;`)
     .join('\n');
+  // One controller base drives every URL: unless a CDN is configured, agent
+  // binaries come from <resolved controller>/install/bin (not the baked base).
+  const binaryFromController = opts.binaryBaseFromController
+    ? `[ -n "\${SWARMY_BINARY_BASE_URL:-}" ] || BINARY_BASE_URL="$CONTROLLER_URL/install/bin"\n`
+    : '';
   const unit = unitTemplate();
   const snapshotUnit = renderSnapshotUnit({ binaryPath: DEFAULT_BINARY_PATH, stateDir: DEFAULT_STATE_DIR });
   return `#!/usr/bin/env sh
@@ -66,6 +77,8 @@ AGENT_IMAGE="\${SWARMY_AGENT_IMAGE:-${agentImage}}"
 BINARY_BASE_URL="\${SWARMY_BINARY_BASE_URL:-${binaryBaseUrl}}"
 STATE_VOLUME="\${SWARMY_STATE_VOLUME:-swarmy-agent}"
 ALLOW_MESH="\${SWARMY_ALLOW_MESH:-true}"
+# Explicit build override only (unset = the dashboard's Builder role decides).
+ALLOW_BUILD="\${SWARMY_ALLOW_BUILD:-}"
 MESH_SETUP_KEY="\${SWARMY_MESH_SETUP_KEY:-}"
 MESH_MANAGEMENT_URL="\${SWARMY_MESH_MANAGEMENT_URL:-}"
 MESH_DRIVER="\${SWARMY_MESH_DRIVER:-netbird}"
@@ -77,10 +90,24 @@ UNIT_NAME="${SYSTEMD_UNIT_NAME}"
 SNAPSHOT_UNIT="${SNAPSHOT_UNIT_NAME}"
 
 UNINSTALL=""
+_want=""
 for arg in "$@"; do
-  case "$arg" in --uninstall) UNINSTALL=1 ;; esac
+  case "$_want" in
+    controller) CONTROLLER_URL="$arg"; _want=""; continue ;;
+    token) JOIN_TOKEN="$arg"; EXPLICIT_JOIN_TOKEN="$arg"; _want=""; continue ;;
+  esac
+  case "$arg" in
+    --uninstall) UNINSTALL=1 ;;
+    # Normally consumed by the loader (which exports SWARMY_CONTROLLER_URL);
+    # accepted here too for a direct \`install.sh\` run.
+    --controller) _want=controller ;;
+    --controller=*) CONTROLLER_URL="\${arg#--controller=}" ;;
+    --token) _want=token ;;
+    --token=*) JOIN_TOKEN="\${arg#--token=}"; EXPLICIT_JOIN_TOKEN="$JOIN_TOKEN" ;;
+  esac
 done
-
+CONTROLLER_URL="\${CONTROLLER_URL%/}"
+${binaryFromController}
 say()  { printf '\\033[38;5;209m▸\\033[0m %s\\n' "$1"; }
 ok()   { printf '\\033[32m✓\\033[0m %s\\n' "$1"; }
 warn() { printf '\\033[33m! %s\\033[0m\\n' "$1" >&2; }
@@ -143,6 +170,7 @@ fi
 # session and the controller's node-bound token re-adoption preserve it), then
 # run the doctor's repair ladder instead of blindly hoping.
 REPAIR=""
+DROP_AGENT_STATE=""
 if [ -f "$ENV_FILE" ] || [ -f "$STATE_DIR/agent.json" ] || { have docker && docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; }; then
   REPAIR=1
   say "Existing swarmy installation detected — running in REPAIR mode (identity is preserved)."
@@ -156,6 +184,7 @@ if [ -n "$REPAIR" ] && [ -f "$ENV_FILE" ]; then
   [ -n "$MESH_SETUP_KEY" ]     || MESH_SETUP_KEY="$(sed -n 's/^SWARMY_MESH_SETUP_KEY=//p' "$ENV_FILE" | head -1)"
   [ -n "$MESH_MANAGEMENT_URL" ] || MESH_MANAGEMENT_URL="$(sed -n 's/^SWARMY_MESH_MANAGEMENT_URL=//p' "$ENV_FILE" | head -1)"
   [ -n "$NODE_LABELS" ]        || NODE_LABELS="$(sed -n 's/^SWARMY_NODE_LABELS=//p' "$ENV_FILE" | head -1)"
+  [ -n "$ALLOW_BUILD" ]        || ALLOW_BUILD="$(sed -n 's/^SWARMY_ALLOW_BUILD=//p' "$ENV_FILE" | head -1)"
 
   # A NEW, explicit join token (different from what's on disk) means the operator
   # wants this box to (re-)enroll under a possibly different org/controller — not
@@ -198,6 +227,7 @@ write_env() {
     echo "SWARMY_AGENT_STATE=$STATE_DIR/agent.json"
     echo "SWARMY_JOIN_TOKEN=$JOIN_TOKEN"
     echo "SWARMY_ALLOW_MESH=$ALLOW_MESH"
+    [ -z "$ALLOW_BUILD" ] || echo "SWARMY_ALLOW_BUILD=$ALLOW_BUILD"
     [ -z "$NODE_LABELS" ] || echo "SWARMY_NODE_LABELS=$NODE_LABELS"
     [ -z "$MESH_SETUP_KEY" ] || echo "SWARMY_MESH_SETUP_KEY=$MESH_SETUP_KEY"
     [ -z "$MESH_MANAGEMENT_URL" ] || echo "SWARMY_MESH_MANAGEMENT_URL=$MESH_MANAGEMENT_URL"
@@ -250,6 +280,7 @@ install_docker() {
     -e SWARMY_NODE_LABELS="$NODE_LABELS" \\
     -e SWARMY_AGENT_STATE=/var/lib/swarmy/agent.json \\
     -e SWARMY_ALLOW_MESH="$ALLOW_MESH" \\
+    -e SWARMY_ALLOW_BUILD="$ALLOW_BUILD" \\
     -e SWARMY_MESH_SETUP_KEY="$MESH_SETUP_KEY" \\
     -e SWARMY_MESH_MANAGEMENT_URL="$MESH_MANAGEMENT_URL" \\
     -e SWARMY_MESH_DRIVER="$MESH_DRIVER" \\

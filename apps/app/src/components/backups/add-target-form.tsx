@@ -14,6 +14,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { Field } from './field';
 
 type Kind = 's3' | 'node';
+type FieldKey = 'name' | 'endpoint' | 'bucket';
 
 interface AddTargetFormProps {
   onDone: () => void;
@@ -31,6 +32,7 @@ export function AddTargetForm({ onDone }: AddTargetFormProps): React.JSX.Element
   const [region, setRegion] = React.useState('');
   const [accessKeyId, setAccessKeyId] = React.useState('');
   const [secretAccessKey, setSecretAccessKey] = React.useState('');
+  const [errors, setErrors] = React.useState<Partial<Record<FieldKey, string>>>({});
 
   const add = useMutation(
     trpc.backups.addTarget.mutationOptions({
@@ -44,13 +46,48 @@ export function AddTargetForm({ onDone }: AddTargetFormProps): React.JSX.Element
   );
 
   const isS3 = kind === 's3';
+
+  const submit = (): void => {
+    const next: Partial<Record<FieldKey, string>> = {};
+    if (!name.trim()) next.name = 'Give this destination a name.';
+    if (isS3 && !endpoint.trim()) next.endpoint = 'An S3 endpoint URL is required.';
+    if (!bucket.trim()) next.bucket = isS3 ? 'A bucket is required.' : 'A base path on the node is required.';
+    setErrors(next);
+    if (Object.keys(next).length > 0) return;
+    add.mutate({
+      name: name.trim(),
+      kind,
+      endpoint: endpoint.trim() || undefined,
+      bucket: bucket.trim(),
+      prefix: prefix || undefined,
+      region: region || undefined,
+      accessKeyId: accessKeyId || undefined,
+      secretAccessKey: secretAccessKey || undefined,
+    });
+  };
+  const clear = (key: FieldKey): void => setErrors((e) => (e[key] ? { ...e, [key]: undefined } : e));
+
   return (
     <div className="bg-accent/40 grid gap-3 border-t px-6 py-5 sm:grid-cols-2">
-      <Field label="Name">
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Backblaze B2" />
+      <Field label="Name" error={errors.name}>
+        <Input
+          value={name}
+          aria-invalid={!!errors.name}
+          onChange={(e) => {
+            setName(e.target.value);
+            clear('name');
+          }}
+          placeholder="Backblaze B2"
+        />
       </Field>
       <Field label="Kind">
-        <Select value={kind} onValueChange={(v) => setKind(v as Kind)}>
+        <Select
+          value={kind}
+          onValueChange={(v) => {
+            setKind(v as Kind);
+            setErrors({});
+          }}
+        >
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
@@ -61,18 +98,26 @@ export function AddTargetForm({ onDone }: AddTargetFormProps): React.JSX.Element
         </Select>
       </Field>
       {isS3 ? (
-        <Field label="Endpoint">
+        <Field label="Endpoint" error={errors.endpoint}>
           <Input
             value={endpoint}
-            onChange={(e) => setEndpoint(e.target.value)}
+            aria-invalid={!!errors.endpoint}
+            onChange={(e) => {
+              setEndpoint(e.target.value);
+              clear('endpoint');
+            }}
             placeholder="https://s3.us-west-002.backblazeb2.com"
           />
         </Field>
       ) : null}
-      <Field label={isS3 ? 'Bucket' : 'Base path'}>
+      <Field label={isS3 ? 'Bucket' : 'Base path'} error={errors.bucket}>
         <Input
           value={bucket}
-          onChange={(e) => setBucket(e.target.value)}
+          aria-invalid={!!errors.bucket}
+          onChange={(e) => {
+            setBucket(e.target.value);
+            clear('bucket');
+          }}
           placeholder={isS3 ? 'my-backups' : '/srv/backups'}
         />
       </Field>
@@ -101,19 +146,8 @@ export function AddTargetForm({ onDone }: AddTargetFormProps): React.JSX.Element
           size="sm"
           variant="outline"
           className="rounded-full font-bold"
-          disabled={add.isPending || !name || !bucket}
-          onClick={() =>
-            add.mutate({
-              name,
-              kind,
-              endpoint: endpoint || undefined,
-              bucket,
-              prefix: prefix || undefined,
-              region: region || undefined,
-              accessKeyId: accessKeyId || undefined,
-              secretAccessKey: secretAccessKey || undefined,
-            })
-          }
+          disabled={add.isPending}
+          onClick={submit}
         >
           {add.isPending ? 'Adding…' : 'Add destination'}
         </Button>

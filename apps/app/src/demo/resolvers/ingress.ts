@@ -1,6 +1,7 @@
 import type { TlsMode } from '@swarmy/core';
 import type { RenderedConfig } from '@swarmy/core/protocol';
 import type { DemoStore, DomainResolvers } from '../types';
+import type { EdgeState } from '@/components/ingress/edge-runtime';
 
 /**
  * Ingress demo resolvers — the Networking surface (driver chooser + rendered-config
@@ -53,6 +54,35 @@ interface IngressConfigView {
   /** Custom ingress-controller image (null = the stock caddy:2-alpine). */
   controllerImage: string | null;
   updatedAt: string;
+  runtime: DemoRuntime;
+}
+
+/** Mirror of the controller's `EdgeRuntimeStatus` (ingress-controller.ts). */
+interface DemoRuntime {
+  state: EdgeState;
+  serving: boolean;
+  message: string;
+  runningTasks: number;
+  desiredTasks: number | null;
+  lastApply: null;
+}
+
+/** Demo edge: Caddy is always up and serving; other drivers are unverified. */
+function demoRuntime(st: IngressState): DemoRuntime {
+  const base = { runningTasks: 0, desiredTasks: null, lastApply: null };
+  if (st.driver === 'none') {
+    return { ...base, state: 'tracking', serving: false, message: 'Tracking only — swarmy writes no routing config, so no route is served.' };
+  }
+  if (!st.enabled) return { ...base, state: 'paused', serving: false, message: 'Ingress is disabled — no route is served.' };
+  if (st.driver === 'caddy') {
+    return { ...base, runningTasks: 1, desiredTasks: 1, state: 'serving', serving: true, message: 'Caddy is serving (80/443).' };
+  }
+  return {
+    ...base,
+    state: 'unverified',
+    serving: false,
+    message: 'Routing config is written for a proxy swarmy does not run — reachability is not verified.',
+  };
 }
 
 /** Mirror of the controller's `TunnelView` (tunnel.service.ts). */
@@ -127,6 +157,7 @@ function toConfigView(st: IngressState): IngressConfigView {
     tunnelConfigured: Boolean(st.tunnel?.tunnelId),
     controllerImage: st.controllerImage,
     updatedAt: st.updatedAt,
+    runtime: demoRuntime(st),
   };
 }
 
@@ -251,9 +282,11 @@ export const ingress: DomainResolvers = {
 
     'ingress.listDrivers': (): IngressDriverId[] => ['none', 'caddy', 'traefik', 'cloudflared', 'nginx', 'haproxy'],
 
-    'ingress.listDomains': (i, s): DomainView[] => {
+    'ingress.listDomains': (i, s): Array<DomainView & { serving: boolean; edgeState: EdgeState }> => {
       const stack = (i as { stack?: string } | undefined)?.stack;
-      const rows = getState(s).domains;
+      const st = getState(s);
+      const rt = demoRuntime(st);
+      const rows = st.domains.map((d) => ({ ...d, serving: rt.serving, edgeState: rt.state }));
       return stack ? rows.filter((d) => d.stack === stack) : rows;
     },
 

@@ -8,7 +8,7 @@
  * image whose digest is in that set.
  *
  * Mirrors `buildImage`: consumes a resolved payload, applies it via dockerode,
- * and reports a `commandResult`. Gated by `SWARMY_ALLOW_BUILD` in the executor
+ * and reports a `commandResult`. Gated like builds (Builder role / SWARMY_ALLOW_BUILD) in the executor
  * (the same nodes that build are the ones that accumulate build images).
  */
 import type { DockerClient } from '@swarmy/core/docker';

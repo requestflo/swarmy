@@ -17,6 +17,7 @@ import {
   toast,
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { fmtBytes } from './backup-format';
 
 interface RestoreSnapshotConfirmProps {
   snapshotId: string;
@@ -41,12 +42,16 @@ export function RestoreSnapshotConfirm({
   const restore = useMutation(
     trpc.backups.restoreSnapshot.mutationOptions({
       onSuccess: (r) => {
-        toast.success(`Restored to ${r.targetVolume}`);
         setOpen(false);
         setTargetVolume('');
+        toast.success(`Restored ${volume} → ${r.targetVolume}`, {
+          description: `${fmtBytes(r.bytesRestored)} written from snapshot ${snapshotId.slice(0, 8)}.`,
+          duration: 8_000,
+        });
         void qc.invalidateQueries();
       },
-      onError: (e) => toast.error(e.message),
+      onError: (e) =>
+        toast.error(`Restore of ${volume} failed`, { description: e.message, duration: 10_000 }),
     }),
   );
 

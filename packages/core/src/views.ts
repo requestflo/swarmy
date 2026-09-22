@@ -39,6 +39,10 @@ export interface NodeSummary {
   storage?: boolean;
   /** Carries the managed-database role label (`swarmy.node.database=true`). */
   database?: boolean;
+  /** Carries the CI builder role label (`swarmy.node.builder=true`). */
+  builder?: boolean;
+  /** The agent's explicit SWARMY_ALLOW_BUILD override (`allow`/`deny`), or null when unset. */
+  buildOverride?: 'allow' | 'deny' | null;
   /** Region label (`swarmy.region`), or null if unset. */
   region?: string | null;
   /** Effective public IP (`swarmy.node.public-ip`; override label wins). */
@@ -59,6 +63,17 @@ export interface NodeDetail extends NodeSummary {
   swarmNodeId: string | null;
   labels: Record<string, string>;
   joinedAt: string;
+  /**
+   * Last controller-side swarm orchestration outcome for this node (process-
+   * local, like the hub): `waiting` for peers, `joining`, `joined`,
+   * `initialised`, `reelected` (the recorded manager was dead — this node
+   * started a new swarm), or `failed` with the reason. Null = none this run.
+   */
+  swarmOrchestration?: {
+    state: 'waiting' | 'joining' | 'joined' | 'initialised' | 'reelected' | 'failed';
+    detail: string;
+    at: string;
+  } | null;
 }
 
 export interface NodeStatsSnapshot {
@@ -257,6 +272,8 @@ export interface DbBackupScheduleView {
   dataVolume: string | null;
   lastRunAt: string | null;
   lastStatus: DbBackupRunStatus | null;
+  /** Captured error from the last run when `lastStatus === 'failed'`. */
+  lastError: string | null;
   nextRunAt: string | null;
 }
 
@@ -284,6 +301,8 @@ export interface DbBackupOverviewRow {
   targetName: string | null;
   lastBackupAt: string | null;
   lastStatus: DbBackupRunStatus | null;
+  /** Captured error from the last run when `lastStatus === 'failed'`. */
+  lastError: string | null;
   lastSizeBytes: string | null;
   nextRunAt: string | null;
   /** Restorable point-in-time span (PITR clusters with a successful backup). */

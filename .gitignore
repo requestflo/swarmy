@@ -56,3 +56,6 @@ tmp/
 packages/db/prisma/src/generated/
 .codex/config.toml
 .grok/config.toml
+
+# terminal session recordings written by a locally-run controller
+.swarmy/

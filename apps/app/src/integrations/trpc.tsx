@@ -10,6 +10,7 @@ import superjson from 'superjson';
 import type { AppRouter } from '@swarmy/trpc';
 import { isDemo } from '@/demo/is-demo';
 import { demoLink } from '@/demo/demo-link';
+import { unauthorizedLink } from './trpc-auth';
 
 export const { TRPCProvider, useTRPC, useTRPCClient } = createTRPCContext<AppRouter>();
 
@@ -30,6 +31,7 @@ export function createTrpcClient() {
   }
   return createTRPCClient<AppRouter>({
     links: [
+      unauthorizedLink(),
       splitLink({
         condition: (op) => op.type === 'subscription',
         true: httpSubscriptionLink({ url: TRPC_URL, transformer: superjson }),

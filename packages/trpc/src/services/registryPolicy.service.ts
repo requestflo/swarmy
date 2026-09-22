@@ -19,6 +19,7 @@ import type {
   SigningStatusView,
 } from '@swarmy/core/views';
 import type { RunOnceResult } from '@swarmy/core/protocol';
+import { hasBuilderLabel } from '@swarmy/core';
 import type { OrgContext } from '../context';
 import { mapDispatchError, notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
@@ -30,6 +31,8 @@ export const TRIVY_IMAGE = 'aquasec/trivy:0.58.1';
 export const COSIGN_IMAGE = 'gcr.io/projectsigstore/cosign:v2.4.1';
 const KEYGEN_SHELL_IMAGE = 'busybox:1.36';
 const KEYGEN_VOLUME = 'swarmy-cosign-keygen';
+/** Root, so cosign can write into the lazily-created root-owned keygen volume. */
+export const KEYGEN_USER = '0:0';
 const KEYGEN_SPLIT_MARKER = '@@SWARMY-COSIGN-SPLIT@@';
 export const DEFAULT_REGISTRY_HOST = 'swarmy-registry:5000';
 /** Trivy's own scan timeout (`--timeout 8m`) + container/dispatch headroom. */
@@ -193,15 +196,13 @@ function registryCreds(row: PolicyRow): { username: string; password: string } |
   }
 }
 
-/** Pick an online builder node (label `swarmy.role=builder`), else any online node. */
+/** Pick an online builder node (Builder role label), else any online node. */
 async function resolveScanNode(ctx: OrgContext): Promise<{ id: string }> {
   const nodes = await ctx.db.node.findMany({
     where: { orgId: ctx.activeOrgId },
     select: { id: true },
   });
-  const builders = nodes.filter(
-    (n) => ctx.hub.nodeInfoFor(n.id)?.labels['swarmy.role'] === 'builder',
-  );
+  const builders = nodes.filter((n) => hasBuilderLabel(ctx.hub.nodeInfoFor(n.id)?.labels));
   const onlineBuilder = builders.find((n) => ctx.hub.isOnline(n.id));
   if (onlineBuilder) return { id: onlineBuilder.id };
   const anyOnline = nodes.find((n) => ctx.hub.isOnline(n.id));
@@ -427,6 +428,11 @@ export async function enableSigning(ctx: OrgContext): Promise<SigningStatusView>
         cmd: ['generate-key-pair', '--output-key-prefix', '/keys/cosign'],
         env: { COSIGN_PASSWORD: password },
         binds: [`${volume}:/keys`],
+        // The scratch volume is auto-created root:root 0755 on first use, and
+        // the cosign image is distroless nonroot (UID 65532) — run this one-shot
+        // as root so it can write /keys/cosign.key. The busybox readback below
+        // already runs as root, so both steps agree on ownership.
+        user: KEYGEN_USER,
         timeoutMs: SIGN_TIMEOUT_MS,
       },
       { timeoutMs: SIGN_TIMEOUT_MS + 30_000 },

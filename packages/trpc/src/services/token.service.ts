@@ -1,5 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { JOIN_TOKEN_PREFIX, parseNodeProfile, type NodeProfile } from '@swarmy/core';
+import {
+  JOIN_TOKEN_PREFIX,
+  parseNodeProfile,
+  resolveControllerPublicUrl,
+  type NodeProfile,
+  type ResolvedControllerUrl,
+} from '@swarmy/core';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { mintSetupKeyForOrg } from './mesh.service';
@@ -24,6 +30,22 @@ export interface JoinTokenIssued {
   meshSetupKey?: string;
   meshManagementUrl?: string;
   meshDriver?: string;
+  /**
+   * The controller base URL the install/repair one-liner should use — the
+   * SAME base the loader threads through every later stage. `warning` is set
+   * when it resolved to loopback (the UI tells the operator to set
+   * CONTROLLER_PUBLIC_URL).
+   */
+  install: ResolvedControllerUrl;
+}
+
+/**
+ * Resolve the one-liner's controller base for this request: CONTROLLER_PUBLIC_URL
+ * when it's a real address, else the dashboard request's X-Forwarded-* / Origin
+ * / Host (see resolveControllerPublicUrl).
+ */
+export function installTargetFor(headers: Headers | undefined): ResolvedControllerUrl {
+  return resolveControllerPublicUrl({ configured: process.env.CONTROLLER_PUBLIC_URL, headers });
 }
 
 export interface JoinTokenView {
@@ -84,6 +106,7 @@ export async function generateJoinToken(
     ...(mesh
       ? { meshSetupKey: mesh.setupKey, meshManagementUrl: mesh.managementUrl, meshDriver: mesh.driver }
       : {}),
+    install: installTargetFor(ctx.reqHeaders),
   };
 }
 

@@ -1,4 +1,5 @@
-import { buildInventory, type MetricKind, type TimeseriesInput } from '@swarmy/core';
+import { buildInventory, STACK_LABEL, type MetricKind, type TimeseriesInput } from '@swarmy/core';
+import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { DashboardSummary } from '@swarmy/core/views';
 import type { OrgContext } from '../context';
 
@@ -22,16 +23,82 @@ const RANGE_MS: Record<string, number> = {
   '7d': 7 * 24 * 60 * 60_000,
 };
 
+// ── Org scoping (pure, unit-tested) ─────────────────────────────────────────
+//
+// The hub's live inventory is RAW Docker truth: a manager's `docker node ls` /
+// `docker service ls` lists every member of the physical swarm, which knows
+// nothing about swarmy orgs. Dashboard stats must count only what THIS org
+// owns: nodes = the org's enrollment rows (the same set the nodes table
+// shows); services = everything except services whose stack is positively
+// owned by ANOTHER org's Stack row (ungrouped / system / own stacks stay).
+
+/** Node presence for the org: enrolled rows, online = agent connected. */
+export function scopedNodeCounts(
+  enrolledIds: string[],
+  isOnline: (id: string) => boolean,
+): { online: number; total: number } {
+  return { online: enrolledIds.filter(isOnline).length, total: enrolledIds.length };
+}
+
+/**
+ * Drop services whose stack namespace belongs to another org's Stack row and
+ * not to this org's. `owners` maps stack name → orgIds that own a Stack with
+ * that name.
+ */
+export function scopeServicesToOrg(
+  services: SwarmServiceInfo[],
+  orgId: string,
+  owners: Map<string, Set<string>>,
+): SwarmServiceInfo[] {
+  return services.filter((s) => {
+    const ns = s.labels?.[STACK_LABEL];
+    if (!ns) return true;
+    const o = owners.get(ns);
+    return !o || o.has(orgId);
+  });
+}
+
+/** Live services for the org's dashboard, minus other orgs' stacks. */
+async function orgScopedServices(ctx: OrgContext): Promise<{
+  services: SwarmServiceInfo[];
+  containers: ReturnType<OrgContext['hub']['liveInventory']>['containers'];
+}> {
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  const names = [...new Set(services.map((s) => s.labels?.[STACK_LABEL]).filter((n): n is string => !!n))];
+  const owners = new Map<string, Set<string>>();
+  if (names.length > 0) {
+    const rows = (await ctx.db.stack.findMany({
+      where: { name: { in: names } },
+      select: { name: true, orgId: true },
+    })) as Array<{ name: string; orgId: string }>;
+    for (const r of rows) {
+      const set = owners.get(r.name) ?? new Set<string>();
+      set.add(r.orgId);
+      owners.set(r.name, set);
+    }
+  }
+  const scoped = scopeServicesToOrg(services, ctx.activeOrgId, owners);
+  const keep = new Set(scoped.map((s) => s.id));
+  return {
+    services: scoped,
+    containers: containers.filter((c) => {
+      const sid = c.serviceId ?? c.labels?.['com.docker.swarm.service.id'];
+      return !sid || keep.has(sid);
+    }),
+  };
+}
+
 export async function getOverview(ctx: OrgContext): Promise<ClusterOverview> {
-  // Node presence (online/total) is Docker-truth → live swarm inventory, not DB.
-  const nodesTotal = ctx.hub.nodeInventory(ctx.activeOrgId, true).length;
-  const nodesOnline = ctx.hub.nodeInventory(ctx.activeOrgId).length;
-  // Per-node stats are keyed by the controller (enrollment) node id; enumerate
-  // those via the kept Node identity columns to aggregate the live hub samples.
+  // Node presence (online/total) = the org's ENROLLED nodes (never the raw
+  // swarm member list, which can include nodes enrolled to no/other orgs).
   const nodes = await ctx.db.node.findMany({
     where: { orgId: ctx.activeOrgId },
     select: { id: true },
   });
+  const counts = scopedNodeCounts(
+    nodes.map((n: { id: string }) => n.id),
+    (id) => ctx.hub.isOnline(id),
+  );
   let cpuSum = 0;
   let memUsed = 0;
   let memTotal = 0;
@@ -46,16 +113,15 @@ export async function getOverview(ctx: OrgContext): Promise<ClusterOverview> {
       counted += 1;
     }
   }
-  const containersRunning = ctx.hub
-    .latestServiceState(ctx.activeOrgId)
-    .reduce((a, s) => a + s.runningReplicas, 0);
+  const { services } = await orgScopedServices(ctx);
+  const containersRunning = services.reduce((a, s) => a + s.runningReplicas, 0);
   return {
     cpuPercent: counted ? cpuSum / counted : 0,
     memPercent: memTotal ? (memUsed / memTotal) * 100 : 0,
     memUsedBytes: memUsed,
     memTotalBytes: memTotal,
-    nodesOnline,
-    nodesTotal,
+    nodesOnline: counts.online,
+    nodesTotal: counts.total,
     containersRunning,
     sampledAt: new Date().toISOString(),
   };
@@ -145,7 +211,7 @@ export async function getDashboardSummary(ctx: OrgContext): Promise<DashboardSum
   const overview = await getOverview(ctx);
   // Service totals come from live Docker inventory (no Service model). There is
   // no persisted deployment history any more, so the recent-deploy count is 0.
-  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  const { services, containers } = await orgScopedServices(ctx);
   const inv = buildInventory(services, containers).services;
   const serviceTotal = inv.length;
   const serviceRunning = inv.filter((s) => s.status === 'running').length;

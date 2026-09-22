@@ -1,11 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { TRPCError } from '@trpc/server';
 import { parse as parseYaml } from 'yaml';
 import { buildInventory, isSystemStack, STACK_LABEL, UNGROUPED, type InvService } from '@swarmy/core';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
-import { evaluateAdmission, type Violation } from './admission.service';
+import { enforceAdmission } from './admission-gate';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { augmentSpecsForStack } from './otel-injection';
@@ -162,18 +161,6 @@ export async function getStack(ctx: OrgContext, id: string): Promise<StackDetail
   };
 }
 
-/** D1: admission refusal — a typed error listing every policy violation. */
-function admissionDenied(violations: Violation[]): TRPCError {
-  const lines = violations.map(
-    (v) => `[${v.severity}] ${v.rule}: ${v.message}${v.resource ? ` (${v.resource})` : ''}`,
-  );
-  return new TRPCError({
-    code: 'PRECONDITION_FAILED',
-    message: `Deployment blocked by policy:\n${lines.join('\n')}`,
-    cause: { swarmyCode: 'POLICY_DENIED', violations },
-  });
-}
-
 export async function deployFromCompose(
   ctx: OrgContext,
   input: { name: string; composeSource: string; override?: boolean },
@@ -184,30 +171,17 @@ export async function deployFromCompose(
   // D1: every stack deploy runs the admission pipeline first. Violations refuse
   // the deploy unless explicitly overridden; overriding a `block` violation
   // needs an admin, and every override is audited.
-  const violations = await evaluateAdmission(ctx, {
-    kind: 'stack.deploy',
-    orgId: ctx.activeOrgId,
-    stackName: input.name,
-    specs,
-    override: input.override,
-  });
-  if (violations.length > 0) {
-    if (!input.override) throw admissionDenied(violations);
-    const hasBlock = violations.some((v) => v.severity === 'block');
-    if (hasBlock && ctx.membership.role === 'member') {
-      throw new TRPCError({
-        code: 'FORBIDDEN',
-        message: 'overriding a blocking policy violation requires an admin or owner',
-        cause: { swarmyCode: 'POLICY_DENIED', violations },
-      });
-    }
-    await writeAudit(ctx, {
-      action: 'stack.deploy.override',
-      targetType: 'stack',
-      targetId: input.name,
-      metadata: { violations: violations.map((v) => ({ ...v })) },
-    });
-  }
+  await enforceAdmission(
+    ctx,
+    {
+      kind: 'stack.deploy',
+      orgId: ctx.activeOrgId,
+      stackName: input.name,
+      specs,
+      override: input.override,
+    },
+    { targetType: 'stack', targetId: input.name },
+  );
 
   const node = await resolveManagerNode(ctx);
 
@@ -284,6 +258,8 @@ export interface AddServiceToStackInput {
   ports?: { target: number; published?: number; protocol?: 'tcp' | 'udp' }[];
   env?: Record<string, string>;
   replicas?: number;
+  /** Override admission-policy violations (audited; block-level needs admin). */
+  override?: boolean;
 }
 
 /**
@@ -324,6 +300,20 @@ export async function addServiceToStack(
     stack: input.stack,
   }).map((s) => withStackLabels(s, input.stack));
 
+  // A single-app drop into a stack is a service deploy — same admission gate
+  // (and override semantics) as the compose path.
+  await enforceAdmission(
+    ctx,
+    {
+      kind: 'service.deploy',
+      orgId: ctx.activeOrgId,
+      stackName: input.stack,
+      specs: [spec],
+      override: input.override,
+    },
+    { targetType: 'service', targetId: input.name },
+  );
+
   const deploymentId = randomUUID();
   try {
     await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
@@ -334,6 +324,12 @@ export async function addServiceToStack(
   // Best-effort live id (inventory is eventually consistent); name is the stable
   // fallback until the new service surfaces under the stack.
   const id = liveStackServices(ctx, input.stack).find((s) => s.name === input.name)?.id ?? input.name;
+  await writeAudit(ctx, {
+    action: 'service.deploy',
+    targetType: 'service',
+    targetId: id,
+    metadata: { name: input.name, image: input.image, stack: input.stack, override: input.override === true },
+  });
   return { id, deploymentId };
 }
 

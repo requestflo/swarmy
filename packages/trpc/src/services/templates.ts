@@ -118,7 +118,9 @@ function composeService(opts: {
 
 // ───────────────────────────────────────────── postgres-ha ──
 
-const POSTGRES_IMAGE = 'bitnami/postgresql-repmgr:16';
+// bitnami/* versioned tags were purged from Docker Hub (Aug 2025); bitnamilegacy is
+// the frozen twin with the same REPMGR_*/POSTGRESQL_* env + /bitnami paths.
+const POSTGRES_IMAGE = 'bitnamilegacy/postgresql-repmgr:16';
 
 function renderPostgresHa(p: TemplateParams): RenderedTemplate {
   const image = p.image ?? POSTGRES_IMAGE;
@@ -177,8 +179,8 @@ function renderPostgresHa(p: TemplateParams): RenderedTemplate {
 
 // ───────────────────────────────────────────── redis-ha ──
 
-const REDIS_IMAGE = 'bitnami/redis-sentinel:7';
-const REDIS_DATA_IMAGE = 'bitnami/redis:7';
+const REDIS_IMAGE = 'bitnamilegacy/redis-sentinel:7.4';
+const REDIS_DATA_IMAGE = 'bitnamilegacy/redis:7.4';
 
 function renderRedisHa(p: TemplateParams): RenderedTemplate {
   const dataImage = p.image ?? REDIS_DATA_IMAGE;

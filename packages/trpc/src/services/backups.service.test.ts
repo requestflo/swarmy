@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import {
   STACK_RETENTION_LABEL,
+  isNodeTarget,
   parseRetentionDays,
+  repoUrl,
   stackRetentionFor,
 } from './backups.service';
 
@@ -65,5 +67,19 @@ describe('stackRetentionFor (volume → stack retention attribution)', () => {
       svc('shop'),
     ];
     expect(stackRetentionFor(services, 'shop_db-data')).toBe(30);
+  });
+});
+
+describe('repoUrl (Prisma stores BackupTargetKind uppercase)', () => {
+  it('treats NODE rows as a local path, never s3', () => {
+    const row = { kind: 'NODE', bucket: '/srv/backups/', prefix: 'swarmy-test', endpoint: null };
+    expect(isNodeTarget(row)).toBe(true);
+    expect(repoUrl(row)).toBe('/srv/backups/swarmy-test');
+  });
+
+  it('builds an s3 repo for S3 rows', () => {
+    const row = { kind: 'S3', bucket: 'b', prefix: null, endpoint: 'https://s3.example.com/' };
+    expect(isNodeTarget(row)).toBe(false);
+    expect(repoUrl(row)).toBe('s3:https://s3.example.com/b');
   });
 });

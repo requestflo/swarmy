@@ -63,6 +63,8 @@ export const CreateServiceInput = z.object({
   /** Project = Docker stack namespace; groups the service on the canvas. */
   project: z.string().optional(),
   ingress: ServiceIngressInput.optional(),
+  /** Override admission-policy violations (audited; block-level needs admin). */
+  override: z.boolean().optional(),
 });
 export type CreateServiceInput = z.infer<typeof CreateServiceInput>;
 

@@ -34,6 +34,7 @@ export {
   listDomains,
   removeDomain,
   reconcileColdIngress,
+  reconcileIngressOrg,
   reapplyIngressForOrg,
 } from './services/ingress.service';
 export type { DomainView, IngressConfigView, IngressColdReconcileDeps } from './services/ingress.service';
@@ -61,13 +62,20 @@ export { restoreBundle } from './services/controllerBackup.bundle';
 export { loadControlPlane } from './services/controllerBackup.dump';
 
 // ── node-onboarding P2: swarm init/join orchestration (gateway register seam) ──
-export { orchestrateSwarmMembership, SWARM_COMMAND } from './services/swarm.service';
+export {
+  orchestrateSwarmMembership,
+  planSwarmMembership,
+  swarmOrchestrationStatus,
+  SWARM_COMMAND,
+} from './services/swarm.service';
 export type {
   OrchestrateArgs,
   OrchestrateOutcome,
   SwarmHub,
   SwarmDb,
   SwarmConfigRow,
+  SwarmPeer,
+  SwarmOrchestrationEvent,
 } from './services/swarm.service';
 
 // ── public-api-terraform P2 (Wave G1): REST CRUD service fns ──
@@ -78,6 +86,7 @@ export {
   removeNode,
   stampReportedPublicIp,
   stampProfileLabels,
+  stampDefaultBuilderRole,
 } from './services/node.service';
 // WS7 private-mesh profile: the register path auto-enrolls the node into the mesh.
 export { enrollNode as enrollMeshNode } from './services/mesh.service';

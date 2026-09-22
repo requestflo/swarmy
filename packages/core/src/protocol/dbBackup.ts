@@ -18,8 +18,38 @@ import { ResticSnapshotInfo, RetentionOutcome } from './backup';
 /** Reusable command preamble (every controller→agent command carries these). */
 const cmd = { commandId: CommandId, timeoutMs: z.number().int().positive().optional() };
 
+/**
+ * Managed-Postgres engine image — the ONE place the default lives.
+ *
+ * The whole managed-DB plane is built on Bitnami's env contract
+ * (`POSTGRESQL_REPLICATION_MODE=master|slave`, `POSTGRESQL_*_PASSWORD`), its
+ * paths (`/bitnami/postgresql` persistence root, the conf.d PITR mount, the
+ * `/opt/bitnami/postgresql/bin/pg_ctl` promotion path below) and its psql
+ * client. In Aug 2025 Bitnami pulled every versioned tag from the free
+ * `bitnami/*` Docker Hub namespace (only `latest` + digests remain); the
+ * identical images were frozen under `bitnamilegacy/*`, which is what we pin
+ * here so replication keeps working unchanged. `bitnamilegacy` receives no
+ * further updates — the long-term fix is porting to the official `postgres`
+ * image (init-script replication + `pg_basebackup` entrypoint). Per-cluster
+ * override: `provisionDb({ image | imageTag })`; the reconcile worker clones new
+ * members from the live primary's image, so the service image IS the
+ * Docker-truth per-cluster setting.
+ */
+export const MANAGED_PG_IMAGE_REPO = 'bitnamilegacy/postgresql';
+export const MANAGED_PG_DEFAULT_TAG = '16';
+export const DEFAULT_MANAGED_PG_IMAGE = `${MANAGED_PG_IMAGE_REPO}:${MANAGED_PG_DEFAULT_TAG}`;
+
+/**
+ * Rewrite an image ref from the dead free `bitnami/*` namespace to its frozen
+ * `bitnamilegacy/*` twin (same image, same env/paths). Anything else is returned
+ * unchanged. Lets a re-provision heal clusters deployed with the old default.
+ */
+export function migrateDeadBitnamiImage(image: string): string {
+  return image.startsWith('bitnami/') ? `bitnamilegacy/${image.slice('bitnami/'.length)}` : image;
+}
+
 /** Pinned default images for the DB engines. */
-export const DEFAULT_PG_CLIENT_IMAGE = 'bitnami/postgresql:16';
+export const DEFAULT_PG_CLIENT_IMAGE = DEFAULT_MANAGED_PG_IMAGE;
 export const DEFAULT_WALG_IMAGE = 'ghcr.io/wal-g/wal-g:v3.0.3';
 export const DEFAULT_PGBACKREST_IMAGE = 'pgbackrest/pgbackrest:2.51';
 

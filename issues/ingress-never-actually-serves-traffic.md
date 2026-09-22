@@ -1,7 +1,6 @@
 # Ingress is unreachable out of the box, through every driver, at every stage — dashboard status badges never reflect this
 
-**Status:** Open — root-caused via live testing on a real single-node swarm plus source inspection. Not
-fixed this session (per standing "document, don't patch" directive).
+**Status:** Fixed in code — pending live re-verification (see "Fix applied (2026-09)" below).
 **Severity:** Critical — this is the literal "start small: ingress + one browser-reachable app" bar the
 governing directive named as the first real deployment milestone, and it fails at every layer, with the
 dashboard actively misreporting success the whole way through.
@@ -259,3 +258,47 @@ disrupting the running process. Not root-caused to a specific trigger this sessi
 as its own `issues/*.md` entry — logging it here since it repeatedly disrupted this session's testing,
 but treating it as an environment artifact rather than a confirmed production defect unless it
 reproduces against a real, non-dev deployment.
+
+## Fix applied (2026-09)
+
+Code-only; not yet re-run against a live swarm. Summary per root cause:
+
+- **#4 placement (wrong node-id namespace).** `ingressPlacementConstraint()` is now a pure function
+  (`packages/trpc/src/services/ingress-controller.ts:115`) that resolves the pinned swarmy enrollment id
+  through `hub.swarmNodeIdFor()` (same bridge `dispatchNodeLabels` uses) and emits
+  `node.id==<docker swarm node id>`. A legacy pin that is already a swarm id is accepted; an
+  unresolvable pin falls back to the `swarmy.node.ingress` label / manager constraint instead of an
+  unsatisfiable one. Golden-tested, including through `ensureCaddyController`'s dispatched spec.
+- **Hidden #5 found while fixing: routes never reached the controller even when it ran.** The
+  controller topology defaulted to `applyVia: 'file'`: the agent wrote the Caddyfile on its OWN host
+  and ran `caddy reload` there, where no Caddy exists. New default `applyVia: 'exec'`: the controller
+  dispatches only to the node(s) running a `swarmy-ingress-caddy` task (Docker truth off container
+  snapshots), and that agent writes the Caddyfile INTO the task and execs `caddy reload` there
+  (`RenderedConfig.localReload.file`, agent `writeFileExec`). No overlay membership, published admin
+  API, or host bind mount needed. Zero running tasks is now an apply error, never "applied to 0
+  node(s)". Operator `extraConfig.applyVia` overrides still win. The agent's admin-API path also no
+  longer swallows a failed POST.
+- **Controller spec.** 80/443 now publish in host mode (routing mesh is unreachable in some envs — see
+  `swarm-routing-mesh-unreachable-in-lima-vm` — and host mode keeps client IPs); the unauthenticated
+  admin API is no longer published by default; `--resume` keeps the last config across task restarts.
+- **#2/#3 enable does nothing / deploy step hidden.** `setDriver`, `setEnabled`, `setTargetNodes`,
+  and `setControllerImage` now converge the controller themselves (`convergeEdge`) when the driver is
+  Caddy and enabled, then re-apply. `reapply()` no longer has a bare `catch { return null }`; every
+  apply/converge outcome is recorded and read back through `runtime` (and toasted when down/degraded).
+- **Reconcile.** `ingress-reconcile` now runs `reconcileIngressOrg` (signature-gated over the full
+  resolved config + running Caddy task container ids): routes written straight onto service labels by
+  a blueprint deploy get applied, a freshly scheduled task gets its config the tick it appears, and a
+  missing controller is re-deployed (rate-limited to once a minute).
+- **#1 status badges.** `IngressConfigView.runtime` (`deriveEdgeRuntime`) and per-route
+  `DomainView.serving`/`edgeState` come from live Docker state plus the last apply outcome:
+  `tracking | paused | unverified | down | deploying | degraded | serving`. The Edge & ingress header,
+  the "All domains" list, and the stack Network tab ("N / M secured", TLS badge) only show green or
+  "secured" when the route is actually being served. Otherwise they show "not routed" / "edge down" /
+  etc., with an explanatory alert on the Edge & ingress page.
+
+Not changed: the new-org default is still `NONE`. It is now visibly "Tracking only — routes are
+tracked, not served" everywhere, but defaulting to Caddy would auto-bind 80/443 on every new org's
+managers, which is a product decision. `edge-per-node` still has no dashboard control. Also, its
+host-path Caddyfile contract (`/var/lib/swarmy/ingress`) is not satisfied by the docker-backend agent
+install, which mounts a named volume at `/var/lib/swarmy`, not the host dir. That needs an installer
+change before edge-per-node can work there.

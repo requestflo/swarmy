@@ -14,7 +14,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
 import { WebTerminal } from '@/components/terminal/web-terminal';
 
-export const Route = createFileRoute('/_authed/nodes/$nodeId/terminal')({
+export const Route = createFileRoute('/_authed/nodes/$nodeId_/terminal')({
   component: NodeTerminalPage,
 });
 
@@ -28,7 +28,7 @@ type Phase = 'idle' | 'connecting' | 'open' | 'disabled' | 'closed' | 'error';
  */
 function NodeTerminalPage(): React.JSX.Element {
   const trpc = useTRPC();
-  const { nodeId } = useParams({ from: '/_authed/nodes/$nodeId/terminal' });
+  const { nodeId } = useParams({ from: '/_authed/nodes/$nodeId_/terminal' });
 
   const node = useQuery(trpc.nodes.get.queryOptions({ id: nodeId }));
 

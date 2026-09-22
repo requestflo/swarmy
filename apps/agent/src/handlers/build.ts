@@ -11,8 +11,10 @@
  * through the existing `conn.send('logChunk', …)` path (same machinery as
  * `streamLogs`). It never reasons about which registry/provider it is.
  *
- * Gated like exec: builds only run when `SWARMY_ALLOW_BUILD=true` (see executor
- * case), otherwise the command is rejected with `E_BUILD_DISABLED`. The git token
+ * Gated: builds only run on a node with the Builder role (`swarmy.node.builder`,
+ * asserted by the controller as `builderCapable`) unless `SWARMY_ALLOW_BUILD`
+ * explicitly overrides (see executor case + `buildGateAllows`), otherwise the
+ * command is rejected with `E_BUILD_DISABLED`. The git token
  * and registry password arrive over the authenticated WS and are passed as build
  * secrets / a one-shot Docker auth config — never written into an image layer.
  */

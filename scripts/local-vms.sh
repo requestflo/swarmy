@@ -158,15 +158,12 @@ guarded() {
     wait "$p"; local rc=$?; kill "$k" 2>/dev/null; return "$rc" )
 }
 
-# Fetch + run the installer on a VM, pointing every URL at the LAN controller.
-# We fetch the installer DIRECTLY (skipping the two-stage checksum loader — the
-# loader's job is to protect an untrusted `curl|sh`, which local dev doesn't
-# need) and pass SWARMY_CONTROLLER_URL / SWARMY_BINARY_BASE_URL so it works no
-# matter what CONTROLLER_PUBLIC_URL the controller bakes. The installer still
-# sha256-verifies the downloaded binary against the manifest.
+# Run the SAME one-liner the dashboard hands out, on a VM. `--controller`
+# makes the loader derive every later URL (installer, agent binary, dial-back)
+# from the LAN controller address, whatever CONTROLLER_PUBLIC_URL it bakes.
+# The loader sha256-verifies the installer; the installer verifies the binary.
 enroll_node() {
   local name="$1"
-  local install_url="${CONTROLLER_URL}/install/${AGENT_VERSION}/install.sh"
   local mesh_env=()
   if [ -n "${MESH_SETUP_KEY:-}" ]; then
     mesh_env=(
@@ -178,12 +175,10 @@ enroll_node() {
   guarded 300 limactl shell "$name" -- sudo env \
     SWARMY_JOIN_TOKEN="$TOKEN" \
     SWARMY_BACKEND="$BACKEND" \
-    SWARMY_CONTROLLER_URL="$CONTROLLER_URL" \
-    SWARMY_BINARY_BASE_URL="${CONTROLLER_URL}/install/bin" \
     SWARMY_NODE_LABELS="local-vm,${name}" \
     SWARMY_ALLOW_MESH="$ALLOW_MESH" \
     "${mesh_env[@]}" \
-    bash -c "curl -fsSL '$install_url' | sh"
+    bash -c "curl -fsSL '${CONTROLLER_URL}/install/loader.sh' | sh -s -- --controller '${CONTROLLER_URL}'"
 }
 
 up() {

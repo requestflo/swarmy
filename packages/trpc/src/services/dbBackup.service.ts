@@ -198,6 +198,7 @@ export function scheduleView(
     dataVolume: schedule.dataVolume ?? null,
     lastRunAt: lastRun?.at ?? null,
     lastStatus: lastRun?.status ?? null,
+    lastError: lastRun?.error ?? null,
     nextRunAt,
   };
 }
@@ -584,6 +585,7 @@ export async function dbBackupOverview(ctx: OrgContext): Promise<DbBackupOvervie
         targetName: targetId ? (targetName.get(targetId) ?? null) : null,
         lastBackupAt: lastRun?.at ?? null,
         lastStatus: lastRun?.status ?? null,
+        lastError: lastRun?.error ?? null,
         lastSizeBytes: lastRun?.sizeBytes ?? null,
         nextRunAt,
         pitrWindow: pitrWindow(schedule, lastRun, now),

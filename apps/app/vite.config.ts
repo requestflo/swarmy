@@ -28,7 +28,10 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': { target: 'http://localhost:3021', changeOrigin: true },
-      '/install.sh': { target: 'http://localhost:3021', changeOrigin: true },
+      // Whole install surface (/install.sh, /install/loader.sh, /install/<v>/install.sh,
+      // /install/bin/*) so a one-liner built from the dashboard origin works end
+      // to end in dev. xfwd lets the controller see the address the node used.
+      '/install': { target: 'http://localhost:3021', changeOrigin: true, xfwd: true },
       '/agent': { target: 'ws://localhost:3021', ws: true },
       // Browser terminal data plane (xterm → controller `/term/ws`). Same-origin
       // in prod; in dev the page is served from :3023, so proxy the WS upgrade to

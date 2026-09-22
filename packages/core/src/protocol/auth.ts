@@ -37,6 +37,12 @@ export const NodeFacts = z.object({
    */
   meshIp: z.string().optional(),
   meshConnected: z.boolean().optional(),
+  /**
+   * The agent's explicit `SWARMY_ALLOW_BUILD` override, if set: `allow` makes
+   * this node builder-capable regardless of its role label, `deny` vetoes
+   * builds even when the role is on. Absent ⇒ the builder role label decides.
+   */
+  buildOverride: z.enum(['allow', 'deny']).optional(),
 });
 export type NodeFacts = z.infer<typeof NodeFacts>;
 

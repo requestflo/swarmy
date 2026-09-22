@@ -41,6 +41,15 @@ export const SwarmJoinPayload = z
     advertiseAddr: z.string().min(1).optional(),
     /** join: the role this node should take (defaults to worker). */
     role: SwarmRole.default('worker'),
+    /**
+     * init only: NEVER create a swarm — succeed only when this node is already
+     * an active manager, returning its CURRENT join tokens + advertise addr.
+     * The controller uses it to pull fresh join material from a live manager
+     * (stale-row self-heal) with zero risk of forming a second swarm. Optional
+     * + additive: older agents strip it and run their idempotent init, which is
+     * equally read-only on an active manager (the only place it's sent).
+     */
+    refreshOnly: z.boolean().optional(),
   })
   .superRefine((v, ctx) => {
     if (v.mode === 'join') {

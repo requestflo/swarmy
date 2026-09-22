@@ -5,7 +5,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { useAwaitNode } from './use-await-node';
 import { OsPicker } from './os-picker';
 import { MintTokenForm } from './mint-token-form';
-import { InstallCommandPanel } from './install-command-panel';
+import { InstallCommandPanel, type InstallTarget } from './install-command-panel';
 import type { NodeRoleChoice } from './node-role-picker';
 
 /**
@@ -20,6 +20,7 @@ export function AddNodeFlow(): React.JSX.Element {
   const [mesh, setMesh] = React.useState<{ setupKey: string; managementUrl?: string; driver?: string } | null>(
     null,
   );
+  const [target, setTarget] = React.useState<InstallTarget | null>(null);
   const [label, setLabel] = React.useState('');
   const [nodeLabels, setNodeLabels] = React.useState('');
   const [role, setRole] = React.useState<NodeRoleChoice>('auto');
@@ -30,6 +31,7 @@ export function AddNodeFlow(): React.JSX.Element {
     trpc.nodes.generateJoinToken.mutationOptions({
       onSuccess: (res) => {
         setToken(res.token);
+        setTarget(res.install ?? null);
         setMesh(
           res.meshSetupKey
             ? { setupKey: res.meshSetupKey, managementUrl: res.meshManagementUrl, driver: res.meshDriver }
@@ -57,7 +59,14 @@ export function AddNodeFlow(): React.JSX.Element {
           pending={generate.isPending}
         />
       ) : (
-        <InstallCommandPanel token={token} labels={nodeLabels} role={role} mesh={mesh} arrived={arrived} />
+        <InstallCommandPanel
+          token={token}
+          labels={nodeLabels}
+          role={role}
+          mesh={mesh}
+          target={target}
+          arrived={arrived}
+        />
       )}
     </div>
   );

@@ -44,10 +44,10 @@ git push / open PR                                dashboard: /ci "Link a repo"
    │     verify HMAC (GitHub X-Hub-Signature-256 / GitLab X-Gitlab-Token)
    ▼
 controller resolves the GitRepo → SYSTEM build (audited actorType:system)
-   │  ① resolve a BUILDER node by label swarmy.role=builder (else any online)
-   │  ② dispatch image.build { source, imageRefs, registryAuth } → that node
+   │  ① resolve an online BUILDER node (swarmy.node.builder=true; none → actionable error)
+   │  ② dispatch image.build { source, imageRefs, registryAuth, builderCapable } → that node
    ▼
-agent (SWARMY_ALLOW_BUILD=true): moby/buildkit:rootless + buildctl
+agent (Builder role, or SWARMY_ALLOW_BUILD=true): moby/buildkit:rootless + buildctl
    │  ③ shallow-clone → build Dockerfile → --output type=image,push=true
    │     logChunk stream keyed by commandId (== Build.logsRef) → live viewer
    ▼
@@ -103,10 +103,15 @@ Four ideas, one story:
 
 ## CI/CD & registry behaviour
 
-- **Builds run only where opted in.** The agent refuses `image.build` /
-  `image.prune` with `E_BUILD_DISABLED` unless `SWARMY_ALLOW_BUILD=true`; the
-  controller prefers a `swarmy.role=builder` node so builds land on beefy/spot
-  nodes, not a tiny manager. Build = arbitrary code from a repo, so it runs in
+- **Builds run only where opted in.** "Builder" is a node role (the
+  `swarmy.node.builder` Docker node label, toggled in the node's role
+  switches; the legacy `swarmy.role=builder` still counts). The controller only
+  dispatches builds/GC to builder-capable nodes and asserts it in the payload
+  (`builderCapable`); the agent refuses otherwise with `E_BUILD_DISABLED`. A
+  single-node org's first node gets the role automatically on install.
+  `SWARMY_ALLOW_BUILD` in the node's agent.env stays an explicit local override
+  (`true` forces on, `false` vetoes even when the role is on), reported to the
+  controller in the register facts. Build = arbitrary code from a repo, so it runs in
   rootless BuildKit, never against the node's main daemon privileged.
 - **Secrets are resolved just-in-time and never baked in.** Git tokens and
   registry creds are stored encrypted, decrypted at dispatch, passed as a git
@@ -137,7 +142,7 @@ Four ideas, one story:
 
 | Failure | Behaviour |
 |---|---|
-| No builder node online | The controller falls back to any online node, then a manager; if the agent lacks `SWARMY_ALLOW_BUILD` it answers `E_BUILD_DISABLED` and the `Build` is marked `FAILED` — never a silent hang. |
+| No builder node online | `triggerBuild` fails fast (no `Build` row) with an actionable message: which builder is offline, or how to enable one (Builder role / `SWARMY_ALLOW_BUILD=true`). Never dispatched to a non-builder node. |
 | Build fails (bad Dockerfile, clone error) | Non-zero build exit → `commandResult` failed → `Build` row `FAILED`, full log retained in the live viewer; nothing is deployed. |
 | GC racing a running service | The pinned set is computed from LIVE running digests each cycle, so a digest in use is never in the remove set; the agent ALSO refuses to delete a pinned digest (defence in depth) and `repoPrefix`-scopes to swarmy-pushed images only. |
 | Registry node down | Enable status shows `online:false`; builds can't push and fail cleanly. The registry is cache-rebuildable — you can always rebuild from git (S3 storage documented for anyone who needs HA). |

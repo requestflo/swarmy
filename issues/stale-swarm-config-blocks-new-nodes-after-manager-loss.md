@@ -1,7 +1,6 @@
 # Once a swarm's manager is permanently lost, every future node registration for that org silently fails to join a swarm — forever, with zero error surfaced anywhere
 
-**Status:** Open — root-caused conclusively via DB inspection + live network check. Not fixed this
-session (per standing "document, don't patch" directive).
+**Status:** Fixed (2026-09) — code + unit tests; not yet re-verified on live VMs.
 **Severity:** Critical — this is a permanent, non-self-healing dead end for an entire org, and it is
 completely invisible (no dashboard error, no `swarmy-agent doctor` signal, no agent-side log line).
 
@@ -181,3 +180,34 @@ Whether a second node joining a *healthy, reachable* manager works correctly —
 the real product surface. Also not yet tested: what `swarmy-agent rejoin` actually does in the
 stale-manager scenario (deliberately not run, per the standing "no manual recovery" methodology) —
 worth checking in a future session whether it has the same reachability blind spot.
+
+## Fix applied (2026-09)
+
+Orchestration no longer trusts the `swarm_config` row alone; manager liveness is checked against hub truth.
+
+- **Decision logic is now pure and unit-tested:** `planSwarmMembership()` / `planAfterStoredJoinFailure()` / `liveManagers()` in
+  `packages/trpc/src/services/swarm.service.ts` (~L150-225). Given the row plus the org's connected peers
+  (`{isManager, swarmState}`), it returns `noop | defer | join-live | join-stored | init{reelect}`:
+  - A connected org node is a live manager → **join-live**: pull fresh join tokens and the advertise address from that manager
+    (a `refreshOnly` init that only reads), rewrite the row, then join. A live manager's data always wins over the stored row.
+  - Connected peers haven't reported their role yet (for example just after a controller restart) → **defer** (up to 3×5s)
+    instead of guessing, because a wrong guess splits the swarm.
+  - No live manager, but the row has join material → **join-stored** (the manager's agent may just be disconnected). If that join
+    fails or times out → **re-elect**: `init` on this node, **overwrite the whole stale row** (address, tokens, cleared unlock key)
+    and pull in connected off-swarm peers with the new worker token (`initHere()`).
+  - The row exists with no tokens or address and no manager is live → re-elect (previously this silently stayed standalone).
+- **Gateway wiring:** `apps/api/src/gateway/protocol-handlers.ts` `handleRegister` passes `peers` (connected org nodes with
+  `store.managers`/`swarmStates`) and `onEvent`. Re-elections and join failures now write audit rows
+  (`swarm.reelected`, `node.swarm.join_failed`) and a `console.warn`.
+- **Surfaced state:** `swarmOrchestrationStatus(nodeId)` records `waiting|joining|joined|initialised|reelected|failed` plus the reason.
+  It is exposed as `NodeDetail.swarmOrchestration` (`packages/core/src/views.ts`, set in `node.service.ts` `getNode`) for the
+  node page. The UI still needs to render it.
+- **Agent logging:** `run()` in `apps/agent/src/executor.ts` logs every failed command to journalctl, and the
+  `handleCommand` dispatch in `daemon.ts` has a `.catch`.
+- **Protocol:** `SwarmJoinPayload.refreshOnly` (optional, additive) in `packages/core/src/protocol/swarm.ts`. The agent
+  (`handlers/swarm.ts`) refuses a refresh on any node that isn't an active manager, so it can never found a swarm.
+- Tests: `packages/trpc/src/services/swarm.service.test.ts` covers the plan matrix plus scenarios: dead manager leads to
+  re-election and a cleared row, a live manager gets its row refreshed, deferral, and failure surfacing.
+
+Still open: the `swarmy-agent doctor` swarm rung doesn't distinguish "waiting" from "failed", because that status lives on the
+controller. There's also no admin "reset swarm config" button; it's less needed now that re-election is automatic.

@@ -9,6 +9,7 @@ import { createRestApp } from '@swarmy/api-rest';
 import { env } from './env';
 import { maybeBootstrapSeed } from './bootstrap/seed';
 import { handleTrpc } from './trpc';
+import { resolveControllerPublicUrl } from '@swarmy/core';
 import { renderInstallScript } from './install-script';
 import { renderLoader, renderChecksumFile, sha256Hex } from './install/loader';
 import { renderInstaller, type RenderInstallerOptions } from './install/installer';
@@ -53,7 +54,7 @@ app.get('/ingress/ask', async (c) => {
 // Optional ?manager=1 adds a swarm-manager init hint for the first node.
 app.get('/install.sh', (c) => {
   const manager = c.req.query('manager') === '1';
-  return c.body(renderInstallScript(env.CONTROLLER_PUBLIC_URL, { manager }), 200, {
+  return c.body(renderInstallScript(requestControllerUrl(c.req.raw.headers), { manager }), 200, {
     'content-type': 'text/x-shellscript; charset=utf-8',
     'cache-control': 'no-store',
   });
@@ -63,6 +64,16 @@ app.get('/install.sh', (c) => {
 //   GET /install/loader.sh           → tiny loader (verifies + execs the installer)
 //   GET /install/:version/install.sh        → the real (big) installer
 //   GET /install/:version/install.sh.sha256 → its checksum (for manual verify)
+/**
+ * The controller base URL to bake into install scripts for THIS request:
+ * CONTROLLER_PUBLIC_URL when it's a real address, else the address the
+ * request reached us at (X-Forwarded-* › Origin › Host). Sanitised — it lands
+ * in a shell body. (issue: install-repair-one-liner-broken-when-controller-not-self-reachable)
+ */
+function requestControllerUrl(headers: Headers): string {
+  return resolveControllerPublicUrl({ configured: process.env.CONTROLLER_PUBLIC_URL, headers }).url;
+}
+
 function installerOptionsFor(version: string): RenderInstallerOptions {
   // Checksums: explicit env pin wins; otherwise the manifest of the binaries
   // this controller itself serves at /install/bin/<platform>.
@@ -80,12 +91,17 @@ function installerOptionsFor(version: string): RenderInstallerOptions {
       );
     }
   }
+  // Deliberately request-INDEPENDENT: the loader pins this body's sha256, so
+  // it must render identically whichever address fetched it. The loader
+  // exports SWARMY_CONTROLLER_URL/SWARMY_BINARY_BASE_URL, so these baked
+  // defaults only matter for a direct install.sh run without --controller.
   return {
     controllerUrl: env.CONTROLLER_PUBLIC_URL,
     version,
     agentImage: env.AGENT_IMAGE,
     binaryBaseUrl: env.AGENT_BINARY_BASE_URL,
     binarySha256,
+    binaryBaseFromController: env.AGENT_BINARY_BASE_URL_EXPLICIT == null,
   };
 }
 
@@ -99,9 +115,10 @@ app.get('/install/loader.sh', (c) => {
   const installerBody = renderInstaller(installerOptionsFor(version));
   return c.body(
     renderLoader({
-      controllerUrl: env.CONTROLLER_PUBLIC_URL,
+      controllerUrl: requestControllerUrl(c.req.raw.headers),
       version,
       installerSha256: sha256Hex(installerBody),
+      binaryBaseUrl: env.AGENT_BINARY_BASE_URL_EXPLICIT ?? undefined,
     }),
     200,
     { 'content-type': 'text/x-shellscript; charset=utf-8', 'cache-control': 'no-store' },

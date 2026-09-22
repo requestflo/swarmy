@@ -58,7 +58,10 @@ export interface BundleContents {
 /**
  * How restic is run on the controller host. `binary` execs a local `restic`;
  * `docker` runs the pinned image as a short-lived container with the staging dir
- * bind-mounted. Defaults to `binary` (controller image ships restic).
+ * bind-mounted. Defaults to `binary`: the controller image (`apps/api/Dockerfile`)
+ * copies a pinned restic binary (same version as DEFAULT_RESTIC_IMAGE) onto
+ * $PATH. Running the API outside that image (local dev) needs restic installed
+ * or `SWARMY_RESTIC_BINARY` set — see `resticMissingMessage`.
  */
 export interface ResticRunner {
   mode: 'binary' | 'docker';
@@ -96,6 +99,37 @@ export interface RunResult {
   stderr: string;
 }
 
+/**
+ * Actionable error for a missing restic (or docker, in docker mode) executable.
+ * Replaces the raw spawn ENOENT (`Executable not found in $PATH: "restic"`),
+ * which reads like a transient failure rather than a packaging gap.
+ */
+export function resticMissingMessage(runner: ResticRunner): string {
+  if (runner.mode === 'docker') {
+    return (
+      'restic is not available on the controller: SWARMY_CONTROLLER_RESTIC_MODE=docker but the ' +
+      '`docker` CLI was not found in $PATH. Install the docker CLI (and mount the Docker socket) ' +
+      'or unset SWARMY_CONTROLLER_RESTIC_MODE to use the restic binary bundled in the controller image.'
+    );
+  }
+  const cmd = runner.resticPath ?? 'restic';
+  return (
+    `restic is not available on the controller (\`${cmd}\` not found${runner.resticPath ? '' : ' in $PATH'}). ` +
+    'The swarmy controller image bundles restic — if you are running the API outside it (local dev), ' +
+    'install restic (macOS: `brew install restic`; Debian/Ubuntu: `apt install restic`; ' +
+    'Alpine: `apk add restic`; or https://restic.readthedocs.io/en/stable/020_installation.html) ' +
+    'or set SWARMY_RESTIC_BINARY to its absolute path.'
+  );
+}
+
+function isMissingExecutable(e: unknown): boolean {
+  const err = e as { code?: unknown; message?: unknown } | null;
+  return (
+    err?.code === 'ENOENT' ||
+    (typeof err?.message === 'string' && /not found in \$PATH|ENOENT/i.test(err.message))
+  );
+}
+
 /** Run a restic subcommand, returning its captured output. Never rejects on non-zero. */
 export function runRestic(
   args: string[],
@@ -130,7 +164,7 @@ export function runRestic(
     let stderr = '';
     child.stdout.on('data', (d) => (stdout += d.toString()));
     child.stderr.on('data', (d) => (stderr += d.toString()));
-    child.on('error', reject);
+    child.on('error', (e) => reject(isMissingExecutable(e) ? new Error(resticMissingMessage(runner)) : e));
     child.on('close', (code) => resolve({ code: code ?? -1, stdout, stderr }));
   });
 }

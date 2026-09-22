@@ -155,6 +155,7 @@ interface DbBackupScheduleView {
   dataVolume: string | null;
   lastRunAt: string | null;
   lastStatus: DbBackupRunStatus | null;
+  lastError: string | null;
   nextRunAt: string | null;
 }
 
@@ -178,6 +179,7 @@ interface DbBackupOverviewRow {
   targetName: string | null;
   lastBackupAt: string | null;
   lastStatus: DbBackupRunStatus | null;
+  lastError: string | null;
   lastSizeBytes: string | null;
   nextRunAt: string | null;
   pitrWindow: { from: string; to: string } | null;
@@ -222,6 +224,7 @@ interface DbClusterState {
   schedule: DbBackupSchedule | null;
   lastRunAt: string | null;
   lastStatus: DbBackupRunStatus | null;
+  lastError?: string | null;
   lastSizeBytes: string | null;
 }
 
@@ -383,6 +386,7 @@ function dbScheduleView(c: DbClusterState): DbBackupScheduleView | null {
     dataVolume: c.schedule.dataVolume,
     lastRunAt: c.lastRunAt,
     lastStatus: c.lastStatus,
+    lastError: c.lastError ?? null,
     nextRunAt: fakeCronNext(c.schedule.cron),
   };
 }
@@ -405,6 +409,7 @@ function dbOverviewRow(st: DataState, c: DbClusterState): DbBackupOverviewRow {
     targetName: s?.targetId ? targetName(st, s.targetId) || null : null,
     lastBackupAt: c.lastRunAt,
     lastStatus: c.lastStatus,
+    lastError: c.lastError ?? null,
     lastSizeBytes: c.lastSizeBytes,
     nextRunAt: s ? fakeCronNext(s.cron) : null,
     pitrWindow,
@@ -1130,6 +1135,8 @@ export const data: DomainResolvers = {
         },
         lastRunAt: iso(9 * HOUR),
         lastStatus: 'failed',
+        lastError:
+          'pg_dump: error: connection to server at "checkout-primary" (10.0.4.12), port 5432 failed: FATAL: password authentication failed for user "backup"',
         lastSizeBytes: null,
       },
       {

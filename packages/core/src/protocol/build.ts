@@ -52,6 +52,13 @@ export const BuildImagePayload = z.object({
   pushPolicy: z.enum(['always', 'never']).default('always'),
   /** Builder image that wraps BuildKit/`buildctl` (or `img`). */
   builderImage: z.string().optional(),
+  /**
+   * The controller's assertion that this node carries the builder role
+   * (`swarmy.node.builder=true`, read live at dispatch). The agent's gate
+   * (`buildGateAllows`) honours it unless `SWARMY_ALLOW_BUILD` explicitly
+   * overrides. Absent (older controller) ⇒ default-off.
+   */
+  builderCapable: z.boolean().optional(),
 });
 export type BuildImagePayload = z.infer<typeof BuildImagePayload>;
 

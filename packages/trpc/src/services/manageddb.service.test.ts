@@ -4,10 +4,12 @@ import {
   lagLabelKey,
   parseLagLabels,
   pitrConfigName,
+  resolveManagedPgImage,
   roVarName,
   walArchiveVolumeName,
   walShipperServiceName,
 } from './manageddb.service';
+import { DEFAULT_MANAGED_PG_IMAGE } from '@swarmy/core/protocol';
 
 describe('lag labels (swarmy.db.lag.<member>) — codec', () => {
   it('round-trips a stamped member lag', () => {
@@ -56,5 +58,33 @@ describe('roVarName — read-only env var derivation (existing behaviour)', () =
   it('rewrites *_URL and suffixes everything else', () => {
     expect(roVarName('DATABASE_URL')).toBe('DATABASE_RO_URL');
     expect(roVarName('PG')).toBe('PG_RO');
+  });
+});
+
+describe('resolveManagedPgImage — engine image default + per-cluster override', () => {
+  it('defaults to the pinned, still-published bitnamilegacy image', () => {
+    expect(resolveManagedPgImage({})).toBe('bitnamilegacy/postgresql:16');
+    expect(DEFAULT_MANAGED_PG_IMAGE).toBe('bitnamilegacy/postgresql:16');
+  });
+
+  it('never emits the dead free-tier bitnami/postgresql namespace', () => {
+    expect(resolveManagedPgImage({}, 'bitnami/postgresql:16')).toBe('bitnamilegacy/postgresql:16');
+    expect(resolveManagedPgImage({ image: 'bitnami/postgresql:17' })).toBe(
+      'bitnamilegacy/postgresql:17',
+    );
+  });
+
+  it('imageTag picks a tag of the managed repo', () => {
+    expect(resolveManagedPgImage({ imageTag: '17' })).toBe('bitnamilegacy/postgresql:17');
+  });
+
+  it('explicit image wins over imageTag and the live image', () => {
+    expect(
+      resolveManagedPgImage({ image: 'mirror.local/pg:16', imageTag: '17' }, 'x/y:1'),
+    ).toBe('mirror.local/pg:16');
+  });
+
+  it('re-provision keeps a live per-cluster override, minus any digest pin', () => {
+    expect(resolveManagedPgImage({}, 'mirror.local/pg:16@sha256:abc')).toBe('mirror.local/pg:16');
   });
 });

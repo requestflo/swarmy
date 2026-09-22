@@ -77,11 +77,16 @@ interface TargetRow {
   createdAt: Date;
 }
 
+/** Prisma stores the enum uppercase (`NODE`/`S3`); accept either spelling. */
+export function isNodeTarget(row: Pick<TargetRow, 'kind'>): boolean {
+  return String(row.kind).toLowerCase() === 'node';
+}
+
 function toView(row: TargetRow): BackupTargetView {
   return {
     id: row.id,
     name: row.name,
-    kind: row.kind === 'node' ? 'node' : 's3',
+    kind: isNodeTarget(row) ? 'node' : 's3',
     endpoint: row.endpoint,
     bucket: row.bucket,
     prefix: row.prefix,
@@ -114,9 +119,9 @@ export function resticNetworkFor(endpoint: string | null | undefined): string | 
 }
 
 /** Build the restic repo URL from a target row. */
-function repoUrl(row: TargetRow): string {
+export function repoUrl(row: Pick<TargetRow, 'kind' | 'prefix' | 'bucket' | 'endpoint'>): string {
   const prefix = row.prefix ? `/${row.prefix.replace(/^\/+/, '')}` : '';
-  if (row.kind === 'node') {
+  if (isNodeTarget(row)) {
     // local path on the node: bucket carries the base dir.
     return `${row.bucket.replace(/\/+$/, '')}${prefix}`;
   }
@@ -127,7 +132,7 @@ function repoUrl(row: TargetRow): string {
 /** Resolve a target into a ready-to-dispatch ResticRepo (decrypts secrets). */
 function toResticRepo(row: TargetRow): ResticRepo {
   return {
-    kind: row.kind === 'node' ? 'node' : 's3',
+    kind: isNodeTarget(row) ? 'node' : 's3',
     repo: repoUrl(row),
     password: decryptSecret(row.resticPasswordRef),
     endpoint: row.endpoint ?? undefined,

@@ -13,6 +13,7 @@ import { prisma } from '@swarmy/db';
 import {
   enrollMeshNode,
   orchestrateSwarmMembership,
+  stampDefaultBuilderRole,
   stampProfileLabels,
   stampReportedPublicIp,
   systemContext,
@@ -214,6 +215,9 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
   let orgId: string | null = null;
   let roleHint: 'manager' | 'worker' | null = null;
   let profile: NodeProfile | null = null;
+  // A genuinely NEW enrollment (no existing node for this hostname) — the only
+  // case where first-node defaults (e.g. the Builder role) may be applied.
+  let brandNew = false;
 
   if (auth.kind === 'join') {
     const token = await prisma.joinToken.findUnique({ where: { tokenHash: sha256(auth.joinToken) } });
@@ -248,6 +252,7 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
         update: { joinTokenId: token!.id },
       });
       nodeId = node.id;
+      brandNew = owner === null;
       await prisma.joinToken.update({ where: { id: token!.id }, data: { uses: { increment: 1 } } });
     }
     roleHint = token!.roleHint === 'MANAGER' ? 'manager' : token!.roleHint === 'WORKER' ? 'worker' : null;
@@ -280,7 +285,11 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
   deps.store.nodeOrg.set(nodeId, orgId);
   deps.store.nodeCpuCount.set(nodeId, facts.cpuCount);
   deps.store.nodeHostname.set(nodeId, facts.hostname);
-  deps.store.agentBuild.set(nodeId, { version: facts.agentVersion, packaging: facts.agentPackaging });
+  deps.store.agentBuild.set(nodeId, {
+    version: facts.agentVersion,
+    packaging: facts.agentPackaging,
+    buildOverride: facts.buildOverride,
+  });
   const previous = deps.registry.add(nodeId, ws);
   previous?.close(CloseCode.DUPLICATE_SESSION, 'newer session');
   ws.data.state = 'ready';
@@ -331,6 +340,16 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
     }
   }
 
+  // CI/CD: a single-node org's only node defaults to the Builder role so
+  // "link a repo → Build" works out of the box (label stamps once the swarm
+  // join lands; no-op when the org has other nodes). Brand-new nodes only —
+  // a repair/re-adopt never re-enables a role the operator switched off.
+  if (brandNew) {
+    void stampDefaultBuilderRole({ db: prisma, hub: deps.hub }, orgId, nodeId).catch((err) => {
+      console.warn(`[cicd] node ${nodeId}: default Builder role skipped:`, err instanceof Error ? err.message : err);
+    });
+  }
+
   // node-onboarding P2: init or join the org's Docker Swarm (best-effort, async).
   // Surface failures (e.g. a missing SWARMY_SECRET_KEY blocking the token vault)
   // instead of swallowing them — a silent failure here leaves the swarm running
@@ -346,6 +365,34 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
     // LAN address so swarm control + data-plane traffic rides the mesh.
     // Absent/unconnected ⇒ undefined ⇒ agent's existing LAN self-derivation.
     meshIp: facts.meshConnected ? (facts.meshIp ?? null) : null,
+    // Manager liveness is hub truth, never the swarm_config row alone: a live
+    // manager's fresh tokens always win (no second swarm), and a row whose
+    // manager is gone gets re-elected instead of joined forever.
+    peers: () =>
+      deps.store
+        .nodesForOrg(orgId)
+        .filter((id) => deps.registry.get(id) !== undefined)
+        .map((id) => ({
+          nodeId: id,
+          isManager: deps.store.managers.get(id),
+          swarmState: deps.store.swarmStates.get(id),
+        })),
+    onEvent: (e) => {
+      if (e.state !== 'reelected' && e.state !== 'failed') return;
+      console.warn(`[swarm] node ${e.nodeId}: ${e.state} — ${e.detail}`);
+      void prisma.auditLog
+        .create({
+          data: {
+            orgId: e.orgId,
+            actorType: 'system',
+            action: e.state === 'reelected' ? 'swarm.reelected' : 'node.swarm.join_failed',
+            targetType: 'node',
+            targetId: e.nodeId,
+            metadata: { detail: e.detail },
+          },
+        })
+        .catch(() => undefined);
+    },
   }).catch((err) => {
     console.error('[swarm] membership orchestration failed:', err instanceof Error ? err.message : err);
   });

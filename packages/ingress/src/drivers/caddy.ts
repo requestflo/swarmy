@@ -174,6 +174,26 @@ export class CaddyDriver implements IngressDriver {
           (config.localRegion ? ` (region ${config.localRegion})` : ''),
       };
     }
+    // Replicated-controller topology (the default): the agent on the node that
+    // hosts the controller task writes the Caddyfile INTO that task and execs
+    // `caddy reload` there. Needs no overlay membership for the agent, no
+    // published admin port, and no host bind mount — only the docker socket the
+    // agent already has. Nothing is written on the agent host (`files` empty).
+    if (applyVia === 'exec') {
+      return {
+        driver: 'caddy',
+        files: [],
+        serviceLabels: [],
+        localReload: {
+          service: CADDY_CONTROLLER_SERVICE,
+          file: { path: CADDY_CONFIG_PATH, contents },
+          command: ['caddy', 'reload', '--config', CADDY_CONFIG_PATH, '--adapter', 'caddyfile'],
+        },
+        summary: `Caddy — ${config.domains.length} route(s): ${
+          config.domains.map((d) => d.domain).join(', ') || 'none'
+        }`,
+      };
+    }
     const rendered: RenderedConfig = {
       driver: 'caddy',
       files: [{ path: CADDY_CONFIG_PATH, contents, mode: 0o644 }],
@@ -220,6 +240,7 @@ export class CaddyDriver implements IngressDriver {
     let nodeCount: number;
     if (regional && dispatch.resolveTargets) {
       const targets = await dispatch.resolveTargets(config.orgId, config.targetNodes);
+      assertHasTargets(rendered, targets.length);
       const reports = await Promise.all(
         targets.map((t) =>
           dispatch.sendToNode(t.nodeId, this.render({ ...config, localRegion: t.region })),
@@ -230,6 +251,7 @@ export class CaddyDriver implements IngressDriver {
       nodeCount = targets.length;
     } else {
       const nodes = await dispatch.resolveTargetNodes(config.orgId, config.targetNodes);
+      assertHasTargets(rendered, nodes.length);
       const reports = await Promise.all(nodes.map((n) => dispatch.sendToNode(n, rendered)));
       const failed = reports.find((r) => !r.ok);
       if (failed) throw new IngressApplyError(failed.nodeId, failed.message ?? 'apply failed');
@@ -253,4 +275,18 @@ export class CaddyDriver implements IngressDriver {
     }
     return dispatch.queryStatus(first, 'caddy');
   }
+}
+
+/**
+ * An in-task apply (`localReload`: edge-per-node or the exec'd controller) with
+ * ZERO target nodes means no Caddy task is running anywhere — nothing is
+ * serving. That must fail loudly, never report "applied to 0 node(s)" as
+ * healthy (the always-green-badge bug).
+ */
+function assertHasTargets(rendered: RenderedConfig, count: number): void {
+  if (count > 0 || !rendered.localReload) return;
+  throw new IngressApplyError(
+    '(none)',
+    `no running ${rendered.localReload.service} task — the ingress controller is not up`,
+  );
 }

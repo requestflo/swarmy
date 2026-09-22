@@ -56,6 +56,16 @@ export async function applySwarmJoin(
   docker: DockerClient,
   p: SwarmJoinPayload,
 ): Promise<SwarmJoinResult> {
+  if (p.mode === 'init' && p.refreshOnly) {
+    // Read-only token refresh: never `swarm init` here — a node that isn't an
+    // active manager must fail loudly rather than found a second swarm.
+    const info = (await docker.docker.info()) as { Swarm?: { LocalNodeState?: string; ControlAvailable?: boolean } };
+    if (info.Swarm?.LocalNodeState !== 'active' || info.Swarm?.ControlAvailable !== true) {
+      throw new Error('swarmJoin(refreshOnly): this node is not an active swarm manager');
+    }
+    const { swarmNodeId, managerAddr, joinTokens } = await docker.readSwarmState();
+    return { mode: 'init', swarmNodeId, managerAddr, joinTokens };
+  }
   if (p.mode === 'init') {
     const advertiseAddr =
       p.advertiseAddr ?? (await localAddrToward(controllerHost() ?? '1.1.1.1'));

@@ -12,6 +12,8 @@ import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { ServiceDetail, ServiceStatusView, ServiceSummary } from '@swarmy/core/views';
 import type { OrgContext } from '../context';
 import { mapDispatchError, notFound } from '../errors';
+import { enforceAdmission } from './admission-gate';
+import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { enqueueEvent } from './webhooks-out.service';
 
@@ -173,6 +175,22 @@ export async function createService(
     constraints: input.constraints,
     project: input.project,
   });
+
+  // "Ship a service" is a service deploy: it runs the same admission spine
+  // (guardrails / exposure / image policy) with the same refuse/override/audit
+  // semantics as `deployFromCompose` — before anything touches the swarm.
+  await enforceAdmission(
+    ctx,
+    {
+      kind: 'service.deploy',
+      orgId: ctx.activeOrgId,
+      stackName: input.project,
+      specs: [spec],
+      override: input.override,
+    },
+    { targetType: 'service', targetId: input.name },
+  );
+
   try {
     await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
   } catch (e) {
@@ -181,6 +199,18 @@ export async function createService(
   // Swarm state lives in Docker now (no DB row). Resolve the live service id; the
   // name is a stable fallback until inventory catches up. deploymentId is non-persisted.
   const id = liveService(ctx, input.name)?.id ?? input.name;
+  await writeAudit(ctx, {
+    action: 'service.deploy',
+    targetType: 'service',
+    targetId: id,
+    metadata: {
+      name: input.name,
+      image: input.image,
+      stack: input.project ?? null,
+      replicas: input.replicas,
+      override: input.override === true,
+    },
+  });
   // Outbound webhook: fan a `service.deployed` event out to subscribed endpoints.
   await enqueueEvent(ctx.db, ctx.activeOrgId, 'service.deployed', {
     serviceId: id,
@@ -228,15 +258,44 @@ export async function updateService(
     project: input.project ?? (existing.stack === '(ungrouped)' ? undefined : existing.stack),
   };
 
+  // Carry the live label set forward (swarmy.env, ingress routes, deploy
+  // safety, …): rebuilding from the input alone would strip `swarmy.env=
+  // production` and silently take the service out of guardrail scope.
+  const built = buildServiceSpec(merged);
+  const spec: ServiceSpec = { ...built, labels: { ...existing.labels, ...built.labels } };
+
+  // An update (new image/env/ports) is a service deploy — same admission gate.
+  await enforceAdmission(
+    ctx,
+    {
+      kind: 'service.deploy',
+      orgId: ctx.activeOrgId,
+      stackName: merged.project,
+      specs: [spec],
+      override: input.override,
+    },
+    { targetType: 'service', targetId: existing.name },
+  );
+
   try {
-    await ctx.hub.dispatch(node.id, 'service.deploy', {
-      spec: buildServiceSpec(merged),
-      pullPolicy: 'always',
-    });
+    await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
   } catch (e) {
     throw mapDispatchError(e);
   }
   const id = liveService(ctx, merged.name)?.id ?? existing.id;
+  await writeAudit(ctx, {
+    action: 'service.deploy',
+    targetType: 'service',
+    targetId: id,
+    metadata: {
+      name: merged.name,
+      image: merged.image,
+      previousImage: existing.image,
+      stack: merged.project ?? null,
+      update: true,
+      override: input.override === true,
+    },
+  });
   return { id, deploymentId: id };
 }
 
@@ -252,6 +311,12 @@ export async function scaleService(
   } catch (e) {
     throw mapDispatchError(e);
   }
+  await writeAudit(ctx, {
+    action: 'service.scale',
+    targetType: 'service',
+    targetId: svc.id,
+    metadata: { name: svc.name, from: svc.replicas.desired, to: input.replicas },
+  });
   return { id: svc.id, deploymentId: '' };
 }
 
@@ -267,6 +332,12 @@ export async function restartService(
   } catch (e) {
     throw mapDispatchError(e);
   }
+  await writeAudit(ctx, {
+    action: 'service.restart',
+    targetType: 'service',
+    targetId: svc.id,
+    metadata: { name: svc.name },
+  });
   return { id: svc.id, deploymentId: '' };
 }
 
@@ -302,6 +373,12 @@ export async function removeService(
   if (node) {
     await ctx.hub.dispatch(node.id, 'service.remove', { service: svc.name }).catch(() => undefined);
   }
+  await writeAudit(ctx, {
+    action: 'service.remove',
+    targetType: 'service',
+    targetId: svc.id,
+    metadata: { name: svc.name, stack: svc.stack },
+  });
   return { id: svc.id, removed: true };
 }
 

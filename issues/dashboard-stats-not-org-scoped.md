@@ -1,8 +1,6 @@
 # Dashboard "nodes online" / "services running" stats leak raw Docker Swarm state across org boundaries
 
-**Status:** Open — not fixed. Confirmed via live reproduction 2026-07-10, not a security/tenant-isolation
-issue (no cross-org data is exposed to the *user*, the numbers are just wrong), but it will
-mislead operators and should be fixed before relying on the Infrastructure overview page.
+**Status:** Fixed (2026-09) — scoped in the dashboard stats service; unit-tested.
 
 ## Symptom
 
@@ -55,3 +53,18 @@ In `nodeInventoryForOrg` (`apps/api/src/gateway/store.ts`), filter the manager's
 `swarmNodes`/`swarmServices` snapshot down to entries that correspond to Node/Stack rows
 actually enrolled to the requesting org — or explicitly surface unenrolled swarm members as a
 distinct "orphaned/foreign" state rather than silently folding them into the org's own counts.
+
+## Fix applied (2026-09)
+
+Scoped in `packages/trpc/src/services/metrics.service.ts`, the consumer of the raw inventory. `store.ts` keeps raw Docker truth
+for other readers.
+- **Nodes:** `getOverview()` now counts the org's **enrolled `Node` rows** (online = agent connected) via `scopedNodeCounts()`.
+  This is the same set the nodes table shows, so the stat card and sidebar can no longer read 2/2 against a 1-row table.
+- **Services/containers:** `orgScopedServices()` / `scopeServicesToOrg()` drop live services whose
+  `com.docker.stack.namespace` is owned by **another org's `Stack` row and not this org's** (leftovers like `blog-db` and
+  `blog-wordpress`). Ungrouped, system and own-stack services are kept. Their containers are filtered to match.
+  `containersRunning` and `getDashboardSummary().services` both use the scoped set.
+- Tests: `packages/trpc/src/services/metrics.service.test.ts`.
+
+Limitation: a leftover service whose stack has *no* `Stack` row in any org (for example deployed outside swarmy) still counts,
+because nothing identifies its owner.

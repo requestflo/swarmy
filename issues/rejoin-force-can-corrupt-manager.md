@@ -1,7 +1,6 @@
 # `swarmy-agent rejoin --force` can hang and leave the sole manager's swarm half-broken
 
-**Status:** Open — not fixed. Reproduced live 2026-07-10; recovered manually (see below), but the
-underlying command has no timeout/rollback protection.
+**Status:** Mitigated (2026-09) — bounded timeouts, stale-peer detection, auto docker restart + one retry. The preserved stale self-address is detected and warned about, but not guaranteed to be cleared.
 
 ## Symptom
 
@@ -96,3 +95,24 @@ This is now a genuine blocker for further stack-deploy testing (Task #2 and most
 see [[worker-auto-rejoin-forms-standalone-swarm]] for the related orchestration bug, and the plan
 in `plans/` for the proposed full-swarm-rebuild recovery, which requires user authorization since
 it's another `docker swarm leave --force` class of action on both nodes.
+
+## Fix applied (2026-09)
+
+`apps/agent/src/cli/rejoin.ts` `forceManagerReform()`, with pure helpers in `apps/agent/src/cli/rejoin-plan.ts` (tested in
+`rejoin-plan.test.ts`):
+- **Everything is bounded.** `docker node ls` is time-boxed (10s): a timeout means "control plane wedged". The reform runs under
+  `runBounded()` (60s, SIGKILL on expiry). `swarm leave --force` is bounded (60s). `systemctl restart docker` is bounded (90s)
+  and followed by a ping wait.
+- **Stale-peer detection:** `detectStalePeers()` TCP-probes every `Swarm.RemoteManagers` address (2s each) except our own
+  current advertise address. `stalePeers()` deliberately flags a dead entry even when it carries our *own* node id, which is the
+  preserved self-entry described in the update above.
+- **Recovery ladder:** if the control plane is wedged or stale peers exist, dockerd is restarted *before* `--force-new-cluster`
+  (the manual step from this report). This is disclosed in the red-tier confirmation. If the reform then hits a deadline,
+  `explainReformFailure()` reports either "timed out talking to stale swarm peer(s) <addrs>" or "control plane wedged". It
+  restarts docker and retries once. Other failures are reported verbatim without a retry.
+- **After a successful reform:** peers are re-probed, and any stale address still advertised triggers an explicit warning that
+  overlay creation may fail with "no VNI provided". A daemon re-register is requested so the controller refreshes join tokens
+  from the reformed manager (see [[worker-auto-rejoin-forms-standalone-swarm]]).
+
+Not done: rewriting a raft-preserved stale self-address in place. Docker offers no API for it; the full fix is a swarm rebuild.
+The controller now re-elects automatically once the dead swarm is left.

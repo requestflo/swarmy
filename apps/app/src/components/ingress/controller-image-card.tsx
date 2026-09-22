@@ -26,7 +26,7 @@ export function ControllerImageCard({ image }: ControllerImageCardProps): React.
   const setImage = useMutation(
     trpc.ingress.setControllerImage.mutationOptions({
       onSuccess: () => {
-        toast.success('Controller image updated — redeploy to apply');
+        toast.success('Controller image updated');
         invalidate();
       },
       onError: (e) => toast.error(e.message),

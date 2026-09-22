@@ -18,20 +18,31 @@ import {
   toast,
 } from '@swarmy/ui';
 import { NODE_PROFILE_LABELS, NODE_PROFILE_VALUES, type NodeProfile } from '@swarmy/core';
+import {
+  ControllerUrlWarning,
+  installOneLiner,
+  type InstallTarget,
+  type MeshSetupKey,
+} from '@/components/onboarding/install-command-panel';
 import { useTRPC } from '@/integrations/trpc';
 import { relTime } from '@/lib/format';
 
-function installOneLiner(token: string): string {
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  return `curl -fsSL ${origin}/install.sh | SWARMY_JOIN_TOKEN=${token} sh`;
-}
 
 function tokenTone(status: string): React.ComponentProps<typeof StatusBadge>['tone'] {
   return status === 'active' ? 'online' : 'neutral';
 }
 
 /** Navy statement panel shown once, right after a token is minted. */
-function IssuedTokenPanel({ token }: { token: string }): React.JSX.Element {
+function IssuedTokenPanel({
+  token,
+  mesh,
+  target,
+}: {
+  token: string;
+  mesh: MeshSetupKey | null;
+  target: InstallTarget | null;
+}): React.JSX.Element {
+  const oneLiner = installOneLiner(token, '', 'auto', mesh, target);
   return (
     <Alert className="ink-block border-0">
       <KeyRoundIcon className="size-4" />
@@ -46,10 +57,11 @@ function IssuedTokenPanel({ token }: { token: string }): React.JSX.Element {
         <p className="mt-4 mb-1 text-xs font-medium">Run this on any fresh Linux box:</p>
         <div className="flex flex-wrap items-center gap-2">
           <code className="bg-ink-foreground/10 mono-data flex-1 overflow-x-auto rounded-lg px-3 py-2 text-xs">
-            {installOneLiner(token)}
+            {oneLiner}
           </code>
-          <CopyButton value={installOneLiner(token)} label="Copy" />
+          <CopyButton value={oneLiner} label="Copy" />
         </div>
+        <ControllerUrlWarning target={target} className="mt-2" />
       </AlertDescription>
     </Alert>
   );
@@ -60,14 +72,24 @@ export function TokensTab(): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const tokens = useQuery(trpc.nodes.listJoinTokens.queryOptions());
-  const [issued, setIssued] = React.useState<string | null>(null);
+  const [issued, setIssued] = React.useState<{
+    token: string;
+    mesh: MeshSetupKey | null;
+    target: InstallTarget | null;
+  } | null>(null);
   const [label, setLabel] = React.useState('');
   const [profile, setProfile] = React.useState<NodeProfile>('default');
 
   const generate = useMutation(
     trpc.nodes.generateJoinToken.mutationOptions({
       onSuccess: (res) => {
-        setIssued(res.token);
+        setIssued({
+          token: res.token,
+          mesh: res.meshSetupKey
+            ? { setupKey: res.meshSetupKey, managementUrl: res.meshManagementUrl, driver: res.meshDriver }
+            : null,
+          target: res.install ?? null,
+        });
         setLabel('');
         setProfile('default');
         void qc.invalidateQueries();
@@ -147,7 +169,7 @@ export function TokensTab(): React.JSX.Element {
         </CardContent>
       </Card>
 
-      {issued && <IssuedTokenPanel token={issued} />}
+      {issued && <IssuedTokenPanel token={issued.token} mesh={issued.mesh} target={issued.target} />}
 
       <Card className={cn('card-pop border-0', rows.length > 0 && 'p-0')}>
         {rows.length === 0 ? (

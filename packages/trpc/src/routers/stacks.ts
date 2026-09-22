@@ -19,6 +19,8 @@ export const stacksRouter = router({
       z.object({
         name: z.string().regex(/^[a-z0-9][a-z0-9_.-]*$/),
         composeSource: z.string().min(1).max(256_000),
+        /** Override admission-policy violations (audited; block-level needs admin). */
+        override: z.boolean().optional(),
       }),
     )
     .mutation(({ ctx, input }) => deployFromCompose(ctx, input)),
@@ -42,12 +44,13 @@ export const stacksRouter = router({
           .optional(),
         env: z.record(z.string()).optional(),
         replicas: z.number().int().min(1).max(1000).optional(),
+        override: z.boolean().optional(),
       }),
     )
     .mutation(({ ctx, input }) => addServiceToStack(ctx, input)),
 
   redeploy: orgProcedure
-    .input(z.object({ id: z.string(), composeSource: z.string().optional() }))
+    .input(z.object({ id: z.string(), composeSource: z.string().optional(), override: z.boolean().optional() }))
     .mutation(({ ctx, input }) => redeployStack(ctx, input)),
 
   remove: orgProcedure

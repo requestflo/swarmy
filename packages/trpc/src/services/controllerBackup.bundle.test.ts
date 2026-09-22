@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { encryptWithPassphrase } from '@swarmy/core/crypto';
 import {
+  defaultRunner,
   deserializeBundle,
+  resticMissingMessage,
+  runRestic,
   serializeBundle,
   type BundleContents,
 } from './controllerBackup.bundle';
@@ -85,5 +88,32 @@ describe('bundle build → store(temp dir) → restore round-trip (restic mocked
     await writeFile(path, encrypted);
     const { decryptWithPassphrase } = await import('@swarmy/core/crypto');
     expect(() => decryptWithPassphrase(encrypted, 'the-wrong-pass!')).toThrow();
+  });
+});
+
+describe('runRestic — missing restic executable', () => {
+  const repo = { kind: 'node' as const, repo: '/tmp/swarmy-nonexistent-repo', password: 'x' };
+
+  test('binary mode on $PATH: actionable install hint instead of raw ENOENT', async () => {
+    const err = await runRestic(['version'], repo, {
+      mode: 'binary',
+      resticPath: 'swarmy-definitely-not-a-restic-binary',
+    }).then(
+      () => null,
+      (e: Error) => e,
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(err!.message).toContain('restic is not available on the controller');
+    expect(err!.message).toContain('brew install restic');
+    expect(err!.message).toContain('SWARMY_RESTIC_BINARY');
+  });
+
+  test('defaultRunner is binary mode unless explicitly set to docker', () => {
+    expect(defaultRunner({}).mode).toBe('binary');
+    expect(defaultRunner({ SWARMY_CONTROLLER_RESTIC_MODE: 'docker' }).mode).toBe('docker');
+  });
+
+  test('docker mode message names the docker CLI, not restic install', () => {
+    expect(resticMissingMessage({ mode: 'docker' })).toContain('`docker` CLI');
   });
 });

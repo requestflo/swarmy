@@ -46,9 +46,11 @@ const SWARM_SERVICE_ID_LABEL = 'com.docker.swarm.service.id';
 const CACHE_PORT = 6379;
 const CACHE_IMAGES: Record<CacheEngine, string> = {
   valkey: 'valkey/valkey:8',
-  redis: 'bitnami/redis:7.4',
+  // bitnami/* versioned tags were purged from Docker Hub (Aug 2025); bitnamilegacy
+  // is the frozen twin with the same env/path contract (/bitnami/redis/data).
+  redis: 'bitnamilegacy/redis:7.4',
 };
-const SENTINEL_IMAGE = 'bitnami/redis-sentinel:7.4';
+const SENTINEL_IMAGE = 'bitnamilegacy/redis-sentinel:7.4';
 const SENTINEL_COUNT = 3;
 const SENTINEL_QUORUM = 2;
 const SECRET_TARGET = 'cache-password';

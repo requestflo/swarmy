@@ -21,6 +21,7 @@ import {
 import { useTRPC } from '@/integrations/trpc';
 import { ProtectionChips } from './protection-chips';
 import { ProtectionEditor } from './protection-editor';
+import { edgeTone, notServingLabel, type EdgeState } from './edge-runtime';
 import type { RouteProtection } from './protection-model';
 
 /** One stack-scoped domain route (mirrors the controller's DomainView). */
@@ -34,6 +35,9 @@ export interface StackDomain {
   pathPrefix: string | null;
   protection: RouteProtection | null;
   canaryPct: number | null;
+  /** Actually served right now (org edge runtime is `serving`). */
+  serving: boolean;
+  edgeState: EdgeState;
 }
 
 function tlsTone(tls: string): StatusTone {
@@ -105,7 +109,11 @@ export function StackDomainRow({ domain }: { domain: StackDomain }): React.JSX.E
         {domain.canaryPct !== null ? (
           <StatusBadge tone="progress" label={`canary ${Math.round(domain.canaryPct)}%`} className="hidden sm:inline-flex" />
         ) : null}
-        <StatusBadge tone={tlsTone(domain.tls)} label={`TLS ${domain.tls}`} className="hidden sm:inline-flex" />
+        {domain.serving ? (
+          <StatusBadge tone={tlsTone(domain.tls)} label={`TLS ${domain.tls}`} className="hidden sm:inline-flex" />
+        ) : (
+          <StatusBadge tone={edgeTone(domain.edgeState)} label={notServingLabel(domain.edgeState)} />
+        )}
         <ChevronDownIcon className={cn('text-muted-foreground size-4 shrink-0 transition-transform', expanded && 'rotate-180')} />
       </button>
       {expanded ? (

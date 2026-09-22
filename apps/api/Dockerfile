@@ -39,9 +39,21 @@ COPY scripts/build-agent-binaries.ts scripts/
 ARG SWARMY_COMMIT=dev
 RUN SWARMY_COMMIT=${SWARMY_COMMIT} bun run scripts/build-agent-binaries.ts /app/agent-binaries
 
+# ── Stage 1c: restic for controller self-backup ("Protect the brain") ──────
+# controllerBackup.bundle.ts execs a local `restic` (runner mode=binary). Pinned
+# to the SAME version as DEFAULT_RESTIC_IMAGE (packages/core/src/protocol/backup.ts)
+# so controller- and agent-written repos stay format-compatible. The official
+# image ships a static Go binary at /usr/bin/restic (multi-arch), so it runs on
+# the alpine runtime as-is.
+FROM restic/restic:0.16.4 AS restic
+
 # ── Stage 2: the controller runtime ─────────────────────────────────────────
 FROM oven/bun:1.3-alpine
 WORKDIR /app
+
+# restic on $PATH for controller backups (+ CA roots for S3/B2 destinations).
+RUN apk add --no-cache ca-certificates
+COPY --from=restic /usr/bin/restic /usr/local/bin/restic
 
 # Workspace manifests first for a cached install.
 COPY package.json bun.lock ./

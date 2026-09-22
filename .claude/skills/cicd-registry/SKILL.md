@@ -20,9 +20,13 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
    `'image.prune'→'pruneImages'`), and a `case` in `apps/agent/src/executor.ts`.
    The build runs on the agent against its LOCAL Docker socket; the controller
    never builds and never touches a node socket (`skill("agent-handlers")`).
-2. **Builds are gated + off by default.** The executor rejects `buildImage` /
-   `pruneImages` with `E_BUILD_DISABLED` unless `env.ALLOW_BUILD`
-   (`SWARMY_ALLOW_BUILD=true`, `apps/agent/src/env.ts`). Rootless BuildKit
+2. **Builds are gated to Builder-role nodes.** The executor rejects `buildImage` /
+   `pruneImages` with `E_BUILD_DISABLED` unless `buildGateAllows(env.BUILD_OVERRIDE,
+   payload.builderCapable)` (`@swarmy/core` types.ts): the controller asserts
+   `builderCapable` for nodes with the `swarmy.node.builder` label (role switch;
+   legacy `swarmy.role=builder` honoured); `SWARMY_ALLOW_BUILD` is an explicit
+   local override (`true` forces on, `false` vetoes) reported in register facts
+   (`buildOverride`). A single-node org's first node defaults to Builder. Rootless BuildKit
    (`moby/buildkit:rootless`), never the node's main daemon — build = arbitrary
    repo code.
 3. **Deploy by DIGEST, never a floating tag.** Every build resolves to
@@ -78,9 +82,10 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 - **Controller → agent build**: `ctx.hub.dispatch(nodeId, 'image.build',
   { commandId, source:{url,ref,token?}, imageRefs, pushPolicy:'always',
   registryAuth? }, { timeoutMs: 1_800_000 })`. Result `{ digest, imageRefs }`.
-  The builder node is `resolveBuilderNode(ctx)`: a `swarmy.role=builder`-labeled
-  online node (label read live via `ctx.hub.nodeInfoFor`), else any online node,
-  else the manager.
+  The builder node is `resolveBuilderNode(ctx)` → pure `pickBuilderNode`: an
+  online builder-capable node (label read live via `ctx.hub.nodeInfoFor`, override
+  via `ctx.hub.agentBuildFor`). No fallback to non-builders — it throws
+  PRECONDITION_FAILED with `BUILDER_ENABLE_HINT`. Payload carries `builderCapable: true`.
 - **Build logs**: the agent streams `conn.send('logChunk', { commandId, … })`
   keyed by `commandId == Build.logsRef`; the gateway bridge feeds
   `build-log-bus.ts`, which `subscribeBuildLog`/`getBuildLogPage` replay + tail.
@@ -114,7 +119,7 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 | Build-log fan-out bus | `packages/trpc/src/services/build-log-bus.ts` |
 | tRPC surface | `packages/trpc/src/routers/{cicd,registryPolicy,previews}.ts` |
 | Agent: BuildKit build / image prune / TLS hint | `apps/agent/src/handlers/{build,prune,registry-tls}.ts` |
-| Build gate (`env.ALLOW_BUILD`) + executor cases | `apps/agent/src/{env,executor}.ts` |
+| Build gate (`env.BUILD_OVERRIDE` + `buildGateAllows`) + executor cases | `apps/agent/src/{env,executor}.ts`, `packages/core/src/types.ts` |
 | Wire protocol (build/prune payloads + results) | `packages/core/src/protocol/build.ts` (+ `messages.ts`) |
 | `CommandName` → wire `type` | `packages/trpc/src/hub/types.ts` (`COMMAND_PROTOCOL_TYPE`) |
 | Git webhook receiver (HMAC verify → SYSTEM build / PR) | `apps/api/src/webhooks.ts` + `apps/api/src/webhook-verify.ts` |
@@ -130,7 +135,7 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 2. **Registry**: add the `CommandName` and its wire `type` to
    `COMMAND_PROTOCOL_TYPE` (`packages/trpc/src/hub/types.ts`).
 3. **Executor**: add a `case` in `apps/agent/src/executor.ts` — gate anything
-   build/prune-shaped behind `env.ALLOW_BUILD` (reject `E_BUILD_DISABLED`), wrap
+   build/prune-shaped behind `buildGateAllows` (reject `E_BUILD_DISABLED`), wrap
    work in `run(conn, commandId, …)`, call a thin handler in
    `apps/agent/src/handlers/` over `@swarmy/core/docker`.
 4. **Service + router**: dispatch from a `cicd.service`/`registryPolicy.service`
@@ -155,6 +160,6 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
   (`image-gc.test.ts`, `admission-images.test.ts`, `previews.service.test.ts`,
   `prune.test.ts`, `registryPolicy.service.test.ts`) plus the protocol
   round-trip over `build.ts`. Multi-node: `scripts/local-vms.sh`
-  (`skill("run-local")`) — label a node `swarmy.role=builder`, set
-  `SWARMY_ALLOW_BUILD=true`, wire a repo, push, watch the build stream and the
+  (`skill("run-local")`) — toggle the Builder role on a node (or set
+  `SWARMY_ALLOW_BUILD=true`), wire a repo, push, watch the build stream and the
   service redeploy to the new digest.

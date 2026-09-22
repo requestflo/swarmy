@@ -4,6 +4,7 @@ import { DatabaseBackupIcon } from 'lucide-react';
 import { Button, Card, CardContent } from '@swarmy/ui';
 import type { DbBackupEngine } from '@swarmy/core/protocol';
 import { useTRPC } from '@/integrations/trpc';
+import { DbBackupLastRun } from './db-backup-last-run';
 import { DbBackupList } from './db-backup-list';
 import { DbBackupRunForm } from './db-backup-run-form';
 import { DbBackupSchedule } from './db-backup-schedule';
@@ -75,6 +76,8 @@ export function DbBackupPanel({
           targetId={targetId}
           dataVolume={dataVolume}
         />
+
+        <DbBackupLastRun stack={stack} cluster={cluster} />
 
         <div className="border-border border-t pt-4">
           <p className="mono-label text-muted-foreground mb-1">Recent backups</p>

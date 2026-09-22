@@ -18,19 +18,19 @@ import { liveService } from './service.service';
 const NETWORK_ENSURE = 'network.ensure' as CommandName;
 
 /**
- * Deploy/converge a NATIVE Caddy ingress controller on the swarm and keep its
- * admin API reachable so the agent's `applyIngress` admin-API path (POST the
- * rendered Caddyfile to `/load`) lands inside the controller instead of on the
- * agent host.
+ * Deploy/converge a NATIVE Caddy ingress controller on the swarm (the default
+ * `controller` topology). Routes reach it by the agent on the node hosting the
+ * task writing the rendered Caddyfile into the task and exec'ing `caddy reload`
+ * (`applyVia: 'exec'` — see `ingress.service` `makeDispatch`), so neither the
+ * agent's network membership nor a published admin API matter.
  *
  * The controller is a single managed swarm service:
  *   - `swarmy-ingress-caddy` running `caddy:2-alpine`
- *   - admin API on 0.0.0.0:2019, ports 80/443 published (Swarm routing mesh)
+ *   - ports 80/443 published in HOST mode on the node the task lands on
  *   - attached to the org's ingress overlay network (default `swarmy`)
- *   - started with `caddy run --resume` over a base Caddyfile that enables the
- *     admin endpoint — so first boot binds admin on the overlay, and after a
- *     `/load` the autosaved live config (which also carries `admin 0.0.0.0:2019`,
- *     see the renderer) is what `--resume` restores on restart.
+ *   - started with `--resume` so the autosaved last-applied config survives a
+ *     task restart; first boot writes a base Caddyfile (admin bound for the
+ *     opt-in `applyVia: 'admin'` path, overlay-only unless `publishAdmin`).
  *
  * Idempotent: `service.deploy` is create+update, so re-running converges the
  * running service to this spec.
@@ -46,10 +46,22 @@ export interface EnsureControllerOptions {
   network?: string;
   /** Controller image. Default `caddy:2-alpine`. */
   image?: string;
-  /** Replica count. Default 1 (Swarm's routing mesh fans 80/443 in from any node). */
+  /** Replica count. Default 1 (80/443 are host-mode on the node the task lands on). */
   replicas?: number;
-  /** Also publish the admin API on the host (handy for `curl localhost:2019/config/`). Default true. */
+  /**
+   * Also publish the admin API on the host (handy for `curl localhost:2019/config/`).
+   * Default FALSE: config is delivered by in-task exec, and Caddy's admin API
+   * is unauthenticated — publishing it lets anyone who can reach the node
+   * rewrite the edge.
+   */
   publishAdmin?: boolean;
+  /**
+   * Bind the admin API on the overlay (`0.0.0.0`) so the controller can `/load`
+   * it by service name — only the opt-in `applyVia: 'admin'` path needs this.
+   * Default FALSE: admin stays on loopback, reachable only by the in-task
+   * `caddy reload` the exec path uses.
+   */
+  adminOnOverlay?: boolean;
   /** Preferred target node ids (`IngressConfigView.targetNodes`) — see `ingressPlacementConstraint`. */
   targetNodes?: string[];
   /**
@@ -70,38 +82,91 @@ export interface EnsureControllerResult {
   adminUrl: string;
 }
 
-type ResolvedOptions = Required<Omit<EnsureControllerOptions, 'otelOrgId'>> & {
+export type ResolvedOptions = Required<Omit<EnsureControllerOptions, 'otelOrgId'>> & {
   otelOrgId?: string;
 };
 
 /** Swarm node-role label that marks a node as an ingress (edge) node. */
 const INGRESS_NODE_LABEL = 'swarmy.node.ingress';
 
+/** Inputs for {@link ingressPlacementConstraint} — pure data, no hub. */
+export interface PlacementInput {
+  /** `IngressConfigView.targetNodes` — swarmy ENROLLMENT node ids (DB `Node.id`). */
+  targetNodes: string[];
+  /** Enrollment id → Docker Swarm node id (`hub.swarmNodeIdFor`). */
+  swarmNodeIdFor: (enrollmentId: string) => string | undefined;
+  /** Docker Swarm node ids known for the org (legacy pins may already be swarm ids). */
+  knownSwarmNodeIds: ReadonlySet<string>;
+  /** Whether any node carries `swarmy.node.ingress=true`. */
+  anyIngressLabelled: boolean;
+}
+
 /**
- * Placement constraint for the ingress controller.
+ * Placement constraint for the ingress controller. Pure.
  *
- * 1. An explicit single target node (`targetNodes` settings, one id) pins the
- *    container there directly — the common "run it on this exact box" case.
+ * 1. An explicit single target node pins the controller there via
+ *    `node.id==<DOCKER SWARM node id>`. The pin is stored as swarmy's own
+ *    enrollment id (the Target-nodes UI sends `Node.id`, a cuid Docker has
+ *    never heard of), so it MUST be translated through `swarmNodeIdFor` — the
+ *    same bridge `dispatchNodeLabels` uses. Emitting the raw enrollment id made
+ *    the controller permanently unschedulable ("no suitable node").
+ *    A pin that cannot be resolved (node never reported, stale id) falls
+ *    through to step 2 rather than emitting an unsatisfiable constraint.
  *    Swarm constraints AND together, so a *list* of ids can't express "any of
- *    these" via `node.id==`; multi-node targeting still goes through step 2.
+ *    these" via `node.id==`; multi-node targeting goes through step 2.
  * 2. Otherwise prefer nodes explicitly marked `swarmy.node.ingress=true` (the
- *    edge tier, toggled per-node from Settings → Nodes).
+ *    edge tier, toggled per-node from Settings → Nodes / Target nodes).
  * 3. Fall back to managers when nothing is marked yet, so a fresh swarm still
  *    schedules the controller.
  */
-function ingressPlacementConstraint(ctx: OrgContext, targetNodes: string[] = []): string {
-  if (targetNodes.length === 1) return `node.id==${targetNodes[0]}`;
-  const marked = ctx.hub
-    .nodeInventory(ctx.activeOrgId, true)
-    .some((n) => n.labels[INGRESS_NODE_LABEL] === 'true');
-  return marked ? `node.labels.${INGRESS_NODE_LABEL}==true` : 'node.role == manager';
+export function ingressPlacementConstraint(input: PlacementInput): string {
+  if (input.targetNodes.length === 1) {
+    const pin = input.targetNodes[0]!;
+    const swarmId =
+      input.swarmNodeIdFor(pin) ?? (input.knownSwarmNodeIds.has(pin) ? pin : undefined);
+    if (swarmId) return `node.id==${swarmId}`;
+  }
+  return input.anyIngressLabelled
+    ? `node.labels.${INGRESS_NODE_LABEL}==true`
+    : 'node.role == manager';
 }
 
-function controllerSpec(opts: ResolvedOptions, placementConstraint: string): ServiceSpec {
+/** Resolve {@link PlacementInput} off the live hub for the ctx org. */
+function placementFor(ctx: OrgContext, targetNodes: string[] = []): string {
+  const inventory = ctx.hub.nodeInventory(ctx.activeOrgId, true);
+  return ingressPlacementConstraint({
+    targetNodes,
+    swarmNodeIdFor: (id) => ctx.hub.swarmNodeIdFor(id),
+    knownSwarmNodeIds: new Set(inventory.map((n) => n.swarmNodeId)),
+    anyIngressLabelled: inventory.some((n) => n.labels[INGRESS_NODE_LABEL] === 'true'),
+  });
+}
+
+/**
+ * The replicated controller ServiceSpec. Pure — exported for the golden test.
+ *
+ * - 80/443 publish in HOST mode on the node the (single) task lands on. The
+ *   routing mesh is not relied on: it is unreachable on some hosts (Lima VMs,
+ *   locked-down kernels) and re-balances away from the node DNS points at; host
+ *   mode also preserves client IPs for the edge. Same rule as the edge plane.
+ * - The admin API is NOT published by default: routes are delivered by the
+ *   agent exec'ing into the task (`applyVia: 'exec'`), so an unauthenticated
+ *   admin endpoint never needs to face the network.
+ * - `--resume` restores the last applied config (autosaved on the config
+ *   volume) across task restarts, so a restart doesn't drop every route until
+ *   the next reconcile tick.
+ */
+export function caddyControllerSpec(
+  opts: ResolvedOptions,
+  placementConstraint: string,
+): ServiceSpec {
   const ports: NonNullable<ServiceSpec['ports']> = [
-    { target: 80, published: 80, protocol: 'tcp', mode: 'ingress' },
-    { target: 443, published: 443, protocol: 'tcp', mode: 'ingress' },
+    { target: 80, published: 80, protocol: 'tcp', mode: 'host' },
+    { target: 443, published: 443, protocol: 'tcp', mode: 'host' },
   ];
+  // Caddy's admin API is unauthenticated: never bind it beyond loopback unless
+  // something off-task genuinely has to reach it.
+  const adminHost = opts.publishAdmin || opts.adminOnOverlay ? '0.0.0.0' : '127.0.0.1';
   if (opts.publishAdmin) {
     ports.push({ target: CADDY_ADMIN_PORT, published: CADDY_ADMIN_PORT, protocol: 'tcp', mode: 'ingress' });
   }
@@ -140,8 +205,8 @@ function controllerSpec(opts: ResolvedOptions, placementConstraint: string): Ser
     command: [
       'sh',
       '-c',
-      `printf '{\\n\\tadmin 0.0.0.0:${CADDY_ADMIN_PORT}\\n}\\n' > ${CADDY_CONFIG_PATH} && ` +
-        `exec caddy run --config ${CADDY_CONFIG_PATH} --adapter caddyfile`,
+      `printf '{\\n\\tadmin ${adminHost}:${CADDY_ADMIN_PORT}\\n}\\n' > ${CADDY_CONFIG_PATH} && ` +
+        `exec caddy run --config ${CADDY_CONFIG_PATH} --adapter caddyfile --resume`,
     ],
     ports,
     mounts: [
@@ -172,7 +237,8 @@ export async function ensureCaddyController(
     network: options.network ?? DEFAULT_NETWORK,
     image: options.image ?? DEFAULT_IMAGE,
     replicas: options.replicas ?? 1,
-    publishAdmin: options.publishAdmin ?? true,
+    publishAdmin: options.publishAdmin ?? false,
+    adminOnOverlay: options.adminOnOverlay ?? false,
     targetNodes: options.targetNodes ?? [],
     otelOrgId,
   };
@@ -196,7 +262,7 @@ export async function ensureCaddyController(
   // swarmy pushes the rendered routes to its admin API on every apply.
   try {
     await ctx.hub.dispatch(node.id, 'service.deploy', {
-      spec: controllerSpec(opts, ingressPlacementConstraint(ctx, opts.targetNodes)),
+      spec: caddyControllerSpec(opts, placementFor(ctx, opts.targetNodes)),
       pullPolicy: 'missing',
     });
   } catch (e) {
@@ -361,4 +427,157 @@ export async function ensureCaddyEdge(
 
   const id = liveService(ctx, CADDY_EDGE_SERVICE)?.id ?? CADDY_EDGE_SERVICE;
   return { id, name: CADDY_EDGE_SERVICE, network, migrated };
+}
+
+// ─────────────────────────────────────────────── runtime truth (status badges) ──
+
+/** Docker's per-task service-name label (set on every swarm task container). */
+const SWARM_SERVICE_NAME_LABEL = 'com.docker.swarm.service.name';
+
+/**
+ * Enrollment ids of the org's connected nodes that host a RUNNING task of the
+ * Caddy ingress service — Docker truth off each agent's container snapshot.
+ * These are the only nodes an in-task apply (`applyVia: 'exec'`) can land on.
+ */
+export async function ingressTaskNodes(ctx: OrgContext): Promise<string[]> {
+  return [...new Set((await ingressTasks(ctx)).map((t) => t.nodeId))];
+}
+
+/**
+ * Every running Caddy ingress task container across the org's connected nodes
+ * (`{nodeId, containerId}`, sorted). The container ids change whenever a task
+ * is (re)scheduled — the reconcile signature keys on them so a fresh task
+ * gets the config pushed without waiting for a route change.
+ */
+export async function ingressTasks(
+  ctx: OrgContext,
+): Promise<Array<{ nodeId: string; containerId: string }>> {
+  const nodes = await ctx.db.node.findMany({
+    where: { orgId: ctx.activeOrgId },
+    select: { id: true },
+  });
+  const out: Array<{ nodeId: string; containerId: string }> = [];
+  for (const { id } of nodes) {
+    if (!ctx.hub.isOnline(id)) continue;
+    for (const c of ctx.hub.latestContainers(id)) {
+      if (c.state === 'running' && c.labels[SWARM_SERVICE_NAME_LABEL] === CADDY_CONTROLLER_SERVICE) {
+        out.push({ nodeId: id, containerId: c.id });
+      }
+    }
+  }
+  return out.sort((a, b) =>
+    a.nodeId === b.nodeId ? a.containerId.localeCompare(b.containerId) : a.nodeId.localeCompare(b.nodeId),
+  );
+}
+
+/**
+ * The edge's REAL state, as opposed to its saved config:
+ * - `tracking`   driver `none` — swarmy writes no routing; nothing is served by swarmy
+ * - `paused`     a driver is chosen but ingress is disabled
+ * - `unverified` a bring-your-own driver (traefik/nginx/haproxy/cloudflared):
+ *                swarmy wrote the config but cannot observe the proxy serving it
+ * - `down`       swarmy's Caddy is not deployed, or has zero running tasks
+ * - `deploying`  Caddy is deployed and converging (desired > running > 0 not yet / no apply yet)
+ * - `degraded`   Caddy is running but the last config apply failed
+ * - `serving`    Caddy has running task(s) AND the current config was applied to them
+ */
+export type EdgeRuntimeState =
+  | 'tracking'
+  | 'paused'
+  | 'unverified'
+  | 'down'
+  | 'deploying'
+  | 'degraded'
+  | 'serving';
+
+export interface EdgeApplyRecord {
+  ok: boolean;
+  at: string;
+  message: string;
+}
+
+export interface EdgeRuntimeInput {
+  driver: string;
+  enabled: boolean;
+  /** The swarmy Caddy service off live inventory (undefined = not deployed). */
+  service?: {
+    runningReplicas: number;
+    desiredReplicas?: number;
+    mode: 'replicated' | 'global';
+    /** Last spec change (ms epoch) — a service with 0 tasks inside the grace window is still starting. */
+    updatedAt?: number;
+  };
+  /** Hostnames of nodes with a running task (for the message). */
+  taskHosts: string[];
+  /** Outcome of the most recent render+apply for this org (in-process record). */
+  lastApply?: EdgeApplyRecord;
+  /** Clock (ms epoch) — injected so the derivation stays pure. */
+  now: number;
+}
+
+/** A freshly (re)deployed service gets this long to pull + schedule before 0 tasks reads as `down`. */
+export const EDGE_START_GRACE_MS = 3 * 60_000;
+
+export interface EdgeRuntimeStatus {
+  state: EdgeRuntimeState;
+  /** True only when routes are actually being served by a swarmy-run proxy. */
+  serving: boolean;
+  message: string;
+  runningTasks: number;
+  desiredTasks: number | null;
+  lastApply: EdgeApplyRecord | null;
+}
+
+/** Pure: derive the runtime edge status from Docker truth + the last apply. */
+export function deriveEdgeRuntime(input: EdgeRuntimeInput): EdgeRuntimeStatus {
+  const running = input.service?.runningReplicas ?? 0;
+  const desired =
+    input.service?.mode === 'replicated' ? (input.service.desiredReplicas ?? null) : null;
+  const base = { runningTasks: running, desiredTasks: desired, lastApply: input.lastApply ?? null };
+  const out = (state: EdgeRuntimeState, message: string): EdgeRuntimeStatus => ({
+    ...base,
+    state,
+    serving: state === 'serving',
+    message,
+  });
+
+  if (input.driver === 'none') {
+    return out('tracking', 'Tracking only — swarmy writes no routing config, so no route is served.');
+  }
+  if (!input.enabled) return out('paused', 'Ingress is disabled — no route is served.');
+  if (input.driver !== 'caddy') {
+    if (input.lastApply && !input.lastApply.ok) {
+      return out('degraded', `Last apply failed: ${input.lastApply.message}`);
+    }
+    return out(
+      'unverified',
+      'Routing config is written for a proxy swarmy does not run — reachability is not verified.',
+    );
+  }
+  const failure = input.lastApply && !input.lastApply.ok ? ` Last error: ${input.lastApply.message}` : '';
+  if (!input.service) {
+    return out(
+      'down',
+      `The Caddy ingress controller is not deployed — nothing is listening on 80/443.${failure}`,
+    );
+  }
+  if (running === 0) {
+    const since = input.service.updatedAt;
+    if (since !== undefined && Number.isFinite(since) && input.now - since < EDGE_START_GRACE_MS) {
+      return out('deploying', 'The Caddy ingress controller is starting (pulling image / scheduling).');
+    }
+    return out(
+      'down',
+      'The Caddy ingress controller has no running task — nothing is listening on 80/443. ' +
+        `Check its placement (\`docker service ps ${CADDY_CONTROLLER_SERVICE}\`) and image pull.${failure}`,
+    );
+  }
+  if (input.lastApply && !input.lastApply.ok) {
+    return out('degraded', `Caddy is up, but the last config apply failed: ${input.lastApply.message}`);
+  }
+  if (!input.lastApply) {
+    return out('deploying', 'Caddy is up; waiting for the first config apply.');
+  }
+  const where = input.taskHosts.length ? ` on ${input.taskHosts.join(', ')}` : '';
+  return out('serving', `Caddy is serving${where} (80/443).`);
 }

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { renderLoader, renderChecksumFile, sha256Hex } from './loader';
 import { renderInstaller } from './installer';
 
@@ -47,7 +50,7 @@ describe('renderLoader', () => {
     const body = installer();
     const loader = renderLoader({ controllerUrl: CONTROLLER, version: VERSION, installerSha256: sha256Hex(body) });
     expect(loader.length).toBeLessThan(body.length);
-    expect(loader.length).toBeLessThan(2_500);
+    expect(loader.length).toBeLessThan(4_000);
   });
 
   it('verifies the checksum and fails loudly on mismatch (script invariants)', () => {
@@ -71,5 +74,156 @@ describe('loader ↔ checksum-file round trip', () => {
     const fileSha = renderChecksumFile(body).split(' ')[0] ?? '';
     const loader = renderLoader({ controllerUrl: CONTROLLER, version: VERSION, installerSha256: fileSha });
     expect(loader).toContain(fileSha);
+  });
+});
+
+/**
+ * Run a rendered loader under a real `sh` with a fake `curl` on PATH that
+ * records every URL it's asked for and serves a stub "installer" which dumps
+ * the env it inherited. Proves the whole chain derives from ONE base.
+ */
+function runLoader(
+  loaderBody: string,
+  args: string[],
+  env: Record<string, string> = {},
+): { status: number; stderr: string; curlUrls: string[]; installerEnv: Record<string, string>; installerArgs: string } {
+  const dir = mkdtempSync(path.join(tmpdir(), 'swarmy-loader-'));
+  const stub = `#!/bin/sh\nprintf 'CTL=%s\\nBIN=%s\\nTOK=%s\\n' "$SWARMY_CONTROLLER_URL" "$SWARMY_BINARY_BASE_URL" "\${SWARMY_JOIN_TOKEN:-}" > "${dir}/env.out"\nprintf '%s ' "$@" > "${dir}/args.out"\n`;
+  writeFileSync(path.join(dir, 'installer.sh'), stub);
+  writeFileSync(
+    path.join(dir, 'curl'),
+    `#!/bin/sh\nout=""; url=""\nwhile [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2 ;; -*) shift ;; *) url="$1"; shift ;; esac; done\necho "$url" >> "${dir}/curl.log"\ncp "${dir}/installer.sh" "$out"\n`,
+  );
+  chmodSync(path.join(dir, 'curl'), 0o755);
+  writeFileSync(path.join(dir, 'loader.sh'), loaderBody);
+  const proc = Bun.spawnSync(['sh', path.join(dir, 'loader.sh'), ...args], {
+    env: {
+      PATH: `${dir}:/usr/bin:/bin:/usr/sbin:/sbin`,
+      SWARMY_INSTALLER_SHA256: sha256Hex(stub),
+      ...env,
+    },
+  });
+  const read = (f: string): string => {
+    try {
+      return readFileSync(path.join(dir, f), 'utf8');
+    } catch {
+      return '';
+    }
+  };
+  const installerEnv = Object.fromEntries(
+    read('env.out')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
+  );
+  return {
+    status: proc.exitCode ?? -1,
+    stderr: proc.stderr.toString(),
+    curlUrls: read('curl.log').split('\n').filter(Boolean),
+    installerEnv,
+    installerArgs: read('args.out').trim(),
+  };
+}
+
+describe('loader: one controller base drives every stage', () => {
+  // The controller baked its (unreachable) localhost default; the node reached
+  // it at a LAN address — the exact readiness-sweep failure.
+  const loader = renderLoader({ controllerUrl: 'http://localhost:3021', version: VERSION, installerSha256: 'f'.repeat(64) });
+  const LAN = 'http://192.168.11.87:3021';
+
+  it('--controller <base> → installer URL, binary base, and dial-back all use that base', () => {
+    const r = runLoader(loader, ['--controller', LAN, '--uninstall'], { SWARMY_JOIN_TOKEN: 'swt_x' });
+    expect(r.status).toBe(0);
+    expect(r.curlUrls).toEqual([`${LAN}/install/${VERSION}/install.sh`]);
+    expect(r.installerEnv).toEqual({ CTL: LAN, BIN: `${LAN}/install/bin`, TOK: 'swt_x' });
+    // Loader-only flags are consumed; the rest are forwarded to the installer.
+    expect(r.installerArgs).toBe('--uninstall');
+  });
+
+  it('--controller=<base>/ and --token work (trailing slash trimmed)', () => {
+    const r = runLoader(loader, [`--controller=${LAN}/`, '--token', 'swt_arg']);
+    expect(r.status).toBe(0);
+    expect(r.installerEnv.CTL).toBe(LAN);
+    expect(r.installerEnv.TOK).toBe('swt_arg');
+  });
+
+  it('SWARMY_CONTROLLER_URL env works like --controller', () => {
+    const r = runLoader(loader, [], { SWARMY_CONTROLLER_URL: LAN });
+    expect(r.curlUrls[0]).toBe(`${LAN}/install/${VERSION}/install.sh`);
+    expect(r.installerEnv.BIN).toBe(`${LAN}/install/bin`);
+  });
+
+  it('with no override, the baked (request-resolved) base is used — and loopback warns', () => {
+    const r = runLoader(loader, []);
+    expect(r.curlUrls[0]).toBe(`http://localhost:3021/install/${VERSION}/install.sh`);
+    expect(r.stderr).toContain('loopback');
+  });
+
+  it('an operator-pinned binary CDN is kept', () => {
+    const cdn = renderLoader({
+      controllerUrl: LAN,
+      version: VERSION,
+      installerSha256: 'f'.repeat(64),
+      binaryBaseUrl: 'https://cdn.example.com/agent',
+    });
+    const r = runLoader(cdn, []);
+    expect(r.installerEnv).toMatchObject({ CTL: LAN, BIN: 'https://cdn.example.com/agent' });
+  });
+
+  it('rejects a non-http controller and a dangling --controller', () => {
+    expect(runLoader(loader, ['--controller', 'ftp://x']).status).not.toBe(0);
+    expect(runLoader(loader, ['--controller']).status).not.toBe(0);
+  });
+
+  it('checksum mismatch still refuses to run the installer', () => {
+    const r = runLoader(loader, ['--controller', LAN], { SWARMY_INSTALLER_SHA256: '0'.repeat(64) });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('checksum mismatch');
+    expect(r.installerEnv).toEqual({});
+  });
+
+  it('a quote in the baked default cannot break out of the script', () => {
+    const evil = renderLoader({ controllerUrl: "http://x/'; touch /tmp/pwned; '", version: VERSION, installerSha256: 'f'.repeat(64) });
+    const r = runLoader(evil, []);
+    // The value is treated as data (and then rejected/used verbatim) — never executed.
+    expect(r.curlUrls[0] ?? '').toContain("'; touch /tmp/pwned; '");
+  });
+});
+
+describe('installer: parses cleanly and derives binaries from the resolved base', () => {
+  const body = renderInstaller({
+    controllerUrl: 'http://localhost:3021',
+    version: VERSION,
+    agentImage: 'img',
+    binaryBaseUrl: 'http://localhost:3021/install/bin',
+    binarySha256: { 'linux-x64': 'a'.repeat(64) },
+    binaryBaseFromController: true,
+  });
+
+  it('is valid POSIX sh', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'swarmy-inst-'));
+    writeFileSync(path.join(dir, 'install.sh'), body);
+    expect(Bun.spawnSync(['sh', '-n', path.join(dir, 'install.sh')]).exitCode).toBe(0);
+  });
+
+  it('re-derives BINARY_BASE_URL from CONTROLLER_URL unless explicitly pinned', () => {
+    expect(body).toContain('[ -n "${SWARMY_BINARY_BASE_URL:-}" ] || BINARY_BASE_URL="$CONTROLLER_URL/install/bin"');
+    const cdn = renderInstaller({
+      controllerUrl: 'http://localhost:3021',
+      version: VERSION,
+      agentImage: 'img',
+      binaryBaseUrl: 'https://cdn.example.com',
+      binarySha256: {},
+    });
+    expect(cdn).not.toContain('BINARY_BASE_URL="$CONTROLLER_URL/install/bin"');
+  });
+
+  it('threads an explicit SWARMY_ALLOW_BUILD override into the agent env (never forces it)', () => {
+    expect(body).toContain('ALLOW_BUILD="${SWARMY_ALLOW_BUILD:-}"');
+    expect(body).toContain('[ -z "$ALLOW_BUILD" ] || echo "SWARMY_ALLOW_BUILD=$ALLOW_BUILD"');
+  });
+
+  it('initialises DROP_AGENT_STATE (set -u safe on the docker backend)', () => {
+    expect(body).toContain('DROP_AGENT_STATE=""');
   });
 });

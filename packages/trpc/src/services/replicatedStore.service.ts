@@ -82,8 +82,8 @@ function db(ctx: OrgContext): {
   return (ctx.db as unknown as { storageCluster: ReturnType<typeof db> }).storageCluster;
 }
 
-function members(row: ClusterRow): string[] {
-  return Array.isArray(row.memberNodeIds) ? (row.memberNodeIds as string[]) : [];
+function members(row: ClusterRow | null | undefined): string[] {
+  return Array.isArray(row?.memberNodeIds) ? (row!.memberNodeIds as string[]) : [];
 }
 
 /**
@@ -206,7 +206,7 @@ export async function setDriver(
       replicationFactor:
         input.replicationFactor ?? existing?.replicationFactor ?? DEFAULT_REPLICATION,
       region: input.region ?? existing?.region ?? 'swarmy',
-      memberNodeIds: input.memberNodeIds ?? members(existing as ClusterRow),
+      memberNodeIds: input.memberNodeIds ?? members(existing),
     },
   });
   await writeAudit(ctx, {

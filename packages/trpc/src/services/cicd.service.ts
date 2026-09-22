@@ -19,14 +19,18 @@ import { randomUUID } from 'node:crypto';
 import { decryptSecret, encryptSecret, randomToken } from '@swarmy/core/crypto';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
+import { BUILDER_ENABLE_HINT, UNGROUPED, isBuilderCapable, type BuildOverride } from '@swarmy/core';
 import type { LogLine } from '@swarmy/core/views';
 import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
+import { TRPCError } from '@trpc/server';
 import { mapDispatchError, notFound } from '../errors';
+import { enforceAdmission } from './admission-gate';
 import { resolveManagerNode } from './dispatch.service';
 import { writeAudit } from './audit.service';
 import { buildLogBus } from './build-log-bus';
 import { liveService } from './service.service';
+import { promoteSpecFrom } from './releases.service';
 import { onImageBuilt } from './registryPolicy.service'; // D3 hook
 
 export type GitProvider = 'github' | 'gitlab';
@@ -262,6 +266,9 @@ async function runBuild(
         },
         imageRefs: [imageRef],
         pushPolicy: 'always',
+        // resolveBuilderNode only returns builder-capable nodes — assert it so
+        // the agent's gate (buildGateAllows) lets the build through.
+        builderCapable: true,
         registryAuth: credsEnc
           ? { username: credsEnc.username, password: credsEnc.password, server: host }
           : undefined,
@@ -313,13 +320,52 @@ export async function autodeployBuilt(ctx: OrgContext, serviceId: string, image:
   // and replica count; the redeploy pins the freshly-built digest.
   const service = liveService(ctx, serviceId);
   if (!service) return;
+  const spec = { name: service.name, image, mode: { replicated: { replicas: service.replicas.desired } } };
+  // Autodeploy is an unattended service deploy: it runs the same admission
+  // spine, and a `block` violation skips the redeploy (nobody is there to
+  // override). The build itself still succeeds; the refusal is audited.
+  try {
+    await enforceAdmission(
+      ctx,
+      {
+        kind: 'service.deploy',
+        orgId: ctx.activeOrgId,
+        stackName: service.stack === UNGROUPED ? undefined : service.stack,
+        specs: [{ ...spec, labels: service.labels }],
+      },
+      { targetType: 'service', targetId: service.id, mode: 'automation' },
+    );
+  } catch (e) {
+    await writeAudit(ctx, {
+      action: 'cicd.autodeploy.blocked',
+      targetType: 'service',
+      targetId: service.id,
+      actorType: ctx.user ? 'user' : 'system',
+      metadata: { image, reason: e instanceof Error ? e.message : String(e) },
+    });
+    return;
+  }
+  // Rebuild the full spec from the live inspect and swap only the image: a bare
+  // `{name, image, replicas}` deploy would strip the service's env, ports,
+  // mounts, networks, secrets and labels.
   const node = await resolveManagerNode(ctx);
-  await ctx.hub
-    .dispatch(node.id, 'service.deploy', {
-      spec: { name: service.name, image, mode: { replicated: { replicas: service.replicas.desired } } },
-      pullPolicy: 'always',
-    })
-    .catch(() => undefined);
+  try {
+    const raw = await ctx.hub.dispatch<{ inspect?: unknown }>(node.id, 'service.inspect', {
+      service: service.name,
+    });
+    const full = promoteSpecFrom(raw?.inspect, image, service.networks.map((n) => n.name));
+    if (!full) throw new Error(`could not read the live spec of "${service.name}"`);
+    await ctx.hub.dispatch(node.id, 'service.deploy', { spec: full, pullPolicy: 'always' });
+  } catch (e) {
+    await writeAudit(ctx, {
+      action: 'cicd.autodeploy.failed',
+      targetType: 'service',
+      targetId: service.id,
+      actorType: ctx.user ? 'user' : 'system',
+      metadata: { image, reason: e instanceof Error ? e.message : String(e) },
+    });
+    return;
+  }
   await writeAudit(ctx, {
     action: 'cicd.autodeploy',
     targetType: 'service',
@@ -637,22 +683,56 @@ async function registryNodeOnline(ctx: OrgContext): Promise<boolean> {
     .catch(() => false);
 }
 
-/** Pick an online builder node (label `swarmy.role=builder`), else any online node. */
+/** One candidate for `pickBuilderNode` (live labels + the agent's reported override). */
+export interface BuilderCandidate {
+  id: string;
+  name?: string;
+  labels: Record<string, string> | undefined;
+  buildOverride: BuildOverride | undefined;
+  online: boolean;
+}
+
+/**
+ * Pure builder choice: an ONLINE builder-capable node (Builder role label, or
+ * the agent's explicit SWARMY_ALLOW_BUILD=true; a local `false` vetoes). Never
+ * falls back to a non-builder node — that agent would only answer
+ * E_BUILD_DISABLED. Returns an actionable reason when nothing qualifies.
+ */
+export function pickBuilderNode(
+  candidates: BuilderCandidate[],
+): { ok: true; id: string } | { ok: false; reason: string } {
+  const capable = candidates.filter((c) => isBuilderCapable(c.labels, c.buildOverride));
+  const online = capable.find((c) => c.online);
+  if (online) return { ok: true, id: online.id };
+  if (capable.length > 0) {
+    const names = capable.map((c) => c.name ?? c.id).join(', ');
+    return {
+      ok: false,
+      reason: `No builder node is online (Builder role: ${names}). Bring one back online, or ${BUILDER_ENABLE_HINT}.`,
+    };
+  }
+  return { ok: false, reason: `No node can run builds yet — ${BUILDER_ENABLE_HINT}.` };
+}
+
+/** Resolve the org's builder node (live Docker labels + agent facts), or fail with how to enable one. */
 async function resolveBuilderNode(ctx: OrgContext): Promise<{ id: string }> {
-  // Membership/identity comes from the DB (enrollment node id); the swarm role
+  // Membership/identity comes from the DB (enrollment node id); the builder role
   // label is Docker truth, read live from the hub via the hostname bridge.
   const nodes = await ctx.db.node.findMany({
     where: { orgId: ctx.activeOrgId },
-    select: { id: true },
+    select: { id: true, name: true },
   });
-  const builders = nodes.filter(
-    (n) => ctx.hub.nodeInfoFor(n.id)?.labels['swarmy.role'] === 'builder',
+  const pick = pickBuilderNode(
+    nodes.map((n) => ({
+      id: n.id,
+      name: n.name,
+      labels: ctx.hub.nodeInfoFor(n.id)?.labels,
+      buildOverride: ctx.hub.agentBuildFor?.(n.id)?.buildOverride,
+      online: ctx.hub.isOnline(n.id),
+    })),
   );
-  const onlineBuilder = builders.find((n) => ctx.hub.isOnline(n.id));
-  if (onlineBuilder) return { id: onlineBuilder.id };
-  const anyOnline = nodes.find((n) => ctx.hub.isOnline(n.id));
-  if (anyOnline) return { id: anyOnline.id };
-  return resolveManagerNode(ctx);
+  if (!pick.ok) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: pick.reason });
+  return { id: pick.id };
 }
 
 function toRepoView(r: {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { decideJoinAuth, type JoinTokenFacts, type OwnerNodeFacts } from './join-auth';
+import {
+  decideJoinAuth,
+  JOIN_TOKEN_EXHAUSTED_REASON,
+  JOIN_TOKEN_EXPIRED_REASON,
+  type JoinTokenFacts,
+  type OwnerNodeFacts,
+} from './join-auth';
 
 const NOW = 1_000_000_000_000;
 const token = (over: Partial<JoinTokenFacts> = {}): JoinTokenFacts => ({
@@ -45,16 +51,25 @@ describe('decideJoinAuth', () => {
 
   it('rejects an exhausted token for a NEW (unbound) enrollment', () => {
     const exhausted = token({ maxUses: 1, uses: 1 });
-    expect(decideJoinAuth(exhausted, null, NOW)).toEqual({ kind: 'reject', code: 'forbidden', reason: 'token exhausted' });
+    expect(decideJoinAuth(exhausted, null, NOW)).toEqual({ kind: 'reject', code: 'forbidden', reason: JOIN_TOKEN_EXHAUSTED_REASON });
   });
 
   it('rejects an expired token for a new enrollment', () => {
     const expired = token({ expiresAt: new Date(NOW - 1) });
-    expect(decideJoinAuth(expired, null, NOW)).toEqual({ kind: 'reject', code: 'unauthorized', reason: 'invalid join token' });
+    expect(decideJoinAuth(expired, null, NOW)).toEqual({ kind: 'reject', code: 'unauthorized', reason: JOIN_TOKEN_EXPIRED_REASON });
   });
 
   it('allows a multi-use token to enroll repeatedly until the cap', () => {
     expect(decideJoinAuth(token({ maxUses: 100, uses: 50 }), null, NOW)).toEqual({ kind: 'enroll' });
     expect(decideJoinAuth(token({ maxUses: 100, uses: 100 }), null, NOW).kind).toBe('reject');
+  });
+});
+
+describe('reject reasons', () => {
+  it('fit a WebSocket close frame (<= 123 bytes) and say what to do', () => {
+    for (const r of [JOIN_TOKEN_EXPIRED_REASON, JOIN_TOKEN_EXHAUSTED_REASON]) {
+      expect(Buffer.byteLength(r, 'utf8')).toBeLessThanOrEqual(123);
+      expect(r).toContain('mint a fresh');
+    }
   });
 });

@@ -4,6 +4,7 @@ import { GlobeIcon } from 'lucide-react';
 import { Badge, Card, CardContent, CardHeader, CardTitle, EmptyState, StatusBadge, type StatusTone } from '@swarmy/ui';
 import { CountUp } from '@/components/count-up';
 import { DRIVER_LABELS, type IngressDriverId } from './driver-config';
+import { edgeTone, notServingLabel, type EdgeState } from './edge-runtime';
 
 interface DomainRow {
   id: string;
@@ -13,6 +14,8 @@ interface DomainRow {
   targetPort: number;
   tls: string;
   ingressDriver: IngressDriverId | null;
+  serving: boolean;
+  edgeState: EdgeState;
 }
 
 function tlsTone(tls: string): StatusTone {
@@ -27,7 +30,9 @@ function tlsTone(tls: string): StatusTone {
  */
 export function DomainsList({ domains }: { domains: DomainRow[] }): React.JSX.Element {
   const total = domains.length;
-  const secured = domains.filter((d) => d.tls === 'auto' || d.tls === 'custom').length;
+  // Secured = served over TLS right now — not merely configured for it.
+  const secured = domains.filter((d) => d.serving && (d.tls === 'auto' || d.tls === 'custom')).length;
+  const served = domains.filter((d) => d.serving).length;
 
   return (
     <Card className="card-pop mt-6 border-0">
@@ -49,7 +54,9 @@ export function DomainsList({ domains }: { domains: DomainRow[] }): React.JSX.El
               <span className="mono-label">
                 <CountUp value={secured} /> / {total} secured
               </span>
-              <span className="text-muted-foreground mono-label">{total} routed</span>
+              <span className="text-muted-foreground mono-label">
+                {served} / {total} serving
+              </span>
             </div>
             <div className="divide-border divide-y border-t">
               {domains.map((d) => (
@@ -70,7 +77,11 @@ export function DomainsList({ domains }: { domains: DomainRow[] }): React.JSX.El
                       {DRIVER_LABELS[d.ingressDriver]}
                     </Badge>
                   ) : null}
-                  <StatusBadge tone={tlsTone(d.tls)} label={`TLS ${d.tls}`} className="hidden sm:inline-flex" />
+                  {d.serving ? (
+                    <StatusBadge tone={tlsTone(d.tls)} label={`TLS ${d.tls}`} className="hidden sm:inline-flex" />
+                  ) : (
+                    <StatusBadge tone={edgeTone(d.edgeState)} label={notServingLabel(d.edgeState)} />
+                  )}
                 </Link>
               ))}
             </div>

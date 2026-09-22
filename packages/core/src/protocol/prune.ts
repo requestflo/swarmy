@@ -49,6 +49,8 @@ export const PruneImagesPayload = z.object({
   untilDays: z.number().int().positive().optional(),
   /** Compute + report the plan but remove nothing. */
   dryRun: z.boolean().default(false),
+  /** Controller's builder-role assertion for this node (see BuildImagePayload.builderCapable). */
+  builderCapable: z.boolean().optional(),
 });
 export type PruneImagesPayload = z.infer<typeof PruneImagesPayload>;
 

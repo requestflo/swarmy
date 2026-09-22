@@ -122,7 +122,9 @@ const PG_PORT = 5432;
 const REPLICATION_USER = 'repl';
 const DEFAULT_DATABASE = 'app';
 /** Election substrate for `failover` — a Patroni/Stolon image talks to this. */
-const ETCD_IMAGE = 'bitnami/etcd:3';
+// bitnami/* versioned tags were purged from Docker Hub (Aug 2025); the frozen
+// bitnamilegacy twin keeps the same ETCD_* env contract. 3.5 (not 3) is multi-arch.
+const ETCD_IMAGE = 'bitnamilegacy/etcd:3.5';
 
 const EXEC_TIMEOUT_MS = 15_000;
 const PROMOTE_TIMEOUT_MS = 30_000;

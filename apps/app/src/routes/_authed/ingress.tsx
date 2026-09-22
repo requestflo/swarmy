@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { StatusBadge, toast } from '@swarmy/ui';
+import { Alert, AlertDescription, AlertTitle, StatusBadge, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { SectionHeader } from '@/components/section-header';
 import { DriverPanel } from '@/components/ingress/driver-panel';
@@ -14,6 +14,7 @@ import { ExternalAcmeNoticeCard } from '@/components/ingress/external-acme-notic
 import { DomainsList } from '@/components/ingress/domains-list';
 import { GeoDnsSection } from '@/components/geo/geodns-section';
 import { DRIVER_LABELS, type IngressDriverId } from '@/components/ingress/driver-config';
+import { edgeLabel, edgeTone } from '@/components/ingress/edge-runtime';
 
 /** Global "Edge & ingress" page: fleet-wide edge config, not per-route detail. */
 export const Route = createFileRoute('/_authed/ingress')({
@@ -23,7 +24,9 @@ export const Route = createFileRoute('/_authed/ingress')({
 function IngressPage(): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
-  const config = useQuery(trpc.ingress.getConfig.queryOptions());
+  // Poll: the badge reflects live runtime (controller tasks + last apply), which
+  // converges in the background after a driver/enable change.
+  const config = useQuery({ ...trpc.ingress.getConfig.queryOptions(), refetchInterval: 5000 });
   const domains = useQuery(trpc.ingress.listDomains.queryOptions());
   const preview = useQuery({
     ...trpc.ingress.previewConfig.queryOptions({}),
@@ -31,11 +34,16 @@ function IngressPage(): React.JSX.Element {
   });
 
   const invalidate = (): void => void qc.invalidateQueries();
+  // A config write can succeed while the edge fails to come up — say so.
+  const afterEdgeChange = (view: { runtime: { state: string; message: string } }): void => {
+    if (view.runtime.state === 'down' || view.runtime.state === 'degraded') toast.error(view.runtime.message);
+    invalidate();
+  };
   const setDriver = useMutation(
-    trpc.ingress.setDriver.mutationOptions({ onSuccess: invalidate, onError: (e) => toast.error(e.message) }),
+    trpc.ingress.setDriver.mutationOptions({ onSuccess: afterEdgeChange, onError: (e) => toast.error(e.message) }),
   );
   const setEnabled = useMutation(
-    trpc.ingress.setEnabled.mutationOptions({ onSuccess: invalidate, onError: (e) => toast.error(e.message) }),
+    trpc.ingress.setEnabled.mutationOptions({ onSuccess: afterEdgeChange, onError: (e) => toast.error(e.message) }),
   );
   const setHaStorage = useMutation(
     trpc.ingress.setHaStorage.mutationOptions({
@@ -68,7 +76,8 @@ function IngressPage(): React.JSX.Element {
   const driver = (config.data?.driver ?? 'none') as IngressDriverId;
   const isNone = driver === 'none';
   const enabled = !!config.data?.enabled;
-  const live = enabled && !isNone;
+  const runtime = config.data?.runtime;
+  const showRuntime = runtime && runtime.state !== 'serving' && runtime.state !== 'paused';
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
@@ -81,12 +90,16 @@ function IngressPage(): React.JSX.Element {
         }
         description="Driver, TLS, HA storage and the controller build — fleet-wide. Per-stack domains, routes and protections live on each stack's Network tab."
         actions={
-          <StatusBadge
-            tone={live ? 'online' : 'neutral'}
-            label={live ? `${DRIVER_LABELS[driver]} · live` : isNone ? 'Tracking only' : 'Paused'}
-          />
+          <StatusBadge tone={edgeTone(runtime?.state)} label={edgeLabel(DRIVER_LABELS[driver], runtime?.state)} />
         }
       />
+
+      {showRuntime ? (
+        <Alert variant={runtime.state === 'down' || runtime.state === 'degraded' ? 'destructive' : 'default'} className="mb-6">
+          <AlertTitle>{isNone ? 'Routes are tracked, not served' : 'Edge not serving yet'}</AlertTitle>
+          <AlertDescription>{runtime.message}</AlertDescription>
+        </Alert>
+      ) : null}
 
       <DriverPanel
         driver={driver}

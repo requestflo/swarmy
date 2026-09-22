@@ -110,6 +110,7 @@ export async function runOnce(docker: DockerClient, p: RunOncePayload): Promise<
     Image: p.image,
     Cmd: p.cmd,
     ...(p.entrypoint ? { Entrypoint: p.entrypoint } : {}),
+    ...(p.user ? { User: p.user } : {}),
     Env: env,
     HostConfig: {
       Binds: p.binds,

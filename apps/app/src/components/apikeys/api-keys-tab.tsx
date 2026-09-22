@@ -34,6 +34,7 @@ export function ApiKeysTab(): React.JSX.Element {
   const keys = useQuery(trpc.apiKeys.list.queryOptions());
 
   const [name, setName] = React.useState('');
+  const [nameError, setNameError] = React.useState<string | null>(null);
   const [canWrite, setCanWrite] = React.useState(false);
   const [issued, setIssued] = React.useState<string | null>(null);
 
@@ -61,6 +62,15 @@ export function ApiKeysTab(): React.JSX.Element {
   const rows = keys.data ?? [];
   const active = rows.filter((k) => k.status === 'active').length;
 
+  const submit = (): void => {
+    if (!name.trim()) {
+      setNameError('Name the key so you can tell it apart later — e.g. ci-terraform.');
+      return;
+    }
+    setNameError(null);
+    create.mutate({ name: name.trim(), scopes: canWrite ? ['read', 'write'] : ['read'] });
+  };
+
   return (
     <div className="grid gap-6">
       <Card className="card-pop border-0">
@@ -81,9 +91,17 @@ export function ApiKeysTab(): React.JSX.Element {
               <Input
                 id="key-name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                aria-invalid={!!nameError}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (nameError) setNameError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submit();
+                }}
                 placeholder="ci-terraform"
               />
+              {nameError ? <p className="text-status-offline text-xs">{nameError}</p> : null}
             </div>
             <div className="flex items-center gap-2 pb-2.5">
               <Switch id="key-write" checked={canWrite} onCheckedChange={setCanWrite} />
@@ -91,12 +109,7 @@ export function ApiKeysTab(): React.JSX.Element {
                 Allow writes
               </Label>
             </div>
-            <Button
-              onClick={() =>
-                create.mutate({ name, scopes: canWrite ? ['read', 'write'] : ['read'] })
-              }
-              disabled={create.isPending || !name}
-            >
+            <Button onClick={submit} disabled={create.isPending}>
               <PlusIcon className="size-4" /> Create key
             </Button>
           </div>

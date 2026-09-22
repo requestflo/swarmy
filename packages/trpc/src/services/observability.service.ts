@@ -32,6 +32,7 @@ import {
   clickhouseServiceSpec,
   observabilityConfigFiles,
   CLICKHOUSE_HTTP_PORT,
+  CLICKHOUSE_SERVICE_HOST,
   OTEL_OVERLAY_NETWORK,
 } from './observability-stack';
 import { renderClickhouseInitSql } from './observability-render';
@@ -113,7 +114,7 @@ async function ensureConfig(ctx: OrgContext): Promise<ObsConfigRow> {
   });
 }
 
-/** A ClickHouse DSN, e.g. `http://default:pw@clickhouse:8123/otel`. */
+/** A ClickHouse DSN, e.g. `http://default:pw@swarmy-clickhouse:8123/otel`. */
 interface ClickhouseDsn {
   baseUrl: string; // http://host:port
   user: string;
@@ -123,6 +124,9 @@ interface ClickhouseDsn {
 
 function parseDsn(dsn: string): ClickhouseDsn {
   const u = new URL(dsn);
+  // Rows saved before the store was renamed carry the bare `clickhouse` host,
+  // which never resolves on the overlay — heal them on read.
+  if (u.hostname === LEGACY_CLICKHOUSE_HOST) u.hostname = CLICKHOUSE_SERVICE_HOST;
   return {
     baseUrl: `${u.protocol}//${u.host}`,
     user: decodeURIComponent(u.username || 'default'),
@@ -131,9 +135,11 @@ function parseDsn(dsn: string): ClickhouseDsn {
   };
 }
 
+const LEGACY_CLICKHOUSE_HOST = 'clickhouse';
+
 /** The DSN swarmy uses for the store it deploys itself (host on the overlay). */
 function managedDsn(password: string): string {
-  return `http://default:${encodeURIComponent(password)}@clickhouse:${CLICKHOUSE_HTTP_PORT}/otel`;
+  return `http://default:${encodeURIComponent(password)}@${CLICKHOUSE_SERVICE_HOST}:${CLICKHOUSE_HTTP_PORT}/otel`;
 }
 
 function endpointSummary(dsn: string | null): string | null {

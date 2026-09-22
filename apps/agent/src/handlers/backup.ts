@@ -45,6 +45,15 @@ interface RunOutput {
   stderr: string;
 }
 
+/**
+ * Host bind a node-path repo needs: restic runs in a throwaway sidecar, so the
+ * repo dir must be the host's, or every snapshot dies with the container.
+ * Docker creates a missing host dir on bind.
+ */
+export function repoBinds(repo: ResticRepo): string[] {
+  return repo.kind === 'node' ? [`${repo.repo}:${repo.repo}`] : [];
+}
+
 /** Build the env array (`KEY=VALUE`) restic needs for the repo. */
 export function repoEnv(repo: ResticRepo): string[] {
   const env = [`RESTIC_REPOSITORY=${repo.repo}`, `RESTIC_PASSWORD=${repo.password}`];
@@ -136,7 +145,7 @@ export async function ensureRepo(
     image,
     args: ['init'],
     env: repoEnv(repo),
-    binds: [],
+    binds: repoBinds(repo),
     networkMode,
   }).catch(() => undefined);
 }
@@ -216,7 +225,7 @@ async function applyRetention(
         image: opts.image,
         args,
         env: repoEnv(opts.repo),
-        binds: [],
+        binds: repoBinds(opts.repo),
         networkMode: opts.network,
       },
       onLine,
@@ -264,7 +273,7 @@ export async function backupVolume(
       image,
       args: ['backup', MOUNT, '--json', '--host', p.volume, ...tagArgs],
       env: repoEnv(p.repo),
-      binds: [`${p.volume}:${MOUNT}:ro`],
+      binds: [`${p.volume}:${MOUNT}:ro`, ...repoBinds(p.repo)],
       networkMode: p.network,
     },
     onLine,
@@ -321,7 +330,7 @@ export async function restoreVolume(
       // `--target /` because the snapshot stored the absolute mount path (/data).
       args: ['restore', p.snapshotId, '--target', '/', '--json'],
       env: repoEnv(p.repo),
-      binds: [`${p.targetVolume}:${MOUNT}`],
+      binds: [`${p.targetVolume}:${MOUNT}`, ...repoBinds(p.repo)],
       networkMode: p.network,
     },
     streamer(conn, p.commandId),
@@ -348,7 +357,7 @@ export async function listSnapshots(
     image,
     args: ['snapshots', '--json', ...tagArgs],
     env: repoEnv(p.repo),
-    binds: [],
+    binds: repoBinds(p.repo),
     networkMode: p.network,
   });
   if (res.exitCode !== 0) {
@@ -510,7 +519,7 @@ async function backupDbLogical(
         image: resticImage,
         args: ['backup', DUMP_MOUNT, '--json', '--host', p.conn.database, ...tagArgs],
         env: repoEnv(p.repo),
-        binds: [`${scratch}:${DUMP_MOUNT}:ro`],
+        binds: [`${scratch}:${DUMP_MOUNT}:ro`, ...repoBinds(p.repo)],
       },
       onLine,
     );
@@ -678,7 +687,7 @@ async function restoreDbLogical(
         image: resticImage,
         args: ['restore', p.snapshotId, '--target', '/', '--json'],
         env: repoEnv(p.repo),
-        binds: [`${scratch}:${DUMP_MOUNT}`],
+        binds: [`${scratch}:${DUMP_MOUNT}`, ...repoBinds(p.repo)],
       },
       onLine,
     );

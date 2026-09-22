@@ -10,7 +10,7 @@
  * Invoked per-org by the `image-gc` worker (apps/api/workers/image-gc.ts) and
  * on-demand. Each org runs under a SYSTEM `OrgContext`.
  */
-import { buildInventory } from '@swarmy/core';
+import { buildInventory, isBuilderCapable } from '@swarmy/core';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import type { AgentHub } from '../hub/types';
@@ -90,7 +90,7 @@ export async function runImageGcForOrg(
     return { orgId, planned: 0, pinned: plan.pinned.length, dispatchedNodes: 0, reclaimedBytes: 0, dryRun: opts.dryRun ?? false };
   }
 
-  // Dispatch a prune to every online node in the org. The keep set is the pinned
+  // Dispatch a prune to every online builder-capable node in the org. The keep set is the pinned
   // digests (defence-in-depth: the agent ALSO refuses to delete a pinned digest).
   const reg = await db.registryConfig.findUnique({ where: { orgId }, select: { host: true } });
   const repoPrefix = reg?.host ? `${reg.host}/` : undefined;
@@ -100,6 +100,9 @@ export async function runImageGcForOrg(
   let reclaimedBytes = 0;
   for (const node of nodes) {
     if (!hub.isOnline(node.id)) continue;
+    // Image GC rides the build gate: only builder-capable nodes (the ones that
+    // accumulate build images) prune — others would answer E_BUILD_DISABLED.
+    if (!isBuilderCapable(hub.nodeInfoFor(node.id)?.labels, hub.agentBuildFor?.(node.id)?.buildOverride)) continue;
     const result = await hub
       .dispatch<{ reclaimedBytes?: number }>(
         node.id,
@@ -110,6 +113,7 @@ export async function runImageGcForOrg(
           strategy: mode === 'age-days' ? 'until' : 'all-except-keep',
           untilDays: policy.days ?? undefined,
           dryRun: opts.dryRun ?? false,
+          builderCapable: true,
         },
         { timeoutMs: 120_000 },
       )

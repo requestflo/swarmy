@@ -7,7 +7,12 @@ import {
   type InvService,
   type InvServiceStatus,
 } from '@swarmy/core';
-import type { ServiceSpec } from '@swarmy/core/protocol';
+import {
+  DEFAULT_MANAGED_PG_IMAGE,
+  MANAGED_PG_IMAGE_REPO,
+  migrateDeadBitnamiImage,
+  type ServiceSpec,
+} from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
@@ -22,7 +27,8 @@ import { resolveManagerNode } from './dispatch.service';
  * Prisma model, and the exact same stack would still run under a plain
  * `docker stack deploy` with these labels as inert metadata.
  *
- * Engine: bitnami/postgresql, which does primary/replica streaming replication
+ * Engine: Bitnami's postgresql image (pinned via `DEFAULT_MANAGED_PG_IMAGE`,
+ * currently `bitnamilegacy/postgresql:16`), which does primary/replica streaming replication
  * purely from env (`POSTGRESQL_REPLICATION_MODE=master|slave`). We deploy:
  *   - <stack>_<cluster>-primary  (mode=master, 1 replica)
  *   - <stack>_<cluster>-replica  (mode=slave,  N replicas, swarm DNS round-robin)
@@ -267,8 +273,38 @@ export interface ProvisionDbInput {
   password?: string;
   /** Database created on the primary (default "app"). */
   database?: string;
-  /** bitnami/postgresql image tag (default "16"). */
+  /**
+   * Tag of the managed Postgres image repo (`MANAGED_PG_IMAGE_REPO`, default
+   * tag "16"). Ignored when `image` is set.
+   */
   imageTag?: string;
+  /**
+   * Full image ref override (e.g. a private mirror). Must honour the Bitnami
+   * postgresql env/path contract. Wins over `imageTag`.
+   */
+  image?: string;
+}
+
+/**
+ * Resolve the engine image for a (re-)provision: explicit `image` → explicit
+ * `imageTag` → the live primary's image (so re-provisioning keeps a per-cluster
+ * override) → the pinned default. Dead free-tier `bitnami/*` refs are rewritten
+ * to `bitnamilegacy/*` so re-provisioning heals clusters deployed before the
+ * Bitnami tag purge.
+ */
+export function resolveManagedPgImage(
+  input: Pick<ProvisionDbInput, 'image' | 'imageTag'>,
+  existingImage?: string,
+): string {
+  const explicit = input.image?.trim();
+  if (explicit) return migrateDeadBitnamiImage(explicit);
+  const tag = input.imageTag?.trim();
+  if (tag) return `${MANAGED_PG_IMAGE_REPO}:${tag}`;
+  // Inventory images can carry a pinned digest (`repo:tag@sha256:…`); drop it so
+  // a rewritten repo is not pinned to a digest from the old namespace.
+  const live = existingImage?.split('@')[0]?.trim();
+  if (live) return migrateDeadBitnamiImage(live);
+  return DEFAULT_MANAGED_PG_IMAGE;
 }
 
 export interface ProvisionDbResult {
@@ -309,7 +345,6 @@ export async function provisionDb(
   if (!stack || !cluster) throw commandRejected('stack and name are required');
   const replicas = Math.max(0, Math.floor(input.replicas));
   const database = (input.database ?? DEFAULT_DATABASE).trim() || DEFAULT_DATABASE;
-  const image = `bitnami/postgresql:${input.imageTag ?? '16'}`;
   const node = await resolveManagerNode(ctx);
 
   const primary = primaryServiceName(stack, cluster);
@@ -319,6 +354,7 @@ export async function provisionDb(
   // One password reused for the superuser + replication account keeps the slice
   // simple; both services must agree on the replication credential.
   const existing = findCluster(ctx, stack, cluster).primary;
+  const image = resolveManagedPgImage(input, existing?.image);
   const password =
     input.password?.trim() ||
     (existing ? envRecord(existing).POSTGRESQL_PASSWORD : '') ||

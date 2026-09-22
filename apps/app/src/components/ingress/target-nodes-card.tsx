@@ -23,7 +23,7 @@ export function TargetNodesCard({ targetNodes }: TargetNodesCardProps): React.JS
   const setTargetNodes = useMutation(
     trpc.ingress.setTargetNodes.mutationOptions({
       onSuccess: () => {
-        toast.success('Target nodes updated — redeploy the controller to apply');
+        toast.success('Target nodes updated — controller re-placing');
         invalidate();
       },
       onError: (e) => toast.error(e.message),

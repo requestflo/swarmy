@@ -29,6 +29,8 @@ export const env = {
   AGENT_BINARY_BASE_URL:
     process.env.SWARMY_AGENT_BINARY_BASE_URL ??
     `${process.env.CONTROLLER_PUBLIC_URL ?? 'http://localhost:3021'}/install/bin`,
+  /** Operator-pinned binary base (e.g. a CDN). Unset ⇒ derive from the resolved controller base per request. */
+  AGENT_BINARY_BASE_URL_EXPLICIT: process.env.SWARMY_AGENT_BINARY_BASE_URL ?? null,
   /** JSON map of `{ "linux-x64": "<sha256>", … }`; empty until release artifacts are published. */
   AGENT_BINARY_SHA256: process.env.SWARMY_AGENT_BINARY_SHA256 ?? '{}',
 };

@@ -85,9 +85,11 @@ export const CACHE_PORT = 6379;
 export const SENTINEL_PORT = 26379;
 export const CACHE_IMAGES: Record<CacheEngine, string> = {
   valkey: 'valkey/valkey:8',
-  redis: 'bitnami/redis:7.4',
+  // bitnami/* versioned tags were purged from Docker Hub (Aug 2025); bitnamilegacy
+  // is the frozen twin with the same env/path contract (/bitnami/redis/data).
+  redis: 'bitnamilegacy/redis:7.4',
 };
-export const SENTINEL_IMAGE = 'bitnami/redis-sentinel:7.4';
+export const SENTINEL_IMAGE = 'bitnamilegacy/redis-sentinel:7.4';
 export const SENTINEL_COUNT = 3;
 export const SENTINEL_QUORUM = 2;
 export const DEFAULT_CACHE_TOPOLOGY: CacheTopology = 'single';

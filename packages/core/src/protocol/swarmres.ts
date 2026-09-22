@@ -115,6 +115,17 @@ export const RunOncePayload = z.object({
   binds: z.array(z.string()).optional(),
   /** Networks to attach (e.g. a managed-db overlay) so the container resolves service DNS. */
   networks: z.array(z.string()).optional(),
+  /**
+   * Docker `User` override (`uid`, `uid:gid`, or a name), e.g. `'0:0'` so a
+   * nonroot-by-default image (cosign's distroless UID 65532) can write into a
+   * lazily-created, root-owned named volume. Omitted ⇒ the image's own USER.
+   */
+  user: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[A-Za-z0-9_.-]+(:[A-Za-z0-9_.-]+)?$/, 'invalid user')
+    .optional(),
   /** Pull the image first (best-effort). Defaults to true. */
   pull: z.boolean().default(true),
 });

@@ -153,6 +153,16 @@ export function buildAuth(
     session: {
       cookieCache: { enabled: true, maxAge: 60 },
     },
+    advanced: {
+      // Own cookie namespace. Browsers scope cookies by host, NOT port, so on
+      // `localhost` (dev: :3021/:3023) every other Better Auth app shares the
+      // default `better-auth.session_token` cookie — signing into any of them
+      // overwrites ours and swarmy's next live session check (signature
+      // mismatch) comes back empty → 401s + redirect to /login. Same risk for
+      // any host that serves more than one Better Auth app. Override per
+      // instance when running several swarmy controllers on one host.
+      cookiePrefix: process.env.SWARMY_AUTH_COOKIE_PREFIX ?? 'swarmy',
+    },
     plugins: [organization(), ...optional],
   });
 }

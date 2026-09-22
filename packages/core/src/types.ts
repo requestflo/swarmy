@@ -78,6 +78,69 @@ export const NODE_STORAGE_LABEL = 'swarmy.node.storage';
 /** This node hosts managed databases (managed-DB placement prefers it). */
 export const NODE_DATABASE_LABEL = 'swarmy.node.database';
 
+// ── Builder capability (CI/CD) ───────────────────────────────────────────────
+
+/**
+ * This node runs CI builds (rootless BuildKit) and image GC. A Docker node
+ * label like every other role — toggled from the node's role switches, read
+ * live by the controller when it picks a builder, and asserted to the agent in
+ * the `buildImage`/`pruneImages` payload (`builderCapable`).
+ */
+export const NODE_BUILDER_LABEL = 'swarmy.node.builder';
+/** Pre-role-switch spelling (`swarmy.role=builder`) — still honoured on read. */
+export const LEGACY_BUILDER_ROLE_LABEL = 'swarmy.role';
+
+/**
+ * The agent-local `SWARMY_ALLOW_BUILD` explicit override: `allow` forces builds
+ * on regardless of the role label, `deny` forces them off (the node operator's
+ * veto), `undefined` (unset) defers to the controller-managed builder role.
+ */
+export type BuildOverride = 'allow' | 'deny';
+
+/** Parse a raw `SWARMY_ALLOW_BUILD` value; unset/empty/unknown → no override. */
+export function parseBuildOverride(raw: string | null | undefined): BuildOverride | undefined {
+  const v = raw?.trim().toLowerCase();
+  if (v === 'true' || v === '1' || v === 'yes' || v === 'on') return 'allow';
+  if (v === 'false' || v === '0' || v === 'no' || v === 'off') return 'deny';
+  return undefined;
+}
+
+/** Whether a node's live labels carry the builder role (new or legacy spelling). */
+export function hasBuilderLabel(labels: Record<string, string> | undefined): boolean {
+  return labels?.[NODE_BUILDER_LABEL] === 'true' || labels?.[LEGACY_BUILDER_ROLE_LABEL] === 'builder';
+}
+
+/**
+ * Controller-side: can this node take a build? The agent's explicit override
+ * (reported in its register facts) wins in both directions; otherwise the
+ * builder role label decides.
+ */
+export function isBuilderCapable(
+  labels: Record<string, string> | undefined,
+  override: BuildOverride | undefined,
+): boolean {
+  if (override === 'deny') return false;
+  if (override === 'allow') return true;
+  return hasBuilderLabel(labels);
+}
+
+/**
+ * Agent-side gate for `buildImage`/`pruneImages`: the local explicit override
+ * wins; otherwise the controller's `builderCapable` assertion (it read the
+ * node's builder role label at dispatch) decides. Absent assertion ⇒ refuse —
+ * an older controller that doesn't know about the role keeps the old
+ * default-off behaviour.
+ */
+export function buildGateAllows(override: BuildOverride | undefined, builderCapable: boolean | undefined): boolean {
+  if (override === 'deny') return false;
+  if (override === 'allow') return true;
+  return builderCapable === true;
+}
+
+/** Operator-facing "how do I turn builds on" hint, shared by controller + agent errors. */
+export const BUILDER_ENABLE_HINT =
+  "turn on the 'Builder' role for a node (Nodes → pick a node → Controls → Builder), or set SWARMY_ALLOW_BUILD=true in that node's /etc/swarmy/agent.env";
+
 export const NODE_PROFILE_VALUES = ['default', 'edge', 'storage', 'database', 'private-mesh'] as const;
 /** Install profile carried on a join token: the label bundle a node enrolls with. */
 export type NodeProfile = (typeof NODE_PROFILE_VALUES)[number];

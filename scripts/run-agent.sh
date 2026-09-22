@@ -38,8 +38,10 @@ fi
 
 # ── Controller endpoint + capability flags ──────────────────────────────────
 export AGENT_WS_URL="${AGENT_WS_URL:-ws://localhost:3021/agent/ws}"
-# Default-off image builds + container exec; mesh is on by default (see apps/agent/src/env.ts).
-export SWARMY_ALLOW_BUILD="${SWARMY_ALLOW_BUILD:-false}"
+# Builds follow the node's Builder role from the dashboard unless SWARMY_ALLOW_BUILD
+# is set explicitly (true forces on, false vetoes) — so leave it unset by default.
+# Container exec is default-off; mesh is on by default (see apps/agent/src/env.ts).
+export SWARMY_ALLOW_BUILD="${SWARMY_ALLOW_BUILD:-}"
 export SWARMY_ALLOW_MESH="${SWARMY_ALLOW_MESH:-true}"
 export SWARMY_ALLOW_EXEC="${SWARMY_ALLOW_EXEC:-false}"
 
@@ -48,7 +50,7 @@ say "Starting local agent"
 printf '    controller : %s\n' "$AGENT_WS_URL"
 printf '    docker sock: %s\n' "$DOCKER_SOCKET"
 printf '    join token : %s (from %s)\n' "$token_preview" "$token_source"
-printf '    allow build: %s   allow mesh: %s\n' "$SWARMY_ALLOW_BUILD" "$SWARMY_ALLOW_MESH"
+printf '    allow build: %s   allow mesh: %s\n' "${SWARMY_ALLOW_BUILD:-role}" "$SWARMY_ALLOW_MESH"
 echo
 
 exec bun --filter @swarmy/agent start
