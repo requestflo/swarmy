@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
-import { Card, CardContent } from '@swarmy/ui';
+import { Card, CardContent, toast } from '@swarmy/ui';
 import { AuthForm } from '@/components/auth/auth-form';
 import { InviteOnlyNotice } from '@/components/auth/invite-only-notice';
 import { type AuthFields, type AuthMode, useAuthSubmit } from '@/components/auth/use-auth-submit';
@@ -39,7 +39,18 @@ function LoginPage(): React.JSX.Element {
   const signupOpen = invite !== undefined || config.data?.signupMode === 'open';
 
   async function onSubmit(fields: AuthFields): Promise<void> {
-    await submit(mode, fields);
+    try {
+      await submit(mode, fields);
+    } catch (err) {
+      // An invitee who already has an account lands on sign-up by default: send
+      // them to sign-in, which accepts the same invitation after auth.
+      if (mode === 'signup' && invite && /already exist/i.test(err instanceof Error ? err.message : '')) {
+        setMode('signin');
+        toast.info('You already have an account — sign in to accept the invite.');
+        return;
+      }
+      throw err;
+    }
     if (returnTo) router.history.push(returnTo);
     else await navigate({ to: '/' });
   }

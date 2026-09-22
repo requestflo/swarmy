@@ -7,6 +7,12 @@ import {
   createGrant,
   deleteGrant,
 } from '../services/members.service';
+import {
+  inviteMember,
+  listInvitations,
+  regenerateInvitation,
+  revokeInvitation,
+} from '../services/invitations.service';
 
 /**
  * Org member attribute management + ReBAC grants (org admin). Attributes feed the
@@ -43,4 +49,24 @@ export const membersRouter = router({
   deleteGrant: adminProcedure
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => deleteGrant(ctx, input.id)),
+
+  // ── Invitations (copy-a-link; no mailer on a self-hosted controller) ──
+  listInvitations: adminProcedure.query(({ ctx }) => listInvitations(ctx)),
+
+  invite: adminProcedure
+    .input(
+      z.object({
+        email: z.string().trim().toLowerCase().email(),
+        role: z.enum(['owner', 'admin', 'member']),
+      }),
+    )
+    .mutation(({ ctx, input }) => inviteMember(ctx, input)),
+
+  revokeInvitation: adminProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(({ ctx, input }) => revokeInvitation(ctx, input.id)),
+
+  regenerateInvitation: adminProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(({ ctx, input }) => regenerateInvitation(ctx, input.id)),
 });

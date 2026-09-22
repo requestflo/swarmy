@@ -108,8 +108,20 @@ interface PolicyView {
 }
 
 /** The free-form bag this module owns under `store.extra.access`. */
+interface InvitationView {
+  id: string;
+  email: string;
+  role: 'owner' | 'admin' | 'member';
+  status: 'pending' | 'expired';
+  expiresAt: string;
+  createdAt: string;
+  invitedBy: { id: string; name: string | null; email: string | null } | null;
+  link: string;
+}
+
 interface AccessState {
   members: MemberView[];
+  invitations: InvitationView[];
   grants: GrantView[];
   apiKeys: ApiKeyView[];
   oauthClients: OAuthClientView[];
@@ -217,6 +229,50 @@ function seedMembers(): MemberView[] {
       attributes: { team: 'data', employment: 'full-time', onCall: true, teamIds: ['team-data'] },
     },
   ];
+}
+
+const inviteLink = (id: string): string => `${window.location.origin}/login?invite=${id}`;
+
+function seedInvitations(store: DemoStore): InvitationView[] {
+  const by = { id: store.user.id, name: store.user.name, email: store.user.email };
+  return [
+    {
+      id: 'inv-demo-1',
+      email: 'priya@northwind.dev',
+      role: 'member',
+      status: 'pending',
+      expiresAt: new Date(now + 40 * HOUR).toISOString(),
+      createdAt: iso(8 * HOUR),
+      invitedBy: by,
+      link: inviteLink('inv-demo-1'),
+    },
+    {
+      id: 'inv-demo-0',
+      email: 'sam@northwind.dev',
+      role: 'admin',
+      status: 'expired',
+      expiresAt: iso(2 * DAY),
+      createdAt: iso(4 * DAY),
+      invitedBy: by,
+      link: inviteLink('inv-demo-0'),
+    },
+  ];
+}
+
+function mintInvitation(store: DemoStore, email: string, role: InvitationView['role']): InvitationView {
+  const id = `inv-${rid()}`;
+  const view: InvitationView = {
+    id,
+    email,
+    role,
+    status: 'pending',
+    expiresAt: new Date(Date.now() + 48 * HOUR).toISOString(),
+    createdAt: new Date().toISOString(),
+    invitedBy: { id: store.user.id, name: store.user.name, email: store.user.email },
+    link: inviteLink(id),
+  };
+  state(store).invitations.unshift(view);
+  return view;
 }
 
 function seedGrants(): GrantView[] {
@@ -540,6 +596,7 @@ export const access: DomainResolvers = {
   seed(store) {
     const s: AccessState = {
       members: seedMembers(),
+      invitations: seedInvitations(store),
       grants: seedGrants(),
       apiKeys: seedApiKeys(),
       oauthClients: seedOAuthClients(),
@@ -593,6 +650,38 @@ export const access: DomainResolvers = {
       const s = state(store);
       s.grants = s.grants.filter((g) => g.id !== id);
       return { id, deleted: true };
+    },
+
+    // ── invitations (settings → members; copy-a-link) ─────────────────────────
+    'members.listInvitations': (_i, store): InvitationView[] => state(store).invitations,
+
+    'members.invite': (input, store): InvitationView => {
+      const { email, role } = input as { email: string; role: InvitationView['role'] };
+      const normalized = email.trim().toLowerCase();
+      const s = state(store);
+      if (s.members.some((m) => m.user.email?.toLowerCase() === normalized)) {
+        throw new Error(`${normalized} is already a member of this org`);
+      }
+      if (s.invitations.some((i) => i.email === normalized && i.status === 'pending')) {
+        throw new Error(`${normalized} already has a pending invite — copy or regenerate its link below`);
+      }
+      return mintInvitation(store, normalized, role);
+    },
+
+    'members.revokeInvitation': (input, store): { id: string; revoked: true } => {
+      const { id } = input as { id: string };
+      const s = state(store);
+      s.invitations = s.invitations.filter((i) => i.id !== id);
+      return { id, revoked: true };
+    },
+
+    'members.regenerateInvitation': (input, store): InvitationView => {
+      const { id } = input as { id: string };
+      const s = state(store);
+      const old = s.invitations.find((i) => i.id === id);
+      if (!old) throw new Error(`invitation "${id}" not found`);
+      s.invitations = s.invitations.filter((i) => i.id !== id);
+      return mintInvitation(store, old.email, old.role);
     },
 
     // ── org.members (settings → members) ───────────────────────────────────────

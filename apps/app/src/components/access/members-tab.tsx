@@ -43,7 +43,7 @@ export function MembersTab(): React.JSX.Element {
               <EmptyState
                 icon={<UsersIcon />}
                 title="No members yet"
-                description="Invite teammates from your org settings, then tag them with attributes here."
+                description="Invite teammates from Settings → Members (copy them an invite link), then tag them with attributes here."
               />
             </div>
           ) : (
