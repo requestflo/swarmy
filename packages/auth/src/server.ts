@@ -8,6 +8,30 @@ import {
   type ResolvedAuthConfig,
   type ResolvedSsoProvider,
 } from './config';
+import { CLIENT_IP_HEADER } from './client-ip';
+
+/**
+ * Per-IP limits for the credential endpoints. Keyed on the IP the host resolved
+ * into {@link CLIENT_IP_HEADER} (see client-ip.ts) and the path, so one
+ * attacker's burst never locks out anyone else. Pinned explicitly rather than
+ * relying on Better Auth's built-in defaults so an upgrade can't silently loosen
+ * them. Paths are relative to `/api/auth`.
+ */
+export const AUTH_RATE_LIMIT_RULES = {
+  // Password / magic-link / social sign-in: 10 attempts per minute per IP.
+  '/sign-in/**': { window: 60, max: 10 },
+  // Account creation: 5 per 10 minutes per IP.
+  '/sign-up/**': { window: 600, max: 5 },
+  // Reset-mail requests (email bombing / enumeration): 3 per 15 minutes per IP.
+  '/request-password-reset': { window: 900, max: 3 },
+  '/forget-password/**': { window: 900, max: 3 },
+  // Reset-token redemption (token brute force): 10 per 15 minutes per IP.
+  '/reset-password/**': { window: 900, max: 10 },
+  // Credential changes on a live session.
+  '/change-password': { window: 60, max: 5 },
+  '/change-email': { window: 60, max: 5 },
+  '/send-verification-email': { window: 900, max: 3 },
+} as const;
 
 /**
  * A magic-link sender. Wired to the platform email sender (shared with org
@@ -162,6 +186,16 @@ export function buildAuth(
       // any host that serves more than one Better Auth app. Override per
       // instance when running several swarmy controllers on one host.
       cookiePrefix: process.env.SWARMY_AUTH_COOKIE_PREFIX ?? 'swarmy',
+      // The client IP comes ONLY from the header the controller's request entry
+      // derives from the socket peer (apps/api → withClientIp). A raw
+      // client-supplied X-Forwarded-For is never read here; it is honoured
+      // upstream only when the socket peer is in SWARMY_TRUSTED_PROXIES.
+      ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
+    },
+    rateLimit: {
+      // Better Auth's default (production-only); SWARMY_AUTH_RATE_LIMIT=0 opts out.
+      ...(process.env.SWARMY_AUTH_RATE_LIMIT === '0' ? { enabled: false } : {}),
+      customRules: { ...AUTH_RATE_LIMIT_RULES },
     },
     plugins: [organization(), ...optional],
   });

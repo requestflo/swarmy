@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import type { ServerWebSocket } from 'bun';
 import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
-import { authRegistry } from '@swarmy/auth';
+import { authRegistry, parseTrustedProxies, withClientIp } from '@swarmy/auth';
 import { prisma, ensureSchema, buildAdapter, resolveDbDriver } from '@swarmy/db';
 import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim } from '@swarmy/trpc';
 import { createRestApp } from '@swarmy/api-rest';
@@ -295,6 +295,17 @@ function isTerm(ws: ServerWebSocket<WsData>): ws is TermSocket {
   return 'kind' in ws.data && (ws.data as { kind?: string }).kind === 'term';
 }
 
+// Client IP for Better Auth's per-IP rate limiter + Session.ipAddress (and any
+// handler that reads it). Derived from the TCP peer; X-Forwarded-For is honoured
+// only when that peer is in SWARMY_TRUSTED_PROXIES (default: loopback). The
+// installer publishes :3021 in host mode, so a direct hit's peer IS the client
+// (no routing-mesh SNAT). Trust model: packages/auth/src/client-ip.ts.
+const trustedProxies = parseTrustedProxies();
+if (trustedProxies.invalid.length > 0) {
+  // eslint-disable-next-line no-console
+  console.warn(`swarmy controller: ignoring invalid SWARMY_TRUSTED_PROXIES entries: ${trustedProxies.invalid.join(', ')}`);
+}
+
 const server = Bun.serve<WsData>({
   port: env.PORT,
   idleTimeout: 60,
@@ -312,7 +323,7 @@ const server = Bun.serve<WsData>({
       const upgraded = srv.upgrade(req, { data });
       return upgraded ? undefined : new Response('websocket upgrade failed', { status: 400 });
     }
-    return app.fetch(req);
+    return app.fetch(withClientIp(req, srv.requestIP(req)?.address, trustedProxies));
   },
   websocket: {
     open(ws) {
