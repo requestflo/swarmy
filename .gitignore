@@ -19,7 +19,7 @@ out/
 .prisma/
 packages/db/generated/
 packages/db/src/generated/
-**/routeTree.gen.ts
+# routeTree.gen.ts is committed: CI typechecks without running the Vite plugin
 
 # env
 .env
