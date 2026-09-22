@@ -31,6 +31,31 @@ backend remains the fallback.
 A public REST API (OpenAPI) and generated SDKs (TypeScript, Python, Go) + a
 Terraform provider ride the same org-scoped service layer as the dashboard.
 
+## Install
+
+On a fresh Linux server (Ubuntu/Debian; Docker is installed for you if missing):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/requestflo/swarmy/main/scripts/install-swarmy.sh | sudo bash
+```
+
+It installs Docker, initialises a one-node swarm, deploys the controller, and
+enrols the machine as node #1. At the end it prints the dashboard URL, your
+login, and an **Add a node** one-liner. Re-running it is safe: it converges
+instead of duplicating. Non-interactive: add `-s -- --non-interactive
+--admin-email you@example.com`.
+
+Then, in the dashboard:
+
+1. **Add a node**: paste the one-liner it shows on any other Linux box. The
+   same one-liner repairs a node that has gone dark.
+2. **Deploy**: a blueprint, a compose file, or a single image.
+3. **Add a domain**: point DNS at a node (or use `app.<ip-with-dashes>.sslip.io`)
+   and swarmy's Caddy edge serves it over HTTPS automatically.
+
+> **Back up `/var/lib/swarmy/install/state.env`.** It holds `SWARMY_SECRET_KEY`;
+> lose it and every stored credential is unrecoverable.
+
 ## What it covers
 
 | Area | Capabilities |
@@ -88,7 +113,7 @@ sdks/                  TypeScript, Python, Go clients (from OpenAPI)
 terraform-provider-swarmy/
 ```
 
-## Quick start
+## Develop
 
 ```bash
 bun install
