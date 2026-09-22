@@ -2,7 +2,13 @@ import { describe, expect, it } from 'bun:test';
 import { encryptSecret } from '@swarmy/core/crypto';
 import type { OrgContext } from '../context';
 import { GARAGE_MEMBER_NODE_LABEL } from './garage-render';
-import { enable, pickDefaultMembers, storeNeedsConverge } from './replicatedStore.service';
+import {
+  enable,
+  garageRpcSecret,
+  isValidGarageRpcSecret,
+  pickDefaultMembers,
+  storeNeedsConverge,
+} from './replicatedStore.service';
 
 process.env.SWARMY_SECRET_KEY ??= 'a'.repeat(64);
 
@@ -132,5 +138,13 @@ describe('enable — 2-node swarm, no explicit members', () => {
 
     // Superseded config swept after the apply.
     expect(dispatched.find((d) => d.cmd === 'config.remove')?.payload.name).toBe('swarmy-garage-config-00000000');
+  });
+});
+
+describe('garageRpcSecret', () => {
+  it('is 32 bytes hex — the only rpc_secret Garage boots with', () => {
+    const s = garageRpcSecret();
+    expect(isValidGarageRpcSecret(s)).toBe(true);
+    expect(isValidGarageRpcSecret('grpc_abc123')).toBe(false);
   });
 });

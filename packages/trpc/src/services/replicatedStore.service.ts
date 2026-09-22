@@ -11,6 +11,7 @@
  * the vault and only decrypted in-memory when rendering a deployment.
  */
 import { NODE_STORAGE_LABEL } from '@swarmy/core';
+import { randomBytes } from 'node:crypto';
 import { decryptSecret, encryptSecret, randomToken } from '@swarmy/core/crypto';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
@@ -179,6 +180,28 @@ function renderInput(ctx: OrgContext, row: ClusterRow): GarageRenderInput {
   };
 }
 
+/** Garage requires `rpc_secret` to be exactly 32 bytes, hex-encoded. */
+export function garageRpcSecret(): string {
+  return randomBytes(32).toString('hex');
+}
+
+export function isValidGarageRpcSecret(secret: string): boolean {
+  return /^[0-9a-f]{64}$/i.test(secret);
+}
+
+/**
+ * Rows created before the secret was generated correctly hold a prefixed token
+ * Garage refuses to boot with. Such a cluster never started, so rotating the
+ * secret is safe; persist it so every member renders the same value.
+ */
+async function withValidRpcSecret<T extends { rpcSecretRef: string | null }>(ctx: OrgContext, row: T): Promise<T> {
+  const current = row.rpcSecretRef ? decryptSecret(row.rpcSecretRef) : '';
+  if (isValidGarageRpcSecret(current)) return row;
+  const rpcSecretRef = encryptSecret(garageRpcSecret());
+  await db(ctx).update({ where: { orgId: ctx.activeOrgId }, data: { rpcSecretRef } });
+  return { ...row, rpcSecretRef };
+}
+
 export interface SetDriverInput {
   driver: 'garage' | 'none';
   replicationFactor?: number;
@@ -201,7 +224,7 @@ export async function setDriver(
       replicationFactor: input.replicationFactor ?? DEFAULT_REPLICATION,
       region: input.region ?? 'swarmy',
       memberNodeIds: input.memberNodeIds ?? [],
-      rpcSecretRef: encryptSecret(randomToken('grpc')),
+      rpcSecretRef: encryptSecret(garageRpcSecret()),
       adminTokenRef: encryptSecret(randomToken('gadm')),
       accessKeyRef: null,
       secretKeyRef: null,
@@ -320,8 +343,9 @@ async function sweepGarageConfigs(ctx: OrgContext, via: string, keep: string): P
  * truthful.
  */
 export async function enable(ctx: OrgContext): Promise<StorageClusterView> {
-  const row = await load(ctx);
-  if (!row) throw notFound('storage cluster', ctx.activeOrgId);
+  const loaded = await load(ctx);
+  if (!loaded) throw notFound('storage cluster', ctx.activeOrgId);
+  const row = await withValidRpcSecret(ctx, loaded);
 
   const nodeIds = members(row).length > 0 ? [...members(row)] : pickDefaultMembers(await memberCandidates(ctx));
   if (nodeIds.length === 0) {
