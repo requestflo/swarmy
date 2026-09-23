@@ -9,6 +9,8 @@ export {
   CADDY_ADMIN_PORT,
   CADDY_CONFIG_PATH,
   CADDY_EDGE_SERVICE,
+  SWARMY_CADDY_IMAGE,
+  isStockCaddyImage,
 } from './drivers/caddy';
 export { TraefikDriver } from './drivers/traefik';
 export { NoneDriver } from './drivers/none';

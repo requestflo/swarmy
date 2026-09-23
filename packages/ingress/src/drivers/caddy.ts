@@ -13,6 +13,25 @@ import { IngressApplyError } from '../errors';
  *  `ensureCaddyController`). Routes pushed via the admin API target this name on
  *  the ingress overlay network. */
 export const CADDY_CONTROLLER_SERVICE = 'swarmy-ingress-caddy';
+/**
+ * swarmy's own Caddy build (docker/caddy-swarmy, published by
+ * .github/workflows/images.yml): stock Caddy + rate_limit, cache,
+ * maxmind_geolocation and the `storage s3` shared cert store. The default image
+ * for BOTH topologies — the installer and every node already pull public GHCR.
+ */
+export const SWARMY_CADDY_IMAGE = 'ghcr.io/requestflo/caddy-swarmy:latest';
+
+/**
+ * Whether `image` is a plugin-less stock Caddy (`caddy`, `caddy:2-alpine`,
+ * `docker.io/library/caddy:…`). Empty = unknown ⇒ treated as stock (the safe,
+ * loud answer). Pure.
+ */
+export function isStockCaddyImage(image: string): boolean {
+  if (image === '') return true;
+  const repo = image.split('@')[0]!.replace(/:[^/:]+$/, '');
+  return repo === 'caddy' || repo === 'library/caddy' || repo === 'docker.io/library/caddy';
+}
+
 /** Port the Caddy admin API listens on inside the controller. */
 export const CADDY_ADMIN_PORT = 2019;
 /** Caddyfile path on the node / controller bind mount. */
@@ -66,8 +85,9 @@ export class CaddyDriver implements IngressDriver {
     // includes it; the controller image is threaded via extraConfig.
     const warnings: IngressValidationWarning[] = [];
     const image = typeof extra.controllerImage === 'string' ? extra.controllerImage : '';
+    const stockImage = isStockCaddyImage(image);
     const rateLimited = config.domains.filter((d) => d.protection?.rateLimit);
-    if (rateLimited.length > 0 && (image === '' || image === 'caddy:2-alpine')) {
+    if (rateLimited.length > 0 && stockImage) {
       warnings.push({
         path: 'globalOptions.extraConfig.controllerImage',
         message:
@@ -76,27 +96,23 @@ export class CaddyDriver implements IngressDriver {
           'xcaddy --with github.com/mholt/caddy-ratelimit). Set a custom controller image.',
       });
     }
-    // Edge-per-node REQUIRES the swarmy build: distributed cert storage
-    // (caddy-storage-redis) is what stops N per-node Caddys from racing ACME
-    // (duplicate orders, rate limits, unanswerable challenges). Hard error.
+    // Shared cert storage REQUIRES the swarmy build: the `storage s3` module
+    // (techknowlogick/certmagic-s3) is compiled in there, and a stock image
+    // rejects the whole config at load. Hard error.
     const applyVia = typeof extra.applyVia === 'string' ? extra.applyVia : 'file';
-    if (
-      applyVia === 'local' &&
-      config.globalOptions.haStorage &&
-      (image === '' || image === 'caddy:2-alpine')
-    ) {
+    if (config.globalOptions.certStorage && stockImage) {
       errors.push({
         path: 'globalOptions.extraConfig.controllerImage',
         message:
-          'edge-per-node topology with shared cert storage needs the swarmy Caddy build ' +
-          '(docker/caddy-swarmy — compiles caddy-storage-redis); the stock caddy:2-alpine ' +
-          'cannot load the `storage redis` block and every node would race ACME issuance.',
+          'shared certificate storage needs the swarmy Caddy build (docker/caddy-swarmy — ' +
+          'compiles certmagic-s3); the stock caddy image cannot load the `storage s3` block. ' +
+          'Clear the custom controller image to use the default swarmy build.',
       });
     }
     // Response caching is also plugin-borne (caddyserver/cache-handler) — same
     // deal as rate_limit: renders fine, stock image rejects the config at load.
     const cached = config.domains.filter((d) => d.protection?.cache && !d.cold);
-    if (cached.length > 0 && (image === '' || image === 'caddy:2-alpine')) {
+    if (cached.length > 0 && stockImage) {
       warnings.push({
         path: 'globalOptions.extraConfig.controllerImage',
         message:
@@ -130,7 +146,7 @@ export class CaddyDriver implements IngressDriver {
           'mmdb into the ingress container and set the path.',
       });
     }
-    if (geoRouted.length > 0 && geoipMmdbPath !== '' && (image === '' || image === 'caddy:2-alpine')) {
+    if (geoRouted.length > 0 && geoipMmdbPath !== '' && stockImage) {
       warnings.push({
         path: 'globalOptions.extraConfig.controllerImage',
         message:
@@ -159,14 +175,14 @@ export class CaddyDriver implements IngressDriver {
     // new host's first issuance can fail until shared storage (certmagic's
     // distributed challenge solving) or DNS-01 is in place. Certs already on a
     // node's data volume keep serving. Non-blocking, but loud.
-    if (applyVia === 'local' && !config.globalOptions.haStorage) {
+    if (applyVia === 'local' && !config.globalOptions.certStorage) {
       warnings.push({
-        path: 'globalOptions.haStorage',
+        path: 'globalOptions.certStorage',
         message:
           'edge-per-node without shared certificate storage: each edge node issues its own ' +
           'certificates, and with geo-DNS the ACME validator (multiple vantage points) may be ' +
           'steered to a different node than the one holding the challenge — new hosts can fail ' +
-          'to issue. Configure HA storage (Redis, swarmy Caddy build) for one shared cert pool.',
+          'to issue. Turn on swarmy object storage so the edges share one certificate pool.',
       });
     }
     if (errors.length) return { ok: false, errors, warnings: warnings.length ? warnings : undefined };

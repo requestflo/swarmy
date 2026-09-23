@@ -225,29 +225,30 @@ export const DomainRouteSchema = z.object({
 export type DomainRoute = z.infer<typeof DomainRouteSchema>;
 
 /**
- * Caddy HA shared-storage (caddy-storage-redis). When present, the Caddy renderer
- * emits a global `storage redis { … }` block so every Caddy instance shares one
- * ACME account + cert pool. `null`/absent ⇒ single-node behaviour (unchanged).
+ * Caddy shared certificate storage in S3-compatible object storage
+ * (techknowlogick/certmagic-s3, compiled into docker/caddy-swarmy). When present,
+ * the Caddy renderer emits a global `storage s3 { … }` block so every edge
+ * shares ONE ACME account + cert pool + challenge store — what makes
+ * edge-per-node issuance work under geo-DNS. swarmy points it at its own
+ * replicated Garage store (bucket `swarmy-edge-certs`).
+ *
+ * Carries NO credentials, by construction: the module resolves them through the
+ * AWS SDK default chain, which swarmy satisfies with a Docker secret mounted as
+ * `AWS_SHARED_CREDENTIALS_FILE` on the Caddy service. Nothing secret can reach
+ * the rendered Caddyfile, the admin API or the autosaved config.
+ * Absent ⇒ Caddy's default local file storage (the single-controller path).
  */
-export const HaStorageSchema = z.object({
-  /** Redis host the managed/BYO Redis listens on. */
-  host: z.string().min(1),
-  port: z.number().int().min(1).max(65535).default(6379),
-  /** Logical DB index. */
-  db: z.number().int().nonnegative().default(0),
-  /** Key namespace so multiple orgs can share one Redis. */
-  keyPrefix: z.string().default('caddy'),
-  tlsEnabled: z.boolean().default(false),
-  /**
-   * Plaintext secrets are NEVER stored here — the controller resolves these from
-   * the credential vault at render/dispatch time and injects them just-in-time.
-   */
-  username: z.string().optional(),
-  password: z.string().optional(),
-  /** At-rest encryption key for cert material in Redis (resolved from vault). */
-  encryptionKey: z.string().optional(),
+export const CertStorageSchema = z.object({
+  kind: z.literal('s3'),
+  /** S3 endpoint as seen from the Caddy task (overlay DNS), e.g. `http://swarmy-garage:3900`. */
+  endpoint: z.string().url(),
+  bucket: z.string().regex(/^[a-z0-9][a-z0-9.-]*$/, 'bucket names are lowercase DNS labels'),
+  /** SigV4 region — must equal the store's configured region (Garage rejects a mismatch). */
+  region: z.string().regex(/^[A-Za-z0-9_-]+$/),
+  /** Object key prefix (per-org, so one bucket could serve several orgs). */
+  prefix: z.string().regex(/^[A-Za-z0-9_./-]+$/).default('caddy'),
 });
-export type HaStorage = z.infer<typeof HaStorageSchema>;
+export type CertStorage = z.infer<typeof CertStorageSchema>;
 
 /**
  * Cloudflare Tunnel connector options. Secrets (API token / run token / tunnel
@@ -277,8 +278,8 @@ export const IngressGlobalOptionsSchema = z.object({
   onDemandTls: z.boolean().default(false),
   defaultTls: z.enum(['auto', 'off']).default('auto'),
   network: z.string().default('swarmy'),
-  /** Caddy HA shared-cert storage. Absent ⇒ single-node Caddy. */
-  haStorage: HaStorageSchema.optional(),
+  /** Shared certificate storage (S3 / swarmy object storage). Absent ⇒ Caddy's local file storage. */
+  certStorage: CertStorageSchema.optional(),
   /** Cloudflare Tunnel connector config (for the cloudflared driver). */
   tunnel: TunnelOptionsSchema.optional(),
   /**

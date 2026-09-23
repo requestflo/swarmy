@@ -82,11 +82,18 @@ invariants that must survive every change, and where everything lives.
   can't change mode in place → `deployWithModeSwap` removes + recreates;
   `setTopology` persists the setting only after the deploy succeeds, and
   ingress-reconcile converges a live mode that disagrees with the setting.
-- **Certs across edge nodes**: without HA storage every node issues its own
-  certs, and HTTP-01/TLS-ALPN-01 under geo-DNS is fragile (the CA's vantage
-  points are steered to different nodes; only the ordering node holds the
-  token). HA storage (`setHaStorage`, Redis, swarmy Caddy build) gives one
-  shared pool with distributed challenge solving — the recommended setup.
+- **Certs across edge nodes**: edge-per-node REQUIRES one shared CertMagic
+  store — per-node storage under geo-DNS breaks HTTP-01/TLS-ALPN-01 (the CA's
+  vantage points reach edges that don't hold the token). The store is swarmy
+  object storage: `ingress-certs.ts` `ensureEdgeCertStorage` (bucket
+  `swarmy-edge-certs`, bucket-scoped key via `buckets.service`
+  `provisionSystemBucketKey`, AWS shared-credentials INI in a Docker secret
+  mounted on the edge as `AWS_SHARED_CREDENTIALS_FILE`) → the renderer emits a
+  credential-free `storage s3` block (techknowlogick/certmagic-s3 in
+  docker/caddy-swarmy). NEVER render a credential into the Caddyfile — it lands
+  in the admin-API JSON and Caddy's autosave. `setTopology` refuses
+  edge-per-node while object storage is off; ingress-reconcile adopts orgs
+  already on edge-per-node. The controller topology keeps local file storage.
 
 ## File map
 

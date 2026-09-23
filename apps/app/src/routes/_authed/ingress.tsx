@@ -5,7 +5,6 @@ import { Alert, AlertDescription, AlertTitle, StatusBadge, toast } from '@swarmy
 import { useTRPC } from '@/integrations/trpc';
 import { SectionHeader } from '@/components/section-header';
 import { DriverPanel } from '@/components/ingress/driver-panel';
-import { CaddyHaCard } from '@/components/ingress/caddy-ha-card';
 import { OnDemandTlsCard } from '@/components/ingress/on-demand-tls-card';
 import { ControllerImageCard } from '@/components/ingress/controller-image-card';
 import { TargetNodesCard } from '@/components/ingress/target-nodes-card';
@@ -51,15 +50,6 @@ function IngressPage(): React.JSX.Element {
   const setEnabled = useMutation(
     trpc.ingress.setEnabled.mutationOptions({ onSuccess: afterEdgeChange, onError: (e) => toast.error(e.message) }),
   );
-  const setHaStorage = useMutation(
-    trpc.ingress.setHaStorage.mutationOptions({
-      onSuccess: () => {
-        toast.success('Shared-cert storage updated');
-        invalidate();
-      },
-      onError: (e) => toast.error(e.message),
-    }),
-  );
   const setTunnel = useMutation(
     trpc.ingress.setTunnel.mutationOptions({
       onSuccess: () => {
@@ -94,7 +84,7 @@ function IngressPage(): React.JSX.Element {
             The <em>edge</em>, configured once.
           </>
         }
-        description="Driver, TLS, HA storage and the controller build — fleet-wide. Per-stack domains, routes and protections live on each stack's Network tab."
+        description="Driver, TLS, certificates and the controller build — fleet-wide. Per-stack domains, routes and protections live on each stack's Network tab."
         actions={
           <StatusBadge tone={edgeTone(runtime?.state)} label={edgeLabel(DRIVER_LABELS[driver], runtime?.state)} />
         }
@@ -124,12 +114,6 @@ function IngressPage(): React.JSX.Element {
 
       {driver === 'caddy' ? (
         <>
-          <CaddyHaCard
-            haConfigured={!!config.data?.haConfigured}
-            onEnable={(host) => setHaStorage.mutate({ host })}
-            onDisable={() => setHaStorage.mutate(null)}
-            pending={setHaStorage.isPending}
-          />
           <OnDemandTlsCard
             onSave={(askUrl) => setOnDemandTls.mutate({ enabled: true, askUrl })}
             onDisable={() => setOnDemandTls.mutate({ enabled: false })}
@@ -137,9 +121,14 @@ function IngressPage(): React.JSX.Element {
           />
           <TopologyCard
             topology={config.data?.topology ?? 'controller'}
-            haConfigured={!!config.data?.haConfigured}
+            certStorage={
+              config.data?.certStorage ?? { mode: 'local', edges: 0, objectStorageEnabled: false, bucket: null }
+            }
           />
-          <ControllerImageCard image={config.data?.controllerImage ?? null} />
+          <ControllerImageCard
+            image={config.data?.controllerImage ?? null}
+            defaultImage={config.data?.defaultControllerImage ?? null}
+          />
           {config.data?.topology === 'edge-per-node' ? null : (
             <TargetNodesCard targetNodes={config.data?.targetNodes ?? []} />
           )}

@@ -3,19 +3,28 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 
-const STOCK_IMAGE = 'caddy:2-alpine';
+/** Fallback label while the config query loads. */
+const SWARMY_IMAGE = 'ghcr.io/requestflo/caddy-swarmy:latest';
+
+/** Plugin-less stock Caddy (mirrors @swarmy/ingress `isStockCaddyImage`). */
+function isStockCaddy(image: string): boolean {
+  const repo = image.split('@')[0]!.replace(/:[^/:]+$/, '');
+  return repo === 'caddy' || repo === 'library/caddy' || repo === 'docker.io/library/caddy';
+}
 
 interface ControllerImageCardProps {
-  /** Current image, or `null` when unset (stock caddy:2-alpine deploys). */
+  /** Current image, or `null` when unset (the default swarmy build deploys). */
   image: string | null;
+  /** The image deployed when none is set (`IngressConfigView.defaultControllerImage`). */
+  defaultImage: string | null;
 }
 
 /**
- * The Caddy controller's deployed image. The stock image has no rate-limit
- * support — a swarmy build off `docker/caddy-swarmy` (xcaddy + caddy-ratelimit)
- * is required the moment any route carries a rate limit (see `ingress.validate`).
+ * The Caddy image both topologies deploy. The default is swarmy's own build
+ * (`docker/caddy-swarmy`: rate limits, response caching, country rules and the
+ * shared certificate store compiled in). A stock caddy image lacks all of them.
  */
-export function ControllerImageCard({ image }: ControllerImageCardProps): React.JSX.Element {
+export function ControllerImageCard({ image, defaultImage }: ControllerImageCardProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const [draft, setDraft] = React.useState(image ?? '');
@@ -42,17 +51,16 @@ export function ControllerImageCard({ image }: ControllerImageCardProps): React.
     }),
   );
 
-  const effective = image ?? STOCK_IMAGE;
-  const isStock = effective === STOCK_IMAGE;
+  const effective = image ?? defaultImage ?? SWARMY_IMAGE;
+  const isStock = isStockCaddy(effective);
 
   return (
     <Card className="card-pop mt-6 border-0">
       <CardHeader>
         <CardTitle className="text-base">Controller image</CardTitle>
         <CardDescription>
-          Build <code className="mono-data">docker/caddy-swarmy</code> (xcaddy +{' '}
-          <code className="mono-data">caddy-ratelimit</code>) and set it here — required the moment
-          any route carries a rate limit.
+          swarmy's own Caddy build is used by default. Set a custom image only if you build your own
+          from <code className="mono-data">docker/caddy-swarmy</code>.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">
@@ -60,7 +68,13 @@ export function ControllerImageCard({ image }: ControllerImageCardProps): React.
           <Badge variant={isStock ? 'muted' : 'default'} className="mono-data">
             {effective}
           </Badge>
-          {isStock ? <span className="text-muted-foreground text-xs">stock — no rate limiting</span> : null}
+          {isStock ? (
+            <span className="text-muted-foreground text-xs">
+              stock — no rate limits, caching, country rules or shared certificates
+            </span>
+          ) : image ? null : (
+            <span className="text-muted-foreground text-xs">default</span>
+          )}
         </div>
         <div className="grid gap-1.5">
           <Label className="mono-label">Image</Label>
@@ -76,7 +90,7 @@ export function ControllerImageCard({ image }: ControllerImageCardProps): React.
             </Button>
             {image ? (
               <Button variant="outline" onClick={() => setImage.mutate({ image: null })} disabled={setImage.isPending}>
-                Reset to stock
+                Reset to default
               </Button>
             ) : null}
           </div>

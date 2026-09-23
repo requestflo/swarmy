@@ -60,20 +60,20 @@ export function buildCaddyfile(config: IngressConfig): string {
     if (typeof extra.onDemandAsk === 'string') global.push(`    ask ${extra.onDemandAsk}`);
     global.push('  }');
   }
-  // Caddy HA: a shared Redis cert/ACME store (caddy-storage-redis). When enabled,
-  // every Caddy instance points at the same Redis → one ACME account + cert pool,
-  // so the existing per-node fan-out *becomes* an HA cluster (no re-issuance).
-  const ha = config.globalOptions.haStorage;
-  if (ha) {
-    global.push('  storage redis {');
-    global.push(`    host ${ha.host}`);
-    global.push(`    port ${ha.port}`);
-    global.push(`    db ${ha.db}`);
-    global.push(`    key_prefix ${ha.keyPrefix}`);
-    if (ha.username) global.push(`    username ${ha.username}`);
-    if (ha.password) global.push(`    password ${ha.password}`);
-    global.push(`    tls_enabled ${ha.tlsEnabled ? 'true' : 'false'}`);
-    if (ha.encryptionKey) global.push(`    encryption_key ${ha.encryptionKey}`);
+  // Shared cert storage (techknowlogick/certmagic-s3): every edge points at the
+  // same bucket → one ACME account + cert pool + challenge store, so whichever
+  // edge geo-DNS steers the CA's vantage points to can answer the challenge.
+  // NO credentials are rendered — the module takes them from the AWS SDK default
+  // chain (AWS_SHARED_CREDENTIALS_FILE → a Docker secret on the Caddy service).
+  const certs = config.globalOptions.certStorage;
+  if (certs) {
+    global.push('  storage s3 {');
+    global.push(`    endpoint ${certs.endpoint}`);
+    global.push(`    bucket ${certs.bucket}`);
+    global.push(`    region ${certs.region}`);
+    global.push(`    prefix ${certs.prefix}`);
+    // Garage (and most self-hosted S3) serve path-style only.
+    global.push('    use_path_style true');
     global.push('  }');
   }
   if (global.length) {

@@ -3,9 +3,14 @@
 # The stock caddy:2-alpine cannot express swarmy's protection layer — these
 # capabilities are compiled-in plugins, not config:
 #   - `rate_limit` (per-route rate limits)   — mholt/caddy-ratelimit
-#   - `storage redis` (shared cert storage)  — pberkel/caddy-storage-redis,
-#     REQUIRED for the edge-per-node topology (geo-edge) so N per-node Caddys
-#     coordinate ACME through one store instead of racing
+#   - `storage s3` (shared cert storage)     — techknowlogick/certmagic-s3,
+#     REQUIRED for the edge-per-node topology (geo-edge): every per-node Caddy
+#     shares ONE cert pool + ACME challenge store in swarmy's own replicated
+#     object storage (Garage bucket `swarmy-edge-certs`), so HTTP-01/TLS-ALPN
+#     challenges validate on whichever edge geo-DNS steers the CA to. Chosen
+#     over ss098/certmagic-s3, whose Lock() is a no-op (unsafe with N edges).
+#     Credentials come from the AWS SDK default chain — a Docker secret mounted
+#     as AWS_SHARED_CREDENTIALS_FILE — never from the Caddyfile.
 #   - `cache` (per-route response caching)   — caddyserver/cache-handler
 #   - `maxmind_geolocation` (country rules)  — porech/caddy-maxmind-geolocation
 # This image is the stock Caddy plus all four, built with xcaddy.
@@ -23,16 +28,20 @@
 # Then point swarmy at it: Edge & ingress → Controller image (persisted in
 # IngressConfig.settings.controllerImage; `ensureController` deploys it).
 
-FROM caddy:2-builder AS builder
+# Pinned Caddy minor + every plugin, verified to compile together. `caddy:2-builder`
+# floating broke the build once already (pberkel/caddy-storage-redis v1.4.0 vs
+# a newer caddycmd.LoadConfig signature) — bump deliberately, rebuild, and keep
+# the rate_limit/cache/geo/storage renders in packages/ingress in step.
+# certmagic-s3 is pinned to the commit AFTER v1.4.1 that fixes Lock() spinning
+# in a tight loop on transient S3 errors (honours ctx + LockTimeout).
+FROM caddy:2.11.4-builder AS builder
 
-# Pinned: the plugins' Caddyfile directives changed across versions — bump
-# deliberately alongside the rate_limit/cache/geo renders in packages/ingress.
 RUN xcaddy build \
     --with github.com/mholt/caddy-ratelimit@v0.1.0 \
-    --with github.com/pberkel/caddy-storage-redis@v1.4.0 \
+    --with github.com/techknowlogick/certmagic-s3@9136b2abaf525cad77c3b30f60dc6b1ba9047b69 \
     --with github.com/caddyserver/cache-handler@v0.16.0 \
     --with github.com/porech/caddy-maxmind-geolocation@v1.0.3
 
-FROM caddy:2-alpine
+FROM caddy:2.11.4-alpine
 
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy

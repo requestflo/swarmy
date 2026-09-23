@@ -40,9 +40,26 @@ Migration `0003_swarmy_nameserver`:
 - Ingress gains an opt-in `edge-per-node` topology (`ingress.setTopology`):
   global host-mode Caddy per ingress node, per-node region-aware upstreams,
   config via agent-local reload (admin port never published). Switching
-  removes the legacy replicated controller (seconds of blip). The
-  `docker/caddy-swarmy` image is now required for edge topology with shared
-  cert storage (adds `caddy-storage-redis` alongside `caddy-ratelimit`).
+  removes the legacy replicated controller (seconds of blip).
+- Edge-per-node certificates are shared through swarmy's own object storage
+  (Garage bucket `swarmy-edge-certs`, `storage s3` via
+  techknowlogick/certmagic-s3) with zero setup: `setTopology('edge-per-node')`
+  mints a bucket-scoped key, stores it as an AWS shared-credentials Docker
+  secret mounted on the edge (`AWS_SHARED_CREDENTIALS_FILE`), and renders a
+  credential-free `storage s3` block. Object storage off ⇒ the switch is
+  refused with a one-click "turn on object storage" in the topology card; an
+  org already on edge-per-node is adopted by ingress-reconcile once it's on.
+  The single controller keeps Caddy's local file storage. The Redis
+  (`caddy-storage-redis` / `setHaStorage`) path is removed — the plugin no
+  longer compiles against current Caddy, and object storage replaces it.
+- swarmy's Caddy build (`ghcr.io/requestflo/caddy-swarmy:latest`) is the
+  default image for both topologies; `docker/caddy-swarmy` now pins
+  `caddy:2.11.4-builder` and every plugin to versions verified to compile together.
+- Migration: certificates a single controller issued live on its node's
+  `swarmy-ingress-caddy-data` volume; after the switch each host's certificate
+  is issued ONCE more into the shared store on first use (a handful of hosts is
+  far inside Let's Encrypt's limits). Switching back to the controller keeps the
+  bucket + key; the controller serves from its local volume again.
 
 ## Phase 2 (designed, not yet built)
 

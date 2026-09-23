@@ -5,7 +5,9 @@ import {
   CADDY_CONFIG_PATH,
   CADDY_CONTROLLER_SERVICE,
   CADDY_EDGE_SERVICE,
+  SWARMY_CADDY_IMAGE,
 } from '@swarmy/ingress';
+import { edgeCertsServiceWiring } from './ingress-certs';
 import type { OrgContext } from '../context';
 import type { CommandName } from '../hub/types';
 import { mapDispatchError } from '../errors';
@@ -24,7 +26,7 @@ const NETWORK_ENSURE = 'network.ensure' as CommandName;
  * agent's network membership nor a published admin API matter.
  *
  * The controller is a single managed swarm service:
- *   - `swarmy-ingress-caddy` running `caddy:2-alpine`
+ *   - `swarmy-ingress-caddy` running swarmy's Caddy build (`ghcr.io/requestflo/caddy-swarmy`)
  *   - ports 80/443 published in HOST mode on the node the task lands on
  *   - attached to the org's ingress overlay network (default `swarmy`)
  *   - started with `--resume` so the autosaved last-applied config survives a
@@ -36,14 +38,21 @@ const NETWORK_ENSURE = 'network.ensure' as CommandName;
  */
 
 const DEFAULT_NETWORK = 'swarmy';
-const DEFAULT_IMAGE = 'caddy:2-alpine';
+/**
+ * swarmy's Caddy build for BOTH topologies (docker/caddy-swarmy, public GHCR):
+ * the plugins behind rate limits, response caching, country rules and the
+ * shared `storage s3` cert store are compiled in, so no protection or topology
+ * needs an image change first. Override: `setControllerImage` (per org) or
+ * `SWARMY_CADDY_EDGE_IMAGE` (per controller).
+ */
+const DEFAULT_IMAGE = SWARMY_CADDY_IMAGE;
 const DATA_VOLUME = 'swarmy-ingress-caddy-data';
 const CONFIG_VOLUME = 'swarmy-ingress-caddy-config';
 
 export interface EnsureControllerOptions {
   /** Overlay network the controller attaches to (must match the app services it fronts). Default `swarmy`. */
   network?: string;
-  /** Controller image. Default `caddy:2-alpine`. */
+  /** Controller image. Default {@link defaultEdgeImage} (swarmy's Caddy build). */
   image?: string;
   /** Replica count. Default 1 (80/443 are host-mode on the node the task lands on). */
   replicas?: number;
@@ -234,7 +243,7 @@ export async function ensureCaddyController(
   }
   const opts: ResolvedOptions = {
     network: options.network ?? DEFAULT_NETWORK,
-    image: options.image ?? DEFAULT_IMAGE,
+    image: options.image ?? defaultEdgeImage(),
     replicas: options.replicas ?? 1,
     publishAdmin: options.publishAdmin ?? false,
     adminOnOverlay: options.adminOnOverlay ?? false,
@@ -283,17 +292,25 @@ export interface EnsureEdgeOptions {
   network?: string;
   /**
    * Edge image. Defaults to the configured controller image, then
-   * `SWARMY_CADDY_EDGE_IMAGE`, then the stock `caddy:2-alpine` — the SAME
-   * image the controller topology runs, so a topology swap never introduces
-   * an unpullable image. Shared cert storage (`storage redis`) needs the
-   * swarmy build (docker/caddy-swarmy); the driver's validate() hard-errors
-   * when HA storage meets the stock image.
+   * `SWARMY_CADDY_EDGE_IMAGE`, then swarmy's Caddy build
+   * (`ghcr.io/requestflo/caddy-swarmy:latest`) — the SAME image the controller
+   * topology runs, so a topology swap never introduces an unpullable image.
+   * Shared cert storage (`storage s3`) needs the swarmy build; the driver's
+   * validate() hard-errors when it meets a stock caddy image.
    */
   image?: string;
   otelOrgId?: string;
+  /**
+   * Docker secret carrying the shared cert store's S3 credentials (see
+   * `ingress-certs.ts`). Mounted + pointed at by `AWS_SHARED_CREDENTIALS_FILE`.
+   */
+  certStoreSecret?: string;
 }
 
-/** Edge image fallback when no controller image is configured. */
+/**
+ * Caddy image fallback (both topologies) when no controller image is
+ * configured: `SWARMY_CADDY_EDGE_IMAGE`, else swarmy's Caddy build.
+ */
 export function defaultEdgeImage(): string {
   return process.env.SWARMY_CADDY_EDGE_IMAGE || DEFAULT_IMAGE;
 }
@@ -325,8 +342,11 @@ export function caddyEdgeSpec(opts: {
   network: string;
   image: string;
   otelOrgId?: string;
+  /** Shared cert store credentials secret (edge-per-node + object storage). */
+  certStoreSecret?: string;
 }): ServiceSpec {
-  const env = opts.otelOrgId
+  const certs = opts.certStoreSecret ? edgeCertsServiceWiring(opts.certStoreSecret) : undefined;
+  const otelEnv = opts.otelOrgId
     ? {
         OTEL_EXPORTER_OTLP_ENDPOINT: 'http://swarmy-otel-collector:4317',
         OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc',
@@ -335,6 +355,7 @@ export function caddyEdgeSpec(opts: {
         OTEL_TRACES_SAMPLER: 'parentbased_always_on',
       }
     : undefined;
+  const env = otelEnv || certs ? { ...otelEnv, ...certs?.env } : undefined;
   return {
     name: CADDY_EDGE_SERVICE,
     image: opts.image,
@@ -366,6 +387,10 @@ export function caddyEdgeSpec(opts: {
       { type: 'volume', source: DATA_VOLUME, target: '/data' },
       { type: 'volume', source: CONFIG_VOLUME, target: '/config' },
     ],
+    // Credentials for the shared `storage s3` cert store ride ONLY in this
+    // mounted secret (AWS SDK default chain) — never in the Caddyfile.
+    ...(certs ? { secrets: certs.secrets } : {}),
+    // `swarmy` is also the object store's overlay (`swarmy-garage:3900`).
     networks: [...new Set([opts.network, DEFAULT_NETWORK])],
     placement: { constraints: [EDGE_PLACEMENT_CONSTRAINT] },
     restartPolicy: { condition: 'any' },
@@ -471,7 +496,11 @@ export async function ensureCaddyEdge(
     throw mapDispatchError(e);
   }
 
-  const migrated = await deployWithModeSwap(ctx, node.id, caddyEdgeSpec({ network, image, otelOrgId }));
+  const migrated = await deployWithModeSwap(
+    ctx,
+    node.id,
+    caddyEdgeSpec({ network, image, otelOrgId, certStoreSecret: options.certStoreSecret }),
+  );
   const id = liveService(ctx, CADDY_EDGE_SERVICE)?.id ?? CADDY_EDGE_SERVICE;
   return { id, name: CADDY_EDGE_SERVICE, network, migrated };
 }

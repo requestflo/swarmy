@@ -53,7 +53,7 @@ DriverDispatch.sendToNode(nodeId, rendered)      (down the agent's OUTBOUND WS)
    │     — or, for a tunnel, deploys the connector as a Swarm service (dials OUT)
    ▼
 Caddy issues + serves the cert · request reaches service:port over the overlay
-   │  ④ HTTPS is automatic; with HA a new node serves existing certs from Redis
+   │  ④ HTTPS is automatic; edge-per-node shares one cert pool in swarmy object storage
    ▼
 your app is reachable  ──►  Exposure audit says exactly HOW it's reachable
 ```
@@ -74,8 +74,9 @@ Four ideas, one story:
   `scaffold-ingress-driver` skill.
 - **Automatic HTTPS is the product, and it survives node death.** Caddy is the
   recommended default because `example.com { reverse_proxy web:3000 }` *is* an
-  HTTPS site. HA shares one ACME account + one cert pool across every Caddy via a
-  Redis-backed store, so N ingress nodes cost 1× issuance, not N×.
+  HTTPS site. Edge-per-node shares one ACME account + one cert pool across every
+  Caddy via swarmy's own object storage (Garage bucket `swarmy-edge-certs`), so
+  N ingress nodes cost 1× issuance, not N×, and any edge can answer any challenge.
 - **No public IP is still reachable.** The cloudflared connector dials out to
   Cloudflare and Cloudflare terminates TLS; swarmy provisions the tunnel over the
   Cloudflare API controller-side and runs the connector with its run token as a
@@ -94,10 +95,10 @@ Four ideas, one story:
   is what places the edge Caddy plane there. See `docs/product/edge-network.md`.
 - **What swarmy's DB owns is only its own config + encrypted credential
   pointers.** `IngressConfig` (one per org: `driver`, `enabled`, and a `settings`
-  JSON escape hatch for HA storage coords / on-demand `ask` URL / topology),
+  JSON escape hatch for cert-store coordinates / on-demand `ask` URL / topology),
   `Tunnel` (org-scoped: `provider`, `externalId`, `credentialRef`,
   `tunnelTokenRef`, `status`), and `ExposureConfig` (`rulesJson` + the `enforce`
-  flag). Plaintext secrets — Redis password, cert encryption key, CF run token —
+  flag). Plaintext secrets — the cert store's S3 key (a Docker secret only), CF run token —
   are **never** in these rows; they are vault pointers resolved just-in-time at
   dispatch and injected as env/secrets. See the `docker-native-storage` skill.
 - **The exposure verdict is derived every time, never stored.** `auditExposure`
@@ -161,8 +162,8 @@ Four ideas, one story:
 
 | Failure | Behaviour |
 |---|---|
-| Ingress node dies (HA on) | Its certs are in Redis; a surviving node already serves them and the load balancer sheds the dead node. No re-issuance, no rate-limit hit. |
-| Redis (cert store) blips | Served certs stay in memory — the request path is unaffected. Only *new* issuance/renewal pauses until Redis returns. Redis is deliberately off the hot path. |
+| Ingress node dies (edge-per-node) | Its certs are in the shared object-storage pool; a surviving edge already serves them and geo-DNS sheds the dead node. No re-issuance, no rate-limit hit. |
+| Object storage (cert store) blips | Served certs stay in memory — the request path is unaffected. Only *new* issuance/renewal pauses until the store returns. It is deliberately off the hot path. |
 | Custom domain not yet registered points at the swarm | `/ingress/ask` returns 403 → Caddy declines to issue. No ACME spend on domains that aren't yours. |
 | Cloudflare Tunnel: connector or CF blips | Connector dials out and reconnects; no inbound port to fail. Routing rules are declarative server-side, re-pushed idempotently on the next sync. |
 | A driver can't express a protection (e.g. rate limit on `none`) | `validate()` warns; `render` still emits a working config for what it *can* do. Degraded, never broken. |
@@ -174,8 +175,9 @@ Four ideas, one story:
   duplicating them in Postgres drifts and forces two writes. The `ask` endpoint
   and the audit both read live inventory. See `docker-native-storage`.
 - **Per-node independent certificates.** N Caddy instances each running their own
-  ACME account is N× issuance and N× rate-limit pressure. Shared Redis storage
-  makes N nodes one logical cert authority.
+  ACME account is N× issuance and N× rate-limit pressure — and under geo-DNS the
+  CA's vantage points reach edges that don't hold the challenge. Shared storage in
+  swarmy object storage makes N nodes one logical cert authority.
 - **Controller-initiated reloads / reaching a node's socket.** The controller
   renders; the agent applies over its own outbound WS and reloads its own local
   task. Never an inbound connection to a node.
@@ -186,8 +188,11 @@ Four ideas, one story:
   and BYO users but demoted to "advanced"; swarmy does not invest in
   swarmy-owned Traefik HA. One recommended path (Caddy) keeps the cert story
   singular.
-- **Putting Redis on the request path.** It stores certs and issuance locks only,
-  which is what makes a single managed Redis tolerable for the MVP.
+- **Putting the cert store on the request path.** It holds certs, challenge
+  tokens and issuance locks only; served certs are cached in each Caddy.
+- **A dedicated Redis for certs.** A new data service to run, pin and back up;
+  the replicated object store already exists, replicates across regions, and is
+  covered by the offsite mirror.
 
 ## Implementation map
 

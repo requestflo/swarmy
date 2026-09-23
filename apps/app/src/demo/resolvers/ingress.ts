@@ -49,10 +49,11 @@ interface IngressConfigView {
   enabled: boolean;
   targetNodes: string[];
   domainCount: number;
-  haConfigured: boolean;
+  certStorage: { mode: 'shared' | 'local'; edges: number; objectStorageEnabled: boolean; bucket: string | null };
   tunnelConfigured: boolean;
-  /** Custom ingress-controller image (null = the stock caddy:2-alpine). */
+  /** Custom ingress-controller image (null = defaultControllerImage). */
   controllerImage: string | null;
+  defaultControllerImage: string;
   topology: 'controller' | 'edge-per-node';
   updatedAt: string;
   runtime: DemoRuntime;
@@ -102,7 +103,6 @@ interface IngressState {
   driver: IngressDriverId;
   enabled: boolean;
   targetNodes: string[];
-  haConfigured: boolean;
   onDemandTls: boolean;
   onDemandAskUrl: string | null;
   controllerImage: string | null;
@@ -155,9 +155,13 @@ function toConfigView(st: IngressState): IngressConfigView {
     enabled: st.enabled,
     targetNodes: st.targetNodes,
     domainCount: st.domains.length,
-    haConfigured: st.haConfigured,
+    certStorage:
+      st.topology === 'edge-per-node'
+        ? { mode: 'shared', edges: 3, objectStorageEnabled: true, bucket: 'swarmy-edge-certs' }
+        : { mode: 'local', edges: 1, objectStorageEnabled: true, bucket: null },
     tunnelConfigured: Boolean(st.tunnel?.tunnelId),
     controllerImage: st.controllerImage,
+    defaultControllerImage: 'ghcr.io/requestflo/caddy-swarmy:latest',
     topology: st.topology ?? 'controller',
     updatedAt: st.updatedAt,
     runtime: demoRuntime(st),
@@ -206,7 +210,7 @@ function renderPreview(st: IngressState, driver: IngressDriverId): RenderedConfi
       ...base,
       files: [{ path: '/etc/caddy/Caddyfile', mode: 0o644, contents: body }],
       reloadCommand: ['caddy', 'reload', '--config', '/etc/caddy/Caddyfile'],
-      summary: `Caddy · ${routes.length} site(s) · automatic HTTPS${st.haConfigured ? ' · HA storage (Redis)' : ''}${
+      summary: `Caddy · ${routes.length} site(s) · automatic HTTPS${st.topology === 'edge-per-node' ? ' · shared certificates (object storage)' : ''}${
         st.onDemandTls ? ' · on-demand TLS' : ''
       }`,
     };
@@ -458,14 +462,6 @@ export const ingress: DomainResolvers = {
       return renderPreview(st, driver);
     },
 
-    'ingress.setHaStorage': (i, s): IngressConfigView => {
-      const input = i as { host: string } | null;
-      const st = getState(s);
-      st.haConfigured = input != null;
-      st.updatedAt = nowIso();
-      return toConfigView(st);
-    },
-
     'ingress.setOnDemandTls': (i, s): IngressConfigView => {
       const b = i as { enabled: boolean; askUrl?: string };
       const st = getState(s);
@@ -550,12 +546,11 @@ export const ingress: DomainResolvers = {
   seed: (store) => {
     // A coherent slice of the demo cluster: Caddy live, three public hostnames
     // pointed at the ingress-enabled services (web/api/cdn/grafana from data.ts),
-    // HA cert storage on, on-demand TLS off, no tunnel yet.
+    // on-demand TLS off, no tunnel yet.
     const state: IngressState = {
       driver: 'caddy',
       enabled: true,
       targetNodes: ['n-mgr-1', 'n-mgr-2'],
-      haConfigured: true,
       onDemandTls: false,
       onDemandAskUrl: null,
       controllerImage: null,

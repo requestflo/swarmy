@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { IngressConfigSchema } from '../types';
-import { CaddyDriver } from './caddy';
+import { CaddyDriver, isStockCaddyImage, SWARMY_CADDY_IMAGE } from './caddy';
 
 const driver = new CaddyDriver();
 
@@ -201,6 +201,81 @@ describe('caddy render/apply — edge-per-node via in-task exec on EVERY edge no
   it('warns (non-blocking) when no shared cert storage backs the edge', () => {
     const res = driver.validate(config);
     expect(res.ok).toBe(true);
-    expect(warningPaths(res)).toContain('globalOptions.haStorage');
+    expect(warningPaths(res)).toContain('globalOptions.certStorage');
+  });
+});
+
+describe('caddy shared certificate storage (storage s3)', () => {
+  const certStorage = {
+    kind: 's3' as const,
+    endpoint: 'http://swarmy-garage:3900',
+    bucket: 'swarmy-edge-certs',
+    region: 'garage',
+    prefix: 'caddy/org_1',
+  };
+  const config = (extraConfig: Record<string, unknown>) =>
+    IngressConfigSchema.parse({
+      driver: 'caddy',
+      orgId: 'org_1',
+      domains: [{ domain: 'app.example.test', service: 'web', port: 80 }],
+      globalOptions: { certStorage, extraConfig },
+    });
+
+  it('renders a global storage s3 block with coordinates only — no credential directives', () => {
+    const body = driver.render(config({ applyVia: 'local', controllerImage: SWARMY_IMAGE })).localReload!.file!
+      .contents;
+    const block = body.slice(body.indexOf('storage s3 {'), body.indexOf('}', body.indexOf('storage s3 {')) + 1);
+    expect(block).toBe(
+      [
+        'storage s3 {',
+        '    endpoint http://swarmy-garage:3900',
+        '    bucket swarmy-edge-certs',
+        '    region garage',
+        '    prefix caddy/org_1',
+        '    use_path_style true',
+        '  }',
+      ].join('\n'),
+    );
+    expect(body).not.toMatch(/access_key|secret_key|encryption_key|password/);
+  });
+
+  it('the schema cannot even carry credentials', () => {
+    const parsed = IngressConfigSchema.parse({
+      driver: 'caddy',
+      orgId: 'org_1',
+      globalOptions: { certStorage: { ...certStorage, secretKey: 'nope', accessKey: 'nope' } },
+    });
+    expect(Object.keys(parsed.globalOptions.certStorage!)).not.toContain('secretKey');
+    expect(driver.render(parsed).files.map((f) => f.contents).join('')).not.toContain('nope');
+  });
+
+  it('no storage block (local file storage) without certStorage', () => {
+    const plain = IngressConfigSchema.parse({ driver: 'caddy', orgId: 'org_1', globalOptions: {} });
+    expect(driver.render(plain).files.map((f) => f.contents).join('')).not.toContain('storage');
+  });
+
+  it('hard-errors when shared storage meets a stock caddy image', () => {
+    const res = driver.validate(config({ applyVia: 'local', controllerImage: 'caddy:2-alpine' }));
+    expect(res.ok).toBe(false);
+    expect(res.ok ? [] : res.errors.map((e) => e.message).join(' ')).toContain('certmagic-s3');
+    expect(driver.validate(config({ applyVia: 'local', controllerImage: SWARMY_IMAGE })).ok).toBe(true);
+  });
+
+  it('edge-per-node WITH shared storage does not carry the per-node issuance warning', () => {
+    const res = driver.validate(config({ applyVia: 'local', controllerImage: SWARMY_IMAGE }));
+    expect(warningPaths(res)).not.toContain('globalOptions.certStorage');
+  });
+});
+
+describe('isStockCaddyImage', () => {
+  it('recognises stock caddy references (and treats unknown as stock)', () => {
+    for (const img of ['', 'caddy', 'caddy:2-alpine', 'caddy:2.11.4', 'docker.io/library/caddy:2', 'caddy@sha256:abc']) {
+      expect(isStockCaddyImage(img)).toBe(true);
+    }
+  });
+  it('swarmy build and custom registries are not stock', () => {
+    for (const img of [SWARMY_CADDY_IMAGE, 'ghcr.io/example/caddy-swarmy:2', 'registry.local:5000/caddy:2']) {
+      expect(isStockCaddyImage(img)).toBe(false);
+    }
   });
 });

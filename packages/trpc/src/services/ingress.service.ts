@@ -7,7 +7,6 @@ import {
   type ColdRoute,
   type ControllerVhost,
   type DriverDispatch,
-  type HaStorage,
   type IngressConfig as OrgIngressConfig,
   type RouteProtection,
   type TunnelOptions,
@@ -48,6 +47,12 @@ import {
 import { regionUpstreamsFor } from './ingress-regions';
 import { attachRoutedServicesToEdge } from './ingress-network';
 import { publicIpFromLabels } from './node.service';
+import { objectStoreState } from './buckets.service';
+import {
+  certStorageFor,
+  ensureEdgeCertStorage,
+  type EdgeCertStorageSettings,
+} from './ingress-certs';
 
 /** Service label that marks a Docker service as ingress-enabled (replaces the dropped column). */
 const INGRESS_ENABLED_LABEL = 'swarmy.ingress';
@@ -153,12 +158,19 @@ export interface IngressConfigView {
   enabled: boolean;
   targetNodes: string[];
   domainCount: number;
-  /** Whether Caddy HA shared-storage is configured (secrets never returned). */
-  haConfigured: boolean;
+  /**
+   * Where the edge keeps its certificates. `shared` = every edge-per-node Caddy
+   * uses ONE store in swarmy object storage (bucket `swarmy-edge-certs`);
+   * `local` = Caddy's own data volume (the single-controller default, or
+   * edge-per-node before object storage is on). Credentials are never returned.
+   */
+  certStorage: EdgeCertStorageView;
   /** Whether a Cloudflare tunnel is configured (secrets never returned). */
   tunnelConfigured: boolean;
-  /** Custom ingress-controller image (null = the stock caddy:2-alpine). */
+  /** Custom ingress-controller image (null = {@link IngressConfigView.defaultControllerImage}). */
   controllerImage: string | null;
+  /** The image deployed when no custom one is set (swarmy's Caddy build unless overridden by env). */
+  defaultControllerImage: string;
   /** Edge topology: replicated controller vs global per-node edge (geo-edge). */
   topology: 'controller' | 'edge-per-node';
   /**
@@ -178,6 +190,16 @@ export interface IngressConfigView {
    * `driver`/`enabled` alone. Status badges must read this, not the config.
    */
   runtime: EdgeRuntimeStatus;
+}
+
+export interface EdgeCertStorageView {
+  mode: 'shared' | 'local';
+  /** Running Caddy edges drawing on the store (0 while none are up). */
+  edges: number;
+  /** swarmy object storage (Garage) is on — edge-per-node requires it. */
+  objectStorageEnabled: boolean;
+  /** Bucket holding the shared pool (null when local). */
+  bucket: string | null;
 }
 
 export interface DomainView {
@@ -254,24 +276,19 @@ interface IngressSettings {
   topology?: 'controller' | 'edge-per-node';
   globalOptions?: Record<string, unknown>;
   /**
-   * Ingress-controller image `ensureCaddyController` deploys. Unset = the stock
-   * caddy:2-alpine. Set to the swarmy build (docker/caddy-swarmy) to enable
-   * per-route rate limits (mholt/caddy-ratelimit is compiled in).
+   * Caddy image both topologies deploy. Unset = {@link defaultEdgeImage}
+   * (swarmy's Caddy build, `ghcr.io/requestflo/caddy-swarmy:latest`, which
+   * carries every plugin the renderer can emit).
    */
   controllerImage?: string;
-  /** Caddy HA Redis coords (non-secret) + encrypted secret refs. */
-  haStorage?: {
-    host: string;
-    port?: number;
-    db?: number;
-    keyPrefix?: string;
-    tlsEnabled?: boolean;
-    username?: string;
-    /** encrypted */
-    passwordEnc?: string;
-    /** encrypted */
-    encryptionKeyEnc?: string;
-  };
+  /**
+   * Shared cert store for edge-per-node (swarmy object storage). Non-secret
+   * coordinates only — the credentials live solely in the Docker secret it
+   * names. Kept across a switch back to `controller` (that topology renders
+   * local file storage), so returning to edge-per-node reuses the pool.
+   * (Legacy `haStorage` Redis settings from older builds are ignored.)
+   */
+  certStorage?: EdgeCertStorageSettings;
   /** Cloudflare tunnel coords (non-secret) + encrypted secret refs. */
   tunnel?: {
     provider?: 'cloudflare';
@@ -292,22 +309,6 @@ interface IngressSettings {
 
 function readSettings(row: ConfigRow): IngressSettings {
   return (row.settings as IngressSettings | null) ?? {};
-}
-
-/** Resolve persisted HA settings into the render-time {@link HaStorage} (decrypts). */
-function resolveHaStorage(s: IngressSettings): HaStorage | undefined {
-  const ha = s.haStorage;
-  if (!ha) return undefined;
-  return {
-    host: ha.host,
-    port: ha.port ?? 6379,
-    db: ha.db ?? 0,
-    keyPrefix: ha.keyPrefix ?? 'caddy',
-    tlsEnabled: ha.tlsEnabled ?? false,
-    username: ha.username,
-    password: ha.passwordEnc ? decryptSecret(ha.passwordEnc) : undefined,
-    encryptionKey: ha.encryptionKeyEnc ? decryptSecret(ha.encryptionKeyEnc) : undefined,
-  };
 }
 
 /** Resolve persisted tunnel settings into render-time {@link TunnelOptions} (decrypts). */
@@ -483,13 +484,15 @@ type Topology = NonNullable<IngressSettings['topology']>;
  */
 async function loadOrgConfig(
   ctx: OrgContext,
-  overrides: { topology?: Topology } = {},
+  overrides: { topology?: Topology; certStorage?: EdgeCertStorageSettings } = {},
 ): Promise<OrgIngressConfig> {
   const row = await ensureConfig(ctx);
   const persisted = readSettings(row);
-  const settings: IngressSettings = overrides.topology
-    ? { ...persisted, topology: overrides.topology }
-    : persisted;
+  const settings: IngressSettings = {
+    ...persisted,
+    ...(overrides.topology ? { topology: overrides.topology } : {}),
+    ...(overrides.certStorage ? { certStorage: overrides.certStorage } : {}),
+  };
   // Per-service routes are Docker-truth: read straight off the live service labels,
   // never the DB. The owning service of a route supplies the upstream name.
   const serviceRoutes = listRoutesForOrg(ctx);
@@ -501,14 +504,14 @@ async function loadOrgConfig(
   const extraConfig: Record<string, unknown> = {
     ...((baseGlobal?.extraConfig as Record<string, unknown> | undefined) ?? {}),
   };
-  if (settings.controllerImage) extraConfig.controllerImage = settings.controllerImage;
+  // validate() must judge the image Caddy really runs — the configured one, else
+  // the default swarmy build (both topologies deploy it).
+  extraConfig.controllerImage = settings.controllerImage ?? defaultEdgeImage();
   // Edge-per-node topology renders per node (region-aware) and each node's
   // agent writes its config INSIDE its local edge task, then reloads — see
-  // caddy driver applyVia 'local'. validate() must judge the image the edge
-  // really runs, so thread the effective edge image when none is configured.
+  // caddy driver applyVia 'local'.
   if (settings.topology === 'edge-per-node') {
     extraConfig.applyVia = 'local';
-    if (!settings.controllerImage) extraConfig.controllerImage = defaultEdgeImage();
   }
   // Replicated controller (default topology): deliver config by exec'ing into
   // the controller task on the node that hosts it. The legacy default ('file')
@@ -553,8 +556,14 @@ async function loadOrgConfig(
       ...baseGlobal,
       extraConfig,
       tracing,
+      // Shared cert store: edge-per-node only (the single controller keeps
+      // Caddy's local file storage — nothing to coordinate, and no dependency
+      // on object storage for the only edge). Coordinates only — no secrets.
+      certStorage:
+        settings.topology === 'edge-per-node' && settings.certStorage
+          ? certStorageFor(settings.certStorage)
+          : undefined,
       // Promote the load-bearing (encrypted) options, resolving secrets JIT.
-      haStorage: resolveHaStorage(settings),
       tunnel: resolveTunnel(settings),
     },
   };
@@ -712,7 +721,10 @@ async function deployTopology(
   settings: IngressSettings,
 ): Promise<void> {
   if (topology === 'edge-per-node') {
-    await ensureCaddyEdge(ctx, { image: settings.controllerImage ?? undefined });
+    await ensureCaddyEdge(ctx, {
+      image: settings.controllerImage ?? undefined,
+      certStoreSecret: settings.certStorage?.secretName,
+    });
     return;
   }
   const extra = (settings.globalOptions?.extraConfig ?? {}) as Record<string, unknown>;
@@ -721,6 +733,23 @@ async function deployTopology(
     targetNodes: settings.targetNodes ?? [],
     adminOnOverlay: extra.applyVia === 'admin',
   });
+}
+
+/** Cert-store truth for the topology card (never a credential). */
+async function certStorageView(
+  ctx: OrgContext,
+  row: ConfigRow,
+  settings: IngressSettings,
+): Promise<EdgeCertStorageView> {
+  const shared = (settings.topology ?? 'controller') === 'edge-per-node' && Boolean(settings.certStorage);
+  const edges = driverLower(row.driver) === 'caddy' ? (await ingressTaskNodes(ctx)).length : 0;
+  const store = await objectStoreState(ctx).catch(() => ({ enabled: false as const }));
+  return {
+    mode: shared ? 'shared' : 'local',
+    edges,
+    objectStorageEnabled: store.enabled,
+    bucket: shared ? settings.certStorage!.bucket : null,
+  };
 }
 
 export async function getConfig(ctx: OrgContext): Promise<IngressConfigView> {
@@ -733,9 +762,10 @@ export async function getConfig(ctx: OrgContext): Promise<IngressConfigView> {
     enabled: row.enabled,
     targetNodes: settings.targetNodes ?? [],
     domainCount,
-    haConfigured: Boolean(settings.haStorage),
+    certStorage: await certStorageView(ctx, row, settings),
     tunnelConfigured: Boolean(settings.tunnel?.tunnelId),
     controllerImage: settings.controllerImage ?? null,
+    defaultControllerImage: defaultEdgeImage(),
     topology: settings.topology ?? 'controller',
     dashboardDomain: dashboardDomainFor(settings),
     dashboardWarning: dashboardDriverWarning(driverLower(row.driver), row.enabled, dashboardDomainFor(settings)),
@@ -755,8 +785,10 @@ export async function getConfig(ctx: OrgContext): Promise<IngressConfigView> {
  * is a brief gap on 80/443 while the new tasks start.
  *
  * Ordering is what keeps settings honest:
- *   1. preflight (driver config validates under the new topology; edge-per-node
- *      has at least one ingress-labelled node to land on) — nothing touched yet;
+ *   1. preflight (edge-per-node has at least one ingress-labelled node to land
+ *      on AND swarmy object storage is on; the shared cert store — bucket
+ *      `swarmy-edge-certs`, a scoped key, its Docker secret — is ensured; the
+ *      driver config validates under the new topology) — no service touched yet;
  *   2. deploy; on failure, best-effort restore the previous topology and throw
  *      — the persisted setting is NOT changed;
  *   3. only then persist `topology`, and re-apply routes.
@@ -785,7 +817,22 @@ export async function setTopology(
           'so it would schedule nowhere. Mark at least one node as ingress first.',
       });
     }
-    const target = IngressConfigSchema.parse(await loadOrgConfig(ctx, { topology }));
+    // Edge-per-node shares ONE certificate store in swarmy object storage —
+    // without it each edge issues alone and geo-DNS breaks ACME validation.
+    // Refuses (PRECONDITION_FAILED) while object storage is off; otherwise the
+    // bucket + scoped key + Docker secret are ensured (idempotent). Persisted
+    // right away (coordinates only) so a failed deploy never re-mints a key.
+    let next: IngressSettings = settings;
+    if (topology === 'edge-per-node') {
+      const certs = await ensureEdgeCertStorage(ctx, settings.certStorage);
+      next = { ...settings, certStorage: certs.settings };
+      if (certs.created) {
+        await patchSettings(ctx, (prev) => ({ ...prev, certStorage: certs.settings }));
+      }
+    }
+    const target = IngressConfigSchema.parse(
+      await loadOrgConfig(ctx, { topology, certStorage: next.certStorage }),
+    );
     const validation = defaultIngressRegistry.get(target.driver).validate(target);
     if (!validation.ok) {
       throw new TRPCError({
@@ -794,7 +841,7 @@ export async function setTopology(
       });
     }
     try {
-      await deployTopology(ctx, topology, settings);
+      await deployTopology(ctx, topology, next);
     } catch (e) {
       recordApply(ctx.activeOrgId, false, `topology switch to ${topology} failed: ${errMessage(e)}`);
       // The swap may have removed the old service already — put it back so the
@@ -902,50 +949,6 @@ async function patchSettings(
     where: { orgId: ctx.activeOrgId },
     data: { settings: next as object },
   });
-}
-
-/**
- * Configure (or clear) Caddy HA shared-cert storage. Secrets are encrypted at
- * rest via the credential vault; only non-secret coords are stored in the clear.
- */
-export async function setHaStorage(
-  ctx: OrgContext,
-  input:
-    | {
-        host: string;
-        port?: number;
-        db?: number;
-        keyPrefix?: string;
-        tlsEnabled?: boolean;
-        username?: string;
-        password?: string;
-        encryptionKey?: string;
-      }
-    | null,
-): Promise<IngressConfigView> {
-  await patchSettings(ctx, (s) => ({
-    ...s,
-    haStorage: input
-      ? {
-          host: input.host,
-          port: input.port ?? 6379,
-          db: input.db ?? 0,
-          keyPrefix: input.keyPrefix ?? `caddy_${ctx.activeOrgId}`,
-          tlsEnabled: input.tlsEnabled ?? false,
-          username: input.username,
-          passwordEnc: input.password ? encryptSecret(input.password) : undefined,
-          encryptionKeyEnc: input.encryptionKey ? encryptSecret(input.encryptionKey) : undefined,
-        }
-      : undefined,
-  }));
-  await writeAudit(ctx, {
-    action: input ? 'ingress.setHaStorage' : 'ingress.clearHaStorage',
-    targetType: 'ingressConfig',
-    targetId: ctx.activeOrgId,
-    metadata: { host: input?.host ?? null },
-  });
-  await reapply(ctx);
-  return getConfig(ctx);
 }
 
 /** Toggle on-demand TLS + record the controller `ask` endpoint. */
@@ -1324,6 +1327,34 @@ export interface IngressReconcileResult {
 /** Last time (ms) the reconcile re-deployed a missing controller, per org. */
 const lastConvergeAt = new Map<string, number>();
 const CONVERGE_RETRY_MS = 60_000;
+/** Last time (ms) the reconcile tried to provision the edge cert store, per org. */
+const lastCertStoreAt = new Map<string, number>();
+
+/**
+ * Provision the shared cert store for a live edge-per-node org, persist its
+ * coordinates, and redeploy the edge with the credentials secret mounted. The
+ * next tick's render then carries the `storage s3` block. Returns an error
+ * message (recorded on `runtime`) or null.
+ */
+async function adoptEdgeCertStorage(ctx: OrgContext): Promise<string | null> {
+  try {
+    const current = readSettings(await ensureConfig(ctx)).certStorage;
+    const certs = await ensureEdgeCertStorage(ctx, current);
+    await patchSettings(ctx, (prev) => ({ ...prev, certStorage: certs.settings }));
+    await writeAudit(ctx, {
+      action: 'ingress.provisionCertStorage',
+      actorType: 'system',
+      targetType: 'ingressConfig',
+      targetId: ctx.activeOrgId,
+      metadata: { bucket: certs.settings.bucket, accessKeyId: certs.settings.accessKeyId },
+    }).catch(() => undefined);
+  } catch (e) {
+    const message = `could not set up shared certificate storage: ${errMessage(e)}`;
+    recordApply(ctx.activeOrgId, false, message);
+    return message;
+  }
+  return convergeEdge(ctx);
+}
 
 /**
  * Ingress reconcile (one org, one tick) — the safety net that makes routes
@@ -1383,6 +1414,22 @@ export async function reconcileIngressOrg(
         return { signature: null, skipped: false, applied: false, error: error ?? undefined };
       }
       return { signature: null, skipped: true, applied: false };
+    }
+  }
+
+  // Edge-per-node without the shared cert store (switched before it existed,
+  // or object storage turned on since): provision it and roll the edge onto
+  // the credentials secret — zero setup. Waits quietly while object storage is
+  // off (the topology card says why). Rate-limited like the converges above.
+  if (swarmyRunsCaddy && ctx.hub.managerNode(orgId)) {
+    const settings = readSettings(await ensureConfig(ctx));
+    if (settings.topology === 'edge-per-node' && !settings.certStorage) {
+      const last = lastCertStoreAt.get(orgId) ?? 0;
+      if (Date.now() - last >= CONVERGE_RETRY_MS && (await objectStoreState(ctx)).enabled) {
+        lastCertStoreAt.set(orgId, Date.now());
+        const error = await adoptEdgeCertStorage(ctx);
+        return { signature: null, skipped: false, applied: false, error: error ?? undefined };
+      }
     }
   }
 

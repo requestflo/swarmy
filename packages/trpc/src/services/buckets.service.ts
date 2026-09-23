@@ -1071,3 +1071,93 @@ export async function detach(
   });
   return { appService: app.name, bucket: bucketName, detached: true };
 }
+
+// ── swarmy-internal buckets (platform plumbing, e.g. the edge cert store) ─────
+
+/** Id of the bucket whose global aliases include `alias` in `GET /v1/bucket?list` JSON. Pure. */
+export function findBucketIdByAlias(listJson: unknown, alias: string): string | undefined {
+  if (!Array.isArray(listJson)) return undefined;
+  for (const b of listJson) {
+    if (!b || typeof b !== 'object') continue;
+    const { id, globalAliases } = b as { id?: unknown; globalAliases?: unknown };
+    if (typeof id === 'string' && Array.isArray(globalAliases) && globalAliases.includes(alias)) {
+      return id;
+    }
+  }
+  return undefined;
+}
+
+/** Whether the org's replicated object store is on (+ its SigV4 region). No Garage call. */
+export async function objectStoreState(
+  ctx: OrgContext,
+): Promise<{ enabled: false } | { enabled: true; region: string; endpoint: string }> {
+  // Same predicate as loadStore, without decrypting the admin token.
+  const row = await ctx.db.storageCluster.findUnique({ where: { orgId: ctx.activeOrgId } });
+  if (!row || !row.enabled || row.driver === 'NONE' || !row.adminTokenRef) return { enabled: false };
+  return { enabled: true, region: row.region, endpoint: garageS3Endpoint() };
+}
+
+export interface SystemBucketCredential {
+  bucketId: string;
+  bucket: string;
+  accessKeyId: string;
+  /** Returned ONCE — the caller must put it straight into a Docker secret. */
+  secretAccessKey: string;
+  region: string;
+  endpoint: string;
+}
+
+/**
+ * Ensure a swarmy-internal bucket exists (found by alias, else created) and mint
+ * a key granted read+write on it — never owner, never any other bucket. The
+ * bucket half is idempotent; a NEW key is minted on every call, so callers call
+ * this only when they hold no usable credential. The secret is returned once
+ * and never persisted controller-side (same contract as {@link createKey}).
+ */
+export async function provisionSystemBucketKey(
+  ctx: OrgContext,
+  input: { bucket: string; keyName: string },
+): Promise<SystemBucketCredential> {
+  const store = await requireStore(ctx);
+  const listBody = await garageAdmin(ctx, store, { method: 'GET', path: '/bucket?list' });
+  let bucketId = findBucketIdByAlias(parseJson<unknown>(listBody, 'bucket list'), input.bucket);
+  if (!bucketId) {
+    const body = await garageAdmin(ctx, store, {
+      method: 'POST',
+      path: '/bucket',
+      body: JSON.stringify({ globalAlias: input.bucket }),
+    });
+    bucketId = normalizeBucketInfo(parseJson<unknown>(body, 'bucket')).id;
+    if (!bucketId) throw commandRejected('object store did not return a bucket id');
+  }
+  const key = await mintKey(ctx, store, input.keyName);
+  await garageAdmin(ctx, store, {
+    method: 'POST',
+    path: '/bucket/allow',
+    body: buildGrantBody(bucketId, key.accessKeyId, { read: true, write: true, owner: false }),
+  });
+  await writeAudit(ctx, {
+    action: 'buckets.provisionSystemKey',
+    targetType: 'bucket',
+    targetId: bucketId,
+    metadata: { bucket: input.bucket, accessKeyId: key.accessKeyId, keyName: input.keyName },
+  });
+  return {
+    bucketId,
+    bucket: input.bucket,
+    accessKeyId: key.accessKeyId,
+    secretAccessKey: key.secretAccessKey,
+    region: store.region,
+    endpoint: garageS3Endpoint(),
+  };
+}
+
+/** Best-effort revoke of a swarmy-internal key (a superseded credential). Never throws. */
+export async function revokeSystemKey(ctx: OrgContext, accessKeyId: string): Promise<void> {
+  const store = await loadStore(ctx);
+  if (!store) return;
+  await garageAdmin(ctx, store, {
+    method: 'DELETE',
+    path: `/key?id=${encodeURIComponent(accessKeyId)}`,
+  }).catch(() => undefined);
+}

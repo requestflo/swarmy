@@ -15,7 +15,6 @@ import {
   setControllerImage,
   setDriver,
   setEnabled,
-  setHaStorage,
   setOnDemandTls,
   setTargetNodes,
   setTunnel,
@@ -135,24 +134,6 @@ export const ingressRouter = router({
   detectPorts: orgProcedure
     .input(z.object({ serviceId: z.string() }))
     .query(({ ctx, input }) => detectServicePorts(ctx, input.serviceId)),
-
-  /** Configure Caddy HA shared-cert storage (Redis). `null` clears it. */
-  setHaStorage: adminProcedure
-    .input(
-      z
-        .object({
-          host: z.string().min(1),
-          port: z.number().int().min(1).max(65535).optional(),
-          db: z.number().int().nonnegative().optional(),
-          keyPrefix: z.string().optional(),
-          tlsEnabled: z.boolean().optional(),
-          username: z.string().optional(),
-          password: z.string().optional(),
-          encryptionKey: z.string().optional(),
-        })
-        .nullable(),
-    )
-    .mutation(({ ctx, input }) => setHaStorage(ctx, input)),
 
   /** Toggle on-demand TLS + set the controller `ask` endpoint URL. */
   setOnDemandTls: adminProcedure
