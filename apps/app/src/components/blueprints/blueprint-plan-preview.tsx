@@ -3,7 +3,12 @@ import { Loader2Icon } from 'lucide-react';
 import type { BlueprintPlanView } from '@swarmy/core';
 import { Button } from '@swarmy/ui';
 
-/** Step 2 of the wizard: the dry-run — exactly what deploy will create. */
+/**
+ * Step 2 of the wizard: the dry-run — exactly what deploy will create.
+ * Lives inside a gallery card, so everything wraps (`min-w-0` + `break-all`
+ * on mono values) and the action row can never push the confirm button out
+ * of view at any card width.
+ */
 export function BlueprintPlanPreview({
   plan,
   loading,
@@ -31,7 +36,9 @@ export function BlueprintPlanPreview({
   if (error || !plan) {
     return (
       <div className="space-y-3 py-2">
-        <p className="text-status-offline text-sm">{error ?? "Couldn't build the plan."}</p>
+        <p className="text-status-offline text-sm break-words">
+          {error ?? "Couldn't build the plan."}
+        </p>
         <Button variant="outline" className="rounded-full font-bold" onClick={onBack}>
           Back
         </Button>
@@ -39,34 +46,47 @@ export function BlueprintPlanPreview({
     );
   }
   return (
-    <div className="space-y-4">
-      <p className="text-sm font-medium">{plan.summary}</p>
-      <ol className="divide-border divide-y rounded-xl border">
+    <div className="min-w-0 space-y-4">
+      <p className="text-sm font-medium break-words">{plan.summary}</p>
+      <ol className="divide-border min-w-0 divide-y overflow-hidden rounded-xl border">
         {plan.steps.map((step, i) => (
-          <li key={`${step.kind}-${i}`} className="flex items-start gap-3 px-3 py-2.5">
-            <span className="mono-data text-muted-foreground pt-0.5 text-xs">{i + 1}</span>
-            <div className="min-w-0">
-              <p className="text-sm font-medium">{step.label}</p>
-              <p className="mono-data text-muted-foreground truncate text-[11px]">
-                {Object.entries(step.detail)
-                  .map(([k, v]) => `${k}=${v}`)
-                  .join(' · ')}
+          <li key={`${step.kind}-${i}`} className="flex min-w-0 items-start gap-3 px-3 py-2.5">
+            <span className="mono-data text-muted-foreground shrink-0 pt-0.5 text-xs">{i + 1}</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium break-words">{step.label}</p>
+              <p className="mono-data text-muted-foreground text-[11px] leading-relaxed break-all">
+                {Object.entries(step.detail).map(([k, v], j) => (
+                  <React.Fragment key={k}>
+                    {j > 0 ? <span className="text-border mx-1">·</span> : null}
+                    <span className="text-foreground/70">{k}=</span>
+                    {v}
+                  </React.Fragment>
+                ))}
               </p>
             </div>
           </li>
         ))}
       </ol>
-      <div className="flex items-center justify-between gap-2">
-        <Button variant="ghost" className="rounded-full font-bold" onClick={onBack} disabled={deploying}>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button
+          variant="ghost"
+          className="rounded-full font-bold"
+          onClick={onBack}
+          disabled={deploying}
+        >
           Back
         </Button>
-        <Button className="rounded-full font-bold" onClick={onDeploy} disabled={deploying}>
+        <Button
+          className="max-w-full min-w-0 rounded-full font-bold"
+          onClick={onDeploy}
+          disabled={deploying}
+        >
           {deploying ? (
             <>
               <Loader2Icon className="size-4 animate-spin" /> Deploying…
             </>
           ) : (
-            `Deploy ${plan.stackName}`
+            <span className="truncate">Deploy {plan.stackName}</span>
           )}
         </Button>
       </div>

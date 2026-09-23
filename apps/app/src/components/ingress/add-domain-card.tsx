@@ -14,6 +14,7 @@ import {
   toast,
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { PrivateHostNote } from './private-host-note';
 
 interface AddDomainCardProps {
   stack: string;
@@ -64,6 +65,7 @@ export function AddDomainCard({ stack, open, onOpenChange }: AddDomainCardProps)
             <div className="grid gap-1.5">
               <Label className="mono-label">Host</Label>
               <Input value={host} onChange={(e) => setHost(e.target.value)} placeholder="app.example.com" />
+              <PrivateHostNote host={host} />
             </div>
             <div className="grid gap-1.5">
               <Label className="mono-label">Path prefix (optional)</Label>

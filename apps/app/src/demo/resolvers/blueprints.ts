@@ -194,36 +194,36 @@ function planSteps(id: string, p: BlueprintParamsInput): BlueprintPlanStepView[]
   switch (id) {
     case 'node-api': {
       if (boolOpt(p, 'database', true)) steps.push(dbStep(n, size));
-      steps.push(deployStep(n, [`${n}-api`]));
-      if (p.domain) steps.push(routeStep(`${n}-api`, p.domain, Number(strOpt(p, 'port', '3000')) || 3000));
+      steps.push(deployStep(n, ['api']));
+      if (p.domain) steps.push(routeStep('api', p.domain, Number(strOpt(p, 'port', '3000')) || 3000));
       break;
     }
     case 'nextjs-app': {
       if (boolOpt(p, 'bucket', false)) steps.push(bucketStep(`${n}-uploads`));
-      steps.push(deployStep(n, [`${n}-web`]));
-      if (p.domain) steps.push(routeStep(`${n}-web`, p.domain, 3000));
+      steps.push(deployStep(n, ['web']));
+      if (p.domain) steps.push(routeStep('web', p.domain, 3000));
       break;
     }
     case 'static-site': {
-      steps.push(deployStep(n, [`${n}-site`]));
-      if (p.domain) steps.push(routeStep(`${n}-site`, p.domain, 80));
+      steps.push(deployStep(n, ['site']));
+      if (p.domain) steps.push(routeStep('site', p.domain, 80));
       break;
     }
     case 'wordpress': {
-      steps.push(secretStep(`${n}-db-password`), deployStep(n, [`${n}-db`, `${n}-wordpress`]));
-      if (p.domain) steps.push(routeStep(`${n}-wordpress`, p.domain, 80));
+      steps.push(secretStep(`${n}-db-password`), deployStep(n, ['db', 'wordpress']));
+      if (p.domain) steps.push(routeStep('wordpress', p.domain, 80));
       break;
     }
     case 'n8n': {
-      steps.push(dbStep(n, size), secretStep(`${n}-encryption-key`), deployStep(n, [`${n}-n8n`]));
-      if (p.domain) steps.push(routeStep(`${n}-n8n`, p.domain, 5678));
+      steps.push(dbStep(n, size), secretStep(`${n}-encryption-key`), deployStep(n, ['n8n']));
+      if (p.domain) steps.push(routeStep('n8n', p.domain, 5678));
       break;
     }
     case 'directus': {
       steps.push(dbStep(n, size), secretStep(`${n}-secret`), secretStep(`${n}-admin-password`));
       if (boolOpt(p, 's3Uploads', false)) steps.push(bucketStep(`${n}-uploads`));
-      steps.push(deployStep(n, [`${n}-directus`]));
-      if (p.domain) steps.push(routeStep(`${n}-directus`, p.domain, 8055));
+      steps.push(deployStep(n, ['directus']));
+      if (p.domain) steps.push(routeStep('directus', p.domain, 8055));
       break;
     }
     case 'worker-with-queue': {
@@ -234,16 +234,16 @@ function planSteps(id: string, p: BlueprintParamsInput): BlueprintPlanStepView[]
           label: 'Provision Valkey cache',
           detail: { cluster: 'cache', engine: 'valkey', memory: `${c.mb} MB`, topology: c.topology },
         },
-        deployStep(n, [`${n}-worker`]),
+        deployStep(n, ['worker']),
       );
       break;
     }
     case 'meilisearch-app': {
       const withApp = boolOpt(p, 'app', true);
-      const services = withApp ? [`${n}-search`, `${n}-app`] : [`${n}-search`];
+      const services = withApp ? ['search', 'app'] : ['search'];
       steps.push(secretStep(`${n}-master-key`), deployStep(n, services));
       if (p.domain) {
-        steps.push(withApp ? routeStep(`${n}-app`, p.domain, 3000) : routeStep(`${n}-search`, p.domain, 7700));
+        steps.push(withApp ? routeStep('app', p.domain, 3000) : routeStep('search', p.domain, 7700));
       }
       break;
     }

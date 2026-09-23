@@ -13,7 +13,13 @@ import {
   FormMessage,
   Input,
 } from '@swarmy/ui';
-import { BlueprintOptionField, BlueprintSizePicker } from './blueprint-option-fields';
+import { useOnlineNodeCount } from '@/lib/use-online-node-count';
+import { PrivateHostNote } from '@/components/ingress/private-host-note';
+import {
+  BlueprintOptionField,
+  BlueprintSizePicker,
+  defaultSizeForNodes,
+} from './blueprint-option-fields';
 
 /** UI-local relaxation: an empty domain field means "no route". */
 const FormSchema = BlueprintParamsInput.extend({
@@ -33,11 +39,24 @@ export function BlueprintParamsForm({
   meta: BlueprintMetaView;
   onSubmit: (params: BlueprintParamsInput) => void;
 }): React.JSX.Element {
+  const onlineNodes = useOnlineNodeCount();
   const form = useForm<FormValues>({
     resolver: zodResolver(FormSchema),
-    defaultValues: { name: '', domain: '', size: 'm', options: defaultOptions(meta) },
+    defaultValues: {
+      name: '',
+      domain: '',
+      size: defaultSizeForNodes(onlineNodes),
+      options: defaultOptions(meta),
+    },
   });
+  // The nodes list may land after mount: follow it until the user picks a size.
+  const sizeTouched = React.useRef(false);
+  React.useEffect(() => {
+    if (!sizeTouched.current) form.setValue('size', defaultSizeForNodes(onlineNodes));
+  }, [form, onlineNodes]);
+
   const size = form.watch('size') ?? 'm';
+  const domain = form.watch('domain') ?? '';
   const options = form.watch('options') ?? {};
   const setOpt = (key: string, value: string | boolean): void =>
     form.setValue('options', { ...options, [key]: value }, { shouldValidate: false });
@@ -83,12 +102,20 @@ export function BlueprintParamsForm({
                 <p className="text-muted-foreground text-xs">
                   Adds an ingress route with automatic TLS. Leave empty to skip.
                 </p>
+                <PrivateHostNote host={domain} />
                 <FormMessage />
               </FormItem>
             )}
           />
         ) : null}
-        <BlueprintSizePicker value={size} onChange={(s) => form.setValue('size', s)} />
+        <BlueprintSizePicker
+          value={size}
+          onlineNodes={onlineNodes}
+          onChange={(s) => {
+            sizeTouched.current = true;
+            form.setValue('size', s);
+          }}
+        />
         {meta.options.map((opt) => (
           <BlueprintOptionField
             key={opt.key}

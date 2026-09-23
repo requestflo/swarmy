@@ -148,6 +148,13 @@ function portOpt(p: Params, key: string, fallback: number): number {
 
 // ── Compose builder (pure YAML; NEVER carries a credential) ───────────────────
 
+/**
+ * Compose service keys are STACK-AGNOSTIC (`db`, `wordpress`, `api` …): the
+ * compose deploy already namespaces them to `<stack>_<key>` (and volumes to
+ * `<stack>_<vol>`), so a key that repeated the stack name would deploy as
+ * `wp_wp-wordpress`. Plan steps (wires, post-labels, routes) name services by
+ * this same short key; `stackServiceName` resolves the live swarm name.
+ */
 interface ComposeServiceDef {
   image: string;
   environment?: Record<string, string>;
@@ -306,7 +313,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
     },
     plan: (p) => {
       const preset = SIZE_PRESETS[p.size];
-      const app = `${p.name}-api`;
+      const app = 'api';
       const port = portOpt(p, 'port', 3000);
       const withDb = boolOpt(p, 'database', true);
       const steps: PlanStep[] = [];
@@ -348,7 +355,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
     },
     plan: (p) => {
       const preset = SIZE_PRESETS[p.size];
-      const app = `${p.name}-web`;
+      const app = 'web';
       const withBucket = boolOpt(p, 'bucket', false);
       const bucket = `${p.name}-uploads`;
       const steps: PlanStep[] = [];
@@ -383,7 +390,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
     },
     plan: (p) => {
       const preset = SIZE_PRESETS[p.size];
-      const app = `${p.name}-site`;
+      const app = 'site';
       const steps: PlanStep[] = [
         deployStep(p.name, {
           [app]: { image: strOpt(p, 'image', 'nginx:1.27-alpine'), replicas: preset.appReplicas },
@@ -405,8 +412,8 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
       options: [],
     },
     plan: (p) => {
-      const db = `${p.name}-db`;
-      const wp = `${p.name}-wordpress`;
+      const db = 'db';
+      const wp = 'wordpress';
       const net = `${p.name}-net`;
       const family = `${p.name}-db-password`;
       const steps: PlanStep[] = [
@@ -421,7 +428,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
                 MARIADB_USER: 'wordpress',
                 MARIADB_RANDOM_ROOT_PASSWORD: '1',
               },
-              volumes: [`${p.name}-db-data:/var/lib/mysql`],
+              volumes: ['db-data:/var/lib/mysql'],
               networks: [net],
               replicas: 1,
             },
@@ -432,7 +439,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
                 WORDPRESS_DB_USER: 'wordpress',
                 WORDPRESS_DB_NAME: 'wordpress',
               },
-              volumes: [`${p.name}-wp-content:/var/www/html/wp-content`],
+              volumes: ['wp-content:/var/www/html/wp-content'],
               networks: [net],
               replicas: 1,
             },
@@ -465,7 +472,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
     },
     plan: (p) => {
       const preset = SIZE_PRESETS[p.size];
-      const app = `${p.name}-n8n`;
+      const app = 'n8n';
       const family = `${p.name}-encryption-key`;
       const steps: PlanStep[] = [
         dbStep(preset),
@@ -485,7 +492,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
                   ? { N8N_HOST: p.domain, N8N_PROTOCOL: 'https', WEBHOOK_URL: `https://${p.domain}/` }
                   : {}),
               },
-              volumes: [`${p.name}-n8n-data:/home/node/.n8n`],
+              volumes: ['n8n-data:/home/node/.n8n'],
               networks: [clusterNetworkName(p.name, DB_CLUSTER)],
               replicas: 1,
             },
@@ -518,7 +525,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
     },
     plan: (p) => {
       const preset = SIZE_PRESETS[p.size];
-      const app = `${p.name}-directus`;
+      const app = 'directus';
       const secretFamily = `${p.name}-secret`;
       const adminFamily = `${p.name}-admin-password`;
       const adminEmail = strOpt(p, 'adminEmail', 'admin@example.com');
@@ -548,7 +555,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
                 ADMIN_EMAIL: adminEmail,
                 ...(p.domain ? { PUBLIC_URL: `https://${p.domain}` } : {}),
               },
-              volumes: [`${p.name}-uploads-data:/directus/uploads`],
+              volumes: ['uploads-data:/directus/uploads'],
               networks: [clusterNetworkName(p.name, DB_CLUSTER)],
               replicas: 1,
             },
@@ -589,7 +596,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
     },
     plan: (p) => {
       const preset = SIZE_PRESETS[p.size];
-      const worker = `${p.name}-worker`;
+      const worker = 'worker';
       const queue = strOpt(p, 'queue', 'jobs');
       return [
         cacheStep(preset),
@@ -641,8 +648,8 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
     },
     plan: (p) => {
       const preset = SIZE_PRESETS[p.size];
-      const search = `${p.name}-search`;
-      const app = `${p.name}-app`;
+      const search = 'search';
+      const app = 'app';
       const net = `${p.name}-net`;
       const family = `${p.name}-master-key`;
       const withApp = boolOpt(p, 'app', true);
@@ -650,7 +657,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
         [search]: {
           image: 'getmeili/meilisearch:v1.12',
           environment: { MEILI_ENV: 'production' },
-          volumes: [`${p.name}-search-data:/meili_data`],
+          volumes: ['search-data:/meili_data'],
           networks: [net],
           replicas: 1,
         },

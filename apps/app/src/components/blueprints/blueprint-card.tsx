@@ -17,13 +17,17 @@ interface BlueprintCardProps {
  * expand in place into the inline deploy wizard (no modal); doc-only cards
  * link to the surface they document. The panel unmounts on collapse so a
  * fresh open always starts at the params form.
+ *
+ * Width goes to the input: the ACTIVE card spans its whole grid row (the
+ * wizard's plan lists hostnames + service names that a one-column card
+ * clips), and the wizard itself stays a focused `max-w-2xl` column.
  */
 export function BlueprintCard({ meta, active, onToggle }: BlueprintCardProps): React.JSX.Element {
   return (
     <div
       className={cn(
-        'card-pop flex flex-col gap-3 p-5',
-        active ? 'ring-primary/40 ring-2' : 'card-pop-hover',
+        'card-pop flex min-w-0 flex-col gap-3 p-5',
+        active ? 'ring-primary/40 ring-2 sm:col-span-2 xl:col-span-3' : 'card-pop-hover',
       )}
     >
       <div className="flex items-center gap-3">
@@ -66,7 +70,7 @@ export function BlueprintCard({ meta, active, onToggle }: BlueprintCardProps): R
             </CollapsibleTrigger>
           </div>
           <CollapsibleContent>
-            <div className="border-border mt-4 border-t pt-4">
+            <div className="border-border mt-4 min-w-0 max-w-2xl border-t pt-4">
               {active ? <BlueprintDeployPanel meta={meta} onClose={() => onToggle(false)} /> : null}
             </div>
           </CollapsibleContent>

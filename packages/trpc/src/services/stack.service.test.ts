@@ -209,6 +209,20 @@ describe('deployFromCompose — legacy bare-name migration', () => {
     expect(m.legacyVolumes).toEqual({ db: { '/var/lib/postgresql/data': 'pgdata' } });
   });
 
+  it('findLegacyServices also migrates double-prefixed blueprint services (wp_wp-db → wp_db)', () => {
+    const doubled = svc({
+      name: 'site_site-db',
+      labels: { 'com.docker.stack.namespace': 'site' },
+      mounts: [{ type: 'volume', source: 'site_site-db-data', target: '/var/lib/mysql' }],
+    });
+    const prefixed = svc({ name: 'site_web', labels: { 'com.docker.stack.namespace': 'site' } });
+    const m = findLegacyServices([doubled, prefixed, otherStack], 'site', ['db', 'web']);
+    expect(m.legacy.map((s) => s.name)).toEqual(['site_site-db']);
+    expect(m.shortOf).toEqual({ 'site_site-db': 'db' });
+    // Keyed by the SHORT so composeToStack keeps mounting the old volume.
+    expect(m.legacyVolumes).toEqual({ db: { '/var/lib/mysql': 'site_site-db-data' } });
+  });
+
   it('an old agent (no mounts reported) is flagged for an inspect, not assumed volume-less', () => {
     const m = findLegacyServices([{ ...legacyDb, mounts: undefined }], 'site', ['db']);
     expect(m.unknownMounts).toEqual(['db']);

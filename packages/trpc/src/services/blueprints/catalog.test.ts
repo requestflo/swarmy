@@ -61,6 +61,21 @@ describe('catalog — shape invariants for every blueprint', () => {
       expect(steps.filter((s) => s.kind === 'stack.deploy')).toHaveLength(1);
     });
 
+    it(`${entry.meta.id}: compose keys and volumes are stack-agnostic (no double prefix)`, () => {
+      // The compose deploy namespaces `<stack>_<key>`; a key carrying the stack
+      // name again would deploy as `demo_demo-web`.
+      for (const step of entry.plan(params({ domain: 'demo.example.com' }))) {
+        if (step.kind === 'stack.deploy') {
+          const doc = parseYaml(step.payload.composeSource) as { volumes?: Record<string, unknown> };
+          for (const key of step.payload.services) expect(key).not.toContain('demo');
+          for (const vol of Object.keys(doc.volumes ?? {})) expect(vol).not.toContain('demo');
+          for (const [svc] of Object.entries(step.payload.postLabels)) expect(svc).not.toContain('demo');
+          for (const w of step.payload.wires) expect(w.service).not.toContain('demo');
+        }
+        if (step.kind === 'ingress.route') expect(step.payload.service).not.toContain('demo');
+      }
+    });
+
     it(`${entry.meta.id}: plan-step views never leak values`, () => {
       for (const step of entry.plan(params({ domain: 'demo.example.com' }))) {
         const view = planStepView(step);
@@ -104,7 +119,7 @@ describe('node-api', () => {
     );
     const route = steps.find((s) => s.kind === 'ingress.route');
     if (route?.kind === 'ingress.route') {
-      expect(route.payload).toEqual({ service: 'demo-api', host: 'api.example.com', port: 8080 });
+      expect(route.payload).toEqual({ service: 'api', host: 'api.example.com', port: 8080 });
     } else {
       throw new Error('missing route step');
     }
@@ -122,26 +137,30 @@ describe('wordpress', () => {
     const deploy = steps[1];
     if (deploy?.kind !== 'stack.deploy') throw new Error('bad shape');
     expect(deploy.payload.wires).toEqual([
-      { type: 'secret', service: 'blog-db', family: 'blog-db-password', envName: 'MARIADB_PASSWORD_FILE' },
-      { type: 'secret', service: 'blog-wordpress', family: 'blog-db-password', envName: 'WORDPRESS_DB_PASSWORD_FILE' },
+      { type: 'secret', service: 'db', family: 'blog-db-password', envName: 'MARIADB_PASSWORD_FILE' },
+      { type: 'secret', service: 'wordpress', family: 'blog-db-password', envName: 'WORDPRESS_DB_PASSWORD_FILE' },
     ]);
     // No password VALUE anywhere in the compose: the only password-ish env is
     // the MARIADB_RANDOM_ROOT_PASSWORD=1 toggle; the real one rides *_FILE.
     const doc = parseYaml(deploy.payload.composeSource) as {
       services: Record<string, { environment?: Record<string, string> }>;
     };
-    expect(doc.services['blog-db']?.environment?.MARIADB_PASSWORD).toBeUndefined();
-    expect(doc.services['blog-wordpress']?.environment?.WORDPRESS_DB_PASSWORD).toBeUndefined();
+    expect(doc.services['db']?.environment?.MARIADB_PASSWORD).toBeUndefined();
+    expect(doc.services['wordpress']?.environment?.WORDPRESS_DB_PASSWORD).toBeUndefined();
   });
 
   it('declares persistent volumes and a shared overlay network', () => {
     const doc = parseYaml(composeOf(steps)) as {
-      services: Record<string, { volumes?: string[]; networks?: string[] }>;
+      services: Record<
+        string,
+        { volumes?: string[]; networks?: string[]; environment?: Record<string, string> }
+      >;
       volumes?: Record<string, unknown>;
     };
-    expect(doc.services['blog-db']?.volumes).toEqual(['blog-db-data:/var/lib/mysql']);
-    expect(doc.services['blog-wordpress']?.networks).toEqual(['blog-net']);
-    expect(Object.keys(doc.volumes ?? {})).toContain('blog-wp-content');
+    expect(doc.services['db']?.volumes).toEqual(['db-data:/var/lib/mysql']);
+    expect(doc.services['wordpress']?.networks).toEqual(['blog-net']);
+    expect(doc.services['wordpress']?.environment?.WORDPRESS_DB_HOST).toBe('db');
+    expect(Object.keys(doc.volumes ?? {})).toContain('wp-content');
   });
 
   it('golden summary', () => {
@@ -162,7 +181,7 @@ describe('n8n', () => {
     const doc = parseYaml(composeOf(steps)) as {
       services: Record<string, { environment?: Record<string, string>; networks?: string[] }>;
     };
-    const app = doc.services['demo-n8n'];
+    const app = doc.services['n8n'];
     expect(app?.environment?.DB_POSTGRESDB_HOST).toBe('demo_db-primary');
     expect(app?.environment?.DB_POSTGRESDB_PASSWORD).toBeUndefined();
     expect(app?.networks).toEqual(['demo_db-net']);
@@ -170,8 +189,8 @@ describe('n8n', () => {
     const deploy = steps[2];
     if (deploy?.kind !== 'stack.deploy') throw new Error('bad shape');
     expect(deploy.payload.wires).toEqual([
-      { type: 'secret', service: 'demo-n8n', family: 'demo-encryption-key', envName: 'N8N_ENCRYPTION_KEY_FILE' },
-      { type: 'env', service: 'demo-n8n', env: { DB_POSTGRESDB_PASSWORD: TOKEN_DB_PASSWORD } },
+      { type: 'secret', service: 'n8n', family: 'demo-encryption-key', envName: 'N8N_ENCRYPTION_KEY_FILE' },
+      { type: 'env', service: 'n8n', env: { DB_POSTGRESDB_PASSWORD: TOKEN_DB_PASSWORD } },
     ]);
   });
 });
@@ -195,7 +214,7 @@ describe('worker-with-queue', () => {
     );
     const deploy = steps.find((s) => s.kind === 'stack.deploy');
     if (deploy?.kind !== 'stack.deploy') throw new Error('bad shape');
-    const raw = deploy.payload.postLabels['demo-worker']?.[QUEUES_LABEL];
+    const raw = deploy.payload.postLabels['worker']?.[QUEUES_LABEL];
     const defs = parseQueuesLabel(raw);
     expect(defs).toEqual([
       {
@@ -210,7 +229,7 @@ describe('worker-with-queue', () => {
       },
     ]);
     expect(deploy.payload.wires).toEqual([
-      { type: 'cache', service: 'demo-worker', cluster: 'cache', envVar: 'REDIS_URL' },
+      { type: 'cache', service: 'worker', cluster: 'cache', envVar: 'REDIS_URL' },
     ]);
   });
 
@@ -241,7 +260,7 @@ describe('directus', () => {
     if (deploy?.kind !== 'stack.deploy') throw new Error('bad shape');
     expect(deploy.payload.wires).toContainEqual({
       type: 'bucket',
-      service: 'demo-directus',
+      service: 'directus',
       bucket: 'demo-uploads',
     });
   });

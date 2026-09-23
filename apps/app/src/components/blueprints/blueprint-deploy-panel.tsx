@@ -59,7 +59,7 @@ export function BlueprintDeployPanel({
   const phase = result ? 'result' : params ? 'preview' : 'form';
 
   return (
-    <div className="grid gap-3">
+    <div className="grid min-w-0 gap-3">
       <p className="text-muted-foreground text-xs">
         {phase === 'form'
           ? 'Name it, size it — nothing is created until you deploy.'

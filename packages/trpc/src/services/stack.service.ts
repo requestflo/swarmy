@@ -154,14 +154,33 @@ export function planComposeStack(
  * gap is the price). Data: a legacy anonymous volume held nothing durable (it
  * was already lost on every reschedule); a legacy NAMED volume keeps being
  * mounted under its existing name (`legacyVolumes`) so no data is orphaned.
+ *
+ * A second legacy shape gets the same treatment: early blueprint deploys used
+ * compose keys that repeated the stack name (`wp-wordpress`), so the swarm
+ * service came out DOUBLE-prefixed (`wp_wp-wordpress`). Now that blueprint keys
+ * are stack-agnostic (`wordpress` → `wp_wordpress`), a redeploy of that stack
+ * replaces `<stack>_<stack>-<short>` exactly like a bare-named `<short>`.
  */
 export interface LegacyMigration {
-  /** Legacy bare-named services of this stack that the compose now replaces. */
+  /** Legacy (bare- or double-prefix-named) services of this stack the compose now replaces. */
   legacy: SwarmServiceInfo[];
+  /** Legacy service name → the compose short key it is replaced by. */
+  shortOf: Record<string, string>;
   /** short → target → existing volume name (named-volume mounts only). */
   legacyVolumes: Record<string, Record<string, string>>;
   /** Legacy services whose mounts the inventory doesn't report (old agent). */
   unknownMounts: string[];
+}
+
+/** PURE — the compose short a legacy swarm service name maps to, if any. */
+export function legacyShortOf(stack: string, name: string, shorts: string[]): string | undefined {
+  if (shorts.includes(name)) return name;
+  const doublePrefix = `${stack}_${stack}-`;
+  if (name.startsWith(doublePrefix)) {
+    const short = name.slice(doublePrefix.length);
+    if (shorts.includes(short)) return short;
+  }
+  return undefined;
 }
 
 /** PURE — find the legacy services a compose deploy of `stack` replaces. */
@@ -170,10 +189,15 @@ export function findLegacyServices(
   stack: string,
   shorts: string[],
 ): LegacyMigration {
-  const legacy = live.filter(
-    (s) =>
-      s.labels[STACK_LABEL] === stack && shorts.includes(s.name) && s.name !== `${stack}_${s.name}`,
-  );
+  const legacy: SwarmServiceInfo[] = [];
+  const shortOf: LegacyMigration['shortOf'] = {};
+  for (const s of live) {
+    if (s.labels[STACK_LABEL] !== stack) continue;
+    const short = legacyShortOf(stack, s.name, shorts);
+    if (short === undefined || s.name === `${stack}_${short}`) continue;
+    legacy.push(s);
+    shortOf[s.name] = short;
+  }
   const legacyVolumes: LegacyMigration['legacyVolumes'] = {};
   const unknownMounts: string[] = [];
   for (const svc of legacy) {
@@ -182,9 +206,9 @@ export function findLegacyServices(
       continue;
     }
     const byTarget = legacyMountsByTarget(svc.mounts);
-    if (Object.keys(byTarget).length) legacyVolumes[svc.name] = byTarget;
+    if (Object.keys(byTarget).length) legacyVolumes[shortOf[svc.name]!] = byTarget;
   }
-  return { legacy, legacyVolumes, unknownMounts };
+  return { legacy, shortOf, legacyVolumes, unknownMounts };
 }
 
 /** Named-volume mounts → target → source (anonymous + bind mounts skipped). */
@@ -345,7 +369,7 @@ export async function deployFromCompose(
         .dispatch<{ inspect?: unknown }>(node.id, 'service.inspect', { service: name })
         .catch(() => null);
       const byTarget = legacyMountsByTarget(mountsFromInspect(raw?.inspect));
-      if (Object.keys(byTarget).length) migration.legacyVolumes[name] = byTarget;
+      if (Object.keys(byTarget).length) migration.legacyVolumes[migration.shortOf[name]!] = byTarget;
     }
   }
 
@@ -353,7 +377,8 @@ export async function deployFromCompose(
   const liveByName = new Map(liveRaw.map((s) => [s.name, s]));
   const specs = plan.specs.map((spec, i) => {
     const short = plan.services[i]!.short;
-    const source = liveByName.get(spec.name) ?? migration.legacy.find((l) => l.name === short);
+    const source =
+      liveByName.get(spec.name) ?? migration.legacy.find((l) => migration.shortOf[l.name] === short);
     return carryIngressRoutes(spec as ServiceSpec, source);
   });
 
