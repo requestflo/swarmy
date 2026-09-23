@@ -200,6 +200,28 @@ egress_gate() {
 # ════════════════════════════════════════════════════════════════════════════
 # Phase 3 — Docker
 # ════════════════════════════════════════════════════════════════════════════
+# Small VPSs (1 GB, no swap — the default on most providers) OOM-kill the
+# controller during first boot (embedded Postgres + migrations peak well above
+# its ~450 MB steady state). A modest swap file is the standard fix; only
+# added when RAM < 2 GB and no swap is configured, and never on re-runs.
+ensure_swap() {
+  local mem_kb swap_kb
+  mem_kb="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+  swap_kb="$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+  [ "${mem_kb:-0}" -gt 0 ] && [ "${mem_kb}" -lt 2000000 ] && [ "${swap_kb:-0}" -eq 0 ] || return 0
+  [ -e /swapfile ] && return 0
+  say "Low-memory host ($(( mem_kb / 1024 )) MB, no swap) — adding a 2 GB swap file…"
+  if { fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none; } \
+    && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile; then
+    grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    sysctl -qw vm.swappiness=10 2>/dev/null || true
+    ok "swap enabled."
+  else
+    rm -f /swapfile
+    warn "could not add swap — on a 1 GB host the controller may be OOM-killed during first boot."
+  fi
+}
+
 ensure_docker() {
   if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     ok "Docker present ($(docker version --format '{{.Server.Version}}' 2>/dev/null || echo '?'))."
@@ -506,6 +528,7 @@ main() {
   need_root
   discover
   marker_done egress   || { egress_gate;        marker_set egress; }
+  ensure_swap
   marker_done docker   || { ensure_docker;      marker_set docker; }
   remember_settings
   wizard
