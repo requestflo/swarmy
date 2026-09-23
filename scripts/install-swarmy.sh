@@ -73,21 +73,37 @@ AGENT_IMAGE="${SWARMY_AGENT_IMAGE:-$DEFAULT_AGENT_IMAGE}"
 PUBLISH_PORT="${SWARMY_PUBLISH_PORT:-3021}"
 ALLOW_SIGNUP="${SWARMY_ALLOW_SIGNUP:-}"
 
+# Which settings the operator gave THIS run (flag or env). Anything not given
+# falls back to what the first install recorded in state.env — a re-run with
+# no flags must never silently switch tier, image, port or sign-up policy.
+EXPLICIT=" "
+for v in DB_TIER ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP; do
+  case "$v" in
+    DB_TIER) [ -n "${SWARMY_DB_TIER:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
+    ADMIN_EMAIL) [ -n "${SWARMY_ADMIN_EMAIL:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
+    IMAGE) [ -n "${SWARMY_IMAGE:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
+    AGENT_IMAGE) [ -n "${SWARMY_AGENT_IMAGE:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
+    PUBLISH_PORT) [ -n "${SWARMY_PUBLISH_PORT:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
+    ALLOW_SIGNUP) [ -n "${SWARMY_ALLOW_SIGNUP:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
+  esac
+done
+explicit() { case "$EXPLICIT" in *" $1 "*) return 0 ;; esac; return 1; }
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --non-interactive) NON_INTERACTIVE=1 ;;
     --check) MODE="check" ;;
     --uninstall) MODE="uninstall" ;;
-    --standard) DB_TIER="standard" ;;
-    --admin-email) ADMIN_EMAIL="${2:?}"; shift ;;
+    --standard) DB_TIER="standard" EXPLICIT="$EXPLICITDB_TIER " ;;
+    --admin-email) ADMIN_EMAIL="${2:?}"; shift EXPLICIT="$EXPLICITADMIN_EMAIL " ;;
     --admin-password) ADMIN_PASSWORD="${2:?}"; shift ;;
     --domain) DOMAIN="${2:?}"; shift ;;
     --ingress) INGRESS="${2:?}"; shift ;;
     --mesh) MESH="${2:?}"; shift ;;
-    --image) IMAGE="${2:?}"; shift ;;
-    --agent-image) AGENT_IMAGE="${2:?}"; shift ;;
-    --port) PUBLISH_PORT="${2:?}"; shift ;;
-    --allow-signup) ALLOW_SIGNUP="true" ;;
+    --image) IMAGE="${2:?}"; shift EXPLICIT="$EXPLICITIMAGE " ;;
+    --agent-image) AGENT_IMAGE="${2:?}"; shift EXPLICIT="$EXPLICITAGENT_IMAGE " ;;
+    --port) PUBLISH_PORT="${2:?}"; shift EXPLICIT="$EXPLICITPUBLISH_PORT " ;;
+    --allow-signup) ALLOW_SIGNUP="true" EXPLICIT="$EXPLICITALLOW_SIGNUP " ;;
     -h|--help) grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (try --help)" ;;
   esac
@@ -106,6 +122,27 @@ state_set() {  # state_set KEY VALUE  — persist (and export) a value, replacin
   export "$key=$val"
 }
 marker_done() { state_load; local v; eval "v=\${MARK_$1:-}"; [ "$v" = "1" ]; }
+
+# Restore settings the first install recorded (CFG_*) unless given this run,
+# then record the effective values for the next re-run.
+remember_settings() {
+  state_load
+  local v saved
+  for v in DB_TIER ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP; do
+    eval "saved=\${CFG_$v:-}"
+    [ -n "$saved" ] || continue
+    if explicit "$v"; then
+      if [ "$v" = DB_TIER ] && [ "$DB_TIER" != "$saved" ]; then
+        die "this controller was installed with the '$saved' datastore tier; switching to '$DB_TIER' would start it on an EMPTY database. Re-run without changing the tier (migrate with a controller backup + restore instead)."
+      fi
+    else
+      eval "$v=\$saved"
+    fi
+  done
+  for v in DB_TIER ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP; do
+    eval "state_set CFG_$v \"\${$v}\""
+  done
+}
 marker_set()  { state_set "MARK_$1" 1; }
 
 need_root() {
@@ -361,6 +398,19 @@ deploy_stack() {
 # ════════════════════════════════════════════════════════════════════════════
 enrol_node1() {
   state_load
+  # Re-run = upgrade: if a newer agent image is available, replace the running
+  # container. Its identity lives on the swarmy-agent volume, so it reconnects
+  # on its stored session (no join token needed).
+  if docker ps --format '{{.Names}}' | grep -qx "$AGENT_CONTAINER"; then
+    docker pull "$AGENT_IMAGE" >/dev/null 2>&1 || true
+    local running want
+    running="$(docker inspect "$AGENT_CONTAINER" --format '{{.Image}}' 2>/dev/null || true)"
+    want="$(docker image inspect "$AGENT_IMAGE" --format '{{.Id}}' 2>/dev/null || true)"
+    if [ -n "$want" ] && [ "$running" != "$want" ]; then
+      say "Upgrading node #1 agent…"
+      docker rm -f "$AGENT_CONTAINER" >/dev/null
+    fi
+  fi
   if docker ps --format '{{.Names}}' | grep -qx "$AGENT_CONTAINER"; then
     # Older installs attached the agent to the stack-prefixed `swarmy_swarmy`;
     # move it onto the shared overlay the controller now lives on.
@@ -457,6 +507,7 @@ main() {
   discover
   marker_done egress   || { egress_gate;        marker_set egress; }
   marker_done docker   || { ensure_docker;      marker_set docker; }
+  remember_settings
   wizard
   ensure_secrets
   marker_done swarm    || { ensure_swarm;        marker_set swarm; }
