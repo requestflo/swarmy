@@ -123,6 +123,11 @@ export function WebTerminal({ wsUrl, onPhase, className }: WebTerminalProps): Re
           // The agent's message says where to fix it (node toggle vs local env veto).
           onPhaseRef.current?.('disabled', err?.message ?? code);
           term.writeln(`\r\n\x1b[31mTerminal unavailable: ${err?.message ?? code}\x1b[0m`);
+        } else {
+          // The resize sent on open races the agent starting the session (and is
+          // dropped), leaving the PTY at its 80x24 default — long lines then wrap
+          // over the prompt. Re-send now that the session exists.
+          sendResize();
         }
         return;
       }
