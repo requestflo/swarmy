@@ -46,4 +46,22 @@ describe('buildAdapter', () => {
     expect(a.provider).toBe('postgres');
     expect(a).not.toBeInstanceOf(PrismaPGlite);
   });
+
+  test('process-env pglite callers share one embedded instance per data dir', () => {
+    const saved = { d: process.env.SWARMY_DB_DRIVER, dir: process.env.SWARMY_DATA_DIR };
+    process.env.SWARMY_DB_DRIVER = 'pglite';
+    process.env.SWARMY_DATA_DIR = '/tmp/swarmy-shared-adapter-test';
+    try {
+      // ensureSchema(buildAdapter()) at boot + the app's PrismaClient must not each
+      // boot their own WASM Postgres (>=128 MiB apiece).
+      expect(buildAdapter()).toBe(buildAdapter());
+      // Explicit env objects (tests, tooling) stay private.
+      expect(buildAdapter({ SWARMY_DB_DRIVER: 'pglite' })).not.toBe(buildAdapter({ SWARMY_DB_DRIVER: 'pglite' }));
+    } finally {
+      if (saved.d === undefined) delete process.env.SWARMY_DB_DRIVER;
+      else process.env.SWARMY_DB_DRIVER = saved.d;
+      if (saved.dir === undefined) delete process.env.SWARMY_DATA_DIR;
+      else process.env.SWARMY_DATA_DIR = saved.dir;
+    }
+  });
 });

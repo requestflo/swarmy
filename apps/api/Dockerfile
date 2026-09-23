@@ -72,6 +72,13 @@ COPY apps/api apps/api
 ENV CHECKPOINT_DISABLE=1 PRISMA_HIDE_UPDATE_MESSAGE=1
 RUN bun --filter @swarmy/db db:generate
 
+# Lite tier: a pre-initialised PGlite data dir. A fresh node seeds its data dir
+# from this instead of running PGlite's initdb, whose ~1 GiB RSS peak OOM-killed
+# first boots on 1 GB hosts (docs/product/footprint.md). Built here, by the
+# same PGlite build the controller runs, so it is exactly what initdb would write.
+RUN bun run packages/db/scripts/pglite-template.ts /app/pglite-template.tar.gz
+ENV SWARMY_PGLITE_TEMPLATE=/app/pglite-template.tar.gz
+
 # Bundle the built dashboard; the controller serves it same-origin.
 COPY --from=spa /app/apps/app/dist /app/public
 ENV SWARMY_STATIC_DIR=/app/public
@@ -86,6 +93,10 @@ ARG SWARMY_COMMIT=dev
 ENV SWARMY_COMMIT=${SWARMY_COMMIT}
 
 ENV NODE_ENV=production PORT=3001
+# Return freed allocator pages to the OS immediately instead of after mimalloc's
+# default delay: ~25-30 MiB lower steady RSS on a 1 GB node, measured
+# (docs/product/footprint.md). Allocator tuning only — no behaviour change.
+ENV MIMALLOC_PURGE_DELAY=0
 EXPOSE 3001
 
 # Entrypoint expands Docker-secret *_FILE vars and composes DATABASE_URL (standard

@@ -31,6 +31,8 @@ import {
   type Transaction,
   type TransactionOptions,
 } from '@prisma/driver-adapter-utils';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { parse as parseArray } from 'postgres-array';
 
 const FIRST_NORMAL_OBJECT_ID = 16384;
@@ -474,6 +476,68 @@ export interface PGliteAdapterOptions {
   dataDir?: string;
   /** Pass an already-constructed PGlite instance (tests). */
   client?: PGlite;
+  /**
+   * Keep the embedded instance open when an adapter is disposed, so several
+   * `connect()` calls (boot-time `ensureSchema()` + the app's PrismaClient)
+   * reuse ONE PGlite instead of each booting their own WASM Postgres.
+   */
+  keepOpen?: boolean;
+  /** Extra `-c name=value` GUCs, applied after {@link LITE_POSTGRES_SETTINGS}. */
+  settings?: Record<string, string>;
+  /**
+   * Path to a gzip data-dir tarball from {@link buildPgliteTemplate}. When set
+   * and present, a fresh `dataDir` is seeded from it instead of running initdb.
+   */
+  templateTarball?: string;
+}
+
+/**
+ * Postgres GUCs for embedded lite mode. PGlite's initdb writes server-sized
+ * defaults (shared_buffers=128MB, max_connections=100) into postgresql.conf and
+ * all of it lives inside the WASM heap, which never shrinks. The controller's
+ * control-plane DB is a few MB and PGlite is single-user, single-connection, so
+ * these are sized for a 1 GB node. Measured (docs/product/footprint.md): the
+ * PGlite instance drops from ~320 MiB to ~200 MiB RSS right after boot.
+ * Passed as `-c` start params, so they override postgresql.conf without
+ * rewriting the operator's data dir.
+ */
+export const LITE_POSTGRES_SETTINGS: Readonly<Record<string, string>> = {
+  shared_buffers: '16MB',
+  // CREATE INDEX / VACUUM scratch (migrations): the 64MB default is touched once
+  // and then stays resident in the never-shrinking WASM heap.
+  maintenance_work_mem: '16MB',
+  // Single-user backend: 100 slots of PGPROC/lock tables is pure overhead.
+  max_connections: '10',
+};
+
+/** PGlite start params: its own defaults + the lite-mode GUCs (+ overrides). */
+export function pgliteStartParams(settings: Record<string, string> = {}): string[] {
+  const merged = { ...LITE_POSTGRES_SETTINGS, ...settings };
+  return [...PGlite.defaultStartParams, ...Object.entries(merged).flatMap(([k, v]) => ['-c', `${k}=${v}`])];
+}
+
+/** initdb args: bake the lite GUCs into the generated postgresql.conf too. */
+export function pgliteInitDbParams(): string[] {
+  return Object.entries(LITE_POSTGRES_SETTINGS).flatMap(([k, v]) => ['--set', `${k}=${v}`]);
+}
+
+/**
+ * Build a pre-initialised data-dir tarball (gzip) — the image does this at build
+ * time (scripts/pglite-template.ts) so a node never runs initdb. PGlite's initdb
+ * peaks at ~0.9-1 GiB RSS (nested WASM instance + initdb WASM + tar round-trip),
+ * which is what OOM-killed first boots on 1 GB hosts; loading this template
+ * peaks at ~0.4 GiB. The result is byte-for-byte what initdb would write on the
+ * node (same PGlite build, same args); only the cluster's system identifier is
+ * shared, which nothing in single-user embedded mode reads.
+ */
+export async function buildPgliteTemplate(): Promise<Uint8Array> {
+  const pg = await PGlite.create({ initDbStartParams: pgliteInitDbParams(), startParams: pgliteStartParams() });
+  try {
+    const blob = await pg.dumpDataDir('gzip');
+    return new Uint8Array(await blob.arrayBuffer());
+  } finally {
+    await pg.close();
+  }
 }
 
 /**
@@ -488,17 +552,34 @@ export class PrismaPGlite implements SqlMigrationAwareDriverAdapterFactory {
   private readonly sharedClient: boolean;
 
   constructor(private readonly options: PGliteAdapterOptions = {}) {
-    this.sharedClient = Boolean(options.client);
+    this.sharedClient = Boolean(options.client) || Boolean(options.keepOpen);
     if (options.client) this.clientPromise = Promise.resolve(options.client);
   }
 
   private getClient(): Promise<PGlite> {
-    if (!this.clientPromise) {
-      this.clientPromise = this.options.dataDir
-        ? PGlite.create({ dataDir: this.options.dataDir })
-        : PGlite.create();
-    }
+    this.clientPromise ??= this.createClient();
     return this.clientPromise;
+  }
+
+  private async createClient(): Promise<PGlite> {
+    const startParams = pgliteStartParams(this.options.settings);
+    const dataDir = this.options.dataDir;
+    if (!dataDir) return PGlite.create({ startParams });
+    // Fresh data dir: PGlite runs initdb in a nested in-memory instance plus the
+    // initdb WASM, and the instance that ran it keeps those heaps reachable for
+    // its lifetime (~180 MiB, measured). Run initdb in a throwaway instance and
+    // collect it, so the long-lived one never carries that first-boot garbage.
+    if (!dataDir.includes('://') && !existsSync(join(dataDir, 'PG_VERSION'))) {
+      const template = this.options.templateTarball;
+      if (template && existsSync(template)) {
+        // Pre-initialised data dir baked into the image: no initdb on the node.
+        return PGlite.create({ dataDir, startParams, loadDataDir: new Blob([readFileSync(template)]) });
+      }
+      const init = await PGlite.create({ dataDir, startParams, initDbStartParams: pgliteInitDbParams() });
+      await init.close();
+      (globalThis as { Bun?: { gc(force: boolean): void } }).Bun?.gc(true);
+    }
+    return PGlite.create({ dataDir, startParams });
   }
 
   async connect(): Promise<SqlDriverAdapter> {
@@ -509,7 +590,7 @@ export class PrismaPGlite implements SqlMigrationAwareDriverAdapterFactory {
 
   /** Shadow DB for migrations: an ephemeral in-memory PGlite. */
   async connectToShadowDb(): Promise<SqlDriverAdapter> {
-    const pg = await PGlite.create();
+    const pg = await PGlite.create({ startParams: pgliteStartParams(this.options.settings) });
     await pg.waitReady;
     return new PrismaPGliteAdapter(pg);
   }

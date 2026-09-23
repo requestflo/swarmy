@@ -15,7 +15,8 @@
 import { encryptSecret, randomToken } from '@swarmy/core/crypto';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
-import { mapDispatchError } from '../errors';
+import { commandRejected, mapDispatchError } from '../errors';
+import { runningTaskSwarmNodes } from './data-pin';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 
@@ -39,8 +40,13 @@ export interface ManagedPgResult {
   image: string;
 }
 
-/** Build the swarm `ServiceSpec` for a managed Postgres. */
-export function buildManagedPgSpec(password: string): ServiceSpec {
+/**
+ * Build the swarm `ServiceSpec` for a managed Postgres. `pinNode` (a swarm node
+ * id) pins it to ONE node: its `local` volume is node-local, so an unpinned
+ * task rescheduled by a reboot would start on another node with an EMPTY
+ * PGDATA (the managed-data pinning model, @swarmy/core data-pin).
+ */
+export function buildManagedPgSpec(password: string, pinNode?: string): ServiceSpec {
   return {
     name: MANAGED_PG_SERVICE,
     image: MANAGED_PG_IMAGE,
@@ -62,6 +68,9 @@ export function buildManagedPgSpec(password: string): ServiceSpec {
     ],
     // Place on a manager node — the controller's swarm.
     networks: [],
+    ...(pinNode
+      ? { placement: { constraints: [`node.id==${pinNode}`], maxReplicasPerNode: 1 } }
+      : { placement: { constraints: ['node.role==manager'] } }),
   };
 }
 
@@ -77,7 +86,20 @@ export function managedDatabaseUrl(password: string): string {
 export async function provisionManagedPostgres(ctx: OrgContext): Promise<ManagedPgResult> {
   const node = await resolveManagerNode(ctx);
   const password = randomToken('swpg').replace(/[^A-Za-z0-9]/g, '').slice(0, 32);
-  const spec = buildManagedPgSpec(password);
+  // Pin: a re-assert keeps the node the live task (and its volume) is on; a
+  // first provision pins to the manager we dispatch through.
+  const existing = ctx.hub
+    .liveInventory(ctx.activeOrgId)
+    .services.find((s) => s.name === MANAGED_PG_SERVICE);
+  const runningOn = existing
+    ? [...new Set(runningTaskSwarmNodes(ctx.hub, ctx.activeOrgId, existing.id).filter(Boolean))]
+    : [];
+  if (existing && runningOn.length !== 1) {
+    throw commandRejected(
+      `${MANAGED_PG_SERVICE} exists but is not running on exactly one node, so its data volume can't be located — nothing was changed`,
+    );
+  }
+  const spec = buildManagedPgSpec(password, existing ? runningOn[0] : ctx.hub.swarmNodeIdFor(node.id));
 
   try {
     await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });

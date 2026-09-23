@@ -34,6 +34,19 @@ export function resolveDbDriver(env: NodeJS.ProcessEnv = process.env): DbDriver 
   return 'postgres';
 }
 
+/** One shared lite-mode factory (and so one PGlite) per data dir. */
+const sharedPglite = new Map<string, PrismaPGlite>();
+
+/**
+ * Operator override for the embedded instance's buffer cache
+ * (SWARMY_PGLITE_SHARED_BUFFERS, e.g. `64MB` on a bigger node). Defaults to
+ * LITE_POSTGRES_SETTINGS (16MB) — see pglite-adapter.ts.
+ */
+function pgliteSettingsFromEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  const sb = env.SWARMY_PGLITE_SHARED_BUFFERS?.trim();
+  return sb && /^\d+(kB|MB|GB)?$/.test(sb) ? { shared_buffers: sb } : {};
+}
+
 /**
  * Build the right Prisma driver-adapter factory for the active mode. Exported so
  * boot-time `ensureSchema()` / the restore CLI can construct a client the same
@@ -47,7 +60,25 @@ export function buildAdapter(
     // `file:/path` and `pglite:/path` URLs carry the data dir; else SWARMY_DATA_DIR.
     const fromUrl = (env.DATABASE_URL ?? '').replace(/^(pglite|file):\/\//, '').replace(/^(pglite|file):/, '');
     const dataDir = env.SWARMY_DATA_DIR ?? (fromUrl && !fromUrl.startsWith('memory') ? fromUrl : undefined);
-    return new PrismaPGlite({ dataDir: dataDir || undefined });
+    // Process-env callers (boot-time ensureSchema, the restore CLI, and the app's
+    // PrismaClient) share ONE embedded instance per data dir: each PGlite is a
+    // full WASM Postgres (>=128 MiB heap), and PGlite is single-process anyway.
+    // In-memory and explicit-env (tests) callers keep a private instance.
+    if (dataDir && env === process.env) {
+      let shared = sharedPglite.get(dataDir);
+      if (!shared) {
+        shared = new PrismaPGlite({
+          dataDir,
+          keepOpen: true,
+          settings: pgliteSettingsFromEnv(env),
+          // Image-baked pre-initialised data dir (apps/api/Dockerfile): skips initdb.
+          templateTarball: env.SWARMY_PGLITE_TEMPLATE || undefined,
+        });
+        sharedPglite.set(dataDir, shared);
+      }
+      return shared;
+    }
+    return new PrismaPGlite({ dataDir: dataDir || undefined, settings: pgliteSettingsFromEnv(env) });
   }
   const connectionString = env.DATABASE_URL;
   if (!connectionString) {

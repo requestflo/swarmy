@@ -2,7 +2,8 @@ import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PrismaPGlite } from './pglite-adapter';
+import { readFile } from 'node:fs/promises';
+import { PrismaPGlite, buildPgliteTemplate } from './pglite-adapter';
 import { ensureSchema } from './ensure-schema';
 
 const tmpDirs: string[] = [];
@@ -112,5 +113,72 @@ describe('ensureSchema', () => {
     const res = await adapter.queryRaw({ sql: `SELECT name FROM widget`, args: [], argTypes: [] });
     expect(res.rows[0]![0]).toBe('gizmo');
     await adapter.dispose();
+  });
+});
+
+describe('lite-mode footprint settings', () => {
+  test('the embedded instance boots with the small-node GUCs, not initdb server defaults', async () => {
+    const factory = new PrismaPGlite(); // in-memory
+    const adapter = await factory.connect();
+    const res = await adapter.queryRaw({
+      sql: `SELECT name, current_setting(name) FROM pg_settings WHERE name IN ('shared_buffers','maintenance_work_mem','max_connections') ORDER BY name`,
+      args: [],
+      argTypes: [],
+    });
+    expect(Object.fromEntries(res.rows.map((r) => [String(r[0]), String(r[1])]))).toEqual({
+      maintenance_work_mem: '16MB',
+      max_connections: '10',
+      shared_buffers: '16MB',
+    });
+    await adapter.dispose();
+  });
+
+  test('per-instance overrides win over the lite defaults', async () => {
+    const factory = new PrismaPGlite({ settings: { shared_buffers: '32MB' } });
+    const adapter = await factory.connect();
+    const res = await adapter.queryRaw({ sql: `SHOW shared_buffers`, args: [], argTypes: [] });
+    expect(String(res.rows[0]![0])).toBe('32MB');
+    await adapter.dispose();
+  });
+
+  test('keepOpen: disposing one adapter leaves the shared instance usable for the next connect', async () => {
+    const factory = new PrismaPGlite({ keepOpen: true });
+    const first = await factory.connect();
+    await first.executeScript(`CREATE TABLE kept (id int); INSERT INTO kept VALUES (7);`);
+    await first.dispose(); // e.g. ensureSchema() finishing before the app connects
+    const second = await factory.connect();
+    const res = await second.queryRaw({ sql: `SELECT id FROM kept`, args: [], argTypes: [] });
+    expect(res.rows).toEqual([[7]]);
+  });
+});
+
+describe('fresh data dir bring-up', () => {
+  async function bootAndCheck(factory: PrismaPGlite, dir: string): Promise<void> {
+    const adapter = await factory.connect();
+    await adapter.executeScript(`CREATE TABLE t (v text); INSERT INTO t VALUES ('ok');`);
+    const res = await adapter.queryRaw({ sql: `SELECT v, current_setting('shared_buffers') FROM t`, args: [], argTypes: [] });
+    expect(res.rows).toEqual([['ok', '16MB']]);
+    await adapter.dispose();
+    // initdb (or the template) baked the lite GUCs into postgresql.conf as well.
+    expect(await readFile(join(dir, 'postgresql.conf'), 'utf8')).toMatch(/^shared_buffers = 16MB/m);
+    // Reopens as an existing cluster.
+    const again = await new PrismaPGlite({ dataDir: dir }).connect();
+    expect((await again.queryRaw({ sql: `SELECT v FROM t`, args: [], argTypes: [] })).rows).toEqual([['ok']]);
+    await again.dispose();
+  }
+
+  test('runs initdb (in a throwaway instance) when no template is given', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'swarmy-pglite-initdb-'));
+    tmpDirs.push(dir);
+    await bootAndCheck(new PrismaPGlite({ dataDir: dir }), dir);
+  });
+
+  test('seeds from the image-baked template instead of running initdb', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'swarmy-pglite-tmpl-'));
+    tmpDirs.push(root);
+    const template = join(root, 'template.tar.gz');
+    await writeFile(template, await buildPgliteTemplate());
+    const dir = join(root, 'data');
+    await bootAndCheck(new PrismaPGlite({ dataDir: dir, templateTarball: template }), dir);
   });
 });
