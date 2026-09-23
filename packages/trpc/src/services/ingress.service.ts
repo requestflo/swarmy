@@ -1,5 +1,6 @@
 import {
   CADDY_CONTROLLER_SERVICE,
+  CADDY_EDGE_SERVICE,
   defaultRegistry as defaultIngressRegistry,
   IngressConfigSchema,
   applyIngress as applyIngressPkg,
@@ -1334,6 +1335,35 @@ export interface IngressReconcileResult {
 /** Last time (ms) the reconcile re-deployed a missing controller, per org. */
 const lastConvergeAt = new Map<string, number>();
 const CONVERGE_RETRY_MS = 60_000;
+/**
+ * After a legacy plaintext store was upgraded and the sealed config is applied
+ * (so each edge's autosave now resumes into the encrypted prefix), restart the
+ * edge once: it comes back with an empty cache, finds nothing under the sealed
+ * prefix and re-obtains its certificates there. One issuance per domain (the
+ * edges share the store's locks). The flag clears even if the restart fails —
+ * the next reboot or renewal converges the same way; this only makes it prompt.
+ */
+async function reissueIntoSealedStore(ctx: OrgContext, config: OrgIngressConfig): Promise<void> {
+  if (!config.globalOptions.certStorage?.encryptionKeyFile) return;
+  const settings = readSettings(await ensureConfig(ctx));
+  if (!settings.certStorage?.reissuePending) return;
+  const manager = ctx.hub.managerNode(ctx.activeOrgId);
+  if (!manager) return;
+  await ctx.hub
+    .dispatch(manager, 'service.restart', { service: CADDY_EDGE_SERVICE, forceNewTask: true })
+    .catch(() => undefined);
+  await patchSettings(ctx, (prev) =>
+    prev.certStorage ? { ...prev, certStorage: { ...prev.certStorage, reissuePending: false } } : prev,
+  );
+  await writeAudit(ctx, {
+    action: 'ingress.reissueSealedCerts',
+    actorType: 'system',
+    targetType: 'ingressConfig',
+    targetId: ctx.activeOrgId,
+    metadata: { prefix: settings.certStorage.prefix },
+  }).catch(() => undefined);
+}
+
 /** Last time (ms) the reconcile tried to provision the edge cert store, per org. */
 const lastCertStoreAt = new Map<string, number>();
 
@@ -1347,7 +1377,9 @@ async function adoptEdgeCertStorage(ctx: OrgContext): Promise<string | null> {
   try {
     const current = readSettings(await ensureConfig(ctx)).certStorage;
     const certs = await ensureEdgeCertStorage(ctx, current);
-    await patchSettings(ctx, (prev) => ({ ...prev, certStorage: certs.settings }));
+    const upgradedLegacy = Boolean(current && !current.encSecretName && certs.settings.encSecretName);
+    const stored = upgradedLegacy ? { ...certs.settings, reissuePending: true } : certs.settings;
+    await patchSettings(ctx, (prev) => ({ ...prev, certStorage: stored }));
     await writeAudit(ctx, {
       action: 'ingress.provisionCertStorage',
       actorType: 'system',
@@ -1454,6 +1486,7 @@ export async function reconcileIngressOrg(
   }
   try {
     await applyAndRecord(ctx, config);
+    await reissueIntoSealedStore(ctx, config);
     return { signature, skipped: false, applied: true };
   } catch (e) {
     return { signature: null, skipped: false, applied: false, error: errMessage(e) };

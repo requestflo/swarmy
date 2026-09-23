@@ -516,6 +516,33 @@ describe('reconcileIngressOrg — shared certificate store', () => {
     expect(spec.secrets?.[0]?.target).toBe('swarmy-edge-certs-s3');
   });
 
+  it('a legacy plaintext store: upgrade tick flags a re-issue; the apply tick restarts the edge ONCE into the sealed prefix', async () => {
+    const first = world({ services: [svc({ mode: 'replicated' })] });
+    await setTopology(first.ctx, 'edge-per-node');
+    const { encSecretName: _e, ...legacyStore } = first.row.settings.certStorage;
+    const w = world({
+      services: [app, svc({ mode: 'global' })],
+      settings: { ...first.row.settings, certStorage: { ...legacyStore, prefix: 'caddy/org_1' } },
+      secrets: [...first.secrets].filter((n: string) => !n.startsWith('swarmy-edge-certs-enc-')),
+      containers: { lon: [edgeTask('c-lon')], nyc: [edgeTask('c-nyc')] },
+    });
+    // Tick 1: upgrade (mint key secret, redeploy with it mounted).
+    await reconcileIngressOrg(w.deps, 'org_reissue');
+    expect(w.row.settings.certStorage.reissuePending).toBe(true);
+    expect(w.sent.some((s) => s.cmd === 'service.restart')).toBe(false);
+    // Tick 2: sealed config applied to every edge → one forced restart, flag cleared.
+    const res = await reconcileIngressOrg(w.deps, 'org_reissue');
+    expect(res.applied).toBe(true);
+    const applies = w.sent.filter((s) => s.cmd === 'applyIngress');
+    expect(applies.every((a) => (a.payload.rendered.localReload.file.contents as string).includes('import /run/secrets/swarmy-edge-certs-enc'))).toBe(true);
+    const restarts = w.sent.filter((s) => s.cmd === 'service.restart');
+    expect(restarts.map((r) => r.payload)).toEqual([{ service: 'swarmy-ingress-caddy', forceNewTask: true }]);
+    expect(w.row.settings.certStorage.reissuePending).toBe(false);
+    // Tick 3: nothing more to do.
+    await reconcileIngressOrg(w.deps, 'org_reissue', null);
+    expect(w.sent.filter((s) => s.cmd === 'service.restart')).toHaveLength(1);
+  });
+
   it('waits quietly (no Garage call, no error) while object storage is off', async () => {
     const w = world({
       services: [app, svc({ mode: 'global' })],

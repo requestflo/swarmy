@@ -28,8 +28,11 @@
  * Garage, so neither the store nor its offsite S3 mirror ever holds a usable
  * private key. The key is its own Docker secret, pulled into the `storage s3`
  * block with a Caddyfile `import` — never in the DB, an env var or the rendered
- * Caddyfile. It lives only in the swarm; lose it and the edges simply issue
- * fresh certificates (they are reproducible), so no copy is kept elsewhere.
+ * Caddyfile. (Each edge's own Caddy autosave, on that node's config volume,
+ * does carry the adapted config including the key: the same trust boundary as
+ * the edge process, which holds the decrypted certificates anyway.) It lives
+ * only in the swarm; lose it and the edges simply issue fresh certificates
+ * (they are reproducible), so no copy is kept elsewhere.
  */
 import { randomBytes } from 'node:crypto';
 import type { CertStorage } from '@swarmy/ingress';
@@ -75,6 +78,13 @@ export interface EdgeCertStorageSettings {
    * reconcile upgrades those.
    */
   encSecretName?: string;
+  /**
+   * Set when a legacy plaintext store was upgraded: the edges still hold the
+   * old certificates in memory and certmagic never copies a cached cert into a
+   * new store, so one edge restart (after the sealed config is applied) makes
+   * them re-obtain INTO the encrypted prefix now, not at some later reboot.
+   */
+  reissuePending?: boolean;
 }
 
 /**
