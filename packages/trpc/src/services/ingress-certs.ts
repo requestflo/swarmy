@@ -36,12 +36,14 @@
  */
 import { randomBytes } from 'node:crypto';
 import type { CertStorage } from '@swarmy/ingress';
-import type { SecretListResult } from '@swarmy/core/protocol';
+import { SWARMY_OVERLAY_NETWORK } from '@swarmy/core';
+import type { RunOnceResult, SecretListResult } from '@swarmy/core/protocol';
 import { TRPCError } from '@trpc/server';
 import type { OrgContext } from '../context';
 import { mapDispatchError } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { objectStoreState, provisionSystemBucketKey, revokeSystemKey } from './buckets.service';
+import { RCLONE_IMAGE, rcloneRemoteEnv } from './offsiteMirror.core';
 
 /** The one bucket every org edge shares (per-org key prefix inside it). */
 export const EDGE_CERTS_BUCKET = 'swarmy-edge-certs';
@@ -85,6 +87,12 @@ export interface EdgeCertStorageSettings {
    * them re-obtain INTO the encrypted prefix now, not at some later reboot.
    */
   reissuePending?: boolean;
+  /**
+   * The plaintext prefix a legacy store used, until it is purged from Garage
+   * (after the edges run on the sealed store). Its offsite copy is left alone:
+   * copy-mode mirroring never deletes off-site.
+   */
+  legacyPrefix?: string;
 }
 
 /**
@@ -261,4 +269,60 @@ export async function ensureEdgeCertStorage(
     settings: { ...creds, prefix: edgeCertsPrefix(ctx.activeOrgId), encSecretName },
     created: true,
   };
+}
+
+/** Purge key name (a short-lived, bucket-scoped Garage key, revoked after). */
+const EDGE_CERTS_PURGE_KEY_NAME = 'swarmy-edge-certs-purge';
+
+/** The one-shot that deletes a legacy plaintext prefix. Secrets only in env. Pure. */
+export function buildLegacyPurgeRunOnce(input: {
+  endpoint: string;
+  region: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucket: string;
+  prefix: string;
+}) {
+  // Only ever the unsealed per-org prefix — never the sealed one or the bucket root.
+  if (!/^caddy\/[A-Za-z0-9_-]+$/.test(input.prefix)) throw new Error(`refusing to purge "${input.prefix}"`);
+  return {
+    image: RCLONE_IMAGE,
+    entrypoint: ['/bin/sh', '-c'],
+    cmd: ['rclone purge "garage:$PURGE_BUCKET/$PURGE_PREFIX" || [ -z "$(rclone lsf "garage:$PURGE_BUCKET/$PURGE_PREFIX" 2>/dev/null)" ]'],
+    env: {
+      ...rcloneRemoteEnv('garage', {
+        endpoint: input.endpoint,
+        region: input.region,
+        accessKeyId: input.accessKeyId,
+        secretAccessKey: input.secretAccessKey,
+        provider: 'Other',
+      }),
+      PURGE_BUCKET: input.bucket,
+      PURGE_PREFIX: input.prefix,
+    },
+    networks: [SWARMY_OVERLAY_NETWORK],
+    pull: true,
+    timeoutMs: 5 * 60_000,
+  };
+}
+
+/**
+ * Delete a legacy store's plaintext objects from Garage once nothing reads
+ * them. Throws on failure (the caller retries on a later tick).
+ */
+export async function purgeLegacyEdgeCerts(ctx: OrgContext, s: EdgeCertStorageSettings): Promise<void> {
+  if (!s.legacyPrefix) return;
+  const node = await resolveManagerNode(ctx);
+  const cred = await provisionSystemBucketKey(ctx, { bucket: s.bucket, keyName: EDGE_CERTS_PURGE_KEY_NAME });
+  try {
+    const res = await ctx.hub.dispatch<RunOnceResult>(
+      node.id,
+      'container.runOnce',
+      buildLegacyPurgeRunOnce({ ...cred, bucket: s.bucket, prefix: s.legacyPrefix }),
+      { timeoutMs: 6 * 60_000 },
+    );
+    if (res.exitCode !== 0) throw new Error(`purge exited ${res.exitCode}: ${(res.output ?? '').slice(-300)}`);
+  } finally {
+    await revokeSystemKey(ctx, cred.accessKeyId);
+  }
 }

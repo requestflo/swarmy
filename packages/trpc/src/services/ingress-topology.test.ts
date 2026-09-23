@@ -9,7 +9,7 @@ import {
   EDGE_PLACEMENT_CONSTRAINT,
 } from './ingress-controller';
 import { getConfig, reconcileIngressOrg, setTopology } from './ingress.service';
-import { OBJECT_STORAGE_REQUIRED_MESSAGE, certStorageFor } from './ingress-certs';
+import { OBJECT_STORAGE_REQUIRED_MESSAGE, buildLegacyPurgeRunOnce, certStorageFor } from './ingress-certs';
 
 process.env.SWARMY_SECRET_KEY ??= 'a'.repeat(64);
 
@@ -170,6 +170,7 @@ function world(opts: {
     latestContainers: (id: string) => containers[id] ?? [],
     dispatch: async (nodeId: string, cmd: string, payload: any) => {
       sent.push({ nodeId, cmd, payload });
+      if (cmd === 'container.runOnce' && payload.env?.PURGE_PREFIX) return { exitCode: 0, output: '' };
       if (cmd === 'container.runOnce') {
         const out = garageReply(payload.env.GARAGE_METHOD, payload.env.GARAGE_URL, payload.env.GARAGE_BODY);
         return { exitCode: 0, output: `__SWARMY_STATUS__:200\n${out}` };
@@ -538,9 +539,24 @@ describe('reconcileIngressOrg — shared certificate store', () => {
     const restarts = w.sent.filter((s) => s.cmd === 'service.restart');
     expect(restarts.map((r) => r.payload)).toEqual([{ service: 'swarmy-ingress-caddy', forceNewTask: true }]);
     expect(w.row.settings.certStorage.reissuePending).toBe(false);
-    // Tick 3: nothing more to do.
+    expect(w.row.settings.certStorage.legacyPrefix).toBe('caddy/org_1');
+    // Tick 3 (edges back on the sealed store): purge the plaintext prefix from
+    // Garage with a short-lived key, secrets in env only; no second restart.
     await reconcileIngressOrg(w.deps, 'org_reissue', null);
     expect(w.sent.filter((s) => s.cmd === 'service.restart')).toHaveLength(1);
+    const purge = w.sent.find((s) => s.cmd === 'container.runOnce' && s.payload.env?.PURGE_PREFIX);
+    expect(purge?.payload.env.PURGE_PREFIX).toBe('caddy/org_1');
+    expect(purge?.payload.env.PURGE_BUCKET).toBe('swarmy-edge-certs');
+    expect(JSON.stringify(purge?.payload.cmd)).not.toMatch(/GK0|secret/i);
+    expect(w.row.settings.certStorage.legacyPrefix).toBeUndefined();
+  });
+
+  it('refuses to purge anything but a legacy per-org plaintext prefix', () => {
+    const base = { endpoint: 'http://g:3900', region: 'garage', accessKeyId: 'a', secretAccessKey: 'b', bucket: 'swarmy-edge-certs' };
+    expect(() => buildLegacyPurgeRunOnce({ ...base, prefix: 'caddy-enc/org_1' })).toThrow();
+    expect(() => buildLegacyPurgeRunOnce({ ...base, prefix: '' })).toThrow();
+    expect(() => buildLegacyPurgeRunOnce({ ...base, prefix: 'caddy/../x' })).toThrow();
+    expect(buildLegacyPurgeRunOnce({ ...base, prefix: 'caddy/org_1' }).env.PURGE_PREFIX).toBe('caddy/org_1');
   });
 
   it('waits quietly (no Garage call, no error) while object storage is off', async () => {

@@ -52,6 +52,7 @@ import { objectStoreState } from './buckets.service';
 import {
   certStorageFor,
   ensureEdgeCertStorage,
+  purgeLegacyEdgeCerts,
   type EdgeCertStorageSettings,
 } from './ingress-certs';
 
@@ -1346,22 +1347,43 @@ const CONVERGE_RETRY_MS = 60_000;
 async function reissueIntoSealedStore(ctx: OrgContext, config: OrgIngressConfig): Promise<void> {
   if (!config.globalOptions.certStorage?.encryptionKeyFile) return;
   const settings = readSettings(await ensureConfig(ctx));
-  if (!settings.certStorage?.reissuePending) return;
-  const manager = ctx.hub.managerNode(ctx.activeOrgId);
-  if (!manager) return;
-  await ctx.hub
-    .dispatch(manager, 'service.restart', { service: CADDY_EDGE_SERVICE, forceNewTask: true })
-    .catch(() => undefined);
-  await patchSettings(ctx, (prev) =>
-    prev.certStorage ? { ...prev, certStorage: { ...prev.certStorage, reissuePending: false } } : prev,
-  );
-  await writeAudit(ctx, {
-    action: 'ingress.reissueSealedCerts',
-    actorType: 'system',
-    targetType: 'ingressConfig',
-    targetId: ctx.activeOrgId,
-    metadata: { prefix: settings.certStorage.prefix },
-  }).catch(() => undefined);
+  const store = settings.certStorage;
+  if (!store) return;
+  if (store.reissuePending) {
+    const manager = ctx.hub.managerNode(ctx.activeOrgId);
+    if (!manager) return;
+    await ctx.hub
+      .dispatch(manager, 'service.restart', { service: CADDY_EDGE_SERVICE, forceNewTask: true })
+      .catch(() => undefined);
+    await patchSettings(ctx, (prev) =>
+      prev.certStorage ? { ...prev, certStorage: { ...prev.certStorage, reissuePending: false } } : prev,
+    );
+    await writeAudit(ctx, {
+      action: 'ingress.reissueSealedCerts',
+      actorType: 'system',
+      targetType: 'ingressConfig',
+      targetId: ctx.activeOrgId,
+      metadata: { prefix: store.prefix },
+    }).catch(() => undefined);
+    return; // purge on a later tick, once the restarted edges are up on the sealed store
+  }
+  if (store.legacyPrefix) {
+    try {
+      await purgeLegacyEdgeCerts(ctx, store);
+    } catch {
+      return; // retried on a later applied tick
+    }
+    await patchSettings(ctx, (prev) =>
+      prev.certStorage ? { ...prev, certStorage: { ...prev.certStorage, legacyPrefix: undefined } } : prev,
+    );
+    await writeAudit(ctx, {
+      action: 'ingress.purgePlaintextCerts',
+      actorType: 'system',
+      targetType: 'ingressConfig',
+      targetId: ctx.activeOrgId,
+      metadata: { bucket: store.bucket, prefix: store.legacyPrefix, offsiteCopyKept: true },
+    }).catch(() => undefined);
+  }
 }
 
 /** Last time (ms) the reconcile tried to provision the edge cert store, per org. */
@@ -1378,7 +1400,9 @@ async function adoptEdgeCertStorage(ctx: OrgContext): Promise<string | null> {
     const current = readSettings(await ensureConfig(ctx)).certStorage;
     const certs = await ensureEdgeCertStorage(ctx, current);
     const upgradedLegacy = Boolean(current && !current.encSecretName && certs.settings.encSecretName);
-    const stored = upgradedLegacy ? { ...certs.settings, reissuePending: true } : certs.settings;
+    const stored = upgradedLegacy
+      ? { ...certs.settings, reissuePending: true, legacyPrefix: current!.prefix }
+      : certs.settings;
     await patchSettings(ctx, (prev) => ({ ...prev, certStorage: stored }));
     await writeAudit(ctx, {
       action: 'ingress.provisionCertStorage',
