@@ -3,7 +3,7 @@ import { NODE_EXEC_LABEL, NODE_SHELL_LABEL } from '@swarmy/core';
 import type { AgentHub } from '../hub/types';
 import type { OrgContext } from '../context';
 import { terminalCapability } from './terminal.service';
-import { setNodeLabels, setNodeRole } from './node.service';
+import { removeNodeBlockReason, setNodeLabels, setNodeRole } from './node.service';
 
 type Overrides = { execOverride?: 'allow' | 'deny'; shellOverride?: 'allow' | 'deny' };
 
@@ -115,5 +115,33 @@ describe('setNodeRole — terminal capability toggles are labelled + audited', (
     await expect(setNodeLabels(ctx, 'n1', { [NODE_SHELL_LABEL]: 'true' })).rejects.toThrow(/Controls/);
     await expect(setNodeLabels(ctx, 'n1', { [NODE_EXEC_LABEL]: 'false' })).rejects.toThrow();
     expect(dispatched).toHaveLength(0);
+  });
+});
+
+describe('removeNodeBlockReason', () => {
+  const ctxWith = (opts: { online: boolean; managers: number; selfManager: boolean; controller: boolean }) =>
+    ({
+      activeOrgId: 'o1',
+      hub: {
+        isOnline: () => opts.online,
+        swarmNodeIdFor: () => 's-self',
+        nodeInventory: () => [
+          { swarmNodeId: 's-self', role: opts.selfManager ? 'manager' : 'worker' },
+          ...Array.from({ length: opts.managers - (opts.selfManager ? 1 : 0) }, (_, i) => ({ swarmNodeId: `m${i}`, role: 'manager' })),
+        ],
+        latestContainers: () =>
+          opts.controller ? [{ labels: { 'com.docker.swarm.service.name': 'swarmy_controller' } }] : [],
+      },
+    }) as unknown as OrgContext;
+
+  it('refuses the only manager and the controller host while online', () => {
+    expect(removeNodeBlockReason(ctxWith({ online: true, managers: 1, selfManager: true, controller: false }), 'n')).toContain('only manager');
+    expect(removeNodeBlockReason(ctxWith({ online: true, managers: 3, selfManager: true, controller: true }), 'n')).toContain('controller');
+  });
+
+  it('allows an extra manager, a worker, or any offline node', () => {
+    expect(removeNodeBlockReason(ctxWith({ online: true, managers: 3, selfManager: true, controller: false }), 'n')).toBeNull();
+    expect(removeNodeBlockReason(ctxWith({ online: true, managers: 1, selfManager: false, controller: false }), 'n')).toBeNull();
+    expect(removeNodeBlockReason(ctxWith({ online: false, managers: 1, selfManager: true, controller: true }), 'n')).toBeNull();
   });
 });

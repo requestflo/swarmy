@@ -15,7 +15,7 @@ import type { SwarmNodeInfo, SwarmState } from '@swarmy/core/protocol';
 import type { NodeDetail, NodeStatusView, NodeSummary } from '@swarmy/core/views';
 import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
-import { notFound } from '../errors';
+import { commandRejected, notFound } from '../errors';
 import { TRPCError } from '@trpc/server';
 import { writeAudit } from './audit.service';
 import { agentRelease, platformForArch } from './agent-release.service';
@@ -593,12 +593,38 @@ export async function upgradeAgent(
   return { id, targetVersion: release.version, strategy: 'docker-recreate' };
 }
 
+/**
+ * Why a node can't be removed right now (null = fine). Removing only drops
+ * swarmy's record — so for a still-connected node that is the swarm's last
+ * manager, or that runs the control plane itself, it would orphan the swarm
+ * or leave the controller unable to manage its own host.
+ */
+export function removeNodeBlockReason(ctx: OrgContext, id: string): string | null {
+  if (!ctx.hub.isOnline(id)) return null;
+  const nodes = ctx.hub.nodeInventory(ctx.activeOrgId, true);
+  const swarmId = ctx.hub.swarmNodeIdFor(id);
+  const self = swarmId ? nodes.find((n) => n.swarmNodeId === swarmId) : undefined;
+  const managers = nodes.filter((n) => n.role === 'manager');
+  if (self?.role === 'manager' && managers.length <= 1) {
+    return 'This is the swarm\'s only manager — add and promote another manager first, then remove it.';
+  }
+  const hostsControlPlane = ctx.hub
+    .latestContainers(id)
+    .some((c) => (c.labels?.['com.docker.swarm.service.name'] ?? '') === 'swarmy_controller');
+  if (hostsControlPlane) {
+    return 'This node runs the swarmy controller — it can\'t be removed from its own dashboard.';
+  }
+  return null;
+}
+
 export async function removeNode(ctx: OrgContext, id: string): Promise<{ id: string; removed: true }> {
   const node = await ctx.db.node.findFirst({
     where: { id, orgId: ctx.activeOrgId },
     select: { id: true },
   });
   if (!node) throw notFound('node', id);
+  const reason = removeNodeBlockReason(ctx, id);
+  if (reason) throw commandRejected(reason);
   await ctx.db.node.delete({ where: { id } });
   return { id, removed: true };
 }
