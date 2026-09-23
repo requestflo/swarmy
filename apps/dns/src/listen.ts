@@ -120,6 +120,9 @@ export class ListenerSet {
     return [...this.bound.keys()].sort();
   }
 
+  /** Last reported bind error per address (dedupes the per-scan retry log). */
+  private reported = new Map<string, string>();
+
   sync(): Promise<SyncResult> {
     // Never overlap two scans (a slow bind must not double-bind an address).
     this.syncing ??= this.doSync().finally(() => {
@@ -158,7 +161,19 @@ export class ListenerSet {
       }
     }
     for (const address of result.removed) log(`${this.label} stopped on ${address} (address gone)`);
-    for (const f of result.failed) logError(`${this.label} bind ${f.address} failed (retrying next scan): ${f.error}`);
+    // Log a failing address once per distinct error, not every scan: an address
+    // another resolver holds for good (NetBird's DNS on the wt0 IP, a libvirt
+    // dnsmasq) would otherwise spam the log forever. Still retried each scan.
+    const failing = new Map(result.failed.map((f) => [f.address, f.error]));
+    for (const [address, error] of failing) {
+      if (this.reported.get(address) !== error) {
+        logError(`${this.label} bind ${address} failed (retrying quietly each scan): ${error}`);
+      }
+    }
+    for (const address of result.added) {
+      if (this.reported.has(address)) log(`${this.label} bind ${address} recovered`);
+    }
+    this.reported = failing;
     if (this.bound.size === 0) logError(`${this.label}: not listening on ANY address`);
     return result;
   }
