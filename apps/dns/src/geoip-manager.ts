@@ -1,4 +1,8 @@
-import { mkdir, rename } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { mkdir, rename, rm, stat } from 'node:fs/promises';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { createGunzip } from 'node:zlib';
 import { join } from 'node:path';
 import { Reader, type CityResponse } from 'mmdb-lib';
 import type { GeoIpReader, LatLon } from '@swarmy/dns';
@@ -17,6 +21,11 @@ import { log, logError, type DnsServerConfig } from './config';
  *
  * Failure posture: keep last-good on refresh errors; serve WITHOUT geo until
  * the first success. A missing DB degrades steering, never resolution.
+ *
+ * Memory: the city DB is ~120 MiB. It is streamed (gunzip on the fly) to disk
+ * and MEMORY-MAPPED, never read into the heap — file-backed pages the kernel
+ * can reclaim, not ~400 MiB of anon RSS that got the process OOM-killed on a
+ * 1 GB edge node. A fresh copy on disk skips the download at boot.
  */
 
 const REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // weekly re-check
@@ -93,11 +102,17 @@ export class GeoIpManager implements GeoIpReader {
     const path = this.config.geoipSource === 'file' ? this.config.geoipFile : this.dbPath;
     if (!path) return;
     try {
-      const buf = Buffer.from(await Bun.file(path).arrayBuffer());
-      this.swap(buf, `disk:${path}`);
+      this.swap(mapFile(path), `disk:${path}`);
     } catch {
       // nothing on disk yet — fine
     }
+  }
+
+  /** The on-disk copy is recent enough that a boot needn't re-download it. */
+  private async diskIsFresh(): Promise<boolean> {
+    if (!this.reader) return false;
+    const st = await stat(this.dbPath).catch(() => undefined);
+    return st !== undefined && Date.now() - st.mtimeMs < REFRESH_INTERVAL_MS;
   }
 
   private async refresh(): Promise<boolean> {
@@ -107,9 +122,9 @@ export class GeoIpManager implements GeoIpReader {
           await this.loadFromDisk();
           return this.reader !== undefined;
         case 'dbip':
-          return await this.refreshDbIp();
+          return (await this.diskIsFresh()) || (await this.refreshDbIp());
         case 'maxmind':
-          return await this.refreshMaxMind();
+          return (await this.diskIsFresh()) || (await this.refreshMaxMind());
         default:
           return false;
       }
@@ -130,10 +145,11 @@ export class GeoIpManager implements GeoIpReader {
     });
     for (const url of candidates) {
       const res = await fetch(url);
-      if (!res.ok) continue;
-      const gz = Buffer.from(await res.arrayBuffer());
-      const mmdb = Buffer.from(Bun.gunzipSync(gz));
-      await this.persistAndSwap(mmdb, url);
+      if (!res.ok || !res.body) continue;
+      const tmp = await this.tmpPath();
+      // node:zlib, not DecompressionStream: Bun.write() of a piped web stream hangs.
+      await pipeline(Readable.fromWeb(res.body as never), createGunzip(), createWriteStream(tmp));
+      await this.adopt(tmp, url);
       return true;
     }
     this.lastError = 'no DB-IP Lite edition reachable';
@@ -162,7 +178,7 @@ export class GeoIpManager implements GeoIpReader {
     const tmpDir = join(this.config.dataDir, 'geoip', 'tmp');
     await mkdir(tmpDir, { recursive: true });
     const tarPath = join(tmpDir, 'geolite2.tar.gz');
-    await Bun.write(tarPath, await res.arrayBuffer());
+    await Bun.write(tarPath, res);
     const proc = Bun.spawn(
       ['tar', '-xzf', tarPath, '-C', tmpDir, '--strip-components=1', '--wildcards', '*/GeoLite2-City.mmdb'],
       { stderr: 'pipe' },
@@ -171,18 +187,30 @@ export class GeoIpManager implements GeoIpReader {
       this.lastError = `tar extract failed: ${await new Response(proc.stderr).text()}`;
       return false;
     }
-    const mmdb = Buffer.from(await Bun.file(join(tmpDir, 'GeoLite2-City.mmdb')).arrayBuffer());
-    await this.persistAndSwap(mmdb, 'maxmind:GeoLite2-City');
+    await rm(tarPath, { force: true });
+    await this.adopt(join(tmpDir, 'GeoLite2-City.mmdb'), 'maxmind:GeoLite2-City');
     return true;
   }
 
-  private async persistAndSwap(mmdb: Buffer, source: string): Promise<void> {
-    // Validate BEFORE persisting — a bad download must not poison the volume.
-    this.swap(mmdb, source);
+  private async tmpPath(): Promise<string> {
     await mkdir(join(this.config.dataDir, 'geoip'), { recursive: true });
-    const tmp = `${this.dbPath}.tmp`;
-    await Bun.write(tmp, mmdb);
-    await rename(tmp, this.dbPath);
+    return `${this.dbPath}.tmp`;
+  }
+
+  /**
+   * Validate a downloaded DB BEFORE it replaces the last-good copy (a bad
+   * download must not poison the volume), then rename it into place. The
+   * mapping survives the rename (same inode); the old DB's inode is freed
+   * once its mapping is collected — never overwritten in place while mapped.
+   */
+  private async adopt(file: string, source: string): Promise<void> {
+    try {
+      this.swap(mapFile(file), source);
+    } catch (err) {
+      await rm(file, { force: true });
+      throw err;
+    }
+    await rename(file, this.dbPath);
   }
 
   private swap(mmdb: Buffer, source: string): void {
@@ -193,4 +221,10 @@ export class GeoIpManager implements GeoIpReader {
     this.lastError = undefined;
     log(`geoip database loaded from ${source} (${(mmdb.byteLength / 1024 / 1024).toFixed(1)} MiB)`);
   }
+}
+
+/** Memory-map an mmdb read-only as a zero-copy Buffer view (file-backed pages). */
+function mapFile(path: string): Buffer {
+  const view = Bun.mmap(path, { shared: false });
+  return Buffer.from(view.buffer, view.byteOffset, view.byteLength);
 }

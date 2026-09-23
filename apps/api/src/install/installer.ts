@@ -210,6 +210,25 @@ case "$CONTROLLER_URL" in
 esac
 [ -n "$JOIN_TOKEN" ] || die "Set SWARMY_JOIN_TOKEN (mint one in the dashboard)."
 
+# --- swap on small hosts --------------------------------------------------------
+# A 1 GB node running the agent + an edge + DNS + a storage member has no
+# headroom: without swap the kernel OOM-kills whichever grows first. Same rule
+# as the controller installer: <2 GB RAM and no swap ⇒ a 2 GB /swapfile.
+MEM_KB="\$(awk '/^MemTotal:/ {print \$2}' /proc/meminfo 2>/dev/null || echo 0)"
+SWAP_KB="\$(awk '/^SwapTotal:/ {print \$2}' /proc/meminfo 2>/dev/null || echo 0)"
+if [ "\${MEM_KB:-0}" -gt 0 ] && [ "\$MEM_KB" -lt 2000000 ] && [ "\${SWAP_KB:-0}" -eq 0 ] && [ ! -e /swapfile ]; then
+  say "Low-memory host (\$(( MEM_KB / 1024 )) MB, no swap) — adding a 2 GB swap file…"
+  if { fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none; } \\
+    && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile; then
+    grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    sysctl -qw vm.swappiness=10 2>/dev/null || true
+    ok "swap enabled."
+  else
+    rm -f /swapfile
+    warn "could not add swap — services on this node may be OOM-killed."
+  fi
+fi
+
 # --- Docker (required by the agent for both backends) -------------------------
 if have docker; then
   ok "Docker already present."
