@@ -163,7 +163,9 @@ Four ideas, one story:
 - **One-click re-pin of an already-LAN-clustered swarm onto the mesh.**
   `--data-path-addr` can't change on a running swarm node without leave/rejoin;
   converting an in-place cluster is a guided, drain-one-at-a-time migration, not
-  a toggle. Multi-location swarms initialize on the mesh from the start.
+  a toggle (`mesh.migrateSwarm`). A self-host install with `--mesh` forms the
+  swarm on node #1's mesh IP from the start, which is what keeps encrypted
+  overlays working across NAT'd and public nodes alike.
 
 ## Implementation map
 

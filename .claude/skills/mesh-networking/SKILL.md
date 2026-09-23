@@ -142,6 +142,16 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
 - `meshState` in the gateway currently writes coarse `ONLINE`/`OFFLINE`, while
   `reconcilePeerState` models the fuller `ENROLLING`/`ENROLLED`/`CONNECTED`/
   `DEGRADED`/`FAILED` domain — prefer the pure mapping when unifying them.
+- **The swarm is born on the mesh.** With `--mesh netbird-*` the installer
+  mints a one-off key, starts `swarmy-netbird` (state volume `swarmy-netbird`,
+  which `applyMesh` adopts instead of recreating: a re-create is a NEW peer
+  with a NEW IP) and runs `swarm init --advertise-addr/--data-path-addr <wt0>`.
+  Its printed Add-a-node line carries a reusable key. Why it matters: Docker
+  keys each encrypted-overlay IPsec SA on ADVERTISED addresses; a manager on
+  its public IP talking to mesh-IP workers sources packets from its mesh IP,
+  the SAs never match, and the `swarmy` overlay (every ingress route) goes
+  dark. The migration plan therefore BLOCKS moving nodes while the sole
+  manager is off-mesh (fix: `swarmy-agent rejoin --force` on it).
 - Re-pinning an existing swarm onto the mesh data-path is a guided
   drain-one-at-a-time migration, not a toggle (`--data-path-addr` can't change
   on a running node): `mesh.migrateSwarm` (pure rules in
