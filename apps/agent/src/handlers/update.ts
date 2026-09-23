@@ -22,7 +22,10 @@
  * A binary can never brick the node silently: every failure path answers the
  * command, and a half-done swap rolls back to `<bin>.old`.
  */
+import { createWriteStream } from 'node:fs';
 import { chmod, rename, rm, stat } from 'node:fs/promises';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type { DockerClient } from '@swarmy/core/docker';
 import type { UpdateAgentMsg } from '@swarmy/core/protocol';
 
@@ -35,6 +38,8 @@ export function agentPackaging(): 'binary' | 'container' {
 }
 
 const EXIT_FLUSH_MS = 750;
+/** Whole-download deadline: a hung transfer must fail the command, not wedge it. */
+const DOWNLOAD_TIMEOUT_MS = 240_000;
 
 export async function updateAgent(
   docker: DockerClient,
@@ -65,9 +70,13 @@ export async function selfReplaceAt(payload: Payload, binPath: string): Promise<
   const downloadPath = `${binPath}.download`;
   const oldPath = `${binPath}.old`;
 
-  const res = await fetch(downloadUrl);
-  if (!res.ok) throw new Error(`download failed: ${res.status} ${downloadUrl}`);
-  await Bun.write(downloadPath, res);
+  const res = await fetch(downloadUrl, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+  if (!res.ok || !res.body) throw new Error(`download failed: ${res.status} ${downloadUrl}`);
+  // Stream to disk with node streams, NOT `Bun.write(path, res)`: on linux-arm64
+  // that never resolves (and never creates the file), so the update wedged
+  // silently and arm64 nodes could never self-update (reproduced on the launch
+  // test's Mac node).
+  await pipeline(Readable.fromWeb(res.body as never), createWriteStream(downloadPath));
 
   try {
     const actual = await sha256File(downloadPath);

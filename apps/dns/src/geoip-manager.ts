@@ -30,6 +30,8 @@ import { log, logError, type DnsServerConfig } from './config';
 
 const REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // weekly re-check
 const RETRY_INTERVAL_MS = 60 * 60 * 1000; // hourly until first success
+/** A stalled download fails the refresh (keeps last-good) instead of hanging it. */
+const DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000;
 
 export class GeoIpManager implements GeoIpReader {
   private reader: Reader<CityResponse> | undefined;
@@ -144,7 +146,7 @@ export class GeoIpManager implements GeoIpReader {
       return `https://download.db-ip.com/free/dbip-city-lite-${ym}.mmdb.gz`;
     });
     for (const url of candidates) {
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
       if (!res.ok || !res.body) continue;
       const tmp = await this.tmpPath();
       // node:zlib, not DecompressionStream: Bun.write() of a piped web stream hangs.
@@ -169,8 +171,8 @@ export class GeoIpManager implements GeoIpReader {
       return false;
     }
     const url = `https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-City&license_key=${encodeURIComponent(key)}&suffix=tar.gz`;
-    const res = await fetch(url);
-    if (!res.ok) {
+    const res = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+    if (!res.ok || !res.body) {
       this.lastError = `maxmind download failed: ${res.status}`;
       return false;
     }
@@ -178,7 +180,8 @@ export class GeoIpManager implements GeoIpReader {
     const tmpDir = join(this.config.dataDir, 'geoip', 'tmp');
     await mkdir(tmpDir, { recursive: true });
     const tarPath = join(tmpDir, 'geolite2.tar.gz');
-    await Bun.write(tarPath, res);
+    // node streams: Bun.write(path, Response) hangs on linux-arm64.
+    await pipeline(Readable.fromWeb(res.body as never), createWriteStream(tarPath));
     const proc = Bun.spawn(
       ['tar', '-xzf', tarPath, '-C', tmpDir, '--strip-components=1', '--wildcards', '*/GeoLite2-City.mmdb'],
       { stderr: 'pipe' },
