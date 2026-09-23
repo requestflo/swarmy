@@ -72,6 +72,8 @@ export function buildCaddyfile(config: IngressConfig): string {
     global.push(`    bucket ${certs.bucket}`);
     global.push(`    region ${certs.region}`);
     global.push(`    prefix ${certs.prefix}`);
+    // Sealed at rest: the key comes from a Docker secret file, never this text.
+    if (certs.encryptionKeyFile) global.push(`    import ${certs.encryptionKeyFile}`);
     // Garage (and most self-hosted S3) serve path-style only.
     global.push('    use_path_style true');
     global.push('  }');

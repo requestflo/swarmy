@@ -239,6 +239,24 @@ describe('caddy shared certificate storage (storage s3)', () => {
     expect(body).not.toMatch(/access_key|secret_key|encryption_key|password/);
   });
 
+  it('an encrypted store imports its key file — the key itself is never rendered', () => {
+    const body = driver
+      .render(
+        IngressConfigSchema.parse({
+          driver: 'caddy',
+          orgId: 'org_1',
+          domains: [{ domain: 'app.example.test', service: 'web', port: 80 }],
+          globalOptions: {
+            certStorage: { ...certStorage, prefix: 'caddy-enc/org_1', encryptionKeyFile: '/run/secrets/swarmy-edge-certs-enc' },
+            extraConfig: { applyVia: 'local', controllerImage: SWARMY_IMAGE },
+          },
+        }),
+      )
+      .localReload!.file!.contents;
+    expect(body).toContain('    prefix caddy-enc/org_1\n    import /run/secrets/swarmy-edge-certs-enc\n    use_path_style true');
+    expect(body).not.toMatch(/encryption_key/);
+  });
+
   it('the schema cannot even carry credentials', () => {
     const parsed = IngressConfigSchema.parse({
       driver: 'caddy',

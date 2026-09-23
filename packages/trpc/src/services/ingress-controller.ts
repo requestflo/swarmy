@@ -305,6 +305,8 @@ export interface EnsureEdgeOptions {
    * `ingress-certs.ts`). Mounted + pointed at by `AWS_SHARED_CREDENTIALS_FILE`.
    */
   certStoreSecret?: string;
+  /** The store's encryption-key secret (mounted beside it). */
+  certStoreEncSecret?: string;
 }
 
 /**
@@ -344,8 +346,12 @@ export function caddyEdgeSpec(opts: {
   otelOrgId?: string;
   /** Shared cert store credentials secret (edge-per-node + object storage). */
   certStoreSecret?: string;
+  /** Its encryption-key secret (imported by the rendered `storage s3` block). */
+  certStoreEncSecret?: string;
 }): ServiceSpec {
-  const certs = opts.certStoreSecret ? edgeCertsServiceWiring(opts.certStoreSecret) : undefined;
+  const certs = opts.certStoreSecret
+    ? edgeCertsServiceWiring(opts.certStoreSecret, opts.certStoreEncSecret)
+    : undefined;
   const otelEnv = opts.otelOrgId
     ? {
         OTEL_EXPORTER_OTLP_ENDPOINT: 'http://swarmy-otel-collector:4317',
@@ -499,7 +505,13 @@ export async function ensureCaddyEdge(
   const migrated = await deployWithModeSwap(
     ctx,
     node.id,
-    caddyEdgeSpec({ network, image, otelOrgId, certStoreSecret: options.certStoreSecret }),
+    caddyEdgeSpec({
+      network,
+      image,
+      otelOrgId,
+      certStoreSecret: options.certStoreSecret,
+      certStoreEncSecret: options.certStoreEncSecret,
+    }),
   );
   const id = liveService(ctx, CADDY_EDGE_SERVICE)?.id ?? CADDY_EDGE_SERVICE;
   return { id, name: CADDY_EDGE_SERVICE, network, migrated };

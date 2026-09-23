@@ -247,6 +247,13 @@ export const CertStorageSchema = z.object({
   region: z.string().regex(/^[A-Za-z0-9_-]+$/),
   /** Object key prefix (per-org, so one bucket could serve several orgs). */
   prefix: z.string().regex(/^[A-Za-z0-9_./-]+$/).default('caddy'),
+  /**
+   * Absolute path (inside the Caddy task) of a Docker-secret file holding the
+   * `encryption_key …` line, imported into the block: objects are sealed
+   * client-side before they reach the store. The key itself never appears in
+   * the rendered Caddyfile. Absent ⇒ plaintext objects (legacy stores).
+   */
+  encryptionKeyFile: z.string().regex(/^\/[A-Za-z0-9_./-]+$/).optional(),
 });
 export type CertStorage = z.infer<typeof CertStorageSchema>;
 

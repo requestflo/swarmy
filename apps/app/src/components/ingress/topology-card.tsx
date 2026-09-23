@@ -29,6 +29,7 @@ export interface CertStorageState {
   edges: number;
   objectStorageEnabled: boolean;
   bucket: string | null;
+  encrypted?: boolean;
 }
 
 interface TopologyCardProps {
@@ -102,6 +103,7 @@ export function TopologyCard({ topology, certStorage }: TopologyCardProps): Reac
           {topology === 'edge-per-node' && certStorage.mode === 'shared' ? (
             <Badge variant="muted">
               Certificates: shared across {edgesPhrase(certStorage.edges)} via swarmy object storage
+              {certStorage.encrypted ? ', encrypted at rest' : ''}
             </Badge>
           ) : null}
         </div>

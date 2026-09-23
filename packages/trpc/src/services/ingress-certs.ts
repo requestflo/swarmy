@@ -22,7 +22,16 @@
  * Persisted state is non-secret coordinates only (`IngressSettings.certStorage`:
  * bucket, key id, secret NAME) — the secret access key exists solely inside the
  * Docker secret.
+ *
+ * Encrypted at rest: certificates and the ACME account key are sealed
+ * client-side (the module's NaCl secretbox `encryption_key`) before they reach
+ * Garage, so neither the store nor its offsite S3 mirror ever holds a usable
+ * private key. The key is its own Docker secret, pulled into the `storage s3`
+ * block with a Caddyfile `import` — never in the DB, an env var or the rendered
+ * Caddyfile. It lives only in the swarm; lose it and the edges simply issue
+ * fresh certificates (they are reproducible), so no copy is kept elsewhere.
  */
+import { randomBytes } from 'node:crypto';
 import type { CertStorage } from '@swarmy/ingress';
 import type { SecretListResult } from '@swarmy/core/protocol';
 import { TRPCError } from '@trpc/server';
@@ -39,6 +48,10 @@ export const EDGE_CERTS_KEY_NAME = 'swarmy-edge-certs';
 export const EDGE_CERTS_SECRET_TARGET = 'swarmy-edge-certs-s3';
 /** What `AWS_SHARED_CREDENTIALS_FILE` points at on the edge service. */
 export const EDGE_CERTS_CREDENTIALS_FILE = `/run/secrets/${EDGE_CERTS_SECRET_TARGET}`;
+/** The encryption-key snippet's file name under /run/secrets/ in every edge task. */
+export const EDGE_CERTS_ENC_TARGET = 'swarmy-edge-certs-enc';
+/** What the rendered `storage s3` block imports. */
+export const EDGE_CERTS_ENC_FILE = `/run/secrets/${EDGE_CERTS_ENC_TARGET}`;
 
 export const OBJECT_STORAGE_REQUIRED_MESSAGE =
   'Turn on swarmy object storage first — the edges share certificates through it. ' +
@@ -56,6 +69,12 @@ export interface EdgeCertStorageSettings {
   accessKeyId: string;
   /** Docker secret NAME carrying the credentials INI (never its content). */
   secretName: string;
+  /**
+   * Docker secret NAME carrying the `encryption_key` snippet. Absent on stores
+   * provisioned before encryption at rest (plaintext, legacy prefix) — the
+   * reconcile upgrades those.
+   */
+  encSecretName?: string;
 }
 
 /**
@@ -69,9 +88,29 @@ export function edgeCertsSecretName(accessKeyId: string): string {
   return `swarmy-edge-certs-s3-${suffix}`;
 }
 
-/** Per-org object prefix inside the shared bucket. Pure. */
-export function edgeCertsPrefix(orgId: string): string {
-  return `caddy/${orgId.replace(/[^A-Za-z0-9_-]/g, '')}`;
+/**
+ * Per-org object prefix inside the shared bucket. Pure. Encrypted stores use
+ * their own prefix: the module has no plaintext fallback, so sealed and legacy
+ * objects must never share keys (legacy certs are simply re-issued once).
+ */
+export function edgeCertsPrefix(orgId: string, encrypted = true): string {
+  return `${encrypted ? 'caddy-enc' : 'caddy'}/${orgId.replace(/[^A-Za-z0-9_-]/g, '')}`;
+}
+
+/** A fresh secretbox key: exactly 32 bytes as text (the module copies the raw string). */
+export function generateEdgeCertsKey(): string {
+  return randomBytes(24).toString('base64url'); // 24 bytes → 32 chars [A-Za-z0-9_-]
+}
+
+/** The encryption-key secret's content — one Caddyfile line for `import`. Pure. */
+export function encryptionKeySnippet(key: string): string {
+  if (key.length !== 32 || !/^[A-Za-z0-9_-]+$/.test(key)) throw new Error('edge cert key must be 32 url-safe chars');
+  return `encryption_key ${key}\n`;
+}
+
+/** Docker secret name for a fresh encryption key (immutable → unique per key). */
+export function edgeCertsEncSecretName(): string {
+  return `swarmy-edge-certs-enc-${randomBytes(6).toString('hex')}`;
 }
 
 /** AWS shared-credentials INI (the Docker secret's content). Pure. */
@@ -81,7 +120,14 @@ export function awsCredentialsIni(accessKeyId: string, secretAccessKey: string):
 
 /** Render-time {@link CertStorage} from the persisted coordinates. Pure. */
 export function certStorageFor(s: EdgeCertStorageSettings): CertStorage {
-  return { kind: 's3', endpoint: s.endpoint, bucket: s.bucket, region: s.region, prefix: s.prefix };
+  return {
+    kind: 's3',
+    endpoint: s.endpoint,
+    bucket: s.bucket,
+    region: s.region,
+    prefix: s.prefix,
+    ...(s.encSecretName ? { encryptionKeyFile: EDGE_CERTS_ENC_FILE } : {}),
+  };
 }
 
 /**
@@ -89,7 +135,10 @@ export function certStorageFor(s: EdgeCertStorageSettings): CertStorage {
  * edge spec builder merges it. `AWS_EC2_METADATA_DISABLED` stops the SDK's
  * default chain from probing an instance-metadata endpoint on cloud hosts.
  */
-export function edgeCertsServiceWiring(secretName: string): {
+export function edgeCertsServiceWiring(
+  secretName: string,
+  encSecretName?: string,
+): {
   env: Record<string, string>;
   secrets: Array<{ source: string; target: string; mode: number }>;
 } {
@@ -98,17 +147,21 @@ export function edgeCertsServiceWiring(secretName: string): {
       AWS_SHARED_CREDENTIALS_FILE: EDGE_CERTS_CREDENTIALS_FILE,
       AWS_EC2_METADATA_DISABLED: 'true',
     },
-    secrets: [{ source: secretName, target: EDGE_CERTS_SECRET_TARGET, mode: 0o400 }],
+    secrets: [
+      { source: secretName, target: EDGE_CERTS_SECRET_TARGET, mode: 0o400 },
+      ...(encSecretName ? [{ source: encSecretName, target: EDGE_CERTS_ENC_TARGET, mode: 0o400 }] : []),
+    ],
   };
 }
 
-async function secretExists(ctx: OrgContext, managerNodeId: string, name: string): Promise<boolean> {
+/** Names of the swarm's secrets, or null when it can't tell (assume present). */
+async function secretNames(ctx: OrgContext, managerNodeId: string): Promise<Set<string> | null> {
   try {
     const res = await ctx.hub.dispatch<SecretListResult>(managerNodeId, 'secret.list', {});
-    return (res?.secrets ?? []).some((s) => s.name === name);
+    return new Set((res?.secrets ?? []).map((s) => s.name));
   } catch {
     // Can't tell — assume present rather than mint a duplicate key every tick.
-    return true;
+    return null;
   }
 }
 
@@ -133,44 +186,69 @@ export async function ensureEdgeCertStorage(
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: OBJECT_STORAGE_REQUIRED_MESSAGE });
   }
   const node = await resolveManagerNode(ctx);
-  if (current && (await secretExists(ctx, node.id, current.secretName))) {
-    return { settings: current, created: false };
-  }
+  const names = await secretNames(ctx, node.id);
+  const has = (name?: string) => Boolean(name) && (names === null || names.has(name!));
+  const credsOk = Boolean(current) && has(current?.secretName);
+  const encOk = credsOk && has(current?.encSecretName);
+  if (current && credsOk && encOk) return { settings: current, created: false };
 
-  const cred = await provisionSystemBucketKey(ctx, {
-    bucket: EDGE_CERTS_BUCKET,
-    keyName: EDGE_CERTS_KEY_NAME,
-  });
-  const secretName = edgeCertsSecretName(cred.accessKeyId);
-  const dataB64 = Buffer.from(awsCredentialsIni(cred.accessKeyId, cred.secretAccessKey), 'utf8').toString(
-    'base64',
-  );
-  try {
-    await ctx.hub.dispatch(node.id, 'secret.create', {
-      name: secretName,
-      dataB64,
-      labels: { 'swarmy.managed': 'true', 'swarmy.role': 'ingress-certs' },
+  let creds: Omit<EdgeCertStorageSettings, 'prefix' | 'encSecretName'>;
+  if (current && credsOk) {
+    const { prefix: _p, encSecretName: _e, ...keep } = current;
+    creds = keep;
+  } else {
+    const cred = await provisionSystemBucketKey(ctx, {
+      bucket: EDGE_CERTS_BUCKET,
+      keyName: EDGE_CERTS_KEY_NAME,
     });
-  } catch (e) {
-    // Don't leave an orphaned key behind a secret that never landed.
-    await revokeSystemKey(ctx, cred.accessKeyId);
-    throw mapDispatchError(e);
-  }
-  // The previous key lost its secret (removed out-of-band) — revoke it.
-  if (current && current.accessKeyId !== cred.accessKeyId) {
-    await revokeSystemKey(ctx, current.accessKeyId);
-  }
-  return {
-    settings: {
+    const secretName = edgeCertsSecretName(cred.accessKeyId);
+    const dataB64 = Buffer.from(awsCredentialsIni(cred.accessKeyId, cred.secretAccessKey), 'utf8').toString(
+      'base64',
+    );
+    try {
+      await ctx.hub.dispatch(node.id, 'secret.create', {
+        name: secretName,
+        dataB64,
+        labels: { 'swarmy.managed': 'true', 'swarmy.role': 'ingress-certs' },
+      });
+    } catch (e) {
+      // Don't leave an orphaned key behind a secret that never landed.
+      await revokeSystemKey(ctx, cred.accessKeyId);
+      throw mapDispatchError(e);
+    }
+    // The previous key lost its secret (removed out-of-band) — revoke it.
+    if (current && current.accessKeyId !== cred.accessKeyId) {
+      await revokeSystemKey(ctx, current.accessKeyId);
+    }
+    creds = {
       kind: 's3',
       endpoint: cred.endpoint,
       bucket: cred.bucket,
       bucketId: cred.bucketId,
       region: cred.region,
-      prefix: edgeCertsPrefix(ctx.activeOrgId),
       accessKeyId: cred.accessKeyId,
       secretName,
-    },
+    };
+  }
+
+  // A new encryption key means a new (empty) sealed prefix: the edges issue
+  // fresh certificates into it once. Only happens on first provision, on the
+  // upgrade of a legacy plaintext store, or if the key's secret was removed.
+  let encSecretName = current?.encSecretName;
+  if (!encOk || !encSecretName) {
+    encSecretName = edgeCertsEncSecretName();
+    try {
+      await ctx.hub.dispatch(node.id, 'secret.create', {
+        name: encSecretName,
+        dataB64: Buffer.from(encryptionKeySnippet(generateEdgeCertsKey()), 'utf8').toString('base64'),
+        labels: { 'swarmy.managed': 'true', 'swarmy.role': 'ingress-certs-key' },
+      });
+    } catch (e) {
+      throw mapDispatchError(e);
+    }
+  }
+  return {
+    settings: { ...creds, prefix: edgeCertsPrefix(ctx.activeOrgId), encSecretName },
     created: true,
   };
 }

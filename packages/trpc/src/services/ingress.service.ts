@@ -200,6 +200,8 @@ export interface EdgeCertStorageView {
   objectStorageEnabled: boolean;
   /** Bucket holding the shared pool (null when local). */
   bucket: string | null;
+  /** Objects are sealed client-side before they reach the store (and its offsite mirror). */
+  encrypted: boolean;
 }
 
 export interface DomainView {
@@ -724,6 +726,7 @@ async function deployTopology(
     await ensureCaddyEdge(ctx, {
       image: settings.controllerImage ?? undefined,
       certStoreSecret: settings.certStorage?.secretName,
+      certStoreEncSecret: settings.certStorage?.encSecretName,
     });
     return;
   }
@@ -749,6 +752,7 @@ async function certStorageView(
     edges,
     objectStorageEnabled: store.enabled,
     bucket: shared ? settings.certStorage!.bucket : null,
+    encrypted: shared && Boolean(settings.certStorage!.encSecretName),
   };
 }
 
@@ -1423,7 +1427,8 @@ export async function reconcileIngressOrg(
   // off (the topology card says why). Rate-limited like the converges above.
   if (swarmyRunsCaddy && ctx.hub.managerNode(orgId)) {
     const settings = readSettings(await ensureConfig(ctx));
-    if (settings.topology === 'edge-per-node' && !settings.certStorage) {
+    // Also upgrades a legacy plaintext store to encrypted at rest.
+    if (settings.topology === 'edge-per-node' && !settings.certStorage?.encSecretName) {
       const last = lastCertStoreAt.get(orgId) ?? 0;
       if (Date.now() - last >= CONVERGE_RETRY_MS && (await objectStoreState(ctx)).enabled) {
         lastCertStoreAt.set(orgId, Date.now());

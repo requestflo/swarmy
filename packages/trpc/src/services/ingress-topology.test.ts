@@ -9,7 +9,7 @@ import {
   EDGE_PLACEMENT_CONSTRAINT,
 } from './ingress-controller';
 import { getConfig, reconcileIngressOrg, setTopology } from './ingress.service';
-import { OBJECT_STORAGE_REQUIRED_MESSAGE } from './ingress-certs';
+import { OBJECT_STORAGE_REQUIRED_MESSAGE, certStorageFor } from './ingress-certs';
 
 process.env.SWARMY_SECRET_KEY ??= 'a'.repeat(64);
 
@@ -343,7 +343,7 @@ describe('setTopology — shared certificates in swarmy object storage', () => {
     });
 
     // The credential lands ONLY in a Docker secret (AWS shared-credentials INI).
-    const created = w.sent.find((s) => s.cmd === 'secret.create')!;
+    const created = w.sent.find((s) => s.cmd === 'secret.create' && s.payload.name.startsWith('swarmy-edge-certs-s3-'))!;
     expect(created.payload.name).toBe('swarmy-edge-certs-s3-gk000000000001');
     const ini = Buffer.from(created.payload.dataB64, 'base64').toString('utf8');
     expect(ini).toContain('aws_access_key_id = GK000000000001');
@@ -362,8 +362,11 @@ describe('setTopology — shared certificates in swarmy object storage', () => {
 
     // The global edge mounts it and points the AWS SDK default chain at it.
     const deployed = w.sent.find((s) => s.cmd === 'service.deploy')!.payload.spec as ServiceSpec;
+    const encName = w.row.settings.certStorage.encSecretName as string;
+    expect(encName).toMatch(/^swarmy-edge-certs-enc-[0-9a-f]{12}$/);
     expect(deployed.secrets).toEqual([
       { source: 'swarmy-edge-certs-s3-gk000000000001', target: 'swarmy-edge-certs-s3', mode: 0o400 },
+      { source: encName, target: 'swarmy-edge-certs-enc', mode: 0o400 },
     ]);
     expect(deployed.env).toMatchObject({
       AWS_SHARED_CREDENTIALS_FILE: '/run/secrets/swarmy-edge-certs-s3',
@@ -372,7 +375,51 @@ describe('setTopology — shared certificates in swarmy object storage', () => {
     expect(JSON.stringify(deployed)).not.toContain(MINTED_SECRET);
     expect(deployed.image).toBe(defaultEdgeImage());
 
-    expect(view.certStorage).toMatchObject({ mode: 'shared', bucket: 'swarmy-edge-certs', objectStorageEnabled: true });
+    expect(view.certStorage).toMatchObject({
+      mode: 'shared',
+      bucket: 'swarmy-edge-certs',
+      objectStorageEnabled: true,
+      encrypted: true,
+    });
+  });
+
+  it('seals certificates at rest: a 32-char key lives ONLY in its own Docker secret, imported by the render', async () => {
+    const w = world({ services: [svc({ mode: 'replicated' })] });
+    await setTopology(w.ctx, 'edge-per-node');
+    const cs = w.row.settings.certStorage;
+    expect(cs.prefix).toMatch(/^caddy-enc\//);
+    const encSecret = w.sent.find((s) => s.cmd === 'secret.create' && s.payload.name === cs.encSecretName)!;
+    const line = Buffer.from(encSecret.payload.dataB64, 'base64').toString('utf8');
+    const key = /^encryption_key ([A-Za-z0-9_-]{32})\n$/.exec(line)?.[1];
+    expect(key).toBeDefined();
+    // The key is nowhere but that secret: not persisted, not in the edge spec.
+    expect(JSON.stringify(w.row.settings)).not.toContain(key!);
+    const deployed = w.sent.find((s) => s.cmd === 'service.deploy')!.payload.spec as ServiceSpec;
+    expect(JSON.stringify(deployed)).not.toContain(key!);
+    expect(certStorageFor(cs)).toMatchObject({ encryptionKeyFile: '/run/secrets/swarmy-edge-certs-enc' });
+  });
+
+  it('upgrades a legacy plaintext store: keeps the key + credentials secret, adds encryption on a fresh prefix', async () => {
+    const first = world({ services: [svc({ mode: 'replicated' })] });
+    await setTopology(first.ctx, 'edge-per-node');
+    const { encSecretName: _drop, ...legacyStore } = first.row.settings.certStorage;
+    const legacy = { ...first.row.settings, certStorage: { ...legacyStore, prefix: 'caddy/org_1' } };
+    const w = world({
+      services: [svc({ mode: 'global' })],
+      settings: legacy,
+      secrets: [...first.secrets].filter((n: string) => !n.startsWith('swarmy-edge-certs-enc-')),
+    });
+    await setTopology(w.ctx, 'edge-per-node');
+    expect(w.garage).toEqual([]); // no new Garage key
+    const minted = w.sent.filter((s) => s.cmd === 'secret.create').map((s) => s.payload.name);
+    expect(minted).toHaveLength(1);
+    expect(minted[0]).toMatch(/^swarmy-edge-certs-enc-/);
+    expect(w.row.settings.certStorage).toMatchObject({
+      accessKeyId: legacyStore.accessKeyId,
+      secretName: legacyStore.secretName,
+      encSecretName: minted[0],
+    });
+    expect(w.row.settings.certStorage.prefix).toMatch(/^caddy-enc\//);
   });
 
   it('is idempotent: a re-run with the secret still present makes zero Garage calls and mints nothing', async () => {
