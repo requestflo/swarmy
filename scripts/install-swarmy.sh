@@ -386,19 +386,26 @@ mesh_ip() { { ip -4 -o addr show dev "${NB_INTERFACE}" 2>/dev/null || true; } | 
 # left on its public IP while nodes join on mesh IPs breaks encrypted overlays
 # (IPsec SAs are keyed on the advertised addresses) — the swarmy overlay, and
 # with it every ingress route.
+# nb_setup_key TYPE USES TTL NAME — mint a NetBird setup key with the PAT; prints the key.
+nb_setup_key() {
+  local api="${NB_MANAGEMENT_URL%/}" resp key
+  resp="$(curl -fsS -X POST "${api}/api/setup-keys" \
+    -H "Authorization: Token ${NB_SERVICE_TOKEN}" -H 'Content-Type: application/json' \
+    -d "{\"name\":\"$4\",\"type\":\"$1\",\"expires_in\":$3,\"auto_groups\":[],\"usage_limit\":$2,\"ephemeral\":false}" 2>&1)" \
+    || die "could not mint a NetBird setup key at ${api} (check the token): ${resp}"
+  key="$(printf '%s' "$resp" | sed -n 's/.*"key":"\([^"]*\)".*/\1/p')"
+  [ -n "$key" ] || die "NetBird returned no setup key: ${resp}"
+  printf '%s' "$key"
+}
+
 ensure_mesh_node1() {
   [ "$MESH" = none ] && return 0
   MESH_IP="$(mesh_ip)"
   if [ -n "$MESH_IP" ]; then ok "mesh already up on ${NB_INTERFACE} (${MESH_IP})."; return 0; fi
   [ -n "${NB_SERVICE_TOKEN:-}" ] || die "--mesh ${MESH} needs NB_SERVICE_TOKEN (a NetBird Personal Access Token)."
-  local api="${NB_MANAGEMENT_URL%/}" resp key i
+  local api="${NB_MANAGEMENT_URL%/}" key i
   say "Joining the NetBird mesh before forming the swarm…"
-  resp="$(curl -fsS -X POST "${api}/api/setup-keys" \
-    -H "Authorization: Token ${NB_SERVICE_TOKEN}" -H 'Content-Type: application/json' \
-    -d "{\"name\":\"swarmy node #1 $(hostname)\",\"type\":\"one-off\",\"expires_in\":3600,\"auto_groups\":[],\"usage_limit\":1,\"ephemeral\":false}" 2>&1)" \
-    || die "could not mint a NetBird setup key at ${api} (check the token): ${resp}"
-  key="$(printf '%s' "$resp" | sed -n 's/.*"key":"\([^"]*\)".*/\1/p')"
-  [ -n "$key" ] || die "NetBird returned no setup key: ${resp}"
+  key="$(nb_setup_key one-off 1 3600 "swarmy node #1 $(hostname)")"
   docker pull "$NETBIRD_IMAGE" >/dev/null 2>&1 || warn "could not pull $NETBIRD_IMAGE; using local copy if present."
   docker rm -f "$NETBIRD_CONTAINER" >/dev/null 2>&1 || true
   # Same name/volume the agent's applyMesh uses, so it adopts this client.
@@ -628,8 +635,15 @@ finalize() {
     printf '  Domain:     https://%s  %s\n' "$DOMAIN" "${c_dim}(active once ingress is applied in the dashboard)${c_reset}"
   fi
   printf '\n'
-  printf '  Add a node:  curl -fsSL %s/install/loader.sh | SWARMY_JOIN_TOKEN=%s sh -s -- --controller %s\n' \
-    "$share" "$BOOTSTRAP_JOIN_TOKEN" "$share"
+  # With a mesh, the bootstrap line carries a NetBird key with the same reach
+  # (5 nodes / 24h), so the first nodes join on mesh IPs like the manager.
+  local mesh_env=""
+  if [ "$MESH" != none ] && [ -n "${NB_SERVICE_TOKEN:-}" ]; then
+    local k; k="$(nb_setup_key reusable 5 86400 'swarmy bootstrap one-liner')" || k=""
+    [ -z "$k" ] || mesh_env="SWARMY_MESH_SETUP_KEY=$k SWARMY_MESH_MANAGEMENT_URL=${NB_MANAGEMENT_URL%/} SWARMY_MESH_DRIVER=netbird "
+  fi
+  printf '  Add a node:  curl -fsSL %s/install/loader.sh | %sSWARMY_JOIN_TOKEN=%s sh -s -- --controller %s\n' \
+    "$share" "$mesh_env" "$BOOTSTRAP_JOIN_TOKEN" "$share"
   if [ -n "$DASHBOARD_DOMAIN" ] && [ "$HTTPS_READY" != 1 ]; then
     printf '               %s\n' "${c_dim}(until the certificate is issued, swap https://${DASHBOARD_DOMAIN} for ${LOGIN_URL} in this command)${c_reset}"
   fi
