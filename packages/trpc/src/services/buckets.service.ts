@@ -19,6 +19,7 @@
 import {
   buildInventory,
   STACK_LABEL,
+  UNGROUPED,
   type AttachBucketInput,
   type BucketAttachResult,
   type BucketAttachmentView,
@@ -37,14 +38,15 @@ import {
   type StorageAccessKeyView,
 } from '@swarmy/core';
 import { decryptSecret, encryptSecret } from '@swarmy/core/crypto';
-import type { RunOnceResult, ServiceSpec } from '@swarmy/core/protocol';
+import type { RunOnceResult } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
+import { patchLiveService } from './service-patch';
 import { GARAGE_NETWORK, GARAGE_S3_PORT, garageAdminUrl } from './garage-render';
 import { MAX_PRESIGN_EXPIRES_SECONDS, presignS3Url } from './s3-presign';
-import { parsePhysicalSecretName, physicalSecretName, secretRefsFor } from './secretsMgr.service';
+import { parsePhysicalSecretName, physicalSecretName } from './secretsMgr.service';
 
 // Keep in lockstep with replicatedStore.service.ts (same deployment).
 const STORE_SERVICE_NAME = 'swarmy-garage';
@@ -709,45 +711,29 @@ export async function rotateAccessKey(
           });
         }
 
-        const env: Record<string, string> = {};
-        for (const kv of app.env) {
-          const i = kv.indexOf('=');
-          env[i >= 0 ? kv.slice(0, i) : kv] = i >= 0 ? kv.slice(i + 1) : '';
-        }
-        env.S3_ACCESS_KEY_ID = next.accessKeyId;
-        // target = family keeps this path stable across every later rotation.
-        env.S3_SECRET_ACCESS_KEY_FILE = `/run/secrets/${family}`;
-
-        const otherSecrets = (app.secrets ?? []).filter(
-          (n) =>
-            n !== newSecretName &&
-            n !== oldSecretName &&
-            parsePhysicalSecretName(n)?.family !== family,
-        );
-        const spec: ServiceSpec = {
-          name: app.name,
-          image: app.image,
-          mode: { replicated: { replicas: app.replicas.desired } },
-          labels: {
-            ...app.labels,
-            ...(app.stack !== 'UNGROUPED' ? { [STACK_LABEL]: app.stack } : {}),
-            [S3_KEY_LABEL]: next.accessKeyId,
-            [S3_SECRET_LABEL]: newSecretName,
+        // One-aspect patch over the FULL live spec: swap this family's secret
+        // version (target = family keeps the mount path stable across every
+        // rotation) + the key-id env/labels; volumes/command/placement survive.
+        await patchLiveService(
+          ctx,
+          app,
+          {
+            setEnv: {
+              S3_ACCESS_KEY_ID: next.accessKeyId,
+              S3_SECRET_ACCESS_KEY_FILE: `/run/secrets/${family}`,
+            },
+            removeSecrets: (n) =>
+              n === newSecretName || n === oldSecretName || parsePhysicalSecretName(n)?.family === family,
+            addSecrets: [{ source: newSecretName, target: family }],
+            addNetworks: withStoreNetwork([]),
+            setLabels: {
+              ...(app.stack !== UNGROUPED ? { [STACK_LABEL]: app.stack } : {}),
+              [S3_KEY_LABEL]: next.accessKeyId,
+              [S3_SECRET_LABEL]: newSecretName,
+            },
           },
-          env,
-          ports: app.ports.map((p) => ({
-            target: p.target,
-            published: p.published,
-            protocol: p.protocol === 'udp' ? ('udp' as const) : ('tcp' as const),
-            mode: 'ingress' as const,
-          })),
-          networks: withStoreNetwork(app.networks.map((n) => n.name)),
-          secrets: [...secretRefsFor(otherSecrets), { source: newSecretName, target: family }],
-          ...(app.configs && app.configs.length > 0
-            ? { configs: app.configs.map((n) => ({ source: n })) }
-            : {}),
-        };
-        await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'missing' });
+          { nodeId: node.id },
+        );
       } catch (e) {
         throw mapDispatchError(e);
       }
@@ -949,8 +935,8 @@ export async function setWebsite(
  * Wire an app service to a bucket: mint a bucket-scoped key (read+write, not
  * owner), store its secret as a Docker secret, and redeploy the app with the
  * `S3_*` env + secret ref + `swarmy.s3.*` labels. Mirrors manageddb
- * injectConnection (same lossy-merge caveat: mounts/constraints are not exposed
- * by the live inventory and are not re-applied here).
+ * injectConnection: patches the FULL live spec (`patchLiveService`), so the
+ * app's volumes/command/placement survive the redeploy.
  */
 export async function attachToService(
   ctx: OrgContext,
@@ -1000,52 +986,30 @@ export async function attachToService(
       });
     }
 
-    // 3. Redeploy the app with merged env + secret ref + wiring labels.
-    const env: Record<string, string> = {};
-    for (const kv of app.env) {
-      const i = kv.indexOf('=');
-      env[i >= 0 ? kv.slice(0, i) : kv] = i >= 0 ? kv.slice(i + 1) : '';
-    }
-    Object.assign(
-      env,
-      buildAttachEnv({
-        endpoint: garageS3Endpoint(),
-        region: store.region,
-        bucket: bucket.name,
-        accessKeyId: key.accessKeyId,
-        secretName,
-      }),
-    );
-    const secrets = [
-      ...(app.secrets ?? []).filter((n) => n !== secretName).map((n) => ({ source: n })),
-      { source: secretName },
-    ];
-    const spec: ServiceSpec = {
-      name: app.name,
-      image: app.image,
-      mode: { replicated: { replicas: app.replicas.desired } },
-      labels: {
-        ...app.labels,
-        ...(app.stack !== 'UNGROUPED' ? { [STACK_LABEL]: app.stack } : {}),
-        [S3_BUCKET_LABEL]: bucket.name,
-        [S3_KEY_LABEL]: key.accessKeyId,
-        [S3_SECRET_LABEL]: secretName,
+    // 3. Patch the app's FULL live spec: merged env + secret ref + wiring
+    //    labels, and join the store overlay so `swarmy-garage:3900` resolves.
+    await patchLiveService(
+      ctx,
+      app,
+      {
+        setEnv: buildAttachEnv({
+          endpoint: garageS3Endpoint(),
+          region: store.region,
+          bucket: bucket.name,
+          accessKeyId: key.accessKeyId,
+          secretName,
+        }),
+        addSecrets: [{ source: secretName }],
+        addNetworks: withStoreNetwork([]),
+        setLabels: {
+          ...(app.stack !== UNGROUPED ? { [STACK_LABEL]: app.stack } : {}),
+          [S3_BUCKET_LABEL]: bucket.name,
+          [S3_KEY_LABEL]: key.accessKeyId,
+          [S3_SECRET_LABEL]: secretName,
+        },
       },
-      env,
-      ports: app.ports.map((p) => ({
-        target: p.target,
-        published: p.published,
-        protocol: p.protocol === 'udp' ? ('udp' as const) : ('tcp' as const),
-        mode: 'ingress' as const,
-      })),
-      // Join the store overlay so `swarmy-garage:3900` (S3_ENDPOINT) resolves.
-      networks: withStoreNetwork(app.networks.map((n) => n.name)),
-      secrets,
-      ...(app.configs && app.configs.length > 0
-        ? { configs: app.configs.map((n) => ({ source: n })) }
-        : {}),
-    };
-    await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'missing' });
+      { nodeId: node.id },
+    );
   } catch (e) {
     throw mapDispatchError(e);
   }
@@ -1079,43 +1043,17 @@ export async function detach(
   const accessKeyId = app.labels[S3_KEY_LABEL] ?? '';
   const secretName = app.labels[S3_SECRET_LABEL] ?? attachSecretName(app.name, bucketName);
 
-  const env: Record<string, string> = {};
-  const owned = new Set<string>(ATTACH_ENV_KEYS);
-  for (const kv of app.env) {
-    const i = kv.indexOf('=');
-    const k = i >= 0 ? kv.slice(0, i) : kv;
-    if (owned.has(k)) continue;
-    env[k] = i >= 0 ? kv.slice(i + 1) : '';
-  }
-  const labels = { ...app.labels };
-  delete labels[S3_BUCKET_LABEL];
-  delete labels[S3_KEY_LABEL];
-  delete labels[S3_SECRET_LABEL];
-
-  const spec: ServiceSpec = {
-    name: app.name,
-    image: app.image,
-    mode: { replicated: { replicas: app.replicas.desired } },
-    labels,
-    env,
-    ports: app.ports.map((p) => ({
-      target: p.target,
-      published: p.published,
-      protocol: p.protocol === 'udp' ? ('udp' as const) : ('tcp' as const),
-      mode: 'ingress' as const,
-    })),
-    networks: app.networks.map((n) => n.name),
-    secrets: (app.secrets ?? []).filter((n) => n !== secretName).map((n) => ({ source: n })),
-    ...(app.configs && app.configs.length > 0
-      ? { configs: app.configs.map((n) => ({ source: n })) }
-      : {}),
-  };
   const node = await resolveManagerNode(ctx);
-  try {
-    await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'missing' });
-  } catch (e) {
-    throw mapDispatchError(e);
-  }
+  await patchLiveService(
+    ctx,
+    app,
+    {
+      removeEnv: [...ATTACH_ENV_KEYS],
+      removeSecrets: [secretName],
+      removeLabels: [S3_BUCKET_LABEL, S3_KEY_LABEL, S3_SECRET_LABEL],
+    },
+    { nodeId: node.id },
+  );
   // Best-effort cleanup: the redeploy already cut access; failures must not block.
   await ctx.hub.dispatch(node.id, 'secret.remove', { name: secretName }).catch(() => undefined);
   if (accessKeyId) {

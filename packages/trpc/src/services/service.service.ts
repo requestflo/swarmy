@@ -15,6 +15,7 @@ import { mapDispatchError, notFound } from '../errors';
 import { enforceAdmission } from './admission-gate';
 import { writeAudit } from './audit.service';
 import { pinToNodeConstraint, resolveManagerNode } from './dispatch.service';
+import { patchLiveService } from './service-patch';
 import { enqueueEvent } from './webhooks-out.service';
 
 function envArrayToRecord(env: { key: string; value: string }[]): Record<string, string> {
@@ -230,69 +231,87 @@ export async function updateService(
   if (!existing) throw notFound('service', input.id);
   const node = await resolveManagerNode(ctx);
 
-  // Reconstruct prior env from the live service's `KEY=VALUE` entries.
-  const existingEnv: Record<string, string> = {};
-  for (const kv of existing.env) {
-    const i = kv.indexOf('=');
-    existingEnv[i >= 0 ? kv.slice(0, i) : kv] = i >= 0 ? kv.slice(i + 1) : '';
-  }
+  const project = input.project ?? (existing.stack === '(ungrouped)' ? undefined : existing.stack);
+  const name = input.name ?? existing.name;
+  const image = input.image ?? existing.image;
 
-  // Live inventory does not expose command/mounts/constraints — callers re-specify
-  // those on update; networks/ports/env/replicas are merged over live truth.
-  const merged = {
-    name: input.name ?? existing.name,
-    image: input.image ?? existing.image,
-    replicas: input.replicas ?? existing.replicas.desired,
-    env: input.env ? envArrayToRecord(input.env) : existingEnv,
-    command: input.command ?? [],
-    ports:
-      input.ports ??
-      existing.ports.map((p) => ({
-        target: p.target,
-        published: p.published,
-        protocol: p.protocol,
-        mode: 'ingress' as const,
-      })),
-    volumes: input.volumes ?? [],
-    networks: input.networks ?? existing.networks.map((n) => n.name),
-    constraints: input.constraints ?? [],
-    project: input.project ?? (existing.stack === '(ungrouped)' ? undefined : existing.stack),
-  };
-
-  // Carry the live label set forward (swarmy.env, ingress routes, deploy
-  // safety, …): rebuilding from the input alone would strip `swarmy.env=
-  // production` and silently take the service out of guardrail scope.
-  const built = buildServiceSpec(merged);
-  const spec: ServiceSpec = { ...built, labels: { ...existing.labels, ...built.labels } };
-
-  // An update (new image/env/ports) is a service deploy — same admission gate.
-  await enforceAdmission(
+  // Patch the FULL live spec (service.inspect): only the fields the caller
+  // names are replaced; everything else — mounts, command, placement,
+  // resources, healthcheck, secrets/configs (with targets), restart policy and
+  // the live label set (swarmy.env, ingress routes, deploy safety, …) — is
+  // carried. Rebuilding from the inventory would strip volumes and take a
+  // production service out of guardrail scope.
+  await patchLiveService(
     ctx,
+    existing,
     {
-      kind: 'service.deploy',
-      orgId: ctx.activeOrgId,
-      stackName: merged.project,
-      specs: [spec],
-      override: input.override,
+      image,
+      setLabels: {
+        'swarmy.managed': 'true',
+        ...(project ? { 'com.docker.stack.namespace': project } : {}),
+      },
+      transform: (live) => {
+        const out: ServiceSpec = { ...live, name };
+        if (input.replicas !== undefined) out.mode = { replicated: { replicas: input.replicas } };
+        if (input.env) out.env = envArrayToRecord(input.env);
+        if (input.command) {
+          if (input.command.length > 0) out.command = input.command;
+          else delete out.command;
+        }
+        if (input.ports) {
+          out.ports = input.ports.map((p) => ({
+            target: p.target,
+            published: p.published,
+            protocol: p.protocol === 'udp' ? 'udp' : 'tcp',
+            mode: p.mode === 'host' ? 'host' : 'ingress',
+          }));
+        }
+        if (input.volumes) {
+          out.mounts = input.volumes.map((v) => ({
+            type: v.type === 'bind' ? 'bind' : v.type === 'tmpfs' ? 'tmpfs' : 'volume',
+            source: v.source,
+            target: v.target,
+            readOnly: v.readOnly,
+          }));
+        }
+        if (input.networks) out.networks = input.networks;
+        if (input.constraints) {
+          const { constraints: _drop, ...rest } = live.placement ?? {};
+          const placement = input.constraints.length ? { ...rest, constraints: input.constraints } : rest;
+          if (Object.keys(placement).length > 0) out.placement = placement;
+          else delete out.placement;
+        }
+        return out;
+      },
     },
-    { targetType: 'service', targetId: existing.name },
+    {
+      nodeId: node.id,
+      pullPolicy: 'always',
+      // An update (new image/env/ports) is a service deploy — same admission gate.
+      beforeDeploy: (spec) =>
+        enforceAdmission(
+          ctx,
+          {
+            kind: 'service.deploy',
+            orgId: ctx.activeOrgId,
+            stackName: project,
+            specs: [spec],
+            override: input.override,
+          },
+          { targetType: 'service', targetId: existing.name },
+        ),
+    },
   );
-
-  try {
-    await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
-  } catch (e) {
-    throw mapDispatchError(e);
-  }
-  const id = liveService(ctx, merged.name)?.id ?? existing.id;
+  const id = liveService(ctx, name)?.id ?? existing.id;
   await writeAudit(ctx, {
     action: 'service.deploy',
     targetType: 'service',
     targetId: id,
     metadata: {
-      name: merged.name,
-      image: merged.image,
+      name,
+      image,
       previousImage: existing.image,
-      stack: merged.project ?? null,
+      stack: project ?? null,
       update: true,
       override: input.override === true,
     },

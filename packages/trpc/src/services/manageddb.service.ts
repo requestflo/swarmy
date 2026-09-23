@@ -33,6 +33,7 @@ import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
+import { patchLiveService } from './service-patch';
 
 /**
  * Managed DB topology (epic #8 — "the magic").
@@ -923,10 +924,9 @@ export interface InjectConnectionInput {
  * (replica), attach the app to the cluster overlay network, and mark the wiring
  * with `swarmy.db.inject` labels.
  *
- * Env changes require a redeploy, so this re-`service.deploy`s the app merging
- * the new env/network/labels over live truth. Same lossy-merge caveat as
- * service.service.ts#updateService: command/mounts/constraints are not exposed
- * by the live inventory and are not re-applied here.
+ * Env changes require a redeploy, so this patches the app's FULL live spec
+ * (`patchLiveService`: service.inspect → merge env/network/labels → deploy) —
+ * volumes, command, placement etc. are carried, never dropped.
  */
 export async function injectConnection(
   ctx: OrgContext,
@@ -952,36 +952,18 @@ export async function injectConnection(
   const roUrl = `postgres://postgres:${password}@${roHost}:${PG_PORT}/${database}`;
   const network = clusterNetworkName(input.stack, input.cluster);
 
-  const mergedEnv = { ...envRecord(app), [envVar]: rwUrl, [roVar]: roUrl };
-  const networks = Array.from(new Set([...app.networks.map((n) => n.name), network]));
-
-  const spec: ServiceSpec = {
-    name: app.name,
-    image: app.image,
-    mode: { replicated: { replicas: app.replicas.desired } },
-    labels: {
-      ...app.labels,
+  // One-aspect patch over the FULL live spec (service.inspect): mounts,
+  // command, placement, resources, … all survive the redeploy.
+  await patchLiveService(ctx, app, {
+    setEnv: { [envVar]: rwUrl, [roVar]: roUrl },
+    addNetworks: [network],
+    setLabels: {
       [MANAGED_LABEL]: 'true',
       [STACK_LABEL]: input.stack,
       [DB_INJECT_LABEL]: input.cluster,
       [DB_INJECT_VAR_LABEL]: envVar,
     },
-    env: mergedEnv,
-    ports: app.ports.map((p) => ({
-      target: p.target,
-      published: p.published,
-      protocol: p.protocol === 'udp' ? 'udp' : 'tcp',
-      mode: 'ingress' as const,
-    })),
-    networks,
-  };
-
-  const node = await resolveManagerNode(ctx);
-  try {
-    await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'missing' });
-  } catch (e) {
-    throw mapDispatchError(e);
-  }
+  });
   return { appService: app.name, cluster: input.cluster, envVar, roVar, rwUrl, roUrl };
 }
 

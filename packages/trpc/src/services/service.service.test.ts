@@ -79,6 +79,19 @@ function fakeCtx(opts: {
       swarmNodeIdFor: (id: string) => (id === 'worker1' ? 'swarm-worker-1' : undefined),
       dispatch: async (node: string, command: string, payload: unknown) => {
         dispatched.push({ node, command, payload });
+        // updateService patches the FULL live spec — answer the inspect it reads.
+        if (command === 'service.inspect') {
+          return {
+            inspect: {
+              Spec: {
+                Name: 'shop_api',
+                Labels: { 'com.docker.stack.namespace': 'shop', 'swarmy.env': 'production' },
+                Mode: { Replicated: { Replicas: 1 } },
+                TaskTemplate: { ContainerSpec: { Image: 'ghcr.io/acme/api:1.2.3' } },
+              },
+            },
+          };
+        }
         return {};
       },
     },
@@ -168,13 +181,14 @@ describe('updateService admission', () => {
     await expect(updateService(ctx, { id: 'svc-api', image: 'ghcr.io/acme/api:latest' })).rejects.toThrow(
       /guardrails\/no-latest-tag-in-prod/,
     );
-    expect(dispatched).toHaveLength(0);
+    expect(dispatched.filter((d) => d.command === 'service.deploy')).toHaveLength(0);
   });
 
   it('keeps the live label set (swarmy.env survives) and audits the update', async () => {
     const { ctx, audit, dispatched } = fakeCtx({ safetyMode: false });
     await updateService(ctx, { id: 'svc-api', image: 'ghcr.io/acme/api:1.3.0' });
-    const spec = (dispatched[0]?.payload as { spec: { labels: Record<string, string> } }).spec;
+    const deploy = dispatched.find((d) => d.command === 'service.deploy');
+    const spec = (deploy?.payload as { spec: { labels: Record<string, string> } }).spec;
     expect(spec.labels['swarmy.env']).toBe('production');
     expect(spec.labels['com.docker.stack.namespace']).toBe('shop');
     expect(audit[0]).toMatchObject({

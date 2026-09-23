@@ -30,14 +30,13 @@ import {
 import type {
   ConfigInspectResult,
   ConfigListResult,
-  ServiceSpec,
   SwarmResourceInfo,
 } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
-import { secretRefsFor } from './secretsMgr.service';
+import { patchLiveService } from './service-patch';
 
 /**
  * Configs manager (slice E2) — Docker config FAMILIES with versions, readable
@@ -398,43 +397,7 @@ export async function restartPreview(
   };
 }
 
-// ── Spec rebuild (lossy-merge redeploy, mirrors secretsMgr/manageddb) ─────────
-
-/**
- * Rebuild an app's ServiceSpec from live truth with new config refs. Secret
- * refs are rebuilt through the secrets-manager codec so rotation-stable
- * targets survive. Same lossy-merge caveat as manageddb#injectConnection:
- * command/mounts/constraints are not exposed by the live inventory and are
- * not re-applied.
- */
-function rebuildSpec(
-  app: InvService,
-  configNames: string[],
-  mountPaths: Map<string, string>,
-): ServiceSpec {
-  const env: Record<string, string> = {};
-  for (const kv of app.env) {
-    const i = kv.indexOf('=');
-    env[i >= 0 ? kv.slice(0, i) : kv] = i >= 0 ? kv.slice(i + 1) : '';
-  }
-  return {
-    name: app.name,
-    image: app.image,
-    mode: { replicated: { replicas: app.replicas.desired } },
-    // app.labels already carries com.docker.stack.namespace when stack-deployed.
-    labels: { ...app.labels },
-    env,
-    ports: app.ports.map((p) => ({
-      target: p.target,
-      published: p.published,
-      protocol: p.protocol === 'udp' ? ('udp' as const) : ('tcp' as const),
-      mode: 'ingress' as const,
-    })),
-    networks: app.networks.map((n) => n.name),
-    secrets: secretRefsFor(app.secrets ?? []),
-    configs: configRefsFor(configNames, mountPaths),
-  };
-}
+// ── Consumer redeploy (full live spec patch, mirrors secretsMgr/manageddb) ────
 
 function findApp(ctx: OrgContext, idOrName: string): InvService {
   const app = liveOrgServices(ctx).find((s) => s.id === idOrName || s.name === idOrName);
@@ -442,17 +405,30 @@ function findApp(ctx: OrgContext, idOrName: string): InvService {
   return app;
 }
 
-async function deploy(ctx: OrgContext, nodeId: string, spec: ServiceSpec): Promise<void> {
-  try {
-    await ctx.hub.dispatch(
-      nodeId,
-      'service.deploy',
-      { spec, pullPolicy: 'missing' },
-      { timeoutMs: DEPLOY_TIMEOUT_MS },
-    );
-  } catch (e) {
-    throw mapDispatchError(e);
-  }
+/**
+ * Swap a consumer's refs for one family over its FULL live spec
+ * (`patchLiveService`): every other config/secret keeps its live target, and
+ * volumes/command/placement survive. `newName` (when given) is mounted at the
+ * family's stable path.
+ */
+async function deploy(
+  ctx: OrgContext,
+  nodeId: string,
+  app: InvService,
+  group: ConfigFamilyGroup,
+  newName: string | null,
+  mountPaths: Map<string, string>,
+): Promise<void> {
+  const oldNames = new Set(group.versions.map((v) => v.name));
+  await patchLiveService(
+    ctx,
+    app,
+    {
+      removeConfigs: (n) => oldNames.has(n) || n === newName,
+      ...(newName ? { addConfigs: configRefsFor([newName], mountPaths) } : {}),
+    },
+    { nodeId, timeoutMs: DEPLOY_TIMEOUT_MS },
+  );
 }
 
 /** Swap an app onto one physical version of a family, then redeploy. */
@@ -464,10 +440,7 @@ async function redeployConsumer(
   newName: string,
   mountPaths: Map<string, string>,
 ): Promise<void> {
-  const oldNames = new Set(group.versions.map((v) => v.name));
-  const names = (app.configs ?? []).filter((n) => !oldNames.has(n) && n !== newName);
-  names.push(newName);
-  await deploy(ctx, nodeId, rebuildSpec(app, names, mountPaths));
+  await deploy(ctx, nodeId, app, group, newName, mountPaths);
 }
 
 // ── Mutations ─────────────────────────────────────────────────────────────────
@@ -627,11 +600,7 @@ export async function attachConfigToService(
   const current = group.versions[0]!;
   const app = findApp(ctx, input.service);
 
-  const oldNames = new Set(group.versions.map((v) => v.name));
-  const names = (app.configs ?? []).filter((n) => !oldNames.has(n));
-  names.push(current.name);
-
-  await deploy(ctx, node.id, rebuildSpec(app, names, mountPathsOf(families)));
+  await deploy(ctx, node.id, app, group, current.name, mountPathsOf(families));
   await writeAudit(ctx, {
     action: 'configs.attach',
     targetType: 'configFamily',
@@ -656,9 +625,7 @@ export async function detachConfigFromService(
   if (!(app.configs ?? []).some((n) => oldNames.has(n))) {
     throw commandRejected(`service "${app.name}" does not use config "${family}"`);
   }
-  const names = (app.configs ?? []).filter((n) => !oldNames.has(n));
-
-  await deploy(ctx, node.id, rebuildSpec(app, names, mountPathsOf(families)));
+  await deploy(ctx, node.id, app, group, null, mountPathsOf(families));
   await writeAudit(ctx, {
     action: 'configs.detach',
     targetType: 'configFamily',

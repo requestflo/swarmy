@@ -29,6 +29,7 @@ import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
+import { patchLiveService, type ServicePatch } from './service-patch';
 
 /**
  * Secrets manager (slice E1) — Docker secret FAMILIES with versions, rotation
@@ -276,46 +277,20 @@ export async function listSecretFamilies(
   };
 }
 
-// ── Spec rebuild (lossy-merge redeploy, mirrors cache/manageddb attach) ───────
+// ── Consumer redeploy (full live spec patch, mirrors cache/manageddb attach) ──
 
-/**
- * Rebuild an app's ServiceSpec from live truth with new env + secret refs.
- * Same lossy-merge caveat as manageddb#injectConnection: command/mounts/
- * constraints are not exposed by the live inventory and are not re-applied.
- */
-function rebuildSpec(
-  app: InvService,
-  env: Record<string, string>,
-  secretNames: string[],
+/** Rewrite env VALUES over the live env (e.g. repoint/drop `/run/secrets/…` paths). */
+function mapEnvValues(
+  spec: ServiceSpec,
+  fn: (value: string) => string | null,
 ): ServiceSpec {
-  return {
-    name: app.name,
-    image: app.image,
-    mode: { replicated: { replicas: app.replicas.desired } },
-    // app.labels already carries com.docker.stack.namespace when stack-deployed.
-    labels: { ...app.labels },
-    env,
-    ports: app.ports.map((p) => ({
-      target: p.target,
-      published: p.published,
-      protocol: p.protocol === 'udp' ? ('udp' as const) : ('tcp' as const),
-      mode: 'ingress' as const,
-    })),
-    networks: app.networks.map((n) => n.name),
-    secrets: secretRefsFor(secretNames),
-    ...(app.configs && app.configs.length > 0
-      ? { configs: app.configs.map((n) => ({ source: n })) }
-      : {}),
-  };
-}
-
-function envRecord(app: InvService): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const kv of app.env) {
-    const i = kv.indexOf('=');
-    out[i >= 0 ? kv.slice(0, i) : kv] = i >= 0 ? kv.slice(i + 1) : '';
+  if (!spec.env) return spec;
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(spec.env)) {
+    const next = fn(v);
+    if (next !== null) env[k] = next;
   }
-  return out;
+  return { ...spec, env };
 }
 
 function findApp(ctx: OrgContext, idOrName: string): InvService {
@@ -324,17 +299,17 @@ function findApp(ctx: OrgContext, idOrName: string): InvService {
   return app;
 }
 
-async function deploy(ctx: OrgContext, nodeId: string, spec: ServiceSpec): Promise<void> {
-  try {
-    await ctx.hub.dispatch(
-      nodeId,
-      'service.deploy',
-      { spec, pullPolicy: 'missing' },
-      { timeoutMs: DEPLOY_TIMEOUT_MS },
-    );
-  } catch (e) {
-    throw mapDispatchError(e);
-  }
+/**
+ * Patch a consumer's FULL live spec (`patchLiveService`) — only its secret refs
+ * (and env pointing at them) change; volumes/command/placement survive.
+ */
+async function deploy(
+  ctx: OrgContext,
+  nodeId: string,
+  app: InvService,
+  patch: ServicePatch,
+): Promise<void> {
+  await patchLiveService(ctx, app, patch, { nodeId, timeoutMs: DEPLOY_TIMEOUT_MS });
 }
 
 /** Swap an app onto `newName` for a family: refs + any env paths, then deploy. */
@@ -346,18 +321,15 @@ async function redeployConsumer(
   newName: string,
 ): Promise<void> {
   const oldNames = new Set(group.versions.map((v) => v.name));
-  const names = (app.secrets ?? []).filter((n) => !oldNames.has(n) && n !== newName);
-  names.push(newName);
   // Legacy env vars that pointed at a version-suffixed path get repointed to
   // the stable family path (`target: family` makes that the real mount).
-  const env = envRecord(app);
   const stablePath = secretMountPath(group.family);
-  for (const [k, v] of Object.entries(env)) {
-    for (const old of oldNames) {
-      if (v === `/run/secrets/${old}`) env[k] = stablePath;
-    }
-  }
-  await deploy(ctx, nodeId, rebuildSpec(app, env, names));
+  const oldPaths = new Set([...oldNames].map((n) => `/run/secrets/${n}`));
+  await deploy(ctx, nodeId, app, {
+    removeSecrets: (n) => oldNames.has(n) || n === newName,
+    addSecrets: secretRefsFor([newName]),
+    transform: (spec) => mapEnvValues(spec, (v) => (oldPaths.has(v) ? stablePath : v)),
+  });
 }
 
 // ── Mutations ─────────────────────────────────────────────────────────────────
@@ -493,14 +465,12 @@ export async function attachSecretToService(
   const app = findApp(ctx, input.service);
 
   const oldNames = new Set(group.versions.map((v) => v.name));
-  const names = (app.secrets ?? []).filter((n) => !oldNames.has(n));
-  names.push(current.name);
-
-  const env = envRecord(app);
   const envName = input.envName?.trim() || null;
-  if (envName) env[envName] = secretMountPath(family);
-
-  await deploy(ctx, node.id, rebuildSpec(app, env, names));
+  await deploy(ctx, node.id, app, {
+    removeSecrets: (n) => oldNames.has(n),
+    addSecrets: secretRefsFor([current.name]),
+    ...(envName ? { setEnv: { [envName]: secretMountPath(family) } } : {}),
+  });
   await writeAudit(ctx, {
     action: 'secrets.attach',
     targetType: 'secretFamily',
@@ -530,15 +500,14 @@ export async function detachSecretFromService(
   if (!(app.secrets ?? []).some((n) => oldNames.has(n))) {
     throw commandRejected(`service "${app.name}" does not use secret "${family}"`);
   }
-  const names = (app.secrets ?? []).filter((n) => !oldNames.has(n));
   const paths = new Set([
     secretMountPath(family),
     ...[...oldNames].map((n) => `/run/secrets/${n}`),
   ]);
-  const env = envRecord(app);
-  for (const [k, v] of Object.entries(env)) if (paths.has(v)) delete env[k];
-
-  await deploy(ctx, node.id, rebuildSpec(app, env, names));
+  await deploy(ctx, node.id, app, {
+    removeSecrets: (n) => oldNames.has(n),
+    transform: (spec) => mapEnvValues(spec, (v) => (paths.has(v) ? null : v)),
+  });
   await writeAudit(ctx, {
     action: 'secrets.detach',
     targetType: 'secretFamily',

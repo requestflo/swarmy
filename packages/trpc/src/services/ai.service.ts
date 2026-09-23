@@ -27,11 +27,11 @@ import type {
   MintAiKeyInput,
   SetAiProviderInput,
 } from '@swarmy/core';
-import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
+import { patchLiveService } from './service-patch';
 
 /**
  * AI gateway control plane (slice F5) — provider configs, virtual keys,
@@ -589,39 +589,21 @@ export async function attachAiToService(ctx: OrgContext, input: AttachAiInput): 
       await ctx.hub.dispatch(node.id, 'secret.create', { name: secretName, dataB64, labels: secretLabels });
     }
 
-    const env: Record<string, string> = {};
-    for (const kv of app.env) {
-      const i = kv.indexOf('=');
-      env[i >= 0 ? kv.slice(0, i) : kv] = i >= 0 ? kv.slice(i + 1) : '';
-    }
-    env[AI_ENV_VAR] = minted.gatewayUrl;
-    env[AI_KEY_FILE_VAR] = `/run/secrets/${secretName}`;
-
-    const spec: ServiceSpec = {
-      name: app.name,
-      image: app.image,
-      mode: { replicated: { replicas: app.replicas.desired } },
-      labels: {
-        ...app.labels,
-        [STACK_LABEL]: input.stack,
-        [AI_INJECT_LABEL]: 'true',
-        [AI_INJECT_KEY_LABEL]: keyName,
+    // One-aspect patch over the FULL live spec — volumes/command/placement survive.
+    await patchLiveService(
+      ctx,
+      app,
+      {
+        setEnv: { [AI_ENV_VAR]: minted.gatewayUrl, [AI_KEY_FILE_VAR]: `/run/secrets/${secretName}` },
+        addSecrets: [{ source: secretName }],
+        setLabels: {
+          [STACK_LABEL]: input.stack,
+          [AI_INJECT_LABEL]: 'true',
+          [AI_INJECT_KEY_LABEL]: keyName,
+        },
       },
-      env,
-      ports: app.ports.map((p) => ({
-        target: p.target,
-        published: p.published,
-        protocol: p.protocol === 'udp' ? ('udp' as const) : ('tcp' as const),
-        mode: 'ingress' as const,
-      })),
-      networks: app.networks.map((n) => n.name),
-      secrets: [
-        ...(app.secrets ?? []).filter((n) => n !== secretName).map((n) => ({ source: n })),
-        { source: secretName },
-      ],
-      ...(app.configs && app.configs.length > 0 ? { configs: app.configs.map((n) => ({ source: n })) } : {}),
-    };
-    await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'missing' });
+      { nodeId: node.id },
+    );
   } catch (e) {
     throw mapDispatchError(e);
   }

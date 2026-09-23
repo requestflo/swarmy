@@ -15,6 +15,7 @@ import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
+import { patchLiveService } from './service-patch';
 import { resolveExecTarget } from './live-resolve';
 
 /**
@@ -348,8 +349,8 @@ export async function destroyVector(
  * Wire an app service to the instance: attach it to the instance overlay
  * network, mount the API-key Docker secret, and set `<VAR>=http://<host>:6333`
  * plus `<VAR-prefix>_API_KEY_FILE=/run/secrets/<secret>`. The key itself never
- * leaves Docker (mirrors cache.attachToService; same lossy-merge caveat —
- * mounts/constraints are not exposed by the live inventory).
+ * leaves Docker (mirrors cache.attachToService). Patches the FULL live spec
+ * via `patchLiveService`, so the app's volumes/command/placement survive.
  */
 export async function attachVectorToService(
   ctx: OrgContext,
@@ -369,45 +370,17 @@ export async function attachVectorToService(
   const url = `http://${inst.name}:${VECTOR_PORT}`;
   const network = vectorNetworkName(input.stack, input.name);
 
-  const env: Record<string, string> = {};
-  for (const kv of app.env) {
-    const i = kv.indexOf('=');
-    env[i >= 0 ? kv.slice(0, i) : kv] = i >= 0 ? kv.slice(i + 1) : '';
-  }
-  env[envVar] = url;
-  env[apiKeyFileVar] = `/run/secrets/${secretName}`;
-
-  const spec: ServiceSpec = {
-    name: app.name,
-    image: app.image,
-    mode: { replicated: { replicas: app.replicas.desired } },
-    labels: {
-      ...app.labels,
+  // One-aspect patch over the FULL live spec — volumes/command/placement survive.
+  await patchLiveService(ctx, app, {
+    setEnv: { [envVar]: url, [apiKeyFileVar]: `/run/secrets/${secretName}` },
+    addSecrets: [{ source: secretName }],
+    addNetworks: [network],
+    setLabels: {
       [STACK_LABEL]: input.stack,
       [VECTOR_INJECT_LABEL]: input.name,
       [VECTOR_INJECT_VAR_LABEL]: envVar,
     },
-    env,
-    ports: app.ports.map((p) => ({
-      target: p.target,
-      published: p.published,
-      protocol: p.protocol === 'udp' ? ('udp' as const) : ('tcp' as const),
-      mode: 'ingress' as const,
-    })),
-    networks: Array.from(new Set([...app.networks.map((n) => n.name), network])),
-    secrets: [
-      ...(app.secrets ?? []).filter((n) => n !== secretName).map((n) => ({ source: n })),
-      { source: secretName },
-    ],
-    ...(app.configs && app.configs.length > 0 ? { configs: app.configs.map((n) => ({ source: n })) } : {}),
-  };
-
-  const node = await resolveManagerNode(ctx);
-  try {
-    await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'missing' });
-  } catch (e) {
-    throw mapDispatchError(e);
-  }
+  });
   await writeAudit(ctx, {
     action: 'vector.attach',
     targetType: 'vectorInstance',
@@ -438,40 +411,12 @@ export async function detachVectorFromService(
   const secretName = vectorKeySecretName(input.stack, input.name);
   const network = vectorNetworkName(input.stack, input.name);
 
-  const env: Record<string, string> = {};
-  for (const kv of app.env) {
-    const i = kv.indexOf('=');
-    const key = i >= 0 ? kv.slice(0, i) : kv;
-    if (key === envVar || key === apiKeyFileVar) continue;
-    env[key] = i >= 0 ? kv.slice(i + 1) : '';
-  }
-  const labels = { ...app.labels };
-  delete labels[VECTOR_INJECT_LABEL];
-  delete labels[VECTOR_INJECT_VAR_LABEL];
-
-  const spec: ServiceSpec = {
-    name: app.name,
-    image: app.image,
-    mode: { replicated: { replicas: app.replicas.desired } },
-    labels,
-    env,
-    ports: app.ports.map((p) => ({
-      target: p.target,
-      published: p.published,
-      protocol: p.protocol === 'udp' ? ('udp' as const) : ('tcp' as const),
-      mode: 'ingress' as const,
-    })),
-    networks: app.networks.map((n) => n.name).filter((n) => n !== network),
-    secrets: (app.secrets ?? []).filter((n) => n !== secretName).map((n) => ({ source: n })),
-    ...(app.configs && app.configs.length > 0 ? { configs: app.configs.map((n) => ({ source: n })) } : {}),
-  };
-
-  const node = await resolveManagerNode(ctx);
-  try {
-    await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'missing' });
-  } catch (e) {
-    throw mapDispatchError(e);
-  }
+  await patchLiveService(ctx, app, {
+    removeEnv: [envVar, apiKeyFileVar],
+    removeSecrets: [secretName],
+    removeNetworks: [network],
+    removeLabels: [VECTOR_INJECT_LABEL, VECTOR_INJECT_VAR_LABEL],
+  });
   await writeAudit(ctx, {
     action: 'vector.detach',
     targetType: 'vectorInstance',

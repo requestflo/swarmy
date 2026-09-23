@@ -9,18 +9,17 @@ import {
   type BlueprintStepResultView,
   type InvService,
 } from '@swarmy/core';
-import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
+import { patchLiveService } from './service-patch';
 import { clusterNetworkName, injectConnection, provisionDb } from './manageddb.service';
 import { attachCacheToService, provisionCache } from './cache.service';
 import { attachToService as attachBucketToService, createBucket } from './buckets.service';
 import {
   attachSecretToService,
   createSecretFamily,
-  secretRefsFor,
 } from './secretsMgr.service';
 import { deployFromCompose } from './stack.service';
 import { setServiceRoutes } from './ingress-routes-api';
@@ -126,51 +125,19 @@ async function waitForEnvKeys(
   }
 }
 
-// ── Env-merge wire (mirrors the cache/secretsMgr lossy-merge redeploy) ────────
-
-function envRecord(app: InvService): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const kv of app.env) {
-    const i = kv.indexOf('=');
-    out[i >= 0 ? kv.slice(0, i) : kv] = i >= 0 ? kv.slice(i + 1) : '';
-  }
-  return out;
-}
+// ── Env-merge wire ────────────────────────────────────────────────────────────
 
 /**
- * Redeploy a live service with extra env merged over live truth. Same
- * lossy-merge caveat as manageddb#injectConnection: command/mounts/constraints
- * are not exposed by the live inventory and are not re-applied.
+ * Redeploy a live service with extra env merged over its FULL live spec
+ * (`patchLiveService`: service.inspect → merge → deploy) — volumes, command,
+ * placement etc. survive.
  */
 async function mergeServiceEnv(
   ctx: OrgContext,
   app: InvService,
   env: Record<string, string>,
 ): Promise<void> {
-  const spec: ServiceSpec = {
-    name: app.name,
-    image: app.image,
-    mode: { replicated: { replicas: app.replicas.desired } },
-    labels: { ...app.labels },
-    env: { ...envRecord(app), ...env },
-    ports: app.ports.map((p) => ({
-      target: p.target,
-      published: p.published,
-      protocol: p.protocol === 'udp' ? ('udp' as const) : ('tcp' as const),
-      mode: 'ingress' as const,
-    })),
-    networks: app.networks.map((n) => n.name),
-    secrets: secretRefsFor(app.secrets ?? []),
-    ...(app.configs && app.configs.length > 0
-      ? { configs: app.configs.map((n) => ({ source: n })) }
-      : {}),
-  };
-  const node = await resolveManagerNode(ctx);
-  try {
-    await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'missing' });
-  } catch (e) {
-    throw mapDispatchError(e);
-  }
+  await patchLiveService(ctx, app, { setEnv: env });
 }
 
 /**
