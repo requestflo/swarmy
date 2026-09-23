@@ -6,6 +6,13 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# Only the newest push of a ref publishes. Without this, two runs on main
+# raced and the OLDER one finished last, moving :latest backwards (seen live:
+# a controller pulled :latest and got the previous commit).
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   packages: write
