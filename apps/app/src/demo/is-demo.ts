@@ -10,9 +10,25 @@
  */
 const KEY = 'swarmy-demo';
 
+/**
+ * `?demo` links only work on builds meant to host the public demo (dev, or
+ * VITE_SWARMY_DEMO_LINKS=1). A real controller's dashboard must never flip into
+ * fake data from a shared link — and it clears any sticky flag a previous visit
+ * left behind, so nobody gets stuck looking at demo data on their own swarm.
+ */
+const DEMO_LINKS_ENABLED = import.meta.env.DEV || import.meta.env.VITE_SWARMY_DEMO_LINKS === '1';
+
 export function isDemo(): boolean {
   if (import.meta.env.VITE_SWARMY_DEMO === '1') return true;
   if (typeof window === 'undefined') return false;
+  if (!DEMO_LINKS_ENABLED) {
+    try {
+      window.localStorage.removeItem(KEY);
+    } catch {
+      // storage unavailable — nothing to clear
+    }
+    return false;
+  }
   try {
     const params = new URLSearchParams(window.location.search);
     if (params.has('demo')) {
