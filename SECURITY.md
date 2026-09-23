@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please **don't open a public issue** for security problems. Email
-**security@TODO** (maintainer: set the real address before launch). Include the
+**security@gomacrae.com**. Include the
 affected version and component and the steps to reproduce, and say whether you
 think it's being exploited. We'll acknowledge the report, keep you posted while
 we fix it, and credit you in the release notes if you'd like.
