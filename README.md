@@ -6,10 +6,12 @@ swarmy adds the cloud-shaped layers — private mesh, a public edge, tunnels,
 managed data, geo-DNS, CI/registry, backups/DR, observability, and governance —
 without a required swarmy cloud. The first node bootstraps everything.
 
-Features are **off by default and pluggable**. Turn pieces on when you want the
-convenience; drive Docker yourself when you don't. Docker remains the source of
-truth — if swarmy vanished tomorrow, stacks keep running on plain
-`docker stack deploy`.
+Every layer is **pluggable**, and the ones a fresh install needs to be useful
+are **on by default**: the Caddy edge (HTTPS for your apps), nightly database
+backups once you add a destination, and container exec in the web terminal.
+Everything else — mesh, geo-DNS, CI, observability — stays off until you turn it
+on. Docker remains the source of truth — if swarmy vanished tomorrow, stacks
+keep running on plain `docker stack deploy`.
 
 ```
         ┌──────────────┐         wss://…/agent/ws          ┌───────────────┐
@@ -26,7 +28,8 @@ The controller never touches a node's Docker socket. Each node runs an **agent**
 that dials *out* over an authenticated WebSocket, streams stats + inventory, and
 executes typed commands. Agents prefer a host-level binary (systemd) so the thing
 that repairs the platform does not depend on Docker being healthy; a container
-backend remains the fallback.
+backend remains the fallback (node #1, enrolled by the installer, runs the
+agent as a container).
 
 A public REST API (OpenAPI) and generated SDKs (TypeScript, Python, Go) + a
 Terraform provider ride the same org-scoped service layer as the dashboard.
@@ -39,25 +42,71 @@ On a fresh Linux server (Ubuntu/Debian; Docker is installed for you if missing):
 curl -fsSL https://raw.githubusercontent.com/requestflo/swarmy/main/scripts/install-swarmy.sh | sudo bash
 ```
 
-It installs Docker, initialises a one-node swarm, deploys the controller, and
-enrols the machine as node #1. At the end it prints the dashboard URL, your
-login, and an **Add a node** one-liner. Re-running it is safe: it converges
-instead of duplicating. Non-interactive: add `-s -- --non-interactive
---admin-email you@example.com`.
+It installs Docker, initialises a one-node swarm, deploys the controller (it
+serves the dashboard too), and enrols the machine as node #1. At the end it
+prints the dashboard URL (`http://<host-ip>:3021`), your login (plus the
+password, if it generated one), and an **Add a node** one-liner. Re-running it
+is safe: it converges instead of duplicating.
+
+Useful flags (pass them after `bash -s --` when piping; `bash scripts/install-swarmy.sh --help`
+in a checkout lists every flag and env var):
+
+| Flag | Does |
+|---|---|
+| `--non-interactive` | Never prompt; use flags / env / defaults |
+| `--admin-email <e>` / `--admin-password <p>` | The owner login (password is generated if unset) |
+| `--standard` | Run a Postgres service for the controller (default: embedded PGlite) |
+| `--allow-signup` | Open self-registration (default: invite-only) |
+| `--port <n>` | Dashboard/API port (default `3021`) |
+| `--image <ref>` / `--agent-image <ref>` | Controller / agent image (default `ghcr.io/requestflo/swarmy-{controller,agent}:latest`) |
+| `--check` | Preflight only — detect and report, change nothing |
+| `--uninstall` | Remove the stack, secrets and node #1 agent (volumes and `state.env` are kept) |
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/requestflo/swarmy/main/scripts/install-swarmy.sh \
+  | sudo bash -s -- --non-interactive --admin-email you@example.com
+```
+
+A `curl | bash` install fetches its stack file from the same ref; set
+`SWARMY_REF=<tag-or-branch>` (or `SWARMY_RAW_BASE=<url>`) to install from
+something other than `main`.
 
 Then, in the dashboard:
 
-1. **Add a node**: paste the one-liner it shows on any other Linux box. The
-   same one-liner repairs a node that has gone dark.
+1. **Add a node** (**Nodes → Add a node**): paste the one-liner it shows, as
+   root, on any other Linux box. The same one-liner repairs a node that has gone
+   dark. The one printed by the installer works for 24 hours / 5 nodes; after
+   that, mint one in the dashboard.
 2. **Deploy**: a blueprint, a compose file, or a single image.
-3. **Add a domain**: point DNS at a node (or use `app.<ip-with-dashes>.sslip.io`)
-   and swarmy's Caddy edge serves it over HTTPS automatically.
+3. **Add a domain**: point DNS at the edge node (a manager — node #1 — by
+   default; or use `app.<ip-with-dashes>.sslip.io`) and swarmy's Caddy edge — on by default — serves it over HTTPS. Public names
+   get a Let's Encrypt certificate; private ones (`.local`, `.lan`, `.internal`,
+   private IPs, sslip.io/nip.io names for a private IP) get Caddy's local CA, so
+   your browser warns once.
 
-> **Invite-only by default.** Only the seeded owner and people an admin invites
-> can create accounts; the login page hides "Sign up". To allow open
-> self-registration set `SWARMY_ALLOW_SIGNUP=true` (installer: `--allow-signup`)
-> on the controller. Dev (`bun dev`, non-production) allows sign-up unless
-> `SWARMY_ALLOW_SIGNUP=false`.
+New here? [`docs/GETTING-STARTED.md`](./docs/GETTING-STARTED.md) walks the first
+ten minutes end to end; [`docs/UPGRADING.md`](./docs/UPGRADING.md) covers
+upgrades.
+
+### Defaults worth knowing
+
+- **Invite-only sign-up.** Only the seeded owner and people an admin invites
+  (**Settings → Members → Invite member** hands you a copy-link) can create
+  accounts; the login page hides "Sign up". To allow open self-registration set
+  `SWARMY_ALLOW_SIGNUP=true` (installer: `--allow-signup`) on the controller.
+  Dev (`bun dev`, non-production) allows sign-up unless
+  `SWARMY_ALLOW_SIGNUP=false`.
+- **Nightly database backups.** Once a backup destination exists, managed
+  Postgres gets a nightly `pg_dump` and compose/blueprint databases on a named
+  volume get a nightly volume backup (keep 7). No destination: the stack shows
+  "backups are off" and deploys carry on.
+- **Terminal.** Container exec works out of the box (RBAC-gated, audited,
+  recorded). A root shell on the host is off per node until an admin turns on
+  **Host shell** on that node.
+- **Registry.** The in-swarm registry is opt-in; enabling it generates a login,
+  and every swarmy push/pull uses it.
+- **Login rate limits** are per real client IP. Behind your own reverse proxy,
+  list it in `SWARMY_TRUSTED_PROXIES` so `X-Forwarded-For` is believed.
 
 > **Back up `/var/lib/swarmy/install/state.env`.** It holds `SWARMY_SECRET_KEY`;
 > lose it and every stored credential is unrecoverable.
@@ -72,7 +121,7 @@ Then, in the dashboard:
 | **Mesh** | Zero-trust private network — drivers: NetBird, Headscale, Tailscale, WireGuard, or `none` |
 | **Data** | Managed Postgres (HA topologies + PITR), Valkey/Redis cache, search, vectors, Garage object storage |
 | **CI/CD** | Build on your nodes, in-swarm registry, image scans/signing policy, GC, PR previews, canary releases |
-| **Ops** | OTEL → ClickHouse observability, alerts / incidents / status pages, restic backups + controller self-backup, resilience score |
+| **Ops** | OTEL → ClickHouse observability, alerts / incidents / status pages, restic backups (nightly DB backups by default) + controller self-backup, resilience score |
 | **Automation** | Queues (over managed cache), scheduled jobs, workflows, inbound/outbound webhooks |
 | **Governance** | Orgs + SSO, ABAC policies, guardrails admission, secrets/config families, audit log, cost/capacity |
 | **AI** | Optional org AI gateway with virtual keys and usage accounting |
@@ -135,7 +184,7 @@ bun dev                # api (:3021) + app (:3023)
 > and the Prisma helpers both read `.env`, so everything follows automatically.
 
 Open http://localhost:3023, create an account, then mint a join token
-(**Nodes → Add node**, or Settings). On each node:
+(**Nodes → Add a node**, or **Settings → Join tokens**). On each node:
 
 ```bash
 # Dev: run the agent from source
@@ -168,9 +217,9 @@ online, re-run the same install one-liner (it repairs in place) or click
 
 ## Pluggable by design
 
-**Ingress** — per org pick `caddy`, `traefik`, `nginx`, `haproxy`, `cloudflared`,
-or `none`. With `none` (the default), swarmy records domains for display but
-writes **no** routing config. New drivers implement `IngressDriver` in
+**Ingress** — per org pick `caddy` (the default for new orgs), `traefik`,
+`nginx`, `haproxy`, `cloudflared`, or `none`. With `none`, swarmy records
+domains for display but writes **no** routing config. New drivers implement `IngressDriver` in
 `@swarmy/ingress`.
 
 **Mesh** — `none` by default; enable NetBird / Headscale / Tailscale / WireGuard
@@ -186,7 +235,9 @@ audit — not a shadow copy of your cluster.
 | Doc | What |
 |---|---|
 | [`docs/product/`](./docs/product/) | Product vision and area design ("why") |
+| [`docs/GETTING-STARTED.md`](./docs/GETTING-STARTED.md) · [`docs/UPGRADING.md`](./docs/UPGRADING.md) | Your first 10 minutes; upgrading a self-host install |
 | [`docs/LOCAL-SWARM.md`](./docs/LOCAL-SWARM.md) · [`docs/NODE-RECOVERY.md`](./docs/NODE-RECOVERY.md) | Operator runbooks — run a local swarm; recover a node |
+| [`SECURITY.md`](./SECURITY.md) | Reporting a vulnerability; secure defaults |
 | [`plans/roadmap-mini-cloud.md`](./plans/roadmap-mini-cloud.md) | Governing roadmap — code vs direction |
 | [`plans/`](./plans/) | Epic design docs and platform buildout notes |
 | [`.claude/skills/`](./.claude/skills/) | Implementation invariants for contributors |

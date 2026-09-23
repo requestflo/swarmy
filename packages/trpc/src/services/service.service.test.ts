@@ -5,7 +5,7 @@ import type { OrgContext } from '../context';
 import { createService, updateService } from './service.service';
 
 /**
- * Regression gate for issues/guardrails-bypassed-by-quick-deploy-service-create.md:
+ * Regression gate for issues/resolved/guardrails-bypassed-by-quick-deploy-service-create.md:
  * "Ship a service" (`createService`) must run the admission spine exactly like
  * `deployFromCompose` — refuse a `:latest` image into an armed production
  * stack, and write a `service.deploy` audit row when the deploy goes through.
