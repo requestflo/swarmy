@@ -94,16 +94,16 @@ while [ $# -gt 0 ]; do
     --non-interactive) NON_INTERACTIVE=1 ;;
     --check) MODE="check" ;;
     --uninstall) MODE="uninstall" ;;
-    --standard) DB_TIER="standard" EXPLICIT="$EXPLICITDB_TIER " ;;
-    --admin-email) ADMIN_EMAIL="${2:?}"; shift EXPLICIT="$EXPLICITADMIN_EMAIL " ;;
+    --standard) DB_TIER="standard" EXPLICIT="${EXPLICIT}DB_TIER " ;;
+    --admin-email) ADMIN_EMAIL="${2:?}"; EXPLICIT="${EXPLICIT}ADMIN_EMAIL "; shift ;;
     --admin-password) ADMIN_PASSWORD="${2:?}"; shift ;;
     --domain) DOMAIN="${2:?}"; shift ;;
     --ingress) INGRESS="${2:?}"; shift ;;
     --mesh) MESH="${2:?}"; shift ;;
-    --image) IMAGE="${2:?}"; shift EXPLICIT="$EXPLICITIMAGE " ;;
-    --agent-image) AGENT_IMAGE="${2:?}"; shift EXPLICIT="$EXPLICITAGENT_IMAGE " ;;
-    --port) PUBLISH_PORT="${2:?}"; shift EXPLICIT="$EXPLICITPUBLISH_PORT " ;;
-    --allow-signup) ALLOW_SIGNUP="true" EXPLICIT="$EXPLICITALLOW_SIGNUP " ;;
+    --image) IMAGE="${2:?}"; EXPLICIT="${EXPLICIT}IMAGE "; shift ;;
+    --agent-image) AGENT_IMAGE="${2:?}"; EXPLICIT="${EXPLICIT}AGENT_IMAGE "; shift ;;
+    --port) PUBLISH_PORT="${2:?}"; EXPLICIT="${EXPLICIT}PUBLISH_PORT "; shift ;;
+    --allow-signup) ALLOW_SIGNUP="true" EXPLICIT="${EXPLICIT}ALLOW_SIGNUP " ;;
     -h|--help) grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (try --help)" ;;
   esac
