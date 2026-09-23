@@ -391,8 +391,12 @@ export function composeToModels(doc: ComposeFile | null | undefined): FromCompos
       mode: isGlobal ? 'global' : 'replicated',
       replicas: replicasRaw != null ? Number(replicasRaw) : 1,
       env: listOrDict(svc.environment),
-      command: stringOrList(svc.command),
-      args: [],
+      // Docker's mapping (`docker stack deploy`): compose `entrypoint` replaces
+      // the image ENTRYPOINT (ContainerSpec.Command), compose `command` only its
+      // CMD (ContainerSpec.Args). Treating `command` as the entrypoint broke
+      // every image with one — e.g. `command: ["--port", "80"]` exec'd "--port".
+      command: stringOrList(svc.entrypoint),
+      args: stringOrList(svc.command),
       ports,
       mounts,
       networks: networkNames(svc.networks),

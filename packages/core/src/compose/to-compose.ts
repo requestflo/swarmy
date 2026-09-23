@@ -10,6 +10,7 @@ import type { ServiceModelOut } from './model';
 
 export interface ComposeServiceOut {
   image?: string;
+  entrypoint?: string[];
   command?: string[];
   environment?: Record<string, string>;
   labels?: Record<string, string>;
@@ -122,7 +123,8 @@ export function modelToComposeService(model: ServiceModelOut): ComposeServiceOut
   for (const [k, v] of Object.entries(model.unsupported)) out[k] = v;
 
   if (model.image) out.image = model.image;
-  if (model.command.length) out.command = model.command;
+  if (model.command.length) out.entrypoint = model.command;
+  if (model.args.length) out.command = model.args;
   if (Object.keys(model.env).length) out.environment = model.env;
   if (Object.keys(model.labels).length) out.labels = model.labels;
   if (model.ports.length) {

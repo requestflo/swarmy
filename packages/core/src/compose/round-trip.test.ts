@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { composeToModels } from './from-compose';
-import { modelsToCompose } from './to-compose';
+import { modelToComposeService, modelsToCompose } from './to-compose';
 import { modelToServiceSpec } from './to-spec';
 
 /**
@@ -63,7 +63,9 @@ describe('compose <-> model round-trip', () => {
     if (!web) return;
 
     expect(web.image).toBe('nginx:1.27');
-    expect(web.command).toEqual(['nginx', '-g', 'daemon', 'off;']);
+    // compose `command` is the image CMD (Args); the entrypoint is untouched.
+    expect(web.args).toEqual(['nginx', '-g', 'daemon', 'off;']);
+    expect(web.command).toEqual([]);
     expect(web.env).toEqual({ TZ: 'UTC', DEBUG: '1' });
     expect(web.labels).toEqual({ 'com.example.team': 'platform' });
     expect(web.replicas).toBe(3);
@@ -178,5 +180,17 @@ describe('compose <-> model round-trip', () => {
     ]);
     expect(spec.secrets).toEqual([{ source: 'db-password', target: 'db_password' }]);
     expect(spec.stopGracePeriodNs).toBe(30_000_000_000);
+  });
+
+  it('maps entrypoint → ContainerSpec.Command and command → Args, like docker stack deploy', () => {
+    const { models } = composeToModels({
+      services: { app: { image: 'traefik/whoami', entrypoint: ['/whoami'], command: ['--name', 'x'] } },
+    });
+    const app = models.find((m) => m.name === 'app')!;
+    expect(app.command).toEqual(['/whoami']);
+    expect(app.args).toEqual(['--name', 'x']);
+    const out = modelToComposeService(app);
+    expect(out.entrypoint).toEqual(['/whoami']);
+    expect(out.command).toEqual(['--name', 'x']);
   });
 });
