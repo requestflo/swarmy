@@ -43,7 +43,7 @@ export type { DomainView, IngressConfigView, IngressColdReconcileDeps } from './
 // Observability suite convergence (observability-reconcile worker).
 export { reconcileObservabilitySuite } from './services/observability.service';
 // Garage store convergence (storage-reconcile worker).
-export { convergeStoreDeployment } from './services/replicatedStore.service';
+export { convergeStoreDeployment, garageCapacityGb } from './services/replicatedStore.service';
 
 // ── git-cicd-registry P2: webhook + GC + build-log seams ──
 export { buildLogBus } from './services/build-log-bus';

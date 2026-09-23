@@ -1,3 +1,4 @@
+import { statfs } from 'node:fs/promises';
 import os from 'node:os';
 import type { DockerClient } from '@swarmy/core/docker';
 import type { ContainerMetricsSample, MetricsPayload } from '@swarmy/core/protocol';
@@ -55,6 +56,26 @@ function sumNet(s: DockerStats, key: 'rx_bytes' | 'tx_bytes'): number {
   return Object.values(s.networks ?? {}).reduce((a, n) => a + (n[key] ?? 0), 0);
 }
 
+/**
+ * Disk of the filesystem Docker writes to (`/var/lib/docker` when visible —
+ * the systemd agent; else `/`, which inside the container agent is the
+ * overlay backed by that same filesystem). Feeds disk alerts and each
+ * storage member's real Garage capacity.
+ */
+async function sampleDisk(): Promise<{ fsUsedBytes?: number; fsTotalBytes?: number }> {
+  for (const path of ['/var/lib/docker', '/']) {
+    try {
+      const s = await statfs(path);
+      const total = Number(s.blocks) * Number(s.bsize);
+      if (!(total > 0)) continue;
+      return { fsTotalBytes: total, fsUsedBytes: total - Number(s.bfree) * Number(s.bsize) };
+    } catch {
+      // not visible from here — try the next
+    }
+  }
+  return {};
+}
+
 export async function collectMetrics(docker: DockerClient): Promise<MetricsPayload> {
   const containers: ContainerMetricsSample[] = [];
   try {
@@ -89,6 +110,7 @@ export async function collectMetrics(docker: DockerClient): Promise<MetricsPaylo
       memUsedBytes: os.totalmem() - os.freemem(),
       memTotalBytes: os.totalmem(),
       loadAvg1: os.loadavg()[0],
+      ...(await sampleDisk()),
     },
     containers,
   };

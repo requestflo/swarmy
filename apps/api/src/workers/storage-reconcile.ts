@@ -1,6 +1,6 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { convergeStoreDeployment, fireEvent, systemContext } from '@swarmy/trpc';
+import { convergeStoreDeployment, fireEvent, garageCapacityGb, systemContext } from '@swarmy/trpc';
 import { decryptSecret } from '@swarmy/core/crypto';
 import type { ContainerInfo, RunOnceResult } from '@swarmy/core/protocol';
 import { hub } from '../gateway';
@@ -234,7 +234,12 @@ async function reconcileOrg(row: ClusterRow, tick: number): Promise<void> {
       const desired: DesiredMember[] = memberIds.map((nodeId) => ({
         nodeId,
         ...(mapping[nodeId] ? { garageNodeId: mapping[nodeId] } : {}),
-        capacityGb: recorded[nodeId]?.capacityGb ?? DEFAULT_CAPACITY_GB,
+        // The node's real disk once it reports one (a fixed 100 GB claim let
+        // Garage plan storage a 25 GB droplet can't hold); before that, the
+        // recorded value / default.
+        capacityGb: hub.latestNodeStats(nodeId)?.fsTotalBytes
+          ? garageCapacityGb(hub.latestNodeStats(nodeId)?.fsTotalBytes)
+          : (recorded[nodeId]?.capacityGb ?? DEFAULT_CAPACITY_GB),
       }));
       const plan = planLayout(orgId, desired, layout);
       if (plan.stage.length > 0 || plan.applyVersion !== null) {
