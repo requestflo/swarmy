@@ -11,12 +11,19 @@ import {
   collectGeoEndpoints,
 } from './dns-snapshot.service';
 import {
+  DNS_SERVICE,
   ensureDnsService,
   parseDnsOrgSettings,
   removeDnsService,
   type DnsOrgSettings,
 } from './dns-deploy.service';
-import { composeAndPushDns, type PushResult } from './dns-push.service';
+import { composeAndPushDns, dnsNodeIds, type PushResult } from './dns-push.service';
+import {
+  deriveDnsRuntime,
+  lastDnsDeploy,
+  lastDnsPushes,
+  type DnsRuntimeStatus,
+} from './dns-runtime';
 import {
   type ProviderSyncResult,
   type ProviderZoneSnapshot,
@@ -42,6 +49,8 @@ export interface GeoDnsConfigView {
   mmdbConfigRef?: string;
   zoneCount: number;
   updatedAt: string;
+  /** Live serving state + the WHY when it isn't (task error, push failures). */
+  runtime: DnsRuntimeStatus;
 }
 
 interface GeoDnsConfigRow {
@@ -77,7 +86,49 @@ export async function getConfig(ctx: OrgContext): Promise<GeoDnsConfigView> {
     mmdbConfigRef: settings.mmdbConfigRef,
     zoneCount: zones.length,
     updatedAt: cfg.updatedAt.toISOString(),
+    runtime: dnsRuntimeStatus(ctx, cfg.enabled),
   };
+}
+
+/** Docker truth (hub inventory + per-node edge status) → runtime status. */
+export function dnsRuntimeStatus(ctx: OrgContext, enabled: boolean): DnsRuntimeStatus {
+  const svc = ctx.hub
+    .liveInventory(ctx.activeOrgId)
+    .services.find((s) => s.name === DNS_SERVICE);
+  const hostname = (id: string): string => ctx.hub.nodeInfoFor(id)?.hostname ?? id;
+  return deriveDnsRuntime({
+    enabled,
+    service: svc
+      ? {
+          runningTasks: svc.runningReplicas,
+          updatedAt: svc.updatedAt,
+          recentFailures: svc.taskHealth?.recentFailures ?? 0,
+          lastError: svc.taskHealth?.lastError,
+          lastErrorAt: svc.taskHealth?.lastErrorAt,
+          starting: svc.taskHealth?.starting ?? false,
+        }
+      : undefined,
+    nodes: dnsNodeIds(ctx).map((nodeId) => ({
+      nodeId,
+      hostname: hostname(nodeId),
+      dnsRunning: ctx.hub.ingressStatusFor(nodeId)?.dnsRunning ?? null,
+    })),
+    lastDeploy: lastDnsDeploy(ctx.activeOrgId),
+    pushes: lastDnsPushes(ctx.activeOrgId),
+    now: Date.now(),
+  });
+}
+
+/** "pushed … , 2 failed (a: why; b: why)" — the applyNow toast names the cause. */
+export function pushSummary(
+  push: Pick<PushResult, 'zones' | 'pushed' | 'failed'>,
+  hostname: (nodeId: string) => string = (id) => id,
+): string {
+  const reasons = push.failed.map((f) => `${hostname(f.nodeId)}: ${f.error}`).join('; ');
+  return (
+    `pushed ${push.zones} zone(s) to ${push.pushed.length} node(s)` +
+    (push.failed.length ? `, ${push.failed.length} failed (${reasons})` : '')
+  );
 }
 
 export async function setConfig(
@@ -124,22 +175,27 @@ export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<Geo
 }
 
 /** Force compose + push + provider sync now (UI "Apply now"). */
-export async function applyNow(ctx: OrgContext): Promise<{ summary: string }> {
+export async function applyNow(ctx: OrgContext): Promise<{ summary: string; ok: boolean }> {
   const cfg = await ensureConfig(ctx);
-  if (!cfg.enabled) return { summary: 'Geo-DNS is disabled — nothing to apply.' };
+  if (!cfg.enabled) return { summary: 'Geo-DNS is disabled — nothing to apply.', ok: true };
   await ensureDnsService(ctx, parseDnsOrgSettings(cfg.settings)).catch(() => undefined);
   const push = await composeAndPushDns(ctx);
   const provider = await syncProviderZones(ctx);
-  const summary = `pushed ${push.zones} zone(s) to ${push.pushed.length} node(s)` +
-    (push.failed.length ? `, ${push.failed.length} failed` : '') +
+  const hostname = (id: string): string => ctx.hub.nodeInfoFor(id)?.hostname ?? id;
+  let summary = pushSummary(push, hostname) +
     (provider.length ? `; provider-synced ${provider.length} zone(s)` : '');
+  // Nothing pushed anywhere → append the runtime WHY (e.g. the task error).
+  if (push.pushed.length === 0 && !push.skipped) {
+    const runtime = dnsRuntimeStatus(ctx, true);
+    if (!runtime.serving) summary += ` — ${runtime.message}`;
+  }
   await writeAudit(ctx, {
     action: 'dns.applyNow',
     targetType: 'geoDnsConfig',
     targetId: ctx.activeOrgId,
     metadata: { summary },
   });
-  return { summary };
+  return { summary, ok: push.failed.length === 0 };
 }
 
 // ───────────────────────────────────────────── node regions ──

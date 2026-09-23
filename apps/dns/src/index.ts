@@ -6,6 +6,12 @@ import { startUdpServer } from './server-udp';
 import { startTcpServer } from './server-tcp';
 import { startAdminServer } from './admin';
 import type { QueryContext } from './query';
+import {
+  ListenerSet,
+  hostInterfaces,
+  selectAdminListenAddresses,
+  selectDnsListenAddresses,
+} from './listen';
 
 /**
  * swarmy-dns — the authoritative geo-DNS server that makes every ingress+outlet
@@ -28,9 +34,21 @@ async function main(): Promise<void> {
   const metrics = createMetrics();
   const ctx: QueryContext = { store, metrics, geoip: () => geoip.current() };
 
-  const udp = await startUdpServer(ctx, config.host, config.port);
-  const tcp = startTcpServer(ctx, config.host, config.port);
-  const admin = startAdminServer(config, store, metrics, geoip);
+  // Host networking, per-address binds (never 0.0.0.0 — systemd-resolved's
+  // stub owns 127.0.0.53:53 on stock Ubuntu). Re-scanned for new addresses.
+  const dnsAddrs = (): string[] => config.listen ?? selectDnsListenAddresses(hostInterfaces());
+  const adminAddrs = (): string[] =>
+    config.adminListen ?? selectAdminListenAddresses(hostInterfaces());
+  const udp = new ListenerSet('udp', dnsAddrs, (host) => startUdpServer(ctx, host, config.port));
+  const tcp = new ListenerSet('tcp', dnsAddrs, (host) => startTcpServer(ctx, host, config.port));
+  const admin = new ListenerSet('admin', adminAddrs, (host) =>
+    startAdminServer(config, store, metrics, geoip, host),
+  );
+  await Promise.all([
+    udp.start(config.rescanMs),
+    tcp.start(config.rescanMs),
+    admin.start(config.rescanMs),
+  ]);
 
   log(`serving ${store.current?.zones.length ?? 0} zones (bundle v${store.version})`);
 

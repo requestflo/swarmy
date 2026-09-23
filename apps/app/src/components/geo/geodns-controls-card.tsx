@@ -25,7 +25,9 @@ export function GeoDnsControlsCard({ config }: { config?: GeoDnsConfig }): React
   const applyNow = useMutation(
     trpc.geodns.applyNow.mutationOptions({
       onSuccess: (r) => {
-        toast.success(r.summary);
+        // "…, 2 failed (host: why)" — a partial push is a failure, not a success.
+        if (r.ok === false) toast.error(r.summary);
+        else toast.success(r.summary);
         invalidate();
       },
       onError: onErr,

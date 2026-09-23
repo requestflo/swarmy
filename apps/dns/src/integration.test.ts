@@ -76,7 +76,9 @@ beforeAll(async () => {
   const config: DnsServerConfig = {
     port: DNS_PORT,
     adminPort: ADMIN_PORT,
-    host: '127.0.0.1',
+    listen: ['127.0.0.1'],
+    adminListen: ['127.0.0.1'],
+    rescanMs: 30_000,
     dataDir,
     geoipSource: 'off',
     geoipFile: undefined,
@@ -88,9 +90,9 @@ beforeAll(async () => {
   const geoip = new GeoIpManager(config);
   const metrics = createMetrics();
   const ctx: QueryContext = { store, metrics, geoip: () => geoip.current() };
-  const udp = await startUdpServer(ctx, config.host, config.port);
-  const tcp = startTcpServer(ctx, config.host, config.port);
-  const admin = startAdminServer(config, store, metrics, geoip);
+  const udp = await startUdpServer(ctx, '127.0.0.1', config.port);
+  const tcp = startTcpServer(ctx, '127.0.0.1', config.port);
+  const admin = startAdminServer(config, store, metrics, geoip, '127.0.0.1');
   cleanup = [() => udp.close(), () => tcp.close(), () => admin.close()];
 });
 

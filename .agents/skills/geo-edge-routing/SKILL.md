@@ -13,10 +13,14 @@ invariants that must survive every change, and where everything lives.
 1. **DNS answers are node PUBLIC IPs, never VIPs, never service names.**
    Source: node label `swarmy.node.public-ip` (agent-detected, controller
    cross-checked); override label `swarmy.node.public-ip.override` wins.
-2. **Edge data planes publish HOST-MODE ports, never routing-mesh.**
-   swarmy-dns (:53 udp+tcp, :53535 admin) and edge Caddy (80/443) must terminate
-   on the exact node DNS steered to. Routing mesh re-balances and breaks
-   locality.
+2. **Edge data planes terminate on the node itself, never routing-mesh.**
+   Edge Caddy (80/443) publishes HOST-MODE ports. swarmy-dns runs on swarm's
+   predefined `host` network with NO published ports and binds :53 udp+tcp on
+   each non-loopback host address individually (`apps/dns/src/listen.ts`,
+   30s re-scan, `SWARMY_DNS_LISTEN` override) — a wildcard 0.0.0.0:53 bind
+   collides with systemd-resolved's stub (127.0.0.53/54:53) on every stock
+   Ubuntu/Debian. The :53535 admin API binds only 127.0.0.1 + docker0.
+   Routing mesh re-balances and breaks locality.
 3. **Edge data planes are GLOBAL-mode services constrained to
    `node.labels.swarmy.node.ingress == true && node.labels.swarmy.node.outlet == true`.**
    Marking a node creates the plane there; no replica management.
@@ -91,15 +95,20 @@ invariants that must survive every change, and where everything lives.
 
 ## Operational gotchas
 
-- Port 53 collides with `systemd-resolved` stub listener on many distros —
-  onboarding copy must mention `DNSStubListener=no`.
-- Host-mode published ports bind 0.0.0.0 → the DNS admin API MUST stay
-  bearer-token-gated; never add an unauthenticated mutating route to it.
+- Never bind swarmy-dns to 0.0.0.0:53 (or publish :53 host-mode): it collides
+  with the `systemd-resolved` stub. Per-address binds coexist with it — do not
+  tell operators to disable `DNSStubListener`.
+- The DNS admin API stays loopback/docker0-only AND bearer-token-gated; never
+  add an unauthenticated mutating route to it. Container-backend agents reach
+  it via their bridge gateway (docker0) — see `apps/agent/src/handlers/dns.ts`.
+- Serving truth for the UI is `geodns.getConfig().runtime`
+  (`dns-runtime.ts`: task error + per-node push outcome), never `enabled`.
 - DB-IP attribution ("IP geolocation by DB-IP, CC BY 4.0") is a license
   requirement — keep it in the UI when geoip source is dbip.
 - `dig` verification: `dig @<node> -p 53 <host> +subnet=196.25.0.0/16` (ZA),
   `+tcp` for TCP framing, `NS`/`SOA`/`MX` for zone completeness. Local server:
-  run `apps/dns` with `SWARMY_DNS_PORT=5300` and POST a fixture bundle.
+  run `apps/dns` with `SWARMY_DNS_PORT=5300 SWARMY_DNS_LISTEN=127.0.0.1` (auto
+  mode skips loopback) and POST a fixture bundle.
 - Multi-node verification: `scripts/local-vms.sh` Lima swarm (see
   LOCAL-SWARM.md + memory notes) — two VMs, two regions, kill one agent and
   watch its IP leave the answers.

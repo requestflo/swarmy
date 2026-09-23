@@ -3,12 +3,21 @@ import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { resolveManagerNode } from './dispatch.service';
 import { mapDispatchError } from '../errors';
+import { recordDnsDeploy } from './dns-runtime';
 
 /**
  * swarmy-dns deployment — mirror of `ensureCaddyController`, but GLOBAL mode
- * with HOST-MODE ports (invariants #2/#3, geo-edge-routing skill): one task on
- * every node labeled ingress+outlet, answering on that node's own address so
+ * on the HOST NETWORK (invariants #2/#3, geo-edge-routing skill): one task on
+ * every node labeled ingress+outlet, answering on that node's own addresses so
  * NS glue records point at real, stable endpoints.
+ *
+ * Why host networking and NOT host-mode published ports: a published host port
+ * binds the wildcard 0.0.0.0:53, which collides with systemd-resolved's stub
+ * listener (127.0.0.53:53 / 127.0.0.54:53) on every stock Ubuntu/Debian host —
+ * every task failed "address already in use". On the host netns swarmy-dns
+ * binds :53 on each non-loopback address individually (apps/dns listen.ts),
+ * coexisting with resolved without touching the host resolver config. The
+ * admin API (53535) binds only 127.0.0.1 + docker0 — never public.
  *
  * The admin bearer token is DERIVED (HMAC of the org id under the controller
  * secret) — nothing to store or rotate in the DB. It reaches swarmy-dns as a
@@ -18,6 +27,8 @@ import { mapDispatchError } from '../errors';
 export const DNS_SERVICE = 'swarmy-dns';
 export const DNS_ADMIN_SECRET = 'swarmy-dns-admin';
 export const DNS_ADMIN_PORT = 53535;
+/** Swarm's predefined host network (`docker service create --network host`). */
+export const DNS_HOST_NETWORK = 'host';
 const DEFAULT_DNS_IMAGE = process.env.SWARMY_DNS_IMAGE ?? 'ghcr.io/requestflo/swarmy-dns:latest';
 
 export type GeoIpSource = 'dbip' | 'maxmind' | 'file' | 'off';
@@ -64,13 +75,14 @@ export function dnsServiceSpec(settings: DnsOrgSettings, image = DEFAULT_DNS_IMA
     },
     env: {
       SWARMY_DNS_GEOIP: settings.geoipSource,
+      SWARMY_DNS_ADMIN_PORT: String(DNS_ADMIN_PORT),
       ...(settings.geoipSource === 'file' ? { SWARMY_DNS_GEOIP_FILE: MMDB_FILE_PATH } : {}),
     },
-    ports: [
-      { target: 53, published: 53, protocol: 'udp', mode: 'host' },
-      { target: 53, published: 53, protocol: 'tcp', mode: 'host' },
-      { target: DNS_ADMIN_PORT, published: DNS_ADMIN_PORT, protocol: 'tcp', mode: 'host' },
-    ],
+    // Swarm's predefined `host` network: the task shares the node's netns.
+    networks: [DNS_HOST_NETWORK],
+    // Explicitly EMPTY (not omitted): an update from the old host-mode-ports
+    // spec must clear the published 53/53535 ports, not carry them over.
+    ports: [],
     mounts: [{ type: 'volume', source: 'swarmy-dns-data', target: '/var/lib/swarmy-dns' }],
     secrets: [
       { source: DNS_ADMIN_SECRET, target: DNS_ADMIN_SECRET },
@@ -120,8 +132,10 @@ export async function ensureDnsService(
       pullPolicy: 'missing',
     });
   } catch (e) {
+    recordDnsDeploy(ctx.activeOrgId, false, e instanceof Error ? e.message : String(e));
     throw mapDispatchError(e);
   }
+  recordDnsDeploy(ctx.activeOrgId, true);
   return { name: DNS_SERVICE };
 }
 

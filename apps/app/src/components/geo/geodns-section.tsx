@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { StatusBadge } from '@swarmy/ui';
+import { Alert, AlertDescription, AlertTitle, StatusBadge } from '@swarmy/ui';
+import { edgeTone } from '@/components/ingress/edge-runtime';
 import { useTRPC } from '@/integrations/trpc';
 import { GeoDnsControlsCard } from './geodns-controls-card';
 import { ZonesCard } from './zones-card';
@@ -10,6 +11,14 @@ import { DerivedRecordsCard } from './derived-records-card';
 import { ManualRecordsCard } from './manual-records-card';
 import { NodeRegionsCard } from './node-regions-card';
 
+const RUNTIME_LABEL: Record<string, string> = {
+  paused: 'off',
+  deploying: 'starting',
+  down: 'down',
+  degraded: 'degraded',
+  serving: 'live',
+};
+
 /**
  * Geo-DNS — "swarmy is the nameserver". Zones are the registrar-facing
  * artifact: point NS records at pinned swarmy nodes and web A records derive
@@ -17,7 +26,9 @@ import { NodeRegionsCard } from './node-regions-card';
  */
 export function GeoDnsSection(): React.JSX.Element {
   const trpc = useTRPC();
-  const config = useQuery(trpc.geodns.getConfig.queryOptions());
+  // Poll: `runtime` is live Docker truth (task errors, per-node push outcome)
+  // that converges in the background after enabling.
+  const config = useQuery({ ...trpc.geodns.getConfig.queryOptions(), refetchInterval: 5000 });
   const zones = useQuery({ ...trpc.geodns.listZones.queryOptions(), refetchInterval: 10_000 });
   const nodes = useQuery(trpc.nodes.list.queryOptions());
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
@@ -25,6 +36,8 @@ export function GeoDnsSection(): React.JSX.Element {
   const zoneList = zones.data ?? [];
   const selected = zoneList.find((z) => z.id === selectedId) ?? zoneList[0] ?? null;
   const enabled = !!config.data?.enabled;
+  const runtime = config.data?.runtime;
+  const showRuntime = enabled && runtime && runtime.state !== 'serving' && runtime.state !== 'paused';
 
   return (
     <section className="mt-14 space-y-4">
@@ -39,10 +52,19 @@ export function GeoDnsSection(): React.JSX.Element {
           </p>
         </div>
         <StatusBadge
-          tone={enabled ? 'online' : 'neutral'}
-          label={enabled ? 'swarmy-dns · live' : 'Off'}
+          tone={enabled ? edgeTone(runtime?.state) : 'neutral'}
+          label={enabled ? `swarmy-dns · ${RUNTIME_LABEL[runtime?.state ?? 'deploying']}` : 'Off'}
         />
       </div>
+
+      {showRuntime ? (
+        <Alert variant={runtime.state === 'deploying' ? 'default' : 'destructive'}>
+          <AlertTitle>
+            {runtime.state === 'deploying' ? 'swarmy-dns is starting' : 'DNS is not being served'}
+          </AlertTitle>
+          <AlertDescription>{runtime.message}</AlertDescription>
+        </Alert>
+      ) : null}
 
       <GeoDnsControlsCard config={config.data} />
 

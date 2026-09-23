@@ -22,6 +22,21 @@ interface GeoDnsConfigView {
   mmdbConfigRef?: string;
   zoneCount: number;
   updatedAt: string;
+  runtime: {
+    state: 'paused' | 'deploying' | 'down' | 'degraded' | 'serving';
+    serving: boolean;
+    message: string;
+    runningTasks: number;
+    expectedTasks: number;
+    taskError: string | null;
+    deployError: string | null;
+    nodes: Array<{
+      nodeId: string;
+      hostname: string;
+      dnsRunning: boolean | null;
+      lastPush: { ok: boolean; at: string; error: string | null } | null;
+    }>;
+  };
 }
 
 /** Mirror of `DnsZoneView` (dns-zones.service.ts). */
@@ -137,6 +152,16 @@ function toConfigView(st: GeoState): GeoDnsConfigView {
     mmdbConfigRef: st.mmdbConfigRef,
     zoneCount: st.zones.length,
     updatedAt: st.updatedAt,
+    runtime: {
+      state: st.enabled ? 'serving' : 'paused',
+      serving: st.enabled,
+      message: st.enabled ? 'swarmy-dns is answering on every DNS node.' : 'Geo-DNS is off — swarmy-dns is not deployed.',
+      runningTasks: 0,
+      expectedTasks: 0,
+      taskError: null,
+      deployError: null,
+      nodes: [],
+    },
   };
 }
 
@@ -216,13 +241,13 @@ export const geo: DomainResolvers = {
       return toConfigView(st);
     },
 
-    'geodns.applyNow': (_i, s): { summary: string } => {
+    'geodns.applyNow': (_i, s): { summary: string; ok: boolean } => {
       const st = getState(s);
-      if (!st.enabled) return { summary: 'Geo-DNS is disabled — nothing to apply.' };
+      if (!st.enabled) return { summary: 'Geo-DNS is disabled — nothing to apply.', ok: true };
       const nodes = geoEndpoints(s).length;
       for (const z of st.zones) z.serial += 1;
       st.updatedAt = nowIso();
-      return { summary: `pushed ${st.zones.length} zone(s) to ${nodes} node(s)` };
+      return { summary: `pushed ${st.zones.length} zone(s) to ${nodes} node(s)`, ok: true };
     },
 
     // ── zones ──

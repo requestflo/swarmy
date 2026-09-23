@@ -3,6 +3,7 @@ import type { ApplyDnsResult, DnsSnapshotBundle } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { buildDnsSnapshotBundle } from './dns-snapshot.service';
 import { dnsAdminToken, DNS_ADMIN_PORT } from './dns-deploy.service';
+import { recordDnsPush } from './dns-runtime';
 
 /**
  * Snapshot push — fan `dns.apply` out to every online DNS node (invariant #4:
@@ -27,6 +28,11 @@ export function dnsNodeIds(ctx: OrgContext): string[] {
     .filter((id) => outlet.has(id) && ctx.hub.isOnline(id));
 }
 
+/** The node-local admin URL every `dns.apply` targets (loopback, never public). */
+export function dnsAdminUrl(): string {
+  return `http://127.0.0.1:${DNS_ADMIN_PORT}`;
+}
+
 export async function pushDnsBundle(
   ctx: OrgContext,
   bundle: DnsSnapshotBundle,
@@ -42,7 +48,11 @@ export async function pushDnsBundle(
       try {
         await ctx.hub.dispatch<ApplyDnsResult>(nodeId, 'dns.apply', {
           bundle,
-          adminUrl: `http://127.0.0.1:${DNS_ADMIN_PORT}`,
+          // swarmy-dns runs on the HOST network and binds its admin API on
+          // 127.0.0.1 (+ docker0) only. The agent POSTs locally on the same
+          // node (host-netns agent: loopback; container agent: falls back to
+          // its bridge gateway = docker0 — see apps/agent handlers/dns.ts).
+          adminUrl: dnsAdminUrl(),
           adminToken: token,
         });
         pushed.push(nodeId);
@@ -51,6 +61,9 @@ export async function pushDnsBundle(
       }
     }),
   );
+
+  // Per-node outcome → geodns.getConfig().runtime, so "N failed" has a WHY.
+  recordDnsPush(ctx.activeOrgId, pushed, failed);
 
   return {
     signature: bundleSignature(bundle),

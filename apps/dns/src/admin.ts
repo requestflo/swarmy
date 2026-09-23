@@ -11,15 +11,18 @@ import type { GeoIpManager } from './geoip-manager';
  *   GET  /v1/status     serving version, zones, qps counters, geoip state
  *   GET  /healthz       liveness (also used by the swarm healthcheck)
  *
- * SECURITY: the port is host-mode published (binds 0.0.0.0), so pushes are
- * bearer-token-gated and we fail CLOSED when no token is configured — the
- * only exception is the explicit local-dev env escape hatch.
+ * SECURITY: swarmy-dns runs on the HOST network, and this API binds ONLY
+ * host-private addresses (127.0.0.1 + the docker0 bridge — see
+ * `selectAdminListenAddresses`), one server per address. It is still
+ * bearer-token-gated and fails CLOSED when no token is configured — the only
+ * exception is the explicit local-dev env escape hatch.
  */
 export function startAdminServer(
   config: DnsServerConfig,
   store: SnapshotStore,
   metrics: DnsMetrics,
   geoip: GeoIpManager,
+  host = '127.0.0.1',
 ): { close(): void } {
   const authorized = (req: Request): boolean => {
     if (config.adminToken) {
@@ -29,7 +32,7 @@ export function startAdminServer(
   };
 
   const server = Bun.serve({
-    hostname: config.host,
+    hostname: host,
     port: config.adminPort,
     async fetch(req) {
       const url = new URL(req.url);
@@ -73,6 +76,6 @@ export function startAdminServer(
       return Response.json({ error: 'not found' }, { status: 404 });
     },
   });
-  log(`admin api listening on ${config.host}:${config.adminPort}`);
+  log(`admin api listening on ${host}:${config.adminPort}`);
   return { close: () => server.stop(true) };
 }

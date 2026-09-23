@@ -5,6 +5,8 @@
  * (see dns-deploy.service.ts); env here must stay in sync with that spec.
  */
 
+import { parseListenOverride } from './listen';
+
 export type GeoIpSource = 'dbip' | 'maxmind' | 'file' | 'off';
 
 export interface DnsServerConfig {
@@ -12,8 +14,20 @@ export interface DnsServerConfig {
   port: number;
   /** Admin API port (snapshot push + status). */
   adminPort: number;
-  /** Listen address. Host-mode publish means 0.0.0.0 inside the container. */
-  host: string;
+  /**
+   * Explicit DNS listen addresses (`SWARMY_DNS_LISTEN`, comma list; legacy
+   * `SWARMY_DNS_HOST` as a single address). Undefined = auto: bind every
+   * non-loopback, non-link-local host address individually (listen.ts) —
+   * never the wildcard, which collides with systemd-resolved's stub.
+   */
+  listen: string[] | undefined;
+  /**
+   * Explicit admin API listen addresses (`SWARMY_DNS_ADMIN_LISTEN`).
+   * Undefined = auto: 127.0.0.1 + the docker0 bridge address. Never public.
+   */
+  adminListen: string[] | undefined;
+  /** Interface re-scan period (ms) — picks up DHCP / floating-IP changes. */
+  rescanMs: number;
   /** Persistent state dir (named volume in production). */
   dataDir: string;
   geoipSource: GeoIpSource;
@@ -45,7 +59,9 @@ export async function loadConfig(): Promise<DnsServerConfig> {
   return {
     port: int(env.SWARMY_DNS_PORT, 53),
     adminPort: int(env.SWARMY_DNS_ADMIN_PORT, 53535),
-    host: env.SWARMY_DNS_HOST ?? '0.0.0.0',
+    listen: parseListenOverride(env.SWARMY_DNS_LISTEN ?? env.SWARMY_DNS_HOST),
+    adminListen: parseListenOverride(env.SWARMY_DNS_ADMIN_LISTEN),
+    rescanMs: int(env.SWARMY_DNS_RESCAN_MS, 30_000),
     dataDir: env.SWARMY_DNS_DATA_DIR ?? '/var/lib/swarmy-dns',
     geoipSource: ['dbip', 'maxmind', 'file', 'off'].includes(source) ? source : 'dbip',
     geoipFile: env.SWARMY_DNS_GEOIP_FILE,
