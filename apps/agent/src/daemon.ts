@@ -233,7 +233,6 @@ export async function runDaemon(): Promise<void> {
       dockerVersion: 'unknown',
       swarmRole: 'none',
       agentVersion: VERSION,
-      agentCommit: COMMIT,
       protocolVersions: [PROTOCOL_VERSION],
     };
   }
@@ -241,6 +240,9 @@ export async function runDaemon(): Promise<void> {
   // Compiled host binary vs interpreted container — the controller picks the
   // matching updateAgent strategy (self-replace vs docker-recreate) from this.
   facts.agentPackaging = agentPackaging();
+  // Build commit on EVERY path (not just the no-docker fallback): unreleased
+  // builds are all 0.0.0, so this is what the controller's update check compares.
+  facts.agentCommit = COMMIT;
 
   // Explicit SWARMY_ALLOW_BUILD override (if any) — lets the controller's
   // builder picker honour a local allow/veto instead of dispatching blind.
