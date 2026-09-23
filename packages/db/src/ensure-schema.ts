@@ -46,6 +46,48 @@ async function listMigrationFiles(dir: string): Promise<{ name: string; sql: str
 }
 
 /**
+ * Drop SQL comments (`-- …` to end of line, and `/* … *\/` blocks) outside
+ * quoted strings/identifiers. The Postgres adapter's `executeScript` splits a
+ * script on `;` without understanding comments, so a `;` inside a comment
+ * (e.g. "serial);" in 0003's header) cut a statement in half and every
+ * standard-tier install crash-looped on boot. PGlite ran it whole, so lite
+ * installs never saw it.
+ */
+export function stripSqlComments(sql: string): string {
+  let out = '';
+  let i = 0;
+  while (i < sql.length) {
+    const c = sql[i]!;
+    const next = sql[i + 1];
+    if (c === "'" || c === '"') {
+      // copy a quoted run verbatim; '' / "" escapes stay inside the run
+      let j = i + 1;
+      while (j < sql.length) {
+        if (sql[j] === c) {
+          if (sql[j + 1] === c) {
+            j += 2;
+            continue;
+          }
+          break;
+        }
+        j++;
+      }
+      out += sql.slice(i, j + 1);
+      i = j + 1;
+    } else if (c === '-' && next === '-') {
+      while (i < sql.length && sql[i] !== '\n') i++;
+    } else if (c === '/' && next === '*') {
+      const end = sql.indexOf('*/', i + 2);
+      i = end === -1 ? sql.length : end + 2;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
+/**
  * Apply all pending migrations against `adapterFactory`. Returns the list of
  * migration names freshly applied (empty if already up to date).
  *
@@ -71,7 +113,7 @@ export async function ensureSchema(
     const freshlyApplied: string[] = [];
     for (const { name, sql } of files) {
       if (applied.has(name)) continue;
-      await adapter.executeScript(sql);
+      await adapter.executeScript(stripSqlComments(sql));
       await adapter.executeRaw({
         sql: `INSERT INTO "${MIGRATIONS_TABLE}" (name) VALUES ($1)`,
         args: [name],

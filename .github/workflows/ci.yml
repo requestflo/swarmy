@@ -51,6 +51,12 @@ jobs:
           bunx prisma migrate deploy
           bunx prisma migrate diff --from-config-datasource --to-schema prisma/schema --exit-code \
             || { echo "::error::prisma/schema has changes with no migration — run: bunx prisma migrate diff --from-config-datasource --to-schema prisma/schema --script > prisma/migrations/<next>/migration.sql"; exit 1; }
+      # Standard-tier controllers migrate on boot via ensureSchema over the pg
+      # adapter — a different executor from prisma's. Prove it on real Postgres.
+      - name: Boot-time schema path applies on Postgres
+        run: |
+          PGPASSWORD=swarmy psql -h localhost -U swarmy -d swarmy -c 'CREATE DATABASE swarmy_boot'
+          ENSURE_SCHEMA_URL=postgresql://swarmy:swarmy@localhost:5432/swarmy_boot bun packages/db/scripts/check-ensure-schema.ts
       - name: Typecheck
         run: bun run typecheck
       - name: Build
