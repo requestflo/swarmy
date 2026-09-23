@@ -164,13 +164,24 @@ export async function getConfig(ctx: OrgContext): Promise<StorageClusterView> {
   return toView(await load(ctx));
 }
 
+/**
+ * Layout capacity for a member, from the node's real filesystem: 80% of its
+ * disk (headroom for the OS, images and other volumes), at least 1 GB. Falls
+ * back to the default only when the node hasn't reported stats yet. A fixed
+ * 100 GB claim on a 25 GB droplet let Garage plan storage it could never hold.
+ */
+export function garageCapacityGb(fsTotalBytes: number | null | undefined): number {
+  if (!fsTotalBytes || fsTotalBytes <= 0) return DEFAULT_CAPACITY_GB;
+  return Math.max(1, Math.floor((fsTotalBytes * 0.8) / 1_000_000_000));
+}
+
 /** Build the render input from a row (decrypts secrets just-in-time). */
 function renderInput(ctx: OrgContext, row: ClusterRow): GarageRenderInput {
   const recorded = layoutNodes(row.layout);
   const memberList: GarageMember[] = members(row).map((nodeId) => ({
     nodeId,
     rpcHost: SERVICE_NAME,
-    capacityGb: recorded[nodeId]?.capacityGb ?? DEFAULT_CAPACITY_GB,
+    capacityGb: recorded[nodeId]?.capacityGb ?? garageCapacityGb(ctx.hub.latestNodeStats?.(nodeId)?.fsTotalBytes),
     // Discovered by the storage-reconcile worker; absent before first join.
     ...(recorded[nodeId]?.garageNodeId ? { garageNodeId: recorded[nodeId]?.garageNodeId } : {}),
   }));

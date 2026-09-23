@@ -4,6 +4,7 @@ import type { OrgContext } from '../context';
 import { GARAGE_MEMBER_NODE_LABEL } from './garage-render';
 import {
   enable,
+  garageCapacityGb,
   garageRpcSecret,
   isValidGarageRpcSecret,
   pickDefaultMembers,
@@ -216,5 +217,13 @@ describe('garageRpcSecret', () => {
     const s = garageRpcSecret();
     expect(isValidGarageRpcSecret(s)).toBe(true);
     expect(isValidGarageRpcSecret('grpc_abc123')).toBe(false);
+  });
+});
+
+describe('garageCapacityGb', () => {
+  it('uses 80% of the real disk, never the 100 GB default when stats exist', () => {
+    expect(garageCapacityGb(25_000_000_000)).toBe(20);
+    expect(garageCapacityGb(500_000_000)).toBe(1);
+    expect(garageCapacityGb(null)).toBe(100);
   });
 });
