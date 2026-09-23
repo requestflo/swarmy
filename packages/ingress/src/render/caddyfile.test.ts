@@ -136,8 +136,15 @@ describe('caddy host grouping — path routing across services', () => {
       cfg([{ domain: 'solo.xyz.com', service: 'web', port: 3000, pathPrefix: '/', tls: 'auto' }]),
     );
     const block = siteBlock(out, 'solo.xyz.com');
-    expect(block).toContain('  reverse_proxy web:3000');
+    expect(block).toContain('  reverse_proxy web:3000 {');
     expect(out).not.toContain('handle');
+  });
+
+  it('every warm upstream survives a reload: streams get stream_close_delay (dashboard longer)', () => {
+    const out = buildCaddyfile(
+      cfg([{ domain: 'solo.xyz.com', service: 'web', port: 3000, pathPrefix: '/', tls: 'auto' }]),
+    );
+    expect(out).toContain('reverse_proxy web:3000 {\n    stream_close_delay 5m\n  }');
   });
 });
 
@@ -162,6 +169,7 @@ describe('caddy canary — weighted upstreams (D2)', () => {
         'app.xyz.com {',
         '  reverse_proxy web:3000 web--canary:3000 {',
         '    lb_policy weighted_round_robin 90 10',
+        '    stream_close_delay 5m',
         '  }',
         '}',
         '',
@@ -189,10 +197,13 @@ describe('caddy canary — weighted upstreams (D2)', () => {
         '  handle /api* {',
         '    reverse_proxy api:8080 api--canary:8080 {',
         '      lb_policy weighted_round_robin 75 25',
+        '      stream_close_delay 5m',
         '    }',
         '  }',
         '  handle {',
-        '    reverse_proxy web:3000',
+        '    reverse_proxy web:3000 {',
+        '      stream_close_delay 5m',
+        '    }',
         '  }',
         '}',
         '',
@@ -324,7 +335,9 @@ describe('caddy route protections — rate limit, IP rules, body cap, bots, head
         '      window 60s',
         '    }',
         '  }',
-        '  reverse_proxy api:8080',
+        '  reverse_proxy api:8080 {',
+        '    stream_close_delay 5m',
+        '  }',
         '}',
         '',
       ].join('\n'),
@@ -400,7 +413,7 @@ describe('caddy route protections — rate limit, IP rules, body cap, bots, head
     const out = buildCaddyfile(
       cfg([{ domain: 'solo.xyz.com', service: 'web', port: 3000, pathPrefix: '/', tls: 'auto' }]),
     );
-    expect(out).toBe(['solo.xyz.com {', '  reverse_proxy web:3000', '}', ''].join('\n'));
+    expect(out).toBe(['solo.xyz.com {', '  reverse_proxy web:3000 {', '    stream_close_delay 5m', '  }', '}', ''].join('\n'));
   });
 });
 
@@ -439,7 +452,9 @@ describe('caddy response caching — cache-handler directive', () => {
         '      headers Accept-Language X-Tenant',
         '    }',
         '  }',
-        '  reverse_proxy web:3000',
+        '  reverse_proxy web:3000 {',
+        '    stream_close_delay 5m',
+        '  }',
         '}',
         '',
       ].join('\n'),
@@ -469,7 +484,7 @@ describe('caddy response caching — cache-handler directive', () => {
     const out = buildCaddyfile(
       cfg([{ domain: 'solo.xyz.com', service: 'web', port: 3000, pathPrefix: '/', tls: 'auto' }]),
     );
-    expect(out).toBe(['solo.xyz.com {', '  reverse_proxy web:3000', '}', ''].join('\n'));
+    expect(out).toBe(['solo.xyz.com {', '  reverse_proxy web:3000 {', '    stream_close_delay 5m', '  }', '}', ''].join('\n'));
   });
 
   it('a COLD route never caches: the wake redirect must not stick in a cache', () => {
@@ -547,7 +562,9 @@ describe('caddy country rules — maxmind_geolocation matcher', () => {
         '    }',
         '  }',
         '  abort @geonotallowed_uk_xyz_com',
-        '  reverse_proxy web:3000',
+        '  reverse_proxy web:3000 {',
+        '    stream_close_delay 5m',
+        '  }',
         '}',
         '',
       ].join('\n'),
@@ -580,7 +597,9 @@ describe('caddy country rules — maxmind_geolocation matcher', () => {
         '    }',
         '  }',
         '  abort @geodeny_xyz_com',
-        '  reverse_proxy web:3000',
+        '  reverse_proxy web:3000 {',
+        '    stream_close_delay 5m',
+        '  }',
         '}',
         '',
       ].join('\n'),
@@ -682,7 +701,9 @@ describe('caddy WAF-lite — scanner paths, methods, query patterns (no plugin)'
         'xyz.com {',
         `  @wafscan_xyz_com path ${WAF_SCANNER_PATHS.join(' ')}`,
         '  respond @wafscan_xyz_com 403',
-        '  reverse_proxy web:3000',
+        '  reverse_proxy web:3000 {',
+        '    stream_close_delay 5m',
+        '  }',
         '}',
         '',
       ].join('\n'),
@@ -922,7 +943,9 @@ describe('caddy dashboard vhost — the controller UI on its https domain', () =
       [
         'swarmy.46-101-22-121.sslip.io {',
         '  # swarmy dashboard vhost',
-        '  reverse_proxy swarmy_controller:3021',
+        '  reverse_proxy swarmy_controller:3021 {',
+        '    stream_close_delay 1h',
+        '  }',
         '}',
         '',
       ].join('\n'),
@@ -1025,7 +1048,7 @@ describe('caddy region-aware upstreams (geo-edge)', () => {
       localRegion: 'uk-scotland',
     });
     expect(withLocal).toBe(plain);
-    expect(plain).toContain('  reverse_proxy web:3000\n');
+    expect(plain).toContain('  reverse_proxy web:3000 {\n    stream_close_delay 5m\n  }\n');
   });
 
   it('canary wins over region upstreams (weighted vs first cannot combine)', () => {

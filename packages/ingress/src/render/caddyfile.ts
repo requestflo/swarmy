@@ -125,6 +125,19 @@ export function buildCaddyfile(config: IngressConfig): string {
 }
 
 /**
+ * How long a proxied stream (WebSocket, SSE, long poll) outlives the config it
+ * was opened under. Every ingress apply is a Caddy reload, and by default a
+ * reload closes EVERY proxied WebSocket at once. Measured on the launch test:
+ * 26 reloads in 40 min, each one dropping every agent's control channel, every
+ * dashboard terminal and log stream, and users' own WebSocket apps. Old
+ * streams keep the old (identical-backend) handler for this long, then close.
+ * Memory is bounded: a superseded config is freed once its last stream ends.
+ */
+export const APP_STREAM_CLOSE_DELAY = '5m';
+/** The dashboard vhost carries every agent's control channel + terminals: longer. */
+export const DASHBOARD_STREAM_CLOSE_DELAY = '1h';
+
+/**
  * A controller-upstream vhost: the domain's path space is rewritten under
  * `targetPath` (`/` → `/s/my-page/`, `/foo` → `/s/my-page/foo`) and proxied to
  * the controller — the same dial target the scale-to-zero activator uses.
@@ -136,7 +149,14 @@ function buildControllerVhost(v: ControllerVhost): string[] {
   if (v.kind === 'dashboard') {
     // The controller's own origin: no path rewrite. Caddy proxies websockets
     // (agent + terminal) and sets X-Forwarded-Proto/Host by default.
-    return [`${address} {`, `  # swarmy ${v.kind} vhost`, `  reverse_proxy ${v.upstream}`, '}'];
+    return [
+      `${address} {`,
+      `  # swarmy ${v.kind} vhost`,
+      `  reverse_proxy ${v.upstream} {`,
+      `    stream_close_delay ${DASHBOARD_STREAM_CLOSE_DELAY}`,
+      '  }',
+      '}',
+    ];
   }
   if (v.kind === 'status-page') {
     return [
@@ -268,6 +288,7 @@ function warmProxy(r: DomainRoute, localRegion?: string): string[] {
     return [
       `reverse_proxy ${r.service}:${r.port} ${c.service}:${c.port} {`,
       `  lb_policy weighted_round_robin ${stableWeight} ${canaryWeight}`,
+      `  stream_close_delay ${APP_STREAM_CLOSE_DELAY}`,
       '}',
     ];
   }
@@ -285,10 +306,11 @@ function warmProxy(r: DomainRoute, localRegion?: string): string[] {
       '  lb_try_interval 250ms',
       '  fail_duration 30s',
       '  max_fails 2',
+      `  stream_close_delay ${APP_STREAM_CLOSE_DELAY}`,
       '}',
     ];
   }
-  return [`reverse_proxy ${r.service}:${r.port}`];
+  return [`reverse_proxy ${r.service}:${r.port} {`, `  stream_close_delay ${APP_STREAM_CLOSE_DELAY}`, '}'];
 }
 
 /** Local region first; the rest in stable name order (deterministic output). */
