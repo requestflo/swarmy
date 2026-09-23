@@ -93,12 +93,15 @@ function tlsModeToRouteTls(tls: TlsMode): Route['tls'] {
 
 /**
  * Scale-to-zero activator base URL. Ingress routes a COLD (0-replica) domain here
- * so the controller can wake the service and 307 the caller back. On a single-node
- * Docker Desktop swarm `host.docker.internal` resolves to the host (the controller)
- * from inside the ingress container. Overridable for multi-host / non-default ports.
+ * so the controller can wake the service and 307 the caller back. Defaults to the
+ * controller on the shared `swarmy` overlay — the same upstream the dashboard
+ * vhost uses, which every edge (both topologies) can reach. The old default,
+ * `host.docker.internal`, only resolves on Docker Desktop, so on every Linux
+ * install a cold route 502'd instead of waking. A controller running on the host
+ * (dev) sets SWARMY_ACTIVATOR_URL=http://host.docker.internal:3021.
  */
 function activatorBaseUrl(): string {
-  return process.env.SWARMY_ACTIVATOR_URL ?? 'http://host.docker.internal:3021';
+  return process.env.SWARMY_ACTIVATOR_URL || `http://${dashboardUpstream()}`;
 }
 
 /** Activator dial target `host:port` (path stripped — the wake path is per-service). */
@@ -106,7 +109,7 @@ function activatorUpstream(): string {
   try {
     return new URL(activatorBaseUrl()).host;
   } catch {
-    return 'host.docker.internal:3021';
+    return dashboardUpstream();
   }
 }
 
