@@ -23,6 +23,9 @@ jobs:
     name: ${{ matrix.name }} image
     runs-on: ubuntu-latest
     strategy:
+      # One image failing (e.g. a Caddy plugin break) must never cancel the
+      # controller/agent publishes.
+      fail-fast: false
       matrix:
         include:
           - name: controller
