@@ -107,6 +107,9 @@ async function ensureMembership(orgId: string, userId: string): Promise<void> {
  * verifies presented tokens the same way), and parse the display prefix from the
  * `swt_<prefix>_<secret>` shape. Idempotent on the hash so restarts don't churn rows.
  */
+const BOOTSTRAP_TOKEN_MAX_USES = 5;
+const BOOTSTRAP_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+
 async function ensureJoinToken(orgId: string, userId: string, raw: string): Promise<void> {
   const tokenHash = hashToken(raw);
   const existing = await prisma.joinToken.findUnique({ where: { tokenHash }, select: { id: true } });
@@ -119,9 +122,12 @@ async function ensureJoinToken(orgId: string, userId: string, raw: string): Prom
       tokenHash,
       tokenPrefix,
       label: 'self-host bootstrap',
-      // Long-lived + multi-use so the operator can add nodes; revocable in the dashboard.
-      maxUses: 100,
-      expiresAt: null,
+      // Enrols node #1 and covers the first few nodes the installer's "Add a
+      // node" hint is pasted onto. The installer prints it to a terminal, so
+      // it must not stay a live credential: agents reconnect with their own
+      // stored session afterwards, and later nodes use a dashboard token.
+      maxUses: BOOTSTRAP_TOKEN_MAX_USES,
+      expiresAt: new Date(Date.now() + BOOTSTRAP_TOKEN_TTL_MS),
       createdById: userId,
     },
   });

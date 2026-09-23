@@ -426,6 +426,7 @@ finalize() {
   printf '\n'
   printf '  Add a node:  curl -fsSL %s/install/loader.sh | SWARMY_JOIN_TOKEN=%s sh -s -- --controller %s\n' \
     "${LOGIN_URL:-$PUBLIC_URL}" "$BOOTSTRAP_JOIN_TOKEN" "${LOGIN_URL:-$PUBLIC_URL}"
+  printf '               %s\n' "${c_dim}(this token works for 24h / 5 nodes — after that use Add a node in the dashboard)${c_reset}"
   printf '\n'
   warn "BACK UP $STATE_FILE (esp. SWARMY_SECRET_KEY). Lose it and every stored credential is unrecoverable."
   hr
