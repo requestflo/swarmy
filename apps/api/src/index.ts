@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import type { ServerWebSocket } from 'bun';
 import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
-import { authRegistry, parseTrustedProxies, withClientIp } from '@swarmy/auth';
+import { adaptDirectHttpRequest, adaptDirectHttpResponse, authRegistry, directHttpHost, parseTrustedProxies, withClientIp } from '@swarmy/auth';
 import { prisma, ensureSchema, buildAdapter, resolveDbDriver } from '@swarmy/db';
 import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim } from '@swarmy/trpc';
 import { createRestApp } from '@swarmy/api-rest';
@@ -306,6 +306,11 @@ if (trustedProxies.invalid.length > 0) {
   console.warn(`swarmy controller: ignoring invalid SWARMY_TRUSTED_PROXIES entries: ${trustedProxies.invalid.join(', ')}`);
 }
 
+// https dashboard domain + direct http://<ip>:3021: translate auth cookies on
+// the plain-http origin so both keep a working session (@swarmy/auth origins.ts).
+const directHost = directHttpHost();
+const cookiePrefix = process.env.SWARMY_AUTH_COOKIE_PREFIX ?? 'swarmy';
+
 const server = Bun.serve<WsData>({
   port: env.PORT,
   idleTimeout: 60,
@@ -318,12 +323,14 @@ const server = Bun.serve<WsData>({
       return upgraded ? undefined : new Response('websocket upgrade failed', { status: 400 });
     }
     if (url.pathname === '/term/ws') {
-      const data = await authorizeTermUpgrade(req);
+      const data = await authorizeTermUpgrade(adaptDirectHttpRequest(req, directHost, cookiePrefix));
       if (!data) return new Response('unauthorized', { status: 401 });
       const upgraded = srv.upgrade(req, { data });
       return upgraded ? undefined : new Response('websocket upgrade failed', { status: 400 });
     }
-    return app.fetch(withClientIp(req, srv.requestIP(req)?.address, trustedProxies));
+    const authReq = adaptDirectHttpRequest(req, directHost, cookiePrefix);
+    const res = await app.fetch(withClientIp(authReq, srv.requestIP(req)?.address, trustedProxies));
+    return adaptDirectHttpResponse(req, res, directHost);
   },
   websocket: {
     open(ws) {

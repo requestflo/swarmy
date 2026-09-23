@@ -88,7 +88,14 @@ export function buildCaddyfile(config: IngressConfig): string {
   // live in a single block. Within it, routes are ordered longest-prefix-first so
   // the most specific path wins (Caddy evaluates `handle` blocks top-to-bottom and
   // the first match handles the request).
+  // The controller's own dashboard domain is reserved: a service route that
+  // claims it is dropped (the dashboard block below wins), so no deployable
+  // workload can take over — or phish — the operator login origin.
+  const dashboardHosts = new Set(
+    config.controllerVhosts.filter((v) => v.kind === 'dashboard').map((v) => v.domain),
+  );
   for (const [host, routes] of groupByHost(config.domains)) {
+    if (dashboardHosts.has(host)) continue;
     out.push(...buildSite(host, routes, config), '');
   }
 
@@ -101,8 +108,13 @@ export function buildCaddyfile(config: IngressConfig): string {
   // at the same hostname would otherwise emit two identical site addresses and
   // Caddy would reject the whole file). First wins; writers should prevent the
   // collision, the renderer must never produce an unloadable file.
-  const routeHosts = new Set(config.domains.map((d) => d.domain));
-  for (const v of config.controllerVhosts) {
+  const routeHosts = new Set(config.domains.map((d) => d.domain).filter((h) => !dashboardHosts.has(h)));
+  // Dashboard vhosts first so a status page / webhook on the same host loses.
+  const vhosts = [
+    ...config.controllerVhosts.filter((v) => v.kind === 'dashboard'),
+    ...config.controllerVhosts.filter((v) => v.kind !== 'dashboard'),
+  ];
+  for (const v of vhosts) {
     if (routeHosts.has(v.domain)) continue;
     routeHosts.add(v.domain);
     out.push(...buildControllerVhost(v), '');
@@ -119,6 +131,11 @@ export function buildCaddyfile(config: IngressConfig): string {
  */
 function buildControllerVhost(v: ControllerVhost): string[] {
   const address = v.tls === 'off' ? `http://${v.domain}` : v.domain;
+  if (v.kind === 'dashboard') {
+    // The controller's own origin: no path rewrite. Caddy proxies websockets
+    // (agent + terminal) and sets X-Forwarded-Proto/Host by default.
+    return [`${address} {`, `  # swarmy ${v.kind} vhost`, `  reverse_proxy ${v.upstream}`, '}'];
+  }
   if (v.kind === 'status-page') {
     return [
       `${address} {`,

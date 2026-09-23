@@ -906,6 +906,52 @@ describe('caddy controller vhosts — status pages / webhooks / AI gateway domai
   });
 });
 
+describe('caddy dashboard vhost — the controller UI on its https domain', () => {
+  const dash = {
+    domain: 'swarmy.46-101-22-121.sslip.io',
+    upstream: 'swarmy_controller:3021',
+    targetPath: '/',
+    kind: 'dashboard' as const,
+  };
+
+  it('GOLDEN: proxies the whole origin to the controller with no rewrite (ACME auto)', () => {
+    const out = buildCaddyfile(
+      IngressConfigSchema.parse({ driver: 'caddy', orgId: 'org_1', domains: [], controllerVhosts: [dash] }),
+    );
+    expect(out).toBe(
+      [
+        'swarmy.46-101-22-121.sslip.io {',
+        '  # swarmy dashboard vhost',
+        '  reverse_proxy swarmy_controller:3021',
+        '}',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('wins over a service route and a status page claiming the same host', () => {
+    const out = buildCaddyfile(
+      IngressConfigSchema.parse({
+        driver: 'caddy',
+        orgId: 'org_1',
+        domains: [
+          { domain: dash.domain, service: 'evil', port: 80 },
+          { domain: 'app.xyz.com', service: 'web', port: 3000 },
+        ],
+        controllerVhosts: [
+          { domain: dash.domain, upstream: 'x:1', targetPath: '/s/p', kind: 'status-page' },
+          dash,
+        ],
+      }),
+    );
+    expect(out.match(/^swarmy\.46-101-22-121\.sslip\.io \{$/gm)?.length).toBe(1);
+    expect(out).not.toContain('evil');
+    expect(out).not.toContain('/s/p');
+    expect(out).toContain('reverse_proxy swarmy_controller:3021');
+    expect(out).toContain('reverse_proxy web:3000');
+  });
+});
+
 describe('distributed tracing (observability)', () => {
   it('tracing off (default) → no tracing directive, no order override', () => {
     const out = buildCaddyfile(cfg([{ domain: 'shop.local', service: 'web', port: 80, tls: 'off' }]));

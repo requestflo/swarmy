@@ -25,6 +25,15 @@ describe('resolveControllerPublicUrl', () => {
     expect(r).toEqual({ url: 'https://swarmy.example.com', source: 'config', loopback: false, warning: null });
   });
 
+  it('self-host https dashboard: the configured https URL wins even when the operator browses the direct http://<ip>:3021', () => {
+    const r = resolveControllerPublicUrl({
+      configured: 'https://swarmy.46-101-22-121.sslip.io',
+      headers: h({ host: '46.101.22.121:3021', origin: 'http://46.101.22.121:3021' }),
+    });
+    expect(r.url).toBe('https://swarmy.46-101-22-121.sslip.io');
+    expect(r.source).toBe('config');
+  });
+
   it('unset/localhost config → the address the request actually used (Host)', () => {
     const r = resolveControllerPublicUrl({ configured: 'http://localhost:3021', headers: h({ host: '192.168.11.87:3021' }) });
     expect(r.url).toBe('http://192.168.11.87:3021');

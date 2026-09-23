@@ -156,6 +156,16 @@ export interface IngressConfigView {
   controllerImage: string | null;
   /** Edge topology: replicated controller vs global per-node edge (geo-edge). */
   topology: 'controller' | 'edge-per-node';
+  /**
+   * The controller's own https dashboard domain (self-host installer), when this
+   * org's edge serves it. Null otherwise.
+   */
+  dashboardDomain?: string | null;
+  /**
+   * Operator-facing warning when the dashboard domain is configured but the
+   * org's driver can't serve it (it needs swarmy's Caddy). Null when fine.
+   */
+  dashboardWarning?: string | null;
   updatedAt: string;
   /**
    * RUNTIME truth — is a swarmy-run proxy actually up and carrying the current
@@ -222,6 +232,13 @@ function driverLower(d: string): IngressDriverId {
  */
 interface IngressSettings {
   targetNodes?: string[];
+  /**
+   * The self-host dashboard domain this org's edge serves, recorded by the
+   * bootstrap seed (apps/api/src/bootstrap/seed.ts) from SWARMY_DASHBOARD_DOMAIN
+   * on every boot. It only binds the domain to THIS org; the env stays the
+   * authority (see {@link dashboardDomainFor}).
+   */
+  dashboardDomain?: string;
   /**
    * Edge topology (geo-edge): 'controller' (default) = one replicated Caddy on
    * the routing mesh; 'edge-per-node' = a GLOBAL host-mode Caddy per ingress
@@ -342,6 +359,9 @@ export async function assertControllerDomainAvailable(
 ): Promise<void> {
   const host = domain.trim().toLowerCase();
   if (!host) return;
+  if (host === process.env[DASHBOARD_DOMAIN_ENV]?.trim().toLowerCase()) {
+    throw new Error(`domain ${host} is the swarmy dashboard's own address`);
+  }
   const [page, endpoint] = await Promise.all([
     ctx.db.statusPage.findFirst({
       where: { orgId: ctx.activeOrgId, domain: host, ...(ignore.statusPageId ? { id: { not: ignore.statusPageId } } : {}) },
@@ -359,7 +379,45 @@ export async function assertControllerDomainAvailable(
   if (outlet) throw new Error(`domain ${host} is already used by the AI outlet for stack "${outlet.stack}"`);
 }
 
-async function computeControllerVhosts(ctx: OrgContext): Promise<ControllerVhost[]> {
+/** Env the self-host stack sets to the https dashboard domain (installer-derived). */
+export const DASHBOARD_DOMAIN_ENV = 'SWARMY_DASHBOARD_DOMAIN';
+
+/**
+ * The dashboard domain this org's edge must serve, or null. Requires BOTH the
+ * controller env (the installer's intent — removing it via `--no-https` drops
+ * the vhost at once) AND the org's settings binding written by the bootstrap
+ * seed (so only the bootstrap org claims it, never every org on the controller).
+ */
+export function dashboardDomainFor(
+  settings: { dashboardDomain?: string },
+  env: Record<string, string | undefined> = process.env,
+): string | null {
+  const d = env[DASHBOARD_DOMAIN_ENV]?.trim().toLowerCase();
+  if (!d) return null;
+  return settings.dashboardDomain?.trim().toLowerCase() === d ? d : null;
+}
+
+/**
+ * Where the edge dials the controller for the dashboard vhost: the stack's
+ * service name on the shared `swarmy` overlay (both Caddy topologies attach it).
+ */
+function dashboardUpstream(): string {
+  return process.env.SWARMY_DASHBOARD_UPSTREAM || 'swarmy_controller:3021';
+}
+
+/** Why the dashboard domain is NOT being served by this driver (null = it is). */
+export function dashboardDriverWarning(driver: IngressDriverId, enabled: boolean, domain: string | null): string | null {
+  if (!domain) return null;
+  if (driver !== 'caddy') {
+    return `The dashboard's https address (https://${domain}) is served by swarmy's Caddy edge. With the ${driver} driver it is not served — switch back to Caddy, or use the direct http address until you do.`;
+  }
+  if (!enabled) {
+    return `Ingress is disabled, so the dashboard's https address (https://${domain}) is not served. Re-enable it, or use the direct http address meanwhile.`;
+  }
+  return null;
+}
+
+async function computeControllerVhosts(ctx: OrgContext, settings: IngressSettings = {}): Promise<ControllerVhost[]> {
   const upstream = activatorUpstream();
   const [pages, endpoints, outlets] = await Promise.all([
     ctx.db.statusPage.findMany({
@@ -373,6 +431,10 @@ async function computeControllerVhosts(ctx: OrgContext): Promise<ControllerVhost
     listAiOutlets(ctx),
   ]);
   const out: ControllerVhost[] = [];
+  const dashboard = dashboardDomainFor(settings);
+  if (dashboard) {
+    out.push({ domain: dashboard, upstream: dashboardUpstream(), targetPath: '/', kind: 'dashboard', tls: 'auto' });
+  }
   for (const p of pages) {
     if (!p.domain) continue;
     out.push({
@@ -463,7 +525,7 @@ async function loadOrgConfig(ctx: OrgContext): Promise<OrgIngressConfig> {
     })),
     // Controller-upstream vhosts (status-page / webhook domains) — persisted rows
     // resolved at render time onto the controller upstream.
-    controllerVhosts: await computeControllerVhosts(ctx),
+    controllerVhosts: await computeControllerVhosts(ctx, settings),
     globalOptions: {
       ...baseGlobal,
       extraConfig,
@@ -626,6 +688,8 @@ export async function getConfig(ctx: OrgContext): Promise<IngressConfigView> {
     tunnelConfigured: Boolean(settings.tunnel?.tunnelId),
     controllerImage: settings.controllerImage ?? null,
     topology: settings.topology ?? 'controller',
+    dashboardDomain: dashboardDomainFor(settings),
+    dashboardWarning: dashboardDriverWarning(driverLower(row.driver), row.enabled, dashboardDomainFor(settings)),
     updatedAt: row.updatedAt.toISOString(),
     runtime: await edgeRuntimeStatus(ctx, row),
   };
@@ -916,6 +980,9 @@ export async function addDomain(
   // persisted on the service's `swarmy.ingress.routes` label — Docker is the truth.
   const service = resolveLiveService(ctx, input.serviceId);
   if (!service) throw notFound('service', input.serviceId);
+  if (input.host.trim().toLowerCase() === process.env[DASHBOARD_DOMAIN_ENV]?.trim().toLowerCase()) {
+    throw new Error(`domain ${input.host} is the swarmy dashboard's own address`);
+  }
 
   // Read the service's current routes, drop any existing route for this host, then
   // append the new one and write the whole array back as the label value.

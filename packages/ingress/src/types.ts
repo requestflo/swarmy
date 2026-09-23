@@ -311,8 +311,13 @@ export const ControllerVhostSchema = z.object({
   upstream: z.string().min(1),
   /** Controller path the vhost's `/` maps onto, e.g. `/s/my-page` or `/hooks/gh`. */
   targetPath: z.string().min(1),
-  /** What this vhost fronts — drives labeling/diagnostics only. */
-  kind: z.enum(['status-page', 'webhook', 'ai-gateway']),
+  /**
+   * What this vhost fronts. `dashboard` is the controller's own UI/API (the
+   * self-host installer's https login domain): `targetPath` is `/` and the
+   * renderer proxies it verbatim (no rewrite — /api, /agent/ws, /install all
+   * pass through). The other kinds drive labeling/diagnostics only.
+   */
+  kind: z.enum(['status-page', 'webhook', 'ai-gateway', 'dashboard']),
   tls: z.enum(['auto', 'off']).default('auto'),
 });
 export type ControllerVhost = z.infer<typeof ControllerVhostSchema>;

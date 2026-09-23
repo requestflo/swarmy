@@ -16,6 +16,13 @@ export {
   isTrustedProxy,
 } from './client-ip';
 export type { TrustedProxies } from './client-ip';
+export {
+  authTrustedOrigins,
+  directHttpHost,
+  adaptDirectHttpRequest,
+  adaptDirectHttpResponse,
+  downgradeSetCookie,
+} from './origins';
 export type { Auth, Session, AuthUser, SendMagicLink, BuildAuthOptions, ExtraPlugin } from './server';
 export {
   loadAuthConfig,

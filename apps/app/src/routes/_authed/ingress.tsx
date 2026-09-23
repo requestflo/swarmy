@@ -35,8 +35,13 @@ function IngressPage(): React.JSX.Element {
 
   const invalidate = (): void => void qc.invalidateQueries();
   // A config write can succeed while the edge fails to come up — say so.
-  const afterEdgeChange = (view: { runtime: { state: string; message: string } }): void => {
+  const afterEdgeChange = (view: {
+    runtime: { state: string; message: string };
+    dashboardWarning?: string | null;
+  }): void => {
     if (view.runtime.state === 'down' || view.runtime.state === 'degraded') toast.error(view.runtime.message);
+    // Leaving Caddy (or disabling) stops serving the dashboard's https address.
+    if (view.dashboardWarning) toast.error(view.dashboardWarning);
     invalidate();
   };
   const setDriver = useMutation(
@@ -98,6 +103,13 @@ function IngressPage(): React.JSX.Element {
         <Alert variant={runtime.state === 'down' || runtime.state === 'degraded' ? 'destructive' : 'default'} className="mb-6">
           <AlertTitle>{isNone ? 'Routes are tracked, not served' : 'Edge not serving yet'}</AlertTitle>
           <AlertDescription>{runtime.message}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {config.data?.dashboardWarning ? (
+        <Alert variant="destructive" className="mb-6">
+          <AlertTitle>Dashboard https address not served</AlertTitle>
+          <AlertDescription>{config.data.dashboardWarning}</AlertDescription>
         </Alert>
       ) : null}
 

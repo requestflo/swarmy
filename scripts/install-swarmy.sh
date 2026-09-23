@@ -23,7 +23,12 @@
 #   --standard                   Postgres tier (default: lite/embedded PGlite)
 #   --admin-email <e>            SWARMY_ADMIN_EMAIL
 #   --admin-password <p>         SWARMY_ADMIN_PASSWORD   (generated if unset)
-#   --domain <host>              SWARMY_DOMAIN           (enables ingress prompts)
+#   --domain <host>              SWARMY_DOMAIN — the dashboard's https domain (point an A
+#                                record at this box). On a public-IP box it defaults to
+#                                swarmy.<ip-with-dashes>.sslip.io: swarmy's Caddy edge
+#                                gets a Let's Encrypt cert for it automatically.
+#   --no-https                   SWARMY_NO_HTTPS=1 — keep the dashboard on plain
+#                                http://<ip>:<port> only (--https re-enables it).
 #   --ingress none|caddy|cloudflare        SWARMY_INGRESS
 #   --mesh none|netbird-cloud|netbird-external   SWARMY_MESH
 #   --image <ref>                SWARMY_IMAGE       (controller image)
@@ -66,6 +71,8 @@ DB_TIER="${SWARMY_DB_TIER:-lite}"
 ADMIN_EMAIL="${SWARMY_ADMIN_EMAIL:-}"
 ADMIN_PASSWORD="${SWARMY_ADMIN_PASSWORD:-}"
 DOMAIN="${SWARMY_DOMAIN:-}"
+NO_HTTPS="${SWARMY_NO_HTTPS:-0}"
+DASHBOARD_DOMAIN=""
 INGRESS="${SWARMY_INGRESS:-none}"
 MESH="${SWARMY_MESH:-none}"
 IMAGE="${SWARMY_IMAGE:-$DEFAULT_IMAGE}"
@@ -77,7 +84,7 @@ ALLOW_SIGNUP="${SWARMY_ALLOW_SIGNUP:-}"
 # falls back to what the first install recorded in state.env — a re-run with
 # no flags must never silently switch tier, image, port or sign-up policy.
 EXPLICIT=" "
-for v in DB_TIER ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP; do
+for v in DB_TIER ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS; do
   case "$v" in
     DB_TIER) [ -n "${SWARMY_DB_TIER:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
     ADMIN_EMAIL) [ -n "${SWARMY_ADMIN_EMAIL:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
@@ -85,6 +92,8 @@ for v in DB_TIER ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP; do
     AGENT_IMAGE) [ -n "${SWARMY_AGENT_IMAGE:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
     PUBLISH_PORT) [ -n "${SWARMY_PUBLISH_PORT:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
     ALLOW_SIGNUP) [ -n "${SWARMY_ALLOW_SIGNUP:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
+    DOMAIN) [ -n "${SWARMY_DOMAIN:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
+    NO_HTTPS) [ -n "${SWARMY_NO_HTTPS:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
   esac
 done
 explicit() { case "$EXPLICIT" in *" $1 "*) return 0 ;; esac; return 1; }
@@ -97,7 +106,9 @@ while [ $# -gt 0 ]; do
     --standard) DB_TIER="standard" EXPLICIT="${EXPLICIT}DB_TIER " ;;
     --admin-email) ADMIN_EMAIL="${2:?}"; EXPLICIT="${EXPLICIT}ADMIN_EMAIL "; shift ;;
     --admin-password) ADMIN_PASSWORD="${2:?}"; shift ;;
-    --domain) DOMAIN="${2:?}"; shift ;;
+    --domain) DOMAIN="${2:?}"; EXPLICIT="${EXPLICIT}DOMAIN "; shift ;;
+    --no-https) NO_HTTPS=1 EXPLICIT="${EXPLICIT}NO_HTTPS " ;;
+    --https) NO_HTTPS=0 EXPLICIT="${EXPLICIT}NO_HTTPS " ;;
     --ingress) INGRESS="${2:?}"; shift ;;
     --mesh) MESH="${2:?}"; shift ;;
     --image) IMAGE="${2:?}"; EXPLICIT="${EXPLICIT}IMAGE "; shift ;;
@@ -128,7 +139,7 @@ marker_done() { state_load; local v; eval "v=\${MARK_$1:-}"; [ "$v" = "1" ]; }
 remember_settings() {
   state_load
   local v saved
-  for v in DB_TIER ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP; do
+  for v in DB_TIER ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS; do
     eval "saved=\${CFG_$v:-}"
     [ -n "$saved" ] || continue
     if explicit "$v"; then
@@ -139,11 +150,36 @@ remember_settings() {
       eval "$v=\$saved"
     fi
   done
-  for v in DB_TIER ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP; do
+  for v in DB_TIER ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS; do
     eval "state_set CFG_$v \"\${$v}\""
   done
 }
 marker_set()  { state_set "MARK_$1" 1; }
+
+# ── https dashboard domain (pure — unit-tested by sourcing this file) ─────────
+# sslip_domain IP → swarmy.<a-b-c-d>.sslip.io for a valid IPv4, else fails.
+# sslip.io resolves <a-b-c-d>.sslip.io to a.b.c.d, so Let's Encrypt HTTP-01
+# validates against this box with no DNS setup at all.
+sslip_domain() {
+  local ip="$1" o
+  printf '%s' "$ip" | grep -qE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' || return 1
+  for o in ${ip//./ }; do [ "$o" -le 255 ] || return 1; done
+  printf 'swarmy.%s.sslip.io' "${ip//./-}"
+}
+# dashboard_domain VERDICT PUBLIC_IP DOMAIN NO_HTTPS INGRESS → the domain swarmy's
+# Caddy edge should serve the dashboard on, or nothing (plain http only).
+#   --no-https wins; an explicit --domain is used as given; otherwise only a
+#   box that holds its public IP (verdict `bound`) gets the sslip.io default —
+#   behind NAT nothing inbound reaches :80/:443, so ACME could never succeed.
+#   A Cloudflare Tunnel fronts the dashboard itself (no Caddy vhost).
+dashboard_domain() {
+  local verdict="$1" ip="$2" domain="$3" no_https="${4:-0}" ingress="${5:-none}"
+  [ "$no_https" = 1 ] && return 0
+  [ "$ingress" = cloudflare ] && return 0
+  if [ -n "$domain" ]; then printf '%s' "$domain" | tr '[:upper:]' '[:lower:]'; return 0; fi
+  [ "$verdict" = bound ] || return 0
+  sslip_domain "$ip" || true
+}
 
 need_root() {
   [ "$(id -u)" -eq 0 ] || die "run as root (or via sudo): this installs Docker, inits a Swarm, and writes $STATE_DIR."
@@ -261,6 +297,11 @@ wizard() {
     case "$(choose 'Datastore tier' lite lite standard)" in standard) DB_TIER=standard ;; esac
   fi
 
+  # HTTPS dashboard: a public-IP box gets one automatically (sslip.io default),
+  # served by swarmy's own Caddy edge — no ingress question needed.
+  local auto_domain; auto_domain="$(dashboard_domain "$NAT_VERDICT" "$PUBLIC_IP" "$DOMAIN" "$NO_HTTPS" "$INGRESS")"
+  if [ -n "$auto_domain" ] && [ "$INGRESS" = none ]; then INGRESS=caddy; fi
+
   # Ingress — recommend based on detected reachability.
   if [ "$INGRESS" = none ] && [ "$NON_INTERACTIVE" != 1 ]; then
     local rec=none
@@ -268,7 +309,7 @@ wizard() {
     say "Network looks '${NAT_VERDICT}'. Suggested public ingress: ${rec} (or 'none' = reach via http://${PUBLIC_IP:-<ip>}:${PUBLISH_PORT})."
     INGRESS="$(choose 'Public ingress for the dashboard' "$rec" none caddy cloudflare)"
   fi
-  if [ "$INGRESS" != none ] && [ -z "$DOMAIN" ]; then DOMAIN="$(prompt 'Domain (e.g. swarmy.example.com)')"; fi
+  if [ "$INGRESS" != none ] && [ -z "$DOMAIN" ] && [ -z "$auto_domain" ]; then DOMAIN="$(prompt 'Domain (e.g. swarmy.example.com)')"; fi
   if [ "$INGRESS" = cloudflare ]; then
     CF_API_TOKEN="${CF_API_TOKEN:-$(prompt_secret 'Cloudflare API token (Account:Cloudflare Tunnel:Edit + Zone:DNS:Edit')}"
     CF_ACCOUNT_ID="${CF_ACCOUNT_ID:-$(prompt 'Cloudflare account id')}"
@@ -301,8 +342,17 @@ wizard() {
   local login_host="${LOCAL_IP:-$PUBLIC_IP}"
   [ "$NAT_VERDICT" = bound ] && login_host="${PUBLIC_IP:-$LOCAL_IP}"
   LOGIN_URL="http://${login_host}:${PUBLISH_PORT}"
-  PUBLIC_URL="${SWARMY_PUBLIC_URL:-$LOGIN_URL}"
-  ok "tier=${DB_TIER} ingress=${INGRESS} mesh=${MESH} login=${LOGIN_URL}${DOMAIN:+ domain=$DOMAIN (after ingress)}"
+  # With an https dashboard domain, EVERYTHING swarmy hands out (auth base URL,
+  # invite links, install/repair one-liners) uses it; LOGIN_URL stays the
+  # direct http origin (trusted by auth) for the minute before the cert exists.
+  DASHBOARD_DOMAIN="$(dashboard_domain "$NAT_VERDICT" "$PUBLIC_IP" "$DOMAIN" "$NO_HTTPS" "$INGRESS")"
+  state_set DASHBOARD_DOMAIN "$DASHBOARD_DOMAIN"
+  if [ -n "$DASHBOARD_DOMAIN" ]; then
+    PUBLIC_URL="${SWARMY_PUBLIC_URL:-https://$DASHBOARD_DOMAIN}"
+  else
+    PUBLIC_URL="${SWARMY_PUBLIC_URL:-$LOGIN_URL}"
+  fi
+  ok "tier=${DB_TIER} ingress=${INGRESS} mesh=${MESH} login=${LOGIN_URL}${DASHBOARD_DOMAIN:+ https=https://$DASHBOARD_DOMAIN}${DOMAIN:+ domain=$DOMAIN}"
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -391,11 +441,20 @@ deploy_stack() {
   ensure_overlay
   state_load
   local f; f="$(write_stack_file)"
-  local mesh_driver=""
+  local mesh_driver="" trusted_proxies=""
   [ "$MESH" = none ] || mesh_driver="netbird"
+  # Caddy reaches the controller over the swarmy overlay: trust that subnet's
+  # X-Forwarded-For so auth rate limits see real clients, not Caddy's address.
+  if [ -n "$DASHBOARD_DOMAIN" ]; then
+    trusted_proxies="$(docker network inspect "$OVERLAY_NET" -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null | xargs || true)"
+    [ -z "$trusted_proxies" ] || trusted_proxies="127.0.0.0/8 ::1/128 $trusted_proxies"
+  fi
   say "Deploying the swarmy control plane (${DB_TIER})…"
   SWARMY_IMAGE="$IMAGE" \
   SWARMY_PUBLIC_URL="$PUBLIC_URL" \
+  SWARMY_DASHBOARD_DOMAIN="$DASHBOARD_DOMAIN" \
+  SWARMY_DIRECT_URL="$LOGIN_URL" \
+  SWARMY_TRUSTED_PROXIES="$trusted_proxies" \
   SWARMY_ADMIN_EMAIL="$ADMIN_EMAIL" \
   SWARMY_SWARM_ID="$SWARM_ID" \
   SWARMY_MANAGER_ADDR="$SWARM_MANAGER_ADDR" \
@@ -469,6 +528,12 @@ enrol_node1() {
 # already drives packages/ingress (cloudflared/caddy) and packages/mesh (netbird).
 configure_ingress() {
   [ "$INGRESS" = none ] && return
+  if [ -n "$DASHBOARD_DOMAIN" ]; then
+    # Served automatically: the bootstrap seed binds the domain to the org's
+    # Caddy edge (dashboard vhost → swarmy_controller:3021) and ACME does the rest.
+    say "HTTPS dashboard at https://${DASHBOARD_DOMAIN} via swarmy's Caddy edge (needs inbound 80/443${DOMAIN:+ and a DNS A record ${DASHBOARD_DOMAIN} → ${PUBLIC_IP:-<public-ip>}})."
+    return
+  fi
   warn "Ingress '${INGRESS}' for ${DOMAIN}: open the dashboard → Networking → Ingress to apply."
   case "$INGRESS" in
     caddy)      say "  Caddy needs a DNS A record ${DOMAIN} → ${PUBLIC_IP:-<public-ip>} and inbound 80/443." ;;
@@ -486,18 +551,45 @@ configure_mesh() {
 # ════════════════════════════════════════════════════════════════════════════
 # Phase 13 — finalize
 # ════════════════════════════════════════════════════════════════════════════
+# Bounded wait for the edge to deploy + ACME to issue (non-fatal): prints the
+# https URL as ready only when a real TLS handshake + /health succeeds.
+HTTPS_READY=0
+wait_https() {
+  [ -n "$DASHBOARD_DOMAIN" ] || return 0
+  local i max="${SWARMY_HTTPS_WAIT:-180}"
+  say "Waiting for the https certificate for ${DASHBOARD_DOMAIN} (up to ${max}s)…"
+  for i in $(seq 1 $(( max / 5 ))); do
+    if curl -fsS -m 4 "https://${DASHBOARD_DOMAIN}/health" >/dev/null 2>&1; then HTTPS_READY=1; ok "https://${DASHBOARD_DOMAIN} is live."; return 0; fi
+    sleep 5
+  done
+  warn "https://${DASHBOARD_DOMAIN} is not answering yet — the certificate usually issues within a minute or two of the edge coming up."
+}
+
 finalize() {
   state_load
+  local share="${PUBLIC_URL:-$LOGIN_URL}"
   hr
   ok "swarmy is up."
   printf '\n'
-  printf '  Dashboard:  %s\n' "${LOGIN_URL:-$PUBLIC_URL}"
+  if [ -n "$DASHBOARD_DOMAIN" ]; then
+    printf '  Dashboard:  https://%s\n' "$DASHBOARD_DOMAIN"
+    if [ "$HTTPS_READY" != 1 ]; then
+      printf '              %s\n' "${c_dim}(certificate issues in ~1 min; until then ${LOGIN_URL} works)${c_reset}"
+    fi
+  else
+    printf '  Dashboard:  %s\n' "${LOGIN_URL:-$PUBLIC_URL}"
+  fi
   printf '  Login:      %s\n' "$ADMIN_EMAIL"
   if [ "${GENERATED_PW:-0}" = 1 ]; then printf '  Password:   %s   %s\n' "$ADMIN_PASSWORD" "${c_yellow}(generated — save it now)${c_reset}"; fi
-  [ -n "$DOMAIN" ] && printf '  Domain:     https://%s  %s\n' "$DOMAIN" "${c_dim}(active once ingress is applied in the dashboard)${c_reset}"
+  if [ -n "$DOMAIN" ] && [ -z "$DASHBOARD_DOMAIN" ]; then
+    printf '  Domain:     https://%s  %s\n' "$DOMAIN" "${c_dim}(active once ingress is applied in the dashboard)${c_reset}"
+  fi
   printf '\n'
   printf '  Add a node:  curl -fsSL %s/install/loader.sh | SWARMY_JOIN_TOKEN=%s sh -s -- --controller %s\n' \
-    "${LOGIN_URL:-$PUBLIC_URL}" "$BOOTSTRAP_JOIN_TOKEN" "${LOGIN_URL:-$PUBLIC_URL}"
+    "$share" "$BOOTSTRAP_JOIN_TOKEN" "$share"
+  if [ -n "$DASHBOARD_DOMAIN" ] && [ "$HTTPS_READY" != 1 ]; then
+    printf '               %s\n' "${c_dim}(until the certificate is issued, swap https://${DASHBOARD_DOMAIN} for ${LOGIN_URL} in this command)${c_reset}"
+  fi
   printf '               %s\n' "${c_dim}(this token works for 24h / 5 nodes — after that use Add a node in the dashboard)${c_reset}"
   printf '\n'
   warn "BACK UP $STATE_FILE (esp. SWARMY_SECRET_KEY). Lose it and every stored credential is unrecoverable."
@@ -539,6 +631,9 @@ main() {
   enrol_node1
   configure_ingress
   configure_mesh
+  wait_https
   finalize
 }
-main "$@"
+# Sourced (tests: `bash -c '. scripts/install-swarmy.sh; dashboard_domain …'`)
+# → only define functions. Executed or piped (`curl … | bash`) → run.
+if ! (return 0 2>/dev/null); then main "$@"; fi

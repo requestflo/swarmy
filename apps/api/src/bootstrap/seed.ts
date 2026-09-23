@@ -27,6 +27,10 @@
  *   SWARMY_MESH_SERVICE_TOKEN                — from the installer's mesh wizard, when the operator
  *                                             opts into mesh. Skipped entirely when unset (mesh
  *                                             stays opt-in for self-host too).
+ *   SWARMY_DASHBOARD_DOMAIN                  — the https dashboard domain (on a public-IP box the
+ *                                             installer defaults it to swarmy.<ip-dashed>.sslip.io).
+ *                                             Bound to the bootstrap org's ingress settings so its
+ *                                             Caddy edge serves a `dashboard` controller vhost.
  */
 import { randomUUID } from 'node:crypto';
 import { auth } from '@swarmy/auth';
@@ -61,6 +65,7 @@ export async function maybeBootstrapSeed(): Promise<void> {
 
   await ensureSwarmConfig(orgId);
   await ensureMeshConfig(orgId);
+  await ensureDashboardDomain(orgId);
 
   log(`bootstrap complete — org "${ORG_NAME}", owner ${email}.`);
 }
@@ -173,4 +178,28 @@ async function ensureMeshConfig(orgId: string): Promise<void> {
 
   await prisma.meshConfig.upsert({ where: { orgId }, create: row, update: row });
   log(`persisted MeshConfig (${row.driver}) — mesh enabled for this org.`);
+}
+
+/**
+ * Bind the installer's https dashboard domain to the bootstrap org's ingress
+ * settings (`settings.dashboardDomain`), so that org's Caddy edge renders a
+ * `dashboard` controller vhost for it (ingress.service computeControllerVhosts).
+ * Re-asserted on EVERY boot from env, so an org ingress settings edit can never
+ * lose it; env unset (installer `--no-https`) clears it. Creates the ingress row
+ * with the service default (Caddy, enabled) when the org has none yet — the
+ * same default `ensureConfig` would write; an existing driver choice is kept.
+ */
+async function ensureDashboardDomain(orgId: string): Promise<void> {
+  const domain = process.env.SWARMY_DASHBOARD_DOMAIN?.trim().toLowerCase() || null;
+  const row = await prisma.ingressConfig.findUnique({ where: { orgId }, select: { settings: true } });
+  const settings = { ...((row?.settings as Record<string, unknown> | null) ?? {}) };
+  if ((settings.dashboardDomain ?? null) === domain) return;
+  if (domain) settings.dashboardDomain = domain;
+  else delete settings.dashboardDomain;
+  await prisma.ingressConfig.upsert({
+    where: { orgId },
+    create: { orgId, driver: 'CADDY', enabled: true, settings: settings as object },
+    update: { settings: settings as object },
+  });
+  log(domain ? `dashboard domain ${domain} bound to the org edge.` : 'dashboard domain cleared.');
 }

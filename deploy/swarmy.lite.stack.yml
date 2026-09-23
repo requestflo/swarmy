@@ -25,6 +25,16 @@ services:
       SWARMY_BOOTSTRAP: "1"
       CONTROLLER_PUBLIC_URL: ${SWARMY_PUBLIC_URL}
       BETTER_AUTH_URL: ${SWARMY_PUBLIC_URL}
+      # https dashboard (public-IP installs default to swarmy.<ip-dashed>.sslip.io):
+      # the bootstrap seed binds it to the org edge, which serves a `dashboard`
+      # controller vhost for it. Empty = no https vhost (behind NAT / --no-https).
+      SWARMY_DASHBOARD_DOMAIN: ${SWARMY_DASHBOARD_DOMAIN:-}
+      # The direct host-mode origin (http://<ip>:<port>). Stays a trusted auth
+      # origin next to the https URL so the pre-cert first login still works.
+      SWARMY_DIRECT_URL: ${SWARMY_DIRECT_URL:-}
+      # The swarmy overlay subnet when Caddy fronts the dashboard, so the client IP
+      # (auth rate limits, sessions) comes from X-Forwarded-For, not Caddy's address.
+      SWARMY_TRUSTED_PROXIES: ${SWARMY_TRUSTED_PROXIES:-}
       ADMIN_EMAIL: ${SWARMY_ADMIN_EMAIL}
       # Registration: unset/empty = invite-only (production default); "true" = open sign-up.
       SWARMY_ALLOW_SIGNUP: ${SWARMY_ALLOW_SIGNUP:-}
