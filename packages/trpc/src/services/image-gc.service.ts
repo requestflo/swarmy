@@ -150,12 +150,40 @@ export async function runImageGcAllOrgs(deps: { db: DB; hub: AgentHub; auth: Aut
   } catch {
     // Never let the registry converge break GC.
   }
+  // Housekeeping for EVERY node, builder or not: dangling images pile up on
+  // any node that redeploys, and a full disk takes the controller DB with it.
+  await pruneDanglingEverywhere(deps).catch(() => undefined);
   const policies = await deps.db.imageGcPolicy.findMany({ select: { orgId: true } });
   const out: GcRunResult[] = [];
   for (const p of policies) {
     out.push(await runImageGcForOrg(deps, p.orgId).catch(() => empty(p.orgId, false)));
   }
   return out;
+}
+
+/**
+ * Prune dangling (untagged, unreferenced) images on every online node. Tagged
+ * images, anything a container uses (Docker refuses), and every in-prod pinned
+ * digest are kept — this can never remove something a service needs.
+ */
+export async function pruneDanglingEverywhere(deps: { db: DB; hub: AgentHub }): Promise<number> {
+  const nodes = await deps.db.node.findMany({ select: { id: true, orgId: true } });
+  let dispatched = 0;
+  for (const node of nodes) {
+    if (!deps.hub.isOnline(node.id)) continue;
+    const pinned = [...computePinnedDigests(deps.hub, node.orgId)];
+    const ok = await deps.hub
+      .dispatch(
+        node.id,
+        'image.prune',
+        { keepDigests: pinned, strategy: 'dangling', dryRun: false },
+        { timeoutMs: 120_000 },
+      )
+      .then(() => true)
+      .catch(() => false);
+    if (ok) dispatched++;
+  }
+  return dispatched;
 }
 
 function empty(orgId: string, dryRun: boolean): GcRunResult {

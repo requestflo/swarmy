@@ -188,7 +188,9 @@ export async function handleCommand(
     }
     case 'pruneImages': {
       const p = envlp.payload;
-      if (!buildGateAllows(env.BUILD_OVERRIDE, p.builderCapable)) {
+      // Dangling-only cleanup is safe housekeeping on any node; the build gate
+      // only guards pruning swarmy's own build images.
+      if (p.strategy !== 'dangling' && !buildGateAllows(env.BUILD_OVERRIDE, p.builderCapable)) {
         conn.send('commandResult', {
           commandId: p.commandId,
           status: 'rejected',
