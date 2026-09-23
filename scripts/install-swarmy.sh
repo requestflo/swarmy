@@ -52,6 +52,9 @@ STATE_FILE="$STATE_DIR/state.env"
 OVERLAY_NET="swarmy"                           # shared platform overlay (external in the stack file)
 CONTROLLER_DNS="swarmy_controller:3021"        # service name on the overlay
 AGENT_CONTAINER="swarmy-agent"
+NETBIRD_CONTAINER="swarmy-netbird"
+NETBIRD_IMAGE="${SWARMY_NETBIRD_IMAGE:-netbirdio/netbird:latest}"
+NB_INTERFACE="wt0"
 
 # ── logging ─────────────────────────────────────────────────────────────────
 c_blue=''; c_green=''; c_yellow=''; c_red=''; c_dim=''; c_reset=''
@@ -376,17 +379,57 @@ ensure_secrets() {  # persist-once into state.env (NEVER regenerate)
   ok "secrets persisted to $STATE_FILE (back this up — SWARMY_SECRET_KEY is unrecoverable)."
 }
 
+mesh_ip() { ip -4 -o addr show dev "${NB_INTERFACE}" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1; }
+
+# With a mesh, node #1 joins it BEFORE the swarm exists, so the swarm is born
+# advertising the mesh IP. A manager's address is fixed at `swarm init`: one
+# left on its public IP while nodes join on mesh IPs breaks encrypted overlays
+# (IPsec SAs are keyed on the advertised addresses) — the swarmy overlay, and
+# with it every ingress route.
+ensure_mesh_node1() {
+  [ "$MESH" = none ] && return 0
+  MESH_IP="$(mesh_ip)"
+  if [ -n "$MESH_IP" ]; then ok "mesh already up on ${NB_INTERFACE} (${MESH_IP})."; return 0; fi
+  [ -n "${NB_SERVICE_TOKEN:-}" ] || die "--mesh ${MESH} needs NB_SERVICE_TOKEN (a NetBird Personal Access Token)."
+  local api="${NB_MANAGEMENT_URL%/}" resp key i
+  say "Joining the NetBird mesh before forming the swarm…"
+  resp="$(curl -fsS -X POST "${api}/api/setup-keys" \
+    -H "Authorization: Token ${NB_SERVICE_TOKEN}" -H 'Content-Type: application/json' \
+    -d "{\"name\":\"swarmy node #1 $(hostname)\",\"type\":\"one-off\",\"expires_in\":3600,\"auto_groups\":[],\"usage_limit\":1,\"ephemeral\":false}" 2>&1)" \
+    || die "could not mint a NetBird setup key at ${api} (check the token): ${resp}"
+  key="$(printf '%s' "$resp" | sed -n 's/.*"key":"\([^"]*\)".*/\1/p')"
+  [ -n "$key" ] || die "NetBird returned no setup key: ${resp}"
+  docker pull "$NETBIRD_IMAGE" >/dev/null 2>&1 || warn "could not pull $NETBIRD_IMAGE; using local copy if present."
+  docker rm -f "$NETBIRD_CONTAINER" >/dev/null 2>&1 || true
+  # Same name/volume the agent's applyMesh uses, so it adopts this client.
+  docker run -d --name "$NETBIRD_CONTAINER" --restart unless-stopped --network host \
+    --cap-add NET_ADMIN --cap-add SYS_ADMIN --cap-add SYS_RESOURCE --device /dev/net/tun \
+    -v "${NETBIRD_CONTAINER}:/var/lib/netbird" \
+    -e NB_SETUP_KEY="$key" -e NB_MANAGEMENT_URL="$api" -e NB_INTERFACE_NAME="$NB_INTERFACE" \
+    "$NETBIRD_IMAGE" >/dev/null || die "failed to start the NetBird client."
+  for i in $(seq 1 60); do
+    MESH_IP="$(mesh_ip)"; [ -n "$MESH_IP" ] && break; sleep 1
+  done
+  [ -n "$MESH_IP" ] || die "NetBird did not come up within 60s (docker logs ${NETBIRD_CONTAINER}). Re-run, or install with --mesh none."
+  ok "mesh up (${MESH_IP})."
+}
+
 ensure_swarm() {
+  local adv="${MESH_IP:-${LOCAL_IP:?need a local IP}}"
   if [ "$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null)" = active ]; then
     ok "Docker Swarm already active."
+    adv="$(docker info --format '{{.Swarm.NodeAddr}}' 2>/dev/null)"; adv="${adv:-$LOCAL_IP}"
   else
-    say "Initialising Docker Swarm (advertise ${LOCAL_IP})…"
-    docker swarm init --advertise-addr "${LOCAL_IP:?need a local IP}" >/dev/null \
-      || die "docker swarm init failed."
+    say "Initialising Docker Swarm (advertise ${adv})…"
+    if [ -n "${MESH_IP:-}" ]; then
+      docker swarm init --advertise-addr "$adv" --data-path-addr "$adv" >/dev/null || die "docker swarm init failed."
+    else
+      docker swarm init --advertise-addr "$adv" >/dev/null || die "docker swarm init failed."
+    fi
     ok "Swarm initialised."
   fi
   state_set SWARM_ID "$(docker info -f '{{.Swarm.Cluster.ID}}' 2>/dev/null)"
-  state_set SWARM_MANAGER_ADDR "${LOCAL_IP}:2377"
+  state_set SWARM_MANAGER_ADDR "${adv}:2377"
   state_set SWARM_WORKER_TOKEN "$(docker swarm join-token -q worker)"
   state_set SWARM_MANAGER_TOKEN "$(docker swarm join-token -q manager)"
   state_set NODE_HOSTNAME "$(docker node inspect self --format '{{.Description.Hostname}}')"
@@ -625,6 +668,7 @@ main() {
   remember_settings
   wizard
   ensure_secrets
+  ensure_mesh_node1
   marker_done swarm    || { ensure_swarm;        marker_set swarm; }
   ensure_docker_secrets
   deploy_stack

@@ -159,13 +159,16 @@ export function planMeshMigration(input: {
     if (kind === 'manager' && managersStay) {
       if (direction === 'onto-mesh' && !n.meshConnected) {
         action = 'enroll-only';
-        reason =
-          'Manager stays on its public address; it joins the mesh so it can reach NAT’d nodes on their mesh IPs.';
+        reason = onMesh
+          ? 'Manager already advertises on the mesh; its mesh client is (re)enrolled.'
+          : 'Manager joins the mesh. It keeps its address — re-form it on its mesh IP (`swarmy-agent rejoin --force`) before moving other nodes.';
       } else {
         action = 'stays-put';
         reason =
           direction === 'onto-mesh'
-            ? 'Manager stays on its public address; NAT’d nodes connect out to it and it reaches them over the mesh.'
+            ? onMesh
+              ? 'Manager already advertises its mesh IP — stays put.'
+              : 'Manager is on the mesh but advertises its public address — re-form it on its mesh IP (`swarmy-agent rejoin --force`) before moving other nodes.'
             : 'Manager stays on its address.';
         if (direction === 'off-mesh' && onMesh) {
           warnings.push(
@@ -213,11 +216,18 @@ export function planMeshMigration(input: {
   }
 
   if (direction === 'onto-mesh' && managersStay) {
-    const stayer = planned.find((p) => p.kind === 'manager');
-    if (stayer && planned.some((p) => p.action === 'move')) {
-      warnings.push(
-        `${stayer.hostname} stays on its address${stayer.addr ? ` ${stayer.addr}` : ''} — it must stay publicly reachable (2377/tcp, 7946, 4789/udp) for NAT’d workers to connect out to it.`,
-      );
+    // A manager off the mesh + workers on mesh IPs = broken encrypted overlays:
+    // Docker keys each IPsec SA on the ADVERTISED addresses, but the manager's
+    // packets to a mesh IP leave wt0 from ITS mesh IP, so they never match and
+    // are dropped — the swarmy overlay (every ingress route) goes dark.
+    // Verified live on DigitalOcean. The manager has to move first.
+    const offMesh = planned.filter((p) => p.kind === 'manager' && !p.onMesh);
+    if (offMesh.length && planned.some((p) => p.action === 'move')) {
+      for (const m of offMesh) {
+        blockers.push(
+          `${m.hostname} is the swarm's manager and advertises ${m.addr ?? 'a non-mesh address'}. Nodes on mesh IPs can't use the encrypted swarmy network with it (IPsec is keyed on advertised addresses), which breaks ingress. Move the manager first: on ${m.hostname} run \`swarmy-agent rejoin --force\` (re-forms the swarm on its mesh IP, keeping services and data), then run this again.`,
+        );
+      }
     }
   }
 

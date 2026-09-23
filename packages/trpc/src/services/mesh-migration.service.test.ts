@@ -14,7 +14,7 @@ const ORG = 'org_1';
  * commands the runner dispatches (leave/rejoin mints a new id and a BLANK
  * spec, exactly like Docker).
  */
-function harness(opts: { meshWorkerIp?: string; startOnMesh?: boolean; failRejoinOnce?: boolean } = {}) {
+function harness(opts: { meshWorkerIp?: string; startOnMesh?: boolean; failRejoinOnce?: boolean; managerAddr?: string } = {}) {
   const meshIp = opts.meshWorkerIp ?? '100.92.0.11';
   const swarm: SwarmNodeInfo[] = [
     {
@@ -24,7 +24,9 @@ function harness(opts: { meshWorkerIp?: string; startOnMesh?: boolean; failRejoi
       availability: 'active',
       status: 'ready',
       leader: true,
-      addr: '203.0.113.10',
+      // Born on the mesh (installer node #1 with --mesh): the only shape in
+      // which workers may move — see the manager-off-mesh blocker.
+      addr: opts.managerAddr ?? '100.92.0.10',
       labels: { 'swarmy.region': 'lon' },
     },
     {
@@ -93,7 +95,7 @@ function harness(opts: { meshWorkerIp?: string; startOnMesh?: boolean; failRejoi
     async dispatch(node: string, cmd: string, payload: Record<string, unknown>) {
       calls.push({ node, cmd, payload });
       if (cmd === 'swarm.join' && payload.refreshOnly) {
-        return { mode: 'init', swarmNodeId: 'sw-lon-a', managerAddr: '203.0.113.10:2377', joinTokens: { worker: 'W', manager: 'M' } };
+        return { mode: 'init', swarmNodeId: 'sw-lon-a', managerAddr: '100.92.0.10:2377', joinTokens: { worker: 'W', manager: 'M' } };
       }
       if (cmd === 'swarm.join' && payload.rejoin) {
         if (rejoinFailures-- > 0) throw new Error('manager unreachable');
@@ -196,7 +198,7 @@ describe('mesh migration runner — onto the mesh', () => {
     // Rejoin carried advertise + data-path = mesh IP, via fresh tokens from the live manager.
     const rejoin = h.calls.find((c) => c.cmd === 'swarm.join' && c.payload.rejoin)!;
     expect(rejoin.node).toBe('nyc-a');
-    expect(rejoin.payload).toMatchObject({ advertiseAddr: h.meshIp, dataPathAddr: h.meshIp, joinToken: 'W', managerAddr: '203.0.113.10:2377' });
+    expect(rejoin.payload).toMatchObject({ advertiseAddr: h.meshIp, dataPathAddr: h.meshIp, joinToken: 'W', managerAddr: '100.92.0.10:2377' });
     // The single manager is never drained / left.
     expect(h.calls.some((c) => c.cmd === 'swarm.join' && c.payload.rejoin && c.node === 'lon-a')).toBe(false);
     expect(h.swarm.find((n) => n.hostname === 'lon-a')!.swarmNodeId).toBe('sw-lon-a');
@@ -245,7 +247,7 @@ describe('mesh migration runner — onto the mesh', () => {
 
 describe('mesh migration runner — reverse (off the mesh)', () => {
   it('rejoins the mesh worker on its own address, restores labels + pin, and can turn the mesh off at the end', async () => {
-    const h = harness({ startOnMesh: true });
+    const h = harness({ startOnMesh: true, managerAddr: '203.0.113.10' });
     h.db.peers[1]!.meshIp = h.meshIp;
     h.db.peers[1]!.status = 'ONLINE';
     await startMigration(h.ctx, { direction: 'off-mesh', acknowledgeWarnings: true, disableWhenDone: true }, h.seams);

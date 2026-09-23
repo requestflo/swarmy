@@ -38,6 +38,8 @@ const DEFAULT_NETBIRD_IMAGE = 'netbirdio/netbird:latest';
 const DEFAULT_TAILSCALE_IMAGE = 'tailscale/tailscale:latest';
 /** Stable names so re-applies reconcile the same container, never duplicate. */
 const NETBIRD_CONTAINER = 'swarmy-netbird';
+/** Named volume holding the NetBird client state (installer uses the same). */
+const NETBIRD_STATE_VOLUME = 'swarmy-netbird';
 const TAILSCALE_CONTAINER = 'swarmy-tailscale';
 
 interface ExecResult {
@@ -95,6 +97,14 @@ async function joinNetbird(docker: DockerClient, rendered: RenderedMesh): Promis
   const image = client.image ?? DEFAULT_NETBIRD_IMAGE;
   const d = docker.docker;
 
+  // Already joined (installer node #1, a mesh-first join, a re-enroll from the
+  // dashboard): keep it. Recreating the client re-registers it as a NEW peer
+  // with a NEW mesh IP — and a swarm advertising the old one falls apart.
+  const existing = await sampleMeshState(docker).catch(() => null);
+  if (existing?.connected && existing.driver === 'netbird') {
+    return { driver: rendered.driver, joined: true, meshIp: existing.meshIp, peerId: existing.peerId };
+  }
+
   await docker.pullImage(image).catch(() => undefined);
   await d.getContainer(NETBIRD_CONTAINER).remove({ force: true }).catch(() => undefined);
 
@@ -110,6 +120,9 @@ async function joinNetbird(docker: DockerClient, rendered: RenderedMesh): Promis
     HostConfig: {
       NetworkMode: 'host',
       RestartPolicy: { Name: 'unless-stopped' },
+      // Peer identity (WireGuard key + login) survives a container re-create,
+      // so the node keeps its mesh IP. Never holds the setup key (env only).
+      Binds: [`${NETBIRD_STATE_VOLUME}:/var/lib/netbird`],
       CapAdd: ['NET_ADMIN', 'SYS_ADMIN', 'SYS_RESOURCE'],
       Devices: [{ PathOnHost: '/dev/net/tun', PathInContainer: '/dev/net/tun', CgroupPermissions: 'rwm' }],
     },
@@ -160,6 +173,8 @@ async function joinTailscale(docker: DockerClient, rendered: RenderedMesh): Prom
 /** Tear the mesh client(s) down (action: 'leave'). */
 async function leaveMesh(docker: DockerClient, rendered: RenderedMesh): Promise<ApplyMeshResult> {
   await docker.docker.getContainer(NETBIRD_CONTAINER).remove({ force: true }).catch(() => undefined);
+  // Leaving forgets the peer identity too: a later join is a fresh peer.
+  await docker.docker.getVolume(NETBIRD_STATE_VOLUME).remove().catch(() => undefined);
   await docker.docker.getContainer(TAILSCALE_CONTAINER).remove({ force: true }).catch(() => undefined);
   if (rendered.reloadCommand?.length) await execShell(rendered.reloadCommand).catch(() => undefined);
   return { driver: rendered.driver, joined: false };

@@ -191,17 +191,26 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
       const nodeId = ws.data.nodeId;
       if (!nodeId) return;
       const p = env.payload;
-      await prisma.meshPeer
-        .updateMany({
-          where: { nodeId },
-          data: {
-            status: p.connected ? 'ONLINE' : 'OFFLINE',
-            meshIp: p.meshIp ?? null,
-            peerId: p.peerId ?? null,
-            lastSeen: new Date(),
-          },
-        })
-        .catch(() => undefined);
+      const data = {
+        status: p.connected ? 'ONLINE' : 'OFFLINE',
+        meshIp: p.meshIp ?? null,
+        peerId: p.peerId ?? null,
+        lastSeen: new Date(),
+      };
+      const orgId = deps.store.nodeOrg.get(nodeId);
+      // A node that joined the mesh BEFORE registering (installer node #1,
+      // mesh-first "Add a node" one-liners) was never enrolled from the
+      // dashboard, so it has no row yet: create it from the first connected
+      // sample so its mesh IP is visible to migration + direct-connect.
+      const write =
+        p.connected && p.meshIp && orgId
+          ? prisma.meshPeer.upsert({
+              where: { nodeId },
+              create: { orgId, nodeId, driver: p.driver.toUpperCase(), ...data },
+              update: data,
+            })
+          : prisma.meshPeer.updateMany({ where: { nodeId }, data });
+      await write.catch(() => undefined);
       return;
     }
     default:

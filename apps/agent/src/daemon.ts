@@ -32,12 +32,12 @@ async function reportMeshState(conn: AgentConnection): Promise<void> {
  * carried an embedded NetBird setup key, join the mesh and confirm
  * connectivity BEFORE registering — so the controller can advertise this
  * node's mesh IP for swarm formation instead of falling back to its LAN
- * address. Dormant (returns immediately) unless both `MESH_SETUP_KEY` and
- * `ALLOW_MESH` are set. Never throws: mesh failure must never block the
+ * address. An already-connected mesh client is reported even without a key
+ * (installer node #1). Dormant unless `ALLOW_MESH` is set. Never throws: mesh failure must never block the
  * node from registering/joining the swarm over LAN (fail open).
  */
 async function joinMeshAtStartup(docker: DockerClient): Promise<{ meshIp?: string; meshConnected?: boolean }> {
-  if (!env.ALLOW_MESH || !env.MESH_SETUP_KEY) return {};
+  if (!env.ALLOW_MESH) return {};
 
   try {
     // Idempotency first: if a mesh client is already connected (daemon
@@ -50,6 +50,9 @@ async function joinMeshAtStartup(docker: DockerClient): Promise<{ meshIp?: strin
       log(`mesh already connected (${existing.driver}${existing.meshIp ? `, ${existing.meshIp}` : ''}) — reusing`);
       return { meshIp: existing.meshIp, meshConnected: true };
     }
+    // No key ⇒ nothing to join. (Node #1 from the installer lands above: the
+    // installer joins the mesh itself before `swarm init` on the mesh IP.)
+    if (!env.MESH_SETUP_KEY) return {};
 
     const rendered: RenderedMesh = {
       driver: env.MESH_DRIVER as RenderedMesh['driver'],

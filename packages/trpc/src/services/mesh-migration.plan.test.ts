@@ -38,8 +38,14 @@ function node(
   };
 }
 
-// The live estate: lon-a single manager, two public workers, a NAT'd Lima VM.
-const lonA = node('lon-a', { role: 'manager', leader: true, addr: '203.0.113.10', labels: { 'swarmy.region': 'lon' } });
+// The live estate: lon-a single manager born on the mesh, two public workers.
+const lonA = node(
+  'lon-a',
+  { role: 'manager', leader: true, addr: '100.92.0.10', labels: { 'swarmy.region': 'lon' } },
+  { meshIp: '100.92.0.10', meshConnected: true },
+);
+// The same manager formed on its public IP (a swarm made before the mesh).
+const lonAPublic = node('lon-a', { role: 'manager', leader: true, addr: '203.0.113.10', labels: { 'swarmy.region': 'lon' } });
 const lonB = node('lon-b', { addr: '203.0.113.11' }, { meshIp: '100.92.0.11', meshConnected: true });
 const nyc = node('nyc-a', { addr: '198.51.100.5' });
 
@@ -60,27 +66,39 @@ describe('isMeshCidr / isOnMesh', () => {
 describe('planMeshMigration — onto the mesh', () => {
   const plan = planMeshMigration({ direction: 'onto-mesh', nodes: [nyc, lonA, lonB], services: [] });
 
-  it('single manager: never moved, only enrolled — and surfaced as a public-address note', () => {
+  it('single manager on the mesh: never moved, stays put', () => {
     expect(plan.managersStay).toBe(true);
     const m = plan.nodes.find((n) => n.nodeId === 'lon-a')!;
-    expect(m.action).toBe('enroll-only');
-    expect(m.reason).toContain('stays on its public address');
-    expect(plan.warnings.some((w) => w.includes('lon-a stays on its address 203.0.113.10'))).toBe(true);
+    expect(m.action).toBe('stays-put');
   });
 
-  it('enrolls the manager FIRST, then moves workers one at a time in input order', () => {
+  it('the manager FIRST, then workers one at a time in input order', () => {
     expect(plan.nodes.map((n) => [n.nodeId, n.action])).toEqual([
-      ['lon-a', 'enroll-only'],
+      ['lon-a', 'stays-put'],
       ['nyc-a', 'move'],
       ['lon-b', 'move'],
     ]);
     expect(plan.blockers).toEqual([]);
   });
 
+  it('BLOCKS moving workers while the sole manager advertises a public IP (encrypted overlays would break)', () => {
+    const p = planMeshMigration({ direction: 'onto-mesh', nodes: [nyc, lonAPublic, lonB], services: [] });
+    expect(p.nodes.find((n) => n.nodeId === 'lon-a')!.action).toBe('enroll-only');
+    expect(p.blockers).toHaveLength(1);
+    expect(p.blockers[0]).toContain('lon-a is the swarm\'s manager and advertises 203.0.113.10');
+    expect(p.blockers[0]).toContain('swarmy-agent rejoin --force');
+  });
+
+  it('a public manager alone (nothing to move) is not blocked — it just enrolls', () => {
+    const p = planMeshMigration({ direction: 'onto-mesh', nodes: [lonAPublic], services: [] });
+    expect(p.blockers).toEqual([]);
+    expect(p.nodes[0]!.action).toBe('enroll-only');
+  });
+
   it('an already-enrolled single manager just stays put', () => {
     const p = planMeshMigration({
       direction: 'onto-mesh',
-      nodes: [{ ...lonA, meshConnected: true, meshIp: '100.92.0.10' }],
+      nodes: [{ ...lonAPublic, meshConnected: true, meshIp: '100.92.0.10' }],
       services: [],
     });
     expect(p.nodes[0]!.action).toBe('stays-put');
