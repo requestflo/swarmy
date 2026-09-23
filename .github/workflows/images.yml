@@ -34,6 +34,12 @@ jobs:
           - name: dns
             image: ghcr.io/${{ github.repository_owner }}/swarmy-dns
             dockerfile: apps/dns/Dockerfile
+          # swarmy's Caddy build (rate_limit, redis cert storage, cache, maxmind):
+          # required for edge-per-node, where N edges share one ACME store.
+          - name: caddy
+            image: ghcr.io/${{ github.repository_owner }}/caddy-swarmy
+            dockerfile: docker/caddy-swarmy/Dockerfile
+            context: docker/caddy-swarmy
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -57,7 +63,7 @@ jobs:
       - uses: docker/build-push-action@v6
         id: build
         with:
-          context: .
+          context: ${{ matrix.context || '.' }}
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
