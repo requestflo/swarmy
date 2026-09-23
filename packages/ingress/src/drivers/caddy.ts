@@ -17,11 +17,13 @@ export const CADDY_CONTROLLER_SERVICE = 'swarmy-ingress-caddy';
 export const CADDY_ADMIN_PORT = 2019;
 /** Caddyfile path on the node / controller bind mount. */
 export const CADDY_CONFIG_PATH = '/etc/caddy/Caddyfile';
-/** Edge-per-node service name (global mode, host-mode 80/443 — geo-edge). */
+/**
+ * Edge-per-node service name (global mode, host-mode 80/443 — geo-edge). The
+ * SAME name as the replicated controller on purpose: exactly one swarmy Caddy
+ * service exists per swarm, whichever topology is live, so status/runtime,
+ * task discovery and the cert volumes are shared across a topology swap.
+ */
 export const CADDY_EDGE_SERVICE = 'swarmy-ingress-caddy';
-/** Host path the agent writes; bind-mounted ro into the edge task at /etc/caddy. */
-export const CADDY_EDGE_HOST_DIR = '/var/lib/swarmy/ingress';
-export const CADDY_EDGE_HOST_CONFIG = `${CADDY_EDGE_HOST_DIR}/Caddyfile`;
 
 /**
  * Where the agent POSTs the rendered Caddyfile to apply it live. On a real swarm
@@ -150,6 +152,23 @@ export class CaddyDriver implements IngressDriver {
           'so the canary wins and region-local preference is suspended until the rollout completes.',
       });
     }
+    // Edge-per-node WITHOUT shared storage: every node obtains its own
+    // certificates. Under geo-DNS that is fragile — Let's Encrypt validates
+    // from several vantage points, each steered to ITS nearest edge, and only
+    // the node that placed the order holds the HTTP-01/TLS-ALPN-01 token, so a
+    // new host's first issuance can fail until shared storage (certmagic's
+    // distributed challenge solving) or DNS-01 is in place. Certs already on a
+    // node's data volume keep serving. Non-blocking, but loud.
+    if (applyVia === 'local' && !config.globalOptions.haStorage) {
+      warnings.push({
+        path: 'globalOptions.haStorage',
+        message:
+          'edge-per-node without shared certificate storage: each edge node issues its own ' +
+          'certificates, and with geo-DNS the ACME validator (multiple vantage points) may be ' +
+          'steered to a different node than the one holding the challenge — new hosts can fail ' +
+          'to issue. Configure HA storage (Redis, swarmy Caddy build) for one shared cert pool.',
+      });
+    }
     if (errors.length) return { ok: false, errors, warnings: warnings.length ? warnings : undefined };
     return warnings.length ? { ok: true, warnings } : { ok: true };
   }
@@ -158,16 +177,19 @@ export class CaddyDriver implements IngressDriver {
     const contents = buildCaddyfile(config);
     const extra = config.globalOptions.extraConfig as Record<string, unknown>;
     const applyVia = typeof extra.applyVia === 'string' ? extra.applyVia : 'file';
-    // Edge-per-node topology (geo-edge): the agent writes the Caddyfile to a
-    // HOST path bind-mounted (ro) into this node's edge Caddy task and execs
-    // `caddy reload` inside it. No admin API, no cluster VIP — per-node config.
+    // Edge-per-node topology (geo-edge): the agent on EACH node running an
+    // edge task writes this node's (region-aware) Caddyfile INSIDE its local
+    // task over the docker socket and execs `caddy reload` there — the same
+    // delivery as the controller's `exec` path. No host files (a container
+    // agent can't write the host FS), no admin API, no cluster VIP.
     if (applyVia === 'local') {
       return {
         driver: 'caddy',
-        files: [{ path: CADDY_EDGE_HOST_CONFIG, contents, mode: 0o644 }],
+        files: [],
         serviceLabels: [],
         localReload: {
           service: CADDY_EDGE_SERVICE,
+          file: { path: CADDY_CONFIG_PATH, contents },
           command: ['caddy', 'reload', '--config', CADDY_CONFIG_PATH, '--adapter', 'caddyfile'],
         },
         summary: `Caddy edge — ${config.domains.length} route(s)` +

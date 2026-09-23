@@ -70,11 +70,23 @@ invariants that must survive every change, and where everything lives.
 - **Edge Caddy spec**: `caddyEdgeSpec(opts)` exported from
   `ingress-controller.ts` is THE spec; the swarmy-stack composition must
   consume it, never hand-roll (topology/ports/mounts single-sourced).
-- **Agent ↔ local Caddy**: agent writes `/var/lib/swarmy/ingress/Caddyfile` on
-  the host (bind-mounted ro into Caddy at `/etc/caddy`) and execs
-  `caddy reload` in the local task (found via
-  `com.docker.swarm.service.name` label on the docker socket). Admin port 2019
-  is never published.
+- **Agent ↔ local Caddy**: NO host files. The agent on each node running a
+  Caddy task writes that node's render INSIDE the task at
+  `/etc/caddy/Caddyfile` (`localReload.file`, exec over the docker socket —
+  works for container agents too) and execs `caddy reload` there (task found
+  via the `com.docker.swarm.service.name` label). Both topologies use it
+  (`applyVia` 'exec' controller / 'local' edge-per-node); edge-per-node targets
+  EVERY node with a running edge task. Admin port 2019 is never published.
+- **Topology swap**: controller (replicated) ↔ edge-per-node (global) share
+  the service name `swarmy-ingress-caddy` and its named cert volumes. Swarm
+  can't change mode in place → `deployWithModeSwap` removes + recreates;
+  `setTopology` persists the setting only after the deploy succeeds, and
+  ingress-reconcile converges a live mode that disagrees with the setting.
+- **Certs across edge nodes**: without HA storage every node issues its own
+  certs, and HTTP-01/TLS-ALPN-01 under geo-DNS is fragile (the CA's vantage
+  points are steered to different nodes; only the ordering node holds the
+  token). HA storage (`setHaStorage`, Redis, swarmy Caddy build) gives one
+  shared pool with distributed challenge solving — the recommended setup.
 
 ## File map
 

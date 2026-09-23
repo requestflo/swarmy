@@ -141,3 +141,66 @@ describe('caddy render/apply — replicated controller via in-task exec', () => 
     expect(r.localReload).toBeUndefined();
   });
 });
+
+describe('caddy render/apply — edge-per-node via in-task exec on EVERY edge node', () => {
+  const route = (domain: string) => ({
+    domain,
+    service: 'web',
+    port: 80,
+    regionUpstreams: [
+      { region: 'lon', service: 'web-lon', port: 80 },
+      { region: 'nyc', service: 'web-nyc', port: 80 },
+    ],
+  });
+  const config = IngressConfigSchema.parse({
+    driver: 'caddy',
+    orgId: 'org_1',
+    domains: [route('app.example.test')],
+    controllerVhosts: [
+      { domain: 'swarmy.example.test', upstream: 'swarmy_controller:3021', targetPath: '/', kind: 'dashboard', tls: 'auto' },
+    ],
+    globalOptions: { extraConfig: { applyVia: 'local' } },
+  });
+
+  it('writes the Caddyfile INSIDE the local edge task — no host file, no admin API', () => {
+    const r = driver.render(config);
+    expect(r.files).toEqual([]);
+    expect(r.adminApi).toBeUndefined();
+    expect(r.reloadCommand).toBeUndefined();
+    expect(r.localReload?.service).toBe('swarmy-ingress-caddy');
+    expect(r.localReload?.file?.path).toBe('/etc/caddy/Caddyfile');
+    expect(r.localReload?.command).toEqual([
+      'caddy', 'reload', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile',
+    ]);
+  });
+
+  it('fans a per-node, region-ordered render out to each edge node, dashboard vhost on all', async () => {
+    const sent = new Map<string, string>();
+    const dispatch = {
+      resolveTargetNodes: async () => ['n-lon', 'n-nyc'],
+      resolveTargets: async () => [
+        { nodeId: 'n-lon', region: 'lon' },
+        { nodeId: 'n-nyc', region: 'nyc' },
+      ],
+      sendToNode: async (nodeId: string, r: { localReload?: { file?: { contents: string } } }) => {
+        sent.set(nodeId, r.localReload?.file?.contents ?? '');
+        return { nodeId, ok: true };
+      },
+      queryStatus: async () => ({ driver: 'caddy', healthy: true, activeDomains: [], certs: [] }),
+    };
+    const status = await driver.apply(driver.render(config), dispatch as never, config);
+    expect(status.message).toBe('applied to 2 node(s)');
+    expect([...sent.keys()].sort()).toEqual(['n-lon', 'n-nyc']);
+    for (const body of sent.values()) expect(body).toContain('swarmy.example.test');
+    const lon = sent.get('n-lon')!;
+    const nyc = sent.get('n-nyc')!;
+    expect(lon.indexOf('web-lon')).toBeLessThan(lon.indexOf('web-nyc'));
+    expect(nyc.indexOf('web-nyc')).toBeLessThan(nyc.indexOf('web-lon'));
+  });
+
+  it('warns (non-blocking) when no shared cert storage backs the edge', () => {
+    const res = driver.validate(config);
+    expect(res.ok).toBe(true);
+    expect(warningPaths(res)).toContain('globalOptions.haStorage');
+  });
+});

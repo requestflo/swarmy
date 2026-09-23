@@ -4,7 +4,6 @@ import {
   CADDY_ADMIN_PORT,
   CADDY_CONFIG_PATH,
   CADDY_CONTROLLER_SERVICE,
-  CADDY_EDGE_HOST_DIR,
   CADDY_EDGE_SERVICE,
 } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
@@ -259,15 +258,13 @@ export async function ensureCaddyController(
 
   // Deploy/converge the controller service (create+update idempotent). The container
   // writes its own admin-enabling base config on boot (no host bind mount / root), then
-  // swarmy pushes the rendered routes to its admin API on every apply.
-  try {
-    await ctx.hub.dispatch(node.id, 'service.deploy', {
-      spec: caddyControllerSpec(opts, placementFor(ctx, opts.targetNodes)),
-      pullPolicy: 'missing',
-    });
-  } catch (e) {
-    throw mapDispatchError(e);
-  }
+  // swarmy delivers the rendered routes by in-task exec on every apply. A live GLOBAL
+  // (edge-per-node) service is swapped out first — swarm can't change mode in place.
+  await deployWithModeSwap(
+    ctx,
+    node.id,
+    caddyControllerSpec(opts, placementFor(ctx, opts.targetNodes)),
+  );
 
   const id = liveService(ctx, CADDY_CONTROLLER_SERVICE)?.id ?? CADDY_CONTROLLER_SERVICE;
   return {
@@ -285,16 +282,24 @@ export interface EnsureEdgeOptions {
   /** Overlay network the edge attaches to (must match fronted services). Default `swarmy`. */
   network?: string;
   /**
-   * Edge image. Default docker/caddy-swarmy (ghcr) — the swarmy build with
-   * caddy-ratelimit AND caddy-storage-redis compiled in; distributed cert
-   * storage requires it, so stock caddy:2-alpine is rejected by validate().
+   * Edge image. Defaults to the configured controller image, then
+   * `SWARMY_CADDY_EDGE_IMAGE`, then the stock `caddy:2-alpine` — the SAME
+   * image the controller topology runs, so a topology swap never introduces
+   * an unpullable image. Shared cert storage (`storage redis`) needs the
+   * swarmy build (docker/caddy-swarmy); the driver's validate() hard-errors
+   * when HA storage meets the stock image.
    */
   image?: string;
   otelOrgId?: string;
 }
 
-const DEFAULT_EDGE_IMAGE =
-  process.env.SWARMY_CADDY_EDGE_IMAGE ?? 'ghcr.io/requestflo/caddy-swarmy:2';
+/** Edge image fallback when no controller image is configured. */
+export function defaultEdgeImage(): string {
+  return process.env.SWARMY_CADDY_EDGE_IMAGE || DEFAULT_IMAGE;
+}
+
+/** Swarm constraint that places one edge task on every ingress-labelled node. */
+export const EDGE_PLACEMENT_CONSTRAINT = `node.labels.${INGRESS_NODE_LABEL} == true`;
 
 /**
  * The edge Caddy ServiceSpec — THE single-sourced contract (geo-edge skill):
@@ -306,10 +311,15 @@ const DEFAULT_EDGE_IMAGE =
  *   node, converging automatically as nodes are labeled.
  * - HOST-MODE 80/443 — the routing mesh would re-balance connections away from
  *   the node geo-DNS just chose; host mode terminates on THAT node.
- * - NO admin port published — config arrives per node via the agent's
- *   `localReload` exec path (applyVia 'local').
- * - `/var/lib/swarmy/ingress` (host, agent-written) bind-mounted RO at
- *   /etc/caddy — the agent must have this path host-mounted rw.
+ * - NO admin port published and NO host bind mount — each node's config is
+ *   written INSIDE its local task by that node's agent over the docker socket
+ *   (`localReload.file`, applyVia 'local'), then `caddy reload`. A container
+ *   agent can't write the host FS, so a bind-mounted host dir never worked.
+ * - Same data/config volumes as the controller (per-node named volumes) — the
+ *   node that ran the controller keeps its certificates across the swap, and
+ *   `--resume` restores the last applied config across task restarts.
+ * - Joins the `swarmy` overlay (plus the org network): the dashboard vhost
+ *   proxies to `swarmy_controller:3021` there, and every edge renders it.
  */
 export function caddyEdgeSpec(opts: {
   network: string;
@@ -337,15 +347,15 @@ export function caddyEdgeSpec(opts: {
       [SYSTEM_STACK_LABEL]: 'true',
     },
     ...(env ? { env } : {}),
-    // Boot against the agent-written host config when present; fall back to a
-    // minimal empty config so the task starts on a node the agent hasn't
-    // rendered yet (first apply lands seconds later via localReload).
+    // Same boot as the controller: write a base config (admin on loopback
+    // only — reached solely by the in-task `caddy reload`), then run with
+    // `--resume` so the autosaved last-applied config survives restarts. The
+    // first render lands seconds later via the agent's in-task exec.
     command: [
       'sh',
       '-c',
-      `[ -f ${CADDY_CONFIG_PATH} ] || printf '# swarmy edge — awaiting first render\n' > /tmp/empty.caddyfile; ` +
-        `exec caddy run --config ${CADDY_CONFIG_PATH} --adapter caddyfile 2>/dev/null || ` +
-        `exec caddy run --config /tmp/empty.caddyfile --adapter caddyfile`,
+      `printf '{\\n\\tadmin 127.0.0.1:${CADDY_ADMIN_PORT}\\n}\\n' > ${CADDY_CONFIG_PATH} && ` +
+        `exec caddy run --config ${CADDY_CONFIG_PATH} --adapter caddyfile --resume`,
     ],
     ports: [
       { target: 80, published: 80, protocol: 'tcp', mode: 'host' },
@@ -355,10 +365,9 @@ export function caddyEdgeSpec(opts: {
     mounts: [
       { type: 'volume', source: DATA_VOLUME, target: '/data' },
       { type: 'volume', source: CONFIG_VOLUME, target: '/config' },
-      { type: 'bind', source: CADDY_EDGE_HOST_DIR, target: '/etc/caddy', readOnly: true },
     ],
-    networks: [opts.network],
-    placement: { constraints: ['node.labels.swarmy.node.ingress == true'] },
+    networks: [...new Set([opts.network, DEFAULT_NETWORK])],
+    placement: { constraints: [EDGE_PLACEMENT_CONSTRAINT] },
     restartPolicy: { condition: 'any' },
   };
 }
@@ -367,16 +376,73 @@ export interface EnsureEdgeResult {
   id: string;
   name: string;
   network: string;
-  /** True when a legacy replicated/routing-mesh controller was cut over. */
+  /** True when a live service of the other mode (the replicated controller) was swapped out. */
   migrated: boolean;
 }
 
+/** Docker's refusal when a service spec update flips replicated↔global. */
+const MODE_CHANGE_REFUSED = /mode change is not allowed/i;
+
+function specMode(spec: ServiceSpec): 'replicated' | 'global' {
+  return spec.mode && 'global' in spec.mode ? 'global' : 'replicated';
+}
+
 /**
- * Deploy/converge the edge-per-node Caddy (geo-edge). Handles the LEGACY
- * cutover: Docker cannot change a service's mode in place and routing-mesh
- * 80/443 binds on every node, so a replicated controller must be REMOVED
- * before the global host-mode service deploys (seconds of blip — gated behind
- * the explicit topology switch; same service name keeps the cert volumes).
+ * `service.deploy` the swarmy Caddy spec, swapping the live service out first
+ * when its MODE differs (replicated controller ↔ global edge). Swarm cannot
+ * change a service's mode in place (`HTTP 501 service mode change is not
+ * allowed`), so the only path is remove + create — the same move Garage makes
+ * on a mode change (apps/agent/src/handlers/storage.ts). The data/config
+ * volumes are NAMED volumes, untouched by a service remove, so certificates
+ * and the autosaved config survive; there is a brief gap on 80/443 while the
+ * new tasks start.
+ *
+ * Mode is read off live inventory; if that is stale and Docker still refuses
+ * the update as a mode change, remove + create once more. Returns whether a
+ * swap happened.
+ */
+export async function deployWithModeSwap(
+  ctx: OrgContext,
+  managerNodeId: string,
+  spec: ServiceSpec,
+): Promise<boolean> {
+  const want = specMode(spec);
+  const live = ctx.hub.liveInventory(ctx.activeOrgId).services.find((s) => s.name === spec.name);
+  const remove = async (): Promise<void> => {
+    try {
+      await ctx.hub.dispatch(managerNodeId, 'service.remove', { service: spec.name });
+    } catch (e) {
+      throw mapDispatchError(e);
+    }
+  };
+  const deploy = () => ctx.hub.dispatch(managerNodeId, 'service.deploy', { spec, pullPolicy: 'missing' });
+
+  let swapped = false;
+  if (live && live.mode !== want) {
+    await remove();
+    swapped = true;
+  }
+  try {
+    await deploy();
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (swapped || !MODE_CHANGE_REFUSED.test(message)) throw mapDispatchError(e);
+    // Stale inventory: the live service is the other mode after all.
+    await remove();
+    swapped = true;
+    try {
+      await deploy();
+    } catch (e2) {
+      throw mapDispatchError(e2);
+    }
+  }
+  return swapped;
+}
+
+/**
+ * Deploy/converge the edge-per-node Caddy (geo-edge). A live replicated
+ * controller is swapped out first (mode is immutable in place — see
+ * {@link deployWithModeSwap}); same service name + volumes keep the certs.
  */
 export async function ensureCaddyEdge(
   ctx: OrgContext,
@@ -391,7 +457,7 @@ export async function ensureCaddyEdge(
     if (obs?.enabled) otelOrgId = ctx.activeOrgId;
   }
   const network = options.network ?? DEFAULT_NETWORK;
-  const image = options.image ?? DEFAULT_EDGE_IMAGE;
+  const image = options.image ?? defaultEdgeImage();
   const node = await resolveManagerNode(ctx);
 
   try {
@@ -405,28 +471,16 @@ export async function ensureCaddyEdge(
     throw mapDispatchError(e);
   }
 
-  // Legacy cutover: a live service WITHOUT the edge topology label is the old
-  // replicated controller — remove it first (mode is immutable in place).
-  let migrated = false;
-  const live = liveService(ctx, CADDY_EDGE_SERVICE);
-  if (live && live.labels?.['swarmy.ingress.topology'] !== 'edge-per-node') {
-    migrated = true;
-    await ctx.hub
-      .dispatch(node.id, 'service.remove', { name: CADDY_EDGE_SERVICE })
-      .catch(() => undefined);
-  }
-
-  try {
-    await ctx.hub.dispatch(node.id, 'service.deploy', {
-      spec: caddyEdgeSpec({ network, image, otelOrgId }),
-      pullPolicy: 'missing',
-    });
-  } catch (e) {
-    throw mapDispatchError(e);
-  }
-
+  const migrated = await deployWithModeSwap(ctx, node.id, caddyEdgeSpec({ network, image, otelOrgId }));
   const id = liveService(ctx, CADDY_EDGE_SERVICE)?.id ?? CADDY_EDGE_SERVICE;
   return { id, name: CADDY_EDGE_SERVICE, network, migrated };
+}
+
+/** Whether any of the org's nodes carries `swarmy.node.ingress=true` (edge placement target). */
+export function anyIngressLabelledNode(ctx: OrgContext): boolean {
+  return ctx.hub
+    .nodeInventory(ctx.activeOrgId, true)
+    .some((n) => n.labels[INGRESS_NODE_LABEL] === 'true');
 }
 
 // ─────────────────────────────────────────────── runtime truth (status badges) ──

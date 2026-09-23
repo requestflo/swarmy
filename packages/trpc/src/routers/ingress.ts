@@ -74,8 +74,10 @@ export const ingressRouter = router({
 
   /** Switch the edge topology (geo-edge): 'edge-per-node' deploys a GLOBAL
    *  host-mode Caddy on every ingress node with per-node region-aware configs
-   *  (cuts over the legacy replicated controller — seconds of blip, explicit
-   *  opt-in); 'controller' restores the classic replicated service. */
+   *  delivered in-task; 'controller' restores the classic replicated service.
+   *  Swarm can't change mode in place, so the service is removed + recreated
+   *  (cert volumes kept, seconds of downtime). The setting persists only once
+   *  the new service deployed. */
   setTopology: adminProcedure
     .input(z.object({ topology: z.enum(['controller', 'edge-per-node']) }))
     .mutation(({ ctx, input }) => setTopology(ctx, input.topology)),

@@ -9,8 +9,6 @@ export {
   CADDY_ADMIN_PORT,
   CADDY_CONFIG_PATH,
   CADDY_EDGE_SERVICE,
-  CADDY_EDGE_HOST_DIR,
-  CADDY_EDGE_HOST_CONFIG,
 } from './drivers/caddy';
 export { TraefikDriver } from './drivers/traefik';
 export { NoneDriver } from './drivers/none';

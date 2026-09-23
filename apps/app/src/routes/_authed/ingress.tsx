@@ -9,6 +9,7 @@ import { CaddyHaCard } from '@/components/ingress/caddy-ha-card';
 import { OnDemandTlsCard } from '@/components/ingress/on-demand-tls-card';
 import { ControllerImageCard } from '@/components/ingress/controller-image-card';
 import { TargetNodesCard } from '@/components/ingress/target-nodes-card';
+import { TopologyCard } from '@/components/ingress/topology-card';
 import { CloudflareTunnelCard } from '@/components/ingress/cloudflare-tunnel-card';
 import { ExternalAcmeNoticeCard } from '@/components/ingress/external-acme-notice-card';
 import { DomainsList } from '@/components/ingress/domains-list';
@@ -134,8 +135,14 @@ function IngressPage(): React.JSX.Element {
             onDisable={() => setOnDemandTls.mutate({ enabled: false })}
             pending={setOnDemandTls.isPending}
           />
+          <TopologyCard
+            topology={config.data?.topology ?? 'controller'}
+            haConfigured={!!config.data?.haConfigured}
+          />
           <ControllerImageCard image={config.data?.controllerImage ?? null} />
-          <TargetNodesCard targetNodes={config.data?.targetNodes ?? []} />
+          {config.data?.topology === 'edge-per-node' ? null : (
+            <TargetNodesCard targetNodes={config.data?.targetNodes ?? []} />
+          )}
         </>
       ) : null}
 

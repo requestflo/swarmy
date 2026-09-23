@@ -26,3 +26,59 @@ describe('writeFileExec — in-task config delivery (replicated Caddy controller
     await Bun.$`rm -rf ${dir}`.quiet();
   });
 });
+
+describe('localReload — writes then reloads inside THIS node\'s task (edge-per-node + controller)', () => {
+  function fakeDocker(running: Array<{ Id: string }>) {
+    const calls: Array<{ id: string; cmd: string[]; env?: string[] }> = [];
+    const filters: unknown[] = [];
+    const docker = {
+      docker: {
+        listContainers: async (opts: { filters: unknown }) => {
+          filters.push(opts.filters);
+          return running;
+        },
+        getContainer: (id: string) => ({
+          exec: async (o: { Cmd: string[]; Env?: string[] }) => {
+            calls.push({ id, cmd: o.Cmd, env: o.Env });
+            return {
+              start: async () => {
+                const { EventEmitter } = await import('node:events');
+                const s = new EventEmitter();
+                setTimeout(() => s.emit('end'), 0);
+                return s;
+              },
+              inspect: async () => ({ ExitCode: 0 }),
+            };
+          },
+        }),
+      },
+    };
+    return { docker, calls, filters };
+  }
+
+  it('targets the local task by swarm service label, writes the file, then runs caddy reload', async () => {
+    const { localReload } = await import('./ingress-local');
+    const { docker, calls, filters } = fakeDocker([{ Id: 'edge-task-1' }]);
+    await localReload(
+      docker as never,
+      'swarmy-ingress-caddy',
+      ['caddy', 'reload', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile'],
+      { path: '/etc/caddy/Caddyfile', contents: 'a.test {\n}\n' },
+    );
+    expect(filters[0]).toEqual({
+      label: ['com.docker.swarm.service.name=swarmy-ingress-caddy'],
+      status: ['running'],
+    });
+    expect(calls.map((c) => c.id)).toEqual(['edge-task-1', 'edge-task-1']);
+    expect(calls[0]!.env).toContain('SWARMY_FILE_PATH=/etc/caddy/Caddyfile');
+    expect(calls[1]!.cmd.slice(0, 2)).toEqual(['caddy', 'reload']);
+  });
+
+  it('no local task is an error, never a silent skip', async () => {
+    const { localReload } = await import('./ingress-local');
+    const { docker } = fakeDocker([]);
+    await expect(localReload(docker as never, 'swarmy-ingress-caddy', ['caddy', 'reload'])).rejects.toThrow(
+      /no running local task/,
+    );
+  });
+});

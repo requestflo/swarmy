@@ -53,6 +53,7 @@ interface IngressConfigView {
   tunnelConfigured: boolean;
   /** Custom ingress-controller image (null = the stock caddy:2-alpine). */
   controllerImage: string | null;
+  topology: 'controller' | 'edge-per-node';
   updatedAt: string;
   runtime: DemoRuntime;
 }
@@ -105,6 +106,7 @@ interface IngressState {
   onDemandTls: boolean;
   onDemandAskUrl: string | null;
   controllerImage: string | null;
+  topology?: 'controller' | 'edge-per-node';
   updatedAt: string;
   domains: DomainView[];
   tunnel: {
@@ -156,6 +158,7 @@ function toConfigView(st: IngressState): IngressConfigView {
     haConfigured: st.haConfigured,
     tunnelConfigured: Boolean(st.tunnel?.tunnelId),
     controllerImage: st.controllerImage,
+    topology: st.topology ?? 'controller',
     updatedAt: st.updatedAt,
     runtime: demoRuntime(st),
   };
@@ -422,6 +425,14 @@ export const ingress: DomainResolvers = {
       const { image } = i as { image: string | null };
       const st = getState(s);
       st.controllerImage = image;
+      st.updatedAt = nowIso();
+      return toConfigView(st);
+    },
+
+    'ingress.setTopology': (i, s): IngressConfigView => {
+      const { topology } = i as { topology: 'controller' | 'edge-per-node' };
+      const st = getState(s);
+      st.topology = topology;
       st.updatedAt = nowIso();
       return toConfigView(st);
     },

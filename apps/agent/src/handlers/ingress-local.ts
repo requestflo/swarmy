@@ -1,15 +1,18 @@
 import type { DockerClient } from '@swarmy/core/docker';
 
 /**
- * Edge-per-node config reload (geo-edge). The agent wrote the rendered
- * Caddyfile to a host path bind-mounted (ro) into the local Caddy task; now
- * exec `caddy reload` inside that task. `docker ps` on a node only returns
+ * In-task Caddy config delivery — both topologies (replicated controller
+ * `applyVia: 'exec'`, edge-per-node `applyVia: 'local'`). The agent on the node
+ * hosting a task writes the rendered Caddyfile INSIDE that task over the docker
+ * socket and execs `caddy reload` there. `docker ps` on a node only returns
  * LOCAL containers, so filtering by the swarm service-name label finds exactly
- * this node's task — no cluster-VIP admin API, port 2019 never published.
+ * this node's task — no host files (a container agent can't write the host
+ * FS), no cluster-VIP admin API, port 2019 never published. For edge-per-node
+ * the controller sends each edge node its own (region-aware) render.
  *
  * No running local task is an ERROR (surfaced per-node in the driver report),
- * not a silent skip: an ingress-labeled node without its Caddy task is a real
- * degradation the operator must see.
+ * not a silent skip: a node targeted for apply without its Caddy task is a
+ * real degradation the operator must see.
  */
 /**
  * Shell snippet that materialises a file inside the task from env (base64, so
