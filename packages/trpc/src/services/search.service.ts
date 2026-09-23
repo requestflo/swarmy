@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import {
+  applyDataPin,
   buildInventory,
+  SEARCH_PIN_NODE_LABEL,
   STACK_LABEL,
   SEARCH_ENGINES,
   type InvService,
@@ -26,6 +28,7 @@ import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { patchLiveService } from './service-patch';
 import { resolveExecTarget } from './live-resolve';
+import { chooseDataPin, dataVolumeNode } from './data-pin';
 
 /**
  * Managed search (slice F4) — Meilisearch/Typesense instances mirroring the
@@ -38,6 +41,11 @@ import { resolveExecTarget } from './live-resolve';
  * and there is NO Prisma model. Instances are private-only — no published
  * ports, ever; apps reach the engine over the per-instance attachable overlay
  * network by swarm DNS.
+ *
+ * Storage: the data dir lives on the node-local named volume
+ * `<stack>_<name>-search-data`, so the instance is PINNED to one swarm node
+ * (`swarmy.search.node` + `node.id==<id>`, @swarmy/core data-pin) — otherwise a
+ * reboot reschedules it onto another node with a fresh EMPTY volume.
  *
  * The search-reconcile worker stamps a `swarmy.search.stats` label each tick
  * (docs / indexes / db size sampled inside the container) and fires an alert
@@ -315,6 +323,8 @@ export interface SearchInstanceDecl {
   stack: string;
   name: string;
   engine: SearchEngine;
+  /** Swarm node id the instance (and its data volume) is pinned to. */
+  pinNode?: string;
 }
 
 function searchLabels(decl: SearchInstanceDecl): Record<string, string> {
@@ -325,6 +335,7 @@ function searchLabels(decl: SearchInstanceDecl): Record<string, string> {
     [SEARCH_CLUSTER_LABEL]: decl.name,
     // Search engines must stay warm — the idle sleeper must never park them.
     [SCALE_TO_ZERO_EXEMPT_LABEL]: 'true',
+    ...(decl.pinNode ? { [SEARCH_PIN_NODE_LABEL]: decl.pinNode } : {}),
   };
 }
 
@@ -350,7 +361,7 @@ export function searchStartCommand(engine: SearchEngine): string {
  * `/run/secrets/search-master-key` and reads it at start via the sh wrapper.
  */
 export function searchInstanceSpec(decl: SearchInstanceDecl): ServiceSpec {
-  return {
+  const spec: ServiceSpec = {
     name: searchServiceName(decl.stack, decl.name),
     image: SEARCH_IMAGES[decl.engine],
     mode: { replicated: { replicas: 1 } },
@@ -369,6 +380,7 @@ export function searchInstanceSpec(decl: SearchInstanceDecl): ServiceSpec {
     command: ['sh', '-c'],
     args: [searchStartCommand(decl.engine)],
   };
+  return decl.pinNode ? applyDataPin(spec, { pin: decl.pinNode, onePerNode: true }) : spec;
 }
 
 // ── Live instance discovery (hub inventory — never the DB) ────────────────────
@@ -468,8 +480,11 @@ export async function provisionSearch(
   if (findInstance(ctx, stack, name)) {
     throw commandRejected(`search instance "${name}" already exists in stack "${stack}"`);
   }
-  const decl: SearchInstanceDecl = { stack, name, engine: input.engine };
   const node = await resolveManagerNode(ctx);
+  // Pin to one node (node-local data volume). No node reported yet ⇒ deploy
+  // unpinned; search-reconcile pins it where its first task lands.
+  const pinNode = chooseDataPin(ctx, node.id);
+  const decl: SearchInstanceDecl = { stack, name, engine: input.engine, ...(pinNode ? { pinNode } : {}) };
   const masterKey = generateMasterKey();
   const secretName = searchKeySecretName(stack, name);
   const dataB64 = Buffer.from(masterKey, 'utf8').toString('base64');
@@ -766,7 +781,9 @@ export async function backupSearch(
 ): Promise<{ resticId: string; sizeBytes: string }> {
   const i = requireInstance(ctx, input.stack, input.name);
   const target = await resolveTarget(ctx, input.targetId);
-  const node = await resolveManagerNode(ctx);
+  // The volume is node-local: snapshot it where it lives, never on a manager
+  // that may hold no (or an EMPTY) same-named volume.
+  const node = { id: (await dataVolumeNode(ctx, i.service, SEARCH_PIN_NODE_LABEL)).nodeId };
   const volume = searchDataVolume(input.stack, input.name);
   await dumpBeforeBackup(ctx, i);
   try {
@@ -811,6 +828,12 @@ export async function restoreSearch(
   const i = requireInstance(ctx, input.stack, input.name);
   const target = await resolveTarget(ctx, input.targetId);
   const node = await resolveManagerNode(ctx);
+  // Restore INTO the volume on the instance's node, pinning an unpinned
+  // instance there first so the restart cannot land on an empty volume.
+  const dataNode = await dataVolumeNode(ctx, i.service, SEARCH_PIN_NODE_LABEL, {
+    adopt: true,
+    managerNodeId: node.id,
+  });
   const volume = searchDataVolume(input.stack, input.name);
   const serviceName = i.service.name;
 
@@ -823,7 +846,7 @@ export async function restoreSearch(
   let result: RestoreVolumeResult;
   try {
     result = await ctx.hub.dispatch<RestoreVolumeResult>(
-      node.id,
+      dataNode.nodeId,
       'backup.restore',
       { repo: toResticRepo(target), snapshotId: input.snapshotId, targetVolume: volume },
       { timeoutMs: BACKUP_TIMEOUT_MS },

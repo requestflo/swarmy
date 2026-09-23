@@ -1,6 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import {
+  applyDataPin,
   buildInventory,
+  CACHE_AVOID_NODE_LABEL,
+  CACHE_PIN_NODE_LABEL,
+  planDataPin,
   STACK_LABEL,
   type CacheAttachmentView,
   type CacheBackupView,
@@ -30,6 +34,7 @@ import { auditRetentionOutcome, stackRetentionFor } from './backups.service';
 import { resolveManagerNode } from './dispatch.service';
 import { patchLiveService } from './service-patch';
 import { resolveExecTarget } from './live-resolve';
+import { chooseDataPin, dataVolumeNode, isMultiNodeSwarm, runningTaskSwarmNodes } from './data-pin';
 
 /**
  * Managed cache (slice A3) — Valkey/Redis clusters mirroring manageddb.service.
@@ -44,6 +49,13 @@ import { resolveExecTarget } from './live-resolve';
  *   replica  → primary + N read replicas (async replication).
  *   sentinel → primary + replicas + 3 bitnami/redis-sentinel members (quorum 2)
  *              arbitrating automatic failover.
+ *
+ * Storage: the primary's data lives on the node-local named volume
+ * `<stack>_<cluster>-cache-data`, so the primary is PINNED to one swarm node
+ * (`swarmy.cache.node` + `node.id==<id>`, @swarmy/core data-pin) — otherwise a
+ * reboot reschedules it onto another node with a fresh EMPTY volume. Replicas
+ * re-sync from the primary, so they float: anti-affine to the primary's node on
+ * a multi-node swarm (`swarmy.cache.avoidNode`), one task per node.
  *
  * The cache-reconcile worker converges the live member set to the declared
  * topology each tick, stamps a `swarmy.cache.stats` label (INFO sample), and
@@ -366,6 +378,10 @@ export interface CacheClusterDecl {
   replicas: number;
   /** Stamped verbatim as `swarmy.cache.region.<r>.replicas` on the primary. */
   regionReplicas?: Record<string, number>;
+  /** Swarm node id the primary (and its data volume) is pinned to (`swarmy.cache.node`). */
+  pinNode?: string;
+  /** Base replicas avoid this swarm node (multi-node swarms: the primary's pin). */
+  avoidNode?: string;
 }
 
 function cacheLabels(
@@ -437,7 +453,15 @@ function redisEnv(
 function dataMemberSpec(
   decl: CacheClusterDecl,
   role: 'primary' | 'replica',
-  opts: { name: string; replicas: number; extraLabels?: Record<string, string>; placement?: ServiceSpec['placement'] },
+  opts: {
+    name: string;
+    replicas: number;
+    extraLabels?: Record<string, string>;
+    placement?: ServiceSpec['placement'];
+    /** Pin (primary) / anti-affinity (base replica) → node.id constraint + one task per node. */
+    pin?: string;
+    avoid?: string;
+  },
 ): ServiceSpec {
   const primary = cachePrimaryName(decl.stack, decl.cluster);
   const isPrimary = role === 'primary';
@@ -463,14 +487,18 @@ function dataMemberSpec(
       : {}),
     ...(opts.placement ? { placement: opts.placement } : {}),
   };
+  const placed =
+    opts.pin || opts.avoid
+      ? applyDataPin(base, { pin: opts.pin, avoid: opts.avoid, onePerNode: true })
+      : base;
   if (decl.engine === 'valkey') {
     return {
-      ...base,
+      ...placed,
       command: ['sh', '-c'],
       args: [valkeyCommand(decl, isPrimary ? undefined : primary)],
     };
   }
-  return { ...base, env: redisEnv(decl, isPrimary ? 'master' : 'slave', primary) };
+  return { ...placed, env: redisEnv(decl, isPrimary ? 'master' : 'slave', primary) };
 }
 
 export function cachePrimarySpec(decl: CacheClusterDecl): ServiceSpec {
@@ -481,7 +509,11 @@ export function cachePrimarySpec(decl: CacheClusterDecl): ServiceSpec {
   return dataMemberSpec(decl, 'primary', {
     name: cachePrimaryName(decl.stack, decl.cluster),
     replicas: 1,
-    extraLabels: regionLabels,
+    extraLabels: {
+      ...regionLabels,
+      ...(decl.pinNode ? { [CACHE_PIN_NODE_LABEL]: decl.pinNode } : {}),
+    },
+    pin: decl.pinNode,
   });
 }
 
@@ -490,6 +522,9 @@ export function cacheReplicaSpec(decl: CacheClusterDecl, replicas: number): Serv
     name: cacheReplicaName(decl.stack, decl.cluster),
     replicas,
     placement: { preferences: ['spread=node.id'] },
+    ...(decl.avoidNode
+      ? { extraLabels: { [CACHE_AVOID_NODE_LABEL]: decl.avoidNode }, avoid: decl.avoidNode }
+      : {}),
   });
 }
 
@@ -580,9 +615,14 @@ function requireCluster(ctx: OrgContext, stack: string, cluster: string): LiveCl
   return c;
 }
 
-/** Rebuild the declared shape from a live cluster's anchor labels. */
-function declOf(c: LiveCluster): CacheClusterDecl {
+/**
+ * Rebuild the declared shape from a live cluster's anchor labels. The primary's
+ * `swarmy.cache.node` pin is carried so every canonical rebuild keeps it;
+ * `multiNode` turns it into the base replicas' anti-affinity.
+ */
+function declOf(c: LiveCluster, multiNode = false): CacheClusterDecl {
   const anchor = c.primary?.labels ?? c.members[0]?.labels ?? {};
+  const pinNode = c.primary?.labels[CACHE_PIN_NODE_LABEL];
   const memory = Number.parseInt(anchor[CACHE_MEMORY_LABEL] ?? '', 10);
   const replicas = Number.parseInt(anchor[CACHE_REPLICAS_LABEL] ?? '', 10);
   return {
@@ -593,7 +633,27 @@ function declOf(c: LiveCluster): CacheClusterDecl {
     memoryMb: Number.isFinite(memory) && memory > 0 ? memory : 256,
     replicas: Number.isFinite(replicas) && replicas >= 0 ? replicas : 0,
     regionReplicas: parseCacheRegionReplicas(anchor),
+    ...(pinNode ? { pinNode } : {}),
+    ...(pinNode && multiNode ? { avoidNode: pinNode } : {}),
   };
+}
+
+/**
+ * The decl to REDEPLOY the primary with. An unpinned primary is pinned to the
+ * node its task runs on right now (where its volume is) in the same rebuild; a
+ * primary that is unpinned and not running is refused — a redeploy could start
+ * it on a node with an empty volume.
+ */
+function redeployDeclOf(ctx: OrgContext, c: LiveCluster): CacheClusterDecl {
+  const decl = declOf(c, isMultiNodeSwarm(ctx));
+  if (!c.primary || decl.pinNode) return decl;
+  const plan = planDataPin({
+    labels: c.primary.labels,
+    pinLabel: CACHE_PIN_NODE_LABEL,
+    runningNodes: runningTaskSwarmNodes(ctx.hub, ctx.activeOrgId, c.primary.id),
+  });
+  if (plan.kind === 'unplaced') throw commandRejected(`cache primary ${c.primary.name} is ${plan.message}`);
+  return { ...decl, pinNode: plan.pin, ...(isMultiNodeSwarm(ctx) ? { avoidNode: plan.pin } : {}) };
 }
 
 // ── View projection ───────────────────────────────────────────────────────────
@@ -701,6 +761,13 @@ export async function provisionCache(
     ),
   };
   const node = await resolveManagerNode(ctx);
+  // Pin the primary (its data volume is node-local). No node reported yet ⇒
+  // deploy unpinned; cache-reconcile pins it where its first task lands.
+  const pinNode = chooseDataPin(ctx, node.id);
+  if (pinNode) {
+    decl.pinNode = pinNode;
+    if (isMultiNodeSwarm(ctx)) decl.avoidNode = pinNode;
+  }
   const password = generatePassword();
   const secretName = cachePasswordSecretName(stack, cluster);
   const dataB64 = Buffer.from(password, 'utf8').toString('base64');
@@ -792,7 +859,7 @@ export async function setCacheReplicas(
   input: { stack: string; cluster: string; replicas: number },
 ): Promise<{ cluster: string; replicas: number }> {
   const c = requireCluster(ctx, input.stack, input.cluster);
-  const decl = declOf(c);
+  const decl = declOf(c, isMultiNodeSwarm(ctx));
   const replicas =
     decl.topology === 'sentinel'
       ? Math.max(1, Math.floor(input.replicas))
@@ -840,7 +907,7 @@ export async function setCacheMemory(
   const memoryMb = Math.floor(input.memoryMb);
   if (memoryMb < 64) throw commandRejected('memoryMb must be at least 64');
   const c = requireCluster(ctx, input.stack, input.cluster);
-  const decl = { ...declOf(c), memoryMb };
+  const decl = { ...redeployDeclOf(ctx, c), memoryMb };
   const node = await resolveManagerNode(ctx);
   try {
     await ctx.hub.dispatch(
@@ -1125,8 +1192,11 @@ export async function backupCache(
   input: { stack: string; cluster: string; targetId?: string; retentionDays?: number },
 ): Promise<{ resticId: string; sizeBytes: string }> {
   const c = requireCluster(ctx, input.stack, input.cluster);
+  if (!c.primary) throw notFound('cache cluster primary', input.cluster);
   const target = await resolveTarget(ctx, input.targetId);
-  const node = await resolveManagerNode(ctx);
+  // The volume is node-local: snapshot it on the node that holds it, never a
+  // manager that may have no (or an EMPTY) same-named volume.
+  const node = { id: (await dataVolumeNode(ctx, c.primary, CACHE_PIN_NODE_LABEL)).nodeId };
   const volume = cacheDataVolume(input.stack, input.cluster);
   // Explicit override wins; otherwise the stack's volume-retention label
   // (`swarmy.backup.retentionDays`) applies — cache volumes are stack volumes.
@@ -1184,6 +1254,13 @@ export async function restoreCache(
   if (!c.primary) throw notFound('cache cluster primary', input.cluster);
   const target = await resolveTarget(ctx, input.targetId);
   const node = await resolveManagerNode(ctx);
+  // Restore INTO the volume on the primary's node, pinning an unpinned primary
+  // there first — otherwise the restart could land on another node and an
+  // empty volume, silently leaving the restored data behind.
+  const dataNode = await dataVolumeNode(ctx, c.primary, CACHE_PIN_NODE_LABEL, {
+    adopt: true,
+    managerNodeId: node.id,
+  });
   const volume = cacheDataVolume(input.stack, input.cluster);
   const primaryName = c.primary.name;
 
@@ -1191,7 +1268,7 @@ export async function restoreCache(
   let result: RestoreVolumeResult;
   try {
     result = await ctx.hub.dispatch<RestoreVolumeResult>(
-      node.id,
+      dataNode.nodeId,
       'backup.restore',
       { repo: toResticRepo(target), snapshotId: input.snapshotId, targetVolume: volume },
       { timeoutMs: BACKUP_TIMEOUT_MS },

@@ -289,3 +289,56 @@ describe('spec builders — private-only, secret-fed, memory-capped', () => {
     expect(spec.labels?.['swarmy.cache.region.eu-west.replicas']).toBe('1');
   });
 });
+
+describe('storage pinning — the primary never floats off its node-local volume', () => {
+  const d = {
+    stack: 'hello',
+    cluster: 'main',
+    engine: 'valkey' as const,
+    topology: 'sentinel' as const,
+    memoryMb: 256,
+    replicas: 2,
+    pinNode: 'swarm-n1',
+    avoidNode: 'swarm-n1',
+  };
+
+  it('primary golden: pin label + node.id constraint + one task per node', () => {
+    const spec = cachePrimarySpec(d);
+    expect(spec.labels?.['swarmy.cache.node']).toBe('swarm-n1');
+    expect(spec.placement).toEqual({ constraints: ['node.id==swarm-n1'], maxReplicasPerNode: 1 });
+    expect(spec.mounts).toEqual([
+      { type: 'volume', source: 'hello_main-cache-data', target: '/data' },
+    ]);
+  });
+
+  it('base replicas float: anti-affine to the primary node, spread, one per node, no pin', () => {
+    const spec = cacheReplicaSpec(d, 2);
+    expect(spec.labels?.['swarmy.cache.node']).toBeUndefined();
+    expect(spec.labels?.['swarmy.cache.avoidNode']).toBe('swarm-n1');
+    expect(spec.placement).toEqual({
+      preferences: ['spread=node.id'],
+      constraints: ['node.id!=swarm-n1'],
+      maxReplicasPerNode: 1,
+    });
+    expect(spec.mounts).toBeUndefined();
+  });
+
+  it('single-node swarm (no avoidNode): replicas keep only the spread preference', () => {
+    const spec = cacheReplicaSpec({ ...d, avoidNode: undefined }, 1);
+    expect(spec.placement).toEqual({ preferences: ['spread=node.id'] });
+    expect(spec.labels?.['swarmy.cache.avoidNode']).toBeUndefined();
+  });
+
+  it('sentinels and region siblings are never pinned to the primary node', () => {
+    expect(cacheSentinelSpec(d).placement).toEqual({ preferences: ['spread=node.id'] });
+    expect(cacheRegionReplicaSpec(d, 'eu', 1).placement?.constraints).toEqual([
+      'node.labels.swarmy.region==eu',
+    ]);
+  });
+
+  it('unpinned decl (legacy) builds the historical unconstrained primary', () => {
+    const spec = cachePrimarySpec({ ...d, pinNode: undefined, avoidNode: undefined });
+    expect(spec.placement).toBeUndefined();
+    expect(spec.labels?.['swarmy.cache.node']).toBeUndefined();
+  });
+});

@@ -219,3 +219,15 @@ describe('naming', () => {
     expect(searchKeySecretName('shop', 'main')).toBe('swarmy-search-shop_main-key');
   });
 });
+
+describe('searchInstanceSpec — node pin (node-local data volume)', () => {
+  it('pinned golden: label + node.id constraint + one task per node', () => {
+    const spec = searchInstanceSpec({ stack: 'shop', name: 'main', engine: 'meilisearch', pinNode: 'swarm-n2' });
+    expect(spec.labels?.['swarmy.search.node']).toBe('swarm-n2');
+    expect(spec.placement).toEqual({ constraints: ['node.id==swarm-n2'], maxReplicasPerNode: 1 });
+    expect(spec.mounts?.[0]?.source).toBe('shop_main-search-data');
+  });
+  it('unpinned decl leaves placement unset', () => {
+    expect(searchInstanceSpec({ stack: 'shop', name: 'main', engine: 'typesense' }).placement).toBeUndefined();
+  });
+});

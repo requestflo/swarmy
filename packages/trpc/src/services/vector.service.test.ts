@@ -114,3 +114,15 @@ describe('vectorStatsCommand', () => {
     expect(cmd).toContain('api-key: $(cat /run/secrets/vector-api-key)');
   });
 });
+
+describe('qdrantSpec — node pin (node-local data volume)', () => {
+  it('pinned golden: label + node.id constraint + one task per node', () => {
+    const spec = qdrantSpec('shop', 'search', 'swarm-n3');
+    expect(spec.labels?.['swarmy.vector.node']).toBe('swarm-n3');
+    expect(spec.placement).toEqual({ constraints: ['node.id==swarm-n3'], maxReplicasPerNode: 1 });
+    expect(spec.mounts?.[0]).toEqual({ type: 'volume', source: 'shop_search-vector-data', target: '/qdrant/storage' });
+  });
+  it('unpinned leaves placement unset', () => {
+    expect(qdrantSpec('shop', 'search').placement).toBeUndefined();
+  });
+});

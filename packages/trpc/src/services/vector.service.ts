@@ -1,7 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import {
+  applyDataPin,
   buildInventory,
   STACK_LABEL,
+  VECTOR_PIN_NODE_LABEL,
   type InvService,
   type PgvectorClusterView,
   type VectorAttachmentView,
@@ -17,6 +19,7 @@ import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { patchLiveService } from './service-patch';
 import { resolveExecTarget } from './live-resolve';
+import { chooseDataPin } from './data-pin';
 
 /**
  * Managed vector store (slice F5) — a minimal mirror of the A3 managed-cache
@@ -33,6 +36,11 @@ import { resolveExecTarget } from './live-resolve';
  * vector` on its primary and stamp `swarmy.vector.pgvector=true`. Apps attach
  * with the ordinary manageddb `injectConnection` (DATABASE_URL) — no separate
  * vector attach path exists for pgvector.
+ *
+ * Storage: qdrant's storage lives on the node-local named volume
+ * `<stack>_<name>-vector-data`, so the instance is PINNED to one swarm node
+ * (`swarmy.vector.node` + `node.id==<id>`, @swarmy/core data-pin) — otherwise a
+ * reboot reschedules it onto another node with a fresh EMPTY volume.
  *
  * The vector-reconcile worker keeps single-replica instances converged and
  * stamps a `swarmy.vector.stats` label (collections sample via exec curl).
@@ -145,8 +153,8 @@ export function parseVectorStatsLabel(raw: string | undefined | null): VectorSta
  * appears in the spec: the container reads the mounted Docker secret at start
  * via a `sh -c` wrapper exporting `QDRANT__SERVICE__API_KEY`.
  */
-export function qdrantSpec(stack: string, name: string): ServiceSpec {
-  return {
+export function qdrantSpec(stack: string, name: string, pinNode?: string): ServiceSpec {
+  const spec: ServiceSpec = {
     name: vectorServiceName(stack, name),
     image: QDRANT_IMAGE,
     mode: { replicated: { replicas: 1 } },
@@ -157,6 +165,7 @@ export function qdrantSpec(stack: string, name: string): ServiceSpec {
       [VECTOR_NAME_LABEL]: name,
       // Vector stores must stay warm — never scale-to-zero.
       [SCALE_TO_ZERO_EXEMPT_LABEL]: 'true',
+      ...(pinNode ? { [VECTOR_PIN_NODE_LABEL]: pinNode } : {}),
     },
     command: ['sh', '-c'],
     args: [
@@ -168,6 +177,7 @@ export function qdrantSpec(stack: string, name: string): ServiceSpec {
       { type: 'volume' as const, source: vectorDataVolume(stack, name), target: '/qdrant/storage' },
     ],
   };
+  return pinNode ? applyDataPin(spec, { pin: pinNode, onePerNode: true }) : spec;
 }
 
 // ── Live discovery (hub inventory — never the DB) ─────────────────────────────
@@ -250,6 +260,9 @@ export async function provisionVector(
     throw commandRejected(`vector instance "${name}" already exists in stack "${stack}"`);
   }
   const node = await resolveManagerNode(ctx);
+  // Pin to one node (node-local data volume). No node reported yet ⇒ deploy
+  // unpinned; vector-reconcile pins it where its first task lands.
+  const pinNode = chooseDataPin(ctx, node.id);
   const apiKey = generateApiKey();
   const secretName = vectorKeySecretName(stack, name);
   const dataB64 = Buffer.from(apiKey, 'utf8').toString('base64');
@@ -273,7 +286,7 @@ export async function provisionVector(
     await ctx.hub.dispatch(
       node.id,
       'service.deploy',
-      { spec: qdrantSpec(stack, name), pullPolicy: 'always' },
+      { spec: qdrantSpec(stack, name, pinNode), pullPolicy: 'always' },
       { timeoutMs: DISPATCH_TIMEOUT_MS },
     );
   } catch (e) {

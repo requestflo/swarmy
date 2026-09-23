@@ -154,6 +154,21 @@ export {
 // Default-on DB backups (backup-scheduler worker) + the scheduled DB-backup
 // sweep the manageddb-reconcile worker resolves off the package root.
 export { ensureAutoBackups } from './services/autoBackup.service';
+// Managed data node-pinning (cache/search/vector reconcile workers) + the
+// canonical member spec builders those workers converge with.
+export {
+  reconcileDataPin,
+  runningTaskSwarmNodes,
+  isMultiNodeSwarm,
+} from './services/data-pin';
+export type { DataPinOutcome } from './services/data-pin';
+export {
+  cachePrimarySpec,
+  cacheReplicaSpec,
+  cacheRegionReplicaSpec,
+  cacheSentinelSpec,
+} from './services/cache.service';
+export type { CacheClusterDecl } from './services/cache.service';
 export { runDueDbBackups } from './services/dbBackup.service';
 export {
   list as listClusterVolumes,

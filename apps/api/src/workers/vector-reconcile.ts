@@ -1,6 +1,7 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { fireEvent, systemContext } from '@swarmy/trpc';
+import { fireEvent, reconcileDataPin, systemContext } from '@swarmy/trpc';
+import { VECTOR_PIN_NODE_LABEL } from '@swarmy/core';
 import type { ContainerInfo, SwarmServiceInfo } from '@swarmy/core/protocol';
 import { hub, store } from '../gateway';
 
@@ -18,6 +19,10 @@ import { hub, store } from '../gateway';
  *       result as the `swarmy.vector.stats` label — the UI's fallback when a
  *       live exec is not possible.
  *   (3) alert: fire a `vector-down` event when an instance has 0/1 running.
+ *   (0) storage pin: qdrant's volume is node-local, so the instance must be
+ *       pinned (`swarmy.vector.node`, @swarmy/core data-pin via
+ *       `reconcileDataPin`). Unpinned + running on one node → pinned THERE in
+ *       place; unpinned + not running → warned, never scaled up/redeployed.
  *
  * pgvector needs no reconcile — it is a one-shot `CREATE EXTENSION` + label.
  *
@@ -29,6 +34,8 @@ import { hub, store } from '../gateway';
  */
 
 const TICK_MS = 30_000;
+/** Instances already warned about as unplaced (resource key) — one warning each. */
+const storageWarned = new Set<string>();
 
 // ── Label scheme — kept in sync with @swarmy/trpc vector.service.ts ───────────
 const VECTOR_KIND_LABEL = 'swarmy.vector.kind';
@@ -121,8 +128,23 @@ async function reconcileOrg(orgId: string): Promise<void> {
     const stack = s.labels[STACK_LABEL] ?? '';
     const name = s.labels[VECTOR_NAME_LABEL] ?? s.name;
 
-    // (1) Converge: qdrant instances are always exactly one replica.
-    if ((s.desiredReplicas ?? 1) !== 1) {
+    // (0) Storage pin.
+    const pin = await reconcileDataPin({
+      ctx,
+      managerNodeId: node,
+      member: s,
+      pinLabel: VECTOR_PIN_NODE_LABEL,
+      resource: `vector:${stack}/${name}`,
+      title: `Vector store ${stack}/${name}`,
+      volume: `${stack}_${name}-vector-data`,
+      warned: storageWarned,
+    });
+    if (pin.kind === 'adopt') continue; // just redeployed in place; next tick
+
+    // (1) Converge: qdrant instances are always exactly one replica — but an
+    //     unplaced instance is never scaled UP (it could start on an empty volume).
+    const desired = s.desiredReplicas ?? 1;
+    if (desired !== 1 && !(pin.kind === 'unplaced' && desired < 1)) {
       await hub.dispatch(node, 'service.scale', { service: s.name, replicas: 1 }).catch(() => undefined);
     }
 
@@ -152,9 +174,17 @@ async function reconcileOrg(orgId: string): Promise<void> {
 }
 
 export function startVectorReconcile(): () => void {
+  const inFlight = new Set<string>();
   const timer = setInterval(() => {
     const orgIds = new Set(store.nodeOrg.values());
-    for (const orgId of orgIds) void reconcileOrg(orgId).catch(() => undefined);
+    for (const orgId of orgIds) {
+      // Ticks never overlap per org (an in-place pin redeploy can outrun TICK_MS).
+      if (inFlight.has(orgId)) continue;
+      inFlight.add(orgId);
+      void reconcileOrg(orgId)
+        .catch(() => undefined)
+        .finally(() => inFlight.delete(orgId));
+    }
   }, TICK_MS);
   return () => clearInterval(timer);
 }

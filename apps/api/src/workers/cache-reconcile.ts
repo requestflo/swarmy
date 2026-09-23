@@ -1,7 +1,16 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { fireEvent, systemContext } from '@swarmy/trpc';
-import { STACK_LABEL } from '@swarmy/core';
+import {
+  cachePrimarySpec,
+  cacheRegionReplicaSpec,
+  cacheReplicaSpec,
+  cacheSentinelSpec,
+  fireEvent,
+  reconcileDataPin,
+  systemContext,
+  type CacheClusterDecl,
+} from '@swarmy/trpc';
+import { CACHE_AVOID_NODE_LABEL, CACHE_PIN_NODE_LABEL, STACK_LABEL } from '@swarmy/core';
 import type { ContainerInfo, ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
 import { hub, store } from '../gateway';
 
@@ -18,14 +27,22 @@ import { hub, store } from '../gateway';
  * and stamps the result as the `swarmy.cache.stats` label, firing alert events
  * when used memory crosses 90% of maxmemory or the primary is down.
  *
+ * Storage (step 0, @swarmy/core data-pin via `reconcileDataPin`): the primary's
+ * data is on a node-local volume, so it must be pinned (`swarmy.cache.node`).
+ * An unpinned primary running on exactly one node is pinned THERE in place (no
+ * data move); one with no running task is warned about and never redeployed —
+ * a redeploy could start it on a node with an empty volume. Base replicas get
+ * anti-affinity from the pinned node on a multi-node swarm.
+ *
  * Pure Docker-truth: reads the hub snapshot, dispatches to the org's manager,
- * no DB rows. The label scheme, spec builders and diff planner mirror
- * `@swarmy/trpc` cache.service.ts (the unit-tested canonical copies) — a worker
- * cannot subpath-import an internal trpc module, same constraint the
- * manageddb/geodns reconcile workers document.
+ * no DB rows. Member specs come from the canonical `@swarmy/trpc`
+ * cache.service builders (package root); only the small label/INFO mirrors
+ * remain local.
  */
 
 const TICK_MS = 30_000;
+/** Members already warned about as unplaced (resource key) — one warning each. */
+const storageWarned = new Set<string>();
 
 // ── Label scheme — kept in sync with @swarmy/trpc cache.service.ts ────────────
 const CACHE_ENGINE_LABEL = 'swarmy.cache.engine';
@@ -38,21 +55,10 @@ const CACHE_REPLICAS_LABEL = 'swarmy.cache.replicas';
 const CACHE_REGION_LABEL = 'swarmy.cache.region';
 const CACHE_STATS_LABEL = 'swarmy.cache.stats';
 const MANAGED_LABEL = 'swarmy.managed';
-const SCALE_TO_ZERO_EXEMPT_LABEL = 'swarmy.scaleToZero.exempt';
-const REGION_NODE_LABEL = 'swarmy.region';
 const CACHE_REGION_REPLICAS_RE = /^swarmy\.cache\.region\.(.+)\.replicas$/;
 const SWARM_SERVICE_ID_LABEL = 'com.docker.swarm.service.id';
 
-const CACHE_PORT = 6379;
-const CACHE_IMAGES: Record<CacheEngine, string> = {
-  valkey: 'valkey/valkey:8',
-  // bitnami/* versioned tags were purged from Docker Hub (Aug 2025); bitnamilegacy
-  // is the frozen twin with the same env/path contract (/bitnami/redis/data).
-  redis: 'bitnamilegacy/redis:7.4',
-};
-const SENTINEL_IMAGE = 'bitnamilegacy/redis-sentinel:7.4';
 const SENTINEL_COUNT = 3;
-const SENTINEL_QUORUM = 2;
 const SECRET_TARGET = 'cache-password';
 const MB = 1024 * 1024;
 const MEMORY_ALERT_PCT = 90;
@@ -109,151 +115,29 @@ function declOf(c: Cluster): Decl {
   };
 }
 
-// ── Spec builders — mirror of cache.service.ts (unit-tested canonical copy) ───
+// ── Spec builders — the CANONICAL @swarmy/trpc cache.service builders ───────
+// (imported off the package root, so the worker can never drift from the
+// provision path — including the primary's node pin + replica anti-affinity).
 
-function labelsFor(
+function toClusterDecl(
   c: Cluster,
   decl: Decl,
-  role: 'primary' | 'replica' | 'sentinel',
-  extra: Record<string, string> = {},
-): Record<string, string> {
+  pin: { pinNode?: string; multiNode: boolean },
+): CacheClusterDecl {
   return {
-    [MANAGED_LABEL]: 'true',
-    [STACK_LABEL]: c.stack,
-    [CACHE_ENGINE_LABEL]: decl.engine,
-    [CACHE_CLUSTER_LABEL]: c.cluster,
-    [CACHE_ROLE_LABEL]: role,
-    [CACHE_TOPOLOGY_LABEL]: decl.topology,
-    [CACHE_MEMORY_LABEL]: String(decl.memoryMb),
-    [CACHE_REPLICAS_LABEL]: String(decl.replicas),
-    [SCALE_TO_ZERO_EXEMPT_LABEL]: 'true',
-    ...(role === 'sentinel' ? {} : { [CACHE_APPLIED_MEMORY_LABEL]: String(decl.memoryMb) }),
-    ...extra,
+    stack: c.stack,
+    cluster: c.cluster,
+    engine: decl.engine,
+    topology: decl.topology,
+    memoryMb: decl.memoryMb,
+    replicas: decl.replicas,
+    regionReplicas: decl.regionReplicas,
+    ...(pin.pinNode ? { pinNode: pin.pinNode } : {}),
+    ...(pin.pinNode && pin.multiNode ? { avoidNode: pin.pinNode } : {}),
   };
 }
 
 const netName = (c: Cluster) => `${c.base}-cache-net`;
-const primaryName = (c: Cluster) => `${c.base}-cache`;
-const secretName = (c: Cluster) => `swarmy-cache-${c.base}-password`;
-
-function valkeyCommand(decl: Decl, replicaOf?: string): string {
-  const parts = [
-    'exec valkey-server',
-    `--requirepass "$(cat /run/secrets/${SECRET_TARGET})"`,
-    `--masterauth "$(cat /run/secrets/${SECRET_TARGET})"`,
-    `--maxmemory ${decl.memoryMb}mb`,
-    '--maxmemory-policy allkeys-lru',
-    '--appendonly yes',
-    '--dir /data',
-  ];
-  if (replicaOf) parts.push(`--replicaof ${replicaOf} ${CACHE_PORT}`);
-  return parts.join(' ');
-}
-
-function redisEnv(decl: Decl, mode: 'master' | 'slave', primaryHost: string): Record<string, string> {
-  return {
-    REDIS_REPLICATION_MODE: mode,
-    REDIS_PASSWORD_FILE: `/run/secrets/${SECRET_TARGET}`,
-    REDIS_MASTER_PASSWORD_FILE: `/run/secrets/${SECRET_TARGET}`,
-    REDIS_AOF_ENABLED: 'yes',
-    REDIS_EXTRA_FLAGS: `--maxmemory ${decl.memoryMb}mb --maxmemory-policy allkeys-lru`,
-    ...(mode === 'slave'
-      ? { REDIS_MASTER_HOST: primaryHost, REDIS_MASTER_PORT_NUMBER: String(CACHE_PORT) }
-      : {}),
-  };
-}
-
-/** A data member spec (primary/replica/region sibling). NO ports — private-only. */
-function dataSpec(
-  c: Cluster,
-  decl: Decl,
-  role: 'primary' | 'replica',
-  opts: {
-    name: string;
-    replicas: number;
-    extraLabels?: Record<string, string>;
-    placement?: ServiceSpec['placement'];
-  },
-): ServiceSpec {
-  const isPrimary = role === 'primary';
-  const base: ServiceSpec = {
-    name: opts.name,
-    image: CACHE_IMAGES[decl.engine],
-    mode: { replicated: { replicas: opts.replicas } },
-    labels: labelsFor(c, decl, role, opts.extraLabels),
-    networks: [netName(c)],
-    secrets: [{ source: secretName(c), target: SECRET_TARGET }],
-    resources: { limits: { memoryBytes: (decl.memoryMb + 64) * MB } },
-    ...(isPrimary
-      ? {
-          mounts: [
-            {
-              type: 'volume' as const,
-              source: `${c.base}-cache-data`,
-              target: decl.engine === 'redis' ? '/bitnami/redis/data' : '/data',
-            },
-          ],
-        }
-      : {}),
-    ...(opts.placement ? { placement: opts.placement } : {}),
-  };
-  if (decl.engine === 'valkey') {
-    return {
-      ...base,
-      command: ['sh', '-c'],
-      args: [valkeyCommand(decl, isPrimary ? undefined : primaryName(c))],
-    };
-  }
-  return { ...base, env: redisEnv(decl, isPrimary ? 'master' : 'slave', primaryName(c)) };
-}
-
-function primarySpec(c: Cluster, decl: Decl): ServiceSpec {
-  const regionLabels: Record<string, string> = {};
-  for (const [region, n] of Object.entries(decl.regionReplicas)) {
-    if (n > 0) regionLabels[`swarmy.cache.region.${region}.replicas`] = String(n);
-  }
-  return dataSpec(c, decl, 'primary', {
-    name: primaryName(c),
-    replicas: 1,
-    extraLabels: regionLabels,
-  });
-}
-
-function replicaSpec(c: Cluster, decl: Decl, replicas: number): ServiceSpec {
-  return dataSpec(c, decl, 'replica', {
-    name: `${c.base}-cache-replica`,
-    replicas,
-    placement: { preferences: ['spread=node.id'] },
-  });
-}
-
-function regionReplicaSpec(c: Cluster, decl: Decl, region: string, replicas: number): ServiceSpec {
-  return dataSpec(c, decl, 'replica', {
-    name: `${c.base}-cache-replica-${region}`,
-    replicas,
-    extraLabels: { [CACHE_REGION_LABEL]: region },
-    placement: { constraints: [`node.labels.${REGION_NODE_LABEL}==${region}`] },
-  });
-}
-
-function sentinelSpec(c: Cluster, decl: Decl): ServiceSpec {
-  return {
-    name: `${c.base}-cache-sentinel`,
-    image: SENTINEL_IMAGE,
-    mode: { replicated: { replicas: SENTINEL_COUNT } },
-    env: {
-      REDIS_MASTER_HOST: primaryName(c),
-      REDIS_MASTER_PORT_NUMBER: String(CACHE_PORT),
-      REDIS_MASTER_SET: c.cluster,
-      REDIS_SENTINEL_QUORUM: String(SENTINEL_QUORUM),
-      REDIS_MASTER_PASSWORD_FILE: `/run/secrets/${SECRET_TARGET}`,
-    },
-    labels: labelsFor(c, decl, 'sentinel'),
-    networks: [netName(c)],
-    secrets: [{ source: secretName(c), target: SECRET_TARGET }],
-    placement: { preferences: ['spread=node.id'] },
-  };
-}
 
 // ── Stats sampling (INFO via exec; the password never rides the wire) ─────────
 
@@ -392,8 +276,36 @@ async function reconcileOrg(orgId: string): Promise<void> {
 
   const ctx = systemContext({ db: prisma, hub, auth: authRegistry.getAuth() }, orgId);
 
+  const multiNode = hub.nodeInventory(orgId).length > 1;
+
   for (const c of clusters.values()) {
     const decl = declOf(c);
+
+    // (0) Storage pin — the primary's volume is node-local. Adopt an unpinned
+    //     primary onto the node it runs on; warn (never redeploy) when it isn't
+    //     running anywhere we can see.
+    let pinNode = c.primary?.labels[CACHE_PIN_NODE_LABEL];
+    let primaryFrozen = false; // no primary redeploy this tick
+    if (c.primary) {
+      const pin = await reconcileDataPin({
+        ctx,
+        managerNodeId: node,
+        member: c.primary,
+        pinLabel: CACHE_PIN_NODE_LABEL,
+        resource: `cache:${c.stack}/${c.cluster}`,
+        title: `Cache ${c.stack}/${c.cluster}`,
+        volume: `${c.base}-cache-data`,
+        warned: storageWarned,
+      });
+      if (pin.kind === 'adopt') {
+        // Just redeployed in place (or failed; retried next tick).
+        primaryFrozen = true;
+        pinNode = pin.adopted ? pin.pin : undefined;
+      } else if (pin.kind === 'unplaced') {
+        primaryFrozen = true;
+      }
+    }
+    const cd = toClusterDecl(c, decl, { pinNode, multiNode });
     const replicaTarget =
       decl.topology === 'single'
         ? 0
@@ -405,7 +317,7 @@ async function reconcileOrg(orgId: string): Promise<void> {
     if (!c.replica) {
       if (replicaTarget > 0) {
         await ensureNet(c);
-        await deploy(replicaSpec(c, decl, replicaTarget));
+        await deploy(cacheReplicaSpec(cd, replicaTarget));
       }
     } else if ((c.replica.desiredReplicas ?? 0) !== replicaTarget) {
       await scale(c.replica.name, replicaTarget);
@@ -415,7 +327,7 @@ async function reconcileOrg(orgId: string): Promise<void> {
     if (decl.topology === 'sentinel') {
       if (!c.sentinel) {
         await ensureNet(c);
-        await deploy(sentinelSpec(c, decl));
+        await deploy(cacheSentinelSpec(cd));
       } else if ((c.sentinel.desiredReplicas ?? 0) !== SENTINEL_COUNT) {
         await scale(c.sentinel.name, SENTINEL_COUNT);
       }
@@ -432,7 +344,7 @@ async function reconcileOrg(orgId: string): Promise<void> {
       }
       if (!sib) {
         await ensureNet(c);
-        await deploy(regionReplicaSpec(c, decl, region, n));
+        await deploy(cacheRegionReplicaSpec(cd, region, n));
       } else if ((sib.desiredReplicas ?? 0) !== n) {
         await scale(sib.name, n);
       }
@@ -448,15 +360,32 @@ async function reconcileOrg(orgId: string): Promise<void> {
       const n = Number.parseInt(s.labels[CACHE_APPLIED_MEMORY_LABEL] ?? '', 10);
       return Number.isFinite(n) ? n : null;
     };
-    if (c.primary && applied(c.primary) !== null && applied(c.primary) !== decl.memoryMb) {
-      await deploy(primarySpec(c, decl));
+    // A canonical primary rebuild needs a known pin (it carries node.id==pin);
+    // an unpinned/unplaced primary is never rebuilt here.
+    if (
+      c.primary &&
+      !primaryFrozen &&
+      pinNode &&
+      applied(c.primary) !== null &&
+      applied(c.primary) !== decl.memoryMb
+    ) {
+      await deploy(cachePrimarySpec(cd));
     }
-    if (c.replica && applied(c.replica) !== null && applied(c.replica) !== decl.memoryMb) {
-      await deploy(replicaSpec(c, decl, c.replica.desiredReplicas ?? replicaTarget));
+    // Base replicas: memory drift, or anti-affinity drift vs the primary's pin
+    // (they re-sync from the primary, so a rebuild moves no data).
+    const wantAvoid = cd.avoidNode;
+    const avoidDrift =
+      Boolean(pinNode) && (c.replica?.labels[CACHE_AVOID_NODE_LABEL] ?? undefined) !== wantAvoid;
+    if (
+      c.replica &&
+      ((applied(c.replica) !== null && applied(c.replica) !== decl.memoryMb) ||
+        (avoidDrift && (c.replica.desiredReplicas ?? 0) > 0))
+    ) {
+      await deploy(cacheReplicaSpec(cd, c.replica.desiredReplicas ?? replicaTarget));
     }
     for (const [region, sib] of c.regionSiblings) {
       if (applied(sib) !== null && applied(sib) !== decl.memoryMb) {
-        await deploy(regionReplicaSpec(c, decl, region, sib.desiredReplicas ?? 1));
+        await deploy(cacheRegionReplicaSpec(cd, region, sib.desiredReplicas ?? 1));
       }
     }
 
@@ -490,9 +419,17 @@ async function reconcileOrg(orgId: string): Promise<void> {
 }
 
 export function startCacheReconcile(): () => void {
+  const inFlight = new Set<string>();
   const timer = setInterval(() => {
     const orgIds = new Set(store.nodeOrg.values());
-    for (const orgId of orgIds) void reconcileOrg(orgId).catch(() => undefined);
+    for (const orgId of orgIds) {
+      // Ticks never overlap per org (an in-place pin redeploy can outrun TICK_MS).
+      if (inFlight.has(orgId)) continue;
+      inFlight.add(orgId);
+      void reconcileOrg(orgId)
+        .catch(() => undefined)
+        .finally(() => inFlight.delete(orgId));
+    }
   }, TICK_MS);
   return () => clearInterval(timer);
 }

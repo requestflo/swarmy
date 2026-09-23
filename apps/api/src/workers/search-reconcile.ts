@@ -1,7 +1,7 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { fireEvent, systemContext } from '@swarmy/trpc';
-import { STACK_LABEL } from '@swarmy/core';
+import { fireEvent, reconcileDataPin, systemContext } from '@swarmy/trpc';
+import { SEARCH_PIN_NODE_LABEL, STACK_LABEL } from '@swarmy/core';
 import type { ContainerInfo, SwarmServiceInfo } from '@swarmy/core/protocol';
 import { hub, store } from '../gateway';
 
@@ -18,6 +18,11 @@ import { hub, store } from '../gateway';
  *      stays in the container's secret file) and stamp the result as the
  *      `swarmy.search.stats` label so views render without a live exec.
  *   3. ALERT — fire `search-instance-down` when the engine has 0/N running.
+ *   0. STORAGE PIN — the data volume is node-local, so the instance must be
+ *      pinned (`swarmy.search.node`, @swarmy/core data-pin via
+ *      `reconcileDataPin`). Unpinned + running on one node → pinned THERE in
+ *      place; unpinned + not running → warned, and never woken/redeployed (it
+ *      could start on a node with an empty volume).
  *
  * Pure Docker-truth: reads the hub snapshot, dispatches to the org's manager,
  * no DB rows. The label scheme, commands and parsers mirror `@swarmy/trpc`
@@ -27,6 +32,8 @@ import { hub, store } from '../gateway';
  */
 
 const TICK_MS = 30_000;
+/** Instances already warned about as unplaced (resource key) — one warning each. */
+const storageWarned = new Set<string>();
 
 // ── Label scheme — kept in sync with @swarmy/trpc search.service.ts ───────────
 const SEARCH_ENGINE_LABEL = 'swarmy.search.engine';
@@ -206,6 +213,23 @@ async function reconcileOrg(orgId: string): Promise<void> {
     const base = `${inst.stack}_${inst.name}`;
     const restoring = s.labels[SEARCH_RESTORING_LABEL] === 'true';
 
+    // (0) Storage pin (skipped mid-restore: the engine is parked on purpose).
+    if (!restoring) {
+      const pin = await reconcileDataPin({
+        ctx,
+        managerNodeId: node,
+        member: s,
+        pinLabel: SEARCH_PIN_NODE_LABEL,
+        resource: `search:${inst.stack}/${inst.name}`,
+        title: `Search ${inst.stack}/${inst.name}`,
+        volume: `${base}-search-data`,
+        warned: storageWarned,
+      });
+      // Unplaced: don't wake it (step 1) — we can't tell where its data is.
+      // Adopted: just redeployed in place; sample next tick.
+      if (pin.kind === 'unplaced' || pin.kind === 'adopt') continue;
+    }
+
     // (1) Converge: a single-node instance parked at 0 (and not mid-restore)
     //     is woken back to its one replica.
     if ((s.desiredReplicas ?? 0) === 0 && !restoring) {
@@ -243,9 +267,17 @@ async function reconcileOrg(orgId: string): Promise<void> {
 }
 
 export function startSearchReconcile(): () => void {
+  const inFlight = new Set<string>();
   const timer = setInterval(() => {
     const orgIds = new Set(store.nodeOrg.values());
-    for (const orgId of orgIds) void reconcileOrg(orgId).catch(() => undefined);
+    for (const orgId of orgIds) {
+      // Ticks never overlap per org (an in-place pin redeploy can outrun TICK_MS).
+      if (inFlight.has(orgId)) continue;
+      inFlight.add(orgId);
+      void reconcileOrg(orgId)
+        .catch(() => undefined)
+        .finally(() => inFlight.delete(orgId));
+    }
   }, TICK_MS);
   return () => clearInterval(timer);
 }
