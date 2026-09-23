@@ -23,6 +23,10 @@ export interface BackupScheduleView {
   lastRunAt: string | null;
   nextRunAt: string | null;
   createdAt: string;
+  /** Created by default-on DB backups ("Auto — nightly, keep 7"), not a user. */
+  auto: boolean;
+  /** Retention this schedule prunes to when the stack has no retention label. */
+  retentionDays: number | null;
 }
 
 interface ScheduleRow {
@@ -36,6 +40,9 @@ interface ScheduleRow {
   lastRunAt: Date | null;
   nextRunAt: Date | null;
   createdAt: Date;
+  auto?: boolean;
+  retentionDays?: number | null;
+  optedOutAt?: Date | null;
 }
 
 function db(ctx: OrgContext): {
@@ -60,6 +67,8 @@ function toView(row: ScheduleRow): BackupScheduleView {
     lastRunAt: row.lastRunAt ? row.lastRunAt.toISOString() : null,
     nextRunAt: row.nextRunAt ? row.nextRunAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
+    auto: row.auto === true,
+    retentionDays: row.retentionDays ?? null,
   };
 }
 
@@ -70,6 +79,8 @@ export async function listSchedules(
   const rows = await db(ctx).findMany({
     where: {
       orgId: ctx.activeOrgId,
+      // Opt-out tombstones (a removed auto schedule) are not schedules.
+      optedOutAt: null,
       // Volumes belong to a stack by name prefix (`<stack>_<volume>`).
       ...(input?.stack ? { volume: { startsWith: `${input.stack}_` } } : {}),
     },
@@ -93,6 +104,14 @@ export async function createSchedule(
   const spec: ScheduleSpec = { every: input.every, unit: input.unit };
   intervalMs(spec); // validate
   const now = new Date();
+  // The user is taking over this volume: retire the auto schedule as an
+  // opt-out tombstone (so the loop doesn't re-create it next to theirs).
+  const auto = await db(ctx).findFirst({
+    where: { orgId: ctx.activeOrgId, volume: input.volume, auto: true, optedOutAt: null },
+  });
+  if (auto) {
+    await db(ctx).update({ where: { id: auto.id }, data: { optedOutAt: now, paused: true } });
+  }
   const row = await db(ctx).create({
     data: {
       orgId: ctx.activeOrgId,
@@ -133,13 +152,21 @@ export async function removeSchedule(
   ctx: OrgContext,
   id: string,
 ): Promise<{ id: string; removed: true }> {
-  const row = await db(ctx).findFirst({ where: { id, orgId: ctx.activeOrgId } });
+  const row = await db(ctx).findFirst({ where: { id, orgId: ctx.activeOrgId, optedOutAt: null } });
   if (!row) throw notFound('backup schedule', id);
-  await db(ctx).delete({ where: { id } });
+  if (row.auto) {
+    // Removing an AUTO schedule is the user opting this volume out of
+    // default-on backups: keep an inert tombstone (never runs, hidden from
+    // lists) so the auto-backup loop does not re-create it.
+    await db(ctx).update({ where: { id }, data: { optedOutAt: new Date(), paused: true } });
+  } else {
+    await db(ctx).delete({ where: { id } });
+  }
   await writeAudit(ctx, {
     action: 'backup.schedule.remove',
     targetType: 'backupSchedule',
     targetId: id,
+    metadata: { volume: row.volume, ...(row.auto ? { auto: true, optOut: true } : {}) },
   });
   return { id, removed: true };
 }

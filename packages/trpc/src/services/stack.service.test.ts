@@ -5,6 +5,7 @@ import {
   carryIngressRoutes,
   deployFromCompose,
   findLegacyServices,
+  removeStack,
   splitLegacyRemovals,
 } from './stack.service';
 
@@ -249,5 +250,32 @@ describe('deployFromCompose — legacy bare-name migration', () => {
       labels: { 'swarmy.ingress.routes': '[]' },
     } as ServiceSpec;
     expect(carryIngressRoutes(spec, legacyWeb)).toBe(spec);
+  });
+});
+
+describe('removeStack — cleans up the stack overlays', () => {
+  it('removes the services, then asks the agent to drop the swarmy-created stack networks', async () => {
+    const live = [
+      svc({ name: 'site_web', labels: { 'com.docker.stack.namespace': 'site' } }),
+      svc({ name: 'site_db', labels: { 'com.docker.stack.namespace': 'site' } }),
+      svc({ name: 'other_web', labels: { 'com.docker.stack.namespace': 'other' } }),
+    ];
+    const { ctx, dispatched } = fakeCtx(live);
+    let deleted = false;
+    const db = (ctx as unknown as { db: Record<string, Record<string, unknown>> }).db;
+    db.stack!.findFirst = async () => ({ id: 'stack-1', name: 'site' });
+    db.stack!.delete = async () => {
+      deleted = true;
+      return {};
+    };
+    (ctx as unknown as { hub: Record<string, unknown> }).hub.onlineNodeIds = () => ['node1'];
+
+    const res = await removeStack(ctx, 'stack-1');
+    expect(res).toEqual({ id: 'stack-1', removed: true });
+    expect(deleted).toBe(true);
+    expect(dispatched.map((d) => d.command)).toEqual(['service.remove', 'service.remove', 'network.removeForStack']);
+    expect(dispatched.slice(0, 2).map((d) => d.payload.service)).toEqual(['site_web', 'site_db']);
+    // Stack-scoped: the agent only removes networks labelled for THIS stack + swarmy.managed.
+    expect(dispatched[2]!.payload).toEqual({ stack: 'site' });
   });
 });

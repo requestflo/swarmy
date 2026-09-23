@@ -235,7 +235,7 @@ interface DbSnapshotState extends DbBackupSnapshotView {
 
 // ── Managed-DB topology (slice A2) — mirrors manageddb.service view shapes ────
 
-type DbMemberStatus = 'running' | 'degraded' | 'deploying' | 'idle' | 'stopped' | 'absent';
+type DbMemberStatus = 'running' | 'degraded' | 'deploying' | 'failing' | 'idle' | 'stopped' | 'absent';
 
 interface DbTopoMember {
   service: string;
@@ -500,6 +500,14 @@ export const data: DomainResolvers = {
     'backups.stackRetention': (i, s): { stack: string; retentionDays: number | null } => {
       const stack = (i as { stack: string }).stack;
       return { stack, retentionDays: getState(s).retention?.[stack] ?? null };
+    },
+    // Default-on DB backups coverage: the demo estate has no detected compose
+    // databases, so the card stays hidden; the destination mirrors production's
+    // choice order loosely (first enabled target).
+    'backups.autoCoverage': (i, s) => {
+      const stack = (i as { stack: string }).stack;
+      const t = getState(s).targets.find((x) => x.enabled) ?? null;
+      return { stack, destination: t ? { id: t.id, name: t.name } : null, databases: [] };
     },
     'backups.setStackRetention': (i, s): { stack: string; retentionDays: number | null } => {
       const { stack, retentionDays } = i as { stack: string; retentionDays: number | null };

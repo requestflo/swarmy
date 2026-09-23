@@ -163,6 +163,24 @@ export const EnsureNetworkMsg = z.object({
 });
 export type EnsureNetworkMsg = z.infer<typeof EnsureNetworkMsg>;
 
+/**
+ * Remove the overlay networks swarmy created for a compose stack
+ * (`<stack>_default`, `<stack>_<net>`) once its services are gone. The agent
+ * only ever removes networks labelled BOTH `com.docker.stack.namespace=<stack>`
+ * and `swarmy.managed=true` (what `network.ensure` stamps for a compose deploy)
+ * — never an external network, never the shared `swarmy` overlay. Retries while
+ * the just-removed tasks still hold endpoints. Manager-only.
+ */
+export const RemoveStackNetworksPayload = z.object({
+  ...cmd,
+  stack: z.string().min(1),
+});
+export const RemoveStackNetworksMsg = z.object({
+  type: z.literal('removeStackNetworks'),
+  payload: RemoveStackNetworksPayload,
+});
+export type RemoveStackNetworksMsg = z.infer<typeof RemoveStackNetworksMsg>;
+
 export const RemoveServicePayload = z.object({ ...cmd, service: z.string() });
 export const RemoveServiceMsg = z.object({
   type: z.literal('removeService'),

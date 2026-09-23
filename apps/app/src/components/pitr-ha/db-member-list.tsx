@@ -8,7 +8,7 @@ export function memberTone(status: DbClusterMemberView['status']): StatusTone {
   if (status === 'running') return 'online';
   if (status === 'degraded') return 'warning';
   if (status === 'deploying') return 'progress';
-  if (status === 'absent' || status === 'stopped') return 'offline';
+  if (status === 'absent' || status === 'stopped' || status === 'failing') return 'offline';
   return 'neutral';
 }
 

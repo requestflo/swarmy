@@ -46,6 +46,7 @@ function liveStackServices(ctx: OrgContext, stackName: string): InvService[] {
 /** Synthesize a stack-level status from its live services' statuses. */
 function stackStatus(svcs: InvService[]): string {
   if (svcs.length === 0) return 'empty';
+  if (svcs.some((s) => s.status === 'failing')) return 'failing';
   if (svcs.some((s) => s.status === 'deploying')) return 'deploying';
   if (svcs.some((s) => s.status === 'degraded' || s.status === 'stopped')) return 'degraded';
   return 'running';
@@ -92,6 +93,8 @@ export interface StackDetail extends StackSummary {
 /** `swarmy.ingress` — the service-summary "has a route" flag, carried with the routes. */
 const INGRESS_ENABLED_LABEL = 'swarmy.ingress';
 const NETWORK_ENSURE_TIMEOUT_MS = 30_000;
+/** Network removal retries (agent side, ~20s) while removed tasks drain. */
+const STACK_NETWORK_REMOVE_TIMEOUT_MS = 60_000;
 
 /** Parse compose YAML into a plain object; malformed YAML is a 400, not a 500. */
 function parseComposeDoc(source: string): ComposeFile {
@@ -622,6 +625,14 @@ export async function removeStack(
     for (const svc of liveStackServices(ctx, stack.name)) {
       await ctx.hub.dispatch(node.id, 'service.remove', { service: svc.name }).catch(() => undefined);
     }
+    // Then the stack's own overlays (`<stack>_default`, `<stack>_<net>`). The
+    // agent only removes networks labelled for THIS stack + `swarmy.managed`
+    // (what `network.ensure` stamped at deploy) — never external ones — and
+    // retries while the removed tasks release their endpoints, so this is
+    // fire-and-forget rather than holding the request open.
+    void ctx.hub
+      .dispatch(node.id, 'network.removeForStack', { stack: stack.name }, { timeoutMs: STACK_NETWORK_REMOVE_TIMEOUT_MS })
+      .catch(() => undefined);
   }
   await ctx.db.stack.delete({ where: { id } });
   return { id, removed: true };

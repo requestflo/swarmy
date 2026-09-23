@@ -27,7 +27,7 @@ export function NodeControlsPanel({ node, monthlyUsd }: NodeControlsPanelProps):
           <SlidersHorizontalIcon className="text-primary size-4" /> Controls
         </CardTitle>
       </CardHeader>
-      <CardContent className="divide-border grid gap-5 divide-y">
+      <CardContent className="divide-border grid grid-cols-1 gap-5 divide-y">
         <NodeRegionCostForm
           nodeId={node?.id ?? ''}
           region={node?.region ?? null}

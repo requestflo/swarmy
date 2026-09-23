@@ -45,6 +45,26 @@ export const SYSTEM_STACK_LABEL = 'swarmy.system';
  */
 export const SWARMY_OVERLAY_NETWORK = 'swarmy';
 
+/** Marker `network.ensure`/compose deploys stamp on every object swarmy created. */
+export const SWARMY_MANAGED_LABEL = 'swarmy.managed';
+
+/**
+ * True when a Docker network is one swarmy itself created for compose stack
+ * `stack` (so removing the stack may remove it): labelled with the stack
+ * namespace AND `swarmy.managed=true`. External networks carry neither label
+ * (compose never creates them); the shared `swarmy` overlay and Docker's own
+ * networks are refused outright regardless of labels.
+ */
+export function isSwarmyStackNetwork(
+  net: { Name?: string; Labels?: Record<string, string> | null },
+  stack: string,
+): boolean {
+  if (!stack || !net.Name) return false;
+  if (net.Name === SWARMY_OVERLAY_NETWORK || SYSTEM_NETWORKS.has(net.Name)) return false;
+  const labels = net.Labels ?? {};
+  return labels[STACK_LABEL] === stack && labels[SWARMY_MANAGED_LABEL] === 'true';
+}
+
 /** True when `name` is the reserved swarmy-system stack namespace. */
 export function isSystemStack(name: string): boolean {
   return name === SYSTEM_STACK;
@@ -53,7 +73,13 @@ export function isSystemStack(name: string): boolean {
 /** Networks that never imply an application link. */
 const SYSTEM_NETWORKS = new Set(['ingress', 'bridge', 'host', 'none', 'docker_gwbridge']);
 
-export type InvServiceStatus = 'running' | 'degraded' | 'deploying' | 'idle' | 'stopped';
+/**
+ * `failing` = wants replicas, has none running, and it is not converging: tasks
+ * keep failing/being rejected (a crash loop, a bad image, an unplaceable
+ * constraint), or nothing has come up long after the last spec update. Distinct
+ * from `deploying` so a crash loop never reads as "still converging" forever.
+ */
+export type InvServiceStatus = 'running' | 'degraded' | 'deploying' | 'failing' | 'idle' | 'stopped';
 
 export interface InvContainer {
   id: string;
@@ -90,6 +116,11 @@ export interface InvService {
   /** Docker config names the service spec references. Optional (additive). */
   configs?: string[];
   containers: InvContainer[];
+  /** Most recent task error (`docker service ps` ERROR column), when the agent
+   *  reported one — the "why" behind a `failing`/`degraded` status. */
+  lastError?: string;
+  /** When `lastError` was observed (ms since epoch). */
+  lastErrorAt?: number;
 }
 export interface InvProject {
   name: string;
@@ -107,18 +138,98 @@ export interface Inventory {
   edges: InvEdge[];
 }
 
-function statusOf(desired: number, running: number, scaleToZero: boolean): InvServiceStatus {
+/** Failed/rejected tasks in the recent window that mark a crash loop. */
+export const FAILING_MIN_FAILURES = 2;
+/** No replica running this long after the last spec update ⇒ not converging. */
+export const FAILING_AFTER_MS = 2 * 60_000;
+/** Task-failure lookback window the agent counts `recentFailures` over. */
+export const TASK_FAILURE_WINDOW_MS = 10 * 60_000;
+
+export type TaskHealth = NonNullable<SwarmServiceInfo['taskHealth']>;
+
+export interface StatusSignals {
+  /** Task-history health from the agent (absent from older agents). */
+  taskHealth?: SwarmServiceInfo['taskHealth'];
+  /** Service spec `UpdatedAt` (ms). */
+  updatedAt?: number;
+  /** Clock (ms); injectable for tests. */
+  now?: number;
+}
+
+export function statusOf(
+  desired: number,
+  running: number,
+  scaleToZero: boolean,
+  signals: StatusSignals = {},
+): InvServiceStatus {
   if (desired === 0) return scaleToZero ? 'idle' : 'stopped';
   if (running >= desired) return 'running';
-  if (running === 0) return 'deploying';
-  return 'degraded';
+  if (running > 0) return 'degraded';
+  const th = signals.taskHealth;
+  // Repeated failed/rejected tasks = a crash loop, however recent the update.
+  if (th && th.recentFailures >= FAILING_MIN_FAILURES) return 'failing';
+  // Nothing up long after the last update, and nothing mid-start (a slow image
+  // pull reports `preparing`, which keeps it `deploying`).
+  const now = signals.now ?? Date.now();
+  if (signals.updatedAt && now - signals.updatedAt > FAILING_AFTER_MS && !th?.starting) return 'failing';
+  return 'deploying';
+}
+
+/** A swarm task, as far as task-health summarising cares (dockerode-loose). */
+export interface TaskLike {
+  DesiredState?: string;
+  Status?: {
+    State?: string;
+    Timestamp?: string;
+    Err?: string;
+    Message?: string;
+    ContainerStatus?: { ExitCode?: number };
+  };
+}
+
+const STARTING_STATES = new Set(['new', 'allocated', 'assigned', 'accepted', 'preparing', 'ready', 'starting']);
+
+/**
+ * Summarise a service's task history (all tasks incl. shut-down ones, as
+ * `docker service ps` shows them) into the wire `taskHealth`. Pure.
+ */
+export function summarizeTasks(tasks: TaskLike[], now: number = Date.now()): TaskHealth {
+  let recentFailures = 0;
+  let lastError: string | undefined;
+  let lastErrorAt: number | undefined;
+  let starting = false;
+  for (const t of tasks) {
+    const state = t.Status?.State ?? '';
+    const at = Date.parse(t.Status?.Timestamp ?? '') || 0;
+    if (t.DesiredState === 'running' && STARTING_STATES.has(state) && !t.Status?.Err) starting = true;
+    const failed = state === 'failed' || state === 'rejected';
+    if (failed && (!at || now - at <= TASK_FAILURE_WINDOW_MS)) recentFailures++;
+    const exit = t.Status?.ContainerStatus?.ExitCode;
+    const err =
+      t.Status?.Err ||
+      (failed ? t.Status?.Message || (exit ? `exit code ${exit}` : state) : undefined);
+    if (err && (lastErrorAt === undefined || at > lastErrorAt)) {
+      lastError = err;
+      lastErrorAt = at;
+    }
+  }
+  return {
+    recentFailures,
+    ...(lastError ? { lastError } : {}),
+    ...(lastError && lastErrorAt ? { lastErrorAt } : {}),
+    starting,
+  };
 }
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export function buildInventory(services: SwarmServiceInfo[], containers: ContainerInfo[]): Inventory {
+export function buildInventory(
+  services: SwarmServiceInfo[],
+  containers: ContainerInfo[],
+  now: number = Date.now(),
+): Inventory {
   // Containers → service (swarm task carries the service id).
   const ctrsByService = new Map<string, InvContainer[]>();
   for (const c of containers) {
@@ -139,7 +250,7 @@ export function buildInventory(services: SwarmServiceInfo[], containers: Contain
       stack: s.labels?.[STACK_LABEL] ?? UNGROUPED,
       mode: s.mode,
       replicas: { desired, running: s.runningReplicas },
-      status: statusOf(desired, s.runningReplicas, scaleToZero),
+      status: statusOf(desired, s.runningReplicas, scaleToZero, { taskHealth: s.taskHealth, updatedAt: s.updatedAt, now }),
       scaleToZero,
       regionParent: s.labels?.[REGION_PARENT_LABEL] || undefined,
       region: s.labels?.[REGION_OF_LABEL] || undefined,
@@ -150,6 +261,8 @@ export function buildInventory(services: SwarmServiceInfo[], containers: Contain
       secrets: s.secrets ?? [],
       configs: s.configs ?? [],
       containers: ctrsByService.get(s.id) ?? [],
+      ...(s.taskHealth?.lastError ? { lastError: s.taskHealth.lastError } : {}),
+      ...(s.taskHealth?.lastErrorAt ? { lastErrorAt: s.taskHealth.lastErrorAt } : {}),
     };
   });
 

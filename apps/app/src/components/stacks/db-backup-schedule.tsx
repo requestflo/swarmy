@@ -4,6 +4,7 @@ import { CalendarClockIcon } from 'lucide-react';
 import { Button, Input, Label, Switch, toast } from '@swarmy/ui';
 import type { DbBackupEngine } from '@swarmy/core/protocol';
 import { useTRPC } from '@/integrations/trpc';
+import { AutoBackupBadge } from '@/components/backups/auto-backup-badge';
 import { DbBackupCronField } from './db-backup-cron-field';
 
 interface DbBackupScheduleProps {
@@ -78,6 +79,12 @@ export function DbBackupSchedule({
       <div className="flex items-center justify-between gap-3">
         <p className="mono-label text-muted-foreground flex items-center gap-1.5">
           <CalendarClockIcon className="size-3.5" /> Schedule
+          {current?.auto && (
+            <AutoBackupBadge
+              retentionDays={current.retentionDays}
+              change={<span className="text-muted-foreground text-xs">(edit below to take over)</span>}
+            />
+          )}
         </p>
         <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable schedule" />
       </div>

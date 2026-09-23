@@ -15,7 +15,7 @@ import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
-import { specFromInspect } from './service-patch';
+import { liveServiceSpec, specFromInspect } from './service-patch';
 import { deployFromCompose } from './stack.service';
 
 /**
@@ -497,36 +497,42 @@ export function routesWithoutCanary(routes: Route[]): Route[] {
 }
 
 /**
- * The canary sibling's deploy spec, derived from the LIVE stable service
- * (inventory carries image/env/networks/secret+config names): same runtime
- * surface, candidate image, exactly 1 replica, no published ports (traffic
- * arrives only through the weighted ingress route), and the two canary labels.
+ * PURE — the canary sibling's deploy spec, cut from the stable service's FULL
+ * live spec (`liveServiceSpec` → `service.inspect`, never the lossy inventory
+ * view): command/args, mounts, healthcheck, resources, placement, restart
+ * policy, env, networks and secrets/configs (with their file targets) carry
+ * over verbatim. Swapped: the candidate image, exactly 1 replica, the
+ * `--canary` name, and a clean label set (the two canary labels + the stack
+ * namespace — never the stable's ingress routes / region / scale-to-zero
+ * labels). Published ports are dropped: traffic arrives only through the
+ * weighted ingress route.
+ *
+ * Mounts are kept on purpose, named volumes included: the canary is the SAME
+ * app on a candidate image and is expected to read/write the stable's data
+ * (as a rolling update would). Local named volumes are per-node, so it shares
+ * the data wherever the stable's placement lands it beside a stable task (a
+ * cluster/CSI volume is shared outright).
  */
-export function canarySpecFor(stable: InvService, image: string, params: CanaryParams): ServiceSpec {
-  const env: Record<string, string> = {};
-  for (const kv of stable.env) {
-    const eq = kv.indexOf('=');
-    if (eq > 0) env[kv.slice(0, eq)] = kv.slice(eq + 1);
-  }
+export function canarySpecFor(
+  live: ServiceSpec,
+  stable: Pick<InvService, 'name' | 'stack'>,
+  image: string,
+  params: CanaryParams,
+): ServiceSpec {
   const labels: Record<string, string> = {
     [CANARY_OF_LABEL]: stable.name,
     [CANARY_PARAMS_LABEL]: JSON.stringify(params),
   };
   if (stable.stack !== UNGROUPED) labels[STACK_LABEL] = stable.stack;
-  return {
+  const spec: ServiceSpec = {
+    ...live,
     name: canaryNameFor(stable.name),
     image,
     mode: { replicated: { replicas: 1 } },
-    ...(Object.keys(env).length > 0 ? { env } : {}),
-    ...(stable.networks.length > 0 ? { networks: stable.networks.map((n) => n.name) } : {}),
-    ...((stable.secrets ?? []).length > 0
-      ? { secrets: (stable.secrets ?? []).map((s) => ({ source: s })) }
-      : {}),
-    ...((stable.configs ?? []).length > 0
-      ? { configs: (stable.configs ?? []).map((c) => ({ source: c })) }
-      : {}),
     labels,
   };
+  delete spec.ports;
+  return spec;
 }
 
 // ── pure: raw `docker service inspect` → ServiceSpec (for the image swap) ────
@@ -664,7 +670,15 @@ export async function startCanary(ctx: OrgContext, input: StartCanaryInput): Pro
     stableImage: stable.image,
     startedAt: new Date().toISOString(),
   };
-  const spec = canarySpecFor(stable, input.image, params);
+  const node = await resolveManagerNode(ctx);
+  // Full live spec (mounts/command/healthcheck/resources/placement) — a canary
+  // cut from the inventory view would boot a different app than stable.
+  const live = await liveServiceSpec(ctx, node.id, {
+    name: stable.name,
+    image: stable.image,
+    networks: stable.networks,
+  });
+  const spec = canarySpecFor(live, stable, input.image, params);
 
   // A canary is a service deploy — the admission pipeline still applies.
   const violations = await evaluateAdmission(ctx, {
@@ -678,7 +692,6 @@ export async function startCanary(ctx: OrgContext, input: StartCanaryInput): Pro
     throw commandRejected(`canary refused by policy: ${blocking.map((v) => v.message).join('; ')}`);
   }
 
-  const node = await resolveManagerNode(ctx);
   try {
     await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
   } catch (e) {

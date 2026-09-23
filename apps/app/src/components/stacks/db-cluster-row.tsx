@@ -7,7 +7,7 @@ import { CountUp } from '@/components/count-up';
 import { DbClusterRowDetail } from './db-cluster-row-detail';
 import { DbStorageWarning, type DbStorageView } from './db-storage-warning';
 
-export type ClusterStatus = 'running' | 'degraded' | 'deploying' | 'idle' | 'stopped' | 'absent';
+export type ClusterStatus = 'running' | 'degraded' | 'deploying' | 'failing' | 'idle' | 'stopped' | 'absent';
 
 export interface DbClusterRowView {
   name: string;
@@ -24,7 +24,7 @@ function toneFor(status: ClusterStatus): StatusTone {
   if (status === 'running') return 'online';
   if (status === 'degraded') return 'warning';
   if (status === 'deploying') return 'progress';
-  if (status === 'absent') return 'offline';
+  if (status === 'absent' || status === 'failing') return 'offline';
   return 'neutral';
 }
 

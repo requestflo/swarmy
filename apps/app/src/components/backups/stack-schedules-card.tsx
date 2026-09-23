@@ -15,6 +15,7 @@ import {
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { untilTime } from './backup-format';
+import { AutoBackupBadge } from './auto-backup-badge';
 import { RemoveScheduleConfirm } from './remove-schedule-confirm';
 import { ScheduleCreateInline } from './schedule-create-inline';
 import type { TargetOption } from './target-option';
@@ -26,12 +27,22 @@ export interface ScheduleRow {
   unit: string;
   paused: boolean;
   nextRunAt: string | null;
+  /** Created by default-on DB backups (not a user). */
+  auto?: boolean;
+  retentionDays?: number | null;
 }
 
 interface StackSchedulesCardProps {
   stack: string;
   schedules: ScheduleRow[];
   targets: TargetOption[];
+  /** Controlled "New schedule" form (an auto schedule's "change" opens it). */
+  creating: boolean;
+  onCreatingChange: (open: boolean) => void;
+  /** Volume to prefill the form with. */
+  prefillVolume?: string;
+  /** An auto schedule's "(change)": open the form prefilled with its volume. */
+  onChangeAuto: (volume: string) => void;
 }
 
 /** This stack's recurring backups — create expands inline, delete confirms. */
@@ -39,10 +50,13 @@ export function StackSchedulesCard({
   stack,
   schedules,
   targets,
+  creating,
+  onCreatingChange: setCreating,
+  prefillVolume,
+  onChangeAuto,
 }: StackSchedulesCardProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
-  const [creating, setCreating] = React.useState(false);
 
   const setPaused = useMutation(
     trpc.schedules.setPaused.mutationOptions({
@@ -68,7 +82,12 @@ export function StackSchedulesCard({
             </CollapsibleTrigger>
           </div>
           <CollapsibleContent>
-            <ScheduleCreateInline stack={stack} targets={targets} onDone={() => setCreating(false)} />
+            <ScheduleCreateInline
+              stack={stack}
+              targets={targets}
+              initialVolume={prefillVolume}
+              onDone={() => setCreating(false)}
+            />
           </CollapsibleContent>
         </Collapsible>
         <RetentionRow stack={stack} />
@@ -95,8 +114,23 @@ export function StackSchedulesCard({
                   <p className="mono-data truncate font-medium">{s.volume}</p>
                   <p className="text-muted-foreground mono-label truncate">
                     every {s.every} {s.unit} · next {untilTime(s.nextRunAt)}
+                    {s.auto ? ' · crash-consistent copy of the live volume' : ''}
                   </p>
                 </div>
+                {s.auto && (
+                  <AutoBackupBadge
+                    retentionDays={s.retentionDays ?? null}
+                    change={
+                      <button
+                        type="button"
+                        className="text-primary text-xs font-bold hover:underline"
+                        onClick={() => onChangeAuto(s.volume)}
+                      >
+                        (change)
+                      </button>
+                    }
+                  />
+                )}
                 <StatusBadge
                   tone={s.paused ? 'neutral' : 'online'}
                   label={s.paused ? 'paused' : 'active'}

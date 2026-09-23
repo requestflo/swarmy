@@ -46,7 +46,9 @@ export function NodeContainersPanel({ containers }: NodeContainersPanelProps): R
           <span className="mono-data text-muted-foreground">{rows.length}</span>
         </CardTitle>
       </CardHeader>
-      <CardContent className="divide-border grid divide-y">
+      {/* grid-cols-1 = minmax(0,1fr): an implicit `auto` track would grow to the
+          full width of a truncated image ref and scroll the whole page. */}
+      <CardContent className="divide-border grid grid-cols-1 divide-y">
         {rows.map((c) => {
           const tone = STATE_TONE[c.state] ?? 'neutral';
           return (

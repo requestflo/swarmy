@@ -323,7 +323,8 @@ function scanPreviewStacks(ctx: OrgContext): Map<string, InvService[]> {
 function previewStatus(members: InvService[]): PreviewStatusView {
   if (members.some((s) => s.status === 'deploying')) return 'deploying';
   if (members.every((s) => s.status === 'stopped' || s.status === 'idle')) return 'stopped';
-  if (members.some((s) => s.status === 'degraded' || s.status === 'stopped')) return 'degraded';
+  if (members.some((s) => s.status === 'degraded' || s.status === 'stopped' || s.status === 'failing'))
+    return 'degraded';
   return 'running';
 }
 

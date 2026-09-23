@@ -3,13 +3,14 @@ import { SYSTEM_STACK_LABEL, UNGROUPED, isSystemStack } from '@swarmy/core';
 
 /**
  * `stopped` = scaled to 0 replicas on purpose (a failing service still wants
- * replicas, so it reads as deploying/degraded instead) — like `idle`, a chosen
+ * replicas, so it reads as deploying/degraded/failing instead) — like `idle`, a chosen
  * state, so it must never paint the stack "down".
  */
 export const STATUS_TONE: Record<InvServiceStatus, string> = {
   running: 'online',
   degraded: 'warning',
   deploying: 'progress',
+  failing: 'offline',
   stopped: 'idle',
   idle: 'idle',
 };

@@ -116,6 +116,7 @@ const INV_STATUS: Record<InvServiceStatus, ServiceStatusView> = {
   running: 'running',
   degraded: 'degraded',
   deploying: 'deploying',
+  failing: 'failed',
   idle: 'stopped',
   stopped: 'stopped',
 };
@@ -157,6 +158,8 @@ export function getServiceDetail(ctx: OrgContext, id: string): ServiceDetail {
       targetReplicas: Number(s.labels[SCALE_TO_ZERO_TARGET_LABEL]) || Math.max(1, s.replicas.desired || 1),
       idleSeconds: Number(s.labels[SCALE_TO_ZERO_IDLE_LABEL]) || 300,
     },
+    ...(s.lastError ? { lastError: s.lastError } : {}),
+    ...(s.lastErrorAt ? { lastErrorAt: new Date(s.lastErrorAt).toISOString() } : {}),
   };
 }
 

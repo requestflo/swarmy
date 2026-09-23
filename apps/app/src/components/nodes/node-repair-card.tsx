@@ -83,7 +83,7 @@ export function NodeRepairCard({ node }: { node: NodeDetail | undefined }): Reac
           Repair this node
         </CardTitle>
       </CardHeader>
-      <CardContent className="grid gap-3 text-sm">
+      <CardContent className="grid grid-cols-1 gap-3 text-sm">
         <p className="text-muted-foreground">
           {node.name} is offline. If the machine is up but won&apos;t reconnect, paste a repair one-liner on it — the
           installer detects the existing install, refreshes its credentials, keeps its identity, and runs the doctor.

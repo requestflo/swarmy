@@ -16,6 +16,7 @@ import { CacheRowDetail } from './cache-row-detail';
 export function clusterTone(view: CacheClusterView): { tone: StatusTone; label: string } {
   if (view.primary.status === 'absent') return { tone: 'offline', label: 'absent' };
   if (view.primary.status === 'stopped') return { tone: 'offline', label: 'down' };
+  if (view.primary.status === 'failing') return { tone: 'offline', label: 'failing' };
   if (view.primary.status === 'deploying') return { tone: 'progress', label: 'deploying' };
   const replicasOk = view.replicas.running >= view.replicas.desired;
   if (view.primary.status === 'running' && replicasOk) return { tone: 'online', label: 'healthy' };

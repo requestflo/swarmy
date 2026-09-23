@@ -15,6 +15,7 @@ const STATUS_DOT: Record<string, string> = {
   running: 'bg-status-online',
   degraded: 'bg-status-warning',
   deploying: 'bg-status-progress',
+  failing: 'bg-status-offline',
   idle: 'bg-status-idle',
   stopped: 'bg-status-idle',
 };

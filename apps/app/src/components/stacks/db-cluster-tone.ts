@@ -16,7 +16,7 @@ export function dbClusterTone(view: DbClusterToneInput | null): { tone: StatusTo
   const lagging = (view.maxLagSeconds ?? 0) > DB_LAG_WARN_SECONDS;
 
   const tone: StatusTone =
-    view.primary.status === 'absent'
+    view.primary.status === 'absent' || view.primary.status === 'failing'
       ? 'offline'
       : view.primary.status === 'running' && replicasOk && !lagging
         ? 'online'
@@ -24,7 +24,11 @@ export function dbClusterTone(view: DbClusterToneInput | null): { tone: StatusTo
           ? 'progress'
           : 'warning';
   const label =
-    view.primary.status === 'absent' ? 'absent' : lagging ? 'lagging' : replicasOk ? 'healthy' : 'degraded';
+    view.primary.status === 'absent'
+      ? 'absent'
+      : view.primary.status === 'failing'
+        ? 'failing'
+        : lagging ? 'lagging' : replicasOk ? 'healthy' : 'degraded';
 
   return { tone, label };
 }

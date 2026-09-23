@@ -923,7 +923,12 @@ export async function runRestoreDrill(
       } catch (e) {
         throw mapDispatchError(e);
       }
-      await provisionDb(ctx, { stack: input.stack, name: drillCluster, replicas: 0 });
+      await provisionDb(ctx, {
+        stack: input.stack,
+        name: drillCluster,
+        replicas: 0,
+        autoBackup: false, // throwaway cluster — never schedule it
+      });
       return drillCluster;
     }, (c) => `deployed ${input.stack}_${c}-primary`);
 

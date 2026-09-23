@@ -12,10 +12,14 @@ import { prisma } from '@swarmy/db';
 import { buildInventory } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import type { BackupVolumeResult, ResticRepo } from '@swarmy/core/protocol';
-import { stackRetentionFor } from '@swarmy/trpc';
+import { ensureAutoBackups, stackRetentionFor } from '@swarmy/trpc';
+import { authRegistry } from '@swarmy/auth';
 import { hub, registry } from '../gateway';
 
 const TICK_MS = 60_000;
+/** Default-on DB backups converge every few minutes (and once shortly after boot). */
+const AUTO_BACKUP_EVERY_TICKS = 5;
+const AUTO_BACKUP_FIRST_RUN_MS = 45_000;
 
 // ── schedule calc ────────────────────────────────────────────────────────────
 // Mirror of @swarmy/trpc `schedule.ts` (the unit-tested canonical copy). Inlined
@@ -70,8 +74,13 @@ function toRepo(t: TargetRow): ResticRepo {
   };
 }
 
-/** Resolve the volume's stack-level retention window from live Docker truth. */
-function retentionFor(orgId: string, volume: string): number | null {
+/** Resolve the volume's stack-level retention window from live Docker truth.
+ *  The stack label wins; else the schedule's own window (auto schedules: 7). */
+function retentionFor(orgId: string, volume: string, fallback: number | null): number | null {
+  return stackRetentionForVolume(orgId, volume) ?? fallback;
+}
+
+function stackRetentionForVolume(orgId: string, volume: string): number | null {
   try {
     const { services, containers } = hub.liveInventory(orgId);
     return stackRetentionFor(buildInventory(services, containers).services, volume);
@@ -135,6 +144,8 @@ async function runDue(): Promise<void> {
           unit: string;
           paused: boolean;
           createdAt: Date;
+          anchorAt: Date | null;
+          retentionDays: number | null;
           nextRunAt: Date | null;
         }>
       >;
@@ -146,13 +157,13 @@ async function runDue(): Promise<void> {
   };
 
   const due = await db.backupSchedule.findMany({
-    where: { paused: false, nextRunAt: { lte: now } },
+    where: { paused: false, optedOutAt: null, nextRunAt: { lte: now } },
   });
 
   for (const sched of due) {
     const spec: ScheduleSpec = { every: sched.every, unit: sched.unit as ScheduleSpec['unit'] };
     // Advance first so a slow run doesn't double-fire next tick.
-    const next = nextRun(spec, sched.createdAt, now);
+    const next = nextRun(spec, sched.anchorAt ?? sched.createdAt, now);
     await db.backupSchedule.update({
       where: { id: sched.id },
       data: { lastRunAt: now, nextRunAt: next },
@@ -179,7 +190,7 @@ async function runDue(): Promise<void> {
     // The stack's retention label (`swarmy.backup.retentionDays`) rides the
     // dispatch; the agent enforces it with `restic forget --keep-within --prune`
     // after the backup succeeds. Absent label = keep forever.
-    const retentionDays = retentionFor(sched.orgId, sched.volume);
+    const retentionDays = retentionFor(sched.orgId, sched.volume, sched.retentionDays);
 
     try {
       const result = await hub.dispatch<BackupVolumeResult>(nodeId, 'backup.run', {
@@ -220,9 +231,34 @@ async function runDue(): Promise<void> {
   }
 }
 
+/**
+ * Default-on DB backups: give every managed Postgres cluster + compose DB with
+ * a named data volume a nightly schedule when a destination exists (logic in
+ * `@swarmy/trpc` `ensureAutoBackups` — idempotent, audited, never overrides a
+ * user schedule or an opt-out). Overlap-guarded; best-effort.
+ */
+let autoRunning = false;
+async function runAutoBackups(): Promise<void> {
+  if (autoRunning) return;
+  autoRunning = true;
+  try {
+    await ensureAutoBackups({ db: prisma, hub, auth: authRegistry.getAuth() });
+  } finally {
+    autoRunning = false;
+  }
+}
+
 export function startBackupScheduler(): () => void {
+  let tick = 0;
   const timer = setInterval(() => {
     runDue().catch(() => undefined);
+    tick++;
+    if (tick % AUTO_BACKUP_EVERY_TICKS === 0) runAutoBackups().catch(() => undefined);
   }, TICK_MS);
-  return () => clearInterval(timer);
+  // Nodes reconnect a few seconds after boot — defer the first converge.
+  const kickoff = setTimeout(() => runAutoBackups().catch(() => undefined), AUTO_BACKUP_FIRST_RUN_MS);
+  return () => {
+    clearInterval(timer);
+    clearTimeout(kickoff);
+  };
 }

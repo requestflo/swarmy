@@ -8,6 +8,7 @@ import { ContainerListMsg, ServiceStateMsg, NodeListMsg, SwarmLeftMsg } from './
 import {
   DeployServiceMsg,
   EnsureNetworkMsg,
+  RemoveStackNetworksMsg,
   RemoveServiceMsg,
   ScaleServiceMsg,
   RestartServiceMsg,
@@ -83,6 +84,7 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   RegisterAckMsg,
   DeployServiceMsg,
   EnsureNetworkMsg,
+  RemoveStackNetworksMsg,
   RemoveServiceMsg,
   ScaleServiceMsg,
   RestartServiceMsg,

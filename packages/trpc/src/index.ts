@@ -123,6 +123,8 @@ export {
 } from './services/dns-records.service';
 export type { DnsRecordView } from './services/dns-records.service';
 export { regionUpstreamsFor, siblingSetSignature } from './services/ingress-regions';
+export { siblingSpecFrom } from './services/region.service';
+export { liveServiceSpec } from './services/service-patch';
 export {
   syncProviderZone,
   getDnsProvider,
@@ -149,6 +151,10 @@ export {
   parseRetentionDays,
   stackRetentionFor,
 } from './services/backups.service';
+// Default-on DB backups (backup-scheduler worker) + the scheduled DB-backup
+// sweep the manageddb-reconcile worker resolves off the package root.
+export { ensureAutoBackups } from './services/autoBackup.service';
+export { runDueDbBackups } from './services/dbBackup.service';
 export {
   list as listClusterVolumes,
   register as registerClusterVolume,

@@ -32,6 +32,7 @@ import {
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import { AUTO_BACKUP_RETENTION_DAYS } from './autoBackup';
 import { resolveManagerNode } from './dispatch.service';
 import { patchLiveService } from './service-patch';
 
@@ -340,6 +341,12 @@ export interface ProvisionDbInput {
    * postgresql env/path contract. Wins over `imageTag`.
    */
   image?: string;
+  /**
+   * Default-on backups (default true): a new cluster is born with a nightly
+   * `pg_dump` schedule (keep 7, staggered 02:00–04:59 UTC) when a destination
+   * exists. False for throwaway clusters (restore drills).
+   */
+  autoBackup?: boolean;
 }
 
 /**
@@ -543,6 +550,17 @@ export async function provisionDb(
   }
   const existingReplica = findCluster(ctx, stack, cluster).replica;
 
+  // Default-on backups: born with a nightly pg_dump schedule unless the primary
+  // already declares one (or the user opted out). Lazy import: autoBackup.service
+  // reads this module's label constants. Never fails the provision.
+  const autoBackup =
+    input.autoBackup === false
+      ? { labels: {} as Record<string, string> }
+      : await import('./autoBackup.service')
+          .then((m) => m.autoDbScheduleLabels(ctx, stack, cluster, existing?.labels))
+          .catch(() => ({ labels: {} as Record<string, string> }));
+  const carried = existing ? omit(existing.labels, [DB_PITR_APPLIED_LABEL]) : undefined;
+
   const { primarySpec, replicaSpec } = managedPgSpecs({
     stack,
     cluster,
@@ -557,7 +575,8 @@ export async function provisionDb(
     // Carry declarations the primary accumulated (backup schedule, topology
     // inputs, …) — minus the PITR marker, whose mounts/conf this base spec does
     // not carry: dropping it makes the reconcile re-apply WAL archiving.
-    carryLabels: existing ? omit(existing.labels, [DB_PITR_APPLIED_LABEL]) : undefined,
+    carryLabels:
+      Object.keys(autoBackup.labels).length > 0 ? { ...(carried ?? {}), ...autoBackup.labels } : carried,
   });
 
   try {
@@ -580,6 +599,21 @@ export async function provisionDb(
     await ctx.hub.dispatch(node.id, 'service.deploy', { spec: replicaSpec, pullPolicy: 'always' }, { timeoutMs: DISPATCH_TIMEOUT_MS });
   } catch (e) {
     throw mapDispatchError(e);
+  }
+  if ('targetId' in autoBackup && autoBackup.targetId) {
+    const { auditAutoSchedule } = await import('./autoBackup.service');
+    await auditAutoSchedule(ctx, {
+      targetType: 'dbCluster',
+      targetId: `${stack}/${cluster}`,
+      metadata: {
+        kind: 'managed',
+        engine: 'pg_dump',
+        cron: autoBackup.cron,
+        retentionDays: AUTO_BACKUP_RETENTION_DAYS,
+        targetId: autoBackup.targetId,
+        at: 'provision',
+      },
+    });
   }
 
   return {

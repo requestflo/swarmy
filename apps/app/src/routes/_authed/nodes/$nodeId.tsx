@@ -65,7 +65,9 @@ function NodeDetailPage(): React.JSX.Element {
 
       <NodeRepairCard node={n} />
 
-      <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+      {/* minmax(0,…) tracks: a plain `fr` track has a min-content floor, so a wide
+          chart or a long mono value would push the page into a horizontal scroll. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <NodeLivePanel live={live.data} trend={trend} />
         <NodeDetailsPanel node={n} live={live.data} />
       </div>

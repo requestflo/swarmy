@@ -143,6 +143,10 @@ export interface ServiceDetail extends ServiceSummary {
   swarmServiceId: string | null;
   createdAt: string;
   scaleToZero?: { enabled: boolean; targetReplicas: number; idleSeconds: number };
+  /** Most recent swarm task error (`docker service ps` ERROR) — why it's failing. */
+  lastError?: string;
+  /** ISO time `lastError` was observed. */
+  lastErrorAt?: string;
 }
 
 /** Live swarm state for a service, read from the gateway's in-memory snapshot. */
@@ -283,6 +287,8 @@ export interface DbBackupScheduleView {
   /** Captured error from the last run when `lastStatus === 'failed'`. */
   lastError: string | null;
   nextRunAt: string | null;
+  /** Created by default-on DB backups (nightly pg_dump, keep 7) — not by a user. */
+  auto: boolean;
 }
 
 /** One DB backup in the restic catalog, projected for the dashboard. */
@@ -315,6 +321,8 @@ export interface DbBackupOverviewRow {
   nextRunAt: string | null;
   /** Restorable point-in-time span (PITR clusters with a successful backup). */
   pitrWindow: { from: string; to: string } | null;
+  /** The schedule was created by default-on DB backups (not a user). */
+  auto: boolean;
 }
 
 // ── Managed-DB topology view fragments (shared by the topology selector UI) ──
@@ -2660,7 +2668,7 @@ export interface DbClusterMemberView {
   role: 'primary' | 'replica' | 'dcs';
   /** geo: the region a replica sibling is pinned to / the primary's write-region. */
   region?: string;
-  status: 'running' | 'degraded' | 'deploying' | 'idle' | 'stopped' | 'absent';
+  status: 'running' | 'degraded' | 'deploying' | 'failing' | 'idle' | 'stopped' | 'absent';
   desired: number;
   running: number;
   /**
@@ -2674,7 +2682,7 @@ export interface DbClusterMemberView {
 /** The per-cluster wal-shipper sidecar (PITR WAL archiving), when provisioned. */
 export interface DbWalShipperView {
   service: string;
-  status: 'running' | 'degraded' | 'deploying' | 'idle' | 'stopped' | 'absent';
+  status: 'running' | 'degraded' | 'deploying' | 'failing' | 'idle' | 'stopped' | 'absent';
 }
 
 /** Replica lag above this reads as "falling behind" (amber) in the dashboard. */

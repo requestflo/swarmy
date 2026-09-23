@@ -1,5 +1,13 @@
 import { expect, test } from 'bun:test';
-import { buildInventory, STACK_LABEL, UNGROUPED } from './inventory';
+import {
+  buildInventory,
+  FAILING_AFTER_MS,
+  STACK_LABEL,
+  statusOf,
+  summarizeTasks,
+  TASK_FAILURE_WINDOW_MS,
+  UNGROUPED,
+} from './inventory';
 import type { ContainerInfo, SwarmServiceInfo } from './protocol';
 
 function svc(p: Partial<SwarmServiceInfo> & { id: string; name: string }): SwarmServiceInfo {
@@ -77,4 +85,87 @@ test('attaches containers and marks scale-to-zero idle', () => {
   const cold = inv.services.find((s) => s.id === 'z')!;
   expect(cold.status).toBe('idle');
   expect(cold.scaleToZero).toBe(true);
+});
+
+// ── statusOf / crash-loop detection ─────────────────────────────────────────
+
+const NOW = Date.parse('2026-09-23T12:00:00Z');
+const iso = (msAgo: number) => new Date(NOW - msAgo).toISOString();
+
+test('statusOf: scaled-to-zero and stopped are chosen states', () => {
+  expect(statusOf(0, 0, true)).toBe('idle');
+  expect(statusOf(0, 0, false)).toBe('stopped');
+});
+
+test('statusOf: full = running, partial = degraded', () => {
+  expect(statusOf(2, 2, false)).toBe('running');
+  expect(statusOf(3, 1, false, { taskHealth: { recentFailures: 5, starting: false } })).toBe('degraded');
+});
+
+test('statusOf: freshly updated with no failures is deploying', () => {
+  expect(statusOf(1, 0, false, { updatedAt: NOW - 10_000, now: NOW })).toBe('deploying');
+  expect(statusOf(1, 0, false)).toBe('deploying'); // no signals (older agent, no timestamp)
+});
+
+test('statusOf: repeated task failures = failing, even right after an update', () => {
+  expect(
+    statusOf(1, 0, false, {
+      taskHealth: { recentFailures: 2, lastError: 'task: non-zero exit (1)', starting: true },
+      updatedAt: NOW - 5_000,
+      now: NOW,
+    }),
+  ).toBe('failing');
+  // A single failure is still converging.
+  expect(
+    statusOf(1, 0, false, { taskHealth: { recentFailures: 1, starting: false }, updatedAt: NOW - 5_000, now: NOW }),
+  ).toBe('deploying');
+});
+
+test('statusOf: nothing up > 2 min after the last update = failing', () => {
+  expect(statusOf(1, 0, false, { updatedAt: NOW - FAILING_AFTER_MS - 1, now: NOW })).toBe('failing');
+  expect(
+    statusOf(1, 0, false, { taskHealth: { recentFailures: 0, starting: false }, updatedAt: NOW - 10 * 60_000, now: NOW }),
+  ).toBe('failing');
+});
+
+test('statusOf: a slow image pull (task preparing) stays deploying past 2 min', () => {
+  expect(
+    statusOf(1, 0, false, { taskHealth: { recentFailures: 0, starting: true }, updatedAt: NOW - 10 * 60_000, now: NOW }),
+  ).toBe('deploying');
+});
+
+test('summarizeTasks: counts recent failed/rejected tasks and keeps the newest error', () => {
+  const th = summarizeTasks(
+    [
+      { DesiredState: 'shutdown', Status: { State: 'failed', Timestamp: iso(60_000), Err: 'task: non-zero exit (1)' } },
+      { DesiredState: 'shutdown', Status: { State: 'failed', Timestamp: iso(30_000), Err: 'task: non-zero exit (137)' } },
+      { DesiredState: 'shutdown', Status: { State: 'rejected', Timestamp: iso(TASK_FAILURE_WINDOW_MS + 60_000), Err: 'old' } },
+      { DesiredState: 'running', Status: { State: 'starting', Timestamp: iso(1_000) } },
+    ],
+    NOW,
+  );
+  expect(th.recentFailures).toBe(2);
+  expect(th.lastError).toBe('task: non-zero exit (137)');
+  expect(th.lastErrorAt).toBe(NOW - 30_000);
+  expect(th.starting).toBe(true);
+});
+
+test('summarizeTasks: a pending task with a placement error is not "starting"', () => {
+  const th = summarizeTasks(
+    [{ DesiredState: 'running', Status: { State: 'pending', Timestamp: iso(5_000), Err: 'no suitable node (scheduling constraints not satisfied on 3 nodes)' } }],
+    NOW,
+  );
+  expect(th.starting).toBe(false);
+  expect(th.recentFailures).toBe(0);
+  expect(th.lastError).toContain('no suitable node');
+});
+
+test('buildInventory: a crash-looping service is failing and carries the last error', () => {
+  const s = svc({ id: 'a', name: 'web', desiredReplicas: 1, runningReplicas: 0 });
+  s.updatedAt = NOW - 30_000;
+  s.taskHealth = { recentFailures: 4, lastError: 'task: non-zero exit (1)', lastErrorAt: NOW - 2_000, starting: false };
+  const inv = buildInventory([s], [], NOW);
+  expect(inv.services[0]!.status).toBe('failing');
+  expect(inv.services[0]!.lastError).toBe('task: non-zero exit (1)');
+  expect(inv.services[0]!.lastErrorAt).toBe(NOW - 2_000);
 });

@@ -9,6 +9,7 @@ import type {
   SwarmNodeInfo,
   SwarmState,
 } from './protocol';
+import { isSwarmyStackNetwork, summarizeTasks, type TaskLike } from './inventory';
 
 /** The subset of a Docker swarm ServiceSpec the agent reads (dockerode types are loose). */
 interface SwarmNetworkAttachment {
@@ -323,11 +324,15 @@ export class DockerClient {
       const tt = spec.TaskTemplate ?? {};
       const mode = spec.Mode?.Replicated ? 'replicated' : 'global';
       let running = 0;
+      let taskHealth: SwarmServiceInfo['taskHealth'];
       try {
-        const tasks = await this.docker.listTasks({
-          filters: { service: [spec.Name as string], 'desired-state': ['running'] },
-        });
-        running = tasks.filter((t) => t.Status?.State === 'running').length;
+        // Full task history (incl. shut-down/failed tasks, as `docker service ps`
+        // shows) — the failures are what tell a crash loop from a slow deploy.
+        const tasks = (await this.docker.listTasks({
+          filters: { service: [spec.Name as string] },
+        })) as TaskLike[];
+        running = tasks.filter((t) => t.DesiredState === 'running' && t.Status?.State === 'running').length;
+        taskHealth = summarizeTasks(tasks);
       } catch {
         running = 0;
       }
@@ -362,6 +367,7 @@ export class DockerClient {
             ...(m.Source ? { source: m.Source } : {}),
             target: m.Target!,
           })),
+        ...(taskHealth ? { taskHealth } : {}),
       });
     }
     return out;
@@ -525,6 +531,46 @@ export class DockerClient {
       if (raced) return raced;
       throw e;
     }
+  }
+
+  /**
+   * Remove the overlay networks swarmy created for compose stack `stack`
+   * (`isSwarmyStackNetwork`: stack-namespace + `swarmy.managed=true` labels —
+   * never external networks, never the shared `swarmy` overlay). Right after a
+   * stack's services are removed their tasks still hold endpoints for a few
+   * seconds, so each removal retries; a network still in use by something else
+   * (e.g. another stack attached to it) is reported as failed, never forced.
+   */
+  async removeStackNetworks(
+    stack: string,
+    opts: { attempts?: number; delayMs?: number } = {},
+  ): Promise<{ removed: string[]; failed: { name: string; error: string }[] }> {
+    const attempts = opts.attempts ?? 10;
+    const delayMs = opts.delayMs ?? 2_000;
+    const nets = (await this.docker.listNetworks()).filter((n) => isSwarmyStackNetwork(n, stack));
+    const removed: string[] = [];
+    const failed: { name: string; error: string }[] = [];
+    for (const n of nets) {
+      let lastErr = '';
+      for (let i = 0; i < attempts; i++) {
+        try {
+          await this.docker.getNetwork(n.Id).remove();
+          lastErr = '';
+          break;
+        } catch (e) {
+          const status = (e as { statusCode?: number }).statusCode;
+          if (status === 404) {
+            lastErr = '';
+            break; // already gone
+          }
+          lastErr = e instanceof Error ? e.message : String(e);
+          if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+        }
+      }
+      if (lastErr) failed.push({ name: n.Name, error: lastErr });
+      else removed.push(n.Name);
+    }
+    return { removed, failed };
   }
 
   /**

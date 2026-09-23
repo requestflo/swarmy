@@ -19,7 +19,7 @@ export function NodeDetailsPanel({ node, live }: NodeDetailsPanelProps): React.J
       <CardHeader>
         <CardTitle className="text-base">Details</CardTitle>
       </CardHeader>
-      <CardContent className="divide-border grid divide-y text-sm">
+      <CardContent className="divide-border grid grid-cols-1 divide-y text-sm">
         <Row label="Status">
           <StatusBadge
             tone={node ? (NODE_STATUS_TONE[node.status] ?? 'neutral') : 'neutral'}
@@ -90,8 +90,8 @@ function AgentVersionCell({ node }: { node: NodeDetail | undefined }): React.JSX
 function Row({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
   return (
     <div className="flex items-center justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
-      <span className="mono-label text-muted-foreground">{label}</span>
-      <span className="text-right">{children}</span>
+      <span className="mono-label text-muted-foreground shrink-0">{label}</span>
+      <span className="min-w-0 text-right break-words">{children}</span>
     </div>
   );
 }

@@ -99,6 +99,24 @@ export const SwarmServiceInfo = z.object({
   mounts: z
     .array(z.object({ type: z.string().optional(), source: z.string().optional(), target: z.string() }))
     .optional(),
+  /**
+   * Task-history health (`docker service ps`-style), so the controller can tell
+   * a crash-looping service ("failing") apart from one still converging
+   * ("deploying"). Optional with NO default: an older agent reads as "unknown"
+   * and the inventory falls back to the time-since-update heuristic.
+   */
+  taskHealth: z
+    .object({
+      /** failed/rejected tasks in the recent window (agent side: last 10 min). */
+      recentFailures: z.number().int().nonnegative(),
+      /** Most recent task error (`Status.Err`, else a non-zero exit message). */
+      lastError: z.string().optional(),
+      /** When `lastError` was observed (task status timestamp, ms). */
+      lastErrorAt: Timestamp.optional(),
+      /** A desired-running task is mid-start (preparing = pulling, starting, …). */
+      starting: z.boolean().default(false),
+    })
+    .optional(),
 });
 export type SwarmServiceInfo = z.infer<typeof SwarmServiceInfo>;
 

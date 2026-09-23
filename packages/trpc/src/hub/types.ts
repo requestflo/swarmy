@@ -19,6 +19,7 @@ export type CommandName =
   | 'service.updateLabels'
   | 'service.remove'
   | 'network.ensure' // idempotent overlay-network create (pre-deploy)
+  | 'network.removeForStack' // remove a compose stack's swarmy-created overlays (post-remove)
   | 'image.pull'
   | 'applyIngress'
   | 'applyMesh'
@@ -68,6 +69,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'service.updateLabels': 'updateServiceLabels',
   'service.remove': 'removeService',
   'network.ensure': 'ensureNetwork',
+  'network.removeForStack': 'removeStackNetworks',
   'image.pull': 'pullImage',
   applyIngress: 'applyIngress',
   applyMesh: 'applyMesh',

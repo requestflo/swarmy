@@ -176,6 +176,18 @@ model BackupSchedule {
   paused    Boolean   @default(false)
   lastRunAt DateTime?
   nextRunAt DateTime?
+  /// Created by swarmy's default-on DB backups (not a user) — the UI badges it
+  /// "Auto". A user editing/replacing it takes ownership.
+  auto          Boolean   @default(false)
+  /// Retention window (days) this schedule prunes to when the stack has no
+  /// `swarmy.backup.retentionDays` label (the stack label, when set, wins).
+  retentionDays Int?
+  /// Interval anchor (defaults to createdAt) — auto schedules stagger their
+  /// nightly slot within 02:00–04:59 UTC.
+  anchorAt      DateTime?
+  /// Opt-out tombstone: the user removed an auto schedule. Never runs, hidden
+  /// from lists, and stops the auto-backup loop re-creating it.
+  optedOutAt    DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
@@ -184,6 +196,7 @@ model BackupSchedule {
   jobs   BackupJob[]
 
   @@index([orgId])
+  @@index([orgId, volume])
   @@index([paused, nextRunAt])
   @@map("backup_schedule")
 }

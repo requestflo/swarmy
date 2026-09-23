@@ -5,6 +5,7 @@ import { ArrowRightIcon, HardDriveIcon } from 'lucide-react';
 import { Button, Card, CardContent, EmptyState } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { StackResilienceSection } from '@/components/resilience/stack-resilience-section';
+import { StackDbCoverageCard } from './stack-db-coverage-card';
 import { StackDrHero } from './stack-dr-hero';
 import { StackSchedulesCard } from './stack-schedules-card';
 import { StackSnapshotsCard } from './stack-snapshots-card';
@@ -29,6 +30,16 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
     ...trpc.backups.listSnapshots.queryOptions({ stack }),
     refetchInterval: 5_000,
   });
+  const coverage = useQuery({
+    ...trpc.backups.autoCoverage.queryOptions({ stack }),
+    refetchInterval: 15_000,
+  });
+  const [creating, setCreating] = React.useState(false);
+  const [prefillVolume, setPrefillVolume] = React.useState<string | undefined>(undefined);
+  const changeVolume = React.useCallback((volume: string) => {
+    setPrefillVolume(volume);
+    setCreating(true);
+  }, []);
 
   const targetRows = targets.data ?? [];
   const targetOptions = React.useMemo(
@@ -63,12 +74,17 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
   }
 
   if (targetOptions.length === 0) {
+    const dbCount = coverage.data?.databases.length ?? 0;
     return (
       <div className="card-pop p-2">
         <EmptyState
           icon={<HardDriveIcon />}
-          title="No backup destinations yet"
-          description="Add an S3 bucket, a node path, or use swarmy object storage — then schedule this stack's volumes here."
+          title={dbCount > 0 ? 'Backups are off — add a destination' : 'No backup destinations yet'}
+          description={
+            dbCount > 0
+              ? `${stack} has ${dbCount} database${dbCount === 1 ? '' : 's'} that back up nightly, automatically, as soon as a destination exists — swarmy object storage, an S3 bucket, or a node path.`
+              : "Add an S3 bucket, a node path, or use swarmy object storage — then schedule this stack's volumes here."
+          }
           action={
             <Button asChild className="rounded-full font-bold">
               <Link to="/backups">
@@ -105,7 +121,21 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
         </CardContent>
       </Card>
 
-      <StackSchedulesCard stack={stack} schedules={scheduleRows} targets={targetOptions} />
+      {coverage.data && (
+        <StackDbCoverageCard stack={stack} coverage={coverage.data} onChangeVolume={changeVolume} />
+      )}
+      <StackSchedulesCard
+        stack={stack}
+        schedules={scheduleRows}
+        targets={targetOptions}
+        creating={creating}
+        onCreatingChange={(open) => {
+          setCreating(open);
+          if (!open) setPrefillVolume(undefined);
+        }}
+        prefillVolume={prefillVolume}
+        onChangeAuto={changeVolume}
+      />
       <StackSnapshotsCard stack={stack} snapshots={snapshotRows} targets={targetOptions} />
       <StackResilienceSection stack={stack} />
     </div>

@@ -12,6 +12,7 @@ import {
   type CanaryParams,
 } from './releases.service';
 import type { Route } from './ingress-routes';
+import { specFromInspect } from './service-patch';
 
 // ── params label codec ────────────────────────────────────────────────────────
 
@@ -99,23 +100,42 @@ function inv(partial: Partial<InvService>): InvService {
 }
 
 describe('canarySpecFor', () => {
-  it('same runtime surface, candidate image, 1 replica, canary labels, no ports', () => {
-    const spec = canarySpecFor(inv({}), 'ghcr.io/acme/web:1.1.0-rc.1', params);
+  // Golden: the canary is cut from the stable's FULL live spec (inspect), so
+  // the candidate runs with the same command/healthcheck/resources/mounts.
+  const live = () => specFromInspect(rawInspect, ['shop_default'])!;
+
+  it('keeps the full runtime surface: command, healthcheck, resources, mounts, placement, secrets', () => {
+    const spec = canarySpecFor(live(), inv({}), 'ghcr.io/acme/web:1.1.0-rc.1', params);
     expect(spec.name).toBe('shop_web--canary');
     expect(canaryNameFor('shop_web')).toBe('shop_web--canary');
     expect(spec.image).toBe('ghcr.io/acme/web:1.1.0-rc.1');
     expect(spec.mode).toEqual({ replicated: { replicas: 1 } });
     expect(spec.env).toEqual({ NODE_ENV: 'production', PORT: '3000' });
+    expect(spec.args).toEqual(['--serve']);
+    expect(spec.healthcheck?.test).toEqual(['CMD', 'curl', '-f', 'http://localhost:3000/health']);
+    expect(spec.resources).toEqual({ limits: { cpus: 0.5, memoryBytes: 268_435_456 } });
+    // The canary is the same app: it mounts the stable's named volume on purpose.
+    expect(spec.mounts).toEqual([{ type: 'volume', source: 'web-data', target: '/data' }]);
+    expect(spec.placement).toEqual({ constraints: ['node.role == worker'] });
+    expect(spec.restartPolicy).toEqual({ condition: 'on-failure', maxAttempts: 5 });
+    expect(spec.stopGracePeriodNs).toBe(10_000_000_000);
     expect(spec.networks).toEqual(['shop_default']);
-    expect(spec.secrets).toEqual([{ source: 'shop-db-password' }]);
+    expect(spec.secrets).toEqual([
+      { source: 'shop-db-password', target: 'db-password', uid: '0', gid: '0', mode: 292 },
+    ]);
+  });
+
+  it('swaps name/image/replicas, drops ports, and uses a clean canary label set', () => {
+    const spec = canarySpecFor(live(), inv({}), 'img:2', params);
     expect(spec.ports).toBeUndefined(); // traffic arrives only via the weighted route
     expect(spec.labels?.[CANARY_OF_LABEL]).toBe('shop_web');
     expect(spec.labels?.['com.docker.stack.namespace']).toBe('shop');
+    expect(spec.labels?.['swarmy.ingress.routes']).toBeUndefined(); // never double-routed
     expect(parseCanaryParams(spec.labels?.[CANARY_PARAMS_LABEL])).toEqual(params);
   });
 
   it('an ungrouped service gets no stack namespace label', () => {
-    const spec = canarySpecFor(inv({ stack: '(ungrouped)', name: 'web' }), 'img:2', params);
+    const spec = canarySpecFor(live(), inv({ stack: '(ungrouped)', name: 'web' }), 'img:2', params);
     expect(spec.labels?.['com.docker.stack.namespace']).toBeUndefined();
     expect(spec.name).toBe('web--canary');
   });

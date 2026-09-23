@@ -8,6 +8,7 @@ import { useTRPC } from '@/integrations/trpc';
 const STATUS_TONE: Record<string, StatusTone> = {
   running: 'online',
   deploying: 'progress',
+  failing: 'offline',
   degraded: 'warning',
   empty: 'neutral',
 };

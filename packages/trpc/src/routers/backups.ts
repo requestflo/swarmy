@@ -12,6 +12,7 @@ import {
   restoreSnapshot,
   setStackRetention,
 } from '../services/backups.service';
+import { autoBackupCoverage } from '../services/autoBackup.service';
 
 const retentionDays = z.number().int().min(1).max(3650);
 
@@ -67,6 +68,15 @@ export const backupsRouter = router({
   setStackRetention: adminProcedure
     .input(z.object({ stack: z.string().min(1), retentionDays: retentionDays.nullable() }))
     .mutation(({ ctx, input }) => setStackRetention(ctx, input)),
+
+  /**
+   * Default-on DB backups for one stack: every detected database, how it is
+   * covered (auto / user / opted-out / unscheduled), and the destination auto
+   * schedules use — null means "Backups are off — add a destination".
+   */
+  autoCoverage: orgProcedure
+    .input(z.object({ stack: z.string().min(1) }))
+    .query(({ ctx, input }) => autoBackupCoverage(ctx, input.stack)),
 
   listSnapshots: orgProcedure
     .input(

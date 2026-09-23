@@ -83,7 +83,15 @@ export function ServiceHero({ service, deploying, asleep, compact }: ServiceHero
           <h1 className={cn('headline mt-3 break-words', compact ? 'text-2xl sm:text-3xl' : 'text-[2rem] sm:text-4xl')}>
             {service.name} {statusPhrase(service, deploying, asleep)}
           </h1>
-          <p className="mono-data text-muted-foreground mt-2 text-sm">{service.image}</p>
+          <p className="mono-data text-muted-foreground mt-2 break-all text-sm">{service.image}</p>
+          {service.lastError && (service.status === 'failed' || service.status === 'degraded') ? (
+            <p
+              className="bg-status-offline/12 text-status-offline mono-data mt-3 inline-block max-w-full rounded-xl px-3 py-1.5 text-xs break-words"
+              title={service.lastErrorAt ? `Last task error at ${service.lastErrorAt}` : undefined}
+            >
+              Last task error: {service.lastError}
+            </p>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           {asleep ? (

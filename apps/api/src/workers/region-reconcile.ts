@@ -1,7 +1,7 @@
-import { REGION_OF_LABEL, REGION_PARENT_LABEL, STACK_LABEL } from '@swarmy/core';
-import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
+import { REGION_OF_LABEL, REGION_PARENT_LABEL } from '@swarmy/core';
+import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import { prisma } from '@swarmy/db';
-import { reapplyIngressForOrg, siblingSetSignature } from '@swarmy/trpc';
+import { liveServiceSpec, reapplyIngressForOrg, siblingSetSignature, siblingSpecFrom } from '@swarmy/trpc';
 import { hub, store } from '../gateway';
 import { authRegistry } from '@swarmy/auth';
 
@@ -33,8 +33,16 @@ import { authRegistry } from '@swarmy/auth';
  *   • park the parent at 0        → `service.scale` (declaration holder)
  *   • strip legacy spread markers → `service.updateLabels` (one-time cleanup)
  *
- * Reused spec fields are image + env + networks (per liveInventory); name,
- * replicas, placement and labels are swapped per region. Published PORTS are
+ * The sibling spec is cut from the parent's FULL live spec (`service.inspect`
+ * via `liveServiceSpec` → `siblingSpecFrom`, both from `@swarmy/trpc`) — so
+ * command/args, mounts, healthcheck, resources, secrets/configs targets,
+ * restart policy and non-pinning placement all carry over; the lossy inventory
+ * view is never used to build one. If the live spec can't be read, the create
+ * is skipped this tick (retried next) rather than deployed stripped. Name,
+ * replicas, the region pin and labels are swapped per region. Named-volume
+ * mounts are kept but are node-LOCAL: a sibling in another region gets its own
+ * empty volume of that name, never the parent's data (see `siblingSpecFrom`).
+ * Published PORTS are
  * deliberately NOT copied: N siblings cannot all publish the same ingress port,
  * and per-region external reach is the job of Geo-DNS (regional ingress), not of
  * each sibling republishing the parent's port. Overlay service-discovery
@@ -49,8 +57,6 @@ import { authRegistry } from '@swarmy/auth';
 
 const TICK_MS = 30_000;
 const REGION_REPLICAS_RE = /^swarmy\.region\.(.+)\.replicas$/;
-/** Node label naming a node's region (mirror of region.service REGION_NODE_LABEL). */
-const REGION_NODE_LABEL = 'swarmy.region';
 /** Legacy markers stamped by the previous (total-only) reconcile — cleaned up. */
 const LEGACY_SPREAD_LABEL = 'swarmy.region.spread';
 const LEGACY_DESIRED_TOTAL_LABEL = 'swarmy.region.desiredTotal';
@@ -66,40 +72,6 @@ function parseRegionReplicas(labels: Record<string, string>): Map<string, number
     out.set(region, n);
   }
   return out;
-}
-
-/** Env `KEY=value` strings → a spec env record. */
-function envRecord(env: string[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const kv of env) {
-    const i = kv.indexOf('=');
-    out[i >= 0 ? kv.slice(0, i) : kv] = i >= 0 ? kv.slice(i + 1) : '';
-  }
-  return out;
-}
-
-/**
- * Cut a sibling `ServiceSpec` from the parent: reuse image + env + networks,
- * swap in the region's replica count, a region-pinning placement constraint, the
- * sibling name, and a CLEAN label set (markers + inherited stack only — never the
- * parent's region declarations / ingress / scale-to-zero labels).
- */
-function buildSiblingSpec(parent: SwarmServiceInfo, region: string, replicas: number): ServiceSpec {
-  const stack = parent.labels[STACK_LABEL];
-  return {
-    name: `${parent.name}-${region}`,
-    image: parent.image,
-    mode: { replicated: { replicas } },
-    env: envRecord(parent.env ?? []),
-    networks: (parent.networks ?? []).map((n) => n.name).filter((n) => n.length > 0),
-    labels: {
-      'swarmy.managed': 'true',
-      [REGION_PARENT_LABEL]: parent.name,
-      [REGION_OF_LABEL]: region,
-      ...(stack ? { [STACK_LABEL]: stack } : {}),
-    },
-    placement: { constraints: [`node.labels.${REGION_NODE_LABEL}==${region}`] },
-  };
 }
 
 async function reconcileOrg(orgId: string): Promise<void> {
@@ -134,7 +106,13 @@ async function reconcileOrg(orgId: string): Promise<void> {
     for (const [region, replicas] of declared) {
       const sib = existing.get(region);
       if (!sib) {
-        const spec = buildSiblingSpec(parent, region, replicas);
+        const live = await liveServiceSpec({ hub }, node, {
+          name: parent.name,
+          image: parent.image,
+          networks: parent.networks ?? [],
+        }).catch(() => null);
+        if (!live) continue; // never deploy a stripped sibling — retry next tick
+        const spec = siblingSpecFrom(live, parent, region, replicas);
         await hub
           .dispatch(node, 'service.deploy', { spec, pullPolicy: 'always' })
           .catch(() => undefined);

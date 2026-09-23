@@ -16,6 +16,7 @@ import { SearchRowDetail } from './search-row-detail';
 export function instanceTone(view: SearchInstanceView): { tone: StatusTone; label: string } {
   if (view.status === 'absent') return { tone: 'offline', label: 'absent' };
   if (view.status === 'stopped') return { tone: 'offline', label: 'down' };
+  if (view.status === 'failing') return { tone: 'offline', label: 'failing' };
   if (view.status === 'deploying') return { tone: 'progress', label: 'deploying' };
   if (view.status === 'running' && view.running >= view.desired)
     return { tone: 'online', label: 'healthy' };

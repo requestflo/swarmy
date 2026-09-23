@@ -19,6 +19,8 @@ type Unit = 'minutes' | 'hours' | 'days';
 interface ScheduleCreateInlineProps {
   stack: string;
   targets: TargetOption[];
+  /** Prefill (an auto schedule's "change" — saving replaces the auto one). */
+  initialVolume?: string;
   onDone: () => void;
 }
 
@@ -26,12 +28,16 @@ interface ScheduleCreateInlineProps {
 export function ScheduleCreateInline({
   stack,
   targets,
+  initialVolume,
   onDone,
 }: ScheduleCreateInlineProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const [targetId, setTargetId] = React.useState(targets[0]?.id ?? '');
-  const [volume, setVolume] = React.useState(`${stack}_`);
+  const [volume, setVolume] = React.useState(initialVolume ?? `${stack}_`);
+  React.useEffect(() => {
+    if (initialVolume) setVolume(initialVolume);
+  }, [initialVolume]);
   const [every, setEvery] = React.useState('1');
   const [unit, setUnit] = React.useState<Unit>('days');
 

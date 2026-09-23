@@ -60,6 +60,12 @@ import {
   clusterNetworkName,
 } from './manageddb.service';
 import { cronNext, isCronDue, parseCron, type CronSpec } from './schedule';
+import {
+  AUTO_BACKUP_RETENTION_DAYS,
+  DB_BACKUP_AUTO_LABEL,
+  DB_BACKUP_AUTO_OFF,
+  staggeredCron,
+} from './autoBackup';
 
 const PG_PORT = 5432;
 const DEFAULT_DATABASE = 'app';
@@ -84,6 +90,12 @@ export interface DbBackupSchedule {
   pitr: boolean;
   targetId?: string;
   dataVolume?: string;
+  /**
+   * Created by swarmy's default-on DB backups (nightly pg_dump, keep 7), not a
+   * user. A user saving a schedule drops this; clearing one stamps the
+   * `swarmy.db.backup.auto=off` opt-out so it is never re-created.
+   */
+  auto?: boolean;
 }
 
 /** Decoded `swarmy.db.backup.lastRun` label. */
@@ -113,6 +125,7 @@ export function parseScheduleLabel(raw: string | undefined | null): DbBackupSche
       pitr: v.pitr === true,
       ...(typeof v.targetId === 'string' && v.targetId ? { targetId: v.targetId } : {}),
       ...(typeof v.dataVolume === 'string' && v.dataVolume ? { dataVolume: v.dataVolume } : {}),
+      ...(v.auto === true ? { auto: true } : {}),
     };
   } catch {
     return null;
@@ -128,7 +141,24 @@ export function encodeScheduleLabel(s: DbBackupSchedule): string {
     pitr: s.pitr,
     ...(s.targetId ? { targetId: s.targetId } : {}),
     ...(s.dataVolume ? { dataVolume: s.dataVolume } : {}),
+    ...(s.auto ? { auto: true } : {}),
   });
+}
+
+/**
+ * The default-on schedule for a managed cluster: a nightly LOGICAL backup
+ * (`pg_dump` — transaction-consistent, unlike a live volume copy) at the
+ * cluster's staggered 02:00–04:59 UTC slot, kept 7 days, marked `auto`.
+ */
+export function autoDbSchedule(stack: string, cluster: string, targetId: string): DbBackupSchedule {
+  return {
+    cron: staggeredCron(`${stack}/${cluster}`),
+    engine: 'pg_dump',
+    retentionDays: AUTO_BACKUP_RETENTION_DAYS,
+    pitr: false,
+    targetId,
+    auto: true,
+  };
 }
 
 /** Parse the last-run label; malformed JSON degrades to null. */
@@ -205,6 +235,7 @@ export function scheduleView(
     lastStatus: lastRun?.status ?? null,
     lastError: lastRun?.error ?? null,
     nextRunAt,
+    auto: schedule.auto === true,
   };
 }
 
@@ -513,9 +544,11 @@ export async function setDbBackupSchedule(
 
   if (!input.enabled) {
     try {
+      // Clearing is an explicit "don't back this up on a schedule": leave the
+      // opt-out marker so default-on DB backups never re-create it.
       await ctx.hub.dispatch(node.id, 'service.updateLabels', {
         service: primary.name,
-        add: {},
+        add: { [DB_BACKUP_AUTO_LABEL]: DB_BACKUP_AUTO_OFF },
         removeKeys: [DB_BACKUP_SCHEDULE_LABEL, DB_BACKUP_PITR_LABEL],
       });
     } catch (e) {
@@ -622,6 +655,7 @@ export async function dbBackupOverview(ctx: OrgContext): Promise<DbBackupOvervie
         lastSizeBytes: lastRun?.sizeBytes ?? null,
         nextRunAt,
         pitrWindow: pitrWindow(schedule, lastRun, now),
+        auto: schedule?.auto === true,
       };
     })
     .sort((a, b) => `${a.stack}/${a.cluster}`.localeCompare(`${b.stack}/${b.cluster}`));

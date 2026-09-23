@@ -166,6 +166,10 @@ export async function handleCommand(
         }),
       }));
     }
+    case 'removeStackNetworks': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => docker.removeStackNetworks(p.stack));
+    }
     case 'dbBackup': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => backupDb(docker, conn, p));

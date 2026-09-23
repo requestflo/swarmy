@@ -1,5 +1,5 @@
-import { REGION_OF_LABEL, REGION_PARENT_LABEL } from '@swarmy/core';
-import type { SwarmServiceInfo } from '@swarmy/core/protocol';
+import { REGION_OF_LABEL, REGION_PARENT_LABEL, STACK_LABEL } from '@swarmy/core';
+import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { mapDispatchError, notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
@@ -32,6 +32,63 @@ export const REGION_SPREAD_LABEL = 'swarmy.region.spread';
 export const REGION_SPREAD_VALUE = `node.labels.${REGION_NODE_LABEL}`;
 
 const REGION_REPLICAS_RE = /^swarmy\.region\.(.+)\.replicas$/;
+
+/**
+ * Placement constraints that pin a service to ONE place (a region, a host, a
+ * node id). A sibling in another region must not inherit them — they'd make
+ * it unplaceable — so they're dropped before the sibling's own region pin.
+ */
+const PINNING_CONSTRAINT_RE = /^\s*(node\.labels\.swarmy\.region|node\.hostname|node\.id)\s*(==|!=)/;
+
+/**
+ * PURE — cut a per-region sibling spec from the parent's FULL live spec (from
+ * `liveServiceSpec`, never the lossy inventory view). Carried verbatim:
+ * image, env, command/args, mounts, secrets/configs (with file targets),
+ * networks, healthcheck, resources, restart policy, stop grace, and the
+ * parent's non-pinning placement (other constraints, spread preferences,
+ * max-per-node). Swapped per region: name `<parent>-<region>`, replicas, a
+ * `node.labels.swarmy.region==<region>` pin, and a CLEAN label set (markers +
+ * inherited stack only — never the parent's region declarations / ingress
+ * routes / scale-to-zero labels, which would make the sibling a second
+ * declaration holder or double-route it).
+ *
+ * Published PORTS are dropped: N siblings can't all publish the same ingress
+ * port; per-region reach is Geo-DNS + regional ingress.
+ *
+ * VOLUMES: mounts are kept as-is, including NAMED volumes. Docker volumes are
+ * node-local, so a sibling in another region gets its OWN (initially empty)
+ * volume of the same name on whichever node it lands — it does NOT share the
+ * parent's data. That is the correct shape for caches/scratch and for apps
+ * that replicate at the application layer; state that must be shared across
+ * regions belongs in a managed data service (replicated DB / object storage),
+ * not a named volume. Bind mounts need the host path on the sibling's nodes.
+ */
+export function siblingSpecFrom(
+  live: ServiceSpec,
+  parent: { name: string; labels: Record<string, string> },
+  region: string,
+  replicas: number,
+): ServiceSpec {
+  const rest: ServiceSpec = { ...live };
+  delete rest.ports;
+  const stack = parent.labels[STACK_LABEL];
+  const inherited = (live.placement?.constraints ?? []).filter((c) => !PINNING_CONSTRAINT_RE.test(c));
+  return {
+    ...rest,
+    name: `${parent.name}-${region}`,
+    mode: { replicated: { replicas } },
+    labels: {
+      'swarmy.managed': 'true',
+      [REGION_PARENT_LABEL]: parent.name,
+      [REGION_OF_LABEL]: region,
+      ...(stack ? { [STACK_LABEL]: stack } : {}),
+    },
+    placement: {
+      ...(live.placement ?? {}),
+      constraints: [...inherited, `node.labels.${REGION_NODE_LABEL}==${region}`],
+    },
+  };
+}
 
 /** Build the service-label key that declares replicas for one region. */
 export function regionReplicasKey(region: string): string {
