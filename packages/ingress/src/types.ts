@@ -330,6 +330,29 @@ export const ControllerVhostSchema = z.object({
 });
 export type ControllerVhost = z.infer<typeof ControllerVhostSchema>;
 
+const bucketName = z.string().regex(/^[a-z0-9][a-z0-9.-]{1,62}$/, 'invalid bucket name');
+
+/**
+ * swarmy object storage (Garage S3) exposed through the edge, per bucket.
+ * Caddy is the gate: only paths of listed buckets reach Garage, everything
+ * else is a 403 at the edge — an INTERNAL bucket is never routable. Garage
+ * still requires SigV4 (keys or a presigned signature): reachable ≠ anonymous.
+ */
+export const ObjectStorageEdgeSchema = z.object({
+  /** Garage S3 dial target on the swarmy overlay, e.g. `swarmy-garage:3900`. */
+  upstream: z.string().min(1),
+  /** HTTPS hostname for PUBLIC buckets (path-style: https://<domain>/<bucket>/<key>). */
+  publicDomain: z.string().min(1).optional(),
+  publicBuckets: z.array(bucketName).default([]),
+  /** MESH buckets — plus every PUBLIC one — served on `meshPort` to mesh peers only. */
+  meshBuckets: z.array(bucketName).default([]),
+  /** Plain-HTTP listener for mesh peers (WireGuard already encrypts the hop). */
+  meshPort: z.number().int().min(1).max(65535).default(3900),
+  /** Source range a mesh request must come from (NetBird/Tailscale CGNAT). */
+  meshCidr: z.string().default('100.64.0.0/10'),
+});
+export type ObjectStorageEdge = z.infer<typeof ObjectStorageEdgeSchema>;
+
 export const IngressConfigSchema = z.object({
   driver: z.string().min(1),
   enabled: z.boolean().default(true),
@@ -338,6 +361,8 @@ export const IngressConfigSchema = z.object({
   domains: z.array(DomainRouteSchema).default([]),
   /** Controller-upstream vhosts (status pages / webhooks / AI gateway domains). */
   controllerVhosts: z.array(ControllerVhostSchema).default([]),
+  /** Per-bucket S3 exposure (absent = object storage stays in-cluster only). */
+  objectStorage: ObjectStorageEdgeSchema.optional(),
   /**
    * Region of the node THIS render targets (geo-edge). Pure data — the driver
    * renders once per target node, threading that node's `swarmy.region` label

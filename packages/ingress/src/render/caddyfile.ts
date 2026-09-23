@@ -121,7 +121,85 @@ export function buildCaddyfile(config: IngressConfig): string {
     routeHosts.add(v.domain);
     out.push(...buildControllerVhost(v), '');
   }
+
+  // Object storage, per bucket (a service route / vhost on the same hostname wins).
+  const s3 = config.objectStorage;
+  if (s3) {
+    if (s3.publicDomain && s3.publicBuckets.length > 0 && !routeHosts.has(s3.publicDomain)) {
+      routeHosts.add(s3.publicDomain);
+      out.push(...buildPublicObjectStorageSite(s3.publicDomain, s3.upstream, s3.publicBuckets), '');
+    }
+    const meshBuckets = [...new Set([...s3.meshBuckets, ...s3.publicBuckets])].sort();
+    if (meshBuckets.length > 0) {
+      out.push(...buildMeshObjectStorageSite(s3.meshPort, s3.meshCidr, s3.upstream, meshBuckets), '');
+    }
+  }
   return `${out.join('\n').trimEnd()}\n`;
+}
+
+/** `path` matcher values for a bucket allowlist: the bucket root and everything under it. */
+function bucketPaths(buckets: readonly string[]): string {
+  return [...buckets].sort().flatMap((b) => [`/${b}`, `/${b}/*`]).join(' ');
+}
+
+function garageProxy(upstream: string, indent: string): string[] {
+  return [
+    `${indent}reverse_proxy ${upstream} {`,
+    `${indent}  stream_close_delay ${APP_STREAM_CLOSE_DELAY}`,
+    `${indent}}`,
+  ];
+}
+
+/**
+ * PUBLIC buckets: https://<domain>/<bucket>/<key> (path-style). Only allowlisted
+ * bucket paths reach Garage; anything else — other buckets, ListBuckets on `/`
+ * — is a 403 at the edge. The site matches exactly one hostname, and Garage
+ * sees that same Host, so no virtual-host bucket can be smuggled in.
+ */
+function buildPublicObjectStorageSite(domain: string, upstream: string, buckets: readonly string[]): string[] {
+  return [
+    `${domain} {`,
+    '  # swarmy object storage — public buckets (SigV4 still required)',
+    `  @bucket path ${bucketPaths(buckets)}`,
+    '  handle @bucket {',
+    ...garageProxy(upstream, '    '),
+    '  }',
+    '  handle {',
+    '    respond 403',
+    '  }',
+    '}',
+  ];
+}
+
+/**
+ * MESH (+ PUBLIC) buckets on http://<edge mesh IP>:<port>, for mesh peers only
+ * (source in the mesh CIDR; WireGuard already encrypts the hop). The Host must
+ * be a bare IP[:port]: Garage also resolves VIRTUAL-HOST buckets from Host
+ * (`<bucket>.s3.<region>.swarmy`), which on a catch-all listener would let a
+ * peer name any bucket while sending an allowed path.
+ */
+function buildMeshObjectStorageSite(
+  port: number,
+  cidr: string,
+  upstream: string,
+  buckets: readonly string[],
+): string[] {
+  return [
+    `http://:${port} {`,
+    '  # swarmy object storage — mesh peers only (SigV4 still required)',
+    '  @bucket {',
+    `    remote_ip ${cidr}`,
+    '    header_regexp Host ^[0-9.]+(:[0-9]+)?$',
+    `    path ${bucketPaths(buckets)}`,
+    '  }',
+    '  handle @bucket {',
+    ...garageProxy(upstream, '    '),
+    '  }',
+    '  handle {',
+    '    respond 403',
+    '  }',
+    '}',
+  ];
 }
 
 /**

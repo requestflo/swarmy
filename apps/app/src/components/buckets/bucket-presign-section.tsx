@@ -36,8 +36,14 @@ export function BucketPresignSection({ bucket }: { bucket: BucketDetailView }): 
     trpc.buckets.presignUrl.mutationOptions({
       onSuccess: (r) => {
         void navigator.clipboard.writeText(r.url);
-        toast.success(
-          `Presigned ${r.method} URL copied — valid until ${new Date(r.expiresAt).toLocaleString()}`,
+        const where =
+          r.reachableFrom === 'internet'
+            ? 'works from anywhere'
+            : r.reachableFrom === 'mesh'
+              ? 'works from your mesh'
+              : 'works only inside swarmy — set Access to Mesh or Public to share it outside';
+        toast[r.reachableFrom === 'cluster' ? 'warning' : 'success'](
+          `Presigned ${r.method} URL copied (${where}) — valid until ${new Date(r.expiresAt).toLocaleString()}`,
         );
       },
       onError: (e) => toast.error(e.message),

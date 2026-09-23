@@ -223,6 +223,7 @@ export const buckets: DomainResolvers = {
         key: input.key,
         method,
         expiresAt: new Date(now.getTime() + expiresSeconds * 1000).toISOString(),
+        reachableFrom: 'cluster' as const,
       };
     },
 
@@ -284,6 +285,21 @@ export const buckets: DomainResolvers = {
       b.quotas = { maxSizeBytes: input.maxSizeBytes, maxObjects: input.maxObjects };
       return summary(b);
     },
+
+    'buckets.access': (i, s) => {
+      const { bucketId } = i as { bucketId: string };
+      const b = requireBucket(getState(s), bucketId) as ReturnType<typeof requireBucket> & { access?: string };
+      return demoAccessView(b.id, b.name, (b.access as DemoAccessMode | undefined) ?? 'INTERNAL');
+    },
+
+    'buckets.setAccess': (i, s) => {
+      const input = i as { bucketId: string; mode: DemoAccessMode };
+      const b = requireBucket(getState(s), input.bucketId) as ReturnType<typeof requireBucket> & { access?: string };
+      b.access = input.mode;
+      return demoAccessView(b.id, b.name, input.mode);
+    },
+
+    'buckets.setPublicDomain': (i) => ({ domain: (i as { domain: string | null }).domain }),
 
     'buckets.setWebsite': (i, s) => {
       const input = i as { bucketId: string; enabled: boolean };
@@ -416,3 +432,23 @@ export const buckets: DomainResolvers = {
     store.extra.buckets = state;
   },
 };
+
+type DemoAccessMode = 'INTERNAL' | 'MESH' | 'PUBLIC';
+const DEMO_PUBLIC_DOMAIN = 's3.demo.swarmy.dev';
+const DEMO_MESH_IPS = ['100.71.28.18', '100.71.7.10'];
+
+function demoAccessView(bucketId: string, bucket: string, mode: DemoAccessMode) {
+  return {
+    bucketId,
+    bucket,
+    mode,
+    publicDomain: DEMO_PUBLIC_DOMAIN,
+    publicDomainCustom: false,
+    meshAvailable: true,
+    endpoints: {
+      internal: `http://swarmy-garage:3900/${bucket}`,
+      mesh: mode === 'INTERNAL' ? [] : DEMO_MESH_IPS.map((ip) => `http://${ip}:3900/${bucket}`),
+      public: mode === 'PUBLIC' ? `https://${DEMO_PUBLIC_DOMAIN}/${bucket}` : null,
+    },
+  };
+}

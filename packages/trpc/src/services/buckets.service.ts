@@ -553,6 +553,11 @@ export async function deleteBucket(
     method: 'DELETE',
     path: `/bucket?id=${encodeURIComponent(bucketId)}`,
   });
+  // Its edge route (if it was MESH/PUBLIC) goes with it; the ingress reconcile
+  // drops the path from the allowlist on its next tick.
+  await ctx.db.bucketAccess
+    .deleteMany({ where: { orgId: ctx.activeOrgId, bucketId } })
+    .catch(() => undefined);
   await writeAudit(ctx, {
     action: 'buckets.delete',
     targetType: 'bucket',
@@ -804,6 +809,12 @@ export interface PresignUrlInput {
   key: string;
   method: 'GET' | 'PUT';
   expiresSeconds: number;
+  /**
+   * S3 origin the URL is signed for (SigV4 covers the Host). Default: the
+   * in-cluster endpoint. The router passes the bucket's public / mesh origin
+   * when it is exposed, so the link works where it will actually be opened.
+   */
+  endpoint?: string;
 }
 
 export interface PresignedUrlView {
@@ -846,7 +857,7 @@ export async function presignObjectUrl(
 
   const now = new Date();
   const url = presignS3Url({
-    endpoint: garageS3Endpoint(),
+    endpoint: input.endpoint ?? garageS3Endpoint(),
     region: store.region,
     bucket: bucket.name,
     key: input.key,
@@ -860,7 +871,12 @@ export async function presignObjectUrl(
     action: 'buckets.presign',
     targetType: 'bucket',
     targetId: bucket.id,
-    metadata: { key: input.key, method: input.method, expiresSeconds: input.expiresSeconds },
+    metadata: {
+      key: input.key,
+      method: input.method,
+      expiresSeconds: input.expiresSeconds,
+      endpoint: input.endpoint ?? 'internal',
+    },
   });
   return {
     url,

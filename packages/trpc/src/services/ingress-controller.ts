@@ -92,7 +92,33 @@ export interface EnsureControllerResult {
 
 export type ResolvedOptions = Required<Omit<EnsureControllerOptions, 'otelOrgId'>> & {
   otelOrgId?: string;
+  /** Publish the mesh-peer object-storage listener (see {@link objectStorageMeshPort}). */
+  objectStorageMeshPort?: number;
 };
+
+/** Where mesh peers reach swarmy object storage on an edge node (plain HTTP over WireGuard). */
+export const OBJECT_STORAGE_MESH_PORT = 3900;
+
+/**
+ * The mesh object-storage port, when any bucket is reachable from the mesh
+ * (MESH or PUBLIC). Published in host mode only then, so an org that exposes
+ * nothing has no extra port open on its edges. The edge's Caddy site still
+ * 403s every request not from the mesh CIDR for an allowlisted bucket.
+ */
+export async function objectStorageMeshPort(ctx: OrgContext): Promise<number | undefined> {
+  // Fail closed: if exposure can't be read, publish nothing extra.
+  let n = 0;
+  try {
+    n = await ctx.db.bucketAccess.count({ where: { orgId: ctx.activeOrgId, mode: { in: ['MESH', 'PUBLIC'] } } });
+  } catch {
+    n = 0;
+  }
+  return n > 0 ? OBJECT_STORAGE_MESH_PORT : undefined;
+}
+
+function meshStoragePort(port?: number): NonNullable<ServiceSpec['ports']> {
+  return port ? [{ target: port, published: port, protocol: 'tcp', mode: 'host' }] : [];
+}
 
 /** Swarm node-role label that marks a node as an ingress (edge) node. */
 const INGRESS_NODE_LABEL = 'swarmy.node.ingress';
@@ -171,6 +197,7 @@ export function caddyControllerSpec(
   const ports: NonNullable<ServiceSpec['ports']> = [
     { target: 80, published: 80, protocol: 'tcp', mode: 'host' },
     { target: 443, published: 443, protocol: 'tcp', mode: 'host' },
+    ...meshStoragePort(opts.objectStorageMeshPort),
   ];
   // Caddy's admin API is unauthenticated: never bind it beyond loopback unless
   // something off-task genuinely has to reach it.
@@ -249,6 +276,7 @@ export async function ensureCaddyController(
     adminOnOverlay: options.adminOnOverlay ?? false,
     targetNodes: options.targetNodes ?? [],
     otelOrgId,
+    objectStorageMeshPort: await objectStorageMeshPort(ctx),
   };
   const node = await resolveManagerNode(ctx);
 
@@ -348,6 +376,8 @@ export function caddyEdgeSpec(opts: {
   certStoreSecret?: string;
   /** Its encryption-key secret (imported by the rendered `storage s3` block). */
   certStoreEncSecret?: string;
+  /** Publish the mesh-peer object-storage listener on every edge. */
+  objectStorageMeshPort?: number;
 }): ServiceSpec {
   const certs = opts.certStoreSecret
     ? edgeCertsServiceWiring(opts.certStoreSecret, opts.certStoreEncSecret)
@@ -388,6 +418,7 @@ export function caddyEdgeSpec(opts: {
       { target: 80, published: 80, protocol: 'tcp', mode: 'host' },
       { target: 443, published: 443, protocol: 'tcp', mode: 'host' },
       { target: 443, published: 443, protocol: 'udp', mode: 'host' }, // HTTP/3
+      ...meshStoragePort(opts.objectStorageMeshPort),
     ],
     mounts: [
       { type: 'volume', source: DATA_VOLUME, target: '/data' },
@@ -511,6 +542,7 @@ export async function ensureCaddyEdge(
       otelOrgId,
       certStoreSecret: options.certStoreSecret,
       certStoreEncSecret: options.certStoreEncSecret,
+      objectStorageMeshPort: await objectStorageMeshPort(ctx),
     }),
   );
   const id = liveService(ctx, CADDY_EDGE_SERVICE)?.id ?? CADDY_EDGE_SERVICE;

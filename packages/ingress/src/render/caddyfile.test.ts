@@ -1131,3 +1131,74 @@ describe('isPrivateHost (local CA instead of an ACME order that can never valida
     }
   });
 });
+
+describe('caddy object storage — per-bucket exposure', () => {
+  const withS3 = (domains: Record<string, unknown>[], o: Record<string, unknown>) =>
+    IngressConfigSchema.parse({
+      driver: 'caddy',
+      orgId: 'org_1',
+      domains,
+      objectStorage: { upstream: 'swarmy-garage:3900', publicBuckets: [], meshBuckets: [], ...o },
+    });
+  const s3 = (o: Record<string, unknown>) => withS3([], o);
+
+  it('GOLDEN: public buckets get an https site that allowlists ONLY their paths, 403 otherwise', () => {
+    const out = buildCaddyfile(s3({ publicDomain: 's3.x.io', publicBuckets: ['media', 'assets'] }));
+    const block = out.slice(out.indexOf('s3.x.io {'), out.indexOf('\n}\n', out.indexOf('s3.x.io {')) + 2);
+    expect(block).toBe(
+      [
+        's3.x.io {',
+        '  # swarmy object storage — public buckets (SigV4 still required)',
+        '  @bucket path /assets /assets/* /media /media/*',
+        '  handle @bucket {',
+        '    reverse_proxy swarmy-garage:3900 {',
+        '      stream_close_delay 5m',
+        '    }',
+        '  }',
+        '  handle {',
+        '    respond 403',
+        '  }',
+        '}',
+      ].join('\n'),
+    );
+  });
+
+  it('GOLDEN: the mesh listener serves mesh+public buckets, mesh CIDR only, bare-IP Host only', () => {
+    const out = buildCaddyfile(s3({ publicDomain: 's3.x.io', publicBuckets: ['media'], meshBuckets: ['backups'] }));
+    expect(out).toContain(
+      [
+        'http://:3900 {',
+        '  # swarmy object storage — mesh peers only (SigV4 still required)',
+        '  @bucket {',
+        '    remote_ip 100.64.0.0/10',
+        '    header_regexp Host ^[0-9.]+(:[0-9]+)?$',
+        '    path /backups /backups/* /media /media/*',
+        '  }',
+      ].join('\n'),
+    );
+  });
+
+  it('a mesh-only bucket never appears on the public site; nothing exposed renders nothing', () => {
+    const out = buildCaddyfile(s3({ publicDomain: 's3.x.io', meshBuckets: ['backups'] }));
+    expect(out).not.toContain('s3.x.io {');
+    expect(buildCaddyfile(s3({ publicDomain: 's3.x.io' }))).not.toContain('swarmy-garage');
+  });
+
+  it('a bucket path allowlist never matches a longer bucket name that shares a prefix', () => {
+    const out = buildCaddyfile(s3({ publicDomain: 's3.x.io', publicBuckets: ['b1'] }));
+    expect(out).toContain('@bucket path /b1 /b1/*');
+    expect(out).not.toContain('/b1*');
+  });
+
+  it('a service route on the same hostname wins over the S3 site (no duplicate site address)', () => {
+    const out = buildCaddyfile(
+      withS3([{ domain: 's3.x.io', service: 'web', port: 80, pathPrefix: '/', tls: 'auto' }], {
+        publicDomain: 's3.x.io',
+        publicBuckets: ['media'],
+      }),
+    );
+    expect(out.match(/^s3\.x\.io \{/gm)).toHaveLength(1);
+    expect(out).not.toContain('public buckets');
+  });
+});
+

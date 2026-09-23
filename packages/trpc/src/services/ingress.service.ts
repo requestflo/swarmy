@@ -34,7 +34,7 @@ import {
   type EdgeApplyRecord,
   type EdgeRuntimeStatus,
 } from './ingress-controller';
-import { notFound } from '../errors';
+import { commandRejected, notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { resolveLiveService } from './live-resolve';
 import { listOutlets as listAiOutlets } from './ai.service';
@@ -49,6 +49,7 @@ import { regionUpstreamsFor } from './ingress-regions';
 import { attachRoutedServicesToEdge } from './ingress-network';
 import { publicIpFromLabels } from './node.service';
 import { objectStoreState } from './buckets.service';
+import { objectStorageEdgeFor } from './bucket-access.service';
 import {
   certStorageFor,
   ensureEdgeCertStorage,
@@ -559,6 +560,8 @@ async function loadOrgConfig(
     // Controller-upstream vhosts (status-page / webhook domains) — persisted rows
     // resolved at render time onto the controller upstream.
     controllerVhosts: await computeControllerVhosts(ctx, settings),
+    // Per-bucket S3 exposure (public hostname + mesh listener), edge-enforced.
+    objectStorage: await objectStorageEdgeFor(ctx, settings.dashboardDomain),
     globalOptions: {
       ...baseGlobal,
       extraConfig,
@@ -1336,6 +1339,35 @@ export interface IngressReconcileResult {
 /** Last time (ms) the reconcile re-deployed a missing controller, per org. */
 const lastConvergeAt = new Map<string, number>();
 const CONVERGE_RETRY_MS = 60_000;
+/**
+ * Re-render the edge after a bucket's reachability changed. When the mesh
+ * listener appears or disappears the edge SERVICE changes (its published
+ * ports), so it redeploys first; otherwise a config apply is enough.
+ */
+export async function applyObjectStorageExposure(ctx: OrgContext, edgePortsChanged: boolean): Promise<void> {
+  if (edgePortsChanged) {
+    const error = await convergeEdge(ctx);
+    if (error) throw commandRejected(error);
+  }
+  await reapply(ctx);
+}
+
+/** Mesh IPs of the nodes running an edge task — where MESH buckets are reachable. */
+export async function edgeMeshIps(ctx: OrgContext): Promise<string[]> {
+  const nodeIds = await ingressTaskNodes(ctx).catch(() => [] as string[]);
+  if (nodeIds.length === 0) return [];
+  const peers = await ctx.db.meshPeer.findMany({
+    where: { orgId: ctx.activeOrgId, nodeId: { in: nodeIds }, meshIp: { not: null } },
+    select: { meshIp: true },
+  });
+  return peers.map((p) => p.meshIp!).filter(Boolean);
+}
+
+/** The org's dashboard hostname (the public S3 domain derives from it). */
+export async function orgDashboardDomain(ctx: OrgContext): Promise<string | undefined> {
+  return readSettings(await ensureConfig(ctx)).dashboardDomain ?? undefined;
+}
+
 /**
  * After a legacy plaintext store was upgraded and the sealed config is applied
  * (so each edge's autosave now resumes into the encrypted prefix), restart the

@@ -17,6 +17,7 @@ import {
   toast,
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { BucketAccessSection } from './bucket-access-section';
 import { BucketAttachSection } from './bucket-attach-section';
 import { BucketKeysSection } from './bucket-keys-section';
 import { BucketPresignSection } from './bucket-presign-section';
@@ -91,6 +92,10 @@ export function BucketDetailPanel({
       </div>
 
       <BucketQuotaField bucketId={b.id} quotas={b.quotas} />
+
+      <Separator />
+      <BucketAccessSection bucketId={b.id} />
+      <Separator />
 
       <div className="flex items-center justify-between gap-3">
         <div>

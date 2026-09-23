@@ -28,6 +28,39 @@ import {
   setWebsite,
 } from '../services/buckets.service';
 import { MAX_PRESIGN_EXPIRES_SECONDS } from '../services/s3-presign';
+import {
+  BUCKET_ACCESS_MODES,
+  bucketAccessMode,
+  bucketEndpoints,
+  publicS3DomainFor,
+  setBucketAccess,
+  setPublicS3Domain,
+  type BucketAccessMode,
+} from '../services/bucket-access.service';
+import { applyObjectStorageExposure, edgeMeshIps, orgDashboardDomain } from '../services/ingress.service';
+import type { OrgContext } from '../context';
+
+const accessMode = z.enum(BUCKET_ACCESS_MODES as [BucketAccessMode, ...BucketAccessMode[]]);
+
+/** One bucket's reachability + the concrete endpoints it has. */
+async function accessView(ctx: OrgContext, bucketId: string) {
+  const bucket = await getBucket(ctx, bucketId);
+  const [mode, dashboard, meshIps] = await Promise.all([
+    bucketAccessMode(ctx, bucket.id),
+    orgDashboardDomain(ctx),
+    edgeMeshIps(ctx),
+  ]);
+  const publicDomain = await publicS3DomainFor(ctx, dashboard);
+  return {
+    bucketId: bucket.id,
+    bucket: bucket.name,
+    mode,
+    publicDomain: publicDomain.domain ?? null,
+    publicDomainCustom: publicDomain.custom,
+    meshAvailable: meshIps.length > 0,
+    endpoints: bucketEndpoints({ bucket: bucket.name, mode, publicDomain: publicDomain.domain, edgeMeshIps: meshIps }),
+  };
+}
 
 /**
  * Object storage buckets — Garage bucket/key CRUD, quotas, usage, service
@@ -84,7 +117,42 @@ export const objectStorageRouter = router({
         expiresSeconds: z.number().int().min(1).max(MAX_PRESIGN_EXPIRES_SECONDS).default(3600),
       }),
     )
-    .mutation(({ ctx, input }) => presignObjectUrl(ctx, input)),
+    .mutation(async ({ ctx, input }) => {
+      // Sign for where the link will be used: the bucket's public origin,
+      // else a mesh edge, else in-cluster (then it only works inside swarmy).
+      const view = await accessView(ctx, input.bucketId);
+      const origin = (u: string) => new URL(u).origin;
+      const endpoint = view.endpoints.public
+        ? origin(view.endpoints.public)
+        : view.endpoints.mesh[0]
+          ? origin(view.endpoints.mesh[0])
+          : undefined;
+      const signed = await presignObjectUrl(ctx, { ...input, endpoint });
+      return { ...signed, reachableFrom: view.endpoints.public ? 'internet' : endpoint ? 'mesh' : 'cluster' };
+    }),
+
+  /** Who can reach this bucket's S3 API (INTERNAL / MESH / PUBLIC) + its endpoints. */
+  access: orgProcedure
+    .input(z.object({ bucketId: z.string().min(1) }))
+    .query(({ ctx, input }) => accessView(ctx, input.bucketId)),
+
+  /** Change one bucket's reachability; the edges re-render (and redeploy when ports change). */
+  setAccess: adminProcedure
+    .input(z.object({ bucketId: z.string().min(1), mode: accessMode }))
+    .mutation(async ({ ctx, input }) => {
+      const res = await setBucketAccess(ctx, { ...input, dashboardDomain: await orgDashboardDomain(ctx) });
+      await applyObjectStorageExposure(ctx, res.edgePortsChanged);
+      return accessView(ctx, res.bucketId);
+    }),
+
+  /** Set (or clear → derived from the dashboard domain) the public S3 hostname. */
+  setPublicDomain: adminProcedure
+    .input(z.object({ domain: z.string().max(253).nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const domain = await setPublicS3Domain(ctx, input.domain);
+      await applyObjectStorageExposure(ctx, false);
+      return { domain };
+    }),
 
   /** Grant (allow) or revoke (deny) read/write/owner for a key on a bucket. */
   grantKeyOnBucket: adminProcedure
