@@ -19,6 +19,7 @@ const droplet = {
   eth1: [v4('10.110.0.3'), v6('FE80::1')],
   docker0: [v4('172.17.0.1')],
   docker_gwbridge: [v4('172.18.0.1')],
+  docker_gwbridge: [v4('172.18.0.1')],
   weird: [v4('169.254.169.254'), v4('127.0.0.53')],
 };
 
@@ -53,8 +54,8 @@ describe('selectDnsListenAddresses', () => {
 });
 
 describe('selectAdminListenAddresses', () => {
-  it('is loopback + docker0 only — never a public address', () => {
-    expect(selectAdminListenAddresses(droplet)).toEqual(['127.0.0.1', '172.17.0.1']);
+  it('is loopback + the docker bridges only — never a public address', () => {
+    expect(selectAdminListenAddresses(droplet)).toEqual(['127.0.0.1', '172.17.0.1', '172.18.0.1']);
     expect(selectAdminListenAddresses({ eth0: [v4('159.65.10.20')] })).toEqual(['127.0.0.1']);
   });
 });

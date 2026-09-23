@@ -60,15 +60,23 @@ export function selectDnsListenAddresses(ifaces: Ifaces): string[] {
 
 /**
  * Admin API listen addresses — NEVER public. Loopback (the systemd-backend
- * agent shares the host netns and dials 127.0.0.1) plus the docker0 bridge
- * gateway address when present (a container-backend agent on the default
- * bridge reaches the host there). docker0 is host-private: not routable from
- * outside the box. Pure.
+ * agent shares the host netns and dials 127.0.0.1) plus the docker0 and
+ * docker_gwbridge gateway addresses when present (a container-backend agent
+ * reaches the host there). Both are host-private: not routable from outside
+ * the box. Pure.
  */
+/** Host-private Docker bridges a container agent can reach the host through. */
+const ADMIN_BRIDGES = ['docker0', 'docker_gwbridge'];
+
 export function selectAdminListenAddresses(ifaces: Ifaces): string[] {
   const out = new Set<string>(['127.0.0.1']);
-  for (const a of ifaces.docker0 ?? []) {
-    if (isV4(a) && !a.internal) out.add(a.address);
+  // docker0 serves agents on the default bridge; docker_gwbridge is the
+  // default gateway of a container attached to a swarm overlay (the installer's
+  // node #1 agent) — verified live: its pushes went to 172.18.0.1.
+  for (const bridge of ADMIN_BRIDGES) {
+    for (const a of ifaces[bridge] ?? []) {
+      if (isV4(a) && !a.internal) out.add(a.address);
+    }
   }
   return [...out].sort();
 }
