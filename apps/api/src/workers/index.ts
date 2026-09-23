@@ -3,6 +3,7 @@ import { startRetention } from './retention';
 import { startImageGc } from './image-gc';
 import { startControllerBackupScheduler } from './controller-backup-scheduler';
 import { startBackupScheduler } from './backup-scheduler';
+import { startOffsiteMirror } from './offsite-mirror';
 import { startDrReconcile } from './dr-reconcile';
 import { startObservabilityReconcile } from './observability-reconcile';
 import { startDnsReconcile } from './dns-reconcile';
@@ -24,6 +25,7 @@ import { startDeploySafety } from './deploy-safety';
 import { startPreviewReconcile } from './preview-reconcile';
 import { startNotificationDispatch } from './notification-dispatch';
 import { startExposureAudit } from './exposure-audit';
+import { startMeshMigrationResumer } from './mesh-migration';
 
 export function startWorkers(): () => void {
   const stops = [
@@ -32,6 +34,7 @@ export function startWorkers(): () => void {
     startImageGc(),
     startControllerBackupScheduler(),
     startBackupScheduler(),
+    startOffsiteMirror(),
     startDrReconcile(),
     startObservabilityReconcile(),
     startDnsReconcile(),
@@ -53,6 +56,7 @@ export function startWorkers(): () => void {
     startPreviewReconcile(),
     startNotificationDispatch(),
     startExposureAudit(),
+    startMeshMigrationResumer(),
   ];
   return () => stops.forEach((s) => s());
 }

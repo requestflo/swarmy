@@ -380,3 +380,48 @@ describe('orchestrateSwarmMembership — self-healing', () => {
 function encryptFixture(plain: string): string {
   return encryptSecret(plain);
 }
+
+describe('orchestrateSwarmMembership — mesh-first join (new node after mesh enable)', () => {
+  it('joins advertising AND pinning the data path to the confirmed mesh IP', async () => {
+    const { db } = makeDb(FULL);
+    const { hub, calls } = scriptedHub((nodeId, p) => {
+      if (nodeId === 'm1' && p.refreshOnly)
+        return { mode: 'init', swarmNodeId: 'sw-m1', managerAddr: '203.0.113.10:2377', joinTokens: { worker: 'W', manager: 'M' } };
+      return { mode: 'join', swarmNodeId: 'sw-lima' };
+    });
+    await orchestrateSwarmMembership({
+      db,
+      hub,
+      orgId: 'o1',
+      nodeId: 'lima',
+      meshIp: '100.92.0.40',
+      peers: () => [{ nodeId: 'm1', isManager: true, swarmState: 'active' }],
+    });
+    const join = calls.find((c) => c.nodeId === 'lima')!;
+    expect(join.payload).toMatchObject({
+      mode: 'join',
+      managerAddr: '203.0.113.10:2377',
+      advertiseAddr: '100.92.0.40',
+      dataPathAddr: '100.92.0.40',
+    });
+  });
+
+  it('without a mesh IP, no data-path addr is sent (agent self-derives, unchanged)', async () => {
+    const { db } = makeDb(FULL);
+    const { hub, calls } = scriptedHub((nodeId, p) =>
+      nodeId === 'm1' && p.refreshOnly
+        ? { mode: 'init', swarmNodeId: 'sw-m1', managerAddr: '203.0.113.10:2377', joinTokens: { worker: 'W', manager: 'M' } }
+        : { mode: 'join', swarmNodeId: 'sw-x' },
+    );
+    await orchestrateSwarmMembership({
+      db,
+      hub,
+      orgId: 'o1',
+      nodeId: 'x',
+      peers: () => [{ nodeId: 'm1', isManager: true, swarmState: 'active' }],
+    });
+    const join = calls.find((c) => c.nodeId === 'x')!;
+    expect(join.payload.advertiseAddr).toBeUndefined();
+    expect(join.payload.dataPathAddr).toBeUndefined();
+  });
+});

@@ -9,6 +9,7 @@ import { DestinationsCard } from '@/components/backups/destinations-card';
 import { EstateSnapshotsCard } from '@/components/backups/estate-snapshots-card';
 import { ReplicatedStorePanel } from '@/components/backups/replicated-store-panel';
 import { ControllerBackupCallout } from '@/components/backups/controller-backup-callout';
+import { OffsiteMirrorCard } from '@/components/backups/offsite-mirror-card';
 
 /**
  * Global Backups = destinations. Where backups go lives here; what gets
@@ -55,6 +56,10 @@ function BackupDestinationsPage(): React.JSX.Element {
           <ReplicatedStorePanel />
           <ControllerBackupCallout />
         </div>
+      </div>
+
+      <div className="mt-6">
+        <OffsiteMirrorCard />
       </div>
 
       <div className="mt-6">

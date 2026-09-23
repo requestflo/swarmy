@@ -195,7 +195,10 @@ export class GatewayStore {
     const host = this.nodeHostname.get(controllerNodeId);
     const orgId = this.nodeOrg.get(controllerNodeId);
     if (!host || !orgId) return undefined;
-    return this.nodeInventoryForOrg(orgId, true).find((n) => n.hostname === host);
+    // A re-pinned node (leave→rejoin) briefly shows twice under one hostname —
+    // the old id `down`, the new one live. Prefer the live entry.
+    const matches = this.nodeInventoryForOrg(orgId, true).filter((n) => n.hostname === host);
+    return matches.find((n) => n.status !== 'down') ?? matches[0];
   }
 
   /** Controller node ids whose swarm node carries a role label (= 'true').

@@ -166,17 +166,35 @@ export class DockerClient {
     managerAddr: string;
     joinToken: string;
     advertiseAddr?: string;
+    dataPathAddr?: string;
   }): Promise<{ swarmNodeId: string }> {
     const info = await this.info();
     if (info.Swarm?.LocalNodeState !== 'active') {
       await this.docker.swarmJoin({
         ListenAddr: '0.0.0.0:2377',
         AdvertiseAddr: opts.advertiseAddr,
+        ...(opts.dataPathAddr ? { DataPathAddr: opts.dataPathAddr } : {}),
         JoinToken: opts.joinToken,
         RemoteAddrs: [opts.managerAddr],
       } as Parameters<Docker['swarmJoin']>[0]);
     }
     return { swarmNodeId: await this.localSwarmNodeId() };
+  }
+
+  /** `docker swarm leave` (never forced — a manager must be demoted first). */
+  async swarmLeave(): Promise<void> {
+    await this.docker.swarmLeave({ force: false });
+  }
+
+  /** This node's current swarm advertise address (`''` off-swarm). */
+  async localSwarmAddr(): Promise<string> {
+    const info = (await this.info()) as DockerInfoLike & { Swarm?: { NodeAddr?: string } };
+    return info.Swarm?.NodeAddr ?? '';
+  }
+
+  /** `docker node rm --force <id>` (manager only). */
+  async removeSwarmNode(swarmNodeId: string): Promise<void> {
+    await this.docker.getNode(swarmNodeId).remove({ force: true });
   }
 
   /** Read the local swarm node id, advertise addr, and current join tokens. */

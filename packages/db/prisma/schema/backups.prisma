@@ -34,6 +34,7 @@ model BackupTarget {
   schedules           BackupSchedule[]
   controllerConfigs   ControllerBackupConfig[]
   controllerSnapshots ControllerSnapshot[]     @relation("ControllerSnapshots")
+  offsiteMirrors      OffsiteMirror[]
 
   @@unique([orgId, name])
   @@index([orgId])
@@ -237,4 +238,70 @@ model RestoreOperation {
   @@index([orgId, startedAt])
   @@index([orgId, snapshotId, status])
   @@map("restore_operation")
+}
+
+/// Off-site mirror of the org's Garage object store (every bucket or a chosen
+/// list) into an S3 `BackupTarget` — swarmy config, like the targets it points
+/// at. One per org. The mirror's own Garage key is controller-held, encrypted.
+model OffsiteMirror {
+  id                 String    @id @default(cuid())
+  orgId              String    @unique
+  targetId           String
+  /// true = mirror every bucket in the store; false = only `buckets`.
+  allBuckets         Boolean   @default(true)
+  buckets            Json      @default("[]")
+  /// Path under the destination bucket the mirror writes into.
+  prefix             String    @default("swarmy-mirror")
+  everyMinutes       Int       @default(60)
+  /// "copy" never deletes off-site; "sync" propagates deletes after graceDays.
+  mode               String    @default("copy")
+  graceDays          Int       @default(7)
+  enabled            Boolean   @default(true)
+  /// Encrypted (vault) Garage key the rclone one-shot reads the store with.
+  sourceAccessKeyRef String?
+  sourceSecretKeyRef String?
+  /// Garage bucket ids the mirror key has already been granted on.
+  grantedBucketIds   Json      @default("[]")
+  lastRunAt          DateTime?
+  nextRunAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  org    Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  target BackupTarget       @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  runs   OffsiteMirrorRun[]
+
+  @@index([enabled, nextRunAt])
+  @@map("offsite_mirror")
+}
+
+/// One mirror (store → off-site) or restore (off-site → store) run.
+model OffsiteMirrorRun {
+  id            String          @id @default(cuid())
+  orgId         String
+  mirrorId      String
+  /// "mirror" | "restore"
+  direction     String          @default("mirror")
+  /// "schedule" | "manual"
+  trigger       String          @default("schedule")
+  status        BackupJobStatus @default(RUNNING)
+  objectsCopied Int             @default(0)
+  bytesCopied   BigInt          @default(0)
+  deletes       Int             @default(0)
+  errorCount    Int             @default(0)
+  /// Per-bucket outcome: [{ bucket, objects, bytes, deletes, errors, exitCode }].
+  buckets       Json            @default("[]")
+  error         String?         @db.Text
+  hostNodeId    String?
+  actorId       String?
+  startedAt     DateTime        @default(now())
+  finishedAt    DateTime?
+
+  org    Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  mirror OffsiteMirror @relation(fields: [mirrorId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, startedAt])
+  @@index([mirrorId, startedAt])
+  @@index([status])
+  @@map("offsite_mirror_run")
 }

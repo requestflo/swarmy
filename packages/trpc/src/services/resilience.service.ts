@@ -67,6 +67,8 @@ import { resolveExecTarget } from './live-resolve';
 import { getConfig as getControllerBackupConfig } from './controllerBackup.service';
 import { getConfig as getStorageConfig } from './replicatedStore.service';
 import { resticNetworkFor } from './backups.service';
+import { overview as bucketsOverview } from './buckets.service';
+import { MIRROR_STALE_MS, offsiteSignal } from './offsiteMirror.service';
 
 // ── Read-only label mirrors (A3/E4 schemes; canonical copies live with owners) ─
 const CACHE_ROLE_LABEL = 'swarmy.cache.role';
@@ -88,7 +90,7 @@ export const SEVERITY_WEIGHT: Record<ResilienceSeverity, number> = {
 /** "No successful backup in N days" / "controller backup stale" threshold. */
 export const BACKUP_STALE_DAYS = 7;
 const DAY_MS = 86_400_000;
-const CHECKS_RUN = 12;
+const CHECKS_RUN = 13;
 
 // ── Pure snapshot shape (fixture-friendly — the classifiers never touch ctx) ──
 
@@ -111,6 +113,18 @@ export interface ResilienceSnapshot {
   ingress: { enabled: boolean; instanceCount: number };
   /** Replicated object store (Garage) config; null when never configured. */
   storage: { enabled: boolean; replicationFactor: number } | null;
+  /**
+   * Off-site mirror of the object store. `storeHoldsData` is only probed when
+   * no enabled mirror exists (null = unknown/not probed). Optional so older
+   * fixtures stay valid.
+   */
+  offsite?: {
+    configured: boolean;
+    enabled: boolean;
+    lastSuccessAt: string | null;
+    since: string | null;
+    storeHoldsData: boolean | null;
+  };
   backups: {
     /** Enabled backup destinations. */
     targetCount: number;
@@ -437,6 +451,44 @@ export function runChecks(snap: ResilienceSnapshot): ResilienceProblemView[] {
     }
   }
 
+  // 13. Off-site copy of the object store (backups, edge certs, app buckets).
+  // Garage replicates across nodes, but a lost cluster/region takes every
+  // replica with it — only a mirror outside the swarm survives that.
+  const off = snap.offsite;
+  if (snap.storage?.enabled && off) {
+    if ((!off.configured || !off.enabled) && off.storeHoldsData) {
+      out.push(
+        problem('storage-offsite', 'warn', {
+          title: 'Object storage has no off-site copy',
+          detail: off.configured
+            ? 'The off-site mirror is paused — backups, edge certificates and app buckets live only inside this cluster.'
+            : 'Backups, edge certificates and app buckets live only inside this cluster — losing it loses them all.',
+          fixHint: 'Mirror the object store to an off-site S3 destination (B2, R2, S3, Wasabi…).',
+          fixPath: '/backups',
+          fixLabel: off.configured ? 'Resume the mirror' : 'Set up an off-site mirror',
+          resource: 'swarmy-garage',
+        }),
+      );
+    } else if (off.configured && off.enabled) {
+      const since = off.lastSuccessAt ?? off.since;
+      const sinceMs = since ? new Date(since).getTime() : Number.NaN;
+      if (Number.isNaN(sinceMs) || now.getTime() - sinceMs > MIRROR_STALE_MS) {
+        out.push(
+          problem('storage-offsite', 'warn', {
+            title: off.lastSuccessAt ? 'The off-site copy is stale' : 'The off-site mirror has never succeeded',
+            detail: off.lastSuccessAt
+              ? `The last successful mirror finished ${Math.round((now.getTime() - sinceMs) / 86_400_000)} days ago.`
+              : 'No mirror run has completed yet — the off-site copy may be missing or partial.',
+            fixHint: 'Check the last run’s errors on the Offsite mirror card and run it again.',
+            fixPath: '/backups',
+            fixLabel: 'Open the mirror',
+            resource: 'swarmy-garage',
+          }),
+        );
+      }
+    }
+  }
+
   const order: Record<ResilienceSeverity, number> = { crit: 0, warn: 1, info: 2 };
   return out.sort((a, b) => order[a.severity] - order[b.severity] || a.id.localeCompare(b.id));
 }
@@ -555,6 +607,27 @@ function latestBackupAt(
     .catch(() => (dbTimes.length ? (dbTimes.sort().at(-1) ?? null) : null));
 }
 
+/**
+ * Off-site mirror signal. Only when there is NO enabled mirror do we probe the
+ * store for data (a Garage admin one-shot) — "no off-site copy" only matters
+ * once there's something to lose.
+ */
+async function offsiteSnapshot(
+  ctx: OrgContext,
+  storageEnabled: boolean,
+): Promise<ResilienceSnapshot['offsite'] | null> {
+  if (!storageEnabled) return null;
+  const sig = await offsiteSignal(ctx).catch(() => null);
+  if (!sig) return null;
+  let storeHoldsData: boolean | null = null;
+  if (!sig.configured || !sig.enabled) {
+    const store = await bucketsOverview(ctx).catch(() => null);
+    storeHoldsData =
+      store && store.state === 'ready' ? store.buckets.some((b) => b.objects > 0) : null;
+  }
+  return { ...sig, storeHoldsData };
+}
+
 export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<ResilienceSnapshot> {
   // Stack scope narrows the service signals + backup recency to one stack;
   // estate-level posture (ingress, geo, controller backups) stays shared.
@@ -578,6 +651,8 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
       listDrillHistory(ctx, 50, stack),
     ]);
 
+  const offsite = await offsiteSnapshot(ctx, Boolean(storage?.enabled));
+
   const lastRestore = drills.find((d) => d.kind === 'restore' && d.status === 'passed');
 
   return {
@@ -595,6 +670,7 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
       ? { enabled: storage.enabled, replicationFactor: storage.replicationFactor }
       : null,
     backups: { targetCount, lastSuccessAt },
+    ...(offsite ? { offsite } : {}),
     geodns: {
       enabled: Boolean(geoCfg?.enabled),
       recordRegions: [...new Set(geoRecords.map((r) => r.region))],

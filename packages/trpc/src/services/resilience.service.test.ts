@@ -479,3 +479,55 @@ describe('restic check plumbing (pure codecs)', () => {
     });
   });
 });
+
+describe('storage-offsite check', () => {
+  const offsite = (over: Partial<NonNullable<ResilienceSnapshot['offsite']>> = {}) => ({
+    configured: false,
+    enabled: false,
+    lastSuccessAt: null,
+    since: null,
+    storeHoldsData: true,
+    ...over,
+  });
+
+  it('flags a store holding data with no mirror configured', () => {
+    const p = byCheck(runChecks(healthySnapshot({ offsite: offsite() })), 'storage-offsite');
+    expect(p).toHaveLength(1);
+    expect(p[0]!.title).toBe('Object storage has no off-site copy');
+    expect(p[0]!.severity).toBe('warn');
+    expect(p[0]!.fixPath).toBe('/backups');
+  });
+
+  it('stays quiet when the store is empty or unknown', () => {
+    expect(byCheck(runChecks(healthySnapshot({ offsite: offsite({ storeHoldsData: false }) })), 'storage-offsite')).toHaveLength(0);
+    expect(byCheck(runChecks(healthySnapshot({ offsite: offsite({ storeHoldsData: null }) })), 'storage-offsite')).toHaveLength(0);
+  });
+
+  it('stays quiet when object storage is off or the signal is absent', () => {
+    expect(byCheck(runChecks(healthySnapshot({ storage: null, offsite: offsite() })), 'storage-offsite')).toHaveLength(0);
+    expect(byCheck(runChecks(healthySnapshot()), 'storage-offsite')).toHaveLength(0);
+  });
+
+  it('a paused mirror counts as no off-site copy', () => {
+    const p = byCheck(runChecks(healthySnapshot({ offsite: offsite({ configured: true }) })), 'storage-offsite');
+    expect(p[0]!.fixLabel).toBe('Resume the mirror');
+  });
+
+  it('a fresh, healthy mirror is quiet; a stale one warns', () => {
+    const fresh = offsite({ configured: true, enabled: true, lastSuccessAt: daysAgo(0.1), since: daysAgo(30) });
+    expect(byCheck(runChecks(healthySnapshot({ offsite: fresh })), 'storage-offsite')).toHaveLength(0);
+    const stale = offsite({ configured: true, enabled: true, lastSuccessAt: daysAgo(3), since: daysAgo(30) });
+    expect(byCheck(runChecks(healthySnapshot({ offsite: stale })), 'storage-offsite')[0]!.title).toBe(
+      'The off-site copy is stale',
+    );
+  });
+
+  it('a brand-new mirror gets a grace period before "never succeeded"', () => {
+    const young = offsite({ configured: true, enabled: true, since: daysAgo(0.5) });
+    expect(byCheck(runChecks(healthySnapshot({ offsite: young })), 'storage-offsite')).toHaveLength(0);
+    const old = offsite({ configured: true, enabled: true, since: daysAgo(5) });
+    expect(byCheck(runChecks(healthySnapshot({ offsite: old })), 'storage-offsite')[0]!.title).toBe(
+      'The off-site mirror has never succeeded',
+    );
+  });
+});

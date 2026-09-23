@@ -52,6 +52,63 @@ function controllerHost(): string | undefined {
   }
 }
 
+/**
+ * True while a `rejoin` is between `swarm leave` and `swarm join`. The daemon's
+ * swarm watchdog reads it so a deliberate re-pin (mesh migration) is not
+ * mistaken for the node falling off the swarm — which would exit the agent
+ * mid-command.
+ */
+let rejoinInFlight = false;
+export function swarmRejoinInFlight(): boolean {
+  return rejoinInFlight;
+}
+
+async function waitSwarmState(docker: DockerClient, want: 'inactive', timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if ((await docker.swarmState()) === want) return;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`swarmJoin(rejoin): node did not reach swarm state ${want} in ${timeoutMs}ms`);
+}
+
+/**
+ * Re-pin an existing member onto a new advertise / data-path address: leave
+ * (never forced — Docker refuses on a manager, so demote first), then join.
+ * Idempotent: a node already active on the target address is left alone, so
+ * a controller that died mid-move can safely resend it.
+ */
+async function rejoinSwarm(
+  docker: DockerClient,
+  p: SwarmJoinPayload & { joinToken: string; managerAddr: string },
+): Promise<SwarmJoinResult> {
+  const advertiseAddr = p.advertiseAddr ?? (await localAddrToward(controllerHost() ?? '1.1.1.1'));
+  const state = await docker.swarmState();
+  if (state === 'active') {
+    const current = (await docker.localSwarmAddr()).replace(/:\d+$/, '');
+    if (advertiseAddr && current === advertiseAddr) {
+      const { swarmNodeId } = await docker.swarmJoin({ managerAddr: p.managerAddr, joinToken: p.joinToken });
+      return { mode: 'join', swarmNodeId };
+    }
+  }
+  rejoinInFlight = true;
+  try {
+    if (state !== 'inactive') {
+      await docker.swarmLeave();
+      await waitSwarmState(docker, 'inactive');
+    }
+    const { swarmNodeId } = await docker.swarmJoin({
+      managerAddr: p.managerAddr,
+      joinToken: p.joinToken,
+      advertiseAddr,
+      dataPathAddr: p.dataPathAddr,
+    });
+    return { mode: 'join', swarmNodeId };
+  } finally {
+    rejoinInFlight = false;
+  }
+}
+
 export async function applySwarmJoin(
   docker: DockerClient,
   p: SwarmJoinPayload,
@@ -77,12 +134,14 @@ export async function applySwarmJoin(
   if (!p.joinToken || !p.managerAddr) {
     throw new Error('swarmJoin: join mode requires joinToken and managerAddr');
   }
+  if (p.rejoin) return rejoinSwarm(docker, { ...p, joinToken: p.joinToken, managerAddr: p.managerAddr });
   const advertiseAddr =
     p.advertiseAddr ?? (await localAddrToward(p.managerAddr.split(':')[0] ?? '1.1.1.1'));
   const { swarmNodeId } = await docker.swarmJoin({
     managerAddr: p.managerAddr,
     joinToken: p.joinToken,
     advertiseAddr,
+    dataPathAddr: p.dataPathAddr,
   });
   return { mode: 'join', swarmNodeId };
 }

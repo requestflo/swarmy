@@ -289,6 +289,12 @@ export const UpdateSwarmNodePayload = z.object({
   labels: z.record(z.string()).optional(),
   /** WS2 promote/demote — additive; the agent passes it through to `Spec.Role`. */
   role: z.enum(['manager', 'worker']).optional(),
+  /**
+   * `docker node rm --force` the node instead of updating it (manager-only).
+   * Used to drop the stale entry a re-pinned node leaves behind after it
+   * rejoined under a new id. Additive; the other fields are ignored with it.
+   */
+  remove: z.boolean().optional(),
 });
 export const UpdateSwarmNodeMsg = z.object({
   type: z.literal('updateSwarmNode'),

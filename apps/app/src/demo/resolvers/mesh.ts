@@ -73,6 +73,8 @@ interface MeshState {
   updatedAt: string;
   peers: MeshPeerView[];
   routes: MeshRouteView[];
+  /** Demo: the swarm has been moved onto the mesh data-path. */
+  swarmOnMesh?: boolean;
 }
 
 const VALID_DRIVERS: ReadonlySet<MeshDriverId> = new Set<MeshDriverId>([
@@ -199,6 +201,46 @@ export const mesh: DomainResolvers = {
       st.updatedAt = nowIso();
       return peer;
     },
+
+    // Swarm-over-mesh: a static-but-coherent plan off the demo peers. The two
+    // managers stay put (fewer than 3); CONNECTED workers are already moved.
+    'mesh.swarmStatus': (_i, s) => {
+      const st = getState(s);
+      const moved = st.swarmOnMesh ?? false;
+      const nodes = st.peers.map((p, idx) => {
+        const manager = p.nodeId.includes('mgr');
+        const onMesh = !manager && (moved || p.status === 'CONNECTED');
+        return {
+          nodeId: p.nodeId,
+          hostname: p.nodeId.replace(/^n-/, ''),
+          kind: manager ? 'manager' : 'worker',
+          action: manager ? 'stays-put' : onMesh ? 'already' : 'move',
+          addr: onMesh ? p.meshIp : `203.0.113.${10 + idx}`,
+          meshIp: p.meshIp,
+          onMesh,
+          leader: p.nodeId === 'n-mgr-1',
+          reason: manager
+            ? 'Manager stays on its public address; NAT’d nodes connect out to it and it reaches them over the mesh.'
+            : onMesh
+              ? 'Already on the mesh data-path.'
+              : 'Briefly drained, then rejoined on its mesh IP.',
+          pinned: [],
+        };
+      });
+      return {
+        meshEnabled: st.enabled && st.driver !== 'none',
+        driver: st.driver,
+        plan: { direction: 'onto-mesh', managerCount: 2, managersStay: true, nodes, warnings: [], blockers: [] },
+        run: null,
+      };
+    },
+    'mesh.migrateSwarm': (i, s) => {
+      const st = getState(s);
+      st.swarmOnMesh = (i as { direction?: string }).direction !== 'off-mesh';
+      return { status: 'done' };
+    },
+    'mesh.resumeMigration': () => ({ status: 'done' }),
+    'mesh.cancelMigration': () => ({ status: 'canceled' }),
 
     'mesh.routes.list': (_i, s): MeshRouteView[] => getState(s).routes,
 

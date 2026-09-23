@@ -8,6 +8,7 @@ import { AgentConnection } from './connection';
 import { collectMetrics } from './stats';
 import { sendContainerList, sendServiceState, sendNodeList } from './snapshots';
 import { applyMesh, sampleMeshState } from './handlers/mesh';
+import { swarmRejoinInFlight } from './handlers/swarm';
 import { detectPublicIp } from './public-ip';
 import { sampleIngressStatus } from './handlers/ingress-status';
 import { agentPackaging } from './handlers/update';
@@ -280,6 +281,8 @@ export async function runDaemon(): Promise<void> {
       swarmEverActive = true;
       return;
     }
+    // A deliberate leave→join re-pin (mesh migration) is not "fell off".
+    if (swarmRejoinInFlight()) return;
     if (swarmEverActive) {
       log(
         `FATAL: this node left the swarm (docker swarm state: ${swarm}). The ` +

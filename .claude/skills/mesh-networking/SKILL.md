@@ -103,7 +103,8 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 | Wire/render protocol (`RenderedMesh`, `applyMesh`, `meshState`) | `packages/core/src/protocol/mesh.ts` (+ `messages.ts` union) |
 | `CommandName` → wire `type` (`applyMesh`, `mesh.grantDirectRoute`) | `packages/trpc/src/hub/types.ts` |
 | Controller service (enroll, direct-connect, reconcile) | `packages/trpc/src/services/mesh.service.ts` |
-| tRPC router (config/enroll/peers/routes) | `packages/trpc/src/routers/mesh.ts` |
+| tRPC router (config/enroll/peers/routes/swarm migration) | `packages/trpc/src/routers/mesh.ts` |
+| Swarm-over-mesh migration (planner / runner / resume worker) | `packages/trpc/src/services/mesh-migration.{plan,service}.ts`, `apps/api/src/workers/mesh-migration.ts` |
 | Encrypt/decrypt service token, random keys | `packages/core/src/crypto.ts` |
 | Agent: sidecar apply, `meshState` sampler, WG grant | `apps/agent/src/handlers/mesh.ts` |
 | Agent: executor cases + `SWARMY_ALLOW_MESH` gate | `apps/agent/src/{executor,env,index}.ts` |
@@ -141,10 +142,18 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
 - `meshState` in the gateway currently writes coarse `ONLINE`/`OFFLINE`, while
   `reconcilePeerState` models the fuller `ENROLLING`/`ENROLLED`/`CONNECTED`/
   `DEGRADED`/`FAILED` domain — prefer the pure mapping when unifying them.
-- Re-pinning an existing LAN swarm onto the mesh data-path is a guided
+- Re-pinning an existing swarm onto the mesh data-path is a guided
   drain-one-at-a-time migration, not a toggle (`--data-path-addr` can't change
-  on a running node). Initialize multi-location swarms on the mesh from the
-  start; the swarm-over-mesh join command is future work, not yet wired.
+  on a running node): `mesh.migrateSwarm` (pure rules in
+  `mesh-migration.plan.ts`, runner in `mesh-migration.service.ts`, run state in
+  `MeshConfig.settings.swarmMigration`, resumed by `workers/mesh-migration.ts`).
+  Per node: enroll → snapshot labels → [demote] → drain → `swarmJoin{rejoin,
+  advertiseAddr, dataPathAddr}` → restore labels + re-point `swarmy.*.node`
+  pins to the NEW swarm id → [promote] → `updateSwarmNode{remove}` the old id.
+  <3 managers never move (enroll-only, must stay publicly reachable). The
+  agent's swarm watchdog is suppressed during a rejoin (`swarmRejoinInFlight`).
+  Disabling the mesh while nodes advertise on it is refused — the UI routes it
+  through an off-mesh move with `disableWhenDone`.
 - The cross-region edge (region-aware Caddy + geo-DNS) rides on the reachability
   the mesh provides — coordinate boundary changes with `skill("geo-edge-routing")`.
 - Verify: `bun --filter @swarmy/mesh typecheck && bun --filter @swarmy/mesh test`

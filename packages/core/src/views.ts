@@ -2052,6 +2052,7 @@ export type ResilienceCheckId =
   | 'cache-no-replica'
   | 'db-topology'
   | 'storage-replication'
+  | 'storage-offsite'
   | 'backup-recency'
   | 'restore-untested'
   | 'ingress-single'

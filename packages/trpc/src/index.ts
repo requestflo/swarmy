@@ -99,6 +99,8 @@ export {
 } from './services/node.service';
 // WS7 private-mesh profile: the register path auto-enrolls the node into the mesh.
 export { enrollNode as enrollMeshNode } from './services/mesh.service';
+// Swarm-over-mesh migration: the worker resumes runs after a controller restart.
+export { resumeRunningMigrations } from './services/mesh-migration.service';
 // ── geo-dns ("swarmy is the nameserver"): worker + REST seams ──
 export {
   listDnsView,
@@ -154,6 +156,8 @@ export {
 // Default-on DB backups (backup-scheduler worker) + the scheduled DB-backup
 // sweep the manageddb-reconcile worker resolves off the package root.
 export { ensureAutoBackups } from './services/autoBackup.service';
+// Off-site mirror scheduler (offsite-mirror worker).
+export { runDueMirrors } from './services/offsiteMirror.service';
 // Managed data node-pinning (cache/search/vector reconcile workers) + the
 // canonical member spec builders those workers converge with.
 export {

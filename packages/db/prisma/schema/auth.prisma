@@ -110,6 +110,8 @@ model Organization {
   backupSchedules     BackupSchedule[]
   backupJobs          BackupJob[]
   restoreOperations   RestoreOperation[]
+  offsiteMirror       OffsiteMirror?
+  offsiteMirrorRuns   OffsiteMirrorRun[]
   meshRoutes          MeshRoute[]
   meshAcls            MeshAcl[]
   tunnels             Tunnel[]

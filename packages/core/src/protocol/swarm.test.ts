@@ -189,3 +189,62 @@ describe('UpdateSwarmNodePayload role extension (WS2 promote/demote)', () => {
     ).toBe(false);
   });
 });
+
+describe('swarmJoin re-pin extension (mesh migration)', () => {
+  const rejoin = {
+    commandId: CMD_ID,
+    mode: 'join' as const,
+    joinToken: 'SWMTKN-1-abc',
+    managerAddr: '203.0.113.10:2377',
+    advertiseAddr: '100.92.1.7',
+    dataPathAddr: '100.92.1.7',
+    rejoin: true,
+  };
+
+  it('round-trips advertise + data-path addrs and the rejoin flag through the union', () => {
+    const r = ControllerToAgentMessage.safeParse({ type: 'swarmJoin', payload: rejoin });
+    expect(r.success).toBe(true);
+    if (r.success && r.data.type === 'swarmJoin') {
+      expect(r.data.payload.advertiseAddr).toBe('100.92.1.7');
+      expect(r.data.payload.dataPathAddr).toBe('100.92.1.7');
+      expect(r.data.payload.rejoin).toBe(true);
+      // JSON wire round-trip is lossless.
+      expect(SwarmJoinPayload.parse(JSON.parse(JSON.stringify(r.data.payload)))).toEqual(r.data.payload);
+    }
+  });
+
+  it('stays optional — an onboarding join without them still parses', () => {
+    const { dataPathAddr: _d, rejoin: _r, ...plain } = rejoin;
+    const r = SwarmJoinPayload.safeParse(plain);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.dataPathAddr).toBeUndefined();
+      expect(r.data.rejoin).toBeUndefined();
+    }
+  });
+
+  it('a rejoin still requires join material', () => {
+    expect(SwarmJoinPayload.safeParse({ commandId: CMD_ID, mode: 'join', rejoin: true }).success).toBe(false);
+  });
+
+  it('rejects an empty data-path addr', () => {
+    expect(SwarmJoinPayload.safeParse({ ...rejoin, dataPathAddr: '' }).success).toBe(false);
+  });
+});
+
+describe('UpdateSwarmNodePayload remove extension (stale node cleanup)', () => {
+  it('round-trips remove through the union', () => {
+    const r = ControllerToAgentMessage.safeParse({
+      type: 'updateSwarmNode',
+      payload: { commandId: CMD_ID, swarmNodeId: 'oldid123', remove: true },
+    });
+    expect(r.success).toBe(true);
+    if (r.success && r.data.type === 'updateSwarmNode') expect(r.data.payload.remove).toBe(true);
+  });
+
+  it('is optional', () => {
+    const r = UpdateSwarmNodePayload.safeParse({ commandId: CMD_ID, swarmNodeId: 'n1', availability: 'drain' });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.remove).toBeUndefined();
+  });
+});

@@ -124,6 +124,7 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | Workers: scheduled backups / restore-on-recovery / controller schedule | `apps/api/src/workers/{backup-scheduler,dr-reconcile,controller-backup-scheduler}.ts` |
 | UI: estate backups, resilience score, controller-backup settings, per-stack | `apps/app/src/routes/_authed/{backups,backups.schedules,resilience,settings.backup}.tsx`, `stacks/$name.backups.tsx` |
 | Crypto: `encryptSecret`/`decryptSecret`, passphrase gen + fingerprint | `packages/core/src/crypto.ts` |
+| Off-site mirror of the Garage store (rclone one-shot, env-only creds, copy/sync, restore-from-offsite) | `packages/trpc/src/services/offsiteMirror.{core,service}.ts` (+ `routers/offsiteMirror.ts`, worker `apps/api/src/workers/offsite-mirror.ts`, UI `components/backups/offsite-mirror-card.tsx`) |
 
 ## Adding a check or a drill (the recipe)
 

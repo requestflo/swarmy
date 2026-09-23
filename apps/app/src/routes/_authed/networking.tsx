@@ -14,6 +14,7 @@ import { EnrollNodeCard } from '@/components/networking/enroll-node-card';
 import { MeshPeersList } from '@/components/networking/mesh-peers-list';
 import { ControlPlaneCard } from '@/components/networking/control-plane-card';
 import { DirectConnectCard } from '@/components/networking/direct-connect-card';
+import { MoveSwarmDialog, SwarmOnMeshCard } from '@/components/networking/swarm-on-mesh-card';
 
 export const Route = createFileRoute('/_authed/networking')({
   component: NetworkingPage,
@@ -28,6 +29,11 @@ function NetworkingPage(): React.JSX.Element {
     refetchInterval: 10_000,
   });
   const nodes = useQuery(trpc.nodes.list.queryOptions());
+  const swarmStatus = useQuery(trpc.mesh.swarmStatus.queryOptions());
+  // Turning the mesh off under nodes that advertise on it would strand them —
+  // that path becomes "move the swarm off the mesh, then turn it off".
+  const [confirmDisable, setConfirmDisable] = React.useState(false);
+  const onMeshCount = swarmStatus.data?.plan.nodes.filter((n) => n.onMesh).length ?? 0;
 
   const invalidate = (): void => {
     void qc.invalidateQueries();
@@ -92,7 +98,10 @@ function NetworkingPage(): React.JSX.Element {
           enabled={enabled}
           isNone={isNone}
           onDriverChange={(d) => setDriver.mutate({ driver: d })}
-          onEnabledChange={(v) => setEnabled.mutate({ enabled: v })}
+          onEnabledChange={(v) => {
+            if (!v && onMeshCount > 0) setConfirmDisable(true);
+            else setEnabled.mutate({ enabled: v });
+          }}
         />
         <EnrollNodeCard
           active={live}
@@ -109,6 +118,20 @@ function NetworkingPage(): React.JSX.Element {
           <ControlPlaneCard driver={driver} />
         </div>
       )}
+
+      {!isNone && (
+        <div className="mt-4">
+          <SwarmOnMeshCard
+            meshLive={live}
+            controlPlaneReady={driver === 'wireguard' || !!config.data?.tokenConfigured}
+          />
+        </div>
+      )}
+      <MoveSwarmDialog
+        direction={confirmDisable ? 'off-mesh' : null}
+        disableWhenDone
+        onClose={() => setConfirmDisable(false)}
+      />
 
       <MeshPeersList peers={peers.data ?? []} />
 

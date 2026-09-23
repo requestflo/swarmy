@@ -325,7 +325,16 @@ async function dispatchJoin(
   return args.hub.dispatch<SwarmJoinResultLike>(
     nodeId,
     SWARM_COMMAND,
-    { mode: 'join', role, joinToken, managerAddr, advertiseAddr },
+    {
+      mode: 'join',
+      role,
+      joinToken,
+      managerAddr,
+      advertiseAddr,
+      // Mesh-first join: pin VXLAN to the mesh too (Docker would default it to
+      // the advertise addr anyway — explicit so it can never drift to the LAN).
+      ...(advertiseAddr && advertiseAddr === args.meshIp ? { dataPathAddr: advertiseAddr } : {}),
+    },
     { timeoutMs: SWARM_DISPATCH_TIMEOUT_MS },
   );
 }
@@ -340,8 +349,24 @@ async function joinViaLiveManager(
   managerNodeId: string,
   role: 'manager' | 'worker',
 ): Promise<OrchestrateOutcome> {
-  const { db, hub, orgId } = args;
   setStatus(args, 'joining', `fetching join tokens from live manager ${managerNodeId}`);
+  const { token, managerAddr } = await fetchLiveJoinMaterial(args, managerNodeId, role);
+  const res = await dispatchJoin(args, role, token, managerAddr);
+  setStatus(args, 'joined', `joined as ${role} via live manager at ${managerAddr}`);
+  return { action: 'join', role, swarmNodeId: res.swarmNodeId };
+}
+
+/**
+ * Read the CURRENT join token + manager address off a live manager and
+ * re-store them (self-healing a stale row). Shared by onboarding joins and the
+ * mesh migration's rejoin (`mesh-migration.service.ts`).
+ */
+export async function fetchLiveJoinMaterial(
+  args: Pick<OrchestrateArgs, 'db' | 'hub' | 'orgId'>,
+  managerNodeId: string,
+  role: 'manager' | 'worker',
+): Promise<{ token: string; managerAddr: string }> {
+  const { db, hub, orgId } = args;
   const fresh = await hub.dispatch<SwarmJoinResultLike>(
     managerNodeId,
     SWARM_COMMAND,
@@ -364,9 +389,7 @@ async function joinViaLiveManager(
     create: { orgId, swarmId: null, unlockKeyEnc: null, ...update } as SwarmConfigRow,
     update,
   });
-  const res = await dispatchJoin(args, role, token, fresh.managerAddr);
-  setStatus(args, 'joined', `joined as ${role} via live manager at ${fresh.managerAddr}`);
-  return { action: 'join', role, swarmNodeId: res.swarmNodeId };
+  return { token, managerAddr: fresh.managerAddr };
 }
 
 /** `init` on this node, (over)write the org row, then pull in stranded peers. */

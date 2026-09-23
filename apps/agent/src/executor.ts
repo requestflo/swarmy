@@ -106,8 +106,12 @@ export async function handleCommand(
       });
     }
     case 'updateSwarmNode': {
-      const { commandId, swarmNodeId, availability, labels, role } = envlp.payload;
+      const { commandId, swarmNodeId, availability, labels, role, remove } = envlp.payload;
       return run(conn, commandId, async () => {
+        if (remove) {
+          await docker.removeSwarmNode(swarmNodeId);
+          return { swarmNodeId, removed: true };
+        }
         await docker.updateSwarmNode(swarmNodeId, { availability, labels, role });
         return { swarmNodeId };
       });

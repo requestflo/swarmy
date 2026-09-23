@@ -50,6 +50,20 @@ export const SwarmJoinPayload = z
      * equally read-only on an active manager (the only place it's sent).
      */
     refreshOnly: z.boolean().optional(),
+    /**
+     * join: address for VXLAN data-path (overlay) traffic (`--data-path-addr`).
+     * Absent ⇒ Docker defaults it to the advertise address. The mesh migration
+     * pins both to the node's mesh IP. Additive: older agents strip it.
+     */
+    dataPathAddr: z.string().min(1).optional(),
+    /**
+     * join: RE-PIN an existing member — `docker swarm leave` first (never
+     * forced: a manager refuses, so demote it before), then join with the
+     * given advertise/data-path addrs. A node already active on the target
+     * advertise addr is left alone (idempotent resume). Without it, a node
+     * that is already in a swarm no-ops (the onboarding contract).
+     */
+    rejoin: z.boolean().optional(),
   })
   .superRefine((v, ctx) => {
     if (v.mode === 'join') {
