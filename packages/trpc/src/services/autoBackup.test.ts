@@ -80,6 +80,20 @@ describe('detectDbServices — DB services with a named data volume', () => {
     ]);
   });
 
+  it('detects a compose DB even though every compose service is labelled swarmy.managed', () => {
+    // Regression (live): deployFromCompose stamps swarmy.managed=true on all
+    // services, and detection used to skip that label — so no user DB matched.
+    const db = svc({
+      name: 'wp_wp-db',
+      image: 'mariadb:11.4',
+      labels: { 'com.docker.stack.namespace': 'wp', 'swarmy.managed': 'true' },
+      mounts: [{ type: 'volume', source: 'wp_wp-db-data', target: '/var/lib/mysql' }],
+    });
+    expect(detectDbServices([db])).toEqual([
+      { stack: 'wp', service: 'wp_wp-db', engine: 'mariadb', volume: 'wp_wp-db-data' },
+    ]);
+  });
+
   it('prefers the engine data dir over other named volumes', () => {
     const pg = svc({
       name: 'app_pg',

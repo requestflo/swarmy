@@ -117,7 +117,10 @@ export function detectDbServices(services: SwarmServiceInfo[]): DetectedDb[] {
     if (!engine) continue;
     const stack = s.labels[STACK_LABEL];
     if (!stack || stack === 'swarmy-system') continue;
-    if (s.name.startsWith('swarmy-') || s.labels['swarmy.managed'] === 'true') continue;
+    // NOT `swarmy.managed=true`: every compose/blueprint service carries it, so
+    // it can't tell a user's database from swarmy plumbing. Plumbing is the
+    // `swarmy-` prefix or the system label; managed members are skipped below.
+    if (s.name.startsWith('swarmy-') || s.labels['swarmy.system'] === 'true') continue;
     if (Object.keys(s.labels).some((k) => MANAGED_PREFIXES.some((p) => k.startsWith(p)))) continue;
     const named = (s.mounts ?? []).flatMap((m) =>
       isNamedVolume(m) ? [{ source: m.source, target: m.target }] : [],
