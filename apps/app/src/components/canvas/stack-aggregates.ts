@@ -1,12 +1,16 @@
 import type { Inventory, InvService, InvServiceStatus } from '@swarmy/core';
 import { SYSTEM_STACK_LABEL, UNGROUPED, isSystemStack } from '@swarmy/core';
 
-/** Task-defined mapping: stopped reads as offline; idle is intentional, not an error. */
+/**
+ * `stopped` = scaled to 0 replicas on purpose (a failing service still wants
+ * replicas, so it reads as deploying/degraded instead) — like `idle`, a chosen
+ * state, so it must never paint the stack "down".
+ */
 export const STATUS_TONE: Record<InvServiceStatus, string> = {
   running: 'online',
   degraded: 'warning',
   deploying: 'progress',
-  stopped: 'offline',
+  stopped: 'idle',
   idle: 'idle',
 };
 

@@ -3,6 +3,7 @@ import { parse as parseYaml } from 'yaml';
 import {
   buildInventory,
   isSystemStack,
+  SYSTEM_STACK_LABEL,
   STACK_LABEL,
   SWARMY_OVERLAY_NETWORK,
   UNGROUPED,
@@ -56,8 +57,12 @@ function stackStatus(svcs: InvService[]): string {
  * a clear error rather than letting it silently redeploy/remove platform
  * plumbing.
  */
-function guardNotSystemStack(name: string): void {
-  if (isSystemStack(name)) {
+function guardNotSystemStack(ctx: OrgContext, name: string): void {
+  // By name (swarmy-system) OR by label: the controller's own `swarmy` stack
+  // carries `swarmy.system=true` — removing or redeploying it would take the
+  // control plane down from its own dashboard.
+  const labelled = liveStackServices(ctx, name).some((s) => s.labels[SYSTEM_STACK_LABEL] === 'true');
+  if (isSystemStack(name) || labelled) {
     throw commandRejected(`"${name}" is a managed platform stack and can't be modified`);
   }
 }
@@ -324,7 +329,7 @@ export async function deployFromCompose(
   ctx: OrgContext,
   input: { name: string; composeSource: string; override?: boolean },
 ): Promise<DeployFromComposeResult> {
-  guardNotSystemStack(input.name);
+  guardNotSystemStack(ctx, input.name);
   const services = parseComposeDoc(input.composeSource).services;
   const shorts = services && typeof services === 'object' ? Object.keys(services) : [];
 
@@ -494,7 +499,7 @@ export async function addServiceToStack(
   ctx: OrgContext,
   input: AddServiceToStackInput,
 ): Promise<{ id: string; deploymentId: string }> {
-  guardNotSystemStack(input.stack);
+  guardNotSystemStack(ctx, input.stack);
   const node = await resolveManagerNode(ctx);
 
   const baseSpec: ServiceSpec = {
@@ -559,13 +564,13 @@ export async function redeployStack(
 ): Promise<DeployFromComposeResult> {
   // Label-only stacks (no DB config row, e.g. swarmy-system) use their name as
   // `id` in the stacks list — guard before the (would-be) notFound lookup too.
-  guardNotSystemStack(input.id);
+  guardNotSystemStack(ctx, input.id);
   const stack = await ctx.db.stack.findFirst({
     where: { id: input.id, orgId: ctx.activeOrgId },
     select: { name: true, composeSource: true },
   });
   if (!stack) throw notFound('stack', input.id);
-  guardNotSystemStack(stack.name);
+  guardNotSystemStack(ctx, stack.name);
   return deployFromCompose(ctx, {
     name: stack.name,
     composeSource: input.composeSource ?? stack.composeSource,
@@ -579,13 +584,13 @@ export async function removeStack(
 ): Promise<{ id: string; removed: true }> {
   // Label-only stacks (no DB config row, e.g. swarmy-system) use their name as
   // `id` in the stacks list — guard before the (would-be) notFound lookup too.
-  guardNotSystemStack(id);
+  guardNotSystemStack(ctx, id);
   const stack = await ctx.db.stack.findFirst({
     where: { id, orgId: ctx.activeOrgId },
     select: { id: true, name: true },
   });
   if (!stack) throw notFound('stack', id);
-  guardNotSystemStack(stack.name);
+  guardNotSystemStack(ctx, stack.name);
   const node = await resolveManagerNode(ctx).catch(() => null);
   if (node) {
     // Service membership comes from live Docker inventory, not a DB relation.

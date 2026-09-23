@@ -23,6 +23,9 @@ services:
     networks:
       - swarmy
     deploy:
+      # The control plane is platform plumbing, not a user app stack.
+      labels:
+        swarmy.system: "true"
       replicas: 1
       placement:
         constraints:
@@ -87,6 +90,9 @@ services:
     networks:
       - swarmy
     deploy:
+      # The control plane is platform plumbing, not a user app stack.
+      labels:
+        swarmy.system: "true"
       replicas: 1
       placement:
         constraints:
