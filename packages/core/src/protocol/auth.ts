@@ -13,6 +13,9 @@ export const NodeFacts = z.object({
   dockerApiVersion: z.string().optional(),
   swarmRole: z.enum(['manager', 'worker', 'none']),
   agentVersion: z.string(),
+  /** Git sha the agent was built from (`dev` locally). Versions don't change between
+   *  unreleased builds, so this is what tells two `0.0.0` builds apart. */
+  agentCommit: z.string().optional(),
   /**
    * How this agent is installed: `binary` = compiled host binary (systemd),
    * `container` = interpreted under Bun (Docker-container backend / dev).

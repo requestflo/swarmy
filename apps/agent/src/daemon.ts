@@ -12,7 +12,7 @@ import { swarmRejoinInFlight } from './handlers/swarm';
 import { detectPublicIp } from './public-ip';
 import { sampleIngressStatus } from './handlers/ingress-status';
 import { agentPackaging } from './handlers/update';
-import { VERSION, versionInfo } from './version';
+import { COMMIT, VERSION, versionInfo } from './version';
 import { handleCommand } from './executor';
 import { startLocalSocket, type DaemonStatus } from './local-socket';
 
@@ -233,6 +233,7 @@ export async function runDaemon(): Promise<void> {
       dockerVersion: 'unknown',
       swarmRole: 'none',
       agentVersion: VERSION,
+      agentCommit: COMMIT,
       protocolVersions: [PROTOCOL_VERSION],
     };
   }

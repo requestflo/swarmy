@@ -135,7 +135,7 @@ export const core: DomainResolvers = {
       const id = (i as { id: string }).id;
       const n = byId(s.nodes, id) as (NodeSummary & { agentVersion?: string | null }) | undefined;
       if (n?.agentVersion === '0.2.0') return { id, upToDate: true as const };
-      if (n) n.agentVersion = '0.2.0';
+      if (n) Object.assign(n, { agentVersion: '0.2.0', agentUpdateAvailable: false });
       return { id, targetVersion: '0.2.0', strategy: 'self-replace' };
     },
     'nodes.activate': (i, s) => {

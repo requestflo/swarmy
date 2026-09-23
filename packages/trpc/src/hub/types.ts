@@ -162,6 +162,8 @@ export interface AgentHub {
     controllerNodeId: string,
   ): {
     version: string;
+    /** Build commit from register facts (absent on agents that predate it). */
+    commit?: string;
     packaging?: 'binary' | 'container';
     buildOverride?: 'allow' | 'deny';
     /** Local SWARMY_ALLOW_EXEC override from register facts (absent = unset). */

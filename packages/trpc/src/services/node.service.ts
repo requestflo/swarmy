@@ -149,6 +149,8 @@ function toSummary(ctx: OrgContext, n: NodeRow): NodeSummary {
     resources: { cpus: info?.cpus ?? null, memBytes: info?.memBytes ?? null },
     // From the agent's register facts (kept in the hub, not the DB).
     agentVersion: ctx.hub.agentBuildFor?.(n.id)?.version ?? null,
+    agentCommit: ctx.hub.agentBuildFor?.(n.id)?.commit ?? null,
+    agentUpdateAvailable: agentUpdateAvailable(ctx.hub.agentBuildFor?.(n.id)),
     lastSeenAt: lastSeen != null ? new Date(lastSeen).toISOString() : null,
     live,
   };
@@ -546,6 +548,27 @@ export async function setNodeAvailability(
   return { id, availability };
 }
 
+function agentUpdateAvailable(build: { version: string; commit?: string } | undefined): boolean {
+  const release = agentRelease();
+  return Boolean(build && release && !isSameAgentBuild(build, release));
+}
+
+/**
+ * Is the node already running this controller's agent build? Same version AND,
+ * when the release knows its commit, the same commit — every unreleased build
+ * is version 0.0.0, so comparing versions alone made "Upgrade agent" a silent
+ * no-op (found on the launch test). An agent that doesn't report a commit
+ * predates the field, so it is by definition older. Pure.
+ */
+export function isSameAgentBuild(
+  build: { version: string; commit?: string },
+  release: { version: string; commit?: string },
+): boolean {
+  if (build.version !== release.version) return false;
+  if (!release.commit) return true;
+  return build.commit === release.commit;
+}
+
 /**
  * Push this controller's agent release to a node. Strategy follows the node's
  * reported packaging: compiled host binary → `self-replace` (download from
@@ -564,7 +587,7 @@ export async function upgradeAgent(
   }
   const node = await requireOnlineNode(ctx, id);
   const build = ctx.hub.agentBuildFor?.(id);
-  if (build?.version === release.version) return { id, upToDate: true };
+  if (build && isSameAgentBuild(build, release)) return { id, upToDate: true };
 
   const controllerUrl =
     process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3021';
@@ -584,7 +607,10 @@ export async function upgradeAgent(
     return { id, targetVersion: release.version, strategy: 'self-replace' };
   }
 
-  const image = process.env.SWARMY_AGENT_IMAGE ?? `ghcr.io/requestflo/swarmy-agent:${release.version}`;
+  // Unreleased builds all say 0.0.0 — pin the image to the controller's commit
+  // (CI tags every image `sha-<7>`), else the version tag.
+  const tag = release.commit ? `sha-${release.commit.slice(0, 7)}` : release.version;
+  const image = process.env.SWARMY_AGENT_IMAGE ?? `ghcr.io/requestflo/swarmy-agent:${tag}`;
   await ctx.hub.dispatch(node.id, 'agent.update', {
     targetVersion: release.version,
     strategy: 'docker-recreate',

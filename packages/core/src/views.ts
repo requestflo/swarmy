@@ -61,6 +61,10 @@ export interface NodeSummary {
   arch: string | null;
   resources: { cpus: number | null; memBytes: number | null };
   agentVersion: string | null;
+  /** Build commit the agent reported (null on agents that predate it). */
+  agentCommit: string | null;
+  /** This controller holds a different agent build than the node runs. */
+  agentUpdateAvailable: boolean;
   lastSeenAt: string | null;
   /** Most recent live snapshot, if the node is connected. */
   live: { cpuPercent: number; memPercent: number } | null;

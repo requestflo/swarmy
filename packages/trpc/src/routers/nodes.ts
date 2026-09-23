@@ -118,7 +118,9 @@ export const nodesRouter = router({
   /** The agent release this controller can hand out (version + platforms), or null when no binaries are built. */
   agentRelease: orgProcedure.query(() => {
     const release = agentRelease();
-    return release ? { version: release.version, platforms: Object.keys(release.platforms) } : null;
+    return release
+      ? { version: release.version, commit: release.commit ?? null, platforms: Object.keys(release.platforms) }
+      : null;
   }),
 
   /** Push this controller's agent release to a node (self-replace or docker-recreate by packaging). */

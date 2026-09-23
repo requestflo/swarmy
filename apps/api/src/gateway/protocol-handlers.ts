@@ -296,6 +296,7 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
   deps.store.nodeHostname.set(nodeId, facts.hostname);
   deps.store.agentBuild.set(nodeId, {
     version: facts.agentVersion,
+    commit: facts.agentCommit,
     packaging: facts.agentPackaging,
     buildOverride: facts.buildOverride,
     execOverride: facts.execOverride,

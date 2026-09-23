@@ -35,6 +35,8 @@ function node(
     arch: 'x86_64',
     resources: { cpus, memBytes: memGiB * 1024 ** 3 },
     agentVersion: '0.1.0',
+    agentCommit: null,
+    agentUpdateAvailable: true,
     lastSeenAt: status === 'offline' ? iso(6 * MIN) : iso(3_000),
     live: status === 'online' || status === 'draining' ? { cpuPercent: cpuPct, memPercent: memPct } : null,
     ipAddress: ip,

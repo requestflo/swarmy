@@ -66,7 +66,9 @@ function AgentVersionCell({ node }: { node: NodeDetail | undefined }): React.JSX
 
   const current = node?.agentVersion ?? null;
   const target = release.data?.version ?? null;
-  const updateAvailable = Boolean(node && current && target && current !== target && node.status === 'online');
+  // Server-decided (version AND build commit): every unreleased build is 0.0.0.
+  const updateAvailable = Boolean(node?.agentUpdateAvailable && target && node.status === 'online');
+  const targetLabel = release.data?.commit ? `${target} (${release.data.commit.slice(0, 7)})` : target;
 
   return (
     <span className="inline-flex items-center gap-2">
@@ -80,7 +82,7 @@ function AgentVersionCell({ node }: { node: NodeDetail | undefined }): React.JSX
           onClick={() => node && upgrade.mutate({ id: node.id })}
         >
           <ArrowUpCircleIcon className="size-3.5" />
-          {upgrade.isPending ? 'Updating…' : `Update to ${target}`}
+          {upgrade.isPending ? 'Updating…' : `Update to ${targetLabel}`}
         </Button>
       ) : null}
     </span>
