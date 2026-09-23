@@ -1,4 +1,5 @@
 import {
+  DEFAULT_COMMAND_TIMEOUTS,
   PROTOCOL_VERSION,
   type ContainerInfo,
   type SwarmServiceInfo,
@@ -105,11 +106,12 @@ export class AgentHubImpl implements AgentHub {
     const commandId = pickCommandId(payload, (id) => this.pending.has(id));
     const type = COMMAND_PROTOCOL_TYPE[cmd];
     const body = { ...(payload as Record<string, unknown>), commandId };
+    const timeoutMs = commandTimeoutMs(type, opts?.timeoutMs);
     const promise = new Promise<R>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(commandId);
         reject(new Error('command timeout'));
-      }, opts?.timeoutMs ?? 15_000);
+      }, timeoutMs);
       this.pending.set(commandId, {
         resolve: (v) => resolve(v as R),
         reject,
@@ -308,4 +310,22 @@ export class AgentHubImpl implements AgentHub {
       containersRunning: containers,
     };
   }
+}
+
+/** Fallback for commands with no entry in {@link DEFAULT_COMMAND_TIMEOUTS}. */
+const FALLBACK_COMMAND_TIMEOUT_MS = 15_000;
+/** setTimeout's ceiling (~24.8 days): "no deadline" commands still get one. */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/**
+ * How long the hub waits for a command's result: the caller's explicit value,
+ * else the per-command default (a deploy pulls images, an agent update
+ * downloads + verifies a ~100 MB binary), else 15s. The table used to be dead
+ * code, so EVERY command got 15s and slow-but-healthy ones reported
+ * "command timeout" (found on the launch test: an arm64 agent update). `0` in
+ * the table means "no deadline" (streams). Pure.
+ */
+export function commandTimeoutMs(type: string, explicit?: number): number {
+  const ms = explicit ?? DEFAULT_COMMAND_TIMEOUTS[type] ?? FALLBACK_COMMAND_TIMEOUT_MS;
+  return ms <= 0 ? MAX_TIMER_MS : Math.min(ms, MAX_TIMER_MS);
 }
