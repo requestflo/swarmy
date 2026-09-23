@@ -24,7 +24,7 @@
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { DockerClient } from '@swarmy/core/docker';
+import { DockerClient } from '@swarmy/core/docker';
 import type {
   ApplyMeshResult,
   GrantDirectRoutePayload,
@@ -50,6 +50,35 @@ async function execShell(cmd: string[]): Promise<void> {
   const proc = Bun.spawn(cmd, { stdout: 'ignore', stderr: 'ignore' });
   const code = await proc.exited;
   if (code !== 0) throw new Error(`${cmd[0]} exited ${code}`);
+}
+
+/**
+ * `docker exec <container> <cmd…>` through the Docker API, not the CLI: the
+ * installer's node #1 agent runs in a container with the socket but no docker
+ * binary, so CLI execs silently failed there and the mesh IP never reached the
+ * controller (verified live). Captures demuxed stdout.
+ */
+async function containerExecCapture(docker: DockerClient, container: string, cmd: string[]): Promise<ExecResult> {
+  const exec = await docker.docker.getContainer(container).exec({ Cmd: cmd, AttachStdout: true, AttachStderr: true });
+  const stream = await exec.start({});
+  let stdout = '';
+  await new Promise<void>((resolve) => {
+    const out = { write: (b: Buffer) => { stdout += b.toString('utf8'); return true; } } as unknown as NodeJS.WritableStream;
+    const err = { write: () => true } as unknown as NodeJS.WritableStream;
+    (docker.docker.modem as unknown as {
+      demuxStream(s: NodeJS.ReadableStream, o: NodeJS.WritableStream, e: NodeJS.WritableStream): void;
+    }).demuxStream(stream, out, err);
+    stream.on('end', () => resolve());
+    stream.on('error', () => resolve());
+  });
+  const inspect = await exec.inspect();
+  return { code: inspect.ExitCode ?? 1, stdout };
+}
+
+let samplerDocker: DockerClient | undefined;
+function defaultDocker(): DockerClient {
+  samplerDocker ??= new DockerClient();
+  return samplerDocker;
 }
 
 async function execCapture(cmd: string[]): Promise<ExecResult> {
@@ -88,9 +117,9 @@ async function joinNetbird(docker: DockerClient, rendered: RenderedMesh): Promis
   await container.start();
 
   if (client.advertiseRoutes.length) {
-    await execShell([
-      'docker', 'exec', NETBIRD_CONTAINER, 'netbird', 'routes', 'add', ...client.advertiseRoutes,
-    ]).catch(() => undefined);
+    await containerExecCapture(docker, NETBIRD_CONTAINER, ['netbird', 'routes', 'add', ...client.advertiseRoutes]).catch(
+      () => undefined,
+    );
   }
   return { driver: rendered.driver, joined: true };
 }
@@ -192,11 +221,11 @@ function bareMeshIp(ip: string | undefined): string | undefined {
  * `meshState` payload, or null if no mesh is running. Best-effort: any error is
  * reported in the payload's `error` field rather than thrown.
  */
-export async function sampleMeshState(): Promise<MeshStatePayload | null> {
+export async function sampleMeshState(docker: DockerClient = defaultDocker()): Promise<MeshStatePayload | null> {
   const sampledAt = Date.now();
 
   // NetBird: `netbird status --json` (inside the sidecar).
-  const nb = await execCapture(['docker', 'exec', NETBIRD_CONTAINER, 'netbird', 'status', '--json']).catch(
+  const nb = await containerExecCapture(docker, NETBIRD_CONTAINER, ['netbird', 'status', '--json']).catch(
     () => ({ code: 1, stdout: '' }),
   );
   if (nb.code === 0 && nb.stdout) {
@@ -226,7 +255,7 @@ export async function sampleMeshState(): Promise<MeshStatePayload | null> {
   }
 
   // Tailscale/Headscale: `tailscale status --json`.
-  const ts = await execCapture(['docker', 'exec', TAILSCALE_CONTAINER, 'tailscale', 'status', '--json']).catch(
+  const ts = await containerExecCapture(docker, TAILSCALE_CONTAINER, ['tailscale', 'status', '--json']).catch(
     () => ({ code: 1, stdout: '' }),
   );
   if (ts.code === 0 && ts.stdout) {
