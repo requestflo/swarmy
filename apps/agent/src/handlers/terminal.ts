@@ -1,4 +1,13 @@
 import { spawn as nodeSpawn } from 'node:child_process';
+import {
+  EXEC_ENABLE_HINT,
+  EXEC_LOCAL_VETO_HINT,
+  NODE_SHELL_ENABLE_HINT,
+  NODE_SHELL_LOCAL_VETO_HINT,
+  execGateAllows,
+  nodeShellGateAllows,
+  type CapabilityOverride,
+} from '@swarmy/core';
 import type { DockerClient } from '@swarmy/core/docker';
 import {
   MAX_TERM_CHUNK_BYTES,
@@ -21,9 +30,12 @@ function dockerSocketPath(): string {
  * agent → controller WebSocket.
  *
  * Targets:
- *   - container : dockerode exec, gated by `SWARMY_ALLOW_EXEC` (env.ALLOW_EXEC).
- *   - nodeShell : a host shell, gated by the SEPARATE `SWARMY_ALLOW_NODE_SHELL`
- *                 (env.ALLOW_NODE_SHELL). Uses a real host PTY via `node-pty`
+ *   - container : dockerode exec. DEFAULT-ON: refused only when the controller
+ *                 asserts `nodeCapable:false` (`swarmy.node.exec=false`) or the
+ *                 box sets `SWARMY_ALLOW_EXEC=false` (execGateAllows).
+ *   - nodeShell : a host shell. DEFAULT-OFF: needs the controller's
+ *                 `nodeCapable:true` (`swarmy.node.shell=true`) AND the box not
+ *                 setting `SWARMY_ALLOW_NODE_SHELL=false` (nodeShellGateAllows). Uses a real host PTY via `node-pty`
  *                 when the native module is present (job control, `clear`, vim);
  *                 otherwise falls back to a degraded `child_process` pipe (no
  *                 SIGWINCH / job control) so the agent never fails to build.
@@ -63,22 +75,37 @@ function sendData(conn: AgentConnection, sessionId: string, seqRef: { v: number 
 }
 
 /**
- * Pure agent-side gating decision for a terminal target. Container exec rides
- * `SWARMY_ALLOW_EXEC`; node shell rides the SEPARATE `SWARMY_ALLOW_NODE_SHELL`.
- * Exported for unit testing the gate independently of dockerode/spawn.
+ * Pure agent-side gating decision for a terminal target: the controller's
+ * per-session `nodeCapable` assertion (it read the node label) combined with
+ * this box's local env override. Container exec rides `SWARMY_ALLOW_EXEC`;
+ * node shell rides the SEPARATE `SWARMY_ALLOW_NODE_SHELL` — the exec override
+ * never touches the shell gate. Exported for unit testing.
  */
 export function gateTarget(
   target: TermStartPayload['target'],
-  flags: { allowExec: boolean; allowNodeShell: boolean },
+  nodeCapable: boolean | undefined,
+  overrides: { exec: CapabilityOverride | undefined; shell: CapabilityOverride | undefined },
 ): { ok: true } | { ok: false; code: 'E_EXEC_DISABLED' | 'E_NODE_SHELL_DISABLED'; message: string } {
   if (target.kind === 'container') {
-    return flags.allowExec
-      ? { ok: true }
-      : { ok: false, code: 'E_EXEC_DISABLED', message: 'exec disabled on this agent' };
+    if (execGateAllows(overrides.exec, nodeCapable)) return { ok: true };
+    return {
+      ok: false,
+      code: 'E_EXEC_DISABLED',
+      message:
+        overrides.exec === 'deny'
+          ? `container exec is ${EXEC_LOCAL_VETO_HINT}`
+          : `container exec is turned off for this node — ${EXEC_ENABLE_HINT}`,
+    };
   }
-  return flags.allowNodeShell
-    ? { ok: true }
-    : { ok: false, code: 'E_NODE_SHELL_DISABLED', message: 'node shell disabled on this agent' };
+  if (nodeShellGateAllows(overrides.shell, nodeCapable)) return { ok: true };
+  return {
+    ok: false,
+    code: 'E_NODE_SHELL_DISABLED',
+    message:
+      overrides.shell === 'deny'
+        ? `host shell is ${NODE_SHELL_LOCAL_VETO_HINT}`
+        : `host shell is off for this node — ${NODE_SHELL_ENABLE_HINT}`,
+  };
 }
 
 export async function handleTermStart(
@@ -89,10 +116,7 @@ export async function handleTermStart(
   const { sessionId, target } = p;
   if (sessions.has(sessionId)) return; // already running; ignore duplicate
 
-  const gate = gateTarget(target, {
-    allowExec: env.ALLOW_EXEC,
-    allowNodeShell: env.ALLOW_NODE_SHELL,
-  });
+  const gate = gateTarget(target, p.nodeCapable, { exec: env.EXEC_OVERRIDE, shell: env.SHELL_OVERRIDE });
   if (!gate.ok) {
     conn.send('termStarted', {
       sessionId,

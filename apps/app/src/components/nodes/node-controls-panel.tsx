@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@swarmy/ui';
 import type { NodeDetail } from '@swarmy/core';
 import { NodeRegionCostForm } from './node-region-cost-form';
 import { NodeRoleSwitches } from './node-role-switches';
+import { NodeAccessSwitches } from './node-access-switches';
 import { NodeLabelsEditor } from './node-labels-editor';
 import { NodeDangerControls } from './node-danger-controls';
 
@@ -14,8 +15,9 @@ interface NodeControlsPanelProps {
 
 /**
  * Every node control, consolidated in one place — region, price, roles,
- * labels, availability, and remove — all inline. No dialogs for editing;
- * the only modals here are the two destructive AlertDialog confirms.
+ * terminal access, labels, availability, and remove — all inline. No dialogs
+ * for editing; the only modals are the destructive AlertDialog confirms and the
+ * host-shell grant confirm.
  */
 export function NodeControlsPanel({ node, monthlyUsd }: NodeControlsPanelProps): React.JSX.Element {
   return (
@@ -40,6 +42,16 @@ export function NodeControlsPanel({ node, monthlyUsd }: NodeControlsPanelProps):
             database={node?.database ?? false}
             builder={node?.builder ?? false}
             buildOverride={node?.buildOverride ?? null}
+          />
+        </div>
+        <div className="pt-5">
+          <NodeAccessSwitches
+            nodeId={node?.id ?? ''}
+            name={node?.name ?? 'this node'}
+            exec={node?.exec ?? true}
+            execOverride={node?.execOverride ?? null}
+            shell={node?.shell ?? false}
+            shellOverride={node?.shellOverride ?? null}
           />
         </div>
         <div className="pt-5">

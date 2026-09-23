@@ -240,6 +240,10 @@ export async function runDaemon(): Promise<void> {
   // Explicit SWARMY_ALLOW_BUILD override (if any) — lets the controller's
   // builder picker honour a local allow/veto instead of dispatching blind.
   if (env.BUILD_OVERRIDE) facts.buildOverride = env.BUILD_OVERRIDE;
+  // Same for the terminal capabilities, so the dashboard can say "blocked
+  // locally by SWARMY_ALLOW_EXEC=false on this node" instead of failing blind.
+  if (env.EXEC_OVERRIDE) facts.execOverride = env.EXEC_OVERRIDE;
+  if (env.SHELL_OVERRIDE) facts.shellOverride = env.SHELL_OVERRIDE;
 
   // Public IP for the geo-edge DNS layer: detected outbound, sent with register
   // + every heartbeat (detector caches hourly). Never blocks startup.

@@ -118,9 +118,11 @@ export function WebTerminal({ wsUrl, onPhase, className }: WebTerminalProps): Re
       }
       if (msg.type === 'termStarted') {
         if (msg.payload?.ok === false) {
-          const code = (msg.payload.error as { code?: string })?.code ?? 'forbidden';
-          onPhaseRef.current?.('disabled', code);
-          term.writeln(`\r\n\x1b[31mTerminal unavailable: ${code}\x1b[0m`);
+          const err = msg.payload.error as { code?: string; message?: string } | undefined;
+          const code = err?.code ?? 'forbidden';
+          // The agent's message says where to fix it (node toggle vs local env veto).
+          onPhaseRef.current?.('disabled', err?.message ?? code);
+          term.writeln(`\r\n\x1b[31mTerminal unavailable: ${err?.message ?? code}\x1b[0m`);
         }
         return;
       }

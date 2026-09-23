@@ -1,4 +1,13 @@
 import type { DB } from '@swarmy/db';
+import {
+  EXEC_ENABLE_HINT,
+  EXEC_LOCAL_VETO_HINT,
+  NODE_SHELL_ENABLE_HINT,
+  NODE_SHELL_LOCAL_VETO_HINT,
+  isExecCapable,
+  isNodeShellCapable,
+} from '@swarmy/core';
+import type { AgentHub } from '../hub/types';
 import type { TermTarget } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { writeAudit } from './audit.service';
@@ -15,6 +24,63 @@ import { writeAudit } from './audit.service';
  */
 
 export type TermTargetKind = 'container' | 'nodeShell';
+
+/**
+ * Does this node accept a terminal of `kind` right now? Read LIVE from the
+ * node's Docker labels (`swarmy.node.exec` / `swarmy.node.shell`) and the
+ * agent's register-fact overrides — the terminal twin of `pickBuilderNode`.
+ * The result's `capable` is asserted to the agent as `termStart.nodeCapable`;
+ * `blockedBy` + `message` let the UI say WHERE to fix it. Pure over the hub.
+ */
+export interface TerminalCapability {
+  capable: boolean;
+  /** `node-toggle` = the dashboard label is off; `local-env` = the box's env vetoes it. */
+  blockedBy: 'node-toggle' | 'local-env' | null;
+  /** Stable machine code the UI branches on (TRPCError cause.swarmyCode). */
+  swarmyCode: 'EXEC_DISABLED_ON_NODE' | 'EXEC_BLOCKED_LOCALLY' | 'NODE_SHELL_OFF_ON_NODE' | 'NODE_SHELL_BLOCKED_LOCALLY' | null;
+  message: string | null;
+}
+
+export function terminalCapability(
+  hub: Pick<AgentHub, 'nodeInfoFor' | 'agentBuildFor'>,
+  nodeId: string,
+  kind: TermTargetKind,
+): TerminalCapability {
+  const labels = hub.nodeInfoFor(nodeId)?.labels;
+  const build = hub.agentBuildFor?.(nodeId);
+  if (kind === 'container') {
+    const override = build?.execOverride;
+    if (isExecCapable(labels, override)) return { capable: true, blockedBy: null, swarmyCode: null, message: null };
+    return override === 'deny'
+      ? {
+          capable: false,
+          blockedBy: 'local-env',
+          swarmyCode: 'EXEC_BLOCKED_LOCALLY',
+          message: `Container exec is ${EXEC_LOCAL_VETO_HINT}.`,
+        }
+      : {
+          capable: false,
+          blockedBy: 'node-toggle',
+          swarmyCode: 'EXEC_DISABLED_ON_NODE',
+          message: `Container exec is turned off for this node — ${EXEC_ENABLE_HINT}.`,
+        };
+  }
+  const override = build?.shellOverride;
+  if (isNodeShellCapable(labels, override)) return { capable: true, blockedBy: null, swarmyCode: null, message: null };
+  return override === 'deny'
+    ? {
+        capable: false,
+        blockedBy: 'local-env',
+        swarmyCode: 'NODE_SHELL_BLOCKED_LOCALLY',
+        message: `Host shell is ${NODE_SHELL_LOCAL_VETO_HINT}.`,
+      }
+    : {
+        capable: false,
+        blockedBy: 'node-toggle',
+        swarmyCode: 'NODE_SHELL_OFF_ON_NODE',
+        message: `Host shell is off for this node — ${NODE_SHELL_ENABLE_HINT}.`,
+      };
+}
 export type TermSessionReason =
   | 'exit'
   | 'idle_timeout'

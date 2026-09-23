@@ -40,10 +40,11 @@ fi
 export AGENT_WS_URL="${AGENT_WS_URL:-ws://localhost:3021/agent/ws}"
 # Builds follow the node's Builder role from the dashboard unless SWARMY_ALLOW_BUILD
 # is set explicitly (true forces on, false vetoes) — so leave it unset by default.
-# Container exec is default-off; mesh is on by default (see apps/agent/src/env.ts).
+# Container exec follows the node's 'Container exec' toggle (default on) unless
+# SWARMY_ALLOW_EXEC is set explicitly; mesh is on by default (see apps/agent/src/env.ts).
 export SWARMY_ALLOW_BUILD="${SWARMY_ALLOW_BUILD:-}"
 export SWARMY_ALLOW_MESH="${SWARMY_ALLOW_MESH:-true}"
-export SWARMY_ALLOW_EXEC="${SWARMY_ALLOW_EXEC:-false}"
+export SWARMY_ALLOW_EXEC="${SWARMY_ALLOW_EXEC:-}"
 
 token_preview="${SWARMY_JOIN_TOKEN:0:12}…"
 say "Starting local agent"

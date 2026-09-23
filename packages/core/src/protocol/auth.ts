@@ -43,6 +43,18 @@ export const NodeFacts = z.object({
    * builds even when the role is on. Absent ⇒ the builder role label decides.
    */
   buildOverride: z.enum(['allow', 'deny']).optional(),
+  /**
+   * The agent's explicit `SWARMY_ALLOW_EXEC` override, if set: `deny` vetoes
+   * container exec on this node, `allow` forces it on over the
+   * `swarmy.node.exec=false` label. Absent ⇒ the label decides (default on).
+   */
+  execOverride: z.enum(['allow', 'deny']).optional(),
+  /**
+   * The agent's explicit `SWARMY_ALLOW_NODE_SHELL` override, if set: `deny`
+   * vetoes the host shell even when `swarmy.node.shell=true`. `allow` does not
+   * force it on — the label is always required. Absent ⇒ the label decides.
+   */
+  shellOverride: z.enum(['allow', 'deny']).optional(),
 });
 export type NodeFacts = z.infer<typeof NodeFacts>;
 

@@ -289,6 +289,8 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
     version: facts.agentVersion,
     packaging: facts.agentPackaging,
     buildOverride: facts.buildOverride,
+    execOverride: facts.execOverride,
+    shellOverride: facts.shellOverride,
   });
   const previous = deps.registry.add(nodeId, ws);
   previous?.close(CloseCode.DUPLICATE_SESSION, 'newer session');

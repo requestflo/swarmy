@@ -56,6 +56,10 @@ export const nodesRouter = router({
         database: z.boolean().optional(),
         /** CI builder capability (`swarmy.node.builder`) — builds + image GC run here. */
         builder: z.boolean().optional(),
+        /** Container exec (`swarmy.node.exec`) — default on. Audited. */
+        exec: z.boolean().optional(),
+        /** Host shell (`swarmy.node.shell`) — default off; grants root on the host. Audited. */
+        shell: z.boolean().optional(),
       }),
     )
     .mutation(({ ctx, input }) =>
@@ -65,6 +69,8 @@ export const nodesRouter = router({
         storage: input.storage,
         database: input.database,
         builder: input.builder,
+        exec: input.exec,
+        shell: input.shell,
       }),
     ),
 

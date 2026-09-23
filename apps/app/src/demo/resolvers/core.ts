@@ -147,7 +147,14 @@ export const core: DomainResolvers = {
     // mirror the real handlers (Docker node labels) so the Infrastructure canvas +
     // globe are interactive under ?demo=1.
     'nodes.setRole': (i, s) => {
-      const { id, ingress, outlet, builder } = i as { id: string; ingress?: boolean; outlet?: boolean; builder?: boolean };
+      const { id, ingress, outlet, builder, exec, shell } = i as {
+        id: string;
+        ingress?: boolean;
+        outlet?: boolean;
+        builder?: boolean;
+        exec?: boolean;
+        shell?: boolean;
+      };
       const n = byId(s.nodes, id) as (NodeSummary & { labels?: Record<string, string> }) | undefined;
       if (n) {
         if (ingress !== undefined) n.ingress = ingress;
@@ -157,6 +164,14 @@ export const core: DomainResolvers = {
         if (ingress !== undefined) n.labels['swarmy.node.ingress'] = String(ingress);
         if (outlet !== undefined) n.labels['swarmy.node.outlet'] = String(outlet);
         if (builder !== undefined) n.labels['swarmy.node.builder'] = builder ? 'true' : '';
+        if (exec !== undefined) {
+          n.exec = exec;
+          n.labels['swarmy.node.exec'] = exec ? 'true' : 'false';
+        }
+        if (shell !== undefined) {
+          n.shell = shell;
+          n.labels['swarmy.node.shell'] = shell ? 'true' : '';
+        }
       }
       return { id };
     },

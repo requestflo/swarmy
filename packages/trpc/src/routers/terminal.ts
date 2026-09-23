@@ -16,6 +16,8 @@ import {
   decideNodeShellApproval,
   listNodeShellApprovals,
   closeTerminalSession,
+  terminalCapability,
+  type TerminalCapability,
 } from '../services/terminal.service';
 import { readRecording } from '../services/terminal-recording-read';
 import { resolveExecTarget, resolveLiveService } from '../services/live-resolve';
@@ -73,6 +75,16 @@ const resolveNodeFromNodeId: ResolveResource = async (ctx, input) => {
   return { type: 'node', id: node.id, orgId: node.orgId, labels };
 };
 
+/** Refuse early (before minting a ticket) when the node won't accept this terminal. */
+function assertNodeCapable(cap: TerminalCapability): void {
+  if (cap.capable) return;
+  throw new TRPCError({
+    code: 'FORBIDDEN',
+    message: cap.message ?? 'terminal disabled on this node',
+    cause: { swarmyCode: cap.swarmyCode },
+  });
+}
+
 function assertAllowedRole(ctx: OrgContext, allowedRoles: string[]): void {
   if (!allowedRoles.includes(ctx.membership.role)) {
     throw new TRPCError({
@@ -109,6 +121,9 @@ export const terminalRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'no running container found for this service' });
       }
       const { containerId, nodeId } = exec;
+      // Node capability (default on; `swarmy.node.exec=false` / SWARMY_ALLOW_EXEC=false turn it off).
+      const cap = terminalCapability(ctx.hub, nodeId, 'container');
+      assertNodeCapable(cap);
 
       const sessionId = crypto.randomUUID();
       const target = { kind: 'container' as const, containerId, cmd: [] as string[] };
@@ -118,6 +133,7 @@ export const terminalRouter = router({
         orgId: ctx.activeOrgId,
         userId: ctx.user.id,
         target,
+        nodeCapable: cap.capable,
       });
 
       await createTerminalSession(ctx.db, {
@@ -162,6 +178,10 @@ export const terminalRouter = router({
       if (!ctx.hub.isOnline(node.id)) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'node is offline' });
       }
+      // Node capability (default OFF; needs the admin 'Host shell' toggle,
+      // `swarmy.node.shell=true`, and no SWARMY_ALLOW_NODE_SHELL=false veto).
+      const cap = terminalCapability(ctx.hub, node.id, 'nodeShell');
+      assertNodeCapable(cap);
 
       // Four-eyes break-glass: require an active approval if policy demands it.
       let approvalId: string | null = null;
@@ -185,6 +205,7 @@ export const terminalRouter = router({
         orgId: ctx.activeOrgId,
         userId: ctx.user.id,
         target,
+        nodeCapable: cap.capable,
       });
 
       await createTerminalSession(ctx.db, {

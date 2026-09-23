@@ -43,6 +43,14 @@ export interface NodeSummary {
   builder?: boolean;
   /** The agent's explicit SWARMY_ALLOW_BUILD override (`allow`/`deny`), or null when unset. */
   buildOverride?: 'allow' | 'deny' | null;
+  /** Container exec allowed by the node toggle (`swarmy.node.exec` ≠ 'false'; default true). */
+  exec?: boolean;
+  /** The agent's explicit SWARMY_ALLOW_EXEC override (`allow`/`deny`), or null when unset. */
+  execOverride?: 'allow' | 'deny' | null;
+  /** Host shell enabled by the admin toggle (`swarmy.node.shell=true`; default false). */
+  shell?: boolean;
+  /** The agent's explicit SWARMY_ALLOW_NODE_SHELL override (`allow`/`deny`), or null when unset. */
+  shellOverride?: 'allow' | 'deny' | null;
   /** Region label (`swarmy.region`), or null if unset. */
   region?: string | null;
   /** Effective public IP (`swarmy.node.public-ip`; override label wins). */

@@ -81,7 +81,15 @@ export class GatewayStore {
    *  this against the controller's binary manifest. */
   readonly agentBuild = new Map<
     string,
-    { version: string; packaging?: 'binary' | 'container'; buildOverride?: 'allow' | 'deny' }
+    {
+    version: string;
+    packaging?: 'binary' | 'container';
+    buildOverride?: 'allow' | 'deny';
+    /** Local SWARMY_ALLOW_EXEC override from register facts (absent = unset). */
+    execOverride?: 'allow' | 'deny';
+    /** Local SWARMY_ALLOW_NODE_SHELL override from register facts (absent = unset). */
+    shellOverride?: 'allow' | 'deny';
+  }
   >();
   /** Last heartbeat/snapshot time per node (replaces DB Node.lastSeenAt). */
   readonly lastSeen = new Map<string, number>();

@@ -1,6 +1,10 @@
 import {
   NODE_BUILDER_LABEL,
   NODE_DATABASE_LABEL,
+  NODE_EXEC_LABEL,
+  NODE_SHELL_LABEL,
+  hasExecDisabledLabel,
+  hasShellLabel,
   NODE_STORAGE_LABEL,
   LEGACY_BUILDER_ROLE_LABEL,
   hasBuilderLabel,
@@ -12,6 +16,8 @@ import type { NodeDetail, NodeStatusView, NodeSummary } from '@swarmy/core/views
 import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
 import { notFound } from '../errors';
+import { TRPCError } from '@trpc/server';
+import { writeAudit } from './audit.service';
 import { agentRelease, platformForArch } from './agent-release.service';
 import { requireOnlineNode } from './dispatch.service';
 import { swarmOrchestrationStatus } from './swarm.service';
@@ -71,6 +77,8 @@ function rolesFromLabels(labels: Record<string, string> | undefined): {
   storage: boolean;
   database: boolean;
   builder: boolean;
+  exec: boolean;
+  shell: boolean;
   region: string | null;
 } {
   return {
@@ -79,6 +87,8 @@ function rolesFromLabels(labels: Record<string, string> | undefined): {
     storage: labels?.[NODE_STORAGE_LABEL] === 'true',
     database: labels?.[NODE_DATABASE_LABEL] === 'true',
     builder: hasBuilderLabel(labels),
+    exec: !hasExecDisabledLabel(labels),
+    shell: hasShellLabel(labels),
     region: labels?.[NODE_REGION_LABEL] ?? null,
   };
 }
@@ -126,6 +136,10 @@ function toSummary(ctx: OrgContext, n: NodeRow): NodeSummary {
     database: roles.database,
     builder: roles.builder,
     buildOverride: ctx.hub.agentBuildFor?.(n.id)?.buildOverride ?? null,
+    exec: roles.exec,
+    execOverride: ctx.hub.agentBuildFor?.(n.id)?.execOverride ?? null,
+    shell: roles.shell,
+    shellOverride: ctx.hub.agentBuildFor?.(n.id)?.shellOverride ?? null,
     region: roles.region,
     publicIp: publicIpFromLabels(info?.labels),
     status: statusOf(info, online, lastSeen != null, ctx.hub.swarmStateFor(n.id)),
@@ -193,11 +207,25 @@ export async function dispatchNodeLabels(
     .catch(() => false);
 }
 
+/**
+ * Capability labels that must only change through the admin-only, audited
+ * `nodes.setRole` toggles — never the generic (member-reachable) label editor,
+ * or any member could hand themselves a host shell.
+ */
+export const RESERVED_CAPABILITY_LABELS: readonly string[] = [NODE_EXEC_LABEL, NODE_SHELL_LABEL];
+
 export async function setNodeLabels(
   ctx: OrgContext,
   id: string,
   labels: Record<string, string>,
 ): Promise<{ id: string; labels: Record<string, string> }> {
+  const reserved = Object.keys(labels).filter((k) => RESERVED_CAPABILITY_LABELS.includes(k));
+  if (reserved.length > 0) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: `${reserved.join(', ')} can only be changed from the node's Controls toggles (admin only)`,
+    });
+  }
   const node = await ctx.db.node.findFirst({
     where: { id, orgId: ctx.activeOrgId },
     select: { id: true },
@@ -220,8 +248,27 @@ export async function setNodeLabels(
 export async function setNodeRole(
   ctx: OrgContext,
   id: string,
-  roles: { ingress?: boolean; outlet?: boolean; storage?: boolean; database?: boolean; builder?: boolean },
-): Promise<{ id: string; ingress: boolean; outlet: boolean; storage: boolean; database: boolean; builder: boolean }> {
+  roles: {
+    ingress?: boolean;
+    outlet?: boolean;
+    storage?: boolean;
+    database?: boolean;
+    builder?: boolean;
+    /** Container exec (`swarmy.node.exec`) — default on; `false` disables exec on this node. */
+    exec?: boolean;
+    /** Host shell (`swarmy.node.shell`) — default off; root on the host. Audited. */
+    shell?: boolean;
+  },
+): Promise<{
+  id: string;
+  ingress: boolean;
+  outlet: boolean;
+  storage: boolean;
+  database: boolean;
+  builder: boolean;
+  exec: boolean;
+  shell: boolean;
+}> {
   const node = await ctx.db.node.findFirst({
     where: { id, orgId: ctx.activeOrgId },
     select: { id: true },
@@ -242,8 +289,32 @@ export async function setNodeRole(
     }
   }
 
+  // Terminal capabilities. Exec is default-on, so "on" writes 'true' and "off"
+  // writes 'false' (absent also reads as on). Shell is default-off: 'true' / ''.
+  if (roles.exec !== undefined) patch[NODE_EXEC_LABEL] = roles.exec ? 'true' : 'false';
+  if (roles.shell !== undefined) patch[NODE_SHELL_LABEL] = roles.shell ? 'true' : '';
+
   if (Object.keys(patch).length > 0) {
     await dispatchNodeLabels(ctx.hub, ctx.activeOrgId, id, patch);
+  }
+
+  // Terminal capability flips are security events — record each one. (A host
+  // shell grants root on the node; container exec is a shell in every workload.)
+  if (roles.exec !== undefined) {
+    await writeAudit(ctx, {
+      action: roles.exec ? 'node.exec.enable' : 'node.exec.disable',
+      targetType: 'node',
+      targetId: id,
+      metadata: { label: NODE_EXEC_LABEL, value: patch[NODE_EXEC_LABEL] },
+    });
+  }
+  if (roles.shell !== undefined) {
+    await writeAudit(ctx, {
+      action: roles.shell ? 'node.shell.enable' : 'node.shell.disable',
+      targetType: 'node',
+      targetId: id,
+      metadata: { label: NODE_SHELL_LABEL, value: patch[NODE_SHELL_LABEL] },
+    });
   }
 
   // Reflect the resulting state: live labels merged with the patch we just sent.
@@ -256,6 +327,8 @@ export async function setNodeRole(
     storage: result.storage,
     database: result.database,
     builder: result.builder,
+    exec: result.exec,
+    shell: result.shell,
   };
 }
 

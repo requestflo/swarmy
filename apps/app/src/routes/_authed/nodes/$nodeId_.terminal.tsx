@@ -23,8 +23,9 @@ type Phase = 'idle' | 'connecting' | 'open' | 'disabled' | 'closed' | 'error';
 /**
  * Node shell — the host-RCE break-glass path. Far more gated than container
  * exec: ABAC `terminal.open` + org `TerminalPolicy.nodeShellEnabled` +
- * (by default) an approved `TerminalApproval`, and the agent's separate
- * `SWARMY_ALLOW_NODE_SHELL` flag. Recording is mandatory and non-disableable.
+ * (by default) an approved `TerminalApproval`, plus the node's admin-only
+ * 'Host shell' toggle (`swarmy.node.shell=true`, off by default) and no local
+ * `SWARMY_ALLOW_NODE_SHELL=false` veto. Recording is mandatory and non-disableable.
  */
 function NodeTerminalPage(): React.JSX.Element {
   const trpc = useTRPC();
@@ -51,6 +52,14 @@ function NodeTerminalPage(): React.JSX.Element {
           setNeedsApproval(true);
           setPhase('disabled');
           setDetail('Node-shell access requires approval.');
+        } else if (
+          code === 'NODE_SHELL_DISABLED' ||
+          code === 'NODE_SHELL_OFF_ON_NODE' ||
+          code === 'NODE_SHELL_BLOCKED_LOCALLY'
+        ) {
+          setNeedsApproval(false);
+          setPhase('disabled');
+          setDetail(e.message);
         } else {
           setPhase('error');
           setDetail(e.message);
@@ -104,8 +113,9 @@ function NodeTerminalPage(): React.JSX.Element {
           <AlertTitle>Node shell unavailable</AlertTitle>
           <AlertDescription className="flex flex-col gap-3">
             <span>
-              {detail ??
-                'Node shell is disabled. Enable it in Security → Terminal and set SWARMY_ALLOW_NODE_SHELL=true on the agent.'}
+              {detail && !detail.startsWith('E_')
+                ? detail
+                : 'Host shell is off for this node. An admin turns it on in Nodes → this node → Controls → Host shell (and node shell must be enabled in Security → Terminal).'}
             </span>
             {needsApproval && (
               <Button

@@ -27,8 +27,8 @@ export const MAX_TERM_CHUNK_BYTES = 32_768; // 32 KiB; agent splits larger outpu
 
 /** Error codes the agent may report when a session fails to start. */
 export const TermErrorCode = z.enum([
-  'E_EXEC_DISABLED', // container exec gated off (SWARMY_ALLOW_EXEC=false)
-  'E_NODE_SHELL_DISABLED', // node shell gated off
+  'E_EXEC_DISABLED', // container exec gated off (SWARMY_ALLOW_EXEC=false or swarmy.node.exec=false)
+  'E_NODE_SHELL_DISABLED', // node shell gated off (no swarmy.node.shell=true, or SWARMY_ALLOW_NODE_SHELL=false)
   'E_NO_SUCH_CONTAINER', // target container not found
   'E_NO_SHELL', // no usable shell in the image
   'E_SPAWN', // exec / spawn failed
@@ -74,6 +74,15 @@ export const TermStartPayload = z.object({
   rows: z.number().int().positive().default(24),
   term: z.string().default('xterm-256color'),
   idleTimeoutMs: z.number().int().nonnegative().default(300_000),
+  /**
+   * Controller's capability assertion for this target on this node (it read
+   * the live node label at ticket mint, like `builderCapable` for builds):
+   * container → `isExecCapable` (`swarmy.node.exec` ≠ 'false'), nodeShell →
+   * `isNodeShellCapable` (`swarmy.node.shell=true`). The agent combines it
+   * with its local env override via `execGateAllows` / `nodeShellGateAllows`.
+   * Absent ⇒ container allowed, nodeShell refused.
+   */
+  nodeCapable: z.boolean().optional(),
 });
 export type TermStartPayload = z.infer<typeof TermStartPayload>;
 export const TermStartMsg = z.object({

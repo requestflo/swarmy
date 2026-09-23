@@ -3,7 +3,7 @@ import path from 'node:path';
 import { carryNetworkAliases, DockerClient, toServiceCreateOptions } from '@swarmy/core/docker';
 import type { ControllerEnvelope, RegistryAuth, RenderedConfig, ServiceSpec } from '@swarmy/core/protocol';
 import type { AgentConnection } from './connection';
-import { buildGateAllows, BUILDER_ENABLE_HINT } from '@swarmy/core';
+import { buildGateAllows, BUILDER_ENABLE_HINT, execGateAllows, EXEC_LOCAL_VETO_HINT, EXEC_ENABLE_HINT } from '@swarmy/core';
 import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots, backupDb, restoreDb } from './handlers/backup';
 import { applyDns } from './handlers/dns';
@@ -278,11 +278,14 @@ export async function handleCommand(
       return;
     case 'execCommand': {
       const { commandId } = envlp.payload;
-      if (!env.ALLOW_EXEC) {
+      if (!execGateAllows(env.EXEC_OVERRIDE, envlp.payload.nodeCapable)) {
         conn.send('commandResult', {
           commandId,
           status: 'rejected',
-          error: { code: 'E_EXEC_DISABLED', message: 'exec disabled on this agent' },
+          error: {
+            code: 'E_EXEC_DISABLED',
+            message: env.EXEC_OVERRIDE === 'deny' ? `exec is ${EXEC_LOCAL_VETO_HINT}` : `exec is off for this node — ${EXEC_ENABLE_HINT}`,
+          },
         });
         return;
       }

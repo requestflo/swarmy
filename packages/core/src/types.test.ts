@@ -13,6 +13,13 @@ import {
   parseExposeMode,
   parseNodeProfile,
   profileToLabels,
+  NODE_EXEC_LABEL,
+  NODE_SHELL_LABEL,
+  execGateAllows,
+  isExecCapable,
+  isNodeShellCapable,
+  nodeShellGateAllows,
+  parseCapabilityOverride,
 } from './types';
 
 describe('parseExposeMode — the `swarmy.expose` label codec', () => {
@@ -86,5 +93,63 @@ describe('builder capability', () => {
     expect(buildGateAllows('deny', true)).toBe(false);
     expect(buildGateAllows('allow', undefined)).toBe(true);
     expect(BUILDER_ENABLE_HINT).toContain('Builder');
+  });
+});
+
+describe('terminal capabilities — container exec (default ON)', () => {
+  it('parses SWARMY_ALLOW_EXEC tri-state (unset = no override)', () => {
+    expect(parseCapabilityOverride(undefined)).toBeUndefined();
+    expect(parseCapabilityOverride('true')).toBe('allow');
+    expect(parseCapabilityOverride('false')).toBe('deny');
+  });
+
+  it('controller: exec allowed unless the node label turns it off; env override wins both ways', () => {
+    expect(NODE_EXEC_LABEL).toBe('swarmy.node.exec');
+    expect(isExecCapable(undefined, undefined)).toBe(true);
+    expect(isExecCapable({}, undefined)).toBe(true);
+    expect(isExecCapable({ [NODE_EXEC_LABEL]: 'true' }, undefined)).toBe(true);
+    expect(isExecCapable({ [NODE_EXEC_LABEL]: '' }, undefined)).toBe(true);
+    expect(isExecCapable({ [NODE_EXEC_LABEL]: 'false' }, undefined)).toBe(false);
+    expect(isExecCapable({ [NODE_EXEC_LABEL]: 'false' }, 'allow')).toBe(true);
+    expect(isExecCapable({}, 'deny')).toBe(false);
+  });
+
+  it('agent gate truth table: env deny vetoes, env allow forces, else assertion (absent = allowed)', () => {
+    const rows: [ReturnType<typeof parseCapabilityOverride>, boolean | undefined, boolean][] = [
+      [undefined, undefined, true],
+      [undefined, true, true],
+      [undefined, false, false],
+      ['allow', undefined, true],
+      ['allow', false, true],
+      ['deny', undefined, false],
+      ['deny', true, false],
+    ];
+    for (const [o, c, want] of rows) expect(execGateAllows(o, c)).toBe(want);
+  });
+});
+
+describe('terminal capabilities — host shell (default OFF)', () => {
+  it('controller: only the swarmy.node.shell=true label enables; env deny vetoes; env allow does NOT force', () => {
+    expect(NODE_SHELL_LABEL).toBe('swarmy.node.shell');
+    expect(isNodeShellCapable(undefined, undefined)).toBe(false);
+    expect(isNodeShellCapable({ [NODE_SHELL_LABEL]: '' }, undefined)).toBe(false);
+    expect(isNodeShellCapable({ [NODE_SHELL_LABEL]: 'true' }, undefined)).toBe(true);
+    expect(isNodeShellCapable({ [NODE_SHELL_LABEL]: 'true' }, 'deny')).toBe(false);
+    expect(isNodeShellCapable({}, 'allow')).toBe(false);
+    expect(isNodeShellCapable({ [NODE_SHELL_LABEL]: 'true' }, 'allow')).toBe(true);
+  });
+
+  it('agent gate truth table: needs the controller assertion AND env not false', () => {
+    const rows: [ReturnType<typeof parseCapabilityOverride>, boolean | undefined, boolean][] = [
+      [undefined, undefined, false],
+      [undefined, false, false],
+      [undefined, true, true],
+      ['allow', undefined, false],
+      ['allow', false, false],
+      ['allow', true, true],
+      ['deny', true, false],
+      ['deny', undefined, false],
+    ];
+    for (const [o, c, want] of rows) expect(nodeShellGateAllows(o, c)).toBe(want);
   });
 });

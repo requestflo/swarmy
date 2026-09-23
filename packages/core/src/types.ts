@@ -141,6 +141,110 @@ export function buildGateAllows(override: BuildOverride | undefined, builderCapa
 export const BUILDER_ENABLE_HINT =
   "turn on the 'Builder' role for a node (Nodes → pick a node → Controls → Builder), or set SWARMY_ALLOW_BUILD=true in that node's /etc/swarmy/agent.env";
 
+// ── Terminal capabilities: container exec + host shell ──────────────────────
+//
+// Same shape as the builder role: a Docker node label the dashboard toggles
+// (read live by the controller, asserted to the agent in the `termStart`
+// payload as `nodeCapable`), plus an agent-local env override reported in the
+// register facts. The real gate for WHO may open a terminal stays
+// controller-side (ABAC `terminal.open` + org TerminalPolicy + audit +
+// recording); these decide WHETHER a node accepts one at all.
+
+/** Agent-local explicit override (`SWARMY_ALLOW_EXEC` / `SWARMY_ALLOW_NODE_SHELL`); same tri-state as builds. */
+export type CapabilityOverride = BuildOverride;
+
+/** Parse a raw tri-state capability env value; unset/empty/unknown → no override. */
+export function parseCapabilityOverride(raw: string | null | undefined): CapabilityOverride | undefined {
+  return parseBuildOverride(raw);
+}
+
+/**
+ * Container exec is ON by default. `swarmy.node.exec=false` (dashboard toggle)
+ * turns it off for one node; any other value (absent, '', 'true') is allowed.
+ */
+export const NODE_EXEC_LABEL = 'swarmy.node.exec';
+
+/** Whether a node's live labels disable container exec (`swarmy.node.exec=false`). */
+export function hasExecDisabledLabel(labels: Record<string, string> | undefined): boolean {
+  return labels?.[NODE_EXEC_LABEL] === 'false';
+}
+
+/**
+ * Controller-side: does this node accept container exec? The agent's explicit
+ * `SWARMY_ALLOW_EXEC` override wins in both directions (as with builds);
+ * otherwise exec is allowed unless the node label turns it off.
+ */
+export function isExecCapable(
+  labels: Record<string, string> | undefined,
+  override: CapabilityOverride | undefined,
+): boolean {
+  if (override === 'deny') return false;
+  if (override === 'allow') return true;
+  return !hasExecDisabledLabel(labels);
+}
+
+/**
+ * Agent-side gate for container exec (`termStart` container / `execCommand`):
+ * the local explicit override wins; otherwise the controller's `nodeCapable`
+ * assertion decides, and an absent assertion (older controller) is ALLOWED —
+ * exec is default-on.
+ */
+export function execGateAllows(override: CapabilityOverride | undefined, nodeCapable: boolean | undefined): boolean {
+  if (override === 'deny') return false;
+  if (override === 'allow') return true;
+  return nodeCapable !== false;
+}
+
+/**
+ * Host shell (`node shell` — root on the host) is OFF by default. Only
+ * `swarmy.node.shell=true`, set by an admin from the node's controls panel
+ * behind a confirmation, turns it on for that node.
+ */
+export const NODE_SHELL_LABEL = 'swarmy.node.shell';
+
+/** Whether a node's live labels enable the host shell (`swarmy.node.shell=true`). */
+export function hasShellLabel(labels: Record<string, string> | undefined): boolean {
+  return labels?.[NODE_SHELL_LABEL] === 'true';
+}
+
+/**
+ * Controller-side: does this node accept a host shell? Stricter than builds:
+ * the label is REQUIRED, and `SWARMY_ALLOW_NODE_SHELL=false` on the box vetoes
+ * it. `SWARMY_ALLOW_NODE_SHELL=true` does NOT force it on — a host shell is
+ * never enabled without the audited dashboard toggle.
+ */
+export function isNodeShellCapable(
+  labels: Record<string, string> | undefined,
+  override: CapabilityOverride | undefined,
+): boolean {
+  if (override === 'deny') return false;
+  return hasShellLabel(labels);
+}
+
+/**
+ * Agent-side gate for `termStart` nodeShell: allowed only when the controller
+ * asserted the node label (`nodeCapable === true`) AND the local env is not an
+ * explicit `false`. Absent assertion ⇒ refuse (older controller keeps the old
+ * default-off behaviour).
+ */
+export function nodeShellGateAllows(
+  override: CapabilityOverride | undefined,
+  nodeCapable: boolean | undefined,
+): boolean {
+  if (override === 'deny') return false;
+  return nodeCapable === true;
+}
+
+/** Operator-facing hints, shared by controller + agent errors and the UI. */
+export const EXEC_ENABLE_HINT =
+  "turn 'Container exec' back on for the node (Nodes → pick a node → Controls → Container exec)";
+export const EXEC_LOCAL_VETO_HINT =
+  "blocked on the box by SWARMY_ALLOW_EXEC=false — remove it from that node's /etc/swarmy/agent.env and restart the agent";
+export const NODE_SHELL_ENABLE_HINT =
+  "an admin must turn on 'Host shell' for the node (Nodes → pick a node → Controls → Host shell)";
+export const NODE_SHELL_LOCAL_VETO_HINT =
+  "blocked on the box by SWARMY_ALLOW_NODE_SHELL=false — remove it from that node's /etc/swarmy/agent.env and restart the agent";
+
 export const NODE_PROFILE_VALUES = ['default', 'edge', 'storage', 'database', 'private-mesh'] as const;
 /** Install profile carried on a join token: the label bundle a node enrolls with. */
 export type NodeProfile = (typeof NODE_PROFILE_VALUES)[number];

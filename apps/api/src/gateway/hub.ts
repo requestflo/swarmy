@@ -57,6 +57,8 @@ export class AgentHubImpl implements AgentHub {
     orgId: string;
     userId: string;
     target: TermTarget;
+    /** Controller capability read (isExecCapable / isNodeShellCapable) → `termStart.nodeCapable`. */
+    nodeCapable?: boolean;
   }): { ticket: string; expiresAt: number } {
     return terminalHub.mintTicket(input);
   }
@@ -192,7 +194,15 @@ export class AgentHubImpl implements AgentHub {
   /** Agent build (version + packaging) from the node's last register facts. */
   agentBuildFor(
     controllerNodeId: string,
-  ): { version: string; packaging?: 'binary' | 'container'; buildOverride?: 'allow' | 'deny' } | undefined {
+  ): {
+    version: string;
+    packaging?: 'binary' | 'container';
+    buildOverride?: 'allow' | 'deny';
+    /** Local SWARMY_ALLOW_EXEC override from register facts (absent = unset). */
+    execOverride?: 'allow' | 'deny';
+    /** Local SWARMY_ALLOW_NODE_SHELL override from register facts (absent = unset). */
+    shellOverride?: 'allow' | 'deny';
+  } | undefined {
     return this.store.agentBuild.get(controllerNodeId);
   }
 

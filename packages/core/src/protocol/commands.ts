@@ -225,9 +225,15 @@ export const PullImageMsg = z.object({
 });
 export type PullImageMsg = z.infer<typeof PullImageMsg>;
 
-/** GATED: the agent refuses unless `SWARMY_ALLOW_EXEC=true`. Audited controller-side. */
+/**
+ * GATED: exec is default-on; the agent refuses when `SWARMY_ALLOW_EXEC=false`
+ * or the controller asserts `nodeCapable: false` (`swarmy.node.exec=false`).
+ * See `execGateAllows`. Audited controller-side.
+ */
 export const ExecCommandPayload = z.object({
   ...cmd,
+  /** Controller's read of the node's exec label (see TermStartPayload.nodeCapable). */
+  nodeCapable: z.boolean().optional(),
   target: z.object({ containerId: z.string() }),
   cmd: z.array(z.string()).nonempty(),
   tty: z.boolean().default(false),

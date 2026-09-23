@@ -37,9 +37,10 @@ function ServiceTerminalPage(): React.JSX.Element {
     if (d) setDetail(d);
   }, []);
 
-  // INTEGRATION: `terminal.open` mutation (control plane). It runs the policy
-  // gate (RBAC, SWARMY_ALLOW_EXEC reflected via node capability, container
-  // exists), audits, mints a single-use ticket, and returns { ticket, wsUrl }.
+  // `terminal.open` mutation (control plane). It runs the policy gate (ABAC,
+  // org TerminalPolicy, the node's 'Container exec' toggle + any local
+  // SWARMY_ALLOW_EXEC=false veto, container exists), audits, mints a
+  // single-use ticket, and returns { ticket, wsUrl }.
   const open = useMutation(
     trpc.terminal.open.mutationOptions({
       onSuccess: ({ ticket, wsUrl: base }: { ticket: string; wsUrl?: string }) => {
@@ -48,8 +49,9 @@ function ServiceTerminalPage(): React.JSX.Element {
         setWsUrl(url);
         setPhase('connecting');
       },
-      onError: (e: { message: string }) => {
-        setPhase('error');
+      onError: (e) => {
+        const code = (e.data as { swarmyCode?: string } | undefined)?.swarmyCode;
+        setPhase(code === 'EXEC_DISABLED_ON_NODE' || code === 'EXEC_BLOCKED_LOCALLY' ? 'disabled' : 'error');
         setDetail(e.message);
       },
     }),
@@ -82,11 +84,11 @@ function ServiceTerminalPage(): React.JSX.Element {
 
       {phase === 'disabled' && (
         <Alert className="card-pop mb-6 border-0">
-          <AlertTitle>Exec is disabled on this node</AlertTitle>
+          <AlertTitle>Container exec is off on this node</AlertTitle>
           <AlertDescription>
-            The agent must run with <span className="mono-data">SWARMY_ALLOW_EXEC=true</span> to open
-            a shell. Set it on the node and restart the agent.
-            {detail ? <span className="mono-data"> ({detail})</span> : null}
+            {detail && !detail.startsWith('E_')
+              ? detail
+              : 'Turn Container exec back on in Nodes → this node → Controls. If it’s already on, the box is blocking it locally with SWARMY_ALLOW_EXEC=false in /etc/swarmy/agent.env — remove it and restart the agent.'}
           </AlertDescription>
         </Alert>
       )}

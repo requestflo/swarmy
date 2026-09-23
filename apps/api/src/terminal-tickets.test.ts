@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { TicketStore, TICKET_TTL_MS } from './terminal-tickets';
+import { TicketStore, TICKET_TTL_MS, termStartPayload } from './terminal-tickets';
+import { TermStartPayload } from '@swarmy/core/protocol';
 import type { TermTarget } from '@swarmy/core/protocol';
 
 const target: TermTarget = { kind: 'container', containerId: 'c1', cmd: [] };
@@ -54,5 +55,29 @@ describe('TicketStore', () => {
     now = 120; // first expired (at 100), second valid until 150
     store.sweep();
     expect(store.size).toBe(1);
+  });
+});
+
+describe('termStartPayload — the dispatch carries the node capability', () => {
+  it('forwards the controller nodeCapable assertion minted into the ticket', () => {
+    const store = new TicketStore();
+    const shell: TermTarget = { kind: 'nodeShell', cmd: [] };
+    const { ticket } = store.mint({
+      ...claims,
+      sessionId: '6f1c2f5e-1b1a-4c3e-9b8a-2d3e4f5a6b7c',
+      target: shell,
+      nodeCapable: true,
+    });
+    const claimed = store.claim(ticket);
+    expect(claimed?.nodeCapable).toBe(true);
+    const p = termStartPayload(claimed!, { idleTimeoutMs: 1000 });
+    expect(p.nodeCapable).toBe(true);
+    // And it survives the wire schema the agent parses with.
+    expect(TermStartPayload.parse(p).nodeCapable).toBe(true);
+  });
+
+  it('carries an explicit false (node toggle off) and omits it when unknown', () => {
+    expect(termStartPayload({ ...claims, nodeCapable: false }, { idleTimeoutMs: 1 }).nodeCapable).toBe(false);
+    expect('nodeCapable' in termStartPayload(claims, { idleTimeoutMs: 1 })).toBe(false);
   });
 });

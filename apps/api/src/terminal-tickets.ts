@@ -11,12 +11,44 @@ import type { TermTarget } from '@swarmy/core/protocol';
 
 export const TICKET_TTL_MS = 30_000;
 
+/**
+ * The `termStart` payload for a claimed ticket. Carries the controller's
+ * `nodeCapable` assertion so the agent's gate (execGateAllows /
+ * nodeShellGateAllows) sees the node label read at mint — the terminal twin
+ * of `builderCapable` on buildImage. Pure; exported for tests.
+ */
+export function termStartPayload(
+  t: TicketClaims,
+  opts: { idleTimeoutMs: number; cols?: number; rows?: number },
+): {
+  sessionId: string;
+  target: TermTarget;
+  cols: number;
+  rows: number;
+  idleTimeoutMs: number;
+  nodeCapable?: boolean;
+} {
+  return {
+    sessionId: t.sessionId,
+    target: t.target,
+    cols: opts.cols ?? 80,
+    rows: opts.rows ?? 24,
+    idleTimeoutMs: opts.idleTimeoutMs,
+    ...(t.nodeCapable !== undefined ? { nodeCapable: t.nodeCapable } : {}),
+  };
+}
+
 export interface TicketClaims {
   sessionId: string;
   nodeId: string;
   orgId: string;
   userId: string;
   target: TermTarget;
+  /**
+   * Controller's capability read for this target on this node at mint time
+   * (isExecCapable / isNodeShellCapable), forwarded as `termStart.nodeCapable`.
+   */
+  nodeCapable?: boolean;
 }
 
 interface StoredTicket extends TicketClaims {

@@ -13,7 +13,7 @@ import {
 import { registry } from './gateway';
 import { TerminalRecorder } from './terminal-recording';
 import { finalizeTerminalSession, loadTerminalRuntimePolicy } from './terminal-store';
-import { TicketStore } from './terminal-tickets';
+import { TicketStore, termStartPayload } from './terminal-tickets';
 
 /**
  * Browser-facing terminal data plane (`/term/ws`).
@@ -86,6 +86,7 @@ class TerminalHub {
     orgId: string;
     userId: string;
     target: TermTarget;
+    nodeCapable?: boolean;
   }): { ticket: string; expiresAt: number } {
     return this.tickets.mint(input);
   }
@@ -138,13 +139,9 @@ class TerminalHub {
     registry.send(
       t.nodeId,
       JSON.parse(
-        frame('termStart', {
-          sessionId: t.sessionId,
-          target: t.target,
-          cols: 80,
-          rows: 24,
-          idleTimeoutMs: policy.idleTimeoutMs,
-        }),
+        // Carries `nodeCapable` — the capability assertion the agent's gate
+        // combines with its local env override (like `builderCapable`).
+        frame('termStart', termStartPayload(t, { idleTimeoutMs: policy.idleTimeoutMs })),
       ),
     );
 

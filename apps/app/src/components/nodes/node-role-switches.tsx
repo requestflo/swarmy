@@ -89,7 +89,7 @@ export function NodeRoleSwitches({
   );
 }
 
-interface RoleRowProps {
+export interface RoleRowProps {
   icon: React.ReactNode;
   label: string;
   hint: string;
@@ -98,7 +98,7 @@ interface RoleRowProps {
   onCheckedChange: (v: boolean) => void;
 }
 
-function RoleRow({ icon, label, hint, checked, disabled, onCheckedChange }: RoleRowProps): React.JSX.Element {
+export function RoleRow({ icon, label, hint, checked, disabled, onCheckedChange }: RoleRowProps): React.JSX.Element {
   return (
     <div className="bg-accent/40 flex items-center justify-between gap-3 rounded-xl px-4 py-3">
       <div className="min-w-0">

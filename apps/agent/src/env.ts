@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseBuildOverride } from '@swarmy/core';
+import { parseBuildOverride, parseCapabilityOverride } from '@swarmy/core';
 
 /**
  * Fallback env bootstrap: interactive CLI invocations (`swarmy-agent status`
@@ -49,10 +49,18 @@ export const env = {
   // to the state file so prod lands in /var/lib/swarmy (root 0600) and dev in
   // ~/.swarmy — no /run handling, no network listener, ever.
   SOCKET_PATH: expandHome(process.env.SWARMY_AGENT_SOCK ?? path.join(path.dirname(statePath), 'agent.sock')),
-  ALLOW_EXEC: (process.env.SWARMY_ALLOW_EXEC ?? 'false') === 'true',
+  // Container exec is DEFAULT-ON: the controller-side ABAC `terminal.open` +
+  // TerminalPolicy + audit + recording are the real gate. SWARMY_ALLOW_EXEC is
+  // a tri-state local override: `false` vetoes exec on this box, `true` forces
+  // it on over the `swarmy.node.exec=false` label, unset defers to the label
+  // (absent label = allowed). See execGateAllows in @swarmy/core.
+  EXEC_OVERRIDE: parseCapabilityOverride(process.env.SWARMY_ALLOW_EXEC),
   // Node shell (host RCE) is strictly more dangerous than container exec and
-  // must NEVER ride the same flag. Default-off; epic #11 Phase 2.
-  ALLOW_NODE_SHELL: (process.env.SWARMY_ALLOW_NODE_SHELL ?? 'false') === 'true',
+  // must NEVER ride the same flag. DEFAULT-OFF: only the admin-toggled
+  // `swarmy.node.shell=true` label (asserted by the controller per session)
+  // enables it; SWARMY_ALLOW_NODE_SHELL=false vetoes it locally, `true` does
+  // not force it on. See nodeShellGateAllows in @swarmy/core.
+  SHELL_OVERRIDE: parseCapabilityOverride(process.env.SWARMY_ALLOW_NODE_SHELL),
   // Hard per-session output cap (bytes) — `yes`-bomb / runaway-output guard.
   // 0 disables the cap. Default 64 MiB.
   TERM_MAX_OUTPUT_BYTES: Number(process.env.SWARMY_TERM_MAX_OUTPUT_BYTES ?? 64 * 1024 * 1024),
