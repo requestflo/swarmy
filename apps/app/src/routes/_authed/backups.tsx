@@ -34,7 +34,9 @@ function BackupDestinationsPage(): React.JSX.Element {
           targetRows.length > 0 ? (
             <>
               <CountUp value={targetRows.length} /> destination
-              {targetRows.length === 1 ? '' : 's'}, every byte <em>covered</em>.
+              {targetRows.length === 1 ? '' : 's'}, <em>ready</em>.
+              {/* Destinations aren't coverage: what's actually backed up is per stack
+                  (Backups tab) — never claim "every byte covered" from here. */}
             </>
           ) : (
             <>
