@@ -379,7 +379,7 @@ ensure_secrets() {  # persist-once into state.env (NEVER regenerate)
   ok "secrets persisted to $STATE_FILE (back this up — SWARMY_SECRET_KEY is unrecoverable)."
 }
 
-mesh_ip() { ip -4 -o addr show dev "${NB_INTERFACE}" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1; }
+mesh_ip() { { ip -4 -o addr show dev "${NB_INTERFACE}" 2>/dev/null || true; } | awk '{print $4}' | cut -d/ -f1 | head -n1; }
 
 # With a mesh, node #1 joins it BEFORE the swarm exists, so the swarm is born
 # advertising the mesh IP. A manager's address is fixed at `swarm init`: one
