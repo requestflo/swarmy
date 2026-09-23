@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { DatabaseIcon, ZapIcon } from 'lucide-react';
 import { Button, CopyButton, Input, Label, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { useOnlineNodeCount } from '@/lib/use-online-node-count';
 
 /**
  * Declare a managed-Postgres cluster on this stack; shows the one-time
@@ -23,7 +24,20 @@ export function DbDeclareClusterForm({
   // First database defaults to "main"; once one exists the field starts empty
   // (placeholder-guided) so you name a NEW one instead of re-declaring "main".
   const [name, setName] = React.useState(hasClusters ? '' : 'main');
-  const [replicas, setReplicas] = React.useState(2);
+  // Replicas are anti-affine to the primary: each needs its own node. Default
+  // to what the swarm can actually place (≤2), following the nodes query in
+  // until the user picks a number themselves.
+  const onlineNodes = useOnlineNodeCount();
+  const fitReplicas = onlineNodes === undefined ? 0 : Math.min(2, Math.max(0, onlineNodes - 1));
+  const [replicas, setReplicasState] = React.useState(fitReplicas);
+  const touched = React.useRef(false);
+  const setReplicas = (n: number): void => {
+    touched.current = true;
+    setReplicasState(n);
+  };
+  React.useEffect(() => {
+    if (!touched.current) setReplicasState(fitReplicas);
+  }, [fitReplicas]);
   const [creds, setCreds] = React.useState<{ rwHost: string; roHost: string; password: string } | null>(
     null,
   );
