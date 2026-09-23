@@ -262,11 +262,12 @@ describe('pure helpers', () => {
       buildCompose({ web: { image: 'nginx:1.27-alpine', replicas: 3, networks: ['net-a'] } }),
     ) as {
       services: Record<string, { image: string; deploy?: { replicas?: number } }>;
-      networks?: Record<string, { driver?: string }>;
+      networks?: Record<string, { external?: boolean }>;
     };
     expect(doc.services.web?.image).toBe('nginx:1.27-alpine');
     expect(doc.services.web?.deploy?.replicas).toBe(3);
-    expect(doc.networks?.['net-a']?.driver).toBe('overlay');
+    // Blueprint networks are created by their own steps → external (keep name).
+    expect(doc.networks?.['net-a']?.external).toBe(true);
   });
 
   it('doc-only summary reads as documentation', () => {

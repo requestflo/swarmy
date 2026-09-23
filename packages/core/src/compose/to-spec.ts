@@ -63,6 +63,8 @@ export interface ServiceSpecLike {
     readOnly?: boolean;
   }>;
   networks?: string[];
+  /** Per-network DNS aliases keyed by `networks` entry (see protocol ServiceSpec). */
+  networkAliases?: Record<string, string[]>;
   restartPolicy?: { condition?: 'none' | 'on-failure' | 'any'; maxAttempts?: number };
   placement?: ServiceSpecPlacement;
   healthcheck?: ServiceSpecHealthcheck;

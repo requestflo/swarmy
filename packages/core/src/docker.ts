@@ -620,7 +620,15 @@ export class DockerClient {
     } catch {
       return spec; // best-effort: fall back to names
     }
-    return { ...spec, networks: spec.networks.map((n) => byName.get(n) ?? n) };
+    const resolve = (n: string) => byName.get(n) ?? n;
+    const networkAliases = spec.networkAliases
+      ? Object.fromEntries(Object.entries(spec.networkAliases).map(([n, a]) => [resolve(n), a]))
+      : undefined;
+    return {
+      ...spec,
+      networks: spec.networks.map(resolve),
+      ...(networkAliases ? { networkAliases } : {}),
+    };
   }
 
   async getServiceByName(name: string) {
@@ -725,6 +733,30 @@ export class DockerClient {
   }
 }
 
+/**
+ * On an UPDATE whose spec does not express `networkAliases`, carry the live
+ * service's per-network aliases onto the new options (matched by network
+ * Target id). Lossy rebuilds (env/image/network patches built from the
+ * inventory) therefore never strip the `<stack>_default` short-name alias a
+ * compose deploy set. A spec that DOES carry `networkAliases` is authoritative.
+ * PURE — mutates and returns `options`.
+ */
+export function carryNetworkAliases(
+  options: { TaskTemplate?: { Networks?: Array<{ Target?: string; Aliases?: string[] }> } },
+  spec: Pick<ServiceSpec, 'networkAliases'>,
+  live: Array<{ Target?: string; Aliases?: string[] }> | undefined,
+): typeof options {
+  if (spec.networkAliases || !live?.length) return options;
+  const byTarget = new Map(
+    live.filter((n) => n.Target && n.Aliases?.length).map((n) => [n.Target!, n.Aliases!]),
+  );
+  for (const n of options.TaskTemplate?.Networks ?? []) {
+    const aliases = n.Target ? byTarget.get(n.Target) : undefined;
+    if (aliases && !n.Aliases?.length) n.Aliases = [...aliases];
+  }
+  return options;
+}
+
 function normalizeState(state: string): ContainerState {
   const s = (state || '').toLowerCase();
   const known: ContainerState[] = [
@@ -816,7 +848,10 @@ export function toServiceCreateOptions(spec: ServiceSpec): Docker.CreateServiceO
             MaxReplicas: spec.placement.maxReplicasPerNode,
           }
         : undefined,
-      Networks: spec.networks?.map((n) => ({ Target: n })),
+      Networks: spec.networks?.map((n) => {
+        const aliases = spec.networkAliases?.[n];
+        return aliases?.length ? { Target: n, Aliases: aliases } : { Target: n };
+      }),
     },
     Mode: mode,
     EndpointSpec: spec.ports

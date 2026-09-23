@@ -90,8 +90,14 @@ function composeService(opts: {
   constraints?: string[];
   preferences?: string[];
   maxReplicasPerNode?: number;
+  /** Compose short-form volume mounts (`name:/path`). */
+  volumes?: string[];
 }): string {
   const lines: string[] = [`  ${opts.name}:`, `    image: ${opts.image}`];
+  if (opts.volumes?.length) {
+    lines.push('    volumes:');
+    for (const v of opts.volumes) lines.push(`      - ${v}`);
+  }
   if (opts.command?.length) {
     lines.push(`    command: ${JSON.stringify(opts.command)}`);
   }
@@ -151,6 +157,9 @@ function renderPostgresHa(p: TemplateParams): RenderedTemplate {
         env: { ...baseEnv, REPMGR_NODE_NAME: `${p.name}-pg-${i}` },
         replicas: 1,
         constraints: [`node.labels.swarmy.region==${region}`],
+        // Persist each member's data on its declared named volume (deployed as
+        // `<stack>_<name>-pg-<i>-data` — docker stack naming).
+        volumes: [`${p.name}-pg-${i}-data:/bitnami/postgresql`],
       }),
     )
     .join('\n');

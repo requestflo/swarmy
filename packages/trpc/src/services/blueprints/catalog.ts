@@ -152,16 +152,19 @@ interface ComposeServiceDef {
   image: string;
   environment?: Record<string, string>;
   networks?: string[];
-  /** Declared for compose fidelity (see composeToSpecs volume note below). */
+  /** Named volumes (`name:/path`) — deployed as `<stack>_<name>`, persistent. */
   volumes?: string[];
   replicas?: number;
 }
 
 /**
- * Build a docker-compose document `composeToSpecs` can consume. Volumes and
- * top-level networks are declared for compose fidelity, but note that
- * `composeToSpecs` currently ignores `volumes:` — persistent mounts need the
- * planned composeToSpecs extension (tracked by the platform buildout).
+ * Build a docker-compose document for `deployFromCompose` (docker stack
+ * semantics: services → `<stack>_<name>`, named volumes → `<stack>_<vol>`,
+ * every service also on `<stack>_default` aliased by its short name).
+ * Top-level networks are declared `external`: a blueprint's networks are
+ * created by its own steps (`ensureNetworks`, or the managed cluster's
+ * `<stack>_<cluster>-net`), so they must keep their exact names rather than
+ * be re-namespaced to `<stack>_<net>`.
  */
 export function buildCompose(services: Record<string, ComposeServiceDef>): string {
   const svcObj: Record<string, unknown> = {};
@@ -192,7 +195,7 @@ export function buildCompose(services: Record<string, ComposeServiceDef>): strin
   }
   if (networkNames.size > 0) {
     doc.networks = Object.fromEntries(
-      [...networkNames].map((n) => [n, { driver: 'overlay', attachable: true }]),
+      [...networkNames].map((n) => [n, { external: true }]),
     );
   }
   return stringifyYaml(doc);

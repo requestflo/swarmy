@@ -306,7 +306,7 @@ export const core: DomainResolvers = {
       s.stacks = s.stacks.filter((st) => st.id !== id);
       return { id, removed: true as const };
     },
-    'stacks.deployFromCompose': () => ({ ok: true as const, deploymentId: 'dep-demo' }),
+    'stacks.deployFromCompose': () => ({ ok: true as const, deploymentId: 'dep-demo', warnings: [] }),
 
     'canvas.get': (_i, s) => ({ positions: s.positions, viewport: s.viewport }),
     'canvas.save': (i, s) => {

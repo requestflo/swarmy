@@ -109,6 +109,32 @@ Four ideas, one story:
   `ServiceModel` (placement, mounts, labels, healthcheck, resources, configs,
   secrets) through to the agent — unlike the lossy `services.create` subset. What
   you see on the canvas is what the agent applies.
+- **Stack deploy = `docker stack deploy` semantics.** `deployFromCompose` runs
+  the same canonical translator (`composeToStack` in `@swarmy/core/compose`) and
+  applies Docker's stack naming: service `web` in stack `shop` is the swarm
+  service `shop_web` (names are swarm-global — two stacks with a `web` never
+  clobber each other); named volume `pgdata` is `shop_pgdata` (persistent;
+  `external` / explicitly `name:`d volumes keep their name); every service that
+  lists no networks joins the attachable `shop_default` overlay (ensured before
+  the deploy), and each service joins its networks with its SHORT name as a DNS
+  alias, so `db:5432` resolves in-stack. Declared networks are `shop_<net>`
+  (external keep theirs). Healthcheck, labels (+ `deploy.labels`), secrets,
+  configs, restart, resources and placement all carry through; translator
+  warnings come back in the deploy result. A redeploy keeps the ingress route
+  labels stamped by `ingress.addDomain`, and a lossy rebuild (env/image/network
+  patch) keeps the live network aliases (the agent carries them when a spec
+  doesn't state `networkAliases`).
+- **Migrating stacks deployed before namespacing.** Older compose deploys named
+  services by the bare compose key (`web`) with volumes silently dropped. On the
+  next deploy of that stack, each bare-named service carrying
+  `com.docker.stack.namespace=<stack>` is replaced by `<stack>_<svc>`: the new
+  service deploys first and the legacy one is removed AFTER — except a legacy
+  service publishing the same host port as its replacement, which is removed
+  first (swarm refuses two services on one published port; expect a brief gap).
+  A legacy service's anonymous volume held nothing durable (it was already lost
+  on every reschedule); a legacy NAMED volume keeps being mounted under its
+  existing name at the same target (warning `legacy-volume-reused`) so no data
+  is orphaned. Its ingress route label moves to the new service.
 - **Two-way, lossless compose.** Import preserves keys swarmy doesn't model
   (`build`, `depends_on` conditions, …) via passthrough and re-emits them on
   export; lossy normalisations (string `cpus:"0.5"` → number) are flagged, never
@@ -143,6 +169,8 @@ Four ideas, one story:
 | Canary's stable service disappears | `canaryStatus` skips it (nothing to compare or promote onto); no phantom rollout. |
 | Deploy blocked by a guardrail | Refused before dispatch with a plain-words reason; an admin may override (member cannot, for `block`), and the override is on the record. |
 | Imported compose uses non-Swarm keys (`build`, `network_mode`) | Import-and-warn: kept in passthrough, shown as lossy/info, not sent to the agent. Export re-emits them. Deploy still succeeds for the mapped surface. |
+| Compose service with `build:` but no `image:` | Stack deploy refuses it up front (400, nothing dispatched) — Swarm cannot build; push an image or use a git build. |
+| Stack deployed under the old bare-name scheme | Next deploy migrates it to `<stack>_<svc>` (new first, legacy removed after; port clashes removed first), reusing any legacy named volume by mount target. |
 | Promote onto a live service | Full spec rebuilt from `service.inspect` before the image swap, so env/mounts/secrets/ports/placement are carried, never silently dropped. |
 
 ## Explicitly rejected

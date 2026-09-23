@@ -106,7 +106,8 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
 | Agent handler units | `apps/agent/src/handlers/{mesh,terminal,prune}.test.ts` |
 | Marketing smoke (no backend) | `apps/e2e/tests/smoke.spec.ts`, `apps/e2e/playwright.config.ts` |
 | Demo smoke (built dashboard, no API/DB) | `apps/e2e/demo-smoke.ts` |
-| CI gates | `.github/workflows/{ci,pr-title,release,images}.yml` |
+| Headline self-host e2e (real install → ONLINE → deploy → HTTPS) | `scripts/e2e-smoke.sh`, `.github/workflows/e2e.yml` |
+| CI gates | `.github/workflows/{ci,e2e,pr-title,release,images}.yml` |
 | Conventional-commit rules (scopes = workspaces) | `commitlint.config.mjs` |
 | Release-engineering rationale | `plans/epic-licensing-release-engineering.md`, `plans/ROADMAP.md` (Testing cross-cut) |
 
@@ -130,6 +131,45 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
    `bun apps/e2e/demo-smoke.ts`). Confirm the PR title is a conventional commit
    with a scope from the enum before opening the PR — that's the gate that decides
    whether the change ships.
+
+## The headline self-host e2e (`scripts/e2e-smoke.sh`)
+
+`.github/workflows/e2e.yml` runs on every push to `main` and every PR: it builds
+`swarmy-controller:e2e` + `swarmy-agent:e2e` (linux/amd64, buildx gha cache), runs
+the REAL `scripts/install-swarmy.sh --non-interactive` on the runner, then
+`scripts/e2e-smoke.sh`. The script drives the tRPC API over HTTP (superjson
+envelope, better-auth cookie jar) and inspects Docker locally, printing one
+`PASS`/`FAIL` line per check:
+
+1 node online · 2 compose deploy 1/1 · 3 Caddy ingress + HTTPS (`tls internal`
+for `site.127-0-0-1.sslip.io`) + `runtime.state == serving` · 4 invite-only
+signup (403 `SIGNUP_INVITE_ONLY`, invited email → 200) · 5 in-swarm registry
+answers 401 · 6 managed cache → restic backup on the HOST (`/srv/swarmy-e2e`) →
+restore · 7 managed Postgres row survives `service update --force` · 8 guardrails
+reject `:latest` in prod (`no-latest-tag-in-prod`) · 9 app on :443 stays 100% up
+while the controller container is killed, then nodes return online.
+
+Checks 1-2 are prerequisites (a failure stops the run). Any failure dumps
+`docker service ls`, `docker service ps --no-trunc`, and controller/agent logs.
+Each check is one bug found in live testing — deleting one is a gate regression.
+
+**Run it locally** on the manager of any install (a fresh VM, or the
+`scripts/local-vms.sh` Lima swarm). It is re-runnable against the same install
+(unique emails/backup prefixes per run):
+
+```bash
+sudo bash scripts/install-swarmy.sh --non-interactive --admin-email e2e@example.com
+bash scripts/e2e-smoke.sh                       # password read from state.env via sudo
+SWARMY_E2E_PASSWORD=… SWARMY_E2E_EMAIL=me@x.io \
+  SWARMY_E2E_CHECKS="1 2 3" bash scripts/e2e-smoke.sh   # existing install, subset
+```
+
+Overrides: `SWARMY_E2E_URL` (default `http://127.0.0.1:3021`), `SWARMY_E2E_ORIGIN`
+(default the controller's `CONTROLLER_PUBLIC_URL` — better-auth rejects a
+mismatched Origin), `SWARMY_E2E_EMAIL`, `SWARMY_E2E_PASSWORD`, `SWARMY_E2E_STACK`
+(default `site`), `SWARMY_E2E_EDGE_IP` (default `127.0.0.1`), `SWARMY_E2E_CHECKS`.
+Needs `curl`, `jq`, `docker`, and bash on Linux; checks 6/7/9 must run on the host
+that runs the tasks (they `docker exec`/`kill` and read the host filesystem).
 
 ## Operational gotchas
 

@@ -17,7 +17,7 @@ import { enforceAdmission } from './admission-gate';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { resolveLiveService } from './live-resolve';
-import { composeToSpecs } from './stack.service';
+import { composeShortSpecs } from './stack.service';
 import { systemContext, triggerBuildForRepo } from './cicd.service';
 import { applyNow, getConfig } from './ingress.service';
 import { INGRESS_ROUTES_LABEL, serializeRoutes } from './ingress-routes';
@@ -241,6 +241,7 @@ export function rewritePreviewEnv(
  *    members inter-reachable) instead of compose networks that don't exist in
  *    the preview's namespace,
  *  - env values are rewritten so cross-service short-name references resolve,
+ *  - named volumes become `<previewStack>_<vol>` (never prod's data),
  *  - every service carries the stack-namespace + `swarmy.preview.*` labels,
  *  - the target (web) service gets the `pr-<N>.<host>` ingress route label.
  */
@@ -278,6 +279,15 @@ export function buildPreviewSpecs(specs: ServiceSpec[], opts: BuildPreviewSpecsO
     }
     return {
       ...spec,
+      // Named volumes are namespaced to the PREVIEW stack: a preview must never
+      // mount (and write to) the production stack's data volume.
+      ...(spec.mounts
+        ? {
+            mounts: spec.mounts.map((m) =>
+              m.type === 'volume' && m.source ? { ...m, source: `${opts.stackName}_${m.source}` } : m,
+            ),
+          }
+        : {}),
       name: `${opts.stackName}_${spec.name}`,
       image: isTarget ? opts.image : spec.image,
       mode: { replicated: { replicas: 1 } },
@@ -553,7 +563,7 @@ async function previewSpecsSource(
       select: { composeSource: true },
     });
     if (row?.composeSource) {
-      const specs = composeToSpecs(row.composeSource);
+      const { specs } = composeShortSpecs(row.composeSource);
       if (specs.length > 0) {
         const short = linked.name.startsWith(`${linked.stack}_`)
           ? linked.name.slice(linked.stack.length + 1)

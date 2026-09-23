@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { DockerClient, toServiceCreateOptions } from '@swarmy/core/docker';
+import { carryNetworkAliases, DockerClient, toServiceCreateOptions } from '@swarmy/core/docker';
 import type { ControllerEnvelope, RegistryAuth, RenderedConfig, ServiceSpec } from '@swarmy/core/protocol';
 import type { AgentConnection } from './connection';
 import { buildGateAllows, BUILDER_ENABLE_HINT } from '@swarmy/core';
@@ -337,6 +337,13 @@ export async function deployOrUpdate(
   }
   const inspect = await existing.inspect();
   const opts = (await docker.prepareServiceOptions(spec)) as Record<string, unknown>;
+  // Keep in-stack DNS aliases across lossy rebuilds (see carryNetworkAliases).
+  carryNetworkAliases(
+    opts as Parameters<typeof carryNetworkAliases>[0],
+    spec,
+    (inspect.Spec?.TaskTemplate as { Networks?: Array<{ Target?: string; Aliases?: string[] }> } | undefined)
+      ?.Networks,
+  );
   await docker.updateServiceWithAuth(existing, { version: inspect.Version.Index, ...opts }, auth);
   return { serviceId: inspect.ID, created: false };
 }

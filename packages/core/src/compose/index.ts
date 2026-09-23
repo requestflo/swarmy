@@ -46,3 +46,12 @@ export {
   SWARM_INCOMPATIBLE_KEYS,
 } from './warnings';
 export { validateModel } from './validate';
+export {
+  composeToStack,
+  ComposeStackError,
+  STACK_NAMESPACE_LABEL,
+  DEFAULT_NETWORK_KEY,
+  type StackPlan,
+  type StackNetworkDecl,
+  type ComposeToStackOptions,
+} from './to-stack';

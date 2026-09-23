@@ -173,6 +173,14 @@ async function mergeServiceEnv(
   }
 }
 
+/**
+ * Plan steps name services by their SHORT compose key; a compose deploy names
+ * the swarm service `<stack>_<short>` (docker stack convention).
+ */
+export function stackServiceName(stack: string, short: string): string {
+  return `${stack}_${short}`;
+}
+
 // ── Step execution ────────────────────────────────────────────────────────────
 
 interface StepContext {
@@ -327,7 +335,7 @@ async function runStep(
       for (const [service, labels] of Object.entries(step.payload.postLabels)) {
         try {
           await ctx.hub.dispatch(node.id, 'service.updateLabels', {
-            service,
+            service: stackServiceName(stack, service),
             add: labels,
             removeKeys: [],
           });
@@ -336,12 +344,12 @@ async function runStep(
         }
       }
       for (const wire of step.payload.wires) {
-        await applyWire(ctx, stack, wire, sctx);
+        await applyWire(ctx, stack, { ...wire, service: stackServiceName(stack, wire.service) }, sctx);
       }
       return `Stack ${stack} deployed · ${step.payload.services.join(', ')}`;
     }
     case 'ingress.route': {
-      const app = await waitForLiveService(ctx, stack, step.payload.service);
+      const app = await waitForLiveService(ctx, stack, stackServiceName(stack, step.payload.service));
       if (!app) {
         throw commandRejected(
           `service "${step.payload.service}" is not visible yet — add the route from the Ingress page`,

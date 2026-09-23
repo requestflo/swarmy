@@ -28,8 +28,18 @@ export function DeployStackForm(): React.JSX.Element {
 
   const deploy = useMutation(
     trpc.stacks.deployFromCompose.mutationOptions({
-      onSuccess: (_res, vars) => {
+      onSuccess: (res, vars) => {
         toast.success(`Stack ${vars.name} deploying`);
+        // Translator warnings (ignored compose keys, undeclared volumes, legacy
+        // volume reuse …) — surfaced once; the deploy itself went through.
+        const notable = res.warnings.filter((w) => w.level !== 'info');
+        if (notable.length > 0) {
+          toast.info(
+            notable.length === 1
+              ? notable[0]!.message
+              : `${notable.length} compose warnings — first: ${notable[0]!.message}`,
+          );
+        }
         void qc.invalidateQueries();
         void navigate({ to: '/stacks/$name', params: { name: vars.name } });
       },

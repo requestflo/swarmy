@@ -50,6 +50,17 @@ export const ServiceSpec = z.object({
     )
     .optional(),
   networks: z.array(z.string()).optional(),
+  /**
+   * Per-network DNS aliases, keyed by an entry of `networks` (by name — the
+   * agent remaps the key when it resolves names → ids). Maps onto
+   * `TaskTemplate.Networks[].Aliases`: a compose stack joins `<stack>_default`
+   * with the SHORT service name (`db`) as an alias so `db:5432` resolves like
+   * under `docker stack deploy`. Additive: when OMITTED on an update the agent
+   * keeps the aliases the live service already carries (so a lossy rebuild —
+   * an env/image/network patch — never silently breaks in-stack DNS); when
+   * present it is authoritative.
+   */
+  networkAliases: z.record(z.array(z.string())).optional(),
   registryAuth: RegistryAuth.optional(),
   restartPolicy: z
     .object({
