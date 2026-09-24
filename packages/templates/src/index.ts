@@ -7,6 +7,7 @@
 export * from './types';
 export * from './render';
 export { APP_TEMPLATES } from './catalog';
+export { END_USER_AUTH_APP_SNIPPET, END_USER_AUTH_EXAMPLE, PROTECT_MY_APP_EXAMPLE } from './examples/app-auth';
 import { APP_TEMPLATES } from './catalog';
 import type { AppTemplate } from './types';
 
