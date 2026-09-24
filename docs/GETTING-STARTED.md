@@ -145,6 +145,26 @@ failed backup shows its failure reason on the snapshot row.
   docker exec -it swarmy-agent bun run apps/agent/src/main.ts doctor
   ```
 
+- **A disk is filling up.** swarmy caps container logs and cleans every node
+  up automatically, and the default **Disk almost full** alert fires above 85%.
+  - Every container swarmy deploys logs to `json-file`, capped at 10 MB × 3
+    files. Override this per service with compose `logging:`.
+  - Both installers also merge the same caps into `/etc/docker/daemon.json`
+    as `"log-driver": "json-file"` with `"log-opts": {"max-size": "10m",
+    "max-file": "3"}`, and cap journald at 500 MB.
+  - The installers never change a `daemon.json` that already sets
+    `log-driver` or `log-opts`. They keep a `.swarmy-bak` copy and only
+    restart Docker when nothing is running.
+  - Tune the caps with `SWARMY_LOG_MAX_SIZE`, `SWARMY_LOG_MAX_FILE` and
+    `SWARMY_JOURNALD_MAX`.
+  - Every 6 hours (sooner once the disk passes 85%), each node removes stopped
+    one-off containers, images nothing has used for 7 days and build cache
+    over 5 GB. It never removes an image a running service or the previous
+    release uses. Each run shows as "Cleanup reclaimed … GB" on the node page,
+    which also has a **Clean up now** button.
+  - Tune the cleanup with node labels: `swarmy.hygiene.enabled=false`,
+    `swarmy.hygiene.imageAgeDays` and `swarmy.hygiene.buildCacheGb`. Setting
+    `SWARMY_ALLOW_HYGIENE=false` on the agent turns it off on that box.
 - **The controller won't start.** Run `docker service logs swarmy_controller`.
   Re-running the installer with `--check` (`… | sudo bash -s -- --check`) runs
   only its preflight (network, egress) and changes nothing.
