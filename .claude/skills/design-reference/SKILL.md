@@ -68,9 +68,3 @@ Export roots: `@swarmy/ui` (barrel), `@swarmy/ui/components/*`, `@swarmy/ui/lib/
 CTA, footer, using Hot Signal tokens + framer-motion reveals. It mirrors the
 product's tokens so the jump to the dashboard is zero-surprise. Not the product
 app; no `/app` shell.
-
-## Historical reference (read-only, dated)
-
-`.design/` holds RequestFlo-origin ledgers (`themes.md` describes a superseded
-iris system) — background only, NOT authoritative. See `.design/_ABOUT.md`. When
-it conflicts with this skill or `hot-signal-design`, the skills win.
