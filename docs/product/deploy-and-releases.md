@@ -169,6 +169,38 @@ Four ideas, one story:
   ephemeral `pr<N>-<repo>` stacks (`swarmy.preview.*` labels) that the
   preview-reconcile worker tears down on merge/close — see cicd-and-registry.md.
 
+## Secret variables (protected, not masked)
+
+A variable marked **secret** (the lock on a row, a masked row in a `.env` paste —
+`looksSecret` pre-marks likely ones — or the service's Secrets card) is stored
+as a **Docker Swarm secret**: encrypted at rest in the raft log, delivered only
+to that service's tasks, tmpfs-mounted at `/run/secrets/<KEY>`. The service
+spec, labels, argv, logs, audit rows and the DB never carry the value — `docker
+service inspect` shows only the secret's name.
+
+- **Write-only.** After save the dashboard/API show "set · v3 · updated 3d ago by
+  Ada" (labels on the secret: `swarmy.appsecret.{service,key,version,org,by,digest}`);
+  replace or remove only. **Reveal** needs the `secrets.read` action (owners/admins
+  via `*`, everyone else an explicit grant), reads the value from a running task
+  (`cat /run/secrets/<KEY>` via exec — swarmy keeps no copy), and every reveal is
+  audited (`authz.permit:secrets.read` + `secrets.reveal`).
+- **Delivery.** `env` (default — apps just work): the agent wraps the container
+  in a tiny POSIX shim (a value-free swarm *config*) that exports each
+  `/run/secrets/<KEY>` as `$KEY` and `exec`s the image's own entrypoint +
+  command; the spec carries only `SWARMY_SECRET_ENV=<names>`. Needs `/bin/sh` —
+  the agent probes the image and refuses a shell-less one with the fix. `file`:
+  `<KEY>_FILE=/run/secrets/<KEY>`, the convention official images read; works on
+  any image.
+- **Rotation.** Secrets are immutable: a new value is `<service>_<KEY>_v<N+1>`, the
+  service rolls onto it (same mount path), and the app-secret GC removes the old
+  version once the service has converged and its last change is past the health
+  gate window (+60s, min 10 min) — so an auto-rollback still finds its secret.
+  An unchanged re-paste doesn't rotate (keyed digest under `SWARMY_SECRET_KEY`).
+- **Everywhere else.** Templates' generated secrets bound as a whole env value
+  (`KEY: ${{ secrets.x }}`) and swarmy.yaml's `${{ secrets.x }}` are env-delivered
+  the same way; compose opts in with `x-swarmy-secret-env: [TARGET]` over its
+  `secrets:` refs; a compose redeploy carries dashboard-set secret variables.
+
 ## Failure modes (designed, not accidental)
 
 | Failure | Behaviour |
@@ -180,6 +212,8 @@ Four ideas, one story:
 | Imported compose uses non-Swarm keys (`build`, `network_mode`) | Import-and-warn: kept in passthrough, shown as lossy/info, not sent to the agent. Export re-emits them. Deploy still succeeds for the mapped surface. |
 | Compose service with `build:` but no `image:` | Stack deploy refuses it up front (400, nothing dispatched) — Swarm cannot build; push an image or use a git build. |
 | Stack deployed under the old bare-name scheme | Next deploy migrates it to `<stack>_<svc>` (new first, legacy removed after; port clashes removed first), reusing any legacy named volume by mount target. |
+| Secret var delivered as env on a shell-less image | The agent's `/bin/sh` probe refuses the deploy with the fix ("switch X to file delivery") — no tasks that die at start. |
+| Secret var rotation fails its health gate | The rollback points at the previous version, which the GC keeps (converged + past the gate window before any removal). |
 | Promote onto a live service | Full spec rebuilt from `service.inspect` before the image swap, so env/mounts/secrets/ports/placement are carried, never silently dropped. |
 
 ## Explicitly rejected
