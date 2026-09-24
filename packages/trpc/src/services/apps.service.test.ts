@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { emptyLive, parseAppConfig, planApp, toDesired } from '@swarmy/app-config';
-import { authorizationFor, isAppBinding, purgeAppData } from './apps.service';
+import { authorizationFor, isAppBinding, promoteEnvironment, purgeAppData } from './apps.service';
 
 describe('confirm authorization (by what a step destroys)', () => {
   const cfg = parseAppConfig(
@@ -107,5 +107,52 @@ describe('purgeAppData (delete data permanently)', () => {
     await expect(
       purgeAppData(ctxWith(withoutDb, { resources: { db: withDb.resources[0] } }), input),
     ).rejects.toThrow('not been removed yet');
+  });
+});
+
+describe('promoteEnvironment (staging → production) preconditions', () => {
+  const ctx = (rows: Record<string, unknown[]>) =>
+    ({
+      activeOrgId: 'org',
+      user: { id: 'u' },
+      db: {
+        gitRepo: { findFirst: async () => ({ id: 'r', requireApproval: false }) },
+        appPlan: {
+          findMany: async (a: { where: { environment: string } }) =>
+            rows[a.where.environment] ?? [],
+        },
+      },
+      hub: { liveInventory: () => ({ services: [], containers: [] }) },
+    }) as never;
+
+  it('only promotes FROM a named environment', async () => {
+    await expect(promoteEnvironment(ctx({}), { repoId: 'r', from: 'production' })).rejects.toThrow(
+      'promote FROM a named environment',
+    );
+  });
+  it('needs something applied on both sides, and running digests for every built service', async () => {
+    await expect(promoteEnvironment(ctx({}), { repoId: 'r', from: 'staging' })).rejects.toThrow(
+      'staging has nothing applied',
+    );
+    const cfg = parseAppConfig(
+      'version: 1\napp: shop\nservices: { web: { build: ., port: 80 } }\n',
+    ).config!;
+    const staging = toDesired(
+      { ...cfg, environments: { staging: { branch: 'staging' } } } as never,
+      { environment: 'staging' },
+    );
+    const prod = toDesired(cfg);
+    await expect(
+      promoteEnvironment(
+        ctx({
+          staging: [{ sha: 's', desiredJson: staging }],
+          production: [{ sha: 'p', desiredJson: prod }],
+        }),
+        {
+          repoId: 'r',
+          from: 'staging',
+        },
+      ),
+    ).rejects.toThrow("staging isn't running web");
   });
 });

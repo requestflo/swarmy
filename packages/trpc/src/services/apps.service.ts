@@ -30,6 +30,7 @@ import {
   planApp,
   planToMarkdown,
   PRODUCTION,
+  signature,
   toDesired,
   type AppConfig,
   type ConfigIssue,
@@ -107,7 +108,15 @@ import {
 } from './apps/live';
 
 type Deps = { db: DB; hub: AgentHub; auth: Auth };
-export type AppTrigger = 'push' | 'pr' | 'branch' | 'manual' | 'poll' | 'drift' | 'confirm';
+export type AppTrigger =
+  | 'push'
+  | 'pr'
+  | 'branch'
+  | 'manual'
+  | 'poll'
+  | 'drift'
+  | 'confirm'
+  | 'promote';
 
 // ── views ────────────────────────────────────────────────────────────────────
 
@@ -1380,6 +1389,136 @@ export async function setRequireApproval(
 }
 
 /** Manual "deploy the branch head now" (dashboard / REST). */
+/**
+ * Promote an environment (staging) to production: production redeploys the
+ * EXACT digests the source environment runs — no rebuild — through the same
+ * planner, gates (destructive steps wait; require-approval holds everything),
+ * health gate and audit. Production's own swarmy.yaml still decides the
+ * config; only the images move. The next push to production's branch
+ * returns production to git (the promote is recorded as trigger `promote`).
+ */
+export async function promoteEnvironment(
+  ctx: OrgContext,
+  input: { repoId: string; from: string },
+): Promise<PlanCommitResult & { plan: AppPlanView | null; images: Record<string, string> }> {
+  if (input.from === PRODUCTION)
+    throw commandRejected('promote FROM a named environment (e.g. staging) to production');
+  const repo = await ctx.db.gitRepo.findFirst({
+    where: { id: input.repoId, orgId: ctx.activeOrgId },
+  });
+  if (!repo) throw notFound('repo', input.repoId);
+  const latest = async (environment: string) =>
+    (
+      await ctx.db.appPlan.findMany({
+        where: {
+          repoId: repo.id,
+          environment,
+          prNumber: 0,
+          status: { in: ['applied', 'needs-confirmation'] },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 1,
+      })
+    )[0];
+  const [src, prod] = [await latest(input.from), await latest(PRODUCTION)];
+  if (!src) throw commandRejected(`${input.from} has nothing applied to promote yet`);
+  if (!prod)
+    throw commandRejected('production has never been deployed from git — deploy it once first');
+  const srcDesired = src.desiredJson as unknown as DesiredApp;
+  const prodDesired = prod.desiredJson as unknown as DesiredApp;
+
+  // The digests the source environment RUNS right now (Docker truth).
+  const live = liveServices(ctx);
+  const images: Record<string, string> = {};
+  for (const s of srcDesired.services) {
+    const img = live.find((x) => x.name === s.serviceName)?.image;
+    if (img && img.includes('@sha256:')) images[s.name] = img;
+  }
+  const promoted: DesiredApp = {
+    ...prodDesired,
+    services: prodDesired.services.map((s) => {
+      const image = images[s.name];
+      if (!image) return s;
+      const { sig: _sig, ...rest } = s;
+      const unit = { ...rest, source: { kind: 'image' as const, image } };
+      return { ...unit, sig: signature(unit) };
+    }),
+  };
+  const missing = prodDesired.services
+    .filter((s) => s.source.kind === 'build' && !images[s.name])
+    .map((s) => s.name);
+  if (missing.length) {
+    throw commandRejected(
+      `${input.from} isn't running ${missing.join(', ')} — nothing to promote for them`,
+    );
+  }
+
+  return withAppLock(envKey(repo.id, PRODUCTION, 0), async () => {
+    const ledger = await latestLedger(ctx.db, repo.id, PRODUCTION, 0);
+    const liveApp = await liveFor(ctx, promoted, ledger);
+    const plan = planApp(promoted, liveApp, {
+      changedPaths: [],
+      requireApproval: repo.requireApproval,
+    });
+    const row = await ctx.db.appPlan.upsert({
+      where: {
+        repoId_environment_sha_trigger_prNumber: {
+          repoId: repo.id,
+          environment: PRODUCTION,
+          sha: src.sha,
+          trigger: 'promote',
+          prNumber: 0,
+        },
+      },
+      create: {
+        orgId: ctx.activeOrgId,
+        repoId: repo.id,
+        environment: PRODUCTION,
+        stack: promoted.stack,
+        sha: src.sha,
+        trigger: 'promote',
+        prNumber: 0,
+        status: plan.status === 'blocked' ? 'blocked' : 'planned',
+        planJson: plan as never,
+        desiredJson: promoted as never,
+        ledgerJson: ledger as never,
+      },
+      update: {
+        status: plan.status === 'blocked' ? 'blocked' : 'planned',
+        planJson: plan as never,
+        desiredJson: promoted as never,
+        ledgerJson: ledger as never,
+      },
+    });
+    await writeAudit(ctx, {
+      action: 'app.promote',
+      targetType: 'appPlan',
+      targetId: row.id,
+      metadata: { from: input.from, fromStack: srcDesired.stack, sha: src.sha, images },
+    });
+    let status: string =
+      plan.status === 'blocked' ? 'blocked' : plan.status === 'noop' ? 'applied' : 'planned';
+    if (plan.status !== 'blocked' && plan.status !== 'noop') {
+      status = await executePlan(ctx, row.id, {
+        plan,
+        desired: promoted,
+        ledger,
+        sha: src.sha,
+        repo,
+        confirmed: [],
+      });
+    }
+    return {
+      planId: row.id,
+      status,
+      environment: PRODUCTION,
+      stack: promoted.stack,
+      plan: await getPlan(ctx, row.id),
+      images,
+    };
+  });
+}
+
 export function replan(ctx: OrgContext, input: { repoId: string; branch?: string }) {
   return (async () => {
     const repo = await ctx.db.gitRepo.findFirst({

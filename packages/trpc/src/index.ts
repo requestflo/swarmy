@@ -134,6 +134,7 @@ export {
   listPlans,
   planCommit,
   pollApp,
+  promoteEnvironment,
   purgeAppData,
   setEnforceDrift,
   planCommitForRepo,

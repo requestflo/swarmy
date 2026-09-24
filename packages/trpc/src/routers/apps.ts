@@ -14,6 +14,7 @@ import {
   getPlan,
   listApps,
   listPlans,
+  promoteEnvironment,
   purgeAppData,
   replan,
   setEnforceDrift,
@@ -77,4 +78,9 @@ export const appsRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => purgeAppData(ctx, input)),
+
+  /** Promote an environment's running digests (staging) to production — no rebuild, same gates. */
+  promote: adminProcedure
+    .input(z.object({ repoId: id, from: z.string().min(1).max(40) }))
+    .mutation(({ ctx, input }) => promoteEnvironment(ctx, input)),
 });
