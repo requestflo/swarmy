@@ -55,6 +55,9 @@ model GitRepo {
   deployKeyPublic String?
   // git-apps P3: every change waits for a human (not only destructive ones).
   requireApproval Boolean @default(false)
+  // Opt-in: drift on git-owned fields is re-applied automatically (default:
+  // report only). Destructive steps still wait for a human either way.
+  enforceDrift    Boolean @default(false)
   // Branches the swarmy.yaml's `environments:` track (webhook/poll routing): string[] as JSON.
   envBranches     Json?
   createdAt  DateTime        @default(now())
