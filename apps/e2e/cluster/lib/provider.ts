@@ -102,10 +102,13 @@ export class LimaProvider implements Provider {
   async prepare(name: string) {
     // Make the user-v2 fabric the default route, so the installer's "local
     // IP" (ip route get 1.1.1.1) — the swarm advertise address — is the one
-    // the other VMs can reach. Persisted via netplan so it survives reboots.
+    // the other VMs can reach. Also drop the Mac's DHCP search domain: Docker
+    // copies it into every container, and a droplet has none (busybox
+    // nslookup of a bare service name then fails). Persisted via netplan.
     const r = await this.sh(
       name,
-      `sed -i '0,/route-metric: 200/s//route-metric: 50/' /etc/netplan/50-cloud-init.yaml && netplan apply 2>/dev/null; ip -4 route get 1.1.1.1 | grep -o 'dev [a-z0-9]*'`,
+      // netplan apply briefly drops the routes; wait for DHCP to put them back.
+      `sed -i -e '0,/route-metric: 200/s//route-metric: 50/' -e '/route-metric:/a\\        use-domains: false' /etc/netplan/50-cloud-init.yaml && netplan apply 2>/dev/null; for i in $(seq 1 30); do ip -4 route get 1.1.1.1 2>/dev/null | grep -q 'dev eth0' && break; sleep 1; done; ip -4 route get 1.1.1.1 | grep -o 'dev [a-z0-9]*'`,
       { timeoutMs: 60_000 },
     );
     if (!r.stdout.includes('dev eth0')) throw new Error(`${name}: default route is not the user-v2 fabric (${r.stdout.trim()} ${r.stderr.trim()})`);

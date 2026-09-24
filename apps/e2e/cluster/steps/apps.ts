@@ -2,7 +2,7 @@
  * App scenarios: catalog templates behind the Caddy edge, a compose app with a
  * secret variable, and container-to-container DNS across nodes.
  */
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Ctx } from '../context';
@@ -75,7 +75,16 @@ export async function composeSecret(ctx: Ctx) {
   const stack = `e2e-secret-${ctx.runId}`;
   const svc = `${stack}_app`;
   const value = secret(`e2e-s3cr3t-${randomBytes(12).toString('hex')}`);
-  const compose = `services:\n  app:\n    image: nginx:1.27-alpine\n    environment:\n      PLAIN_VAR: visible\n`;
+  // The app records a hash of what it saw as $E2E_SECRET at start (the value
+  // itself never leaves the container), then runs nginx. No `$` in the
+  // command: swarmy's compose import doesn't interpolate (nor unescape `$$`).
+  const compose = `services:
+  app:
+    image: nginx:1.27-alpine
+    environment:
+      PLAIN_VAR: visible
+    command: ["sh", "-c", "printenv E2E_SECRET | tr -d '\\\\n' | sha256sum | cut -d' ' -f1 > /tmp/seen; exec nginx -g 'daemon off;'"]
+`;
   const ref = await ctx.sdk.stacks.deploy({ name: stack, compose_source: compose });
   log(`REST POST /stacks → ${ref.id} (deployment ${ref.deployment_id})`);
   try {
@@ -111,17 +120,21 @@ export async function composeSecret(ctx: Ctx) {
     assert(!restSvc.includes(value), 'secret VALUE returned by REST GET /services/{id}');
     const meta = JSON.stringify(await ctx.q('services.secretVars', { id: svc }));
     assert(!meta.includes(value), 'secret VALUE returned by services.secretVars');
-    // 2. …but the running app does get it, as $E2E_SECRET (entrypoint shim).
+    // 2. …but the running app does get it, as $E2E_SECRET (entrypoint shim),
+    // and the file mount is there too.
+    const want = createHash('sha256').update(value).digest('hex');
     const seen = await poll(
-      'app process sees $E2E_SECRET',
+      'app process saw $E2E_SECRET',
       async () => {
-        const env = await ctx.cluster.mustSh(node, `docker exec ${cid} sh -c 'cat /run/secrets/E2E_SECRET 2>/dev/null; echo; tr "\\0" "\\n" < /proc/1/environ | grep -c ^E2E_SECRET= || true'`);
-        return env.includes(value) ? env : null;
+        const out = await ctx.cluster.mustSh(node, `docker exec ${cid} sh -c 'cat /tmp/seen; sha256sum /run/secrets/E2E_SECRET | cut -d" " -f1'`);
+        return out.includes(want) ? out : null;
       },
       { timeoutMs: 60_000, intervalMs: 4000 },
     );
-    const exported = /\n\s*1\s*$/.test(seen);
-    return `value absent from service/container inspect + REST; mounted at /run/secrets${exported ? ' and exported to PID 1 env' : ''}`;
+    const [envHash, fileHash] = seen.trim().split('\n');
+    assert(envHash === want, 'app did not receive $E2E_SECRET in its environment');
+    assert(fileHash === want, '/run/secrets/E2E_SECRET does not hold the value');
+    return 'value absent from service + container inspect and REST; app got it as $E2E_SECRET and at /run/secrets';
   } finally {
     if (!ctx.opts.keep) await ctx.sdk.stacks.remove(stack).catch(() => {});
   }
@@ -161,7 +174,8 @@ export async function crossNodeDns(ctx: Ctx) {
           () => ctx.execIn(`${stack}_s${from}`, `getent hosts ${target} >/dev/null && wget -q -T 5 -O - http://${target}/ | grep -c 'Welcome to nginx'`),
           { timeoutMs: 90_000, intervalMs: 5000 },
         );
-        assert(out.trim() === '1', `s${from} → ${target}: unexpected body`);
+        // The nginx welcome page says it twice (<title> and <h1>).
+        assert(Number(out.trim()) >= 1, `s${from} → ${target}: unexpected body (${out.trim().slice(0, 80)})`);
         checks.push(`s${from}→${target}`);
       }
     }

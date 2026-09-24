@@ -17,8 +17,8 @@ export interface ClusterConfig {
   prefix: string;
   nodeCount: number;
   spec: NodeSpec;
-  /** `head` = build from a `git archive HEAD` snapshot; `tree` = the working tree as-is. */
-  source: 'head' | 'tree';
+  /** `head` = `git archive HEAD`; `tree` = the working tree as-is; anything else = that git ref. */
+  source: string;
   workDir: string;
   registryPort: number;
   filePort: number;
@@ -93,7 +93,7 @@ export class Cluster {
       this.commit = (await must(['git', '-C', REPO_ROOT, 'rev-parse', '--short', 'HEAD'])).trim() + '-dirty';
       this.srcDir = REPO_ROOT;
     } else {
-      const snap = await this.snapshot('HEAD', 'src');
+      const snap = await this.snapshot(this.cfg.source === 'head' ? 'HEAD' : this.cfg.source, 'src');
       this.srcDir = snap.dir;
       this.commit = snap.commit;
     }

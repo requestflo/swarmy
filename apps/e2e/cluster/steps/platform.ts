@@ -257,6 +257,16 @@ export async function upgrade(ctx: Ctx) {
   c.installedTag = nextTag;
   const img = await ctx.docker(`service inspect swarmy_controller --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}'`);
   assert(img.includes(digests.controller) || img.includes(nextTag), `swarmy_controller still on ${img.trim()}`);
+  // …and the RUNNING controller is the new one (not the old task mid-rollout).
+  await poll(
+    'new controller task running + healthy',
+    async () => {
+      const running = await ctx.docker(`ps --filter label=com.docker.swarm.service.name=swarmy_controller --format '{{.Image}}'`);
+      const imgs = running.split('\n').filter(Boolean);
+      return imgs.length > 0 && imgs.every((i) => i.includes(digests.controller) || i.includes(nextTag)) && (await c.controllerHealthy());
+    },
+    { timeoutMs: 10 * 60_000, intervalMs: 5000 },
+  );
 
   await ctx.connect(ctx.password || undefined);
   const after = (await ctx.sdk.nodes.list({ limit: 100 })).data;

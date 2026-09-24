@@ -16,7 +16,7 @@
  *   --skip a,b             skip these steps
  *   --enable a,b           force flagged steps on (controller-move, upgrade)
  *   --reuse                don't delete an existing cluster before install
- *   --source head|tree     build from `git archive HEAD` (default) or the working tree
+ *   --source head|tree|REF build from `git archive HEAD` (default), the working tree, or a git ref
  *   --no-build             reuse images already built (skip docker build)
  *   --mesh none|self-hosted   TODO: self-hosted once the mesh epic lands
  *   --upgrade-from REF     with --enable upgrade: install REF first (default HEAD~1)
@@ -119,7 +119,7 @@ async function main() {
     prefix: (a.prefix as string) || 'swarmy-e2e',
     nodeCount: Number(a.nodes ?? 3),
     spec: { cpus: Number(a.cpus ?? 1), memGiB: Number(a.mem ?? 1), diskGiB: Number(a.disk ?? 25) },
-    source: (a.source as 'head' | 'tree') || 'head',
+    source: (a.source as string) || 'head',
     workDir,
     registryPort: Number(a['registry-port'] ?? 5055),
     filePort: Number(a['file-port'] ?? 18088),
@@ -137,7 +137,7 @@ async function main() {
     nodes: String(cfg.nodeCount),
     size: `${cfg.spec.cpus}cpu/${cfg.spec.memGiB}GiB`,
     mesh,
-    source: cfg.source === 'tree' ? 'working-tree' : 'HEAD',
+    source: cfg.source === 'tree' ? 'working-tree' : cfg.source === 'head' ? 'HEAD' : cfg.source,
   });
 
   say(`swarmy cluster e2e · provider=${provider.kind} nodes=${cfg.nodeCount} mesh=${mesh} report=${reportDir}`);
