@@ -18,7 +18,10 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 1. **`none` is the default; NetBird is the default once mesh is enabled.**
    `MeshConfig.driver` defaults `NONE`, `enabled` defaults `false`. A fresh org
    provisions nothing. Never make mesh implicitly on, and never let `enrollNode`
-   or `grantDirectRoute` run when `driver === 'none' || !enabled`.
+   or `grantDirectRoute` run when `driver === 'none' || !enabled`. (The
+   self-host installer's own default is `--mesh swarmy`, an explicit operator
+   choice recorded as `CFG_MESH`; a re-run never springs a mesh on a live
+   swarm that was installed without one.)
 2. **The driver renders; the agent applies.** All provider logic lives in
    `packages/mesh` and produces a driver-agnostic `RenderedMesh`; the agent's
    `applyMesh` consumes it and never reasons about which provider it is. Adding a
@@ -113,7 +116,17 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 | Agent: executor cases + `SWARMY_ALLOW_MESH` gate | `apps/agent/src/{executor,env,index}.ts` |
 | Live peer map (no table) + `reconcileMeshPeer` | `packages/trpc/src/services/mesh-peers.ts` |
 | Gateway `meshState` → live peer map | `apps/api/src/gateway/protocol-handlers.ts` |
-| DB models | `packages/db/prisma/schema/mesh.prisma` |
+| DB models | `packages/db/prisma/schema/mesh.prisma` (MeshRoute: direct + `kind=person` grants) |
+| Self-hosted control plane: config render, Litestream render, pinned images | `packages/mesh/src/control-plane/{server-config,litestream}.ts`, `packages/mesh/src/images.ts` |
+| NetBird Admin API slice + the people/bootstrap diff (namespaced `swarmy:<c>:*`) | `packages/mesh/src/control-plane/{netbird-admin,people-sync}.ts` |
+| People access: names, `declaredPorts`, `buildPeopleAccessPlan`, `planUserSync`, `dexSubject` | `packages/mesh/src/people.ts` |
+| Agent: `swarmy-mesh-control` supervisor (tmpfs config, cold-boot copy, Litestream sidecar) | `apps/agent/src/handlers/mesh-control.ts` (+ 10 s tick in `daemon.ts`) |
+| Agent: `swarmy-access-<stack>` routers (+ VIP resolve over Docker DNS) | `apps/agent/src/handlers/access-router.ts` |
+| Controller: managed control plane (card, reconcile, connector, break-glass, move, edge vhost) | `packages/trpc/src/services/mesh-control.service.ts` |
+| Controller: people access (intent, routers, sync, connect info, who's connected, grants) | `packages/trpc/src/services/mesh-people.service.ts` |
+| 30 s reconcile worker | `apps/api/src/workers/mesh-people-reconcile.ts` |
+| Installer `--mesh swarmy` (starts NetBird before `swarm init`) | `scripts/install-swarmy.sh` (`ensure_mesh_control`) |
+| e2e on Lima (install, join, person connects/denied/revoked) | `scripts/e2e-mesh-people.ts` |
 | Networking UI (driver/enroll/control-plane/peers/direct-connect) | `apps/app/src/routes/_authed/networking.tsx`, `apps/app/src/components/networking/*` |
 
 ## Adding a mesh driver (the recipe)
@@ -139,12 +152,32 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 For a whole cross-stack feature (db → protocol → service → router → UI) see
 `skill("add-feature-slice")`; this skill is the mesh-specific slice of it.
 
+## Self-hosted control plane + people (plans/epic-self-hosted-mesh-and-fleets.md)
+
+- `--mesh swarmy` (installer default): `swarmy-mesh-control` (combined
+  `netbird-server`, host network, NOT a swarm service) is started by the
+  installer and then supervised by the node's agent. Its config (relay secret,
+  store key) lives only in the container's tmpfs, written via `docker exec`;
+  the agent's 0600 copy in its state dir restores it after a restart even when
+  the controller is unreachable (cold-boot deadlock otherwise).
+- The combined server ignores `disableDefaultPolicy`: the bootstrap deletes the
+  All↔All `Default` policy before any peer joins. `NB_DISABLE_GEOLOCATION=true`
+  (not `disableGeoliteUpdate`) stops the 73 MB download. `:9000/health` is the
+  relay's TLS check — liveness is a TCP connect to 33073.
+- NetBird only accepts an **https** IdP issuer; private CAs go through
+  `MeshControlSpec.caPem`. The connector's callback is `<mesh>/oauth2/callback`.
+- Every NetBird object swarmy writes is `swarmy:<c>:*` / `swarmy-<c>-*`; the diff
+  never touches anything else. People reach only declared ports on service VIPs
+  through the stack's router; nothing ever targets `swarmy:<c>:nodes`.
+- People access is off until an admin enables it; revoke converges at once, the
+  worker every 30 s; personal grants expire by `MeshRoute.expiresAt`.
+
 ## Operational gotchas
 
 - The sidecar needs `NET_ADMIN` + `/dev/net/tun` and runs `NetworkMode: 'host'`;
   it is privileged for a reason — never widen its caps casually. Its image
-  (`NETBIRD_CLIENT_IMAGE`, and the installer's) is currently `:latest`, not
-  pinned — pinning it is part of `plans/epic-platform-upgrades.md`.
+  (`NETBIRD_CLIENT_IMAGE`, and the installer's) is pinned by tag + digest
+  (`packages/mesh/src/images.ts`, mirrored in the SYSTEM_IMAGES BOM; bump both).
 - Overlay MTU is mesh-aware (`overlayMtuFor` in `packages/core/src/network-policy.ts`):
   NetBird/Tailscale `wt0` 1280 − VXLAN 50 = 1230 (1170 encrypted); raw
   WireGuard 1420 → 1370. The installer creates `swarmy`/`swarmy-control` with

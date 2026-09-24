@@ -727,10 +727,13 @@ they proved is below. "Pass" means seen working, not read in the docs.
 - Not checked here: NetBird's own `tls.letsencrypt` (it needs a public name).
   The code path is built; the DO launch sweep checks it.
 - The server also always opens the legacy gRPC port **33073** on all
-  interfaces, plus **9090** (metrics) and **9000** (health, `/health`
-  returns 503 until ready and 200 after). There is no switch in the combined
-  config to close 33073. The preflight must not treat it as a conflict, and
-  host firewalls should keep 33073/9090/9000 closed.
+  interfaces, plus **9090** (metrics) and **9000** (health). There is no
+  switch in the combined config to close 33073. The preflight must not treat
+  it as a conflict, and host firewalls should keep 33073/9090/9000 closed.
+- **`:9000/health` is the relay's TLS check, not a liveness probe.** It
+  answers 503 `{"certificate_valid":false}` forever on a plain-HTTP listener
+  (behind the edge, or in a lab). Liveness is therefore a TCP connect to
+  33073, the always-plain legacy gRPC port (installer and agent).
 
 ### 11.3 `disableDefaultPolicy`: fail. It is not reachable in the combined server
 
@@ -773,8 +776,24 @@ they proved is below. "Pass" means seen working, not read in the docs.
   comes back when the flag is off. **Break-glass** is therefore "re-render with
   `localAuthDisabled: false`, restart" (`swarmy-agent mesh break-glass` on the
   control-plane node), and the owner password is in the vault.
-- The end-to-end login through Better Auth is covered by the M2 e2e (§11.7),
-  not the spike.
+- **NetBird only accepts an `https` issuer** for an external IdP
+  (`identity provider issuer must be a valid URL` for `http://…`, found when
+  the first lab install tried to register). A swarmy on plain HTTP can't be
+  NetBird's IdP. Real installs have https (the Caddy edge, or NetBird's own
+  ACME next to it). For a lab or an intranet on a private CA, the mesh
+  control plane takes an **extra CA** (`MeshControlSpec.caPem`, installer
+  `SWARMY_MESH_EXTRA_CA`). It joins the system roots for that process only,
+  through `SSL_CERT_FILE` set in the entrypoint.
+- `netbird up --no-browser` uses Dex's **device flow**
+  (`<mesh>/oauth2/device?user_code=XXXX-XXXX`). That is what the e2e drives,
+  with a plain HTTP client holding the person's swarmy session. Dex passes
+  `insecureSkipEmailVerified` and `insecureEnableGroups` to the connector, so
+  unverified swarmy emails sign in.
+- Dex names a user `base64(proto{1: sub, 2: connector})`. For people who
+  come through swarmy, `sub` is the swarmy user id, so user sync matches on
+  it before email (username-only accounts have no email claim).
+- The end-to-end login through Better Auth is covered by the e2e
+  (`scripts/e2e-mesh-people.ts`), not the spike.
 
 ### 11.5 Routers on existing stack overlays: pass, attachable only
 
