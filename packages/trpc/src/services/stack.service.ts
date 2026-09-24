@@ -29,6 +29,7 @@ import { stackTelemetryEnabled } from './observability.service';
 import { DEPLOY_SAFETY_LABEL, DEPLOY_STRATEGY_LABEL, recordRelease } from './releases.service';
 import { INGRESS_ROUTES_LABEL, readRoutes } from './ingress-routes';
 import { carryManagedAttachments } from './attachment-carry';
+import { carrySecretVars } from '@swarmy/core';
 import { overlayOptionsFor } from './platform-networks';
 import { carryLinks, stackPeers } from './stack-links.service';
 import { stackEndpoints, type StackEndpoints } from './service-endpoints';
@@ -401,7 +402,8 @@ export async function deployFromCompose(
     // attachments (DATABASE_URL & co + their private overlay + secret), and
     // app links — or the deploy silently unwires the app.
     const routed = carryIngressRoutes(spec as ServiceSpec, source);
-    const attached = carryManagedAttachments(routed, source);
+    // …and the secret variables set on it (Docker secrets, never values).
+    const attached = carrySecretVars(carryManagedAttachments(routed, source), source);
     return carryLinks(attached, { orgId: ctx.activeOrgId, stack: input.name, peers });
   });
 

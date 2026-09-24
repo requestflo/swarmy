@@ -1,3 +1,4 @@
+import { unwrapSecretEnv } from '@swarmy/core';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError } from '../errors';
@@ -42,7 +43,8 @@ function asNum(v: unknown): number | undefined {
  * payload: image, mode, env, command/args, labels, mounts, secrets + configs
  * (with their file targets/uid/gid/mode), ports, restart policy, placement
  * (constraints, spread preferences, max-per-node), resources, healthcheck and
- * stop grace period. Network NAMES come from the caller (the live inventory —
+ * stop grace period, and the secret-env shim reversed into `secretEnv`.
+ * Network NAMES come from the caller (the live inventory —
  * raw inspect only carries network ids). Returns null when unusable.
  */
 export function specFromInspect(inspect: unknown, networks: string[]): ServiceSpec | null {
@@ -190,7 +192,10 @@ export function specFromInspect(inspect: unknown, networks: string[]): ServiceSp
   if (stopGrace !== undefined) out.stopGracePeriodNs = stopGrace;
 
   if (networks.length > 0) out.networks = networks;
-  return out;
+  // A service running through the secret-env shim reads back as the user's own
+  // command/args + `secretEnv` (the agent re-wraps on deploy) — never
+  // double-wrapped, never with the shim baked in as "the command".
+  return unwrapSecretEnv(out);
 }
 
 // ── pure: apply a one-aspect patch ───────────────────────────────────────────

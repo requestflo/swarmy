@@ -11,16 +11,22 @@ import {
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { ServiceDetail, ServiceStatusView, ServiceSummary } from '@swarmy/core/views';
 import type { OrgContext } from '../context';
-import { mapDispatchError, notFound } from '../errors';
+import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { enforceAdmission } from './admission-gate';
 import { writeAudit } from './audit.service';
 import { pinToNodeConstraint, resolveManagerNode } from './dispatch.service';
 import { patchLiveService } from './service-patch';
+import {
+  listAppSecretVersions,
+  materializeSecretVars,
+  mountedVersions,
+  partitionEnv,
+  planSecretSpec,
+  secretKeysFromEnv,
+  versionsOf,
+} from './app-secrets.service';
+import { applySecretVars, SECRET_ENV_VAR } from '@swarmy/core';
 import { enqueueEvent } from './webhooks-out.service';
-
-function envArrayToRecord(env: { key: string; value: string }[]): Record<string, string> {
-  return Object.fromEntries(env.map((e) => [e.key, e.value]));
-}
 
 function recordToEnvArray(env: Record<string, string>): { key: string; value: string }[] {
   return Object.entries(env).map(([key, value]) => ({ key, value }));
@@ -136,6 +142,12 @@ export function getServiceDetail(ctx: OrgContext, id: string): ServiceDetail {
     const i = kv.indexOf('=');
     env[i >= 0 ? kv.slice(0, i) : kv] = i >= 0 ? kv.slice(i + 1) : '';
   }
+  // Secret vars: names only (values are Docker secrets, never in the spec).
+  // `_FILE` pointers of file-delivered ones are shown as-is (they are paths).
+  const secretKeys = secretKeysFromEnv(env, s.secrets ?? [], null, s.name);
+  for (const k of Object.keys(env)) {
+    if (k === SECRET_ENV_VAR) delete env[k];
+  }
   return {
     id: s.id,
     name: s.name,
@@ -158,6 +170,7 @@ export function getServiceDetail(ctx: OrgContext, id: string): ServiceDetail {
       targetReplicas: Number(s.labels[SCALE_TO_ZERO_TARGET_LABEL]) || Math.max(1, s.replicas.desired || 1),
       idleSeconds: Number(s.labels[SCALE_TO_ZERO_IDLE_LABEL]) || 300,
     },
+    ...(Object.keys(secretKeys).length ? { secretKeys } : {}),
     ...(s.lastError ? { lastError: s.lastError } : {}),
     ...(s.lastErrorAt ? { lastErrorAt: new Date(s.lastErrorAt).toISOString() } : {}),
   };
@@ -168,11 +181,12 @@ export async function createService(
   input: CreateServiceInput,
 ): Promise<{ id: string; deploymentId: string }> {
   const node = await resolveManagerNode(ctx);
-  const spec = buildServiceSpec({
+  const { plain, secrets } = partitionEnv(input.env);
+  let spec = buildServiceSpec({
     name: input.name,
     image: input.image,
     replicas: input.replicas,
-    env: envArrayToRecord(input.env),
+    env: plain,
     command: input.command,
     ports: input.ports,
     volumes: input.volumes,
@@ -180,6 +194,19 @@ export async function createService(
     constraints: input.nodeId ? [...input.constraints, pinToNodeConstraint(ctx, input.nodeId)] : input.constraints,
     project: input.project,
   });
+
+  // Secret vars → Docker secrets (`<name>_<KEY>_v1`), mounted by name. The
+  // admission gate + the deploy below only ever see the secret NAMES.
+  let secretKeys: string[] = [];
+  if (secrets.length > 0) {
+    for (const sv of secrets) {
+      if (!sv.value) throw commandRejected(`secret ${sv.key} needs a value`);
+    }
+    const owned = versionsOf(await listAppSecretVersions(ctx, node.id), input.name);
+    const { desired } = await materializeSecretVars(ctx, node.id, input.name, secrets, owned, new Map());
+    spec = applySecretVars(spec, desired, new Set());
+    secretKeys = desired.map((d) => d.key);
+  }
 
   // "Ship a service" is a service deploy: it runs the same admission spine
   // (guardrails / exposure / image policy) with the same refuse/override/audit
@@ -214,6 +241,7 @@ export async function createService(
       stack: input.project ?? null,
       replicas: input.replicas,
       override: input.override === true,
+      ...(secretKeys.length ? { secretVars: secretKeys } : {}),
     },
   });
   // Outbound webhook: fan a `service.deployed` event out to subscribed endpoints.
@@ -238,6 +266,33 @@ export async function updateService(
   const name = input.name ?? existing.name;
   const image = input.image ?? existing.image;
 
+  // Secret vars: upserts (secret: true; empty value = keep), explicit removals,
+  // and demotions (a key now sent as plain env). New values become new Docker
+  // secret versions BEFORE the rollout; nothing here ever reads a value back.
+  const parts = input.env ? partitionEnv(input.env) : null;
+  const secretChange =
+    (parts?.secrets.length ?? 0) > 0 ||
+    (input.removeSecretKeys?.length ?? 0) > 0 ||
+    (parts !== null && (existing.secrets?.length ?? 0) > 0);
+  let secretPlan: ((spec: ServiceSpec, live: ServiceSpec) => ServiceSpec) | null = null;
+  let secretAudit: { set: string[]; rotated: string[]; removed: string[] } | null = null;
+  if (secretChange) {
+    const owned = versionsOf(await listAppSecretVersions(ctx, node.id), existing.name);
+    const mounted = mountedVersions(owned, existing.secrets ?? []);
+    const upserts = parts?.secrets ?? [];
+    const { desired, rotated } = await materializeSecretVars(ctx, node.id, existing.name, upserts, owned, mounted);
+    const demote = parts ? Object.keys(parts.plain).filter((k) => mounted.has(k)) : [];
+    const remove = (input.removeSecretKeys ?? []).filter((k) => mounted.has(k));
+    secretPlan = (spec, live) => planSecretSpec(spec, owned, { upserts: desired, remove, demote }, live);
+    if (upserts.length || remove.length || demote.length) {
+      secretAudit = {
+        set: desired.map((d) => d.key),
+        rotated: rotated.map((r) => `${r.key}@v${r.version}`),
+        removed: [...remove, ...demote],
+      };
+    }
+  }
+
   // Patch the FULL live spec (service.inspect): only the fields the caller
   // names are replaced; everything else — mounts, command, placement,
   // resources, healthcheck, secrets/configs (with targets), restart policy and
@@ -256,7 +311,11 @@ export async function updateService(
       transform: (live) => {
         const out: ServiceSpec = { ...live, name };
         if (input.replicas !== undefined) out.mode = { replicated: { replicas: input.replicas } };
-        if (input.env) out.env = envArrayToRecord(input.env);
+        if (parts) {
+          // Plain env is authoritative; secret-var plumbing (`_FILE`
+          // pointers, secretEnv) is re-derived by the secret plan below.
+          out.env = parts.plain;
+        }
         if (input.command) {
           if (input.command.length > 0) out.command = input.command;
           else delete out.command;
@@ -284,7 +343,7 @@ export async function updateService(
           if (Object.keys(placement).length > 0) out.placement = placement;
           else delete out.placement;
         }
-        return out;
+        return secretPlan ? secretPlan(out, live) : out;
       },
     },
     {
@@ -317,6 +376,7 @@ export async function updateService(
       stack: project ?? null,
       update: true,
       override: input.override === true,
+      ...(secretAudit ? { secretVars: secretAudit } : {}),
     },
   });
   return { id, deploymentId: id };

@@ -326,10 +326,45 @@ async function redeployConsumer(
   const stablePath = secretMountPath(group.family);
   const oldPaths = new Set([...oldNames].map((n) => `/run/secrets/${n}`));
   await deploy(ctx, nodeId, app, {
-    removeSecrets: (n) => oldNames.has(n) || n === newName,
-    addSecrets: secretRefsFor([newName]),
-    transform: (spec) => mapEnvValues(spec, (v) => (oldPaths.has(v) ? stablePath : v)),
+    transform: (spec) =>
+      mapEnvValues(
+        { ...spec, secrets: swapFamilyRefs(spec.secrets, group.family, oldNames, newName) },
+        (v) => (oldPaths.has(v) ? stablePath : v),
+      ),
   });
+}
+
+type SpecSecretRef = NonNullable<ServiceSpec['secrets']>[number];
+
+/**
+ * PURE — repoint a family's refs at `newName`, KEEPING each ref's own target
+ * (an env-delivered attach mounts at `/run/secrets/<ENV_NAME>`, not the
+ * family path; rotation must not move it). A legacy ref with no/its own-name
+ * target moves to the stable family path. Collapses duplicates per target;
+ * a consumer with no ref yet gets the family-path mount.
+ */
+export function swapFamilyRefs(
+  refs: SpecSecretRef[] | undefined,
+  family: string,
+  oldNames: ReadonlySet<string>,
+  newName: string,
+): SpecSecretRef[] {
+  const out: SpecSecretRef[] = [];
+  const seenTargets = new Set<string>();
+  let hit = false;
+  for (const r of refs ?? []) {
+    if (!oldNames.has(r.source) && r.source !== newName) {
+      out.push(r);
+      continue;
+    }
+    hit = true;
+    const target = !r.target || r.target === r.source ? family : r.target;
+    if (seenTargets.has(target)) continue;
+    seenTargets.add(target);
+    out.push({ ...r, source: newName, target });
+  }
+  if (!hit) out.push(...secretRefsFor([newName]));
+  return out;
 }
 
 // ── Mutations ─────────────────────────────────────────────────────────────────
@@ -466,22 +501,35 @@ export async function attachSecretToService(
 
   const oldNames = new Set(group.versions.map((v) => v.name));
   const envName = input.envName?.trim() || null;
-  await deploy(ctx, node.id, app, {
-    removeSecrets: (n) => oldNames.has(n),
-    addSecrets: secretRefsFor([current.name]),
-    ...(envName ? { setEnv: { [envName]: secretMountPath(family) } } : {}),
-  });
+  const delivery = input.delivery ?? 'file';
+  if (delivery === 'env' && !envName) throw commandRejected('env delivery needs an env var name');
+  if (delivery === 'env' && envName) {
+    // Value exported as $envName by the secret-env shim; the spec carries only
+    // the secret NAME + `secretEnv: [envName]` (never the value).
+    await deploy(ctx, node.id, app, {
+      removeSecrets: (n) => oldNames.has(n),
+      addSecrets: [{ source: current.name, target: envName }],
+      removeEnv: [envName],
+      transform: (spec) => ({ ...spec, secretEnv: [...new Set([...(spec.secretEnv ?? []), envName])].sort() }),
+    });
+  } else {
+    await deploy(ctx, node.id, app, {
+      removeSecrets: (n) => oldNames.has(n),
+      addSecrets: secretRefsFor([current.name]),
+      ...(envName ? { setEnv: { [envName]: secretMountPath(family) } } : {}),
+    });
+  }
   await writeAudit(ctx, {
     action: 'secrets.attach',
     targetType: 'secretFamily',
     targetId: family,
-    metadata: { service: app.name, version: current.version, envName },
+    metadata: { service: app.name, version: current.version, envName, delivery },
   });
   return {
     family,
     service: app.name,
     version: current.version,
-    mountPath: secretMountPath(family),
+    mountPath: delivery === 'env' && envName ? `/run/secrets/${envName}` : secretMountPath(family),
     envName,
   };
 }
@@ -505,8 +553,19 @@ export async function detachSecretFromService(
     ...[...oldNames].map((n) => `/run/secrets/${n}`),
   ]);
   await deploy(ctx, node.id, app, {
-    removeSecrets: (n) => oldNames.has(n),
-    transform: (spec) => mapEnvValues(spec, (v) => (paths.has(v) ? null : v)),
+    transform: (spec) => {
+      const dropped = new Set(
+        (spec.secrets ?? []).filter((r) => oldNames.has(r.source)).map((r) => r.target ?? r.source),
+      );
+      const secrets = (spec.secrets ?? []).filter((r) => !oldNames.has(r.source));
+      const secretEnv = (spec.secretEnv ?? []).filter((n) => !dropped.has(n));
+      const next: ServiceSpec = { ...spec };
+      if (secrets.length) next.secrets = secrets;
+      else delete next.secrets;
+      if (secretEnv.length) next.secretEnv = secretEnv;
+      else delete next.secretEnv;
+      return mapEnvValues(next, (v) => (paths.has(v) ? null : v));
+    },
   });
   await writeAudit(ctx, {
     action: 'secrets.detach',
