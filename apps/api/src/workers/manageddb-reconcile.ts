@@ -15,7 +15,9 @@ import {
   pgPrimaryEnv,
   pgReplicaEnv,
   choosePinNode,
+  DB_SWITCHOVER_LABEL,
   decideFailover,
+  switchoverRequested,
   encodePendingFailover,
   parseFailoverConfirmation,
   parsePendingFailover,
@@ -838,6 +840,8 @@ function repointSpec(s: SwarmServiceInfo, promoted: string, net: string, epoch: 
   // The failover wait/confirm handshake is over once a writer is promoted.
   delete labels[DB_FAILOVER_PENDING_LABEL];
   delete labels[DB_FAILOVER_CONFIRM_LABEL];
+  // A planned switchover (volume mobility) is over once a writer is promoted.
+  delete labels[DB_SWITCHOVER_LABEL];
   // A demoted ex-primary loses its PITR marker — its archive bits drop with the
   // redeploy (live truth carries no mounts/configs) and the new writer re-earns
   // them from the PITR convergence.
@@ -961,7 +965,12 @@ async function maybePromote(
 
   const ticks = (unhealthyTicks.get(key) ?? 0) + 1;
   unhealthyTicks.set(key, ticks);
-  if (ticks === 1) {
+  // A PLANNED switchover (the mover stopped a read-only primary on purpose):
+  // no grace window and no "unhealthy" alarm — but the promotion below still
+  // goes through decideFailover, so a replica that is not provably caught up
+  // still holds for confirmation.
+  const planned = switchoverRequested(primary?.labels, now);
+  if (ticks === 1 && !planned) {
     await seams.fireEvent(ctx, {
       signal: 'db-degraded',
       severity: 'critical',
@@ -976,7 +985,7 @@ async function maybePromote(
       meta: { cluster: c.cluster, stack: c.stack },
     }).catch(() => undefined);
   }
-  if (!promotionDue(ticks)) return;
+  if (!planned && !promotionDue(ticks)) return;
 
   const confirmRaw = handshakeHolders
     .map((s) => s.labels[DB_FAILOVER_CONFIRM_LABEL])

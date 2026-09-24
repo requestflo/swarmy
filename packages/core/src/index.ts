@@ -16,6 +16,7 @@ export * from './manageddb-failover';
 export * from './data-pin';
 export * from './disk-forecast';
 export * from './disk-inventory';
+export * from './volume-move';
 export * from './dotenv';
 export * from './swarm-kv';
 export * from './app-secrets';
