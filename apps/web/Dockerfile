@@ -30,6 +30,10 @@ COPY packages/mesh/package.json packages/mesh/
 COPY packages/templates/package.json packages/templates/
 COPY packages/trpc/package.json packages/trpc/
 COPY packages/ui/package.json packages/ui/
+COPY apps/cli/package.json apps/cli/
+COPY packages/app-auth/package.json packages/app-auth/
+COPY packages/devkit/package.json packages/devkit/
+COPY packages/rum/package.json packages/rum/
 RUN bun install --filter @swarmy/web --ignore-scripts
 COPY packages/ui packages/ui
 COPY packages/core packages/core
