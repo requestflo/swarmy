@@ -2,14 +2,15 @@ import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { PlugZapIcon } from 'lucide-react';
 import { AI_PROVIDER_KINDS } from '@swarmy/core';
-import { CopyButton } from '@swarmy/ui';
+import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger, CopyButton } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { ProviderRow } from './provider-row';
 
 /**
- * Providers card: one row per upstream (Anthropic / OpenAI / custom base URL).
- * Keys are write-only — the server stores them encrypted and never returns
- * them; a row only shows *that* a key exists.
+ * Providers card: configured and in-cluster providers first, every other
+ * provider one click away. Keys are write-only — the server stores them
+ * encrypted and never returns them; a row only shows *that* a key exists.
+ * Ollama / vLLM deployed from the templates appear on their own.
  */
 export function ProvidersCard(): React.JSX.Element {
   const trpc = useTRPC();
@@ -17,6 +18,9 @@ export function ProvidersCard(): React.JSX.Element {
 
   const byKind = new Map((providers.data?.providers ?? []).map((p) => [p.kind, p]));
   const gatewayUrl = providers.data?.gatewayUrl ?? '';
+  const [more, setMore] = React.useState(false);
+  const active = AI_PROVIDER_KINDS.filter((k) => byKind.has(k));
+  const rest = AI_PROVIDER_KINDS.filter((k) => !byKind.has(k));
 
   return (
     <div className="card-pop p-5">
@@ -52,11 +56,31 @@ export function ProvidersCard(): React.JSX.Element {
           Couldn&apos;t load providers: {providers.error.message}
         </p>
       ) : (
-        <div className="divide-border mt-3 divide-y">
-          {AI_PROVIDER_KINDS.map((kind) => (
-            <ProviderRow key={kind} kind={kind} view={byKind.get(kind) ?? null} />
-          ))}
-        </div>
+        <>
+          <div className="divide-border mt-3 divide-y">
+            {active.map((kind) => (
+              <ProviderRow key={kind} kind={kind} view={byKind.get(kind) ?? null} />
+            ))}
+          </div>
+          {rest.length ? (
+            <Collapsible open={more || active.length === 0} onOpenChange={setMore}>
+              {active.length > 0 ? (
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm" className="mt-2">
+                    {more ? 'Hide other providers' : `Add a provider (${rest.length} more)`}
+                  </Button>
+                </CollapsibleTrigger>
+              ) : null}
+              <CollapsibleContent>
+                <div className="divide-border divide-y border-t">
+                  {rest.map((kind) => (
+                    <ProviderRow key={kind} kind={kind} view={null} />
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          ) : null}
+        </>
       )}
     </div>
   );

@@ -26,6 +26,7 @@ export function MintKeyCard({ onMinted }: MintKeyCardProps): React.JSX.Element {
   const [name, setName] = React.useState('');
   const [rpm, setRpm] = React.useState('');
   const [budget, setBudget] = React.useState('');
+  const [models, setModels] = React.useState('');
 
   const mint = useMutation(
     trpc.ai.mintKey.mutationOptions({
@@ -36,6 +37,7 @@ export function MintKeyCard({ onMinted }: MintKeyCardProps): React.JSX.Element {
         setName('');
         setRpm('');
         setBudget('');
+        setModels('');
         void qc.invalidateQueries();
       },
       onError: (e) => toast.error(e.message),
@@ -47,6 +49,9 @@ export function MintKeyCard({ onMinted }: MintKeyCardProps): React.JSX.Element {
       name: name.trim(),
       ...(rpm.trim() ? { rpm: Number(rpm) } : {}),
       ...(budget.trim() ? { dailyBudgetUsd: Number(budget) } : {}),
+      ...(models.trim()
+        ? { models: models.split(/[\s,]+/).map((m) => m.trim()).filter(Boolean) }
+        : {}),
     });
   };
 
@@ -103,6 +108,20 @@ export function MintKeyCard({ onMinted }: MintKeyCardProps): React.JSX.Element {
                 placeholder="5.00"
               />
             </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="mint-key-models" className="mono-label">
+              Models (optional)
+            </Label>
+            <Input
+              id="mint-key-models"
+              value={models}
+              onChange={(e) => setModels(e.target.value)}
+              placeholder="smart, embed, groq/*"
+            />
+            <p className="text-muted-foreground text-[11px]">
+              Leave empty to allow every model. Aliases, model ids and provider/* all work.
+            </p>
           </div>
           <div className="flex justify-end">
             <Button size="sm" onClick={submit} disabled={mint.isPending || !name.trim()}>

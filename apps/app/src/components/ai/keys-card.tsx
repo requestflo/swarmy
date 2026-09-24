@@ -88,7 +88,11 @@ export function KeysCard(): React.JSX.Element {
                 <TableCell className="text-muted-foreground hidden text-xs sm:table-cell">
                   {k.limits.rpm ? `${k.limits.rpm} rpm` : 'no rpm cap'}
                   {' · '}
-                  {k.limits.dailyBudgetUsd ? `$${k.limits.dailyBudgetUsd}/day` : 'no budget'}
+                  {k.limits.dailyBudgetUsd
+                    ? `$${k.limits.dailyBudgetUsd}/day${k.limits.budgetScope === 'app' ? ' (app)' : ''}`
+                    : 'no budget'}
+                  {' · '}
+                  {k.limits.models?.length ? k.limits.models.join(', ') : 'any model'}
                 </TableCell>
                 <TableCell className="mono-data text-xs">{k.usage30d.requests}</TableCell>
                 <TableCell className="mono-data text-xs">${k.usage30d.costUsd.toFixed(2)}</TableCell>

@@ -4,6 +4,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { SectionHeader } from '@/components/section-header';
 import { PageError, PageSkeleton } from '@/components/states';
 import { KeysCard } from './keys-card';
+import { PlaygroundCard } from './playground-card';
 import { ProvidersCard } from './providers-card';
 import { RequestLogCard } from './request-log-card';
 import { SettingsCard } from './settings-card';
@@ -49,7 +50,7 @@ export function AiPage(): React.JSX.Element {
             </>
           )
         }
-        description="Route every model call through your own gateway: provider keys stay server-side, apps get revocable virtual keys with budgets — usage and cost land here."
+        description="One OpenAI-compatible endpoint for every provider and your own in-cluster models: provider keys stay server-side, apps get revocable virtual keys with budgets and model allowlists, and fast / smart / embed fall back across providers."
       />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -57,6 +58,10 @@ export function AiPage(): React.JSX.Element {
           <ProvidersCard />
         </div>
         <SettingsCard />
+      </div>
+
+      <div className="mt-4">
+        <PlaygroundCard />
       </div>
 
       <div className="mt-4">

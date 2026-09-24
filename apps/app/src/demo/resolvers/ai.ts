@@ -1,4 +1,7 @@
+import { costMicros, effectiveRoutes, MODEL_CATALOG } from '@swarmy/core';
 import type {
+  AiModelsView,
+  AiPlaygroundResult,
   AiKeyMintResult,
   AiKeyView,
   AiProviderKind,
@@ -103,12 +106,20 @@ export const ai: DomainResolvers = {
     store.extra.ai = {
       providers: {
         providers: [
-          { kind: 'anthropic', baseUrl: null, hasKey: true, isDefault: true },
-          { kind: 'openai', baseUrl: null, hasKey: true, isDefault: false },
+          { kind: 'anthropic', baseUrl: null, hasKey: true, isDefault: true, inCluster: false },
+          { kind: 'openai', baseUrl: null, hasKey: true, isDefault: false, inCluster: false },
+          {
+            kind: 'ollama',
+            baseUrl: 'http://llm_ollama:11434',
+            hasKey: true,
+            isDefault: false,
+            inCluster: true,
+            discovered: { service: 'llm_ollama', stack: 'llm' },
+          },
         ],
         gatewayUrl: GATEWAY_URL,
       },
-      settings: { auditLog: true, cache: true },
+      settings: { auditLog: true, cache: true, guardrails: { redactPii: true, maxPromptTokens: null } },
       keys: [
         {
           id: 'demo-key-stack-storefront',
@@ -167,6 +178,7 @@ export const ai: DomainResolvers = {
         baseUrl: b.baseUrl ?? prior?.baseUrl ?? null,
         hasKey: Boolean(b.apiKey) || prior?.hasKey === true,
         isDefault: b.makeDefault === true || prior?.isDefault === true,
+        inCluster: b.kind === 'ollama' || b.kind === 'vllm',
       };
       const providers = [...rest, next].map((p) =>
         b.makeDefault ? { ...p, isDefault: p.kind === b.kind } : p,
@@ -254,14 +266,70 @@ export const ai: DomainResolvers = {
       return getState(s).logs.slice(0, limit);
     },
 
+    'ai.models': (_i, s): AiModelsView => {
+      const kinds = getState(s).providers.providers.map((p) => p.kind);
+      const routes = effectiveRoutes({ routes: {} }, kinds);
+      return {
+        routes,
+        apps: {},
+        models: [
+          ...Object.entries(routes).map(([name, r]) => ({
+            name,
+            kind: name === 'embed' ? ('embed' as const) : ('chat' as const),
+            source: 'alias' as const,
+            providers: [...new Set(r.targets.map((t) => t.provider))],
+            inUsd: 0,
+            outUsd: 0,
+          })),
+          ...MODEL_CATALOG.filter((m) => kinds.includes(m.provider)).map((m) => ({
+            name: m.provider === 'ollama' ? `ollama/${m.id}` : m.id,
+            kind: m.kind,
+            source: 'model' as const,
+            providers: [m.provider],
+            inUsd: m.inUsd,
+            outUsd: m.outUsd,
+          })),
+        ],
+      };
+    },
+
+    'ai.playground': (i): AiPlaygroundResult => {
+      const b = i as { model: string; messages: Array<{ content: string }>; input?: string };
+      const embed = b.input !== undefined && b.messages.length === 0;
+      const model = b.model === 'smart' ? 'claude-sonnet-5' : b.model === 'fast' ? 'claude-haiku-4-5' : b.model === 'embed' ? 'text-embedding-3-small' : b.model.replace(/^ollama\//, '');
+      const provider = model.startsWith('claude') ? 'anthropic' : model.startsWith('text-') || model.startsWith('gpt') ? 'openai' : 'ollama';
+      const inTokens = Math.ceil((b.input ?? b.messages.map((m) => m.content).join(' ')).length / 4);
+      const outTokens = embed ? 0 : 42;
+      return {
+        ok: true,
+        status: 200,
+        model,
+        provider,
+        text: embed ? '1 embedding(s) · 1536 dimensions' : 'This is the demo gateway: in a real org the reply comes from the provider behind this model, under the key’s limits.',
+        toolCalls: [],
+        inTokens,
+        outTokens,
+        costUsd: costMicros(model, inTokens, outTokens, provider === 'ollama' ? 'ollama' : null) / 1e6,
+        latencyMs: 420 + Math.round(Math.random() * 400),
+        attempts: [{ provider, model, status: 200, error: null }],
+        traceId: 'demo0000000000000000000000000001',
+        error: null,
+      };
+    },
+
     'ai.settings': (_i, s): AiSettingsView => getState(s).settings,
 
     'ai.setSettings': (i, s): AiSettingsView => {
-      const b = i as { auditLog?: boolean; cache?: boolean };
+      const b = i as { auditLog?: boolean; cache?: boolean; guardrails?: { redactPii?: boolean; maxPromptTokens?: number | null } };
       const st = getState(s);
       st.settings = {
         auditLog: b.auditLog ?? st.settings.auditLog,
         cache: b.cache ?? st.settings.cache,
+        guardrails: {
+          redactPii: b.guardrails?.redactPii ?? st.settings.guardrails.redactPii,
+          maxPromptTokens:
+            b.guardrails?.maxPromptTokens !== undefined ? b.guardrails.maxPromptTokens : st.settings.guardrails.maxPromptTokens,
+        },
       };
       return st.settings;
     },
