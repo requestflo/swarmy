@@ -22,8 +22,8 @@ import {
   replaySessionPrefix,
   SESSION_ID_RE,
   type Breakdown,
-  type ClickhouseClient,
 } from '@swarmy/rum';
+import type { ClickhouseClient } from '@swarmy/core';
 import type { OrgContext } from '../../context';
 import { writeAudit } from '../audit.service';
 import { rumBlobStore, rumClickhouse } from './rum-store';

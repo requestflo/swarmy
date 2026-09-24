@@ -25,15 +25,14 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
 import {
-  observabilityConfigRepo,
   fireEvent,
+  orgErrorRates,
   reapplyIngressForOrg,
   recordIncidentEvent,
   systemContext,
   writeAudit,
 } from '@swarmy/trpc';
 import type { OrgContext } from '@swarmy/trpc';
-import { decryptSecret } from '@swarmy/core/crypto';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import { hub, store } from '../gateway';
 import {
@@ -54,65 +53,11 @@ const DOWN_GRACE_MIN = 2;
 
 // ── RED metrics (org ClickHouse store; unreachable/off → null = blind) ───────
 
-function lit(value: string): string {
-  return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
-}
-
-interface RedRow {
-  service_name: string;
-  error_rate: number;
-}
-
 /** Per-OTel-service error rate over entry spans, or null when the store is off/unreachable. */
-async function orgErrorRates(orgId: string): Promise<Map<string, number> | null> {
-  const row = await observabilityConfigRepo.find({ db: prisma, hub }, orgId).catch(() => null);
-  if (!row?.enabled || !row.clickhouseDsn) return null;
-  let dsnPlain: string;
-  try {
-    dsnPlain = decryptSecret(row.clickhouseDsn);
-  } catch {
-    dsnPlain = row.clickhouseDsn;
-  }
-  const sql = [
-    'SELECT',
-    '  ServiceName AS service_name,',
-    `  round(countIf(StatusCode = 'STATUS_CODE_ERROR') / count(), 4) AS error_rate`,
-    'FROM otel_traces',
-    `WHERE ResourceAttributes['swarmy.org_id'] = ${lit(orgId)}`,
-    `  AND Timestamp >= now() - INTERVAL ${RED_WINDOW_MINUTES} MINUTE`,
-    `  AND (SpanKind IN ('SPAN_KIND_SERVER', 'SPAN_KIND_CONSUMER') OR ParentSpanId = '')`,
-    'GROUP BY service_name',
-    'LIMIT 100',
-  ].join('\n');
-  try {
-    const u = new URL(dsnPlain);
-    const url = new URL(`${u.protocol}//${u.host}`);
-    url.searchParams.set('database', u.pathname.replace(/^\//, '') || 'otel');
-    url.searchParams.set('default_format', 'JSONEachRow');
-    const res = await fetch(url.toString(), {
-      method: 'POST',
-      headers: {
-        'X-ClickHouse-User': decodeURIComponent(u.username || 'default'),
-        'X-ClickHouse-Key': decodeURIComponent(u.password || ''),
-        'Content-Type': 'text/plain',
-      },
-      body: sql,
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return null;
-    const text = await res.text();
-    const out = new Map<string, number>();
-    for (const line of text.trim().split('\n')) {
-      if (!line) continue;
-      const parsed = JSON.parse(line) as RedRow;
-      if (typeof parsed.service_name === 'string' && typeof parsed.error_rate === 'number') {
-        out.set(parsed.service_name, parsed.error_rate);
-      }
-    }
-    return out;
-  } catch {
-    return null;
-  }
+async function redErrorRates(ctx: OrgContext): Promise<Map<string, number> | null> {
+  const rows = await orgErrorRates(ctx, { windowMinutes: RED_WINDOW_MINUTES, entrySpansOnly: true });
+  if (!rows) return null;
+  return new Map(rows.filter((r) => r.calls > 0).map((r) => [r.service, Math.round((r.errors / r.calls) * 10_000) / 10_000]));
 }
 
 /** Error rate (percent) for a service; OTel names may drop the stack prefix. */
@@ -268,7 +213,7 @@ export const canaryTick = async (): Promise<void> => {
     const canaries = services.filter((s) => s.labels[CANARY_OF_LABEL]);
     if (canaries.length === 0) continue;
     const ctx = systemContext({ db: prisma, hub, auth }, orgId);
-    const rates = await orgErrorRates(orgId);
+    const rates = await redErrorRates(ctx);
     for (const canary of canaries) {
       await judgeCanary(ctx, orgId, services, canary, rates).catch(() => undefined);
     }

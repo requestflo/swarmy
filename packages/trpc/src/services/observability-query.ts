@@ -92,6 +92,27 @@ function clampInt(n: number | undefined, def: number, min: number, max: number):
   return Math.min(max, Math.max(min, v));
 }
 
+/**
+ * Per-service span counts + errors over the last `windowMinutes` for one org —
+ * the error-rate alert and the canary gate. `entrySpansOnly` counts only
+ * SERVER / CONSUMER / root spans (a request's own outcome, not its callees).
+ */
+export function buildErrorRatesQuery(
+  orgId: string,
+  opts: { windowMinutes: number; entrySpansOnly?: boolean; limit?: number },
+): string {
+  return [
+    'SELECT ServiceName AS service, count() AS calls,',
+    "  countIf(StatusCode = 'STATUS_CODE_ERROR') AS errors",
+    'FROM otel_traces',
+    `WHERE ResourceAttributes['swarmy.org_id'] = ${lit(orgId)}`,
+    `  AND Timestamp >= now() - INTERVAL ${Math.max(1, Math.floor(opts.windowMinutes))} MINUTE`,
+    ...(opts.entrySpansOnly ? ["  AND (SpanKind IN ('SPAN_KIND_SERVER', 'SPAN_KIND_CONSUMER') OR ParentSpanId = '')"] : []),
+    'GROUP BY service',
+    `LIMIT ${opts.limit ?? 200}`,
+  ].join('\n');
+}
+
 export function buildTracesQuery(orgId: string, q: TracesQueryInput): string {
   const windowMinutes = clampInt(q.windowMinutes, 60, 1, 60 * 24 * 7);
   const limit = clampInt(q.limit, 100, 1, 500);

@@ -10,6 +10,7 @@
  * results per domain, the port-25 probe, the MTA log tracker per org, and the
  * Message-ID → credential index for bounce attribution of API sends.
  */
+import { clickhouseClient } from '@swarmy/core';
 import type { ProbeSmtpResult } from '@swarmy/core/protocol';
 import type { EmailDomainCheck } from './dns';
 import {
@@ -30,39 +31,6 @@ const FLUSH_BATCH = 500;
 export interface StoreRef {
   dsn: string;
   retentionDays: number;
-}
-
-interface ChDsn {
-  baseUrl: string;
-  user: string;
-  password: string;
-  database: string;
-}
-
-function parseDsn(dsn: string): ChDsn {
-  const u = new URL(dsn);
-  return {
-    baseUrl: `${u.protocol}//${u.host}`,
-    user: decodeURIComponent(u.username || 'default'),
-    password: decodeURIComponent(u.password || ''),
-    database: u.pathname.replace(/^\//, '') || 'otel',
-  };
-}
-
-async function ch(dsn: ChDsn, sql: string, body?: string, json = false): Promise<string> {
-  const url = new URL(dsn.baseUrl);
-  url.searchParams.set('database', dsn.database);
-  if (json) url.searchParams.set('default_format', 'JSONEachRow');
-  if (body !== undefined) url.searchParams.set('query', sql);
-  const res = await fetch(url.toString(), {
-    method: 'POST',
-    headers: { 'X-ClickHouse-User': dsn.user, 'X-ClickHouse-Key': dsn.password, 'Content-Type': 'text/plain' },
-    body: body ?? sql,
-    signal: AbortSignal.timeout(8000),
-  });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`clickhouse ${res.status}: ${text.slice(0, 300)}`);
-  return text;
 }
 
 class OrgLog {
@@ -116,12 +84,12 @@ export async function flushEmailLogs(): Promise<void> {
     if (!store || l.buffer.length === 0) continue;
     const batch = l.buffer.splice(0, FLUSH_BATCH);
     try {
-      const dsn = parseDsn(store.dsn);
+      const ch = clickhouseClient(store.dsn, { timeoutMs: 8000 });
       if (!l.tableReady) {
-        await ch(dsn, emailLogDdl(dsn.database, store.retentionDays));
+        await ch.exec(emailLogDdl(ch.database, store.retentionDays));
         l.tableReady = true;
       }
-      await ch(dsn, `INSERT INTO ${dsn.database}.${EMAIL_LOG_TABLE} FORMAT JSONEachRow`, emailLogRows(batch));
+      await ch.insert(`${ch.database}.${EMAIL_LOG_TABLE}`, emailLogRows(batch));
       l.lastError = null;
     } catch (e) {
       l.lastError = e instanceof Error ? e.message : String(e);
@@ -148,13 +116,8 @@ export async function readEmailLog(orgId: string, q: EmailLogQuery): Promise<Ema
   };
   if (store) {
     try {
-      const dsn = parseDsn(store.dsn);
-      const text = await ch(dsn, emailLogSelect(dsn.database, orgId, q), undefined, true);
-      const rows = text
-        .trim()
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => JSON.parse(line) as Record<string, string | number>);
+      const ch = clickhouseClient(store.dsn, { timeoutMs: 8000 });
+      const rows = await ch.json<Record<string, string | number>>(emailLogSelect(ch.database, orgId, q));
       return {
         source: 'clickhouse',
         storeError: null,

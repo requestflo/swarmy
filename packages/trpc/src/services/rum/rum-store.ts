@@ -12,15 +12,8 @@
  *   SWARMY_RUM_S3_ENDPOINT / _REGION / _BUCKET / _ACCESS_KEY_ID / _SECRET_ACCESS_KEY
  */
 import { decryptSecret, encryptSecret } from '@swarmy/core/crypto';
-import {
-  RUM_DDL,
-  RUM_REPLAY_BUCKET,
-  clickhouseClient,
-  parseClickhouseDsn,
-  s3BlobStore,
-  type BlobStore,
-  type ClickhouseClient,
-} from '@swarmy/rum';
+import { clickhouseClient, type ClickhouseClient } from '@swarmy/core';
+import { RUM_DDL, RUM_REPLAY_BUCKET, s3BlobStore, type BlobStore } from '@swarmy/rum';
 import type { OrgContext } from '../../context';
 import { observabilityConfigRepo } from '../observability-config.repo';
 import { objectStoreState, provisionSystemBucketKey } from '../buckets.service';
@@ -72,7 +65,7 @@ export async function rumClickhouse(scope: KvScope, orgId: string): Promise<Clic
     if (!row || !row.enabled || !row.clickhouseDsn) return null;
     dsn = safeDecrypt(row.clickhouseDsn);
   }
-  return withSchema(clickhouseClient(parseClickhouseDsn(dsn)), dsn);
+  return withSchema(clickhouseClient(dsn, { unquote64BitInts: true }), dsn);
 }
 
 function envBlobStore(): BlobStore | null {

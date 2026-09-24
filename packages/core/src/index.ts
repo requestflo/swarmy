@@ -20,6 +20,7 @@ export * from './volume-move';
 export * from './dotenv';
 export * from './swarm-kv';
 export * from './app-secrets';
+export * from './clickhouse';
 // NOTE: './crypto' (node:crypto credential vault) is server-only and is NOT
 // re-exported here — import it via '@swarmy/core/crypto' so it never reaches the
 // browser bundle.

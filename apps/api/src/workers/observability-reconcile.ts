@@ -21,6 +21,7 @@
  */
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
+import { clickhouseClient, type ClickhouseClient } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import { observabilityConfigRepo, reconcileObservabilitySuite, recordStoreProbe, systemContext } from '@swarmy/trpc';
 import { hub } from '../gateway';
@@ -33,23 +34,6 @@ interface ObsConfigRow {
   clickhouseDsn: string | null;
 }
 
-interface ClickhouseDsn {
-  baseUrl: string;
-  user: string;
-  password: string;
-  database: string;
-}
-
-function parseDsn(dsn: string): ClickhouseDsn {
-  const u = new URL(dsn);
-  return {
-    baseUrl: `${u.protocol}//${u.host}`,
-    user: decodeURIComponent(u.username || 'default'),
-    password: decodeURIComponent(u.password || ''),
-    database: u.pathname.replace(/^\//, '') || 'otel',
-  };
-}
-
 function safeDecrypt(blob: string): string {
   try {
     return decryptSecret(blob);
@@ -58,34 +42,12 @@ function safeDecrypt(blob: string): string {
   }
 }
 
-async function pingStore(dsn: ClickhouseDsn): Promise<boolean> {
-  try {
-    const res = await fetch(`${dsn.baseUrl}/ping`, { signal: AbortSignal.timeout(3000) });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 /** Total on-disk bytes for this database from `system.parts`. 0 if unknown. */
-async function diskUsed(dsn: ClickhouseDsn): Promise<bigint> {
-  const sql = `SELECT sum(bytes_on_disk) AS bytes FROM system.parts WHERE active AND database = '${dsn.database.replace(/'/g, "\\'")}' FORMAT JSONEachRow`;
+async function diskUsed(ch: ClickhouseClient): Promise<bigint> {
+  const sql = `SELECT sum(bytes_on_disk) AS bytes FROM system.parts WHERE active AND database = '${ch.database.replace(/'/g, "\\'")}'`;
   try {
-    const res = await fetch(dsn.baseUrl, {
-      method: 'POST',
-      headers: {
-        'X-ClickHouse-User': dsn.user,
-        'X-ClickHouse-Key': dsn.password,
-        'Content-Type': 'text/plain',
-      },
-      body: sql,
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) return 0n;
-    const text = (await res.text()).trim();
-    if (!text) return 0n;
-    const row = JSON.parse(text.split('\n')[0]!) as { bytes?: number | string };
-    return BigInt(Math.round(Number(row.bytes ?? 0)));
+    const [row] = await ch.json<{ bytes?: number | string }>(sql);
+    return BigInt(Math.round(Number(row?.bytes ?? 0)));
   } catch {
     return 0n;
   }
@@ -93,9 +55,9 @@ async function diskUsed(dsn: ClickhouseDsn): Promise<bigint> {
 
 async function reconcileOrg(cfg: ObsConfigRow): Promise<void> {
   if (!cfg.clickhouseDsn) return;
-  const dsn = parseDsn(safeDecrypt(cfg.clickhouseDsn));
-  const reachable = await pingStore(dsn);
-  const diskUsedBytes = reachable ? await diskUsed(dsn) : 0n;
+  const ch = clickhouseClient(safeDecrypt(cfg.clickhouseDsn), { timeoutMs: 5000 });
+  const reachable = await ch.ping();
+  const diskUsedBytes = reachable ? await diskUsed(ch) : 0n;
   recordStoreProbe(cfg.orgId, { reachable, diskUsedBytes, checkedAt: new Date() });
 }
 

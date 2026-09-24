@@ -428,4 +428,4 @@ export { bounceHookPassword, safeEqual as emailSafeEqual } from './services/emai
 export { BOUNCE_HOOK_PORT, BOUNCE_HOOK_USER, MAIL_SERVICE } from './services/email/maddy';
 export { setEmailLogStore, flushEmailLogs, port25Probe, domainCheck } from './services/email/store';
 export { checkEmailDomain, probePort25, ensureAppEmailCredential } from './services/email.service';
-export { observabilityStore } from './services/observability.service';
+export { observabilityStore, orgErrorRates, type ServiceErrorRate } from './services/observability.service';

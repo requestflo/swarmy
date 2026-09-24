@@ -25,7 +25,15 @@
 import { stacks } from './apps.repo';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import { randomBytes } from 'node:crypto';
-import { buildInventory, SWARMY_CONTROL_NETWORK, UNGROUPED, type InvService } from '@swarmy/core';
+import {
+  buildInventory,
+  clickhouseClient,
+  parseClickhouseDsn,
+  SWARMY_CONTROL_NETWORK,
+  UNGROUPED,
+  type ClickhouseTarget,
+  type InvService,
+} from '@swarmy/core';
 import { encryptSecret, decryptSecret } from '@swarmy/core/crypto';
 import type { OrgContext } from '../context';
 import { writeAudit } from './audit.service';
@@ -104,28 +112,9 @@ async function ensureConfig(ctx: OrgContext): Promise<ObsConfigRow> {
   return observabilityConfigRepo.get(ctx, ctx.activeOrgId);
 }
 
-/** A ClickHouse DSN, e.g. `http://default:pw@swarmy-clickhouse:8123/otel`. */
-interface ClickhouseDsn {
-  baseUrl: string; // http://host:port
-  user: string;
-  password: string;
-  database: string;
-}
-
-function parseDsn(dsn: string): ClickhouseDsn {
-  const u = new URL(dsn);
-  // Rows saved before the store was renamed carry the bare `clickhouse` host,
-  // which never resolves on the overlay — heal them on read.
-  if (u.hostname === LEGACY_CLICKHOUSE_HOST) u.hostname = CLICKHOUSE_SERVICE_HOST;
-  return {
-    baseUrl: `${u.protocol}//${u.host}`,
-    user: decodeURIComponent(u.username || 'default'),
-    password: decodeURIComponent(u.password || ''),
-    database: u.pathname.replace(/^\//, '') || 'otel',
-  };
-}
-
-const LEGACY_CLICKHOUSE_HOST = 'clickhouse';
+/** A ClickHouse DSN, e.g. `http://default:pw@swarmy-clickhouse:8123/otel` (legacy hosts healed on parse). */
+type ClickhouseDsn = ClickhouseTarget;
+const parseDsn = parseClickhouseDsn;
 
 /** The DSN swarmy uses for the store it deploys itself (host on the overlay). */
 function managedDsn(password: string): string {
@@ -685,21 +674,10 @@ function randomPassword(): string {
   return randomBytes(18).toString('base64url');
 }
 
-function authHeader(dsn: ClickhouseDsn): Record<string, string> {
-  return {
-    'X-ClickHouse-User': dsn.user,
-    'X-ClickHouse-Key': dsn.password,
-  };
-}
-
 /** Probe the ClickHouse HTTP `/ping` endpoint. */
 async function pingStore(dsnPlain: string): Promise<boolean> {
   try {
-    const dsn = parseDsn(dsnPlain);
-    const res = await fetch(`${dsn.baseUrl}/ping`, {
-      signal: AbortSignal.timeout(3000),
-    });
-    return res.ok;
+    return await clickhouseClient(dsnPlain).ping();
   } catch {
     return false;
   }
@@ -707,47 +685,16 @@ async function pingStore(dsnPlain: string): Promise<boolean> {
 
 /** Run a single non-SELECT statement (DDL) against ClickHouse HTTP. */
 async function clickhouseExec(dsnPlain: string, sql: string): Promise<void> {
-  const dsn = parseDsn(dsnPlain);
-  const url = new URL(dsn.baseUrl);
-  const res = await fetch(url.toString(), {
-    method: 'POST',
-    headers: { ...authHeader(dsn), 'Content-Type': 'text/plain' },
-    body: sql,
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) {
-    throw new Error(`clickhouse exec failed (${res.status}): ${await res.text().catch(() => '')}`);
-  }
+  await clickhouseClient(dsnPlain, { timeoutMs: 8000 }).exec(sql);
 }
 
 /**
- * Run a SQL query against ClickHouse HTTP, asking for JSONEachRow output.
- * Returns the parsed rows, or `null` if the store is unreachable / errored.
+ * Run a SQL query against ClickHouse HTTP (JSONEachRow). Returns the parsed
+ * rows, or `null` if the store is unreachable / errored (reads fail open).
  */
 async function clickhouseJson<T>(dsnPlain: string, sql: string): Promise<T[] | null> {
-  let dsn: ClickhouseDsn;
   try {
-    dsn = parseDsn(dsnPlain);
-  } catch {
-    return null;
-  }
-  const url = new URL(dsn.baseUrl);
-  url.searchParams.set('database', dsn.database);
-  url.searchParams.set('default_format', 'JSONEachRow');
-  try {
-    const res = await fetch(url.toString(), {
-      method: 'POST',
-      headers: { ...authHeader(dsn), 'Content-Type': 'text/plain' },
-      body: sql,
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return null;
-    const text = await res.text();
-    if (!text.trim()) return [];
-    return text
-      .trim()
-      .split('\n')
-      .map((line) => JSON.parse(line) as T);
+    return await clickhouseClient(dsnPlain, { timeoutMs: 8000 }).json<T>(sql);
   } catch {
     return null;
   }
@@ -759,7 +706,7 @@ export { OTEL_OVERLAY_NETWORK };
  * ── logs (C1)
  * ------------------------------------------------------------------------- */
 
-import { buildLogsQuery } from './observability-query';
+import { buildErrorRatesQuery, buildLogsQuery } from './observability-query';
 import type { LogRowView, ObservabilityLogsInput, ObservabilityLogsPage } from '@swarmy/core';
 
 const LOGS_DEFAULT_LIMIT = 200;
@@ -889,22 +836,29 @@ export async function orgClickhouse(ctx: OrgContext): Promise<OrgClickhouse | nu
     retentionDays: row.retentionDays,
     query: <T>(sql: string) => clickhouseJson<T>(dsnPlain, sql),
     exec: (sql: string) => clickhouseExec(dsnPlain, sql),
-    insert: async (table: string, rows: object[]) => {
-      if (!rows.length) return;
-      if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(table)) throw new Error(`invalid table ${table}`);
-      const url = new URL(dsn.baseUrl);
-      url.searchParams.set('database', dsn.database);
-      url.searchParams.set('query', `INSERT INTO ${table} FORMAT JSONEachRow`);
-      url.searchParams.set('date_time_input_format', 'best_effort');
-      const res = await fetch(url.toString(), {
-        method: 'POST',
-        headers: { ...authHeader(dsn), 'Content-Type': 'application/x-ndjson' },
-        body: rows.map((r) => JSON.stringify(r)).join('\n'),
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!res.ok) {
-        throw new Error(`clickhouse insert failed (${res.status}): ${(await res.text().catch(() => '')).slice(0, 300)}`);
-      }
-    },
+    insert: (table: string, rows: object[]) => clickhouseClient(dsn).insert(table, rows),
   };
+}
+
+/** One service's span volume and error count over a window. */
+export interface ServiceErrorRate {
+  service: string;
+  calls: number;
+  errors: number;
+}
+
+/**
+ * Per-OTel-service error counts from the org's store, or null when the suite
+ * is off or the store is unreachable (callers treat null as "blind").
+ */
+export async function orgErrorRates(
+  ctx: OrgContext,
+  opts: { windowMinutes: number; entrySpansOnly?: boolean },
+): Promise<ServiceErrorRate[] | null> {
+  const ch = await orgClickhouse(ctx);
+  if (!ch) return null;
+  const rows = await ch.query<{ service: string; calls: number | string; errors: number | string }>(
+    buildErrorRatesQuery(ctx.activeOrgId, opts),
+  );
+  return rows?.map((r) => ({ service: r.service, calls: Number(r.calls), errors: Number(r.errors) })) ?? null;
 }

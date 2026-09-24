@@ -6,13 +6,13 @@ import {
   fireEvent,
   latestStoreProbe,
   observabilityConfigRepo,
+  orgErrorRates,
   recordIncidentEvent,
   sampleUptimeTick,
   systemContext,
 } from '@swarmy/trpc';
 import type { OrgContext } from '@swarmy/trpc';
 import { ALERT_SIGNAL_INFO, type AlertSignal } from '@swarmy/core';
-import { decryptSecret } from '@swarmy/core/crypto';
 import { hub, store } from '../gateway';
 import { forecastConditions, loadDiskSeries } from './disk-forecast-alerts';
 
@@ -316,60 +316,6 @@ export function ruleSettings(
   };
 }
 
-// ── ClickHouse error-rate probe (mirror of observability.service fetch) ──────
-
-interface ErrorRateRow {
-  service: string;
-  calls: number;
-  errors: number;
-}
-
-const chLit = (value: string): string =>
-  `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
-
-async function fetchErrorRates(orgId: string, dsnPlain: string): Promise<ErrorRateRow[] | null> {
-  let u: URL;
-  try {
-    u = new URL(dsnPlain);
-  } catch {
-    return null;
-  }
-  const url = new URL(`${u.protocol}//${u.host}`);
-  url.searchParams.set('database', u.pathname.replace(/^\//, '') || 'otel');
-  url.searchParams.set('default_format', 'JSONEachRow');
-  const sql = [
-    'SELECT ServiceName AS service, count() AS calls,',
-    "  countIf(StatusCode = 'STATUS_CODE_ERROR') AS errors",
-    'FROM otel_traces',
-    `WHERE ResourceAttributes['swarmy.org_id'] = ${chLit(orgId)}`,
-    `  AND Timestamp >= now() - INTERVAL ${ERROR_RATE_WINDOW_MIN} MINUTE`,
-    'GROUP BY service',
-    'LIMIT 200',
-  ].join('\n');
-  try {
-    const res = await fetch(url.toString(), {
-      method: 'POST',
-      headers: {
-        'X-ClickHouse-User': decodeURIComponent(u.username || 'default'),
-        'X-ClickHouse-Key': decodeURIComponent(u.password || ''),
-        'Content-Type': 'text/plain',
-      },
-      body: sql,
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return null;
-    const text = await res.text();
-    if (!text.trim()) return [];
-    return text
-      .trim()
-      .split('\n')
-      .map((line) => JSON.parse(line) as { service: string; calls: number | string; errors: number | string })
-      .map((r) => ({ service: r.service, calls: Number(r.calls), errors: Number(r.errors) }));
-  } catch {
-    return null;
-  }
-}
-
 // ── Tick state (per org; reset on restart — DB rows are the durable truth) ───
 
 /** Signals resolved automatically when their condition clears. */
@@ -579,13 +525,7 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
         message: 'The observability store (ClickHouse) is not answering the controller',
       });
     } else if (obsConfig.clickhouseDsn) {
-      let dsnPlain: string;
-      try {
-        dsnPlain = decryptSecret(obsConfig.clickhouseDsn);
-      } catch {
-        dsnPlain = obsConfig.clickhouseDsn;
-      }
-      const rows = await fetchErrorRates(orgId, dsnPlain);
+      const rows = await orgErrorRates(ctx, { windowMinutes: ERROR_RATE_WINDOW_MIN });
       if (rows) {
         const { threshold } = ruleSettings(rules, 'error-rate');
         conditions.push(...errorRateConditions(rows, threshold));
