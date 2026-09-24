@@ -23,6 +23,9 @@ How the docs fit together:
   - [`epic-self-hosted-mesh-and-fleets.md`](./epic-self-hosted-mesh-and-fleets.md)
     — NetBird self-hosted inside swarmy (swarmy as its OIDC provider),
     people on the mesh scoped per stack, and multi-cluster fleets.
+  - [`epic-developer-platform.md`](./epic-developer-platform.md) — Railpack
+    builds, auth for your apps, DB studio, CLI + MCP, session replay, error
+    tracking, analytics, email service, BullMQ queues + queue studio, previews.
   - [`competitive-gaps-2026-09.md`](./competitive-gaps-2026-09.md) — the gap
     analysis vs Dokploy, Coolify and hosted PaaS behind the list below.
   - [`self-reliance.md`](./self-reliance.md) — audit of every runtime
