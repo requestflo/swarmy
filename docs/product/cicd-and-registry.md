@@ -119,6 +119,23 @@ Four ideas, one story:
   (`true` forces on, `false` vetoes even when the role is on), reported to the
   controller in the register facts. Build = arbitrary code from a repo, so it runs in
   rootless BuildKit, never against the node's main daemon privileged.
+- **No Dockerfile? It still builds.** A repo without a Dockerfile (Node, Python,
+  Go, Ruby, PHP, Rust, Elixir, static…) is built with Railpack, Railway's
+  open-source builder, on the same rootless BuildKit: `railpack prepare` runs
+  inside BuildKit and writes a plan, then the pinned Railpack frontend builds
+  it. `build.type` in swarmy.yaml forces `dockerfile` or `railpack`; absent,
+  the Dockerfile wins when there is one. `install` / `build` / `start` /
+  `packages` / `apt` / `build_apt` / `env` override what Railpack detects;
+  build env reaches the build as BuildKit secrets, never a layer. The "New app
+  from Git" wizard previews the result ("Detected: Next.js · Node 22 · start:
+  npm run start") with the port and health path to use; the build log shows
+  Railpack's own plan, and the Build records what it actually detected.
+- **Builds are warm from the registry.** Every build exports its BuildKit cache
+  (`mode=max`) to `<image>:buildcache-<key>-<branch>` in the in-swarm registry
+  and imports its branch's cache, then the default branch's. A missing cache is
+  a cold build, and a failed export never fails the build. Stale or excess
+  cache refs are deleted by the image-GC tick (default: unused 14 days, 20 GB),
+  never an image digest.
 - **Secrets are resolved just-in-time and never baked in.** Git tokens and
   registry creds are stored encrypted, decrypted at dispatch, passed as a git
   auth header / one-shot Docker config inside the builder container, and never
@@ -149,6 +166,8 @@ Four ideas, one story:
 | Failure | Behaviour |
 |---|---|
 | No builder node online | `triggerBuild` fails fast (no `Build` row) with an actionable message: which builder is offline, or how to enable one (Builder role / `SWARMY_ALLOW_BUILD=true`). Never dispatched to a non-builder node. |
+| Railpack can't plan the repo | `railpack prepare` exits 1 (transient exit 75 is retried): the build fails with Railpack's own reason and "add a Dockerfile, or set build.start". |
+| Build cache missing or registry cache export fails | Cold build (import is skipped with a log line); `ignore-error` on export means the build still succeeds. |
 | Build fails (bad Dockerfile, clone error) | Non-zero build exit → `commandResult` failed → `Build` row `FAILED`, full log retained in the live viewer; nothing is deployed. |
 | GC racing a running service | The pinned set is computed from LIVE running digests each cycle, so a digest in use is never in the remove set; the agent ALSO refuses to delete a pinned digest (defence in depth) and `repoPrefix`-scopes to swarmy-pushed images only. |
 | Registry node down | Enable status shows `online:false`; builds can't push and fail cleanly. The registry is cache-rebuildable — you can always rebuild from git (S3 storage documented for anyone who needs HA). |

@@ -95,6 +95,23 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
     /`ImageGcPolicy` are config + the encrypted cosign key. If you reach for a
     column that mirrors swarm state, stop.
 
+## Zero-config builds + registry cache invariants
+
+- **Railpack rides the same `image.build`.** `builder` (`auto`|`dockerfile`|
+  `railpack`), `railpack` and `cache` are additive payload fields; ABSENT
+  `builder` must render the legacy Dockerfile program byte-for-byte (golden).
+  `railpack prepare` runs INSIDE BuildKit on `bash:5.2` (mise needs bash; the
+  BuildKit image is busybox) with the CLI copied from the pinned frontend
+  image — plan and frontend are one version. Plan base images are rewritten
+  tag → digest (or mirror). Bump `railpackFrontend/Builder/Runtime` together.
+- **Build env values never hit argv, the plan, a layer or the log**: container
+  env `SWARMY_BENV_<i>` → BuildKit `--secret` + `secrets-hash`.
+- **Cache refs are `<image>:buildcache-*` tags only.** GC (`build-cache.ts`
+  `planCacheGc` + `runCacheGcForOrg`) deletes TAGS matching that prefix, never a
+  digest, and never one written inside the 24h grace window.
+- Build containers are removed with `v: true` (the BuildKit image declares a
+  state VOLUME; a plain remove leaks GBs per build).
+
 ## git-apps invariants (swarmy.yaml → GitOps)
 
 11. **Credentials never enter a compose source.** The applier renders only
@@ -164,6 +181,8 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 | Image admission decision (pure + evaluator) | `packages/trpc/src/services/admission-images.ts` |
 | PR preview lifecycle (labels, specs, teardown, webhook parse) | `packages/trpc/src/services/previews.service.ts` |
 | Build-log fan-out bus | `packages/trpc/src/services/build-log-bus.ts` |
+| Railpack program + meta capture (agent) | `apps/agent/src/handlers/build.ts` (`renderRailpackSteps`, `parseBuildMeta`) |
+| Builder/cache payload, cache refs + GC plan, wizard detection (pure) | `cicd.service.ts` `buildStrategyPayload`, `services/build-cache.ts`, `services/git-providers/detect-build.ts` |
 | Third-party registry creds (match/test pure core; CRUD + JIT resolver; hub decorator) | `packages/trpc/src/services/registry-credentials{,.service}.ts`, `registry-auth.ts` (`createRegistryAuthDecorator`), router `registryCredentials`, REST `routes/registry-credentials.ts` |
 | tRPC surface | `packages/trpc/src/routers/{cicd,registryPolicy,previews}.ts` |
 | Agent: BuildKit build / image prune / TLS hint | `apps/agent/src/handlers/{build,prune,registry-tls}.ts` |
