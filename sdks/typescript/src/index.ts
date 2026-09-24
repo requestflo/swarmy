@@ -11,6 +11,8 @@ import {
 
 export * from './models.js';
 export { SwarmyApiError } from './error.js';
+export { SwarmyEmail, SwarmyEmailError } from './email.js';
+export type { SendEmailInput, SendEmailResult, SwarmyEmailOptions } from './email.js';
 export type { SwarmyClientOptions, FetchLike } from './http.js';
 export type { ListOptions } from './resources.js';
 export { paginate, sseData } from './resources.js';
