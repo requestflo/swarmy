@@ -34,6 +34,7 @@ import { searchsvc } from './resolvers/searchsvc';
 import { vector } from './resolvers/vector';
 import { ai } from './resolvers/ai';
 import { notify } from './resolvers/notify';
+import { security } from './resolvers/security';
 
 /**
  * Assembles every per-domain resolver module into flat lookup tables for the demo
@@ -76,6 +77,7 @@ const MODULES: DomainResolvers[] = [
   vector,
   ai,
   notify,
+  security,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(

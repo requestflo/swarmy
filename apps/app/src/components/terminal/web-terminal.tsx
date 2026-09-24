@@ -138,7 +138,14 @@ export function WebTerminal({ wsUrl, onPhase, className }: WebTerminalProps): Re
       if (msg.type === 'termExit') {
         closedByExit = true;
         const code = msg.payload?.exitCode;
-        term.writeln(`\r\n\x1b[2mSession ended${code != null ? ` (exit ${code})` : ''}.\x1b[0m`);
+        // Controller-enforced limits (TerminalPolicy idle timeout / max length).
+        const limit =
+          msg.payload?.reason === 'idle_timeout'
+            ? ': idle timeout'
+            : msg.payload?.reason === 'max_session'
+              ? ': session time limit reached'
+              : '';
+        term.writeln(`\r\n\x1b[2mSession ended${limit}${code != null ? ` (exit ${code})` : ''}.\x1b[0m`);
         onPhaseRef.current?.('closed');
       }
     };

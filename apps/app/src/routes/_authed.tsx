@@ -1,5 +1,6 @@
 import { Outlet, createFileRoute, redirect } from '@tanstack/react-router';
 import { AppShell } from '@/components/shell/app-shell';
+import { MfaGate } from '@/components/security/mfa-gate';
 import { isDemo } from '@/demo/is-demo';
 import { hasLiveSession } from '@/integrations/trpc-auth';
 
@@ -19,8 +20,10 @@ export const Route = createFileRoute('/_authed')({
 
 function AuthedLayout() {
   return (
-    <AppShell>
-      <Outlet />
-    </AppShell>
+    <MfaGate>
+      <AppShell>
+        <Outlet />
+      </AppShell>
+    </MfaGate>
   );
 }

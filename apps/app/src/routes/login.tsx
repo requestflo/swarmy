@@ -4,6 +4,7 @@ import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { Card, CardContent, toast } from '@swarmy/ui';
 import { AuthForm } from '@/components/auth/auth-form';
 import { InviteOnlyNotice } from '@/components/auth/invite-only-notice';
+import { LoginTwoFactorStep } from '@/components/auth/login-two-factor-step';
 import { type AuthFields, type AuthMode, useAuthSubmit } from '@/components/auth/use-auth-submit';
 import { Wordmark } from '@/components/wordmark';
 import { useTRPC } from '@/integrations/trpc';
@@ -33,14 +34,24 @@ function LoginPage(): React.JSX.Element {
   const trpc = useTRPC();
   const { redirect: returnTo, invite } = Route.useSearch();
   const [mode, setMode] = React.useState<AuthMode>(invite ? 'signup' : 'signin');
-  const { busy, submit } = useAuthSubmit(invite);
+  const { busy, submit, finish } = useAuthSubmit(invite);
+  // Password accepted, 2FA pending: the code step replaces the form.
+  const [challenge, setChallenge] = React.useState(false);
   const config = useQuery(trpc.authConfig.publicConfig.queryOptions());
   // Until the mode is known, assume invite-only so the sign-up link never flashes.
   const signupOpen = invite !== undefined || config.data?.signupMode === 'open';
 
+  async function land(): Promise<void> {
+    if (returnTo) router.history.push(returnTo);
+    else await navigate({ to: '/' });
+  }
+
   async function onSubmit(fields: AuthFields): Promise<void> {
     try {
-      await submit(mode, fields);
+      if ((await submit(mode, fields)) === 'two-factor') {
+        setChallenge(true);
+        return;
+      }
     } catch (err) {
       // An invitee who already has an account lands on sign-up by default: send
       // them to sign-in, which accepts the same invitation after auth.
@@ -51,8 +62,7 @@ function LoginPage(): React.JSX.Element {
       }
       throw err;
     }
-    if (returnTo) router.history.push(returnTo);
-    else await navigate({ to: '/' });
+    await land();
   }
 
   return (
@@ -75,12 +85,20 @@ function LoginPage(): React.JSX.Element {
 
         <Card className="card-pop border-0">
           <CardContent className="pt-6">
-            {mode === 'signup' && !signupOpen ? (
+            {challenge ? (
+              <LoginTwoFactorStep
+                onVerified={async () => {
+                  await finish('signin');
+                  await land();
+                }}
+                onCancel={() => setChallenge(false)}
+              />
+            ) : mode === 'signup' && !signupOpen ? (
               <InviteOnlyNotice />
             ) : (
               <AuthForm mode={mode} busy={busy} onSubmit={onSubmit} />
             )}
-            {(signupOpen || mode === 'signup') && (
+            {!challenge && (signupOpen || mode === 'signup') && (
               <p className="text-muted-foreground mt-6 text-center text-sm">
                 {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
                 <button

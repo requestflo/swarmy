@@ -13,6 +13,8 @@ import {
 import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
 import { WebTerminal } from '@/components/terminal/web-terminal';
+import { StepUpDialog } from '@/components/security/step-up-dialog';
+import { useStepUp } from '@/components/security/use-step-up';
 
 export const Route = createFileRoute('/_authed/services/$serviceId_/terminal')({
   component: ServiceTerminalPage,
@@ -41,6 +43,11 @@ function ServiceTerminalPage(): React.JSX.Element {
   // org TerminalPolicy, the node's 'Container exec' toggle + any local
   // SWARMY_ALLOW_EXEC=false veto, container exists), audits, mints a
   // single-use ticket, and returns { ticket, wsUrl }.
+  // Step-up (requireMfa): a stale/missing second factor opens the code dialog,
+  // then the open is retried.
+  const startRef = React.useRef<() => void>(() => undefined);
+  const stepUp = useStepUp(() => startRef.current());
+
   const open = useMutation(
     trpc.terminal.open.mutationOptions({
       onSuccess: ({ ticket, wsUrl: base }: { ticket: string; wsUrl?: string }) => {
@@ -50,6 +57,10 @@ function ServiceTerminalPage(): React.JSX.Element {
         setPhase('connecting');
       },
       onError: (e) => {
+        if (stepUp.intercept(e)) {
+          setPhase('idle');
+          return;
+        }
         const code = (e.data as { swarmyCode?: string } | undefined)?.swarmyCode;
         setPhase(code === 'EXEC_DISABLED_ON_NODE' || code === 'EXEC_BLOCKED_LOCALLY' ? 'disabled' : 'error');
         setDetail(e.message);
@@ -63,6 +74,7 @@ function ServiceTerminalPage(): React.JSX.Element {
     setWsUrl(null);
     open.mutate({ serviceId });
   };
+  startRef.current = start;
 
   return (
     <div className="mx-auto flex w-full max-w-[1600px] flex-col px-6 pt-8 lg:pb-20 xl:px-10">
@@ -113,6 +125,7 @@ function ServiceTerminalPage(): React.JSX.Element {
           )}
         </CardContent>
       </Card>
+      <StepUpDialog {...stepUp.dialog} />
     </div>
   );
 }

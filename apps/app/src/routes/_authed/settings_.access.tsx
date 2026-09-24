@@ -7,6 +7,7 @@ import { ProvidersTab } from '@/components/access/providers-tab';
 import { SsoTab } from '@/components/access/sso-tab';
 import { MembersTab } from '@/components/access/members-tab';
 import { PoliciesTab } from '@/components/access/policies-tab';
+import { SecurityTab } from '@/components/security/security-tab';
 
 export const Route = createFileRoute('/_authed/settings_/access')({
   component: AccessPage,
@@ -37,6 +38,7 @@ function AccessPage(): React.JSX.Element {
           <TabsTrigger value="sso">Enterprise SSO</TabsTrigger>
           <TabsTrigger value="members">Members</TabsTrigger>
           <TabsTrigger value="policies">Policies</TabsTrigger>
+          <TabsTrigger value="security">Security</TabsTrigger>
         </TabsList>
         <TabsContent value="providers" className="mt-6">
           <ProvidersTab />
@@ -49,6 +51,9 @@ function AccessPage(): React.JSX.Element {
         </TabsContent>
         <TabsContent value="policies" className="mt-6">
           <PoliciesTab />
+        </TabsContent>
+        <TabsContent value="security" className="mt-6">
+          <SecurityTab />
         </TabsContent>
       </Tabs>
     </div>

@@ -13,6 +13,8 @@ import {
 import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
 import { WebTerminal } from '@/components/terminal/web-terminal';
+import { StepUpDialog } from '@/components/security/step-up-dialog';
+import { useStepUp } from '@/components/security/use-step-up';
 
 export const Route = createFileRoute('/_authed/nodes/$nodeId_/terminal')({
   component: NodeTerminalPage,
@@ -38,6 +40,11 @@ function NodeTerminalPage(): React.JSX.Element {
   const [wsUrl, setWsUrl] = React.useState<string | null>(null);
   const [needsApproval, setNeedsApproval] = React.useState(false);
 
+  // Step-up (requireMfa): a stale/missing second factor opens the code dialog,
+  // then the open is retried.
+  const startRef = React.useRef<() => void>(() => undefined);
+  const stepUp = useStepUp(() => startRef.current());
+
   const open = useMutation(
     trpc.terminal.openNodeShell.mutationOptions({
       onSuccess: ({ ticket }) => {
@@ -47,6 +54,10 @@ function NodeTerminalPage(): React.JSX.Element {
         setNeedsApproval(false);
       },
       onError: (e) => {
+        if (stepUp.intercept(e)) {
+          setPhase('idle');
+          return;
+        }
         const code = (e.data as { swarmyCode?: string } | undefined)?.swarmyCode;
         if (code === 'NEEDS_APPROVAL' || e.message.includes('approval')) {
           setNeedsApproval(true);
@@ -81,6 +92,7 @@ function NodeTerminalPage(): React.JSX.Element {
     setWsUrl(null);
     open.mutate({ nodeId });
   };
+  startRef.current = start;
 
   return (
     <div className="mx-auto flex w-full max-w-[1600px] flex-col px-6 pt-8 lg:pb-20 xl:px-10">
@@ -158,6 +170,7 @@ function NodeTerminalPage(): React.JSX.Element {
           )}
         </CardContent>
       </Card>
+      <StepUpDialog {...stepUp.dialog} />
     </div>
   );
 }
