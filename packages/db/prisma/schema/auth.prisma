@@ -3,8 +3,14 @@
 model User {
   id            String   @id
   name          String
+  // Always present (Better Auth requires it) but optional for people: an
+  // account without email carries a reserved `*.swarmy.invalid` placeholder
+  // (packages/auth/src/identity.ts). Never mail or display one.
   email         String   @unique
   emailVerified Boolean  @default(false)
+  // Better Auth username plugin: sign in without email. Lowercased, unique.
+  username        String?  @unique
+  displayUsername String?
   image         String?
   // Better Auth twoFactor plugin: true once an authenticator app is verified.
   twoFactorEnabled Boolean @default(false)
