@@ -25,7 +25,7 @@
  */
 import { z } from 'zod';
 import { CommandId } from './primitives';
-import { ResticRepo, RetentionOutcome } from './backup';
+import { ContainerPath, DockerVolumeName, ResticRepo, RetentionOutcome, SnapshotRef } from './backup';
 
 const cmd = { commandId: CommandId, timeoutMs: z.number().int().positive().optional() };
 
@@ -72,8 +72,8 @@ const target = {
   service: z.string().min(1),
   creds: AppDbCreds,
   /** Redis/Valkey: the data volume + where the task mounts it (RDB lives there). */
-  dataVolume: z.string().optional(),
-  dataMount: z.string().optional(),
+  dataVolume: DockerVolumeName.optional(),
+  dataMount: ContainerPath.optional(),
 };
 
 const store = {
@@ -142,10 +142,10 @@ export const AppDbRestorePayload = z.object({
   ...target,
   ...store,
   /** restic snapshot id (a logical dump of this DB). */
-  snapshotId: z.string().min(1),
+  snapshotId: SnapshotRef,
   suffix: AppDbCopySuffix,
   /** Redis/Valkey copy: the new volume the RDB is written into. */
-  copyVolume: z.string().optional(),
+  copyVolume: DockerVolumeName.optional(),
 });
 export type AppDbRestorePayload = z.infer<typeof AppDbRestorePayload>;
 export const AppDbRestoreMsg = z.object({ type: z.literal('appDbRestore'), payload: AppDbRestorePayload });
@@ -175,9 +175,9 @@ export const AppDbVerifyPayload = z.object({
   /** The service's image ref (the scratch server runs the same engine version). */
   image: z.string().min(1),
   ...store,
-  snapshotId: z.string().min(1),
+  snapshotId: SnapshotRef,
   /** Redis/Valkey: where the image keeps its data dir (the RDB is seeded there). */
-  dataMount: z.string().optional(),
+  dataMount: ContainerPath.optional(),
 });
 export type AppDbVerifyPayload = z.infer<typeof AppDbVerifyPayload>;
 export const AppDbVerifyMsg = z.object({ type: z.literal('appDbVerify'), payload: AppDbVerifyPayload });

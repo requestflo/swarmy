@@ -4,6 +4,37 @@ import { CommandId } from './primitives';
 /** Reusable command preamble (every controller→agent command carries these). */
 const cmd = { commandId: CommandId, timeoutMs: z.number().int().positive().optional() };
 
+// ── shared safety schemas ────────────────────────────────────────────────────
+// Every value below ends up in a Docker `Binds` entry, a restic/wal-g argv, or a
+// sidecar shell script on the node. A volume "name" beginning with `/` is a
+// HOST bind (`/:/data` would archive — or, on restore, overwrite — the host
+// root), so these are validated at the wire, and again by the agent.
+
+/** Docker named-volume grammar: never a path, never carries `:`-options. */
+export const DOCKER_VOLUME_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$/;
+export const DockerVolumeName = z.string().regex(DOCKER_VOLUME_NAME_RE, 'invalid Docker volume name');
+
+/** An absolute in-container mount path (no `:` options, no `..` segments). */
+export const CONTAINER_PATH_RE = /^(?!.*(?:^|\/)\.\.(?:\/|$))\/[A-Za-z0-9_.\/-]{0,255}$/;
+export const ContainerPath = z.string().regex(CONTAINER_PATH_RE, 'invalid container path');
+
+/**
+ * A snapshot / backup reference: restic hex id, `latest`, a wal-g
+ * `base_…` name, `pgbackrest:latest`. Never starts with `-` (no option
+ * injection) and carries no shell metacharacters.
+ */
+export const SNAPSHOT_REF_RE = /^[A-Za-z0-9][A-Za-z0-9_:.-]{0,127}$/;
+export const SnapshotRef = z.string().regex(SNAPSHOT_REF_RE, 'invalid snapshot id');
+
+/** A Postgres/MySQL database name (the studio grammar, minus a leading `-`/`.`). */
+export const DB_NAME_RE = /^[A-Za-z0-9_$][A-Za-z0-9_.$-]{0,127}$/;
+export const DbName = z.string().regex(DB_NAME_RE, 'invalid database name');
+
+/** ISO-8601 timestamp (`2026-09-24T15:30:00Z`, `2026-09-24 15:30:00+00`). */
+export const ISO_TIMESTAMP_RE =
+  /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?$/;
+export const IsoTimestamp = z.string().regex(ISO_TIMESTAMP_RE, 'invalid ISO-8601 timestamp');
+
 /**
  * A restic repository reference: the S3-shaped target plus the credentials the
  * agent injects into the restic container env. Credentials are resolved
@@ -37,7 +68,7 @@ export const BackupVolumePayload = z.object({
   jobId: z.string(),
   repo: ResticRepo,
   /** Docker local volume name to back up (mounted read-only into the restic container). */
-  volume: z.string(),
+  volume: DockerVolumeName,
   /** restic tags, e.g. [`org:<id>`, `volume:<name>`]. */
   tags: z.array(z.string()).default([]),
   /**
@@ -67,9 +98,9 @@ export const RestoreVolumePayload = z.object({
   ...cmd,
   repo: ResticRepo,
   /** restic snapshot id, or `latest`. */
-  snapshotId: z.string().default('latest'),
+  snapshotId: SnapshotRef.default('latest'),
   /** Docker local volume to restore into (created if missing). */
-  targetVolume: z.string(),
+  targetVolume: DockerVolumeName,
   image: z.string().optional(),
   /** Overlay network for in-cluster repo endpoints (see BackupVolumePayload). */
   network: z.string().optional(),

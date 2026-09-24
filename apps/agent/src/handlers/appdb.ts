@@ -40,6 +40,9 @@ import type { AgentConnection } from '../connection';
 import { demuxDockerStream, execCapture } from './exec';
 import {
   applyRetention,
+  assertContainerPath,
+  assertSnapshotRef,
+  assertVolumeName,
   ensureRepo,
   parseSummary,
   repoBinds,
@@ -117,7 +120,7 @@ async function fetchDump(
     docker,
     {
       image: p.resticImage ?? DEFAULT_RESTIC_IMAGE,
-      args: ['restore', p.snapshotId, '--target', '/', '--json'],
+      args: ['restore', assertSnapshotRef(p.snapshotId), '--target', '/', '--json'],
       env: repoEnv(p.repo),
       binds: [`${scratch}:${D}`, ...repoBinds(p.repo)],
       networkMode: p.network,
@@ -154,7 +157,10 @@ export async function appDbBackup(
         entrypoint: ['/bin/sh', '-c'],
         args: [dumpScript(p.engine, p.creds.scope)],
         env: [...credEnv, ...(kv ? [`SWARMY_DATA_MOUNT=${p.dataMount}`] : [])],
-        binds: [`${scratch}:${D}`, ...(kv ? [`${p.dataVolume}:${p.dataMount}:ro`] : [])],
+        binds: [
+          `${scratch}:${D}`,
+          ...(kv ? [`${assertVolumeName(p.dataVolume!)}:${assertContainerPath(p.dataMount!)}:ro`] : []),
+        ],
         networkMode: `container:${task.id}`,
         user: '0:0',
       },
@@ -226,6 +232,7 @@ export async function appDbRestore(
   if (kv) {
     const targetVolume = p.mode === 'copy' ? p.copyVolume : p.dataVolume;
     if (!targetVolume) throw new Error(`${p.engine} ${p.mode} restore needs a target volume`);
+    assertVolumeName(targetVolume);
     if (p.mode === 'in-place' && (await localTask(docker, p.service))) {
       // The controller scales the service to 0 first; never swap an RDB under a live server.
       throw new Error(`${p.service} is still running on this node — refusing to replace its RDB`);
@@ -298,7 +305,7 @@ export async function appDbVerify(
   const started = Date.now();
   const onLine = streamer(conn, p.commandId);
   const kv = isKvEngine(p.engine);
-  const dataMount = p.dataMount || '/data';
+  const dataMount = assertContainerPath(p.dataMount || '/data');
   const scratch = scratchName('swarmy-appdbv', p.commandId);
   const seedVolume = scratchName('swarmy-appdbv-data', p.commandId);
   const password = randomBytes(18).toString('hex');

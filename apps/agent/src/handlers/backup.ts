@@ -24,6 +24,11 @@ import type {
   RetentionOutcome,
 } from '@swarmy/core/protocol';
 import {
+  CONTAINER_PATH_RE,
+  DB_NAME_RE,
+  DOCKER_VOLUME_NAME_RE,
+  ISO_TIMESTAMP_RE,
+  SNAPSHOT_REF_RE,
   DEFAULT_PG_CLIENT_IMAGE,
   MANAGED_PG_PGDATA_SUBDIR,
   DEFAULT_PGBACKREST_IMAGE,
@@ -44,6 +49,29 @@ const DUMP_MOUNT = '/backup';
  */
 const PGVOL_MOUNT = '/pgvol';
 const PGDATA_MOUNT = `${PGVOL_MOUNT}/${MANAGED_PG_PGDATA_SUBDIR}`;
+
+// ── payload guards (defense in depth behind the protocol schemas) ────────────
+// Every bind below is built from a payload field. The wire schema already
+// restricts these, but a volume "name" starting with `/` is a HOST bind, so
+// re-check right where the `Binds` string is assembled.
+
+function guard(re: RegExp, what: string, v: string): string {
+  if (!re.test(v)) throw new Error(`refusing unsafe ${what}: ${JSON.stringify(v.slice(0, 80))}`);
+  return v;
+}
+/** A Docker NAMED volume — never a host path, never `name:opts`. */
+export const assertVolumeName = (v: string): string => guard(DOCKER_VOLUME_NAME_RE, 'volume name', v);
+/** An absolute in-container path with no `:` and no `..`. */
+export const assertContainerPath = (v: string): string => guard(CONTAINER_PATH_RE, 'container path', v);
+/** restic id / `latest` / wal-g backup name — no leading `-`, no shell metachars. */
+export const assertSnapshotRef = (v: string): string => guard(SNAPSHOT_REF_RE, 'snapshot id', v);
+export const assertDbName = (v: string): string => guard(DB_NAME_RE, 'database name', v);
+export const assertIsoTime = (v: string): string => guard(ISO_TIMESTAMP_RE, 'recovery target time', v);
+
+/** POSIX single-quote a value for a `sh -c` script. */
+export function shq(v: string): string {
+  return `'${v.replace(/'/g, `'\\''`)}'`;
+}
 
 interface RunOutput {
   exitCode: number;
@@ -286,7 +314,7 @@ export async function backupVolume(
       image,
       args: ['backup', MOUNT, '--json', '--host', p.volume, ...tagArgs],
       env: repoEnv(p.repo),
-      binds: [`${p.volume}:${MOUNT}:ro`, ...repoBinds(p.repo)],
+      binds: [`${assertVolumeName(p.volume)}:${MOUNT}:ro`, ...repoBinds(p.repo)],
       networkMode: p.network,
     },
     onLine,
@@ -332,6 +360,8 @@ export async function restoreVolume(
 ): Promise<import('@swarmy/core/protocol').RestoreVolumeResult> {
   const image = p.image ?? DEFAULT_RESTIC_IMAGE;
   const started = Date.now();
+  assertVolumeName(p.targetVolume);
+  assertSnapshotRef(p.snapshotId);
 
   // Ensure the destination volume exists (idempotent create).
   await docker.docker.createVolume({ Name: p.targetVolume }).catch(() => undefined);
@@ -343,7 +373,7 @@ export async function restoreVolume(
       // `--target /` because the snapshot stored the absolute mount path (/data).
       args: ['restore', p.snapshotId, '--target', '/', '--json'],
       env: repoEnv(p.repo),
-      binds: [`${p.targetVolume}:${MOUNT}`, ...repoBinds(p.repo)],
+      binds: [`${assertVolumeName(p.targetVolume)}:${MOUNT}`, ...repoBinds(p.repo)],
       networkMode: p.network,
     },
     streamer(conn, p.commandId),
@@ -424,7 +454,7 @@ export function parseSummary(stdout: string): ResticSummary {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Env shared by every postgres-client sidecar. PGPASSWORD is the only secret. */
-function pgEnv(conn: DbConnection): string[] {
+export function pgEnv(conn: DbConnection): string[] {
   return [
     `PGPASSWORD=${conn.password}`,
     `DBHOST=${conn.host}`,
@@ -596,7 +626,7 @@ async function backupDbPhysical(
         entrypoint: ['/bin/sh', '-c'],
         args: ['set -e; export PGDATA=' + PGDATA_MOUNT + '; wal-g backup-push "$PGDATA"'],
         env: [...env, `PGDATA=${PGDATA_MOUNT}`],
-        binds: [`${p.dataVolume}:${PGVOL_MOUNT}:ro`],
+        binds: [`${assertVolumeName(p.dataVolume)}:${PGVOL_MOUNT}:ro`],
         networkMode: p.network,
       },
       onLine,
@@ -625,7 +655,7 @@ async function backupDbPhysical(
           `pgbackrest --stanza=swarmy --pg1-path=${PGDATA_MOUNT} ${flags} --type=full backup`,
       ],
       env,
-      binds: [`${p.dataVolume}:${PGVOL_MOUNT}`],
+      binds: [`${assertVolumeName(p.dataVolume)}:${PGVOL_MOUNT}`],
       networkMode: p.network,
     },
     onLine,
@@ -642,16 +672,52 @@ async function backupDbPhysical(
   };
 }
 
-function pgBackRestRepoFlags(repo: ResticRepo, bucket: string, endpoint: string, prefix: string): string {
+export function pgBackRestRepoFlags(repo: ResticRepo, bucket: string, endpoint: string, prefix: string): string {
   const host = endpoint.replace(/^https?:\/\//, '');
+  // Every value is shell-quoted: this string is spliced into a `sh -c` script.
   return [
     '--repo1-type=s3',
-    `--repo1-s3-bucket=${bucket}`,
-    `--repo1-s3-endpoint=${host}`,
-    `--repo1-s3-region=${repo.region ?? 'us-east-1'}`,
-    `--repo1-path=/${prefix || 'pgbackrest'}`,
+    `--repo1-s3-bucket=${shq(bucket)}`,
+    `--repo1-s3-endpoint=${shq(host)}`,
+    `--repo1-s3-region=${shq(repo.region ?? 'us-east-1')}`,
+    `--repo1-path=${shq(`/${prefix || 'pgbackrest'}`)}`,
     '--repo1-s3-uri-style=path',
   ].join(' ');
+}
+
+// ── restore scripts (pure; every payload value rides as container ENV) ──────
+// The scripts are constants modulo booleans and server-derived mount paths, so
+// no payload value is ever interpolated into shell. Tested in backup.test.ts.
+
+/** Logical load: `$DBNAME` comes from {@link pgEnv}. */
+export function logicalRestoreScript(dumpAll: boolean): string {
+  return dumpAll
+    ? `set -e; psql -h "$DBHOST" -p "$DBPORT" -U "$DBUSER" --no-password -d postgres -f ${DUMP_MOUNT}/dump.sql`
+    : `set -e; pg_restore -h "$DBHOST" -p "$DBPORT" -U "$DBUSER" --no-password -d "$DBNAME" ` +
+        `--clean --if-exists --no-owner ${DUMP_MOUNT}/dump.pgc`;
+}
+
+/** wal-g fetch + recovery target: `$SWARMY_BACKUP_NAME`, `$SWARMY_TARGET_TIME`. */
+export function walgRestoreScript(withTarget: boolean): string {
+  const recoveryConf = withTarget
+    ? `printf "recovery_target_time = '%s'\\nrecovery_target_action = 'promote'\\n" "$SWARMY_TARGET_TIME" ` +
+      `>> ${PGDATA_MOUNT}/postgresql.auto.conf; touch ${PGDATA_MOUNT}/recovery.signal;`
+    : '';
+  return `set -e; export PGDATA=${PGDATA_MOUNT}; wal-g backup-fetch "$PGDATA" "$SWARMY_BACKUP_NAME"; ${recoveryConf}`;
+}
+
+/** pgbackrest restore: `$SWARMY_TARGET_TIME`; `flags` from {@link pgBackRestRepoFlags} (quoted). */
+export function pgbackrestRestoreScript(flags: string, withTarget: boolean): string {
+  const typeFlag = withTarget ? '--type=time --target="$SWARMY_TARGET_TIME"' : '--type=default';
+  return `set -e; pgbackrest --stanza=swarmy --pg1-path=${PGDATA_MOUNT} ${flags} ${typeFlag} --delta restore`;
+}
+
+/** The env the PITR scripts read (validated again here — defense in depth). */
+export function pitrScriptEnv(p: { snapshotId?: string; targetTime?: string }): string[] {
+  const snap = p.snapshotId && p.snapshotId.toLowerCase() !== 'latest' ? assertSnapshotRef(p.snapshotId) : 'LATEST';
+  const env = [`SWARMY_BACKUP_NAME=${snap}`];
+  if (p.targetTime) env.push(`SWARMY_TARGET_TIME=${assertIsoTime(p.targetTime)}`);
+  return env;
 }
 
 /** wal-g prints `Wrote backup with name base_…`; fall back to scanning for base_*. */
@@ -696,6 +762,7 @@ async function restoreDbLogical(
   if (dumpAll && p.mode === 'single-database') {
     throw new Error('single-database restore needs a pg_dump (per-db) backup, not pg_dumpall');
   }
+  assertSnapshotRef(p.snapshotId);
   const scratch = scratchVolumeName(`${p.commandId}-restore`);
   await docker.docker.createVolume({ Name: scratch });
   try {
@@ -716,11 +783,8 @@ async function restoreDbLogical(
     }
 
     // 2) Load it back into the target database.
-    const targetDb = p.database ?? p.conn.database;
-    const script = dumpAll
-      ? `set -e; psql -h "$DBHOST" -p "$DBPORT" -U "$DBUSER" --no-password -d postgres -f ${DUMP_MOUNT}/dump.sql`
-      : `set -e; pg_restore -h "$DBHOST" -p "$DBPORT" -U "$DBUSER" --no-password -d "${targetDb}" ` +
-        `--clean --if-exists --no-owner ${DUMP_MOUNT}/dump.pgc`;
+    const targetDb = assertDbName(p.database ?? p.conn.database);
+    const script = logicalRestoreScript(dumpAll);
     const load = await runSidecar(
       docker,
       {
@@ -762,23 +826,19 @@ async function restoreDbPitr(
   }
   const { env, bucket, endpoint, prefix } = physicalEnv(p.repo);
   const target = p.targetTime ?? '';
+  const scriptEnv = pitrScriptEnv(p);
+  const dataVolume = assertVolumeName(p.dataVolume);
   if (p.engine === 'wal-g') {
     const image = p.engineImage ?? DEFAULT_WALG_IMAGE;
     // Fetch the base backup, then stage a recovery target so PG replays WAL to it.
-    const recoveryConf = target
-      ? `printf "recovery_target_time = '%s'\\nrecovery_target_action = 'promote'\\n" "${target}" ` +
-        `>> ${PGDATA_MOUNT}/postgresql.auto.conf; touch ${PGDATA_MOUNT}/recovery.signal;`
-      : '';
     const res = await runSidecar(
       docker,
       {
         image,
         entrypoint: ['/bin/sh', '-c'],
-        args: [
-          `set -e; export PGDATA=${PGDATA_MOUNT}; wal-g backup-fetch "$PGDATA" ${p.snapshotId || 'LATEST'}; ${recoveryConf}`,
-        ],
-        env: [...env, `PGDATA=${PGDATA_MOUNT}`],
-        binds: [`${p.dataVolume}:${PGVOL_MOUNT}`],
+        args: [walgRestoreScript(Boolean(target))],
+        env: [...env, ...scriptEnv, `PGDATA=${PGDATA_MOUNT}`],
+        binds: [`${dataVolume}:${PGVOL_MOUNT}`],
         networkMode: p.network,
       },
       onLine,
@@ -789,17 +849,14 @@ async function restoreDbPitr(
   } else {
     const image = p.engineImage ?? DEFAULT_PGBACKREST_IMAGE;
     const flags = pgBackRestRepoFlags(p.repo, bucket, endpoint, prefix);
-    const typeFlag = target ? `--type=time --target="${target}"` : '--type=default';
     const res = await runSidecar(
       docker,
       {
         image,
         entrypoint: ['/bin/sh', '-c'],
-        args: [
-          `set -e; pgbackrest --stanza=swarmy --pg1-path=${PGDATA_MOUNT} ${flags} ${typeFlag} --delta restore`,
-        ],
-        env,
-        binds: [`${p.dataVolume}:${PGVOL_MOUNT}`],
+        args: [pgbackrestRestoreScript(flags, Boolean(target))],
+        env: [...env, ...scriptEnv],
+        binds: [`${dataVolume}:${PGVOL_MOUNT}`],
         networkMode: p.network,
       },
       onLine,

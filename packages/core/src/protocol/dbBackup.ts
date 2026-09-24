@@ -12,7 +12,7 @@
  */
 import { z } from 'zod';
 import { CommandId } from './primitives';
-import { ResticRepo } from './backup';
+import { DbName, DockerVolumeName, IsoTimestamp, ResticRepo, SnapshotRef } from './backup';
 import { ResticSnapshotInfo, RetentionOutcome } from './backup';
 
 /** Reusable command preamble (every controller→agent command carries these). */
@@ -96,7 +96,7 @@ export const DbConnection = z.object({
   port: z.number().int().positive().default(5432),
   user: z.string().default('postgres'),
   password: z.string(),
-  database: z.string().default('app'),
+  database: DbName.default('app'),
 });
 export type DbConnection = z.infer<typeof DbConnection>;
 
@@ -117,7 +117,7 @@ const engineEnv = {
   /** restic image for the logical dump→repo store leg. */
   resticImage: z.string().optional(),
   /** physical engines: the primary's PGDATA Docker volume (base backup source). */
-  dataVolume: z.string().optional(),
+  dataVolume: DockerVolumeName.optional(),
 };
 
 // ── db.backup ────────────────────────────────────────────────────────────────
@@ -170,11 +170,11 @@ export const DbRestorePayload = z.object({
   conn: DbConnection,
   repo: ResticRepo,
   /** restic snapshot id (logical) or physical backup name; `latest` by default. */
-  snapshotId: z.string().default('latest'),
+  snapshotId: SnapshotRef.default('latest'),
   /** pitr: ISO-8601 recovery target time. */
-  targetTime: z.string().optional(),
+  targetTime: IsoTimestamp.optional(),
   /** single-database: which database to extract/restore. */
-  database: z.string().optional(),
+  database: DbName.optional(),
   tags: z.array(z.string()).default([]),
   /**
    * pitr (additive, slice A2): `restore_command` the agent stages into
