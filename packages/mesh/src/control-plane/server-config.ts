@@ -21,7 +21,7 @@ export type MeshControlTls =
   /** NetBird's own ACME on :443 (HTTP-01 on :80): first boot on a public box. */
   | { mode: 'letsencrypt'; email?: string }
   /** Behind swarmy's edge Caddy: plain HTTP on the docker_gwbridge gateway. */
-  | { mode: 'edge'; listen: string }
+  | { mode: 'edge'; listen: string; /** Public https port of the fronting proxy (default 443). */ publicPort?: number }
   /** Lab / private network: plain HTTP on a port, no TLS at all. */
   | { mode: 'none'; port: number };
 
@@ -65,6 +65,7 @@ export const MESH_CONTROL_ENV: Readonly<Record<string, string>> = {
 /** The public base URL peers and browsers use (`https://mesh.x` or `http://mesh.x:8081`). */
 export function meshControlPublicUrl(meshDomain: string, tls: MeshControlTls): string {
   if (tls.mode === 'none') return `http://${meshDomain}:${tls.port}`;
+  if (tls.mode === 'edge' && tls.publicPort && tls.publicPort !== 443) return `https://${meshDomain}:${tls.publicPort}`;
   return `https://${meshDomain}`;
 }
 
@@ -109,7 +110,9 @@ export function renderMeshControlConfig(input: MeshControlConfigInput): string {
   const listenAddress =
     tls.mode === 'letsencrypt' ? ':443' : tls.mode === 'edge' ? tls.listen : `:${tls.port}`;
   const exposedAddress =
-    tls.mode === 'none' ? `http://${domain}:${tls.port}` : `https://${domain}:443`;
+    tls.mode === 'none'
+      ? `http://${domain}:${tls.port}`
+      : `https://${domain}:${tls.mode === 'edge' ? (tls.publicPort ?? 443) : 443}`;
 
   const server: Record<string, unknown> = {
     listenAddress,

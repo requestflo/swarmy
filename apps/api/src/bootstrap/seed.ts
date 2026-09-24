@@ -244,7 +244,11 @@ function managedMeshFromEnv(): Record<string, unknown> | null {
   const tls = tlsRaw.startsWith('none')
     ? { mode: 'none', port: Number(tlsRaw.split(':')[1] ?? 8081) || 8081 }
     : tlsRaw.startsWith('edge')
-      ? { mode: 'edge', listen: tlsRaw.split('=')[1] ?? '172.18.0.1:8081' }
+      ? (() => {
+          // edge=<listen>[@<public https port>]
+          const [listen, port] = (tlsRaw.split('=')[1] ?? '172.17.0.1:8081').split('@');
+          return { mode: 'edge', listen, ...(port && Number(port) !== 443 ? { publicPort: Number(port) } : {}) };
+        })()
       : { mode: 'letsencrypt' };
   return {
     cluster: (process.env.SWARMY_MESH_CLUSTER || ORG_SLUG).toLowerCase(),

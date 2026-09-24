@@ -77,6 +77,14 @@ describe('renderMeshControlConfig (golden)', () => {
     expect(meshControlOidcCallback('m.x', { mode: 'edge', listen: 'x' })).toBe('https://m.x/oauth2/callback');
   });
 
+  test('behind a proxy on another port: every URL carries it', () => {
+    const tls = { mode: 'edge', listen: '172.17.0.1:8081', publicPort: 8444 } as const;
+    const out = JSON.parse(renderMeshControlConfig({ ...base, tls }).split('\n').slice(1).join('\n'));
+    expect(out.server.exposedAddress).toBe('https://mesh.example.com:8444');
+    expect(out.server.auth.issuer).toBe('https://mesh.example.com:8444/oauth2');
+    expect(meshControlOidcCallback('mesh.example.com', tls)).toBe('https://mesh.example.com:8444/oauth2/callback');
+  });
+
   test('refuses bad input', () => {
     expect(() => renderMeshControlConfig({ ...base, meshDomain: 'https://mesh.x' })).toThrow(/invalid mesh domain/);
     expect(() => renderMeshControlConfig({ ...base, authSecret: 'short' })).toThrow(/authSecret/);

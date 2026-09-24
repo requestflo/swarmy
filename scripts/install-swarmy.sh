@@ -112,6 +112,8 @@ MESH_TLS="${SWARMY_MESH_TLS:-}"
 CLUSTER_NAME="${SWARMY_CLUSTER_NAME:-}"
 # PEM file of a private CA that swarmy's https address uses (NetBird must trust it).
 MESH_EXTRA_CA="${SWARMY_MESH_EXTRA_CA:-}"
+# Behind a fronting proxy on another port than 443 (--mesh-tls edge only).
+MESH_PUBLIC_PORT="${SWARMY_MESH_PUBLIC_PORT:-}"
 ADDR_POOL="${SWARMY_DEFAULT_ADDR_POOL:-}"
 IMAGE="${SWARMY_IMAGE:-$DEFAULT_IMAGE}"
 AGENT_IMAGE="${SWARMY_AGENT_IMAGE:-$DEFAULT_AGENT_IMAGE}"
@@ -259,7 +261,9 @@ mesh_tls_mode() {
 }
 # mesh_public_url DOMAIN TLS → what peers, browsers and the controller dial.
 mesh_public_url() {
-  if [ "$2" = none ]; then printf 'http://%s:%s' "$1" "$MESH_CONTROL_HTTP_PORT"; else printf 'https://%s' "$1"; fi
+  if [ "$2" = none ]; then printf 'http://%s:%s' "$1" "$MESH_CONTROL_HTTP_PORT"
+  elif [ "$2" = edge ] && [ -n "${MESH_PUBLIC_PORT:-}" ] && [ "$MESH_PUBLIC_PORT" != 443 ]; then printf 'https://%s:%s' "$1" "$MESH_PUBLIC_PORT"
+  else printf 'https://%s' "$1"; fi
 }
 # mesh_addr_pool SEED → 10.<200..249>.0.0/16, stable per seed: uncommon (clear of
 # the 10.0.x home/office LANs laptops sit on) and distinct per cluster.
@@ -274,7 +278,9 @@ mesh_addr_pool() {
 # server ignores it — the Default policy is deleted after setup instead.
 mesh_control_config() {
   local domain="$1" tls="$2" listen="$3" auth="$4" key="$5" exposed issuer tlsblock=""
-  if [ "$tls" = none ]; then exposed="http://${domain}:${MESH_CONTROL_HTTP_PORT}"; else exposed="https://${domain}:443"; fi
+  if [ "$tls" = none ]; then exposed="http://${domain}:${MESH_CONTROL_HTTP_PORT}"
+  elif [ "$tls" = edge ]; then exposed="https://${domain}:${MESH_PUBLIC_PORT:-443}"
+  else exposed="https://${domain}:443"; fi
   issuer="$(mesh_public_url "$domain" "$tls")/oauth2"
   if [ "$tls" = letsencrypt ]; then
     tlsblock=",
@@ -1064,7 +1070,7 @@ deploy_stack() {
   local mesh_mode="" mesh_tls_env=""
   if [ "$MESH" = swarmy ]; then
     mesh_mode="managed-by-swarmy"
-    case "$MESH_TLS" in none) mesh_tls_env="none:${MESH_CONTROL_HTTP_PORT}" ;; edge) mesh_tls_env="edge=${MESH_LISTEN}" ;; *) mesh_tls_env="letsencrypt" ;; esac
+    case "$MESH_TLS" in none) mesh_tls_env="none:${MESH_CONTROL_HTTP_PORT}" ;; edge) mesh_tls_env="edge=${MESH_LISTEN}${MESH_PUBLIC_PORT:+@$MESH_PUBLIC_PORT}" ;; *) mesh_tls_env="letsencrypt" ;; esac
   fi
   # Caddy reaches the controller over swarmy-control: trust that subnet's
   # X-Forwarded-For so auth rate limits see real clients, not Caddy's address.

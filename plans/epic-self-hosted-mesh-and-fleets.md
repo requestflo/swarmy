@@ -722,6 +722,13 @@ they proved is below. "Pass" means seen working, not read in the docs.
   TLS handover upstream works as planned. The gwbridge bind exposes nothing
   that public :443 doesn't already expose (API needs a token, gRPC needs peer
   keys).
+- **`server.listenAddress` ignores its host part.** The combined server
+  only takes the port (`net.SplitHostPort` → port), so `172.17.0.1:8081`
+  still listens on `*:8081`. Seen in the lab e2e. Behind the edge, the
+  plain listener is therefore reachable on every interface. It serves the
+  same content as :443 (the API needs a token, gRPC needs peer keys), but
+  unencrypted. Hardening (M3): a host firewall rule that allows 8081 only
+  from docker bridges and loopback.
 - STUN (3478/udp) can't go through Caddy, as documented. On the real host it
   is bound on the host network directly.
 - Not checked here: NetBird's own `tls.letsencrypt` (it needs a public name).
