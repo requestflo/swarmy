@@ -355,7 +355,7 @@ export type { FireEventInput } from './services/alerts-fire';
 export { recordIncidentEvent } from './services/incidents-record';
 export { sendNotification } from './services/notifications-send';
 export { garageMajorOf, toGarageRequest, LEGACY_GARAGE_IMAGE, type GarageMajor } from './services/garage-admin';
-export { resumeEngineUpgrade } from './services/engine-upgrade.service';
+export { resumeEngineUpgrade, readEngineUpgradeRun } from './services/engine-upgrade.service';
 
 // ── swarm-kv: class-(b) infra config stored in the swarm (plans/epic-docker-native-state.md P4) ──
 export {
@@ -376,3 +376,4 @@ export { ingressConfigRepo, ingressEnabledOrgIds } from './services/ingress-conf
 export { meshConfigRepo } from './services/mesh-config.repo';
 export { observabilityConfigRepo } from './services/observability-config.repo';
 export { geoDnsConfigRepo, dnsZoneRepo } from './services/geodns.repo';
+export { storageClusterRepo, bucketAccessRepo } from './services/storage-cluster.repo';

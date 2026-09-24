@@ -17,6 +17,7 @@ import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import { storageClusterRepo, type StorageClusterDoc, type StorageClusterRow } from './storage-cluster.repo';
 import { resolveManagerNode } from './dispatch.service';
 import { dispatchNodeLabels } from './node.service';
 import { LEGACY_GARAGE_IMAGE } from './garage-admin';
@@ -70,34 +71,15 @@ export interface StorageClusterView {
   updatedAt: string | null;
 }
 
-interface ClusterRow {
-  id: string;
-  orgId: string;
-  driver: string;
-  enabled: boolean;
-  replicationFactor: number;
-  region: string;
-  memberNodeIds: unknown;
-  rpcSecretRef: string | null;
-  adminTokenRef: string | null;
-  accessKeyRef: string | null;
-  secretKeyRef: string | null;
-  layout: unknown;
-  /** Garage image the store runs (null = legacy v1.0.1). */
-  engineImage?: string | null;
-  /** Resumable engine-upgrade run state. */
-  engineUpgrade?: unknown;
-  updatedAt: Date;
-}
+type ClusterRow = StorageClusterRow;
 
-// `storageCluster` is added to the Prisma schema as part of this epic (see
-// INTEGRATION). Until generated, access via a loose handle to keep typecheck green.
-function db(ctx: OrgContext): {
-  findUnique(args: unknown): Promise<ClusterRow | null>;
-  upsert(args: unknown): Promise<ClusterRow>;
-  update(args: unknown): Promise<ClusterRow>;
-} {
-  return (ctx.db as unknown as { storageCluster: ReturnType<typeof db> }).storageCluster;
+/** The org's store config (swarm-kv `storage/<orgId>`); null = never configured. */
+function db(ctx: OrgContext) {
+  return {
+    findUnique: (_args?: unknown): Promise<ClusterRow | null> => storageClusterRepo.find(ctx, ctx.activeOrgId),
+    update: (args: { where?: unknown; data: Partial<StorageClusterDoc> }): Promise<ClusterRow> =>
+      storageClusterRepo.update(ctx, ctx.activeOrgId, args.data),
+  };
 }
 
 function members(row: ClusterRow | null | undefined): string[] {
@@ -238,31 +220,28 @@ export async function setDriver(
   input: SetDriverInput,
 ): Promise<StorageClusterView> {
   const existing = await load(ctx);
-  const row = await db(ctx).upsert({
-    where: { orgId: ctx.activeOrgId },
-    create: {
-      orgId: ctx.activeOrgId,
-      driver: input.driver.toUpperCase(),
-      enabled: false,
-      replicationFactor: input.replicationFactor ?? DEFAULT_REPLICATION,
-      region: input.region ?? 'swarmy',
-      memberNodeIds: input.memberNodeIds ?? [],
-      rpcSecretRef: encryptSecret(garageRpcSecret()),
-      adminTokenRef: encryptSecret(randomToken('gadm')),
-      // A brand-new store starts on the current engine.
-      engineImage: DEFAULT_GARAGE_IMAGE,
-      accessKeyRef: null,
-      secretKeyRef: null,
-      layout: {},
-    },
-    update: {
-      driver: input.driver.toUpperCase(),
-      replicationFactor:
-        input.replicationFactor ?? existing?.replicationFactor ?? DEFAULT_REPLICATION,
-      region: input.region ?? existing?.region ?? 'swarmy',
-      memberNodeIds: input.memberNodeIds ?? members(existing),
-    },
-  });
+  const driver = input.driver.toUpperCase() as StorageClusterDoc['driver'];
+  const row = existing
+    ? await storageClusterRepo.update(ctx, ctx.activeOrgId, {
+        driver,
+        replicationFactor: input.replicationFactor ?? existing.replicationFactor ?? DEFAULT_REPLICATION,
+        region: input.region ?? existing.region ?? 'swarmy',
+        memberNodeIds: input.memberNodeIds ?? members(existing),
+      })
+    : await storageClusterRepo.update(ctx, ctx.activeOrgId, {
+        driver,
+        enabled: false,
+        replicationFactor: input.replicationFactor ?? DEFAULT_REPLICATION,
+        region: input.region ?? 'swarmy',
+        memberNodeIds: input.memberNodeIds ?? [],
+        rpcSecretRef: encryptSecret(garageRpcSecret()),
+        adminTokenRef: encryptSecret(randomToken('gadm')),
+        // A brand-new store starts on the current engine.
+        engineImage: DEFAULT_GARAGE_IMAGE,
+        accessKeyRef: null,
+        secretKeyRef: null,
+        layout: {},
+      });
   await writeAudit(ctx, {
     action: 'storage.setDriver',
     targetType: 'storageCluster',

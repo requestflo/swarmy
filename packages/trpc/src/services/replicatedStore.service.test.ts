@@ -10,6 +10,7 @@ import {
   pickDefaultMembers,
   storeNeedsConverge,
 } from './replicatedStore.service';
+import { peekKv, seedKv, useMemoryKv } from './swarm-kv.service';
 
 process.env.SWARMY_SECRET_KEY ??= 'a'.repeat(64);
 
@@ -88,9 +89,7 @@ describe('storeNeedsConverge', () => {
 describe('enable — 2-node swarm, no explicit members', () => {
   function fakeCtx() {
     const dispatched: Array<{ node: string; cmd: string; payload: Record<string, unknown> }> = [];
-    let row = {
-      id: 'sc1',
-      orgId: 'org1',
+    const row = {
       driver: 'GARAGE',
       enabled: false,
       replicationFactor: 3,
@@ -101,17 +100,14 @@ describe('enable — 2-node swarm, no explicit members', () => {
       accessKeyRef: null,
       secretKeyRef: null,
       layout: {},
-      updatedAt: new Date(0),
+      engineImage: null,
+      publicS3Domain: null,
     };
     const swarmIds: Record<string, string> = { mgr: 'swarm-mgr', wrk: 'swarm-wrk' };
     const ctx = {
       activeOrgId: 'org1',
       user: { id: 'u1' },
       db: {
-        storageCluster: {
-          findUnique: async () => row,
-          update: async ({ data }: { data: Partial<typeof row> }) => (row = { ...row, ...data }),
-        },
         node: { findMany: async () => [{ id: 'mgr' }, { id: 'wrk' }] },
         auditLog: { create: async () => ({}) },
       },
@@ -141,7 +137,10 @@ describe('enable — 2-node swarm, no explicit members', () => {
         },
       },
     } as unknown as OrgContext;
-    return { ctx, dispatched, getRow: () => row };
+    // The store config lives in the org's swarm (swarm-kv).
+    useMemoryKv(ctx.hub);
+    seedKv(ctx.hub, 'org1', 'storage', 'org1', row);
+    return { ctx, dispatched, getRow: () => peekKv<typeof row>(ctx.hub, 'org1', 'storage', 'org1')! };
   }
 
   it('uses both nodes, clamps replication 3→2, pins via node labels, deploys once via the manager with a Docker config', async () => {

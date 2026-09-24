@@ -14,6 +14,7 @@ import {
   STALE_RUN_MS,
   summarizeRun,
 } from './offsiteMirror.service';
+import { seedKv } from './swarm-kv.service';
 
 process.env.SWARMY_SECRET_KEY ??= 'a'.repeat(64);
 
@@ -126,7 +127,6 @@ function fakeDb() {
       finishedAt: null,
     })),
     backupTarget: table(() => ({ createdAt: new Date() })),
-    storageCluster: table(),
     auditLog: table(() => ({ createdAt: new Date() })),
   };
 }
@@ -171,8 +171,23 @@ function fakeHub(opts: { manager?: string; rcloneOutput?: string; rcloneExit?: n
   return hub;
 }
 
+/** dbs whose org has a Garage store (the store config lives in the org's swarm, swarm-kv). */
+const withStore = new WeakSet<object>();
+const seededHubs = new WeakSet<object>();
+
 function ctxFor(db: FakeDb, hub: ReturnType<typeof fakeHub>, user: { id: string } | null = { id: 'u1' }) {
-  return { db, hub, activeOrgId: ORG, user } as unknown as OrgContext;
+  const ctx = { db, hub, activeOrgId: ORG, user } as unknown as OrgContext;
+  if (withStore.has(db) && !seededHubs.has(hub)) {
+    seededHubs.add(hub);
+    seedKv(ctx.hub, ORG, 'storage', ORG, {
+      enabled: true,
+      driver: 'GARAGE',
+      region: 'garage',
+      adminTokenRef: encryptSecret('tok'),
+      memberNodeIds: [],
+    });
+  }
+  return ctx;
 }
 
 async function seedTarget(db: FakeDb) {
@@ -192,9 +207,7 @@ async function seedTarget(db: FakeDb) {
 }
 
 async function seedStore(db: FakeDb) {
-  await db.storageCluster.create({
-    data: { orgId: ORG, enabled: true, driver: 'GARAGE', region: 'garage', adminTokenRef: encryptSecret('tok'), memberNodeIds: [] },
-  });
+  withStore.add(db);
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));

@@ -48,6 +48,7 @@ import { GARAGE_NETWORK, GARAGE_S3_PORT, garageAdminRoot, garageAdminUrl } from 
 import { MAX_PRESIGN_EXPIRES_SECONDS, presignS3Url } from './s3-presign';
 import { bucketInfoUrlPrefix, garageMajorOf, toGarageRequest, type GarageCall, type GarageMajor } from './garage-admin';
 import { parsePhysicalSecretName, physicalSecretName } from './secretsMgr.service';
+import { bucketAccessRepo, storageClusterRepo } from './storage-cluster.repo';
 
 // Keep in lockstep with replicatedStore.service.ts (same deployment).
 const STORE_SERVICE_NAME = 'swarmy-garage';
@@ -350,7 +351,7 @@ interface StoreHandle {
 
 /** Load the org's StorageCluster row; null when the store is off/never set up. */
 async function loadStore(ctx: OrgContext): Promise<StoreHandle | null> {
-  const row = await ctx.db.storageCluster.findUnique({ where: { orgId: ctx.activeOrgId } });
+  const row = await storageClusterRepo.find(ctx, ctx.activeOrgId);
   if (!row || !row.enabled || row.driver === 'NONE' || !row.adminTokenRef) return null;
   return {
     region: row.region,
@@ -583,9 +584,7 @@ export async function deleteBucket(
   });
   // Its edge route (if it was MESH/PUBLIC) goes with it; the ingress reconcile
   // drops the path from the allowlist on its next tick.
-  await ctx.db.bucketAccess
-    .deleteMany({ where: { orgId: ctx.activeOrgId, bucketId } })
-    .catch(() => undefined);
+  await bucketAccessRepo.remove(ctx, ctx.activeOrgId, bucketId).catch(() => undefined);
   await writeAudit(ctx, {
     action: 'buckets.delete',
     targetType: 'bucket',
@@ -813,7 +812,7 @@ async function ensurePresignKey(
   ctx: OrgContext,
   store: StoreHandle,
 ): Promise<{ accessKeyId: string; secretAccessKey: string }> {
-  const row = await ctx.db.storageCluster.findUnique({ where: { orgId: ctx.activeOrgId } });
+  const row = await storageClusterRepo.find(ctx, ctx.activeOrgId);
   if (!row) throw notFound('storage cluster', ctx.activeOrgId);
   if (row.accessKeyRef && row.secretKeyRef) {
     return {
@@ -822,12 +821,9 @@ async function ensurePresignKey(
     };
   }
   const key = await mintKey(ctx, store, PRESIGN_KEY_NAME);
-  await ctx.db.storageCluster.update({
-    where: { orgId: ctx.activeOrgId },
-    data: {
-      accessKeyRef: encryptSecret(key.accessKeyId),
-      secretKeyRef: encryptSecret(key.secretAccessKey),
-    },
+  await storageClusterRepo.update(ctx, ctx.activeOrgId, {
+    accessKeyRef: encryptSecret(key.accessKeyId),
+    secretKeyRef: encryptSecret(key.secretAccessKey),
   });
   return { accessKeyId: key.accessKeyId, secretAccessKey: key.secretAccessKey };
 }
@@ -1137,7 +1133,7 @@ export async function objectStoreState(
   ctx: OrgContext,
 ): Promise<{ enabled: false } | { enabled: true; region: string; endpoint: string }> {
   // Same predicate as loadStore, without decrypting the admin token.
-  const row = await ctx.db.storageCluster.findUnique({ where: { orgId: ctx.activeOrgId } });
+  const row = await storageClusterRepo.find(ctx, ctx.activeOrgId);
   if (!row || !row.enabled || row.driver === 'NONE' || !row.adminTokenRef) return { enabled: false };
   return { enabled: true, region: row.region, endpoint: garageS3Endpoint() };
 }

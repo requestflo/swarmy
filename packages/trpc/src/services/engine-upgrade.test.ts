@@ -8,13 +8,18 @@ import {
   startEngineUpgrade,
   GARAGE_META_VOLUME,
 } from './engine-upgrade.service';
+import { peekKv, seedKv, useMemoryKv } from './swarm-kv.service';
 
 // ── fakes for the store's admin API + redeploy (injected seams) ──────────────
 let health: Array<{ status: string; connectedNodes: number }> = [];
 let buckets: Array<{ id: string; objects: number }> = [];
 let bucketsAfter: Array<{ id: string; objects: number }> | null = null;
 const deployedImages: string[] = [];
-let engineImage: string | null = null;
+/** The world's hub (its in-memory swarm holds the storage document). */
+let hubRef: object | undefined;
+/** The engine image the storage document (swarm-kv) records. */
+const engineImage = (): string | null =>
+  peekKv<{ engineImage: string | null }>(hubRef as never, 'org_1', 'storage', 'org_1')?.engineImage ?? null;
 const calls: string[] = [];
 
 const deps = {
@@ -27,7 +32,7 @@ const deps = {
     return JSON.stringify({ id, objects: list.find((b) => b.id === id)?.objects ?? 0 });
   },
   redeploy: async () => {
-    deployedImages.push(engineImage ?? 'dxflrs/garage:v1.0.1');
+    deployedImages.push(engineImage() ?? 'dxflrs/garage:v1.0.1');
     return {};
   },
   audit: async () => undefined,
@@ -37,25 +42,18 @@ const deps = {
 
 
 function world(opts: { copyFailsOn?: string; stageFailsOn?: string } = {}) {
-  let row: Record<string, unknown> = {
-    id: 'sc1',
-    orgId: 'org_1',
-    enabled: true,
-    engineImage: null,
-    memberNodeIds: ['n1', 'n2', 'n3'],
-    engineUpgrade: null,
-  };
+  let opRun: unknown = null;
   let storeTasks = 3;
   const dispatched: Array<{ node: string; cmd: string; payload: any }> = [];
   const ctx = {
     activeOrgId: 'org_1',
     db: {
-      storageCluster: {
-        findUnique: async () => ({ ...row, engineImage }),
-        update: async ({ data }: { data: Record<string, unknown> }) => {
-          if ('engineImage' in data) engineImage = data.engineImage as string | null;
-          row = { ...row, ...data };
-          return row;
+      // Run state lives in the controller store (OperationRun).
+      operationRun: {
+        findUnique: async () => (opRun ? { run: opRun } : null),
+        upsert: async ({ create }: { create: { run: unknown } }) => {
+          opRun = structuredClone(create.run);
+          return {};
         },
       },
     },
@@ -83,7 +81,24 @@ function world(opts: { copyFailsOn?: string; stageFailsOn?: string } = {}) {
       },
     },
   };
-  return { ctx: ctx as any, dispatched, row: () => row };
+  // The store config lives in the org's swarm (swarm-kv).
+  hubRef = ctx.hub;
+  useMemoryKv(ctx.hub as never);
+  seedKv(ctx.hub as never, 'org_1', 'storage', 'org_1', {
+    driver: 'GARAGE',
+    enabled: true,
+    engineImage: null,
+    memberNodeIds: ['n1', 'n2', 'n3'],
+    replicationFactor: 3,
+    region: 'swarmy',
+    layout: {},
+    rpcSecretRef: null,
+    adminTokenRef: null,
+    accessKeyRef: null,
+    secretKeyRef: null,
+    publicS3Domain: null,
+  });
+  return { ctx: ctx as any, dispatched, row: () => ({ engineUpgrade: opRun }) };
 }
 
 async function settle(w: ReturnType<typeof world>) {
@@ -103,7 +118,6 @@ beforeEach(() => {
   ];
   bucketsAfter = null;
   deployedImages.length = 0;
-  engineImage = null;
   calls.length = 0;
 });
 
@@ -129,7 +143,7 @@ describe('engine upgrade — run', () => {
     await startEngineUpgrade(w.ctx, deps);
     const run = await settle(w);
     expect(run.status).toBe('done');
-    expect(engineImage).toBe('dxflrs/garage:v2.4.1');
+    expect(engineImage()).toBe('dxflrs/garage:v2.4.1');
     expect(deployedImages).toEqual(['dxflrs/garage:v2.4.1']);
     // Order: remove the service BEFORE any copy (a live copy would be torn).
     const kind = (d: { cmd: string; payload: any }) =>
@@ -156,7 +170,7 @@ describe('engine upgrade — run', () => {
     expect(run.status).toBe('failed');
     expect(run.error).toContain('degraded');
     expect(w.dispatched.some((d) => d.cmd === 'service.remove')).toBe(false);
-    expect(engineImage).toBeNull();
+    expect(engineImage()).toBeNull();
   });
 
   it('a member that cannot stage the copy image fails preflight — nothing is stopped', async () => {
@@ -166,7 +180,7 @@ describe('engine upgrade — run', () => {
     expect(run.status).toBe('failed');
     expect(run.error).toContain('n2');
     expect(w.dispatched.some((d) => d.cmd === 'service.remove')).toBe(false);
-    expect(engineImage).toBeNull();
+    expect(engineImage()).toBeNull();
     expect(stageCopyImagePayload().pull).toBe(true);
   });
 
@@ -175,7 +189,7 @@ describe('engine upgrade — run', () => {
     await startEngineUpgrade(w.ctx, deps);
     const run = await settle(w);
     expect(run.status).toBe('rolled-back');
-    expect(engineImage).toBeNull();
+    expect(engineImage()).toBeNull();
     expect(deployedImages).toEqual(['dxflrs/garage:v1.0.1']);
     const restores = w.dispatched.filter(
       (d) => d.cmd === 'container.runOnce' && d.payload.binds?.[1] === `${GARAGE_META_VOLUME}:/dst`,
@@ -191,6 +205,6 @@ describe('engine upgrade — run', () => {
     expect(run.status).toBe('rolled-back');
     expect(run.error).toContain('object counts dropped');
     expect(deployedImages).toEqual(['dxflrs/garage:v2.4.1', 'dxflrs/garage:v1.0.1']);
-    expect(engineImage).toBeNull();
+    expect(engineImage()).toBeNull();
   });
 });

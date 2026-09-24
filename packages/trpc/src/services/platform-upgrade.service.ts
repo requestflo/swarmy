@@ -76,6 +76,7 @@ import {
 import { decodeRegistryCreds } from './registry-auth';
 import { canonicalRegistryHost } from './registryPolicy.service';
 import { mirrorStateFrom, mirrorSystemImagesForOrg } from './system-images.service';
+import { storageClusterRepo } from './storage-cluster.repo';
 
 export const CONTROLLER_SERVICE = 'swarmy_controller';
 const MIN_FREE_BYTES = 2 * 1024 ** 3;
@@ -108,7 +109,7 @@ export const defaultDeps: PlatformUpgradeDeps = {
   agentRelease,
   engine: {
     available: async (ctx) => {
-      const row = await ctx.db.storageCluster.findUnique({ where: { orgId: ctx.activeOrgId }, select: { enabled: true, engineImage: true } });
+      const row = await storageClusterRepo.find(ctx, ctx.activeOrgId);
       return row?.enabled ? engineUpgradeAvailable(row.engineImage) : null;
     },
     start: (ctx) => startEngineUpgrade(ctx),

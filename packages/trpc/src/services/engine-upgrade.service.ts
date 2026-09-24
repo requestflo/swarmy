@@ -20,8 +20,9 @@
  *   rollback   remove, restore each member's metadata copy, redeploy on the
  *              previous image — the store is exactly as it was.
  *
- * Every step is idempotent and the run is persisted on
- * `StorageCluster.engineUpgrade`, so a controller restart resumes it (see
+ * Every step is idempotent and the run is persisted in
+ * the controller store (`OperationRun`, kind "storage.engineUpgrade" — run state
+ * never goes into the swarm-kv storage document), so a controller restart resumes it (see
  * `resumeEngineUpgrades`). While a run is `running`, the storage reconcile
  * stands down — it must not "heal" a store that was stopped on purpose — except
  * that during `verify` it still runs the RPC bootstrap, the only way members on
@@ -38,6 +39,8 @@ import { CURL_IMAGE, garageAdminAs } from './buckets.service';
 import { garageMajorOf, LEGACY_GARAGE_IMAGE, type GarageCall, type GarageMajor } from './garage-admin';
 import { DEFAULT_GARAGE_IMAGE } from './garage-render';
 import { enable } from './replicatedStore.service';
+import { readOperationRun, saveOperationRun } from './operation-runs';
+import { storageClusterRepo } from './storage-cluster.repo';
 
 /** IO seams (tests inject fakes; production uses the real services). */
 export interface EngineUpgradeDeps {
@@ -138,13 +141,13 @@ function now(): string {
 }
 
 async function loadRow(ctx: OrgContext) {
-  const row = await ctx.db.storageCluster.findUnique({ where: { orgId: ctx.activeOrgId } });
+  const row = await storageClusterRepo.find(ctx, ctx.activeOrgId);
   if (!row) throw notFound('storage cluster', ctx.activeOrgId);
-  return row;
+  return { ...row, engineUpgrade: await readOperationRun<EngineUpgradeRun>(ctx.db, ctx.activeOrgId, 'storage.engineUpgrade') };
 }
 
 async function save(ctx: OrgContext, run: EngineUpgradeRun): Promise<void> {
-  await ctx.db.storageCluster.update({ where: { orgId: ctx.activeOrgId }, data: { engineUpgrade: run as object } });
+  await saveOperationRun(ctx.db, ctx.activeOrgId, 'storage.engineUpgrade', run);
 }
 
 function note(run: EngineUpgradeRun, msg: string): void {
@@ -208,8 +211,7 @@ const driving = new Set<string>();
 /** Resume any persisted `running` run this process isn't already driving (controller restart). */
 export async function resumeEngineUpgrade(ctx: OrgContext, deps: EngineUpgradeDeps = defaultDeps): Promise<boolean> {
   if (driving.has(ctx.activeOrgId)) return false;
-  const row = await ctx.db.storageCluster.findUnique({ where: { orgId: ctx.activeOrgId } }).catch(() => null);
-  const run = row?.engineUpgrade as EngineUpgradeRun | null | undefined;
+  const run = await readOperationRun<EngineUpgradeRun>(ctx.db, ctx.activeOrgId, 'storage.engineUpgrade').catch(() => null);
   if (!run || run.status !== 'running') return false;
   void driveEngineUpgrade(ctx, run, deps);
   return true;
@@ -238,7 +240,7 @@ async function driveEngineUpgrade(ctx: OrgContext, run: EngineUpgradeRun, deps: 
         await save(ctx, run);
       }
       if (run.step === 'deploy') {
-        await ctx.db.storageCluster.update({ where: { orgId: ctx.activeOrgId }, data: { engineImage: run.to } });
+        await storageClusterRepo.update(ctx, ctx.activeOrgId, { engineImage: run.to });
         note(run, `deploying ${run.to} on ${run.members.length} member(s)`);
         await deps.redeploy(ctx);
         run.step = 'verify';
@@ -390,10 +392,7 @@ async function rollback(ctx: OrgContext, run: EngineUpgradeRun, reason: string, 
       if (res.exitCode !== 0) throw new Error(`restore failed on ${nodeId}: ${(res.output ?? '').slice(-200)}`);
       note(run, `metadata restored on ${nodeId}`);
     }
-    await ctx.db.storageCluster.update({
-      where: { orgId: ctx.activeOrgId },
-      data: { engineImage: run.from === LEGACY_GARAGE_IMAGE ? null : run.from },
-    });
+    await storageClusterRepo.update(ctx, ctx.activeOrgId, { engineImage: run.from === LEGACY_GARAGE_IMAGE ? null : run.from });
     await deps.redeploy(ctx);
     run.status = 'rolled-back';
     note(run, `rolled back to ${run.from}`);
@@ -409,4 +408,9 @@ async function rollback(ctx: OrgContext, run: EngineUpgradeRun, reason: string, 
     targetId: ctx.activeOrgId,
     metadata: { from: run.from, to: run.to, runId: run.id, reason },
   }).catch(() => undefined);
+}
+
+/** The org's persisted engine-upgrade run (controller store), or null. */
+export async function readEngineUpgradeRun(db: OrgContext['db'], orgId: string): Promise<EngineUpgradeRun | null> {
+  return readOperationRun<EngineUpgradeRun>(db, orgId, 'storage.engineUpgrade');
 }

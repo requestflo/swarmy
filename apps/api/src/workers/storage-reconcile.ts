@@ -1,6 +1,8 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
 import {
+  readEngineUpgradeRun,
+  storageClusterRepo,
   convergeStoreDeployment,
   fireEvent,
   garageCapacityGb,
@@ -260,10 +262,8 @@ async function reconcileOrg(row: ClusterRow, tick: number): Promise<void> {
     const mapping = matchGarageNodes(status.nodes, storeContainerHosts(orgId, memberIds), known);
     const merge = mergeNodeMapping(row.layout, mapping, DEFAULT_CAPACITY_GB);
     if (merge.changed) {
-      await prisma.storageCluster.update({
-        where: { orgId },
-        data: { layout: merge.next as object },
-      });
+      // A member's Garage node id, written once when first observed (swarm-kv).
+      await storageClusterRepo.update({ db: prisma, hub }, orgId, { layout: merge.next as Record<string, unknown> });
     }
 
     // (2) Layout convergence: stage the diff, then commit version+1.
@@ -356,9 +356,14 @@ export function startStorageReconcile(): () => void {
     tick += 1;
     const t = tick;
     void (async () => {
-      const rows = (await prisma.storageCluster
-        .findMany({ where: { enabled: true } })
-        .catch(() => [])) as ClusterRow[];
+      // Store config lives in each org's swarm (swarm-kv); the engine-upgrade run
+      // (run state) in the controller store.
+      const rows: ClusterRow[] = [];
+      const stores = await storageClusterRepo.listAll({ db: prisma, hub }).catch(() => []);
+      for (const s of stores.filter((r) => r.enabled)) {
+        const engineUpgrade = await readEngineUpgradeRun(prisma, s.orgId).catch(() => null);
+        rows.push({ ...s, engineUpgrade });
+      }
       for (const row of rows) {
         if (engineUpgradeRunning(row)) {
           // A controller restart mid-upgrade: pick the persisted run back up

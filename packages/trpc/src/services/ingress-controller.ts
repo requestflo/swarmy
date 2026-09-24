@@ -20,6 +20,7 @@ import { resolveManagerNode } from './dispatch.service';
 import { liveService } from './service.service';
 import { ensureControlNetwork } from './platform-networks';
 import { observabilityConfigRepo } from './observability-config.repo';
+import { bucketAccessRepo } from './storage-cluster.repo';
 
 // `network.ensure` becomes a valid CommandName once the hub/types.ts integration
 // snippet lands; the cast keeps @swarmy/trpc green until then (see INTEGRATION).
@@ -126,7 +127,7 @@ export async function objectStorageMeshPort(ctx: OrgContext): Promise<number | u
   // Fail closed: if exposure can't be read, publish nothing extra.
   let n = 0;
   try {
-    n = await ctx.db.bucketAccess.count({ where: { orgId: ctx.activeOrgId, mode: { in: ['MESH', 'PUBLIC'] } } });
+    n = await bucketAccessRepo.countExposed(ctx, ctx.activeOrgId);
   } catch {
     n = 0;
   }

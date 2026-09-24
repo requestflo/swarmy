@@ -39,8 +39,6 @@ function ctxWith(routes: object[], domainChecks: unknown): OrgContext {
     statusPage: { findMany: async () => [] },
     inboundEndpoint: { findMany: async () => [] },
     aiProviderConfig: { findUnique: async () => null },
-    storageCluster: { findUnique: async () => null },
-    bucketAccess: { findMany: async () => [], count: async () => 0 },
   };
   const hub = {
     isOnline: () => true,

@@ -135,19 +135,6 @@ function world(opts: {
     inboundEndpoint: { findMany: async () => [] },
     aiProviderConfig: { findUnique: async () => null },
     auditLog: { create: async () => ({}) },
-    storageCluster: {
-      findUnique: async () =>
-        opts.objectStorage === false
-          ? null
-          : {
-              orgId: 'org_topo',
-              enabled: true,
-              driver: 'GARAGE',
-              region: 'garage',
-              adminTokenRef: encryptSecret('admin-token'),
-              memberNodeIds: ['m1'],
-            },
-    },
   };
   const hub = {
     isOnline: () => true,
@@ -204,6 +191,15 @@ function world(opts: {
   useMemoryKv(kvHub);
   const orgId = opts.orgId ?? 'org_topo';
   seedKv(kvHub, orgId, 'ingress', orgId, { driver: 'CADDY', enabled: true, settings: { ...(opts.settings ?? {}) } });
+  if (opts.objectStorage !== false) {
+    seedKv(kvHub, orgId, 'storage', orgId, {
+      enabled: true,
+      driver: 'GARAGE',
+      region: 'garage',
+      adminTokenRef: encryptSecret('admin-token'),
+      memberNodeIds: ['m1'],
+    });
+  }
   const row = {
     get settings(): any {
       return peekKv<{ settings: Record<string, unknown> }>(kvHub, orgId, 'ingress', orgId)?.settings ?? {};

@@ -35,6 +35,7 @@ import {
 import { attachSecretToService, detachSecretFromService, rotateSecretFamily } from './secretsMgr.service';
 import { updateService } from './service.service';
 import { applyServicePatch, patchLiveService, specFromInspect } from './service-patch';
+import { seedKv } from './swarm-kv.service';
 import {
   attachVectorToService,
   detachVectorFromService,
@@ -145,6 +146,8 @@ function fakeCtx(opts: {
   services: SwarmServiceInfo[];
   inspect?: unknown;
   db?: Record<string, unknown>;
+  /** The org's Garage store config (swarm-kv `storage/<orgId>`). */
+  store?: Record<string, unknown>;
   respond?: (command: string, payload: Record<string, unknown>) => unknown;
 }) {
   const dispatched: Dispatch[] = [];
@@ -172,6 +175,7 @@ function fakeCtx(opts: {
       },
     },
   } as unknown as OrgContext;
+  if (opts.store) seedKv(ctx.hub, 'org1', 'storage', 'org1', opts.store);
   const deployed = (): ServiceSpec => {
     const d = dispatched.filter((x) => x.command === 'service.deploy');
     expect(d).toHaveLength(1);
@@ -432,16 +436,12 @@ describe('buckets.detach keeps the app whole', () => {
           { SecretName: 's3-sec', File: { Name: 's3-sec', UID: '0', GID: '0', Mode: 0o444 } },
         ],
       }),
-      db: {
-        storageCluster: {
-          findUnique: async () => ({
-            enabled: true,
-            driver: 'GARAGE',
-            region: 'swarmy',
-            adminTokenRef: encryptSecret('tok'),
-            memberNodeIds: [],
-          }),
-        },
+      store: {
+        enabled: true,
+        driver: 'GARAGE',
+        region: 'swarmy',
+        adminTokenRef: encryptSecret('tok'),
+        memberNodeIds: [],
       },
     });
     await detachBucket(ctx, APP);

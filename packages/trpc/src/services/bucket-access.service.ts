@@ -22,6 +22,7 @@ import { commandRejected, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { getBucket, objectStoreState } from './buckets.service';
 import { OBJECT_STORAGE_MESH_PORT } from './ingress-controller';
+import { bucketAccessRepo, storageClusterRepo } from './storage-cluster.repo';
 
 export type BucketAccessMode = 'INTERNAL' | 'MESH' | 'PUBLIC';
 export const BUCKET_ACCESS_MODES: readonly BucketAccessMode[] = ['INTERNAL', 'MESH', 'PUBLIC'];
@@ -79,10 +80,7 @@ export function buildObjectStorageEdge(input: {
 }
 
 async function clusterRow(ctx: OrgContext) {
-  return ctx.db.storageCluster.findUnique({
-    where: { orgId: ctx.activeOrgId },
-    select: { publicS3Domain: true },
-  });
+  return storageClusterRepo.find(ctx, ctx.activeOrgId);
 }
 
 /** The effective public S3 hostname: the operator's, else derived from the dashboard's. */
@@ -105,10 +103,7 @@ export async function objectStorageEdgeFor(
   // Fail closed: unreadable exposure ⇒ nothing routed (never "everything").
   let rows: BucketAccessRow[] = [];
   try {
-    rows = await ctx.db.bucketAccess.findMany({
-      where: { orgId: ctx.activeOrgId },
-      select: { bucketName: true, mode: true },
-    });
+    rows = await bucketAccessRepo.list(ctx, ctx.activeOrgId);
   } catch {
     rows = [];
   }
@@ -116,19 +111,13 @@ export async function objectStorageEdgeFor(
 }
 
 export async function bucketAccessMode(ctx: OrgContext, bucketId: string): Promise<BucketAccessMode> {
-  const row = await ctx.db.bucketAccess.findUnique({
-    where: { orgId_bucketId: { orgId: ctx.activeOrgId, bucketId } },
-    select: { mode: true },
-  });
+  const row = await bucketAccessRepo.find(ctx, ctx.activeOrgId, bucketId);
   return (row?.mode as BucketAccessMode | undefined) ?? 'INTERNAL';
 }
 
 /** Whether any bucket needs the mesh listener (MESH or PUBLIC). */
 async function meshListenerNeeded(ctx: OrgContext): Promise<boolean> {
-  const n = await ctx.db.bucketAccess.count({
-    where: { orgId: ctx.activeOrgId, mode: { in: ['MESH', 'PUBLIC'] } },
-  });
-  return n > 0;
+  return (await bucketAccessRepo.countExposed(ctx, ctx.activeOrgId)) > 0;
 }
 
 export interface SetBucketAccessResult {
@@ -161,13 +150,9 @@ export async function setBucketAccess(
   const before = await meshListenerNeeded(ctx);
   const previous = await bucketAccessMode(ctx, bucket.id);
   if (input.mode === 'INTERNAL') {
-    await ctx.db.bucketAccess.deleteMany({ where: { orgId: ctx.activeOrgId, bucketId: bucket.id } });
+    await bucketAccessRepo.remove(ctx, ctx.activeOrgId, bucket.id);
   } else {
-    await ctx.db.bucketAccess.upsert({
-      where: { orgId_bucketId: { orgId: ctx.activeOrgId, bucketId: bucket.id } },
-      create: { orgId: ctx.activeOrgId, bucketId: bucket.id, bucketName: bucket.name, mode: input.mode },
-      update: { bucketName: bucket.name, mode: input.mode },
-    });
+    await bucketAccessRepo.set(ctx, ctx.activeOrgId, bucket.id, bucket.name, input.mode);
   }
   const after = await meshListenerNeeded(ctx);
   await writeAudit(ctx, {
@@ -182,7 +167,8 @@ export async function setBucketAccess(
 /** Set (or clear, with null) the org's public S3 hostname. */
 export async function setPublicS3Domain(ctx: OrgContext, domain: string | null): Promise<string | null> {
   const value = normalizePublicS3Domain(domain);
-  await ctx.db.storageCluster.update({ where: { orgId: ctx.activeOrgId }, data: { publicS3Domain: value } });
+  if (!(await storageClusterRepo.find(ctx, ctx.activeOrgId))) throw notFound('storage cluster', ctx.activeOrgId);
+  await storageClusterRepo.update(ctx, ctx.activeOrgId, { publicS3Domain: value });
   await writeAudit(ctx, {
     action: 'buckets.setPublicDomain',
     targetType: 'storageCluster',
