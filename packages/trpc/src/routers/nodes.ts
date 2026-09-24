@@ -43,7 +43,7 @@ export const nodesRouter = router({
     .input(z.object({ nodeId: z.string() }))
     .query(({ ctx, input }) => ctx.hub.latestContainers(input.nodeId)),
 
-  setLabels: orgProcedure
+  setLabels: abacProcedure('node.setLabels', resolveNode)
     .input(z.object({ id: z.string(), labels: z.record(z.string()) }))
     .mutation(({ ctx, input }) => setNodeLabels(ctx, input.id, input.labels)),
 
@@ -109,7 +109,7 @@ export const nodesRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => setNodeAvailability(ctx, input.id, 'drain')),
 
-  activate: orgProcedure
+  activate: abacProcedure('node.drain', resolveNode)
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => setNodeAvailability(ctx, input.id, 'active')),
 

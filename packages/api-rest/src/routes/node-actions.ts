@@ -63,7 +63,7 @@ export function registerNodeActionRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Nodes'],
       summary: 'Uncordon a node (restore availability `active`)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('node.drain', resolveNode)] as const,
       request: { params: idParam },
       responses: {
         200: { content: { 'application/json': { schema: NodeAvailabilityDto } }, description: 'Active' },
@@ -80,7 +80,7 @@ export function registerNodeActionRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Nodes'],
       summary: 'Replace a node\'s labels',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('node.setLabels', resolveNode)] as const,
       request: { params: idParam, body: jsonBody(SetNodeLabelsBody) },
       responses: {
         200: { content: { 'application/json': { schema: NodeLabelsDto } }, description: 'Labels' },
