@@ -460,7 +460,8 @@ export async function deployBlueprint(
     throw commandRejected(`stack "${stack}" already exists — pick another name`);
   }
 
-  const steps = planSteps(entry, input, await planEnv(ctx, entry, input));
+  const env = await planEnv(ctx, entry, input);
+  const steps = planSteps(entry, input, env);
   const sctx: StepContext = { tokens: {}, notes: [], bucketIds: {} };
   const results: BlueprintStepResultView[] = [];
   let failed = false;
@@ -495,5 +496,25 @@ export async function deployBlueprint(
     },
   });
 
-  return { id: input.id, stackName: stack, ok: !failed, steps: results, url, notes: sctx.notes };
+  return {
+    id: input.id,
+    stackName: stack,
+    ok: !failed,
+    steps: results,
+    url: blueprintUrl({ routedUrl: url, autoHost: env.autoHost ?? null, ok: !failed }),
+    notes: sctx.notes,
+  };
+}
+
+/**
+ * The address a deployed blueprint answers on: its explicit domain route when
+ * one was added, else (no domain given) the primary service's automatic
+ * `<svc>-<stack>.<edge-ip>.sslip.io` address the plan stamped on it. Null
+ * when the deploy failed or no address can be formed (tunnel / no edge IP).
+ * PURE — exported for tests.
+ */
+export function blueprintUrl(input: { routedUrl: string | null; autoHost: string | null; ok: boolean }): string | null {
+  if (!input.ok) return null;
+  if (input.routedUrl) return input.routedUrl;
+  return input.autoHost ? `https://${input.autoHost}` : null;
 }
