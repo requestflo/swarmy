@@ -128,6 +128,8 @@ export {
   listPlans,
   planCommit,
   pollApp,
+  purgeAppData,
+  setEnforceDrift,
   planCommitForRepo,
   replan,
   setRequireApproval,

@@ -14,7 +14,9 @@ import {
   getPlan,
   listApps,
   listPlans,
+  purgeAppData,
   replan,
+  setEnforceDrift,
   setRequireApproval,
 } from '../services/apps.service';
 
@@ -55,4 +57,24 @@ export const appsRouter = router({
   drift: orgProcedure
     .input(z.object({ repoId: id }))
     .query(({ ctx, input }) => detectDrift(ctx, input.repoId, { notify: false })),
+
+  /** Opt in to re-applying drift on git-owned fields (default: report only). */
+  setEnforceDrift: adminProcedure
+    .input(z.object({ repoId: id, enforceDrift: z.boolean() }))
+    .mutation(({ ctx, input }) => setEnforceDrift(ctx, input)),
+
+  /**
+   * Delete a REMOVED Postgres's data permanently (its volumes on every node).
+   * `data.destroy` is checked in the service; `confirm` must be `<stack>/<resource>`.
+   */
+  purgeData: orgProcedure
+    .input(
+      z.object({
+        repoId: id,
+        environment: z.string().min(1).max(40),
+        resource: z.string().min(1).max(40),
+        confirm: z.string().min(1).max(200),
+      }),
+    )
+    .mutation(({ ctx, input }) => purgeAppData(ctx, input)),
 });

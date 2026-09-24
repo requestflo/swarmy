@@ -38,7 +38,13 @@ import {
   type Plan,
   type PlanAction,
 } from '@swarmy/app-config';
-import { AttachCacheInput, buildInventory, ProvisionCacheInput } from '@swarmy/core';
+import {
+  AttachCacheInput,
+  buildInventory,
+  primaryDataVolumeName,
+  ProvisionCacheInput,
+  replicaDataVolumeName,
+} from '@swarmy/core';
 import type { RunOnceResult } from '@swarmy/core/protocol';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
@@ -66,6 +72,7 @@ import {
   replicaServiceName,
   setReplicas,
   setTopology,
+  walArchiveVolumeName,
 } from './manageddb.service';
 import {
   attachCacheToService,
@@ -127,12 +134,17 @@ export interface AppView {
   configPath: string;
   appName: string | null;
   requireApproval: boolean;
+  enforceDrift: boolean;
   environments: Array<{
     environment: string;
     branch: string;
     stack: string;
     latest: AppPlanView | null;
   }>;
+  /** Live PR previews (latest plan per PR, torn-down ones excluded). */
+  previews: Array<{ pr: number; stack: string; sha: string; status: string; url: string | null; updatedAt: string; planId: string }>;
+  /** The last drift check (the worker refreshes it every 10 min); null = not checked yet. */
+  drift: { checkedAt: string; environments: Array<{ environment: string; stack: string; changes: number }> } | null;
 }
 
 interface PlanRow {
@@ -678,6 +690,7 @@ export async function planCommit(
   // ③ which environment does this commit deploy?
   let environment: string;
   let preview: { pr: number; baseDomain: string } | undefined;
+  let previewBase: string = PRODUCTION;
   if (input.trigger === 'pr' && input.prNumber) {
     if (!cfg.previews?.enabled)
       return {
@@ -700,6 +713,8 @@ export async function planCommit(
     }
     environment = 'preview';
     preview = { pr: input.prNumber, baseDomain };
+    // A PR against `staging` previews the staging definition.
+    previewBase = environmentForBranch(cfg, input.baseRef ?? repo.branch, repo.branch) ?? PRODUCTION;
   } else {
     const env = environmentForBranch(cfg, input.ref, repo.branch);
     if (!env)
@@ -721,7 +736,7 @@ export async function planCommit(
     });
   }
 
-  const desired = toDesired(cfg, preview ? { preview } : { environment });
+  const desired = toDesired(cfg, preview ? { preview, environment: previewBase } : { environment });
   const prNumber = input.prNumber ?? 0;
   return withAppLock(envKey(repo.id, environment, prNumber), async () => {
     const ledger = await latestLedger(ctx.db, repo.id, environment, prNumber);
@@ -1135,7 +1150,37 @@ export async function listApps(ctx: OrgContext): Promise<AppView[]> {
       configPath: r.configPath,
       appName: r.appName,
       requireApproval: r.requireApproval,
+      enforceDrift: r.enforceDrift,
       environments: envs.filter((e) => e.environment),
+      previews: await previewSummaries(ctx, r.id),
+      drift: driftCache.get(r.id) ?? null,
+    });
+  }
+  return out;
+}
+
+async function previewSummaries(ctx: OrgContext, repoId: string): Promise<AppView['previews']> {
+  const rows = await ctx.db.appPlan.findMany({
+    where: { orgId: ctx.activeOrgId, repoId, environment: 'preview' },
+    orderBy: { updatedAt: 'desc' },
+    take: 50,
+  });
+  const seen = new Set<number>();
+  const out: AppView['previews'] = [];
+  for (const row of rows) {
+    if (seen.has(row.prNumber)) continue;
+    seen.add(row.prNumber);
+    if (row.status === 'superseded') continue; // torn down
+    const desired = row.desiredJson as unknown as DesiredApp | null;
+    const host = desired?.routes?.[0]?.host;
+    out.push({
+      pr: row.prNumber,
+      stack: row.stack,
+      sha: row.sha,
+      status: row.status,
+      url: host ? `https://${host}` : null,
+      updatedAt: row.updatedAt.toISOString(),
+      planId: row.id,
     });
   }
   return out;
@@ -1191,11 +1236,12 @@ export function replan(ctx: OrgContext, input: { repoId: string; branch?: string
       where: { id: input.repoId, orgId: ctx.activeOrgId },
     });
     if (!repo) throw notFound('repo', input.repoId);
-    return planCommit(ctx, {
+    const res = await planCommit(ctx, {
       repoId: repo.id,
       ref: input.branch ?? repo.branch,
       trigger: 'manual',
     });
+    return { ...res, plan: res.planId ? await getPlan(ctx, res.planId) : null };
   })();
 }
 
@@ -1206,6 +1252,8 @@ export function replan(ctx: OrgContext, input: { repoId: string; branch?: string
  * an `app-drift` event, never silently reverted.
  */
 const lastDrift = new Map<string, string>();
+/** repoId → the last drift check (served on AppView without re-planning). */
+const driftCache = new Map<string, NonNullable<AppView['drift']>>();
 
 export async function detectDrift(
   ctx: OrgContext,
@@ -1238,6 +1286,11 @@ export async function detectDrift(
     const changes = plan.actions.filter((a) => !heldIds.has(a.id)).length;
     if (changes) {
       out.push({ environment: row.environment, stack: desired.stack, changes });
+      if (repo.enforceDrift && opts.notify !== false) {
+        // Opt-in enforce: put git-owned fields back (destructive steps still wait).
+        await enforceDriftFor(ctx, repo, row, desired, ledger, plan).catch(() => undefined);
+        continue;
+      }
       if (opts.notify === false) continue;
       const signature = plan.actions.map((a) => a.id).join('|');
       if (lastDrift.get(desired.stack) === signature) continue; // already told them about this drift
@@ -1254,7 +1307,132 @@ export async function detectDrift(
       }).catch(() => undefined);
     }
   }
+  driftCache.set(repoId, { checkedAt: new Date().toISOString(), environments: out });
   return out;
+}
+
+async function enforceDriftFor(
+  ctx: OrgContext,
+  repo: Parameters<typeof executePlan>[2]['repo'] & { configPath: string },
+  row: { id: string; sha: string; environment: string; prNumber: number },
+  desired: DesiredApp,
+  ledger: AppLedger,
+  plan: Plan,
+): Promise<void> {
+  await withAppLock(envKey(repo.id, row.environment, row.prNumber), async () => {
+    const drift = await ctx.db.appPlan.upsert({
+      where: {
+        repoId_environment_sha_trigger_prNumber: {
+          repoId: repo.id,
+          environment: row.environment,
+          sha: row.sha,
+          trigger: 'drift',
+          prNumber: row.prNumber,
+        },
+      },
+      create: {
+        orgId: ctx.activeOrgId,
+        repoId: repo.id,
+        environment: row.environment,
+        stack: desired.stack,
+        sha: row.sha,
+        trigger: 'drift',
+        prNumber: row.prNumber,
+        status: 'planned',
+        planJson: plan as never,
+        desiredJson: desired as never,
+        ledgerJson: ledger as never,
+      },
+      update: { status: 'planned', planJson: plan as never, ledgerJson: ledger as never },
+    });
+    await executePlan(ctx, drift.id, { plan, desired, ledger, sha: row.sha, repo, confirmed: [] });
+    void fireEvent(ctx, {
+      signal: 'app-drift',
+      severity: 'info',
+      resource: `app:${desired.stack}`,
+      message: `${desired.stack}: drift re-applied from ${repo.configPath} @ ${row.sha.slice(0, 7)} (enforce is on)`,
+    }).catch(() => undefined);
+  });
+}
+
+export async function setEnforceDrift(ctx: OrgContext, input: { repoId: string; enforceDrift: boolean }) {
+  const repo = await ctx.db.gitRepo.findFirst({ where: { id: input.repoId, orgId: ctx.activeOrgId } });
+  if (!repo) throw notFound('repo', input.repoId);
+  await ctx.db.gitRepo.update({ where: { id: repo.id }, data: { enforceDrift: input.enforceDrift } });
+  await writeAudit(ctx, {
+    action: 'app.enforceDrift',
+    targetType: 'gitRepo',
+    targetId: repo.id,
+    metadata: { enforceDrift: input.enforceDrift },
+  });
+  return { repoId: repo.id, enforceDrift: input.enforceDrift };
+}
+
+// ── deleting data permanently ────────────────────────────────────────────────
+
+/**
+ * The ONLY path that destroys a removed Postgres's data. A confirmed
+ * `resource.delete` stops the cluster and keeps its volumes; this explicit
+ * action — `data.destroy` + typing `<stack>/<resource>` — removes them from
+ * every node. Refused while the cluster still runs or swarmy.yaml still
+ * declares it.
+ */
+export async function purgeAppData(
+  ctx: OrgContext,
+  input: { repoId: string; environment: string; resource: string; confirm: string },
+): Promise<{ stack: string; resource: string; volumes: string[]; nodes: number }> {
+  const row = await ctx.db.appPlan.findFirst({
+    where: { orgId: ctx.activeOrgId, repoId: input.repoId, environment: input.environment, prNumber: 0 },
+    orderBy: { updatedAt: 'desc' },
+  });
+  if (!row) throw notFound('app environment', `${input.repoId}/${input.environment}`);
+  const desired = row.desiredJson as unknown as DesiredApp;
+  const stack = desired.stack;
+  const expected = `${stack}/${input.resource}`;
+  if (input.confirm !== expected) {
+    throw commandRejected(`type ${expected} to delete its data permanently`);
+  }
+  if (desired.resources.some((r) => r.name === input.resource)) {
+    throw commandRejected(`${input.resource} is still declared in swarmy.yaml — remove it there first`);
+  }
+  if (parseLedger(row.ledgerJson).resources[input.resource]) {
+    throw commandRejected(`${input.resource} has not been removed yet — confirm its removal first`);
+  }
+  if (liveServices(ctx).some((s) => s.name === primaryServiceName(stack, input.resource) || s.name === replicaServiceName(stack, input.resource))) {
+    throw commandRejected(`${input.resource} is still running`);
+  }
+  const decision = await evaluateAccess(ctx, 'data.destroy', {
+    type: 'managedResource',
+    id: expected,
+    orgId: ctx.activeOrgId,
+  });
+  if (decision.decision !== 'permit') {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: `You can't delete ${expected}'s data (data.destroy).`,
+      cause: { swarmyCode: 'POLICY_DENIED', policyId: decision.policyId },
+    });
+  }
+  const volumes = [
+    primaryDataVolumeName(stack, input.resource),
+    replicaDataVolumeName(stack, input.resource),
+    walArchiveVolumeName(stack, input.resource),
+  ];
+  // Local volumes live on whichever node ran the task — ask every online node.
+  const nodes = await ctx.db.node.findMany({ where: { orgId: ctx.activeOrgId }, select: { id: true } });
+  const online = nodes.filter((n) => ctx.hub.isOnline(n.id));
+  for (const n of online) {
+    for (const name of volumes) {
+      await ctx.hub.dispatch(n.id, 'volume.remove', { name, cluster: false }).catch(() => undefined); // absent here = fine
+    }
+  }
+  await writeAudit(ctx, {
+    action: 'app.data.purge',
+    targetType: 'managedResource',
+    targetId: expected,
+    metadata: { volumes, nodes: online.length },
+  });
+  return { stack, resource: input.resource, volumes, nodes: online.length };
 }
 
 // ── polling (controllers the provider can't reach, or a missed webhook) ─────

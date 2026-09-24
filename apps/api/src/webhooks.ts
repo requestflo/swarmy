@@ -125,6 +125,15 @@ type RepoHookRow = {
   envBranches: unknown;
 };
 
+/** The branch a PR/MR targets (GitHub/Gitea `pull_request.base.ref`, GitLab `target_branch`). */
+function prBaseRef(body: unknown): string | undefined {
+  const b = body as {
+    pull_request?: { base?: { ref?: string } };
+    object_attributes?: { target_branch?: string };
+  };
+  return b?.pull_request?.base?.ref ?? b?.object_attributes?.target_branch ?? undefined;
+}
+
 /** Does a push to `ref` concern this binding? (its branch, or one of its swarmy.yaml environments) */
 function deploysFrom(r: RepoHookRow, ref: string): boolean {
   return (
@@ -163,7 +172,7 @@ function kickPush(
 }
 
 /** A PR on an app binding deploys (or tears down) its swarmy.yaml preview; legacy repos keep compose previews. */
-function kickPr(r: RepoHookRow, pr: PrEvent): void {
+function kickPr(r: RepoHookRow, pr: PrEvent, baseRef?: string): void {
   if (!isAppBinding(r)) return kickPreview(r, pr);
   const run =
     pr.action === 'closed'
@@ -186,6 +195,7 @@ function kickPr(r: RepoHookRow, pr: PrEvent): void {
       : planCommitForRepo(deps(), r.orgId, {
           repoId: r.id,
           ref: pr.branch,
+          ...(baseRef ? { baseRef } : {}),
           sha: pr.commit,
           trigger: 'pr',
           prNumber: pr.prNumber,
@@ -328,7 +338,7 @@ webhooksApp.post('/github', async (c) => {
       (body.pull_request as { base?: { ref?: string } } | undefined)?.base?.ref ?? '',
     );
     const matched = repos.filter((r) => !baseRef || r.branch === baseRef);
-    for (const r of matched) kickPr(r, pr);
+    for (const r of matched) kickPr(r, pr, baseRef || undefined);
     return c.json(
       { ok: true, pr: pr.prNumber, accepted: matched.map((r) => r.id) },
       matched.length ? 202 : 200,
@@ -415,7 +425,7 @@ webhooksApp.post('/git/:repoId', async (c) => {
         ignored: 'fork pull request (fork PRs never build automatically)',
       });
     }
-    kickPr(repo, pr);
+    kickPr(repo, pr, prBaseRef(body));
     return c.json({ ok: true, pr: pr.prNumber, accepted: true }, 202);
   }
 
