@@ -36,6 +36,11 @@ export function garageAdminBase(host: string = STORE_SERVICE_NAME): string {
   return `http://${host}:${GARAGE_ADMIN_PORT}/v1`;
 }
 
+/** Admin API root, no version prefix (the call is translated per engine). */
+export function garageAdminRoot(host: string = STORE_SERVICE_NAME): string {
+  return `http://${host}:${GARAGE_ADMIN_PORT}`;
+}
+
 /**
  * The `container.runOnce` payload for one admin script: env-only secrets, on
  * the store overlay (never `host` — nothing is published). Dispatched via a
@@ -76,10 +81,34 @@ export function buildTaskProbeScript(): string {
     'ips=$(nslookup "tasks.$GARAGE_SERVICE" 2>/dev/null | sed -n \'s/^Address[^:]*:[[:space:]]*\\([0-9.]*\\).*$/\\1/p\' | grep -E \'^([0-9]+[.]){3}[0-9]+$\' | grep -v \'^127[.]\' | sort -u)',
     'for ip in $ips; do',
     `  echo "${TASK_MARKER}$ip"`,
-    `  curl -sS -m 5 -H "$H" "http://$ip:${GARAGE_ADMIN_PORT}/v1/status" || true`,
+    // $GARAGE_SELF_PATH: v1 `/v1/status` (has `node`) | v2 `/v2/GetNodeInfo?node=self`.
+    `  curl -sS -m 5 -H "$H" "http://$ip:${GARAGE_ADMIN_PORT}\${GARAGE_SELF_PATH:-/v1/status}" || true`,
     '  echo ""',
     'done',
   ].join('\n');
+}
+
+/** Per-task "who are you" path for each engine generation. */
+export function garageSelfPath(major: 1 | 2): string {
+  return major === 2 ? '/v2/GetNodeInfo?node=self' : '/v1/status';
+}
+
+/**
+ * A task's own Garage node id from its self-probe body: v1 `/status` carries
+ * `node`; v2 `GetNodeInfo?node=self` answers `{ success: { <id>: { nodeId } } }`.
+ */
+export function selfNodeId(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const b = body as { node?: unknown; success?: unknown };
+  if (typeof b.node === 'string' && b.node) return b.node;
+  if (b.success && typeof b.success === 'object') {
+    for (const [id, v] of Object.entries(b.success as Record<string, unknown>)) {
+      const nodeId = (v as { nodeId?: unknown } | null)?.nodeId;
+      if (typeof nodeId === 'string' && nodeId) return nodeId;
+      if (id) return id;
+    }
+  }
+  return null;
 }
 
 export interface ProbedTask {
@@ -97,13 +126,13 @@ export function parseTaskProbe(output: string): ProbedTask[] {
     const nl = chunk.indexOf('\n');
     const ip = (nl >= 0 ? chunk.slice(0, nl) : chunk).trim();
     if (!IPV4.test(ip) || seen.has(ip)) continue;
-    let node: unknown;
+    let node: string | null;
     try {
-      node = (JSON.parse(nl >= 0 ? chunk.slice(nl + 1).trim() : '') as { node?: unknown }).node;
+      node = selfNodeId(JSON.parse(nl >= 0 ? chunk.slice(nl + 1).trim() : ''));
     } catch {
       continue;
     }
-    if (typeof node !== 'string' || !node) continue;
+    if (!node) continue;
     seen.add(ip);
     out.push({ ip, garageNodeId: node });
   }
@@ -308,7 +337,8 @@ export function parseGarageHealth(raw: unknown): GarageHealth | null {
     knownNodes: n('knownNodes'),
     connectedNodes: n('connectedNodes'),
     storageNodes: n('storageNodes'),
-    storageNodesOk: n('storageNodesOk'),
+    // v2 renamed it `storageNodesUp`; accept both dialects.
+    storageNodesOk: num(r.storageNodesOk) ?? n('storageNodesUp'),
     partitions: n('partitions'),
     partitionsQuorum: n('partitionsQuorum'),
     partitionsAllOk: n('partitionsAllOk'),

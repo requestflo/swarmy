@@ -1,6 +1,14 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { convergeStoreDeployment, fireEvent, garageCapacityGb, systemContext } from '@swarmy/trpc';
+import {
+  convergeStoreDeployment,
+  fireEvent,
+  garageCapacityGb,
+  garageMajorOf,
+  systemContext,
+  toGarageRequest,
+  type GarageMajor,
+} from '@swarmy/trpc';
 import { decryptSecret } from '@swarmy/core/crypto';
 import type { ContainerInfo, RunOnceResult } from '@swarmy/core/protocol';
 import { hub } from '../gateway';
@@ -11,7 +19,8 @@ import {
   buildStats,
   buildTaskProbeScript,
   DEFAULT_CAPACITY_GB,
-  garageAdminBase,
+  garageAdminRoot,
+  garageSelfPath,
   matchGarageNodes,
   mergeNodeMapping,
   needsRpcBootstrap,
@@ -93,6 +102,16 @@ interface ClusterRow {
   memberNodeIds: unknown;
   layout: unknown;
   adminTokenRef: string | null;
+  /** Garage image the store runs (null = legacy v1.0.1) — selects the admin dialect. */
+  engineImage?: string | null;
+  /** Engine-upgrade run state; while it runs, the reconcile stands down. */
+  engineUpgrade?: unknown;
+}
+
+/** An engine upgrade is deliberately stopping/replacing the store: hands off. */
+function engineUpgradeRunning(row: ClusterRow): boolean {
+  const u = row.engineUpgrade as { status?: string } | null | undefined;
+  return u?.status === 'running';
 }
 
 /**
@@ -103,8 +122,10 @@ interface ClusterRow {
 async function garageAdmin(
   nodeId: string,
   adminToken: string,
+  major: GarageMajor,
   call: { method: 'GET' | 'POST'; path: string; body?: string; host?: string },
 ): Promise<string> {
+  const req = toGarageRequest(call, major);
   const res = await hub.dispatch<RunOnceResult>(
     nodeId,
     'container.runOnce',
@@ -112,9 +133,9 @@ async function garageAdmin(
       buildAdminScript(),
       {
         GARAGE_ADMIN_TOKEN: adminToken,
-        GARAGE_METHOD: call.method,
-        GARAGE_URL: `${garageAdminBase(call.host)}${call.path}`,
-        ...(call.body ? { GARAGE_BODY: call.body } : {}),
+        GARAGE_METHOD: req.method,
+        GARAGE_URL: `${garageAdminRoot(call.host)}${req.path}`,
+        ...(req.body ? { GARAGE_BODY: req.body } : {}),
       },
       DISPATCH_TIMEOUT_MS,
     ),
@@ -157,19 +178,19 @@ function storeContainerHosts(
 }
 
 /** Probe every store task on the overlay and full-mesh `POST /v1/connect` them. */
-async function bootstrapRpcMesh(target: string, adminToken: string): Promise<void> {
+async function bootstrapRpcMesh(target: string, adminToken: string, major: GarageMajor): Promise<void> {
   const res = await hub.dispatch<RunOnceResult>(
     target,
     'container.runOnce',
     adminRunOncePayload(
       buildTaskProbeScript(),
-      { GARAGE_ADMIN_TOKEN: adminToken, GARAGE_SERVICE: STORE_SERVICE_NAME },
+      { GARAGE_ADMIN_TOKEN: adminToken, GARAGE_SERVICE: STORE_SERVICE_NAME, GARAGE_SELF_PATH: garageSelfPath(major) },
       DISPATCH_TIMEOUT_MS,
     ),
     { timeoutMs: DISPATCH_TIMEOUT_MS + 15_000 },
   );
   for (const c of planConnects(parseTaskProbe(res.output))) {
-    await garageAdmin(target, adminToken, {
+    await garageAdmin(target, adminToken, major, {
       method: 'POST',
       path: '/connect',
       body: JSON.stringify(c.peers),
@@ -190,25 +211,26 @@ async function reconcileOrg(row: ClusterRow, tick: number): Promise<void> {
   const target = hub.managerNode(orgId);
   if (!target) return;
 
+  const major = garageMajorOf(row.engineImage);
   try {
     const adminToken = decryptSecret(row.adminTokenRef);
 
     // (0) Multi-member RPC bootstrap (best-effort; single member skips).
     const readHealth = async () =>
       parseGarageHealth(
-        parseJson(await garageAdmin(target, adminToken, { method: 'GET', path: '/health' })),
+        parseJson(await garageAdmin(target, adminToken, major, { method: 'GET', path: '/health' })),
       );
     let health = await readHealth();
     if (needsRpcBootstrap(memberIds.length, health)) {
-      await bootstrapRpcMesh(target, adminToken).catch(() => undefined);
+      await bootstrapRpcMesh(target, adminToken, major).catch(() => undefined);
       health = await readHealth();
     }
 
     const status = parseGarageStatus(
-      parseJson(await garageAdmin(target, adminToken, { method: 'GET', path: '/status' })),
+      parseJson(await garageAdmin(target, adminToken, major, { method: 'GET', path: '/status' })),
     );
     const layout = parseGarageLayout(
-      parseJson(await garageAdmin(target, adminToken, { method: 'GET', path: '/layout' })),
+      parseJson(await garageAdmin(target, adminToken, major, { method: 'GET', path: '/layout' })),
     );
 
     // (1) Discover garage node ids and write newly-joined members back.
@@ -254,14 +276,14 @@ async function reconcileOrg(row: ClusterRow, tick: number): Promise<void> {
         }
         if (tick >= state.skipUntilTick) {
           if (plan.stage.length > 0) {
-            await garageAdmin(target, adminToken, {
+            await garageAdmin(target, adminToken, major, {
               method: 'POST',
               path: '/layout',
               body: JSON.stringify(plan.stage),
             });
           }
           if (plan.applyVersion !== null) {
-            await garageAdmin(target, adminToken, {
+            await garageAdmin(target, adminToken, major, {
               method: 'POST',
               path: '/layout/apply',
               body: JSON.stringify({ version: plan.applyVersion }),
@@ -323,6 +345,7 @@ export function startStorageReconcile(): () => void {
         .findMany({ where: { enabled: true } })
         .catch(() => [])) as ClusterRow[];
       for (const row of rows) {
+        if (engineUpgradeRunning(row)) continue;
         // Heal legacy host-bind / unpinned store specs before probing layout.
         await convergeStoreDeployment(
           systemContext({ db: prisma, hub, auth: authRegistry.getAuth() }, row.orgId),

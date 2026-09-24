@@ -74,11 +74,18 @@ describe('garage config render', () => {
       capacity: 100_000_000_000,
       tags: ['org:org_123'],
     });
+    // New stores run v2: the same assignment, in the v2 dialect.
     const r = renderGarageDeployment(input);
     expect(r.adminApi?.method).toBe('POST');
     // Overlay DNS (one-shot container on the swarmy overlay), never 127.0.0.1 / a node IP.
-    expect(r.adminApi?.url).toBe('http://swarmy-garage:3903/v1/layout');
+    expect(r.adminApi?.url).toBe('http://swarmy-garage:3903/v2/UpdateClusterLayout');
+    expect(JSON.parse(r.adminApi!.body).roles).toEqual(body);
     expect(r.adminApi?.bearerToken).toBe(BASE.adminToken);
+    // A store still on the legacy engine keeps speaking v1.
+    const legacy = renderGarageDeployment({ ...input, image: 'dxflrs/garage:v1.0.1' });
+    expect(legacy.adminApi?.url).toBe('http://swarmy-garage:3903/v1/layout');
+    expect(JSON.parse(legacy.adminApi!.body)).toEqual(body);
+    expect(legacy.image).toBe('dxflrs/garage:v1.0.1');
   });
 });
 

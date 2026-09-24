@@ -9,6 +9,7 @@
  * an admin-API layout assignment per member is all it needs. We replicate
  * (factor N) rather than erasure-code — simplest failure model for small swarms.
  */
+import { garageMajorOf, toGarageRequest } from './garage-admin';
 import { createHash } from 'node:crypto';
 import { STACK_LABEL, SWARMY_OVERLAY_NETWORK, SYSTEM_STACK, SYSTEM_STACK_LABEL } from '@swarmy/core';
 
@@ -47,8 +48,14 @@ export interface RenderedStoreDeployment {
   summary: string;
 }
 
-/** Pinned Garage image the agent runs as a swarm service. */
-export const DEFAULT_GARAGE_IMAGE = 'dxflrs/garage:v1.0.1';
+/**
+ * Garage image NEW stores start on. An existing store keeps the engine it
+ * runs (`StorageCluster.engineImage`, null = {@link LEGACY_GARAGE_IMAGE}) until
+ * an engine upgrade moves it — a major is not a rolling upgrade, so a redeploy
+ * must never pick this up silently. v2 is also what makes uploads from current
+ * AWS SDKs work (unsigned-trailer + CRC64NVME checksums; v1.x rejects them).
+ */
+export const DEFAULT_GARAGE_IMAGE = 'dxflrs/garage:v2.4.1';
 
 export const GARAGE_S3_PORT = 3900;
 export const GARAGE_RPC_PORT = 3901;
@@ -65,6 +72,11 @@ export const GARAGE_NETWORK = SWARMY_OVERLAY_NETWORK;
 /** Admin API base as seen from a one-shot container on {@link GARAGE_NETWORK}. */
 export function garageAdminUrl(serviceName: string): string {
   return `http://${serviceName}:${GARAGE_ADMIN_PORT}/v1`;
+}
+
+/** Admin API root (no version prefix — {@link toGarageRequest} adds `/v1` or `/v2`). */
+export function garageAdminRoot(serviceName: string): string {
+  return `http://${serviceName}:${GARAGE_ADMIN_PORT}`;
 }
 
 /** In-container path Garage reads its config from. */
@@ -258,14 +270,18 @@ export function renderGarageDeployment(input: GarageRenderInput): RenderedStoreD
     // user app stack) and mark it so the UI can tell system stacks apart.
     labels: { [STACK_LABEL]: SYSTEM_STACK, [SYSTEM_STACK_LABEL]: 'true' },
     adminApi: joined.length
-      ? {
-          method: 'POST',
-          // Resolved on the overlay by a one-shot container, never the agent process.
-          url: `${garageAdminUrl(input.serviceName)}/layout`,
-          body: renderLayoutBody(input),
-          contentType: 'application/json',
-          bearerToken: input.adminToken,
-        }
+      ? (() => {
+          // Same call in the engine's own dialect (v2 wants `{roles}` at /v2/UpdateClusterLayout).
+          const req = toGarageRequest({ method: 'POST', path: '/layout', body: renderLayoutBody(input) }, garageMajorOf(image));
+          return {
+            method: req.method,
+            // Resolved on the overlay by a one-shot container, never the agent process.
+            url: `${garageAdminRoot(input.serviceName)}${req.path}`,
+            body: req.body ?? '',
+            contentType: 'application/json',
+            bearerToken: input.adminToken,
+          };
+        })()
       : undefined,
     summary: `Garage ${image} · ${input.members.length} member(s) · replication x${input.replicationFactor} · region ${input.region}`,
   };

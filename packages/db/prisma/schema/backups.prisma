@@ -141,6 +141,12 @@ model StorageCluster {
   /// Public S3 hostname the edges serve for `PUBLIC` buckets (null = derived
   /// from the dashboard domain: swarmy.x → s3.x).
   publicS3Domain    String?
+  /// Garage image this store RUNS (null = legacy v1.0.1, the pre-v2 default).
+  /// Changed only by an engine upgrade — never by a redeploy picking up a new
+  /// default — because a Garage major is not a rolling upgrade.
+  engineImage       String?
+  /// In-flight / last engine upgrade run (resumable state), null = never run.
+  engineUpgrade     Json?
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 

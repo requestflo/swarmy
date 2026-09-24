@@ -238,3 +238,4 @@ export { fireEvent } from './services/alerts-fire';
 export type { FireEventInput } from './services/alerts-fire';
 export { recordIncidentEvent } from './services/incidents-record';
 export { sendNotification } from './services/notifications-send';
+export { garageMajorOf, toGarageRequest, LEGACY_GARAGE_IMAGE, type GarageMajor } from './services/garage-admin';

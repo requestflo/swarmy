@@ -19,6 +19,7 @@ import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { dispatchNodeLabels } from './node.service';
+import { LEGACY_GARAGE_IMAGE } from './garage-admin';
 import {
   DEFAULT_GARAGE_IMAGE,
   GARAGE_ADMIN_TOKEN_PREFIX,
@@ -82,6 +83,10 @@ interface ClusterRow {
   accessKeyRef: string | null;
   secretKeyRef: string | null;
   layout: unknown;
+  /** Garage image the store runs (null = legacy v1.0.1). */
+  engineImage?: string | null;
+  /** Resumable engine-upgrade run state. */
+  engineUpgrade?: unknown;
   updatedAt: Date;
 }
 
@@ -193,7 +198,8 @@ function renderInput(ctx: OrgContext, row: ClusterRow): GarageRenderInput {
     rpcSecret: row.rpcSecretRef ? decryptSecret(row.rpcSecretRef) : '',
     adminToken: row.adminTokenRef ? decryptSecret(row.adminTokenRef) : '',
     members: memberList,
-    image: DEFAULT_GARAGE_IMAGE,
+    // The engine this store RUNS — never the newest default (see DEFAULT_GARAGE_IMAGE).
+    image: row.engineImage ?? LEGACY_GARAGE_IMAGE,
   };
 }
 
@@ -243,6 +249,8 @@ export async function setDriver(
       memberNodeIds: input.memberNodeIds ?? [],
       rpcSecretRef: encryptSecret(garageRpcSecret()),
       adminTokenRef: encryptSecret(randomToken('gadm')),
+      // A brand-new store starts on the current engine.
+      engineImage: DEFAULT_GARAGE_IMAGE,
       accessKeyRef: null,
       secretKeyRef: null,
       layout: {},

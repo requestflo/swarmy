@@ -44,8 +44,9 @@ import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { patchLiveService } from './service-patch';
-import { GARAGE_NETWORK, GARAGE_S3_PORT, garageAdminUrl } from './garage-render';
+import { GARAGE_NETWORK, GARAGE_S3_PORT, garageAdminRoot, garageAdminUrl } from './garage-render';
 import { MAX_PRESIGN_EXPIRES_SECONDS, presignS3Url } from './s3-presign';
+import { bucketInfoUrlPrefix, garageMajorOf, toGarageRequest, type GarageCall, type GarageMajor } from './garage-admin';
 import { parsePhysicalSecretName, physicalSecretName } from './secretsMgr.service';
 
 // Keep in lockstep with replicatedStore.service.ts (same deployment).
@@ -131,7 +132,7 @@ export function buildBucketDumpScript(): string {
     'H="Authorization: Bearer $GARAGE_ADMIN_TOKEN"',
     'for id in $GARAGE_BUCKET_IDS; do',
     `  echo "${BUCKET_MARKER}$id"`,
-    '  curl -sS -H "$H" "$GARAGE_BASE/bucket?id=$id" || true',
+    '  curl -sS -H "$H" "$GARAGE_BUCKET_INFO$id" || true',
     '  echo ""',
     'done',
   ].join('\n');
@@ -325,6 +326,8 @@ interface StoreHandle {
   region: string;
   adminToken: string;
   memberNodeIds: string[];
+  /** Garage generation the store runs — selects the admin API dialect. */
+  major: GarageMajor;
 }
 
 /** Load the org's StorageCluster row; null when the store is off/never set up. */
@@ -335,6 +338,7 @@ async function loadStore(ctx: OrgContext): Promise<StoreHandle | null> {
     region: row.region,
     adminToken: decryptSecret(row.adminTokenRef),
     memberNodeIds: Array.isArray(row.memberNodeIds) ? (row.memberNodeIds as string[]) : [],
+    major: garageMajorOf(row.engineImage),
   };
 }
 
@@ -357,16 +361,13 @@ async function storeNode(ctx: OrgContext, _store: StoreHandle): Promise<{ id: st
   return resolveManagerNode(ctx);
 }
 
-interface AdminCall {
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
-  /** Path under /v1, e.g. `/bucket?list`. */
-  path: string;
-  body?: string;
-}
+/** A call in Garage's v1 vocabulary, translated per engine by {@link toGarageRequest}. */
+type AdminCall = GarageCall;
 
 /** Dispatch one admin call as a runOnce curl; throws a typed error on HTTP ≥400. */
 async function garageAdmin(ctx: OrgContext, store: StoreHandle, call: AdminCall): Promise<string> {
   const node = await storeNode(ctx, store);
+  const req = toGarageRequest(call, store.major);
   let res: RunOnceResult;
   try {
     res = await ctx.hub.dispatch<RunOnceResult>(
@@ -374,9 +375,9 @@ async function garageAdmin(ctx: OrgContext, store: StoreHandle, call: AdminCall)
       'container.runOnce',
       adminRunOncePayload(buildAdminScript(), {
         GARAGE_ADMIN_TOKEN: store.adminToken,
-        GARAGE_METHOD: call.method,
-        GARAGE_URL: `${garageAdminBase()}${call.path}`,
-        ...(call.body ? { GARAGE_BODY: call.body } : {}),
+        GARAGE_METHOD: req.method,
+        GARAGE_URL: `${garageAdminRoot(STORE_SERVICE_NAME)}${req.path}`,
+        ...(req.body ? { GARAGE_BODY: req.body } : {}),
       }),
       { timeoutMs: DISPATCH_TIMEOUT_MS + 15_000 },
     );
@@ -449,7 +450,7 @@ export async function overview(ctx: OrgContext): Promise<BucketsOverview> {
       'container.runOnce',
       adminRunOncePayload(buildBucketDumpScript(), {
         GARAGE_ADMIN_TOKEN: store.adminToken,
-        GARAGE_BASE: garageAdminBase(),
+        GARAGE_BUCKET_INFO: bucketInfoUrlPrefix(garageAdminRoot(STORE_SERVICE_NAME), store.major),
         GARAGE_BUCKET_IDS: ids.join(' '),
       }),
       { timeoutMs: DISPATCH_TIMEOUT_MS + 15_000 },

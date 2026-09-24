@@ -4,6 +4,8 @@ import {
   backoffTicks,
   buildTaskProbeScript,
   garageAdminBase,
+  garageSelfPath,
+  selfNodeId,
   needsRpcBootstrap,
   parseTaskProbe,
   planConnects,
@@ -342,5 +344,15 @@ describe('multi-member RPC bootstrap', () => {
     expect(needsRpcBootstrap(2, null)).toBe(true);
     expect(needsRpcBootstrap(2, { connectedNodes: 1 })).toBe(true);
     expect(needsRpcBootstrap(2, { connectedNodes: 2 })).toBe(false);
+  });
+});
+
+describe('selfNodeId (task probe, both engines)', () => {
+  it('v1 /status → node; v2 GetNodeInfo?node=self → the success entry', () => {
+    expect(selfNodeId({ node: 'aaa', nodes: [] })).toBe('aaa');
+    expect(selfNodeId({ success: { bbb: { nodeId: 'bbb', garageVersion: 'v2.4.1' } }, error: {} })).toBe('bbb');
+    expect(selfNodeId({ success: {}, error: { x: 'down' } })).toBeNull();
+    expect(garageSelfPath(1)).toBe('/v1/status');
+    expect(garageSelfPath(2)).toBe('/v2/GetNodeInfo?node=self');
   });
 });
