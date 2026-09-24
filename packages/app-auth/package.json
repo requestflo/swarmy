@@ -1,0 +1,28 @@
+{
+  "name": "@swarmy/app-auth",
+  "version": "0.1.0",
+  "description": "Sessions for apps behind swarmy auth: getSession(req) verifies the swarmy JWT (Protect my app) or the app's own auth service (swarmy.yaml auth:), plus tiny browser helpers.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./client": {
+      "types": "./src/client.ts",
+      "import": "./src/client.ts"
+    }
+  },
+  "files": ["src", "README.md"],
+  "scripts": {
+    "build": "echo '@swarmy/app-auth resolves to src'",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}
