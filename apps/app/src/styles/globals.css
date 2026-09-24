@@ -9,17 +9,38 @@ body,
   height: 100%;
 }
 
-/* ── React Flow chrome → Hot Signal (token-driven, dark-mode aware) ── */
+/* ── React Flow chrome → Hot Signal (token-driven, dark-mode aware) ──
+   React Flow paints its Controls + MiniMap from `--xy-*` variables with
+   light defaults (#fff buttons, a pale mask), so we set every one of them
+   from our tokens on the flow root. Tokens swap under `.dark`, so both
+   themes are covered without a second block. */
+.react-flow {
+  --xy-controls-button-background-color: var(--card);
+  --xy-controls-button-background-color-hover: var(--accent);
+  --xy-controls-button-color: var(--card-foreground);
+  --xy-controls-button-color-hover: var(--card-foreground);
+  --xy-controls-button-border-color: var(--border);
+  --xy-controls-box-shadow: 0 12px 30px -16px rgb(0 0 0 / 0.35);
+  --xy-minimap-background-color: var(--card);
+  --xy-minimap-mask-background-color: color-mix(in oklab, var(--background) 72%, transparent);
+  --xy-minimap-mask-stroke-color: var(--primary);
+  --xy-minimap-mask-stroke-width: 1.5;
+  --xy-minimap-node-background-color: var(--border);
+  --xy-minimap-node-stroke-color: transparent;
+}
 .react-flow__controls {
   border-radius: 0.85rem;
   overflow: hidden;
   border: 1px solid var(--border);
-  box-shadow: 0 12px 30px -16px rgb(0 0 0 / 0.35);
+  box-shadow: var(--xy-controls-box-shadow);
 }
 .react-flow__controls-button {
   background: var(--card);
   border-bottom: 1px solid var(--border);
   color: var(--card-foreground);
+}
+.react-flow__controls-button:last-child {
+  border-bottom: 0;
 }
 .react-flow__controls-button:hover {
   background: var(--accent);
@@ -28,8 +49,11 @@ body,
   fill: currentColor;
 }
 .react-flow__minimap {
-  background: color-mix(in oklab, var(--card) 92%, transparent);
+  overflow: hidden;
+  border-radius: 0.85rem;
+  background: var(--card);
   border: 1px solid var(--border);
+  box-shadow: var(--xy-controls-box-shadow);
 }
 .react-flow__attribution {
   display: none;
