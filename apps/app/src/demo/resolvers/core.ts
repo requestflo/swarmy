@@ -21,7 +21,7 @@ export const core: DomainResolvers = {
     'org.currentOrg': (_i, s) => ({ id: s.org.id, name: s.org.name, slug: s.org.slug, role: s.org.role }),
     'org.whoami': (_i, s) => ({ id: s.user.id, name: s.user.name, email: s.user.email, username: null }),
 
-    'system.dashboardSummary': (_i, s) => {
+    'estate.summary': (_i, s) => {
       const online = s.nodes.filter((n) => n.status === 'online').length;
       const running = s.services.filter((sv) => sv.status === 'running').length;
       const containers = s.services.reduce((a, sv) => a + sv.replicas.running, 0);
@@ -32,7 +32,7 @@ export const core: DomainResolvers = {
         recentDeployments: 7,
       };
     },
-    'metrics.overview': (_i, s) => {
+    'estate.overview': (_i, s) => {
       const live = s.nodes.filter((n) => n.live);
       const cpu = live.reduce((a, n) => a + (n.live?.cpuPercent ?? 0), 0) / Math.max(1, live.length);
       const mem = live.reduce((a, n) => a + (n.live?.memPercent ?? 0), 0) / Math.max(1, live.length);

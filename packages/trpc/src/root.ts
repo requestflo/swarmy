@@ -3,11 +3,9 @@ import { orgRouter } from './routers/org';
 import { nodesRouter } from './routers/nodes';
 import { servicesRouter } from './routers/services';
 import { stacksRouter } from './routers/stacks';
-import { deploymentsRouter } from './routers/deployments';
-import { metricsRouter } from './routers/metrics';
+import { estateRouter } from './routers/estate';
 import { ingressRouter } from './routers/ingress';
 import { appAccessRouter } from './routers/appAccess';
-import { systemRouter } from './routers/system';
 import { backupsRouter } from './routers/backups';
 import { offsiteMirrorRouter } from './routers/offsiteMirror';
 import { dbBackupRouter } from './routers/dbBackup';
@@ -80,11 +78,9 @@ export const appRouter = router({
   decommission: decommissionRouter,
   services: servicesRouter,
   stacks: stacksRouter,
-  deployments: deploymentsRouter,
-  metrics: metricsRouter,
+  estate: estateRouter,
   ingress: ingressRouter,
   appAccess: appAccessRouter,
-  system: systemRouter,
   backups: backupsRouter,
   offsiteMirror: offsiteMirrorRouter,
   dbBackups: dbBackupRouter,

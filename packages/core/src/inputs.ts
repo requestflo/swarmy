@@ -121,21 +121,6 @@ export const CursorInput = z.object({
 });
 export type CursorInput = z.infer<typeof CursorInput>;
 
-export const MetricKind = z.enum(['cpu', 'mem', 'net', 'disk']);
-export type MetricKind = z.infer<typeof MetricKind>;
-
-export const TimeRange = z.enum(['5m', '15m', '1h', '6h', '24h', '7d']);
-export type TimeRange = z.infer<typeof TimeRange>;
-
-export const TimeseriesInput = z.object({
-  nodeId: z.string().optional(),
-  serviceId: z.string().optional(),
-  containerId: z.string().optional(),
-  metric: MetricKind.default('cpu'),
-  range: TimeRange.default('1h'),
-});
-export type TimeseriesInput = z.infer<typeof TimeseriesInput>;
-
 // ── D1 releases: release history + health-gated deploys + rollback ──────────
 
 export const ReleaseListInput = z.object({

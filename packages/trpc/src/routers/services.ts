@@ -22,9 +22,7 @@ import {
   wakeService,
 } from '../services/service.service';
 import {
-  getDeployStatus,
   getLatestServiceDeployStatus,
-  watchDeployStatus,
 } from '../services/deployment.service';
 import { resolveManagerNode } from '../services/dispatch.service';
 import { canReadSecrets, redactEnvRecord, redactInspect, restoreRedactedEnv } from '../services/secret-redact';
@@ -136,21 +134,6 @@ export const servicesRouter = router({
   deployStatus: orgProcedure
     .input(z.object({ serviceId: z.string() }))
     .query(({ ctx, input }) => getLatestServiceDeployStatus(ctx, input.serviceId)),
-
-  deployStatusLive: orgProcedure
-    .input(z.object({ deploymentId: z.string() }))
-    .subscription(async function* ({ ctx, input, signal }) {
-      const ac = signal ?? new AbortController().signal;
-      yield* watchDeployStatus(ctx, input.deploymentId, ac);
-    }),
-
-  deployment: orgProcedure
-    .input(z.object({ deploymentId: z.string() }))
-    .query(({ ctx, input }) => getDeployStatus(ctx, input.deploymentId)),
-
-  logsPage: orgProcedure
-    .input(z.object({ id: z.string(), cursor: z.string().nullish(), limit: z.number().min(1).max(500).default(200) }))
-    .query(() => ({ items: [], nextCursor: null as string | null })),
 
   logs: orgProcedure.input(LogsInput).subscription(async function* ({ ctx, input, signal }) {
     const ac = signal ?? new AbortController().signal;

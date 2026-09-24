@@ -1,9 +1,9 @@
 import { stacks } from './apps.repo';
 import { allOrgRows } from './backups.repo';
-import { buildInventory, STACK_LABEL, type MetricKind, type TimeseriesInput } from '@swarmy/core';
+import { buildInventory, STACK_LABEL } from '@swarmy/core';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { DashboardSummary } from '@swarmy/core/views';
-import { telemetryOf, type OrgContext } from '../context';
+import type { OrgContext } from '../context';
 
 export interface ClusterOverview {
   cpuPercent: number;
@@ -15,15 +15,6 @@ export interface ClusterOverview {
   containersRunning: number;
   sampledAt: string;
 }
-
-const RANGE_MS: Record<string, number> = {
-  '5m': 5 * 60_000,
-  '15m': 15 * 60_000,
-  '1h': 60 * 60_000,
-  '6h': 6 * 60 * 60_000,
-  '24h': 24 * 60 * 60_000,
-  '7d': 7 * 24 * 60 * 60_000,
-};
 
 // ── Org scoping (pure, unit-tested) ─────────────────────────────────────────
 //
@@ -125,86 +116,6 @@ export async function getOverview(ctx: OrgContext): Promise<ClusterOverview> {
     containersRunning,
     sampledAt: new Date().toISOString(),
   };
-}
-
-interface SampleRow {
-  ts: Date;
-  cpuPercent: number;
-  memUsedBytes: bigint;
-  memTotalBytes: bigint;
-  netRxBytes: bigint;
-  netTxBytes: bigint;
-  diskUsedBytes: bigint;
-  diskTotalBytes: bigint;
-}
-
-function valueFor(metric: MetricKind, r: SampleRow): number {
-  switch (metric) {
-    case 'cpu':
-      return r.cpuPercent;
-    case 'mem':
-      return r.memTotalBytes > 0n ? (Number(r.memUsedBytes) / Number(r.memTotalBytes)) * 100 : 0;
-    case 'net':
-      return Number(r.netRxBytes + r.netTxBytes);
-    case 'disk':
-      return Number(r.diskUsedBytes);
-    default:
-      return 0;
-  }
-}
-
-export async function getTimeseries(
-  ctx: OrgContext,
-  input: TimeseriesInput,
-): Promise<{ metric: MetricKind; points: { t: string; v: number }[] }> {
-  const since = new Date(Date.now() - (RANGE_MS[input.range] ?? RANGE_MS['1h']!));
-  const rows = (await telemetryOf(ctx).metricSample.findMany({
-    where: {
-      orgId: ctx.activeOrgId,
-      ts: { gte: since },
-      nodeId: input.nodeId,
-      containerId: input.containerId,
-      scope: input.containerId ? 'CONTAINER' : 'NODE',
-    },
-    orderBy: { ts: 'asc' },
-    take: 2000,
-  })) as unknown as SampleRow[];
-  return { metric: input.metric, points: rows.map((r) => ({ t: r.ts.toISOString(), v: valueFor(input.metric, r) })) };
-}
-
-export interface TopConsumer {
-  id: string;
-  name: string;
-  kind: 'node' | 'service';
-  value: number;
-  unit: string;
-}
-
-export async function getTopConsumers(
-  ctx: OrgContext,
-  input: { metric: MetricKind; limit: number },
-): Promise<TopConsumer[]> {
-  const nodes = await ctx.db.node.findMany({
-    where: { orgId: ctx.activeOrgId },
-    select: { id: true, name: true },
-  });
-  const rows = nodes
-    .map((n) => {
-      const s = ctx.hub.latestNodeStats(n.id);
-      const value = s
-        ? input.metric === 'cpu'
-          ? s.cpuPercent
-          : input.metric === 'mem'
-            ? s.memTotalBytes
-              ? (s.memUsedBytes / s.memTotalBytes) * 100
-              : 0
-            : s.netRxBytes + s.netTxBytes
-        : 0;
-      return { id: n.id, name: n.name, kind: 'node' as const, value, unit: input.metric === 'net' ? 'B/s' : '%' };
-    })
-    .sort((a, b) => b.value - a.value)
-    .slice(0, input.limit);
-  return rows;
 }
 
 export async function getDashboardSummary(ctx: OrgContext): Promise<DashboardSummary> {

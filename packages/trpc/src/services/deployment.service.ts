@@ -11,8 +11,6 @@ import { liveService } from './service.service';
  * carried by callers is the service's id/name, which resolves the live service.
  */
 
-const TERMINAL: DeployPhase[] = ['complete', 'failed', 'rolledback', 'canceled'];
-
 /** Synthesize a deploy status from a live service's replica convergence. */
 function synth(svc: InvService, deploymentId: string): DeployStatus {
   const { desired, running } = svc.replicas;
@@ -33,21 +31,6 @@ function synth(svc: InvService, deploymentId: string): DeployStatus {
   };
 }
 
-/** A non-terminal placeholder while a just-dispatched service is not yet visible. */
-function pending(deploymentId: string): DeployStatus {
-  return {
-    deploymentId,
-    serviceId: null,
-    kind: 'deploy',
-    phase: 'converging',
-    desired: null,
-    ready: null,
-    message: null,
-    startedAt: new Date().toISOString(),
-    finishedAt: null,
-  };
-}
-
 export function getDeployStatus(ctx: OrgContext, deploymentId: string): DeployStatus {
   const svc = liveService(ctx, deploymentId);
   if (!svc) throw notFound('deployment', deploymentId);
@@ -60,20 +43,4 @@ export function getLatestServiceDeployStatus(
 ): DeployStatus | null {
   const svc = liveService(ctx, serviceId);
   return svc ? synth(svc, svc.id) : null;
-}
-
-/** Poll a service's live convergence until it reaches a terminal phase or aborts. */
-export async function* watchDeployStatus(
-  ctx: OrgContext,
-  deploymentId: string,
-  signal: AbortSignal,
-): AsyncGenerator<DeployStatus> {
-  while (!signal.aborted) {
-    const svc = liveService(ctx, deploymentId);
-    // Tolerate the brief window before a freshly-dispatched service appears.
-    const status = svc ? synth(svc, deploymentId) : pending(deploymentId);
-    yield status;
-    if (TERMINAL.includes(status.phase)) return;
-    await new Promise((r) => setTimeout(r, 1000));
-  }
 }

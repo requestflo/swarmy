@@ -15,7 +15,7 @@ import { CountUp } from '@/components/count-up';
  */
 export function ClusterHero({ estate }: { estate: EstateSummary }): React.JSX.Element {
   const trpc = useTRPC();
-  const overview = useQuery({ ...trpc.metrics.overview.queryOptions(), refetchInterval: 2_000 });
+  const overview = useQuery({ ...trpc.estate.overview.queryOptions(), refetchInterval: 2_000 });
 
   const point = React.useMemo(
     () =>

@@ -32,7 +32,7 @@ export function useEstateSummary(): EstateSummaryState & {
 } {
   const trpc = useTRPC();
   const summary = useQuery({
-    ...trpc.system.dashboardSummary.queryOptions(),
+    ...trpc.estate.summary.queryOptions(),
     refetchInterval: ESTATE_POLL_MS,
   });
   const alerts = useQuery({
