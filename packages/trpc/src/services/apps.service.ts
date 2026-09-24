@@ -50,7 +50,7 @@ import { writeAudit } from './audit.service';
 import { fireEvent } from './alerts-fire';
 import { buildForApp, systemContext } from './cicd.service';
 import { resolveManagerNode } from './dispatch.service';
-import { inspectCommit } from './git-connections.service';
+import { inspectCommit, listProviderBranches } from './git-connections.service';
 import { reportCommitStatus, upsertPrComment } from './git-feedback.service';
 import { controllerPublicUrl } from './git-credentials';
 import { deployFromCompose } from './stack.service';
@@ -603,15 +603,10 @@ export async function planCommit(
   const text = inspected.files[repo.configPath];
   const feedbackRepo = repo;
   if (text == null) {
-    await reportCommitStatus(ctx.db, feedbackRepo, {
-      sha,
-      state: 'failure',
-      context: 'swarmy / plan',
-      description: `No ${repo.configPath} at this commit`,
-    });
+    // Not a swarmy.yaml app (yet): callers fall back to a plain build.
     return {
       planId: null,
-      status: 'invalid',
+      status: 'no-config',
       environment: null,
       stack: null,
       reason: `no ${repo.configPath}`,
@@ -1166,6 +1161,8 @@ export function replan(ctx: OrgContext, input: { repoId: string; branch?: string
  * changed a git-owned thing outside git (or the swarm lost it) — surfaced as
  * an `app-drift` event, never silently reverted.
  */
+const lastDrift = new Map<string, string>();
+
 export async function detectDrift(
   ctx: OrgContext,
   repoId: string,
@@ -1198,6 +1195,9 @@ export async function detectDrift(
     if (changes) {
       out.push({ environment: row.environment, stack: desired.stack, changes });
       if (opts.notify === false) continue;
+      const signature = plan.actions.map((a) => a.id).join('|');
+      if (lastDrift.get(desired.stack) === signature) continue; // already told them about this drift
+      lastDrift.set(desired.stack, signature);
       void fireEvent(ctx, {
         signal: 'app-drift',
         severity: 'warning',
@@ -1211,6 +1211,48 @@ export async function detectDrift(
     }
   }
   return out;
+}
+
+// ── polling (controllers the provider can't reach, or a missed webhook) ─────
+
+/**
+ * Plan any deploy-branch head this app hasn't seen yet. One provider call
+ * per repo (branch list with head shas); generic git relies on its webhook.
+ * Idempotent: a sha that already has a plan is skipped, so webhooks and
+ * polling never double-apply.
+ */
+export async function pollApp(ctx: OrgContext, repoId: string): Promise<PlanCommitResult[]> {
+  const repo = await ctx.db.gitRepo.findFirst({ where: { id: repoId, orgId: ctx.activeOrgId } });
+  if (!repo || !isAppBinding(repo) || !repo.connectionId) return [];
+  const repoRef = repo.fullName ?? repo.externalRepoId;
+  if (!repoRef) return [];
+  const heads = await listProviderBranches(ctx, {
+    connectionId: repo.connectionId,
+    repo: repo.externalRepoId && repo.provider === 'GITLAB' ? repo.externalRepoId : repoRef,
+  }).catch(() => []);
+  const out: PlanCommitResult[] = [];
+  for (const branch of [repo.branch, ...repo.envBranches]) {
+    const head = heads.find((h) => h.name === branch);
+    if (!head) continue;
+    const seen = await ctx.db.appPlan.findFirst({
+      where: { repoId: repo.id, sha: head.sha, prNumber: 0 },
+      select: { id: true },
+    });
+    if (seen) continue;
+    if (branch === repo.branch && repo.lastAppliedSha === head.sha) continue;
+    out.push(
+      await planCommit(ctx, { repoId: repo.id, ref: branch, sha: head.sha, trigger: 'poll' }),
+    );
+  }
+  return out;
+}
+
+export async function listAppBindingIds(db: DB, orgId: string): Promise<string[]> {
+  const rows = await db.gitRepo.findMany({
+    where: { orgId, serviceId: null, appName: { not: null } },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
 }
 
 // ── system entry points (webhooks / workers) ────────────────────────────────

@@ -21,7 +21,10 @@ import { Hono } from 'hono';
 import { decryptSecret } from '@swarmy/core/crypto';
 import { prisma, type DB } from '@swarmy/db';
 import {
+  isAppBinding,
+  planCommitForRepo,
   previewCommentBody,
+  teardownAppPreviewForRepo,
   triggerBuildForRepo,
   upsertPrComment,
   type AgentHub,
@@ -34,6 +37,7 @@ import {
   isForkPullRequest,
   parseCommitSha,
   parsePushRef,
+  pushChangedPaths,
   safeEqual,
   verifyGiteaSignature,
   verifySwarmySignature,
@@ -105,6 +109,8 @@ const REPO_SELECT = {
   connectionId: true,
   fullName: true,
   externalRepoId: true,
+  serviceId: true,
+  envBranches: true,
 } as const;
 type RepoHookRow = {
   id: string;
@@ -115,7 +121,62 @@ type RepoHookRow = {
   connectionId: string | null;
   fullName: string | null;
   externalRepoId: string | null;
+  serviceId: string | null;
+  envBranches: string[];
 };
+
+/** Does a push to `ref` concern this binding? (its branch, or one of its swarmy.yaml environments) */
+function deploysFrom(r: RepoHookRow, ref: string): boolean {
+  return r.branch === ref || (isAppBinding(r) && r.envBranches.includes(ref));
+}
+
+/**
+ * A push to an app binding: the GitOps loop (plan → check run → apply). A
+ * legacy binding (one linked service) keeps build-and-redeploy.
+ */
+function kickPush(r: RepoHookRow, ref: string, sha: string | null, changedPaths: string[] | undefined): void {
+  if (!isAppBinding(r)) return kickBuild(r, ref, sha);
+  void planCommitForRepo(deps(), r.orgId, {
+    repoId: r.id,
+    ref,
+    sha,
+    trigger: 'push',
+    ...(changedPaths ? { changedPaths } : {}),
+  })
+    .then((res) => {
+      // No swarmy.yaml at this commit: behave like a plain build repo.
+      if (res.status === 'no-config' && ref === r.branch) kickBuild(r, ref, sha);
+    })
+    .catch((e: unknown) => {
+    console.warn(`[webhooks] app plan for ${r.url}@${ref} failed: ${e instanceof Error ? e.message : String(e)}`);
+  });
+}
+
+/** A PR on an app binding deploys (or tears down) its swarmy.yaml preview; legacy repos keep compose previews. */
+function kickPr(r: RepoHookRow, pr: PrEvent): void {
+  if (!isAppBinding(r)) return kickPreview(r, pr);
+  const run =
+    pr.action === 'closed'
+      ? teardownAppPreviewForRepo(deps(), r.orgId, { repoId: r.id, prNumber: pr.prNumber }).then(async (res) => {
+          if (res.stack) {
+            await upsertPrComment(prisma, r, {
+              pr: pr.prNumber,
+              key: `preview:${r.id}`,
+              body: previewCommentBody({ stack: res.stack, url: null, sha: pr.commit, state: 'torn-down' }),
+            });
+          }
+        })
+      : planCommitForRepo(deps(), r.orgId, {
+          repoId: r.id,
+          ref: pr.branch,
+          sha: pr.commit,
+          trigger: 'pr',
+          prNumber: pr.prNumber,
+        });
+  void Promise.resolve(run).catch((e: unknown) => {
+    console.warn(`[webhooks] app preview for ${r.url}#${pr.prNumber} failed: ${e instanceof Error ? e.message : String(e)}`);
+  });
+}
 
 /** Fire-and-forget a build of `sha` for one repo binding (errors land in the build row + check run). */
 function kickBuild(repo: RepoHookRow, ref: string, sha: string | null): void {
@@ -225,8 +286,9 @@ webhooksApp.post('/github', async (c) => {
     const ref = parsePushRef('github', body);
     const sha = parseCommitSha('github', body);
     if (body.deleted === true || !ref) return c.json({ ok: true, ignored: 'branch deleted' });
-    const matched = repos.filter((r) => r.branch === ref);
-    for (const r of matched) kickBuild(r, ref, sha);
+    const matched = repos.filter((r) => deploysFrom(r, ref));
+    const changed = pushChangedPaths(body);
+    for (const r of matched) kickPush(r, ref, sha, changed);
     return c.json(
       { ok: true, accepted: matched.map((r) => r.id), ref },
       matched.length ? 202 : 200,
@@ -247,7 +309,7 @@ webhooksApp.post('/github', async (c) => {
       (body.pull_request as { base?: { ref?: string } } | undefined)?.base?.ref ?? '',
     );
     const matched = repos.filter((r) => !baseRef || r.branch === baseRef);
-    for (const r of matched) kickPreview(r, pr);
+    for (const r of matched) kickPr(r, pr);
     return c.json(
       { ok: true, pr: pr.prNumber, accepted: matched.map((r) => r.id) },
       matched.length ? 202 : 200,
@@ -334,16 +396,16 @@ webhooksApp.post('/git/:repoId', async (c) => {
         ignored: 'fork pull request (fork PRs never build automatically)',
       });
     }
-    kickPreview(repo, pr);
+    kickPr(repo, pr);
     return c.json({ ok: true, pr: pr.prNumber, accepted: true }, 202);
   }
 
   const ref = parsePushRef(dialect, body);
   // Only build the watched branch (defensive — providers can be configured broadly).
-  if (ref && repo.branch && ref !== repo.branch) {
+  if (ref && repo.branch && !deploysFrom(repo, ref)) {
     return c.json({ ok: true, ignored: 'branch', ref });
   }
   const buildRef = ref ?? repo.branch;
-  kickBuild(repo, buildRef, parseCommitSha(dialect, body));
+  kickPush(repo, buildRef, parseCommitSha(dialect, body), pushChangedPaths(body));
   return c.json({ ok: true, accepted: true, ref: buildRef }, 202);
 });

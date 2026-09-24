@@ -25,6 +25,7 @@ import { startInboundWebhookDispatch } from './inbound-webhook-dispatch';
 import { startAlertEvaluator } from './alert-evaluator';
 import { startDeploySafety } from './deploy-safety';
 import { startPreviewReconcile } from './preview-reconcile';
+import { startAppReconcile } from './app-reconcile';
 import { startNotificationDispatch } from './notification-dispatch';
 import { startExposureAudit } from './exposure-audit';
 import { startMeshMigrationResumer } from './mesh-migration';
@@ -58,6 +59,7 @@ export function startWorkers(): () => void {
     startAlertEvaluator(),
     startDeploySafety(),
     startPreviewReconcile(),
+    startAppReconcile(),
     startNotificationDispatch(),
     startExposureAudit(),
     startMeshMigrationResumer(),
