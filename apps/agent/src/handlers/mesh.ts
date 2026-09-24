@@ -43,6 +43,8 @@ const NETBIRD_CONTAINER = 'swarmy-netbird';
 /** Named volume holding the NetBird client state (installer uses the same). */
 const NETBIRD_STATE_VOLUME = 'swarmy-netbird';
 const TAILSCALE_CONTAINER = 'swarmy-tailscale';
+/** System roots + the client volume (where an extra CA is dropped). */
+export const CA_CERT_DIRS = '/etc/ssl/certs:/var/lib/netbird';
 
 interface ExecResult {
   code: number;
@@ -116,6 +118,8 @@ async function joinNetbird(docker: DockerClient, rendered: RenderedMesh): Promis
   if (client.setupKey) env.push(`NB_SETUP_KEY_FILE=/var/lib/netbird/setup-key`);
   if (client.managementUrl) env.push(`NB_MANAGEMENT_URL=${client.managementUrl}`);
   if (client.interface) env.push(`NB_INTERFACE_NAME=${client.interface}`);
+  // A private CA joins the system roots (Go reads every file in SSL_CERT_DIR).
+  if (client.caPem) env.push(`SSL_CERT_DIR=${CA_CERT_DIRS}`);
 
   const container = await d.createContainer({
     name: NETBIRD_CONTAINER,
@@ -134,6 +138,7 @@ async function joinNetbird(docker: DockerClient, rendered: RenderedMesh): Promis
     },
   });
   if (client.setupKey) await putSecretFile(container, '/var/lib/netbird', 'setup-key', `${client.setupKey}\n`);
+  if (client.caPem) await putSecretFile(container, '/var/lib/netbird', 'swarmy-ca.pem', client.caPem);
   await container.start();
 
   if (client.advertiseRoutes.length) {

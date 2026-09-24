@@ -61,6 +61,9 @@ services:
       SWARMY_MESH_TLS: ${SWARMY_MESH_TLS:-}
       SWARMY_MESH_CLUSTER: ${SWARMY_MESH_CLUSTER:-}
       SWARMY_MESH_CONTROL_HOSTNAME: ${SWARMY_MESH_CONTROL_HOSTNAME:-}
+      # Behind the edge: NetBird's plain listener on the control-plane node's
+      # docker0, tried first by the controller (falls back to the public URL).
+      SWARMY_MESH_ADMIN_URL: ${SWARMY_MESH_ADMIN_URL:-}
       # Docker-secret file references (expanded by the entrypoint).
       SWARMY_SECRET_KEY_FILE: /run/secrets/swarmy_secret_key
       BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret

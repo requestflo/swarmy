@@ -86,6 +86,7 @@ ALLOW_BUILD="\${SWARMY_ALLOW_BUILD:-}"
 MESH_SETUP_KEY="\${SWARMY_MESH_SETUP_KEY:-}"
 MESH_MANAGEMENT_URL="\${SWARMY_MESH_MANAGEMENT_URL:-}"
 MESH_DRIVER="\${SWARMY_MESH_DRIVER:-netbird}"
+MESH_CA_B64="\${SWARMY_MESH_CA_B64:-}"
 CONTAINER_NAME="swarmy-agent"
 BIN_PATH="${DEFAULT_BINARY_PATH}"
 ENV_FILE="${DEFAULT_ENV_FILE}"
@@ -187,6 +188,7 @@ if [ -n "$REPAIR" ] && [ -f "$ENV_FILE" ]; then
   [ -n "$JOIN_TOKEN" ]         || JOIN_TOKEN="$OLD_JOIN_TOKEN"
   [ -n "$MESH_SETUP_KEY" ]     || MESH_SETUP_KEY="$(sed -n 's/^SWARMY_MESH_SETUP_KEY=//p' "$ENV_FILE" | head -1)"
   [ -n "$MESH_MANAGEMENT_URL" ] || MESH_MANAGEMENT_URL="$(sed -n 's/^SWARMY_MESH_MANAGEMENT_URL=//p' "$ENV_FILE" | head -1)"
+  [ -n "$MESH_CA_B64" ]        || MESH_CA_B64="$(sed -n 's/^SWARMY_MESH_CA_B64=//p' "$ENV_FILE" | head -1)"
   [ -n "$NODE_LABELS" ]        || NODE_LABELS="$(sed -n 's/^SWARMY_NODE_LABELS=//p' "$ENV_FILE" | head -1)"
   [ -n "$ALLOW_BUILD" ]        || ALLOW_BUILD="$(sed -n 's/^SWARMY_ALLOW_BUILD=//p' "$ENV_FILE" | head -1)"
 
@@ -261,6 +263,7 @@ write_env() {
     [ -z "$MESH_SETUP_KEY" ] || echo "SWARMY_MESH_SETUP_KEY=$MESH_SETUP_KEY"
     [ -z "$MESH_MANAGEMENT_URL" ] || echo "SWARMY_MESH_MANAGEMENT_URL=$MESH_MANAGEMENT_URL"
     echo "SWARMY_MESH_DRIVER=$MESH_DRIVER"
+    [ -z "$MESH_CA_B64" ] || echo "SWARMY_MESH_CA_B64=$MESH_CA_B64"
   } > "$ENV_FILE"
   # A repair rewrites an existing file, which keeps its old mode: force 0600.
   chmod 600 "$ENV_FILE"

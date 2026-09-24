@@ -841,7 +841,13 @@ ensure_mesh_control() {
   MESH_IP="$(mesh_ip)"
   if [ -n "$MESH_IP" ]; then ok "mesh already up on ${NB_INTERFACE} (${MESH_IP})."; return 0; fi
   client_url="$NB_MANAGEMENT_URL"; [ "$MESH_TLS" = edge ] && client_url="$NB_ADMIN_URL"
-  local key key_file="$STATE_DIR/netbird-setup-key"
+  local key key_file="$STATE_DIR/netbird-setup-key" ca_args=()
+  # A private CA (SWARMY_MESH_EXTRA_CA) for the https control plane: the client
+  # trusts it next to its system roots (Go reads every file in SSL_CERT_DIR).
+  if [ -n "${MESH_EXTRA_CA:-}" ] && [ -s "$MESH_EXTRA_CA" ]; then
+    install -m 0644 "$MESH_EXTRA_CA" "$STATE_DIR/mesh-ca.pem"
+    ca_args=(-v "$STATE_DIR/mesh-ca.pem:/etc/swarmy/ca/mesh-ca.pem:ro" -e SSL_CERT_DIR=/etc/ssl/certs:/etc/swarmy/ca)
+  fi
   key="$(nb_setup_key one-off 1 3600 "swarmy node #1 $(hostname)")"
   docker pull "$NETBIRD_IMAGE" >/dev/null 2>&1 || warn "could not pull $NETBIRD_IMAGE; using local copy if present."
   docker rm -f "$NETBIRD_CONTAINER" >/dev/null 2>&1 || true
@@ -852,6 +858,7 @@ ensure_mesh_control() {
     -v "${NETBIRD_CONTAINER}:/var/lib/netbird" \
     -v "${key_file}:/etc/netbird/setup-key:ro" \
     -e NB_SETUP_KEY_FILE=/etc/netbird/setup-key -e NB_MANAGEMENT_URL="$client_url" -e NB_INTERFACE_NAME="$NB_INTERFACE" \
+    ${ca_args[@]+"${ca_args[@]}"} \
     "$NETBIRD_IMAGE" >/dev/null || die "failed to start the NetBird client."
   for i in $(seq 1 60); do MESH_IP="$(mesh_ip)"; [ -n "$MESH_IP" ] && break; sleep 1; done
   [ -n "$MESH_IP" ] || die "NetBird did not come up within 60s (docker logs ${NETBIRD_CONTAINER})."
@@ -1092,6 +1099,7 @@ deploy_stack() {
   SWARMY_MESH_TLS="$mesh_tls_env" \
   SWARMY_MESH_CLUSTER="${CLUSTER_NAME:-}" \
   SWARMY_MESH_CONTROL_HOSTNAME="${NODE_HOSTNAME:-}" \
+  SWARMY_MESH_ADMIN_URL="$( [ "$MESH" = swarmy ] && [ "$MESH_TLS" = edge ] && printf '%s' "${NB_ADMIN_URL:-}" )" \
     docker stack deploy --with-registry-auth -c "$f" "$STACK_NAME" >/dev/null \
     || die "docker stack deploy failed."
   say "Waiting for the controller to become healthy…"
@@ -1254,6 +1262,9 @@ finalize() {
   if [ "$MESH" != none ] && [ -n "${NB_SERVICE_TOKEN:-}" ]; then
     local k; k="$(nb_setup_key reusable 5 86400 'swarmy bootstrap one-liner')" || k=""
     [ -z "$k" ] || mesh_env="SWARMY_MESH_SETUP_KEY=$k SWARMY_MESH_MANAGEMENT_URL=${NB_MANAGEMENT_URL%/} SWARMY_MESH_DRIVER=netbird "
+    if [ -n "$k" ] && [ -n "${MESH_EXTRA_CA:-}" ] && [ -s "$MESH_EXTRA_CA" ]; then
+      mesh_env="${mesh_env}SWARMY_MESH_CA_B64=$(base64 -w0 "$MESH_EXTRA_CA" 2>/dev/null || base64 "$MESH_EXTRA_CA" | tr -d '\n') "
+    fi
   fi
   printf '  Add a node:  curl -fsSL %s/install/loader.sh | %sSWARMY_JOIN_TOKEN=%s sh -s -- --controller %s\n' \
     "$share" "$mesh_env" "$BOOTSTRAP_JOIN_TOKEN" "$share"

@@ -227,7 +227,16 @@ async function ensureRouters(
       const r = await ctx.hub.dispatch<ApplyAccessRouterResult>(
         target,
         'mesh.accessRouter',
-        { action: 'up', stackId: st.stackId, network: st.network, image: NETBIRD_CLIENT_IMAGE_PINNED, managementUrl, setupKey, resolve: svcNames },
+        {
+          action: 'up',
+          stackId: st.stackId,
+          network: st.network,
+          image: NETBIRD_CLIENT_IMAGE_PINNED,
+          managementUrl,
+          setupKey,
+          resolve: svcNames,
+          ...(m.extraCaPem ? { caPem: m.extraCaPem } : {}),
+        },
         { timeoutMs: 90_000 },
       );
       if (r.error) {

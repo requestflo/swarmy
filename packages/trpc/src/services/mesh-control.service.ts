@@ -69,6 +69,12 @@ export interface ManagedControlPlane {
   trustedProxies?: string[];
   /** PEM of a private CA NetBird must trust (swarmy's issuer behind it). */
   extraCaPem?: string;
+  /**
+   * NetBird's plain listener as the controller can reach it directly (behind
+   * the edge: the control-plane node's docker0). Tried first; the public URL
+   * is the fallback (the controller may run on another node).
+   */
+  adminUrl?: string;
   /** Last time the bootstrap policy set was asserted (ms). */
   bootstrappedAt?: number;
 }
@@ -115,7 +121,20 @@ export function managedAdmin(row: MeshConfigRow): NetbirdAdminApi | null {
   const token = dec(cp.serviceTokenEnc);
   const url = row.managementUrl ?? cp.url;
   if (cp.mode !== 'managed-by-swarmy' || !token || !url) return null;
-  return new NetbirdAdmin({ managementUrl: url, token });
+  const direct = cp.managed?.adminUrl?.replace(/\/+$/, '');
+  if (!direct) return new NetbirdAdmin({ managementUrl: url, token });
+  const pub = url.replace(/\/+$/, '');
+  // Direct first; a connection error (the controller moved off that node)
+  // retries the same request on the public URL.
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const u = String(input);
+    try {
+      return await fetch(u, { ...init, signal: AbortSignal.timeout(5000) });
+    } catch {
+      return fetch(u.replace(direct, pub), init);
+    }
+  }) as typeof fetch;
+  return new NetbirdAdmin({ managementUrl: direct, token, fetchImpl });
 }
 
 /** Render the spec the hosting agent runs. Pure over the managed doc. */

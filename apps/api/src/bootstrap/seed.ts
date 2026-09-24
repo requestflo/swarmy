@@ -251,6 +251,7 @@ function managedMeshFromEnv(): Record<string, unknown> | null {
     meshDomain: domain,
     tls,
     controlNodeHostname: process.env.SWARMY_MESH_CONTROL_HOSTNAME || process.env.SWARMY_NODE_HOSTNAME || undefined,
+    ...(process.env.SWARMY_MESH_ADMIN_URL ? { adminUrl: process.env.SWARMY_MESH_ADMIN_URL } : {}),
     authSecretEnc: encryptSecret(secrets.authSecret),
     encryptionKeyEnc: encryptSecret(secrets.encryptionKey),
     ...(secrets.ownerEmail ? { ownerEmail: secrets.ownerEmail } : {}),

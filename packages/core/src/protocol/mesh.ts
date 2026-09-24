@@ -111,6 +111,11 @@ export const RenderedMesh = z.object({
       interface: z.string().default('wt0'),
       advertiseRoutes: z.array(z.string()).default([]),
       acceptRoutes: z.boolean().default(true),
+      /**
+       * Extra CA (PEM) the client trusts on top of its system roots, for a
+       * control plane behind a private CA. Not a secret.
+       */
+      caPem: z.string().optional(),
     })
     .optional(),
   /** Files to write (raw-WireGuard-style drivers). */
@@ -336,6 +341,8 @@ export const ApplyAccessRouterPayload = z.object({
   setupKey: z.string().optional(),
   /** Service DNS names on the overlay to resolve to VIPs (`storefront_db`). */
   resolve: z.array(z.string()).default([]),
+  /** Extra CA (PEM) for a control plane behind a private CA. */
+  caPem: z.string().optional(),
 });
 export type ApplyAccessRouterPayload = z.infer<typeof ApplyAccessRouterPayload>;
 

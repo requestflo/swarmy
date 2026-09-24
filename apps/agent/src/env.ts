@@ -82,6 +82,8 @@ export const env = {
   MESH_SETUP_KEY: process.env.SWARMY_MESH_SETUP_KEY ?? '',
   MESH_MANAGEMENT_URL: process.env.SWARMY_MESH_MANAGEMENT_URL ?? '',
   MESH_DRIVER: process.env.SWARMY_MESH_DRIVER ?? 'netbird',
+  /** Base64 PEM of a private CA the mesh control plane uses (self-hosted mesh behind one). */
+  MESH_CA_B64: process.env.SWARMY_MESH_CA_B64 ?? '',
   /**
    * Third-party IP-echo URLs, used ONLY when the controller did not see a
    * public source address for this node (plans/self-reliance.md B8). Unset →

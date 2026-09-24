@@ -99,6 +99,7 @@ export async function applyAccessRouter(docker: DockerClient, p: ApplyAccessRout
     if (p.managementUrl) env.push(`NB_MANAGEMENT_URL=${p.managementUrl}`);
     // A 0600 file on the router's own volume, never `-e` (docker inspect keeps env).
     if (p.setupKey) env.push('NB_SETUP_KEY_FILE=/var/lib/netbird/setup-key');
+    if (p.caPem) env.push('SSL_CERT_DIR=/etc/ssl/certs:/var/lib/netbird');
     try {
       const c = await d.createContainer({
         name,
@@ -117,6 +118,7 @@ export async function applyAccessRouter(docker: DockerClient, p: ApplyAccessRout
         },
       });
       if (p.setupKey) await putSecretFile(c, '/var/lib/netbird', 'setup-key', `${p.setupKey}\n`);
+      if (p.caPem) await putSecretFile(c, '/var/lib/netbird', 'swarmy-ca.pem', p.caPem);
       await c.start();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
