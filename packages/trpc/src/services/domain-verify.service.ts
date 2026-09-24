@@ -2,12 +2,13 @@
  * Custom-domain verification + certificate status — the controller's IO shell
  * around the pure `@swarmy/ingress` domain-verify core.
  *
- * DNS: DNS-over-HTTPS from the controller to TWO public resolvers (Cloudflare
- * 1.1.1.1 and Google 8.8.8.8). Chosen over an agent one-shot because it needs
- * no protocol change, sees what the public (and Let's Encrypt) sees rather
- * than a node's split-horizon / systemd-resolved view, and bypasses the
- * controller container's own resolver cache. Both must agree before a host is
- * "verified", which is what turns propagation into an honest state.
+ * DNS: a resolver chain from the controller (`resolverChainLookup`) — the
+ * system resolver, then swarmy-dns for hosts in a swarmy-served zone, then
+ * DNS-over-HTTPS to the public resolvers in `SWARMY_DOH_RESOLVERS` (default
+ * Cloudflare 1.1.1.1 + Google 8.8.8.8; empty = none, for air-gapped clusters).
+ * Every resolver that ANSWERED must agree before a host is "verified", which
+ * turns propagation into an honest state; an unreachable public resolver is
+ * ignored rather than blocking, so a cluster with no egress still verifies.
  *
  * Certificates: a TLS handshake FROM the controller TO each edge's public IP
  * with SNI = the host. That is topology- and driver-independent (the shared
@@ -250,15 +251,57 @@ type FetchLike = (url: string, init?: { headers?: Record<string, string>; signal
   json(): Promise<unknown>;
 }>;
 
-const RESOLVERS = [
-  { name: '1.1.1.1', url: (n: string, t: string) => `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(n)}&type=${t}` },
-  { name: '8.8.8.8', url: (n: string, t: string) => `https://dns.google/resolve?name=${encodeURIComponent(n)}&type=${t}` },
-];
+/** One DNS-over-HTTPS JSON endpoint (`?name=&type=` is appended). */
+export interface DohResolver {
+  name: string;
+  url: (name: string, type: string) => string;
+}
 
-/** Resolve `name` (A + AAAA) on each public resolver over DNS-over-HTTPS. */
-export async function dohLookup(name: string, fetchImpl: FetchLike = fetch as unknown as FetchLike): Promise<ResolverAnswer[]> {
+const DOH_PRESETS: Record<string, DohResolver> = {
+  cloudflare: { name: '1.1.1.1', url: (n, t) => `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(n)}&type=${t}` },
+  google: { name: '8.8.8.8', url: (n, t) => `https://dns.google/resolve?name=${encodeURIComponent(n)}&type=${t}` },
+};
+const DEFAULT_DOH = 'cloudflare,google';
+
+/**
+ * PURE — parse `SWARMY_DOH_RESOLVERS`: a comma list of presets (`cloudflare`,
+ * `google`) and/or JSON DoH endpoint URLs (`https://doh.internal/dns-query`).
+ * Unset → the two public presets. Empty string / `off` / `none` → NO public
+ * resolvers (system resolver + swarmy-dns only — the air-gapped setting).
+ * Unknown / non-https entries are ignored.
+ */
+export function parseDohResolvers(raw: string | undefined): DohResolver[] {
+  const v = (raw ?? DEFAULT_DOH).trim();
+  if (v === '' || v === 'off' || v === 'none') return [];
+  const out: DohResolver[] = [];
+  for (const item of v.split(',').map((x) => x.trim()).filter(Boolean)) {
+    const preset = DOH_PRESETS[item.toLowerCase()];
+    if (preset) {
+      out.push(preset);
+      continue;
+    }
+    let u: URL;
+    try {
+      u = new URL(item);
+    } catch {
+      continue;
+    }
+    if (u.protocol !== 'https:') continue;
+    const base = u.toString();
+    const sep = base.includes('?') ? '&' : '?';
+    out.push({ name: u.host, url: (n, t) => `${base}${sep}name=${encodeURIComponent(n)}&type=${t}` });
+  }
+  return out;
+}
+
+/** Resolve `name` (A + AAAA) on each given DoH resolver. */
+export async function dohLookup(
+  name: string,
+  fetchImpl: FetchLike = fetch as unknown as FetchLike,
+  resolvers: readonly DohResolver[] = parseDohResolvers(process.env.SWARMY_DOH_RESOLVERS),
+): Promise<ResolverAnswer[]> {
   return Promise.all(
-    RESOLVERS.map(async (r) => {
+    resolvers.map(async (r) => {
       const parts = await Promise.all(
         ['A', 'AAAA'].map(async (type) => {
           try {
@@ -276,6 +319,86 @@ export async function dohLookup(name: string, fetchImpl: FetchLike = fetch as un
       return mergeAnswers(r.name, parts);
     }),
   );
+}
+
+/** The slice of `node:dns` promises Resolver the classic lookups need (injectable in tests). */
+export interface ClassicResolver {
+  resolve4(name: string): Promise<string[]>;
+  resolve6(name: string): Promise<string[]>;
+}
+
+/**
+ * Classic DNS (A + AAAA) through one resolver — the controller's system
+ * resolver, or swarmy-dns when `servers` names its nameserver IPs. NXDOMAIN /
+ * no-data are answers, not errors; timeouts and refusals are errors.
+ */
+export async function classicLookup(name: string, label: string, resolver: ClassicResolver): Promise<ResolverAnswer> {
+  const one = async (type: 'A' | 'AAAA'): Promise<ResolverAnswer> => {
+    try {
+      const ips = type === 'A' ? await resolver.resolve4(name) : await resolver.resolve6(name);
+      const norm = ips.map((ip) => ip.trim().toLowerCase());
+      return { resolver: label, a: type === 'A' ? norm : [], aaaa: type === 'AAAA' ? norm : [], cname: [] };
+    } catch (e) {
+      const code = (e as { code?: string } | null)?.code;
+      if (code === 'ENOTFOUND') return { resolver: label, a: [], aaaa: [], cname: [], nxdomain: true };
+      if (code === 'ENODATA') return { resolver: label, a: [], aaaa: [], cname: [] };
+      return { resolver: label, a: [], aaaa: [], cname: [], error: code ?? (e instanceof Error ? e.message : String(e)) };
+    }
+  };
+  return mergeAnswers(label, await Promise.all([one('A'), one('AAAA')]));
+}
+
+async function nodeResolver(servers?: readonly string[]): Promise<ClassicResolver> {
+  const { promises: dns } = await import('node:dns');
+  const r = new dns.Resolver({ timeout: 3000, tries: 1 });
+  if (servers?.length) r.setServers([...servers]);
+  return r;
+}
+
+export interface ResolverChainIo {
+  /** Classic resolver factory: no servers → the system resolver. */
+  resolver?: (servers?: readonly string[]) => Promise<ClassicResolver>;
+  doh?: (name: string) => Promise<ResolverAnswer[]>;
+}
+
+/**
+ * The verification resolver chain (plans/self-reliance.md — no default
+ * dependency on public DNS): the controller's SYSTEM resolver first, then
+ * swarmy-dns (queried directly at its nameserver IPs) when the host lives in a
+ * swarmy-served zone, then the public DoH resolvers (`SWARMY_DOH_RESOLVERS`).
+ *
+ * The DoH tier is only consulted when the local tiers did not already rule the
+ * host out, and a DoH resolver that can't be reached (offline / air-gapped)
+ * reports an error, which `evaluateDns` ignores — so a cluster with no egress
+ * still verifies against its own resolvers, while one with egress still waits
+ * for the public view (what Let's Encrypt sees) to agree.
+ */
+export async function resolverChainLookup(
+  name: string,
+  expected: ExpectedTarget,
+  opts: { swarmyDnsServers?: readonly string[]; io?: ResolverChainIo } = {},
+): Promise<ResolverAnswer[]> {
+  const mk = opts.io?.resolver ?? nodeResolver;
+  const local: ResolverAnswer[] = [];
+  local.push(
+    await mk()
+      .then((r) => classicLookup(name, 'system', r))
+      .catch((e) => ({ resolver: 'system', a: [], aaaa: [], cname: [], error: String(e) })),
+  );
+  const ns = (opts.swarmyDnsServers ?? []).filter(Boolean);
+  if (ns.length > 0) {
+    local.push(
+      await mk(ns)
+        .then((r) => classicLookup(name, 'swarmy-dns', r))
+        .catch((e) => ({ resolver: 'swarmy-dns', a: [], aaaa: [], cname: [], error: String(e) })),
+    );
+  }
+  const localAnswered = local.some((a) => !a.error);
+  // Local tiers answered and already say "not us" → the host is not verified
+  // whatever the public view says; skip the public round-trip.
+  if (localAnswered && !evaluateDns(name, local, expected).ok) return local;
+  const doh = await (opts.io?.doh ?? ((n: string) => dohLookup(n)))(name).catch(() => [] as ResolverAnswer[]);
+  return [...local, ...doh];
 }
 
 /** One TLS handshake to `ip:443` with SNI `servername`; never throws. */
@@ -327,11 +450,16 @@ async function runCheck(
   posture: HostPosture,
   expected: ExpectedTarget,
   now: number,
-  io: { lookup?: typeof dohLookup; probe?: typeof probeCert } = {},
+  io: {
+    lookup?: (name: string, expected: ExpectedTarget) => Promise<ResolverAnswer[]>;
+    probe?: typeof probeCert;
+    swarmyDnsServers?: readonly string[];
+  } = {},
 ): Promise<DomainCheckRecord> {
-  const lookup = io.lookup ?? dohLookup;
+  const lookup =
+    io.lookup ?? ((n: string, e: ExpectedTarget) => resolverChainLookup(n, e, { swarmyDnsServers: io.swarmyDnsServers }));
   const probe = io.probe ?? probeCert;
-  const dns: DnsObservation = evaluateDns(rec.host, await lookup(lookupNameFor(rec.host)), expected);
+  const dns: DnsObservation = evaluateDns(rec.host, await lookup(lookupNameFor(rec.host), expected), expected);
   const verified = rec.verifiedAt !== undefined || dns.ok;
   const wantsCert = verified && posture.tls !== 'off' && !posture.tunnel;
   // A just-verified gated host isn't rendered yet — its cert is checked next tick.
@@ -506,7 +634,9 @@ async function checkHosts(
     const results = await Promise.all(
       batch.map(async (p) => {
         const before = checks?.hosts[p.host] ?? created.get(p.host) ?? newDomainRecord(p, now);
-        const after = await runCheck(before, p, expected, now).catch(() => null);
+        const zone = await zoneFor(ctx, p.host).catch(() => null);
+        const swarmyDnsServers = (zone?.nameservers ?? []).map((n) => n.ip).filter(Boolean);
+        const after = await runCheck(before, p, expected, now, { swarmyDnsServers }).catch(() => null);
         return { before, after };
       }),
     );
