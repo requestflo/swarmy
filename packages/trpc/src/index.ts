@@ -293,6 +293,7 @@ export {
 export type { CacheClusterDecl } from './services/cache.service';
 export { sampleQueueClusters, type SampledCluster } from './services/queue-studio.service';
 export { runDueDbBackups } from './services/dbBackup.service';
+export { publicStatus, sampleUptimeTick } from './services/statusPages.service';
 export {
   list as listClusterVolumes,
   register as registerClusterVolume,

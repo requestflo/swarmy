@@ -34,12 +34,8 @@ import { assertControllerDomainAvailable } from './ingress.service';
  * the incidents service (`publicIncidents`).
  *
  * The unauthenticated snapshot is served by `apps/api/src/status-public.ts`
- * (`GET /status/<slug>.json`), which MIRRORS {@link publicStatus} because the
- * `@swarmy/trpc` package root does not export it yet.
- * ORCHESTRATOR TODO: export `publicStatus` + `sampleUptimeTick` from
- * `packages/trpc/src/index.ts` so the mirror (and the alert-evaluator's
- * pending `sampleUptimeTick` call) can use the canonical copies:
- *   `export { publicStatus, sampleUptimeTick } from './services/statusPages.service';`
+ * (`GET /status/<slug>.json`) via {@link publicStatus}; the alert-evaluator
+ * tick calls {@link sampleUptimeTick}.
  */
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -429,9 +425,6 @@ const DB_STATUS_TO_PUBLIC: Record<string, 'up' | 'degraded' | 'down'> = {
  * page meta, per-component current status (live, falling back to the latest
  * recent sample), 90-day uptime bars, and the public incident feed. Throws
  * NOT_FOUND for unknown or disabled slugs. Pure read — no audit row.
- *
- * KEEP IN SYNC with the mirror in `apps/api/src/status-public.ts` until the
- * package root exports this (see the header ORCHESTRATOR TODO).
  */
 export async function publicStatus(ctx: OrgContext, slug: string): Promise<PublicStatusView> {
   const page = await ctx.db.statusPage.findFirst({ where: { slug, orgId: ctx.activeOrgId } });
@@ -570,7 +563,7 @@ export async function sampleUptimeTick(ctx: OrgContext): Promise<void> {
  * `host → controller public URL`. The per-service route API
  * (`ingress-routes-api.ts#setServiceRoutes`) only writes `swarmy.ingress.routes`
  * labels that dial a SWARM SERVICE's port — there is no clean helper for an
- * arbitrary controller upstream. ORCHESTRATOR TODO: add a controller-upstream
+ * arbitrary controller upstream. TODO: add a controller-upstream
  * route concept to ingress rendering (e.g. an org-level static vhost list in
  * `ingress.service.ts#renderInput` pointing at `CONTROLLER_PUBLIC_URL`), then
  * wire it here on create/update/delete. Until then the UI shows the DNS/proxy

@@ -7,6 +7,7 @@ import {
   latestStoreProbe,
   observabilityConfigRepo,
   recordIncidentEvent,
+  sampleUptimeTick,
   systemContext,
 } from '@swarmy/trpc';
 import type { OrgContext } from '@swarmy/trpc';
@@ -47,10 +48,8 @@ import { forecastConditions, loadDiskSeries } from './disk-forecast-alerts';
  * worker cannot subpath-import an internal trpc module — the same constraint
  * job-scheduler and manageddb-reconcile document).
  *
- * ORCHESTRATOR TODO: `sampleUptimeTick` (status pages, C5) and
- * `openOrResolveIncidents`-style resolution live behind the `@swarmy/trpc`
- * root export — once `sampleUptimeTick` is re-exported from
- * `packages/trpc/src/index.ts`, call it at the end of each tick.
+ * Each tick also samples status-page uptime (`sampleUptimeTick`, throttled
+ * per component inside the service).
  */
 
 const TICK_MS = 30_000;
@@ -692,9 +691,8 @@ async function evaluateOrg(orgId: string): Promise<void> {
     }
   }
 
-  // ORCHESTRATOR TODO: once `sampleUptimeTick` (statusPages.service, slice C5)
-  // is exported from the `@swarmy/trpc` package root, sample status-page
-  // uptime here: `await sampleUptimeTick(ctx)`.
+  // Status-page uptime bars: one sample per component (throttled in the service).
+  await sampleUptimeTick(ctx).catch(() => undefined);
 }
 
 export function startAlertEvaluator(): () => void {
