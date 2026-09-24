@@ -69,6 +69,18 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
         if (orgId) {
           void stampReportedPublicIp(deps.hub, orgId, nodeId, env.payload.publicIp, ws.data.sourceIp ?? ws.remoteAddress);
         }
+        // Echo a ping: the agent's only proof the link is alive in the inbound
+        // direction. Without it a controller that vanished without a FIN (task
+        // killed, overlay NO-CARRIER) left the agent "connected" forever.
+        ws.send(
+          JSON.stringify({
+            v: PROTOCOL_VERSION,
+            id: crypto.randomUUID(),
+            ts: Date.now(),
+            type: 'ping',
+            payload: { nonce: `hb-${env.payload.seq}` },
+          }),
+        );
       }
       return;
     }

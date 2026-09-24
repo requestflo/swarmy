@@ -4,7 +4,7 @@ import { PROTOCOL_VERSION, type NodeFacts, type RegisterPayload, type RenderedMe
 import { DockerClient } from '@swarmy/core/docker';
 import { env } from './env';
 import { clearState, loadState, saveState, type AgentState } from './state';
-import { AgentConnection } from './connection';
+import { AgentConnection, strandedShouldExit } from './connection';
 import { collectMetrics } from './stats';
 import { sendContainerList, sendServiceState, sendNodeList } from './snapshots';
 import { applyMesh, sampleMeshState } from './handlers/mesh';
@@ -381,6 +381,19 @@ export async function runDaemon(): Promise<void> {
       void handleCommand(docker, conn, envlp).catch((e) => {
         log(`command ${envlp.type} threw outside its result handler: ${e instanceof Error ? e.message : String(e)}`);
       });
+    },
+    onStranded: (downForMs) => {
+      // A container agent's overlay endpoint doesn't heal by redialing (the
+      // veths stay NO-CARRIER after the controller task died): exit so the
+      // restart policy recycles the container with a fresh attachment. A
+      // host binary keeps redialing (its path is the host network).
+      const mins = Math.round(downForMs / 60_000);
+      if (strandedShouldExit(agentPackaging())) {
+        log(`no live controller link for ${mins} min — exiting so the restart policy recycles this container (fresh overlay endpoint)`);
+        setTimeout(() => process.exit(1), 250);
+      } else {
+        log(`no live controller link for ${mins} min — still redialing`);
+      }
     },
     onAuthRejected: (code, reason) => {
       runtime.lastAuthReject = { code, reason, at: Date.now() };

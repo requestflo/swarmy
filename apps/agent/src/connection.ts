@@ -1,4 +1,6 @@
 import {
+  AGENT_LINK_IDLE_TIMEOUT_MS,
+  AGENT_STRANDED_EXIT_MS,
   BACKOFF,
   PROTOCOL_VERSION,
   SUBPROTOCOL,
@@ -15,6 +17,41 @@ interface ConnectionOpts {
   onCommand: (env: ControllerEnvelope) => void;
   /** Controller rejected our register auth (4401/4403) — fix credentials before the redial. */
   onAuthRejected?: (code: number, reason: string) => void;
+  /**
+   * No live link for `strandedMs` (every redial failing or dying): this node's
+   * own network path is presumed broken. The daemon exits a container agent so
+   * its restart policy recycles it with a fresh overlay endpoint.
+   */
+  onStranded?: (downForMs: number) => void;
+  /** Tunables (tests). */
+  idleMs?: number;
+  strandedMs?: number;
+  backoff?: { baseMs: number; maxMs: number; factor: number; stableMs: number; dialTimeoutMs: number };
+  watchdogMs?: number;
+}
+
+/**
+ * PURE — is the open link dead? Only once the controller has proven it echoes
+ * (an older controller sends nothing unprompted, and must not be dropped), and
+ * then only after `idleMs` with no inbound frame at all.
+ */
+export function linkIsDead(s: { armed: boolean; lastInboundAt: number; now: number; idleMs: number }): boolean {
+  return s.armed && s.now - s.lastInboundAt > s.idleMs;
+}
+
+/**
+ * PURE — should a stranded agent exit? A container agent: yes (its restart
+ * policy recycles it with a fresh overlay endpoint). A host binary: no, its
+ * path is the host network, so redialing is all it can do.
+ * `SWARMY_EXIT_WHEN_STRANDED=0|1` overrides.
+ */
+export function strandedShouldExit(
+  packaging: 'binary' | 'container',
+  override: string | undefined = process.env.SWARMY_EXIT_WHEN_STRANDED,
+): boolean {
+  if (override === '0' || override === 'false') return false;
+  if (override === '1' || override === 'true') return true;
+  return packaging === 'container';
 }
 
 /** Reconnecting agent→controller WebSocket client with full-jitter backoff. */
@@ -24,11 +61,53 @@ export class AgentConnection {
   private dials = 0;
   private stableTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
+  /** Last inbound frame on the current socket (ms). */
+  private lastInboundAt = 0;
+  /** The controller echoes heartbeats (seen at least one `ping`) → the idle check applies. */
+  private livenessArmed = false;
+  /** Last time the link was proven alive (an inbound frame), or start. */
+  private lastAliveAt = Date.now();
+  private strandedReported = false;
+  private watchdog: ReturnType<typeof setInterval> | null = null;
+  /** Drops the current socket and redials (set per dial). */
+  private abandonCurrent: ((reason: string) => void) | null = null;
+  private readonly backoff: NonNullable<ConnectionOpts['backoff']>;
+  private readonly idleMs: number;
+  private readonly strandedMs: number;
 
-  constructor(private opts: ConnectionOpts) {}
+  constructor(private opts: ConnectionOpts) {
+    this.backoff = opts.backoff ?? BACKOFF;
+    this.idleMs = opts.idleMs ?? AGENT_LINK_IDLE_TIMEOUT_MS;
+    this.strandedMs = opts.strandedMs ?? AGENT_STRANDED_EXIT_MS;
+  }
 
   start(): void {
+    this.lastAliveAt = Date.now();
+    this.watchdog = setInterval(() => this.checkLink(), this.opts.watchdogMs ?? 5_000);
     this.connect();
+  }
+
+  /**
+   * Dead-link watchdog. An OPEN socket whose peer vanished without a FIN/RST
+   * (controller task killed, the overlay veth NO-CARRIER) never fires close,
+   * and writes still "succeed" into the kernel buffer — the agent used to sit
+   * "connected" until restarted. Silence past `idleMs` drops it and redials
+   * (a fresh dial re-resolves the controller name). A link that stays down
+   * past `strandedMs` reports `onStranded` once per outage.
+   */
+  private checkLink(): void {
+    if (this.closed) return;
+    const now = Date.now();
+    if (
+      this.ws?.readyState === WebSocket.OPEN &&
+      linkIsDead({ armed: this.livenessArmed, lastInboundAt: this.lastInboundAt, now, idleMs: this.idleMs })
+    ) {
+      this.abandonCurrent?.(`no frame from the controller for ${Math.round((now - this.lastInboundAt) / 1000)}s`);
+    }
+    if (!this.strandedReported && now - this.lastAliveAt > this.strandedMs) {
+      this.strandedReported = true;
+      this.opts.onStranded?.(now - this.lastAliveAt);
+    }
   }
 
   private connect(): void {
@@ -36,6 +115,8 @@ export class AgentConnection {
     if (this.dials > 1) console.log(`[swarmy-agent] redialing controller (attempt ${this.dials})`);
     const ws = new WebSocket(this.opts.url, SUBPROTOCOL);
     this.ws = ws;
+    this.lastInboundAt = Date.now();
+    this.livenessArmed = false;
 
     // A dial can hang forever (SYN dropped, upgrade never answered — e.g. a
     // controller mid-restart accepts the TCP connection but never upgrades)
@@ -45,9 +126,13 @@ export class AgentConnection {
     // timer schedules the reconnect directly; `settled` keeps the close
     // handler from double-scheduling if the event does arrive.
     let settled = false;
-    const dialTimer = setTimeout(() => {
-      if (ws.readyState === WebSocket.OPEN || settled) return;
+    const abandon = (reason: string) => {
+      if (settled) return;
       settled = true;
+      console.log(`[swarmy-agent] dropping controller link: ${reason}`);
+      clearTimeout(dialTimer);
+      if (this.stableTimer) clearTimeout(this.stableTimer);
+      this.stableTimer = null;
       try {
         ws.close();
       } catch {
@@ -55,22 +140,37 @@ export class AgentConnection {
       }
       if (this.ws === ws) this.ws = null;
       if (!this.closed) this.scheduleReconnect();
-    }, BACKOFF.dialTimeoutMs);
+    };
+    this.abandonCurrent = abandon;
+    const dialTimer = setTimeout(() => {
+      if (ws.readyState === WebSocket.OPEN || settled) return;
+      abandon('dial timed out');
+    }, this.backoff.dialTimeoutMs);
 
     ws.addEventListener('open', () => {
       clearTimeout(dialTimer);
       this.send('register', this.opts.buildRegister());
       this.stableTimer = setTimeout(() => {
         this.attempt = 0;
-      }, BACKOFF.stableMs);
+      }, this.backoff.stableMs);
     });
 
     ws.addEventListener('message', (ev: MessageEvent) => {
+      if (this.ws !== ws) return;
+      // Any inbound frame proves the link alive.
+      this.lastInboundAt = Date.now();
+      this.lastAliveAt = this.lastInboundAt;
+      this.strandedReported = false;
       let env: ControllerEnvelope;
       try {
         env = parseControllerEnvelope(JSON.parse(String(ev.data)));
       } catch {
         return;
+      }
+      if (env.type === 'ping') {
+        this.livenessArmed = true;
+        // Heartbeat echoes are liveness only — not commands to ack.
+        if (env.payload.nonce.startsWith('hb-')) return;
       }
       if (env.type === 'registerAck') {
         this.opts.onRegisterAck(env.payload);
@@ -99,10 +199,13 @@ export class AgentConnection {
   }
 
   private scheduleReconnect(): void {
-    const ceiling = Math.min(BACKOFF.maxMs, BACKOFF.baseMs * BACKOFF.factor ** this.attempt);
+    const b = this.backoff;
+    const ceiling = Math.min(b.maxMs, b.baseMs * b.factor ** this.attempt);
     const delay = Math.random() * ceiling;
     this.attempt += 1;
-    setTimeout(() => this.connect(), delay);
+    setTimeout(() => {
+      if (!this.closed) this.connect();
+    }, delay);
   }
 
   send(type: string, payload: unknown): void {
@@ -137,6 +240,8 @@ export class AgentConnection {
 
   stop(): void {
     this.closed = true;
+    if (this.watchdog) clearInterval(this.watchdog);
+    this.watchdog = null;
     this.ws?.close();
   }
 }

@@ -33,6 +33,21 @@ export const BACKOFF = {
   dialTimeoutMs: 15_000,
 } as const;
 
+/**
+ * Agent dead-link detection. The controller echoes a `ping` for every agent
+ * heartbeat; once an agent has seen one, silence longer than this means the
+ * link is dead even though the socket still reads OPEN (the peer vanished
+ * without a FIN/RST: controller task killed, overlay veth NO-CARRIER) and
+ * the agent drops it and redials.
+ */
+export const AGENT_LINK_IDLE_TIMEOUT_MS = DEFAULT_HEARTBEAT_INTERVAL_MS * 4;
+/**
+ * No live controller link for this long → the agent's own network endpoint is
+ * presumed broken (a container agent's overlay attachment does not heal by
+ * redialing), so a container agent exits and its restart policy recycles it.
+ */
+export const AGENT_STRANDED_EXIT_MS = 5 * 60_000;
+
 /** Idempotency cache for already-seen command ids. */
 export const COMMAND_DEDUP_TTL_MS = 600_000;
 export const COMMAND_DEDUP_MAX = 1024;
