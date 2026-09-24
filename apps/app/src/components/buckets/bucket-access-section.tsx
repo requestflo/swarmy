@@ -127,7 +127,10 @@ export function BucketAccessSection({ bucketId }: { bucketId: string }): React.J
         ))}
         <p className="text-muted-foreground text-xs">
           Path-style: point any S3 client at the origin (e.g. <code>aws --endpoint-url</code>) and use
-          bucket <code className="mono-data">{v.bucket}</code>.
+          bucket <code className="mono-data">{v.bucket}</code>. Uploading with a recent AWS CLI/SDK over
+          HTTPS? Set <code className="mono-data">AWS_REQUEST_CHECKSUM_CALCULATION=when_required</code>{' '}
+          — the storage engine doesn’t accept their newer default upload checksums yet. Presigned
+          links and downloads need nothing.
         </p>
       </div>
 
