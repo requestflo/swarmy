@@ -59,7 +59,7 @@ export function StackSchedulesCard({
   const qc = useQueryClient();
 
   const setPaused = useMutation(
-    trpc.schedules.setPaused.mutationOptions({
+    trpc.backupSchedules.setPaused.mutationOptions({
       onSuccess: () => qc.invalidateQueries(),
       onError: (e) => toast.error(e.message),
     }),

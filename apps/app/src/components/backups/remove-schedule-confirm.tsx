@@ -26,7 +26,7 @@ export function RemoveScheduleConfirm({ id, volume }: RemoveScheduleConfirmProps
   const trpc = useTRPC();
   const qc = useQueryClient();
   const remove = useMutation(
-    trpc.schedules.remove.mutationOptions({
+    trpc.backupSchedules.remove.mutationOptions({
       onSuccess: () => {
         toast.success('Schedule removed');
         void qc.invalidateQueries();

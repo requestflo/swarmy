@@ -24,7 +24,7 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
   const trpc = useTRPC();
   const targets = useQuery({ ...trpc.backups.listTargets.queryOptions(), refetchInterval: 10_000 });
   const schedules = useQuery({
-    ...trpc.schedules.list.queryOptions({ stack }),
+    ...trpc.backupSchedules.list.queryOptions({ stack }),
     refetchInterval: 5_000,
   });
   const snapshots = useQuery({

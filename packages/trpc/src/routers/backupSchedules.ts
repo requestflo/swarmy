@@ -16,7 +16,7 @@ const unit = z.enum(['minutes', 'hours', 'days']);
 /** Optional stack scope: volumes belong to a stack by `<stack>_` name prefix. */
 const stackScope = z.object({ stack: z.string().optional() }).optional();
 
-export const schedulesRouter = router({
+export const backupSchedulesRouter = router({
   list: orgProcedure.input(stackScope).query(({ ctx, input }) => listSchedules(ctx, input)),
   listRestores: orgProcedure
     .input(stackScope)

@@ -42,7 +42,7 @@ export function ScheduleCreateInline({
   const [unit, setUnit] = React.useState<Unit>('days');
 
   const create = useMutation(
-    trpc.schedules.create.mutationOptions({
+    trpc.backupSchedules.create.mutationOptions({
       onSuccess: () => {
         toast.success('Schedule created');
         setVolume(`${stack}_`);

@@ -666,19 +666,19 @@ export const data: DomainResolvers = {
     },
 
     // ── schedules ──────────────────────────────────────────────────────────────
-    'schedules.list': (i, s): BackupScheduleView[] => {
+    'backupSchedules.list': (i, s): BackupScheduleView[] => {
       const f = (i as { stack?: string } | null | undefined) ?? {};
       return getState(s).schedules.filter((row) => !f.stack || row.volume.startsWith(`${f.stack}_`));
     },
 
-    'schedules.listRestores': (i, s): RestoreOperationView[] => {
+    'backupSchedules.listRestores': (i, s): RestoreOperationView[] => {
       const f = (i as { stack?: string } | null | undefined) ?? {};
       return getState(s).restores.filter(
         (row) => !f.stack || row.targetVolume.startsWith(`${f.stack}_`),
       );
     },
 
-    'schedules.create': (i, s): BackupScheduleView => {
+    'backupSchedules.create': (i, s): BackupScheduleView => {
       const b = i as { targetId: string; volume: string; nodeId?: string; every: number; unit: IntervalUnit };
       const st = getState(s);
       const row: BackupScheduleView = {
@@ -697,7 +697,7 @@ export const data: DomainResolvers = {
       return row;
     },
 
-    'schedules.setPaused': (i, s): BackupScheduleView => {
+    'backupSchedules.setPaused': (i, s): BackupScheduleView => {
       const b = i as { id: string; paused: boolean };
       const st = getState(s);
       const row = st.schedules.find((x) => x.id === b.id);
@@ -707,7 +707,7 @@ export const data: DomainResolvers = {
       return row;
     },
 
-    'schedules.remove': (i, s): { id: string; removed: true } => {
+    'backupSchedules.remove': (i, s): { id: string; removed: true } => {
       const { id } = i as { id: string };
       const st = getState(s);
       st.schedules = st.schedules.filter((x) => x.id !== id);
