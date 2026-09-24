@@ -10,7 +10,8 @@ import {
   type TermDataPayload,
   type TermExitPayload,
 } from '@swarmy/core/protocol';
-import { registry } from './gateway';
+// Not './gateway': hub.ts imports this module, so that would be a cycle.
+import { registry } from './gateway/instances';
 import { TerminalRecorder } from './terminal-recording';
 import { finalizeTerminalSession, loadTerminalRuntimePolicy } from './terminal-store';
 import { TicketStore, termStartPayload } from './terminal-tickets';

@@ -1,14 +1,12 @@
-import { GatewayStore } from './store';
-import { ConnectionRegistry } from './registry';
 import { AgentHubImpl } from './hub';
 import { handleAgentClose, handleAgentMessage } from './protocol-handlers';
 import { startBuildLogBridge } from './build-log-bridge';
 import type { AgentSocket, AgentWsData } from './registry';
 import { prisma } from '@swarmy/db';
 import { createRegistryAuthDecorator } from '@swarmy/trpc';
+import { registry, store } from './instances';
 
-export const store = new GatewayStore();
-export const registry = new ConnectionRegistry();
+export { registry, store };
 /** The single AgentHub instance shared by the WS gateway and tRPC context. */
 export const hub = new AgentHubImpl(store, registry);
 // Every service.deploy / image.pull of an org-registry image carries the
