@@ -884,3 +884,46 @@ they proved is below. "Pass" means seen working, not read in the docs.
 6. Promoting a home / Docker Desktop node to manager is **hard-refused**.
 7. NetBird Enterprise HA goes on the roadmap **after launch**.
 8. Fleets use the **customer's own IdP**.
+
+### 11.9 e2e on local VMs: pass (2026-09-24)
+
+`bun run scripts/e2e-mesh-people.ts` covers two fresh Lima Ubuntu 24.04 VMs
+plus the `swarmy-mac` VM as the laptop. Every step passes:
+
+| Step | Result |
+|---|---|
+| node1: `install-swarmy.sh --mesh swarmy` | NetBird on the host network (secrets not in the container env), node1 on its own mesh, `swarm init` on wt0 with the pool `10.231.0.0/16` |
+| Swarmy as NetBird's only sign-in | connector registered, local login hidden (Dex 302s straight to the connector) |
+| node2 joins with the printed one-liner | swarm address = its wt0 IP |
+| Production stack `shop`, `db` with `swarmy.mesh.ports=5432` | deployed through swarmy |
+| Alice (member) has a personal grant; Bob has none | `connectInfo` denies Alice before the grant and allows her after |
+| Alice signs in from the Mac | device flow → Dex → swarmy OIDC; no NetBird login page |
+| Alice → `db.shop.e2e.swarmy.internal:5432` | reached; the undeclared `:6000` on the same VIP stays shut |
+| Bob | no DNS for the name, no route to the VIP |
+| Revoke Alice's grant | cut off in **1.6 s** (target 30 s) |
+| Who's connected, control-plane card | both devices listed, card healthy |
+
+The lab needed four fixes, all now in the product:
+
+- The owner JWT claim (§11.3), so people land in the one account.
+- NetBird images from GHCR (same digests; Docker Hub's anonymous rate
+  limit broke installs).
+- The private-CA plumbing (§11.4).
+- `SWARMY_MESH_PUBLIC_PORT` for a fronting proxy on another port.
+
+The lab also needs one workaround that is not product code: on this Mac,
+macOS vmnet (vzNAT) doesn't pass ARP between VMs, so each VM routes the
+other's address through its slirp gateway.
+
+Still open:
+
+- The TLS handover through **swarmy's own** edge Caddy (the
+  `mesh-control` vhost) is golden-tested and `caddy adapt`-clean, but only
+  a public box with ACME exercises it end to end (DO sweep).
+- Litestream to Garage is built but not run (the lab has no object
+  storage).
+- `moveControlPlane` is built but not exercised.
+- Found on the way, not mesh code: when a node-1 controller task dies, the
+  container agent's overlay veths go NO-CARRIER and it never reconnects
+  until it is restarted. In the lab, a crash-looping edge Caddy triggered
+  it by fighting the lab proxy for :443.
