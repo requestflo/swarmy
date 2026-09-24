@@ -1208,6 +1208,9 @@ export const ALERT_SIGNALS = [
   'queue-depth',
   'error-rate',
   'store-unreachable',
+  'error-new-issue',
+  'error-regression',
+  'error-spike',
 ] as const;
 export type AlertSignal = (typeof ALERT_SIGNALS)[number];
 
@@ -1228,7 +1231,13 @@ export interface AlertSignalInfo {
  * previous event is still open. Level signals (disk, node-offline…) notify
  * once per open event and resolve when the condition clears.
  */
-export const EVENT_ALERT_SIGNALS: readonly string[] = ['build-failed', 'deploy-failed', 'deploy-rolled-back'];
+export const EVENT_ALERT_SIGNALS: readonly string[] = [
+  'build-failed',
+  'deploy-failed',
+  'deploy-rolled-back',
+  'error-new-issue',
+  'error-regression',
+];
 
 /**
  * The default rule catalog: one rule per signal, seeded ON for every org and
@@ -1346,6 +1355,30 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: null,
     defaultForSeconds: 60,
     severity: 'warning',
+  },
+  'error-new-issue': {
+    label: 'New error',
+    description: 'An app with error tracking on raised an error swarmy has not seen before.',
+    unit: null,
+    defaultThreshold: null,
+    defaultForSeconds: 0,
+    severity: 'warning',
+  },
+  'error-regression': {
+    label: 'Error came back',
+    description: 'An error you marked resolved happened again (or in a later release than the fix).',
+    unit: null,
+    defaultThreshold: null,
+    defaultForSeconds: 0,
+    severity: 'critical',
+  },
+  'error-spike': {
+    label: 'Error spike',
+    description: 'One error is happening far more often than usual (10 minutes against the previous day).',
+    unit: null,
+    defaultThreshold: null,
+    defaultForSeconds: 0,
+    severity: 'critical',
   },
 };
 
@@ -2486,9 +2519,9 @@ export interface SearchProvisionResult {
 // ── AI gateway (slice F5) — provider config, virtual keys, usage, request log ──
 import type { InvServiceStatus as VectorServiceStatus } from './inventory';
 
-/** Supported gateway providers (route target for a model prefix). */
-export const AI_PROVIDER_KINDS = ['anthropic', 'openai', 'custom'] as const;
-export type AiProviderKind = (typeof AI_PROVIDER_KINDS)[number];
+// Providers, catalogue, routes, allowlists, guardrails: the pure model layer.
+export * from './ai-gateway';
+import type { AiProviderKind, AiGuardrailSettings, AiRoute, AiModelKind } from './ai-gateway';
 
 /** One configured upstream provider. The API key itself is NEVER returned. */
 export interface AiProviderView {
@@ -2499,6 +2532,13 @@ export interface AiProviderView {
   hasKey: boolean;
   /** Models without a known claude/gpt/o-series prefix route here when true. */
   isDefault: boolean;
+  /** Bedrock region / Azure api-version (when set). */
+  region?: string | null;
+  apiVersion?: string | null;
+  /** Auto-registered from a live in-cluster service (Ollama / vLLM template). */
+  discovered?: { service: string; stack: string | null } | null;
+  /** Reached over the swarm overlay, not the internet. */
+  inCluster: boolean;
 }
 
 /** Org-level gateway toggles. */
@@ -2507,6 +2547,47 @@ export interface AiSettingsView {
   auditLog: boolean;
   /** Exact-body-match response cache (non-streaming, 5 min TTL). */
   cache: boolean;
+  /** Log guardrails: PII redaction + prompt-size cap. */
+  guardrails: AiGuardrailSettings;
+}
+
+/** One model the gateway can serve (catalogue row or route), for the picker. */
+export interface AiModelOptionView {
+  /** What an app sends as `model` (alias, id, or `provider/model`). */
+  name: string;
+  kind: AiModelKind;
+  /** alias = a route (fast/smart/embed/…); model = a catalogue model. */
+  source: 'alias' | 'model';
+  providers: AiProviderKind[];
+  /** $/MTok of the first target (estimate). */
+  inUsd: number;
+  outUsd: number;
+}
+
+/** Models + routes as the gateway resolves them right now. */
+export interface AiModelsView {
+  models: AiModelOptionView[];
+  routes: Record<string, AiRoute>;
+  /** Per-app allowlists (`apps.<stack>.models`). */
+  apps: Record<string, { models: string[] }>;
+}
+
+/** Result of one playground run (same key limits as the key itself). */
+export interface AiPlaygroundResult {
+  ok: boolean;
+  status: number;
+  model: string;
+  provider: string | null;
+  text: string;
+  toolCalls: Array<{ name: string; arguments: string }>;
+  inTokens: number;
+  outTokens: number;
+  costUsd: number;
+  latencyMs: number;
+  /** Targets tried (fallbacks), in order. */
+  attempts: Array<{ provider: string; model: string; status: number | null; error: string | null }>;
+  traceId: string | null;
+  error: string | null;
 }
 
 export interface AiProvidersView {
@@ -2529,6 +2610,12 @@ export interface AiKeyLimitsView {
   rpm: number | null;
   /** Daily budget in USD, or null = unlimited. */
   dailyBudgetUsd: number | null;
+  /** `app`: the budget is shared by every key minted for the same app. */
+  budgetScope?: 'key' | 'app';
+  /** Model allowlist (aliases, ids, `provider/*`), or null = any model. */
+  models?: string[] | null;
+  /** Prompt-size cap (estimated tokens), or null. */
+  maxPromptTokens?: number | null;
 }
 
 /** One virtual key row (the key itself is stored only as a sha-256 hash). */

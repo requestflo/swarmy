@@ -1251,11 +1251,29 @@ export const SetAiProviderInput = z.object({
   baseUrl: z.string().trim().url().max(300).optional(),
   /** Route unknown model prefixes to this provider. */
   makeDefault: z.boolean().default(false),
+  /** AWS Bedrock region (e.g. us-east-1). */
+  region: z
+    .string()
+    .trim()
+    .regex(/^[a-z]{2}(-[a-z]+)+-\d$/, 'an AWS region like us-east-1')
+    .optional(),
+  /** Azure OpenAI api-version (default 2024-10-21). */
+  apiVersion: z.string().trim().min(1).max(40).optional(),
+  /** Azure: model id → deployment name. */
+  deployments: z.record(z.string().min(1).max(120), z.string().min(1).max(120)).optional(),
 });
 export type SetAiProviderInput = z.infer<typeof SetAiProviderInput>;
 
 export const RemoveAiProviderInput = z.object({ kind: AiProviderKindInput });
 export type RemoveAiProviderInput = z.infer<typeof RemoveAiProviderInput>;
+
+/** An allowlist entry / model name: alias, model id, `provider/model`, `provider/*`, `*`. */
+export const AiModelPattern = z
+  .string()
+  .trim()
+  .min(1)
+  .max(160)
+  .regex(/^[A-Za-z0-9*][A-Za-z0-9._:\/@*+-]*$/, 'a model name like smart, gpt-5-mini or groq/*');
 
 /** Mint a virtual key (shown once). Limits are optional. */
 export const MintAiKeyInput = z.object({
@@ -1271,6 +1289,10 @@ export const MintAiKeyInput = z.object({
   rpm: z.number().int().min(1).max(100000).optional(),
   /** Daily spend cap in USD (estimated cost). */
   dailyBudgetUsd: z.number().min(0.01).max(100000).optional(),
+  /** Model allowlist: aliases (`smart`), model ids, `provider/*`. Empty/omitted = any. */
+  models: z.array(AiModelPattern).max(50).optional(),
+  /** Refuse prompts above this estimated token count. */
+  maxPromptTokens: z.number().int().min(1).max(10_000_000).optional(),
 });
 export type MintAiKeyInput = z.infer<typeof MintAiKeyInput>;
 
@@ -1289,8 +1311,71 @@ export type AiLogsInput = z.infer<typeof AiLogsInput>;
 export const AiSettingsInput = z.object({
   auditLog: z.boolean().optional(),
   cache: z.boolean().optional(),
+  /** Log guardrails. `maxPromptTokens: null` clears the cap. */
+  guardrails: z
+    .object({
+      redactPii: z.boolean().optional(),
+      maxPromptTokens: z.number().int().min(1).max(10_000_000).nullable().optional(),
+    })
+    .optional(),
 });
 export type AiSettingsInput = z.infer<typeof AiSettingsInput>;
+
+/** Edit a key's model allowlist / limits in place (no rotation). */
+export const UpdateAiKeyInput = z.object({
+  id: z.string().min(1),
+  /** null clears (any model). */
+  models: z.array(AiModelPattern).max(50).nullable().optional(),
+  rpm: z.number().int().min(1).max(100000).nullable().optional(),
+  dailyBudgetUsd: z.number().min(0.01).max(100000).nullable().optional(),
+  maxPromptTokens: z.number().int().min(1).max(10_000_000).nullable().optional(),
+});
+export type UpdateAiKeyInput = z.infer<typeof UpdateAiKeyInput>;
+
+/** Create/replace a route (alias) — `fast`, `smart`, `embed` or any name. */
+export const SetAiRouteInput = z.object({
+  name: z
+    .string()
+    .trim()
+    .regex(/^[a-z0-9][a-z0-9._:-]{0,62}$/i, 'letters, digits, . _ : - only'),
+  strategy: z.enum(['fallback', 'balance']).default('fallback'),
+  targets: z
+    .array(
+      z.object({
+        provider: AiProviderKindInput,
+        model: z.string().trim().min(1).max(160),
+        weight: z.number().positive().max(1000).optional(),
+      }),
+    )
+    .min(1)
+    .max(10),
+});
+export type SetAiRouteInput = z.infer<typeof SetAiRouteInput>;
+
+export const RemoveAiRouteInput = z.object({ name: z.string().trim().min(1).max(63) });
+export type RemoveAiRouteInput = z.infer<typeof RemoveAiRouteInput>;
+
+/** Per-app (stack) allowlist; an empty list clears it. */
+export const SetAiAppModelsInput = z.object({
+  stack: z.string().min(1).max(63),
+  models: z.array(AiModelPattern).max(50),
+});
+export type SetAiAppModelsInput = z.infer<typeof SetAiAppModelsInput>;
+
+/** Try a model under one key's limits (allowlist, budget, RPM, guardrails). */
+export const AiPlaygroundInput = z.object({
+  keyId: z.string().min(1),
+  model: AiModelPattern,
+  /** Chat turns, or one string for embeddings. */
+  messages: z
+    .array(z.object({ role: z.enum(['system', 'user', 'assistant']), content: z.string().max(200_000) }))
+    .max(100)
+    .default([]),
+  input: z.string().max(200_000).optional(),
+  maxTokens: z.number().int().min(1).max(64_000).default(512),
+  temperature: z.number().min(0).max(2).optional(),
+});
+export type AiPlaygroundInput = z.infer<typeof AiPlaygroundInput>;
 
 /** Wire an app service to the gateway (mints a key into a Docker secret). */
 export const AttachAiInput = z.object({
