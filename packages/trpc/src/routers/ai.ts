@@ -1,12 +1,17 @@
 import { z } from 'zod';
 import {
   AiLogsInput,
+  AiPlaygroundInput,
   AiSettingsInput,
   AiUsageInput,
   AttachAiInput,
   MintAiKeyInput,
   RemoveAiProviderInput,
+  RemoveAiRouteInput,
+  SetAiAppModelsInput,
   SetAiProviderInput,
+  SetAiRouteInput,
+  UpdateAiKeyInput,
 } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
 import {
@@ -16,6 +21,12 @@ import {
   grantStackAccess,
   listKeys,
   listLogs,
+  listModels,
+  removeRoute,
+  runPlayground,
+  setAppModels,
+  setRoute,
+  updateKey,
   listOutlets,
   mintKey,
   removeProvider,
@@ -80,6 +91,28 @@ export const aiGatewayRouter = router({
 
   /** Mint a virtual key — the plaintext is returned ONCE, then hash-only. */
   mintKey: orgProcedure.input(MintAiKeyInput).mutation(({ ctx, input }) => mintKey(ctx, input)),
+
+  /** Edit a key's model allowlist / limits in place (no rotation). */
+  updateKey: orgProcedure.input(UpdateAiKeyInput).mutation(({ ctx, input }) => updateKey(ctx, input)),
+
+  /** Catalogue + routes (aliases) + per-app allowlists, as the gateway resolves them. */
+  models: orgProcedure.query(({ ctx }) => listModels(ctx)),
+
+  /** Create/replace a route: fallback order or weighted load-balancing across providers. */
+  setRoute: orgProcedure.input(SetAiRouteInput).mutation(({ ctx, input }) => setRoute(ctx, input)),
+  removeRoute: orgProcedure
+    .input(RemoveAiRouteInput)
+    .mutation(({ ctx, input }) => removeRoute(ctx, input.name)),
+
+  /** Per-app model allowlist (applies to every key minted for the app). */
+  setAppModels: orgProcedure
+    .input(SetAiAppModelsInput)
+    .mutation(({ ctx, input }) => setAppModels(ctx, input)),
+
+  /** Try a model under one key's limits (metered + traced like any call). */
+  playground: orgProcedure
+    .input(AiPlaygroundInput)
+    .mutation(({ ctx, input }) => runPlayground(ctx, input)),
 
   /** Disable a key (the gateway answers 403 for it immediately). */
   revokeKey: orgProcedure

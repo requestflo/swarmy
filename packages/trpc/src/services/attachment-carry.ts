@@ -25,7 +25,7 @@
  */
 import { STACK_LABEL } from '@swarmy/core';
 import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
-import { AI_ENV_VAR, AI_INJECT_KEY_LABEL, AI_INJECT_LABEL, AI_KEY_FILE_VAR, aiKeySecretName } from './ai.service';
+import { AI_BIND_ENV, AI_BIND_LABEL, AI_ENV_VAR, AI_INJECT_KEY_LABEL, AI_INJECT_LABEL, AI_KEY_FILE_VAR, aiKeySecretName } from './ai.service';
 import { ATTACH_ENV_KEYS, S3_BUCKET_LABEL, S3_KEY_LABEL, S3_SECRET_LABEL } from './buckets.service';
 import {
   CACHE_INJECT_LABEL,
@@ -156,6 +156,11 @@ export function attachedDomains(source: Pick<SwarmServiceInfo, 'name' | 'labels'
       env: [AI_ENV_VAR, AI_KEY_FILE_VAR],
       ...(stack ? { secret: { source: aiKeySecretName(stack, source.name), fileVar: AI_KEY_FILE_VAR } } : {}),
     });
+  }
+  // swarmy.yaml `ai:` binding: the base URLs ride env (the key itself is a
+  // secret variable, carried by `carrySecretVars`).
+  if (l[AI_BIND_LABEL]) {
+    out.push({ marker: AI_BIND_LABEL, labels: [AI_BIND_LABEL], env: [...AI_BIND_ENV] });
   }
   return out;
 }

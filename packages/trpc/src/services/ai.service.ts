@@ -1,12 +1,29 @@
 import { randomBytes } from 'node:crypto';
 import {
+  AI_PROVIDERS,
+  MODEL_CATALOG,
+  aiGatewayRunner,
+  aiModelResource,
+  aiProviderProbe,
   buildInventory,
+  discoverInClusterModels,
+  effectiveRoutes,
+  modelPrice,
+  parseConfigDoc,
+  parseKeyPolicy,
+  resolveModel,
+  serializeConfigDoc,
+  withDiscovered,
   STACK_LABEL,
-  AI_PROVIDER_KINDS,
   type AiAttachResult,
+  type AiConfigDoc,
   type AiKeyLimitsView,
   type AiKeyMintResult,
   type AiKeyView,
+  type AiModelOptionView,
+  type AiModelsView,
+  type AiPlaygroundResult,
+  type AiProviderDescriptor,
   type AiProviderKind,
   type AiProviderView,
   type AiProvidersView,
@@ -21,35 +38,51 @@ import {
 import { decryptSecret, encryptSecret, hashToken } from '@swarmy/core/crypto';
 import type {
   AiLogsInput,
+  AiPlaygroundInput,
   AiSettingsInput,
   AiUsageInput,
   AttachAiInput,
   MintAiKeyInput,
+  SetAiAppModelsInput,
   SetAiProviderInput,
+  SetAiRouteInput,
+  UpdateAiKeyInput,
 } from '@swarmy/core';
 import type { OrgContext } from '../context';
-import { commandRejected, mapDispatchError, notFound } from '../errors';
+import { commandRejected, mapDispatchError, notFound, policyDenied } from '../errors';
+import { evaluateAccess } from '../abac';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { patchLiveService } from './service-patch';
+import {
+  listAppSecretVersions,
+  materializeSecretVars,
+  mountedVersions,
+  planSecretSpec,
+  versionsOf,
+} from './app-secrets.service';
 
 /**
- * AI gateway control plane (slice F5) — provider configs, virtual keys,
- * usage/cost queries, request log and settings.
+ * AI gateway control plane — providers, routes/aliases, model allowlists,
+ * virtual keys, usage/cost queries, request log, settings, the playground and
+ * the app wiring (attach + the swarmy.yaml `ai:` binding).
  *
  * Storage split:
- *   - `AiProviderConfig.providersJson` — plain descriptors (kind, baseUrl,
- *     isDefault) + the org settings (audit/cache toggles). NO secrets.
- *   - `AiProviderConfig.configEnc` — vault-encrypted JSON map kind→apiKey.
- *     Keys are write-only: set here, decrypted only by the gateway data plane
- *     (apps/api/src/ai-gateway.ts) at proxy time, never returned to clients.
- *   - `AiVirtualKey.keyHash` — sha-256 of the minted `swk-ai-…` key. The
- *     plaintext is returned exactly once from {@link mintKey}.
+ *   - `AiProviderConfig.providersJson` — the org config document
+ *     (@swarmy/core `parseConfigDoc`): provider descriptors, settings
+ *     (audit/cache/guardrails), outlets, routes, per-app allowlists. NO secrets.
+ *   - `AiProviderConfig.configEnc` — vault-encrypted JSON map kind→credential.
+ *     Write-only: decrypted only by the gateway data plane at call time.
+ *   - `AiVirtualKey.keyHash` — sha-256 of `swk-ai-…`; `limitsJson` is the key
+ *     policy (@swarmy/core `parseKeyPolicy`: rpm, budget, models, prompt cap,
+ *     mintedBy). The plaintext is returned exactly once from {@link mintKey}.
  *   - `AiUsage` / `AiRequestLog` — written by the gateway; read here.
- *
- * Attach: the app never sees the org's provider keys — it gets the GATEWAY
- * URL plus its own virtual key mounted as a Docker secret file.
+ *   - In-cluster engines (Ollama / vLLM) are NOT stored: they are discovered
+ *     from the live inventory on every read (Docker is the truth).
  */
+
+export { parseConfigDoc };
+export type { AiConfigDoc, AiProviderDescriptor };
 
 export const GATEWAY_PATH = '/ai/v1';
 const CONTROLLER_PUBLIC_URL =
@@ -57,6 +90,11 @@ const CONTROLLER_PUBLIC_URL =
 
 export function gatewayUrl(): string {
   return `${CONTROLLER_PUBLIC_URL.replace(/\/+$/, '')}${GATEWAY_PATH}`;
+}
+
+/** Anthropic SDKs append `/v1/messages` themselves: their base is `<controller>/ai`. */
+export function anthropicGatewayUrl(): string {
+  return gatewayUrl().replace(/\/v1$/, '');
 }
 
 /** On an APP service: gateway wiring markers (mirrors swarmy.cache.inject). */
@@ -68,90 +106,26 @@ export const AI_ENV_VAR = 'AI_GATEWAY_URL';
 export const AI_KEY_FILE_VAR = 'AI_GATEWAY_KEY_FILE';
 
 const USD_PER_MICRO = 1 / 1_000_000;
-const TEST_TIMEOUT_MS = 15_000;
 
-// ── Pure: providersJson document codec (tested) ───────────────────────────────
-
-export interface AiProviderDescriptor {
-  kind: AiProviderKind;
-  baseUrl: string | null;
-  isDefault: boolean;
-}
-
-export interface AiConfigDoc {
-  providers: AiProviderDescriptor[];
-  settings: AiSettingsView;
-  /** Stack → public outlet domain; the edge renders one gateway vhost per entry. */
-  outlets: Record<string, string>;
-}
-
-const DEFAULT_SETTINGS: AiSettingsView = { auditLog: false, cache: false };
-
-function isKind(v: unknown): v is AiProviderKind {
-  return typeof v === 'string' && (AI_PROVIDER_KINDS as readonly string[]).includes(v);
-}
-
-/**
- * Parse the `providersJson` column into the config document. Tolerant of the
- * spine default (`[]`), a bare descriptor array, or the `{providers, settings}`
- * wrapper — malformed entries are dropped, never thrown on.
- */
-export function parseConfigDoc(raw: unknown): AiConfigDoc {
-  const doc: AiConfigDoc = { providers: [], settings: { ...DEFAULT_SETTINGS }, outlets: {} };
-  const list = Array.isArray(raw)
-    ? raw
-    : raw && typeof raw === 'object' && Array.isArray((raw as { providers?: unknown }).providers)
-      ? ((raw as { providers: unknown[] }).providers)
-      : [];
-  for (const entry of list) {
-    if (!entry || typeof entry !== 'object') continue;
-    const e = entry as { kind?: unknown; baseUrl?: unknown; isDefault?: unknown };
-    if (!isKind(e.kind)) continue;
-    if (doc.providers.some((p) => p.kind === e.kind)) continue;
-    doc.providers.push({
-      kind: e.kind,
-      baseUrl: typeof e.baseUrl === 'string' && e.baseUrl.trim() ? e.baseUrl.trim() : null,
-      isDefault: e.isDefault === true,
-    });
-  }
-  const s = (raw as { settings?: unknown } | null | undefined)?.settings;
-  if (s && typeof s === 'object') {
-    const st = s as { auditLog?: unknown; cache?: unknown };
-    doc.settings = { auditLog: st.auditLog === true, cache: st.cache === true };
-  }
-  const outlets = (raw as { outlets?: unknown } | null | undefined)?.outlets;
-  if (outlets && typeof outlets === 'object' && !Array.isArray(outlets)) {
-    for (const [stack, domain] of Object.entries(outlets as Record<string, unknown>)) {
-      if (typeof domain === 'string' && domain.trim()) doc.outlets[stack] = domain.trim().toLowerCase();
-    }
-  }
-  // At most one default; the first wins.
-  let seenDefault = false;
-  for (const p of doc.providers) {
-    if (p.isDefault && seenDefault) p.isDefault = false;
-    if (p.isDefault) seenDefault = true;
-  }
-  return doc;
-}
-
-/** Parse `AiVirtualKey.limitsJson` → typed limits (invalid values → null). */
+/** Parse `AiVirtualKey.limitsJson` → the limits view (invalid values → null). */
 export function parseKeyLimits(raw: unknown): AiKeyLimitsView {
-  const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-  const rpm = typeof o.rpm === 'number' && Number.isFinite(o.rpm) && o.rpm > 0 ? Math.floor(o.rpm) : null;
-  const micros =
-    typeof o.dailyBudgetMicros === 'number' && Number.isFinite(o.dailyBudgetMicros) && o.dailyBudgetMicros > 0
-      ? o.dailyBudgetMicros
-      : null;
-  return { rpm, dailyBudgetUsd: micros !== null ? micros * USD_PER_MICRO : null };
+  const p = parseKeyPolicy(raw);
+  return {
+    rpm: p.rpm,
+    dailyBudgetUsd: p.dailyBudgetMicros !== null ? p.dailyBudgetMicros * USD_PER_MICRO : null,
+    ...(p.budgetScope === 'app' ? { budgetScope: 'app' as const } : {}),
+    ...(p.models ? { models: p.models } : {}),
+    ...(p.maxPromptTokens !== null ? { maxPromptTokens: p.maxPromptTokens } : {}),
+  };
 }
 
-/** Decrypt the provider key map from `configEnc` ({} when unset/undecryptable). */
+/** Decrypt the provider credential map from `configEnc` ({} when unset/undecryptable). */
 function decryptKeyMap(configEnc: string | null): Partial<Record<AiProviderKind, string>> {
   if (!configEnc) return {};
   try {
     const parsed = JSON.parse(decryptSecret(configEnc)) as Record<string, unknown>;
     const out: Partial<Record<AiProviderKind, string>> = {};
-    for (const kind of AI_PROVIDER_KINDS) {
+    for (const kind of Object.keys(AI_PROVIDERS) as AiProviderKind[]) {
       if (typeof parsed[kind] === 'string' && parsed[kind]) out[kind] = parsed[kind] as string;
     }
     return out;
@@ -173,7 +147,7 @@ async function loadConfig(ctx: OrgContext): Promise<ConfigRow> {
 }
 
 async function saveConfig(ctx: OrgContext, doc: AiConfigDoc, configEnc: string | null): Promise<void> {
-  const providersJson = { providers: doc.providers, settings: doc.settings, outlets: doc.outlets } as object;
+  const providersJson = serializeConfigDoc(doc) as object;
   await ctx.db.aiProviderConfig.upsert({
     where: { orgId: ctx.activeOrgId },
     create: { orgId: ctx.activeOrgId, providersJson, configEnc },
@@ -181,37 +155,65 @@ async function saveConfig(ctx: OrgContext, doc: AiConfigDoc, configEnc: string |
   });
 }
 
+function liveOrgServices(ctx: OrgContext): InvService[] {
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  return buildInventory(services, containers).services;
+}
+
+/** Configured providers + in-cluster engines discovered from the live inventory. */
+function withLiveEngines(ctx: OrgContext, doc: AiConfigDoc): AiConfigDoc {
+  let found: ReturnType<typeof discoverInClusterModels> = [];
+  try {
+    found = discoverInClusterModels(liveOrgServices(ctx).map((s) => ({ name: s.name, image: s.image, stack: s.stack, labels: s.labels })));
+  } catch {
+    found = [];
+  }
+  return { ...doc, providers: withDiscovered(doc.providers, found) };
+}
+
 // ── Providers ─────────────────────────────────────────────────────────────────
 
 export async function getProviders(ctx: OrgContext): Promise<AiProvidersView> {
   const row = await loadConfig(ctx);
-  const doc = parseConfigDoc(row.providersJson);
+  const doc = withLiveEngines(ctx, parseConfigDoc(row.providersJson));
   const keys = decryptKeyMap(row.configEnc);
   const providers: AiProviderView[] = doc.providers.map((p) => ({
     kind: p.kind,
     baseUrl: p.baseUrl,
-    hasKey: Boolean(keys[p.kind]),
+    hasKey: Boolean(keys[p.kind]) || !AI_PROVIDERS[p.kind].needsKey,
     isDefault: p.isDefault,
+    region: p.region ?? null,
+    apiVersion: p.apiVersion ?? null,
+    discovered: p.discovered ?? null,
+    inCluster: AI_PROVIDERS[p.kind].inCluster,
   }));
   return { providers, gatewayUrl: gatewayUrl() };
 }
 
 export async function setProvider(ctx: OrgContext, input: SetAiProviderInput): Promise<AiProvidersView> {
-  if (input.kind === 'custom' && !input.baseUrl) {
-    const existing = parseConfigDoc((await loadConfig(ctx)).providersJson);
-    if (!existing.providers.find((p) => p.kind === 'custom')?.baseUrl) {
-      throw commandRejected('custom providers need a base URL');
-    }
-  }
   const row = await loadConfig(ctx);
   const doc = parseConfigDoc(row.providersJson);
   const keys = decryptKeyMap(row.configEnc);
-
+  const info = AI_PROVIDERS[input.kind];
   const existing = doc.providers.find((p) => p.kind === input.kind);
+  const baseUrl = input.baseUrl?.trim().replace(/\/+$/, '') || existing?.baseUrl || null;
+  const live = withLiveEngines(ctx, { ...doc, providers: [] }).providers.find((p) => p.kind === input.kind);
+  if (!info.defaultBaseUrl && !baseUrl && input.kind !== 'bedrock' && !live) {
+    throw commandRejected(`${info.label} needs a base URL`);
+  }
+  if (input.kind === 'bedrock' && !(input.region ?? existing?.region)) {
+    throw commandRejected('AWS Bedrock needs a region (e.g. us-east-1)');
+  }
+  if (input.kind === 'bedrock' && input.apiKey && !/^[^:\s]+:[^:\s]+(:.+)?$/.test(input.apiKey.trim()) && input.apiKey.includes(':')) {
+    throw commandRejected('Bedrock credentials are ACCESS_KEY_ID:SECRET_ACCESS_KEY[:SESSION_TOKEN] or a Bedrock API key');
+  }
   const next: AiProviderDescriptor = {
     kind: input.kind,
-    baseUrl: input.baseUrl?.trim().replace(/\/+$/, '') || existing?.baseUrl || null,
+    baseUrl,
     isDefault: input.makeDefault || existing?.isDefault === true,
+    ...((input.region ?? existing?.region) ? { region: input.region ?? existing?.region } : {}),
+    ...((input.apiVersion ?? existing?.apiVersion) ? { apiVersion: input.apiVersion ?? existing?.apiVersion } : {}),
+    ...((input.deployments ?? existing?.deployments) ? { deployments: input.deployments ?? existing?.deployments } : {}),
   };
   doc.providers = [...doc.providers.filter((p) => p.kind !== input.kind), next];
   if (input.makeDefault) {
@@ -226,7 +228,7 @@ export async function setProvider(ctx: OrgContext, input: SetAiProviderInput): P
     action: 'ai.provider.set',
     targetType: 'aiProvider',
     targetId: input.kind,
-    metadata: { baseUrl: next.baseUrl, keyUpdated: Boolean(input.apiKey), makeDefault: input.makeDefault },
+    metadata: { baseUrl: next.baseUrl, region: next.region ?? null, keyUpdated: Boolean(input.apiKey), makeDefault: input.makeDefault },
   });
   return getProviders(ctx);
 }
@@ -246,79 +248,103 @@ export async function removeProvider(ctx: OrgContext, kind: AiProviderKind): Pro
 }
 
 /**
- * "Test" button: one cheap upstream request with the stored key. Anthropic and
- * OpenAI get a 1-token completion on their cheapest model; custom providers get
- * a `GET /v1/models` probe (model-agnostic, free).
+ * "Test" button: one cheap upstream check with the stored credential, run by
+ * the data plane's probe (the same adapters, SigV4 included) — a free model
+ * list where the provider has one, else a 1-token chat on its cheapest model.
  */
 export async function testProvider(ctx: OrgContext, kind: AiProviderKind): Promise<AiTestResult> {
+  const probe = aiProviderProbe();
+  if (!probe) throw commandRejected('the AI gateway is not running in this process');
+  const doc = withLiveEngines(ctx, parseConfigDoc((await loadConfig(ctx)).providersJson));
+  if (!doc.providers.some((p) => p.kind === kind)) throw notFound('AI provider', kind);
+  const r = await probe(ctx.activeOrgId, kind);
+  await writeAudit(ctx, {
+    action: 'ai.provider.test',
+    targetType: 'aiProvider',
+    targetId: kind,
+    metadata: { ok: r.ok, latencyMs: r.latencyMs },
+  });
+  return r;
+}
+
+// ── Routes, models, per-app allowlists ───────────────────────────────────────
+
+/** Catalogue + routes as the gateway resolves them now (for pickers and the playground). */
+export async function listModels(ctx: OrgContext): Promise<AiModelsView> {
+  const doc = withLiveEngines(ctx, parseConfigDoc((await loadConfig(ctx)).providersJson));
+  const configured = doc.providers.map((p) => p.kind);
+  const routes = effectiveRoutes(doc, configured);
+  const models: AiModelOptionView[] = [];
+  for (const [name, r] of Object.entries(routes)) {
+    const first = r.targets[0];
+    const price = first ? modelPrice(first.model, first.provider) : { inUsd: 0, outUsd: 0 };
+    const cat = first ? MODEL_CATALOG.find((m) => m.id === first.model) : undefined;
+    models.push({
+      name,
+      kind: cat?.kind ?? (name === 'embed' ? 'embed' : 'chat'),
+      source: 'alias',
+      providers: [...new Set(r.targets.map((t) => t.provider))],
+      ...price,
+    });
+  }
+  for (const m of MODEL_CATALOG) {
+    if (!configured.includes(m.provider)) continue;
+    const name = m.provider === 'ollama' || m.provider === 'vllm' || m.provider === 'openrouter' || m.provider === 'groq' ? `${m.provider}/${m.id}` : m.id;
+    if (models.some((x) => x.name === name)) continue;
+    models.push({ name, kind: m.kind, source: 'model', providers: [m.provider], inUsd: m.inUsd, outUsd: m.outUsd });
+  }
+  return { models, routes, apps: doc.apps };
+}
+
+export async function setRoute(ctx: OrgContext, input: SetAiRouteInput): Promise<AiModelsView> {
   const row = await loadConfig(ctx);
   const doc = parseConfigDoc(row.providersJson);
-  const p = doc.providers.find((x) => x.kind === kind);
-  if (!p) throw notFound('AI provider', kind);
-  const key = decryptKeyMap(row.configEnc)[kind];
-  if (!key) throw commandRejected(`no API key stored for "${kind}" — save one first`);
+  doc.routes[input.name] = {
+    strategy: input.strategy,
+    targets: input.targets.map((t) => ({ provider: t.provider, model: t.model, ...(t.weight ? { weight: t.weight } : {}) })),
+  };
+  await saveConfig(ctx, doc, row.configEnc);
+  await writeAudit(ctx, {
+    action: 'ai.route.set',
+    targetType: 'aiRoute',
+    targetId: input.name,
+    metadata: { strategy: input.strategy, targets: input.targets.map((t) => `${t.provider}/${t.model}`) },
+  });
+  return listModels(ctx);
+}
 
-  const started = Date.now();
-  let target = '';
-  try {
-    let res: Response;
-    if (kind === 'anthropic') {
-      target = 'claude-haiku-4-5';
-      res = await fetch(`${p.baseUrl ?? 'https://api.anthropic.com'}/v1/messages`, {
-        method: 'POST',
-        headers: {
-          'x-api-key': key,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: target,
-          max_tokens: 1,
-          messages: [{ role: 'user', content: 'ping' }],
-        }),
-        signal: AbortSignal.timeout(TEST_TIMEOUT_MS),
-      });
-    } else if (kind === 'openai') {
-      target = 'gpt-4o-mini';
-      res = await fetch(`${p.baseUrl ?? 'https://api.openai.com'}/v1/chat/completions`, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-        body: JSON.stringify({
-          model: target,
-          max_tokens: 1,
-          messages: [{ role: 'user', content: 'ping' }],
-        }),
-        signal: AbortSignal.timeout(TEST_TIMEOUT_MS),
-      });
-    } else {
-      if (!p.baseUrl) throw commandRejected('custom provider has no base URL');
-      target = `${p.baseUrl}/v1/models`;
-      res = await fetch(target, {
-        headers: { authorization: `Bearer ${key}` },
-        signal: AbortSignal.timeout(TEST_TIMEOUT_MS),
-      });
-    }
-    const latencyMs = Date.now() - started;
-    const ok = res.ok;
-    let message: string | null = null;
-    if (!ok) {
-      const text = await res.text().catch(() => '');
-      message = `HTTP ${res.status}${text ? `: ${text.slice(0, 160)}` : ''}`;
-    }
-    await writeAudit(ctx, {
-      action: 'ai.provider.test',
-      targetType: 'aiProvider',
-      targetId: kind,
-      metadata: { ok, latencyMs },
-    });
-    return { ok, latencyMs, target, message };
-  } catch (e) {
-    return {
-      ok: false,
-      latencyMs: Date.now() - started,
-      target,
-      message: e instanceof Error ? e.message : String(e),
-    };
+export async function removeRoute(ctx: OrgContext, name: string): Promise<AiModelsView> {
+  const row = await loadConfig(ctx);
+  const doc = parseConfigDoc(row.providersJson);
+  if (!doc.routes[name]) throw notFound('AI route', name);
+  delete doc.routes[name];
+  await saveConfig(ctx, doc, row.configEnc);
+  await writeAudit(ctx, { action: 'ai.route.remove', targetType: 'aiRoute', targetId: name });
+  return listModels(ctx);
+}
+
+export async function setAppModels(ctx: OrgContext, input: SetAiAppModelsInput): Promise<AiModelsView> {
+  const row = await loadConfig(ctx);
+  const doc = parseConfigDoc(row.providersJson);
+  if (input.models.length) doc.apps[input.stack] = { models: [...new Set(input.models)] };
+  else delete doc.apps[input.stack];
+  await saveConfig(ctx, doc, row.configEnc);
+  await writeAudit(ctx, { action: 'ai.appModels.set', targetType: 'stack', targetId: input.stack, metadata: { models: input.models } });
+  return listModels(ctx);
+}
+
+/**
+ * ABAC `ai.use` on each concrete allowlist entry for the minter — a member
+ * can't mint a key for a model policy forbids them. Wildcards are checked as
+ * the literal pattern (a policy may name `*` or `provider/*`).
+ */
+async function assertMayUseModels(ctx: OrgContext, models: readonly string[]): Promise<void> {
+  if (!models.length) return;
+  const doc = withLiveEngines(ctx, parseConfigDoc((await loadConfig(ctx)).providersJson));
+  for (const name of models) {
+    const resolved = resolveModel(name, doc) ?? { requested: name, alias: null, strategy: 'fallback' as const, targets: [] };
+    const d = await evaluateAccess(ctx, 'ai.use', aiModelResource(ctx.activeOrgId, resolved));
+    if (d.decision !== 'permit') throw policyDenied('ai.use', d.policyId);
   }
 }
 
@@ -358,17 +384,38 @@ export async function listKeys(ctx: OrgContext): Promise<AiKeyView[]> {
   });
 }
 
-export async function mintKey(ctx: OrgContext, input: MintAiKeyInput): Promise<AiKeyMintResult> {
+/** Key policy document for `limitsJson` (only set fields). */
+export function keyPolicyJson(i: {
+  rpm?: number | null;
+  dailyBudgetUsd?: number | null;
+  models?: readonly string[] | null;
+  maxPromptTokens?: number | null;
+  budgetScope?: 'key' | 'app';
+  mintedBy?: string | null;
+}): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (i.rpm) out.rpm = i.rpm;
+  if (i.dailyBudgetUsd) out.dailyBudgetMicros = Math.round(i.dailyBudgetUsd * 1_000_000);
+  if (i.budgetScope === 'app') out.budgetScope = 'app';
+  if (i.models && i.models.length) out.models = [...new Set(i.models)];
+  if (i.maxPromptTokens) out.maxPromptTokens = i.maxPromptTokens;
+  if (i.mintedBy) out.mintedBy = i.mintedBy;
+  return out;
+}
+
+export async function mintKey(
+  ctx: OrgContext,
+  input: MintAiKeyInput & { budgetScope?: 'key' | 'app' },
+): Promise<AiKeyMintResult> {
   const name = input.name.trim();
   const existing = await ctx.db.aiVirtualKey.findFirst({
     where: { orgId: ctx.activeOrgId, name },
     select: { id: true },
   });
   if (existing) throw commandRejected(`a key named "${name}" already exists`);
+  await assertMayUseModels(ctx, input.models ?? []);
   const key = generateVirtualKey();
-  const limitsJson: Record<string, number> = {};
-  if (input.rpm) limitsJson.rpm = input.rpm;
-  if (input.dailyBudgetUsd) limitsJson.dailyBudgetMicros = Math.round(input.dailyBudgetUsd * 1_000_000);
+  const limitsJson = keyPolicyJson({ ...input, mintedBy: ctx.user?.id ?? null }) as object;
   const row = await ctx.db.aiVirtualKey.create({
     data: {
       orgId: ctx.activeOrgId,
@@ -382,9 +429,35 @@ export async function mintKey(ctx: OrgContext, input: MintAiKeyInput): Promise<A
     action: 'ai.key.mint',
     targetType: 'aiVirtualKey',
     targetId: row.id,
-    metadata: { name, rpm: input.rpm ?? null, dailyBudgetUsd: input.dailyBudgetUsd ?? null },
+    metadata: { name, rpm: input.rpm ?? null, dailyBudgetUsd: input.dailyBudgetUsd ?? null, models: input.models ?? null },
   });
   return { id: row.id, name, key, gatewayUrl: gatewayUrl() };
+}
+
+/** Edit a key's allowlist/limits in place — the plaintext is untouched (no rotation). */
+export async function updateKey(ctx: OrgContext, input: UpdateAiKeyInput): Promise<AiKeyView> {
+  const row = await ctx.db.aiVirtualKey.findFirst({ where: { id: input.id, orgId: ctx.activeOrgId } });
+  if (!row) throw notFound('AI key', input.id);
+  const cur = parseKeyPolicy(row.limitsJson);
+  if (input.models) await assertMayUseModels(ctx, input.models);
+  const pick = <T>(v: T | null | undefined, keep: T | null): T | null => (v === undefined ? keep : v);
+  const limitsJson = keyPolicyJson({
+    rpm: pick(input.rpm, cur.rpm),
+    dailyBudgetUsd: pick(input.dailyBudgetUsd, cur.dailyBudgetMicros !== null ? cur.dailyBudgetMicros * USD_PER_MICRO : null),
+    models: pick(input.models, cur.models),
+    maxPromptTokens: pick(input.maxPromptTokens, cur.maxPromptTokens),
+    budgetScope: cur.budgetScope,
+    mintedBy: cur.mintedBy,
+  }) as object;
+  await ctx.db.aiVirtualKey.update({ where: { id: row.id }, data: { limitsJson } });
+  await writeAudit(ctx, {
+    action: 'ai.key.update',
+    targetType: 'aiVirtualKey',
+    targetId: row.id,
+    metadata: { name: row.name, ...input, id: undefined },
+  });
+  const views = await listKeys(ctx);
+  return views.find((k) => k.id === row.id)!;
 }
 
 export async function revokeKey(ctx: OrgContext, id: string): Promise<{ id: string; disabled: true }> {
@@ -398,6 +471,66 @@ export async function revokeKey(ctx: OrgContext, id: string): Promise<{ id: stri
     metadata: { name: row.name },
   });
   return { id: row.id, disabled: true };
+}
+
+// ── Playground ────────────────────────────────────────────────────────────────
+
+/**
+ * Try a model under one key's limits: the request runs through the gateway's
+ * own pipeline in-process (allowlists, ABAC `ai.use` for the CURRENT member,
+ * prompt cap, RPM, budget, fallbacks) and is metered + traced like any call.
+ */
+export async function runPlayground(ctx: OrgContext, input: AiPlaygroundInput): Promise<AiPlaygroundResult> {
+  const run = aiGatewayRunner();
+  if (!run) throw commandRejected('the AI gateway is not running in this process');
+  const key = await ctx.db.aiVirtualKey.findFirst({ where: { id: input.keyId, orgId: ctx.activeOrgId } });
+  if (!key) throw notFound('AI key', input.keyId);
+  const embed = input.input !== undefined && input.messages.length === 0;
+  const body: Record<string, unknown> = embed
+    ? { model: input.model, input: input.input }
+    : {
+        model: input.model,
+        messages: input.messages,
+        max_tokens: input.maxTokens,
+        ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
+      };
+  const out = await run({
+    orgId: ctx.activeOrgId,
+    keyId: key.id,
+    userId: ctx.user.id,
+    path: embed ? '/v1/embeddings' : '/v1/chat/completions',
+    body,
+  });
+  const j = (out.json ?? {}) as {
+    error?: { message?: string };
+    choices?: Array<{ message?: { content?: string | null; tool_calls?: Array<{ function: { name: string; arguments: string } }> } }>;
+    data?: Array<{ embedding?: number[] }>;
+  };
+  const msg = j.choices?.[0]?.message;
+  const text = embed
+    ? `${j.data?.length ?? 0} embedding(s) · ${j.data?.[0]?.embedding?.length ?? 0} dimensions`
+    : (msg?.content ?? '');
+  await writeAudit(ctx, {
+    action: 'ai.playground.run',
+    targetType: 'aiVirtualKey',
+    targetId: key.id,
+    metadata: { model: input.model, status: out.status, provider: out.provider },
+  });
+  return {
+    ok: out.status < 400,
+    status: out.status,
+    model: out.model ?? input.model,
+    provider: out.provider,
+    text,
+    toolCalls: (msg?.tool_calls ?? []).map((t) => ({ name: t.function.name, arguments: t.function.arguments })),
+    inTokens: out.inTokens,
+    outTokens: out.outTokens,
+    costUsd: out.costMicros * USD_PER_MICRO,
+    latencyMs: out.latencyMs,
+    attempts: out.attempts,
+    traceId: out.traceId,
+    error: out.status >= 400 ? (j.error?.message ?? `HTTP ${out.status}`) : null,
+  };
 }
 
 // ── Usage & logs ──────────────────────────────────────────────────────────────
@@ -531,17 +664,14 @@ export async function setSettings(ctx: OrgContext, input: AiSettingsInput): Prom
   const doc = parseConfigDoc(row.providersJson);
   if (input.auditLog !== undefined) doc.settings.auditLog = input.auditLog;
   if (input.cache !== undefined) doc.settings.cache = input.cache;
+  if (input.guardrails?.redactPii !== undefined) doc.settings.guardrails.redactPii = input.guardrails.redactPii;
+  if (input.guardrails?.maxPromptTokens !== undefined) doc.settings.guardrails.maxPromptTokens = input.guardrails.maxPromptTokens;
   await saveConfig(ctx, doc, row.configEnc);
   await writeAudit(ctx, { action: 'ai.settings.set', targetType: 'aiSettings', metadata: { ...doc.settings } });
   return doc.settings;
 }
 
 // ── Attach: inject AI_GATEWAY_URL + a per-app key via Docker secret ───────────
-
-function liveOrgServices(ctx: OrgContext): InvService[] {
-  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
-  return buildInventory(services, containers).services;
-}
 
 /** Docker secret carrying an app's virtual key. */
 export function aiKeySecretName(stack: string, appService: string): string {
@@ -822,4 +952,129 @@ export async function listOutlets(ctx: OrgContext): Promise<AiOutletView[]> {
   return Object.entries(doc.outlets)
     .map(([stack, domain]) => ({ stack, domain }))
     .sort((a, b) => a.stack.localeCompare(b.stack));
+}
+
+// ── swarmy.yaml `ai:` binding ─────────────────────────────────────────────────
+
+/** Marker on an app service bound through swarmy.yaml `ai:` (value = the key name). */
+export const AI_BIND_LABEL = 'swarmy.ai.bind';
+/** Env the binding sets (addressing — safe in the spec). */
+export const AI_BIND_ENV = ['OPENAI_BASE_URL', 'ANTHROPIC_BASE_URL', AI_ENV_VAR] as const;
+/**
+ * Secret variables the binding mounts (the same virtual key under each SDK's
+ * own name), delivered by the app-secrets env shim: Docker secrets
+ * `<service>_<KEY>_v<N>`, exported at start, never in the spec.
+ */
+export const AI_BIND_SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'] as const;
+
+export interface AiBindInput {
+  stack: string;
+  appService: string;
+  /** Model allowlist from swarmy.yaml (`ai.models`). */
+  models: readonly string[];
+  /** App-wide daily budget in USD (`ai.budget: 5/day`), shared by the app's keys. */
+  dailyBudgetUsd?: number | null;
+  rpm?: number | null;
+}
+
+export interface AiBindResult {
+  appService: string;
+  keyName: string;
+  rotated: boolean;
+  env: Record<string, string>;
+  secretVars: string[];
+}
+
+/** Key name for a swarmy.yaml binding (`app:<stack>/<service>`). */
+export function bindKeyName(stack: string, service: string): string {
+  return `app:${stack}/${service}`;
+}
+
+/**
+ * Bind an app service to the gateway from swarmy.yaml: one key per service
+ * (allowlist = `ai.models`, the budget shared app-wide), `OPENAI_BASE_URL` +
+ * `ANTHROPIC_BASE_URL` + `AI_GATEWAY_URL` in env, and the key as the secret
+ * variables `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` (Docker secrets via the
+ * env shim — `carrySecretVars` keeps them across every later compose deploy).
+ *
+ * Re-binding with a changed allowlist/budget updates the key's policy in
+ * place; the key only rotates when its secret is no longer mounted.
+ */
+export async function bindAiToService(ctx: OrgContext, input: AiBindInput): Promise<AiBindResult> {
+  const providers = await getProviders(ctx);
+  if (!providers.providers.some((p) => p.hasKey)) {
+    throw commandRejected('ai: in swarmy.yaml needs an AI provider — add one on the AI page first');
+  }
+  const app = liveOrgServices(ctx).find(
+    (s) => s.stack === input.stack && (s.id === input.appService || s.name === input.appService),
+  );
+  if (!app) throw notFound('service', input.appService);
+  const keyName = bindKeyName(input.stack, app.name);
+  const appRef = `${input.stack}/${app.name}`;
+  const node = await resolveManagerNode(ctx);
+  const owned = versionsOf(await listAppSecretVersions(ctx, node.id), app.name);
+  const mounted = mountedVersions(owned, app.secrets ?? []);
+  const policy = keyPolicyJson({
+    rpm: input.rpm ?? null,
+    dailyBudgetUsd: input.dailyBudgetUsd ?? null,
+    models: input.models,
+    budgetScope: 'app',
+    mintedBy: ctx.user?.id ?? null,
+  }) as object;
+
+  const prior = await ctx.db.aiVirtualKey.findFirst({ where: { orgId: ctx.activeOrgId, name: keyName } });
+  const stillMounted = AI_BIND_SECRET_KEYS.every((k) => mounted.has(k));
+  let rotated = false;
+  let plaintext: string | null = null;
+  await assertMayUseModels(ctx, input.models);
+  if (prior && !prior.disabled && stillMounted) {
+    await ctx.db.aiVirtualKey.update({ where: { id: prior.id }, data: { limitsJson: policy } });
+  } else {
+    if (prior) {
+      await ctx.db.aiVirtualKey.update({
+        where: { id: prior.id },
+        data: { disabled: true, name: `${keyName} (rotated ${Date.now()})` },
+      });
+    }
+    plaintext = generateVirtualKey();
+    await ctx.db.aiVirtualKey.create({
+      data: { orgId: ctx.activeOrgId, name: keyName, keyHash: hashToken(plaintext), appRef, limitsJson: policy },
+    });
+    rotated = Boolean(prior);
+  }
+
+  const env = {
+    OPENAI_BASE_URL: gatewayUrl(),
+    ANTHROPIC_BASE_URL: anthropicGatewayUrl(),
+    [AI_ENV_VAR]: gatewayUrl(),
+  };
+  try {
+    const { desired } = await materializeSecretVars(
+      ctx,
+      node.id,
+      app.name,
+      AI_BIND_SECRET_KEYS.map((key) => ({ key, value: plaintext ?? undefined, delivery: 'env' as const })),
+      owned,
+      mounted,
+    );
+    await patchLiveService(
+      ctx,
+      app,
+      {
+        setEnv: env,
+        setLabels: { [STACK_LABEL]: input.stack, [AI_BIND_LABEL]: keyName },
+        transform: (spec) => planSecretSpec(spec, owned, { upserts: desired }),
+      },
+      { nodeId: node.id },
+    );
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
+  await writeAudit(ctx, {
+    action: 'ai.bind',
+    targetType: 'service',
+    targetId: app.name,
+    metadata: { stack: input.stack, keyName, models: input.models, dailyBudgetUsd: input.dailyBudgetUsd ?? null, rotated },
+  });
+  return { appService: app.name, keyName, rotated, env, secretVars: [...AI_BIND_SECRET_KEYS] };
 }

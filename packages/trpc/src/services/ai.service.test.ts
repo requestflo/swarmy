@@ -10,7 +10,7 @@ describe('parseConfigDoc — providersJson codec', () => {
   it('parses the spine default ([]) into an empty doc with default settings', () => {
     const doc = parseConfigDoc([]);
     expect(doc.providers).toEqual([]);
-    expect(doc.settings).toEqual({ auditLog: false, cache: false });
+    expect(doc.settings).toEqual({ auditLog: false, cache: false, guardrails: { redactPii: true, maxPromptTokens: null } });
   });
 
   it('parses the wrapper form with providers + settings', () => {
@@ -25,7 +25,7 @@ describe('parseConfigDoc — providersJson codec', () => {
       { kind: 'anthropic', baseUrl: null, isDefault: true },
       { kind: 'custom', baseUrl: 'https://llm.internal', isDefault: false },
     ]);
-    expect(doc.settings).toEqual({ auditLog: true, cache: true });
+    expect(doc.settings).toEqual({ auditLog: true, cache: true, guardrails: { redactPii: true, maxPromptTokens: null } });
   });
 
   it('accepts a bare descriptor array (legacy shape)', () => {
@@ -38,7 +38,7 @@ describe('parseConfigDoc — providersJson codec', () => {
       providers: [
         null,
         42,
-        { kind: 'gemini' },
+        { kind: 'nope' },
         { kind: 'openai' },
         { kind: 'openai', baseUrl: 'https://dupe' },
         { baseUrl: 'https://no-kind' },
@@ -60,7 +60,7 @@ describe('parseConfigDoc — providersJson codec', () => {
   it('never throws on garbage', () => {
     expect(parseConfigDoc(null).providers).toEqual([]);
     expect(parseConfigDoc('nonsense').providers).toEqual([]);
-    expect(parseConfigDoc({ settings: 'nope' }).settings).toEqual({ auditLog: false, cache: false });
+    expect(parseConfigDoc({ settings: 'nope' }).settings).toEqual({ auditLog: false, cache: false, guardrails: { redactPii: true, maxPromptTokens: null } });
   });
 
   it('parses stack outlets (trimmed, lowercased), dropping non-string/empty values', () => {
@@ -176,5 +176,33 @@ describe('aggregateUsage', () => {
     expect(out.days.every((d) => d.requests === 0)).toBe(true);
     // The caller queries only the window, but the aggregator must not crash on strays.
     expect(out.totals.requests).toBe(1);
+  });
+});
+
+describe('key policy + swarmy.yaml binding helpers', () => {
+  it('keyPolicyJson stores only set fields; parseKeyLimits reads them back', async () => {
+    const { keyPolicyJson, bindKeyName, anthropicGatewayUrl, gatewayUrl } = await import('./ai.service');
+    const j = keyPolicyJson({ rpm: 60, dailyBudgetUsd: 5, models: ['smart', 'embed', 'smart'], budgetScope: 'app', mintedBy: 'u1' });
+    expect(j).toEqual({ rpm: 60, dailyBudgetMicros: 5_000_000, budgetScope: 'app', models: ['smart', 'embed'], mintedBy: 'u1' });
+    expect(parseKeyLimits(j)).toEqual({ rpm: 60, dailyBudgetUsd: 5, budgetScope: 'app', models: ['smart', 'embed'] });
+    expect(keyPolicyJson({})).toEqual({});
+    expect(bindKeyName('shop', 'shop_web')).toBe('app:shop/shop_web');
+    // Anthropic SDKs append /v1/messages; OpenAI SDKs are given …/v1.
+    expect(gatewayUrl().endsWith('/ai/v1')).toBe(true);
+    expect(anthropicGatewayUrl().endsWith('/ai')).toBe(true);
+  });
+
+  it('a compose redeploy carries the ai: binding env (the key rides carrySecretVars)', async () => {
+    const { attachedDomains, carryManagedAttachments } = await import('./attachment-carry');
+    const live = {
+      name: 'shop_web',
+      labels: { 'com.docker.stack.namespace': 'shop', 'swarmy.ai.bind': 'app:shop/shop_web' },
+      env: ['OPENAI_BASE_URL=https://c/ai/v1', 'ANTHROPIC_BASE_URL=https://c/ai', 'AI_GATEWAY_URL=https://c/ai/v1', 'OTHER=1'],
+      secrets: [],
+    };
+    expect(attachedDomains(live as never).map((d) => d.marker)).toContain('swarmy.ai.bind');
+    const out = carryManagedAttachments({ name: 'shop_web', image: 'x' } as never, live as never);
+    expect(out.env).toEqual({ OPENAI_BASE_URL: 'https://c/ai/v1', ANTHROPIC_BASE_URL: 'https://c/ai', AI_GATEWAY_URL: 'https://c/ai/v1' });
+    expect(out.labels?.['swarmy.ai.bind']).toBe('app:shop/shop_web');
   });
 });
