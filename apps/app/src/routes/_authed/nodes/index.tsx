@@ -1,9 +1,8 @@
 import * as React from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
 import { ServerIcon } from 'lucide-react';
 import { Button } from '@swarmy/ui';
-import { useTRPC } from '@/integrations/trpc';
+import { useEstateSummary } from '@/lib/use-estate-summary';
 import { PageHeader } from '@/components/page-header';
 import { CountUp } from '@/components/count-up';
 import { ClusterHero } from '@/components/infra/cluster-hero';
@@ -16,6 +15,7 @@ import {
   InfraViewToggle,
   type InfraView,
 } from '@/components/infrastructure/infra-view-toggle';
+import { PageError, PageSkeleton } from '@/components/states';
 
 const RegionGlobe = React.lazy(
   () =>
@@ -28,18 +28,31 @@ const RegionGlobe = React.lazy(
  * The Nodes plane — the cluster. ClusterHero KPIs, then the flat node list
  * (the PRIMARY navigation: control plane vs. workers, at a glance) and,
  * below it, an optional map view (Canvas or Globe) for spatial context only.
+ * The headline counts come from the same estate summary as the Overview and
+ * the sidenav footer, and nothing paints until it has settled.
  */
 export const Route = createFileRoute('/_authed/nodes/')({
   component: InfrastructurePlane,
 });
 
 function InfrastructurePlane(): React.JSX.Element {
-  const trpc = useTRPC();
   const navigate = useNavigate();
   const [view, setView] = React.useState<InfraView>('canvas');
-  const nodes = useQuery({ ...trpc.nodes.list.queryOptions(), refetchInterval: 5_000 });
-  const online = (nodes.data ?? []).filter((n) => n.status === 'online').length;
-  const total = nodes.data?.length ?? 0;
+  const estate = useEstateSummary();
+
+  if (estate.status === 'pending') return <PageSkeleton variant="kpis" />;
+  if (estate.status === 'error') {
+    return (
+      <PageError
+        title="Couldn’t reach your cluster."
+        error={estate.error}
+        retry={estate.refetch}
+        retrying={estate.isFetching}
+      />
+    );
+  }
+
+  const { online, total } = estate.data.nodes;
   const allGreen = total > 0 && online === total;
 
   return (
@@ -65,7 +78,7 @@ function InfrastructurePlane(): React.JSX.Element {
         }
       />
 
-      <ClusterHero />
+      <ClusterHero estate={estate.data} />
 
       <div className="mt-4">
         <RecoveryClaimsBanner />

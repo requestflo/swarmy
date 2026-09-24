@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTRPC } from '@/integrations/trpc';
 import { SectionHeader } from '@/components/section-header';
+import { PageError, PageSkeleton } from '@/components/states';
 import { KeysCard } from './keys-card';
 import { ProvidersCard } from './providers-card';
 import { RequestLogCard } from './request-log-card';
@@ -17,7 +18,20 @@ export function AiPage(): React.JSX.Element {
   const providers = useQuery({ ...trpc.ai.providers.queryOptions(), refetchInterval: 15_000 });
   const usage = useQuery({ ...trpc.ai.usage.queryOptions({ days: 14 }), refetchInterval: 10_000 });
 
-  const configured = (providers.data?.providers ?? []).filter((p) => p.hasKey).length;
+  // The headline is a claim about the gateway — don't make it before we know.
+  if (providers.isPending || usage.isPending) return <PageSkeleton variant="kpis" />;
+  if (providers.isError) {
+    return (
+      <PageError
+        title="Couldn’t reach the AI gateway."
+        error={providers.error}
+        retry={() => void providers.refetch()}
+        retrying={providers.isFetching}
+      />
+    );
+  }
+
+  const configured = providers.data.providers.filter((p) => p.hasKey).length;
   const spend = usage.data?.totals.costUsd ?? 0;
 
   return (

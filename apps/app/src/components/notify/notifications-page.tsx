@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTRPC } from '@/integrations/trpc';
 import { SectionHeader } from '@/components/section-header';
+import { PageError, PageSkeleton } from '@/components/states';
 import { ProviderCard } from './provider-card';
 import { TemplatesCard } from './templates-card';
 import { DeliveryLog } from './delivery-log';
@@ -16,6 +17,18 @@ export function NotificationsPage(): React.JSX.Element {
     ...trpc.notifications.overview.queryOptions(),
     refetchInterval: 10_000,
   });
+
+  if (overview.isPending) return <PageSkeleton variant="kpis" />;
+  if (overview.isError) {
+    return (
+      <PageError
+        title="Couldn’t load notifications."
+        error={overview.error}
+        retry={() => void overview.refetch()}
+        retrying={overview.isFetching}
+      />
+    );
+  }
 
   const o = overview.data;
   const headline = !o ? (

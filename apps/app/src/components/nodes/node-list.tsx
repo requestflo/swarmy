@@ -6,6 +6,7 @@ import { Button, Card, CardContent, CardHeader, CardTitle, EmptyState } from '@s
 import type { NodeSummary } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { NodeRow } from './node-row';
+import { SkeletonBody } from '@/components/states';
 
 /**
  * The Nodes index's PRIMARY surface: one flat card, two quiet groups
@@ -29,7 +30,10 @@ export function NodeList(): React.JSX.Element {
   const managers = rows.filter((n) => n.role === 'manager');
   const workers = rows.filter((n) => n.role !== 'manager');
 
-  if (!nodes.isLoading && rows.length === 0) {
+  // Rows shimmer until the list lands — never an empty "Cluster nodes" card.
+  if (nodes.isPending) return <SkeletonBody variant="list" />;
+
+  if (rows.length === 0) {
     return (
       <Card className="card-pop border-0">
         <CardContent className="pt-6">

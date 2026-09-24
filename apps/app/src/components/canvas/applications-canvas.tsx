@@ -7,14 +7,14 @@ import { ServiceOverlay } from '@/components/services/service-overlay';
 import { StackOverview } from './stack-overview';
 import { ServiceCanvas } from './service-canvas';
 import { CanvasEmpty } from './canvas-empty';
+import { PageError, PageSkeleton } from '@/components/states';
 
 type View = { mode: 'stacks' } | { mode: 'all' };
 
 /**
  * Viewport-fit canvas frame: 100dvh minus the shell's mobile header (3.5rem) +
  * tab-bar clearance (7rem); a clean h-dvh on lg where nothing sits above
- * <main>. Doubles as the placeholder so the page doesn't jump while the first
- * poll lands.
+ * <main>.
  */
 function CanvasShell({ children }: { children?: React.ReactNode }): React.JSX.Element {
   return (
@@ -39,11 +39,26 @@ export function ApplicationsCanvas(): React.JSX.Element {
     null,
   );
 
+  // First paint is the page frame, never a blank: a stack-grid skeleton until
+  // the inventory lands, an error with retry if it never does.
+  if (!inventory.data) {
+    if (inventory.isError) {
+      return (
+        <PageError
+          title="Couldn’t read the swarm’s inventory."
+          error={inventory.error}
+          retry={() => void inventory.refetch()}
+          retrying={inventory.isFetching}
+        />
+      );
+    }
+    return <PageSkeleton variant="list" />;
+  }
+
   // No services anywhere → sell the first deploy (not an empty grid).
-  if (!inventory.isLoading && (inventory.data?.services.length ?? 0) === 0) return <CanvasEmpty />;
+  if (inventory.data.services.length === 0) return <CanvasEmpty />;
 
   if (view.mode === 'stacks') {
-    if (!inventory.data) return <CanvasShell />;
     return (
       <StackOverview
         inv={inventory.data}

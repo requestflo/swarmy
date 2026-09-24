@@ -21,6 +21,7 @@ import { filterInventory } from './filter-inventory';
 import { useCanvasLayout } from './use-canvas-layout';
 import { CanvasToolbar } from './canvas-toolbar';
 import { CanvasBreadcrumb } from './canvas-breadcrumb';
+import { ErrorState } from '@/components/states';
 
 const NODE_TYPES = { service: ServiceNode, project: ProjectGroupNode, dbCluster: DbClusterNode };
 
@@ -97,6 +98,26 @@ export function ServiceCanvas({ stackFilter, onBack, onOpenService }: ServiceCan
   // store holds one viewport per org, so a drilled-in stack just fit-views
   // instead of clobbering it. Drag positions persist in every view.
   const isAll = stackFilter === null;
+
+  // First paint is a canvas-shaped skeleton, not an empty pane; a failed
+  // inventory read says so and offers a retry.
+  if (!scoped) {
+    return (
+      <div className="h-full min-h-0 w-full min-w-0">
+        {inventory.isError ? (
+          <ErrorState
+            className="h-full"
+            title="Couldn’t read the swarm’s inventory."
+            error={inventory.error}
+            retry={() => void inventory.refetch()}
+            retrying={inventory.isFetching}
+          />
+        ) : (
+          <div className="shimmer-line h-full w-full rounded-3xl" role="status" aria-label="Loading canvas" />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-full min-h-0 w-full min-w-0">
