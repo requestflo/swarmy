@@ -37,6 +37,7 @@ import { SEARCH_PORTS, searchServiceName } from '../search.service';
 import { VECTOR_PORT, vectorServiceName } from '../vector.service';
 import { GARAGE_S3_UPSTREAM } from '../bucket-access.service';
 import { DEPLOY_SAFETY_LABEL } from '../releases.service';
+import { ERRORS_ENABLED_LABEL } from '../errors/injection';
 import {
   APP_BUILD_LABEL,
   APP_COMMIT_LABEL,
@@ -251,6 +252,7 @@ export function compileServices(
       [DEPLOY_SAFETY_LABEL]: JSON.stringify(APP_HEALTH_GATE),
       ...(s.source.kind === 'build' ? { [APP_BUILD_LABEL]: s.source.key } : {}),
       ...(opts.commit ? { [APP_COMMIT_LABEL]: opts.commit } : {}),
+      ...(d.errors ? { [ERRORS_ENABLED_LABEL]: 'true' } : {}),
       ...(s.sleepAfterSeconds !== undefined
         ? {
             [SCALE_TO_ZERO_LABEL]: 'true',

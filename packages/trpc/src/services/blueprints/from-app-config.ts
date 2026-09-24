@@ -12,6 +12,7 @@ import { clusterNetworkName, primaryServiceName, replicaServiceName } from '../m
 import { CACHE_PORT, cacheNetworkName, cachePrimaryName } from '../cache.service';
 import { autoAddressLabels } from '../auto-address.service';
 import { AUTO_ADDRESS_LABEL } from '@swarmy/ingress';
+import { ERRORS_ENABLED_LABEL } from '../errors/injection';
 import {
   secretToken,
   SIZE_PRESETS,
@@ -307,6 +308,8 @@ export function compileTemplate(
     if (s.cpu !== undefined) limits.cpus = String(s.cpu);
     svc.deploy = {
       replicas: s.replicas,
+      // A template with `errors: true` opts in to error tracking (SENTRY_DSN bound on deploy).
+      ...(desired.errors ? { labels: { [ERRORS_ENABLED_LABEL]: 'true' } } : {}),
       ...(Object.keys(limits).length ? { resources: { limits } } : {}),
       // Volumes are node-local: pin stateful services (and every service
       // sharing a volume) to one node so data never comes up empty elsewhere.

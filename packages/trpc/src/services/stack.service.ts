@@ -26,6 +26,9 @@ import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { augmentSpecsForStack } from './otel-injection';
 import { stackTelemetryEnabled } from './observability.service';
+import { augmentSpecsForErrors, releaseFor, specsRequestErrors } from './errors/injection';
+import { ensureProject } from './errors/projects';
+import { recordDeployRelease, stackErrorsEnabled } from './errors/errors.service';
 import { DEPLOY_SAFETY_LABEL, DEPLOY_STRATEGY_LABEL, recordRelease } from './releases.service';
 import { INGRESS_ROUTES_LABEL, readRoutes } from './ingress-routes';
 import { carryManagedAttachments } from './attachment-carry';
@@ -472,11 +475,18 @@ export async function deployFromCompose(
     if (value) deployLabels[key] = value;
   }
 
-  const finalSpecs = augmentSpecsForStack(specs, {
-    telemetryEnabled: stackTelemetryEnabled(ctx, stack.name),
-    orgId: ctx.activeOrgId,
-    stack: stack.name,
-  }).map((spec) => {
+  // Error tracking: a `swarmy.errors.enabled` label in the compose (swarmy.yaml
+  // `errors: true`, a template) or on the live stack binds SENTRY_DSN.
+  const errorsOn = specsRequestErrors(specs) || stackErrorsEnabled(ctx, stack.name);
+  const errorsDsn = errorsOn ? (await ensureProject(ctx, stack.name).catch(() => null))?.dsn || null : null;
+  const finalSpecs = augmentSpecsForErrors(
+    augmentSpecsForStack(specs, {
+      telemetryEnabled: stackTelemetryEnabled(ctx, stack.name),
+      orgId: ctx.activeOrgId,
+      stack: stack.name,
+    }),
+    { enabled: errorsOn, dsn: errorsDsn },
+  ).map((spec) => {
     const labelled = withStackLabels(spec, stack.name);
     return { ...labelled, labels: { ...deployLabels, ...labelled.labels } };
   });
@@ -518,6 +528,13 @@ export async function deployFromCompose(
   }).catch(() => null);
 
   kickDomainChecks(ctx, gatedHosts);
+  if (errorsOn) {
+    // The deploy's git sha becomes the error-tracking release ("introduced in").
+    const version = finalSpecs.map(releaseFor).find((v): v is string => !!v);
+    if (version) {
+      void recordDeployRelease(ctx, { stack: stack.name, version, swarmyReleaseId: release?.id }).catch(() => undefined);
+    }
+  }
   const migrated = migration.legacy.map((s) => s.name);
   await writeAudit(ctx, {
     action: 'stack.deploy',
@@ -585,11 +602,16 @@ export async function addServiceToStack(
 
   // Same augmentation pipeline as the compose path: telemetry first, then the
   // stack-namespace + swarmy.managed labels.
-  const [spec] = augmentSpecsForStack([baseSpec], {
-    telemetryEnabled: stackTelemetryEnabled(ctx, input.stack),
-    orgId: ctx.activeOrgId,
-    stack: input.stack,
-  }).map((s) => withStackLabels(s, input.stack));
+  const errorsOn = stackErrorsEnabled(ctx, input.stack);
+  const errorsDsn = errorsOn ? (await ensureProject(ctx, input.stack).catch(() => null))?.dsn || null : null;
+  const [spec] = augmentSpecsForErrors(
+    augmentSpecsForStack([baseSpec], {
+      telemetryEnabled: stackTelemetryEnabled(ctx, input.stack),
+      orgId: ctx.activeOrgId,
+      stack: input.stack,
+    }),
+    { enabled: errorsOn, dsn: errorsDsn },
+  ).map((s) => withStackLabels(s, input.stack));
 
   // A single-app drop into a stack is a service deploy — same admission gate
   // (and override semantics) as the compose path.
