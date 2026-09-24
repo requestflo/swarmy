@@ -122,19 +122,27 @@ type RepoHookRow = {
   fullName: string | null;
   externalRepoId: string | null;
   serviceId: string | null;
-  envBranches: string[];
+  envBranches: unknown;
 };
 
 /** Does a push to `ref` concern this binding? (its branch, or one of its swarmy.yaml environments) */
 function deploysFrom(r: RepoHookRow, ref: string): boolean {
-  return r.branch === ref || (isAppBinding(r) && r.envBranches.includes(ref));
+  return (
+    r.branch === ref ||
+    (isAppBinding(r) && Array.isArray(r.envBranches) && r.envBranches.includes(ref))
+  );
 }
 
 /**
  * A push to an app binding: the GitOps loop (plan → check run → apply). A
  * legacy binding (one linked service) keeps build-and-redeploy.
  */
-function kickPush(r: RepoHookRow, ref: string, sha: string | null, changedPaths: string[] | undefined): void {
+function kickPush(
+  r: RepoHookRow,
+  ref: string,
+  sha: string | null,
+  changedPaths: string[] | undefined,
+): void {
   if (!isAppBinding(r)) return kickBuild(r, ref, sha);
   void planCommitForRepo(deps(), r.orgId, {
     repoId: r.id,
@@ -148,8 +156,10 @@ function kickPush(r: RepoHookRow, ref: string, sha: string | null, changedPaths:
       if (res.status === 'no-config' && ref === r.branch) kickBuild(r, ref, sha);
     })
     .catch((e: unknown) => {
-    console.warn(`[webhooks] app plan for ${r.url}@${ref} failed: ${e instanceof Error ? e.message : String(e)}`);
-  });
+      console.warn(
+        `[webhooks] app plan for ${r.url}@${ref} failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    });
 }
 
 /** A PR on an app binding deploys (or tears down) its swarmy.yaml preview; legacy repos keep compose previews. */
@@ -157,15 +167,22 @@ function kickPr(r: RepoHookRow, pr: PrEvent): void {
   if (!isAppBinding(r)) return kickPreview(r, pr);
   const run =
     pr.action === 'closed'
-      ? teardownAppPreviewForRepo(deps(), r.orgId, { repoId: r.id, prNumber: pr.prNumber }).then(async (res) => {
-          if (res.stack) {
-            await upsertPrComment(prisma, r, {
-              pr: pr.prNumber,
-              key: `preview:${r.id}`,
-              body: previewCommentBody({ stack: res.stack, url: null, sha: pr.commit, state: 'torn-down' }),
-            });
-          }
-        })
+      ? teardownAppPreviewForRepo(deps(), r.orgId, { repoId: r.id, prNumber: pr.prNumber }).then(
+          async (res) => {
+            if (res.stack) {
+              await upsertPrComment(prisma, r, {
+                pr: pr.prNumber,
+                key: `preview:${r.id}`,
+                body: previewCommentBody({
+                  stack: res.stack,
+                  url: null,
+                  sha: pr.commit,
+                  state: 'torn-down',
+                }),
+              });
+            }
+          },
+        )
       : planCommitForRepo(deps(), r.orgId, {
           repoId: r.id,
           ref: pr.branch,
@@ -174,7 +191,9 @@ function kickPr(r: RepoHookRow, pr: PrEvent): void {
           prNumber: pr.prNumber,
         });
   void Promise.resolve(run).catch((e: unknown) => {
-    console.warn(`[webhooks] app preview for ${r.url}#${pr.prNumber} failed: ${e instanceof Error ? e.message : String(e)}`);
+    console.warn(
+      `[webhooks] app preview for ${r.url}#${pr.prNumber} failed: ${e instanceof Error ? e.message : String(e)}`,
+    );
   });
 }
 

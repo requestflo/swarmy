@@ -150,9 +150,14 @@ interface PlanRow {
   resultsJson: unknown;
   ledgerJson: unknown;
   error: string | null;
-  confirmedIds: string[];
+  confirmedIds: unknown;
   createdAt: Date;
   appliedAt: Date | null;
+}
+
+/** A JSON column holding string[] (SQLite-portable; no native arrays). */
+export function stringArray(json: unknown): string[] {
+  return Array.isArray(json) ? json.filter((x): x is string => typeof x === 'string') : [];
 }
 
 function toPlanView(r: PlanRow): AppPlanView {
@@ -173,7 +178,7 @@ function toPlanView(r: PlanRow): AppPlanView {
     issues: Array.isArray(r.issuesJson) ? (r.issuesJson as ConfigIssue[]) : [],
     outcomes: (r.resultsJson ?? {}) as Record<string, ActionOutcome>,
     error: r.error,
-    confirmedIds: r.confirmedIds,
+    confirmedIds: stringArray(r.confirmedIds),
     markdown: plan ? planToMarkdown(plan) : '',
     createdAt: r.createdAt.toISOString(),
     appliedAt: r.appliedAt?.toISOString() ?? null,
@@ -207,11 +212,14 @@ async function latestLedger(
   environment: string,
   prNumber: number,
 ): Promise<AppLedger> {
-  const row = await db.appPlan.findFirst({
-    where: { repoId, environment, prNumber, NOT: { ledgerJson: { equals: null as never } } },
+  // Newest plan that carries a ledger (JSON-null filtering isn't portable — scan a few).
+  const rows = await db.appPlan.findMany({
+    where: { repoId, environment, prNumber },
     orderBy: { updatedAt: 'desc' },
+    take: 10,
     select: { ledgerJson: true },
   });
+  const row = rows.find((r) => r.ledgerJson != null);
   return row?.ledgerJson ? parseLedger(row.ledgerJson) : emptyLedger();
 }
 
@@ -709,7 +717,7 @@ export async function planCommit(
     const envBranches = Object.values(cfg.environments ?? {}).map((e) => e.branch);
     await ctx.db.gitRepo.update({
       where: { id: repo.id },
-      data: { appName: cfg.app, envBranches },
+      data: { appName: cfg.app, envBranches: envBranches as never },
     });
   }
 
@@ -863,7 +871,7 @@ async function executePlan(
       ledgerJson: result.ledger as never,
       resultsJson: result.outcomes as never,
       error: result.error ?? null,
-      confirmedIds: input.confirmed,
+      confirmedIds: input.confirmed as never,
       ...(result.status !== 'failed' ? { appliedAt: new Date() } : {}),
     },
   });
@@ -1009,7 +1017,7 @@ export async function confirmAppActions(
       ledger,
       sha: row.sha,
       repo,
-      confirmed: [...new Set([...row.confirmedIds, ...confirmed])],
+      confirmed: [...new Set([...stringArray(row.confirmedIds), ...confirmed])],
     });
     return { status, confirmed };
   });
@@ -1102,7 +1110,12 @@ export async function listApps(ctx: OrgContext): Promise<AppView[]> {
       if (!latestByEnv.has(row.environment)) latestByEnv.set(row.environment, row);
     const envs: AppView['environments'] = [
       { environment: PRODUCTION, branch: r.branch, stack: r.appName ?? '', latest: null },
-      ...r.envBranches.map((b) => ({ environment: '', branch: b, stack: '', latest: null })),
+      ...stringArray(r.envBranches).map((b) => ({
+        environment: '',
+        branch: b,
+        stack: '',
+        latest: null,
+      })),
     ];
     for (const [env, row] of latestByEnv) {
       const existing =
@@ -1260,7 +1273,7 @@ export async function pollApp(ctx: OrgContext, repoId: string): Promise<PlanComm
     repo: repo.externalRepoId && repo.provider === 'GITLAB' ? repo.externalRepoId : repoRef,
   }).catch(() => []);
   const out: PlanCommitResult[] = [];
-  for (const branch of [repo.branch, ...repo.envBranches]) {
+  for (const branch of [repo.branch, ...stringArray(repo.envBranches)]) {
     const head = heads.find((h) => h.name === branch);
     if (!head) continue;
     const seen = await ctx.db.appPlan.findFirst({
