@@ -85,7 +85,13 @@ function staticToAnswer(record: StaticDnsRecord, zone: DnsZoneSnapshot): Answer 
         data: { preference: record.priority ?? 10, exchange: record.value },
       };
     case 'TXT':
-      return { name, type: 'TXT', ttl, data: record.value };
+      // A TXT string is at most 255 bytes on the wire (RFC 1035 §3.3.14);
+      // longer values (DKIM keys) go out as several strings, which receivers
+      // concatenate.
+      {
+        const parts = txtStrings(record.value);
+        return { name, type: 'TXT', ttl, data: parts.length === 1 ? record.value : parts };
+      }
     case 'SRV': {
       // Value format: "weight port target" (priority carried separately).
       const [weight = '0', port = '0', target = ''] = record.value.split(/\s+/);
@@ -336,4 +342,20 @@ function answerExisting(
       // Type we don't host (HTTPS, DNSKEY, …) on an existing name → NODATA.
       return respond([]);
   }
+}
+
+/** Split a TXT value into ≤255-byte character-strings (UTF-8 safe). */
+export function txtStrings(value: string): string[] {
+  const buf = Buffer.from(value, 'utf8');
+  if (buf.length <= 255) return [value];
+  const out: string[] = [];
+  let start = 0;
+  while (start < buf.length) {
+    let end = Math.min(start + 255, buf.length);
+    // never cut inside a multi-byte sequence
+    while (end < buf.length && end > start && (buf[end]! & 0xc0) === 0x80) end--;
+    out.push(buf.subarray(start, end).toString('utf8'));
+    start = end;
+  }
+  return out;
 }

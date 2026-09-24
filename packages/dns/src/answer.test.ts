@@ -252,3 +252,19 @@ describe('wildcards (RFC 4592)', () => {
     expect(answerQuery([zone()], q('nope.example.com', 'A'), nowhere).rcode).toBe('NXDOMAIN');
   });
 });
+
+describe('long TXT values (DKIM keys)', () => {
+  it('splits values over 255 bytes into several strings that encode on the wire', async () => {
+    const { txtStrings } = await import('./answer');
+    const dnsPacket = (await import('dns-packet')).default;
+    const long = `v=DKIM1; k=rsa; p=${'A'.repeat(392)}`;
+    const parts = txtStrings(long);
+    expect(parts.length).toBe(2);
+    expect(parts.join('')).toBe(long);
+    expect(parts.every((p) => Buffer.byteLength(p) <= 255)).toBe(true);
+    const buf = dnsPacket.encode({ type: 'response', id: 1, answers: [{ type: 'TXT', name: 'swarmy._domainkey.example.com', data: parts }] });
+    const decoded = dnsPacket.decode(buf).answers?.[0] as { data: Buffer[] };
+    expect(decoded.data.map((b) => b.toString()).join('')).toBe(long);
+    expect(txtStrings('short')).toEqual(['short']);
+  });
+});
