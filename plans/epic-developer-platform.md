@@ -32,6 +32,9 @@ Order of work: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10. Design 
   timeouts.
 
 ## 4. Developer CLI + MCP server
+> Built (2026-09-24): `apps/cli` (`swarmy`, served at `/install/cli/*`), `packages/devkit`
+> (check + MCP tools), `/mcp` on the controller with OAuth via swarmy's OIDC provider.
+> See docs/CLI-AND-MCP.md. `check` uses basic stack detection until Railpack (§1) lands.
 - `swarmy` CLI over the REST SDK: `login`, `deploy`, `logs`, `env pull`, `run`, `open`,
   `check`.
 - MCP server: "will this repo work on swarmy?" (detect, Railpack plan, `swarmy.yaml`

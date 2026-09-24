@@ -26,9 +26,15 @@ adapter contract.
    `resolveOrgContextFromApiKey` (`packages/trpc/src/apiKeyContext.ts`) turns a
    presented `swk_…` into the **same `OrgContext` shape** `orgProcedure` builds
    for a browser session. Wired in `apps/api/src/index.ts` as
-   `createRestApp({ resolveContextFromApiKey })`. Never resolve a key anywhere
+   `createRestApp({ resolveContextFromApiKey })` via
+   `resolveOrgContextFromBearer` (same file), which also accepts an OAuth JWT
+   swarmy's OIDC provider issued for its own APIs (scopes `swarmy:read` /
+   `swarmy:write`, audience `<base>/api/v1` or `<base>/mcp`; verifier in
+   `@swarmy/auth` `api-tokens.ts`). Never resolve a key anywhere
    else and never build a bespoke context for REST — downstream service calls
-   must be byte-identical to a dashboard call.
+   must be byte-identical to a dashboard call. The `/mcp` endpoint
+   (`apps/api/src/devx.ts`) has no principal of its own: its tools call REST
+   in-process with the caller's bearer.
 3. **A key is org-scoped and never exceeds its creator's CURRENT authority.**
    One key → one org (`orgId` on the row); org isolation stays the hard
    boundary. The membership/role handed to services + ABAC is the creator's
@@ -121,6 +127,7 @@ adapter contract.
 | RFC 9457 problem mapper (`trpcErrorToProblem`) | `packages/api-rest/src/problem.ts` |
 | `run()` — call service, encode, map errors | `packages/api-rest/src/respond.ts` |
 | Resource routes (one module per resource) | `packages/api-rest/src/routes/*` |
+| CLI/MCP developer routes (`/me`, env, logs + SSE, previews, telemetry) | `routes/devx.ts` over `@swarmy/trpc/devx` |
 | Public DTOs (snake_case Zod) | `packages/api-rest/src/dto.ts`, `dto-extra.ts` |
 | view→DTO mappers (camel→snake) | `packages/api-rest/src/mappers.ts`, `mappers-extra.ts` |
 | Committed spec artifact + dumper | `packages/api-rest/openapi.json`, `src/bin/dump-openapi.ts` |
