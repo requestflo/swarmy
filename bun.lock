@@ -175,6 +175,18 @@
         "typescript": "^5.5.4",
       },
     },
+    "packages/app-config": {
+      "name": "@swarmy/app-config",
+      "version": "0.0.0",
+      "dependencies": {
+        "@swarmy/core": "workspace:*",
+        "yaml": "^2.6.1",
+        "zod": "^3.24.1",
+      },
+      "devDependencies": {
+        "typescript": "^5.5.4",
+      },
+    },
     "packages/auth": {
       "name": "@swarmy/auth",
       "version": "0.0.0",
@@ -805,6 +817,8 @@
     "@swarmy/api-rest": ["@swarmy/api-rest@workspace:packages/api-rest"],
 
     "@swarmy/app": ["@swarmy/app@workspace:apps/app"],
+
+    "@swarmy/app-config": ["@swarmy/app-config@workspace:packages/app-config"],
 
     "@swarmy/auth": ["@swarmy/auth@workspace:packages/auth"],
 

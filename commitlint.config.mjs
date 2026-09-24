@@ -14,6 +14,7 @@ export default {
         'db',
         'auth',
         'ingress',
+        'app-config',
         'trpc',
         'ui',
         'api',
