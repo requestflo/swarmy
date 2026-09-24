@@ -554,9 +554,16 @@ export async function setNodeAvailability(
   id: string,
   availability: 'active' | 'drain',
 ): Promise<{ id: string; availability: string }> {
-  const node = await requireOnlineNode(ctx, id);
+  const node = await ctx.db.node.findFirst({ where: { id, orgId: ctx.activeOrgId }, select: { id: true } });
+  if (!node) throw notFound('node', id);
   const swarmNodeId = ctx.hub.swarmNodeIdFor(id);
-  await ctx.hub.dispatch(node.id, 'node.update', {
+  if (!swarmNodeId) throw commandRejected('the server has no swarm id yet');
+  // `docker node update` is MANAGER-only: dispatch to a manager, never the
+  // target (a worker answers "This node is not a swarm manager"). The target
+  // may be offline — draining a dead server is exactly how you retire it.
+  const via = ctx.hub.managerNode(ctx.activeOrgId) ?? (ctx.hub.isOnline(id) ? id : undefined);
+  if (!via) throw commandRejected('no manager is online to change the server’s availability');
+  await ctx.hub.dispatch(via, 'node.update', {
     swarmNodeId,
     availability: availability === 'drain' ? 'drain' : 'active',
   });
