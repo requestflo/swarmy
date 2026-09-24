@@ -151,6 +151,14 @@ model Build {
   startedAt  DateTime?
   finishedAt DateTime?
   createdAt  DateTime    @default(now())
+  /// Which builder ran: "dockerfile" | "railpack" (history; null = before zero-config builds).
+  builder    String?
+  /// What Railpack detected (JSON: providers, versions, start command) — history for the UI.
+  detectJson String?
+  /// Registry build-cache ref this build exported to (the cache GC's age source).
+  cacheRef   String?
+  /// BuildKit steps served from cache (warm-build signal).
+  cachedSteps Int?
 
   org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   repo GitRepo      @relation(fields: [repoId], references: [id], onDelete: Cascade)
@@ -186,6 +194,10 @@ model ImageGcPolicy {
   mode      ImageGcMode @default(ON_HEALTHCHECK)
   keepProd  Boolean     @default(true)
   days      Int?
+  /// Registry build cache: drop a cache ref no build has written for this many days.
+  cacheMaxAgeDays Int      @default(14)
+  /// Registry build cache: total budget; the least recently written refs go first.
+  cacheMaxGb      Int      @default(20)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
