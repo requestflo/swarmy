@@ -260,19 +260,34 @@ describe('spec builders — private-only, secret-fed, memory-capped', () => {
     expect(spec.resources?.limits?.memoryBytes).toBe(memoryLimitBytes(256));
   });
 
-  it('bitnami redis members use *_PASSWORD_FILE env', () => {
+  it('redis members run the official image with the same secret-file wrapper (no Bitnami)', () => {
     const spec = cacheReplicaSpec({ ...d, engine: 'redis' }, 2);
-    expect(spec.env?.REDIS_PASSWORD_FILE).toBe('/run/secrets/cache-password');
-    expect(spec.env?.REDIS_MASTER_HOST).toBe('shop_main-cache');
-    expect(spec.env?.REDIS_REPLICATION_MODE).toBe('slave');
+    expect(spec.image).toBe('redis:7.4');
+    expect(spec.env).toBeUndefined();
+    expect(spec.command).toEqual(['sh', '-c']);
+    expect(spec.args?.[0]).toContain('exec redis-server');
+    expect(spec.args?.[0]).toContain('--requirepass "$(cat /run/secrets/cache-password)"');
+    expect(spec.args?.[0]).toContain('--replicaof shop_main-cache 6379');
+    expect(cachePrimarySpec({ ...d, engine: 'redis' }).mounts).toEqual([
+      { type: 'volume', source: 'shop_main-cache-data', target: '/data' },
+    ]);
   });
 
-  it('sentinel trio: 3 members, quorum 2, master set = cluster name', () => {
+  it('sentinel trio: 3 members, quorum 2, master set = cluster name, engine-native sentinel', () => {
     const spec = cacheSentinelSpec(d);
     expect(spec.mode).toEqual({ replicated: { replicas: 3 } });
-    expect(spec.env?.REDIS_SENTINEL_QUORUM).toBe('2');
-    expect(spec.env?.REDIS_MASTER_SET).toBe('main');
+    expect(spec.image).toBe('valkey/valkey:8');
+    const script = spec.args?.[0] ?? '';
+    expect(script).toContain('sentinel monitor main $MASTER $MPORT 2');
+    expect(script).toContain('MASTER=shop_main-cache; MPORT=6379');
+    // A restarted sentinel asks its live peers for the current master first.
+    expect(script).toContain('getent hosts tasks.shop_main-cache-sentinel');
+    expect(script).toContain('SENTINEL get-master-addr-by-name main');
+    expect(script).toContain('PW="$(cat /run/secrets/cache-password)"');
+    expect(script).toContain('exec valkey-sentinel /tmp/sentinel.conf');
+    expect(spec.env).toBeUndefined();
     expect(spec.labels?.['swarmy.cache.role']).toBe('sentinel');
+    expect(cacheSentinelSpec({ ...d, engine: 'redis' }).args?.[0]).toContain('exec redis-sentinel');
   });
 
   it('region siblings are pinned to the region node label', () => {

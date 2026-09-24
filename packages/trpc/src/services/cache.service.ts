@@ -47,8 +47,14 @@ import { chooseDataPin, dataVolumeNode, isMultiNodeSwarm, runningTaskSwarmNodes 
  *
  *   single   → one server, no replicas.
  *   replica  → primary + N read replicas (async replication).
- *   sentinel → primary + replicas + 3 bitnami/redis-sentinel members (quorum 2)
- *              arbitrating automatic failover.
+ *   sentinel → primary + replicas + 3 sentinel members (quorum 2) arbitrating
+ *              automatic failover — the engine's own `valkey-sentinel` /
+ *              `redis-sentinel` from the same official image.
+ *
+ * Images: official upstream only — `valkey/valkey` (the Valkey project's
+ * image) and the Docker Official `redis` image. swarmy's layer is a `sh -c`
+ * wrapper per member (password read from the mounted secret file, never env;
+ * the sentinel config written at start), not a vendor repackaging.
  *
  * Storage: the primary's data lives on the node-local named volume
  * `<stack>_<cluster>-cache-data`, so the primary is PINNED to one swarm node
@@ -98,11 +104,12 @@ export const CACHE_PORT = 6379;
 export const SENTINEL_PORT = 26379;
 export const CACHE_IMAGES: Record<CacheEngine, string> = {
   valkey: 'valkey/valkey:8',
-  // bitnami/* versioned tags were purged from Docker Hub (Aug 2025); bitnamilegacy
-  // is the frozen twin with the same env/path contract (/bitnami/redis/data).
-  redis: 'bitnamilegacy/redis:7.4',
+  redis: 'redis:7.4',
 };
-export const SENTINEL_IMAGE = 'bitnamilegacy/redis-sentinel:7.4';
+/** Sentinels run the cluster engine's own image (`<engine>-sentinel` binary). */
+export function sentinelImage(engine: CacheEngine): string {
+  return CACHE_IMAGES[engine];
+}
 export const SENTINEL_COUNT = 3;
 export const SENTINEL_QUORUM = 2;
 export const DEFAULT_CACHE_TOPOLOGY: CacheTopology = 'single';
@@ -407,8 +414,8 @@ function cacheLabels(
 
 /**
  * The password never appears in the spec: members mount the Docker secret at
- * `/run/secrets/cache-password` and read it at start — valkey via a `sh -c`
- * wrapper (`--requirepass "$(cat …)"`), bitnami images via `*_PASSWORD_FILE`.
+ * `/run/secrets/cache-password` and read it at start via a `sh -c` wrapper
+ * (`--requirepass "$(cat …)"`) — both engines, data members and sentinels.
  */
 function secretRef(decl: CacheClusterDecl): NonNullable<ServiceSpec['secrets']> {
   return [
@@ -416,10 +423,15 @@ function secretRef(decl: CacheClusterDecl): NonNullable<ServiceSpec['secrets']> 
   ];
 }
 
-/** valkey server command reading the password from the mounted secret file. */
-function valkeyCommand(decl: CacheClusterDecl, replicaOf?: string): string {
+/** The engine's CLI binary (valkey-cli / redis-cli). */
+function engineCli(engine: CacheEngine): string {
+  return engine === 'redis' ? 'redis-cli' : 'valkey-cli';
+}
+
+/** Server command (valkey-server / redis-server) reading the password from the secret file. */
+export function cacheServerCommand(decl: CacheClusterDecl, replicaOf?: string): string {
   const parts = [
-    'exec valkey-server',
+    `exec ${decl.engine === 'redis' ? 'redis-server' : 'valkey-server'}`,
     '--requirepass "$(cat /run/secrets/cache-password)"',
     '--masterauth "$(cat /run/secrets/cache-password)"',
     `--maxmemory ${decl.memoryMb}mb`,
@@ -429,24 +441,6 @@ function valkeyCommand(decl: CacheClusterDecl, replicaOf?: string): string {
   ];
   if (replicaOf) parts.push(`--replicaof ${replicaOf} ${CACHE_PORT}`);
   return parts.join(' ');
-}
-
-/** bitnami/redis env reading the password from the mounted secret file. */
-function redisEnv(
-  decl: CacheClusterDecl,
-  mode: 'master' | 'slave',
-  primaryHost?: string,
-): Record<string, string> {
-  return {
-    REDIS_REPLICATION_MODE: mode,
-    REDIS_PASSWORD_FILE: `/run/secrets/${CACHE_SECRET_TARGET}`,
-    REDIS_MASTER_PASSWORD_FILE: `/run/secrets/${CACHE_SECRET_TARGET}`,
-    REDIS_AOF_ENABLED: 'yes',
-    REDIS_EXTRA_FLAGS: `--maxmemory ${decl.memoryMb}mb --maxmemory-policy allkeys-lru`,
-    ...(mode === 'slave' && primaryHost
-      ? { REDIS_MASTER_HOST: primaryHost, REDIS_MASTER_PORT_NUMBER: String(CACHE_PORT) }
-      : {}),
-  };
 }
 
 /** A data member (primary or replica). NO ports — private-only, always. */
@@ -480,7 +474,7 @@ function dataMemberSpec(
             {
               type: 'volume' as const,
               source: cacheDataVolume(decl.stack, decl.cluster),
-              target: decl.engine === 'redis' ? '/bitnami/redis/data' : '/data',
+              target: '/data',
             },
           ],
         }
@@ -491,14 +485,11 @@ function dataMemberSpec(
     opts.pin || opts.avoid
       ? applyDataPin(base, { pin: opts.pin, avoid: opts.avoid, onePerNode: true })
       : base;
-  if (decl.engine === 'valkey') {
-    return {
-      ...placed,
-      command: ['sh', '-c'],
-      args: [valkeyCommand(decl, isPrimary ? undefined : primary)],
-    };
-  }
-  return { ...placed, env: redisEnv(decl, isPrimary ? 'master' : 'slave', primary) };
+  return {
+    ...placed,
+    command: ['sh', '-c'],
+    args: [cacheServerCommand(decl, isPrimary ? undefined : primary)],
+  };
 }
 
 export function cachePrimarySpec(decl: CacheClusterDecl): ServiceSpec {
@@ -542,20 +533,48 @@ export function cacheRegionReplicaSpec(
   });
 }
 
+/**
+ * Sentinel start script: ask the live PEER sentinels (`tasks.<service>`) for
+ * the current master first — a restarted sentinel must follow a failover that
+ * already happened, never re-monitor the original primary — else monitor the
+ * primary service. Config is written to the container fs at start (sentinel
+ * rewrites it); the password comes from the mounted secret file.
+ */
+export function cacheSentinelScript(decl: CacheClusterDecl): string {
+  const primary = cachePrimaryName(decl.stack, decl.cluster);
+  const sentinel = cacheSentinelName(decl.stack, decl.cluster);
+  const cli = engineCli(decl.engine);
+  const bin = decl.engine === 'redis' ? 'redis-sentinel' : 'valkey-sentinel';
+  const set = decl.cluster;
+  return [
+    'set -eu',
+    `PW="$(cat /run/secrets/${CACHE_SECRET_TARGET})"`,
+    `MASTER=${primary}; MPORT=${CACHE_PORT}`,
+    `for ip in $(getent hosts tasks.${sentinel} | awk '{print $1}'); do`,
+    `  A="$(timeout 3 ${cli} -h "$ip" -p ${SENTINEL_PORT} --raw SENTINEL get-master-addr-by-name ${set} 2>/dev/null | head -n 2 | tr '\\n' ' ' || true)"`,
+    '  set -- $A',
+    '  if [ -n "${1:-}" ] && [ -n "${2:-}" ]; then MASTER="$1"; MPORT="$2"; break; fi',
+    'done',
+    'echo "sentinel: monitoring $MASTER:$MPORT" >&2',
+    'cat > /tmp/sentinel.conf <<EOF',
+    `port ${SENTINEL_PORT}`,
+    'sentinel resolve-hostnames yes',
+    'sentinel announce-hostnames yes',
+    `sentinel monitor ${set} $MASTER $MPORT ${SENTINEL_QUORUM}`,
+    `sentinel auth-pass ${set} $PW`,
+    'EOF',
+    `exec ${bin} /tmp/sentinel.conf`,
+  ].join('\n');
+}
+
 /** The 3-member sentinel trio (quorum 2) arbitrating automatic failover. */
 export function cacheSentinelSpec(decl: CacheClusterDecl): ServiceSpec {
-  const primary = cachePrimaryName(decl.stack, decl.cluster);
   return {
     name: cacheSentinelName(decl.stack, decl.cluster),
-    image: SENTINEL_IMAGE,
+    image: sentinelImage(decl.engine),
     mode: { replicated: { replicas: SENTINEL_COUNT } },
-    env: {
-      REDIS_MASTER_HOST: primary,
-      REDIS_MASTER_PORT_NUMBER: String(CACHE_PORT),
-      REDIS_MASTER_SET: decl.cluster,
-      REDIS_SENTINEL_QUORUM: String(SENTINEL_QUORUM),
-      REDIS_MASTER_PASSWORD_FILE: `/run/secrets/${CACHE_SECRET_TARGET}`,
-    },
+    command: ['sh', '-c'],
+    args: [cacheSentinelScript(decl)],
     labels: cacheLabels(decl, 'sentinel'),
     networks: [cacheNetworkName(decl.stack, decl.cluster)],
     secrets: secretRef(decl),
@@ -1078,7 +1097,7 @@ export async function detachCacheFromService(
 
 /** Shell command reading INFO with the password from the mounted secret file. */
 export function cacheInfoCommand(engine: CacheEngine): string {
-  const cli = engine === 'redis' ? 'redis-cli' : 'valkey-cli';
+  const cli = engineCli(engine);
   return `${cli} --no-auth-warning -a "$(cat /run/secrets/${CACHE_SECRET_TARGET})" INFO`;
 }
 
@@ -1172,7 +1191,7 @@ async function bgsavePrimary(ctx: OrgContext, c: LiveCluster): Promise<void> {
   if (!c.primary) return;
   const target = resolveExecTarget(ctx, c.primary.name);
   if (!target) return;
-  const cli = declOf(c).engine === 'redis' ? 'redis-cli' : 'valkey-cli';
+  const cli = engineCli(declOf(c).engine);
   const auth = `--no-auth-warning -a "$(cat /run/secrets/${CACHE_SECRET_TARGET})"`;
   // BGSAVE, then wait (bounded) until the background save finishes.
   const script = `${cli} ${auth} BGSAVE; for i in 1 2 3 4 5 6 7 8 9 10; do [ "$(${cli} ${auth} INFO persistence | grep -c rdb_bgsave_in_progress:1)" = "0" ] && break; sleep 1; done`;
