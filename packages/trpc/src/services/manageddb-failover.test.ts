@@ -17,7 +17,7 @@ import { confirmFailover, getDbTopology } from './manageddb.service';
 
 const PENDING = {
   target: 'app_db-replica-eu',
-  behindBytes: 4096,
+  behindBytes: 4096 as number | null,
   behindSeconds: 2.5,
   reason: "the most caught-up replica is 4096 bytes behind the primary's last flushed position",
   since: '2026-09-24T12:00:00.000Z',
