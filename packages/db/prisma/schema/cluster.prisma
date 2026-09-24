@@ -175,3 +175,21 @@ model CanvasLayout {
 
   @@map("canvas_layout")
 }
+
+/// Resumable long-running operation state. Run state lives in the controller
+/// store, never in the swarm (plans/epic-docker-native-state.md: no timestamp,
+/// counter or run state in raft). One row per (org, kind):
+///   "mesh.migration"        move the swarm onto / off the mesh
+///   "storage.engineUpgrade" Garage major-version upgrade
+/// `run` is the operation's own JSON (steps, per-node progress, log tail).
+model OperationRun {
+  orgId     String
+  kind      String
+  run       Json
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@id([orgId, kind])
+  @@map("operation_run")
+}

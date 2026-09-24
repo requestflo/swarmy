@@ -115,13 +115,10 @@ model Organization {
   nodes         Node[]
   joinTokens    JoinToken[]
   stacks        Stack[]
-  ingressConfig IngressConfig?
   auditLogs     AuditLog[]
 
   backupTargets       BackupTarget[]
   snapshots           Snapshot[]
-  observabilityConfig ObservabilityConfig?
-  meshConfig          MeshConfig?
   ssoProviders        SsoProvider[]
   policies            Policy[]
   resourceGrants      ResourceGrant[]
@@ -132,9 +129,6 @@ model Organization {
   registryConfig      RegistryConfig?
   registryCredentials RegistryCredential[]
   imageGcPolicy       ImageGcPolicy?
-  geoDnsConfig        GeoDnsConfig?
-  dnsZones            DnsZone[]
-  dnsRecords          DnsRecord[]
   apiKeys             ApiKey[]
   storageCluster      StorageCluster?
   backupSchedules     BackupSchedule[]
@@ -188,6 +182,7 @@ model Organization {
   aiUsage                AiUsage[]
   aiRequestLogs          AiRequestLog[]
   recoveryClaims         RecoveryClaim[]
+  operationRuns          OperationRun[]
 
   @@map("organization")
 }
