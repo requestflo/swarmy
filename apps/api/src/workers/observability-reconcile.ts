@@ -3,9 +3,10 @@
  *
  * For every org that has observability enabled, probe the deployed ClickHouse
  * store over its HTTP interface — reachability (`/ping`) plus on-disk footprint
- * (sum of `system.parts` bytes) — and upsert the result into
- * `ObservabilityStoreState` so the UI can surface store health + growth without
- * the read path having to probe on every request.
+ * (sum of `system.parts` bytes) — and keep the result IN MEMORY
+ * (`recordStoreProbe`, epic-docker-native-state P1: probe results are run
+ * state, never a table) so alerts can read store health without probing on
+ * every evaluation. A controller restart just waits for the next tick.
  *
  * Before probing, it CONVERGES the deployed suite onto the current render
  * (`reconcileObservabilitySuite`): a missing service, a legacy host bind-mount
@@ -16,14 +17,12 @@
  * Retention itself is TTL-driven inside ClickHouse (see `renderClickhouseInitSql`),
  * so this worker never deletes telemetry.
  *
- * `ObservabilityConfig` / `ObservabilityStoreState` are reached through a narrow
- * typed view (`obsDb`) until the Prisma client is regenerated with the new
- * models (see the INTEGRATION snippet) — same pattern as `dr-reconcile.ts`.
+ * `ObservabilityConfig` is reached through a narrow typed view (`obsDb`).
  */
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
 import { decryptSecret } from '@swarmy/core/crypto';
-import { reconcileObservabilitySuite, systemContext } from '@swarmy/trpc';
+import { reconcileObservabilitySuite, recordStoreProbe, systemContext } from '@swarmy/trpc';
 import { hub } from '../gateway';
 
 const TICK_MS = 60_000;
@@ -34,32 +33,12 @@ interface ObsConfigRow {
   clickhouseDsn: string | null;
 }
 
-interface ObsStoreStateUpsertArgs {
-  where: { orgId: string };
-  create: {
-    orgId: string;
-    status: string;
-    reachable: boolean;
-    diskUsedBytes: bigint;
-    lastCheckedAt: Date;
-  };
-  update: {
-    status: string;
-    reachable: boolean;
-    diskUsedBytes: bigint;
-    lastCheckedAt: Date;
-  };
-}
-
 interface ObsDb {
   observabilityConfig: {
     findMany(args: {
       where: { enabled: true };
       select: { orgId: true; enabled: true; clickhouseDsn: true };
     }): Promise<ObsConfigRow[]>;
-  };
-  observabilityStoreState: {
-    upsert(args: ObsStoreStateUpsertArgs): Promise<unknown>;
   };
 }
 
@@ -130,14 +109,7 @@ async function reconcileOrg(cfg: ObsConfigRow): Promise<void> {
   const dsn = parseDsn(safeDecrypt(cfg.clickhouseDsn));
   const reachable = await pingStore(dsn);
   const diskUsedBytes = reachable ? await diskUsed(dsn) : 0n;
-  const status = reachable ? 'RUNNING' : 'UNREACHABLE';
-  const now = new Date();
-
-  await obsDb().observabilityStoreState.upsert({
-    where: { orgId: cfg.orgId },
-    create: { orgId: cfg.orgId, status, reachable, diskUsedBytes, lastCheckedAt: now },
-    update: { status, reachable, diskUsedBytes, lastCheckedAt: now },
-  });
+  recordStoreProbe(cfg.orgId, { reachable, diskUsedBytes, checkedAt: new Date() });
 }
 
 async function tick(): Promise<void> {

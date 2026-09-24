@@ -13,10 +13,14 @@
  *    `fetch`; if the store isn't configured we return empty + a clear status.
  *  - Everything is org-scoped and audited.
  *
- * NOTE: `ObservabilityConfig` / `ObservabilityStoreState` are new Prisma models
- * the integrator adds (see the INTEGRATION snippet). Until the client is
- * regenerated they are reached through {@link obsDb}, a narrow typed view of the
- * delegates this service uses. The shape matches the models exactly.
+ *  - Run state is never stored (epic-docker-native-state P1): the collector /
+ *    store status is derived from live tasks, the deploy outcome is held in
+ *    memory ({@link suiteRuns}), and the store probe the reconcile worker takes
+ *    lives in memory too ({@link recordStoreProbe}). After a controller restart
+ *    the next tick re-derives all of it.
+ *
+ * `ObservabilityConfig` is reached through {@link obsDb}, a narrow typed view of
+ * the delegate this service uses.
  */
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import { randomBytes } from 'node:crypto';
@@ -94,7 +98,6 @@ interface ObsConfigRow {
   orgId: string;
   enabled: boolean;
   clickhouseDsn: string | null;
-  collectorStatus: string;
   retentionDays: number;
   updatedAt: Date;
 }
@@ -122,7 +125,6 @@ async function ensureConfig(ctx: OrgContext): Promise<ObsConfigRow> {
     create: {
       orgId: ctx.activeOrgId,
       enabled: false,
-      collectorStatus: 'OFFLINE',
       retentionDays: DEFAULT_RETENTION_DAYS,
     },
     update: {},
@@ -167,20 +169,52 @@ function endpointSummary(dsn: string | null): string | null {
 }
 
 /**
+ * The last suite deploy this process dispatched, per org: when it was
+ * requested (anchors the start grace) and whether the dispatch itself failed.
+ * Process-local run state, never persisted: after a restart the grace anchors
+ * on the config row's `updatedAt` and live tasks decide the rest.
+ */
+const suiteRuns = new Map<string, { requestedAt: number; failed: boolean }>();
+
+function markSuiteDeploy(orgId: string, failed: boolean): void {
+  suiteRuns.set(orgId, { requestedAt: Date.now(), failed });
+}
+
+/** A store probe taken by the observability reconcile worker (in memory only). */
+export interface StoreProbe {
+  reachable: boolean;
+  diskUsedBytes: bigint;
+  checkedAt: Date;
+}
+
+const storeProbes = new Map<string, StoreProbe>();
+
+/** Record the latest ClickHouse probe for an org (reconcile worker). */
+export function recordStoreProbe(orgId: string, probe: StoreProbe): void {
+  storeProbes.set(orgId, probe);
+}
+
+/** The latest ClickHouse probe for an org, or null before the first tick. */
+export function latestStoreProbe(orgId: string): StoreProbe | null {
+  return storeProbes.get(orgId) ?? null;
+}
+
+/**
  * Live collector/store status from Docker truth — running tasks on the live
- * inventory, never the optimistic value recorded at deploy time. The row only
- * contributes "when was it requested" (start grace) and "did the dispatch
- * itself fail".
+ * inventory, never an optimistic value recorded at deploy time. The in-memory
+ * deploy record only contributes "when was it requested" (start grace) and
+ * "did the dispatch itself fail".
  */
 function liveSuiteStatus(
   ctx: OrgContext,
-  row: Pick<ObsConfigRow, 'enabled' | 'collectorStatus' | 'updatedAt'>,
+  row: Pick<ObsConfigRow, 'enabled' | 'updatedAt'>,
 ): { collector: CollectorStatus; store: CollectorStatus } {
   const services = ctx.hub.liveInventory(ctx.activeOrgId).services;
+  const run = suiteRuns.get(ctx.activeOrgId);
   const base = {
     enabled: row.enabled,
-    requestedAt: row.updatedAt.getTime(),
-    deployFailed: row.collectorStatus === 'FAILED',
+    requestedAt: run?.requestedAt ?? row.updatedAt.getTime(),
+    deployFailed: Boolean(run?.failed),
     now: Date.now(),
   };
   return {
@@ -252,8 +286,9 @@ export async function setEnabled(
     await teardownStore(ctx).catch(() => undefined);
     const row = await obsDb(ctx).update({
       where: { orgId: ctx.activeOrgId },
-      data: { enabled: false, collectorStatus: 'OFFLINE' },
+      data: { enabled: false },
     });
+    suiteRuns.delete(ctx.activeOrgId);
     await writeAudit(ctx, { action: 'observability.disable', targetType: 'org', targetId: ctx.activeOrgId });
     return toView(ctx, row);
   }
@@ -267,18 +302,15 @@ export async function setEnabled(
     where: { orgId: ctx.activeOrgId },
     data: {
       enabled: true,
-      collectorStatus: 'DEPLOYING',
       clickhouseDsn: encryptSecret(dsnPlain),
     },
   });
 
   try {
+    markSuiteDeploy(ctx.activeOrgId, false);
     await deployStore(ctx, dsnPlain);
     // Dispatched, not yet running: the view derives RUNNING from live tasks.
-    const row = await obsDb(ctx).update({
-      where: { orgId: ctx.activeOrgId },
-      data: { collectorStatus: 'DEPLOYING' },
-    });
+    const row = await ensureConfig(ctx);
     await writeAudit(ctx, {
       action: 'observability.enable',
       targetType: 'org',
@@ -287,10 +319,7 @@ export async function setEnabled(
     });
     return toView(ctx, row);
   } catch (e) {
-    await obsDb(ctx).update({
-      where: { orgId: ctx.activeOrgId },
-      data: { collectorStatus: 'FAILED' },
-    });
+    markSuiteDeploy(ctx.activeOrgId, true);
     throw mapDispatchError(e);
   }
 }
@@ -643,20 +672,15 @@ export async function reconcileObservabilitySuite(ctx: OrgContext): Promise<bool
   const now = Date.now();
   if (now - (lastConvergeAt.get(ctx.activeOrgId) ?? 0) < CONVERGE_COOLDOWN_MS) return false;
   lastConvergeAt.set(ctx.activeOrgId, now);
+  const prior = suiteRuns.get(ctx.activeOrgId);
   try {
     await deployStore(ctx, dsnPlain);
-    // Only touch the row on a transition: `updatedAt` anchors the start grace,
-    // so re-stamping it every tick would hide a service that never comes up.
-    if (row.collectorStatus !== 'DEPLOYING') {
-      await obsDb(ctx).update({
-        where: { orgId: ctx.activeOrgId },
-        data: { collectorStatus: 'DEPLOYING' },
-      });
-    }
+    // Only re-anchor on a transition: the request time anchors the start
+    // grace, so re-stamping it every tick would hide a service that never
+    // comes up.
+    if (!prior || prior.failed) markSuiteDeploy(ctx.activeOrgId, false);
   } catch {
-    await obsDb(ctx)
-      .update({ where: { orgId: ctx.activeOrgId }, data: { collectorStatus: 'FAILED' } })
-      .catch(() => undefined);
+    markSuiteDeploy(ctx.activeOrgId, true);
   }
   return true;
 }
