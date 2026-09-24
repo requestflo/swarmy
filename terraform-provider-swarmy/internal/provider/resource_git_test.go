@@ -26,6 +26,7 @@ type fakeGitAPI struct {
 	// lastConnBody is the most recent POST /git/connections body (write-only
 	// token must be sent; the server never echoes it).
 	lastConnBody map[string]any
+	patches      int
 }
 
 func newFakeGitAPI(t *testing.T) (*fakeGitAPI, *httptest.Server) {
@@ -76,7 +77,7 @@ func (f *fakeGitAPI) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		f.repos[id] = map[string]any{"id": id, "kind": "generic", "url": url, "branch": body["branch"],
 			"config_path": cfg, "connection_id": body["connection_id"], "full_name": nil, "autodeploy": false,
-			"service_id": nil, "has_token": false, "created_at": "2026-09-24T00:00:00.000Z"}
+			"service_id": nil, "has_token": false, "require_approval": false, "created_at": "2026-09-24T00:00:00.000Z"}
 		reply(201, map[string]any{"id": id, "url": url, "branch": body["branch"], "config_path": cfg, "full_name": nil,
 			"webhook":           map[string]any{"url": "https://c/webhooks/git/" + id, "secret": "whsec_" + id},
 			"deploy_key_public": nil})
@@ -93,12 +94,36 @@ func (f *fakeGitAPI) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		reply(200, c)
+	case r.Method == "GET" && path == "/apps":
+		apps := []map[string]any{}
+		for id, g := range f.repos {
+			apps = append(apps, map[string]any{"repo_id": id, "url": g["url"], "full_name": nil, "branch": g["branch"],
+				"config_path": g["config_path"], "app_name": "shop", "require_approval": g["require_approval"],
+				"environments": []map[string]any{{"environment": "production", "branch": g["branch"], "stack": "shop",
+					"latest_plan_id": "p1", "latest_plan_status": "applied", "latest_sha": "abc", "latest_created_at": "2026-09-24T00:00:00.000Z"}}})
+		}
+		reply(200, map[string]any{"data": apps, "next_cursor": nil})
+	case r.Method == "PUT" && strings.HasPrefix(path, "/apps/") && strings.HasSuffix(path, "/require-approval"):
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/apps/"), "/require-approval")
+		g, ok := f.repos[id]
+		if !ok {
+			notFound()
+			return
+		}
+		g["require_approval"] = body["require_approval"]
+		reply(200, map[string]any{"repo_id": id, "require_approval": body["require_approval"]})
 	case strings.HasPrefix(path, "/git/repos/"):
 		id := strings.TrimPrefix(path, "/git/repos/")
 		g, ok := f.repos[id]
 		if !ok {
 			notFound()
 			return
+		}
+		if r.Method == "PATCH" {
+			f.patches++
+			for k, v := range body {
+				g[k] = v
+			}
 		}
 		if r.Method == "DELETE" {
 			delete(f.repos, id)
@@ -112,6 +137,10 @@ func (f *fakeGitAPI) serve(w http.ResponseWriter, r *http.Request) {
 }
 
 func gitTestConfig(endpoint string) string {
+	return gitTestConfigWith(endpoint, "main", "")
+}
+
+func gitTestConfigWith(endpoint, branch, extra string) string {
 	return fmt.Sprintf(`
 provider "swarmy" {
   endpoint = %q
@@ -127,10 +156,15 @@ resource "swarmy_git_connection" "gitea" {
 resource "swarmy_git_repo" "app" {
   connection_id = swarmy_git_connection.gitea.id
   url           = "https://git.example.com/acme/app.git"
-  branch        = "main"
+  branch        = %q
   config_path   = "deploy/swarmy.yaml"
+  %s
 }
-`, endpoint)
+
+data "swarmy_app" "app" {
+  repo_id = swarmy_git_repo.app.id
+}
+`, endpoint, branch, extra)
 }
 
 func TestGitResourcesLifecycle(t *testing.T) {
@@ -148,6 +182,7 @@ func TestGitResourcesLifecycle(t *testing.T) {
 					resource.TestCheckResourceAttr("swarmy_git_repo.app", "kind", "generic"),
 					resource.TestCheckResourceAttr("swarmy_git_repo.app", "config_path", "deploy/swarmy.yaml"),
 					resource.TestCheckResourceAttr("swarmy_git_repo.app", "webhook_secret", "whsec_gr2"),
+					resource.TestCheckResourceAttr("data.swarmy_app.app", "app_name", "shop"),
 					func(_ *terraform.State) error {
 						if f.lastConnBody["token"] != "s3cret-token" {
 							return fmt.Errorf("token not sent on create: %v", f.lastConnBody)
@@ -158,6 +193,24 @@ func TestGitResourcesLifecycle(t *testing.T) {
 			},
 			// Re-plan: write-only token + write-once webhook secret must not drift.
 			{Config: gitTestConfig(srv.URL), PlanOnly: true},
+			// branch + require_approval update IN PLACE (same id, write-once secret kept).
+			{
+				Config: gitTestConfigWith(srv.URL, "release", "require_approval = true"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("swarmy_git_repo.app", "id", "gr2"),
+					resource.TestCheckResourceAttr("swarmy_git_repo.app", "branch", "release"),
+					resource.TestCheckResourceAttr("swarmy_git_repo.app", "require_approval", "true"),
+					resource.TestCheckResourceAttr("swarmy_git_repo.app", "webhook_secret", "whsec_gr2"),
+					resource.TestCheckResourceAttr("data.swarmy_app.app", "require_approval", "true"),
+					resource.TestCheckResourceAttr("data.swarmy_app.app", "environments.0.latest_plan_status", "applied"),
+					func(_ *terraform.State) error {
+						if f.patches != 1 {
+							return fmt.Errorf("expected 1 PATCH, got %d", f.patches)
+						}
+						return nil
+					},
+				),
+			},
 			{
 				ResourceName:            "swarmy_git_connection.gitea",
 				ImportState:             true,

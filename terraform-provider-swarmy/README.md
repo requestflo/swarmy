@@ -179,7 +179,8 @@ SWARMY_ENDPOINT=… SWARMY_API_KEY=swk_… make testacc
 | `swarmy_domain` | `GET/POST /ingress/domains`, `DELETE /ingress/domains/{id}` | Plain CRUD. No update endpoint, so attribute changes delete+recreate. Read filters the list by ID. Import by ID. |
 | `swarmy_api_key` | `POST/GET/DELETE /api-keys` | Token returned once on create, stored sensitive in state. `name`/`scopes` force replace. |
 | `swarmy_git_connection` | `POST /git/connections`, `GET/DELETE /git/connections/{id}` | Token kinds only (`gitlab` token, `gitea`, `generic`) — GitHub App / GitLab OAuth need a browser (API returns 422 `BROWSER_FLOW_REQUIRED`); make those in the dashboard and pass their id to `swarmy_git_repo.connection_id`. `token` is sensitive + write-only; any change replaces. Import by ID (token adopted from config without replacement). |
-| `swarmy_git_repo` | `POST /git/repos`, `GET/DELETE /git/repos/{id}` | Link a picked provider repo (`repo_id`+`full_name`+`clone_url`) or a raw `url`. `webhook_secret` (sensitive) and `deploy_key_public` are returned ONCE on create and kept in state (null after import). Any change re-links. Import by ID. |
+| `swarmy_git_repo` | `POST /git/repos`, `GET/PATCH/DELETE /git/repos/{id}`, `PUT /apps/{id}/require-approval` | Link a picked provider repo (`repo_id`+`full_name`+`clone_url`) or a raw `url`. `webhook_secret` (sensitive) and `deploy_key_public` are returned ONCE on create and kept in state (null after import). `branch`, `config_path` and `require_approval` update in place; anything else re-links. Import by ID. |
+| `data.swarmy_app` | `GET /apps` | Read-only GitOps app for a linked repo: environments + each one's latest plan id/status/sha. Filters the list by `repo_id`. |
 | `data.swarmy_node` | `GET /nodes`, `GET /nodes/{id}` | Lookup by `id` or `name` (exactly one). |
 
 ## Caveats

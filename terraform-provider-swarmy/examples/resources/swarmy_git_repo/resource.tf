@@ -4,8 +4,11 @@ resource "swarmy_git_repo" "web" {
   repo_id       = "4242"
   full_name     = "acme/web"
   clone_url     = "https://gitlab.com/acme/web.git"
-  branch        = "main"
-  config_path   = "swarmy.yaml"
+  branch        = "main"        # updated in place
+  config_path   = "swarmy.yaml" # updated in place
+
+  # Every planned step waits for confirmation in the dashboard.
+  require_approval = true
 }
 
 # A generic SSH remote with a swarmy-minted deploy key.

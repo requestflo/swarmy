@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"net/url"
 )
 
@@ -36,17 +38,18 @@ type CreateGitConnectionRequest struct {
 
 // GitRepo mirrors the GitRepo DTO (a linked repository; no secrets).
 type GitRepo struct {
-	ID           string  `json:"id"`
-	Kind         string  `json:"kind"`
-	URL          string  `json:"url"`
-	Branch       string  `json:"branch"`
-	ConfigPath   string  `json:"config_path"`
-	ConnectionID *string `json:"connection_id"`
-	FullName     *string `json:"full_name"`
-	Autodeploy   bool    `json:"autodeploy"`
-	ServiceID    *string `json:"service_id"`
-	HasToken     bool    `json:"has_token"`
-	CreatedAt    string  `json:"created_at"`
+	ID              string  `json:"id"`
+	Kind            string  `json:"kind"`
+	URL             string  `json:"url"`
+	Branch          string  `json:"branch"`
+	ConfigPath      string  `json:"config_path"`
+	ConnectionID    *string `json:"connection_id"`
+	FullName        *string `json:"full_name"`
+	Autodeploy      bool    `json:"autodeploy"`
+	ServiceID       *string `json:"service_id"`
+	HasToken        bool    `json:"has_token"`
+	RequireApproval bool    `json:"require_approval"`
+	CreatedAt       string  `json:"created_at"`
 }
 
 // GitRepoRef is a provider repo picked from GET /git/connections/{id}/repos.
@@ -129,4 +132,76 @@ func (c *Client) GetGitRepo(ctx context.Context, id string) (*GitRepo, error) {
 // DeleteGitRepo unlinks a repository.
 func (c *Client) DeleteGitRepo(ctx context.Context, id string) error {
 	return c.delete(ctx, "/git/repos/"+url.PathEscape(id), nil)
+}
+
+// UpdateGitRepoRequest is the body for PATCH /git/repos/{id}.
+type UpdateGitRepoRequest struct {
+	Branch     *string `json:"branch,omitempty"`
+	ConfigPath *string `json:"config_path,omitempty"`
+}
+
+// UpdateGitRepo changes a linked repository's branch and/or config path in place.
+func (c *Client) UpdateGitRepo(ctx context.Context, id string, body UpdateGitRepoRequest) (*GitRepo, error) {
+	var out GitRepo
+	if err := c.do(ctx, http.MethodPatch, "/git/repos/"+url.PathEscape(id), body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ---- GitOps apps (/apps/*) ----
+
+// AppEnvironment is one environment of an app with its latest plan summary.
+type AppEnvironment struct {
+	Environment      string  `json:"environment"`
+	Branch           string  `json:"branch"`
+	Stack            string  `json:"stack"`
+	LatestPlanID     *string `json:"latest_plan_id"`
+	LatestPlanStatus *string `json:"latest_plan_status"`
+	LatestSha        *string `json:"latest_sha"`
+	LatestCreatedAt  *string `json:"latest_created_at"`
+}
+
+// App mirrors the App DTO (a linked repo as a GitOps app).
+type App struct {
+	RepoID          string           `json:"repo_id"`
+	URL             string           `json:"url"`
+	FullName        *string          `json:"full_name"`
+	Branch          string           `json:"branch"`
+	ConfigPath      string           `json:"config_path"`
+	AppName         *string          `json:"app_name"`
+	RequireApproval bool             `json:"require_approval"`
+	Environments    []AppEnvironment `json:"environments"`
+}
+
+// ListApps returns every GitOps app (single page).
+func (c *Client) ListApps(ctx context.Context) ([]App, error) {
+	var env listEnvelope[App]
+	if err := c.get(ctx, "/apps", &env); err != nil {
+		return nil, err
+	}
+	return env.Data, nil
+}
+
+// GetApp returns the app for a linked repo. The API exposes only the list, so
+// this filters it client-side (404 APIError when absent).
+func (c *Client) GetApp(ctx context.Context, repoID string) (*App, error) {
+	apps, err := c.ListApps(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range apps {
+		if apps[i].RepoID == repoID {
+			return &apps[i], nil
+		}
+	}
+	return nil, &APIError{StatusCode: 404, RawBody: fmt.Sprintf("app for repo %q not found", repoID)}
+}
+
+// SetAppRequireApproval sets the app's require-approval toggle.
+func (c *Client) SetAppRequireApproval(ctx context.Context, repoID string, require bool) error {
+	body := struct {
+		RequireApproval bool `json:"require_approval"`
+	}{require}
+	return c.do(ctx, http.MethodPut, "/apps/"+url.PathEscape(repoID)+"/require-approval", body, nil)
 }

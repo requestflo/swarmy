@@ -2195,6 +2195,10 @@
           "has_token": {
             "type": "boolean"
           },
+          "require_approval": {
+            "type": "boolean",
+            "description": "GitOps: every planned step waits for confirmation. Set via PUT /apps/{repoId}/require-approval."
+          },
           "created_at": {
             "type": "string"
           }
@@ -2210,6 +2214,7 @@
           "autodeploy",
           "service_id",
           "has_token",
+          "require_approval",
           "created_at"
         ]
       },
@@ -2341,6 +2346,487 @@
         },
         "required": [
           "branch"
+        ]
+      },
+      "UpdateGitRepoBody": {
+        "type": "object",
+        "properties": {
+          "branch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+          },
+          "config_path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "pattern": "^(\\.\\/)?[A-Za-z0-9._/@+-]*swarmy\\.ya?ml$"
+          }
+        }
+      },
+      "AppEnvironment": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "type": "string",
+            "example": "production"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "stack": {
+            "type": "string"
+          },
+          "latest_plan_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "latest_plan_status": {
+            "type": "string",
+            "nullable": true
+          },
+          "latest_sha": {
+            "type": "string",
+            "nullable": true
+          },
+          "latest_created_at": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "environment",
+          "branch",
+          "stack",
+          "latest_plan_id",
+          "latest_plan_status",
+          "latest_sha",
+          "latest_created_at"
+        ]
+      },
+      "App": {
+        "type": "object",
+        "properties": {
+          "repo_id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "full_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "branch": {
+            "type": "string"
+          },
+          "config_path": {
+            "type": "string"
+          },
+          "app_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "require_approval": {
+            "type": "boolean"
+          },
+          "environments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppEnvironment"
+            }
+          }
+        },
+        "required": [
+          "repo_id",
+          "url",
+          "full_name",
+          "branch",
+          "config_path",
+          "app_name",
+          "require_approval",
+          "environments"
+        ]
+      },
+      "AppList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/App"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "AppPlanCounts": {
+        "type": "object",
+        "properties": {
+          "auto": {
+            "type": "integer"
+          },
+          "confirm": {
+            "type": "integer"
+          },
+          "blocked": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "auto",
+          "confirm",
+          "blocked"
+        ]
+      },
+      "AppPlanGate": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "confirm",
+          "blocked"
+        ],
+        "description": "`auto` runs on its own, `confirm` waits for POST /apps/plans/{planId}/confirm, `blocked` cannot run."
+      },
+      "AppPlanAction": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable id — confirm by this.",
+            "example": "resource.delete:files"
+          },
+          "kind": {
+            "type": "string",
+            "description": "Open set (resource.create, build, service.deploy, route.add, …).",
+            "example": "service.deploy"
+          },
+          "phase": {
+            "type": "integer"
+          },
+          "gate": {
+            "$ref": "#/components/schemas/AppPlanGate"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "nullable": true,
+            "description": "`done`, `held`, `failed`, `skipped`, or null (not run)."
+          },
+          "outcome_message": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "phase",
+          "gate",
+          "reason",
+          "outcome",
+          "outcome_message"
+        ]
+      },
+      "AppConfigIssue": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warning"
+            ]
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "example": "services.web.env.DATABASE_URL"
+          },
+          "line": {
+            "type": "integer",
+            "nullable": true
+          },
+          "col": {
+            "type": "integer",
+            "nullable": true
+          }
+        },
+        "required": [
+          "severity",
+          "code",
+          "message",
+          "path",
+          "line",
+          "col"
+        ]
+      },
+      "AppPlan": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "repo_id": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "stack": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string",
+            "description": "push, pr, manual, poll, drift, confirm (open set)."
+          },
+          "pr_number": {
+            "type": "integer",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "description": "Plan row status, e.g. planned, needs-confirmation, applying, applied, failed, superseded (open set)."
+          },
+          "plan_status": {
+            "type": "string",
+            "nullable": true,
+            "description": "noop, ready, needs-confirmation, blocked — null when the config did not parse."
+          },
+          "counts": {
+            "$ref": "#/components/schemas/AppPlanCounts"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppPlanAction"
+            }
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppConfigIssue"
+            }
+          },
+          "error": {
+            "type": "string",
+            "nullable": true
+          },
+          "confirmed_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "markdown": {
+            "type": "string",
+            "description": "The plan as the PR comment renders it."
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "applied_at": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "repo_id",
+          "environment",
+          "stack",
+          "sha",
+          "trigger",
+          "pr_number",
+          "status",
+          "plan_status",
+          "counts",
+          "actions",
+          "issues",
+          "error",
+          "confirmed_ids",
+          "markdown",
+          "created_at",
+          "applied_at"
+        ]
+      },
+      "ConfirmAppActionsResult": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "confirmed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "status",
+          "confirmed"
+        ]
+      },
+      "ConfirmAppActionsBody": {
+        "type": "object",
+        "properties": {
+          "action_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "action_ids"
+        ]
+      },
+      "AppPlanList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppPlan"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "AppRequireApproval": {
+        "type": "object",
+        "properties": {
+          "repo_id": {
+            "type": "string"
+          },
+          "require_approval": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "repo_id",
+          "require_approval"
+        ]
+      },
+      "SetRequireApprovalBody": {
+        "type": "object",
+        "properties": {
+          "require_approval": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "require_approval"
+        ]
+      },
+      "AppDeployResult": {
+        "type": "object",
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "nullable": true
+          },
+          "stack": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "plan_id",
+          "status",
+          "environment",
+          "stack",
+          "reason"
+        ]
+      },
+      "DeployAppBody": {
+        "type": "object",
+        "properties": {
+          "branch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Branch head to plan + apply (default: the production branch)."
+          }
+        }
+      },
+      "AppDrift": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "type": "string"
+          },
+          "stack": {
+            "type": "string"
+          },
+          "changes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "environment",
+          "stack",
+          "changes"
+        ]
+      },
+      "AppDriftList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppDrift"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
         ]
       }
     },
@@ -5254,6 +5740,79 @@
           }
         }
       },
+      "patch": {
+        "tags": [
+          "Git"
+        ],
+        "summary": "Change a linked repository's branch and/or swarmy.yaml path in place",
+        "description": "Admin/owner only. The next push/poll plans against the new branch/path.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateGitRepoBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitRepo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "tags": [
           "Git"
@@ -5301,6 +5860,414 @@
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/apps": {
+      "get": {
+        "tags": [
+          "Apps"
+        ],
+        "summary": "List GitOps apps (linked repos) with each environment’s latest plan",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Apps",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/apps/plans/{planId}": {
+      "get": {
+        "tags": [
+          "Apps"
+        ],
+        "summary": "Get a plan",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "required": true,
+            "name": "planId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppPlan"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/apps/plans/{planId}/confirm": {
+      "post": {
+        "tags": [
+          "Apps"
+        ],
+        "summary": "Confirm held steps of a plan, then apply them",
+        "description": "Each step is authorized by what it destroys (data.destroy / service.remove / stack.deploy); a step the key’s principal may not confirm fails the whole call with `403`. Ids that are not held (or no longer planned) are ignored.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "required": true,
+            "name": "planId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmAppActionsBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Confirmed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmAppActionsResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/apps/{repoId}/plans": {
+      "get": {
+        "tags": [
+          "Apps"
+        ],
+        "summary": "List an app’s plans (newest first)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "required": true,
+            "name": "repoId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            },
+            "required": false,
+            "name": "environment",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plans",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppPlanList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/apps/{repoId}/require-approval": {
+      "put": {
+        "tags": [
+          "Apps"
+        ],
+        "summary": "Set the app’s require-approval toggle (every step waits for confirmation)",
+        "description": "Admin/owner only.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "required": true,
+            "name": "repoId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRequireApprovalBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppRequireApproval"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/apps/{repoId}/deploy": {
+      "post": {
+        "tags": [
+          "Apps"
+        ],
+        "summary": "Plan and apply the head of a branch now",
+        "description": "Runs the same plan → apply as a push (destructive steps still wait for confirmation). Returns when the plan is recorded and its runnable part applied. Admin/owner only.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "required": true,
+            "name": "repoId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeployAppBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Planned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppDeployResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/apps/{repoId}/drift": {
+      "get": {
+        "tags": [
+          "Apps"
+        ],
+        "summary": "Compare each environment’s last applied commit with live state (changes nothing)",
+        "description": "An empty list means no drift. Note: an unknown repo also returns an empty list.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "required": true,
+            "name": "repoId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Drift per environment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppDriftList"
                 }
               }
             }
