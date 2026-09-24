@@ -776,12 +776,12 @@ nb_setup_key() {
 # ── --mesh swarmy: NetBird's control plane runs HERE, before the swarm exists ──
 # nb_api METHOD PATH [BODY] [TOKEN] — this host's NetBird Admin API; prints the body.
 nb_api() {
-  local method="$1" path="$2" body="${3:-}" tok="${4:-${NB_SERVICE_TOKEN:-}}"
+  local method="$1" path="$2" body="${3:-}" tok="${4:-${NB_SERVICE_TOKEN:-}}" scheme="${NB_AUTH_SCHEME:-Token}"
   if [ -n "$body" ]; then
-    printf 'header = "Authorization: Token %s"\n' "$tok" | curl -fsS -m 20 -K - -X "$method" "${NB_ADMIN_URL}/api${path}" \
+    printf 'header = "Authorization: %s %s"\n' "$scheme" "$tok" | curl -fsS -m 20 -K - -X "$method" "${NB_ADMIN_URL}/api${path}" \
       -H 'Content-Type: application/json' -d "$body"
   else
-    printf 'header = "Authorization: Token %s"\n' "$tok" | curl -fsS -m 20 -K - -X "$method" "${NB_ADMIN_URL}/api${path}"
+    printf 'header = "Authorization: %s %s"\n' "$scheme" "$tok" | curl -fsS -m 20 -K - -X "$method" "${NB_ADMIN_URL}/api${path}"
   fi
 }
 json_field() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" | head -n1 || true; }
@@ -790,6 +790,45 @@ json_id_named() { { tr '{' '\n' | grep -F "\"name\":\"$1\"" || true; } | sed -n 
 
 # Up = the management gRPC server accepts connections. (Its :9000 /health is the
 # relay's TLS check: 503 on a plain-HTTP listener, so it can't be the signal.)
+# nb_owner_jwt EMAIL PASSWORD — sign in as the local owner through Dex's own
+# auth-code + PKCE flow (the password form) and print an access token.
+# Why not `POST /api/setup {create_pat:true}`: that path creates the NetBird
+# account with an EMPTY domain, and single-account mode finds "the" account by
+# its private domain — so every person signing in through the swarmy connector
+# would get a new account of their own (found by the e2e). A JWT login creates
+# the account the way the dashboard does (domain netbird.selfhosted, primary).
+nb_owner_jwt() {
+  local email="$1" pw="$2" base="$NB_ADMIN_URL" pub jar body hdr url loc action code i verifier challenge
+  pub="$(mesh_public_url "$MESH_DOMAIN" "$MESH_TLS")"
+  jar="$(mktemp)"; body="$(mktemp)"; hdr="$(mktemp)"
+  verifier="$(openssl rand -base64 48 | tr '+/' '-_' | tr -d '=\n')"
+  challenge="$(printf '%s' "$verifier" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')"
+  on_base() { case "$1" in "$pub"*) printf '%s%s' "$base" "${1#"$pub"}" ;; /*) printf '%s%s' "$base" "$1" ;; *) printf '%s' "$1" ;; esac; }
+  url="${base}/oauth2/auth?client_id=netbird-cli&redirect_uri=http%3A%2F%2Flocalhost%3A53000%2F&response_type=code&scope=openid%20profile%20email&state=swarmy&code_challenge=${challenge}&code_challenge_method=S256"
+  for i in 1 2 3 4 5 6 7 8; do
+    curl -sS -m 20 -c "$jar" -b "$jar" -D "$hdr" -o "$body" "$url" || break
+    loc="$(sed -n 's/^[Ll]ocation: *//p' "$hdr" | tr -d '\r' | head -n1)"
+    [ -n "$loc" ] || break
+    url="$(on_base "$loc")"
+  done
+  action="$(tr '\n' ' ' < "$body" | sed -n 's/.*<form[^>]*action="\([^"]*\)".*/\1/p' | sed 's/&amp;/\&/g')"
+  [ -n "$action" ] || { rm -f "$jar" "$body" "$hdr"; return 1; }
+  url="$(on_base "$action")"
+  curl -sS -m 20 -c "$jar" -b "$jar" -D "$hdr" -o "$body" --data-urlencode "login=${email}" --data-urlencode "password=${pw}" "$url" || true
+  for i in 1 2 3 4 5 6 7 8; do
+    loc="$(sed -n 's/^[Ll]ocation: *//p' "$hdr" | tr -d '\r' | head -n1)"
+    [ -n "$loc" ] || break
+    case "$loc" in http://localhost:53000/*) code="$(printf '%s' "$loc" | sed -n 's/.*[?&]code=\([^&]*\).*/\1/p')"; break ;; esac
+    url="$(on_base "$loc")"
+    curl -sS -m 20 -c "$jar" -b "$jar" -D "$hdr" -o "$body" "$url" || break
+  done
+  rm -f "$jar" "$body" "$hdr"
+  [ -n "${code:-}" ] || return 1
+  curl -fsS -m 20 "${base}/oauth2/token" -d grant_type=authorization_code -d "code=${code}" \
+    --data-urlencode "redirect_uri=http://localhost:53000/" -d client_id=netbird-cli -d "code_verifier=${verifier}" \
+    | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p'
+}
+
 mesh_control_healthy() {
   docker exec "$MESH_CONTROL_CONTAINER" bash -c 'exec 3<>/dev/tcp/127.0.0.1/33073' 2>/dev/null
 }
@@ -857,23 +896,25 @@ ensure_mesh_control() {
   fi
   ok "mesh control plane healthy."
 
-  # Claim it once: owner (break-glass, vault-held) + a service user token for
-  # swarmy; the one-time setup PAT is deleted with itself.
+  # Claim it once: the owner (break-glass, vault-held) exists only in NetBird's
+  # own IdP; its first sign-in creates the account (see nb_owner_jwt), and that
+  # JWT mints a service user token for swarmy. No setup PAT ever exists.
   if [ -z "${NB_SERVICE_TOKEN:-}" ]; then
-    local setup owner pat svc tok tid owner_email="mesh-owner@${CLUSTER_NAME}.swarmy.local"
-    setup="$(curl -fsS -m 20 -X POST "${NB_ADMIN_URL}/api/setup" -H 'Content-Type: application/json' \
-      -d "{\"email\":\"${owner_email}\",\"name\":\"swarmy break-glass\",\"password\":\"${MESH_OWNER_PASSWORD}\",\"create_pat\":true}")" \
-      || die "could not claim the mesh control plane (setup already done by someone else? docker logs ${MESH_CONTROL_CONTAINER})."
-    pat="$(printf '%s' "$setup" | json_field personal_access_token)"; owner="$(printf '%s' "$setup" | json_field user_id)"
-    [ -n "$pat" ] || die "NetBird setup returned no token: $setup"
+    local jwt svc tok owner_email="mesh-owner@${CLUSTER_NAME}.swarmy.local"
+    if curl -fsS -m 10 "${NB_ADMIN_URL}/api/instance" 2>/dev/null | grep -q '"setup_required":true'; then
+      curl -fsS -m 20 -X POST "${NB_ADMIN_URL}/api/setup" -H 'Content-Type: application/json' \
+        -d "{\"email\":\"${owner_email}\",\"name\":\"swarmy break-glass\",\"password\":\"${MESH_OWNER_PASSWORD}\"}" >/dev/null \
+        || die "could not claim the mesh control plane (docker logs ${MESH_CONTROL_CONTAINER})."
+    fi
     state_set MESH_OWNER_EMAIL "$owner_email"
-    svc="$(nb_api POST /users '{"name":"swarmy-controller","role":"admin","is_service_user":true,"auto_groups":[]}' "$pat" | json_field id)"
-    tok="$(nb_api POST "/users/${svc}/tokens" '{"name":"swarmy-controller","expires_in":365}' "$pat" | json_field plain_token)"
+    jwt="$(nb_owner_jwt "$owner_email" "$MESH_OWNER_PASSWORD")" || jwt=""
+    [ -n "$jwt" ] || die "could not sign in to the mesh control plane as its owner (docker logs ${MESH_CONTROL_CONTAINER})."
+    NB_AUTH_SCHEME=Bearer nb_api GET /users/current '' "$jwt" >/dev/null || die "the mesh control plane refused the owner's sign-in token."
+    svc="$(NB_AUTH_SCHEME=Bearer nb_api POST /users '{"name":"swarmy-controller","role":"admin","is_service_user":true,"auto_groups":[]}' "$jwt" | json_field id)"
+    tok="$(NB_AUTH_SCHEME=Bearer nb_api POST "/users/${svc}/tokens" '{"name":"swarmy-controller","expires_in":365}' "$jwt" | json_field plain_token)"
     [ -n "$tok" ] || die "could not mint the swarmy service token on the mesh control plane."
     state_set NB_SERVICE_TOKEN "$tok"
-    tid="$(nb_api GET "/users/${owner}/tokens" '' "$pat" | json_field id)"
-    [ -z "$tid" ] || nb_api DELETE "/users/${owner}/tokens/${tid}" '' "$pat" >/dev/null || warn "could not delete the one-time setup token (it expires in 24 h)."
-    ok "mesh control plane claimed (service token minted; setup token deleted)."
+    ok "mesh control plane claimed (owner signed in once; service token minted)."
   fi
 
   # Default deny from the start: the combined server always creates an

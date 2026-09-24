@@ -761,10 +761,20 @@ they proved is below. "Pass" means seen working, not read in the docs.
   `extra.user_approval_required: true` (we set false; access is gated by
   groups, and a user with no groups reaches nothing).
 - The setup PAT belongs to the owner. An **admin** service user cannot list
-  or delete the owner's tokens (403). The bootstrap deletes the setup PAT
-  **with the PAT itself** (`DELETE /api/users/<owner>/tokens/<id>`), verified
-  by a 404 on the next call. Service-user tokens have a max lifetime of 365
-  days, so M3 adds rotation (see the risks).
+  or delete the owner's tokens (403); the PAT itself can.
+- **Superseded by the e2e: don't use `create_pat` at all.** That path creates
+  the NetBird account with an **empty domain**. Single-account mode finds
+  "the" account by its private primary domain (`netbird.selfhosted`), so the
+  first person who signed in through the swarmy connector got a **new
+  account of their own**, outside every group and policy.
+  `domainIsUpToDate` never fills in an empty domain later. The installer now
+  does `POST /api/setup` without a PAT, then signs in as the owner through
+  Dex's own auth-code + PKCE password flow (`nb_owner_jwt`). That creates the
+  account the way the dashboard does (`netbird.selfhosted`, private,
+  primary). The installer then mints the service user token with that JWT.
+  No setup PAT ever exists. Verified against 0.79.0.
+- Service-user tokens have a max lifetime of 365 days, so M3 adds rotation
+  (see the risks).
 
 ### 11.4 Hiding the local login behind the swarmy connector: pass
 
