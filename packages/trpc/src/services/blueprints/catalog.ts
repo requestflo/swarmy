@@ -61,8 +61,12 @@ export type WireAction =
   | { type: 'db'; service: string; cluster: string; envVar: string }
   /** cache `attachCacheToService`: REDIS_URL env + password secret + network. */
   | { type: 'cache'; service: string; cluster: string; envVar: string }
-  /** secretsMgr `attachSecretToService`: mount at /run/secrets/<family> + env path. */
-  | { type: 'secret'; service: string; family: string; envName: string }
+  /**
+   * secretsMgr `attachSecretToService`: mount at /run/secrets/<family> + env
+   * path (`file`, default), or — `delivery: 'env'` — exported as `envName` by
+   * the secret-env shim (value never in the spec).
+   */
+  | { type: 'secret'; service: string; family: string; envName: string; delivery?: 'file' | 'env' }
   /** buckets `attachToService`: S3_* env + bucket-scoped key as a Docker secret. */
   | { type: 'bucket'; service: string; bucket: string }
   /** Merge env vars (values may contain tokens) onto the live service spec. */

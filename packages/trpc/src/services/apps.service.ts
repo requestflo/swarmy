@@ -481,7 +481,11 @@ export function realOps(
           return;
         }
         case 'secret':
-          await attachSecretToService(ctx, { family: a.family, service: app.name });
+          await attachSecretToService(ctx, {
+            family: a.family,
+            service: app.name,
+            ...(a.envName ? { envName: a.envName, delivery: 'env' as const } : {}),
+          });
           return;
       }
     },

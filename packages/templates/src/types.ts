@@ -68,6 +68,14 @@ export interface AppTemplate {
   /** Services whose image ships its own HEALTHCHECK (so the yaml sets none). */
   imageHealthcheck?: string[];
   /**
+   * Services whose image has no `/bin/sh` (FROM scratch / distroless). A
+   * generated secret bound as a whole env value is normally exported by
+   * swarmy's secret-env shim (the value never enters the spec); the shim needs
+   * a shell, so for these services it is rendered into env instead. Prefer
+   * `secrets:` + a `_FILE` var when the image supports one.
+   */
+  noShell?: string[];
+  /**
    * `private`: never routed publicly (no domain, no auto address). For
    * unauthenticated APIs (Ollama, Apprise) that other apps reach in-swarm via
    * `connect`. `<internal>` in postDeploy renders the in-swarm URL.

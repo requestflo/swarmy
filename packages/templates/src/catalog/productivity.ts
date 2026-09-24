@@ -443,6 +443,8 @@ services:
     website: 'https://vikunja.io',
     version: '2.6.0',
     generate: { 'service-secret': { format: 'alnum', length: 48 } },
+    // FROM scratch: no /bin/sh for the secret-env shim.
+    noShell: ['vikunja'],
     notes: [
       'Attachments are stored on the files volume, which is mounted at /tmp: that is the only directory the non-root image user (1000) can write to on a fresh named volume.',
       'Registration is open until you set VIKUNJA_SERVICE_ENABLEREGISTRATION=false.',

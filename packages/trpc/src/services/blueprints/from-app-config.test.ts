@@ -153,11 +153,23 @@ describe('binding resolution', () => {
     expect(env).toEqual({
       type: 'env',
       service: 'umami',
-      env: {
-        DATABASE_URL: TOKEN_DB_URL,
-        APP_SECRET: secretToken(templateSecretFamily('stats', 'app-secret')),
-      },
+      env: { DATABASE_URL: TOKEN_DB_URL },
     });
+  });
+
+  it('a generated secret bound as a whole env value is env-delivered from its Docker secret', () => {
+    // APP_SECRET: ${{ secrets.app-secret }} → the shim exports it; the value is
+    // never substituted into env (no token in any env wire, none in compose).
+    expect(deploy.payload.wires).toContainEqual({
+      type: 'secret',
+      service: 'umami',
+      family: templateSecretFamily('stats', 'app-secret'),
+      envName: 'APP_SECRET',
+      delivery: 'env',
+    });
+    const token = secretToken(templateSecretFamily('stats', 'app-secret'));
+    expect(JSON.stringify(deploy.payload.wires.filter((w) => w.type === 'env'))).not.toContain(token);
+    expect(deploy.payload.composeSource).not.toContain('APP_SECRET');
   });
 
   it('joins the managed cluster network only for services that bind it', () => {

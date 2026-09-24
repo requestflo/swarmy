@@ -58,7 +58,8 @@ export type Attachment =
   | { kind: 'search'; service: string; name: string }
   | { kind: 'vector'; service: string; name: string; envVar: string }
   | { kind: 'bucket'; service: string; resource: string }
-  | { kind: 'secret'; service: string; family: string };
+  /** Mounted at /run/secrets/<family>; with `envName`, exported as $envName by the secret-env shim. */
+  | { kind: 'secret'; service: string; family: string; envName?: string };
 
 /** Stable id for the ledger (`db:db:DATABASE_URL`). */
 export function attachmentKey(a: Attachment): string {
@@ -73,7 +74,7 @@ export function attachmentKey(a: Attachment): string {
     case 'bucket':
       return `bucket:${a.resource}`;
     case 'secret':
-      return `secret:${a.family}`;
+      return a.envName ? `secret:${a.family}:${a.envName}` : `secret:${a.family}`;
   }
 }
 
@@ -224,13 +225,10 @@ export function compileServices(
       }
       const ref = b.ref!;
       if (ref.ns === 'secret') {
-        issues.push(
-          err(
-            path,
-            'apply/secret-value',
-            `secret values can't be copied into env (swarmy never reads them back) — use secrets: [${ref.name}] and read /run/secrets/${ref.name}`,
-          ),
-        );
+        // Env delivery through the secret-env shim: mounted at
+        // /run/secrets/<KEY>, exported as $KEY at start — the value never
+        // enters the compose or the service spec.
+        attachments.push({ kind: 'secret', service: s.name, family: ref.name, envName: key });
         continue;
       }
       if (ref.ns !== 'resource') continue;

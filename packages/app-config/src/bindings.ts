@@ -10,8 +10,11 @@
  *   ${{ <resource>.<field> }}     a managed resource declared under `resources:`
  *   ${{ services.<name>.<field> }} another service's in-swarm address
  *   ${{ app.<field> }}            the app itself (name, url, domain — preview-aware)
- *   ${{ secrets.<name> }}         a swarmy secret's VALUE (warns: lands in the
- *                                 service env; prefer `secrets:` file mounts)
+ *   ${{ secrets.<name> }}         a swarmy secret's VALUE as an env var — as the
+ *                                 WHOLE value it is exported at container start
+ *                                 by the secret-env shim from the mounted Docker
+ *                                 secret (never in the spec); embedded in a larger
+ *                                 string it warns (would render into env)
  *
  * Pure: parsing + the controller-side `renderValue` over a resolved endpoint map.
  */

@@ -98,7 +98,7 @@ describe('compileServices', () => {
     ]);
   });
 
-  it('refuses embedded credentials, secret values and mis-named fixed vars with located errors', () => {
+  it('refuses embedded credentials and mis-named fixed vars with located errors; env-delivers secret values', () => {
     const d = desired(
       APP.replace('DB_HOST: ${{ db.host }}', 'DSN: "postgres://${{ db.url }}?x=1"')
         .replace('DATABASE_RO_URL: ${{ db.ro_url }}', 'DB_RO: ${{ db.ro_url }}')
@@ -114,8 +114,15 @@ describe('compileServices', () => {
       'apply/ro-url-name @ services.web.env.DB_RO',
       'apply/credential-embedded @ services.web.env.DSN',
       'apply/s3-key-name @ services.web.env.MY_KEY',
-      'apply/secret-value @ services.web.env.STRIPE',
     ]);
+    // A whole-value secret binding is env-delivered by the shim, not refused.
+    expect(out.attachments).toContainEqual({
+      kind: 'secret',
+      service: 'web',
+      family: 'stripe-key',
+      envName: 'STRIPE',
+    });
+    expect(out.composeSource).not.toContain('STRIPE');
   });
 
   it('first deploy of a service with a release starts at 0 replicas', () => {

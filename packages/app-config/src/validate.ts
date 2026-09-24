@@ -149,13 +149,16 @@ export function validateConfig(cfg: AppConfig): ConfigIssue[] {
               ),
             );
           }
-        } else {
+        } else if (v.trim() !== `\${{ ${b.expr} }}` && v.trim() !== `\${{${b.expr}}}`) {
+          // `KEY: ${{ secrets.x }}` (the whole value) is delivered by the
+          // secret-env shim from the mounted Docker secret — never in the
+          // spec. Only an EMBEDDED secret would have to be rendered into env.
           out.push(
             issue(
               'warning',
               'binding/secret-in-env',
               path,
-              `secrets.${ref.name} puts the secret value in the service env (visible in docker inspect) — prefer secrets: [${ref.name}], mounted as a file`,
+              `secrets.${ref.name} is embedded in a larger value, so it would be rendered into the service env (visible in docker inspect) — give it its own variable: ${k}: \${{ secrets.${ref.name} }}`,
             ),
           );
         }

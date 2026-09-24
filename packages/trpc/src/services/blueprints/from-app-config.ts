@@ -48,6 +48,17 @@ const DB_PORT = '5432';
 const DB_USER = 'postgres';
 
 /** Raised when a template can't compile (caller maps to a 400 / test failure). */
+
+/** `${{ secrets.x }}` as the WHOLE value → `x` (a partial embed returns null). */
+export function wholeSecretBinding(raw: string): string | null {
+  const bs = extractBindings(raw);
+  if (bs.length !== 1) return null;
+  const b = bs[0]!;
+  if (b.ref?.ns !== 'secret') return null;
+  const t = raw.trim();
+  return t === `\${{ ${b.expr} }}` || t === `\${{${b.expr}}}` ? b.ref.name : null;
+}
+
 export class TemplateCompileError extends Error {
   constructor(templateId: string, message: string) {
     super(`template "${templateId}": ${message}`);
@@ -242,6 +253,20 @@ export function compileTemplate(
       const mounted = s.secrets.find((x) => raw === `/run/secrets/${x}`);
       if (mounted) {
         wires.push({ type: 'secret', service: s.name, family: templateSecretFamily(stack, mounted), envName: key });
+        continue;
+      }
+      // `KEY: ${{ secrets.x }}` for a generated secret → exported as $KEY by the
+      // secret-env shim from the mounted Docker secret — the generated value
+      // never enters the compose, the spec or `docker inspect`.
+      const generated = wholeSecretBinding(raw);
+      if (generated && t.generate?.[generated] && !t.noShell?.includes(s.name)) {
+        wires.push({
+          type: 'secret',
+          service: s.name,
+          family: templateSecretFamily(stack, generated),
+          envName: key,
+          delivery: 'env',
+        });
         continue;
       }
       const { value, missing } = renderValue(raw, bindings);

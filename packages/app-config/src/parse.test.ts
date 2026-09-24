@@ -161,7 +161,7 @@ describe('parseAppConfig', () => {
       'version: 1',
       'app: shop',
       'services:',
-      '  web: { image: nginx, port: 80, sleep_after: 5m, env: { K: "${{ secrets.stripe }}" } }',
+      '  web: { image: nginx, port: 80, sleep_after: 5m, env: { K: "sk=${{ secrets.stripe }}", K2: "${{ secrets.stripe }}" } }',
       'resources:',
       '  files: { type: bucket, access: public }',
       '',

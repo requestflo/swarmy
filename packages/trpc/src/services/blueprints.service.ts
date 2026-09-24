@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import {
   buildInventory,
+  SECRET_ENV_VAR,
   type BlueprintDeployInput,
   type BlueprintDeployResultView,
   type BlueprintMetaView,
@@ -290,8 +291,10 @@ async function applyWire(
         family: wire.family,
         service: wire.service,
         envName: wire.envName,
+        ...(wire.delivery ? { delivery: wire.delivery } : {}),
       });
-      waitKeys = [wire.envName];
+      // Env delivery never puts the KEY in the spec env — the shim's name list does.
+      waitKeys = [wire.delivery === 'env' ? SECRET_ENV_VAR : wire.envName];
       break;
     case 'bucket': {
       const bucketId = sctx.bucketIds[wire.bucket];
