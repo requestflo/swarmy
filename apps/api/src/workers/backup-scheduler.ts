@@ -12,7 +12,7 @@ import { prisma } from '@swarmy/db';
 import { buildInventory } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import type { BackupVolumeResult, ResticRepo } from '@swarmy/core/protocol';
-import { ensureAutoBackups, runScheduledAppDbDump, stackRetentionFor } from '@swarmy/trpc';
+import { ensureAutoBackups, resticNetworkFor, runScheduledAppDbDump, stackRetentionFor } from '@swarmy/trpc';
 import { authRegistry } from '@swarmy/auth';
 import { hub, registry } from '../gateway';
 
@@ -199,6 +199,8 @@ async function runDue(): Promise<void> {
         volume: sched.volume,
         tags: [`org:${sched.orgId}`, `volume:${sched.volume}`],
         ...(retentionDays != null ? { retentionDays } : {}),
+        // In-cluster destinations (native `swarmy-garage`) only resolve on the swarmy overlay.
+        network: resticNetworkFor(target.endpoint),
       });
       await db.snapshot.update({
         where: { id: snapshot.id },

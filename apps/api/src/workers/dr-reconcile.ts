@@ -20,6 +20,7 @@
 import { prisma } from '@swarmy/db';
 import { decryptSecret } from '@swarmy/core/crypto';
 import type { ResticRepo, RestoreVolumeResult } from '@swarmy/core/protocol';
+import { resticNetworkFor } from '@swarmy/trpc';
 import { hub } from '../gateway';
 
 const TICK_MS = 30_000;
@@ -173,6 +174,7 @@ async function reconcileOrg(orgId: string): Promise<void> {
           repo: toRepo(target),
           snapshotId: snap.resticId ?? 'latest',
           targetVolume: snap.volume,
+          network: resticNetworkFor(target.endpoint),
         });
         await db.restoreOperation.update({
           where: { id: op.id },

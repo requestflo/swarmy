@@ -217,6 +217,8 @@ export {
 // sweep the manageddb-reconcile worker resolves off the package root.
 export { ensureAutoBackups } from './services/autoBackup.service';
 export { runScheduledAppDbDump } from './services/appDbBackup.service';
+// In-cluster restic destinations (native Garage) need the swarmy overlay — workers too.
+export { resticNetworkFor } from './services/backups.service';
 // Off-site mirror scheduler (offsite-mirror worker).
 export { runDueMirrors } from './services/offsiteMirror.service';
 // Managed data node-pinning (cache/search/vector reconcile workers) + the

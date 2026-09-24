@@ -50,7 +50,7 @@ import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
-import { auditRetentionOutcome } from './backups.service';
+import { auditRetentionOutcome, resticNetworkFor } from './backups.service';
 import { systemContext } from './cicd.service';
 import { resolveManagerNode } from './dispatch.service';
 import {
@@ -455,6 +455,7 @@ export async function backupDb(ctx: OrgContext, input: BackupDbInput): Promise<D
       tags: dbTags(ctx.activeOrgId, input.stack, input.cluster, input.engine),
       retentionDays: input.retentionDays,
       network: clusterNetworkName(input.stack, input.cluster),
+      resticNetwork: resticNetworkFor(target.endpoint),
       dataVolume,
     });
     await writeAudit(ctx, {
@@ -682,6 +683,7 @@ export async function listDbBackups(
     const res = await ctx.hub.dispatch<ListSnapshotsResult>(node.id, 'backup.list', {
       repo: toResticRepo(target),
       tags,
+      network: resticNetworkFor(target.endpoint),
     });
     return res.snapshots
       .map(snapshotView)
@@ -749,6 +751,7 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
       database: input.database,
       tags: dbTags(ctx.activeOrgId, destStack, destCluster, input.engine),
       network: clusterNetworkName(destStack, destCluster),
+      resticNetwork: resticNetworkFor(target.endpoint),
       dataVolume,
     });
     await writeAudit(ctx, {

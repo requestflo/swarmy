@@ -97,6 +97,12 @@ export type DbConnection = z.infer<typeof DbConnection>;
 const engineEnv = {
   /** Overlay network to attach the sidecar to so it can resolve `conn.host`. */
   network: z.string().optional(),
+  /**
+   * Overlay the restic leg joins so an in-cluster repo (`swarmy-garage`)
+   * resolves — distinct from `network` (the cluster net the DB client needs).
+   * Additive: older agents ignore it.
+   */
+  resticNetwork: z.string().optional(),
   /** postgres-client image (pg_dump/pg_dumpall/snapshot/pg_restore/psql). */
   clientImage: z.string().optional(),
   /** physical-engine image (wal-g / pgbackrest). */

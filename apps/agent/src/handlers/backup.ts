@@ -527,7 +527,7 @@ async function backupDbLogical(
     }
 
     // 2) Store the staged dump with restic into the same target catalog.
-    await ensureRepo(docker, resticImage, p.repo);
+    await ensureRepo(docker, resticImage, p.repo, p.resticNetwork);
     const tagArgs = p.tags.flatMap((t) => ['--tag', t]);
     const store = await runSidecar(
       docker,
@@ -536,6 +536,7 @@ async function backupDbLogical(
         args: ['backup', DUMP_MOUNT, '--json', '--host', p.conn.database, ...tagArgs],
         env: repoEnv(p.repo),
         binds: [`${scratch}:${DUMP_MOUNT}:ro`, ...repoBinds(p.repo)],
+        networkMode: p.resticNetwork,
       },
       onLine,
     );
@@ -556,6 +557,7 @@ async function backupDbLogical(
               retentionDays: p.retentionDays,
               tags: p.tags,
               host: p.conn.database,
+              network: p.resticNetwork,
             },
             onLine,
           )
@@ -704,6 +706,7 @@ async function restoreDbLogical(
         args: ['restore', p.snapshotId, '--target', '/', '--json'],
         env: repoEnv(p.repo),
         binds: [`${scratch}:${DUMP_MOUNT}`, ...repoBinds(p.repo)],
+        networkMode: p.resticNetwork,
       },
       onLine,
     );
