@@ -14,10 +14,12 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "2.1.0",
     "@swarmy/api-rest": "workspace:*",
     "@swarmy/auth": "workspace:*",
     "@swarmy/core": "workspace:*",
     "@swarmy/db": "workspace:*",
+    "@swarmy/devkit": "workspace:*",
     "@swarmy/ingress": "workspace:*",
     "@swarmy/trpc": "workspace:*",
     "@trpc/server": "^11.0.0",
@@ -25,6 +27,7 @@
     "nodemailer": "^7.0.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.1.0",
     "@types/bun": "latest",
     "@types/nodemailer": "^7.0.0",
     "typescript": "^5.5.4"

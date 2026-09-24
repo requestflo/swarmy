@@ -21,6 +21,9 @@ import {
 } from '@swarmy/db';
 import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim, writeAudit, acmeDnsRequest, ingressConfigRepo } from '@swarmy/trpc';
 import { createRestApp } from '@swarmy/api-rest';
+import { createApiTokenVerifier, ensureMcpOidcClient } from '@swarmy/auth';
+import { resolveOrgContextFromBearer } from '@swarmy/trpc/devx';
+import { createDevxApp } from './devx';
 import { env } from './env';
 import { maybeBootstrapSeed } from './bootstrap/seed';
 import { handleTrpc } from './trpc';
@@ -237,13 +240,19 @@ app.on(['GET', 'POST'], '/api/auth/*', (c) => authRegistry.getAuth().handler(c.r
 app.get('/.well-known/oauth-authorization-server/api/auth', (c) => authRegistry.getAuth().handler(c.req.raw));
 app.all('/api/trpc/*', (c) => handleTrpc(c.req.raw));
 
-// Public REST API (OpenAPI) — handlers reuse the tRPC service layer via an
-// api-key-resolved OrgContext.
-const restApp = createRestApp({
-  resolveContextFromApiKey: (presentedKey) =>
-    resolveOrgContextFromApiKey({ db: prisma, hub, auth: authRegistry.getAuth() }, presentedKey),
-});
+// Public REST API (OpenAPI) — handlers reuse the tRPC service layer via a
+// bearer-resolved OrgContext: an `swk_…` API key, or an OAuth access token
+// swarmy's OIDC provider issued for its own APIs (MCP clients).
+const verifyAccessToken = createApiTokenVerifier(() => authRegistry.getAuth());
+const resolveBearer = (presented: string) =>
+  resolveOrgContextFromBearer({ db: prisma, hub, auth: authRegistry.getAuth(), verifyAccessToken }, presented);
+const restApp = createRestApp({ resolveContextFromApiKey: resolveBearer });
 app.route('/api/v1', restApp);
+
+// Developer CLI + MCP (developer-platform §4): `swarmy login` device flow,
+// CLI binaries at /install/cli/*, and the MCP server at /mcp (+ its RFC 9728
+// metadata). /mcp calls the REST API in-process with the caller's bearer.
+app.route('/', createDevxApp({ appFetch: (req) => app.fetch(req), resolveBearer }));
 
 // Git provider webhooks (push → build). Public, per-repo HMAC-verified.
 app.route('/webhooks', webhooksApp);
@@ -299,6 +308,8 @@ if (STATIC_DIR) {
       p.startsWith('/oauth') ||
       p.startsWith('/_wake') ||
       p.startsWith('/install') ||
+      p === '/mcp' ||
+      p.startsWith('/.well-known/oauth-protected-resource') ||
       p === '/health' ||
       p === '/version'
     ) {
@@ -336,6 +347,11 @@ authRegistry.configure({
 });
 // Load stored auth-provider config so social/SSO providers are live without a restart.
 await authRegistry.rebuild();
+// The pre-registered public OAuth client MCP hosts sign in with (idempotent).
+await ensureMcpOidcClient(prisma).catch((e: unknown) => {
+  // eslint-disable-next-line no-console
+  console.warn('swarmy controller: could not register the MCP OAuth client:', e);
+});
 
 // Self-host first-boot: seed the owner org/user and the bootstrap join token, and
 // prime the in-memory swarm join cache (so added nodes join this swarm). Gated on SWARMY_BOOTSTRAP=1 and

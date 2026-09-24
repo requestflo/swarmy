@@ -41,6 +41,23 @@ COPY scripts/build-agent-binaries.ts scripts/
 ARG SWARMY_COMMIT=dev
 RUN SWARMY_COMMIT=${SWARMY_COMMIT} bun run scripts/build-agent-binaries.ts /app/agent-binaries
 
+# ── Stage 1b': compile the `swarmy` developer CLI ─────────────────────────
+# Same cross-compile-once approach; four targets (macOS + Linux, arm64 + x64).
+# Served at /install/cli/<platform> with `curl <controller>/install/cli.sh | sh`.
+FROM --platform=$BUILDPLATFORM oven/bun:1.3-debian AS clibin
+WORKDIR /app
+COPY package.json bun.lock ./
+COPY tsconfig.base.json tsconfig.json ./
+COPY packages packages
+COPY sdks/typescript/src sdks/typescript/src
+COPY apps/cli/package.json apps/cli/
+RUN bun install || bun install --no-frozen-lockfile
+COPY apps/cli apps/cli
+COPY scripts/build-cli-binaries.ts scripts/
+ARG SWARMY_COMMIT=dev
+ARG SWARMY_VERSION=
+RUN SWARMY_COMMIT=${SWARMY_COMMIT} SWARMY_VERSION=${SWARMY_VERSION} bun run scripts/build-cli-binaries.ts /app/cli-binaries
+
 # ── Stage 1c: restic for controller self-backup ("Protect the brain") ──────
 # controllerBackup.bundle.ts execs a local `restic` (runner mode=binary). Pinned
 # to the SAME version as DEFAULT_RESTIC_IMAGE (packages/core/src/protocol/backup.ts)
@@ -93,6 +110,8 @@ RUN bun install || bun install --no-frozen-lockfile
 
 # Controller source (packages already copied above for the install layer).
 COPY apps/api apps/api
+# The TypeScript SDK — @swarmy/devkit (the /mcp endpoint) imports it by path.
+COPY sdks/typescript/src sdks/typescript/src
 
 # Generate the Prisma clients (control.db → src/generated, telemetry.db →
 # src/generated-telemetry). The store itself is SQLite via bun:sqlite: no
@@ -108,6 +127,10 @@ ENV SWARMY_STATIC_DIR=/app/public
 # the install + self-update paths never leave this controller.
 COPY --from=agentbin /app/agent-binaries /app/agent-binaries
 ENV SWARMY_AGENT_BIN_DIR=/app/agent-binaries
+
+# `swarmy` CLI binaries + manifest, served at /install/cli/<platform>.
+COPY --from=clibin /app/cli-binaries /app/cli-binaries
+ENV SWARMY_CLI_BIN_DIR=/app/cli-binaries
 
 # Bake the build commit so `GET /version` reports it.
 ARG SWARMY_COMMIT=dev
