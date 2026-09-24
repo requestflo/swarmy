@@ -45,6 +45,7 @@ import { incidentsRouter } from './routers/incidents';
 import { statusPagesRouter } from './routers/statusPages';
 import { releasesRouter } from './routers/releases';
 import { registryPolicyRouter } from './routers/registryPolicy';
+import { registryCredentialsRouter } from './routers/registryCredentials';
 import { previewsRouter } from './routers/previews';
 import { secretsMgrRouter } from './routers/secretsMgr';
 import { configsMgrRouter } from './routers/configsMgr';
@@ -107,6 +108,7 @@ export const appRouter = router({
   statusPages: statusPagesRouter,
   releases: releasesRouter,
   registryPolicy: registryPolicyRouter,
+  registryCredentials: registryCredentialsRouter,
   previews: previewsRouter,
   secrets: secretsMgrRouter,
   configs: configsMgrRouter,

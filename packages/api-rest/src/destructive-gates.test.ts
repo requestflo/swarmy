@@ -60,6 +60,7 @@ const ROUTES: Array<[method: string, path: string, action: string, body?: unknow
   ['DELETE', '/backup-targets/t1', 'backup.remove'],
   ['DELETE', '/api-keys/k2', 'token.revoke'],
   ['DELETE', '/mesh/routes/r1', 'token.revoke'],
+  ['DELETE', '/registry-credentials/rc1', 'secret.delete'],
   ['DELETE', '/ingress/domains/d1', 'ingress.write'],
   ['DELETE', '/dns/zones/z1', 'dns.remove'],
   ['DELETE', '/dns/records/r1', 'dns.remove'],

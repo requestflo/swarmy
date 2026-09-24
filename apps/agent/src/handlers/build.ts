@@ -46,6 +46,23 @@ function authedGitUrl(url: string, token?: string): string {
 }
 
 /**
+ * The one-shot docker config.json consumed by buildctl: `pullAuths` (org
+ * third-party logins for private `FROM` bases) plus the push `registryAuth`,
+ * keyed by server. Empty string when there is nothing to authenticate.
+ */
+export function renderDockerConfig(p: BuildImagePayload, primaryRef: string): string {
+  const auths: Record<string, { auth: string }> = {};
+  const put = (a: { username: string; password: string; server?: string }, fallback: string) => {
+    const server = a.server ?? fallback;
+    if (!server) return;
+    auths[server] = { auth: Buffer.from(`${a.username}:${a.password}`).toString('base64') };
+  };
+  for (const a of p.pullAuths ?? []) put(a, '');
+  if (p.registryAuth) put(p.registryAuth, primaryRef.split('/')[0] ?? '');
+  return Object.keys(auths).length ? JSON.stringify({ auths }) : '';
+}
+
+/**
  * Render the shell program the builder container runs (pure, golden-tested).
  *
  * `moby/buildkit:rootless` runs as uid 1000, so everything writable lives
@@ -74,16 +91,9 @@ export function renderBuildProgram(p: BuildImagePayload): string {
 
   // Registry auth for the push, written to a one-shot docker config consumed by
   // buildctl, never persisted past the container's lifetime.
-  const auth = p.registryAuth;
-  const dockerConfig = auth
-    ? JSON.stringify({
-        auths: {
-          [auth.server ?? primaryRef.split('/')[0] ?? '']: {
-            auth: Buffer.from(`${auth.username}:${auth.password}`).toString('base64'),
-          },
-        },
-      })
-    : '';
+  // Extra `pullAuths` (private FROM bases) go in first; the push login wins on
+  // a server collision.
+  const dockerConfig = renderDockerConfig(p, primaryRef);
   const ctxDir = `"$W"/${shq(subdir)}`;
 
   return [
@@ -186,7 +196,9 @@ export async function buildImage(
 
   let seq = 0;
   let tail = '';
-  const secrets = [p.source.token, p.registryAuth?.password].filter((x): x is string => Boolean(x));
+  const secrets = [p.source.token, p.registryAuth?.password, ...(p.pullAuths ?? []).map((a) => a.password)].filter(
+    (x): x is string => Boolean(x),
+  );
   const emit = (stream: 'stdout' | 'stderr', raw: string) => {
     // Never echo the git token / registry password into logs or error text.
     const text = redact(raw, secrets);

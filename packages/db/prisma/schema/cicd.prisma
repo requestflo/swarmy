@@ -125,3 +125,32 @@ model ImageScan {
   @@index([digest])
   @@map("image_scan")
 }
+
+// Third-party registry credentials (GHCR, Docker Hub, GitLab, ECR/GCR/ACR, any
+// `host[/path]`). Org-scoped, matched to an image by the LONGEST `prefix`, and
+// injected JIT on every pull/build by the hub dispatch decorator
+// (registry-auth.ts). `secretEnc` is vault-encrypted (SWARMY_SECRET_KEY) and
+// NEVER returned to a client — write-only UX (set / rotate / delete).
+model RegistryCredential {
+  id              String    @id @default(cuid())
+  orgId           String
+  /** Normalised `host[/path]` (docker.io aliases folded; no scheme, no trailing slash). */
+  prefix          String
+  /** UI hint only: ghcr | dockerhub | gitlab | ecr | gcr | acr | generic. */
+  provider        String    @default("generic")
+  label           String?
+  username        String
+  secretEnc       String    @db.Text
+  lastTestedAt    DateTime?
+  lastTestOk      Boolean?
+  lastTestMessage String?
+  createdById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, prefix])
+  @@index([orgId])
+  @@map("registry_credential")
+}

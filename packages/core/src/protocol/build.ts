@@ -49,6 +49,13 @@ export const BuildImagePayload = z.object({
   platform: z.string().optional(),
   /** Registry to push to (resolved creds, injected at dispatch). */
   registryAuth: RegistryAuth.optional(),
+  /**
+   * Extra PULL logins for private `FROM` bases (org third-party registry
+   * credentials, attached by the controller hub decorator). Merged into the
+   * one-shot docker config's `auths` keyed by `server`; never layered. Additive
+   * — older agents ignore it.
+   */
+  pullAuths: z.array(RegistryAuth).optional(),
   pushPolicy: z.enum(['always', 'never']).default('always'),
   /** Builder image that wraps BuildKit/`buildctl` (or `img`). */
   builderImage: z.string().optional(),

@@ -85,6 +85,18 @@ export type { GcRunResult } from './services/image-gc.service';
 // In-swarm registry auth: the hub dispatch decorator attaching pull creds to
 // org-registry deploys (wired onto AgentHubImpl in apps/api).
 export { createRegistryAuthDecorator } from './services/registry-auth';
+export {
+  deleteRegistryCredential,
+  listRegistryCredentials,
+  resolveBuildPullAuths,
+  resolveRegistryAuthFor,
+  testRegistryCredential,
+  updateRegistryCredential,
+  upsertRegistryCredential,
+} from './services/registry-credentials.service';
+export type { RegistryCredentialView, UpsertRegistryCredentialInput } from './services/registry-credentials.service';
+export { REGISTRY_PROVIDERS } from './services/registry-credentials';
+export type { RegistryProvider, RegistryTestResult, RegistryTestStatus } from './services/registry-credentials';
 
 // ── data-store P1: controller-state backup/restore seams ──
 export { isBackupDue, runControllerBackup } from './services/controllerBackup.service';

@@ -23,6 +23,8 @@ import type { RegistryAuth, ServiceSpec, SwarmServiceInfo } from '@swarmy/core/p
 import type { DB } from '@swarmy/db';
 import type { CommandName, DispatchDecorator } from '../hub/types';
 import { canonicalRegistryHost, isOrgRegistryImage } from './registryPolicy.service';
+import { buildPullAuths, matchCredential, toRegistryAuth, type ResolvedCredential } from './registry-credentials';
+import { loadOrgRegistryCredentials } from './registry-credentials.service';
 
 export const REGISTRY_SERVICE_NAME = 'swarmy-registry';
 export const REGISTRY_IMAGE = 'registry:2';
@@ -136,22 +138,67 @@ function mayBeRegistryImage(images: string[]): boolean {
 }
 
 /**
- * The hub-level hook: EVERY `service.deploy` / `image.pull` dispatch passes
- * through it (apps/api `AgentHubImpl.setDispatchDecorator`), so createService,
- * stacks, autodeploy, promote, previews, canaries and the reconcile workers all
- * carry pull auth without each call site knowing about the registry. Fails open
- * to the undecorated payload (the registry itself still enforces auth).
+ * The hub-level hook: EVERY `service.deploy` / `image.pull` / `image.build`
+ * dispatch passes through it (apps/api `AgentHubImpl.setDispatchDecorator`), so
+ * createService, stacks, autodeploy, promote, previews, canaries and the
+ * reconcile workers all carry pull auth without each call site knowing about
+ * the registry. Order: an explicit `registryAuth` wins → the org's in-swarm
+ * registry login (org-registry images) → the org's third-party credentials
+ * (longest `host[/path]` prefix match; GHCR, Docker Hub, GitLab, ECR, …).
+ * Builds get every third-party login as `pullAuths` (private `FROM` bases).
+ * Fails open to the undecorated payload (the registry itself still enforces auth).
  */
 export function createRegistryAuthDecorator(db: DB): DispatchDecorator {
-  return async (orgId, cmd, payload) => {
-    const images = dispatchImages(cmd, payload);
-    if (!images.length || !mayBeRegistryImage(images)) return payload;
-    const row = await db.registryConfig.findUnique({
-      where: { orgId },
-      select: { host: true, credentialsEnc: true },
-    });
-    const creds = decodeRegistryCreds(row?.credentialsEnc);
-    if (!creds) return payload;
-    return attachRegistryAuth(cmd, payload, canonicalRegistryHost(row?.host), creds);
+  const thirdParty = async (orgId: string) => {
+    try {
+      return await loadOrgRegistryCredentials(db, orgId);
+    } catch {
+      return [];
+    }
   };
+  return async (orgId, cmd, payload) => {
+    if (cmd === 'image.build') {
+      const creds = await thirdParty(orgId);
+      return attachBuildPullAuths(payload, buildPullAuths(creds));
+    }
+    const images = dispatchImages(cmd, payload);
+    if (!images.length) return payload;
+    if ((payload as { registryAuth?: unknown } | null)?.registryAuth) return payload;
+    if (mayBeRegistryImage(images)) {
+      const row = await db.registryConfig.findUnique({
+        where: { orgId },
+        select: { host: true, credentialsEnc: true },
+      });
+      const creds = decodeRegistryCreds(row?.credentialsEnc);
+      if (creds) {
+        const out = attachRegistryAuth(cmd, payload, canonicalRegistryHost(row?.host), creds);
+        if (out !== payload) return out;
+      }
+    }
+    return attachThirdPartyAuth(cmd, payload, await thirdParty(orgId));
+  };
+}
+
+/**
+ * Pure: attach the longest-prefix third-party credential for the image a
+ * `service.deploy` / `image.pull` pulls. Never overrides an explicit
+ * `registryAuth`; no match → the payload untouched (same reference).
+ */
+export function attachThirdPartyAuth<P>(cmd: CommandName, payload: P, creds: readonly ResolvedCredential[]): P {
+  const [image] = dispatchImages(cmd, payload);
+  if (!image || !creds.length) return payload;
+  const p = payload as P & { registryAuth?: RegistryAuth };
+  if (p.registryAuth) return payload;
+  const hit = matchCredential(image, creds);
+  return hit ? { ...p, registryAuth: toRegistryAuth(hit) } : payload;
+}
+
+/** Pure: merge `pullAuths` into an `image.build` payload (explicit entries win per server). */
+export function attachBuildPullAuths<P>(payload: P, auths: readonly RegistryAuth[]): P {
+  if (!auths.length) return payload;
+  const p = payload as P & { pullAuths?: RegistryAuth[] };
+  const have = new Set((p.pullAuths ?? []).map((a) => a.server));
+  const add = auths.filter((a) => !have.has(a.server));
+  if (!add.length) return payload;
+  return { ...p, pullAuths: [...(p.pullAuths ?? []), ...add] };
 }
