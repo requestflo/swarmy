@@ -15,6 +15,10 @@ How the docs fit together:
     health-gated upgrades of every platform component (in progress).
   - [`redesign-dashboard-2026-09.md`](./redesign-dashboard-2026-09.md) — the
     calm ops console redesign (P0 landing; P1–P4 to come).
+  - [`epic-git-apps.md`](./epic-git-apps.md) — git-connected apps
+    (`swarmy.yaml` v1, provider auth, GitOps loop, builds).
+  - [`competitive-gaps-2026-09.md`](./competitive-gaps-2026-09.md) — the gap
+    analysis vs Dokploy, Coolify and hosted PaaS behind the list below.
 - **`issues/`** — individual bugs found in live testing (`issues/resolved/` is
   the fixed ones).
 
@@ -44,6 +48,42 @@ rule itself lives in the linked doc.
   runs the policy gate".
 - **`.design/` deleted** — the skills and `redesign-dashboard-2026-09.md` are
   the design authority.
+
+## Competitive gaps (from `competitive-gaps-2026-09.md`, checked 2026-09-24)
+
+LB = launch-blocker. Size S/M/L.
+
+1. **Zero-config builds (Railpack)** — auto-detect, static sites, no
+   Dockerfile. Today builds are Dockerfile-only. S–M, LB.
+2. **GitHub App** manifest flow + repo picker + PR comment / commit status with
+   the preview URL + webhook watch paths; Gitea next. Today: paste webhook +
+   PAT, GitHub/GitLab only. M, LB. (`epic-git-apps.md`.)
+3. **Automatic HTTPS route per HTTP service** —
+   `<svc>-<stack>.<ip>.sslip.io` on the (now default) Caddy edge. S, LB.
+4. **Third-party registry credentials** (GHCR, Docker Hub): `registryAuth` is
+   only filled for the org registry, so private GHCR images can't deploy. S, LB.
+5. **Compose template catalogue ≥ 50 at launch** (9 blueprints today vs Dokploy
+   532 / Coolify 368), CDN-indexed, plus an importer for Coolify's Apache-2.0
+   templates. M, LB at ≥ 50.
+6. **Discord / Telegram / ntfy channels** (email/Slack/Teams/webhook today) +
+   default rules: build failed, deploy rolled back, backup failed, disk, cert,
+   node offline. S, LB.
+7. **TOTP 2FA** (Better Auth `twoFactor`; passkeys only today) + enforce the
+   terminal `requireMfa` / `maxSessionMs` (see Security). S, LB.
+8. **Docker hygiene** — `image.prune` hygiene mode, json-file log-opts, a
+   journald cap, and a default disk > 85 % alert
+   (`issues/vm-disk-chronically-full.md`). S, LB.
+9. **MySQL / MariaDB / Mongo logical backup + one-click restore** (managed DB is
+   Postgres-only); a managed engine later. M; backup/restore is LB. In-place
+   restore goes on `abacProcedure('data.restore')`.
+10. **Bulk `.env` paste** (S, LB), then shared env groups + environments with
+    clone-as-staging / promote-by-digest (M–L, not LB).
+
+Just below the line: preview DB forks from the latest backup (reuses the
+restore-drill clone machinery), a developer CLI + MCP server, persistent
+BuildKit cache, pre-deploy release command, route basic-auth, DNS-01 wildcard
+via swarmy-dns, importers (Coolify drops Swarm in v5; Heroku is in sustaining
+mode).
 
 ## Launch verification
 
