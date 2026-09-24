@@ -53,8 +53,11 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
    string routed through `lit()` (single-quote escape), every int `clampInt`'d.
    Users never touch raw ClickHouse; they get audited tRPC procedures.
 8. **Telemetry data lives in ClickHouse; the DB owns only control state + fired
-   history.** Postgres holds `ObservabilityConfig`/`ObservabilityStoreState` and
-   the alerting spine — never spans/metrics/logs. Retention is a ClickHouse `TTL`,
+   history.** The DB holds `ObservabilityConfig` and the alerting spine — never
+   spans/metrics/logs. Run state is never stored: the store probe
+   (`recordStoreProbe`/`latestStoreProbe`) and the last suite-deploy outcome
+   live in memory in `observability.service.ts`; collector/store status is
+   derived from live tasks. Retention is a ClickHouse `TTL`,
    not a swarmy delete loop; `observability-reconcile.ts` OBSERVES (probes `/ping`
    + `system.parts` footprint), it does not delete.
 9. **Health is composed on read, never stored.** `health-summary.ts` recomposes
@@ -87,9 +90,9 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
   filter on exactly those keys.
 - **Read path**: `routers/observability.ts` procedures (`traces`, `traceDetail`,
   `metricsSeries`, `metricsSummary`, `logs`, `map`, `health`, `getStatus`) → the
-  service → the pure builders → ClickHouse HTTP. `getStatus` folds
-  `ObservabilityStoreState` + `collectorStatus` into the tab's Running/Reachable
-  badges.
+  service → the pure builders → ClickHouse HTTP. `getStatus` folds the live
+  collector/store task status and a live `/ping` into the tab's
+  Running/Reachable badges.
 - **Signal → alert → incident → status**: `alert-evaluator.ts` worker evaluates
   `AlertRule`s and samples `UptimeSample`; `alerts-fire.ts` raises/resolves
   `AlertEvent` (deduped on rule/signal + `resource`) and notifies channels;

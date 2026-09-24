@@ -96,8 +96,7 @@ Four ideas, one story:
   never mirrors them. Retention is a ClickHouse `TTL`, not a swarmy delete loop.
 - **What swarmy's DB owns is only its own control state + queryable history**:
   `ObservabilityConfig` (org `enabled`, encrypted `clickhouseDsn`,
-  `collectorStatus`, `retentionDays`), `ObservabilityStoreState` (last-probed
-  `reachable` + `diskUsedBytes` footprint), and the alerting spine —
+  `retentionDays`) and the alerting spine —
   `AlertRule`/`AlertEvent`, `Incident`/`IncidentEvent`, `StatusPage`/`UptimeSample`,
   `NotificationChannel` (config encrypted via the vault, never returned to
   clients). Identity, access, audit, and the *history of what fired* — swarmy's;
@@ -141,7 +140,7 @@ Four ideas, one story:
 | Failure | Behaviour |
 |---|---|
 | Telemetry store (ClickHouse) down or unreachable | App traffic is never affected — telemetry is not the app's primary data. Reads return empty + a clear "store unreachable" status; the reconcile worker marks it not-reachable; health says latency/error checks are blind rather than green. |
-| Collector failed to deploy | `collectorStatus: FAILED`; the health narrative surfaces "telemetry collector failed to deploy — latency and error-rate checks are blind" instead of implying all-clear. |
+| Collector failed to deploy | The collector status reads `FAILED` (the dispatch failure is held in memory; live tasks decide the rest); the health narrative surfaces "telemetry collector failed to deploy — latency and error-rate checks are blind" instead of implying all-clear. |
 | App already sets its own `OTEL_*` (own collector) | User values win — `injectOtel` only fills absent keys, never overwrites. The stack ships to the user's endpoint, not swarmy's. |
 | Stack toggled off | Next deploy drops the injected env/labels; the stack runs byte-identically to never-instrumented (golden guarantee); its data stops landing and TTL-expires. |
 | Trace volume / ClickHouse footprint growing | Tail sampling at the gateway keeps errors/slow traces and samples the rest; retention is a short default `TTL`; the store's `diskUsedBytes` is surfaced in the UI so growth is visible before it hurts. |

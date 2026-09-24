@@ -1,6 +1,6 @@
 ---
 name: managed-data-services
-description: Invariants, label schemes, and file map for swarmy's managed data plane — Postgres clusters (swarmy.db.*), caches (swarmy.cache.*), search (swarmy.search.*), vectors (swarmy.vector.* + in-place pgvector), and Garage object-storage buckets. Load before touching packages/trpc/src/routers/{manageddb,cache,search,vector,buckets,storage,volumes}.ts, their *.service.ts, the *-reconcile.ts workers, apps/agent/src/handlers/storage.ts, protocol/storage.ts, or the StorageCluster/ClusterVolume models. Product rationale lives in docs/product/managed-data.md.
+description: Invariants, label schemes, and file map for swarmy's managed data plane — Postgres clusters (swarmy.db.*), caches (swarmy.cache.*), search (swarmy.search.*), vectors (swarmy.vector.* + in-place pgvector), and Garage object-storage buckets. Load before touching packages/trpc/src/routers/{manageddb,cache,search,vector,buckets,storage,volumes}.ts, their *.service.ts, the *-reconcile.ts workers, apps/agent/src/handlers/storage.ts, protocol/storage.ts, the StorageCluster model, or the cluster-volume (`volume.list`) path. Product rationale lives in docs/product/managed-data.md.
 ---
 
 # Managed data services: declare on labels, reconcile, attach by env
@@ -17,10 +17,10 @@ state belongs see `skill("docker-native-storage")`.
    `swarmy.db.*`, cache `swarmy.cache.*`, search `swarmy.search.*`, vector
    `swarmy.vector.*` on the swarm services. The view is read off labels every
    time; scaling/topology/memory rewrites a label and a reconcile worker
-   converges. The ONLY Prisma rows in this domain are `StorageCluster` (one per
-   org: driver + `replicationFactor` + encrypted `adminTokenRef`) and
-   `ClusterVolume` (CSI registration). Reaching for a new model to hold cluster
-   state is the bug — see `skill("docker-native-storage")`.
+   converges. The ONLY Prisma row in this domain is `StorageCluster` (one per
+   org: driver + `replicationFactor` + encrypted `adminTokenRef`). CSI cluster
+   volumes are listed live from a manager (`volume.list` → `docker volume ls`);
+   there is no table. Reaching for a new model to hold cluster state is the bug — see `skill("docker-native-storage")`.
 2. **Secrets live in Docker secrets, shown exactly once.** Generated DB
    passwords, cache passwords, search master keys, vector API keys, and bucket
    secret-access-keys are returned once in the mutation result and thereafter
@@ -119,7 +119,8 @@ state belongs see `skill("docker-native-storage")`.
 | Agent: applyStorageNode, provisionVolume, removeVolume | `apps/agent/src/handlers/storage.ts` |
 | Storage/volume protocol messages | `packages/core/src/protocol/storage.ts` |
 | Input schemas + engine/topology enums | `packages/core/src/inputs.ts`, `packages/core/src/views.ts` |
-| StorageCluster / ClusterVolume models | `packages/db/prisma/schema/backups.prisma` |
+| StorageCluster model | `packages/db/prisma/schema/backups.prisma` |
+| Cluster volumes (live `volume.list`, no table) | `packages/trpc/src/services/clusterVolume.service.ts` |
 | Data surfaces | per stack: `apps/app/src/routes/_authed/stacks/$name.data.tsx` → `components/stacks/managed-db-panel.tsx`, `components/{cache,searchsvc,vector,pitr-ha}/*`; buckets: `routes/_authed/data_.buckets.tsx` |
 | HA templates (`postgres-ha` repmgr, `redis-ha` Sentinel; no gallery UI yet) | `packages/trpc/src/services/templates.ts`, `routers/templates.ts` |
 

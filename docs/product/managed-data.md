@@ -95,8 +95,9 @@ Four ideas, one story:
   disk).
 - **What the DB owns is only swarmy's own pointers and access records.** The
   `StorageCluster` row (one per org: driver, `replicationFactor`, `enabled`,
-  encrypted `adminTokenRef`) and the `ClusterVolume` row (CSI registration) —
-  swarmy's identity/handle for the estate-wide store, not the data. Backup
+  encrypted `adminTokenRef`): swarmy's identity/handle for the estate-wide
+  store, not the data. CSI cluster volumes have no row: they are listed live
+  from a manager (`docker volume ls`). Backup
   catalog rows (`Snapshot`, `BackupTarget`) belong to the `backups-dr` domain.
   See the `docker-native-storage` skill.
 
@@ -232,7 +233,8 @@ plus `garage-render.ts`, `replicatedStore.service.ts`, `clusterVolume.service.ts
 the reconcile workers
 (`apps/api/src/workers/{manageddb,cache,search,vector}-reconcile.ts`), the agent
 storage/volume handler (`apps/agent/src/handlers/storage.ts`) and its protocol
-(`packages/core/src/protocol/storage.ts`), the `StorageCluster` / `ClusterVolume`
-models (`packages/db/prisma/schema/backups.prisma`), and the Data surfaces —
+(`packages/core/src/protocol/storage.ts`), the `StorageCluster` model
+(`packages/db/prisma/schema/backups.prisma`), the live cluster-volume listing
+(`packages/trpc/src/services/clusterVolume.service.ts`), and the Data surfaces —
 per stack in `apps/app/src/routes/_authed/stacks/$name.data.tsx`, object storage
 at `routes/_authed/data_.buckets.tsx`.

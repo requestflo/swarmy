@@ -50,7 +50,7 @@ agent executor 'applyMesh'  (gated by SWARMY_ALLOW_MESH → E_MESH_DISABLED)
 node on the WireGuard mesh (iface wt0, mesh IP 100.92.0.x)
    │  ⑤ every 20s: sampleMeshState() → conn.send('meshState', …)
    ▼
-gateway 'meshState' → MeshPeer row (status / meshIp / lastSeen)  → Peers list
+gateway 'meshState' → live peer map (status / meshIp / lastSeen, in memory) → Peers list
 ```
 
 Four ideas, one story:
@@ -85,17 +85,19 @@ Four ideas, one story:
   reads placement from live inventory like everything else. See the
   `docker-native-storage` skill for the boundary.
 - **Mesh membership and access are swarmy's OWN identity/access, so they live in
-  the DB.** Unlike node roles or cost (which are Docker labels), a mesh peer,
-  its ACLs, and its control-plane credentials are swarmy's access-control and
-  audit surface — exactly what the DB is *for*. `MeshConfig` (org-scoped 1:1,
-  `driver` default `NONE`, `enabled` default `false`, encrypted control-plane
-  token), `MeshPeer` (one per node, `meshIp`, `status`), `MeshRoute` +
-  `MeshAcl` (direct-connect grants + rendered enforcement, `expiresAt`,
-  `createdById`) are swarmy state, not swarm state.
+  the DB; peers do not.** Unlike node roles or cost (which are Docker labels),
+  the mesh's grants and control-plane credentials are swarmy's access-control
+  and audit surface — exactly what the DB is *for*. `MeshConfig` (org-scoped
+  1:1, `driver` default `NONE`, `enabled` default `false`, encrypted
+  control-plane token) and `MeshRoute` (direct-connect grants, `expiresAt`,
+  `createdById`) are swarmy state, not swarm state. Peers are NOT stored: their
+  status / mesh IP / last-seen come from the agent's `meshState` reports (a
+  process-local map) cross-checked with the control plane's `listPeers`, and
+  the enforced ACL is rendered from `MeshRoute` on demand.
 - **The control plane is the provider's truth; swarmy is system-of-record over
   it.** NetBird holds the authoritative peer list; swarmy drives it by API with a
-  service token and reconciles `MeshPeer` from `meshState` reports and (best
-  effort) `listPeers`. swarmy never mirrors what it can ask the control plane.
+  service token and derives peers from `meshState` reports and (best effort)
+  `listPeers`. swarmy never mirrors what it can ask the control plane.
 - **The peer's live liveness is agent-pushed telemetry, not a command.** The
   agent samples `netbird status --json` / `wg show` and pushes `meshState`;
   reads never dispatch a command (same rule as list/inspect/stats).
@@ -144,7 +146,7 @@ Four ideas, one story:
 | Failure | Behaviour |
 |---|---|
 | Control plane unreachable at enroll | The driver falls back to an opaque single-use key so a fresh/unconfigured org still enrolls; `status()` reports "control plane unreachable" instead of throwing. |
-| `applyMesh` fails on the node | The `MeshPeer` is marked `FAILED` and `mesh.peer.enrollFailed` is audited; the error surfaces to the admin. No half-joined ghost. |
+| `applyMesh` fails on the node | The live peer is marked `FAILED` and `mesh.peer.enrollFailed` is audited; the error surfaces to the admin. No half-joined ghost. |
 | Node opts out of mesh (`SWARMY_ALLOW_MESH=false`) | The executor rejects `applyMesh`/`grantDirectRoute` with `E_MESH_DISABLED`; the rest of the agent is unaffected. |
 | Agent silent but control plane knows | Reconcile can fall back to `reconcileFromControlPlane` (NetBird `/api/peers`) so liveness isn't lost when the node's own reporter is quiet. |
 | Direct-route policy push fails | The route row is kept, the ACL marked un-applied, and `mesh.route.pushFailed` is audited — the grant isn't silently lost. |
@@ -186,7 +188,7 @@ control-plane client (`packages/mesh/src/control-plane/netbird.ts`),
 `packages/trpc/src/services/mesh.service.ts` + `routers/mesh.ts` (orchestration),
 `apps/agent/src/handlers/mesh.ts` (sidecar apply + `meshState` sampler),
 `apps/api/src/gateway/protocol-handlers.ts` (`meshState` reconcile),
-`packages/db/prisma/schema/mesh.prisma` (`MeshConfig`/`MeshPeer`/`MeshRoute`/
-`MeshAcl`), and `apps/app/src/routes/_authed/networking.tsx` (the Networking UI).
+`packages/db/prisma/schema/mesh.prisma` (`MeshConfig`/`MeshRoute`),
+`packages/trpc/src/services/mesh-peers.ts` (the live peer map), and `apps/app/src/routes/_authed/networking.tsx` (the Networking UI).
 The pluggable-driver pattern is shared with the `scaffold-ingress-driver` skill;
 the agent contract with the `agent-handlers` skill.

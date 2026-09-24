@@ -86,4 +86,9 @@ wrong for secrets, audit, history, and anything you need to query across.
 - Reading swarm state back from the DB (it's stale the moment Docker changes) → read
   the live inventory.
 - Stuffing a secret into a label or env → Docker secret.
+- Run state on a config row (`lastRunAt`/`nextRunAt`, probe results, a deploy
+  outcome, a peer's live status) → derive it from the history table (newest
+  `BackupJob`/`JobRun`/…) or from live reports, or keep it in process memory
+  and re-derive on the first tick after a restart. Never timestamps, counters
+  or run state in a config row, a label or a swarm config.
 - A label per array element (`swarmy.ingress.0.host`, `.1.host`) → one JSON label.

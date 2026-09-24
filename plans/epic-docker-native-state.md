@@ -392,6 +392,18 @@ controller bundle restore, or not at all.
   the history tables.
 - Done when typecheck and tests pass, `prisma db push` runs on the empty
   schema, and the UI shows the same values fed live.
+- **Landed 2026-09-24.** The six models are gone. `SwarmConfig`'s join material
+  is read from a live manager and cached in memory (the installer's tokens
+  prime it at boot); a known swarm with no connected manager waits a minute
+  before re-electing. The unlock-key escrow is a `VaultEntry` row. `MeshPeer`
+  is a live map fed by `meshState` + `listPeers`; `MeshRoute` stays (grants,
+  also person grants in `epic-self-hosted-mesh-and-fleets.md`). `ClusterVolume`
+  did have a (cast) writer; it is now a live `volume.list` on a manager.
+  Schedule last/next run is derived from run history; `grantedBucketIds`,
+  `collectorStatus` and domain-check probe results are in memory (the
+  domain gate itself stays in `IngressConfig.settings`). `StorageCluster`
+  members/layout/engineUpgrade are left to P4 slice 2, where the whole model
+  moves to `swarm-kv`.
 
 ### P2: SQLite engine swap (M, 1–1.5 weeks, gated by a 1-day spike)
 - Spike: Prisma 7 + `bun:sqlite` adapter (or `adapter-libsql`) passes

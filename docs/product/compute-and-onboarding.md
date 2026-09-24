@@ -156,9 +156,11 @@ Four ideas, one story:
   controller to hold node credentials and reach in — violating the dial-out,
   NAT-friendly, "controller never touches the node" principle. `curl | sh` is
   pull-based and works behind NAT with zero inbound ports.
-- **Storing swarm join tokens in plaintext.** Manager/worker SWMTKN tokens are
-  kept encrypted in `SwarmConfig`, rotatable (`rotateJoinTokens`), and handed to
-  the box only for a local `swarm join`.
+- **Storing swarm join tokens at all.** Manager/worker SWMTKN tokens are read
+  live from a manager when a node joins (cached vault-encrypted in controller
+  memory only), rotatable (`rotateJoinTokens`), and handed to the box only for
+  a local `swarm join`. The one swarm secret swarmy stores is the opt-in
+  autolock unlock-key escrow (a vault-encrypted `VaultEntry` row).
 - **A DB mirror of swarm state.** Role, availability, labels, and membership are
   read from Docker each time. A column that shadows swarm state drifts — see the
   `docker-native-storage` skill.
