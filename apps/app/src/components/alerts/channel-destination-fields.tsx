@@ -156,7 +156,15 @@ export function ChannelDestinationFields({
             placeholder="https://ntfy.example.com"
             hint={
               <>
-                Your own ntfy server. No server yet?{' '}
+                Your own ntfy server, or{' '}
+                <button
+                  type="button"
+                  className="underline underline-offset-2"
+                  onClick={() => set('server')('https://ntfy.sh')}
+                >
+                  use the free public ntfy.sh
+                </button>{' '}
+                (alerts then pass through ntfy.sh — pick a hard-to-guess topic). Want it in-house?{' '}
                 <Link to="/blueprints" className="underline underline-offset-2">
                   Deploy the ntfy template
                 </Link>
