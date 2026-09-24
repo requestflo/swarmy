@@ -175,6 +175,26 @@ function mirrorIntoCicd(
   ];
 }
 
+/** A believable repo tree by name: `…/platform` is a monorepo, `…/legacy-billing` predates swarmy. */
+function fakeInspect(name: string, configPath: string) {
+  const tree = name.endsWith('/platform')
+    ? [
+        'services/orders/swarmy.yaml',
+        'services/orders/Dockerfile',
+        'services/payments/swarmy.yaml',
+        'services/payments/Dockerfile',
+        'package.json',
+      ]
+    : name.endsWith('/legacy-billing')
+      ? ['Dockerfile', 'docker-compose.yml', 'Gemfile']
+      : ['swarmy.yaml', 'Dockerfile', 'package.json'];
+  const configPaths = tree.filter((p) => /(^|\/)swarmy\.ya?ml$/.test(p));
+  const files: Record<string, string | null> = {
+    [configPath]: configPaths.includes(configPath) ? 'version: 1\n' : null,
+  };
+  return { sha: sha(), files, tree, configPaths };
+}
+
 export const gitconnections: DomainResolvers = {
   seed: (store) => {
     store.extra['gitConnections'] = buildSeed();
@@ -311,25 +331,27 @@ export const gitconnections: DomainResolvers = {
     'gitConnections.inspect': (i, s) => {
       const { repoId } = i as { repoId: string };
       const row = state(s).linked[repoId];
-      const mono = row?.fullName.endsWith('/platform');
-      const tree = mono
-        ? [
-            'services/orders/swarmy.yaml',
-            'services/orders/Dockerfile',
-            'services/payments/swarmy.yaml',
-            'services/payments/Dockerfile',
-            'package.json',
-          ]
-        : row?.fullName.endsWith('/legacy-billing')
-          ? ['Dockerfile', 'docker-compose.yml', 'Gemfile']
-          : ['swarmy.yaml', 'Dockerfile', 'package.json'];
-      const configPaths = tree.filter((p) => /(^|\/)swarmy\.ya?ml$/.test(p));
-      const files: Record<string, string | null> = {
-        [row?.configPath ?? 'swarmy.yaml']: configPaths.includes(row?.configPath ?? 'swarmy.yaml')
-          ? 'version: 1\n'
-          : null,
+      return fakeInspect(row?.fullName ?? '', row?.configPath ?? 'swarmy.yaml');
+    },
+
+    'gitConnections.inspectSource': (i) => {
+      const { cloneUrl, paths } = i as { cloneUrl: string; paths?: string[] };
+      const name = cloneUrl.replace(/\.git$/, '');
+      return fakeInspect(name, paths?.[0] ?? 'swarmy.yaml');
+    },
+
+    'gitConnections.updateRepo': (i, s) => {
+      const b = i as { id: string; branch?: string; configPath?: string };
+      const row = state(s).linked[b.id];
+      if (row) {
+        if (b.branch) row.branch = b.branch;
+        if (b.configPath) row.configPath = b.configPath.replace(/^\.?\/+/, '');
+      }
+      return {
+        id: b.id,
+        branch: row?.branch ?? b.branch ?? 'main',
+        configPath: row?.configPath ?? 'swarmy.yaml',
       };
-      return { sha: sha(), files, tree, configPaths };
     },
   },
 };

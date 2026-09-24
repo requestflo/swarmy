@@ -1,6 +1,7 @@
 import * as React from 'react';
-import { Button, Input, Label } from '@swarmy/ui';
+import { Button } from '@swarmy/ui';
 import { GitBranchField } from './git-branch-field';
+import { GitConfigPathField } from './git-config-path-field';
 import { GitRepoPicker } from './git-repo-picker';
 import { GitSourcePicker, type GitSource } from './git-source-picker';
 import { GitStep } from './git-step';
@@ -88,15 +89,15 @@ export function GitNewAppForm(props: GitNewAppFormProps): React.JSX.Element {
         </GitStep>
       )}
       {ready ? (
-        <GitStep n={picking ? 4 : 3} title="Monorepo? (optional)">
-          <Label className="text-muted-foreground text-xs">
-            Path to swarmy.yaml — we’ll also look for others after linking.
-          </Label>
-          <Input
+        <GitStep n={picking ? 4 : 3} title="Which swarmy.yaml?">
+          <GitConfigPathField
+            source={{
+              connectionId: conn?.id,
+              cloneUrl: picking && repo ? repo.cloneUrl : url.trim(),
+              ref: branch.trim(),
+            }}
             value={configPath}
-            onChange={(e) => setConfigPath(e.target.value)}
-            placeholder="swarmy.yaml"
-            className="mono-data"
+            onChange={setConfigPath}
           />
         </GitStep>
       ) : null}

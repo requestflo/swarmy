@@ -14,7 +14,7 @@ import { ErrorState, TextSkeleton } from '@/components/states';
 import { GitLinkDetect } from './git-link-detect';
 import { GitLinkSecrets } from './git-link-secrets';
 import { GitNewAppForm } from './git-new-app-form';
-import type { LinkedRepo, LinkRepoRequest } from './git-types';
+import type { LinkedRepo } from './git-types';
 import { useGitInspect } from './use-git-inspect';
 
 interface GitNewAppCardProps {
@@ -31,21 +31,26 @@ export function GitNewAppCard({
   const qc = useQueryClient();
   const connections = useQuery(trpc.gitConnections.list.queryOptions());
   const [linked, setLinked] = React.useState<LinkedRepo | null>(null);
-  const [lastReq, setLastReq] = React.useState<LinkRepoRequest | null>(null);
 
   const refresh = (): void => {
     void qc.invalidateQueries({ queryKey: trpc.cicd.listRepos.queryKey() });
     void qc.invalidateQueries({ queryKey: trpc.gitConnections.list.queryKey() });
   };
   const inspect = useGitInspect();
-  const removeOld = useMutation(trpc.cicd.removeRepo.mutationOptions({ onSettled: refresh }));
+  const update = useMutation(
+    trpc.gitConnections.updateRepo.mutationOptions({
+      onSuccess: (res) => {
+        setLinked((l) => (l ? { ...l, branch: res.branch, configPath: res.configPath } : l));
+        toast.success(`Now deploying ${res.configPath}.`);
+        refresh();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
   const link = useMutation(
     trpc.gitConnections.linkRepo.mutationOptions({
-      onSuccess: (res, req) => {
-        // Switching swarmy.yaml re-links; drop the binding it replaces.
-        if (linked) removeOld.mutate({ id: linked.id });
+      onSuccess: (res) => {
         setLinked(res);
-        setLastReq(req);
         inspect.mutate({ repoId: res.id });
         toast.success(`${res.fullName ?? res.url} is linked.`);
         refresh();
@@ -68,8 +73,8 @@ export function GitNewAppCard({
       <GitLinkDetect
         linked={linked}
         inspect={inspect}
-        switching={link.isPending}
-        onUsePath={(configPath) => lastReq && link.mutate({ ...lastReq, configPath })}
+        switching={update.isPending}
+        onUsePath={(configPath) => update.mutate({ id: linked.id, configPath })}
       />
       <div className="flex justify-end">
         <Button variant="outline" onClick={onClose}>

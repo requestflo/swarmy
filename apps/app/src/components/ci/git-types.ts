@@ -48,9 +48,9 @@ export function canListRepos(kind: GitConnectionKind): boolean {
   return kind !== 'generic';
 }
 
-/** Branch listing exists for GitHub + GitLab only (see listProviderBranches). */
+/** Branch listing exists for every provider with an API (see listProviderBranches). */
 export function canListBranches(kind: GitConnectionKind): boolean {
-  return kind === 'github' || kind === 'gitlab';
+  return kind !== 'generic';
 }
 
 /** GitHub's branches API takes `owner/name`; GitLab's takes the project id. */
