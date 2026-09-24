@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { parseDomainId, domainId, previewConfig } from './ingress.service';
-import { hostPostures, toStatusView } from './domain-verify.service';
+import { hostPostures, hostsIntroducedByDeploy, registerDeployRoutes, toStatusView } from './domain-verify.service';
 
 /**
  * The custom-domain DNS gate end to end through the controller's config
@@ -130,5 +130,66 @@ describe('hostPostures / toStatusView', () => {
       lastCheckedAt: '1970-01-01T00:00:01.000Z',
       certificate: null,
     });
+  });
+});
+
+describe('deploy-path domain gate', () => {
+  const lbl = (routes: object[]) => ({ 'swarmy.ingress.routes': JSON.stringify(routes) });
+
+  it('registers only hosts no live route serves (companions included)', () => {
+    const { routes, liveHosts } = hostsIntroducedByDeploy(
+      [
+        lbl([
+          { host: 'live.acme.com', port: 80, tls: 'auto' },
+          { host: 'New.acme.com', port: 80, tls: 'auto' },
+          { host: 'acme.com', port: 80, tls: 'auto', www: 'redirect-www-to-apex' },
+        ]),
+        undefined,
+        {},
+      ],
+      [
+        { host: 'live.acme.com', tls: 'auto' },
+        { host: 'acme.com', tls: 'auto' },
+      ],
+    );
+    // live.acme.com stays observed-only; the new www companion of a live apex is fresh.
+    expect(routes.map((r) => r.host)).toEqual(['New.acme.com', 'acme.com']);
+    expect([...liveHosts].sort()).toEqual(['acme.com', 'live.acme.com']);
+  });
+
+  it('a compose deploy declaring a new host writes a GATED record before the spec lands', async () => {
+    const writes: string[] = [];
+    const row = { driver: 'CADDY', enabled: true, settings: { domainChecks: { hosts: {} } } };
+    const ctx = {
+      activeOrgId: 'org_1',
+      db: {
+        ingressConfig: { findUnique: async () => row },
+        $executeRaw: async (_s: TemplateStringsArray, ...vals: unknown[]) => {
+          writes.push(String(vals[0]));
+          return 1;
+        },
+      },
+      hub: {
+        liveInventory: () => ({ services: [svc(lbl([{ host: 'live.acme.com', port: 80, tls: 'auto' }]))], containers: [] }),
+      },
+    } as unknown as OrgContext;
+    const hosts = await registerDeployRoutes(ctx, [
+      { labels: lbl([{ host: 'shop.acme.com', port: 80, tls: 'auto' }, { host: 'live.acme.com', port: 80, tls: 'auto' }]) },
+      { labels: { foo: 'bar' } },
+    ]);
+    expect(hosts).toEqual(['shop.acme.com']);
+    expect(writes).toHaveLength(1);
+    const upserts = JSON.parse(writes[0]!) as Record<string, { gated: boolean }>;
+    expect(Object.keys(upserts)).toEqual(['shop.acme.com']);
+    expect(upserts['shop.acme.com']!.gated).toBe(true);
+  });
+
+  it('a redeploy of already-routed hosts writes nothing', async () => {
+    const ctx = {
+      activeOrgId: 'org_1',
+      db: { $executeRaw: async () => { throw new Error('must not write'); } },
+      hub: { liveInventory: () => ({ services: [svc(lbl([{ host: 'a.com', port: 80, tls: 'auto' }]))], containers: [] }) },
+    } as unknown as OrgContext;
+    expect(await registerDeployRoutes(ctx, [{ labels: lbl([{ host: 'a.com', port: 80, tls: 'auto' }]) }])).toEqual([]);
   });
 });

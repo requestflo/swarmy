@@ -32,6 +32,7 @@ import { carryManagedAttachments } from './attachment-carry';
 import { overlayOptionsFor } from './platform-networks';
 import { carryLinks, stackPeers } from './stack-links.service';
 import { stackEndpoints, type StackEndpoints } from './service-endpoints';
+import { kickDomainChecks, registerDeployRoutes } from './domain-verify.service';
 
 /**
  * Swarm state lives in Docker, not the DB. The Stack model is now config-only
@@ -482,6 +483,12 @@ export async function deployFromCompose(
     }
   };
 
+  // The domain gate: a host this compose declares on `swarmy.ingress.routes`
+  // that no live route serves yet enters DNS verification BEFORE the spec
+  // lands — same as `ingress.addDomain` — so Caddy never orders a certificate
+  // for a name whose DNS doesn't point at us.
+  const gatedHosts = await registerDeployRoutes(ctx, finalSpecs);
+
   // Non-persisted deploy correlation id — keeps the API shape without a DB row.
   const deploymentId = randomUUID();
   try {
@@ -502,6 +509,7 @@ export async function deployFromCompose(
     deployLabels,
   }).catch(() => null);
 
+  kickDomainChecks(ctx, gatedHosts);
   const migrated = migration.legacy.map((s) => s.name);
   await writeAudit(ctx, {
     action: 'stack.deploy',
@@ -589,12 +597,14 @@ export async function addServiceToStack(
     { targetType: 'service', targetId: input.name },
   );
 
+  const gatedHosts = await registerDeployRoutes(ctx, spec ? [spec] : []);
   const deploymentId = randomUUID();
   try {
     await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
   } catch (e) {
     throw mapDispatchError(e);
   }
+  kickDomainChecks(ctx, gatedHosts);
 
   // Best-effort live id (inventory is eventually consistent); name is the stable
   // fallback until the new service surfaces under the stack.

@@ -107,9 +107,11 @@ export function isHostGated(checks: DomainChecks | undefined, rawHost: string): 
   const host = normalizeHostname(rawHost);
   const rec = checks.hosts[host];
   // Only hosts swarmy registered through its own write paths (add domain, set
-  // routes, www toggle) are gated. A host the worker merely DISCOVERS on a
-  // label (routed before this feature, or written by a compose deploy) is never
-  // withheld — un-rendering a domain that already works would be an outage.
+  // routes, www toggle, and every deploy path — compose, single service,
+  // builder — for hosts no live route serves yet) are gated. A host the worker
+  // merely DISCOVERS on a label (routed before this feature, or already live
+  // when a redeploy re-declares it) is never withheld — un-rendering a domain
+  // that already works would be an outage.
   return rec !== undefined && rec.gated && rec.verifiedAt === undefined;
 }
 

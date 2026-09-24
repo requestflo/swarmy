@@ -199,12 +199,14 @@ honest lifecycle, shown on the row in plain words:
   still propagating, Cloudflare's orange cloud, a stray AAAA (Let's Encrypt
   tries IPv6 first), a leftover extra A record.
 - **No certificate order for a name that can't validate.** A domain added
-  through swarmy (add domain, set routes, the www toggle) is withheld from the
-  render — and denied by `/ingress/ask` — until its DNS verifies. Verification
-  is sticky: a later DNS change reports `error` but never un-serves a working
-  site. Hosts swarmy merely discovers on a label (routes that predate this, or
-  a compose deploy) are observed, never withheld — un-rendering a working
-  domain would be an outage. An admin can skip the check for a domain behind
+  through swarmy (add domain, set routes, the www toggle) — or declared on
+  `swarmy.ingress.routes` in a compose / single-service / builder deploy — is
+  withheld from the render, and denied by `/ingress/ask`, until its DNS
+  verifies. Every deploy path runs the same gate (`registerDeployRoutes`)
+  before the spec lands. Verification is sticky: a later DNS change reports
+  `error` but never un-serves a working site. Hosts already routed live when a
+  redeploy re-declares them (or that predate this feature) are observed, never
+  withheld — un-rendering a working domain would be an outage. An admin can skip the check for a domain behind
   an external load balancer (audited).
 - **Certificate status is measured, not assumed.** A TLS handshake from the
   controller to each edge's public IP with SNI = the host: issuer, expiry, and

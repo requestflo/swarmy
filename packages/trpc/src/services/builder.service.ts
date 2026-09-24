@@ -16,6 +16,7 @@ import { mapDispatchError } from '../errors';
 import { enforceAdmission } from './admission-gate';
 import { pinToNodeConstraint, resolveManagerNode } from './dispatch.service';
 import { liveService } from './service.service';
+import { kickDomainChecks, registerDeployRoutes } from './domain-verify.service';
 
 /**
  * Compose import/export for the GUI service builder. The `yaml` string <-> object
@@ -126,11 +127,15 @@ export async function deployFromModel(
   // is a synthetic, non-persisted id rather than a DB primary key.
   const deploymentId = randomUUID();
 
+  // Domain gate: a route label on the model registers its host for DNS
+  // verification before the spec lands (see registerDeployRoutes).
+  const gatedHosts = await registerDeployRoutes(ctx, [spec]);
   try {
     await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
   } catch (e) {
     throw mapDispatchError(e);
   }
+  kickDomainChecks(ctx, gatedHosts);
 
   // Resolve the Docker service id from live inventory (falls back to the name
   // until the hub snapshot catches up with the just-dispatched deploy).

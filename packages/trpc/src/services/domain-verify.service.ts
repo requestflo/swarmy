@@ -57,7 +57,7 @@ import { notFound } from '../errors';
 import { systemContext } from './cicd.service';
 import { writeAudit } from './audit.service';
 import { fireEvent } from './alerts-fire';
-import { listRoutesForOrg } from './ingress-routes';
+import { listRoutesForOrg, readRoutes, type Route } from './ingress-routes';
 import { ingressTaskNodes } from './ingress-controller';
 import { publicIpFromLabels } from './node.service';
 import { dnsDb } from './dns-snapshot.service';
@@ -128,14 +128,67 @@ function orgPostures(ctx: OrgContext, driver: string | undefined): HostPosture[]
 export async function registerDomainHosts(
   ctx: OrgContext,
   routes: ReadonlyArray<{ host: string; tls: RouteTls; www?: WwwMode }>,
+  opts: { except?: ReadonlySet<string> } = {},
 ): Promise<void> {
   const driver = await orgDriver(ctx);
   const checks = domainChecksOf(await readIngressSettingsRaw(ctx));
   const now = Date.now();
   const upserts = hostPostures(routes, driver)
-    .filter((p) => !p.private && !checks?.hosts[p.host])
+    .filter((p) => !p.private && !checks?.hosts[p.host] && !opts.except?.has(p.host))
     .map((p) => newDomainRecord(p, now));
   await patchDomainChecks(ctx, { upserts }).catch(() => undefined);
+}
+
+/**
+ * PURE — the hosts (companions included) a deploy's specs would start routing
+ * that no LIVE route serves today. Those are the ones a deploy must register
+ * (gated) before the spec lands; a host already routed live is left to the
+ * worker's "discovered, never withheld" path so a redeploy can never un-serve a
+ * working site.
+ */
+export function hostsIntroducedByDeploy(
+  specLabels: ReadonlyArray<Record<string, string> | undefined>,
+  liveRoutes: ReadonlyArray<{ host: string; tls: RouteTls; www?: WwwMode }>,
+): { routes: Route[]; liveHosts: Set<string> } {
+  const liveHosts = new Set(hostPostures(liveRoutes, undefined).map((p) => p.host));
+  const routes = specLabels.flatMap((l) => (l ? readRoutes(l) : []));
+  const fresh = new Set(
+    hostPostures(routes, undefined)
+      .map((p) => p.host)
+      .filter((h) => !liveHosts.has(h)),
+  );
+  return {
+    routes: routes.filter((r) => fresh.has(normalizeHostname(r.host)) || (r.www && fresh.has(companionHost(r.host) ?? ''))),
+    liveHosts,
+  };
+}
+
+/**
+ * The deploy-path domain gate: every deploy that writes specs (compose, a
+ * single service, the builder) runs this BEFORE `service.deploy`, so a host a
+ * compose file declares on `swarmy.ingress.routes` enters DNS verification
+ * exactly like one added through `ingress.addDomain` — withheld from the render
+ * (and `/ingress/ask`) until public DNS points at an edge. Hosts already routed
+ * live are never gated (see {@link hostsIntroducedByDeploy}). Best-effort: a
+ * failed registration never fails the deploy (the host is then merely
+ * discovered, the pre-gate behaviour).
+ */
+export async function registerDeployRoutes(
+  ctx: OrgContext,
+  specs: ReadonlyArray<{ labels?: Record<string, string> }>,
+): Promise<string[]> {
+  const { routes, liveHosts } = hostsIntroducedByDeploy(
+    specs.map((s) => s.labels),
+    listRoutesForOrg(ctx).map((r) => r.route),
+  );
+  if (routes.length === 0) return [];
+  await registerDomainHosts(ctx, routes, { except: liveHosts }).catch(() => undefined);
+  return [...new Set(routes.map((r) => normalizeHostname(r.host)))];
+}
+
+/** Kick a first DNS check per host in the background (a host whose DNS already points here goes live in seconds). */
+export function kickDomainChecks(ctx: OrgContext, hosts: readonly string[]): void {
+  for (const host of hosts) void verifyDomainNow(ctx, host).catch(() => undefined);
 }
 
 // ───────────────────────────────────────────── expected target ──
