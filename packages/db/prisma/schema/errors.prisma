@@ -1,0 +1,34 @@
+// Error tracking (plans/epic-developer-platform.md §6): Sentry-compatible
+// ingest. The DB holds only IDENTITY — which org + app (stack) a numeric
+// Sentry project id belongs to, and the DSN key that authenticates it.
+// Events, issues (and their resolve/ignore state), releases and source maps
+// live in the observability ClickHouse store (`swarmy_error_*` tables); the
+// per-stack opt-in is the `swarmy.errors.enabled` service label.
+//
+// Portable column shapes only (SQLite control.db): no db-specific attributes,
+// no arrays, no autoincrement.
+
+/// One DSN per app. Created on first opt-in, kept across disable/enable so
+/// the DSN baked into a client bundle keeps working.
+model ErrorProject {
+  id                 String    @id @default(cuid())
+  orgId              String
+  /// The app / Docker stack namespace this DSN reports for.
+  stack              String
+  /// Numeric Sentry project id (SDKs reject non-numeric ids). Random, unique across orgs.
+  projectId          Int       @unique
+  /// sha-256 of the DSN public key — what ingest compares.
+  keyHash            String
+  /// The DSN public key, vault-sealed (SWARMY_SECRET_KEY), so the dashboard can show the DSN.
+  keyEnc             String
+  /// Events per minute this project accepts before answering 429.
+  rateLimitPerMinute Int       @default(600)
+  rotatedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, stack])
+  @@map("error_project")
+}
