@@ -12,6 +12,7 @@ import {
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { autoAddressFor } from './auto-address.service';
+import { chooseDataPin } from './data-pin';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { patchLiveService } from './service-patch';
@@ -84,11 +85,21 @@ async function planEnv(
   entry: BlueprintEntry,
   input: BlueprintPlanInput,
 ): Promise<PlanEnv> {
-  if (input.params.domain || !entry.autoAddressService) return {};
-  const autoHost = await autoAddressFor(ctx, input.params.name, entry.autoAddressService).catch(
-    () => null,
-  );
-  return { autoHost };
+  const env: PlanEnv = {};
+  if (!input.params.domain && entry.autoAddressService) {
+    env.autoHost = await autoAddressFor(ctx, input.params.name, entry.autoAddressService).catch(
+      () => null,
+    );
+  }
+  if (entry.pinsVolumes) {
+    try {
+      const pin = chooseDataPin(ctx, (await resolveManagerNode(ctx)).id);
+      if (pin) env.pinNode = pin;
+    } catch {
+      // No manager online: the deploy itself will fail with a clear error.
+    }
+  }
+  return env;
 }
 
 /** Run a plan generator, mapping a template compile failure onto a 400. */

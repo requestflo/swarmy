@@ -281,6 +281,11 @@ export function compileTemplate(
     svc.deploy = {
       replicas: s.replicas,
       ...(Object.keys(limits).length ? { resources: { limits } } : {}),
+      // Volumes are node-local: pin stateful services (and every service
+      // sharing a volume) to one node so data never comes up empty elsewhere.
+      ...(s.volumes.length && env.pinNode
+        ? { placement: { constraints: [`node.id==${env.pinNode}`] } }
+        : {}),
     };
     services[s.name] = svc;
   }
@@ -336,6 +341,7 @@ export function templateEntry(t: AppTemplate): BlueprintEntry {
   return {
     meta,
     ...(primary ? { autoAddressService: primary.name } : {}),
+    ...(loaded.desired?.services.some((s) => s.volumes.length > 0) ? { pinsVolumes: true } : {}),
     plan: (params, env) => compileTemplate(t, params, env).steps,
   };
 }

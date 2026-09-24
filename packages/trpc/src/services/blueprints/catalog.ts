@@ -295,6 +295,12 @@ function routeStep(service: string, host: string, port: number): PlanStep {
 export interface PlanEnv {
   /** Auto address (`<svc>-<stack>.<ip>.sslip.io`) for the primary service, when no domain was given. */
   autoHost?: string | null;
+  /**
+   * Swarm node id that volume-backed services pin to (`node.id==`). Docker
+   * volumes are node-local: without a pin a rescheduled task, or a second
+   * service sharing the volume, lands on another node with an EMPTY volume.
+   */
+  pinNode?: string;
 }
 
 export interface BlueprintEntry {
@@ -302,6 +308,8 @@ export interface BlueprintEntry {
   plan: (params: Params, env?: PlanEnv) => PlanStep[];
   /** Short name of the service that takes the auto address when no domain is given. */
   autoAddressService?: string;
+  /** True when the plan mounts named volumes (the service layer resolves `pinNode`). */
+  pinsVolumes?: boolean;
 }
 
 const imageOption = (defaultValue: string, help: string) => ({

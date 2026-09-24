@@ -13,6 +13,7 @@ import {
   TOKEN_DB_URL,
   TOKEN_REDIS_PASSWORD,
   TOKEN_REDIS_URL,
+  type PlanEnv,
   type PlanStep,
 } from './catalog';
 import { compileTemplate, TEMPLATE_ENTRIES, templateSecretFamily } from './from-app-config';
@@ -55,15 +56,16 @@ describe('registry', () => {
 });
 
 describe('every template through the compose/model pipeline', () => {
-  const variants: Array<[string, BlueprintParamsInput, { autoHost?: string | null }]> = [
+  const variants: Array<[string, BlueprintParamsInput, PlanEnv]> = [
     ['m + domain', params({ domain: 'app.example.com' }), {}],
     ['s + auto address', params({ size: 's' }), { autoHost: 'x-demo.203-0-113-10.sslip.io' }],
-    ['l + no address', params({ size: 'l' }), { autoHost: null }],
+    ['l + no address + pinned', params({ size: 'l' }), { autoHost: null, pinNode: 'swarm-node-1' }],
   ];
 
   for (const t of APP_TEMPLATES) {
     for (const [label, p, env] of variants) {
       it(`${t.id} (${label})`, () => {
+        const pinned = env.pinNode;
         const { steps, primary } = compileTemplate(t, p, env);
         for (const s of steps) expect(BLUEPRINT_STEP_KINDS).toContain(s.kind);
         expect(steps.filter((s) => s.kind === 'stack.deploy')).toHaveLength(1);
@@ -118,6 +120,14 @@ describe('every template through the compose/model pipeline', () => {
           const labels = primary ? deploy.payload.postLabels[primary.name] : undefined;
           if (env.autoHost) expect(labels?.['swarmy.ingress.auto.host']).toBe(env.autoHost);
           else expect(labels).toBeUndefined();
+        }
+
+        // Volume-backed services pin to one node when a pin is known.
+        const svcs = (doc.services ?? {}) as Record<string, { volumes?: string[]; deploy?: { placement?: { constraints?: string[] } } }>;
+        for (const svc of Object.values(svcs)) {
+          const c = svc.deploy?.placement?.constraints;
+          if (svc.volumes?.length && pinned) expect(c).toEqual([`node.id==${pinned}`]);
+          else expect(c).toBeUndefined();
         }
 
         // Managed data sized by the t-shirt size.
