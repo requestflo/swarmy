@@ -9,6 +9,7 @@ export type {
 } from './hub/types';
 export { COMMAND_PROTOCOL_TYPE } from './hub/types';
 export { writeAudit } from './services/audit.service';
+export { resetTwoFactorByEmail } from './services/security.service';
 export type { AuditEntry, AuditActorType } from './services/audit.service';
 // Agent-binary release: the install routes serve these binaries and pin their
 // checksums into the rendered installer.

@@ -20,6 +20,8 @@ import {
   type TerminalCapability,
 } from '../services/terminal.service';
 import { readRecording } from '../services/terminal-recording-read';
+import { assertTerminalStepUp } from '../services/security.service';
+import { MAX_MFA_MAX_AGE_MS, MIN_MFA_MAX_AGE_MS } from '../services/mfa-policy';
 import { resolveExecTarget, resolveLiveService } from '../services/live-resolve';
 
 /**
@@ -116,6 +118,8 @@ export const terminalRouter = router({
       // lives on) from the live inventory by Docker id — no DB service/node rows.
       const svc = resolveLiveService(ctx, input.serviceId);
       if (!svc) throw notFound('service', input.serviceId);
+      // Step-up (TerminalPolicy.requireMfa): a second factor within mfaMaxAgeMs.
+      await assertTerminalStepUp(ctx, policy, { kind: 'container', targetType: 'service', targetId: svc.id });
       const exec = resolveExecTarget(ctx, input.serviceId);
       if (!exec) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'no running container found for this service' });
@@ -175,6 +179,8 @@ export const terminalRouter = router({
         select: { id: true },
       });
       if (!node) throw notFound('node', input.nodeId);
+      // Step-up before the host shell (and before an approval is consumed).
+      await assertTerminalStepUp(ctx, policy, { kind: 'nodeShell', targetType: 'node', targetId: node.id });
       if (!ctx.hub.isOnline(node.id)) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'node is offline' });
       }
@@ -295,8 +301,11 @@ export const terminalRouter = router({
           requireMfa: z.boolean().optional(),
           requireApprovalForNodeShell: z.boolean().optional(),
           recordContainerExec: z.boolean().optional(),
-          idleTimeoutMs: z.number().int().positive().optional(),
-          maxSessionMs: z.number().int().positive().optional(),
+          // Enforced by the controller's data plane (apps/api/src/terminal.ts):
+          // idle ≥ 1 min, max session 5 min – 24 h, step-up window 1 min – 12 h.
+          idleTimeoutMs: z.number().int().min(60_000).max(86_400_000).optional(),
+          maxSessionMs: z.number().int().min(300_000).max(86_400_000).optional(),
+          mfaMaxAgeMs: z.number().int().min(MIN_MFA_MAX_AGE_MS).max(MAX_MFA_MAX_AGE_MS).optional(),
           allowedRoles: z.array(z.enum(['owner', 'admin', 'member'])).optional(),
         }),
       )

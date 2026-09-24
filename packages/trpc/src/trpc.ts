@@ -1,6 +1,7 @@
 import { initTRPC, TRPCError } from '@trpc/server';
 import superjson from 'superjson';
 import type { BaseContext } from './context';
+import { enforceOrgMfa } from './services/security.service';
 
 const t = initTRPC.context<BaseContext>().create({
   transformer: superjson,
@@ -29,9 +30,19 @@ export const orgProcedure = protectedProcedure.use(async ({ ctx, next }) => {
   }
   const member = await ctx.db.member.findFirst({
     where: { organizationId: ctx.activeOrgId, userId: ctx.user.id },
-    select: { role: true, organizationId: true },
+    select: { role: true, organizationId: true, createdAt: true },
   });
   if (!member) throw new TRPCError({ code: 'FORBIDDEN', message: 'Not a member of active org' });
+  // Account-security wall (launch-blocker #7): a session that still owes its
+  // second factor, or a member past the org's 2FA grace period, reaches no org
+  // data. Enrolment stays reachable (Better Auth + protectedProcedure `security.me`).
+  await enforceOrgMfa(ctx.db, {
+    user: ctx.user,
+    session: ctx.session,
+    orgId: ctx.activeOrgId,
+    role: member.role as 'owner' | 'admin' | 'member',
+    memberSince: member.createdAt,
+  });
   return next({
     ctx: {
       activeOrgId: ctx.activeOrgId,

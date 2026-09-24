@@ -26,6 +26,7 @@ import { storageRouter } from './routers/storage';
 import { volumesRouter } from './routers/volumes';
 import { schedulesRouter } from './routers/schedules';
 import { ssoRouter } from './routers/sso';
+import { securityRouter } from './routers/security';
 import { membersRouter } from './routers/members';
 import { oauthRouter } from './routers/oauth';
 import { webhooksOutRouter } from './routers/webhooksOut';
@@ -92,6 +93,7 @@ export const appRouter = router({
   volumes: volumesRouter,
   schedules: schedulesRouter,
   sso: ssoRouter,
+  security: securityRouter,
   members: membersRouter,
   oauth: oauthRouter,
   webhooksOut: webhooksOutRouter,

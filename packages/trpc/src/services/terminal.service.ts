@@ -84,6 +84,7 @@ export function terminalCapability(
 export type TermSessionReason =
   | 'exit'
   | 'idle_timeout'
+  | 'max_session'
   | 'killed'
   | 'agent_shutdown'
   | 'error'
@@ -117,6 +118,8 @@ export interface TerminalPolicyRow {
   recordContainerExec: boolean;
   idleTimeoutMs: number;
   maxSessionMs: number;
+  /** Step-up window: a second factor this recent satisfies `requireMfa`. */
+  mfaMaxAgeMs: number;
   allowedRoles: string[];
 }
 
@@ -141,6 +144,7 @@ export const DEFAULT_TERMINAL_POLICY: Omit<TerminalPolicyRow, 'orgId'> = {
   recordContainerExec: true,
   idleTimeoutMs: 300_000,
   maxSessionMs: 3_600_000,
+  mfaMaxAgeMs: 900_000,
   allowedRoles: ['owner', 'admin'],
 };
 
@@ -220,6 +224,7 @@ export async function getTerminalPolicy(db: DB, orgId: string): Promise<Terminal
     recordContainerExec: row.recordContainerExec ?? DEFAULT_TERMINAL_POLICY.recordContainerExec,
     idleTimeoutMs: row.idleTimeoutMs ?? DEFAULT_TERMINAL_POLICY.idleTimeoutMs,
     maxSessionMs: row.maxSessionMs ?? DEFAULT_TERMINAL_POLICY.maxSessionMs,
+    mfaMaxAgeMs: row.mfaMaxAgeMs ?? DEFAULT_TERMINAL_POLICY.mfaMaxAgeMs,
     allowedRoles: Array.isArray(row.allowedRoles)
       ? row.allowedRoles
       : DEFAULT_TERMINAL_POLICY.allowedRoles,
