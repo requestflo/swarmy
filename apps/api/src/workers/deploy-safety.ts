@@ -112,6 +112,14 @@ async function judgeRelease(
       data: { status: 'SUPERSEDED' },
     });
     await prisma.release.update({ where: { id: release.id }, data: { status: 'HEALTHY' } });
+    // A healthy release clears any open deploy-failed alert for the stack.
+    await fireEvent(ctx, {
+      signal: 'deploy-failed',
+      severity: 'info',
+      resource: `stack:${release.stackName}`,
+      message: `${release.stackName} is healthy again (release ${release.id})`,
+      status: 'resolved',
+    }).catch(() => undefined);
     await writeAudit(ctx, {
       action: 'release.gate.healthy',
       actorType: 'system',
@@ -125,7 +133,7 @@ async function judgeRelease(
   // Gate failed.
   const reasons = summary.reasons.length ? summary.reasons.join('; ') : summary.status;
   await fireEvent(ctx, {
-    signal: 'deploy-health-gate',
+    signal: 'deploy-failed',
     severity: 'critical',
     resource: `stack:${release.stackName}`,
     message: `Health gate failed for ${release.stackName}: ${reasons}`,
@@ -190,6 +198,12 @@ async function judgeRelease(
       newReleaseId: deployed.releaseId,
     },
   });
+  await fireEvent(ctx, {
+    signal: 'deploy-rolled-back',
+    severity: 'critical',
+    resource: `stack:${release.stackName}`,
+    message: `${release.stackName} failed its health gate (${reasons}) and was rolled back to release ${previousHealthy.id}`,
+  }).catch(() => undefined);
   await recordIncidentEvent(ctx, {
     groupKey: `release:${release.stackName}`,
     kind: 'deploy.gate.rollback',

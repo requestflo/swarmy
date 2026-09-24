@@ -213,7 +213,7 @@ async function rollback(
     metadata: { canaryService: canary.name, canaryImage: canary.image, reason },
   });
   await fireEvent(ctx, {
-    signal: 'deploy-canary',
+    signal: 'deploy-rolled-back',
     severity: 'critical',
     resource: `service:${stable.name}`,
     message: `Canary rolled back on ${stable.name}: ${reason}`,

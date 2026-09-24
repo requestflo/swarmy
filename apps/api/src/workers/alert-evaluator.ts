@@ -1,6 +1,6 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { fireEvent, recordIncidentEvent, systemContext } from '@swarmy/trpc';
+import { ensureDefaultRules, fireEvent, recordIncidentEvent, systemContext } from '@swarmy/trpc';
 import type { OrgContext } from '@swarmy/trpc';
 import { ALERT_SIGNAL_INFO, type AlertSignal } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
@@ -11,18 +11,26 @@ import { hub, store } from '../gateway';
  * conditions from live truth and fire/resolve `AlertEvent`s through the
  * `fireEvent` contract (which dedupes, honours mutes and notifies channels):
  *
- *   node-offline       enrolled node seen before, not connected now
+ *   node-offline       enrolled node seen before, not connected now (default for 5 min)
  *   service-down       desired > running replicas (gated ~2 ticks)
+ *   crash-loop         a service's recent task failures ≥ the rule threshold
+ *                      (agent `taskHealth.recentFailures`, last 10 min)
  *   db-degraded        `swarmy.db.lag.<member>` above the rule threshold
  *   db-failover        `swarmy.db.leader` changed vs the previous tick (edge)
- *   backup-failed      a schedule's most recent BackupJob failed
+ *   backup-failed      a schedule's most recent BackupJob failed, OR an
+ *                      unpaused schedule is overdue (missed its slot)
  *   disk-usage         node fs usage above the rule threshold
  *   queue-depth        `swarmy.queues.stats` wait above the rule threshold
  *   error-rate         ClickHouse span error-rate above threshold (store up)
  *   store-unreachable  observability enabled but the store stopped answering
  *
- * cert-expiry is seeded as a rule but NOT evaluated in v1 — nothing in the
- * tree exposes certificate expiry yet (no live TLS probe from the worker).
+ * Every tick first runs `ensureDefaultRules` for the org, so the default
+ * alert catalog is ON for every org without anyone opening the Alerts page
+ * (idempotent; a user-deleted default is a tombstone and stays deleted).
+ *
+ * Fired by other slices (not evaluated here): cert-expiry (domain-verify
+ * service, per certificate check), build-failed (cicd build path),
+ * deploy-failed / deploy-rolled-back (deploy-safety + deploy-canary workers).
  *
  * For-duration gating and edge detection keep tick-to-tick state in module
  * maps (reset on controller restart — events themselves dedupe in the DB).
@@ -48,6 +56,10 @@ const QUEUES_STATS_LABEL = 'swarmy.queues.stats';
 /** Minimum sampled calls before an error-rate condition can fire. */
 const ERROR_RATE_MIN_CALLS = 20;
 const ERROR_RATE_WINDOW_MIN = 5;
+/** Disk usage at/above this is critical regardless of the rule threshold. */
+export const DISK_CRITICAL_PCT = 95;
+/** Grace past a backup schedule's `nextRunAt` before it counts as missed. */
+export const BACKUP_MISSED_GRACE_MS = 60 * 60_000;
 
 // ── Pure evaluation helpers (exported for unit tests) ────────────────────────
 
@@ -115,10 +127,57 @@ export function diskConditions(
       out.push({
         signal: 'disk-usage',
         resource: `node:${n.name}`,
-        severity: pct > 92 ? 'critical' : 'warning',
+        severity: pct >= DISK_CRITICAL_PCT ? 'critical' : 'warning',
         message: `Disk on ${n.name} is ${pct.toFixed(1)}% full (threshold ${thresholdPct}%)`,
       });
     }
+  }
+  return out;
+}
+
+/**
+ * crash-loop: services whose agent-reported task history shows at least
+ * `threshold` failed/rejected tasks in the recent window (agent side: 10 min).
+ * Services the agent doesn't report task health for (older agents) never fire.
+ */
+export function crashLoopConditions(
+  services: Array<{ name: string; recentFailures: number | null; lastError?: string }>,
+  threshold: number,
+): Condition[] {
+  const min = Math.max(1, threshold);
+  return services
+    .filter((s) => s.recentFailures !== null && s.recentFailures >= min)
+    .map((s) => ({
+      signal: 'crash-loop' as const,
+      resource: `service:${s.name}`,
+      severity: 'critical' as const,
+      message: `Service ${s.name} is crash-looping: ${s.recentFailures} failed tasks in the last 10 min${
+        s.lastError ? ` — last error: ${s.lastError.slice(0, 200)}` : ''
+      }`,
+    }));
+}
+
+/**
+ * backup missed: an unpaused, non-opted-out schedule whose `nextRunAt` is more
+ * than `graceMs` in the past (the scheduler never picked it up — controller
+ * down, target unreachable, node gone).
+ */
+export function backupMissedConditions(
+  schedules: Array<{ volume: string; paused: boolean; optedOutAt: Date | null; nextRunAt: Date | null }>,
+  now: number,
+  graceMs = BACKUP_MISSED_GRACE_MS,
+): Condition[] {
+  const out: Condition[] = [];
+  for (const s of schedules) {
+    if (s.paused || s.optedOutAt || !s.nextRunAt) continue;
+    const late = now - s.nextRunAt.getTime();
+    if (late <= graceMs) continue;
+    out.push({
+      signal: 'backup-failed',
+      resource: `backup:${s.volume}`,
+      severity: 'warning',
+      message: `Backup of volume ${s.volume} missed its schedule (due ${s.nextRunAt.toISOString()}, ${Math.round(late / 60_000)} min late)`,
+    });
   }
   return out;
 }
@@ -290,6 +349,7 @@ async function fetchErrorRates(orgId: string, dsnPlain: string): Promise<ErrorRa
 const LEVEL_SIGNALS: AlertSignal[] = [
   'node-offline',
   'service-down',
+  'crash-loop',
   'db-degraded',
   'backup-failed',
   'disk-usage',
@@ -355,6 +415,18 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
     ),
   );
 
+  const crashThreshold = ruleSettings(rules, 'crash-loop').threshold;
+  conditions.push(
+    ...crashLoopConditions(
+      services.map((s) => ({
+        name: s.name,
+        recentFailures: s.taskHealth?.recentFailures ?? null,
+        lastError: s.taskHealth?.lastError,
+      })),
+      crashThreshold,
+    ),
+  );
+
   const lagThreshold = ruleSettings(rules, 'db-degraded').threshold;
   const lags: Array<{ cluster: string; member: string; lagSeconds: number }> = [];
   for (const s of services) {
@@ -396,15 +468,18 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
   // backup-failed — a schedule whose most recent finished job failed.
   const schedules = await prisma.backupSchedule.findMany({
     where: { orgId },
-    select: { id: true, volume: true },
+    select: { id: true, volume: true, paused: true, optedOutAt: true, nextRunAt: true },
   });
+  const failedVolumes = new Set<string>();
   for (const schedule of schedules) {
+    if (schedule.optedOutAt) continue;
     const last = await prisma.backupJob.findFirst({
       where: { orgId, scheduleId: schedule.id, status: { not: 'RUNNING' } },
       orderBy: { startedAt: 'desc' },
       select: { status: true, error: true },
     });
     if (last?.status === 'FAILED') {
+      failedVolumes.add(schedule.volume);
       conditions.push({
         signal: 'backup-failed',
         resource: `backup:${schedule.volume}`,
@@ -413,6 +488,14 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
       });
     }
   }
+
+  // A missed slot on a volume that already has a failed-run condition is the
+  // same alert (same resource) — the failure message is the more useful one.
+  conditions.push(
+    ...backupMissedConditions(schedules, Date.now()).filter(
+      (c) => !failedVolumes.has(c.resource.slice('backup:'.length)),
+    ),
+  );
 
   // store-unreachable + error-rate — observability store state / ClickHouse RED.
   const obsConfig = await prisma.observabilityConfig.findUnique({ where: { orgId } });
@@ -447,6 +530,9 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
 
 async function evaluateOrg(orgId: string): Promise<void> {
   const ctx = systemContext({ db: prisma, hub, auth: authRegistry.getAuth() }, orgId);
+  // Default alerts are ON for every org — seed any missing default (idempotent,
+  // steady state = one read; tombstoned opt-outs are never re-created).
+  await ensureDefaultRules(ctx).catch(() => undefined);
   const rules = (await prisma.alertRule.findMany({
     where: { orgId },
     select: { signal: true, threshold: true, forSeconds: true, isDefault: true, createdAt: true },

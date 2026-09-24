@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  backupMissedConditions,
   conditionKey,
+  crashLoopConditions,
   dbLagConditions,
   diskConditions,
   errorRateConditions,
@@ -171,8 +173,8 @@ describe('ruleSettings', () => {
   });
 
   it('falls back to the catalog defaults when the org has no rule', () => {
-    expect(ruleSettings([], 'disk-usage')).toEqual({ threshold: 80, forSeconds: 0 });
-    expect(ruleSettings([], 'node-offline')).toEqual({ threshold: 0, forSeconds: 60 });
+    expect(ruleSettings([], 'disk-usage')).toEqual({ threshold: 85, forSeconds: 0 });
+    expect(ruleSettings([], 'node-offline')).toEqual({ threshold: 0, forSeconds: 300 });
   });
 
   it('prefers a custom rule over the seeded default', () => {
@@ -187,5 +189,39 @@ describe('ruleSettings', () => {
 describe('conditionKey', () => {
   it('is the dedupe axis signal|resource', () => {
     expect(conditionKey(cond())).toBe('node-offline|node:w1');
+  });
+});
+
+describe('default-alert signals (launch-blocker #6)', () => {
+  it('crash-loop: fires at/above the failure threshold, never for unknown task health', () => {
+    const out = crashLoopConditions(
+      [
+        { name: 'web', recentFailures: 3, lastError: 'exit 137 (OOM)' },
+        { name: 'api', recentFailures: 2 },
+        { name: 'legacy', recentFailures: null },
+      ],
+      3,
+    );
+    expect(out.map((c) => [c.signal, c.resource, c.severity])).toEqual([['crash-loop', 'service:web', 'critical']]);
+    expect(out[0]!.message).toContain('exit 137 (OOM)');
+    // A threshold of 0 still needs at least one failure.
+    expect(crashLoopConditions([{ name: 'ok', recentFailures: 0 }], 0)).toEqual([]);
+  });
+
+  it('backup missed: only unpaused, non-opted-out schedules past the grace', () => {
+    const now = Date.parse('2026-09-24T12:00:00Z');
+    const at = (iso: string) => new Date(iso);
+    const out = backupMissedConditions(
+      [
+        { volume: 'late', paused: false, optedOutAt: null, nextRunAt: at('2026-09-24T09:00:00Z') },
+        { volume: 'grace', paused: false, optedOutAt: null, nextRunAt: at('2026-09-24T11:30:00Z') },
+        { volume: 'paused', paused: true, optedOutAt: null, nextRunAt: at('2026-09-20T00:00:00Z') },
+        { volume: 'gone', paused: false, optedOutAt: at('2026-09-01T00:00:00Z'), nextRunAt: at('2026-09-20T00:00:00Z') },
+        { volume: 'never', paused: false, optedOutAt: null, nextRunAt: null },
+      ],
+      now,
+    );
+    expect(out.map((c) => [c.signal, c.resource])).toEqual([['backup-failed', 'backup:late']]);
+    expect(out[0]!.message).toContain('180 min late');
   });
 });

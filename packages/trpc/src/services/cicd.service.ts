@@ -28,6 +28,7 @@ import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { enforceAdmission } from './admission-gate';
 import { resolveManagerNode } from './dispatch.service';
 import { writeAudit } from './audit.service';
+import { fireEvent } from './alerts-fire';
 import { buildLogBus } from './build-log-bus';
 import { liveService } from './service.service';
 import { promoteSpecFrom } from './releases.service';
@@ -297,6 +298,14 @@ async function runBuild(
       data: { status: 'SUCCEEDED', image: digested, finishedAt: new Date() },
       include: { repo: { select: { url: true } } },
     });
+    // A green build clears the repo's open build-failed alert (default rule).
+    void fireEvent(ctx, {
+      signal: 'build-failed',
+      severity: 'info',
+      resource: `repo:${imageName}`,
+      message: `Build of ${imageName}@${ref} succeeded`,
+      status: 'resolved',
+    }).catch(() => undefined);
 
     // D3 hook: registry policy on build success — trivy CVE scan + cosign sign
     // of the freshly pushed image, on the node that built it. Fire-and-forget:
@@ -320,6 +329,18 @@ async function runBuild(
       where: { id: build.id },
       data: { status: 'FAILED', finishedAt: new Date() },
     });
+    // Default `build-failed` alert: event-style, so every failed build notifies.
+    const tail = buildLogBus
+      .snapshot(commandId)
+      .lines.slice(-5)
+      .map((l) => l.message)
+      .join('\n');
+    void fireEvent(ctx, {
+      signal: 'build-failed',
+      severity: 'warning',
+      resource: `repo:${imageName}`,
+      message: `Build of ${imageName}@${ref} failed: ${e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300)}${tail ? `\n${tail}` : ''}`,
+    }).catch(() => undefined);
     throw buildFailureError(e, buildLogBus.snapshot(commandId).lines);
   }
 }
