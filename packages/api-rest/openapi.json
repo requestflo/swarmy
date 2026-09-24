@@ -16,7 +16,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "swk",
-        "description": "swarmy API key (`Authorization: Bearer swk_…`)."
+        "description": "swarmy API key (`Authorization: Bearer swk_…`), or an OAuth access token swarmy issued for its APIs (scopes `swarmy:read` / `swarmy:write`)."
       }
     },
     "schemas": {
@@ -232,6 +232,11 @@
           },
           "updated_at": {
             "type": "string"
+          },
+          "last_error": {
+            "type": "string",
+            "nullable": true,
+            "description": "The most recent task error Swarm reported (why it is failing); detail responses only."
           }
         },
         "required": [
@@ -790,7 +795,8 @@
               "type": "string",
               "enum": [
                 "read",
-                "write"
+                "write",
+                "secrets.read"
               ]
             }
           },
@@ -879,7 +885,8 @@
               "type": "string",
               "enum": [
                 "read",
-                "write"
+                "write",
+                "secrets.read"
               ]
             }
           }
@@ -3100,6 +3107,429 @@
         },
         "required": [
           "from"
+        ]
+      },
+      "Principal": {
+        "type": "object",
+        "properties": {
+          "org_id": {
+            "type": "string"
+          },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string",
+                "nullable": true
+              },
+              "name": {
+                "type": "string",
+                "nullable": true
+              }
+            },
+            "required": [
+              "id",
+              "email",
+              "name"
+            ]
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member"
+            ]
+          },
+          "credential": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "api_key",
+                  "oauth"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "description": "API key id, or `oauth:<client_id>` for an OAuth token."
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "`read`, `write`, `secrets.read` (open set)."
+              }
+            },
+            "required": [
+              "kind",
+              "id",
+              "scopes"
+            ]
+          }
+        },
+        "required": [
+          "org_id",
+          "user",
+          "role",
+          "credential"
+        ]
+      },
+      "ServiceEnvVar": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string",
+            "nullable": true,
+            "description": "null = withheld (a secret this call may not read)."
+          },
+          "secret": {
+            "type": "boolean",
+            "description": "A secret variable (Docker secret), or a plain value that looks secret."
+          },
+          "delivery": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "env",
+              "file"
+            ],
+            "description": "How a secret variable reaches the process; null for plain."
+          },
+          "withheld": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string",
+            "nullable": true,
+            "description": "Why a requested reveal failed (e.g. no running task)."
+          }
+        },
+        "required": [
+          "key",
+          "value",
+          "secret",
+          "delivery",
+          "withheld",
+          "error"
+        ]
+      },
+      "ServiceEnv": {
+        "type": "object",
+        "properties": {
+          "service_id": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "vars": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceEnvVar"
+            }
+          },
+          "secrets_readable": {
+            "type": "boolean",
+            "description": "Whether the principal holds ABAC `secrets.read` on this service."
+          }
+        },
+        "required": [
+          "service_id",
+          "service",
+          "vars",
+          "secrets_readable"
+        ]
+      },
+      "PatchServiceEnvResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "deployment_id": {
+            "type": "string"
+          },
+          "changed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "deployment_id",
+          "changed"
+        ]
+      },
+      "PatchServiceEnvBody": {
+        "type": "object",
+        "properties": {
+          "set": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 32768
+            },
+            "description": "Plain variables to add or change."
+          },
+          "secrets": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500000
+            },
+            "description": "Secret variables to create or rotate. Stored as Docker secrets; never readable back without `secrets.read`."
+          },
+          "unset": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "maxItems": 500,
+            "description": "Keys to remove (plain or secret)."
+          }
+        }
+      },
+      "LogLine": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer"
+          },
+          "stream": {
+            "type": "string",
+            "enum": [
+              "stdout",
+              "stderr"
+            ]
+          },
+          "ts": {
+            "type": "number",
+            "nullable": true,
+            "description": "Unix ms, when Docker stamped the line."
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "stream",
+          "ts",
+          "message"
+        ]
+      },
+      "LogLineList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LogLine"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "DeploymentStatus": {
+        "type": "object",
+        "properties": {
+          "deployment_id": {
+            "type": "string"
+          },
+          "service_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "kind": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string",
+            "description": "converging, complete, failed, rolledback, canceled (open set)."
+          },
+          "desired": {
+            "type": "integer",
+            "nullable": true
+          },
+          "ready": {
+            "type": "integer",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "finished_at": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "deployment_id",
+          "service_id",
+          "kind",
+          "phase",
+          "desired",
+          "ready",
+          "message",
+          "started_at",
+          "finished_at"
+        ]
+      },
+      "PreviewResult": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "deployed, torn-down, skipped (open set)."
+          },
+          "stack": {
+            "type": "string",
+            "nullable": true
+          },
+          "url": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "action",
+          "stack",
+          "url",
+          "reason"
+        ]
+      },
+      "CreatePreviewBody": {
+        "type": "object",
+        "properties": {
+          "branch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+          }
+        },
+        "required": [
+          "branch"
+        ]
+      },
+      "StackTelemetry": {
+        "type": "object",
+        "properties": {
+          "stack": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "stack",
+          "enabled"
+        ]
+      },
+      "SetStackTelemetryBody": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ]
+      },
+      "ErrorProject": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "stack": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "integer"
+          },
+          "dsn": {
+            "type": "string",
+            "description": "The Sentry-compatible DSN apps send to."
+          },
+          "rate_limit_per_minute": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "rotated_at": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "stack",
+          "project_id",
+          "dsn",
+          "rate_limit_per_minute",
+          "created_at",
+          "rotated_at"
+        ]
+      },
+      "StackErrorsStatus": {
+        "type": "object",
+        "properties": {
+          "stack": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "store_enabled": {
+            "type": "boolean",
+            "description": "Whether the observability store (ClickHouse) is on."
+          },
+          "project": {
+            "$ref": "#/components/schemas/ErrorProject"
+          },
+          "pending_redeploy": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Opted-in services that need a redeploy to receive SENTRY_DSN."
+          }
+        },
+        "required": [
+          "stack",
+          "enabled",
+          "store_enabled",
+          "project",
+          "pending_redeploy"
         ]
       }
     },
@@ -6777,6 +7207,626 @@
             }
           },
           "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "tags": [
+          "Developer"
+        ],
+        "summary": "Who this credential acts as, and what it may do",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Principal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Principal"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/services/{id}/env": {
+      "get": {
+        "tags": [
+          "Developer"
+        ],
+        "summary": "A service's environment, secrets withheld",
+        "description": "Plain variables with their values; secret variables (and plain values that look secret) with `value: null` unless `reveal_secrets=true` AND the key holds the `secrets.read` scope AND policy permits `secrets.read` on the service. Every reveal is audited.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            },
+            "required": false,
+            "name": "reveal_secrets",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Environment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceEnv"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Developer"
+        ],
+        "summary": "Merge-patch a service's environment (async rollout)",
+        "description": "Keys not named are kept exactly (secret variables included). `secrets` become Docker secrets (new versions, rolling update). Policy: `service.configure` on the service.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchServiceEnvBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Rolling out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchServiceEnvResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/services/{id}/logs": {
+      "get": {
+        "tags": [
+          "Developer"
+        ],
+        "summary": "The last lines of a service’s logs (all tasks)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": 0,
+              "maximum": 5000
+            },
+            "required": false,
+            "name": "tail",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": 0,
+              "description": "Unix seconds; only lines after this time."
+            },
+            "required": false,
+            "name": "since",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Log lines, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogLineList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/services/{id}/logs/stream": {
+      "get": {
+        "tags": [
+          "Developer"
+        ],
+        "summary": "Follow a service’s logs (Server-Sent Events)",
+        "description": "Each `data:` event is one LogLine as JSON. The stream stays open until the client disconnects.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": 0,
+              "maximum": 5000
+            },
+            "required": false,
+            "name": "tail",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": 0,
+              "description": "Unix seconds; only lines after this time."
+            },
+            "required": false,
+            "name": "since",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream of LogLine events",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/deployments/{id}": {
+      "get": {
+        "tags": [
+          "Developer"
+        ],
+        "summary": "A deployment’s convergence (poll until a terminal phase)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeploymentStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/apps/{repoId}/previews": {
+      "post": {
+        "tags": [
+          "Developer"
+        ],
+        "summary": "Preview a branch (trial deploy)",
+        "description": "Builds the branch and deploys it as its own preview stack, the same machinery as a pull-request preview. Torn down by the app’s preview TTL.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "required": true,
+            "name": "repoId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePreviewBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Preview result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stacks/{id}/telemetry": {
+      "get": {
+        "tags": [
+          "Developer"
+        ],
+        "summary": "Whether OpenTelemetry is on for a stack",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "State",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StackTelemetry"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Developer"
+        ],
+        "summary": "Turn OpenTelemetry on or off for a stack",
+        "description": "Stamps/clears the stack’s telemetry label; the next deploy (un)injects OTEL_* env. Admin/owner only.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetStackTelemetryBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StackTelemetry"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stacks/{id}/errors": {
+      "get": {
+        "tags": [
+          "Developer"
+        ],
+        "summary": "Error tracking for a stack: opt-in state and the DSN",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StackErrorsStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stacks/{id}/errors/rotate-key": {
+      "post": {
+        "tags": [
+          "Developer"
+        ],
+        "summary": "Rotate the stack’s DSN key (the old key stops working at once)",
+        "description": "Apps pick up the new DSN on their next deploy. Admin/owner only.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rotated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorProject"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "Problem",
             "content": {
               "application/problem+json": {

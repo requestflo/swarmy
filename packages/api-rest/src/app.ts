@@ -18,6 +18,7 @@ import { registerNotifyRoutes } from './routes/notify';
 import { registerRegistryCredentialRoutes } from './routes/registry-credentials';
 import { registerGitRoutes } from './routes/git';
 import { registerAppRoutes } from './routes/apps';
+import { registerDevxRoutes } from './routes/devx';
 import { idempotency } from './idempotency';
 
 export const OPENAPI_DOC_ROUTE = '/openapi.json';
@@ -44,7 +45,8 @@ function buildResourceApp(deps: RestDeps, withAuth = true): OpenAPIHono<RestEnv>
     type: 'http',
     scheme: 'bearer',
     bearerFormat: 'swk',
-    description: 'swarmy API key (`Authorization: Bearer swk_…`).',
+    description:
+      'swarmy API key (`Authorization: Bearer swk_…`), or an OAuth access token swarmy issued for its APIs (scopes `swarmy:read` / `swarmy:write`).',
   });
 
   if (withAuth) {
@@ -68,6 +70,7 @@ function buildResourceApp(deps: RestDeps, withAuth = true): OpenAPIHono<RestEnv>
   registerRegistryCredentialRoutes(app);
   registerGitRoutes(app);
   registerAppRoutes(app);
+  registerDevxRoutes(app);
 
   app.onError((e, c) => {
     const p = trpcErrorToProblem(e, c.req.path);

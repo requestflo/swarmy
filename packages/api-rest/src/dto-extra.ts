@@ -16,7 +16,7 @@ export const ApiKeyDto = z
     id: z.string(),
     name: z.string(),
     prefix: z.string(),
-    scopes: z.array(z.enum(['read', 'write'])),
+    scopes: z.array(z.enum(['read', 'write', 'secrets.read'])),
     last_used_at: z.string().nullable(),
     created_at: z.string(),
     created_by_id: z.string().nullable(),
@@ -33,7 +33,7 @@ export const ApiKeyIssuedDto = ApiKeyDto.extend({
 export const CreateApiKeyBody = z
   .object({
     name: z.string().min(1),
-    scopes: z.array(z.enum(['read', 'write'])).optional(),
+    scopes: z.array(z.enum(['read', 'write', 'secrets.read'])).optional(),
   })
   .openapi('CreateApiKeyRequest');
 

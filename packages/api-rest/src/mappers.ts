@@ -28,6 +28,7 @@ export function serviceToDto(s: ServiceSummary) {
     node_id: s.nodeId,
     stack_id: s.stackId,
     updated_at: s.updatedAt,
+    ...('lastError' in s ? { last_error: (s as { lastError?: string }).lastError ?? null } : {}),
   };
 }
 

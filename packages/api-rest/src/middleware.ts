@@ -7,7 +7,7 @@ import { PROBLEM_CONTENT_TYPE, problem, trpcErrorToProblem } from './problem';
 export interface RestEnv {
   Variables: {
     orgCtx: OrgContext;
-    apiKey: { id: string; scopes: ApiKeyScope[] };
+    apiKey: { id: string; scopes: ApiKeyScope[]; kind?: 'api_key' | 'oauth' };
   };
 }
 

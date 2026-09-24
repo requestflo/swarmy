@@ -53,6 +53,38 @@ export class HttpTransport {
     return url;
   }
 
+  /**
+   * The raw `Response` for a request (auth + base URL applied, no body
+   * decoding) — for streaming endpoints such as Server-Sent Events. Non-2xx
+   * responses still throw {@link SwarmyApiError}.
+   */
+  async raw(
+    method: string,
+    path: string,
+    opts: { query?: Record<string, string | number | undefined>; signal?: AbortSignal; accept?: string } = {},
+  ): Promise<Response> {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${this.apiKey}`,
+      Accept: opts.accept ?? 'application/json, application/problem+json',
+      ...this.extraHeaders,
+    };
+    const res = await this.fetchImpl(this.buildUrl(path, opts.query), {
+      method,
+      headers,
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    });
+    if (!res.ok) {
+      let problem: Problem;
+      try {
+        problem = (await res.json()) as Problem;
+      } catch {
+        problem = { type: 'about:blank', title: res.statusText || 'Error', status: res.status };
+      }
+      throw new SwarmyApiError(res.status, problem);
+    }
+    return res;
+  }
+
   async request<T>(
     method: string,
     path: string,

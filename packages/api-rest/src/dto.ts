@@ -42,6 +42,9 @@ export const ServiceDto = z
     node_id: z.string().nullable(),
     stack_id: z.string().nullable(),
     updated_at: z.string(),
+    last_error: z.string().nullable().optional().openapi({
+      description: 'The most recent task error Swarm reported (why it is failing); detail responses only.',
+    }),
   })
   .openapi('Service');
 

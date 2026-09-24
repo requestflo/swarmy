@@ -91,6 +91,7 @@ type Service struct {
 	NodeID         *string         `json:"node_id"`
 	StackID        *string         `json:"stack_id"`
 	UpdatedAt      string          `json:"updated_at"`
+	LastError      *string         `json:"last_error"`
 }
 
 type ServiceList struct {
@@ -738,4 +739,100 @@ type AppPromoteResult struct {
 
 type PromoteAppBody struct {
 	From string `json:"from"`
+}
+
+type Principal struct {
+	OrgID      string         `json:"org_id"`
+	User       map[string]any `json:"user"`
+	Role       string         `json:"role"`
+	Credential map[string]any `json:"credential"`
+}
+
+type ServiceEnvVar struct {
+	Key      string  `json:"key"`
+	Value    *string `json:"value"`
+	Secret   bool    `json:"secret"`
+	Delivery *string `json:"delivery"`
+	Withheld bool    `json:"withheld"`
+	Error    *string `json:"error"`
+}
+
+type ServiceEnv struct {
+	ServiceID       string          `json:"service_id"`
+	Service         string          `json:"service"`
+	Vars            []ServiceEnvVar `json:"vars"`
+	SecretsReadable bool            `json:"secrets_readable"`
+}
+
+type PatchServiceEnvResult struct {
+	ID           string   `json:"id"`
+	DeploymentID string   `json:"deployment_id"`
+	Changed      []string `json:"changed"`
+}
+
+type PatchServiceEnvBody struct {
+	Set     map[string]any `json:"set,omitempty"`
+	Secrets map[string]any `json:"secrets,omitempty"`
+	Unset   []string       `json:"unset,omitempty"`
+}
+
+type LogLine struct {
+	Seq     int    `json:"seq"`
+	Stream  string `json:"stream"`
+	Ts      *int   `json:"ts"`
+	Message string `json:"message"`
+}
+
+type LogLineList struct {
+	Data       []LogLine `json:"data"`
+	NextCursor *string   `json:"next_cursor"`
+}
+
+type DeploymentStatus struct {
+	DeploymentID string  `json:"deployment_id"`
+	ServiceID    *string `json:"service_id"`
+	Kind         string  `json:"kind"`
+	Phase        string  `json:"phase"`
+	Desired      *int    `json:"desired"`
+	Ready        *int    `json:"ready"`
+	Message      *string `json:"message"`
+	StartedAt    string  `json:"started_at"`
+	FinishedAt   *string `json:"finished_at"`
+}
+
+type PreviewResult struct {
+	Action string  `json:"action"`
+	Stack  *string `json:"stack"`
+	URL    *string `json:"url"`
+	Reason *string `json:"reason"`
+}
+
+type CreatePreviewBody struct {
+	Branch string `json:"branch"`
+}
+
+type StackTelemetry struct {
+	Stack   string `json:"stack"`
+	Enabled bool   `json:"enabled"`
+}
+
+type SetStackTelemetryBody struct {
+	Enabled bool `json:"enabled"`
+}
+
+type ErrorProject struct {
+	Stack              string  `json:"stack"`
+	ProjectID          int     `json:"project_id"`
+	Dsn                string  `json:"dsn"`
+	RateLimitPerMinute int     `json:"rate_limit_per_minute"`
+	CreatedAt          string  `json:"created_at"`
+	RotatedAt          *string `json:"rotated_at"`
+}
+
+type StackErrorsStatus struct {
+	Stack           string       `json:"stack"`
+	Enabled         bool         `json:"enabled"`
+	StoreEnabled    bool         `json:"store_enabled"`
+	Project         ErrorProject `json:"project"`
+	PendingRedeploy []string     `json:"pending_redeploy"`
 }

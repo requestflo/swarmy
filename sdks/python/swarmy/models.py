@@ -188,6 +188,7 @@ class Service:
     node_id: Optional[str]
     stack_id: Optional[str]
     updated_at: str
+    last_error: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "Service":
@@ -201,6 +202,7 @@ class Service:
             node_id=d.get("node_id"),
             stack_id=d.get("stack_id"),
             updated_at=d.get("updated_at"),
+            last_error=d.get("last_error"),
         )
 
 
@@ -1299,5 +1301,226 @@ class PromoteAppBody:
     def from_dict(cls, d: Dict[str, Any]) -> "PromoteAppBody":
         return cls(
             from=d.get("from"),
+        )
+
+
+@dataclass
+class Principal:
+    org_id: str
+    user: Dict[str, Any]
+    role: str
+    credential: Dict[str, Any]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Principal":
+        return cls(
+            org_id=d.get("org_id"),
+            user=d.get("user"),
+            role=d.get("role"),
+            credential=d.get("credential"),
+        )
+
+
+@dataclass
+class ServiceEnvVar:
+    key: str
+    value: Optional[str]
+    secret: bool
+    delivery: Optional[str]
+    withheld: bool
+    error: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ServiceEnvVar":
+        return cls(
+            key=d.get("key"),
+            value=d.get("value"),
+            secret=d.get("secret"),
+            delivery=d.get("delivery"),
+            withheld=d.get("withheld"),
+            error=d.get("error"),
+        )
+
+
+@dataclass
+class ServiceEnv:
+    service_id: str
+    service: str
+    vars: List[ServiceEnvVar]
+    secrets_readable: bool
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ServiceEnv":
+        return cls(
+            service_id=d.get("service_id"),
+            service=d.get("service"),
+            vars=d.get("vars"),
+            secrets_readable=d.get("secrets_readable"),
+        )
+
+
+@dataclass
+class PatchServiceEnvResult:
+    id: str
+    deployment_id: str
+    changed: List[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "PatchServiceEnvResult":
+        return cls(
+            id=d.get("id"),
+            deployment_id=d.get("deployment_id"),
+            changed=d.get("changed"),
+        )
+
+
+@dataclass
+class PatchServiceEnvBody:
+    set: Optional[Dict[str, Any]] = None
+    secrets: Optional[Dict[str, Any]] = None
+    unset: Optional[List[str]] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "PatchServiceEnvBody":
+        return cls(
+            set=d.get("set"),
+            secrets=d.get("secrets"),
+            unset=d.get("unset"),
+        )
+
+
+@dataclass
+class LogLine:
+    seq: int
+    stream: str
+    ts: Optional[float]
+    message: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "LogLine":
+        return cls(
+            seq=d.get("seq"),
+            stream=d.get("stream"),
+            ts=d.get("ts"),
+            message=d.get("message"),
+        )
+
+
+@dataclass
+class DeploymentStatus:
+    deployment_id: str
+    service_id: Optional[str]
+    kind: str
+    phase: str
+    desired: Optional[int]
+    ready: Optional[int]
+    message: Optional[str]
+    started_at: str
+    finished_at: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "DeploymentStatus":
+        return cls(
+            deployment_id=d.get("deployment_id"),
+            service_id=d.get("service_id"),
+            kind=d.get("kind"),
+            phase=d.get("phase"),
+            desired=d.get("desired"),
+            ready=d.get("ready"),
+            message=d.get("message"),
+            started_at=d.get("started_at"),
+            finished_at=d.get("finished_at"),
+        )
+
+
+@dataclass
+class PreviewResult:
+    action: str
+    stack: Optional[str]
+    url: Optional[str]
+    reason: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "PreviewResult":
+        return cls(
+            action=d.get("action"),
+            stack=d.get("stack"),
+            url=d.get("url"),
+            reason=d.get("reason"),
+        )
+
+
+@dataclass
+class CreatePreviewBody:
+    branch: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "CreatePreviewBody":
+        return cls(
+            branch=d.get("branch"),
+        )
+
+
+@dataclass
+class StackTelemetry:
+    stack: str
+    enabled: bool
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "StackTelemetry":
+        return cls(
+            stack=d.get("stack"),
+            enabled=d.get("enabled"),
+        )
+
+
+@dataclass
+class SetStackTelemetryBody:
+    enabled: bool
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "SetStackTelemetryBody":
+        return cls(
+            enabled=d.get("enabled"),
+        )
+
+
+@dataclass
+class ErrorProject:
+    stack: str
+    project_id: int
+    dsn: str
+    rate_limit_per_minute: int
+    created_at: str
+    rotated_at: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ErrorProject":
+        return cls(
+            stack=d.get("stack"),
+            project_id=d.get("project_id"),
+            dsn=d.get("dsn"),
+            rate_limit_per_minute=d.get("rate_limit_per_minute"),
+            created_at=d.get("created_at"),
+            rotated_at=d.get("rotated_at"),
+        )
+
+
+@dataclass
+class StackErrorsStatus:
+    stack: str
+    enabled: bool
+    store_enabled: bool
+    project: ErrorProject
+    pending_redeploy: List[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "StackErrorsStatus":
+        return cls(
+            stack=d.get("stack"),
+            enabled=d.get("enabled"),
+            store_enabled=d.get("store_enabled"),
+            project=d.get("project"),
+            pending_redeploy=d.get("pending_redeploy"),
         )
 

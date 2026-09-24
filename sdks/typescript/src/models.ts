@@ -60,6 +60,7 @@ export interface Service {
   node_id: string | null;
   stack_id: string | null;
   updated_at: string;
+  last_error?: string | null;
 }
 
 export interface ServiceList {
@@ -162,7 +163,7 @@ export interface ApiKey {
   id: string;
   name: string;
   prefix: string;
-  scopes: 'read' | 'write'[];
+  scopes: 'read' | 'write' | 'secrets.read'[];
   last_used_at: string | null;
   created_at: string;
   created_by_id: string | null;
@@ -177,7 +178,7 @@ export interface ApiKeyList {
 
 export interface CreateApiKeyRequest {
   name: string;
-  scopes?: 'read' | 'write'[];
+  scopes?: 'read' | 'write' | 'secrets.read'[];
 }
 
 export interface Revoked {
@@ -707,4 +708,100 @@ export interface AppPromoteResult {
 
 export interface PromoteAppBody {
   from: string;
+}
+
+export interface Principal {
+  org_id: string;
+  user: { id: string; email: string; name: string };
+  role: 'owner' | 'admin' | 'member';
+  credential: { kind: 'api_key' | 'oauth'; id: string; scopes: string[] };
+}
+
+export interface ServiceEnvVar {
+  key: string;
+  value: string | null;
+  secret: boolean;
+  delivery: 'env' | 'file' | null;
+  withheld: boolean;
+  error: string | null;
+}
+
+export interface ServiceEnv {
+  service_id: string;
+  service: string;
+  vars: ServiceEnvVar[];
+  secrets_readable: boolean;
+}
+
+export interface PatchServiceEnvResult {
+  id: string;
+  deployment_id: string;
+  changed: string[];
+}
+
+export interface PatchServiceEnvBody {
+  set?: {  };
+  secrets?: {  };
+  unset?: string[];
+}
+
+export interface LogLine {
+  seq: number;
+  stream: 'stdout' | 'stderr';
+  ts: number | null;
+  message: string;
+}
+
+export interface LogLineList {
+  data: LogLine[];
+  next_cursor: string | null;
+}
+
+export interface DeploymentStatus {
+  deployment_id: string;
+  service_id: string | null;
+  kind: string;
+  phase: string;
+  desired: number | null;
+  ready: number | null;
+  message: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface PreviewResult {
+  action: string;
+  stack: string | null;
+  url: string | null;
+  reason: string | null;
+}
+
+export interface CreatePreviewBody {
+  branch: string;
+}
+
+export interface StackTelemetry {
+  stack: string;
+  enabled: boolean;
+}
+
+export interface SetStackTelemetryBody {
+  enabled: boolean;
+}
+
+export interface ErrorProject {
+  stack: string;
+  project_id: number;
+  dsn: string;
+  rate_limit_per_minute: number;
+  created_at: string;
+  rotated_at: string | null;
+}
+
+export interface StackErrorsStatus {
+  stack: string;
+  enabled: boolean;
+  store_enabled: boolean;
+  project: ErrorProject;
+  pending_redeploy: string[];
 }

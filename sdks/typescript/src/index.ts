@@ -1,5 +1,8 @@
 import { HttpTransport, type SwarmyClientOptions } from './http.js';
+import type { Principal } from './models.js';
 import {
+  AppsResource,
+  DeploymentsResource,
   IngressResource,
   NodesResource,
   ServicesResource,
@@ -10,7 +13,7 @@ export * from './models.js';
 export { SwarmyApiError } from './error.js';
 export type { SwarmyClientOptions, FetchLike } from './http.js';
 export type { ListOptions } from './resources.js';
-export { paginate } from './resources.js';
+export { paginate, sseData } from './resources.js';
 
 /**
  * Official client for the swarmy public REST API.
@@ -26,6 +29,8 @@ export class SwarmyClient {
   readonly stacks: StacksResource;
   readonly nodes: NodesResource;
   readonly ingress: IngressResource;
+  readonly apps: AppsResource;
+  readonly deployments: DeploymentsResource;
 
   private readonly http: HttpTransport;
 
@@ -35,6 +40,13 @@ export class SwarmyClient {
     this.stacks = new StacksResource(this.http);
     this.nodes = new NodesResource(this.http);
     this.ingress = new IngressResource(this.http);
+    this.apps = new AppsResource(this.http);
+    this.deployments = new DeploymentsResource(this.http);
+  }
+
+  /** Who this credential acts as (org, user, role) and its scopes. */
+  me(): Promise<Principal> {
+    return this.http.request<Principal>('GET', '/me');
   }
 }
 

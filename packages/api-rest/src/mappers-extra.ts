@@ -13,7 +13,7 @@ export interface ApiKeyViewShape {
   id: string;
   name: string;
   prefix: string;
-  scopes: ('read' | 'write')[];
+  scopes: ('read' | 'write' | 'secrets.read')[];
   lastUsedAt: string | null;
   createdAt: string;
   createdById: string | null;

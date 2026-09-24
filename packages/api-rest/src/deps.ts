@@ -6,18 +6,20 @@
  */
 import type { OrgContext } from '@swarmy/trpc';
 
-export type ApiKeyScope = 'read' | 'write';
+export type ApiKeyScope = 'read' | 'write' | 'secrets.read';
 
 export interface ResolvedApiKey {
   ctx: OrgContext;
-  apiKey: { id: string; scopes: ApiKeyScope[] };
+  /** `kind` says which credential it was; OAuth tokens carry `oauth:<client_id>` as id. */
+  apiKey: { id: string; scopes: ApiKeyScope[]; kind?: 'api_key' | 'oauth' };
 }
 
 export interface RestDeps {
   /**
-   * Resolve an OrgContext from a presented API key (raw header value, with or
-   * without a `Bearer ` prefix). Returns `null` for unknown/revoked keys.
-   * Wired in apps/api from `resolveOrgContextFromApiKey(@swarmy/trpc)`.
+   * Resolve an OrgContext from a presented bearer (raw header value, with or
+   * without a `Bearer ` prefix): an `swk_…` API key, or an OAuth access token
+   * swarmy issued for its own APIs. Returns `null` for unknown/revoked ones.
+   * Wired in apps/api from `resolveOrgContextFromBearer(@swarmy/trpc/devx)`.
    */
   resolveContextFromApiKey: (presentedKey: string) => Promise<ResolvedApiKey | null>;
 }
