@@ -130,7 +130,6 @@ model Organization {
   registryCredentials RegistryCredential[]
   imageGcPolicy       ImageGcPolicy?
   apiKeys             ApiKey[]
-  storageCluster      StorageCluster?
   backupSchedules     BackupSchedule[]
   backupJobs          BackupJob[]
   restoreOperations   RestoreOperation[]

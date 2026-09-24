@@ -98,11 +98,6 @@ model ControllerSnapshot {
   @@map("controller_snapshot")
 }
 
-enum StorageClusterDriver {
-  GARAGE
-  MINIO
-  NONE
-}
 
 enum BackupJobStatus {
   RUNNING
@@ -117,55 +112,9 @@ enum RestoreStatus {
   FAILED
 }
 
-model StorageCluster {
-  id                String               @id @default(cuid())
-  orgId             String               @unique
-  driver            StorageClusterDriver @default(NONE)
-  enabled           Boolean              @default(false)
-  replicationFactor Int                  @default(3)
-  region            String               @default("swarmy")
-  memberNodeIds     Json                 @default("[]")
-  layout            Json                 @default("{}")
-  rpcSecretRef      String?
-  adminTokenRef     String?
-  accessKeyRef      String?
-  secretKeyRef      String?
-  /// Public S3 hostname the edges serve for `PUBLIC` buckets (null = derived
-  /// from the dashboard domain: swarmy.x → s3.x).
-  publicS3Domain    String?
-  /// Garage image this store RUNS (null = legacy v1.0.1, the pre-v2 default).
-  /// Changed only by an engine upgrade — never by a redeploy picking up a new
-  /// default — because a Garage major is not a rolling upgrade.
-  engineImage       String?
-  /// In-flight / last engine upgrade run (resumable state), null = never run.
-  engineUpgrade     Json?
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
-
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@map("storage_cluster")
-}
-
-/// Who can reach one bucket's S3 API. Enforced at the Caddy edge (a bucket
-/// path allowlist in front of Garage); Garage still demands SigV4 keys or a
-/// presigned signature, so PUBLIC means reachable, not anonymous. No row =
-/// INTERNAL (in-cluster only), the default.
-model BucketAccess {
-  id         String   @id @default(cuid())
-  orgId      String
-  /// Garage bucket id (stable) + its global alias at the time it was set.
-  bucketId   String
-  bucketName String
-  /// INTERNAL | MESH | PUBLIC
-  mode       String   @default("INTERNAL")
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@unique([orgId, bucketId])
-  @@index([orgId])
-  @@map("bucket_access")
-}
+// The replicated object store (StorageCluster) and per-bucket reachability
+// (BucketAccess) live in the org's swarm (swarm-kv storage/<orgId> and
+// bucket-acl/<orgId>, plans/epic-docker-native-state.md P4 slice 2).
 
 model BackupSchedule {
   id        String    @id @default(cuid())
