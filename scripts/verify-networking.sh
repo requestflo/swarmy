@@ -161,9 +161,23 @@ cexec() { # cexec SERVICE CMD — run CMD in the service's local container
   docker exec "$cid" sh -c "$2"
 }
 
+# >>> lookup_cmd (extracted by scripts/verify-networking-lookup.test.sh)
+lookup_cmd() { # lookup_cmd NAME — in-container sh snippet printing NAME's IPs, one per line
+  # Query swarm's embedded DNS for the name AS GIVEN. A bare `nslookup web`
+  # appends the host's DNS search domain (copied into every container's
+  # resolv.conf) and busybox never retries the bare name, so `web` "failed to
+  # resolve" on any host with `search corp.example`. A trailing dot makes the
+  # name absolute (no search list, no ndots); getent (glibc/musl images) is
+  # preferred, else busybox nslookup asked 127.0.0.11 directly.
+  local fq="$1"
+  case "$fq" in *.) ;; *) fq="$fq." ;; esac
+  printf '%s' "if command -v getent >/dev/null 2>&1; then getent hosts '$fq' | awk '{print \$1}'; else nslookup '$fq' 127.0.0.11 2>/dev/null | awk '/^Name:/{n=1; next} n && /^Address/{for (i=2; i<=NF; i++) if (\$i ~ /^[0-9a-fA-F]*[.:][0-9a-fA-F.:]+\$/) {print \$i; break}}'; fi"
+}
+# <<< lookup_cmd
+
 resolves() { # resolves SERVICE NAME — exit 0 resolved, 1 not; the run aborts if SERVICE has no local container
   local rc=0
-  cexec "$1" "nslookup '$2' 2>/dev/null | grep -q '^Name:'" >/dev/null 2>&1 || rc=$?
+  cexec "$1" "$(lookup_cmd "$2") | grep -q ." >/dev/null 2>&1 || rc=$?
   if [ "$rc" = 125 ]; then
     report FAIL "exec into $1" "no local running container — negative checks would be meaningless"; exit 1
   fi
@@ -373,7 +387,7 @@ if [ "$size" = "2097152" ]; then
 else
   report FAIL "A: 2 MB transfer (MTU)" "got '${size:-nothing}' of 2097152 bytes — large packets are being dropped (overlay MTU vs mesh?)"
 fi
-web_ip="$(cexec "$A_CLIENT" "nslookup tasks.web 2>/dev/null | awk '/^Name:/{n=1} n&&/^Address/{print \$NF; exit}'" 2>/dev/null || true)"
+web_ip="$(cexec "$A_CLIENT" "$(lookup_cmd tasks.web) | head -n1" 2>/dev/null || true)"
 if [ -n "$web_ip" ] && cexec "$A_CLIENT" "ping -c1 -W2 -s 1400 $web_ip >/dev/null 2>&1" >/dev/null 2>&1; then
   report PASS "A: ping -s 1400 to web task" "$web_ip"
 elif [ -n "$web_ip" ]; then
