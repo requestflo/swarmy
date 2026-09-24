@@ -27,7 +27,7 @@ model NotificationChannel {
   name      String
   kind      NotificationChannelKind
   // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
-  configEnc String?                 @db.Text
+  configEnc String?
   enabled   Boolean                 @default(true)
   createdAt DateTime                @default(now())
   updatedAt DateTime                @updatedAt
@@ -57,7 +57,7 @@ model AlertRule {
   /// Opt-out tombstone: the user deleted this DEFAULT rule. Kept (disabled,
   /// hidden from lists) so the default seed never re-creates it — the
   /// autoBackup `optedOutAt` pattern.
-  optedOutAt   DateTime? @db.Timestamptz(3)
+  optedOutAt   DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -76,10 +76,10 @@ model AlertEvent {
   severity   String           @default("warning")
   // Resource key the event fired for (dedupe axis), e.g. `service:web` / `node:n1`.
   resource   String
-  message    String           @db.Text
+  message    String
   status     AlertEventStatus @default(FIRING)
-  firedAt    DateTime         @default(now()) @db.Timestamptz(3)
-  resolvedAt DateTime?        @db.Timestamptz(3)
+  firedAt    DateTime         @default(now())
+  resolvedAt DateTime?
 
   org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   rule AlertRule?   @relation(fields: [ruleId], references: [id], onDelete: SetNull)
@@ -95,9 +95,9 @@ model Incident {
   title      String
   status     IncidentStatus @default(OPEN)
   severity   String         @default("major")
-  summary    String?        @db.Text
-  openedAt   DateTime       @default(now()) @db.Timestamptz(3)
-  resolvedAt DateTime?      @db.Timestamptz(3)
+  summary    String?
+  openedAt   DateTime       @default(now())
+  resolvedAt DateTime?
 
   org    Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
   events IncidentEvent[]
@@ -110,9 +110,9 @@ model IncidentEvent {
   id         String   @id @default(cuid())
   orgId      String
   incidentId String
-  at         DateTime @default(now()) @db.Timestamptz(3)
+  at         DateTime @default(now())
   kind       String
-  message    String   @db.Text
+  message    String
   meta       Json     @default("{}")
 
   org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -158,7 +158,7 @@ model UptimeSample {
   orgId        String
   pageId       String
   componentKey String
-  at           DateTime     @default(now()) @db.Timestamptz(3)
+  at           DateTime     @default(now())
   status       UptimeStatus @default(UP)
 
   org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)

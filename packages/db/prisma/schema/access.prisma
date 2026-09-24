@@ -6,7 +6,7 @@ model AuthProviderConfig {
   type            String
   enabled         Boolean  @default(false)
   clientId        String?
-  encryptedSecret String?  @db.Text
+  encryptedSecret String?
   scopes          Json     @default("[]")
   settings        Json     @default("{}")
   createdAt       DateTime @default(now())
@@ -24,7 +24,7 @@ model SsoProvider {
   domain          String?
   issuer          String?
   clientId        String?
-  encryptedSecret String?  @db.Text
+  encryptedSecret String?
   metadata        Json     @default("{}")
   mapping         Json     @default("{}")
   enabled         Boolean  @default(true)
@@ -43,7 +43,7 @@ model Policy {
   name        String
   description String?
   effect      String
-  source      String   @db.Text
+  source      String
   priority    Int      @default(0)
   enabled     Boolean  @default(true)
   isdefault   Boolean  @default(false)

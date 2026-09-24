@@ -169,9 +169,9 @@ model RegistryConfig {
   // Registry policy (platform buildout, D3): admission gates + org cosign keypair.
   requireSignedImages Boolean @default(false)
   blockCriticalCves   Boolean @default(false)
-  cosignPublicKey     String? @db.Text
+  cosignPublicKey     String?
   // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
-  cosignPrivateKeyEnc String? @db.Text
+  cosignPrivateKeyEnc String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -212,7 +212,7 @@ model ImageScan {
   lowCount      Int             @default(0)
   reportJson    Json            @default("{}")
   status        ImageScanStatus @default(PASSED)
-  scannedAt     DateTime        @default(now()) @db.Timestamptz(3)
+  scannedAt     DateTime        @default(now())
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -236,7 +236,7 @@ model RegistryCredential {
   provider        String    @default("generic")
   label           String?
   username        String
-  secretEnc       String    @db.Text
+  secretEnc       String
   lastTestedAt    DateTime?
   lastTestOk      Boolean?
   lastTestMessage String?

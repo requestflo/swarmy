@@ -22,31 +22,45 @@ function fixture(): BundleContents {
     manifest: {
       swarmyVersion: '1.2.3',
       schemaVersion: '1',
-      dbDriver: 'pglite',
+      dbDriver: 'sqlite',
       createdAt: '2026-06-27T00:00:00.000Z',
       orgCount: 2,
       nodeCount: 5,
       includedTables: 'control-plane',
     },
-    // a "mock dump" — exactly what dumpControlPlane would produce.
-    dbDump: Buffer.from(
-      "SET session_replication_role = replica;\nINSERT INTO organization (id) VALUES ('org_1');\n",
-    ),
+    // stands in for a VACUUM INTO snapshot: the SQLite header + payload bytes.
+    dbSnapshot: Buffer.concat([Buffer.from('SQLite format 3\0', 'latin1'), Buffer.from('org_1 payload')]),
     secrets: {
       SWARMY_SECRET_KEY: 'super-secret-key-value',
       BETTER_AUTH_SECRET: 'auth-secret',
-      config: { SWARMY_DB_DRIVER: 'pglite', CONTROLLER_PUBLIC_URL: 'https://ctl.example' },
+      config: { CONTROLLER_PUBLIC_URL: 'https://ctl.example' },
     },
   };
 }
 
 describe('controller-state bundle serialize/deserialize', () => {
-  test('round-trips manifest + dump + secrets exactly', () => {
+  test('round-trips manifest + snapshot + secrets exactly', () => {
     const original = fixture();
     const restored = deserializeBundle(serializeBundle(original));
     expect(restored.manifest).toEqual(original.manifest);
-    expect(Buffer.from(restored.dbDump).equals(original.dbDump)).toBe(true);
+    expect(Buffer.from(restored.dbSnapshot).equals(original.dbSnapshot)).toBe(true);
     expect(restored.secrets).toEqual(original.secrets);
+  });
+
+  test('refuses a Postgres-era bundle (db.sql, no control.db)', () => {
+    const frame = (name: string, data: Buffer) => {
+      const h = Buffer.alloc(8);
+      h.writeUInt32BE(name.length, 0);
+      h.writeUInt32BE(data.length, 4);
+      return Buffer.concat([h, Buffer.from(name), data]);
+    };
+    const blob = Buffer.concat([
+      Buffer.from('SWCBSTORE1'),
+      frame('manifest.json', Buffer.from('{}')),
+      frame('db.sql', Buffer.from('INSERT …')),
+      frame('secrets.json', Buffer.from('{}')),
+    ]);
+    expect(() => deserializeBundle(blob)).toThrow(/Postgres-era/);
   });
 
   test('rejects a corrupt store frame', () => {
@@ -76,8 +90,8 @@ describe('bundle build → store(temp dir) → restore round-trip (restic mocked
     const restored = deserializeBundle(decryptWithPassphrase(onDisk, passphrase));
 
     expect(restored.secrets.SWARMY_SECRET_KEY).toBe(contents.secrets.SWARMY_SECRET_KEY);
-    expect(Buffer.from(restored.dbDump).toString()).toContain('INSERT INTO organization');
-    expect(restored.manifest.dbDriver).toBe('pglite');
+    expect(Buffer.from(restored.dbSnapshot).toString('latin1')).toContain('org_1 payload');
+    expect(restored.manifest.dbDriver).toBe('sqlite');
   });
 
   test('wrong passphrase cannot restore the temp-dir artefact', async () => {

@@ -2,7 +2,7 @@
  * Controller-state backup service (data-store epic, P1 — "the VERY IMPORTANT bit").
  *
  * Orchestrates the platform-level (org-independent) backup of the controller's
- * brain: a logical control-plane dump + the controller's secrets + config +
+ * brain: a `VACUUM INTO` snapshot of control.db + the controller's secrets + config +
  * manifest, encrypted with a user-held restore passphrase, stored to a restic
  * `BackupTarget`. Runs controller-side (never on an agent).
  *
@@ -19,10 +19,9 @@ import {
 } from '@swarmy/core/crypto';
 import type { ResticRepo } from '@swarmy/core/protocol';
 import type { DB } from '@swarmy/db';
-import { resolveDbDriver } from '@swarmy/db';
 import { commandRejected, notFound } from '../errors';
 import { writeAudit } from './audit.service';
-import { dumpControlPlane, loadControlPlane } from './controllerBackup.dump';
+import { loadControlPlane, snapshotControlPlane } from './controllerBackup.snapshot';
 import {
   createAndStoreBundle,
   defaultRunner,
@@ -312,7 +311,7 @@ export async function buildManifest(db: DB): Promise<ControllerManifest> {
   return {
     swarmyVersion: process.env.SWARMY_VERSION ?? '0.0.0',
     schemaVersion: process.env.SWARMY_SCHEMA_VERSION ?? '1',
-    dbDriver: resolveDbDriver(),
+    dbDriver: 'sqlite',
     createdAt: new Date().toISOString(),
     orgCount,
     nodeCount,
@@ -329,7 +328,6 @@ function gatherSecrets(): ControllerSecrets {
     SWARMY_SECRET_KEY: key,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     config: {
-      SWARMY_DB_DRIVER: resolveDbDriver(),
       CONTROLLER_PUBLIC_URL: process.env.CONTROLLER_PUBLIC_URL ?? '',
       ...(process.env.SWARMY_DATA_DIR ? { SWARMY_DATA_DIR: process.env.SWARMY_DATA_DIR } : {}),
     },
@@ -365,9 +363,9 @@ export async function runControllerBackup(
   });
 
   try {
-    const [manifest, dump] = await Promise.all([buildManifest(ctx.db), dumpControlPlane(ctx.db)]);
+    const [manifest, dbSnapshot] = await Promise.all([buildManifest(ctx.db), snapshotControlPlane(ctx.db)]);
     const result = await createAndStoreBundle({
-      contents: { manifest, dbDump: Buffer.from(dump.sql), secrets: gatherSecrets() },
+      contents: { manifest, dbSnapshot, secrets: gatherSecrets() },
       passphrase,
       repo: toResticRepo(target),
       runner: opts.runner ?? defaultRunner(),
@@ -428,11 +426,11 @@ export async function listRemoteSnapshots(db: DB): Promise<{ id: string; time: s
 
 export interface RestoreControllerResult {
   manifest: ControllerManifest;
-  /** Whether the control-plane data dump was loaded into the live DB. */
+  /** Whether the snapshot was loaded into the live DB. */
   tablesLoaded: boolean;
   /** Whether the bundle's SWARMY_SECRET_KEY matches the running controller's. */
   secretsMatch: boolean;
-  /** Non-fatal preflight findings the operator should act on (driver/key mismatch). */
+  /** Non-fatal preflight findings the operator should act on (a vault-key mismatch). */
   warnings: string[];
 }
 
@@ -442,7 +440,7 @@ export interface RestoreControllerResult {
  * Pulls the encrypted bundle from the configured restic target, decrypts it with
  * the user-held passphrase (supplied for a disaster restore, or the stored
  * operational copy), and — unless `loadData: false` (preview only) — loads the
- * control-plane dump back into the live DB via {@link loadControlPlane}.
+ * control.db snapshot back into the live DB via {@link loadControlPlane}.
  *
  * Secrets are NOT hot-swapped: `SWARMY_SECRET_KEY` can't change in a running
  * process, so a key mismatch is surfaced as a warning (existing vault ciphertext
@@ -474,11 +472,8 @@ export async function restoreControllerBackup(
   });
 
   const warnings: string[] = [];
-  const liveDriver = resolveDbDriver();
-  if (contents.manifest.dbDriver !== liveDriver) {
-    warnings.push(
-      `bundle dbDriver="${contents.manifest.dbDriver}" differs from live driver="${liveDriver}"`,
-    );
+  if (contents.manifest.dbDriver !== 'sqlite') {
+    throw new Error(`bundle dbDriver="${String(contents.manifest.dbDriver)}" is not restorable; only SQLite bundles are`);
   }
   const liveKey = process.env.SWARMY_SECRET_KEY ?? '';
   const secretsMatch = Boolean(liveKey) && contents.secrets.SWARMY_SECRET_KEY === liveKey;
@@ -490,7 +485,7 @@ export async function restoreControllerBackup(
 
   let tablesLoaded = false;
   if (input.loadData !== false) {
-    await loadControlPlane(ctx.db, contents.dbDump.toString('utf8'));
+    await loadControlPlane(ctx.db, contents.dbSnapshot);
     tablesLoaded = true;
   }
 

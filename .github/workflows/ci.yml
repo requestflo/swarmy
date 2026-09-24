@@ -12,26 +12,11 @@ concurrency:
 env:
   CHECKPOINT_DISABLE: '1'
   PRISMA_HIDE_UPDATE_MESSAGE: '1'
-  DATABASE_URL: postgresql://swarmy:swarmy@localhost:5432/swarmy
 
 jobs:
   verify:
     name: typecheck · build · schema
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: swarmy
-          POSTGRES_PASSWORD: swarmy
-          POSTGRES_DB: swarmy
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U swarmy"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -41,22 +26,12 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Generate Prisma client
         run: bun run db:generate
-      # Installs build their schema from prisma/migrations (lite: ensureSchema,
-      # standard: migrate deploy) — never from db push. Apply the real
-      # migrations, then fail if the schema still differs: a model change
-      # without a migration would otherwise ship a controller missing tables.
+      # Controllers build control.db and telemetry.db from prisma/migrations on
+      # boot (ensureSchema). Apply every migration through that same path to a
+      # fresh file, then fail if the result differs from the schema: a model
+      # change without a migration would ship a controller missing tables.
       - name: Migrations apply and match the schema
-        working-directory: packages/db
-        run: |
-          bunx prisma migrate deploy
-          bunx prisma migrate diff --from-config-datasource --to-schema prisma/schema --exit-code \
-            || { echo "::error::prisma/schema has changes with no migration — run: bunx prisma migrate diff --from-config-datasource --to-schema prisma/schema --script > prisma/migrations/<next>/migration.sql"; exit 1; }
-      # Standard-tier controllers migrate on boot via ensureSchema over the pg
-      # adapter — a different executor from prisma's. Prove it on real Postgres.
-      - name: Boot-time schema path applies on Postgres
-        run: |
-          PGPASSWORD=swarmy psql -h localhost -U swarmy -d swarmy -c 'CREATE DATABASE swarmy_boot'
-          ENSURE_SCHEMA_URL=postgresql://swarmy:swarmy@localhost:5432/swarmy_boot bun packages/db/scripts/check-ensure-schema.ts
+        run: bun run --cwd packages/db db:check
       - name: Typecheck
         run: bun run typecheck
       - name: Build

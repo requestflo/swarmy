@@ -1,8 +1,8 @@
-// swarmy — Prisma 7 schema (pg driver adapter, ESM client, no engine binary).
+// swarmy control.db — Prisma 7 schema (SQLite via the in-repo bun:sqlite adapter).
 // Multi-file schema (Prisma 6.7+ GA): models live in domain files in this folder;
 // this file holds the generator + datasource. All files are combined at generate.
 
-// swarmy — Prisma 7 schema (pg driver adapter, ESM client, no engine binary).
+// swarmy control.db — Prisma 7 schema (SQLite via the in-repo bun:sqlite adapter).
 generator client {
   provider     = "prisma-client"
   output       = "../../src/generated"
@@ -11,5 +11,5 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
 }

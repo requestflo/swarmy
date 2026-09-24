@@ -15,8 +15,8 @@
  * The active org is selected at sign-in time by the session create hook in
  * @swarmy/auth, so this seed only has to make the membership exist.
  *
- * Run with the repo-root env loaded (so DATABASE_URL + BETTER_AUTH_SECRET reach
- * Prisma and Better Auth):
+ * Run with the repo-root env loaded (so BETTER_AUTH_SECRET and any SWARMY_DATA_DIR
+ * reach Better Auth and the store):
  *   bun --env-file=.env run scripts/seed-dev.ts
  *   (wired as `bun run seed-dev`).
  *
@@ -26,7 +26,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { prisma } from '@swarmy/db';
+import { buildAdapter, ensureSchema, prisma, resolveDbPaths } from '@swarmy/db';
 import { auth } from '@swarmy/auth';
 import { JOIN_TOKEN_PREFIX } from '@swarmy/core';
 import { buildMeshConfigRow } from '@swarmy/core/mesh-bootstrap';
@@ -64,7 +64,7 @@ async function ensureUser(): Promise<string> {
   } catch (err) {
     fail(
       `failed to create dev user via Better Auth: ${err instanceof Error ? err.message : String(err)}\n` +
-        '  Is BETTER_AUTH_SECRET set to a real value and DATABASE_URL reachable?',
+        '  Is BETTER_AUTH_SECRET set to a real value?',
     );
   }
   const created = await prisma.user.findUnique({ where: { email: DEV_EMAIL }, select: { id: true } });
@@ -164,9 +164,9 @@ async function ensureMeshConfig(orgId: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  if (!process.env.DATABASE_URL) {
-    console.warn('seed-dev: DATABASE_URL not set; Prisma will fall back to localhost:5678 (run via `bun run seed-dev`).');
-  }
+  // The dev controller migrates on boot too; do it here so seeding works first.
+  const applied = await ensureSchema(buildAdapter());
+  if (applied.length > 0) console.log(`seed-dev: applied ${applied.join(', ')} to ${resolveDbPaths().control}`);
 
   const userId = await ensureUser();
   const orgId = await ensureOrg();

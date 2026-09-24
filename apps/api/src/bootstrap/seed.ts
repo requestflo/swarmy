@@ -1,10 +1,9 @@
 /**
- * In-process first-boot bootstrap for a self-hosted controller (lite + standard).
+ * In-process first-boot bootstrap for a self-hosted controller.
  *
- * Why in-process (not a separate `docker run` one-shot): in lite (PGlite) mode the
- * database is embedded in THIS controller process — a single, exclusive connection
- * with no TCP endpoint — so nothing outside the process can seed it. Running the
- * seed here covers both tiers with one code path.
+ * Why in-process (not a separate `docker run` one-shot): it runs right after the
+ * boot-time schema bring-up, against the controller's own control.db, before
+ * anything else reads it, and needs no extra container, secrets or volume mount.
  *
  * Gated on SWARMY_BOOTSTRAP=1 (set only by the self-host stack) and fully idempotent,
  * so the long-running service re-runs it harmlessly on every restart, and dev (which

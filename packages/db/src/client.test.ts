@@ -1,67 +1,40 @@
 import { describe, expect, test } from 'bun:test';
-import { resolveDbDriver, buildAdapter } from './client';
-import { PrismaPGlite } from './pglite-adapter';
+import { join } from 'node:path';
+import { buildAdapter, DEV_DATA_DIR, resolveDbPaths } from './client';
+import { PrismaBunSqlite } from './bun-sqlite-adapter';
 
-describe('resolveDbDriver', () => {
-  test('defaults to postgres for back-compat', () => {
-    expect(resolveDbDriver({})).toBe('postgres');
-    expect(resolveDbDriver({ DATABASE_URL: 'postgresql://u:p@h/db' })).toBe('postgres');
+describe('resolveDbPaths', () => {
+  test('SWARMY_DATA_DIR holds control.db and telemetry.db', () => {
+    expect(resolveDbPaths({ SWARMY_DATA_DIR: '/var/lib/swarmy/data' })).toEqual({
+      control: '/var/lib/swarmy/data/control.db',
+      telemetry: '/var/lib/swarmy/data/telemetry.db',
+    });
   });
 
-  test('honours explicit SWARMY_DB_DRIVER', () => {
-    expect(resolveDbDriver({ SWARMY_DB_DRIVER: 'pglite' })).toBe('pglite');
-    expect(resolveDbDriver({ SWARMY_DB_DRIVER: 'PostgreS' })).toBe('postgres');
-    expect(resolveDbDriver({ SWARMY_DB_DRIVER: 'PGLITE' })).toBe('pglite');
+  test('explicit paths win, file: URLs and :memory: are accepted', () => {
+    expect(
+      resolveDbPaths({ SWARMY_DATA_DIR: '/d', SWARMY_DB_PATH: 'file:/x/c.db', SWARMY_TELEMETRY_DB_PATH: ':memory:' }),
+    ).toEqual({ control: '/x/c.db', telemetry: ':memory:' });
   });
 
-  test('infers pglite from the DATABASE_URL scheme', () => {
-    expect(resolveDbDriver({ DATABASE_URL: 'file:/var/lib/swarmy/pg' })).toBe('pglite');
-    expect(resolveDbDriver({ DATABASE_URL: 'pglite:///data' })).toBe('pglite');
-    expect(resolveDbDriver({ DATABASE_URL: 'memory://' })).toBe('pglite');
-  });
-
-  test('explicit driver wins over an inferred scheme', () => {
-    expect(resolveDbDriver({ SWARMY_DB_DRIVER: 'postgres', DATABASE_URL: 'file:/x' })).toBe(
-      'postgres',
-    );
+  test('defaults to <repo>/.swarmy/data for local dev', () => {
+    expect(resolveDbPaths({}).control).toBe(join(DEV_DATA_DIR, 'control.db'));
+    expect(DEV_DATA_DIR.endsWith(join('.swarmy', 'data'))).toBe(true);
   });
 });
 
 describe('buildAdapter', () => {
-  test('pglite mode returns a PGlite factory (no DATABASE_URL required)', () => {
-    const a = buildAdapter({ SWARMY_DB_DRIVER: 'pglite' });
-    expect(a).toBeInstanceOf(PrismaPGlite);
-    expect(a.provider).toBe('postgres');
+  test('returns a sqlite factory, one per file', () => {
+    const env = { SWARMY_DB_PATH: '/tmp/swarmy-adapter-test/control.db' };
+    const a = buildAdapter(env);
+    expect(a).toBeInstanceOf(PrismaBunSqlite);
+    expect(a.provider).toBe('sqlite');
+    // boot-time ensureSchema and the app's PrismaClient share one handle.
+    expect(buildAdapter(env)).toBe(a);
   });
 
-  test('postgres mode without DATABASE_URL throws a helpful error', () => {
-    expect(() => buildAdapter({ SWARMY_DB_DRIVER: 'postgres' })).toThrow(/DATABASE_URL/);
-  });
-
-  test('postgres mode builds a pg adapter when DATABASE_URL is set', () => {
-    const a = buildAdapter({
-      SWARMY_DB_DRIVER: 'postgres',
-      DATABASE_URL: 'postgresql://u:p@localhost/db',
-    });
-    expect(a.provider).toBe('postgres');
-    expect(a).not.toBeInstanceOf(PrismaPGlite);
-  });
-
-  test('process-env pglite callers share one embedded instance per data dir', () => {
-    const saved = { d: process.env.SWARMY_DB_DRIVER, dir: process.env.SWARMY_DATA_DIR };
-    process.env.SWARMY_DB_DRIVER = 'pglite';
-    process.env.SWARMY_DATA_DIR = '/tmp/swarmy-shared-adapter-test';
-    try {
-      // ensureSchema(buildAdapter()) at boot + the app's PrismaClient must not each
-      // boot their own WASM Postgres (>=128 MiB apiece).
-      expect(buildAdapter()).toBe(buildAdapter());
-      // Explicit env objects (tests, tooling) stay private.
-      expect(buildAdapter({ SWARMY_DB_DRIVER: 'pglite' })).not.toBe(buildAdapter({ SWARMY_DB_DRIVER: 'pglite' }));
-    } finally {
-      if (saved.d === undefined) delete process.env.SWARMY_DB_DRIVER;
-      else process.env.SWARMY_DB_DRIVER = saved.d;
-      if (saved.dir === undefined) delete process.env.SWARMY_DATA_DIR;
-      else process.env.SWARMY_DATA_DIR = saved.dir;
-    }
+  test('in-memory factories stay private', () => {
+    const env = { SWARMY_DB_PATH: ':memory:' };
+    expect(buildAdapter(env)).not.toBe(buildAdapter(env));
   });
 });

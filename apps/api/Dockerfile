@@ -68,16 +68,11 @@ RUN bun install || bun install --no-frozen-lockfile
 # Controller source (packages already copied above for the install layer).
 COPY apps/api apps/api
 
-# Generate the Prisma client into packages/db/src/generated.
+# Generate the Prisma clients (control.db → src/generated, telemetry.db →
+# src/generated-telemetry). The store itself is SQLite via bun:sqlite: no
+# database server, no template, nothing to initialise at build time.
 ENV CHECKPOINT_DISABLE=1 PRISMA_HIDE_UPDATE_MESSAGE=1
 RUN bun --filter @swarmy/db db:generate
-
-# Lite tier: a pre-initialised PGlite data dir. A fresh node seeds its data dir
-# from this instead of running PGlite's initdb, whose ~1 GiB RSS peak OOM-killed
-# first boots on 1 GB hosts (docs/product/footprint.md). Built here, by the
-# same PGlite build the controller runs, so it is exactly what initdb would write.
-RUN bun run packages/db/scripts/pglite-template.ts /app/pglite-template.tar.gz
-ENV SWARMY_PGLITE_TEMPLATE=/app/pglite-template.tar.gz
 
 # Bundle the built dashboard; the controller serves it same-origin.
 COPY --from=spa /app/apps/app/dist /app/public
@@ -99,8 +94,7 @@ ENV NODE_ENV=production PORT=3001
 ENV MIMALLOC_PURGE_DELAY=0
 EXPOSE 3001
 
-# Entrypoint expands Docker-secret *_FILE vars and composes DATABASE_URL (standard
-# tier) before exec'ing CMD. CMD is overridable for the bootstrap one-shots
+# Entrypoint expands Docker-secret *_FILE vars before exec'ing CMD. CMD is overridable for the bootstrap one-shots
 # (e.g. `docker run … <image> bun run apps/api/src/bootstrap/seed.ts`).
 COPY apps/api/docker-entrypoint.sh /usr/local/bin/swarmy-entrypoint
 RUN chmod +x /usr/local/bin/swarmy-entrypoint

@@ -4,7 +4,6 @@
   "globalDependencies": [".env", "tsconfig.base.json"],
   "globalEnv": [
     "NODE_ENV",
-    "DATABASE_URL",
     "BETTER_AUTH_SECRET",
     "BETTER_AUTH_URL",
     "CONTROLLER_PUBLIC_URL",

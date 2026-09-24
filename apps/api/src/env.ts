@@ -1,13 +1,6 @@
-function required(name: string, fallback?: string): string {
-  const v = process.env[name] ?? fallback;
-  if (v == null) throw new Error(`missing env ${name}`);
-  return v;
-}
-
 export const env = {
   NODE_ENV: process.env.NODE_ENV ?? 'development',
   PORT: Number(process.env.PORT ?? 3021),
-  DATABASE_URL: required('DATABASE_URL', 'postgresql://swarmy:swarmy@localhost:5678/swarmy'),
   BETTER_AUTH_URL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3021',
   CONTROLLER_PUBLIC_URL: process.env.CONTROLLER_PUBLIC_URL ?? 'http://localhost:3021',
   /** Metrics rollup flush + retention. */

@@ -11,7 +11,14 @@ import {
   resolveClientIp,
   withClientIp,
 } from '@swarmy/auth';
-import { prisma, ensureSchema, buildAdapter, resolveDbDriver } from '@swarmy/db';
+import {
+  prisma,
+  ensureSchema,
+  buildAdapter,
+  buildTelemetryAdapter,
+  resolveDbPaths,
+  TELEMETRY_MIGRATIONS_DIR,
+} from '@swarmy/db';
 import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim, writeAudit, acmeDnsRequest } from '@swarmy/trpc';
 import { createRestApp } from '@swarmy/api-rest';
 import { env } from './env';
@@ -300,20 +307,21 @@ if (STATIC_DIR) {
 
 app.notFound((c) => c.json({ error: 'not found' }, 404));
 
-// ── Fresh-DB bring-up (self-host) ───────────────────────────────────────────
-// A self-hosted controller boots against an empty database. Lite (PGlite) mode
-// has no external `prisma migrate deploy`, so apply pending migrations in-process
-// BEFORE anything reads the DB — authRegistry.rebuild() below is the first read
-// and it throws on a table-less DB. Gated so dev's `bun db:push` flow (which never
-// records into _swarmy_migrations) is not double-applied: lite always self-migrates;
-// managed Postgres opts in via SWARMY_SELF_MIGRATE=1 (set by the self-host stack),
-// leaving `prisma migrate deploy` as the path for externally-managed databases.
-if (resolveDbDriver() === 'pglite' || process.env.SWARMY_SELF_MIGRATE === '1') {
-  const applied = await ensureSchema(buildAdapter() as never);
-  if (applied.length > 0) {
-    // eslint-disable-next-line no-console
-    console.log(`swarmy controller: applied ${applied.length} migration(s): ${applied.join(', ')}`);
-  }
+// ── Store bring-up ──────────────────────────────────────────────────────────
+// The controller's store is two SQLite files in SWARMY_DATA_DIR (control.db,
+// telemetry.db), often empty on first boot. Apply pending migrations in-process
+// BEFORE anything reads the DB: authRegistry.rebuild() below is the first read.
+{
+  const paths = resolveDbPaths();
+  const applied = [
+    ...(await ensureSchema(buildAdapter())),
+    ...(await ensureSchema(buildTelemetryAdapter(), TELEMETRY_MIGRATIONS_DIR)).map((m) => `telemetry/${m}`),
+  ];
+  // eslint-disable-next-line no-console
+  console.log(
+    `swarmy controller: store ${paths.control}` +
+      (applied.length > 0 ? `; applied ${applied.length} migration(s): ${applied.join(', ')}` : ''),
+  );
 }
 
 // Sign-in provisioning (invite links, SSO JIT membership + group sync) audits

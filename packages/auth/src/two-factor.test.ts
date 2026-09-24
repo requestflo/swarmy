@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHmac } from 'node:crypto';
-import { ensureSchema, PrismaClient, PrismaPGlite, type DB } from '@swarmy/db';
+import { createTestDb, type DB, type TestDb } from '@swarmy/db';
 import { buildAuth } from './server';
 import { classifySessionPath, nextStepUpCounters, STEP_UP_LOCKOUT } from './two-factor';
 
@@ -48,7 +48,7 @@ describe('nextStepUpCounters', () => {
   });
 });
 
-// ── End to end against an in-memory Postgres (PGlite + the real migrations) ──
+// ── End to end against a temp SQLite file (the real migrations) ──
 
 function base32Decode(s: string): Buffer {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -96,6 +96,7 @@ function cookieJar(prev: string, headers: Headers): string {
 
 describe('twoFactor end to end', () => {
   let db: DB;
+  let store: TestDb;
   let auth: ReturnType<typeof buildAuth>;
   const links: string[] = [];
   const email = 'owner@example.com';
@@ -106,10 +107,8 @@ describe('twoFactor end to end', () => {
   beforeAll(async () => {
     process.env.BETTER_AUTH_SECRET ??= 'test-secret-test-secret-test-secret-000';
     process.env.SWARMY_AUTH_RATE_LIMIT = '0';
-    // keepOpen: ensureSchema's dispose must not close the shared in-memory DB.
-    const factory = new PrismaPGlite({ keepOpen: true });
-    await ensureSchema(factory);
-    db = new PrismaClient({ adapter: factory }) as unknown as DB;
+    store = await createTestDb();
+    db = store.db;
     auth = buildAuth(
       { social: {}, magicLink: true },
       { db, sendMagicLink: async ({ token }) => void links.push(token) },
@@ -117,7 +116,7 @@ describe('twoFactor end to end', () => {
   }, 60_000);
 
   afterAll(async () => {
-    await (db as unknown as { $disconnect(): Promise<void> }).$disconnect();
+    await store.close();
   });
 
   async function sessionRow(cookie: string) {

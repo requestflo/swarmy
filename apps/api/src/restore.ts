@@ -10,8 +10,9 @@
  *   2. restic restore + decrypt with the passphrase (zero-knowledge).
  *   3. read manifest.json, validate compatibility.
  *   4. restore SWARMY_SECRET_KEY / BETTER_AUTH_SECRET / config (write recovery env).
- *   5. bring up the DB schema (ensureSchema / migrate deploy).
- *   6. load the logical control-plane dump.
+ *   5. put the bundle's control.db snapshot in place (the controller must be
+ *      stopped: it holds the file open), keeping any existing file beside it.
+ *   6. bring the schema up to date (ensureSchema applies newer migrations).
  * A restored controller re-adopts the swarm automatically — agent reconnect creds
  * are *hashed* per-node session secrets in the DB, so agents re-attach on dial-out.
  *
@@ -26,8 +27,8 @@
  */
 import { writeFile } from 'node:fs/promises';
 import type { ResticRepo } from '@swarmy/core/protocol';
-import { ensureSchema, buildAdapter, prisma } from '@swarmy/db';
-import { restoreBundle, loadControlPlane } from '@swarmy/trpc';
+import { ensureSchema, buildAdapter, resolveDbPaths } from '@swarmy/db';
+import { restoreBundle, installSnapshotFile } from '@swarmy/trpc';
 
 interface Flags {
   [k: string]: string | boolean;
@@ -117,18 +118,16 @@ async function main(): Promise<void> {
     if (v) process.env[k] = v;
   }
 
-  // 5. bring up the schema. Lite mode self-migrates; server PG should be migrated
-  //    with `prisma migrate deploy` first, but ensureSchema is a safe no-op when
-  //    the schema is already present.
-  log('ensuring schema (migrate) …');
-  await ensureSchema(buildAdapter() as never);
+  // 5. put control.db in place. Run with the controller stopped.
+  const path = resolveDbPaths().control;
+  const { keptAs } = await installSnapshotFile(bundle.dbSnapshot, path);
+  log(`wrote ${path}${keptAs ? ` (the previous file is kept as ${keptAs})` : ''}`);
 
-  // 6. load the control-plane data.
-  log('loading control-plane data …');
-  await loadControlPlane(prisma, Buffer.from(bundle.dbDump).toString('utf8'));
+  // 6. a bundle from an older swarmy gets the newer migrations now.
+  const applied = await ensureSchema(buildAdapter());
+  if (applied.length > 0) log(`applied ${applied.length} newer migration(s): ${applied.join(', ')}`);
 
   log('restore complete. Start the controller; agents re-adopt automatically.');
-  await prisma.$disconnect?.();
 }
 
 main().catch((e) => {

@@ -1,9 +1,9 @@
-import { prisma } from '@swarmy/db';
+import { telemetry } from '@swarmy/db';
 import { env } from '../env';
 import { store } from '../gateway';
 
 /**
- * Periodically flush a downsampled metric row per node into Postgres (history).
+ * Periodically flush a downsampled metric row per node into telemetry.db (history).
  * The latest live sample is served straight from the in-memory hub ring (Docker
  * truth) — no Node.latestMetrics column, no write amplification. `nodeId` is
  * persisted as a plain string id; node swarm/telemetry state is never written.
@@ -18,7 +18,7 @@ export function startMetricsSampler(): () => void {
       const orgId = store.nodeOrg.get(nodeId);
       if (!orgId) continue;
       try {
-        await prisma.metricSample.create({
+        await telemetry.metricSample.create({
           data: {
             orgId,
             nodeId,
@@ -34,7 +34,7 @@ export function startMetricsSampler(): () => void {
           },
         });
       } catch {
-        // node may have been removed; ignore.
+        // a write failure only loses one sample; the next tick writes again.
       }
     }
   }, env.METRICS_SAMPLE_INTERVAL_MS);

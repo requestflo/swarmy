@@ -6,7 +6,7 @@ model AiProviderConfig {
   // Provider descriptors (kind, base URL, model prefixes) — REFERENCES only.
   providersJson Json     @default("[]")
   // Encrypted provider API keys via the vault (SWARMY_SECRET_KEY). Never returned to clients.
-  configEnc     String?  @db.Text
+  configEnc     String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -39,7 +39,7 @@ model AiUsage {
   id         String   @id @default(cuid())
   orgId      String
   keyId      String
-  at         DateTime @default(now()) @db.Timestamptz(3)
+  at         DateTime @default(now())
   provider   String
   model      String
   inTokens   Int      @default(0)
@@ -62,9 +62,9 @@ model AiRequestLog {
   id             String   @id @default(cuid())
   orgId          String
   keyId          String
-  at             DateTime @default(now()) @db.Timestamptz(3)
+  at             DateTime @default(now())
   model          String
-  promptRedacted String?  @db.Text
+  promptRedacted String?
   meta           Json     @default("{}")
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)

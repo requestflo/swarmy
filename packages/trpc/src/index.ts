@@ -173,7 +173,7 @@ export type { RegistryProvider, RegistryTestResult, RegistryTestStatus } from '.
 // ── data-store P1: controller-state backup/restore seams ──
 export { isBackupDue, runControllerBackup } from './services/controllerBackup.service';
 export { restoreBundle } from './services/controllerBackup.bundle';
-export { loadControlPlane } from './services/controllerBackup.dump';
+export { loadControlPlane, installSnapshotFile } from './services/controllerBackup.snapshot';
 
 // ── node-onboarding P2: swarm init/join orchestration (gateway register seam) ──
 export {

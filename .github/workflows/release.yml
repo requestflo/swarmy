@@ -14,7 +14,6 @@ permissions:
 env:
   CHECKPOINT_DISABLE: '1'
   PRISMA_HIDE_UPDATE_MESSAGE: '1'
-  DATABASE_URL: postgresql://swarmy:swarmy@localhost:5432/swarmy
 
 jobs:
   release:

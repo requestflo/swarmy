@@ -230,17 +230,27 @@ async function buildSnapshot(slug: string): Promise<PublicStatusView | null> {
 
   const [aggRows, incidents, latestRows] = await Promise.all([
     page.showUptime && components.length > 0
-      ? prisma.$queryRaw<
-          Array<{ componentKey: string; day: Date; total: number; up: number; degraded: number }>
-        >`
+      ? prisma
+          .$queryRaw<
+            Array<{ componentKey: string; day: string; total: bigint; up: bigint; degraded: bigint }>
+          >`
           SELECT "componentKey",
-                 date_trunc('day', "at" AT TIME ZONE 'UTC') AS day,
-                 count(*)::int AS total,
-                 (count(*) FILTER (WHERE "status" = 'UP'))::int AS up,
-                 (count(*) FILTER (WHERE "status" = 'DEGRADED'))::int AS degraded
+                 strftime('%Y-%m-%d', "at") AS day,
+                 count(*) AS total,
+                 count(*) FILTER (WHERE "status" = 'UP') AS up,
+                 count(*) FILTER (WHERE "status" = 'DEGRADED') AS degraded
           FROM "uptime_sample"
           WHERE "pageId" = ${page.id} AND "at" >= ${since}
           GROUP BY 1, 2`
+          .then((rows) =>
+            rows.map((r) => ({
+              componentKey: r.componentKey,
+              day: r.day,
+              total: Number(r.total),
+              up: Number(r.up),
+              degraded: Number(r.degraded),
+            })),
+          )
       : Promise.resolve([]),
     page.showIncidents ? publicIncidents(page.orgId) : Promise.resolve([]),
     prisma.uptimeSample.findMany({
@@ -253,8 +263,7 @@ async function buildSnapshot(slug: string): Promise<PublicStatusView | null> {
 
   const bucketsByComponent = new Map<string, Map<string, UptimeBucket>>();
   for (const row of aggRows) {
-    const day =
-      typeof row.day === 'string' ? (row.day as string).slice(0, 10) : dayKeyUtc(row.day);
+    const day = row.day.slice(0, 10);
     const buckets = bucketsByComponent.get(row.componentKey) ?? new Map<string, UptimeBucket>();
     buckets.set(day, { total: row.total, score: row.up + row.degraded * 0.5 });
     bucketsByComponent.set(row.componentKey, buckets);

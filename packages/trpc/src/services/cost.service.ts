@@ -10,7 +10,7 @@ import {
   type CostUtilSource,
   type SetNodeCostInput,
 } from '@swarmy/core';
-import type { OrgContext } from '../context';
+import { telemetryOf, type OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { overview as bucketsOverview } from './buckets.service';
@@ -259,7 +259,7 @@ async function nodeUtil(ctx: OrgContext, nodeId: string): Promise<NodeUtil> {
       };
     }
   }
-  const agg = await ctx.db.metricSample.aggregate({
+  const agg = await telemetryOf(ctx).metricSample.aggregate({
     where: {
       orgId: ctx.activeOrgId,
       nodeId,
@@ -373,7 +373,7 @@ async function findIdleServices(
   const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60_000);
   const history = new Map<string, number>();
   try {
-    const grouped = await ctx.db.metricSample.groupBy({
+    const grouped = await telemetryOf(ctx).metricSample.groupBy({
       by: ['serviceId'],
       where: {
         orgId: ctx.activeOrgId,
@@ -435,7 +435,7 @@ async function findOversizedNodes(
   nodes: CostNodeView[],
 ): Promise<CostOversizedNodeView[]> {
   const since = new Date(Date.now() - WINDOW_DAYS * 24 * 60 * 60_000);
-  const grouped = await ctx.db.metricSample.groupBy({
+  const grouped = await telemetryOf(ctx).metricSample.groupBy({
     by: ['nodeId'],
     where: { orgId: ctx.activeOrgId, scope: 'NODE', ts: { gte: since } },
     _avg: { cpuPercent: true, memUsedBytes: true, memTotalBytes: true },

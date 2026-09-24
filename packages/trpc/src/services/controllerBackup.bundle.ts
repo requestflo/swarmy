@@ -6,14 +6,14 @@
  * contains the controller's own secrets and must work before any agent exists.
  *
  * The bundle is a self-describing directory:
- *   manifest.json   — version/db-driver/timestamp/org+node counts (preflight)
- *   db.sql          — logical SQL dump (portable across lite↔managed↔external)
+ *   manifest.json   — version/db engine/timestamp/org+node counts (preflight)
+ *   control.db      — a `VACUUM INTO` snapshot of the controller's SQLite store
  *   secrets.json    — SWARMY_SECRET_KEY, BETTER_AUTH_SECRET, controller config
  *
  * The directory is tar+passphrase-encrypted into `bundle.swcb` (user-held
  * passphrase, NOT the vault key) and that single artefact is what restic stores.
  * So even a by-hand recovery is: `restic restore` → decrypt `bundle.swcb` with
- * the passphrase → load db.sql → set secrets → start controller.
+ * the passphrase → put control.db in the data dir → set secrets → start controller.
  */
 import { spawn } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -28,15 +28,18 @@ import {
 export const CONTROLLER_BACKUP_TAG = 'swarmy.controller-state';
 export const DEFAULT_RESTIC_IMAGE = 'restic/restic:0.16.4';
 const BUNDLE_FILE = 'bundle.swcb';
+/** Bundle member holding the control.db snapshot. */
+export const SNAPSHOT_MEMBER = 'control.db';
 
 export interface ControllerManifest {
   swarmyVersion: string;
   schemaVersion: string;
-  dbDriver: 'pglite' | 'postgres';
+  /** The controller store engine. Only 'sqlite' is produced or accepted. */
+  dbDriver: 'sqlite';
   createdAt: string;
   orgCount: number;
   nodeCount: number;
-  /** Tables included in the logical dump (metrics excluded — rebuildable). */
+  /** control.db only; telemetry.db (metrics) is rebuildable and left out. */
   includedTables: 'control-plane' | 'all';
 }
 
@@ -48,8 +51,8 @@ export interface ControllerSecrets {
 
 export interface BundleContents {
   manifest: ControllerManifest;
-  /** Logical SQL dump bytes. */
-  dbDump: Buffer;
+  /** control.db snapshot bytes (a complete SQLite file). */
+  dbSnapshot: Buffer;
   secrets: ControllerSecrets;
 }
 
@@ -187,7 +190,7 @@ export async function stageBundle(
 ): Promise<{ dir: string; bundlePath: string }> {
   const dir = await mkdtemp(join(tmpdir(), 'swarmy-cb-stage-'));
   await writeFile(join(dir, 'manifest.json'), JSON.stringify(contents.manifest, null, 2));
-  await writeFile(join(dir, 'db.sql'), contents.dbDump);
+  await writeFile(join(dir, SNAPSHOT_MEMBER), contents.dbSnapshot);
   await writeFile(join(dir, 'secrets.json'), JSON.stringify(contents.secrets, null, 2));
   return { dir, bundlePath: join(dir, BUNDLE_FILE) };
 }
@@ -200,7 +203,7 @@ export async function stageBundle(
 export function serializeBundle(contents: BundleContents): Buffer {
   const parts: Record<string, Buffer> = {
     'manifest.json': Buffer.from(JSON.stringify(contents.manifest)),
-    'db.sql': Buffer.from(contents.dbDump),
+    [SNAPSHOT_MEMBER]: Buffer.from(contents.dbSnapshot),
     'secrets.json': Buffer.from(JSON.stringify(contents.secrets)),
   };
   const chunks: Buffer[] = [Buffer.from('SWCBSTORE1')];
@@ -231,12 +234,15 @@ export function deserializeBundle(blob: Buffer): BundleContents {
     o += dataLen;
     files[name] = Buffer.from(data);
   }
-  if (!files['manifest.json'] || !files['db.sql'] || !files['secrets.json']) {
+  if (files['db.sql'] && !files[SNAPSHOT_MEMBER]) {
+    throw new Error('this bundle is from a Postgres-era controller (db.sql); only SQLite bundles restore');
+  }
+  if (!files['manifest.json'] || !files[SNAPSHOT_MEMBER] || !files['secrets.json']) {
     throw new Error('controller-state bundle is missing required members');
   }
   return {
     manifest: JSON.parse(files['manifest.json'].toString()) as ControllerManifest,
-    dbDump: files['db.sql'],
+    dbSnapshot: files[SNAPSHOT_MEMBER],
     secrets: JSON.parse(files['secrets.json'].toString()) as ControllerSecrets,
   };
 }
@@ -335,7 +341,7 @@ export async function listBundleSnapshots(
 
 /**
  * Restore + decrypt a controller-state bundle from a restic repo. Returns the
- * decoded contents (manifest + db dump + secrets) for the restore CLI/UI to act
+ * decoded contents (manifest + control.db snapshot + secrets) for the restore CLI/UI to act
  * on. Restores to a temp dir which is cleaned up.
  */
 export async function restoreBundle(args: {

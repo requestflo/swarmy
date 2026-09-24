@@ -1,0 +1,42 @@
+// swarmy telemetry.db: high-churn, rebuildable samples kept out of control.db
+// so they never bloat the control-plane file, its backups or its replica.
+// No foreign keys into control.db (a different file): orgId/nodeId are plain
+// strings, and rows for a deleted org or node age out with retention.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../../src/generated-telemetry"
+  runtime      = "bun"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum MetricScope {
+  NODE
+  CONTAINER
+}
+
+model MetricSample {
+  id             Int         @id @default(autoincrement())
+  orgId          String
+  nodeId         String
+  scope          MetricScope
+  containerId    String?
+  serviceId      String?
+  cpuPercent     Float
+  memUsedBytes   BigInt
+  memTotalBytes  BigInt
+  netRxBytes     BigInt
+  netTxBytes     BigInt
+  diskUsedBytes  BigInt
+  diskTotalBytes BigInt
+  ts             DateTime
+
+  @@index([nodeId, ts])
+  @@index([scope, containerId, ts])
+  @@index([orgId, ts])
+  @@map("metric_sample")
+}

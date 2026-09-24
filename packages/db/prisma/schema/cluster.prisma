@@ -5,10 +5,6 @@ enum NodeRole {
   WORKER
 }
 
-enum MetricScope {
-  NODE
-  CONTAINER
-}
 
 // Node is now an ENROLLMENT/IDENTITY record only — role/status/labels/resources/
 // version/lastSeen are Docker-truth and live in the in-memory hub (epic #6 rip-out).
@@ -27,7 +23,6 @@ model Node {
 
   org            Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
   joinToken      JoinToken?      @relation(fields: [joinTokenId], references: [id], onDelete: SetNull)
-  metricSamples  MetricSample[]
   recoveryClaims RecoveryClaim[]
 
   @@unique([orgId, name])
@@ -100,7 +95,7 @@ model Stack {
   id               String         @id @default(cuid())
   orgId            String
   name             String
-  composeSource    String         @db.Text
+  composeSource    String
   ingressDriver    IngressDriver?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
@@ -112,33 +107,9 @@ model Stack {
   @@map("stack")
 }
 
-model MetricSample {
-  id             BigInt      @id @default(autoincrement())
-  orgId          String
-  nodeId         String
-  scope          MetricScope
-  containerId    String?
-  serviceId      String?
-  cpuPercent     Float
-  memUsedBytes   BigInt
-  memTotalBytes  BigInt
-  netRxBytes     BigInt
-  netTxBytes     BigInt
-  diskUsedBytes  BigInt
-  diskTotalBytes BigInt
-  ts             DateTime    @db.Timestamptz(3)
-
-  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  node Node         @relation(fields: [nodeId], references: [id], onDelete: Cascade)
-
-  @@index([nodeId, ts])
-  @@index([scope, containerId, ts])
-  @@index([orgId, ts])
-  @@map("metric_sample")
-}
 
 model AuditLog {
-  id         BigInt   @id @default(autoincrement())
+  id         Int      @id @default(autoincrement())
   orgId      String
   actorId    String?
   actorType  String   @default("user")
@@ -146,7 +117,7 @@ model AuditLog {
   targetType String?
   targetId   String?
   metadata   Json     @default("{}")
-  ts         DateTime @default(now()) @db.Timestamptz(3)
+  ts         DateTime @default(now())
 
   org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   actor User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)

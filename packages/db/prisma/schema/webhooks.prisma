@@ -30,13 +30,13 @@ model InboundEndpoint {
   domain          String?
   verifyKind      InboundVerifyKind @default(NONE)
   // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
-  verifySecretEnc String?           @db.Text
+  verifySecretEnc String?
   targetKind      InboundTargetKind @default(FORWARD)
   targetJson      Json              @default("{}")
   // Handlebars-style template applied to the forwarded request body; null = pass-through.
-  transformTemplate String?         @db.Text
+  transformTemplate String?
   // Handlebars-style template for the HTTP response returned to the caller; null = default ack.
-  responseTemplate  String?         @db.Text
+  responseTemplate  String?
   retentionDays   Int               @default(30)
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
@@ -54,15 +54,15 @@ model InboundDelivery {
   id            String                @id @default(cuid())
   orgId         String
   endpointId    String
-  receivedAt    DateTime              @default(now()) @db.Timestamptz(3)
+  receivedAt    DateTime              @default(now())
   headersJson   Json                  @default("{}")
   // ≤256KB — truncated by the public receiver before persisting.
-  bodyText      String                @db.Text
+  bodyText      String
   verifyOk      Boolean               @default(false)
   status        InboundDeliveryStatus @default(PENDING)
   attempts      Int                   @default(0)
   nextAttemptAt DateTime?
-  lastError     String?               @db.Text
+  lastError     String?
 
   org      Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
   endpoint InboundEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)

@@ -4,28 +4,26 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": { "types": "./src/index.ts", "import": "./src/index.ts" }
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
   },
   "scripts": {
-    "db:generate": "prisma generate",
-    "build": "prisma generate",
+    "db:generate": "prisma generate && prisma generate --config prisma.telemetry.config.ts",
+    "build": "prisma generate && prisma generate --config prisma.telemetry.config.ts",
     "typecheck": "tsc --noEmit",
-    "db:push": "prisma db push",
-    "db:migrate": "prisma migrate dev",
+    "db:migration": "bun scripts/migration.ts",
+    "db:check": "bun scripts/migration.ts --check",
     "db:studio": "prisma studio",
     "test": "bun test",
-    "clean": "rm -rf dist .turbo src/generated"
+    "clean": "rm -rf dist .turbo src/generated src/generated-telemetry"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.5.3",
-    "@prisma/adapter-pg": "^7.0.0",
     "@prisma/client": "^7.0.0",
-    "@prisma/driver-adapter-utils": "^7.0.0",
-    "pg": "^8.13.1",
-    "postgres-array": "^3.0.4"
+    "@prisma/driver-adapter-utils": "^7.0.0"
   },
   "devDependencies": {
-    "@types/pg": "^8.11.10",
     "prisma": "^7.0.0",
     "typescript": "^5.5.4"
   }

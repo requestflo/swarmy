@@ -119,7 +119,7 @@ export function renderAuditCsv(entries: AuditEntryView[]): string {
 // ── Row → view projection ─────────────────────────────────────────────────────
 
 interface AuditRow {
-  id: bigint;
+  id: number;
   ts: Date;
   actorType: string;
   actorId: string | null;
@@ -180,7 +180,7 @@ async function resolveUserLabels(db: DB, rows: AuditRow[]): Promise<Map<string, 
 /** The audit timeline, newest first, keyset-paginated on the row id. */
 export async function queryAudit(ctx: OrgContext, input: AuditQueryInput): Promise<AuditPageView> {
   const where = buildAuditWhere(ctx.activeOrgId, input);
-  if (input.cursor) where.id = { lt: BigInt(input.cursor) };
+  if (input.cursor) where.id = { lt: Number(input.cursor) };
   const rows = await ctx.db.auditLog.findMany({
     where,
     orderBy: { id: 'desc' },

@@ -4,7 +4,7 @@ model ObservabilityConfig {
   id              String   @id @default(cuid())
   orgId           String   @unique
   enabled         Boolean  @default(false)
-  clickhouseDsn   String?  @db.Text
+  clickhouseDsn   String?
   retentionDays   Int      @default(7)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

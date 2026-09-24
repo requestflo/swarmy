@@ -181,7 +181,7 @@ export function buildAuth(
   const ssoById = new Map((config.sso ?? []).map((p) => [p.providerId, p]));
 
   return betterAuth({
-    database: prismaAdapter(db, { provider: 'postgresql' }),
+    database: prismaAdapter(db, { provider: 'sqlite' }),
     secret: process.env.BETTER_AUTH_SECRET,
     baseURL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3021',
     // Public URL + auth base + the direct http://<ip>:3021 (SWARMY_DIRECT_URL) —

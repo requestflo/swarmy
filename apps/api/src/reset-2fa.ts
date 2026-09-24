@@ -11,10 +11,11 @@
  * exec into the controller (who therefore already holds its database) can run
  * it. Runbook: docs/ACCOUNT-SECURITY.md.
  *
- *   standard tier:  docker exec -it $(docker ps -q -f name=swarmy_controller) \
- *                     bun run apps/api/src/reset-2fa.ts --email you@example.com
- *   lite tier:      PGlite is single-process, so stop the controller first
- *                   (see the runbook).
+ *   docker exec -it $(docker ps -q -f name=swarmy_controller) \
+ *     bun run apps/api/src/reset-2fa.ts --email you@example.com
+ *
+ * It opens the controller's control.db alongside the running controller (SQLite
+ * WAL allows a second process; busy_timeout covers the brief write lock).
  */
 import { prisma } from '@swarmy/db';
 import { resetTwoFactorByEmail } from '@swarmy/trpc';

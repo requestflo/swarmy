@@ -367,26 +367,41 @@ export async function resolveComponentStatus(
 
 interface DailyAggRow {
   componentKey: string;
-  day: Date;
+  day: string;
   total: number;
   up: number;
   degraded: number;
 }
 
+/** Raw counts come back as BigInt (the SQLite adapter reads integers safely). */
+type RawDailyAggRow = { componentKey: string; day: string; total: bigint | number; up: bigint | number; degraded: bigint | number };
+
+function toDailyAggRows(rows: RawDailyAggRow[]): DailyAggRow[] {
+  return rows.map((r) => ({
+    componentKey: r.componentKey,
+    day: r.day,
+    total: Number(r.total),
+    up: Number(r.up),
+    degraded: Number(r.degraded),
+  }));
+}
+
 /**
  * SQL-side daily aggregation — a component can hold ~130k samples over 90 days
- * (one per minute), far too many rows to fold in JS per request.
+ * (one per minute), far too many rows to fold in JS per request. `at` is stored
+ * as UTC ISO-8601 text, so strftime's day is the UTC day.
  */
 async function fetchDailyAgg(ctx: OrgContext, pageId: string, since: Date): Promise<DailyAggRow[]> {
-  return await ctx.db.$queryRaw<DailyAggRow[]>`
+  const rows = await ctx.db.$queryRaw<RawDailyAggRow[]>`
     SELECT "componentKey",
-           date_trunc('day', "at" AT TIME ZONE 'UTC') AS day,
-           count(*)::int AS total,
-           (count(*) FILTER (WHERE "status" = 'UP'))::int AS up,
-           (count(*) FILTER (WHERE "status" = 'DEGRADED'))::int AS degraded
+           strftime('%Y-%m-%d', "at") AS day,
+           count(*) AS total,
+           count(*) FILTER (WHERE "status" = 'UP') AS up,
+           count(*) FILTER (WHERE "status" = 'DEGRADED') AS degraded
     FROM "uptime_sample"
     WHERE "pageId" = ${pageId} AND "at" >= ${since}
     GROUP BY 1, 2`;
+  return toDailyAggRows(rows);
 }
 
 /** Aggregated SQL rows → per-component day buckets (shared shape with the pure path). */

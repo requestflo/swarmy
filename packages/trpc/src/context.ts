@@ -1,5 +1,5 @@
 import type { Auth } from '@swarmy/auth';
-import type { DB } from '@swarmy/db';
+import { telemetry, type DB, type TelemetryDB } from '@swarmy/db';
 import type { AgentHub } from './hub/types';
 
 type SessionRow = Auth['$Infer']['Session']['session'];
@@ -8,6 +8,8 @@ type UserRow = Auth['$Infer']['Session']['user'];
 /** Raw per-request context built in apps/api (Hono / WS upgrade). */
 export interface BaseContext {
   db: DB;
+  /** telemetry.db (MetricSample). Unset → the process-wide client; tests inject one. */
+  telemetry?: TelemetryDB;
   hub: AgentHub;
   auth: Auth;
   session: SessionRow | null;
@@ -50,4 +52,9 @@ export async function createContext(opts: CreateContextOptions): Promise<BaseCon
     activeOrgId,
     reqHeaders: headers,
   };
+}
+
+/** The telemetry.db client for a context (metric history lives in its own file). */
+export function telemetryOf(ctx: { telemetry?: TelemetryDB }): TelemetryDB {
+  return ctx.telemetry ?? telemetry;
 }

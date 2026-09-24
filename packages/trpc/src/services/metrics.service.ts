@@ -1,7 +1,7 @@
 import { buildInventory, STACK_LABEL, type MetricKind, type TimeseriesInput } from '@swarmy/core';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { DashboardSummary } from '@swarmy/core/views';
-import type { OrgContext } from '../context';
+import { telemetryOf, type OrgContext } from '../context';
 
 export interface ClusterOverview {
   cpuPercent: number;
@@ -158,7 +158,7 @@ export async function getTimeseries(
   input: TimeseriesInput,
 ): Promise<{ metric: MetricKind; points: { t: string; v: number }[] }> {
   const since = new Date(Date.now() - (RANGE_MS[input.range] ?? RANGE_MS['1h']!));
-  const rows = (await ctx.db.metricSample.findMany({
+  const rows = (await telemetryOf(ctx).metricSample.findMany({
     where: {
       orgId: ctx.activeOrgId,
       ts: { gte: since },

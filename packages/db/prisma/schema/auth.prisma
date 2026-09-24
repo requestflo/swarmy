@@ -56,9 +56,9 @@ model Account {
   userId                String
   accountId             String
   providerId            String
-  accessToken           String?   @db.Text
-  refreshToken          String?   @db.Text
-  idToken               String?   @db.Text
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
   accessTokenExpiresAt  DateTime?
   refreshTokenExpiresAt DateTime?
   scope                 String?
@@ -77,8 +77,8 @@ model Account {
 // with the auth secret by the plugin; never read or returned by swarmy code.
 model TwoFactor {
   id                      String    @id
-  secret                  String    @db.Text
-  backupCodes             String    @db.Text
+  secret                  String
+  backupCodes             String
   userId                  String
   verified                Boolean   @default(true)
   failedVerificationCount Int       @default(0)
@@ -93,7 +93,7 @@ model TwoFactor {
 model Verification {
   id         String   @id
   identifier String
-  value      String   @db.Text
+  value      String
   expiresAt  DateTime
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -107,7 +107,7 @@ model Organization {
   name      String
   slug      String   @unique
   logo      String?
-  metadata  String?  @db.Text
+  metadata  String?
   createdAt DateTime @default(now())
 
   members       Member[]
@@ -117,7 +117,6 @@ model Organization {
   stacks        Stack[]
   ingressConfig IngressConfig?
   auditLogs     AuditLog[]
-  metricSamples MetricSample[]
 
   backupTargets       BackupTarget[]
   snapshots           Snapshot[]

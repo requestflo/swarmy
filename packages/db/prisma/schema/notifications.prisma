@@ -19,7 +19,7 @@ model NotificationConfig {
   orgId       String               @unique
   provider    NotificationProvider @default(SMTP)
   // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
-  configEnc   String?              @db.Text
+  configEnc   String?
   fromAddress String?
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
@@ -34,8 +34,8 @@ model NotificationTemplate {
   orgId     String
   name      String
   subject   String
-  bodyHtml  String?  @db.Text
-  bodyText  String?  @db.Text
+  bodyHtml  String?
+  bodyText  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -54,9 +54,9 @@ model NotificationDelivery {
   subject    String?
   status     NotificationDeliveryStatus @default(QUEUED)
   providerId String?
-  error      String?                    @db.Text
+  error      String?
   meta       Json                       @default("{}")
-  createdAt  DateTime                   @default(now()) @db.Timestamptz(3)
+  createdAt  DateTime                   @default(now())
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 

@@ -58,10 +58,10 @@ model JobRun {
   jobId      String
   status     JobRunStatus @default(RUNNING)
   exitCode   Int?
-  outputTail String?      @db.Text
+  outputTail String?
   attempt    Int          @default(1)
-  startedAt  DateTime     @default(now()) @db.Timestamptz(3)
-  finishedAt DateTime?    @db.Timestamptz(3)
+  startedAt  DateTime     @default(now())
+  finishedAt DateTime?
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   job ScheduledJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
@@ -100,8 +100,8 @@ model WorkflowRun {
   // Index of the step the workflow-runner worker will execute next.
   cursor     Int               @default(0)
   stateJson  Json              @default("{}")
-  startedAt  DateTime          @default(now()) @db.Timestamptz(3)
-  finishedAt DateTime?         @db.Timestamptz(3)
+  startedAt  DateTime          @default(now())
+  finishedAt DateTime?
 
   org      Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
   def      WorkflowDef       @relation(fields: [defId], references: [id], onDelete: Cascade)
@@ -121,10 +121,10 @@ model WorkflowStepRun {
   name       String
   kind       String
   status     String    @default("pending")
-  startedAt  DateTime? @db.Timestamptz(3)
-  finishedAt DateTime? @db.Timestamptz(3)
+  startedAt  DateTime?
+  finishedAt DateTime?
   outputJson Json?
-  error      String?   @db.Text
+  error      String?
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   run WorkflowRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
