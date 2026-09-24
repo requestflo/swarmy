@@ -41,7 +41,6 @@ import { managedCacheRouter } from './routers/cache';
 import { objectStorageRouter } from './routers/buckets';
 import { queuesRouter } from './routers/queues';
 import { jobsRouter } from './routers/jobs';
-import { workflowEngineRouter } from './routers/workflows';
 import { inboundWebhooksRouter } from './routers/inboundWebhooks';
 import { alertsRouter } from './routers/alerts';
 import { incidentsRouter } from './routers/incidents';
@@ -111,7 +110,6 @@ export const appRouter = router({
   buckets: objectStorageRouter,
   queues: queuesRouter,
   jobs: jobsRouter,
-  workflows: workflowEngineRouter,
   inboundWebhooks: inboundWebhooksRouter,
   alerts: alertsRouter,
   incidents: incidentsRouter,

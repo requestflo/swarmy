@@ -16,7 +16,6 @@ import { buckets } from './resolvers/buckets';
 import { queues } from './resolvers/queues';
 import { appaccess } from './resolvers/appaccess';
 import { jobs } from './resolvers/jobs';
-import { workflows } from './resolvers/workflows';
 import { webhookgw } from './resolvers/webhookgw';
 import { alerts } from './resolvers/alerts';
 import { incidents } from './resolvers/incidents';
@@ -67,7 +66,6 @@ const MODULES: DomainResolvers[] = [
   queues,
   appaccess,
   jobs,
-  workflows,
   webhookgw,
   alerts,
   incidents,

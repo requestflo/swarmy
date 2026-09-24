@@ -32,7 +32,7 @@ import {
  * The single source of truth for every navigable GLOBAL destination.
  *
  * The global sidenav is deliberately slim: estate-level concerns only. Anything
- * that belongs to an app — databases, caches, queues, workflows, webhooks,
+ * that belongs to an app — databases, caches, queues, jobs, webhooks,
  * observability, secrets, configs, ingress, backups-setup, resilience, status
  * pages, releases — lives INSIDE the stack workspace (`/stacks/$name`, see
  * `lib/stack-nav.ts`), not here. A stack is the unit you operate; the estate is
@@ -86,7 +86,7 @@ export const PRIMARY: Destination[] = [
     group: 'Primary',
     blurb: 'Your apps — everything they need lives inside',
     keywords:
-      'apps applications services stacks canvas deploy graph architecture databases caches queues workflows webhooks observability secrets configs ingress backups releases',
+      'apps applications services stacks canvas deploy graph architecture databases caches queues jobs webhooks observability secrets configs ingress backups releases',
     exact: true,
   },
   {

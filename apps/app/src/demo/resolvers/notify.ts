@@ -303,7 +303,7 @@ export const notify: DomainResolvers = {
       {
         id: 'nd-07',
         to: 'team@northwind.dev',
-        subject: 'Approval needed: workflow release-v42',
+        subject: 'Deploy rolled back: shop-web',
         status: 'sent',
         providerId: 're-5aa81f00',
         error: null,

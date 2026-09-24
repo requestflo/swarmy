@@ -74,8 +74,8 @@ export const STACK_TABS: StackTab[] = [
     to: '/stacks/$name/messaging',
     label: 'Messaging',
     icon: WorkflowIcon,
-    blurb: 'Queues, workflows, webhooks & jobs',
-    keywords: 'bullmq queues workers workflows pipelines webhooks endpoints deliveries cron scheduled jobs',
+    blurb: 'Queues, webhooks & jobs',
+    keywords: 'bullmq queues workers webhooks endpoints deliveries cron scheduled jobs',
     systemSafe: false,
   },
   {

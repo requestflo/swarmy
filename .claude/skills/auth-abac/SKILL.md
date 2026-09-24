@@ -177,7 +177,7 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   mutation goes on `abacProcedure` (and its REST route on `requireAction`) with
   an owner/admin-only action — never `adminProcedure`/`orgProcedure`. Still
   role-gated (config-level deletes, not yet swept): alerts, notifications,
-  status pages, webhooks, jobs, workflows, schedules, ai.
+  status pages, webhooks, jobs, schedules, ai.
 - **`abacProcedure` sits BEFORE `.input()`**, so tRPC gives the middleware no
   parsed input — it resolves the resource from `opts.getRawInput()`. Resolvers
   must read input defensively (they already `typeof`-check and re-look-up the

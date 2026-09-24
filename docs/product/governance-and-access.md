@@ -193,7 +193,7 @@ Four ideas, one story:
   with one policy. Over REST it also closes the gap where a member's API key
   could remove a node. Not yet swept (config-level deletes, still
   role-gated): alert channels/rules, notification templates, status pages,
-  inbound/outbound webhooks, jobs, workflows, backup schedules, AI-gateway keys.
+  inbound/outbound webhooks, jobs, backup schedules, AI-gateway keys.
 
 - **The web terminal is one policy gate and a dumb pipe.** tRPC `terminal.open`
   is the only gate (ABAC `terminal.open` + `TerminalPolicy` + optional four-eyes

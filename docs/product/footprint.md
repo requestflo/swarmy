@@ -117,7 +117,7 @@ were deleted with the SQLite switch. `MIMALLOC_PURGE_DELAY=0` stays.
   `ensure-schema.ts` migrationsDir, the `webhooks.ts` and
   `preview-reconcile.ts` lazy imports, and `agent-release.service.ts` repoRoot.
 - **Lazy-load feature surfaces** that a lite install with a few stacks never
-  touches (managed data, search, vector, storage, AI gateway, workflows). Today
+  touches (managed data, search, vector, storage, AI gateway). Today
   the tRPC router and the worker index import every service at boot.
 - **Avoid a second copy of the Prisma query compiler.** It is about 48 MiB with
   its base64 source. Worth revisiting when Prisma ships a leaner runtime for

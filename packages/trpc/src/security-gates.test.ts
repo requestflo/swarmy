@@ -6,7 +6,7 @@ import type { OrgContext } from './context';
 /**
  * CI gate (auth-abac + testing-conventions): the security sweep of 2026-09-24.
  * Mutations that could weaken production safety, reach prod through a side
- * door (scheduler / workflow exec, managed data, ingress, node labels) or mint
+ * door (scheduler exec, managed data, ingress, node labels) or mint
  * an owner are gated. The live inventory below has a PRODUCTION stack `shop`
  * (its web service carries a route) and a production-labelled node, so the
  * seeded "members operate outside production" permit does not apply.
@@ -40,11 +40,6 @@ function ctxFor(role: Role, audit: string[]) {
       stack: { findFirst: async () => null },
       release: { findFirst: async () => ({ stackName: 'shop', composeSource: 'services: {}' }) },
       scheduledJob: { findFirst: async () => ({ kind: 'SERVICE_EXEC', serviceRef: 'blog_web' }) },
-      workflowDef: {
-        findFirst: async () => ({
-          stepsJson: [{ name: 'migrate', kind: 'service-exec', config: { serviceRef: 'shop_web' } }],
-        }),
-      },
       invitation: { findFirst: async () => ({ role: 'owner' }) },
       auditLog: {
         create: async ({ data }: { data: { action: string } }) => {
@@ -138,22 +133,11 @@ const POLICY_GATES: Array<[string, unknown, string]> = [
   // H5 — production node
   ['nodes.setLabels', { id: 'n1', labels: {} }, 'node.setLabels'],
   ['nodes.activate', { id: 'n1' }, 'node.drain'],
-  // C2 — scheduler / workflow exec needs a shell grant (even outside prod)
+  // C2 — scheduler exec needs a shell grant (even outside prod)
   ['jobs.create', { name: 'j', schedule: '* * * * *', kind: 'service-exec', serviceRef: 'blog_web' }, 'terminal.open'],
   ['jobs.update', { id: 'j1', command: ['sh'] }, 'terminal.open'],
   ['jobs.runNow', { id: 'j1' }, 'terminal.open'],
   ['jobs.toggle', { id: 'j1', enabled: true }, 'terminal.open'],
-  [
-    'workflows.create',
-    { name: 'w', steps: [{ name: 's', kind: 'service-exec', config: { serviceRef: 'shop_web' } }] },
-    'terminal.open',
-  ],
-  [
-    'workflows.update',
-    { name: 'w', steps: [{ name: 's', kind: 'service-exec', config: { serviceRef: 'blog_web' } }] },
-    'terminal.open',
-  ],
-  ['workflows.trigger', { name: 'w' }, 'terminal.open'],
 ];
 
 /** Admin-only (adminProcedure) — a member is refused outright. */
@@ -164,8 +148,6 @@ const ADMIN_GATES: Array<[string, unknown]> = [
   ['exposure.setRules', { enforce: false }],
   ['exposure.setMode', { id: 'shop_web', mode: null }],
   ['releases.setSafety', { stackName: 'shop', enabled: false }],
-  ['workflows.approve', { runId: 'r1' }],
-  ['workflows.reject', { runId: 'r1' }],
   ['db.migrateStorage', { ...shop, skipBackup: true }],
 ];
 

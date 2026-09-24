@@ -33,7 +33,6 @@ import { Route as AuthedAiRouteImport } from './routes/_authed/ai'
 import { Route as AuthedSplatRouteImport } from './routes/_authed/$'
 import { Route as AuthedServicesIndexRouteImport } from './routes/_authed/services/index'
 import { Route as AuthedNodesIndexRouteImport } from './routes/_authed/nodes/index'
-import { Route as AuthedWorkflowsRunIdRouteImport } from './routes/_authed/workflows.$runId'
 import { Route as AuthedStacksNewRouteImport } from './routes/_authed/stacks/new'
 import { Route as AuthedStacksNameRouteImport } from './routes/_authed/stacks/$name'
 import { Route as AuthedSettingsPlatformRouteImport } from './routes/_authed/settings_.platform'
@@ -189,11 +188,6 @@ const AuthedServicesIndexRoute = AuthedServicesIndexRouteImport.update({
 const AuthedNodesIndexRoute = AuthedNodesIndexRouteImport.update({
   id: '/nodes/',
   path: '/nodes/',
-  getParentRoute: () => AuthedRoute,
-} as any)
-const AuthedWorkflowsRunIdRoute = AuthedWorkflowsRunIdRouteImport.update({
-  id: '/workflows/$runId',
-  path: '/workflows/$runId',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedStacksNewRoute = AuthedStacksNewRouteImport.update({
@@ -437,7 +431,6 @@ export interface FileRoutesByFullPath {
   '/settings/platform': typeof AuthedSettingsPlatformRoute
   '/stacks/$name': typeof AuthedStacksNameRouteWithChildren
   '/stacks/new': typeof AuthedStacksNewRoute
-  '/workflows/$runId': typeof AuthedWorkflowsRunIdRoute
   '/nodes/': typeof AuthedNodesIndexRoute
   '/services/': typeof AuthedServicesIndexRoute
   '/nodes/$nodeId/terminal': typeof AuthedNodesNodeIdTerminalRoute
@@ -499,7 +492,6 @@ export interface FileRoutesByTo {
   '/settings/notifications': typeof AuthedSettingsNotificationsRoute
   '/settings/platform': typeof AuthedSettingsPlatformRoute
   '/stacks/new': typeof AuthedStacksNewRoute
-  '/workflows/$runId': typeof AuthedWorkflowsRunIdRoute
   '/nodes': typeof AuthedNodesIndexRoute
   '/services': typeof AuthedServicesIndexRoute
   '/nodes/$nodeId/terminal': typeof AuthedNodesNodeIdTerminalRoute
@@ -564,7 +556,6 @@ export interface FileRoutesById {
   '/_authed/settings_/platform': typeof AuthedSettingsPlatformRoute
   '/_authed/stacks/$name': typeof AuthedStacksNameRouteWithChildren
   '/_authed/stacks/new': typeof AuthedStacksNewRoute
-  '/_authed/workflows/$runId': typeof AuthedWorkflowsRunIdRoute
   '/_authed/nodes/': typeof AuthedNodesIndexRoute
   '/_authed/services/': typeof AuthedServicesIndexRoute
   '/_authed/nodes/$nodeId_/terminal': typeof AuthedNodesNodeIdTerminalRoute
@@ -629,7 +620,6 @@ export interface FileRouteTypes {
     | '/settings/platform'
     | '/stacks/$name'
     | '/stacks/new'
-    | '/workflows/$runId'
     | '/nodes/'
     | '/services/'
     | '/nodes/$nodeId/terminal'
@@ -691,7 +681,6 @@ export interface FileRouteTypes {
     | '/settings/notifications'
     | '/settings/platform'
     | '/stacks/new'
-    | '/workflows/$runId'
     | '/nodes'
     | '/services'
     | '/nodes/$nodeId/terminal'
@@ -755,7 +744,6 @@ export interface FileRouteTypes {
     | '/_authed/settings_/platform'
     | '/_authed/stacks/$name'
     | '/_authed/stacks/new'
-    | '/_authed/workflows/$runId'
     | '/_authed/nodes/'
     | '/_authed/services/'
     | '/_authed/nodes/$nodeId_/terminal'
@@ -956,13 +944,6 @@ declare module '@tanstack/react-router' {
       path: '/nodes'
       fullPath: '/nodes/'
       preLoaderRoute: typeof AuthedNodesIndexRouteImport
-      parentRoute: typeof AuthedRoute
-    }
-    '/_authed/workflows/$runId': {
-      id: '/_authed/workflows/$runId'
-      path: '/workflows/$runId'
-      fullPath: '/workflows/$runId'
-      preLoaderRoute: typeof AuthedWorkflowsRunIdRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/stacks/new': {
@@ -1308,7 +1289,6 @@ interface AuthedRouteChildren {
   AuthedSettingsPlatformRoute: typeof AuthedSettingsPlatformRoute
   AuthedStacksNameRoute: typeof AuthedStacksNameRouteWithChildren
   AuthedStacksNewRoute: typeof AuthedStacksNewRoute
-  AuthedWorkflowsRunIdRoute: typeof AuthedWorkflowsRunIdRoute
   AuthedNodesIndexRoute: typeof AuthedNodesIndexRoute
   AuthedServicesIndexRoute: typeof AuthedServicesIndexRoute
   AuthedNodesNodeIdTerminalRoute: typeof AuthedNodesNodeIdTerminalRoute
@@ -1351,7 +1331,6 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedSettingsPlatformRoute: AuthedSettingsPlatformRoute,
   AuthedStacksNameRoute: AuthedStacksNameRouteWithChildren,
   AuthedStacksNewRoute: AuthedStacksNewRoute,
-  AuthedWorkflowsRunIdRoute: AuthedWorkflowsRunIdRoute,
   AuthedNodesIndexRoute: AuthedNodesIndexRoute,
   AuthedServicesIndexRoute: AuthedServicesIndexRoute,
   AuthedNodesNodeIdTerminalRoute: AuthedNodesNodeIdTerminalRoute,

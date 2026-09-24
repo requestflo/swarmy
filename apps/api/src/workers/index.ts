@@ -21,7 +21,6 @@ import { startVectorReconcile } from './vector-reconcile';
 import { startStorageReconcile } from './storage-reconcile';
 import { startQueueReconcile } from './queue-reconcile';
 import { startJobScheduler } from './job-scheduler';
-import { startWorkflowRunner } from './workflow-runner';
 import { startInboundWebhookDispatch } from './inbound-webhook-dispatch';
 import { startAlertEvaluator } from './alert-evaluator';
 import { startDeploySafety } from './deploy-safety';
@@ -65,7 +64,6 @@ export function startWorkers(): () => void {
     startStorageReconcile(),
     startQueueReconcile(),
     startJobScheduler(),
-    startWorkflowRunner(),
     startInboundWebhookDispatch(),
     startAlertEvaluator(),
     startDeploySafety(),

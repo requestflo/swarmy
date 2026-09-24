@@ -60,7 +60,7 @@ go deep on one area each.
 - [`managed-data.md`](./managed-data.md) — managed Postgres/cache/search/vector and
   Garage object storage, wired automatically. _Skill: `managed-data-services`._
 - [`messaging-and-automation.md`](./messaging-and-automation.md) — queues,
-  workflows, jobs, and inbound/outbound webhooks. _Skill: `reconcile-workers`._
+  jobs, and inbound/outbound webhooks. _Skill: `reconcile-workers`._
 - [`observability.md`](./observability.md) — per-stack OpenTelemetry into one
   ClickHouse store, plus alerts, incidents, and status pages. _Skill: `observability-otel`._
 - [`ai-gateway.md`](./ai-gateway.md) — one gateway for model calls: server-side

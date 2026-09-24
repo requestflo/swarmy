@@ -111,7 +111,7 @@ that decision is encoded, not vibes:
   single source of truth is `apps/app/src/lib/destinations.ts` — Overview, Stacks,
   Infrastructure, then grouped sections (Deploy · Platform · Operations ·
   Governance · Settings). If a surface belongs to *one app* — its databases,
-  caches, queues, workflows, webhooks, observability, secrets, configs, ingress
+  caches, queues, jobs, webhooks, observability, secrets, configs, ingress
   routes, backups, releases — it is **not** allowed in the global nav.
 - **Everything app-scoped hangs off `/stacks/$name`.** The tab registry is
   `apps/app/src/lib/stack-nav.ts` (`STACK_TABS`). Adding an app-level capability
