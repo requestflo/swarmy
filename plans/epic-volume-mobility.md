@@ -1,10 +1,38 @@
 # Epic: volume mobility — add a disk, move a volume, retire a server
 
-Status: **design, 2026-09-24.** Built so far (pure, unit-tested): phase 3's
-planner (`packages/trpc/src/services/node-decommission.plan.ts`), phase 5's
-forecast (`packages/core/src/disk-forecast.ts`) and phase 1's disk
-classifier + format gate (`packages/core/src/disk-inventory.ts`). No runner,
-agent command or UI yet.
+Status: **phases 2, 3 and 5 built; phase 1 pure half built, formatting on
+hold** (owner decision on privileged formatting pending), 2026-09-24.
+
+| Phase | Built | Where |
+|---|---|---|
+| 1 Add a disk | classifier + format gate only (no agent command, no UI) | `packages/core/src/disk-inventory.ts` |
+| 2 Move a volume | two-pass mover + planned Postgres switchover | `packages/core/src/volume-move.ts`, `packages/trpc/src/services/volumeMove.service.ts`, `swarmy.db.switchover` hook in `manageddb-reconcile.ts` |
+| 3 Retire a server | planner, runner, router, UI | `node-decommission.plan.ts`, `decommission.service.ts`, `routers/decommission.ts`, `components/nodes/node-retire-panel.tsx` |
+| 4 Spread and protect | not started | — |
+| 5 Disk-full | forecast + alerts with a next step | `packages/core/src/disk-forecast.ts`, `apps/api/src/workers/disk-forecast-alerts.ts` |
+
+Deviations from the design below, decided while building:
+- **No new agent command.** `volume.copy` is realised over existing commands:
+  a read-only rsync-daemon swarm service on the source (password = Docker
+  secret) and `container.runOnce` pull/manifest one-shots (password = env).
+  Nothing new to gate on the agent, no protocol/executor registry hunks.
+- **Caches move by a stopped copy, not `FAILOVER`.** A runtime `FAILOVER`
+  is undone by the declared spec (replicas boot with `REPLICAOF` the primary
+  service); the cache saves to disk on stop, so the final pass is consistent.
+- **Planned switchover reuses the failover path.** The mover freezes writes
+  (`default_transaction_read_only`), waits for 0 bytes behind, stops the
+  primary and stamps `swarmy.db.switchover`; the reconcile worker skips only
+  the grace window — promotion still goes through `decideFailover`.
+- **Garage leave = desired-member change first.** The server's Garage task
+  keeps running until a newer layout is healthy and it no longer drains;
+  only then is its member label turned off.
+- **Mesh peer removal is manual** (the mesh drivers expose no delete-peer);
+  the run says so, and forgetting the server revokes its access anyway.
+- Run state is an `OperationRun` (`node.decommission`, one server at a
+  time), not node labels.
+- Forecast alerts ride the existing `disk-usage` rule (resource
+  `node:<name>:forecast`) instead of a new signal.
+
 Owning skills: `managed-data-services` (Postgres/cache/search/vector, Garage,
 `volume.list`), `backups-dr` (restic, dr-reconcile, drills),
 `docker-native-storage` (where state lives), `reconcile-workers` (the runner),
