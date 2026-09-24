@@ -81,6 +81,13 @@ export const ACTIONS = [
   // or SSO groups explicitly — the app's Access panel writes those rules.
   /** Enter a login-protected app (the edge forward-auth check). */
   'app.access',
+  // AI gateway (epic developer-platform §11). Evaluated on the MODEL (resource
+  // type `aiModel`, id = the alias or model id, labels `swarmy.ai.provider`,
+  // `swarmy.ai.alias`, `swarmy.ai.cost` free|paid) for the member who minted
+  // the calling key, and for the member running the playground. Members may
+  // use every model by default; an org narrows it with a forbid rule.
+  /** Call a model through the AI gateway. */
+  'ai.use',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];

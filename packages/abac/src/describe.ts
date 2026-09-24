@@ -48,6 +48,7 @@ export const ACTION_CATALOG: ActionInfo[] = [
   { id: 'secrets.read', label: 'read secrets', group: 'access' },
   { id: 'mesh.connect', label: 'join the mesh', group: 'access' },
   { id: 'app.access', label: 'sign in to protected apps', group: 'access' },
+  { id: 'ai.use', label: 'use AI models', group: 'access' },
   { id: 'data.read', label: 'read database rows', group: 'access' },
   { id: 'data.write', label: 'edit database rows', group: 'operate' },
   { id: 'member.write', label: 'manage members', group: 'governance' },

@@ -24,6 +24,7 @@ export const NON_PRODUCTION = { attr: 'resource.env', op: 'ne', value: 'producti
  *    `swarmy.env=production` Docker label;
  *  - members may join the mesh of NON-production stacks (`mesh.connect`);
  *  - members may read NON-production databases in the studio (`data.read`);
+ *  - members may call AI models through the gateway (`ai.use`);
  *  - a production deploy or mesh connect, every destructive action (`data.*`,
  *    `*.remove`, `secret.delete`, …), `terminal.open` and `secrets.read` need
  *    an explicit grant: a policy naming the member's group / the member, or a
@@ -103,6 +104,16 @@ export const DEFAULT_POLICY_SPECS: DefaultPolicySpec[] = [
     effect: 'permit',
     priority: 37,
     doc: { roles: ['member'], actions: ['data.read'], conditions: [{ ...NON_PRODUCTION }] },
+  },
+  {
+    // AI gateway: members call any model through the gateway (their keys'
+    // allowlists and budgets still apply). Narrow it with a forbid rule on
+    // `aiModel` labels, e.g. `swarmy.ai.cost = paid`.
+    key: 'member-ai-use',
+    name: 'Members can use AI models',
+    effect: 'permit',
+    priority: 36,
+    doc: { roles: ['member'], actions: ['ai.use'] },
   },
   {
     // ReBAC: a member granted `operator` (or `owner`) on a specific resource may
