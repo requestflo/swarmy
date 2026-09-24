@@ -319,8 +319,11 @@ export async function upgrade(ctx: Ctx) {
   const beforeVersion = await (await fetch(`${c.controllerUrl}/version`)).text().catch(() => '?');
 
   // "Next" = the current source under a new tag (a distinct digest).
+  // Without --enable upgrade the installed build IS the current source, so
+  // "next" is that source rebuilt with a distinct commit stamp: a genuinely
+  // new digest the upgrade has to roll out (same code).
   const nextTag = `${c.cfg.tag}-next-${ctx.runId}`;
-  const digests = await c.buildImages(nextTag);
+  const digests = await c.buildImages(nextTag, c.srcDir, forced ? c.commit : `${c.commit}-next`);
   c.serveRoot = c.srcDir;
   let how: string;
   if (hasButton) {
@@ -354,7 +357,9 @@ export async function upgrade(ctx: Ctx) {
   const svc = (await ctx.sdk.services.list({ limit: 200 })).data.find((x) => x.name === `${stack}_web`);
   assert(svc && svc.replicas.running >= 1, `${stack}_web lost across the upgrade`);
   await ctx.sdk.stacks.remove(stack).catch(() => {});
-  return `${how}: ${beforeVersion.slice(0, 60)} → ${nextTag}; login, API key, ${after.length} nodes and a stack survived`;
+  const afterVersion = await (await fetch(`${c.controllerUrl}/version`)).text().catch(() => '?');
+  const commitOf = (v: string) => /"commit":"([^"]+)"/.exec(v)?.[1] ?? v.slice(0, 20);
+  return `${how}: ${commitOf(beforeVersion)} → ${commitOf(afterVersion)} (${digests.controller.slice(0, 19)}); login, API key, ${after.length} nodes and a stack survived`;
 }
 
 /**
