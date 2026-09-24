@@ -12,8 +12,9 @@ import {
   type StatusTone,
 } from '@swarmy/ui';
 import { CountUp } from '@/components/count-up';
+import { type BuildStrategy, buildStrategyLabel } from './build-strategy';
 
-interface BuildRow {
+interface BuildRow extends BuildStrategy {
   id: string;
   repoUrl: string;
   commit: string | null;
@@ -85,6 +86,9 @@ export function BuildsList({ builds }: BuildsListProps): React.JSX.Element {
                 >
                   <div className="min-w-0">
                     <p className="mono-data truncate font-medium">{b.image ?? b.repoUrl}</p>
+                    {buildStrategyLabel(b) ? (
+                      <p className="text-muted-foreground mono-label truncate">{buildStrategyLabel(b)}</p>
+                    ) : null}
                     <p className="text-muted-foreground mono-label truncate sm:hidden">
                       {b.commit} · {b.status}
                     </p>

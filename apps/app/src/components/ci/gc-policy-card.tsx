@@ -25,6 +25,8 @@ interface GcPolicy {
   mode: GcMode;
   keepProd: boolean;
   days: number | null;
+  cacheMaxAgeDays?: number;
+  cacheMaxGb?: number;
 }
 
 interface GcPolicyCardProps {
@@ -38,12 +40,16 @@ export function GcPolicyCard({ value, onDone }: GcPolicyCardProps): React.JSX.El
   const [mode, setMode] = React.useState<GcMode>(value?.mode ?? 'on-healthcheck');
   const [keepProd, setKeepProd] = React.useState(value?.keepProd ?? true);
   const [days, setDays] = React.useState(value?.days ?? 14);
+  const [cacheDays, setCacheDays] = React.useState(value?.cacheMaxAgeDays ?? 14);
+  const [cacheGb, setCacheGb] = React.useState(value?.cacheMaxGb ?? 20);
 
   React.useEffect(() => {
     if (value) {
       setMode(value.mode);
       setKeepProd(value.keepProd);
       setDays(value.days ?? 14);
+      setCacheDays(value.cacheMaxAgeDays ?? 14);
+      setCacheGb(value.cacheMaxGb ?? 20);
     }
   }, [value]);
 
@@ -89,9 +95,37 @@ export function GcPolicyCard({ value, onDone }: GcPolicyCardProps): React.JSX.El
           </div>
           <Switch checked={keepProd} onCheckedChange={setKeepProd} />
         </div>
+        <div className="grid gap-1.5">
+          <Label className="mono-label">Build cache</Label>
+          <p className="text-muted-foreground text-xs">
+            Builds reuse layers cached in your registry. Old or excess cache is removed; the next build is just slower.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1">
+              <Label className="text-muted-foreground text-xs" htmlFor="gc-cache-days">
+                Unused for (days)
+              </Label>
+              <Input id="gc-cache-days" type="number" min={1} value={cacheDays} onChange={(e) => setCacheDays(Number(e.target.value))} />
+            </div>
+            <div className="grid gap-1">
+              <Label className="text-muted-foreground text-xs" htmlFor="gc-cache-gb">
+                Keep at most (GB)
+              </Label>
+              <Input id="gc-cache-gb" type="number" min={1} value={cacheGb} onChange={(e) => setCacheGb(Number(e.target.value))} />
+            </div>
+          </div>
+        </div>
         <Button
           variant="outline"
-          onClick={() => save.mutate({ mode, keepProd, days: mode === 'age-days' ? days : null })}
+          onClick={() =>
+            save.mutate({
+              mode,
+              keepProd,
+              days: mode === 'age-days' ? days : null,
+              cacheMaxAgeDays: Math.max(1, Math.round(cacheDays)),
+              cacheMaxGb: Math.max(1, Math.round(cacheGb)),
+            })
+          }
           disabled={save.isPending}
         >
           Save policy

@@ -39,6 +39,15 @@ interface BuildView {
   logsRef: string | null;
   startedAt: string | null;
   finishedAt: string | null;
+  builder: string | null;
+  detected: {
+    version?: string;
+    providers: string[];
+    packages: Record<string, string>;
+    metadata: Record<string, string>;
+    startCommand?: string;
+  } | null;
+  cachedSteps: number | null;
 }
 
 interface RegistryConfigView {
@@ -56,6 +65,8 @@ interface GcPolicyView {
   mode: 'on-healthcheck' | 'age-days';
   keepProd: boolean;
   days: number | null;
+  cacheMaxAgeDays: number;
+  cacheMaxGb: number;
 }
 
 interface BuildLogLine {
@@ -219,7 +230,7 @@ function buildSeed(): CicdState {
       online: true,
       updatedAt: iso(3 * DAY),
     },
-    gc: { mode: 'on-healthcheck', keepProd: true, days: null },
+    gc: { mode: 'on-healthcheck', keepProd: true, days: null, cacheMaxAgeDays: 14, cacheMaxGb: 20 },
   };
 }
 
@@ -247,6 +258,20 @@ function build(
     logsRef,
     startedAt: iso(startedMsAgo),
     finishedAt: finishedMsAgo === null ? null : iso(finishedMsAgo),
+    // The web app has no Dockerfile: Railpack builds it (zero-config), warm from the registry cache.
+    ...(imageName === 'northwind-web' && status === 'succeeded'
+      ? {
+          builder: 'railpack',
+          detected: {
+            version: '0.40.0',
+            providers: ['node'],
+            packages: { node: '22.23.2' },
+            metadata: { nodePackageManager: 'pnpm' },
+            startCommand: 'pnpm start',
+          },
+          cachedSteps: 14,
+        }
+      : { builder: status === 'succeeded' ? 'dockerfile' : null, detected: null, cachedSteps: status === 'succeeded' ? 6 : null }),
   };
 }
 
@@ -386,6 +411,9 @@ export const cicd: DomainResolvers = {
         logsRef,
         startedAt: new Date().toISOString(),
         finishedAt: null,
+        builder: null,
+        detected: null,
+        cachedSteps: null,
       };
       st.logs[logsRef] = makeBuildLog(view.image ?? '', true);
       st.builds.unshift(view);
@@ -436,9 +464,15 @@ export const cicd: DomainResolvers = {
     'cicd.getGcPolicy': (_i, s): GcPolicyView => state(s).gc,
 
     'cicd.setGcPolicy': (i, s): GcPolicyView => {
-      const b = i as GcPolicyView;
+      const b = i as Partial<GcPolicyView> & Pick<GcPolicyView, 'mode' | 'keepProd' | 'days'>;
       const st = state(s);
-      st.gc = { mode: b.mode, keepProd: b.keepProd, days: b.days };
+      st.gc = {
+        mode: b.mode,
+        keepProd: b.keepProd,
+        days: b.days,
+        cacheMaxAgeDays: b.cacheMaxAgeDays ?? st.gc.cacheMaxAgeDays,
+        cacheMaxGb: b.cacheMaxGb ?? st.gc.cacheMaxGb,
+      };
       return st.gc;
     },
 

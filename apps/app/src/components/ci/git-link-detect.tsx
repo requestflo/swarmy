@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { CheckIcon, FileCode2Icon } from 'lucide-react';
 import { Badge, Button } from '@swarmy/ui';
+import { GitBuildDetected } from './git-build-detected';
 import type { LinkedRepo } from './git-types';
 import type { GitInspect } from './use-git-inspect';
 
@@ -43,7 +44,7 @@ export function GitLinkDetect({
     );
   }
 
-  const { sha, configPaths, tree } = inspect.data;
+  const { sha, configPaths, tree, detected } = inspect.data;
   const dockerfile = tree.find((p) => DOCKERFILE.test(p));
   const compose = tree.find((p) => COMPOSE.test(p));
 
@@ -88,6 +89,7 @@ export function GitLinkDetect({
               : `Add ${linked.configPath} to the repo and push.`}
         </p>
       )}
+      {detected ? <GitBuildDetected detected={detected} showStarter={configPaths.length === 0 && !compose} /> : null}
     </div>
   );
 }

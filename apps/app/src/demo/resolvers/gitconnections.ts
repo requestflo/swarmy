@@ -191,12 +191,27 @@ function fakeInspect(name: string, configPath: string) {
       ]
     : name.endsWith('/legacy-billing')
       ? ['Dockerfile', 'docker-compose.yml', 'Gemfile']
-      : ['swarmy.yaml', 'Dockerfile', 'package.json'];
+      : ['swarmy.yaml', 'package.json', 'pnpm-lock.yaml'];
   const configPaths = tree.filter((p) => /(^|\/)swarmy\.ya?ml$/.test(p));
   const files: Record<string, string | null> = {
     [configPath]: configPaths.includes(configPath) ? 'version: 1\n' : null,
   };
-  return { sha: sha(), files, tree, configPaths };
+  // Mirrors git-providers/detect-build.ts for the demo repos.
+  const detected = tree.includes('Dockerfile') || tree.some((p) => p.endsWith('/Dockerfile'))
+    ? { builder: 'dockerfile' as const, summary: 'Dockerfile found — swarmy builds it as-is' }
+    : {
+        builder: 'railpack' as const,
+        provider: 'node',
+        language: 'Node.js',
+        framework: 'Next.js',
+        runtime: 'Node 22',
+        packageManager: 'pnpm',
+        start: 'pnpm start',
+        port: 3000,
+        healthPath: '/',
+        summary: 'Next.js · Node 22 · start: pnpm start',
+      };
+  return { sha: sha(), files, tree, configPaths, detected };
 }
 
 export const gitconnections: DomainResolvers = {
