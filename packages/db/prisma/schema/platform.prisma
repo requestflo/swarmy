@@ -1,0 +1,77 @@
+// Platform upgrades (plans/epic-platform-upgrades.md, phases 2–3).
+//
+// The release manifest itself (the cluster's bill of materials) is NOT stored
+// as swarm state: running service images are Docker truth, and the BOM is
+// compiled into the controller (`@swarmy/core/system-images`). These two
+// tables hold swarmy's own policy (channel, auto-patch window, feed) and the
+// queryable, audited history of upgrade runs — including the per-step state a
+// run needs to resume after the controller restarts itself mid-upgrade.
+//
+// Portable column shapes only (the controller DB is moving to SQLite): String
+// for small enums, Json for structured state, no db-specific attributes.
+
+/// One row per org: which release stream the cluster follows and when it may
+/// patch itself. Absent row = Stable, manual only, the default feed.
+model PlatformConfig {
+  id               String    @id @default(cuid())
+  orgId            String    @unique
+  /// "stable" | "edge"
+  channel          String    @default("stable")
+  /// Feed base URL override (serves `<channel>/platform.json` + `.sig`);
+  /// null = SWARMY_PLATFORM_FEED_URL, else the GitHub releases feed.
+  feedUrl          String?
+  /// Opt-in: apply PATCH releases (x.y.Z) automatically inside the window.
+  autoApplyPatches Boolean   @default(false)
+  /// Maintenance window: { days: number[] (0=Sun…6=Sat), startHour: 0–23, hours: 1–12 } in UTC.
+  window           Json?
+  /// The release this cluster runs (the last completed run's verified manifest);
+  /// null = the controller's built-in BOM.
+  currentManifest  Json?
+  /// Newest release seen on the feed (or imported from an offline bundle):
+  /// { manifest, signature, verified, reason?, source: "feed" | "bundle" }.
+  available        Json?
+  lastCheckAt      DateTime?
+  lastCheckError   String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("platform_config")
+}
+
+/// One platform upgrade: preflight → controller → agents → system services →
+/// engine upgrades → verify. `steps` carries per-step state so a run resumes
+/// exactly where it stopped (the controller step restarts this process).
+model PlatformUpgradeRun {
+  id           String    @id @default(cuid())
+  orgId        String
+  /// "running" | "done" | "failed" | "cancelled"
+  status       String    @default("running")
+  /// Key of the step the run is on (or stopped at).
+  step         String    @default("preflight")
+  fromVersion  String
+  toVersion    String
+  /// "manual" | "auto"
+  trigger      String    @default("manual")
+  actorId      String?
+  /// The verified target manifest + its signature (re-verified on every resume).
+  manifest     Json
+  signature    String
+  /// What the cluster ran before (rollback targets).
+  fromManifest Json
+  /// Per-step state: [{ key, status, detail?, startedAt?, finishedAt?, data? }].
+  steps        Json
+  /// Run options (e.g. { skipBackup: true } when the admin accepted no fresh controller backup).
+  options      Json?
+  error        String?
+  /// Tail of plain-words progress lines: [{ at, msg }].
+  log          Json
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, startedAt])
+  @@map("platform_upgrade_run")
+}

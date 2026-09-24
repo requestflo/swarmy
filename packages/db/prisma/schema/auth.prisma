@@ -154,6 +154,8 @@ model Organization {
   webhookEndpoints    WebhookEndpoint[]
   webhookDeliveries   WebhookDelivery[]
   canvasLayout        CanvasLayout?
+  platformConfig      PlatformConfig?
+  platformUpgradeRuns PlatformUpgradeRun[]
 
   notificationChannels   NotificationChannel[]
   alertRules             AlertRule[]
