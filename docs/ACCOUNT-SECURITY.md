@@ -32,6 +32,10 @@ The sign-in challenge works like this:
   MFA, turn off *Trust SSO providers' MFA* (below). SSO-only members then have
   to enrol an authenticator in swarmy as well.
 
+**API keys and OAuth clients** (the REST API, SDKs, Terraform) are separate
+scoped, hashed credentials. They are not user sessions, so 2FA and the org
+wall do not apply to them. Scope and revoke them under Settings → API keys.
+
 After 10 wrong codes in a row, the account locks for 15 minutes. This applies
 both at sign-in and to in-session step-up.
 
