@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { TlsMode } from '@swarmy/core';
 import { RouteProtectionSchema, WwwModeSchema } from '@swarmy/ingress';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { BYO_DNS_PROVIDERS } from '@swarmy/ingress';
+import { getDnsChallengeView, setByoDnsProvider } from '../services/acme-dns.service';
 import { abacProcedure } from '../abac';
 import { tunnelsRouter } from './tunnels';
 import { ensureCaddyController } from '../services/ingress-controller';
@@ -201,6 +203,25 @@ export const ingressRouter = router({
   skipDomainVerification: adminProcedure
     .input(z.object({ host: z.string().min(1) }))
     .mutation(({ ctx, input }) => skipDomainVerification(ctx, input.host)),
+
+  /**
+   * Wildcard certificates (ACME DNS-01): which routed wildcards are solved by
+   * swarmy's own nameservers, which by a BYO provider token, which by nobody.
+   */
+  dnsChallenge: orgProcedure.query(({ ctx }) => getDnsChallengeView(ctx)),
+
+  /**
+   * Optional secondary for wildcards in zones swarmy DNS does NOT serve: a
+   * provider API token (Cloudflare, Zone:DNS:Edit). Stored only as a Docker
+   * secret, never returned. `null` clears it.
+   */
+  setDnsProvider: adminProcedure
+    .input(
+      z
+        .object({ provider: z.enum(BYO_DNS_PROVIDERS), apiToken: z.string().min(20).max(512) })
+        .nullable(),
+    )
+    .mutation(({ ctx, input }) => setByoDnsProvider(ctx, input)),
 
   /**
    * Cloudflare tunnels. Nested here so it is reachable without a root.ts edit;

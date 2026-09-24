@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { buildCaddyfile } from './render/caddyfile';
+import { dnsGuidance } from './domain-verify';
 import { CaddyDriver } from './drivers/caddy';
 import { IngressConfigSchema } from './types';
 import {
@@ -125,5 +126,30 @@ describe('checkChallengeName', () => {
     expect(isChallengeValue('LoqXcYV8q5ONbJQxbmR7SCTNo3tiAXDfowyjxAjEuX0')).toBe(true);
     expect(isChallengeValue('"quoted" value')).toBe(false);
     expect(isChallengeValue(42)).toBe(false);
+  });
+});
+
+describe('dnsGuidance wildcard note', () => {
+
+  const expected = { ips: ['203.0.113.10'] };
+  it('swarmy DNS: NS delegation records + no provider needed', () => {
+    const g = dnsGuidance({
+      host: '*.acme.com',
+      expected,
+      zone: { zone: 'acme.com', nameservers: [{ fqdn: 'ns1.acme.com', ip: '203.0.113.10' }] },
+      dnsChallenge: 'swarmy',
+    });
+    expect(g.mode).toBe('zone');
+    expect(g.records[0]).toMatchObject({ type: 'NS', name: 'acme.com', value: 'ns1.acme.com' });
+    expect(g.wildcard?.provider).toBe('swarmy');
+    expect(g.wildcard?.summary).toContain('_acme-challenge.acme.com');
+  });
+  it('nobody can solve it: says how', () => {
+    const g = dnsGuidance({ host: '*.acme.com', expected, dnsChallenge: null });
+    expect(g.wildcard).toMatchObject({ provider: null });
+    expect(g.wildcard?.summary).toContain('point its NS records at swarmy');
+  });
+  it('exact hosts carry no wildcard note', () => {
+    expect(dnsGuidance({ host: 'app.acme.com', expected }).wildcard).toBeUndefined();
   });
 });

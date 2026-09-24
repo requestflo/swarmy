@@ -552,8 +552,17 @@ export async function getDomainStatus(ctx: OrgContext, rawHost: string): Promise
   const expected = await expectedTarget(ctx);
   const zone = await zoneFor(ctx, host);
   const now = Date.now();
+  // Wildcards: who solves DNS-01 (swarmy's own nameservers / a BYO token / nobody yet).
+  const dnsChallenge = host.startsWith('*.')
+    ? await import('./acme-dns.service')
+        .then(async (m) => {
+          const { dnsChallenge: dc } = await m.orgDnsChallenge(ctx, [host], await readIngressSettingsRaw(ctx));
+          return dc?.hosts[host] ?? null;
+        })
+        .catch(() => null)
+    : undefined;
   const guidanceFor = (h: string, p: HostPosture) =>
-    dnsGuidance({ host: h, expected, cnameTarget: expected.cnameTarget, zone, private: p.private });
+    dnsGuidance({ host: h, expected, cnameTarget: expected.cnameTarget, zone, private: p.private, dnsChallenge });
   const route = listRoutesForOrg(ctx).find((r) => normalizeHostname(r.route.host) === host)?.route;
   const companion = route?.www ? companionHost(host) : null;
   const companionPosture = companion ? postures.find((p) => p.host === companion) : undefined;

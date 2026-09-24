@@ -531,6 +531,12 @@ export interface DnsGuidance {
   records: DnsRecordHint[];
   /** Equivalent alternative (e.g. CNAME instead of A) — pick one set. */
   alternatives: DnsRecordHint[];
+  /**
+   * Wildcards only: how the certificate is issued (ACME DNS-01). `swarmy` =
+   * swarmy's own nameservers publish the challenge; `cloudflare` = the BYO
+   * provider token; null = nobody can yet (the summary says how to fix it).
+   */
+  wildcard?: { provider: 'swarmy' | 'cloudflare' | null; summary: string };
 }
 
 /** Common two-label public suffixes, so `shop.co.uk` reads as an apex. */
@@ -564,10 +570,40 @@ export interface GuidanceInput {
   /** A swarmy-served zone containing the host, when there is one. */
   zone?: { zone: string; delegated?: boolean; nameservers: Array<{ fqdn: string; ip: string }> } | null;
   private?: boolean;
+  /** Wildcards: who solves the DNS-01 challenge (see `planDnsChallenges`). */
+  dnsChallenge?: 'swarmy' | 'cloudflare' | null;
 }
 
-/** Exactly which records to create for `host`. Pure. */
+function wildcardNote(host: string, input: GuidanceInput): DnsGuidance['wildcard'] {
+  if (!isWildcardHost(host)) return undefined;
+  const base = host.slice(2);
+  const provider = input.dnsChallenge ?? null;
+  if (provider === 'swarmy') {
+    return {
+      provider,
+      summary: `The wildcard certificate is issued over ACME DNS-01 by swarmy’s own nameservers (they publish _acme-challenge.${base} themselves) — no DNS provider account or API token involved. It is requested once ${input.zone?.zone ?? 'the zone'} is delegated to swarmy.`,
+    };
+  }
+  if (provider) {
+    return {
+      provider,
+      summary: `The wildcard certificate is issued over ACME DNS-01 through your ${provider} API token (the zone is not served by swarmy).`,
+    };
+  }
+  return {
+    provider: null,
+    summary: `A wildcard certificate can only be issued over ACME DNS-01. Recommended: add ${apexOf(host)} (or ${base}) as a zone in swarmy DNS and point its NS records at swarmy’s nameservers — swarmy then answers the challenge itself. Otherwise add a DNS provider API token under Edge & ingress → Wildcard certificates.`,
+  };
+}
+
+/** Exactly which records to create for `host` (+ the wildcard DNS-01 note). Pure. */
 export function dnsGuidance(input: GuidanceInput): DnsGuidance {
+  const out = recordGuidance(input);
+  const wildcard = wildcardNote(normalizeHostname(input.host), input);
+  return wildcard ? { ...out, wildcard } : out;
+}
+
+function recordGuidance(input: GuidanceInput): DnsGuidance {
   const host = normalizeHostname(input.host);
   const apex = apexOf(host);
   if (input.private) {
