@@ -5,6 +5,7 @@ import {
   fireEvent,
   garageCapacityGb,
   garageMajorOf,
+  resumeEngineUpgrade,
   systemContext,
   toGarageRequest,
   type GarageMajor,
@@ -345,7 +346,14 @@ export function startStorageReconcile(): () => void {
         .findMany({ where: { enabled: true } })
         .catch(() => [])) as ClusterRow[];
       for (const row of rows) {
-        if (engineUpgradeRunning(row)) continue;
+        if (engineUpgradeRunning(row)) {
+          // A controller restart mid-upgrade: pick the persisted run back up
+          // (idempotent steps). The reconcile itself stays hands-off meanwhile.
+          await resumeEngineUpgrade(
+            systemContext({ db: prisma, hub, auth: authRegistry.getAuth() }, row.orgId),
+          ).catch(() => undefined);
+          continue;
+        }
         // Heal legacy host-bind / unpinned store specs before probing layout.
         await convergeStoreDeployment(
           systemContext({ db: prisma, hub, auth: authRegistry.getAuth() }, row.orgId),

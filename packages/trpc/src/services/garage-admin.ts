@@ -33,9 +33,9 @@ export interface GarageCall {
   body?: string;
 }
 
-/** A concrete request: path WITH its version prefix. */
+/** A concrete request: path WITH its version prefix (v2 only ever uses GET/POST). */
 export interface GarageRequest {
-  method: 'GET' | 'POST';
+  method: GarageCall['method'];
   path: string;
   body?: string;
 }
@@ -52,7 +52,7 @@ function hasParam(query: string, name: string): boolean {
 /** Translate a v1-vocabulary call for the target engine. Throws on an unmapped call. */
 export function toGarageRequest(call: GarageCall, major: GarageMajor): GarageRequest {
   if (major === 1) {
-    return { method: call.method as GarageRequest['method'], path: `/v1${call.path}`, ...(call.body ? { body: call.body } : {}) };
+    return { method: call.method, path: `/v1${call.path}`, ...(call.body ? { body: call.body } : {}) };
   }
   const { route, query } = split(call.path);
   const q = query ? `?${query}` : '';

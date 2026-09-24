@@ -6,6 +6,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { SectionHeader } from '@/components/section-header';
 import { BucketsTable } from './buckets-table';
 import { CreateBucketCard } from './create-bucket-card';
+import { EngineUpgradeCard } from './engine-upgrade-card';
 import { fmtBytes } from './format';
 import { KeysCard } from './keys-card';
 import { StoreDisabledCard } from './store-disabled-card';
@@ -52,6 +53,7 @@ export function BucketsPage(): React.JSX.Element {
         }
       />
 
+      {ready ? <EngineUpgradeCard /> : null}
       {ready ? <CreateBucketCard open={createOpen} onOpenChange={setCreateOpen} /> : null}
 
       {overview.isLoading ? (

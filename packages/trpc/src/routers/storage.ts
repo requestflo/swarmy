@@ -5,6 +5,7 @@
  */
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { getEngineUpgrade, startEngineUpgrade } from '../services/engine-upgrade.service';
 import {
   disable,
   enable,
@@ -32,4 +33,9 @@ export const storageRouter = router({
   enable: adminProcedure.mutation(({ ctx }) => enable(ctx)),
   disable: adminProcedure.mutation(({ ctx }) => disable(ctx)),
   previewDeployment: adminProcedure.query(({ ctx }) => previewDeployment(ctx)),
+
+  /** Engine version the store runs, whether an upgrade is available, and the last/current run. */
+  engineUpgrade: orgProcedure.query(({ ctx }) => getEngineUpgrade(ctx)),
+  /** Start the in-place engine upgrade (Garage v1 → v2): brief pause, automatic rollback on failure. */
+  startEngineUpgrade: adminProcedure.mutation(({ ctx }) => startEngineUpgrade(ctx)),
 });

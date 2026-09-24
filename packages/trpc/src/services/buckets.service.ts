@@ -401,6 +401,15 @@ async function garageAdmin(ctx: OrgContext, store: StoreHandle, call: AdminCall)
   return body;
 }
 
+/**
+ * One admin call in an EXPLICIT engine dialect. The engine upgrade talks v1 to
+ * the store before the swap and v2 after it, whatever the row currently says.
+ */
+export async function garageAdminAs(ctx: OrgContext, major: GarageMajor, call: GarageCall): Promise<string> {
+  const store = await requireStore(ctx);
+  return garageAdmin(ctx, { ...store, major }, call);
+}
+
 function parseJson<T>(body: string, what: string): T {
   try {
     return JSON.parse(body) as T;

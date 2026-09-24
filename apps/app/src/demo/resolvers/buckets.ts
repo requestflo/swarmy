@@ -299,6 +299,14 @@ export const buckets: DomainResolvers = {
       return demoAccessView(b.id, b.name, input.mode);
     },
 
+    'storage.engineUpgrade': () => ({
+      running: 'dxflrs/garage:v2.4.1',
+      runningMajor: 2,
+      available: null,
+      impact: '',
+      run: null,
+    }),
+
     'buckets.setPublicDomain': (i) => ({ domain: (i as { domain: string | null }).domain }),
 
     'buckets.setWebsite': (i, s) => {
