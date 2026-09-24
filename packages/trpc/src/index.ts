@@ -103,6 +103,21 @@ export { getRepo, listRepos, removeRepo } from './services/cicd.service';
 export type { GitRepoView } from './services/cicd.service';
 export { controllerPublicUrl, repoCredentials } from './services/git-credentials';
 export { previewCommentBody, reportCommitStatus, upsertPrComment } from './services/git-feedback.service';
+// ── git-apps P3: the GitOps apply loop ──
+export {
+  confirmAppActions,
+  detectDrift,
+  getPlan,
+  isAppBinding,
+  listApps,
+  listPlans,
+  planCommit,
+  planCommitForRepo,
+  replan,
+  setRequireApproval,
+  teardownAppPreviewForRepo,
+} from './services/apps.service';
+export type { AppPlanView, AppView, PlanCommitInput, PlanCommitResult } from './services/apps.service';
 export {
   runImageGcForOrg,
   runImageGcAllOrgs,
