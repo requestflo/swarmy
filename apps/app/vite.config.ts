@@ -21,6 +21,8 @@ export default defineConfig({
       { find: /^@swarmy\/core$/, replacement: pkg('core/src/index.ts') },
       { find: /^@swarmy\/core\/(.*)$/, replacement: pkg('core/src/$1') },
       { find: /^@swarmy\/auth\/client$/, replacement: pkg('auth/src/client.ts') },
+      // Pure policy model (rule sentences, action catalogue, demo engine).
+      { find: /^@swarmy\/abac\/model$/, replacement: pkg('abac/src/model.ts') },
     ],
   },
   server: {

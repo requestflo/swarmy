@@ -1,3 +1,14 @@
+import {
+  ACTIONS as ABAC_ACTIONS,
+  DEFAULT_POLICY_SPECS,
+  JsonPolicyEngine,
+  buildPrincipal,
+  describePolicy,
+  isAction,
+  parsePolicyDoc,
+  type PolicyDoc,
+  type Role,
+} from '@swarmy/abac/model';
 import { DEMO_USER } from '../data';
 import type { DemoStore, DomainResolvers } from '../types';
 
@@ -132,40 +143,6 @@ interface AccessState {
 
 // ── Constants mirrored from the services ──────────────────────────────────────
 
-/** The complete governed-action catalogue (packages/abac ACTIONS). */
-const ACTIONS = [
-  'node.read',
-  'node.drain',
-  'node.remove',
-  'node.setLabels',
-  'service.read',
-  'service.deploy',
-  'service.scale',
-  'service.restart',
-  'service.remove',
-  'stack.read',
-  'stack.deploy',
-  'stack.remove',
-  'ingress.read',
-  'ingress.write',
-  'token.create',
-  'token.revoke',
-  'policy.read',
-  'policy.write',
-  'member.read',
-  'member.write',
-  'authconfig.read',
-  'authconfig.write',
-  'terminal.open',
-  'data.destroy',
-  'data.restore',
-  'data.failover',
-  'backup.remove',
-  'secret.delete',
-  'dns.remove',
-  'ingress.remove',
-  'cicd.remove',
-] as const;
 
 const SOCIAL_PROVIDERS = ['github', 'google'] as const;
 const AUTH_METHODS = ['passkey', 'magic_link'] as const;
@@ -473,37 +450,8 @@ function seedSso(): SsoProviderView[] {
 }
 
 function seedPolicies(): PolicyView[] {
-  const defaults: Array<{ name: string; effect: 'permit' | 'forbid'; priority: number; doc: unknown }> = [
-    { name: 'Owners can do anything', effect: 'permit', priority: 100, doc: { roles: ['owner'], actions: ['*'] } },
-    { name: 'Admins can do anything', effect: 'permit', priority: 90, doc: { roles: ['admin'], actions: ['*'] } },
-    {
-      name: 'Members can read',
-      effect: 'permit',
-      priority: 50,
-      doc: {
-        roles: ['member'],
-        actions: ['node.read', 'service.read', 'stack.read', 'ingress.read', 'member.read', 'policy.read', 'authconfig.read'],
-      },
-    },
-    {
-      name: 'Resource operators can operate their resources',
-      effect: 'permit',
-      priority: 45,
-      doc: {
-        relations: ['operator', 'owner'],
-        actions: ['service.deploy', 'service.scale', 'service.restart', 'stack.deploy', 'node.drain'],
-      },
-    },
-    {
-      name: 'Members can run safe operations',
-      effect: 'permit',
-      priority: 40,
-      doc: {
-        roles: ['member'],
-        actions: ['node.drain', 'node.setLabels', 'service.deploy', 'service.scale', 'service.restart', 'stack.deploy', 'ingress.write'],
-      },
-    },
-  ];
+  // The real seeded set (packages/abac defaults), so the demo reads the same rules.
+  const defaults = DEFAULT_POLICY_SPECS;
 
   const defaultRows: PolicyView[] = defaults.map((p, i) => ({
     id: `pol-default-${i}`,
@@ -518,6 +466,28 @@ function seedPolicies(): PolicyView[] {
   }));
 
   const custom: PolicyView[] = [
+    {
+      id: 'pol-payments-prod',
+      name: 'Payments ships its own production',
+      description: 'The payments team deploys and restarts production payment apps.',
+      effect: 'permit',
+      priority: 65,
+      source: JSON.stringify(
+        {
+          groups: ['team-payments'],
+          actions: ['service.deploy', 'service.configure', 'service.restart', 'stack.deploy'],
+          conditions: [
+            { attr: 'resource.env', op: 'eq', value: 'production' },
+            { attr: 'resource.label.team', op: 'eq', value: 'payments' },
+          ],
+        },
+        null,
+        2,
+      ),
+      enabled: true,
+      isDefault: false,
+      updatedAt: iso(2 * HOUR),
+    },
     {
       id: 'pol-oncall-restart',
       name: 'On-call may restart payments',
@@ -571,31 +541,28 @@ function seedPolicies(): PolicyView[] {
 
 // ── Policy source parsing (mirrors abac parsePolicyDoc, just enough) ──────────
 
-const POLICY_KEYS = new Set([
-  'actions',
-  'roles',
-  'resourceTypes',
-  'resourceLabels',
-  'attributes',
-  'ownerOnly',
-  'relations',
-]);
 
-function validateSource(source: string): { valid: boolean; error?: string; doc?: unknown } {
-  let raw: unknown;
+function validateSource(
+  source: string,
+  effect: 'permit' | 'forbid' = 'permit',
+): { valid: boolean; error?: string; doc?: PolicyDoc; sentence?: string } {
   try {
-    raw = JSON.parse(source);
-  } catch {
-    return { valid: false, error: 'source is not valid JSON' };
+    const doc = parsePolicyDoc(source);
+    return { valid: true, doc, sentence: describePolicy(effect, doc) };
+  } catch (e) {
+    return { valid: false, error: e instanceof Error ? e.message : String(e) };
   }
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    return { valid: false, error: 'policy must be a JSON object' };
-  }
-  const doc = raw as Record<string, unknown>;
-  const unknownKey = Object.keys(doc).find((k) => !POLICY_KEYS.has(k));
-  if (unknownKey) return { valid: false, error: `unknown clause "${unknownKey}"` };
-  if (Object.keys(doc).length === 0) return { valid: false, error: 'policy has no clauses' };
-  return { valid: true, doc };
+}
+
+/** A policy row as policies.service returns it: plus its parsed doc + sentence. */
+function policyWithSentence(p: PolicyView): PolicyView & { doc: PolicyDoc | null; sentence: string } {
+  const v = validateSource(p.source, p.effect);
+  return { ...p, doc: v.doc ?? null, sentence: v.sentence ?? 'This rule no longer parses; edit its JSON.' };
+}
+
+/** The demo org's rules as a real engine (same decisions as the controller). */
+function demoEngine(store: DemoStore): JsonPolicyEngine {
+  return new JsonPolicyEngine(state(store).policies);
 }
 
 // ── Resolvers ─────────────────────────────────────────────────────────────────
@@ -848,13 +815,65 @@ export const access: DomainResolvers = {
     },
 
     // ── policies (ABAC) ────────────────────────────────────────────────────────
-    'policies.list': (_i, store): PolicyView[] => state(store).policies,
+    'policies.list': (_i, store) => state(store).policies.map(policyWithSentence),
 
-    'policies.listActions': (): string[] => [...ACTIONS],
+    'policies.listActions': (): string[] => [...ABAC_ACTIONS],
 
-    'policies.validate': (input): { valid: boolean; error?: string; doc?: unknown } => {
-      const { source } = input as { source: string };
-      return validateSource(source);
+    'policies.validate': (input) => {
+      const { source, effect } = input as { source: string; effect?: 'permit' | 'forbid' };
+      return validateSource(source, effect);
+    },
+
+    'policies.resetDefaults': (_i, store) => {
+      const s = state(store);
+      const fresh = seedPolicies().filter((p) => p.isDefault);
+      s.policies = [...fresh, ...s.policies.filter((p) => !p.isDefault)].sort((a, b) => b.priority - a.priority);
+      return s.policies.map(policyWithSentence);
+    },
+
+    'policies.whoCan': (input, store) => {
+      const args = input as { action: string; resourceType?: string; resourceId?: string; env?: string; labels?: Record<string, string> };
+      if (!isAction(args.action)) throw new Error(`unknown action "${args.action}"`);
+      const resource =
+        args.resourceType || args.env || args.resourceId
+          ? {
+              type: args.resourceType ?? 'service',
+              id: args.resourceId ?? '(any)',
+              orgId: store.org.id,
+              // Demo apps named *prod* / on the payments team read as labelled.
+              labels: {
+                ...(args.labels ?? {}),
+                ...(args.resourceId && /prod|api|pay/.test(args.resourceId) ? { 'swarmy.env': 'production' } : {}),
+                ...(args.resourceId && /pay/.test(args.resourceId) ? { team: 'payments' } : {}),
+              },
+              env: args.resourceId ? undefined : args.env,
+            }
+          : null;
+      const engine = demoEngine(store);
+      const s = state(store);
+      const rows = s.members.map((m) => {
+        const principal = buildPrincipal({
+          userId: m.user.id,
+          orgId: store.org.id,
+          role: m.role as Role,
+          memberId: m.id,
+          teamIds: Array.isArray(m.attributes.teamIds) ? (m.attributes.teamIds as string[]) : [],
+          attributes: m.attributes,
+        });
+        const d = engine.evaluate({ principal, action: args.action as never, resource });
+        return {
+          memberId: m.id,
+          userId: m.user.id,
+          name: m.user.name,
+          email: m.user.email,
+          role: m.role,
+          groups: principal.groups ?? [],
+          decision: d.decision,
+          policyId: d.policyId,
+          reasons: d.reasons,
+        };
+      });
+      return { action: args.action, resource, rows };
     },
 
     'policies.set': (input, store): PolicyView => {
@@ -909,29 +928,20 @@ export const access: DomainResolvers = {
 
     'policies.simulate': (input, store) => {
       const args = input as { action: string; resourceType?: string; resourceId?: string };
-      if (!(ACTIONS as readonly string[]).includes(args.action)) {
-        throw new Error(`unknown action "${args.action}"`);
-      }
-      // The demo principal is the org owner → owner-superuser permits everything.
-      const role = store.org.role;
-      const reasons: string[] = [];
-      let decision: 'permit' | 'deny' = 'deny';
-      let policyId: string | null = null;
-
-      if (role === 'owner' || role === 'admin') {
-        decision = 'permit';
-        policyId = role === 'owner' ? 'pol-default-0' : 'pol-default-1';
-        reasons.push(`role "${role}" matches a superuser permit policy`);
-      } else if (args.action.endsWith('.read')) {
-        decision = 'permit';
-        policyId = 'pol-default-2';
-        reasons.push('members may read all resources');
-      } else {
-        reasons.push('no permit policy matched for this principal');
-      }
-      if (args.resourceType && args.resourceId) {
-        reasons.push(`evaluated against ${args.resourceType}:${args.resourceId}`);
-      }
+      if (!isAction(args.action)) throw new Error(`unknown action "${args.action}"`);
+      const me = state(store).members.find((m) => m.user.id === store.user.id);
+      const principal = buildPrincipal({
+        userId: store.user.id,
+        orgId: store.org.id,
+        role: store.org.role,
+        memberId: me?.id ?? null,
+        attributes: me?.attributes ?? {},
+      });
+      const resource =
+        args.resourceType && args.resourceId
+          ? { type: args.resourceType, id: args.resourceId, orgId: store.org.id, labels: {} }
+          : null;
+      const { decision, policyId, reasons } = demoEngine(store).evaluate({ principal, action: args.action, resource });
       return { decision, policyId, reasons };
     },
   },

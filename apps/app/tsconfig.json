@@ -13,6 +13,7 @@
       "@swarmy/core": ["../../packages/core/src/index.ts"],
       "@swarmy/core/*": ["../../packages/core/src/*"],
       "@swarmy/auth/client": ["../../packages/auth/src/client.ts"],
+      "@swarmy/abac/model": ["../../packages/abac/src/model.ts"],
       "@swarmy/trpc": ["../../packages/trpc/src/index.ts"]
     }
   },
