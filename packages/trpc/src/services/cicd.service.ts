@@ -246,6 +246,22 @@ export async function triggerBuildForRepo(
   return runBuild(ctx, repo, { ref: input.ref, commit: input.commit ?? undefined, triggeredBy: 'system' });
 }
 
+/**
+ * git-apps: build one build-key of a swarmy.yaml app at an exact commit
+ * (subdir/dockerfile/target/args from the file). Same core as every other
+ * build — builder choice, registry push, scan/sign, check run, logs.
+ * Returns the digest-pinned image.
+ */
+export async function buildForApp(
+  ctx: OrgContext,
+  input: { repoId: string; ref: string; sha?: string; build: BuildInputs },
+): Promise<BuildView> {
+  const repo = await ctx.db.gitRepo.findFirst({ where: { id: input.repoId, orgId: ctx.activeOrgId } });
+  if (!repo) throw notFound('repo', input.repoId);
+  // Never autodeploy from here — the app applier owns the rollout.
+  return runBuild(ctx, { ...repo, autodeploy: false }, { ref: input.ref, commit: input.sha, build: input.build, triggeredBy: 'system' });
+}
+
 interface RepoRow {
   id: string;
   url: string;
