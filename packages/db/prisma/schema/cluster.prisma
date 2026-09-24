@@ -1,10 +1,9 @@
-// Cluster identity: nodes, join tokens, stacks, metric samples, audit log, vault entries, canvas layout.
+// Cluster identity: nodes, join tokens, audit log, vault entries, operation runs.
 
 enum NodeRole {
   MANAGER
   WORKER
 }
-
 
 // Node is now an ENROLLMENT/IDENTITY record only — role/status/labels/resources/
 // version/lastSeen are Docker-truth and live in the in-memory hub (epic #6 rip-out).
@@ -89,25 +88,9 @@ model JoinToken {
 }
 
 // Service + Deployment models removed (epic #6): live services are Docker-truth in
-// the hub; deploy status is synthesized from live convergence. Stack is trimmed to
-// the user's compose CONFIG; its live status/services derive from stack-namespace labels.
-model Stack {
-  id               String         @id @default(cuid())
-  orgId            String
-  name             String
-  composeSource    String
-  ingressDriver    IngressDriver?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@unique([orgId, name])
-  @@index([orgId])
-  @@map("stack")
-}
-
-
+// the hub; deploy status is synthesized from live convergence. The stack's compose
+// source and the canvas layout live in the org's swarm (swarm-kv,
+// plans/epic-docker-native-state.md P4 slice 4).
 model AuditLog {
   id         Int      @id @default(autoincrement())
   orgId      String
@@ -161,19 +144,6 @@ model VaultEntry {
 
   @@unique([orgId, name])
   @@map("vault_entry")
-}
-
-model CanvasLayout {
-  orgId     String   @id
-  // serviceId/stackId → { x, y } persisted node positions (drag = visual only).
-  positions Json     @default("{}")
-  // last { x, y, zoom } viewport so the canvas reopens where the user left it.
-  viewport  Json?
-  updatedAt DateTime @updatedAt
-
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@map("canvas_layout")
 }
 
 /// Resumable long-running operation state. Run state lives in the controller

@@ -114,7 +114,6 @@ model Organization {
   invitations   Invitation[]
   nodes         Node[]
   joinTokens    JoinToken[]
-  stacks        Stack[]
   auditLogs     AuditLog[]
 
   snapshots           Snapshot[]
@@ -125,9 +124,7 @@ model Organization {
   gitConnections      GitConnection[]
   appPlans            AppPlan[]
   builds              Build[]
-  registryConfig      RegistryConfig?
   registryCredentials RegistryCredential[]
-  imageGcPolicy       ImageGcPolicy?
   apiKeys             ApiKey[]
   backupJobs          BackupJob[]
   restoreOperations   RestoreOperation[]
@@ -142,7 +139,6 @@ model Organization {
   oauthClients        OAuthClient[]
   webhookEndpoints    WebhookEndpoint[]
   webhookDeliveries   WebhookDelivery[]
-  canvasLayout        CanvasLayout?
   platformConfig      PlatformConfig?
   errorProjects       ErrorProject[]
   studioQueries       StudioSavedQuery[]
