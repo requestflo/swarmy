@@ -32,6 +32,7 @@ import {
   type AutoTargetCandidate,
   type DetectedDbEngine,
 } from './autoBackup';
+import { appDbCoverage, detectAppDbs, type AppDbCoverage } from './appDbBackup.service';
 import { systemContext } from './cicd.service';
 import {
   DB_BACKUP_LAST_RUN_LABEL,
@@ -324,6 +325,12 @@ export interface AutoCoverageDb {
   retentionDays: number | null;
   nextRunAt: string | null;
   lastRunAt: string | null;
+  /**
+   * Compose MySQL/MariaDB/Mongo/Redis/Valkey: the logical dump that rides the
+   * same schedule (belt and braces with the volume copy), or `volume-only`
+   * with the reason when the credentials can't be resolved. Null otherwise.
+   */
+  logical: AppDbCoverage | null;
 }
 
 export interface AutoCoverageView {
@@ -371,10 +378,13 @@ export async function autoBackupCoverage(
       retentionDays: schedule?.retentionDays ?? null,
       nextRunAt,
       lastRunAt: lastRun?.at ?? null,
+      logical: null,
     });
   }
 
   const detected = detectDbServices(services);
+  const appDbs = detectAppDbs(services);
+  const logical = await appDbCoverage(ctx, appDbs);
   const rows =
     detected.length > 0
       ? await scheduleDb(ctx).findMany({
@@ -396,7 +406,8 @@ export async function autoBackupCoverage(
       method: 'volume',
       retentionDays: current?.retentionDays ?? null,
       nextRunAt: current && !current.paused ? (current.nextRunAt?.toISOString() ?? null) : null,
-      lastRunAt: null,
+      lastRunAt: logical.get(`${d.stack}/${d.service}`)?.lastAt ?? null,
+      logical: logical.get(`${d.stack}/${d.service}`) ?? null,
     });
   }
 

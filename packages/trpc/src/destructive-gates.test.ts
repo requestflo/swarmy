@@ -70,6 +70,7 @@ const GATES: Array<[string, unknown, string]> = [
   ['ingress.tunnels.delete', undefined, 'ingress.remove'],
   ['cache.destroy', {}, 'data.destroy'],
   ['cache.restore', {}, 'data.restore'],
+  ['backups.appDb.restore', {}, 'data.restore'],
   ['search.destroy', {}, 'data.destroy'],
   ['search.restore', {}, 'data.restore'],
   ['vector.destroy', {}, 'data.destroy'],

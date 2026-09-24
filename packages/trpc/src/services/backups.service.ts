@@ -62,7 +62,7 @@ export interface SnapshotView {
   finishedAt: string | null;
 }
 
-interface TargetRow {
+export interface BackupTargetRow {
   id: string;
   name: string;
   kind: string;
@@ -76,6 +76,8 @@ interface TargetRow {
   enabled: boolean;
   createdAt: Date;
 }
+
+type TargetRow = BackupTargetRow;
 
 /** Prisma stores the enum uppercase (`NODE`/`S3`); accept either spelling. */
 export function isNodeTarget(row: Pick<TargetRow, 'kind'>): boolean {
@@ -130,7 +132,7 @@ export function repoUrl(row: Pick<TargetRow, 'kind' | 'prefix' | 'bucket' | 'end
 }
 
 /** Resolve a target into a ready-to-dispatch ResticRepo (decrypts secrets). */
-function toResticRepo(row: TargetRow): ResticRepo {
+export function toResticRepo(row: TargetRow): ResticRepo {
   return {
     kind: isNodeTarget(row) ? 'node' : 's3',
     repo: repoUrl(row),
@@ -142,7 +144,7 @@ function toResticRepo(row: TargetRow): ResticRepo {
   };
 }
 
-async function loadTarget(ctx: OrgContext, id: string): Promise<TargetRow> {
+export async function loadTarget(ctx: OrgContext, id: string): Promise<TargetRow> {
   const row = (await ctx.db.backupTarget.findFirst({
     where: { id, orgId: ctx.activeOrgId },
   })) as unknown as TargetRow | null;

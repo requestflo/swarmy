@@ -63,6 +63,7 @@ import {
   replicaServiceName,
   clusterNetworkName,
 } from './manageddb.service';
+import { appDbVerifySteps } from './appDbBackup.service';
 import { resolveExecTarget } from './live-resolve';
 import { getConfig as getControllerBackupConfig } from './controllerBackup.service';
 import { getConfig as getStorageConfig } from './replicatedStore.service';
@@ -1201,9 +1202,17 @@ export async function runBackupVerify(
         error: tail || `restic check exited ${res.exitCode}`,
       });
     }
+    // Repository integrity is necessary, not sufficient: restore each app
+    // DB's newest logical dump into a throwaway server and query it.
+    const appDbSteps = await appDbVerifySteps(ctx, row.id);
+    for (const step of appDbSteps) await rec.run(step.name, step.run, step.detail);
+    const dumps =
+      appDbSteps.length > 0
+        ? ` ${appDbSteps.length} database dump${appDbSteps.length === 1 ? '' : 's'} restored into scratch servers and queried.`
+        : '';
     return await finishDrill(ctx, { kind: 'backup-verify', target: row.name, startedAt }, rec, {
       status: 'passed',
-      summary: `restic check on "${row.name}" passed — ${tail || 'no errors were found'}.`,
+      summary: `restic check on "${row.name}" passed — ${tail || 'no errors were found'}.${dumps}`,
     });
   } catch (e) {
     return await finishDrill(ctx, { kind: 'backup-verify', target: row.name, startedAt }, rec, {

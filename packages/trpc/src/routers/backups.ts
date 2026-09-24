@@ -14,6 +14,7 @@ import {
   setStackRetention,
 } from '../services/backups.service';
 import { autoBackupCoverage } from '../services/autoBackup.service';
+import { appDbBackupRouter } from './appDbBackup';
 
 const retentionDays = z.number().int().min(1).max(3650);
 
@@ -105,4 +106,7 @@ export const backupsRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => restoreSnapshot(ctx, input)),
+
+  /** Logical dumps + one-click restore of compose MySQL/MariaDB/Mongo/Redis/Valkey. */
+  appDb: appDbBackupRouter,
 });

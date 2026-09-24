@@ -12,7 +12,7 @@ import { prisma } from '@swarmy/db';
 import { buildInventory } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import type { BackupVolumeResult, ResticRepo } from '@swarmy/core/protocol';
-import { ensureAutoBackups, stackRetentionFor } from '@swarmy/trpc';
+import { ensureAutoBackups, runScheduledAppDbDump, stackRetentionFor } from '@swarmy/trpc';
 import { authRegistry } from '@swarmy/auth';
 import { hub, registry } from '../gateway';
 
@@ -228,6 +228,15 @@ async function runDue(): Promise<void> {
         data: { status: 'FAILED', finishedAt: new Date(), error: e instanceof Error ? e.message : String(e) },
       });
     }
+
+    // Belt and braces: when the volume is a compose MySQL/MariaDB/Mongo/Redis/
+    // Valkey data volume, also take a transaction-consistent logical dump to the
+    // same destination with the same retention (skipped, not failed, when its
+    // credentials can't be resolved — the volume copy above still covers it).
+    await runScheduledAppDbDump(
+      { db: prisma, hub, auth: authRegistry.getAuth() },
+      { orgId: sched.orgId, volume: sched.volume, targetId: target.id, retentionDays },
+    ).catch(() => undefined);
   }
 }
 
