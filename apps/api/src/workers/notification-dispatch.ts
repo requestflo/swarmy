@@ -7,6 +7,8 @@
  *   - postmark → POST https://api.postmarkapp.com/email        (server token)
  *   - mailgun  → POST <base>/v3/<domain>/messages              (form, basic auth)
  *   - smtp     → nodemailer transport (host/port/secure/user/pass)
+ *   - none     → swarmy's own email service (email/runtime.ts `sendSystemEmail`)
+ *                when it is on — alerts need no external provider
  * Outcome: success → SENT (+providerId, the provider's message id); failure →
  * retry with backoff (1m, 5m, 15m) up to 4 total attempts, then FAILED final.
  * Retry state (attempts/nextAttemptAt) and the rendered bodies ride the row's
@@ -29,6 +31,7 @@
  * unit-tested in `notification-dispatch.test.ts`.
  */
 import nodemailer from 'nodemailer';
+import { sendSystemEmail } from '@swarmy/trpc';
 import { prisma } from '@swarmy/db';
 import { decryptSecret } from '@swarmy/core/crypto';
 
@@ -435,7 +438,16 @@ async function markFailedOrRetry(row: DeliveryRow, meta: DeliveryMeta, error: st
 async function deliverOne(row: DeliveryRow, config: OrgSendConfig | null): Promise<void> {
   const meta = parseMeta(row.meta);
   if (!config) {
-    await markFailedOrRetry(row, meta, 'email provider not configured');
+    // No external provider: send through swarmy's own email service when it is on.
+    const r = await sendSystemEmail(prisma, {
+      orgId: row.orgId,
+      to: row.to,
+      subject: row.subject ?? '(no subject)',
+      text: meta.bodyText ?? (meta.bodyHtml ? meta.bodyHtml.replace(/<[^>]+>/g, '') : ''),
+      ...(meta.bodyHtml ? { html: meta.bodyHtml } : {}),
+    });
+    if (r.sent) await markSent(row, meta, r.messageId?.replace(/^</, '').replace(/>$/, '') ?? null);
+    else await markFailedOrRetry(row, meta, `no email provider configured and the swarmy email service could not send (${r.reason ?? 'off'})`);
     return;
   }
   const mail: MailInput = {
