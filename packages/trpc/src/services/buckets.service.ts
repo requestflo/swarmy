@@ -95,6 +95,24 @@ export function withStoreNetwork(networks: string[]): string[] {
   return networks.includes(GARAGE_NETWORK) ? networks : [...networks, GARAGE_NETWORK];
 }
 
+/**
+ * Whether a service must stay on the shared store overlay after its bucket is
+ * detached: it is still routed (the edge dials it there) or still ships OTLP to
+ * the collector. Otherwise detach leaves the network too — least privilege,
+ * and attach/detach stay symmetric. Pure.
+ */
+export function keepsSharedNetworkAfterDetach(app: { labels: Record<string, string>; env: string[] }): boolean {
+  let routed = false;
+  try {
+    const raw = app.labels['swarmy.ingress.routes'];
+    routed = !!raw && Array.isArray(JSON.parse(raw)) && (JSON.parse(raw) as unknown[]).length > 0;
+  } catch {
+    routed = true; // unreadable routes label: fail safe, keep the edge path
+  }
+  const observed = app.env.some((e) => e.startsWith('OTEL_EXPORTER_OTLP_ENDPOINT='));
+  return routed || observed;
+}
+
 /** In-swarm S3 endpoint attached apps receive (mirrors replicatedStore.endpointFor). */
 export function garageS3Endpoint(): string {
   return `http://${STORE_SERVICE_NAME}:${GARAGE_S3_PORT}`;
@@ -1077,6 +1095,7 @@ export async function detach(
       removeEnv: [...ATTACH_ENV_KEYS],
       removeSecrets: [secretName],
       removeLabels: [S3_BUCKET_LABEL, S3_KEY_LABEL, S3_SECRET_LABEL],
+      ...(keepsSharedNetworkAfterDetach(app) ? {} : { removeNetworks: [GARAGE_NETWORK] }),
     },
     { nodeId: node.id },
   );

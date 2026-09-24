@@ -227,3 +227,14 @@ describe('rotatedSecretName (secret-family versioning for key rotation)', () => 
     expect(name).toBe(`${family}__v2`);
   });
 });
+
+describe('detach leaves the shared store network unless something else needs it', () => {
+  it('drops `swarmy` for a plain app; keeps it for a routed or observed one', async () => {
+    const { keepsSharedNetworkAfterDetach } = await import('./buckets.service');
+    expect(keepsSharedNetworkAfterDetach({ labels: {}, env: [] })).toBe(false);
+    expect(
+      keepsSharedNetworkAfterDetach({ labels: { 'swarmy.ingress.routes': '[{"host":"a.b","port":80}]' }, env: [] }),
+    ).toBe(true);
+    expect(keepsSharedNetworkAfterDetach({ labels: {}, env: ['OTEL_EXPORTER_OTLP_ENDPOINT=http://x:4317'] })).toBe(true);
+  });
+});
