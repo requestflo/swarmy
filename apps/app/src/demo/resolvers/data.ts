@@ -501,13 +501,59 @@ export const data: DomainResolvers = {
       const stack = (i as { stack: string }).stack;
       return { stack, retentionDays: getState(s).retention?.[stack] ?? null };
     },
-    // Default-on DB backups coverage: the demo estate has no detected compose
-    // databases, so the card stays hidden; the destination mirrors production's
+    // Default-on DB backups coverage: the demo `data` stack's compose Redis
+    // gets a nightly logical dump (BGSAVE + RDB) beside its volume copy; the
+    // compose Postgres stays volume-only. The destination mirrors production's
     // choice order loosely (first enabled target).
     'backups.autoCoverage': (i, s) => {
       const stack = (i as { stack: string }).stack;
       const t = getState(s).targets.find((x) => x.enabled) ?? null;
-      return { stack, destination: t ? { id: t.id, name: t.name } : null, databases: [] };
+      const next = new Date(Date.now() + 9 * 3_600_000).toISOString();
+      const lastAt = new Date(Date.now() - 15 * 3_600_000).toISOString();
+      const databases =
+        stack === 'data' && t
+          ? [
+              {
+                kind: 'compose' as const, name: 'data_postgres', engine: 'postgres', volume: 'data_postgres-data',
+                status: 'auto' as const, method: 'volume', retentionDays: 7, nextRunAt: next, lastRunAt: null, logical: null,
+              },
+              {
+                kind: 'compose' as const, name: 'data_redis', engine: 'redis', volume: 'data_redis-data',
+                status: 'auto' as const, method: 'volume', retentionDays: 7, nextRunAt: next, lastRunAt: lastAt,
+                logical: {
+                  mode: 'logical' as const, method: 'BGSAVE + RDB copy', note: null, lastAt,
+                  lastStatus: 'succeeded' as const, lastError: null, lastSnapshotId: 'a91c3e07',
+                },
+              },
+            ]
+          : [];
+      return { stack, destination: t ? { id: t.id, name: t.name } : null, databases };
+    },
+    // App-DB logical dumps (restic catalog): three nights + one safety dump.
+    'backups.appDb.list': () =>
+      [
+        { id: 'a91c3e07', time: 15, engine: 'redis', reason: 'scheduled' },
+        { id: '5d20b8f4', time: 26, engine: 'redis', reason: 'pre-restore' },
+        { id: '0be7a611', time: 39, engine: 'redis', reason: 'scheduled' },
+        { id: 'c47f9d52', time: 63, engine: 'redis', reason: 'scheduled' },
+      ].map((d) => ({ ...d, time: new Date(Date.now() - d.time * 3_600_000).toISOString() })),
+    'backups.appDb.backupNow': (i) => ({
+      engine: (i as { service: string }).service.includes('redis') ? 'redis' : 'mysql',
+      snapshotId: 'f00dd00d',
+      sizeBytes: '48213',
+      databases: [],
+      tool: 'redis-cli',
+      appendonly: false,
+    }),
+    'backups.appDb.restore': (i) => {
+      const { mode, service } = i as { mode?: 'copy' | 'in-place'; service: string };
+      return {
+        mode: mode ?? 'copy',
+        engine: 'redis',
+        databases: [],
+        volume: mode === 'in-place' ? `${service}-data` : `${service}-data-copy-202609240300`,
+        safetySnapshotId: mode === 'in-place' ? 'f00dd00d' : null,
+      };
     },
     'backups.setStackRetention': (i, s): { stack: string; retentionDays: number | null } => {
       const { stack, retentionDays } = i as { stack: string; retentionDays: number | null };
