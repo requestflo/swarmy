@@ -5,7 +5,6 @@ import { startNodeHygiene } from './node-hygiene';
 import { startControllerBackupScheduler } from './controller-backup-scheduler';
 import { startSwarmKvRestore } from './swarm-kv-restore';
 import { startBackupScheduler } from './backup-scheduler';
-import { startOffsiteMirror } from './offsite-mirror';
 import { startDrReconcile } from './dr-reconcile';
 import { startObservabilityReconcile } from './observability-reconcile';
 import { startDnsReconcile } from './dns-reconcile';
@@ -46,7 +45,6 @@ export function startWorkers(): () => void {
     startNodeHygiene(),
     startControllerBackupScheduler(),
     startBackupScheduler(),
-    startOffsiteMirror(),
     startDrReconcile(),
     startObservabilityReconcile(),
     startDnsReconcile(),

@@ -97,6 +97,11 @@ Four ideas, one story:
   documents (`backups.repo.ts`), so they survive with the swarm. The DB keeps
   swarmy's queryable record: `Snapshot` / `BackupJob` (restic run catalog),
   `RestoreOperation` (DR restore history) and `ControllerSnapshot`.
+- **A schedule can write two copies.** Each volume schedule has a destination
+  and an optional "also copy to" second destination; every run backs up to the
+  first, then copies to the second (its own snapshot, its own failure). An
+  external S3 second destination is swarmy's off-site copy — the resilience
+  check warns while every schedule writes only inside the cluster.
 - **Destinations are estate-wide.** A `BackupTarget` is org-scoped and shared
   across stacks — "Destinations are managed estate-wide." The native destination
   is the in-swarm Garage object store (`swarmy-object-storage` → the
@@ -139,7 +144,7 @@ Four ideas, one story:
   second. `telemetry.db` is never replicated. The replica target lives in a
   Docker secret (`swarmy_control_store.<ts>`) and not in the database, because a
   controller that lands on an empty volume must read it before any database
-  exists. Garage's own off-site mirror carries the bucket further. Without a
+  exists. Point it at an external S3 target for an off-site copy. Without a
   replica, the nightly bundle below is the only off-box copy, and the dashboard
   says so.
 - **The controller can move to any manager.** With the store replicated, the

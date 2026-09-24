@@ -8,11 +8,10 @@
  *
  *  - `bkp-target/<id>`   BackupTarget (credentials stay vault `*Ref` blobs)
  *  - `bkp-sched/<id>`    BackupSchedule (run times derive from BackupJob)
- *  - `mirror/<orgId>`    OffsiteMirror (one per org)
  *  - `ctl-backup/controller` ControllerBackupConfig, in the org that owns its
  *    target (the controller's own swarm); readers scan reachable orgs.
  *
- * History (Snapshot, BackupJob, ControllerSnapshot, OffsiteMirrorRun) stays in
+ * History (Snapshot, BackupJob, ControllerSnapshot) stays in
  * the controller store; its `targetId` / `scheduleId` / `mirrorId` are plain
  * strings now, and deletes cascade in the services.
  */
@@ -63,34 +62,6 @@ export const backupSchedules = kvTable<BackupScheduleDoc>('bkp-sched', {
   defaults: () => ({ secondaryTargetId: null, nodeId: null, paused: false, auto: false, retentionDays: null, anchorAt: null, optedOutAt: null }),
 });
 
-export interface OffsiteMirrorDoc {
-  targetId: string;
-  allBuckets: boolean;
-  buckets: string[];
-  prefix: string;
-  everyMinutes: number;
-  /** "copy" | "sync" */
-  mode: string;
-  graceDays: number;
-  enabled: boolean;
-  sourceAccessKeyRef: string | null;
-  sourceSecretKeyRef: string | null;
-}
-
-/** One mirror per org: the row id IS the org id. */
-export const offsiteMirrors = kvTable<OffsiteMirrorDoc>('mirror', {
-  defaults: () => ({
-    allBuckets: true,
-    buckets: [],
-    prefix: 'swarmy-mirror',
-    everyMinutes: 60,
-    mode: 'copy',
-    graceDays: 7,
-    enabled: true,
-    sourceAccessKeyRef: null,
-    sourceSecretKeyRef: null,
-  }),
-});
 
 /** Every org's rows of a table, for cross-org workers (unreachable orgs skipped). */
 export async function allOrgRows<R>(

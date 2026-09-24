@@ -7,7 +7,6 @@ import { estateRouter } from './routers/estate';
 import { ingressRouter } from './routers/ingress';
 import { appAccessRouter } from './routers/appAccess';
 import { backupsRouter } from './routers/backups';
-import { offsiteMirrorRouter } from './routers/offsiteMirror';
 import { dbBackupRouter } from './routers/dbBackup';
 import { observabilityRouter } from './routers/observability';
 import { errorsRouter } from './routers/errors';
@@ -76,7 +75,6 @@ export const appRouter = router({
   ingress: ingressRouter,
   appAccess: appAccessRouter,
   backups: backupsRouter,
-  offsiteMirror: offsiteMirrorRouter,
   dbBackups: dbBackupRouter,
   observability: observabilityRouter,
   rum: rumRouter,

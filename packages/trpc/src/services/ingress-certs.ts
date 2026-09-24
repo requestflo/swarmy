@@ -9,8 +9,7 @@
  * ACME account, and a cert is issued once for the whole fleet.
  *
  * Where: swarmy's OWN replicated object store (Garage) — no new data service,
- * certificates replicate across nodes/regions with the store, and the offsite
- * S3 mirror covers them. Caddy speaks to it through `storage s3`
+ * certificates replicate across nodes/regions with the store. Caddy speaks to it through `storage s3`
  * (techknowlogick/certmagic-s3, compiled into docker/caddy-swarmy).
  *
  * Credentials never touch the Caddyfile: a bucket-scoped Garage key is minted,
@@ -25,7 +24,7 @@
  *
  * Encrypted at rest: certificates and the ACME account key are sealed
  * client-side (the module's NaCl secretbox `encryption_key`) before they reach
- * Garage, so neither the store nor its offsite S3 mirror ever holds a usable
+ * Garage, so the store never holds a usable
  * private key. The key is its own Docker secret, pulled into the `storage s3`
  * block with a Caddyfile `import` — never in the DB, an env var or the rendered
  * Caddyfile. (Each edge's own Caddy autosave, on that node's config volume,
@@ -43,7 +42,7 @@ import type { OrgContext } from '../context';
 import { mapDispatchError } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { objectStoreState, provisionSystemBucketKey, revokeSystemKey } from './buckets.service';
-import { RCLONE_IMAGE, rcloneRemoteEnv } from './offsiteMirror.core';
+import { RCLONE_IMAGE, rcloneRemoteEnv } from './rclone';
 
 /** The one bucket every org edge shares (per-org key prefix inside it). */
 export const EDGE_CERTS_BUCKET = 'swarmy-edge-certs';
@@ -89,8 +88,7 @@ export interface EdgeCertStorageSettings {
   reissuePending?: boolean;
   /**
    * The plaintext prefix a legacy store used, until it is purged from Garage
-   * (after the edges run on the sealed store). Its offsite copy is left alone:
-   * copy-mode mirroring never deletes off-site.
+   * (after the edges run on the sealed store).
    */
   legacyPrefix?: string;
 }

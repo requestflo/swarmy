@@ -65,7 +65,6 @@ export const KV_COLLECTIONS = [
   'bkp-target', // BackupTarget (id = target id)
   'bkp-sched', // BackupSchedule (id = schedule id)
   'ctl-backup', // ControllerBackupConfig (id = "controller")
-  'mirror', // OffsiteMirror (id = orgId)
   'registry', // RegistryConfig (id = orgId)
   'image-gc', // ImageGcPolicy (id = orgId)
   'stack', // Stack compose source (id = stack id)

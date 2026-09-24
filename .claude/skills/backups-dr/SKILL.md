@@ -125,9 +125,9 @@ and where everything lives. Backups are dispatched to the agent as commands — 
     while the replica is unreachable, or in a swarm that already had a
     controller (`SWARMY_ALLOW_FRESH=1` overrides). Whatever puts a different
     control.db in place must clear `-wal`/`-shm`/`.control.db-litestream`/the
-    marker (`clearSidecarFiles`). Litestream v0.5 takes ONE replica per DB, so
-    off-site copies come from the Garage off-site mirror, not a second
-    replica.
+    marker (`clearSidecarFiles`). Litestream v0.5 takes ONE replica per DB, so an
+    off-site controller copy means pointing the replica at an external S3
+    target (the nightly bundle is the other off-box copy).
 
 ## Contracts between the layers
 
@@ -167,6 +167,7 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | Backup wire types (`ResticRepo`, payloads, default images) | `packages/core/src/protocol/backup.ts` |
 | Volume backups: targets CRUD, native Garage target, backup/restore/list | `packages/trpc/src/services/backups.service.ts` (+ `routers/backups.ts`) |
 | Volume backup schedules + restore-op history | `packages/trpc/src/services/backupSchedule.service.ts` |
+| Two destinations per schedule (primary + `secondaryTargetId` "also copy to") | `backupSchedule.service.ts` (`setScheduleSecondary`), worker `apps/api/src/workers/backup-scheduler.ts` (`backupToTarget`), UI `components/backups/schedule-secondary-select.tsx` |
 | DB backups: engines, `swarmy.db.backup.*` labels, schedule, PITR, restore | `packages/trpc/src/services/dbBackup.service.ts` (+ `routers/dbBackup.ts`) |
 | Controller brain: config, passphrase, bundle build/restore, re-adopt | `packages/trpc/src/services/controllerBackup.{service,bundle,snapshot}.ts` (+ `routers/controllerBackup.ts`) |
 | Standalone disaster-restore entrypoint (dashboard is down) | `apps/api/src/restore.ts` |
@@ -182,7 +183,6 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | UI: estate destinations, controller backup | `apps/app/src/routes/_authed/{backups,settings_.backup}.tsx`, `components/controllerbackup/*` |
 | UI: per-stack Backups tab (schedules, resilience score, drills) | `routes/_authed/stacks/$name.backups.tsx` → `components/backups/{stack-backups,stack-schedules-card,…}.tsx`, `components/resilience/*`; overview card `components/overview/resilience-card.tsx` |
 | Crypto: `encryptSecret`/`decryptSecret`, `generateRestorePassphrase` + fingerprint | `packages/core/src/crypto.ts` |
-| Off-site mirror of the Garage store (rclone one-shot, env-only creds, copy/sync, restore-from-offsite) | `packages/trpc/src/services/offsiteMirror.{core,service}.ts` (+ `routers/offsiteMirror.ts`, worker `apps/api/src/workers/offsite-mirror.ts`, UI `components/backups/offsite-mirror-card.tsx`) |
 
 ## Adding a check or a drill (the recipe)
 

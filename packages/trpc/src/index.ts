@@ -273,8 +273,6 @@ export { ensureAutoBackups } from './services/autoBackup.service';
 export { runScheduledAppDbDump } from './services/appDbBackup.service';
 // In-cluster restic destinations (native Garage) need the swarmy overlay — workers too.
 export { resticNetworkFor } from './services/backups.service';
-// Off-site mirror scheduler (offsite-mirror worker).
-export { runDueMirrors } from './services/offsiteMirror.service';
 // Managed data node-pinning (cache/search/vector reconcile workers) + the
 // canonical member spec builders those workers converge with.
 export {
@@ -401,7 +399,6 @@ export {
   allOrgRows,
   backupTargets,
   backupSchedules,
-  offsiteMirrors,
   controllerBackupConfigRepo,
 } from './services/backups.repo';
 export { stacks, registryConfigs, imageGcPolicies } from './services/apps.repo';

@@ -101,8 +101,6 @@ const GATES: Array<[string, unknown, string]> = [
   ['backups.restoreSnapshot', {}, 'data.restore'],
   ['dbBackups.restore', {}, 'data.restore'],
   ['controllerBackup.restore', {}, 'data.restore'],
-  ['offsiteMirror.remove', undefined, 'backup.remove'],
-  ['offsiteMirror.restore', {}, 'data.restore'],
   ['secrets.deleteFamily', {}, 'secret.delete'],
   ['secrets.pruneVersions', {}, 'secret.delete'],
   ['configs.deleteFamily', {}, 'secret.delete'],

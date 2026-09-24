@@ -6,7 +6,7 @@
  * repo password) are encrypted at rest via the vault and only decrypted in
  * memory when building a command. Every mutation is audited.
  */
-import { backupSchedules, backupTargets, offsiteMirrors } from './backups.repo';
+import { backupSchedules, backupTargets } from './backups.repo';
 import { clearControllerBackupTarget } from './controllerBackup.service';
 import {
   decryptSecret,
@@ -329,9 +329,12 @@ export async function removeTarget(
   await loadTarget(ctx, id);
   await backupTargets(ctx, ctx.activeOrgId).delete({ where: { id } });
   // The target lived in swarm-kv, so the old FK cascades are explicit: its
-  // schedules and mirror (config) and its snapshot history (controller store).
+  // schedules (config), any schedule's second copy to it, and its snapshot
+  // history (controller store).
   await backupSchedules(ctx, ctx.activeOrgId).deleteMany({ where: { targetId: id } });
-  await offsiteMirrors(ctx, ctx.activeOrgId).deleteMany({ where: { targetId: id } });
+  await backupSchedules(ctx, ctx.activeOrgId)
+    .updateMany({ where: { secondaryTargetId: id }, data: { secondaryTargetId: null } })
+    .catch(() => undefined);
   await ctx.db.snapshot.deleteMany({ where: { orgId: ctx.activeOrgId, targetId: id } });
   await ctx.db.controllerSnapshot.deleteMany({ where: { targetId: id } });
   await clearControllerBackupTarget(ctx, id);

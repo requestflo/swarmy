@@ -328,8 +328,7 @@ Least privilege, by network:
 - **Putting the cert store on the request path.** It holds certs, challenge
   tokens and issuance locks only; served certs are cached in each Caddy.
 - **A dedicated Redis for certs.** A new data service to run, pin and back up;
-  the replicated object store already exists, replicates across regions, and is
-  covered by the offsite mirror.
+  the replicated object store already exists and replicates across regions.
 
 ## Implementation map
 

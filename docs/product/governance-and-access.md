@@ -174,9 +174,9 @@ Four ideas, one story:
   | `service.remove` / `stack.remove` / `node.remove` | removing a service, a stack or preview env, a node |
   | `service.scale` / `service.restart` / `node.drain` | scale (incl. to 0), restart, drain/cordon |
   | `data.destroy` | managed cache/search/vector/queue teardown or drain, bucket/key delete, object store disable, cluster-volume deregister |
-  | `data.restore` | volume, DB, cache, search, controller and offsite-mirror restores (they overwrite live data) |
+  | `data.restore` | volume, DB, cache, search and controller restores (they overwrite live data) |
   | `data.failover` | confirming a managed-DB failover that may lose the last writes (see `managed-data.md`) |
-  | `backup.remove` | removing a backup target or the offsite mirror |
+  | `backup.remove` | removing a backup target |
   | `secret.delete` | deleting or pruning a secret/config family |
   | `dns.remove` / `ingress.remove` / `ingress.write` | geo-DNS zone/record removal; Cloudflare tunnel delete; domain removal |
   | `token.revoke` / `member.write` / `policy.write` / `authconfig.write` / `cicd.remove` | API key / OAuth client / join token / direct-connect revoke; grants + invitations; policy, SSO and git-repo removal |
