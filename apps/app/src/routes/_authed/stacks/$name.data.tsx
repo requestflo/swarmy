@@ -4,6 +4,7 @@ import { ManagedDbPanel } from '@/components/stacks/managed-db-panel';
 import { CacheSection } from '@/components/cache/cache-section';
 import { SearchSection } from '@/components/searchsvc/search-section';
 import { VectorSection } from '@/components/vector/vector-section';
+import { StudioEntryCard } from '@/components/studio/studio-entry-card';
 
 /**
  * Data tab of the stack workspace: this stack's managed databases, caches,
@@ -19,6 +20,7 @@ function DataTab(): React.JSX.Element {
   return (
     <div className="space-y-6">
       <ManagedDbPanel stack={name} />
+      <StudioEntryCard stack={name} />
       <CacheSection stack={name} />
       <SearchSection stack={name} />
       <VectorSection stack={name} />

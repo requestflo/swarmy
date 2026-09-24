@@ -51,6 +51,7 @@ import { Route as AuthedDataBucketsRouteImport } from './routes/_authed/data_.bu
 import { Route as AuthedCiBuildIdRouteImport } from './routes/_authed/ci_.$buildId'
 import { Route as AuthedStacksNameIndexRouteImport } from './routes/_authed/stacks/$name.index'
 import { Route as AuthedTerminalSessionsIdRouteImport } from './routes/_authed/terminal.sessions.$id'
+import { Route as AuthedStacksNameStudioRouteImport } from './routes/_authed/stacks/$name.studio'
 import { Route as AuthedStacksNameSettingsRouteImport } from './routes/_authed/stacks/$name.settings'
 import { Route as AuthedStacksNameReleasesRouteImport } from './routes/_authed/stacks/$name.releases'
 import { Route as AuthedStacksNameObservabilityRouteImport } from './routes/_authed/stacks/$name.observability'
@@ -278,6 +279,11 @@ const AuthedTerminalSessionsIdRoute =
     path: '/terminal/sessions/$id',
     getParentRoute: () => AuthedRoute,
   } as any)
+const AuthedStacksNameStudioRoute = AuthedStacksNameStudioRouteImport.update({
+  id: '/studio',
+  path: '/studio',
+  getParentRoute: () => AuthedStacksNameRoute,
+} as any)
 const AuthedStacksNameSettingsRoute =
   AuthedStacksNameSettingsRouteImport.update({
     id: '/settings',
@@ -403,6 +409,7 @@ export interface FileRoutesByFullPath {
   '/stacks/$name/observability': typeof AuthedStacksNameObservabilityRoute
   '/stacks/$name/releases': typeof AuthedStacksNameReleasesRoute
   '/stacks/$name/settings': typeof AuthedStacksNameSettingsRoute
+  '/stacks/$name/studio': typeof AuthedStacksNameStudioRoute
   '/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/stacks/$name/': typeof AuthedStacksNameIndexRoute
   '/stacks/$name/errors/$fingerprint': typeof AuthedStacksNameErrorsFingerprintRoute
@@ -458,6 +465,7 @@ export interface FileRoutesByTo {
   '/stacks/$name/observability': typeof AuthedStacksNameObservabilityRoute
   '/stacks/$name/releases': typeof AuthedStacksNameReleasesRoute
   '/stacks/$name/settings': typeof AuthedStacksNameSettingsRoute
+  '/stacks/$name/studio': typeof AuthedStacksNameStudioRoute
   '/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/stacks/$name': typeof AuthedStacksNameIndexRoute
   '/stacks/$name/errors/$fingerprint': typeof AuthedStacksNameErrorsFingerprintRoute
@@ -516,6 +524,7 @@ export interface FileRoutesById {
   '/_authed/stacks/$name/observability': typeof AuthedStacksNameObservabilityRoute
   '/_authed/stacks/$name/releases': typeof AuthedStacksNameReleasesRoute
   '/_authed/stacks/$name/settings': typeof AuthedStacksNameSettingsRoute
+  '/_authed/stacks/$name/studio': typeof AuthedStacksNameStudioRoute
   '/_authed/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/_authed/stacks/$name/': typeof AuthedStacksNameIndexRoute
   '/_authed/stacks/$name/errors/$fingerprint': typeof AuthedStacksNameErrorsFingerprintRoute
@@ -574,6 +583,7 @@ export interface FileRouteTypes {
     | '/stacks/$name/observability'
     | '/stacks/$name/releases'
     | '/stacks/$name/settings'
+    | '/stacks/$name/studio'
     | '/terminal/sessions/$id'
     | '/stacks/$name/'
     | '/stacks/$name/errors/$fingerprint'
@@ -629,6 +639,7 @@ export interface FileRouteTypes {
     | '/stacks/$name/observability'
     | '/stacks/$name/releases'
     | '/stacks/$name/settings'
+    | '/stacks/$name/studio'
     | '/terminal/sessions/$id'
     | '/stacks/$name'
     | '/stacks/$name/errors/$fingerprint'
@@ -686,6 +697,7 @@ export interface FileRouteTypes {
     | '/_authed/stacks/$name/observability'
     | '/_authed/stacks/$name/releases'
     | '/_authed/stacks/$name/settings'
+    | '/_authed/stacks/$name/studio'
     | '/_authed/terminal/sessions/$id'
     | '/_authed/stacks/$name/'
     | '/_authed/stacks/$name/errors/$fingerprint'
@@ -995,6 +1007,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedTerminalSessionsIdRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/stacks/$name/studio': {
+      id: '/_authed/stacks/$name/studio'
+      path: '/studio'
+      fullPath: '/stacks/$name/studio'
+      preLoaderRoute: typeof AuthedStacksNameStudioRouteImport
+      parentRoute: typeof AuthedStacksNameRoute
+    }
     '/_authed/stacks/$name/settings': {
       id: '/_authed/stacks/$name/settings'
       path: '/settings'
@@ -1099,6 +1118,7 @@ interface AuthedStacksNameRouteChildren {
   AuthedStacksNameObservabilityRoute: typeof AuthedStacksNameObservabilityRoute
   AuthedStacksNameReleasesRoute: typeof AuthedStacksNameReleasesRoute
   AuthedStacksNameSettingsRoute: typeof AuthedStacksNameSettingsRoute
+  AuthedStacksNameStudioRoute: typeof AuthedStacksNameStudioRoute
   AuthedStacksNameIndexRoute: typeof AuthedStacksNameIndexRoute
   AuthedStacksNameErrorsFingerprintRoute: typeof AuthedStacksNameErrorsFingerprintRoute
   AuthedStacksNameErrorsIndexRoute: typeof AuthedStacksNameErrorsIndexRoute
@@ -1114,6 +1134,7 @@ const AuthedStacksNameRouteChildren: AuthedStacksNameRouteChildren = {
   AuthedStacksNameObservabilityRoute: AuthedStacksNameObservabilityRoute,
   AuthedStacksNameReleasesRoute: AuthedStacksNameReleasesRoute,
   AuthedStacksNameSettingsRoute: AuthedStacksNameSettingsRoute,
+  AuthedStacksNameStudioRoute: AuthedStacksNameStudioRoute,
   AuthedStacksNameIndexRoute: AuthedStacksNameIndexRoute,
   AuthedStacksNameErrorsFingerprintRoute:
     AuthedStacksNameErrorsFingerprintRoute,

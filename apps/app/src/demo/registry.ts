@@ -37,6 +37,7 @@ import { vector } from './resolvers/vector';
 import { ai } from './resolvers/ai';
 import { notify } from './resolvers/notify';
 import { security } from './resolvers/security';
+import { studio } from './resolvers/studio';
 
 /**
  * Assembles every per-domain resolver module into flat lookup tables for the demo
@@ -82,6 +83,7 @@ const MODULES: DomainResolvers[] = [
   ai,
   notify,
   security,
+  studio,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(
