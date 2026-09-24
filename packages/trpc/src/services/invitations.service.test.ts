@@ -38,6 +38,7 @@ function fakeCtx(opts: { members?: string[]; invitations?: FakeInvitation[]; hea
   let seq = 0;
 
   const db = {
+    organization: { findUnique: async () => ({ name: 'Acme' }) },
     member: {
       findFirst: async ({ where }: { where: { user: { email: string } } }) =>
         members.has(where.user.email) ? { id: 'm1' } : null,

@@ -158,7 +158,12 @@ export async function inviteMember(ctx: OrgContext, args: InviteArgs): Promise<I
  */
 async function mailInvite(ctx: OrgContext, view: InvitationView): Promise<boolean> {
   if (!view.email || view.kind !== 'email') return false;
-  const org = await ctx.db.organization.findUnique({ where: { id: ctx.activeOrgId }, select: { name: true } }).catch(() => null);
+  let org: { name: string } | null = null;
+  try {
+    org = await ctx.db.organization.findUnique({ where: { id: ctx.activeOrgId }, select: { name: true } });
+  } catch {
+    org = null;
+  }
   const who = ctx.user.name || displayEmail(ctx.user.email) || 'Someone';
   const orgName = org?.name ?? 'their organization';
   const days = Math.max(1, Math.round((view.expiresAt.getTime() - Date.now()) / 86_400_000));
