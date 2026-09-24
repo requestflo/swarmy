@@ -149,6 +149,7 @@ model Organization {
   canvasLayout        CanvasLayout?
   platformConfig      PlatformConfig?
   errorProjects       ErrorProject[]
+  studioQueries       StudioSavedQuery[]
   platformUpgradeRuns PlatformUpgradeRun[]
   emailConfig         EmailConfig?
   emailDomains        EmailDomain[]
