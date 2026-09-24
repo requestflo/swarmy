@@ -564,6 +564,14 @@ export async function listProviderBranches(
     return listGithubBranches(gitFetch, githubApiBase(conn.baseUrl), creds.token, input.repo);
   if (conn.kind === 'GITLAB')
     return listGitlabBranches(gitFetch, conn.baseUrl, creds.token, input.repo);
+  if (conn.kind === 'GITEA') {
+    const r = await requestJson<Array<{ name: string; commit: { id: string } }>>(
+      gitFetch,
+      `${conn.baseUrl}/api/v1/repos/${input.repo}/branches?limit=50`,
+      { headers: { authorization: `token ${creds.token}` } },
+    );
+    return r.map((b) => ({ name: b.name, sha: b.commit.id }));
+  }
   return [];
 }
 
@@ -679,15 +687,57 @@ export async function inspectCommit(
   });
   if (!repo) throw notFound('repo', input.repoId);
   const creds = await repoCredentials(ctx.db, repo);
-  const paths = input.paths ?? [repo.configPath];
-  const req = {
+  return runInspect(ctx, {
     url: repo.url,
     ref: input.ref ?? repo.branch,
+    paths: input.paths ?? [repo.configPath],
+    ...(input.baseSha ? { baseSha: input.baseSha } : {}),
+    creds,
+  });
+}
+
+/**
+ * Read a repo BEFORE it is linked (the wizard's "we found swarmy.yaml in
+ * services/orders"): through a connection's credentials, or a public URL.
+ */
+export async function inspectSource(
+  ctx: OrgContext,
+  input: { connectionId?: string; cloneUrl: string; ref: string; paths?: string[] },
+): Promise<InspectResult & { configPaths: string[] }> {
+  let creds: GitCredentials = {};
+  if (input.connectionId) {
+    const conn = await loadConnection(ctx, input.connectionId);
+    creds = await connectionCredentials(ctx.db, conn);
+  }
+  return runInspect(ctx, {
+    url: input.cloneUrl,
+    ref: input.ref,
+    paths: input.paths ?? ['swarmy.yaml'],
+    creds,
+  });
+}
+
+async function runInspect(
+  ctx: OrgContext,
+  input: { url: string; ref: string; paths: string[]; baseSha?: string; creds: GitCredentials },
+): Promise<InspectResult & { configPaths: string[] }> {
+  const { creds, paths } = input;
+  const req = {
+    url: input.url,
+    ref: input.ref,
     paths,
     ...(input.baseSha ? { baseSha: input.baseSha } : {}),
     ...creds,
   };
-  const program = renderInspectProgram(req);
+  let program: string;
+  try {
+    program = renderInspectProgram(req);
+  } catch (e) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: e instanceof Error ? e.message : String(e),
+    });
+  }
   const node = await resolveBuilderNode(ctx);
   let res: RunOnceResult;
   try {
@@ -716,6 +766,30 @@ export async function inspectCommit(
     });
   }
   return { ...parsed, configPaths: configPathsIn(parsed.tree) };
+}
+
+/**
+ * Change a linked repo's branch or swarmy.yaml path in place — the webhook
+ * secret, deploy key and provider hook stay as they are.
+ */
+export async function updateRepo(
+  ctx: OrgContext,
+  input: { id: string; branch?: string; configPath?: string },
+): Promise<{ id: string; branch: string; configPath: string }> {
+  const repo = await ctx.db.gitRepo.findFirst({ where: { id: input.id, orgId: ctx.activeOrgId } });
+  if (!repo) throw notFound('repo', input.id);
+  const data = {
+    ...(input.branch ? { branch: input.branch } : {}),
+    ...(input.configPath ? { configPath: input.configPath.replace(/^\.?\/+/, '') } : {}),
+  };
+  const row = await ctx.db.gitRepo.update({ where: { id: repo.id }, data });
+  await writeAudit(ctx, {
+    action: 'git.repo.update',
+    targetType: 'gitRepo',
+    targetId: repo.id,
+    metadata: { from: { branch: repo.branch, configPath: repo.configPath }, to: data },
+  });
+  return { id: row.id, branch: row.branch, configPath: row.configPath };
 }
 
 function redactOutput(output: string, creds: GitCredentials): string {

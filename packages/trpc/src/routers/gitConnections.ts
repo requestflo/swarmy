@@ -13,12 +13,14 @@ import {
   getGithubApp,
   githubInstallLink,
   inspectCommit,
+  inspectSource,
   linkRepo,
   listConnections,
   listProviderBranches,
   listProviderRepos,
   removeConnection,
   startGithubManifest,
+  updateRepo,
 } from '../services/git-connections.service';
 
 const httpUrl = z
@@ -141,4 +143,29 @@ export const gitConnectionsRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => inspectCommit(ctx, input)),
+
+  /** Read a repo before linking it (wizard: detect swarmy.yaml paths / Dockerfile / compose). */
+  inspectSource: adminProcedure
+    .input(
+      z.object({
+        connectionId: z.string().min(1).optional(),
+        cloneUrl: z.string().min(1).max(500),
+        ref: z.string().min(1).max(200),
+        paths: z.array(configPath).max(20).optional(),
+      }),
+    )
+    .mutation(({ ctx, input }) => inspectSource(ctx, input)),
+
+  /** Change a linked repo's branch / swarmy.yaml path without re-linking. */
+  updateRepo: adminProcedure
+    .input(
+      z
+        .object({
+          id: z.string().min(1),
+          branch: branch.optional(),
+          configPath: configPath.optional(),
+        })
+        .refine((v) => v.branch || v.configPath, 'nothing to change'),
+    )
+    .mutation(({ ctx, input }) => updateRepo(ctx, input)),
 });
