@@ -46,7 +46,7 @@ import { resolveExecTarget } from './live-resolve';
 
 export const APPDB_BACKUP_AUDIT_ACTION = 'appdb.backup';
 export const APPDB_RESTORE_AUDIT_ACTION = 'appdb.restore';
-const APPDB_ENGINES = new Set<string>(['mysql', 'mariadb', 'mongo', 'redis', 'valkey']);
+const APPDB_ENGINES = new Set<string>(['mysql', 'mariadb', 'postgres', 'mongo', 'redis', 'valkey']);
 const HOUR_MS = 3_600_000;
 const SCALE_WAIT_MS = 120_000;
 const POLL_MS = 2_000;

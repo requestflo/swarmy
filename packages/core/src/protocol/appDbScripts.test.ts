@@ -54,7 +54,7 @@ describe('appDb protocol messages (round-trip gate)', () => {
 
   it('rejects an unknown engine, a shell-unsafe env name and a bad copy suffix', () => {
     const base = { commandId: CID, jobId: 'j', service: 's', creds, repo, host: 'h' };
-    expect(AppDbBackupPayload.safeParse({ ...base, engine: 'postgres' }).success).toBe(false);
+    expect(AppDbBackupPayload.safeParse({ ...base, engine: 'sqlite' }).success).toBe(false);
     expect(
       AppDbBackupPayload.safeParse({
         ...base,
@@ -167,6 +167,26 @@ describe('resolveAppDbCreds (read the spec the way a human would)', () => {
     expect(resolveAppDbCreds('mongo', ['MONGO_INITDB_ROOT_USERNAME=root']).ok).toBe(false);
   });
 
+  it('postgres: official superuser, trust auth, bitnami super or app user, else volume-only', () => {
+    const off = resolveAppDbCreds('postgres', ['POSTGRES_USER=app', 'POSTGRES_PASSWORD_FILE=/run/secrets/pg', 'POSTGRES_DB=shop']);
+    expect(off.ok && off.creds).toEqual({
+      scope: 'root',
+      user: [{ kind: 'env', name: 'POSTGRES_USER' }, { kind: 'literal', value: 'postgres' }],
+      password: [{ kind: 'file', name: 'POSTGRES_PASSWORD_FILE' }],
+      database: [],
+      authDb: [],
+      port: 5432,
+    });
+    expect(resolveAppDbCreds('postgres', ['POSTGRES_HOST_AUTH_METHOD=trust']).ok).toBe(true);
+    const bitApp = resolveAppDbCreds('postgres', ['POSTGRESQL_USERNAME=app', 'POSTGRESQL_PASSWORD=x', 'POSTGRESQL_DATABASE=shop']);
+    expect(bitApp.ok && bitApp.creds.scope).toBe('user');
+    expect(bitApp.ok && bitApp.creds.database).toEqual([{ kind: 'env', name: 'POSTGRESQL_DATABASE' }]);
+    expect(resolveAppDbCreds('postgres', [])).toEqual({
+      ok: false,
+      reason: 'no POSTGRES_PASSWORD (or _FILE) / POSTGRESQL_PASSWORD in the service env',
+    });
+  });
+
   it('redis/valkey always resolve: env password first, then the server command line', () => {
     const r = resolveAppDbCreds('valkey', ['VALKEY_PASSWORD=x']);
     expect(r.ok && r.creds.password).toEqual([{ kind: 'env', name: 'VALKEY_PASSWORD' }, { kind: 'redis-cmdline' }]);
@@ -244,6 +264,9 @@ describe('SQL copy-restore rename (executed with the real sed)', () => {
       dumpScript('mysql', 'root'),
       dumpScript('mariadb', 'user'),
       dumpScript('mongo', 'root'),
+      dumpScript('postgres', 'root'),
+      loadScript('postgres'),
+      verifyScript('postgres'),
       dumpScript('redis', 'root'),
       loadScript('mariadb'),
       loadScript('mongo'),
@@ -273,6 +296,13 @@ describe('dump script goldens (the flags that make a dump consistent)', () => {
     // credentials only ever on tmpfs
     expect(root).toContain('CNF=/dev/shm/swarmy-my.cnf');
     expect(root).not.toContain('-p"$');
+  });
+
+  it('postgres: one custom-format pg_dump per database; copy restores into <db>_<suffix>', () => {
+    expect(dumpScript('postgres', 'root')).toContain('pg_dump -Fc -d "$d" -f "/swarmy-dump/db-$d.pgc"');
+    const load = loadScript('postgres');
+    expect(load).toContain('if [ "${SWARMY_MODE:-copy}" = copy ]; then n="${d}_$SWARMY_SUFFIX"; else n="$d"; fi');
+    expect(load).toContain('pg_restore --clean --if-exists --no-owner -d "$n"');
   });
 
   it('mongo: an archive of every database, password via --config on tmpfs', () => {

@@ -29,8 +29,8 @@ import { ResticRepo, RetentionOutcome } from './backup';
 
 const cmd = { commandId: CommandId, timeoutMs: z.number().int().positive().optional() };
 
-/** Engines with a logical-dump path (Postgres compose DBs stay volume-only). */
-export const AppDbEngine = z.enum(['mysql', 'mariadb', 'mongo', 'redis', 'valkey']);
+/** Engines with a logical-dump path (compose DBs; managed Postgres has its own `dbBackup`). */
+export const AppDbEngine = z.enum(['mysql', 'mariadb', 'postgres', 'mongo', 'redis', 'valkey']);
 export type AppDbEngine = z.infer<typeof AppDbEngine>;
 
 /** Env-var names are interpolated into shell — keep them to POSIX identifiers. */

@@ -57,9 +57,10 @@ const PG = svc({
 } as never);
 
 describe('detectAppDbs', () => {
-  it('keeps the dumpable engines, with mount + credential resolution; skips postgres', () => {
+  it('keeps the dumpable engines, with mount + credential resolution', () => {
     const dbs = detectAppDbs([WP_DB, CACHE, LOCKED, PG]);
     expect(dbs.map((d) => [d.service, d.engine, d.volume, d.dataMount, d.creds.ok])).toEqual([
+      ['blog_pg', 'postgres', 'blog_pg-data', '/var/lib/postgresql/data', false],
       ['shop_db', 'mysql', 'shop_db-data', '/var/lib/mysql', false],
       ['wp_cache', 'redis', 'wp_cache-data', '/data', true],
       ['wp_db', 'mariadb', 'wp_db-data', '/var/lib/mysql', true],
@@ -192,6 +193,7 @@ describe('runAppDbBackup', () => {
     const base = { orgId: 'org1', targetId: 't1', retentionDays: 7 };
     expect(await runScheduledAppDbDump(w.deps, { ...base, volume: 'wp_db-data' })).toBe('dumped');
     expect(await runScheduledAppDbDump(w.deps, { ...base, volume: 'shop_db-data' })).toBe('skipped');
+    // compose Postgres without a password in its env: volume-only
     expect(await runScheduledAppDbDump(w.deps, { ...base, volume: 'blog_pg-data' })).toBe('skipped');
     const dumps = w.calls.filter((c) => c.cmd === 'appdb.backup');
     expect(dumps).toHaveLength(1);

@@ -21,6 +21,7 @@ export const APPDB_HOST_PREFIX = 'appdb';
 const DEFAULT_PORT: Record<AppDbEngine, number> = {
   mysql: 3306,
   mariadb: 3306,
+  postgres: 5432,
   mongo: 27017,
   redis: 6379,
   valkey: 6379,
@@ -37,6 +38,7 @@ export function isKvEngine(e: AppDbEngine): e is 'redis' | 'valkey' {
 export function appDbMethod(e: AppDbEngine): string {
   if (e === 'mysql') return 'mysqldump';
   if (e === 'mariadb') return 'mariadb-dump';
+  if (e === 'postgres') return 'pg_dump';
   if (e === 'mongo') return 'mongodump';
   return 'BGSAVE + RDB copy';
 }
@@ -136,6 +138,52 @@ export function resolveAppDbCreds(
         ? 'the root password is random and no MYSQL_USER/MYSQL_PASSWORD is set'
         : 'no MYSQL_ROOT_PASSWORD (or _FILE) or MYSQL_USER/MYSQL_PASSWORD in the service env',
     };
+  }
+
+  if (engine === 'postgres') {
+    const port = portFrom(env, ['POSTGRESQL_PORT_NUMBER'], engine);
+    // Official image: POSTGRES_USER (default postgres) is a superuser.
+    const officialPw = sourcesFor(env, ['POSTGRES_PASSWORD']);
+    const officialUser: AppDbCredSource[] = [...sourcesFor(env, ['POSTGRES_USER']), { kind: 'literal', value: 'postgres' }];
+    if (officialPw.length > 0) {
+      return { ok: true, creds: { scope: 'root', user: officialUser, password: officialPw, database: [], authDb: [], port }, note: null };
+    }
+    if (/^trust$/i.test(env.POSTGRES_HOST_AUTH_METHOD ?? '')) {
+      return {
+        ok: true,
+        creds: { scope: 'root', user: officialUser, password: [], database: [], authDb: [], port },
+        note: 'the server trusts every connection (POSTGRES_HOST_AUTH_METHOD=trust)',
+      };
+    }
+    // bitnami: the postgres superuser, else the app user on its database.
+    const superPw = sourcesFor(env, ['POSTGRESQL_POSTGRES_PASSWORD']);
+    if (superPw.length > 0) {
+      return {
+        ok: true,
+        creds: { scope: 'root', user: [{ kind: 'literal', value: 'postgres' }], password: superPw, database: [], authDb: [], port },
+        note: null,
+      };
+    }
+    const bitPw = sourcesFor(env, ['POSTGRESQL_PASSWORD']);
+    if (bitPw.length > 0) {
+      const username = env.POSTGRESQL_USERNAME ?? '';
+      if (!username || username === 'postgres') {
+        return {
+          ok: true,
+          creds: { scope: 'root', user: [{ kind: 'literal', value: 'postgres' }], password: bitPw, database: [], authDb: [], port },
+          note: null,
+        };
+      }
+      const database = sourcesFor(env, ['POSTGRESQL_DATABASE']);
+      if (database.length > 0) {
+        return {
+          ok: true,
+          creds: { scope: 'user', user: sourcesFor(env, ['POSTGRESQL_USERNAME']), password: bitPw, database, authDb: [], port },
+          note: 'dumps as the app user (no postgres superuser password in the service env)',
+        };
+      }
+    }
+    return { ok: false, reason: 'no POSTGRES_PASSWORD (or _FILE) / POSTGRESQL_PASSWORD in the service env' };
   }
 
   if (engine === 'mongo') {
@@ -527,22 +575,91 @@ const KV_SANITY = [
   'echo "SWARMY_OUT objects=$N"',
 ].join('\n');
 
+// ── postgres (compose; one custom-format pg_dump per database) ──────────────
+
+/** libpq reads these; PGPASSWORD is container env like every other credential here. */
+const PG_PRELUDE = [
+  'set -eu',
+  'command -v pg_dump >/dev/null 2>&1 || { echo "swarmy: no pg_dump in this image" >&2; exit 3; }',
+  'export PGHOST=127.0.0.1 PGPORT="${SWARMY_DB_PORT:-5432}" PGUSER="${SWARMY_DB_USER:-postgres}" PGPASSWORD="${SWARMY_DB_PASSWORD:-}"',
+  // Connect to the app database in user scope (the user may not reach `postgres`).
+  'export PGDATABASE="${SWARMY_DB_NAME:-postgres}"',
+];
+
+const PG_WAIT = [
+  'i=0',
+  "until psql -Atqc 'SELECT 1' >/dev/null 2>&1; do",
+  '  i=$((i+1)); [ "$i" -ge 120 ] && { echo "swarmy: server never became ready" >&2; psql -Atqc \'SELECT 1\' >&2 || true; exit 5; }',
+  '  sleep 2',
+  'done',
+];
+
+const PG_DUMP = [
+  ...PG_PRELUDE,
+  'if [ -n "${SWARMY_DB_NAME:-}" ]; then DBS="$SWARMY_DB_NAME"; else',
+  "  DBS=$(psql -Atqc \"SELECT datname FROM pg_database WHERE NOT datistemplate AND datallowconn ORDER BY 1\")",
+  'fi',
+  `: > ${D}/databases.txt`,
+  'for d in $DBS; do',
+  `  pg_dump -Fc -d "$d" -f "${D}/db-$d.pgc"`,
+  `  echo "$d" >> ${D}/databases.txt`,
+  '  echo "SWARMY_OUT db=$d"',
+  'done',
+  'echo "SWARMY_OUT tool=pg_dump"',
+].join('\n');
+
+/**
+ * Copy: `CREATE DATABASE <db>_<suffix>` + `pg_restore --no-owner`. In place:
+ * `pg_restore --clean --if-exists` into the live database (created if missing)
+ * — objects the dump doesn't know about are left alone.
+ */
+function pgLoad(wait: boolean): string[] {
+  return [
+    ...(wait ? PG_WAIT : []),
+    `[ -s ${D}/databases.txt ] || { echo "swarmy: the snapshot lists no databases" >&2; exit 4; }`,
+    `for d in $(cat ${D}/databases.txt); do`,
+    '  if [ "${SWARMY_MODE:-copy}" = copy ]; then n="${d}_$SWARMY_SUFFIX"; else n="$d"; fi',
+    "  if ! psql -Atqc \"SELECT 1 FROM pg_database WHERE datname = '$n'\" | grep -q 1; then",
+    '    psql -qc "CREATE DATABASE \\"$n\\""',
+    '  fi',
+    '  if [ "${SWARMY_MODE:-copy}" = copy ]; then',
+    `    pg_restore --no-owner --no-acl -d "$n" "${D}/db-$d.pgc"`,
+    '  else',
+    `    pg_restore --clean --if-exists --no-owner -d "$n" "${D}/db-$d.pgc"`,
+    '  fi',
+    '  echo "SWARMY_OUT db=$n"',
+    'done',
+  ];
+}
+
+const PG_SANITY = [
+  'N=0',
+  `for d in $(cat ${D}/databases.txt); do`,
+  "  c=$(psql -Atq -d \"$d\" -c \"SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema')\")",
+  '  N=$((N + c))',
+  'done',
+  'echo "SWARMY_OUT objects=$N"',
+];
+
 /** The dump sidecar's script (task image, task netns, scratch at {@link APPDB_DUMP_MOUNT}). */
 export function dumpScript(engine: AppDbEngine, scope: AppDbCreds['scope']): string {
   if (isSqlEngine(engine)) return sqlDump(scope);
+  if (engine === 'postgres') return PG_DUMP;
   if (engine === 'mongo') return MONGO_DUMP;
   return KV_DUMP;
 }
 
 /** The load sidecar's script for SQL/Mongo restores into the running server. */
-export function loadScript(engine: 'mysql' | 'mariadb' | 'mongo'): string {
+export function loadScript(engine: 'mysql' | 'mariadb' | 'postgres' | 'mongo'): string {
   if (isSqlEngine(engine)) return [...SQL_PRELUDE, ...sqlLoad(false)].join('\n');
+  if (engine === 'postgres') return [...PG_PRELUDE, ...pgLoad(false)].join('\n');
   return [...MONGO_PRELUDE, ...mongoLoad(false)].join('\n');
 }
 
 /** Drill: wait for the scratch server, load in place, run the sanity query. */
 export function verifyScript(engine: AppDbEngine): string {
   if (isSqlEngine(engine)) return [...SQL_PRELUDE, ...sqlLoad(true), ...SQL_SANITY].join('\n');
+  if (engine === 'postgres') return [...PG_PRELUDE, ...pgLoad(true), ...PG_SANITY].join('\n');
   if (engine === 'mongo') return [...MONGO_PRELUDE, ...mongoLoad(true), ...MONGO_SANITY].join('\n');
   return KV_SANITY;
 }
@@ -560,6 +677,12 @@ export function scratchServerEnv(engine: AppDbEngine, password: string): {
     return {
       server: [`MYSQL_ROOT_PASSWORD=${password}`, `MARIADB_ROOT_PASSWORD=${password}`],
       client: ['SWARMY_DB_USER=root', `SWARMY_DB_PASSWORD=${password}`, 'SWARMY_DB_PORT=3306', 'SWARMY_MODE=in-place'],
+    };
+  }
+  if (engine === 'postgres') {
+    return {
+      server: [`POSTGRES_PASSWORD=${password}`, `POSTGRESQL_PASSWORD=${password}`, `POSTGRESQL_POSTGRES_PASSWORD=${password}`],
+      client: ['SWARMY_DB_USER=postgres', `SWARMY_DB_PASSWORD=${password}`, 'SWARMY_DB_PORT=5432', 'SWARMY_MODE=in-place'],
     };
   }
   if (engine === 'mongo') {

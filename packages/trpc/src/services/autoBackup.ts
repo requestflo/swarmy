@@ -17,10 +17,10 @@
  * engines recover from that on start, but it is not a transaction-consistent
  * dump. Where the agent has a logical-dump engine for the DB type AND swarmy
  * owns the connection (managed Postgres → `pg_dump`), that is used instead.
- * Compose MySQL/MariaDB/Mongo/Redis/Valkey keep the volume backup AND get a
+ * Compose MySQL/MariaDB/Postgres/Mongo/Redis/Valkey keep the volume backup AND get a
  * logical dump on the same schedule (`appDbBackup.service.ts` — credentials
  * read in-task from the service's env/`_FILE` secrets; volume-only when they
- * can't be resolved). A compose Postgres is still volume-only.
+ * can't be resolved).
  *
  * Never override the user: an existing schedule (auto or not) for the volume /
  * cluster is left alone, and a user REMOVING an auto schedule leaves an opt-out

@@ -49,7 +49,7 @@ and where everything lives. Backups are dispatched to the agent as commands — 
    enforce this (`restoreDbLogical` throws for physical engines; `restoreDbPitr`
    throws for logical) — keep both guards. `snapshot-from-replica` is a `pg_dump`
    whose `conn.host` the controller pointed at a read replica; it restores as
-   `pg_dump`. Compose-DB dumps (`appdb.*`, MySQL/MariaDB/Mongo/Redis/Valkey)
+   `pg_dump`. Compose-DB dumps (`appdb.*`, MySQL/MariaDB/Postgres/Mongo/Redis/Valkey)
    are a separate path: never a `DbBackupEngine` and never a `Snapshot` row
    (dr-reconcile would restore a dump file into a volume). Their catalog is
    restic tags `appdb:<stack>/<service>`, their history `appdb.backup`/
@@ -134,7 +134,7 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | Standalone disaster-restore entrypoint (dashboard is down) | `apps/api/src/restore.ts` |
 | Resilience: checks (`CHECKS_RUN`), score math, 3 drills, drill history | `packages/trpc/src/services/resilience.service.ts` (+ `routers/resilience.ts`) |
 | Default-on DB backups (nightly `pg_dump` for managed PG, crash-consistent volume backup for compose DBs, opt-out markers) | `packages/trpc/src/services/autoBackup{,.service}.ts` |
-| Compose-DB logical dumps + restore (MySQL/MariaDB/Mongo/Redis/Valkey: credential recipe, `appdb.*` commands, scheduler hook, drill leg) | `packages/trpc/src/services/appDbBackup.service.ts` (router `routers/appDbBackup.ts` → `backups.appDb`), wire + pure scripts `packages/core/src/protocol/appDb{,Scripts}.ts`, agent `apps/agent/src/handlers/appdb.ts`, UI `components/backups/{appdb-dumps,restore-appdb-confirm}.tsx` |
+| Compose-DB logical dumps + restore (MySQL/MariaDB/Postgres/Mongo/Redis/Valkey: credential recipe, `appdb.*` commands, scheduler hook, drill leg) | `packages/trpc/src/services/appDbBackup.service.ts` (router `routers/appDbBackup.ts` → `backups.appDb`), wire + pure scripts `packages/core/src/protocol/appDb{,Scripts}.ts`, agent `apps/agent/src/handlers/appdb.ts`, UI `components/backups/{appdb-dumps,restore-appdb-confirm}.tsx` |
 | Controller datastore (lite PGlite ↔ managed `swarmy-postgres`) | `packages/trpc/src/services/controllerDb.service.ts` |
 | Workers: scheduled backups / restore-on-recovery / controller schedule | `apps/api/src/workers/{backup-scheduler,dr-reconcile,controller-backup-scheduler}.ts` |
 | UI: estate destinations, controller backup | `apps/app/src/routes/_authed/{backups,settings_.backup}.tsx`, `components/controllerbackup/*` |

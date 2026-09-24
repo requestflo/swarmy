@@ -268,7 +268,7 @@ export async function appDbRestore(
         image: task.imageId,
         pull: false,
         entrypoint: ['/bin/sh', '-c'],
-        args: [loadScript(p.engine as 'mysql' | 'mariadb' | 'mongo')],
+        args: [loadScript(p.engine as 'mysql' | 'mariadb' | 'postgres' | 'mongo')],
         env: [...credEnv, `SWARMY_MODE=${p.mode}`, `SWARMY_SUFFIX=${p.suffix}`],
         binds: [`${scratch}:${D}:ro`],
         networkMode: `container:${task.id}`,
