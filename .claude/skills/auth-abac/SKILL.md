@@ -81,6 +81,26 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   `{ type, id, orgId, labels }`, or `null` for collection/instance actions (the
   resource is the org itself). Reuse `resolveNode`/`resolveService`/`resolveStack`
   from `abac.ts`; node/service labels come from the **live hub**, not a DB column.
+- **Attributes (policy doc v2)**: besides `roles/actions/resourceTypes/
+  resourceLabels/attributes/relations/ownerOnly`, a doc may carry `groups`
+  (principal groups = `attributes.groups` ∪ `attributes.ssoGroups` ∪ teamIds —
+  `groupsFromAttributes`), `members` (member/user ids) and `conditions`
+  `[{ attr, op, value }]` over `resource.env|type|id|label.<k>` and
+  `principal.<k>` (`eq|ne|in|notIn|exists|notExists`; a missing attribute is
+  "not equal", so unlabelled = non-production). Resolution lives in
+  `packages/abac/src/attrs.ts` and BOTH engines use it (Cedar gets a pre-computed
+  `context.attrs`). `describePolicy` renders a doc as a sentence; the dashboard
+  imports the browser-safe `@swarmy/abac/model` (no Cedar).
+- **Decision helpers**: `decide()` is the one path; `evaluateAccess(ctx, …,
+  { principal?, engine? })`, `whoCan(db, orgId, action, resource)` (every
+  member, pure over db — the simulator and the mesh group sync) and
+  `canPrincipal(db, orgId, userId, …)` all call it. Stored policies are read and
+  written ONLY through `PolicyRepository` (`services/policy-repo.ts`).
+- **Env-aware resolvers**: `resolveStack` / `resolveStackByName` (live stack
+  labels — production if any service is — else the incoming compose's labels)
+  and `resolveNewService` (inherits its project's labels) give deploys a
+  resource with `env`. REST create/deploy routes pass a body mapper to
+  `requireAction(action, resolver, fromBody)`.
 - **ReBAC**: `ResourceGrant` edges (`principalType member|team`, `resourceType`,
   `resourceId`, `relation owner|operator|viewer`) are loaded per-resource;
   `resolveRelations` applies the implication `owner ⊇ operator ⊇ viewer`. The
@@ -112,7 +132,9 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   `docs/product/governance-and-access.md`): service/stack/node remove, scale,
   restart, drain; `data.destroy|restore|failover`; `backup.remove`;
   `secret.delete`; `dns.remove`; `ingress.remove|write`; `token.revoke`;
-  `member|policy|authconfig.write`; `cicd.remove`. The REST routes over the same
+  `member|policy|authconfig.write`; `cicd.remove`; plus deploys
+  (`service.deploy`, `stack.deploy`, `service.configure` — member-permitted
+  only outside production by the defaults), `secrets.read` and `mesh.connect`. The REST routes over the same
   services carry `requireAction(action, resolver)` (`packages/api-rest/src/
   middleware.ts`), which calls the SAME `authorize(ctx, action, resource)`
   step — never re-implement evaluate+audit in a route. A NEW destructive
@@ -139,6 +161,10 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
 | Cedar adapter (optional, faithful fallback) | `packages/abac/src/cedar.ts`, `factory.ts` (`createEngine`) |
 | Policy document parse/match + P·A·R·C types | `packages/abac/src/{policy,types}.ts` |
 | Seeded default policy set | `packages/abac/src/defaults.ts` |
+| Attribute paths, env normalisation, groups, conditions | `packages/abac/src/attrs.ts` |
+| Plain-words rules + action catalogue | `packages/abac/src/describe.ts`; browser entry `model.ts` |
+| Policy storage seam | `packages/trpc/src/services/policy-repo.ts` |
+| Rules editor + who-can UI | `apps/app/src/components/access/{policies-tab,policy-*}.tsx` |
 | Principal/resource/grant builders + relation implication | `packages/abac/src/{build,grants}.ts` |
 | The one audit writer | `packages/trpc/src/services/audit.service.ts` |
 | Admission spine + evaluators | `packages/trpc/src/services/admission{.service,-guardrails,-exposure,-images}.ts` |

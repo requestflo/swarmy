@@ -108,7 +108,29 @@ Four ideas, one story:
 - **ReBAC without a graph database.** A `ResourceGrant` gives a member or team a
   relation (`owner` ⊇ `operator` ⊇ `viewer`) on one resource; the seeded
   `operator-resource-ops` policy lets an operator run safe ops on *that* resource
-  without org-wide rights. Behaviour-neutral for orgs with no grants.
+  without org-wide rights (production included). Behaviour-neutral for orgs with
+  no grants.
+- **Rules are attribute-based and read as sentences.** (Owner direction
+  2026-09-24: "members: more attribute-based permissions".) A rule is WHO ×
+  CAN × WHERE. WHO is a role, a **group** (`Member.attributes.groups` set by an
+  admin ∪ `attributes.ssoGroups` written from IdP group claims on each SSO login
+  ∪ team ids), named members, or any member attribute. WHERE is the resource's
+  attributes: `resource.env` (the `swarmy.env` label, `prod`/`prd`/`live`
+  normalised to `production`; unset = non-production), `resource.type`, and any
+  Docker label (`resource.label.team`). The editor renders each rule as
+  "Members of platform can deploy apps on apps where env is production." and a
+  **who-can** simulator lists every member's decision and the deciding rule for
+  an action on a real or hypothetical resource. Policies are stored behind a
+  `PolicyRepository` so they can move off Postgres without touching the gate.
+- **Members deploy freely outside production.** The seeded defaults: owners and
+  admins everything; members read everything and deploy, configure, scale and
+  restart anything that is not production. A production deploy, every
+  destructive action, `terminal.open`, `secrets.read` and `mesh.connect` need an
+  explicit grant — a group/member rule or a `ResourceGrant`. A stack's env is its
+  live services' labels (production if any is), or for a brand-new stack the
+  labels its compose stamps, so "deploy it straight to prod" can't dodge the gate.
+  Orgs whose defaults were persisted as rows before this keep them (opening the
+  policy page tops up new default rules additively); **Reset defaults** re-seeds.
 - **Guardrails are per-rule, prod-aware, and overridable on the record.** Each
   rule is `block` or `warn`. A **warn** surfaces in the deploy dialog and any
   member may confirm through it; a **block** refuses and only an admin may
@@ -144,11 +166,14 @@ Four ideas, one story:
   | `secret.delete` | deleting or pruning a secret/config family |
   | `dns.remove` / `ingress.remove` / `ingress.write` | geo-DNS zone/record removal; Cloudflare tunnel delete; domain removal |
   | `token.revoke` / `member.write` / `policy.write` / `authconfig.write` / `cicd.remove` | API key / OAuth client / join token / direct-connect revoke; grants + invitations; policy, SSO and git-repo removal |
+  | `service.deploy` / `stack.deploy` / `service.configure` | create a service, deploy/redeploy a compose stack, add an app to a stack, connect apps; edit a service or its scale-to-zero (env-aware, see above) |
+  | `secrets.read` | revealing the swarm unlock key or a git webhook secret |
+  | `mesh.connect` | joining an app stack's mesh network from a client (group sync reads `whoCan`) |
 
   **Seeded defaults: owners and admins can do all of it (no lockout, even for an
   org whose defaults were persisted before these actions existed — their `*`
-  permits cover them); members keep drain, scale, restart and domain removal and
-  are refused the rest.** That is a deliberate tightening for members on
+  permits cover them); members keep drain, scale, restart and domain removal (outside
+  production) and are refused the rest.** That is a deliberate tightening for members on
   service/stack/preview removal, managed-data destroy/restore and queue
   remove/drain, which were member-callable before; an org re-grants any of them
   with one policy. Over REST it also closes the gap where a member's API key
