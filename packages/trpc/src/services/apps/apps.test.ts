@@ -151,6 +151,29 @@ describe('compileServices', () => {
   });
 });
 
+describe('ledger: removed postgres keeps its volumes', () => {
+  it('records the kept volumes on resource.delete', async () => {
+    const { ledgerAfter } = await import('./live');
+    const d = desired(APP);
+    const next = ledgerAfter(
+      { ...emptyLedger(), resources: { db: d.resources.find((r) => r.name === 'db')! } },
+      d,
+      {
+        id: 'resource.delete:db',
+        phase: 6,
+        gate: 'confirm',
+        reason: '',
+        kind: 'resource.delete',
+        name: 'db',
+        resourceType: 'postgres',
+      },
+    );
+    expect(next.resources.db).toBeUndefined();
+    expect(next.kept?.db?.length).toBe(3);
+    expect(next.kept?.db?.every((v) => v.startsWith('shop_db'))).toBe(true);
+  });
+});
+
 describe('readLiveApp', () => {
   it('only app-stamped services count; resources exist when their service does; adoption has no sig', () => {
     const d = desired(APP);
@@ -394,6 +417,7 @@ describe('applyPlan', () => {
     expect(r2.status).toBe('applied');
     expect(conf.calls).toContain('delete files');
     expect(r2.ledger.resources.files).toBeUndefined();
+    expect(r2.ledger.kept ?? {}).toEqual({}); // a bucket delete keeps nothing
 
     const broken = fakeOps({
       build: async () => {

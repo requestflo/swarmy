@@ -140,6 +140,8 @@ export interface AppView {
     branch: string;
     stack: string;
     latest: AppPlanView | null;
+    /** Removed Postgres clusters whose data is still on disk (purge-able). */
+    keptVolumes: Array<{ resource: string; volumes: string[] }>;
   }>;
   /** Live PR previews (latest plan per PR, torn-down ones excluded). */
   previews: Array<{ pr: number; stack: string; sha: string; status: string; url: string | null; updatedAt: string; planId: string }>;
@@ -1130,12 +1132,19 @@ export async function listApps(ctx: OrgContext): Promise<AppView[]> {
     for (const row of rows)
       if (!latestByEnv.has(row.environment)) latestByEnv.set(row.environment, row);
     const envs: AppView['environments'] = [
-      { environment: PRODUCTION, branch: r.branch, stack: r.appName ?? '', latest: null },
+      {
+        environment: PRODUCTION,
+        branch: r.branch,
+        stack: r.appName ?? '',
+        latest: null,
+        keptVolumes: [],
+      },
       ...stringArray(r.envBranches).map((b) => ({
         environment: '',
         branch: b,
         stack: '',
         latest: null,
+        keptVolumes: [],
       })),
     ];
     for (const [env, row] of latestByEnv) {
@@ -1144,7 +1153,12 @@ export async function listApps(ctx: OrgContext): Promise<AppView[]> {
         envs.find((e) => !e.environment && e.stack === '');
       const view = toPlanView(row);
       if (existing) Object.assign(existing, { environment: env, stack: row.stack, latest: view });
-      else envs.push({ environment: env, branch: '', stack: row.stack, latest: view });
+      else envs.push({ environment: env, branch: '', stack: row.stack, latest: view, keptVolumes: [] });
+    }
+    for (const e of envs) {
+      if (!e.environment) continue;
+      const kept = (await latestLedger(ctx.db, r.id, e.environment, 0)).kept ?? {};
+      e.keptVolumes = Object.entries(kept).map(([resource, volumes]) => ({ resource, volumes }));
     }
     out.push({
       repoId: r.id,
@@ -1359,6 +1373,12 @@ async function enforceDriftFor(
   });
 }
 
+/** "Check now": run the drift check (no notifications) and return the refreshed cache entry. */
+export async function checkDriftNow(ctx: OrgContext, repoId: string): Promise<NonNullable<AppView['drift']>> {
+  await detectDrift(ctx, repoId, { notify: false });
+  return driftCache.get(repoId) ?? { checkedAt: new Date().toISOString(), environments: [] };
+}
+
 export async function setEnforceDrift(ctx: OrgContext, input: { repoId: string; enforceDrift: boolean }) {
   const repo = await ctx.db.gitRepo.findFirst({ where: { id: input.repoId, orgId: ctx.activeOrgId } });
   if (!repo) throw notFound('repo', input.repoId);
@@ -1399,7 +1419,8 @@ export async function purgeAppData(
   if (desired.resources.some((r) => r.name === input.resource)) {
     throw commandRejected(`${input.resource} is still declared in swarmy.yaml — remove it there first`);
   }
-  if (parseLedger(row.ledgerJson).resources[input.resource]) {
+  const ledgerNow = await latestLedger(ctx.db, input.repoId, input.environment, 0);
+  if (ledgerNow.resources[input.resource] || parseLedger(row.ledgerJson).resources[input.resource]) {
     throw commandRejected(`${input.resource} has not been removed yet — confirm its removal first`);
   }
   if (liveServices(ctx).some((s) => s.name === primaryServiceName(stack, input.resource) || s.name === replicaServiceName(stack, input.resource))) {
@@ -1429,6 +1450,22 @@ export async function purgeAppData(
     for (const name of volumes) {
       await ctx.hub.dispatch(n.id, 'volume.remove', { name, cluster: false }).catch(() => undefined); // absent here = fine
     }
+  }
+  // The data is gone: drop it from the ledger so the UI stops offering it.
+  const latestRow = (
+    await ctx.db.appPlan.findMany({
+      where: { repoId: input.repoId, environment: input.environment, prNumber: 0 },
+      orderBy: { updatedAt: 'desc' },
+      take: 10,
+    })
+  ).find((r) => r.ledgerJson != null);
+  if (latestRow) {
+    const led = parseLedger(latestRow.ledgerJson);
+    const { [input.resource]: _gone, ...rest } = led.kept ?? {};
+    await ctx.db.appPlan.update({
+      where: { id: latestRow.id },
+      data: { ledgerJson: { ...led, kept: rest } as never },
+    });
   }
   await writeAudit(ctx, {
     action: 'app.data.purge',

@@ -69,23 +69,43 @@ describe('confirm authorization (by what a step destroys)', () => {
 });
 
 describe('purgeAppData (delete data permanently)', () => {
-  const cfg = parseAppConfig('version: 1\napp: shop\nservices: { web: { image: "a:1" } }\nresources: { db: postgres }\n').config!;
+  const cfg = parseAppConfig(
+    'version: 1\napp: shop\nservices: { web: { image: "a:1" } }\nresources: { db: postgres }\n',
+  ).config!;
   const withDb = toDesired(cfg);
-  const withoutDb = toDesired(parseAppConfig('version: 1\napp: shop\nservices: { web: { image: "a:1" } }\n').config!);
+  const withoutDb = toDesired(
+    parseAppConfig('version: 1\napp: shop\nservices: { web: { image: "a:1" } }\n').config!,
+  );
   const ctxWith = (desired: unknown, ledger: unknown, services: Array<{ name: string }> = []) =>
     ({
       activeOrgId: 'org',
       user: { id: 'u' },
-      db: { appPlan: { findFirst: async () => ({ desiredJson: desired, ledgerJson: ledger }) } },
-      hub: { liveInventory: () => ({ services: services.map((s) => ({ ...s, id: s.name, spec: {}, labels: {} })), containers: [] }) },
+      db: {
+        appPlan: {
+          findFirst: async () => ({ desiredJson: desired, ledgerJson: ledger }),
+          findMany: async () => [{ ledgerJson: ledger }],
+        },
+      },
+      hub: {
+        liveInventory: () => ({
+          services: services.map((s) => ({ ...s, id: s.name, spec: {}, labels: {} })),
+          containers: [],
+        }),
+      },
     }) as never;
   const input = { repoId: 'r', environment: 'production', resource: 'db', confirm: 'shop/db' };
 
   it('needs the typed <stack>/<resource> confirmation', async () => {
-    await expect(purgeAppData(ctxWith(withoutDb, {}), { ...input, confirm: 'db' })).rejects.toThrow('type shop/db');
+    await expect(purgeAppData(ctxWith(withoutDb, {}), { ...input, confirm: 'db' })).rejects.toThrow(
+      'type shop/db',
+    );
   });
   it('refuses while swarmy.yaml still declares it, or before its removal was confirmed', async () => {
-    await expect(purgeAppData(ctxWith(withDb, {}), input)).rejects.toThrow('still declared in swarmy.yaml');
-    await expect(purgeAppData(ctxWith(withoutDb, { resources: { db: withDb.resources[0] } }), input)).rejects.toThrow('not been removed yet');
+    await expect(purgeAppData(ctxWith(withDb, {}), input)).rejects.toThrow(
+      'still declared in swarmy.yaml',
+    );
+    await expect(
+      purgeAppData(ctxWith(withoutDb, { resources: { db: withDb.resources[0] } }), input),
+    ).rejects.toThrow('not been removed yet');
   });
 });

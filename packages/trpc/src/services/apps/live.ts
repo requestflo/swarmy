@@ -22,7 +22,8 @@ import type {
   PlanAction,
   ResourceType,
 } from '@swarmy/app-config';
-import { primaryServiceName } from '../manageddb.service';
+import { primaryDataVolumeName, replicaDataVolumeName } from '@swarmy/core';
+import { primaryServiceName, walArchiveVolumeName } from '../manageddb.service';
 import { cachePrimaryName } from '../cache.service';
 import { searchServiceName } from '../search.service';
 import { vectorServiceName } from '../vector.service';
@@ -45,9 +46,12 @@ export interface AppLedger {
   connect: string[];
   /** Attachments done per service (`db:DATABASE_URL`, `cache:REDIS_URL`, `secret:stripe-key`…). */
   attached: Record<string, string[]>;
+  /** Removed Postgres clusters whose data volumes swarmy deliberately KEPT (until purged). */
+  kept?: Record<string, string[]>;
 }
 
 export const emptyLedger = (): AppLedger => ({
+  kept: {},
   services: {},
   resources: {},
   routes: {},
@@ -67,6 +71,7 @@ export function parseLedger(json: unknown): AppLedger {
     jobs: j.jobs ?? {},
     connect: j.connect ?? [],
     attached: j.attached ?? {},
+    kept: j.kept ?? {},
   };
 }
 
@@ -184,6 +189,17 @@ export function ledgerAfter(
       }
       break;
     case 'resource.delete':
+      if (action.resourceType === 'postgres') {
+        // The cluster stops; its data stays until an explicit purge.
+        next.kept = {
+          ...(next.kept ?? {}),
+          [action.name]: [
+            primaryDataVolumeName(desired.stack, action.name),
+            replicaDataVolumeName(desired.stack, action.name),
+            walArchiveVolumeName(desired.stack, action.name),
+          ],
+        };
+      }
       delete next.resources[action.name];
       break;
     case 'service.deploy': {

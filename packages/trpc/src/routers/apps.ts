@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import {
   confirmAppActions,
-  detectDrift,
+  checkDriftNow,
   getPlan,
   listApps,
   listPlans,
@@ -53,10 +53,10 @@ export const appsRouter = router({
     .input(z.object({ repoId: id, branch: z.string().min(1).max(200).optional() }))
     .mutation(({ ctx, input }) => replan(ctx, input)),
 
-  /** Compare the last applied commit with live state (no changes made). */
+  /** "Check now": compare the last applied commit with live state (no changes made); refreshes AppView.drift. */
   drift: orgProcedure
     .input(z.object({ repoId: id }))
-    .query(({ ctx, input }) => detectDrift(ctx, input.repoId, { notify: false })),
+    .query(({ ctx, input }) => checkDriftNow(ctx, input.repoId)),
 
   /** Opt in to re-applying drift on git-owned fields (default: report only). */
   setEnforceDrift: adminProcedure
