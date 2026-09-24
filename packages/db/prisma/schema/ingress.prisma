@@ -1,4 +1,4 @@
-// Ingress: driver config + Cloudflare tunnels.
+// Ingress: driver config (Cloudflare tunnels live in the cloudflared driver settings).
 
 enum IngressDriver {
   CADDY
@@ -23,23 +23,4 @@ model IngressConfig {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("ingress_config")
-}
-
-model Tunnel {
-  id             String   @id @default(cuid())
-  orgId          String
-  provider       String   @default("cloudflare")
-  externalId     String?
-  name           String
-  status         String   @default("pending")
-  credentialRef  String?
-  tunnelTokenRef String?
-  settings       Json     @default("{}")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@index([orgId])
-  @@map("tunnel")
 }

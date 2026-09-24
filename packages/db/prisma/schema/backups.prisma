@@ -106,12 +106,6 @@ enum StorageClusterDriver {
   NONE
 }
 
-enum ClusterVolumeStatus {
-  PROVISIONING
-  READY
-  FAILED
-}
-
 enum BackupJobStatus {
   RUNNING
   SUCCEEDED
@@ -173,26 +167,6 @@ model BucketAccess {
   @@unique([orgId, bucketId])
   @@index([orgId])
   @@map("bucket_access")
-}
-
-model ClusterVolume {
-  id            String              @id @default(cuid())
-  orgId         String
-  name          String
-  csiDriver     String
-  accessMode    String              @default("single-writer")
-  capacityBytes BigInt?
-  options       Json                @default("{}")
-  status        ClusterVolumeStatus @default(PROVISIONING)
-  serviceId     String?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@unique([orgId, name])
-  @@index([orgId])
-  @@map("cluster_volume")
 }
 
 model BackupSchedule {

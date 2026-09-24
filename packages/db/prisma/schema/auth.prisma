@@ -122,9 +122,7 @@ model Organization {
   backupTargets       BackupTarget[]
   snapshots           Snapshot[]
   observabilityConfig ObservabilityConfig?
-  observabilityStore  ObservabilityStoreState[]
   meshConfig          MeshConfig?
-  meshPeers           MeshPeer[]
   ssoProviders        SsoProvider[]
   policies            Policy[]
   resourceGrants      ResourceGrant[]
@@ -140,20 +138,17 @@ model Organization {
   dnsRecords          DnsRecord[]
   apiKeys             ApiKey[]
   storageCluster      StorageCluster?
-  clusterVolumes      ClusterVolume[]
   backupSchedules     BackupSchedule[]
   backupJobs          BackupJob[]
   restoreOperations   RestoreOperation[]
   offsiteMirror       OffsiteMirror?
   offsiteMirrorRuns   OffsiteMirrorRun[]
   meshRoutes          MeshRoute[]
-  meshAcls            MeshAcl[]
-  tunnels             Tunnel[]
   terminalSessions    TerminalSession[]
   terminalPolicy      TerminalPolicy?
   securityPolicy      OrgSecurityPolicy?
   terminalApprovals   TerminalApproval[]
-  swarmConfig         SwarmConfig?
+  vaultEntries        VaultEntry[]
   idempotencyKeys     IdempotencyKey[]
   oauthClients        OAuthClient[]
   webhookEndpoints    WebhookEndpoint[]

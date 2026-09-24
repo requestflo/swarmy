@@ -1,4 +1,4 @@
-// Observability: collector/store config + per-node store state.
+// Observability: collector/store config. Store health is probed live, never stored.
 
 model ObservabilityConfig {
   id              String   @id @default(cuid())
@@ -13,18 +13,4 @@ model ObservabilityConfig {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("observability_config")
-}
-
-model ObservabilityStoreState {
-  id            String   @id @default(cuid())
-  orgId         String   @unique
-  nodeId        String?
-  status        String   @default("UNKNOWN")
-  reachable     Boolean  @default(false)
-  diskUsedBytes BigInt   @default(0)
-  lastCheckedAt DateTime @default(now())
-
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@map("observability_store_state")
 }

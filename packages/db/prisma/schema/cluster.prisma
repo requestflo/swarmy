@@ -1,4 +1,4 @@
-// Cluster identity: nodes, join tokens, stacks, metric samples, audit log, swarm config, canvas layout.
+// Cluster identity: nodes, join tokens, stacks, metric samples, audit log, vault entries, canvas layout.
 
 enum NodeRole {
   MANAGER
@@ -172,23 +172,24 @@ model IdempotencyKey {
   @@map("idempotency_key")
 }
 
-model SwarmConfig {
-  orgId                String   @id
-  swarmId              String?
-  managerNodeId        String?
-  managerAddr          String?
-  // Docker join tokens (`SWMTKN-…`), stored encrypted by the swarm service.
-  workerJoinTokenEnc   String?
-  managerJoinTokenEnc  String?
-  // Swarm autolock unlock key (`SWMKEY-…`), stored encrypted when the operator
-  // opts to keep it here (WS2). Null = autolock off OR the operator self-stores.
-  unlockKeyEnc         String?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+// Small vault-encrypted values that must survive while the swarm itself is
+// unreadable, so they can't be derived from Docker. Today: the opt-in swarm
+// autolock unlock key escrow (`swarm.unlockKey`), needed exactly when the swarm
+// is locked. Swarm id, manager address and join tokens are NOT here: they are
+// read live from a manager (`docker info` / `swarm join-token -q`).
+model VaultEntry {
+  id        String   @id @default(cuid())
+  orgId     String
+  name      String
+  // encryptSecret(...) ciphertext. Never plaintext, never returned to clients.
+  valueEnc  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  @@map("swarm_config")
+  @@unique([orgId, name])
+  @@map("vault_entry")
 }
 
 model CanvasLayout {
