@@ -156,6 +156,11 @@ model Organization {
   platformConfig      PlatformConfig?
   errorProjects       ErrorProject[]
   platformUpgradeRuns PlatformUpgradeRun[]
+  emailConfig         EmailConfig?
+  emailDomains        EmailDomain[]
+  emailCredentials    EmailCredential[]
+  emailTemplates      EmailTemplate[]
+  emailSuppressions   EmailSuppression[]
 
   notificationChannels   NotificationChannel[]
   alertRules             AlertRule[]
