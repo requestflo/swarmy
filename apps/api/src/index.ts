@@ -2,7 +2,15 @@ import { join } from 'node:path';
 import type { ServerWebSocket } from 'bun';
 import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
-import { adaptDirectHttpRequest, adaptDirectHttpResponse, authRegistry, directHttpHost, parseTrustedProxies, withClientIp } from '@swarmy/auth';
+import {
+  adaptDirectHttpRequest,
+  adaptDirectHttpResponse,
+  authRegistry,
+  directHttpHost,
+  parseTrustedProxies,
+  resolveClientIp,
+  withClientIp,
+} from '@swarmy/auth';
 import { prisma, ensureSchema, buildAdapter, resolveDbDriver } from '@swarmy/db';
 import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim } from '@swarmy/trpc';
 import { createRestApp } from '@swarmy/api-rest';
@@ -198,6 +206,9 @@ app.get('/install/bin/:file{[a-z0-9.-]+}', (c) => {
   });
 });
 app.on(['GET', 'POST'], '/api/auth/*', (c) => authRegistry.getAuth().handler(c.req.raw));
+// swarmy's OIDC provider: RFC 8414 metadata lives at the root with the issuer
+// path appended (OIDC discovery is under /api/auth, handled above).
+app.get('/.well-known/oauth-authorization-server/api/auth', (c) => authRegistry.getAuth().handler(c.req.raw));
 app.all('/api/trpc/*', (c) => handleTrpc(c.req.raw));
 
 // Public REST API (OpenAPI) — handlers reuse the tRPC service layer via an
@@ -323,8 +334,9 @@ const server = Bun.serve<WsData>({
   async fetch(req, srv) {
     const url = new URL(req.url);
     if (url.pathname === '/agent/ws') {
+      const sourceIp = resolveClientIp(srv.requestIP(req)?.address, req.headers, trustedProxies) ?? undefined;
       const upgraded = srv.upgrade(req, {
-        data: { state: 'await_register', openedAt: Date.now() } satisfies AgentWsData,
+        data: { state: 'await_register', openedAt: Date.now(), sourceIp } satisfies AgentWsData,
       });
       return upgraded ? undefined : new Response('websocket upgrade failed', { status: 400 });
     }

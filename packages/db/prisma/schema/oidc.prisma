@@ -1,0 +1,128 @@
+// swarmy as an OpenID Connect provider (@better-auth/oauth-provider + the jwt
+// plugin). Lets first-party tools in the cluster — the self-hosted NetBird
+// dashboard and client first — sign people in with their swarmy/SSO account.
+// Model names are overridden in packages/auth/src/oidc-provider.ts so they
+// never collide with the REST API's OAuthClient (api.prisma).
+//
+// List fields (scopes, redirectUris, …) are Json, not native arrays, so the
+// schema works on SQLite as well as Postgres: Better Auth stores them as
+// arrays where the adapter supports arrays and as JSON strings otherwise, and
+// reads both back.
+//
+// userId / sessionId are plain indexed columns, not relations: a deleted user
+// or session makes its tokens unusable (the provider re-reads both on every
+// use), and keeping the Better Auth User/Session models free of back-relations
+// keeps this file self-contained.
+
+model OidcClient {
+  id                      String    @id
+  clientId                String    @unique
+  // sha256 hex of the secret (swarmy's storeClientSecret hash). Null = public client.
+  clientSecret            String?
+  disabled                Boolean?  @default(false)
+  skipConsent             Boolean?
+  enableEndSession        Boolean?
+  subjectType             String?
+  scopes                  Json?
+  userId                  String?
+  createdAt               DateTime?
+  updatedAt               DateTime?
+  name                    String?
+  uri                     String?
+  icon                    String?
+  contacts                Json?
+  tos                     String?
+  policy                  String?
+  softwareId              String?
+  softwareVersion         String?
+  softwareStatement       String?
+  redirectUris            Json?
+  postLogoutRedirectUris  Json?
+  tokenEndpointAuthMethod String?
+  grantTypes              Json?
+  responseTypes           Json?
+  public                  Boolean?
+  type                    String?
+  requirePKCE             Boolean?
+  referenceId             String?
+  metadata                Json?
+
+  accessTokens  OidcAccessToken[]
+  refreshTokens OidcRefreshToken[]
+  consents      OidcConsent[]
+
+  @@index([userId])
+  @@map("oidc_client")
+}
+
+model OidcRefreshToken {
+  id          String    @id
+  token       String    @unique
+  clientId    String
+  sessionId   String?
+  userId      String
+  referenceId String?
+  expiresAt   DateTime?
+  createdAt   DateTime?
+  revoked     DateTime?
+  authTime    DateTime?
+  scopes      Json?
+
+  client       OidcClient        @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  accessTokens OidcAccessToken[]
+
+  @@index([clientId])
+  @@index([sessionId])
+  @@index([userId])
+  @@map("oidc_refresh_token")
+}
+
+model OidcAccessToken {
+  id          String    @id
+  token       String?   @unique
+  clientId    String
+  sessionId   String?
+  userId      String?
+  referenceId String?
+  refreshId   String?
+  expiresAt   DateTime?
+  createdAt   DateTime?
+  scopes      Json?
+
+  client  OidcClient        @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  refresh OidcRefreshToken? @relation(fields: [refreshId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([refreshId])
+  @@map("oidc_access_token")
+}
+
+model OidcConsent {
+  id          String    @id
+  clientId    String
+  userId      String?
+  referenceId String?
+  scopes      Json?
+  createdAt   DateTime?
+  updatedAt   DateTime?
+
+  client OidcClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([userId])
+  @@map("oidc_consent")
+}
+
+// Better Auth jwt plugin signing keys (JWKS). The private key is encrypted with
+// BETTER_AUTH_SECRET by the plugin; never read by swarmy code.
+model Jwks {
+  id         String    @id
+  publicKey  String
+  privateKey String
+  createdAt  DateTime
+  expiresAt  DateTime?
+
+  @@map("jwks")
+}

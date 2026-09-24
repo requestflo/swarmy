@@ -24,6 +24,18 @@ export {
 } from './client-ip';
 export type { TrustedProxies } from './client-ip';
 export {
+  ensureOidcClient,
+  rotateOidcClientSecret,
+  removeOidcClient,
+  ensureNetbirdOidcClient,
+  oidcEndpoints,
+  NETBIRD_OIDC_CLIENT,
+  NETBIRD_OIDC_CLIENT_ID,
+  type EnsureOidcClientInput,
+  type OidcClientInfo,
+} from './oidc-clients';
+export { oidcIssuer, buildIdentityClaims, memberGroups, OIDC_SCOPES } from './oidc-provider';
+export {
   authTrustedOrigins,
   directHttpHost,
   adaptDirectHttpRequest,

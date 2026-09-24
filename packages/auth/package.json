@@ -24,6 +24,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@better-auth/oauth-provider": "1.6.22",
     "@swarmy/core": "workspace:*",
     "@swarmy/db": "workspace:*",
     "better-auth": "^1.6.19"

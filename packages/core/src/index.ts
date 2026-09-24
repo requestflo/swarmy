@@ -9,6 +9,7 @@ export * from './inputs';
 export * from './inventory';
 export * from './network-policy';
 export * from './controller-url';
+export * from './public-ip';
 export * from './manageddb-storage';
 export * from './manageddb-failover';
 export * from './data-pin';

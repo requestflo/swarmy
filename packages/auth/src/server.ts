@@ -17,6 +17,7 @@ import {
 } from './signup-policy';
 import { authTrustedOrigins } from './origins';
 import { mfaAssurance, swarmyTwoFactor } from './two-factor';
+import { OIDC_DISABLED_PATHS, swarmyOidcProvider } from './oidc-provider';
 
 /**
  * Per-IP limits for the credential endpoints. Keyed on the IP the host resolved
@@ -194,6 +195,9 @@ export function buildAuth(
       enabled: true,
       autoSignIn: true,
     },
+    // swarmy is also an OIDC provider (oidc-provider.ts); the jwt plugin's
+    // session→JWT `/token` endpoint must not exist alongside it.
+    disabledPaths: [...OIDC_DISABLED_PATHS],
     ...(Object.keys(socialProviders).length ? { socialProviders } : {}),
     session: {
       cookieCache: { enabled: true, maxAge: 60 },
@@ -243,6 +247,8 @@ export function buildAuth(
       // `/two-factor/*` API. See two-factor.ts.
       swarmyTwoFactor(),
       mfaAssurance(db),
+      // swarmy as an OIDC provider for in-cluster tools (NetBird). See oidc-provider.ts.
+      ...swarmyOidcProvider(db),
       ...optional,
     ],
   });
