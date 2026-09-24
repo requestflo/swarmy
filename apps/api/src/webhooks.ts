@@ -21,6 +21,7 @@ import { Hono } from 'hono';
 import { decryptSecret } from '@swarmy/core/crypto';
 import { prisma, type DB } from '@swarmy/db';
 import {
+  handleBranchPush,
   isAppBinding,
   planCommitForRepo,
   previewCommentBody,
@@ -146,6 +147,23 @@ function deploysFrom(r: RepoHookRow, ref: string): boolean {
  * A push to an app binding: the GitOps loop (plan → check run → apply). A
  * legacy binding (one linked service) keeps build-and-redeploy.
  */
+/** GitHub `deleted: true`; GitLab/Gitea: the new sha is all zeros. */
+function isBranchDelete(body: unknown): boolean {
+  const b = body as { deleted?: boolean; after?: string };
+  return b?.deleted === true || (typeof b?.after === 'string' && /^0+$/.test(b.after));
+}
+
+/** A push to a non-deploy branch of an app: branch preview (or teardown on delete). */
+function kickBranch(r: RepoHookRow, ref: string, sha: string | null, deleted: boolean): void {
+  void handleBranchPush(deps(), r.orgId, { repoId: r.id, ref, sha, deleted }).catch(
+    (e: unknown) => {
+      console.warn(
+        `[webhooks] branch preview for ${r.url}@${ref} failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    },
+  );
+}
+
 function kickPush(
   r: RepoHookRow,
   ref: string,
@@ -314,7 +332,12 @@ webhooksApp.post('/github', async (c) => {
   if (event === 'push') {
     const ref = parsePushRef('github', body);
     const sha = parseCommitSha('github', body);
-    if (body.deleted === true || !ref) return c.json({ ok: true, ignored: 'branch deleted' });
+    if (!ref) return c.json({ ok: true, ignored: 'no ref' });
+    const deleted = body.deleted === true;
+    // Branches no deploy watches: maybe a branch preview (or its teardown).
+    for (const r of repos.filter((x) => isAppBinding(x) && !deploysFrom(x, ref)))
+      kickBranch(r, ref, sha, deleted);
+    if (deleted) return c.json({ ok: true, ignored: 'branch deleted' });
     const matched = repos.filter((r) => deploysFrom(r, ref));
     const changed = pushChangedPaths(body);
     for (const r of matched) kickPush(r, ref, sha, changed);
@@ -432,6 +455,10 @@ webhooksApp.post('/git/:repoId', async (c) => {
   const ref = parsePushRef(dialect, body);
   // Only build the watched branch (defensive — providers can be configured broadly).
   if (ref && repo.branch && !deploysFrom(repo, ref)) {
+    if (isAppBinding(repo)) {
+      kickBranch(repo, ref, parseCommitSha(dialect, body), isBranchDelete(body));
+      return c.json({ ok: true, branch: ref, accepted: true }, 202);
+    }
     return c.json({ ok: true, ignored: 'branch', ref });
   }
   const buildRef = ref ?? repo.branch;

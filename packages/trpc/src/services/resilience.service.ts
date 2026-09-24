@@ -901,7 +901,7 @@ function stepRecorder(): StepRecorder {
 }
 
 /** Run `sh -c <script>` inside a service's running container (org-scoped). */
-async function execInService(ctx: OrgContext, service: string, script: string): Promise<string> {
+export async function execInService(ctx: OrgContext, service: string, script: string): Promise<string> {
   const target = resolveExecTarget(ctx, service);
   if (!target) throw commandRejected(`service "${service}" has no running container`);
   const res = await ctx.hub.dispatch<{ exitCode: number; output?: string }>(
@@ -926,7 +926,7 @@ function psqlScript(sql: string): string {
   return `PGPASSWORD="$POSTGRES_PASSWORD" psql -U postgres -h 127.0.0.1 -p 5432 -tAc "${sql}"`;
 }
 
-async function waitForPostgres(ctx: OrgContext, service: string): Promise<void> {
+export async function waitForPostgres(ctx: OrgContext, service: string): Promise<void> {
   const deadline = Date.now() + READY_TIMEOUT_MS;
   let lastError = 'timed out';
   while (Date.now() < deadline) {

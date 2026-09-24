@@ -23,6 +23,8 @@
  */
 import { TRPCError } from '@trpc/server';
 import {
+  branchMatchesAny,
+  branchPreviewId,
   environmentForBranch,
   parseAppConfig,
   planApp,
@@ -92,6 +94,8 @@ import { attachToService, createBucket, deleteBucket } from './buckets.service';
 import { setBucketAccess } from './bucket-access.service';
 import { attachSecretToService } from './secretsMgr.service';
 import { parsePreviewSettings } from './previews.service';
+import { listDbBackups, restoreDb } from './dbBackup.service';
+import { execInService, waitForPostgres } from './resilience.service';
 import { applyPlan, type ActionOutcome, type AppOps } from './apps/apply';
 import { appBucketName, type Attachment } from './apps/compile';
 import {
@@ -103,7 +107,7 @@ import {
 } from './apps/live';
 
 type Deps = { db: DB; hub: AgentHub; auth: Auth };
-export type AppTrigger = 'push' | 'pr' | 'manual' | 'poll' | 'drift' | 'confirm';
+export type AppTrigger = 'push' | 'pr' | 'branch' | 'manual' | 'poll' | 'drift' | 'confirm';
 
 // ── views ────────────────────────────────────────────────────────────────────
 
@@ -144,9 +148,24 @@ export interface AppView {
     keptVolumes: Array<{ resource: string; volumes: string[] }>;
   }>;
   /** Live PR previews (latest plan per PR, torn-down ones excluded). */
-  previews: Array<{ pr: number; stack: string; sha: string; status: string; url: string | null; updatedAt: string; planId: string }>;
+  previews: Array<{
+    /** The branch of a branch preview (absent for PR previews). */
+    branch?: string;
+    /** Previews with data: a COPY of this environment's latest backup, destroyed with the preview. */
+    data?: { from: string; scrub?: string };
+    pr: number;
+    stack: string;
+    sha: string;
+    status: string;
+    url: string | null;
+    updatedAt: string;
+    planId: string;
+  }>;
   /** The last drift check (the worker refreshes it every 10 min); null = not checked yet. */
-  drift: { checkedAt: string; environments: Array<{ environment: string; stack: string; changes: number }> } | null;
+  drift: {
+    checkedAt: string;
+    environments: Array<{ environment: string; stack: string; changes: number }>;
+  } | null;
 }
 
 interface PlanRow {
@@ -304,6 +323,7 @@ export function realOps(
             ...(r.version !== 16 ? { imageTag: String(r.version) } : {}),
             autoBackup: r.backups !== null,
           });
+          if (d.previewData) await seedPreviewDatabase(ctx, d, repo, sha, r.name, r.database);
           if (r.ha !== DEFAULT_TOPOLOGY) {
             await setTopology(ctx, {
               stack,
@@ -584,6 +604,74 @@ export function realOps(
   };
 }
 
+// ── previews with data ───────────────────────────────────────────────────────
+
+/**
+ * Fill a preview's fresh Postgres with a COPY of the source environment's
+ * latest backup (the restore-drill clone path: restoreDb clone-to-new-cluster),
+ * then run the repo's scrub SQL on it. A missing backup or a failed scrub
+ * FAILS the step — a preview never silently gets an empty or unscrubbed copy.
+ */
+async function seedPreviewDatabase(
+  ctx: OrgContext,
+  d: DesiredApp,
+  repo: { id: string },
+  sha: string,
+  cluster: string,
+  database: string,
+): Promise<void> {
+  const pd = d.previewData!;
+  const snapshots = await listDbBackups(ctx, { stack: pd.fromStack, cluster });
+  const latest = snapshots[0];
+  if (!latest) {
+    throw commandRejected(
+      `previews.data: ${pd.fromEnvironment} has no backup of "${cluster}" yet — run a DB backup there first (or remove previews.data)`,
+    );
+  }
+  const engine =
+    latest.engine === 'snapshot-from-replica' ? 'pg_dump' : (latest.engine ?? 'pg_dump');
+  if (engine === 'wal-g' || engine === 'pgbackrest') {
+    throw commandRejected('previews.data copies logical backups (pg_dump) only');
+  }
+  let scrubSql: string | null = null;
+  if (pd.scrub) {
+    const file = await inspectCommit(ctx, { repoId: repo.id, ref: sha, paths: [pd.scrub] });
+    scrubSql = file.files[pd.scrub] ?? null;
+    if (scrubSql == null)
+      throw commandRejected(`previews.data.scrub: ${pd.scrub} is not in this commit`);
+  }
+  const primary = primaryServiceName(d.stack, cluster);
+  await waitForPostgres(ctx, primary);
+  await restoreDb(ctx, {
+    stack: pd.fromStack,
+    cluster,
+    engine,
+    mode: 'clone-to-new-cluster',
+    snapshotId: latest.id,
+    targetStack: d.stack,
+    targetCluster: cluster,
+  });
+  if (scrubSql) {
+    const b64 = Buffer.from(scrubSql, 'utf8').toString('base64');
+    await execInService(
+      ctx,
+      primary,
+      `echo '${b64}' | base64 -d | PGPASSWORD="$POSTGRES_PASSWORD" psql -U postgres -h 127.0.0.1 -p 5432 -v ON_ERROR_STOP=1 -d '${database.replace(/'/g, '')}'`,
+    );
+  }
+  await writeAudit(ctx, {
+    action: 'app.preview.data',
+    targetType: 'managedResource',
+    targetId: `${d.stack}/${cluster}`,
+    actorType: 'system',
+    metadata: {
+      from: `${pd.fromStack}/${cluster}`,
+      snapshot: latest.id,
+      scrubbed: Boolean(scrubSql),
+    },
+  });
+}
+
 // ── planning ─────────────────────────────────────────────────────────────────
 
 export interface PlanCommitInput {
@@ -695,9 +783,36 @@ export async function planCommit(
 
   // ③ which environment does this commit deploy?
   let environment: string;
-  let preview: { pr: number; baseDomain: string } | undefined;
+  let preview: { pr: number; baseDomain: string; branch?: string } | undefined;
   let previewBase: string = PRODUCTION;
-  if (input.trigger === 'pr' && input.prNumber) {
+  let branchPr: number | undefined;
+  if (input.trigger === 'branch') {
+    // Branch previews: any branch matching previews.branches (this commit's own file decides).
+    const patterns = cfg.previews?.branches ?? [];
+    if (!cfg.previews?.enabled || !branchMatchesAny(patterns, input.ref)) {
+      return {
+        planId: null,
+        status: 'skipped',
+        environment: null,
+        stack: null,
+        reason: `branch ${input.ref} has no preview`,
+      };
+    }
+    const settings = parsePreviewSettings(repo.previewsJson);
+    const baseDomain = cfg.previews.base_domain ?? settings.baseDomain;
+    if (!baseDomain) {
+      return {
+        planId: null,
+        status: 'skipped',
+        environment: null,
+        stack: null,
+        reason: 'set previews.base_domain (or the repo preview domain) first',
+      };
+    }
+    environment = 'preview';
+    branchPr = branchPreviewId(input.ref);
+    preview = { pr: branchPr, baseDomain, branch: input.ref };
+  } else if (input.trigger === 'pr' && input.prNumber) {
     if (!cfg.previews?.enabled)
       return {
         planId: null,
@@ -720,7 +835,8 @@ export async function planCommit(
     environment = 'preview';
     preview = { pr: input.prNumber, baseDomain };
     // A PR against `staging` previews the staging definition.
-    previewBase = environmentForBranch(cfg, input.baseRef ?? repo.branch, repo.branch) ?? PRODUCTION;
+    previewBase =
+      environmentForBranch(cfg, input.baseRef ?? repo.branch, repo.branch) ?? PRODUCTION;
   } else {
     const env = environmentForBranch(cfg, input.ref, repo.branch);
     if (!env)
@@ -743,7 +859,7 @@ export async function planCommit(
   }
 
   const desired = toDesired(cfg, preview ? { preview, environment: previewBase } : { environment });
-  const prNumber = input.prNumber ?? 0;
+  const prNumber = branchPr ?? input.prNumber ?? 0;
   return withAppLock(envKey(repo.id, environment, prNumber), async () => {
     const ledger = await latestLedger(ctx.db, repo.id, environment, prNumber);
     const live = await liveFor(ctx, desired, ledger);
@@ -1153,7 +1269,14 @@ export async function listApps(ctx: OrgContext): Promise<AppView[]> {
         envs.find((e) => !e.environment && e.stack === '');
       const view = toPlanView(row);
       if (existing) Object.assign(existing, { environment: env, stack: row.stack, latest: view });
-      else envs.push({ environment: env, branch: '', stack: row.stack, latest: view, keptVolumes: [] });
+      else
+        envs.push({
+          environment: env,
+          branch: '',
+          stack: row.stack,
+          latest: view,
+          keptVolumes: [],
+        });
     }
     for (const e of envs) {
       if (!e.environment) continue;
@@ -1192,6 +1315,15 @@ async function previewSummaries(ctx: OrgContext, repoId: string): Promise<AppVie
     const desired = row.desiredJson as unknown as DesiredApp | null;
     const host = desired?.routes?.[0]?.host;
     out.push({
+      ...(desired?.preview?.branch ? { branch: desired.preview.branch } : {}),
+      ...(desired?.previewData
+        ? {
+            data: {
+              from: desired.previewData.fromEnvironment,
+              ...(desired.previewData.scrub ? { scrub: desired.previewData.scrub } : {}),
+            },
+          }
+        : {}),
       pr: row.prNumber,
       stack: row.stack,
       sha: row.sha,
@@ -1374,15 +1506,26 @@ async function enforceDriftFor(
 }
 
 /** "Check now": run the drift check (no notifications) and return the refreshed cache entry. */
-export async function checkDriftNow(ctx: OrgContext, repoId: string): Promise<NonNullable<AppView['drift']>> {
+export async function checkDriftNow(
+  ctx: OrgContext,
+  repoId: string,
+): Promise<NonNullable<AppView['drift']>> {
   await detectDrift(ctx, repoId, { notify: false });
   return driftCache.get(repoId) ?? { checkedAt: new Date().toISOString(), environments: [] };
 }
 
-export async function setEnforceDrift(ctx: OrgContext, input: { repoId: string; enforceDrift: boolean }) {
-  const repo = await ctx.db.gitRepo.findFirst({ where: { id: input.repoId, orgId: ctx.activeOrgId } });
+export async function setEnforceDrift(
+  ctx: OrgContext,
+  input: { repoId: string; enforceDrift: boolean },
+) {
+  const repo = await ctx.db.gitRepo.findFirst({
+    where: { id: input.repoId, orgId: ctx.activeOrgId },
+  });
   if (!repo) throw notFound('repo', input.repoId);
-  await ctx.db.gitRepo.update({ where: { id: repo.id }, data: { enforceDrift: input.enforceDrift } });
+  await ctx.db.gitRepo.update({
+    where: { id: repo.id },
+    data: { enforceDrift: input.enforceDrift },
+  });
   await writeAudit(ctx, {
     action: 'app.enforceDrift',
     targetType: 'gitRepo',
@@ -1406,7 +1549,12 @@ export async function purgeAppData(
   input: { repoId: string; environment: string; resource: string; confirm: string },
 ): Promise<{ stack: string; resource: string; volumes: string[]; nodes: number }> {
   const row = await ctx.db.appPlan.findFirst({
-    where: { orgId: ctx.activeOrgId, repoId: input.repoId, environment: input.environment, prNumber: 0 },
+    where: {
+      orgId: ctx.activeOrgId,
+      repoId: input.repoId,
+      environment: input.environment,
+      prNumber: 0,
+    },
     orderBy: { updatedAt: 'desc' },
   });
   if (!row) throw notFound('app environment', `${input.repoId}/${input.environment}`);
@@ -1417,13 +1565,24 @@ export async function purgeAppData(
     throw commandRejected(`type ${expected} to delete its data permanently`);
   }
   if (desired.resources.some((r) => r.name === input.resource)) {
-    throw commandRejected(`${input.resource} is still declared in swarmy.yaml — remove it there first`);
+    throw commandRejected(
+      `${input.resource} is still declared in swarmy.yaml — remove it there first`,
+    );
   }
   const ledgerNow = await latestLedger(ctx.db, input.repoId, input.environment, 0);
-  if (ledgerNow.resources[input.resource] || parseLedger(row.ledgerJson).resources[input.resource]) {
+  if (
+    ledgerNow.resources[input.resource] ||
+    parseLedger(row.ledgerJson).resources[input.resource]
+  ) {
     throw commandRejected(`${input.resource} has not been removed yet — confirm its removal first`);
   }
-  if (liveServices(ctx).some((s) => s.name === primaryServiceName(stack, input.resource) || s.name === replicaServiceName(stack, input.resource))) {
+  if (
+    liveServices(ctx).some(
+      (s) =>
+        s.name === primaryServiceName(stack, input.resource) ||
+        s.name === replicaServiceName(stack, input.resource),
+    )
+  ) {
     throw commandRejected(`${input.resource} is still running`);
   }
   const decision = await evaluateAccess(ctx, 'data.destroy', {
@@ -1444,11 +1603,16 @@ export async function purgeAppData(
     walArchiveVolumeName(stack, input.resource),
   ];
   // Local volumes live on whichever node ran the task — ask every online node.
-  const nodes = await ctx.db.node.findMany({ where: { orgId: ctx.activeOrgId }, select: { id: true } });
+  const nodes = await ctx.db.node.findMany({
+    where: { orgId: ctx.activeOrgId },
+    select: { id: true },
+  });
   const online = nodes.filter((n) => ctx.hub.isOnline(n.id));
   for (const n of online) {
     for (const name of volumes) {
-      await ctx.hub.dispatch(n.id, 'volume.remove', { name, cluster: false }).catch(() => undefined); // absent here = fine
+      await ctx.hub
+        .dispatch(n.id, 'volume.remove', { name, cluster: false })
+        .catch(() => undefined); // absent here = fine
     }
   }
   // The data is gone: drop it from the ledger so the UI stops offering it.
@@ -1530,6 +1694,43 @@ export function teardownAppPreviewForRepo(
   input: { repoId: string; prNumber: number },
 ) {
   return teardownAppPreview(systemContext(deps, orgId), input);
+}
+
+/**
+ * A push to a branch that deploys nothing: a branch preview if the app's
+ * production swarmy.yaml opts that branch in (`previews.branches`), torn down
+ * when the branch is deleted. The cheap pre-check reads the last production
+ * plan's file; the commit's own file has the final say inside planCommit.
+ */
+export async function handleBranchPush(
+  deps: Deps,
+  orgId: string,
+  input: { repoId: string; ref: string; sha: string | null; deleted: boolean },
+): Promise<PlanCommitResult | { status: 'torn-down' | 'ignored'; stack: string | null }> {
+  const ctx = systemContext(deps, orgId);
+  if (input.deleted) {
+    const res = await teardownAppPreview(ctx, {
+      repoId: input.repoId,
+      prNumber: branchPreviewId(input.ref),
+    });
+    return { status: res.stack ? 'torn-down' : 'ignored', stack: res.stack };
+  }
+  const prod = (
+    await ctx.db.appPlan.findMany({
+      where: { repoId: input.repoId, environment: PRODUCTION, prNumber: 0 },
+      orderBy: { updatedAt: 'desc' },
+      take: 5,
+      select: { desiredJson: true },
+    })
+  ).find((r) => r.desiredJson != null);
+  const patterns = (prod?.desiredJson as unknown as DesiredApp | null)?.previews?.branches ?? [];
+  if (!branchMatchesAny(patterns, input.ref)) return { status: 'ignored', stack: null };
+  return planCommit(ctx, {
+    repoId: input.repoId,
+    ref: input.ref,
+    sha: input.sha,
+    trigger: 'branch',
+  });
 }
 
 /** Is this repo binding a swarmy.yaml app (vs a legacy build-and-redeploy-one-service repo)? */

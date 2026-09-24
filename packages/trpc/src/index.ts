@@ -127,6 +127,7 @@ export {
   confirmAppActions,
   detectDrift,
   getPlan,
+  handleBranchPush,
   isAppBinding,
   listAppBindingIds,
   listApps,
