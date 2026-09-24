@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openSqlite, PrismaBunSqlite } from './bun-sqlite-adapter';
-import { ensureSchema } from './ensure-schema';
+import { CONTROL_MIGRATIONS_DIR, ensureSchema } from './ensure-schema';
 
 const root = mkdtempSync(join(tmpdir(), 'swarmy-ensure-schema-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -21,7 +21,13 @@ describe('ensureSchema', () => {
   it('applies the real baselines to a fresh file, then is a no-op', async () => {
     const f = new PrismaBunSqlite({ url: join(root, 'control.db') });
     const first = await ensureSchema(f);
-    expect(first).toEqual(['0000_init']);
+    // Every committed migration, in order, starting from the baseline.
+    const all = readdirSync(CONTROL_MIGRATIONS_DIR, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+    expect(first[0]).toBe('0000_init');
+    expect(first).toEqual(all);
     expect(await ensureSchema(f)).toEqual([]);
   });
 
