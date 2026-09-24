@@ -46,6 +46,7 @@ import { inboundHooksApp } from './inbound-hooks';
 import { statusPublicApp } from './status-public';
 import { rumApp } from './rum';
 import { aiGatewayApp } from './ai-gateway';
+import { emailApp, mountEmail } from './email';
 import { oauthApp } from './oauth';
 import { versionInfo } from './version';
 import { licenseStatus } from './license';
@@ -269,6 +270,9 @@ app.route('/status', statusPublicApp);
 // AI gateway (F5): provider-shaped proxy authed by virtual keys.
 app.route('/ai', aiGatewayApp);
 
+// Email service (developer-platform §8): the HTTP send API + forwarded reports.
+app.route('/email', emailApp);
+
 // OAuth2 client-credentials token endpoint (public-api-terraform P2). Public.
 app.route('/oauth', oauthApp);
 
@@ -305,6 +309,7 @@ if (STATIC_DIR) {
       // routes `/status-pages` and `/ai` must still fall through to index.html.
       p.startsWith('/status/') ||
       p.startsWith('/ai/v1') ||
+      p.startsWith('/email/v1') ||
       p.startsWith('/oauth') ||
       p.startsWith('/_wake') ||
       p.startsWith('/install') ||
@@ -346,6 +351,8 @@ authRegistry.configure({
   audit: (orgId, entry) => writeAudit({ db: prisma, activeOrgId: orgId, user: null }, entry),
 });
 // Load stored auth-provider config so social/SSO providers are live without a restart.
+// swarmy's own mail (verification, reset, magic links) + the MTA bounce hook.
+await mountEmail();
 await authRegistry.rebuild();
 // The pre-registered public OAuth client MCP hosts sign in with (idempotent).
 await ensureMcpOidcClient(prisma).catch((e: unknown) => {

@@ -381,3 +381,21 @@ export { meshConfigRepo } from './services/mesh-config.repo';
 export { observabilityConfigRepo } from './services/observability-config.repo';
 export { geoDnsConfigRepo, dnsZoneRepo } from './services/geodns.repo';
 export { storageClusterRepo, bucketAccessRepo } from './services/storage-cluster.repo';
+
+// ── email service (epic developer-platform §8) ──
+export {
+  sendWithApiKey,
+  sendSystemEmail,
+  ingestReport,
+  ingestMtaLogLines,
+  orgForInboundToken,
+  EmailApiError,
+  mtaEndpoint,
+} from './services/email/runtime';
+export { convergeMail } from './services/email/deploy';
+export { startSmtpSink, smtpSubmit } from './services/email/smtp';
+export { bounceHookPassword, safeEqual as emailSafeEqual } from './services/email/keys';
+export { BOUNCE_HOOK_PORT, BOUNCE_HOOK_USER, MAIL_SERVICE } from './services/email/maddy';
+export { setEmailLogStore, flushEmailLogs, port25Probe, domainCheck } from './services/email/store';
+export { checkEmailDomain, probePort25, ensureAppEmailCredential } from './services/email.service';
+export { observabilityStore } from './services/observability.service';

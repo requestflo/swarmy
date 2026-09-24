@@ -6,11 +6,13 @@ import type { DB } from '@swarmy/db';
 import type { AuthedContext, OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import { sendSystemEmail } from './email/runtime';
 
 /**
- * Org invitations as copyable links. A self-hosted controller has no mailer, so
- * an admin mints a Better Auth organization invitation here and hands the
- * `/login?invite=<id>` link to the invitee themselves. Email is optional: a
+ * Org invitations as copyable links. An admin mints a Better Auth organization
+ * invitation here and hands the `/login?invite=<id>` link to the invitee; when
+ * the email service is on, an email-named invite is also mailed to that
+ * address (swarmy's own mail, email/runtime.ts `sendSystemEmail`). Email is optional: a
  * link-only invite carries a reserved placeholder address, and the link itself
  * is the credential. Whoever opens it can sign up or sign in by any method
  * (username, password, social, SSO) and joins with the invited role; the
@@ -38,6 +40,8 @@ export interface InvitationView {
   invitedBy: { id: string; name: string | null; email: string | null } | null;
   /** The copyable link: `<controller public url>/login?invite=<id>`. */
   link: string;
+  /** An email invite was also mailed (the email service is on); absent otherwise. */
+  emailed?: boolean;
 }
 
 /**
@@ -136,13 +140,39 @@ export async function inviteMember(ctx: OrgContext, args: InviteArgs): Promise<I
   if (pending) throw badRequest(`${email} already has a pending invite — copy or regenerate its link below`);
 
   const row = await createViaAuth(ctx, email, args.role);
+  const view = toView(row, inviteLinkBase(ctx.reqHeaders), new Date());
+  const emailed = await mailInvite(ctx, view);
   await writeAudit(ctx, {
     action: 'member.invite',
     targetType: 'invitation',
     targetId: row.id,
-    metadata: { email, role: args.role, expiresAt: row.expiresAt.toISOString() },
+    metadata: { email, role: args.role, expiresAt: row.expiresAt.toISOString(), emailed },
   });
-  return toView(row, inviteLinkBase(ctx.reqHeaders), new Date());
+  return { ...view, emailed };
+}
+
+/**
+ * Mail an email-named invite through swarmy's email service (when it is on).
+ * Best-effort: the copyable link stays the primary path, so a failed or
+ * skipped send never fails the invite.
+ */
+async function mailInvite(ctx: OrgContext, view: InvitationView): Promise<boolean> {
+  if (!view.email || view.kind !== 'email') return false;
+  const org = await ctx.db.organization.findUnique({ where: { id: ctx.activeOrgId }, select: { name: true } }).catch(() => null);
+  const who = ctx.user.name || displayEmail(ctx.user.email) || 'Someone';
+  const orgName = org?.name ?? 'their organization';
+  const days = Math.max(1, Math.round((view.expiresAt.getTime() - Date.now()) / 86_400_000));
+  const r = await sendSystemEmail(ctx.db, {
+    orgId: ctx.activeOrgId,
+    to: view.email,
+    subject: `${who} invited you to ${orgName} on swarmy`,
+    text:
+      `${who} invited you to join ${orgName} on swarmy as ${view.role === 'member' ? 'a member' : `an ${view.role}`}.\n\n` +
+      `Accept the invite: ${view.link}\n\n` +
+      `The link works once and expires in ${days} day${days === 1 ? '' : 's'}. ` +
+      'Sign in with this email address (or an SSO/social account that uses it). If you did not expect this, ignore it.',
+  });
+  return r.sent;
 }
 
 async function createViaAuth(ctx: OrgContext, email: string, role: InviteRole): Promise<InvitationRow> {
@@ -199,13 +229,15 @@ export async function regenerateInvitation(ctx: OrgContext, id: string): Promise
   // A link-only invite gets a fresh placeholder so the old one can't collide.
   const email = isLinkInviteEmail(old.email) ? invitePlaceholderEmail(randomBytes(9).toString('base64url')) : old.email;
   const row = await createViaAuth(ctx, email, role);
+  const view = toView(row, inviteLinkBase(ctx.reqHeaders), new Date());
+  const emailed = await mailInvite(ctx, view);
   await writeAudit(ctx, {
     action: 'member.invite.regenerate',
     targetType: 'invitation',
     targetId: row.id,
-    metadata: { email: displayEmail(old.email), role, replaced: id, expiresAt: row.expiresAt.toISOString() },
+    metadata: { email: displayEmail(old.email), role, replaced: id, expiresAt: row.expiresAt.toISOString(), emailed },
   });
-  return toView(row, inviteLinkBase(ctx.reqHeaders), new Date());
+  return { ...view, emailed };
 }
 
 /** What an invite link shows before sign-in. */

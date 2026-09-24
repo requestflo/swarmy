@@ -35,6 +35,7 @@ import { startPlatformUpgradeWorker } from './platform-upgrade';
 import { startAppSecretGc } from './app-secret-gc';
 import { startRumRetention } from './rum-retention';
 import { startErrorsAlerts } from './errors-alerts';
+import { startEmailReconcile } from './email-reconcile';
 
 export function startWorkers(): () => void {
   const stops = [
@@ -75,6 +76,7 @@ export function startWorkers(): () => void {
     startAppSecretGc(),
     startRumRetention(),
     startErrorsAlerts(),
+    startEmailReconcile(),
   ];
   return () => stops.forEach((s) => s());
 }

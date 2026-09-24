@@ -11,6 +11,7 @@ import {
   type ResolvedSsoProvider,
 } from './config';
 import { CLIENT_IP_HEADER } from './client-ip';
+import { authMailOptions, magicLinkMailer, type SendAuthEmail } from './auth-mail';
 import { assertAccountLinkAllowed, isReservedProviderId } from './account-linking';
 import {
   assertSignupAllowed,
@@ -88,6 +89,11 @@ export interface BuildAuthOptions {
   extraPlugins?: ExtraPlugin[];
   /** Audit sink for sign-in provisioning (apps/api wires `writeAudit`). */
   audit?: AuthAudit;
+  /**
+   * swarmy's own mail (apps/api wires the email service): verification,
+   * password reset and — unless `sendMagicLink` is given — magic links.
+   */
+  sendEmail?: SendAuthEmail;
 }
 
 /**
@@ -175,7 +181,7 @@ export function buildAuth(
     optional.push(
       magicLink({
         sendMagicLink: async ({ email, url, token }) => {
-          await (opts.sendMagicLink ?? defaultSendMagicLink)({ email, url, token });
+          await (opts.sendMagicLink ?? (opts.sendEmail ? magicLinkMailer(opts.sendEmail) : defaultSendMagicLink))({ email, url, token });
         },
       }),
     );
@@ -253,10 +259,8 @@ export function buildAuth(
         },
       },
     },
-    emailAndPassword: {
-      enabled: true,
-      autoSignIn: true,
-    },
+    // Verification + reset mail through the email service when it is wired.
+    ...authMailOptions(opts.sendEmail),
     // Implicit account linking, pinned explicitly so an upgrade can't loosen
     // it: a new IdP identity joins an existing same-email user only when the
     // IdP asserted the email verified AND the local user is verified. No
