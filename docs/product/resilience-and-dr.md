@@ -74,7 +74,7 @@ Four ideas, one story:
   skill); the controller decrypts credentials just-in-time and dispatches. The one
   exception is the *controller's own* backup, which must never leave the
   controller and must work before any agent exists — so it runs controller-side.
-- **Resilience is a graded posture, not a checklist.** Nine pure checks over live
+- **Resilience is a graded posture, not a checklist.** Pure checks over live
   Docker-truth signals produce a 0–100 score (`100 − Σ weights`), a letter grade,
   and a ranked list of weakening factors — each with a fix link. Turn a factor
   green and the score moves.
@@ -112,7 +112,7 @@ Four ideas, one story:
 
 ## Resilience & DR behaviour (what the promise commits us to)
 
-- **The score is honest and derived.** Nine checks over live signals: single-
+- **The score is honest and derived.** Checks over live signals: single-
   replica services, cache/DB with no standby, object-store replication factor,
   backup recency (crit at >7 days or none), *restore never tested*, ingress on one
   node, geo-DNS single-region on a multi-region estate, controller-backup recency.
@@ -145,10 +145,16 @@ Four ideas, one story:
   primary-replica cluster and always tries to rejoin the replica even if a step
   fails; backup-verify is read-only. All are admin-only, confirmed in the UI, and
   audited.
-- **Everything is off-by-default and disableable.** No backups until you add a
-  destination; no controller backups until you set a passphrase; no drills run
-  themselves. swarmy nudges (the score names what's missing) but never acts
-  behind your back.
+- **Database backups are on by default; everything else is opt-in.** Once a
+  destination exists, databases get a nightly backup with zero clicks
+  (`autoBackup.ts`, 7-day retention): managed Postgres a logical `pg_dump`
+  (a `swarmy.db.backup.schedule` label with `"auto": true`), compose/blueprint
+  databases a crash-consistent volume backup (an `auto` `BackupSchedule` row) —
+  engines that replay a WAL/redo log recover from it, but it is not a
+  transaction-consistent dump. An existing user schedule is never overridden,
+  and removing an auto schedule leaves an opt-out marker so it is never
+  re-created. No controller backups until you set a passphrase; no drills run
+  themselves.
 
 ## Failure modes (designed, not accidental)
 
@@ -160,7 +166,7 @@ Four ideas, one story:
 | Restore passphrase is lost | The controller-state bundle is unreadable — by design (zero-knowledge). swarmy cannot recover it; the setup flow gates on "I've stored it" for exactly this reason. |
 | Restore drill fails midway | The throwaway `drill-<ts>` cluster is destroyed regardless; the drill is recorded `failed` with the step that broke; nothing on the real cluster was touched (preconditions throw before anything is created). |
 | Failover drill on a half-healthy cluster | Refused up front (needs a running primary + ≥1 running replica); the promoted replica is force-restarted back through its entrypoint to rejoin even on error. |
-| DB backup of a live Postgres | Logical engines dump a transactionally-consistent point-in-time; `snapshot-from-replica` takes it off a read replica for zero primary load. restic-of-bytes on a live DB is never the DB path. |
+| DB backup of a live Postgres | For managed Postgres, logical engines dump a transactionally-consistent point-in-time; `snapshot-from-replica` takes it off a read replica for zero primary load. Only a compose DB swarmy doesn't own the credentials for gets the crash-consistent volume backup (its restore path is the stack's Backups tab). |
 
 ## Explicitly rejected
 
@@ -174,6 +180,14 @@ Four ideas, one story:
   key and the backup colocated is not disaster recovery — it is one loss away from
   both. Zero-knowledge is the default; escrow is an opt-in for users who accept the
   weaker guarantee.
+- **SQLite/libSQL as the lite controller store.** The schema is Postgres-shaped
+  (enums, jsonb, BigInt ids, timestamptz) with many concurrent writers. Lite is
+  embedded Postgres (PGlite): one schema, one migration history, only the Prisma
+  adapter changes (`SWARMY_DB_DRIVER`). Lite → managed Postgres moves data by
+  controller bundle backup → restore, not a separate migration path.
+- **kopia / borg instead of restic.** kopia's repository server duplicates the
+  scheduling and RBAC swarmy already has; borg has no native S3 backend. restic
+  is one static binary, S3-first, and restorable by hand.
 - **Running the controller's own backup on an agent.** It contains the
   controller's secrets and must work before any agent exists — so it runs
   controller-side, the one deliberate exception to "backups run where the data is".
@@ -196,7 +210,10 @@ backups.prisma` (targets, snapshots, controller backup, schedules, restore ops),
 + DB backup/restore), `packages/trpc/src/services/controllerBackup.service.ts`
 (the controller brain bundle) with `apps/api/src/restore.ts` (the standalone
 disaster-restore entrypoint), `packages/trpc/src/services/resilience.service.ts`
-(the nine checks, the score, and the three drills), the workers
+(the checks, the score, and the three drills), `autoBackup{,.service}.ts`
+(default-on DB backups), the workers
 `apps/api/src/workers/{backup-scheduler,dr-reconcile,controller-backup-scheduler}.ts`,
-and the UI at `apps/app/src/routes/_authed/{backups,resilience,settings.backup}.tsx`
-plus each stack's `stacks/$name.backups.tsx`.
+and the UI: estate destinations at `apps/app/src/routes/_authed/backups.tsx`,
+controller backup at `settings_.backup.tsx`, and each stack's Backups tab
+(`stacks/$name.backups.tsx` → `components/backups/*` + the resilience score in
+`components/resilience/*`).

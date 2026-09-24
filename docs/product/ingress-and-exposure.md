@@ -116,7 +116,9 @@ Four ideas, one story:
   observed is itself a violation (declared `tunnel` served by a non-cloudflared
   driver included), and "declared public but unreachable" surfaces as a warning.
   The inferred classifier stays — it is the *observed* half of the comparison.
-  See `plans/roadmap-mini-cloud.md` (WS3).
+  Open: the background exposure-audit worker doesn't yet alert on
+  declared-vs-observed drift (the Exposure page does), and the ingress renderer
+  doesn't consult `swarmy.expose` — see `plans/ROADMAP.md`.
 
 ## Ingress & exposure behaviour
 
@@ -142,10 +144,20 @@ Four ideas, one story:
   steering needs — see `edge-network.md`). Switching to edge-per-node cuts over
   the replicated service (seconds of blip, explicit opt-in). The edge spec is
   single-sourced (`caddyEdgeSpec`) so composition never hand-rolls ports/mounts.
-- **The agent reloads the LOCAL task only.** It writes the Caddyfile to a host
-  path bind-mounted into Caddy and execs `caddy reload` inside the node's own
-  task (found by the `com.docker.swarm.service.name` label); admin port 2019 is
-  never published. The controller never reaches a node's socket.
+- **The agent reloads the LOCAL task only.** It writes the Caddyfile inside the
+  node's own Caddy task (exec over the local docker socket — no host files) and
+  execs `caddy reload` there (task found by the `com.docker.swarm.service.name`
+  label); admin port 2019 is never published. The controller never reaches a
+  node's socket.
+- **Cloudflare Tunnel is remotely-managed (token) by default.** The controller
+  creates the tunnel (`config_src: cloudflare`) and always pushes the *complete*
+  ingress array ending in `http_status:404` — declarative, no diffing. More
+  connector replicas on the same token is tunnel HA. The user's API token is
+  scoped to Account:Cloudflare Tunnel Edit + Zone:DNS Edit, never the global
+  key. The CNAME is upserted when the zone is on Cloudflare, otherwise shown for
+  the user to add. The locally-managed credentials-file mode is a fallback only.
+  Cloudflare's ToS limits large non-HTML content through its proxy — a tunnel is
+  not a media host.
 - **Exposure audits every service into one of four verdicts, precedence-ordered:**
   `public-port` (publishes a port — world-reachable on every node) > `public-domain`
   (fronted by an ingress route) > `internal-managed` (carries a
@@ -217,5 +229,4 @@ DB rows `packages/db/prisma/schema/ingress.prisma` (`IngressConfig`, `Tunnel`) a
 `apps/api/src/ingress-ask.ts` mounted at `/ingress/ask` in `apps/api/src/index.ts`;
 agent handlers `apps/agent/src/handlers/{ingress-local,ingress-connector,
 ingress-status}.ts`; UI `apps/app/src/routes/_authed/{ingress,exposure}.tsx` with
-`apps/app/src/components/ingress/*` and `apps/app/src/components/exposure/*`; design
-depth in `plans/epic-ingress-strategy.md`.
+`apps/app/src/components/ingress/*` and `apps/app/src/components/exposure/*`.

@@ -1,7 +1,7 @@
 # The swarmy edge network — "swarmy is the nameserver"
 
-**Status: canonical product design (2026-07). Supersedes the GSLB half of
-`plans/geo-dns-multiregion-ha-templates.md`.**
+**Status: canonical product design (2026-07). Replaced the earlier CoreDNS-based
+GSLB plan.**
 
 ## The feeling we are building
 

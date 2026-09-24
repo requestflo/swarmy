@@ -3,7 +3,7 @@
 **Status:** Fixed (2026-09) — see "Fix applied" below. Previously: root-caused via source (backend + frontend), confirmed via a live reproduction.
 Not fixed this session (per standing "document, don't patch" directive).
 **Severity:** Minor/UX — does not block the backup feature itself (the ad-hoc backup-execution
-path works correctly end-to-end — see row 12 of `plans/readiness-sweep-2026-07.md`), but makes
+path works correctly end-to-end — see row 12 of the readiness sweep log (`plans/readiness-sweep-2026-07.md`, in git history)), but makes
 every failure opaque to the user, which cuts against the governing directive's "light touch"
 bar.
 

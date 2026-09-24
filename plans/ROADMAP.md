@@ -1,147 +1,133 @@
-# swarmy — Execution Roadmap
+# swarmy — what's still open
 
-> **Superseded (2026-07)** as the forward plan by
-> [`plans/roadmap-mini-cloud.md`](./roadmap-mini-cloud.md) — the phases below
-> are substantially shipped. §5 (cross-cutting concerns) remains binding.
+Status: **living list, pruned 2026-09-24.** Every item below was checked against
+the code on that date. When you close one, delete its line; when you open one,
+add it here or as an `issues/` file.
 
-> Lead architect/PM roadmap synthesizing the 13 epic plan docs in `plans/`.
-> Companion doc: `plans/RECOMMENDATIONS.md` (founder decisions).
+How the docs fit together:
 
-## 1. Vision recap
+- **`docs/product/`** — what swarmy is and why (start at `product-shape.md`,
+  whose "Estate & stack behaviour" section holds the cross-cutting rules: org
+  wall, one vault, additive protocol, audit everything, off by default).
+- **`.claude/skills/`** — how to work in the code: invariants and file maps.
+- **`plans/`** — only work that is still being designed or built:
+  - [`epic-platform-upgrades.md`](./epic-platform-upgrades.md) — one-button,
+    health-gated upgrades of every platform component (in progress).
+  - [`redesign-dashboard-2026-09.md`](./redesign-dashboard-2026-09.md) — the
+    calm ops console redesign (P0 landing; P1–P4 to come).
+- **`issues/`** — individual bugs found in live testing (`issues/resolved/` is
+  the fixed ones).
 
-swarmy is a modern, **unopinionated** Docker Swarm controller: a thin orchestration/UX layer where the controller never touches a node's Docker socket (the per-node agent dials out and applies generic intent), everything is org-scoped + audited, and every feature is pluggable and individually disableable. The product promise is **"anyone can just deploy — it has to be that simple"**: copy one line, paste it on a box, watch the node and your app come alive — with the escape hatch that every stack still runs on plain `docker stack deploy`.
+The original 13 epic design docs, the mini-cloud roadmap (WS1–WS7), the
+platform buildout manifest, the founder recommendations and the July 2026
+readiness sweep all shipped or were superseded; their live decisions were folded
+into `docs/product/` and the skills. They remain in git history
+(`git log --diff-filter=D --name-only -- plans/`).
 
-## 2. Dependency graph
+## Launch verification
 
-The whole estate rests on two foundation epics — **data-store-strategy** (every model/migration sits on it) and **node-onboarding** (the install/enroll path every node capability extends). A small set of horizontal primitives (secrets/credential vault, `ServiceSpec.placement`, audit-writer) are extracted early because four-plus epics block on them.
+- **DigitalOcean multi-region re-sweep**: 3 droplets / 2 regions — the swarm
+  routing mesh (see `issues/swarm-routing-mesh-unreachable-in-lima-vm.md`), real
+  public-IP ingress + ACME, and geo-DNS answering per region. Local Lima
+  verification passed on 2026-09-22/23.
+- Open issues: `issues/manual-recovery-required-not-magical.md`,
+  `issues/swarm-routing-mesh-unreachable-in-lima-vm.md`,
+  `issues/vm-disk-chronically-full.md`.
+- **Product call:** new orgs default to the `none` ingress driver ("Tracking
+  only"). Default to Caddy instead?
 
-```mermaid
-graph TD
-    %% Foundations
-    DS[data-store-strategy<br/>controller store + backup]
-    ON[node-onboarding<br/>one-command install]
-    SEC[(cross-cut: credential vault<br/>SWARMY_SECRET_KEY)]
-    PLACE[(cross-cut: ServiceSpec.placement<br/>+ protocol-version gate)]
-    AUDIT[(cross-cut: writeAudit helper)]
+## Security & governance
 
-    %% P1 deploy-experience
-    GUI[stack-gui-builder<br/>+ image autocomplete]
-    ING[ingress-strategy<br/>Caddy HA + CF Tunnel]
-    NET[zero-trust-networking<br/>NetBird mesh]
+- Move destructive mutations behind `abacProcedure` — today it gates only the
+  terminal; `services.scale/restart/remove` are `orgProcedure` and `nodes.remove`
+  is `adminProcedure` (`skill("auth-abac")`).
+- SAML SSO rows are stored but skipped at build time (no SAML plugin in the
+  Better Auth version in use).
+- Terminal `requireMfa` and `maxSessionMs` are stored and editable but not
+  enforced.
+- Open question: a second, agent-side factor for privileged capabilities (node
+  shell, mesh, builds), so a compromised controller alone can't use them.
+- The controller receives `agentVersion`/`protocolVersions` on register but never
+  checks agent ↔ controller skew.
 
-    %% P2 platform
-    GIT[git-cicd-registry<br/>build/registry/GC]
-    VOL[volumes-dr<br/>backup/restore/replicated store]
-    AUTH[auth-providers-abac]
-    OBS[observability<br/>OTel + ClickHouse]
-    TERM[terminal-proxy<br/>web SSH/exec]
+## Edge & exposure
 
-    %% P3 scale/ecosystem
-    GEO[geo-dns-multiregion<br/>GSLB + HA templates]
-    API[public-api-terraform]
-    LIC[licensing-and-release]
+- Declared exposure (`swarmy.expose`): the background exposure-audit worker
+  doesn't alert on declared-vs-observed drift (the Exposure page does), and the
+  ingress renderer doesn't consult the label.
+- Per-domain driver override (`route.driver`) is saved on the route label but
+  ignored at render time.
+- Country rules: `geoipMmdbPath` has no UI and no automatic mmdb download (reuse
+  `apps/dns`'s geoip manager).
+- Verify the `edge-per-node` topology on a real multi-node swarm now that the
+  Caddyfile is written inside the task rather than to a host path.
 
-    DS --> ON
-    DS --> GUI
-    DS --> AUTH
-    SEC --> ING
-    SEC --> GIT
-    SEC --> VOL
-    SEC --> AUTH
-    SEC --> DS
+## Data & storage
 
-    ON --> NET
-    ON --> GIT
-    ON --> TERM
-    ON --> GEO
+- Managed Postgres still runs `bitnamilegacy/postgresql`; port to the official
+  `postgres` image.
+- Managed-DB placement ignores the `swarmy.node.database` role label
+  (`manageddb-reconcile.ts` places by region only).
+- **Decide:** the `geo` topology is auto-promoted like the others, although
+  cross-region async replication can lose the last writes. Keep it (documented
+  in `managed-data.md`) or gate it behind a confirmation?
+- HA templates (`postgres-ha`, `redis-ha`) exist server-side with no gallery UI.
+- Garage presigned URLs sign the in-swarm endpoint; add a public S3 endpoint
+  setting.
+- Registry GC is node-local only; registry manifests/blobs are never deleted, so
+  the registry volume only grows.
 
-    GUI --> GIT
-    GUI --> GEO
-    ING --> GIT
-    ING --> GEO
-    ING --> OBS
+## Mesh
 
-    PLACE --> GEO
-    PLACE --> GUI
+- `managed-by-swarmy` is a mode value only — swarmy doesn't stand up its own
+  NetBird server yet.
+- Direct-connect TTL: `expiresAt` is recorded but nothing sweeps expired routes.
+- MTU isn't managed (WireGuard under VXLAN can fragment/drop large packets).
+- The NetBird client image floats on `:latest` (covered by
+  `epic-platform-upgrades.md`).
+- The NetBird control-plane client still needs one live verification pass.
 
-    NET --> VOL
-    NET --> GEO
+## Observability
 
-    VOL --> DS
-    VOL --> OBS
-    VOL --> GEO
+- The collector is OTLP-only: no `filelog` stdout tailing (so uninstrumented
+  images show no logs), no tail sampling, no gateway tier —
+  `docs/product/observability.md` describes all three as the direction.
 
-    AUTH --> API
-    AUTH --> TERM
+## REST API & Terraform
 
-    LIC -.governs all.-> DS
-```
+- `Deprecation`/`Sunset` headers and `x-swarmy-deprecated` for v1 endpoints
+  (the policy is in `skill("rest-api-surface")` invariant 8); a spec-drift CI
+  gate.
+- Terraform provider: treat async (202) deploys as blocking — poll
+  `/deployments/{id}` to a terminal phase and fail the apply on failure; add
+  `join_token`, `ingress` and `node` resources.
+- `terraform-provider-swarmy/README.md` still says the Go SDK comes from
+  Speakeasy; it's generated by `scripts/gen-sdks.ts`.
 
-Reading the graph:
-- **data-store-strategy** and **node-onboarding** unblock everything; nothing real ships before them.
-- The **credential vault** (a tiny envelope-encryption helper, `SWARMY_SECRET_KEY`-derived) is shared by ingress (TLS/tunnel creds), git-cicd (tokens/registry creds), volumes-dr (restic/S3 creds), auth (OIDC secrets), and the controller-state backup. Build it once, in P0, as part of data-store-strategy. Do not let four epics each invent their own.
-- **ServiceSpec.placement** (constraints/preferences/maxReplicasPerNode, protocol-version-gated) is a small additive protocol change that geo-dns and the GUI builder both hard-depend on. Land it early in P1.
-- **volumes-dr** is depended on by both **data-store-strategy** (controller backup rides its restic/`BackupTarget` mechanism) and **observability** (ClickHouse is stateful). This creates a soft cycle DS↔VOL: resolve it by shipping the *backup primitive* (restic driver + `BackupTarget` + `SWARMY_SECRET_KEY`) as the first slice of volumes-dr, in P1, before the controller-backup slice of data-store consumes it.
-- **zero-trust-networking** is a soft dependency for volumes-dr (off-site replication over mesh) and geo-dns (true cross-region failover) — not a hard blocker; both degrade gracefully without it.
+## Dashboard
 
-## 3. Phased plan
+(Most UI work is sequenced by `redesign-dashboard-2026-09.md`.)
 
-Sequencing rule: get **"copy one line → app is live on the internet with HTTPS"** working end to end as fast as possible. That's onboarding + a working ingress + the GUI builder, with mesh close behind so multi-node-across-clouds also "just works."
+- `NodeDetail.swarmOrchestration` (waiting/joining/failed + reason) is exposed
+  but not rendered.
+- Switching org can show the previous org for up to 60 s (Better Auth
+  `cookieCache` isn't refreshed by `switchOrg`).
+- `/services/new` has no admin override for guardrail blocks, and the REST
+  `POST /services` 412 isn't in the OpenAPI spec.
 
-### P0 — Foundation (now)
+## CI & release
 
-| Epic | Size | Rationale |
-|---|---|---|
-| **licensing-and-release** | M | Ratify the license + fix the release pipeline (multi-arch GHCR images for agent **and** controller, version-pinned `install.sh` as a release asset). Onboarding literally can't ship a one-liner without this producing the installer + images. Do the license-string fix (`FSL-1.1-ALv2`) and CI Postgres/lint/test gaps immediately. |
-| **data-store-strategy** | L | Every model and migration sits on it. Ship the PGlite (lite) default + same-dialect Postgres upgrade path, **and** extract the shared credential-vault helper here. Controller backup/restore slice waits on the volumes-dr primitive (P1). |
-| _cross-cut:_ credential vault + `writeAudit` helper | S | Extracted as part of data-store. Unblocks ingress/git/volumes/auth. `AuditLog` has zero writers today — add the first one. |
+- CI runs no `bun run test` job — the unit gates only protect you if you run
+  them (`skill("testing-conventions")`).
+- The Release workflow is manual until launch; restore `push: branches: [main]`
+  afterwards.
+- DCO sign-off is documented in `CONTRIBUTING.md` but not enforced.
+- Only the root `package.json` carries a `license` field; no `NOTICE` file.
 
-### P1 — "Anyone can just deploy" (the killer demo)
+## Deferred (not blocking launch)
 
-| Epic | Size | Rationale |
-|---|---|---|
-| **node-onboarding** | L | The headline. `curl … \| sh` → node ONLINE in the dashboard, Docker + agent + swarm-init handled, watch-it-connect UI. Everything downstream is a node capability that extends this installer. |
-| **ingress-strategy** | L | Without ingress, "deployed" isn't "reachable." Ship Caddy default (auto-HTTPS), Caddy HA via shared Redis cert storage, and Cloudflare Tunnel for the no-public-IP majority. `none` stays the literal default. |
-| **stack-gui-builder** | XL | The "deploy visually / paste a compose / it just works" surface, plus image autocomplete. Land Phase 0 (canonical `ServiceModel` spine) early — it de-risks everything that extends the spec. Includes the `ServiceSpec.placement` additive change. |
-| **zero-trust-networking** | L | Makes "any box in any cloud/home joins one swarm, no inbound ports" true. MVP = NetBird default, one-command join over WireGuard. Slightly behind onboarding because it's an opt-in toggle, but it's what makes the demo work across clouds. |
-| **volumes-dr** (backup primitive slice) | M | Ship restic + `BackupTarget` + per-volume backup/restore first (works on vanilla `local` volumes). This slice also unblocks the data-store controller-backup feature. Replicated store / CSI come in P2. |
-
-### P2 — Platform completeness
-
-| Epic | Size | Rationale |
-|---|---|---|
-| **git-cicd-registry** | XL | Closes the loop: `git push` → build (BuildKit) → in-swarm registry → deploy, with disk-safe GC. The "no external CI/registry needed" differentiator. Depends on onboarding, ingress (registry TLS), GUI builder (image field "build from git"), and the credential vault. |
-| **volumes-dr** (replicated store + CSI slice) | L | Garage replicated S3 + opt-in Swarm CSI cluster volumes + restore-on-recovery. Builds on the P1 backup primitive; soft-needs mesh for off-site. |
-| **auth-providers-abac** | L | Toggle-on social/SSO providers + Cedar ABAC over the existing role chain. Gates the public API and node-shell approval flows; pure controller-side. |
-| **observability** | L | OTel + single ClickHouse store + native trace UI, per-stack opt-in. Needs the overlay network and volumes-dr (ClickHouse is stateful). High value but not blocking the core promise. |
-| **terminal-proxy** | M | Web SSH/exec over the existing agent WS (new `/term/ws` duplex pipe). Main RCE path — depends on auth/ABAC for approval/MFA and node-shell gating. |
-
-### P3 — Scale & ecosystem
-
-| Epic | Size | Rationale |
-|---|---|---|
-| **geo-dns-multiregion** | XL | GSLB (CoreDNS + custom plugin) + HA DB templates. Depends on the most: ingress (health source), `ServiceSpec.placement`, mesh (cross-region failover), volumes-dr. Genuinely advanced; the long tail. |
-| **public-api-terraform** | L | OpenAPI REST (zod-openapi over existing service layer) + Terraform provider + SDKs. Depends on auth/ABAC for key scoping. The IaC/ecosystem play — important for enterprise, not for "anyone can deploy." |
-
-> Sizes: S ≈ days, M ≈ 1–2 wks, L ≈ 3–5 wks, XL ≈ 6+ wks, for one strong implementer. Several P1 epics can parallelize once onboarding + the credential vault land.
-
-## 4. Killer features to lead marketing with
-
-1. **One command, watch it connect.** Copy one line from the dashboard, paste on any fresh Linux box, and the node appears ONLINE in seconds — Docker, agent, supervisor, and swarm membership all handled. No flags, no env vars, no manager-vs-worker decision.
-2. **Cross-cloud cluster, zero inbound ports.** Flip one toggle and that same one-liner joins boxes across AWS, a homelab, and a DR box into one encrypted WireGuard swarm — no public IPs, no VPCs, no firewall edits (NetBird mesh).
-3. **`git push` → live HTTPS service, no external infra.** In-swarm BuildKit + in-swarm registry + auto-HTTPS ingress means a push becomes a running, TLS-fronted service with nothing rented from Docker Hub or a CI vendor.
-4. **Paste your compose, deploy visually, never get locked in.** A GUI builder derived from the real Swarm schema with image autocomplete, two-way compose import/export, and a "view as `docker service create`" escape hatch — proving the unopinionated promise.
-5. **One-click disaster recovery.** Volume backup/restore + restore-on-recovery + a controller-state backup with a user-held passphrase, so a dead controller restored on a new box re-adopts the existing swarm automatically.
-
-(Lead with 1–3; 4 and 5 are the "and it's serious" proof points.)
-
-## 5. Cross-cutting concerns every epic must respect
-
-- **Security / RBAC / ABAC.** Every mutating tRPC procedure goes through `orgProcedure`/`adminProcedure` today and `abacProcedure` once auth-providers-abac lands; new routers must adopt the same chain from day one. New principal types (`apikey`, mesh peer, build `system` actor) must map onto the same policy model. Privileged paths — terminal node-shell, builds (arbitrary code exec), direct-stack-connect to Postgres — are off-by-default, gated by an explicit agent env flag (`SWARMY_ALLOW_EXEC`/`_NODE_SHELL`/`_BUILD`/`_MESH`), TTL'd, and always audited.
-- **Multi-tenancy / org-scoping.** Everything is keyed by `orgId`; no cross-org data path. Config singletons follow the `IngressConfig` one-per-org pattern. Bundled stateful services (registry, ClickHouse, Redis, Garage) are swarm-wide infra but their *data and access* stay org-scoped. The hosted cloud tier must assume hostile co-tenancy (per-build isolation, per-org policy enforcement).
-- **Agent protocol versioning.** The wire protocol is the system's contract; one repo-wide version == the protocol version (per licensing-release). New capabilities are **additive** discriminated-union message types + additive `ServiceSpec` fields, gated by the `protocolVersions` handshake so older agents reject unknown fields gracefully and never receive commands they can't run. Only bump `PROTOCOL_VERSION` when an existing message shape changes. The "agent applies generic intent" rule is inviolable: new capability = new render/command type + new driver, never an agent rewrite.
-- **Credential handling.** One envelope-encryption mechanism (`SWARMY_SECRET_KEY`-derived), hash-or-encrypt-at-rest, never return secrets to the client (mirror the join-token posture). The wire carries secret *references* resolved at dispatch with short TTL, not persisted plaintext. All credential epics (ingress, git, volumes, auth, controller-backup) share it.
-- **The audit trail.** `AuditLog` exists but has no writers today. The first `writeAudit` helper ships in P0; every epic's mutations (including `system`-actor automation: polls, webhooks, GC, schedulers) write to it.
-- **Pluggability as the default shape.** Mesh, ingress, build, registry, storage, GSLB, telemetry, observability backend — all copy the `@swarmy/ingress` driver-registry + `RenderedConfig`/`DriverDispatch` pattern, with a `none`/no-op driver registered first so the default install runs zero extra processes.
-- **Testing.** CI today runs no lint/test and starts no Postgres despite a localhost `DATABASE_URL` (latent bug — fix in P0). Required gates: protocol round-trip/discriminated-union parse tests, compose two-way golden round-trip corpus, ABAC policy unit tests, GC "never delete in-prod digest" tests, and an e2e that exercises the actual headline (`install.sh` → node ONLINE → deploy → reachable over ingress). The squash-merge PR title feeds semantic-release, so add a PR-title conventional-commit check.
-- **Simplicity guardrail (non-negotiable).** Every epic ships with its feature **off by default** (`driver = none` / enable toggle) and a one-command/zero-config happy path. If a feature can't be enabled with a single dashboard toggle and works with sane defaults the user never configures, it isn't done.
+- More tunnel providers (ngrok, tailscale-funnel); the connector enum reserves
+  them.
+- Active-active Postgres logical-replication wiring (the direction prefers a
+  single writer).
+- macOS/Windows agent targets beyond a darwin dev build.

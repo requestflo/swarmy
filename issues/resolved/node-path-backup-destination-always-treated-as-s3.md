@@ -3,7 +3,7 @@
 **Status:** Fixed in code (2026-09) — pending live re-verification. See "Fix applied" below.
 **Severity:** Critical — this is one of only two backup-destination kinds swarmy offers (the
 other being external S3-compatible, confirmed working — row 12 of
-`plans/readiness-sweep-2026-07.md`), and in a single-node local/on-prem deployment with no cloud
+the readiness sweep log (`plans/readiness-sweep-2026-07.md`, in git history)), and in a single-node local/on-prem deployment with no cloud
 account, "node path" is the *only* destination kind that could produce a genuinely successful
 backup without external dependencies. It cannot work at all, for any org, ever.
 

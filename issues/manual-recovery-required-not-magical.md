@@ -51,7 +51,7 @@ meta-lesson is a testing-methodology correction, not just a bug list:
   was possible by hand doesn't make the automatic path acceptable.
 - The stale local VM state produced by that recovery work (a swarm that was force-reformed,
   overlay networking broken, one node double-enrolled with the wrong token) is not worth
-  preserving or continuing to debug live. See `plans/readiness-sweep-2026-07.md` for the reset.
+  preserving or continuing to debug live. See the readiness sweep log (`plans/readiness-sweep-2026-07.md`, in git history) for the reset.
 
 ## Suggested fix direction
 

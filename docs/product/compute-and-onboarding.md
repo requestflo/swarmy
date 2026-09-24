@@ -10,7 +10,7 @@ to "node ONLINE in the dashboard" with a single pasted line:
 
 1. In the dashboard they open **Infrastructure → Add a node** (or Settings →
    Enroll a node) and copy the one-liner:
-   `curl -fsSL https://app.swarmy.dev/i/<token> | sh`.
+   `curl -fsSL <controller>/install/loader.sh | SWARMY_JOIN_TOKEN=<token> sh -s -- --controller <controller>`.
 2. On the box they paste it. The script installs Docker if missing, installs the
    agent as a managed service, initializes or joins the org's Docker Swarm
    **locally**, and starts dialing out.
@@ -30,9 +30,9 @@ controller never reaches in.**
 
 ```
 fresh box                                       dashboard: "Add a node"
-   │  ① curl https://app.swarmy.dev/i/<token> | sh
-   │     token IS the config → resolves server-side to org, WSS URL, labels,
-   │     role hint, pinned agent version + checksums
+   │  ① curl <controller>/install/loader.sh | SWARMY_JOIN_TOKEN=… sh -s -- --controller …
+   │     token (env, never the URL) resolves server-side to org, labels,
+   │     role hint, profile; the loader pins version + checksums
    ▼
 loader (tiny, reviewable) → installer (pinned, sha256) → agent binary (sha256)
    │  ② install Docker if missing · install agent as systemd service
@@ -64,12 +64,13 @@ Four ideas, one story:
   box behind NAT with zero inbound ports — and why swarm `init`/`join` happen on
   the box against its own Docker socket, never controller-initiated against a
   remote one.
-- **The token is the entire config.** The pasted URL carries an opaque bootstrap
-  token; the controller resolves it to org, controller URL, desired labels, role
-  hint, and the pinned agent version. The script *body* is identical for every
-  user — only the URL differs — so it can be a static, signed, cacheable
-  artifact. The token is the join token already in the DB, reused; no new secret
-  type.
+- **The token rides an env var, never the URL.** The join token is passed as
+  `SWARMY_JOIN_TOKEN` so it never lands in proxy/CDN logs; the controller
+  resolves it to org, desired labels, role hint, and install profile. The loader
+  body is identical for every request (its sha256 is pinned), it pins the
+  installer, which pins the binaries. The token is the join token already in the
+  DB, reused; no new secret type. Installers are POSIX `sh` — Alpine and busybox
+  have no bash.
 - **Docker Swarm is the substrate; swarmy is the UX over it.** Every node is a
   real swarm member; every service is a real swarm service. swarmy adds
   identity, roles, and a control loop — it does not replace Docker. A stack keeps
@@ -94,8 +95,8 @@ Four ideas, one story:
   a price, swarmy stores it on the node," so cost survives without a DB row and
   feeds per-stack breakdowns.
 - **What swarmy's DB owns is only its own identity + credentials**: the `Node`
-  row (org scoping, `nodeId`, hostname, `sessionSecretHash`, `sessionVersion`,
-  `enrollMethod`) and `JoinToken` (uses, expiry, revocation, label/role intent).
+  row (org scoping, `nodeId`, hostname, `sessionSecretHash`, `sessionVersion`)
+  and `JoinToken` (uses, expiry, revocation, label/role intent).
   Everything derivable about the machine is derived from swarm truth.
 
 ## Dial-out behaviour (what "the agent dials out" commits us to)
@@ -155,16 +156,21 @@ Four ideas, one story:
   controller to hold node credentials and reach in — violating the dial-out,
   NAT-friendly, "controller never touches the node" principle. `curl | sh` is
   pull-based and works behind NAT with zero inbound ports.
-- **Storing swarm join tokens centrally.** Manager/worker join tokens are fetched
-  and used locally on the box; swarmy does not warehouse them.
+- **Storing swarm join tokens in plaintext.** Manager/worker SWMTKN tokens are
+  kept encrypted in `SwarmConfig`, rotatable (`rotateJoinTokens`), and handed to
+  the box only for a local `swarm join`.
 - **A DB mirror of swarm state.** Role, availability, labels, and membership are
   read from Docker each time. A column that shadows swarm state drifts — see the
   `docker-native-storage` skill.
 - **Making the user choose manager vs worker.** The token's role hint + the
   controller decide; the happy path asks nothing.
-- **Bash with `--flags`.** More to mistype and it pushes config to the client
-  when the controller already knows everything. The token-resolves-to-config
-  model keeps the pasted line to one line.
+- **Bash, or config baked into the URL.** Bash excludes Alpine/busybox hosts,
+  and a token in the URL leaks into logs. The pasted line stays one line: the
+  token and a few optional env knobs, everything else resolved server-side.
+- **SQLite/libSQL for the lite tier.** It would fork the schema forever (no
+  native enums/jsonb, single writer). The lite controller runs PGlite: same
+  Postgres dialect, one schema, one migration history; only the Prisma driver
+  adapter differs from the standard (external/managed Postgres) tier.
 
 ## Onboarding (the one part we hand-hold)
 
@@ -207,5 +213,5 @@ persistence, recovery beacon; `index.ts` is a back-compat daemon shim),
 `apps/api/src/gateway/protocol-handlers.ts` (`register`/session handshake) +
 `apps/api/src/gateway/join-auth.ts` (the re-adoption decision),
 `packages/trpc/src/services/node.service.ts` (roles/region/public-ip labels,
-drain), and the `apps/api/src/install/*` routes + `plans/epic-node-onboarding.md`
+drain), and the `apps/api/src/install/*` routes + `scripts/install-swarmy.sh`
 for the install script.

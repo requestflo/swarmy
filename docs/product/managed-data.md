@@ -90,9 +90,9 @@ Four ideas, one story:
   (`POSTGRESQL_PASSWORD`), a documented tradeoff.
 - **Bucket/key state is Garage's, not ours.** For object storage the Garage
   admin API is the source of truth for every bucket, key, quota, and grant.
-  swarmy reaches it by running a one-shot `container.runOnce` curl on a storage
-  member node (host network → `127.0.0.1:3903`, token as container env, never
-  argv, never disk).
+  swarmy reaches it by running a one-shot `container.runOnce` curl on the
+  overlay (`swarmy-garage:3903`, token as container env, never argv, never
+  disk).
 - **What the DB owns is only swarmy's own pointers and access records.** The
   `StorageCluster` row (one per org: driver, `replicationFactor`, `enabled`,
   encrypted `adminTokenRef`) and the `ClusterVolume` row (CSI registration) —
@@ -135,6 +135,20 @@ Four ideas, one story:
   not recoverability. The backup/restore/drill story lives in the `backups-dr`
   domain.
 
+- **Automatic promotion.** A primary unhealthy for `PROMOTION_GRACE_TICKS` (2,
+  ~30 s) is replaced by the lowest-lag running replica (`pg_ctl promote`); role
+  labels flip, the other replicas are repointed, and an incident, event and audit
+  row are recorded (`manageddb-reconcile`). `single` and `active-active` are
+  never promoted. Note: `geo` is auto-promoted too, although cross-region async
+  replication can lose the last writes — an accepted RPO, stated here so it
+  is a decision rather than a surprise.
+- **HA templates.** `postgres-ha` (repmgr) and `redis-ha` (Sentinel, quorum
+  ⌊n/2⌋+1) render one pinned member per `swarmy.region` plus a portable compose
+  file (`services/templates.ts`, `routers/templates.ts`). With fewer than 3
+  regions they warn that automatic failover is unsafe (no tiebreaker) and offer a
+  witness. Every template states its RPO/RTO honestly; none claims zero data
+  loss. No gallery UI calls `templates.*` yet.
+
 ## Failure modes (designed, not accidental)
 
 | Failure | Behaviour |
@@ -159,10 +173,11 @@ Four ideas, one story:
 - **A managed rw/ro proxy (Pgpool/HAProxy) in the first slice.** Swarm DNS gives
   a single-writer primary host and a round-robining replica host for free; a
   proxy is added weight for the split we already get.
-- **Automatic failover/promotion on day one.** Provision + scale + inject +
-  health now; promotion needs a DCS and a promote command. The `failover`
-  topology adds the etcd consensus member as the deliberate next step, not a
-  hidden default.
+- **MinIO distributed / Ceph / SeaweedFS as the bundled object store.** MinIO
+  wants same-datacentre nodes and a fixed layout, and its licensing has churned;
+  Ceph is too heavy to run; SeaweedFS has more moving parts and suits
+  single-datacentre scale-out. Garage replicates (not erasure-codes) across
+  small, geo-spread, mixed nodes in one binary with no external metadata DB.
 - **Shipping our own CSI driver.** Cluster volumes register against an operator's
   *existing* CSI plugin. swarmy orchestrates the registration and mount; it does
   not become a storage driver vendor.
@@ -185,5 +200,6 @@ the reconcile workers
 (`apps/api/src/workers/{manageddb,cache,search,vector}-reconcile.ts`), the agent
 storage/volume handler (`apps/agent/src/handlers/storage.ts`) and its protocol
 (`packages/core/src/protocol/storage.ts`), the `StorageCluster` / `ClusterVolume`
-models (`packages/db/prisma/schema/backups.prisma`), and the Data surfaces
-(`apps/app/src/routes/_authed/data*.tsx`).
+models (`packages/db/prisma/schema/backups.prisma`), and the Data surfaces —
+per stack in `apps/app/src/routes/_authed/stacks/$name.data.tsx`, object storage
+at `routes/_authed/data_.buckets.tsx`.

@@ -110,12 +110,20 @@ Four ideas, one story:
   (`managed-by-swarmy`) or `external` control plane. Headscale, Tailscale, and
   raw WireGuard are first-class alternatives behind the same `MeshDriver`
   interface — pluralism for power users without complicating the default path.
+  Headscale suits teams that keep ACLs as code (HuJSON); raw `wireguard` means
+  "you own routing/NAT/key exchange", like the `none` ingress driver. Today
+  `managed-by-swarmy` is a mode value only — swarmy does not yet stand up its
+  own NetBird server, so a real control plane (NetBird cloud or self-hosted) is
+  still required.
+- **Mesh identity is swarmy's service token**, which owns the NetBird account.
+  There is no OIDC federation, so removing an org member does not revoke their
+  mesh peers automatically.
 - **Enrollment is admin-gated, provisioned server-side, dispatched once.**
   `enrollNode` refuses unless a driver is picked and mesh is enabled, requires
   the node online, mints the key, persists an `ENROLLING` peer, dispatches
   `applyMesh`, then settles the peer to `CONNECTED`/`ENROLLED` (or `FAILED`,
   audited).
-- **The client is a privileged, pinned, off-by-default sidecar.** A long-lived
+- **The client is a privileged, supervised sidecar.** A long-lived
   `swarmy-netbird` / `swarmy-tailscale` container owns the WireGuard interface
   (host network, `NET_ADMIN`/`SYS_ADMIN`/`SYS_RESOURCE`, `/dev/net/tun`). Raw
   WireGuard instead writes `wg0.conf` and runs `wg-quick up`. The whole
@@ -140,7 +148,7 @@ Four ideas, one story:
 | Node opts out of mesh (`SWARMY_ALLOW_MESH=false`) | The executor rejects `applyMesh`/`grantDirectRoute` with `E_MESH_DISABLED`; the rest of the agent is unaffected. |
 | Agent silent but control plane knows | Reconcile can fall back to `reconcileFromControlPlane` (NetBird `/api/peers`) so liveness isn't lost when the node's own reporter is quiet. |
 | Direct-route policy push fails | The route row is kept, the ACL marked un-applied, and `mesh.route.pushFailed` is audited — the grant isn't silently lost. |
-| Direct route TTL elapses | `expiresAt` bounds the grant; revoke tears down the control-plane policy and deletes the rows. Expiry is the default posture, not the exception. |
+| Direct route TTL elapses | `expiresAt` records the bound, but TTL is optional and nothing sweeps expired routes yet — revoke is what tears down the control-plane policy and deletes the rows. Enforced expiry is an open gap (`plans/ROADMAP.md`). |
 
 ## Explicitly rejected
 
@@ -148,14 +156,14 @@ Four ideas, one story:
   exact ops swarmy exists to erase. The mesh is WireGuard-grade, NAT-friendly,
   and inbound-portless by construction.
 - **A SaaS-only control plane in the critical path.** NetBird's control plane is
-  self-hostable, so "managed by swarmy" needs no third party. Tailscale (SaaS
+  self-hostable, so the control plane can run on your own hardware. Tailscale (SaaS
   coordination) is offered as a driver for teams already living there — never the
   default.
 - **Writing setup keys or WireGuard secrets to node disk.** Keys ride one
   authenticated frame and become container env only; the service token is
   encrypted at rest and resolved JIT. A secret on disk is a secret that leaks.
 - **Embedding the WireGuard client in the agent.** The agent is Bun/TS; the mesh
-  client is a pinned, privileged, supervised sidecar — the same "write config,
+  client is a privileged, supervised sidecar — the same "write config,
   run the tool" shape as the ingress agent, not a reimplementation of NetBird.
 - **A DB mirror of the provider's peer list.** The control plane is
   authoritative; swarmy reconciles from telemetry + `listPeers`, it does not

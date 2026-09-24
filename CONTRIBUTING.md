@@ -59,15 +59,23 @@ The name/email must match the commit author. Forgot one? `git commit --amend -s`
 ## Branches & releases
 
 - Work on a feature branch, open a PR into `main`.
-- CI runs typecheck + build + commitlint.
-- On merge to `main`, the **Release** workflow runs semantic-release: it computes
-  the next version from the commits, updates `CHANGELOG.md`, tags, and publishes a
-  GitHub release.
+- CI runs the migration check, typecheck + build, commitlint, and the headline
+  self-host e2e.
+- The **Release** workflow runs semantic-release: it computes the next version
+  from the commits, updates `CHANGELOG.md`, tags, and publishes a GitHub release.
+  Until launch it is started by hand (Actions → Release → Run workflow); after
+  launch it runs on every merge to `main`.
+- **One version for the whole product** (`vX.Y.Z`), applied to both images and
+  `install.sh`. swarmy ships as a system and the agent and controller share the
+  `@swarmy/core` wire protocol, so the repo version is also the protocol
+  version. Don't adopt per-package release tooling; workspaces stay `private`
+  with `npmPublish: false`.
 
 ## Roadmap
 
-The product roadmap and per-epic design docs live in [`plans/`](./plans). Start
-with [`plans/ROADMAP.md`](./plans/ROADMAP.md).
+What swarmy is and why lives in [`docs/product/`](./docs/product) (start at
+`product-shape.md`). What's still open, and the few active design plans, live
+in [`plans/`](./plans) — start with [`plans/ROADMAP.md`](./plans/ROADMAP.md).
 
 ## License
 
@@ -75,6 +83,12 @@ swarmy is licensed under the [Functional Source License](./LICENSE.md)
 (FSL-1.1-ALv2). By contributing you agree your contributions are licensed
 under the same terms. See the license for what is and isn't permitted (TL;DR: use
 it for almost anything except reselling swarmy as a competing managed service).
+
+Why FSL: it is BSL with nothing hand-drafted — a fixed Competing Use clause and a
+fixed two-year conversion of each version to Apache-2.0. It beat Elastic-2.0
+(never converts), SSPL (blocklisted, overbroad) and BSL (parameterised, 4-year
+default). We describe the project as "Fair Source". The SPDX id is
+`FSL-1.1-ALv2`, never `FSL-1.1-Apache-2.0`.
 
 The exception is the [`ee/`](./ee) directory (and any path explicitly marked
 enterprise), which is governed by the non-converting

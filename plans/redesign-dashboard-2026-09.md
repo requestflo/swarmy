@@ -1,9 +1,9 @@
 # Dashboard redesign 2026-09 — a calm ops console for novices and experts
 
 Status: **proposal, awaiting owner review. No code changed.**
-Supersedes `plans/redesign-command-canvas.md` (its command-bar/two-plane shell
-was already replaced by the sidenav; its per-page conventions are folded in
-here). Keeps `docs/product/product-shape.md`'s estate/stack split intact.
+Supersedes the earlier command-bar/canvas redesign plan (deleted; its
+two-plane shell was already replaced by the sidenav and its per-page
+conventions are folded in here). Keeps `docs/product/product-shape.md`'s estate/stack split intact.
 
 Evidence: 18 screenshots of the live demo at 1440w (scratchpad `ux-shots/`),
 plus a code pass over `lib/destinations.ts`, `lib/stack-nav.ts`, the routes
@@ -199,9 +199,9 @@ demo-mode walkthrough in both themes at 1440 and 390 wide.
   (install → deploy → reachable) without selector churn.
 - **Route moves break bookmarks.** Keep old paths as redirects for one release
   (a table in `lib/legacy-routes.ts`), then the catch-all.
-- **Hot Signal skill drift.** `hot-signal-design/SKILL.md` still mandates the
-  hero headline and 8-row nav; update the skill in P1 so future work follows
-  the new anatomy.
+- **Hot Signal skill drift.** `hot-signal-design/SKILL.md` marks its hero
+  headline, 8-row nav and vocabulary rules as superseded by this plan; P1
+  rewrites the skill so future work follows the new anatomy.
 - **Hero removal changes the brand feel.** Mitigated by keeping one bold
   statement on Overview and in the success moment, where a statement is
   earned.

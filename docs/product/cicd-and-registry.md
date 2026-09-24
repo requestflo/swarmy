@@ -191,5 +191,4 @@ enable, GC policy, live logs), `packages/trpc/src/services/image-gc.service.ts`
 `apps/api/src/webhooks.ts` (the git webhook receiver),
 `apps/api/src/workers/{image-gc,preview-reconcile}.ts` (the background sweeps),
 `packages/db/prisma/schema/cicd.prisma` (the models), and
-`apps/app/src/routes/_authed/ci.tsx` (the `/ci` workspace). For the deeper
-rationale see `plans/epic-git-cicd-registry.md`.
+`apps/app/src/routes/_authed/ci.tsx` (the `/ci` workspace).

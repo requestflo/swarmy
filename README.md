@@ -127,8 +127,8 @@ upgrades.
 | **AI** | Optional org AI gateway with virtual keys and usage accounting |
 
 Product thinking lives in [`docs/product/`](./docs/product/) (start at
-[`product-shape.md`](./docs/product/product-shape.md)). The delta between vision
-and code is tracked in [`plans/roadmap-mini-cloud.md`](./plans/roadmap-mini-cloud.md).
+[`product-shape.md`](./docs/product/product-shape.md)). What's still open between
+vision and code is tracked in [`plans/ROADMAP.md`](./plans/ROADMAP.md).
 
 ## Stack
 
@@ -238,8 +238,8 @@ audit — not a shadow copy of your cluster.
 | [`docs/GETTING-STARTED.md`](./docs/GETTING-STARTED.md) · [`docs/UPGRADING.md`](./docs/UPGRADING.md) | Your first 10 minutes; upgrading a self-host install |
 | [`docs/LOCAL-SWARM.md`](./docs/LOCAL-SWARM.md) · [`docs/NODE-RECOVERY.md`](./docs/NODE-RECOVERY.md) | Operator runbooks — run a local swarm; recover a node |
 | [`SECURITY.md`](./SECURITY.md) | Reporting a vulnerability; secure defaults |
-| [`plans/roadmap-mini-cloud.md`](./plans/roadmap-mini-cloud.md) | Governing roadmap — code vs direction |
-| [`plans/`](./plans/) | Epic design docs and platform buildout notes |
+| [`plans/ROADMAP.md`](./plans/ROADMAP.md) | What's still open — code vs direction |
+| [`plans/`](./plans/) | Active design plans (platform upgrades, dashboard redesign) |
 | [`.claude/skills/`](./.claude/skills/) | Implementation invariants for contributors |
 
 ## License

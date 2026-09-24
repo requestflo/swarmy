@@ -51,8 +51,8 @@ managed suite (deployed via the EXISTING service.deploy path — no new protocol
    ▼
 app auto-exports OTLP → collector enriches + exports → ClickHouse
    otel_traces · otel_metrics_* · otel_logs   (partition-by-day, TTL = retentionDays)
-   │  ③ collector's `filelog` also tails container stdout → logs land with
-   │     zero app changes, even for an uninstrumented image
+   │  ③ (planned) collector's `filelog` tails container stdout → logs land
+   │     with zero app changes, even for an uninstrumented image
    ▼
 controller reads ClickHouse over HTTP, org-scoped on EVERY query
    traces · service map · metrics · logs · health narrative → the tab + top-level UI
@@ -102,6 +102,9 @@ Four ideas, one story:
   `NotificationChannel` (config encrypted via the vault, never returned to
   clients). Identity, access, audit, and the *history of what fired* — swarmy's;
   the raw signal firehose — ClickHouse's.
+- **Telemetry is its own data plane.** Spans/metrics/logs go app → collector →
+  ClickHouse, never over the agent WebSocket; node/container resource history
+  stays in `MetricSample` (Postgres), so basic graphs need no ClickHouse.
 - **Health is composed, never stored.** The plain-words narrative
   (`health-summary.ts`) is recomposed each read from live tasks, DB replica lag,
   queue depth, and RED metrics — it is a view, not a table.
@@ -112,8 +115,11 @@ Four ideas, one story:
   telemetry until its toggle is on; turning it off drops the env/labels on next
   deploy and stops the stack's data landing. The whole suite has zero footprint
   when no org has enabled it — ClickHouse is heavy, so it is strictly opt-in.
-- **Logs work the instant you opt in — even for an uninstrumented image.** The
-  node collector's `filelog` receiver tails container stdout, so "Logs" is
+- **Logs work the instant you opt in — even for an uninstrumented image.**
+  *(Direction — not built: the collector pipelines are OTLP-only today, so only
+  apps that export OTLP logs show up; tail sampling and the gateway tier in the
+  table below are the same. See `plans/ROADMAP.md`.)* The node collector's
+  `filelog` receiver tails container stdout, so "Logs" is
   populated before the app knows what OpenTelemetry is; if the app logs a
   `trace_id`, the log line jumps to its trace.
 - **The service map is derived, not declared.** Edges come from client/server
@@ -156,6 +162,9 @@ Four ideas, one story:
 - **Making telemetry change the app.** No injected sidecar, image rewrite, or
   command override in v1's zero-code path; only env + labels + an overlay join, so
   the unopinionated guarantee holds and opt-out is a clean revert.
+- **Bundling SigNoz / Uptrace.** They bring their own auth, tenancy and UI — a
+  second login system beside Better Auth. We take the Collector + ClickHouse
+  schema and own the UX.
 - **A DSN to paste / a store to run yourself.** The suite deploys itself the first
   time an org opts in; the toggle is the entire configuration.
 
@@ -172,6 +181,7 @@ collector/ClickHouse config, `create_schema: true`), `observability-query.ts` /
 (the read/enable layer), the alerting spine
 (`alerts.service.ts`/`alerts-fire.ts`/`incidents-record.ts`/`statusPages.service.ts`
 + their routers), `apps/api/src/workers/{observability-reconcile,alert-evaluator}.ts`,
-and the UI at `apps/app/src/components/observability/*`, the top-level
-`routes/_authed/observability{,.$traceId}.tsx`, and the public status page at
-`routes/s.$slug.tsx`. Deep design: `plans/epic-mission-control-otel.md`.
+and the UI at `apps/app/src/components/observability/*` (the stack
+Observability tab `routes/_authed/stacks/$name.observability.tsx`, trace detail
+`routes/_authed/observability.$traceId.tsx`) and the public status page at
+`routes/s.$slug.tsx`.

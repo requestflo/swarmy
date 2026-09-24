@@ -36,7 +36,7 @@ enrolled and "Automatic" role selection — a detail that turned out to be the k
 
 The org already had a **`swarm_config` row from an earlier, since-torn-down test environment**
 (this session's earlier two-node local VM setup, discarded per the methodology correction in
-`plans/readiness-sweep-2026-07.md`). Confirmed by reading the table directly:
+the readiness sweep log (`plans/readiness-sweep-2026-07.md`, in git history)). Confirmed by reading the table directly:
 
 ```
 $ psql "$DATABASE_URL" -c 'SELECT "orgId","swarmId","managerNodeId","managerAddr" FROM swarm_config;'

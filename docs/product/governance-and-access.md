@@ -125,6 +125,18 @@ Four ideas, one story:
   when enabled. API keys and OAuth clients are admin-minted, hashed at rest, and
   scoped — see the `rest-api-surface` skill.
 
+- **The web terminal is one policy gate and a dumb pipe.** tRPC `terminal.open`
+  is the only gate (ABAC `terminal.open` + `TerminalPolicy` + optional four-eyes
+  approval + audit) and mints a 30 s single-use ticket; `/term/ws` only checks
+  the ticket and session cookie, then pipes bytes. The PTY tunnels over the
+  agent's dial-out WebSocket rather than proxying SSH — SSH would add a second
+  credential system and make recording impossible. Recording is controller-side
+  asciicast, output only (input is never recorded); mandatory for node shell,
+  org-toggleable for container exec. Container exec is on by default; node shell
+  (root on the host) is off until an admin sets `swarmy.node.shell=true`, and a
+  node can veto either locally (see `agent-handlers` invariant 10). Known gap:
+  `requireMfa` and `maxSessionMs` are stored but not yet enforced.
+
 ## Failure modes (designed, not accidental)
 
 | Failure | Behaviour |
@@ -148,6 +160,13 @@ Four ideas, one story:
 - **A second, separate audit path for background jobs.** One `writeAudit` writer,
   `actorType` distinguishes user/apikey/system/agent. Two writers means one of
   them eventually forgets a row.
+- **An external IdP (Keycloak/Authentik/Ory) in front, or a Better Auth
+  instance per org.** A heavy stateful service breaks one-command install;
+  existing IdPs plug in as SSO providers instead.
+- **Deriving the public API from tRPC (`trpc-openapi`) or exposing GraphQL.**
+  Either couples the public contract to the internal router shape; Terraform
+  and curl want plain resourceful REST. The hand-authored `@hono/zod-openapi`
+  route registry is the only sanctioned path (see `rest-api-surface`).
 - **A Zanzibar-scale relationship store (SpiceDB/OpenFGA) or an OPA sidecar.**
   Overkill and an extra network hop in the auth path. Cedar's entity-parent ReBAC
   plus a handful of `ResourceGrant` edges covers "an org's nodes/stacks/services."
@@ -171,6 +190,6 @@ exposure/images evaluators), `packages/trpc/src/services/guardrails.service.ts`
 (config + Recent decisions), the identity routers under
 `packages/trpc/src/routers/*`, the Prisma models in
 `packages/db/prisma/schema/{access,governance,api,auth,cluster}.prisma`, and the
-UI at `apps/app/src/routes/_authed/{governance,exposure,settings.access,audit,cost}.tsx`.
+UI at `apps/app/src/routes/_authed/{governance,exposure,settings_.access,audit,cost}.tsx`.
 Adding a governed mutation follows the `add-feature-slice` skill; the exposure
 half of the admission story pairs with the ingress-and-exposure doc.

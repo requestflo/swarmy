@@ -17,8 +17,8 @@ commitments follow: the first node bootstraps everything (**no required
 swarmy cloud** — your cloud must not depend on ours), and the agent that
 manages Docker lives *outside* Docker (a host-level binary), because the
 thing that repairs the platform can't ride on the platform being healthy.
-The current delta between this positioning and the code is tracked in
-`plans/roadmap-mini-cloud.md`.
+What's still open between this positioning and the code is tracked in
+`plans/ROADMAP.md`.
 
 ## The feeling we are building
 
@@ -158,6 +158,18 @@ them:
   production guardrails, safe DR drills you run on a schedule "not during an
   outage," exposure violations that alert but never silently mutate your ports,
   image signing + CVE gates. The edge's "degraded beats dark" is the same instinct.
+- **Org is the hard wall.** Everything is keyed by `orgId`, with no path from
+  one org's data to another's. Shared infra (registry, ClickHouse, Garage) is
+  swarm-wide, but its data and access stay per org. A hosted tier must assume
+  hostile co-tenants.
+- **One vault; secrets never come back.** Every stored credential is hashed or
+  encrypted with the one `SWARMY_SECRET_KEY` envelope (`@swarmy/core/crypto`),
+  never returned to a client (the join-token posture), and the wire carries
+  references resolved at dispatch — never persisted plaintext.
+- **The protocol only grows.** A new capability is a new message type or an
+  optional `ServiceSpec` field, negotiated via the `protocolVersions` handshake;
+  `PROTOCOL_VERSION` bumps only when an existing shape changes. The agent applies
+  generic intent and is never rewritten per feature.
 - **One-command simplicity.** Enroll a node with one pasted line; deploy from a
   blueprint in one click; point a domain and get TLS automatically. The happy path
   asks as little as possible.

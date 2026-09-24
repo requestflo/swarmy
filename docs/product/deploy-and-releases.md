@@ -139,6 +139,15 @@ Four ideas, one story:
   (`build`, `depends_on` conditions, …) via passthrough and re-emits them on
   export; lossy normalisations (string `cpus:"0.5"` → number) are flagged, never
   silent. Round-trip is model-faithful and key-faithful, not byte-identical.
+- **One validator, advisory by default.** One Zod `ServiceModel` validates both
+  the builder form and the tRPC input, so they cannot drift. Cross-field rules
+  (healthcheck timeout > interval, reservation > limit, global +
+  `maxReplicasPerNode`) live in the pure `validateModel` and are `info`/`warn`,
+  never a hard block. Import keys fall into three tiers: mapped,
+  swarm-incompatible (`warn`, preserved), unknown (`info`, preserved).
+- **Image autocomplete goes through the controller**, never the browser (CORS,
+  one shared cache, registry rate limits): search results cached ~5 min, tag
+  lists ~60 s.
 - **Releases are history + diff.** The Releases tab lists deploys (image ref,
   `+N services`, actor, status `deploying|healthy|rolled back|superseded`); opening
   one shows its image digests and a **compose diff** against the previous deploy,
@@ -180,8 +189,8 @@ Four ideas, one story:
   proprietary format would trap config and break the unopinionated promise.
 - **A generic JSON-Schema-to-form dump.** compose's `oneOf` unions and its ~40
   Swarm-meaningless keys make an auto-generated form surface fields that silently
-  no-op. swarmy drives a curated field-descriptor registry instead (see the
-  epic-stack-gui-builder plan).
+  no-op. swarmy uses curated, hand-built builder tabs over the canonical model
+  instead.
 - **Persisting live service/deployment state in the DB.** Replicas and convergence
   are read from Docker each time; a `Deployment` row would drift. Only swarmy's own
   *history* (`Release`) is stored — see the `docker-native-storage` skill.

@@ -122,5 +122,5 @@ orphaned from the UI.
 This is the root cause underlying the earlier attempt at [[manual-recovery-required-not-magical]]
 and supersedes the "start clean, retest the exact one-liner" step of that plan — the clean retest
 was done, and it fails at the very first step for a reason with a clear, scoped, low-risk fix
-already sitting in the repo. See `plans/readiness-sweep-2026-07.md` for where this leaves the
+already sitting in the repo. See the readiness sweep log (`plans/readiness-sweep-2026-07.md`, in git history) for where this leaves the
 overall sweep.

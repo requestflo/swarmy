@@ -9,9 +9,10 @@ How it relates to the other folders:
 - **`docs/product/`** (here) — what the product IS and how it should feel to the
   person running swarmy. Written for humans first; survives implementation churn.
   When a decision here changes, the change is deliberate and discussed.
-- **`plans/`** — epic-scoped implementation designs and the roadmap. Plans may be
-  superseded; when a plan and a product doc disagree, **the product doc wins** and
-  the plan gets a supersession note.
+- **`plans/`** — the open-work list (`ROADMAP.md`) and designs still being
+  built. Once a plan ships, its live decisions are folded into the product doc
+  or skill and the plan is deleted (git keeps it). When a plan and a product doc
+  disagree, **the product doc wins**.
 - **`.claude/skills/`** — operational instructions for working IN the codebase
   (conventions, invariants, file maps). Skills reference product docs for the
   "why"; product docs reference skills for the "how".

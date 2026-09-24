@@ -3,7 +3,7 @@ name: PR Title
 # Squash-merges use the PR title as the commit subject, which is the actual input
 # to semantic-release. So the PR title must itself be a valid Conventional Commit
 # (commitlint.config.mjs) — otherwise a `feat:` PR squashed under a non-conforming
-# title silently fails to release. See plans/epic-licensing-release-engineering.md.
+# title silently fails to release. See CONTRIBUTING.md (Branches & releases).
 
 on:
   pull_request_target:
