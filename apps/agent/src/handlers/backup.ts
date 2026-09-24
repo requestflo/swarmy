@@ -87,11 +87,13 @@ export async function runSidecar(
     entrypoint?: string[];
     /** Run as this user (e.g. '0:0'): a fresh scratch volume is root-owned. */
     user?: string;
+    /** Best-effort pull first (default true). False for a local image id (`sha256:…`). */
+    pull?: boolean;
   },
   onLine?: (line: string) => void,
 ): Promise<RunOutput> {
   const d = docker.docker;
-  await docker.pullImage(opts.image).catch(() => undefined);
+  if (opts.pull !== false) await docker.pullImage(opts.image).catch(() => undefined);
 
   let stdout = '';
   let stderr = '';
@@ -138,7 +140,9 @@ export async function runSidecar(
     const exitCode = (status as { StatusCode?: number }).StatusCode ?? 0;
     return { exitCode, stdout, stderr };
   } finally {
-    await container.remove({ force: true }).catch(() => undefined);
+    // `v`: drop the anonymous volumes an image's own VOLUME lines create (a DB
+    // image as a one-shot would otherwise leak one per run). Named binds stay.
+    await container.remove({ force: true, v: true }).catch(() => undefined);
   }
 }
 
@@ -212,7 +216,7 @@ export function parseForgetRemoved(stdout: string): number {
  * backup already succeeded, so a forget/prune failure is reported in the
  * outcome (`error`) rather than failing the command.
  */
-async function applyRetention(
+export async function applyRetention(
   docker: DockerClient,
   opts: {
     image: string;
@@ -258,7 +262,7 @@ async function applyRetention(
   }
 }
 
-function streamer(conn: AgentConnection, commandId: string): (line: string) => void {
+export function streamer(conn: AgentConnection, commandId: string): (line: string) => void {
   let seq = 0;
   return (line: string) =>
     conn.send('logChunk', { commandId, stream: 'stdout', seq: seq++, data: `${line}\n`, eof: false });

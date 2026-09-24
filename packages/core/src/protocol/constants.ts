@@ -65,5 +65,16 @@ export const DEFAULT_COMMAND_TIMEOUTS: Record<string, number> = {
   updateSwarmNode: 30_000,
   updateAgent: 300_000,
   streamLogs: 0,
+  // Backups move whole databases/volumes through restic: the 15s fallback made
+  // every non-trivial backup/restore report "command timeout" while the agent
+  // kept working. Generous ceilings; callers may pass a tighter explicit value.
+  backupVolume: 4 * 3_600_000,
+  restoreVolume: 4 * 3_600_000,
+  listSnapshots: 180_000,
+  dbBackup: 4 * 3_600_000,
+  dbRestore: 4 * 3_600_000,
+  appDbBackup: 4 * 3_600_000,
+  appDbRestore: 4 * 3_600_000,
+  appDbVerify: 2 * 3_600_000,
   ping: 5_000,
 };

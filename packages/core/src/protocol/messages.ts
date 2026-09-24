@@ -31,6 +31,7 @@ import { ApplyStorageNodeMsg, ProvisionVolumeMsg, RemoveVolumeMsg } from './stor
 import { SwarmJoinMsg, SwarmRotateTokensMsg, SwarmSetAutolockMsg } from './swarm';
 import { BackupVolumeMsg, RestoreVolumeMsg, ListSnapshotsMsg } from './backup';
 import { DbBackupMsg, DbRestoreMsg } from './dbBackup';
+import { AppDbBackupMsg, AppDbRestoreMsg, AppDbVerifyMsg } from './appDb';
 import {
   SecretCreateMsg,
   SecretRemoveMsg,
@@ -112,6 +113,9 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   ListSnapshotsMsg,
   DbBackupMsg,
   DbRestoreMsg,
+  AppDbBackupMsg,
+  AppDbRestoreMsg,
+  AppDbVerifyMsg,
   SecretCreateMsg,
   SecretRemoveMsg,
   SecretListMsg,

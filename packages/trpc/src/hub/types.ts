@@ -34,6 +34,9 @@ export type CommandName =
   | 'backup.list'
   | 'db.backup' // data-plane: logical/physical DB backup (pg_dump/wal-g/…)
   | 'db.restore'
+  | 'appdb.backup' // compose MySQL/MariaDB/Mongo/Redis/Valkey logical dump → restic
+  | 'appdb.restore'
+  | 'appdb.verify' // backup-verify drill: dump → scratch container → sanity query
   | 'storage.apply' // volumes-dr P2: bring up a Garage member
   | 'volume.provision' // volumes-dr P3: create a local/CSI cluster volume
   | 'volume.remove'
@@ -85,6 +88,9 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'backup.list': 'listSnapshots',
   'db.backup': 'dbBackup',
   'db.restore': 'dbRestore',
+  'appdb.backup': 'appDbBackup',
+  'appdb.restore': 'appDbRestore',
+  'appdb.verify': 'appDbVerify',
   'storage.apply': 'applyStorageNode',
   'volume.provision': 'provisionVolume',
   'volume.remove': 'removeVolume',

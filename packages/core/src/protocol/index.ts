@@ -25,3 +25,5 @@ export * from './build';
 export * from './prune';
 export * from './storage';
 export * from './swarm';
+export * from './appDb';
+export * from './appDbScripts';

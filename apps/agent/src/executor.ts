@@ -6,6 +6,7 @@ import type { AgentConnection } from './connection';
 import { buildGateAllows, BUILDER_ENABLE_HINT, execGateAllows, EXEC_LOCAL_VETO_HINT, EXEC_ENABLE_HINT } from '@swarmy/core';
 import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots, backupDb, restoreDb } from './handlers/backup';
+import { appDbBackup, appDbRestore, appDbVerify } from './handlers/appdb';
 import { applyDns } from './handlers/dns';
 import { localReload } from './handlers/ingress-local';
 import { applyMesh, grantDirectRoute } from './handlers/mesh';
@@ -183,6 +184,18 @@ export async function handleCommand(
     case 'dbRestore': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => restoreDb(docker, conn, p));
+    }
+    case 'appDbBackup': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => appDbBackup(docker, conn, p));
+    }
+    case 'appDbRestore': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => appDbRestore(docker, conn, p));
+    }
+    case 'appDbVerify': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => appDbVerify(docker, conn, p));
     }
     case 'buildImage': {
       const p = envlp.payload;
