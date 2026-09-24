@@ -69,6 +69,7 @@ import {
   type ProviderBranch,
   type ProviderRepo,
 } from './git-providers';
+import { type BuildDetection, detectBuild, detectProbePaths } from './git-providers/detect-build';
 
 type Deps = { db: DB; hub: AgentHub; auth: Auth };
 
@@ -687,13 +688,15 @@ export async function inspectCommit(
     paths?: string[];
     fallbackBranch?: string;
   },
-): Promise<InspectResult & { configPaths: string[] }> {
+): Promise<InspectResult & { configPaths: string[]; detected: BuildDetection }> {
   const repo = await ctx.db.gitRepo.findFirst({
     where: { id: input.repoId, orgId: ctx.activeOrgId },
   });
   if (!repo) throw notFound('repo', input.repoId);
   const creds = await repoCredentials(ctx.db, repo);
   return runInspect(ctx, {
+    // Zero-config builds: detect next to the app's swarmy.yaml.
+    detectDir: repo.configPath.includes('/') ? repo.configPath.slice(0, repo.configPath.lastIndexOf('/')) : '',
     url: repo.url,
     ref: input.ref ?? repo.branch,
     paths: input.paths ?? [repo.configPath],
@@ -710,7 +713,7 @@ export async function inspectCommit(
 export async function inspectSource(
   ctx: OrgContext,
   input: { connectionId?: string; cloneUrl: string; ref: string; paths?: string[] },
-): Promise<InspectResult & { configPaths: string[] }> {
+): Promise<InspectResult & { configPaths: string[]; detected: BuildDetection }> {
   let creds: GitCredentials = {};
   if (input.connectionId) {
     const conn = await loadConnection(ctx, input.connectionId);
@@ -733,13 +736,17 @@ async function runInspect(
     baseSha?: string;
     fallbackBranch?: string;
     creds: GitCredentials;
+    /** Directory to run build detection in ('' = repo root). */
+    detectDir?: string;
   },
-): Promise<InspectResult & { configPaths: string[] }> {
+): Promise<InspectResult & { configPaths: string[]; detected: BuildDetection }> {
   const { creds, paths } = input;
+  const detectDir = input.detectDir ?? '';
   const req = {
     url: input.url,
     ref: input.ref,
     paths,
+    ...detectProbePaths(detectDir),
     ...(input.baseSha ? { baseSha: input.baseSha } : {}),
     ...(input.fallbackBranch ? { fallbackBranch: input.fallbackBranch } : {}),
     ...creds,
@@ -780,7 +787,7 @@ async function runInspect(
       message: e instanceof Error ? e.message : String(e),
     });
   }
-  return { ...parsed, configPaths: configPathsIn(parsed.tree) };
+  return { ...parsed, configPaths: configPathsIn(parsed.tree), detected: detectBuild(parsed.probes ?? {}, detectDir) };
 }
 
 /**

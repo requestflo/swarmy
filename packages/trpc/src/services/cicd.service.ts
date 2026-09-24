@@ -22,6 +22,8 @@ import type { DB } from '@swarmy/db';
 import { BUILDER_ENABLE_HINT, UNGROUPED, isBuilderCapable, type BuildOverride } from '@swarmy/core';
 import type { LogLine } from '@swarmy/core/views';
 import { mirrorLabelsOf } from '@swarmy/core/system-images';
+import type { RailpackBuildInfo } from '@swarmy/core/protocol';
+import { buildCacheKey, buildCacheRefs, tagSlug } from './build-cache';
 import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
 import { TRPCError } from '@trpc/server';
@@ -88,6 +90,12 @@ export interface BuildView {
   logsRef: string | null;
   startedAt: string | null;
   finishedAt: string | null;
+  /** Which builder ran (`dockerfile` | `railpack`); null for older builds / not finished. */
+  builder: string | null;
+  /** What Railpack detected (providers, versions, start command). */
+  detected: RailpackBuildInfo | null;
+  /** BuildKit steps served from the registry cache. */
+  cachedSteps: number | null;
 }
 
 export interface RegistryConfigView {
@@ -108,7 +116,15 @@ export interface GcPolicyView {
   mode: 'on-healthcheck' | 'age-days';
   keepProd: boolean;
   days: number | null;
+  /** Registry build cache: drop refs no build has written for this many days. */
+  cacheMaxAgeDays: number;
+  /** Registry build cache: total budget (GB); least recently written go first. */
+  cacheMaxGb: number;
 }
+
+/** `setGcPolicy` input: the cache budget is optional (older clients keep it). */
+export type GcPolicyInput = Omit<GcPolicyView, 'cacheMaxAgeDays' | 'cacheMaxGb'> &
+  Partial<Pick<GcPolicyView, 'cacheMaxAgeDays' | 'cacheMaxGb'>>;
 
 // ── Git repos ────────────────────────────────────────────────────────────────
 
@@ -202,17 +218,7 @@ export async function listBuilds(ctx: OrgContext, repoId?: string): Promise<Buil
     orderBy: { startedAt: 'desc' },
     take: 100,
   });
-  return rows.map((r) => ({
-    id: r.id,
-    repoId: r.repoId,
-    repoUrl: r.repo?.url ?? '',
-    commit: r.commit,
-    status: r.status.toLowerCase(),
-    image: r.image,
-    logsRef: r.logsRef,
-    startedAt: r.startedAt?.toISOString() ?? null,
-    finishedAt: r.finishedAt?.toISOString() ?? null,
-  }));
+  return rows.map((r) => toBuildView(r, ''));
 }
 
 /**
@@ -283,12 +289,66 @@ interface RepoRow {
   externalRepoId: string | null;
 }
 
-/** Build inputs a swarmy.yaml can set (context subdir, Dockerfile, target, args). */
+/** Build inputs a swarmy.yaml can set (context subdir, Dockerfile, target, args, builder + Railpack overrides). */
 export interface BuildInputs {
   subdir?: string;
   dockerfile?: string;
   target?: string;
   buildArgs?: Record<string, string>;
+  /** Absent = auto (the Dockerfile when present, else Railpack). */
+  builder?: 'dockerfile' | 'railpack';
+  railpack?: {
+    installCmd?: string;
+    buildCmd?: string;
+    startCmd?: string;
+    packages?: string[];
+    deployAptPackages?: string[];
+    buildAptPackages?: string[];
+  };
+  /** Build-time env: Railpack build secrets; Dockerfile build args. */
+  env?: Record<string, string>;
+}
+
+/** The build-cache + builder half of an `image.build` payload (pure, unit-tested). */
+export function buildStrategyPayload(input: {
+  host: string;
+  imageName: string;
+  ref: string;
+  defaultBranch: string;
+  build?: BuildInputs;
+}): {
+  builder: 'auto' | 'dockerfile' | 'railpack';
+  railpack?: Record<string, unknown>;
+  cache: { importRefs: string[]; exportRef: string; mode: 'max' };
+  buildArgs?: Record<string, string>;
+} {
+  const b = input.build ?? {};
+  const builder = b.builder ?? 'auto';
+  const key = buildCacheKey({ subdir: b.subdir, dockerfile: b.dockerfile, target: b.target });
+  const { exportRef, importRefs } = buildCacheRefs({
+    host: input.host,
+    imageName: input.imageName,
+    key,
+    branch: input.ref,
+    defaultBranch: input.defaultBranch,
+  });
+  const env = b.env && Object.keys(b.env).length ? b.env : undefined;
+  const railpack =
+    builder === 'dockerfile'
+      ? undefined
+      : {
+          ...(b.railpack ?? {}),
+          ...(env ? { env } : {}),
+          cacheKey: tagSlug(`${input.imageName}-${key}`, 128),
+        };
+  // A Dockerfile build sees the build env as build args (explicit args win).
+  const buildArgs = builder === 'railpack' ? b.buildArgs : { ...(env ?? {}), ...(b.buildArgs ?? {}) };
+  return {
+    builder,
+    ...(railpack ? { railpack } : {}),
+    cache: { importRefs, exportRef, mode: 'max' },
+    ...(buildArgs && Object.keys(buildArgs).length ? { buildArgs } : {}),
+  };
 }
 
 /** Shared build core used by both the UI trigger and the webhook/poll trigger. */
@@ -336,8 +396,16 @@ async function runBuild(
       : undefined;
   feedback('running', `Building ${imageName} on a swarmy builder`);
 
+  const strategy = buildStrategyPayload({ host, imageName, ref, defaultBranch: repo.branch, build: opts.build });
+
   try {
-    const result = await ctx.hub.dispatch<{ digest: string; imageRefs: string[] }>(
+    const result = await ctx.hub.dispatch<{
+      digest: string;
+      imageRefs: string[];
+      builder?: 'dockerfile' | 'railpack';
+      railpack?: RailpackBuildInfo;
+      cachedSteps?: number;
+    }>(
       node.id,
       'image.build',
       {
@@ -351,8 +419,13 @@ async function runBuild(
           ...(opts.build?.dockerfile ? { dockerfile: opts.build.dockerfile } : {}),
         },
         imageRefs: [imageRef],
-        ...(opts.build?.buildArgs && Object.keys(opts.build.buildArgs).length ? { buildArgs: opts.build.buildArgs } : {}),
+        ...(strategy.buildArgs ? { buildArgs: strategy.buildArgs } : {}),
         ...(opts.build?.target ? { target: opts.build.target } : {}),
+        // Zero-config builds (Railpack when there's no Dockerfile) + the
+        // registry build cache. Older agents ignore these (Dockerfile build).
+        builder: strategy.builder,
+        ...(strategy.railpack ? { railpack: strategy.railpack } : {}),
+        cache: strategy.cache,
         pushPolicy: 'always',
         // resolveBuilderNode only returns builder-capable nodes — assert it so
         // the agent's gate (buildGateAllows) lets the build through.
@@ -367,7 +440,15 @@ async function runBuild(
     const digested = result?.digest ? `${host}/${imageName}@${result.digest}` : imageRef;
     const finished = await ctx.db.build.update({
       where: { id: build.id },
-      data: { status: 'SUCCEEDED', image: digested, finishedAt: new Date() },
+      data: {
+        status: 'SUCCEEDED',
+        image: digested,
+        finishedAt: new Date(),
+        builder: result?.builder ?? null,
+        detectJson: result?.railpack ? JSON.stringify(result.railpack) : null,
+        cacheRef: strategy.cache.exportRef,
+        cachedSteps: result?.cachedSteps ?? 0,
+      },
       include: { repo: { select: { url: true } } },
     });
     // A green build clears the repo's open build-failed alert (default rule).
@@ -520,10 +601,19 @@ function toBuildView(
     logsRef: string | null;
     startedAt: Date | null;
     finishedAt: Date | null;
+    builder?: string | null;
+    detectJson?: string | null;
+    cachedSteps?: number | null;
     repo?: { url: string } | null;
   },
   fallbackUrl: string,
 ): BuildView {
+  let detected: RailpackBuildInfo | null = null;
+  try {
+    detected = r.detectJson ? (JSON.parse(r.detectJson) as RailpackBuildInfo) : null;
+  } catch {
+    detected = null;
+  }
   return {
     id: r.id,
     repoId: r.repoId,
@@ -534,6 +624,9 @@ function toBuildView(
     logsRef: r.logsRef,
     startedAt: r.startedAt?.toISOString() ?? null,
     finishedAt: r.finishedAt?.toISOString() ?? null,
+    builder: r.builder ?? null,
+    detected,
+    cachedSteps: r.cachedSteps ?? null,
   };
 }
 
@@ -768,10 +861,16 @@ export async function getGcPolicy(ctx: OrgContext): Promise<GcPolicyView> {
     mode: row.mode === 'AGE_DAYS' ? 'age-days' : 'on-healthcheck',
     keepProd: row.keepProd,
     days: row.days,
+    cacheMaxAgeDays: row.cacheMaxAgeDays,
+    cacheMaxGb: row.cacheMaxGb,
   };
 }
 
-export async function setGcPolicy(ctx: OrgContext, input: GcPolicyView): Promise<GcPolicyView> {
+export async function setGcPolicy(ctx: OrgContext, input: GcPolicyInput): Promise<GcPolicyView> {
+  const cache = {
+    ...(input.cacheMaxAgeDays !== undefined ? { cacheMaxAgeDays: input.cacheMaxAgeDays } : {}),
+    ...(input.cacheMaxGb !== undefined ? { cacheMaxGb: input.cacheMaxGb } : {}),
+  };
   await ctx.db.imageGcPolicy.upsert({
     where: { orgId: ctx.activeOrgId },
     create: {
@@ -779,11 +878,13 @@ export async function setGcPolicy(ctx: OrgContext, input: GcPolicyView): Promise
       mode: input.mode === 'age-days' ? 'AGE_DAYS' : 'ON_HEALTHCHECK',
       keepProd: input.keepProd,
       days: input.days,
+      ...cache,
     },
     update: {
       mode: input.mode === 'age-days' ? 'AGE_DAYS' : 'ON_HEALTHCHECK',
       keepProd: input.keepProd,
       days: input.days,
+      ...cache,
     },
   });
   await writeAudit(ctx, { action: 'cicd.gc.set', targetType: 'imageGcPolicy', targetId: ctx.activeOrgId, metadata: { ...input } });

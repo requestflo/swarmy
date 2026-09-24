@@ -16,7 +16,7 @@ import {
   subscribeBuildLog,
   triggerBuild,
 } from '../services/cicd.service';
-import { runImageGcForOrg } from '../services/image-gc.service';
+import { runCacheGcForOrg, runImageGcForOrg } from '../services/image-gc.service';
 
 const CONTROLLER_PUBLIC_URL =
   process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3021';
@@ -82,6 +82,8 @@ export const cicdRouter = router({
         mode: z.enum(['on-healthcheck', 'age-days']),
         keepProd: z.boolean(),
         days: z.number().int().positive().nullable(),
+        cacheMaxAgeDays: z.number().int().min(1).max(365).optional(),
+        cacheMaxGb: z.number().int().min(1).max(10_000).optional(),
       }),
     )
     .mutation(({ ctx, input }) => setGcPolicy(ctx, input)),
@@ -94,5 +96,11 @@ export const cicdRouter = router({
         ctx.activeOrgId,
         { dryRun: input?.dryRun },
       ),
+    ),
+  // Registry build-cache GC now (or preview): stale / over-budget `buildcache-*` tags.
+  runCacheGc: adminProcedure
+    .input(z.object({ dryRun: z.boolean().optional() }).optional())
+    .mutation(({ ctx, input }) =>
+      runCacheGcForOrg({ db: ctx.db, hub: ctx.hub, auth: ctx.auth }, ctx.activeOrgId, { dryRun: input?.dryRun }),
     ),
 });

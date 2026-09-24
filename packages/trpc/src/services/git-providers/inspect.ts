@@ -21,6 +21,12 @@ export const INSPECT_TIMEOUT_MS = 90_000;
 export const INSPECT_MAX_FILE_BYTES = 32 * 1024;
 export const INSPECT_MAX_CHANGED = 300;
 export const INSPECT_MAX_TREE = 120;
+/**
+ * Build-detection probes return at most this many leading bytes each (the
+ * detector reads them with patterns, so a truncated package.json still says
+ * "next"). Kept small: runOnce returns only a 64 KB output tail.
+ */
+export const INSPECT_PROBE_BYTES = 4096;
 
 /** File names worth knowing about when a repo is connected. */
 export const NOTABLE_FILE_RE =
@@ -49,6 +55,14 @@ export interface InspectRequest {
    * tip history and check out the sha from it.
    */
   fallbackBranch?: string;
+  /**
+   * Build detection (zero-config builds): files whose first
+   * {@link INSPECT_PROBE_BYTES} are returned when present (never an error
+   * when large or absent).
+   */
+  probePaths?: string[];
+  /** Files whose presence alone matters (lockfiles). */
+  presencePaths?: string[];
 }
 
 export interface InspectResult {
@@ -58,6 +72,8 @@ export interface InspectResult {
   tree: string[];
   /** `undefined` = unknown (no base, base unreachable, or truncated) → build everything. */
   changedPaths?: string[];
+  /** Present probe/presence files → their leading bytes ('' for presence-only). */
+  probes?: Record<string, string>;
 }
 
 export function validateInspectRequest(r: InspectRequest): string | null {
@@ -69,7 +85,7 @@ export function validateInspectRequest(r: InspectRequest): string | null {
     return `invalid branch "${r.fallbackBranch}"`;
   }
   if (r.baseSha !== undefined && !/^[0-9a-f]{40,64}$/.test(r.baseSha)) return 'invalid base sha';
-  for (const p of r.paths) {
+  for (const p of [...r.paths, ...(r.probePaths ?? []), ...(r.presencePaths ?? [])]) {
     if (!PATH_RE.test(p) || p.split('/').includes('..') || p.startsWith('/'))
       return `invalid path "${p}"`;
   }
@@ -126,6 +142,14 @@ export function renderInspectProgram(r: InspectRequest): string {
       `else printf 'SWARMY_NOFILE\\t%s\\n' ${shq(p)}; fi`,
     );
   }
+  for (const p of r.probePaths ?? []) {
+    lines.push(
+      `if git cat-file -e "$H":${shq(p)} 2>/dev/null; then printf 'SWARMY_PROBE\\t%s\\t%s\\n' ${shq(p)} "$(git cat-file blob "$H":${shq(p)} | head -c ${INSPECT_PROBE_BYTES} | base64 | tr -d '\\n')"; fi`,
+    );
+  }
+  for (const p of r.presencePaths ?? []) {
+    lines.push(`if git cat-file -e "$H":${shq(p)} 2>/dev/null; then printf 'SWARMY_PROBE\\t%s\\t\\n' ${shq(p)}; fi`);
+  }
   lines.push('echo SWARMY_END');
   return lines.join('\n');
 }
@@ -162,6 +186,7 @@ export function parseInspectOutput(output: string, requestedPaths: string[]): In
   );
   const tree: string[] = [];
   const changed: string[] = [];
+  const probes: Record<string, string> = {};
   let changedKnown = false;
   for (const l of lines) {
     const [tag, a, b] = l.split('\t');
@@ -171,11 +196,19 @@ export function parseInspectOutput(output: string, requestedPaths: string[]): In
     else if (tag === 'SWARMY_TREE' && a) tree.push(a);
     else if (tag === 'SWARMY_FILE' && a !== undefined)
       files[a] = Buffer.from(b ?? '', 'base64').toString('utf8');
+    else if (tag === 'SWARMY_PROBE' && a !== undefined)
+      probes[a] = Buffer.from(b ?? '', 'base64').toString('utf8');
     else if (tag === 'SWARMY_BIGFILE' && a)
       throw new InspectError(`${a} is larger than ${INSPECT_MAX_FILE_BYTES / 1024} KB`);
   }
   if (!/^[0-9a-f]{40,64}$/.test(sha)) throw new InspectError('could not resolve the commit');
-  return { sha, files, tree, ...(changedKnown ? { changedPaths: changed } : {}) };
+  return {
+    sha,
+    files,
+    tree,
+    ...(changedKnown ? { changedPaths: changed } : {}),
+    ...(Object.keys(probes).length ? { probes } : {}),
+  };
 }
 
 /** Directories holding a swarmy.yaml (monorepo app picker), from an inspect tree. */

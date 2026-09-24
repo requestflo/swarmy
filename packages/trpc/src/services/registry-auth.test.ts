@@ -63,6 +63,7 @@ describe('registry service spec (golden)', () => {
         REGISTRY_AUTH: 'htpasswd',
         REGISTRY_AUTH_HTPASSWD_REALM: 'swarmy-registry',
         REGISTRY_AUTH_HTPASSWD_PATH: '/run/secrets/registry-htpasswd',
+        REGISTRY_STORAGE_DELETE_ENABLED: 'true',
       },
       secrets: [{ source: 'swarmy-registry-htpasswd-0123456789abcdef', target: 'registry-htpasswd', mode: 0o444 }],
       ports: [{ target: 5000, published: 5000, protocol: 'tcp', mode: 'ingress' }],

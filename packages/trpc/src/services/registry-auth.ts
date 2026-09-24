@@ -91,6 +91,9 @@ export function registryServiceSpec(secretName: string, extraLabels: Record<stri
       REGISTRY_AUTH: 'htpasswd',
       REGISTRY_AUTH_HTPASSWD_REALM: REGISTRY_AUTH_REALM,
       REGISTRY_AUTH_HTPASSWD_PATH: REGISTRY_HTPASSWD_PATH,
+      // The build-cache GC deletes stale `buildcache-*` tags (image digests
+      // are never deleted). Takes effect on the next registry (re)deploy.
+      REGISTRY_STORAGE_DELETE_ENABLED: 'true',
     },
     secrets: [{ source: secretName, target: REGISTRY_HTPASSWD_TARGET, mode: 0o444 }],
     ports: [{ target: REGISTRY_PORT, published: REGISTRY_PORT, protocol: 'tcp', mode: 'ingress' }],

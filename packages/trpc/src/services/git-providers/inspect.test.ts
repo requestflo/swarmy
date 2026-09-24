@@ -212,3 +212,39 @@ describe('deploy keys', () => {
     expect(gitHost('https://gitlab.com/a/b')).toBe('gitlab.com');
   });
 });
+
+describe('inspect build-detection probes', () => {
+  it.skipIf(!has('git'))('returns the leading bytes of present probes and presence-only files, never failing on size', () => {
+    const { detectBuild, detectProbePaths } = require('./detect-build') as typeof import('./detect-build');
+    const root = mkdtempSync(join(tmpdir(), 'swarmy-inspect-probe-'));
+    const repo = join(root, 'repo');
+    mkdirSync(repo);
+    const git = (...args: string[]) => {
+      const r = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(r.stderr);
+      return r.stdout.trim();
+    };
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 't@t');
+    git('config', 'user.name', 't');
+    git('config', 'uploadpack.allowFilter', 'true');
+    git('config', 'uploadpack.allowAnySHA1InWant', 'true');
+    const big = `{"scripts":{"start":"next start"},"dependencies":{"next":"15"},"pad":"${'x'.repeat(40_000)}"}`;
+    writeFileSync(join(repo, 'package.json'), big);
+    writeFileSync(join(repo, 'package-lock.json'), 'y'.repeat(100_000));
+    git('add', '.');
+    git('commit', '-q', '-m', 'one');
+    const req = { url: `file://${repo}`, ref: 'main', paths: ['swarmy.yaml'], ...detectProbePaths('') };
+    const home = join(root, 'home');
+    mkdirSync(home);
+    const r = spawnSync('sh', ['-c', renderInspectProgram(req)], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH ?? '', HOME: home, ...inspectEnv(req) },
+    });
+    const res = parseInspectOutput(`${r.stdout}\n${r.stderr}`, req.paths);
+    expect(res.probes?.['package.json']).toBe(big.slice(0, 4096));
+    expect(res.probes?.['package-lock.json']).toBe('');
+    expect(Object.keys(res.probes ?? {}).sort()).toEqual(['package-lock.json', 'package.json']);
+    expect(detectBuild(res.probes ?? {}).summary).toBe('Next.js · Node · start: npm run start');
+  });
+});

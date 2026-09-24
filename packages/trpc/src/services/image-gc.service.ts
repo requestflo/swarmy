@@ -13,7 +13,18 @@
 import { buildInventory, isBuilderCapable } from '@swarmy/core';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
+import type { RunOnceResult } from '@swarmy/core/protocol';
+import { systemImage } from '@swarmy/core/system-images';
 import type { AgentHub } from '../hub/types';
+import {
+  type CacheGcPlan,
+  parseCacheDeleted,
+  parseCacheSizes,
+  planCacheGc,
+  renderCacheDeleteScript,
+  renderCacheSizeScript,
+} from './build-cache';
+import { decodeRegistryCreds } from './registry-auth';
 import {
   bareDigest,
   computeGcPlan,
@@ -158,7 +169,102 @@ export async function runImageGcAllOrgs(deps: { db: DB; hub: AgentHub; auth: Aut
   for (const p of policies) {
     out.push(await runImageGcForOrg(deps, p.orgId).catch(() => empty(p.orgId, false)));
   }
+  // Registry build cache: every org with a registry, policy row or not (defaults apply).
+  try {
+    const registries = await deps.db.registryConfig.findMany({ where: { enabled: true }, select: { orgId: true } });
+    for (const r of registries) await runCacheGcForOrg(deps, r.orgId).catch(() => undefined);
+  } catch {
+    // Cache GC never breaks image GC.
+  }
   return out;
+}
+
+// ── Registry build cache GC ──────────────────────────────────────────────────
+
+export const DEFAULT_CACHE_MAX_AGE_DAYS = 14;
+export const DEFAULT_CACHE_MAX_GB = 20;
+/** Cache refs no build has written for this long are assumed gone (not re-checked). */
+const CACHE_LOOKBACK_DAYS = 180;
+
+export interface CacheGcResult {
+  orgId: string;
+  refs: number;
+  totalBytes: number;
+  removed: CacheGcPlan['remove'];
+  deleted: string[];
+  dryRun: boolean;
+  skipped?: string;
+}
+
+/**
+ * Clean the org registry's `buildcache-*` refs by age/size (see
+ * `build-cache.ts`). Age = the last `Build` that exported the ref (swarmy's
+ * history); size = the cache manifest, read by a regctl one-shot on a manager
+ * (host network → `localhost:5000`, creds via env — same as the mirror).
+ * Only cache TAGS are deleted; a missing cache only means a colder build.
+ */
+export async function runCacheGcForOrg(
+  deps: { db: DB; hub: AgentHub; auth: Auth },
+  orgId: string,
+  opts: { dryRun?: boolean; now?: Date } = {},
+): Promise<CacheGcResult> {
+  const dryRun = opts.dryRun ?? false;
+  const now = opts.now ?? new Date();
+  const skip = (skipped: string): CacheGcResult => ({ orgId, refs: 0, totalBytes: 0, removed: [], deleted: [], dryRun, skipped });
+  const reg = await deps.db.registryConfig.findUnique({
+    where: { orgId },
+    select: { enabled: true, host: true, credentialsEnc: true },
+  });
+  if (!reg?.enabled) return skip('registry disabled');
+  const policy = await deps.db.imageGcPolicy.findUnique({ where: { orgId } });
+  const rows = await deps.db.build.groupBy({
+    by: ['cacheRef'],
+    where: { orgId, cacheRef: { not: null }, finishedAt: { gte: new Date(now.getTime() - CACHE_LOOKBACK_DAYS * 86_400_000) } },
+    _max: { finishedAt: true },
+  });
+  const tracked = rows.filter((r): r is typeof r & { cacheRef: string } => Boolean(r.cacheRef && r._max.finishedAt));
+  if (!tracked.length) return skip('no cache refs');
+  const node = deps.hub.managerNode(orgId);
+  if (!node) return skip('no manager online');
+  const host = canonicalRegistryHost(reg.host);
+  const creds = decodeRegistryCreds(reg.credentialsEnc);
+  const env = creds ? { SWARMY_REG_USER: creds.username, SWARMY_REG_PASS: creds.password } : {};
+  const runRegctl = (script: string) =>
+    deps.hub.dispatch<RunOnceResult>(
+      node,
+      'container.runOnce',
+      {
+        image: systemImage('regctl').ref,
+        entrypoint: ['/bin/sh', '-c'],
+        cmd: [script],
+        env,
+        networks: ['host'],
+        timeoutMs: 5 * 60_000,
+      },
+      { timeoutMs: 6 * 60_000 },
+    );
+  const sizes = parseCacheSizes((await runRegctl(renderCacheSizeScript(tracked.map((r) => r.cacheRef), host))).output);
+  const plan = planCacheGc(
+    tracked.map((r) => ({
+      ref: r.cacheRef,
+      lastWrittenAt: r._max.finishedAt as Date,
+      sizeBytes: sizes.has(r.cacheRef) ? (sizes.get(r.cacheRef) ?? null) : null,
+    })),
+    {
+      maxAgeDays: policy?.cacheMaxAgeDays ?? DEFAULT_CACHE_MAX_AGE_DAYS,
+      maxBytes: (policy?.cacheMaxGb ?? DEFAULT_CACHE_MAX_GB) * 1024 ** 3,
+    },
+    now,
+  );
+  const toDelete = plan.remove.filter((r) => r.reason !== 'missing').map((r) => r.ref);
+  let deleted: string[] = [];
+  if (!dryRun) {
+    if (toDelete.length) deleted = parseCacheDeleted((await runRegctl(renderCacheDeleteScript(toDelete, host))).output);
+    // Forget refs that are gone so the next tick doesn't re-check them.
+    const gone = [...deleted, ...plan.remove.filter((r) => r.reason === 'missing').map((r) => r.ref)];
+    if (gone.length) await deps.db.build.updateMany({ where: { orgId, cacheRef: { in: gone } }, data: { cacheRef: null } });
+  }
+  return { orgId, refs: tracked.length, totalBytes: plan.totalBytes, removed: plan.remove, deleted, dryRun };
 }
 
 /**
