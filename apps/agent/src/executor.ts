@@ -15,7 +15,7 @@ import { applyIngressConnector } from './handlers/ingress-connector';
 import { buildImage } from './handlers/build';
 import { pruneImages } from './handlers/prune';
 import { runNodeHygiene } from './handlers/hygiene';
-import { applyStorageNode, provisionVolume, removeVolume } from './handlers/storage';
+import { applyStorageNode, listVolumes, provisionVolume, removeVolume } from './handlers/storage';
 import { applySwarmJoin, rotateSwarmTokens, setSwarmAutolock } from './handlers/swarm';
 import { updateAgent } from './handlers/update';
 import { prepareSecretEnv } from './handlers/secret-env';
@@ -254,6 +254,10 @@ export async function handleCommand(
     case 'removeVolume': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => removeVolume(docker, p));
+    }
+    case 'listVolumes': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => listVolumes(docker, p));
     }
     case 'swarmJoin': {
       const p = envlp.payload;
