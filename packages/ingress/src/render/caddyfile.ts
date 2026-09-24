@@ -5,6 +5,7 @@ import type {
   RegionUpstream,
   RouteProtection,
 } from '../types';
+import type { HostRedirect } from '../www';
 
 /**
  * Curated scanner-path list backing `waf.blockScannerPaths` — the endpoints
@@ -120,6 +121,15 @@ export function buildCaddyfile(config: IngressConfig): string {
     if (routeHosts.has(v.domain)) continue;
     routeHosts.add(v.domain);
     out.push(...buildControllerVhost(v), '');
+  }
+
+  // Apex ↔ www redirects (expanded from route `www` toggles by the controller).
+  // A host that already has a route or vhost is skipped — explicit wins, and
+  // Caddy would reject a duplicate site address.
+  for (const r of config.hostRedirects ?? []) {
+    if (routeHosts.has(r.from) || dashboardHosts.has(r.from)) continue;
+    routeHosts.add(r.from);
+    out.push(...buildRedirectSite(r, config), '');
   }
 
   // Object storage, per bucket (a service route / vhost on the same hostname wins).
@@ -313,22 +323,44 @@ export function isPrivateHost(host: string): boolean {
   return embedded ? PRIVATE_V4.test(embedded.slice(1, 5).join('.')) : false;
 }
 
-function buildSite(host: string, routes: DomainRoute[], config: IngressConfig): string[] {
-  const tls = resolveHostTls(routes);
-  const address = tls === 'off' ? `http://${host}` : host;
-  const out: string[] = [`${address} {`];
-
+/** TLS directive lines for a site address (shared by service and redirect sites). */
+function siteTls(host: string, tls: DomainRoute['tls'], config: IngressConfig): string[] {
   if (tls === 'custom') {
     const certs = (config.globalOptions.extraConfig as Record<string, unknown>).certs as
       | Record<string, { cert: string; key: string }>
       | undefined;
     const material = certs?.[host];
-    if (material) out.push(`  tls ${material.cert} ${material.key}`);
-  } else if (tls === 'auto' && isPrivateHost(host)) {
-    out.push('  tls internal');
-  } else if (config.globalOptions.onDemandTls && tls === 'auto') {
-    out.push('  tls {', '    on_demand', '  }');
+    return material ? [`  tls ${material.cert} ${material.key}`] : [];
   }
+  if (tls === 'auto' && isPrivateHost(host)) return ['  tls internal'];
+  if (config.globalOptions.onDemandTls && tls === 'auto') return ['  tls {', '    on_demand', '  }'];
+  return [];
+}
+
+/**
+ * A redirect-only site: 308 (method-preserving permanent) to the canonical
+ * host, path + query kept. The redirect host needs its own certificate — the
+ * browser handshakes with it before it ever sees the redirect.
+ */
+function buildRedirectSite(r: HostRedirect, config: IngressConfig): string[] {
+  const scheme = r.tls === 'off' ? 'http' : 'https';
+  const address = r.tls === 'off' ? `http://${r.from}` : r.from;
+  const tls = r.tls === 'custom' ? 'auto' : r.tls; // a custom cert is per-host; the companion gets ACME
+  return [
+    `${address} {`,
+    '  # swarmy www redirect',
+    ...siteTls(r.from, tls, config),
+    `  redir ${scheme}://${r.to}{uri} 308`,
+    '}',
+  ];
+}
+
+function buildSite(host: string, routes: DomainRoute[], config: IngressConfig): string[] {
+  const tls = resolveHostTls(routes);
+  const address = tls === 'off' ? `http://${host}` : host;
+  const out: string[] = [`${address} {`];
+
+  out.push(...siteTls(host, tls, config));
 
   // Distributed tracing: one span per request through this host, exported over
   // OTLP by the controller (OTEL_* env). `order tracing first` (global options)

@@ -2,6 +2,8 @@ export * from './types';
 export * from './errors';
 export * from './registry';
 export * from './apply';
+export * from './www';
+export * from './domain-verify';
 export {
   CaddyDriver,
   caddyAdminLoadUrl,

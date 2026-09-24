@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { HostRedirectSchema } from './www';
 
 // Wire/render types are owned by @swarmy/core so the agent and the controller
 // share one definition. The ingress package re-exports them.
@@ -361,6 +362,12 @@ export const IngressConfigSchema = z.object({
   domains: z.array(DomainRouteSchema).default([]),
   /** Controller-upstream vhosts (status pages / webhooks / AI gateway domains). */
   controllerVhosts: z.array(ControllerVhostSchema).default([]),
+  /**
+   * Host-level redirects (apex ↔ www toggles, expanded by the controller via
+   * `expandWww`). Each renders as a tiny site that 308s to `to` with the path
+   * and query kept. A host that also has a route/vhost is skipped (explicit wins).
+   */
+  hostRedirects: z.array(HostRedirectSchema).optional(),
   /** Per-bucket S3 exposure (absent = object storage stays in-cluster only). */
   objectStorage: ObjectStorageEdgeSchema.optional(),
   /**
