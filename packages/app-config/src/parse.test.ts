@@ -121,7 +121,7 @@ describe('parseAppConfig', () => {
         code: 'binding/unknown-field',
         path: 'services.web.env.B',
         line: 8,
-        message: 'cache "cache" has no "uri" — use one of url, host, port, password_file',
+        message: 'cache "cache" has no "uri" — use one of url, host, port, password, password_file',
       },
       {
         code: 'binding/no-port',

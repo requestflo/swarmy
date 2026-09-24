@@ -248,7 +248,7 @@ connect: [billing]                      # private overlay to another app in this
 | Namespace         | Fields                                                                |
 | ----------------- | --------------------------------------------------------------------- |
 | postgres          | `url ro_url host ro_host port database user password`                 |
-| cache             | `url host port password_file`                                         |
+| cache             | `url host port password password_file`                                         |
 | search            | `url host port key_file`                                              |
 | vector            | `url host port` (pgvector: the postgres url)                          |
 | bucket            | `endpoint bucket region access_key_id secret_access_key_file`         |
