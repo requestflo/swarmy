@@ -24,6 +24,17 @@ readiness sweep all shipped or were superseded; their live decisions were folded
 into `docs/product/` and the skills. They remain in git history
 (`git log --diff-filter=D --name-only -- plans/`).
 
+## Owner decisions (2026-09-24)
+
+Decided and done — kept here one release so the calls are easy to find; the
+rule itself lives in the linked doc.
+
+- **Caddy is the default edge for new workspaces** (other drivers stay
+  selectable; a fresh org without a public IP/domain still works) —
+  `docs/product/ingress-and-exposure.md` → "Ingress & exposure behaviour".
+- **`.design/` deleted** — the skills and `redesign-dashboard-2026-09.md` are
+  the design authority.
+
 ## Launch verification
 
 - **DigitalOcean multi-region re-sweep**: 3 droplets / 2 regions — the swarm
@@ -33,8 +44,6 @@ into `docs/product/` and the skills. They remain in git history
 - Open issues: `issues/manual-recovery-required-not-magical.md`,
   `issues/swarm-routing-mesh-unreachable-in-lima-vm.md`,
   `issues/vm-disk-chronically-full.md`.
-- **Product call:** new orgs default to the `none` ingress driver ("Tracking
-  only"). Default to Caddy instead?
 
 ## Security & governance
 

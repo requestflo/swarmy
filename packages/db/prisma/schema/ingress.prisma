@@ -12,8 +12,10 @@ enum IngressDriver {
 model IngressConfig {
   id        String        @id @default(cuid())
   orgId     String        @unique
-  driver    IngressDriver @default(NONE)
-  enabled   Boolean       @default(false)
+  /// New orgs get swarmy's Caddy edge ON (owner decision 2026-09-24); every
+  /// other driver, `NONE` included, stays selectable. Mirrors DEFAULT_INGRESS.
+  driver    IngressDriver @default(CADDY)
+  enabled   Boolean       @default(true)
   settings  Json          @default("{}")
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt

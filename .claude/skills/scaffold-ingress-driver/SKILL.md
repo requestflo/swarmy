@@ -59,7 +59,9 @@ that generic intent — drivers never touch a node directly.
    `bun --filter @swarmy/ingress typecheck`.
 
 ## Notes
-- Keep `none` first-class: never make a new driver the forced default.
+- Caddy is the new-org default (`DEFAULT_INGRESS` + the Prisma column
+  default); keep `none` and every other driver first-class and selectable — a new
+  driver never becomes the default, and an existing org's choice is never rewritten.
 - If the driver needs a process in the swarm (e.g. its own container), document
   the placement and where it keeps shared state. Shared certs today live in
   swarmy object storage (bucket `swarmy-edge-certs`, certmagic-s3) — see

@@ -122,10 +122,19 @@ Four ideas, one story:
 
 ## Ingress & exposure behaviour
 
-- **`none` is the literal default and stays first-class.** It renders empty and
-  runs no process — "I manage my own routing." Selecting Caddy or a tunnel is
-  opt-in; the six drivers register in order `none, caddy, traefik, cloudflared,
-  nginx, haproxy` so any "first in list" default stays unopinionated.
+- **Caddy is the default edge for new workspaces; every other driver stays
+  selectable.** A new org's `IngressConfig` is created as `CADDY`, enabled
+  (`DEFAULT_INGRESS` in `ingress.service.ts`, mirrored by the Prisma column
+  default), so a deployed app is browser-reachable with zero setup. An existing
+  org's choice is never rewritten. A fresh org with no public IP or domain still
+  works: with no routes Caddy renders no site blocks (no ACME order is ever
+  placed), a LAN/private-IP host — `*.local`, `192.168.x.y`,
+  `app.192-168-64-4.sslip.io` — gets Caddy's local CA (`tls internal`), and a
+  public-IP `sslip.io` name gets Let's Encrypt. Until a manager is connected
+  the edge reads "down", never a false green. `none` stays first-class — it
+  renders empty and runs no process ("I manage my own routing", "Tracking
+  only"); traefik, cloudflared, nginx and haproxy are one switch away.
+  (Owner decision 2026-09-24.)
 - **TLS is per-route: `auto` (Let's Encrypt), `off`, or `manual`/custom.** Auto
   is the happy path. **On-demand TLS** (custom domains) is gated by the
   controller's public `GET /ingress/ask?domain=…`: it answers 200 **only** for a
