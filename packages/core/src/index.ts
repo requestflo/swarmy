@@ -18,6 +18,7 @@ export * from './disk-forecast';
 export * from './disk-inventory';
 export * from './volume-move';
 export * from './dotenv';
+export * from './pull-errors';
 export * from './swarm-kv';
 export * from './app-secrets';
 export * from './clickhouse';

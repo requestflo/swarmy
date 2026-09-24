@@ -1,4 +1,5 @@
 import type { ContainerInfo, SwarmServiceInfo } from './protocol';
+import { explainImagePullError } from './pull-errors';
 
 /**
  * Pure projection of live Docker state into the swarmy hierarchy + link graph.
@@ -271,7 +272,8 @@ export function buildInventory(
       secrets: s.secrets ?? [],
       configs: s.configs ?? [],
       containers: ctrsByService.get(s.id) ?? [],
-      ...(s.taskHealth?.lastError ? { lastError: s.taskHealth.lastError } : {}),
+      // A Hub rate limit / cache 5xx names its cause and fix (pull-errors).
+      ...(s.taskHealth?.lastError ? { lastError: explainImagePullError(s.taskHealth.lastError) } : {}),
       ...(s.taskHealth?.lastErrorAt ? { lastErrorAt: s.taskHealth.lastErrorAt } : {}),
     };
   });

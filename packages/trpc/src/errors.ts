@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server';
+import { explainImagePullError } from '@swarmy/core';
 
 /** A swarmy-specific code surfaced to the client via the errorFormatter. */
 export type SwarmyCode =
@@ -62,5 +63,6 @@ export function mapDispatchError(e: unknown): TRPCError {
   const message = e instanceof Error ? e.message : String(e);
   if (/timeout/i.test(message)) return commandTimeout();
   if (/offline/i.test(message)) return nodeOffline('unknown');
-  return commandRejected(message);
+  // A deploy's image pull hit a Hub rate limit / cache 5xx: say so, with the fix.
+  return commandRejected(explainImagePullError(message));
 }
