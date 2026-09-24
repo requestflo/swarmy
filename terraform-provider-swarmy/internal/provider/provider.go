@@ -133,6 +133,8 @@ func (p *swarmyProvider) Resources(_ context.Context) []func() resource.Resource
 		NewStackResource,
 		NewDomainResource,
 		NewAPIKeyResource,
+		NewGitConnectionResource,
+		NewGitRepoResource,
 	}
 }
 
