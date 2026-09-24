@@ -10,6 +10,8 @@ import {
   hasBuilderLabel,
   profileToLabels,
   type NodeProfile,
+  isPublicIpv4,
+  observedPublicIpv4,
 } from '@swarmy/core';
 import type { SwarmNodeInfo, SwarmState } from '@swarmy/core/protocol';
 import type { NodeDetail, NodeStatusView, NodeSummary } from '@swarmy/core/views';
@@ -429,6 +431,19 @@ export async function stampDefaultBuilderRole(
   return ok;
 }
 
+/**
+ * PURE — which IP to stamp as `swarmy.node.public-ip` (plans/self-reliance.md
+ * B8). The agent's report wins when present (current agents report the
+ * controller-observed address from registerAck, and only fall back to echo
+ * services when that was private); otherwise the WSS source address, when it
+ * is public. The manual override label is read ahead of this label by
+ * {@link publicIpFromLabels}, so it always wins.
+ */
+export function publicIpToStamp(reportedIp: string | undefined, socketAddr: string | undefined): string | undefined {
+  if (reportedIp && isPublicIpv4(reportedIp)) return reportedIp.trim();
+  return observedPublicIpv4(socketAddr);
+}
+
 export async function stampReportedPublicIp(
   hub: AgentHub,
   orgId: string,
@@ -436,17 +451,18 @@ export async function stampReportedPublicIp(
   reportedIp: string | undefined,
   socketAddr?: string,
 ): Promise<void> {
-  if (!reportedIp) return;
+  const ip = publicIpToStamp(reportedIp, socketAddr);
+  if (!ip) return;
   const labels = hub.nodeInfoFor(nodeId)?.labels;
-  if (labels?.[NODE_PUBLIC_IP_LABEL] === reportedIp) return;
+  if (labels?.[NODE_PUBLIC_IP_LABEL] === ip) return;
   // Pre-swarm nodes have no node labels to stamp yet — stay silent, the next
   // heartbeat after the swarm join lands it (warning here would fire per beat).
   const stamped = await dispatchNodeLabels(hub, orgId, nodeId, {
-    [NODE_PUBLIC_IP_LABEL]: reportedIp,
+    [NODE_PUBLIC_IP_LABEL]: ip,
   });
   if (!stamped) return;
-  const source = socketAddr?.replace(/^::ffff:/i, '');
-  if (source && source !== reportedIp) {
+  const source = observedPublicIpv4(socketAddr);
+  if (reportedIp && source && source !== reportedIp) {
     console.warn(
       `[geo-edge] node ${nodeId}: self-reported public ip ${reportedIp} != socket source ${source} (using self-report; set the override label if wrong)`,
     );

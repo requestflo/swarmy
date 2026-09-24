@@ -92,6 +92,13 @@ export const RegisterAckPayload = z.object({
   heartbeatIntervalMs: z.number().int(),
   metricsIntervalMs: z.number().int(),
   serverTime: Timestamp,
+  /**
+   * The agent's address as the controller saw it on this WSS connection (TCP
+   * peer, or the X-Forwarded-For client behind a trusted proxy) — sent ONLY
+   * when it is a public IPv4. The agent prefers it over third-party IP-echo
+   * services (plans/self-reliance.md B8). Optional: older controllers omit it.
+   */
+  observedPublicIp: z.string().optional(),
 });
 export type RegisterAckPayload = z.infer<typeof RegisterAckPayload>;
 

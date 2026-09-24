@@ -5,6 +5,13 @@ export interface AgentWsData {
   nodeId?: string;
   orgId?: string;
   openedAt: number;
+  /**
+   * The agent's address as seen at the WSS upgrade: the TCP peer, or the
+   * X-Forwarded-For client when the peer is a trusted proxy
+   * (SWARMY_TRUSTED_PROXIES, same model as the HTTP client IP). Feeds the node
+   * public-ip label (plans/self-reliance.md B8).
+   */
+  sourceIp?: string;
 }
 
 export type AgentSocket = ServerWebSocket<AgentWsData>;

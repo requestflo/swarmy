@@ -7,7 +7,7 @@ import {
   parseAgentEnvelope,
   type RegisterPayload,
 } from '@swarmy/core/protocol';
-import { SESSION_TOKEN_PREFIX, parseNodeProfile, type NodeProfile } from '@swarmy/core';
+import { SESSION_TOKEN_PREFIX, observedPublicIpv4, parseNodeProfile, type NodeProfile } from '@swarmy/core';
 import type { LogLine } from '@swarmy/core/views';
 import { prisma } from '@swarmy/db';
 import {
@@ -66,7 +66,7 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
         // Geo-edge: keep the public-ip label current (no-op when unchanged).
         const orgId = deps.store.nodeOrg.get(nodeId);
         if (orgId) {
-          void stampReportedPublicIp(deps.hub, orgId, nodeId, env.payload.publicIp, ws.remoteAddress);
+          void stampReportedPublicIp(deps.hub, orgId, nodeId, env.payload.publicIp, ws.data.sourceIp ?? ws.remoteAddress);
         }
       }
       return;
@@ -321,13 +321,17 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
         heartbeatIntervalMs: DEFAULT_HEARTBEAT_INTERVAL_MS,
         metricsIntervalMs: DEFAULT_METRICS_INTERVAL_MS,
         serverTime: Date.now(),
+        // B8: tell the agent its public IP as we see it, so it needs no echo service.
+        ...(observedPublicIpv4(ws.data.sourceIp ?? ws.remoteAddress)
+          ? { observedPublicIp: observedPublicIpv4(ws.data.sourceIp ?? ws.remoteAddress) }
+          : {}),
       },
     }),
   );
 
   // Geo-edge: stamp the self-detected public IP once the node's swarm identity
   // is known (label dispatch no-ops until then; heartbeats re-try it anyway).
-  void stampReportedPublicIp(deps.hub, orgId, nodeId, facts.publicIp, ws.remoteAddress);
+  void stampReportedPublicIp(deps.hub, orgId, nodeId, facts.publicIp, ws.data.sourceIp ?? ws.remoteAddress);
 
   // WS7 install profiles: first-register-with-token only. The label bundle
   // stamps once the swarm join lands (retried inside); private-mesh nodes are

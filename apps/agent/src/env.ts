@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseBuildOverride, parseCapabilityOverride } from '@swarmy/core';
+import { parseBuildOverride, parseCapabilityOverride, parsePublicIpEcho } from '@swarmy/core';
 
 /**
  * Fallback env bootstrap: interactive CLI invocations (`swarmy-agent status`
@@ -82,4 +82,10 @@ export const env = {
   MESH_SETUP_KEY: process.env.SWARMY_MESH_SETUP_KEY ?? '',
   MESH_MANAGEMENT_URL: process.env.SWARMY_MESH_MANAGEMENT_URL ?? '',
   MESH_DRIVER: process.env.SWARMY_MESH_DRIVER ?? 'netbird',
+  /**
+   * Third-party IP-echo URLs, used ONLY when the controller did not see a
+   * public source address for this node (plans/self-reliance.md B8). Unset →
+   * the built-in defaults; empty / `off` → never call out.
+   */
+  PUBLIC_IP_ECHO: parsePublicIpEcho(process.env.SWARMY_PUBLIC_IP_ECHO),
 };

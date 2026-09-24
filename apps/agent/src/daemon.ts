@@ -9,7 +9,7 @@ import { collectMetrics } from './stats';
 import { sendContainerList, sendServiceState, sendNodeList } from './snapshots';
 import { applyMesh, sampleMeshState } from './handlers/mesh';
 import { swarmRejoinInFlight } from './handlers/swarm';
-import { detectPublicIp } from './public-ip';
+import { detectPublicIp, setObservedPublicIp } from './public-ip';
 import { sampleIngressStatus } from './handlers/ingress-status';
 import { agentPackaging } from './handlers/update';
 import { COMMIT, VERSION, versionInfo } from './version';
@@ -252,10 +252,10 @@ export async function runDaemon(): Promise<void> {
   if (env.EXEC_OVERRIDE) facts.execOverride = env.EXEC_OVERRIDE;
   if (env.SHELL_OVERRIDE) facts.shellOverride = env.SHELL_OVERRIDE;
 
-  // Public IP for the geo-edge DNS layer: detected outbound, sent with register
-  // + every heartbeat (detector caches hourly). Never blocks startup.
-  facts.publicIp = await detectPublicIp();
-  if (facts.publicIp) log(`public ip detected: ${facts.publicIp}`);
+  // Public IP for the geo-edge DNS layer: the controller reports the source
+  // address it sees in registerAck (preferred); third-party echo services are
+  // only a heartbeat-time fallback when it saw a private path. So the first
+  // register carries no self-detected IP and startup makes no outbound call.
 
   // Mesh-first join: resolve BEFORE the WS connection opens so the very first
   // `register` call already carries the mesh IP (see joinMeshAtStartup above).
@@ -335,6 +335,11 @@ export async function runDaemon(): Promise<void> {
         if (persisted && state?.sessionSecret === toPersist.sessionSecret) runtime.sessionPersisted = true;
       });
       log(`registered as node ${payload.nodeId}`);
+      setObservedPublicIp(payload.observedPublicIp);
+      if (payload.observedPublicIp && facts.publicIp !== payload.observedPublicIp) {
+        facts.publicIp = payload.observedPublicIp;
+        log(`public ip (as the controller sees it): ${payload.observedPublicIp}`);
+      }
       startLoops(payload.heartbeatIntervalMs, payload.metricsIntervalMs);
     },
     onCommand: (envlp) => {
@@ -377,6 +382,7 @@ export async function runDaemon(): Promise<void> {
     timers.push(
       setInterval(() => {
         void detectPublicIp().then((publicIp) => {
+          if (publicIp) facts.publicIp = publicIp;
           conn.send('heartbeat', {
             seq: heartbeatSeq++,
             uptimeSec: Math.floor((Date.now() - startedAt) / 1000),

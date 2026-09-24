@@ -1,41 +1,51 @@
 /**
  * Public IP self-detection (geo-edge). The DNS layer answers queries with node
- * public IPs, so every node must know its own. Outbound HTTPS checks beat
- * inspecting interfaces (NAT'd VPSes rarely hold their public address locally).
- * The controller cross-checks our report against the websocket source address
- * and stamps the `swarmy.node.public-ip` node label; a manual override label
- * always wins — so a wrong detection here is recoverable, never fatal.
+ * public IPs, so every node must know its own. Order of preference
+ * (plans/self-reliance.md B8 — no default dependency on someone else's cloud):
+ *
+ *  1. The controller's view: the source address it saw on this agent's WSS
+ *     connection, returned in `registerAck.observedPublicIp` (only when public).
+ *  2. Third-party IP-echo services (`SWARMY_PUBLIC_IP_ECHO`; empty/off → none),
+ *     a LAST resort for nodes that reach the controller over a private path.
+ *  3. Nothing — the manual `swarmy.node.public-ip.override` label (which always
+ *     wins on the controller) is the operator's fix.
  */
+import { isPublicIpv4 } from '@swarmy/core';
+import { env } from './env';
 
-const PROVIDERS = ['https://checkip.amazonaws.com', 'https://api.ipify.org'];
 const TIMEOUT_MS = 2500;
 const REDETECT_INTERVAL_MS = 60 * 60 * 1000;
 
-const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
-
-function isPublicIpv4(text: string): boolean {
-  const m = text.match(IPV4);
-  if (!m) return false;
-  const octets = m.slice(1).map(Number);
-  if (octets.some((o) => o > 255)) return false;
-  const [a = 0, b = 0] = octets;
-  // Reject obviously non-public ranges (loopback, RFC1918, link-local, CGN).
-  if (a === 10 || a === 127 || a === 0) return false;
-  if (a === 172 && b >= 16 && b <= 31) return false;
-  if (a === 192 && b === 168) return false;
-  if (a === 169 && b === 254) return false;
-  if (a === 100 && b >= 64 && b <= 127) return false;
-  return true;
-}
-
+let observed: string | undefined;
 let cached: { ip: string | undefined; at: number } | undefined;
 
-/** Detect this node's public IPv4 (cached, re-detected hourly). */
-export async function detectPublicIp(): Promise<string | undefined> {
+/** Record the controller-observed address from a registerAck (undefined clears it). */
+export function setObservedPublicIp(ip: string | undefined): void {
+  observed = isPublicIpv4(ip) ? ip!.trim() : undefined;
+}
+
+/** Last controller-observed public IP, if any. */
+export function observedPublicIp(): string | undefined {
+  return observed;
+}
+
+type FetchText = (url: string) => Promise<{ ok: boolean; text(): Promise<string> }>;
+
+/**
+ * This node's public IPv4: the controller's view first, else the echo
+ * services (cached, re-detected hourly — a negative result too, so an offline
+ * node never hammers them).
+ */
+export async function detectPublicIp(
+  opts: { providers?: readonly string[]; fetchImpl?: FetchText } = {},
+): Promise<string | undefined> {
+  if (observed) return observed;
   if (cached && Date.now() - cached.at < REDETECT_INTERVAL_MS) return cached.ip;
-  for (const url of PROVIDERS) {
+  const providers = opts.providers ?? env.PUBLIC_IP_ECHO;
+  const doFetch: FetchText = opts.fetchImpl ?? ((url) => fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) }));
+  for (const url of providers) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+      const res = await doFetch(url);
       if (!res.ok) continue;
       const ip = (await res.text()).trim();
       if (isPublicIpv4(ip)) {
@@ -46,7 +56,6 @@ export async function detectPublicIp(): Promise<string | undefined> {
       // provider unreachable — try the next
     }
   }
-  // Negative result is cached too: don't hammer providers from an offline node.
   cached = { ip: undefined, at: Date.now() };
   return undefined;
 }
@@ -54,4 +63,5 @@ export async function detectPublicIp(): Promise<string | undefined> {
 /** Test hook. */
 export function resetPublicIpCache(): void {
   cached = undefined;
+  observed = undefined;
 }
