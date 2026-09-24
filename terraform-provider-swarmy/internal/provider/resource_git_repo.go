@@ -39,6 +39,7 @@ type gitRepoModel struct {
 	ConfigPath      types.String `tfsdk:"config_path"`
 	DeployKey       types.Bool   `tfsdk:"deploy_key"`
 	RequireApproval types.Bool   `tfsdk:"require_approval"`
+	EnforceDrift    types.Bool   `tfsdk:"enforce_drift"`
 	Kind            types.String `tfsdk:"kind"`
 	WebhookURL      types.String `tfsdk:"webhook_url"`
 	WebhookSecret   types.String `tfsdk:"webhook_secret"`
@@ -73,7 +74,7 @@ func (r *gitRepoResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			"provider repo (`connection_id` + `repo_id` + `full_name` + `clone_url`, from the connection's repo listing) or a " +
 			"raw `url`. `webhook_secret` and " +
 			"`deploy_key_public` are returned ONCE on create and kept in state; they are null after `terraform import`. " +
-			"`branch`, `config_path` and `require_approval` update in place; anything else re-links the repo.",
+			"`branch`, `config_path`, `require_approval` and `enforce_drift` update in place; anything else re-links the repo.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:      true,
@@ -120,6 +121,12 @@ func (r *gitRepoResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Optional:      true,
 				Computed:      true,
 				Description:   "GitOps: every planned step waits for confirmation in the dashboard (not only destructive ones). Updated in place; admin/owner key required.",
+				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
+			},
+			"enforce_drift": schema.BoolAttribute{
+				Optional:      true,
+				Computed:      true,
+				Description:   "GitOps: re-apply drift on git-owned fields (default false = report only; destructive steps still wait). Updated in place; admin/owner key required.",
 				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
 			},
 			"deploy_key": schema.BoolAttribute{
@@ -219,9 +226,18 @@ func (r *gitRepoResource) Create(ctx context.Context, req resource.CreateRequest
 	if !plan.RequireApproval.IsNull() && !plan.RequireApproval.IsUnknown() && plan.RequireApproval.ValueBool() {
 		if err := r.client.SetAppRequireApproval(ctx, linked.ID, true); err != nil {
 			// The repo exists now: record it so a re-apply converges instead of leaking it.
-			plan.RequireApproval = types.BoolValue(false)
+			plan.RequireApproval = types.BoolUnknown()
+			plan.EnforceDrift = types.BoolUnknown()
 			r.fillFromRead(ctx, linked.ID, &plan, resp)
 			resp.Diagnostics.AddError("Error setting require_approval on linked git repository", err.Error())
+			return
+		}
+	}
+	if !plan.EnforceDrift.IsNull() && !plan.EnforceDrift.IsUnknown() && plan.EnforceDrift.ValueBool() {
+		if err := r.client.SetAppEnforceDrift(ctx, linked.ID, true); err != nil {
+			plan.EnforceDrift = types.BoolUnknown()
+			r.fillFromRead(ctx, linked.ID, &plan, resp)
+			resp.Diagnostics.AddError("Error setting enforce_drift on linked git repository", err.Error())
 			return
 		}
 	}
@@ -239,12 +255,16 @@ func (r *gitRepoResource) fillFromRead(ctx context.Context, id string, plan *git
 		if plan.RequireApproval.IsUnknown() {
 			plan.RequireApproval = types.BoolNull()
 		}
+		if plan.EnforceDrift.IsUnknown() {
+			plan.EnforceDrift = types.BoolNull()
+		}
 		resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 		return
 	}
 	plan.Kind = types.StringValue(repo.Kind)
 	plan.CreatedAt = types.StringValue(repo.CreatedAt)
 	plan.RequireApproval = types.BoolValue(repo.RequireApproval)
+	plan.EnforceDrift = types.BoolValue(repo.EnforceDrift)
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 }
 
@@ -267,8 +287,8 @@ func (r *gitRepoResource) Read(ctx context.Context, req resource.ReadRequest, re
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-// Update applies branch / config_path (PATCH /git/repos/{id}) and
-// require_approval (PUT /apps/{id}/require-approval) in place. Create-only
+// Update applies branch / config_path (PATCH /git/repos/{id}),
+// require_approval and enforce_drift (PUT /apps/{id}/…) in place. Create-only
 // inputs (repo_id, clone_url, deploy_key) only reach here moving from null to a
 // value after import, and are simply adopted into state.
 func (r *gitRepoResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
@@ -295,6 +315,12 @@ func (r *gitRepoResource) Update(ctx context.Context, req resource.UpdateRequest
 	if !plan.RequireApproval.IsUnknown() && !plan.RequireApproval.IsNull() && !plan.RequireApproval.Equal(state.RequireApproval) {
 		if err := r.client.SetAppRequireApproval(ctx, id, plan.RequireApproval.ValueBool()); err != nil {
 			resp.Diagnostics.AddError("Error setting require_approval", err.Error())
+			return
+		}
+	}
+	if !plan.EnforceDrift.IsUnknown() && !plan.EnforceDrift.IsNull() && !plan.EnforceDrift.Equal(state.EnforceDrift) {
+		if err := r.client.SetAppEnforceDrift(ctx, id, plan.EnforceDrift.ValueBool()); err != nil {
+			resp.Diagnostics.AddError("Error setting enforce_drift", err.Error())
 			return
 		}
 	}
@@ -333,6 +359,7 @@ func mapGitRepoToState(g *client.GitRepo, m *gitRepoModel) {
 	m.Branch = types.StringValue(g.Branch)
 	m.ConfigPath = types.StringValue(g.ConfigPath)
 	m.RequireApproval = types.BoolValue(g.RequireApproval)
+	m.EnforceDrift = types.BoolValue(g.EnforceDrift)
 	m.ConnectionID = stringPtrToValue(g.ConnectionID)
 	m.FullName = stringPtrToValue(g.FullName)
 	m.CreatedAt = types.StringValue(g.CreatedAt)

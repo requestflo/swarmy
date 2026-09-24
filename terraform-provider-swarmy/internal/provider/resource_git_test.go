@@ -77,7 +77,7 @@ func (f *fakeGitAPI) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		f.repos[id] = map[string]any{"id": id, "kind": "generic", "url": url, "branch": body["branch"],
 			"config_path": cfg, "connection_id": body["connection_id"], "full_name": nil, "autodeploy": false,
-			"service_id": nil, "has_token": false, "require_approval": false, "created_at": "2026-09-24T00:00:00.000Z"}
+			"service_id": nil, "has_token": false, "require_approval": false, "enforce_drift": false, "created_at": "2026-09-24T00:00:00.000Z"}
 		reply(201, map[string]any{"id": id, "url": url, "branch": body["branch"], "config_path": cfg, "full_name": nil,
 			"webhook":           map[string]any{"url": "https://c/webhooks/git/" + id, "secret": "whsec_" + id},
 			"deploy_key_public": nil})
@@ -99,6 +99,11 @@ func (f *fakeGitAPI) serve(w http.ResponseWriter, r *http.Request) {
 		for id, g := range f.repos {
 			apps = append(apps, map[string]any{"repo_id": id, "url": g["url"], "full_name": nil, "branch": g["branch"],
 				"config_path": g["config_path"], "app_name": "shop", "require_approval": g["require_approval"],
+				"enforce_drift": g["enforce_drift"],
+				"previews": []map[string]any{{"pr": 7, "stack": "shop-pr-7", "sha": "abc", "status": "applied", "url": nil,
+					"updated_at": "2026-09-24T00:00:00.000Z", "plan_id": "p7"}},
+				"drift": map[string]any{"checked_at": "2026-09-24T00:10:00.000Z",
+					"environments": []map[string]any{{"environment": "production", "stack": "shop", "changes": 2}}},
 				"environments": []map[string]any{{"environment": "production", "branch": g["branch"], "stack": "shop",
 					"latest_plan_id": "p1", "latest_plan_status": "applied", "latest_sha": "abc", "latest_created_at": "2026-09-24T00:00:00.000Z"}}})
 		}
@@ -112,6 +117,15 @@ func (f *fakeGitAPI) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		g["require_approval"] = body["require_approval"]
 		reply(200, map[string]any{"repo_id": id, "require_approval": body["require_approval"]})
+	case r.Method == "PUT" && strings.HasPrefix(path, "/apps/") && strings.HasSuffix(path, "/enforce-drift"):
+		id := strings.TrimSuffix(strings.TrimPrefix(path, "/apps/"), "/enforce-drift")
+		g, ok := f.repos[id]
+		if !ok {
+			notFound()
+			return
+		}
+		g["enforce_drift"] = body["enforce_drift"]
+		reply(200, map[string]any{"repo_id": id, "enforce_drift": body["enforce_drift"]})
 	case strings.HasPrefix(path, "/git/repos/"):
 		id := strings.TrimPrefix(path, "/git/repos/")
 		g, ok := f.repos[id]
@@ -195,7 +209,7 @@ func TestGitResourcesLifecycle(t *testing.T) {
 			{Config: gitTestConfig(srv.URL), PlanOnly: true},
 			// branch + require_approval update IN PLACE (same id, write-once secret kept).
 			{
-				Config: gitTestConfigWith(srv.URL, "release", "require_approval = true"),
+				Config: gitTestConfigWith(srv.URL, "release", "require_approval = true\n  enforce_drift = true"),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("swarmy_git_repo.app", "id", "gr2"),
 					resource.TestCheckResourceAttr("swarmy_git_repo.app", "branch", "release"),
@@ -203,6 +217,11 @@ func TestGitResourcesLifecycle(t *testing.T) {
 					resource.TestCheckResourceAttr("swarmy_git_repo.app", "webhook_secret", "whsec_gr2"),
 					resource.TestCheckResourceAttr("data.swarmy_app.app", "require_approval", "true"),
 					resource.TestCheckResourceAttr("data.swarmy_app.app", "environments.0.latest_plan_status", "applied"),
+					resource.TestCheckResourceAttr("swarmy_git_repo.app", "enforce_drift", "true"),
+					resource.TestCheckResourceAttr("data.swarmy_app.app", "enforce_drift", "true"),
+					resource.TestCheckResourceAttr("data.swarmy_app.app", "previews.0.pr", "7"),
+					resource.TestCheckResourceAttr("data.swarmy_app.app", "drift.0.changes", "2"),
+					resource.TestCheckResourceAttr("data.swarmy_app.app", "drift_checked_at", "2026-09-24T00:10:00.000Z"),
 					func(_ *terraform.State) error {
 						if f.patches != 1 {
 							return fmt.Errorf("expected 1 PATCH, got %d", f.patches)

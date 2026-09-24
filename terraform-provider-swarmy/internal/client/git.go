@@ -49,6 +49,7 @@ type GitRepo struct {
 	ServiceID       *string `json:"service_id"`
 	HasToken        bool    `json:"has_token"`
 	RequireApproval bool    `json:"require_approval"`
+	EnforceDrift    bool    `json:"enforce_drift"`
 	CreatedAt       string  `json:"created_at"`
 }
 
@@ -171,7 +172,34 @@ type App struct {
 	ConfigPath      string           `json:"config_path"`
 	AppName         *string          `json:"app_name"`
 	RequireApproval bool             `json:"require_approval"`
+	EnforceDrift    bool             `json:"enforce_drift"`
 	Environments    []AppEnvironment `json:"environments"`
+	Previews        []AppPreview     `json:"previews"`
+	Drift           *AppDriftCheck   `json:"drift"`
+}
+
+// AppPreview is a live PR preview of an app.
+type AppPreview struct {
+	PR        int64   `json:"pr"`
+	Stack     string  `json:"stack"`
+	Sha       string  `json:"sha"`
+	Status    string  `json:"status"`
+	URL       *string `json:"url"`
+	UpdatedAt string  `json:"updated_at"`
+	PlanID    string  `json:"plan_id"`
+}
+
+// AppDrift is one environment's drift count.
+type AppDrift struct {
+	Environment string `json:"environment"`
+	Stack       string `json:"stack"`
+	Changes     int64  `json:"changes"`
+}
+
+// AppDriftCheck is the controller's last (cached) drift check.
+type AppDriftCheck struct {
+	CheckedAt    string     `json:"checked_at"`
+	Environments []AppDrift `json:"environments"`
 }
 
 // ListApps returns every GitOps app (single page).
@@ -204,4 +232,12 @@ func (c *Client) SetAppRequireApproval(ctx context.Context, repoID string, requi
 		RequireApproval bool `json:"require_approval"`
 	}{require}
 	return c.do(ctx, http.MethodPut, "/apps/"+url.PathEscape(repoID)+"/require-approval", body, nil)
+}
+
+// SetAppEnforceDrift opts the app in (or out) of re-applying drift.
+func (c *Client) SetAppEnforceDrift(ctx context.Context, repoID string, enforce bool) error {
+	body := struct {
+		EnforceDrift bool `json:"enforce_drift"`
+	}{enforce}
+	return c.do(ctx, http.MethodPut, "/apps/"+url.PathEscape(repoID)+"/enforce-drift", body, nil)
 }

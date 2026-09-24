@@ -31,7 +31,27 @@ type appDataSourceModel struct {
 	ConfigPath      types.String `tfsdk:"config_path"`
 	AppName         types.String `tfsdk:"app_name"`
 	RequireApproval types.Bool   `tfsdk:"require_approval"`
+	EnforceDrift    types.Bool   `tfsdk:"enforce_drift"`
 	Environments    types.List   `tfsdk:"environments"`
+	Previews        types.List   `tfsdk:"previews"`
+	DriftCheckedAt  types.String `tfsdk:"drift_checked_at"`
+	Drift           types.List   `tfsdk:"drift"`
+}
+
+var appPreviewAttrTypes = map[string]attr.Type{
+	"pr":         types.Int64Type,
+	"stack":      types.StringType,
+	"sha":        types.StringType,
+	"status":     types.StringType,
+	"url":        types.StringType,
+	"updated_at": types.StringType,
+	"plan_id":    types.StringType,
+}
+
+var appDriftAttrTypes = map[string]attr.Type{
+	"environment": types.StringType,
+	"stack":       types.StringType,
+	"changes":     types.Int64Type,
 }
 
 var appEnvironmentAttrTypes = map[string]attr.Type{
@@ -79,6 +99,34 @@ func (d *appDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, re
 			"config_path":      str("swarmy.yaml path."),
 			"app_name":         str("App (stack) name the swarmy.yaml declares; null until first planned."),
 			"require_approval": schema.BoolAttribute{Computed: true, Description: "Every planned step waits for confirmation."},
+			"enforce_drift":    schema.BoolAttribute{Computed: true, Description: "Drift on git-owned fields is re-applied (false = report only)."},
+			"previews": schema.ListNestedAttribute{
+				Computed:    true,
+				Description: "Live PR previews (latest plan per PR).",
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"pr":         schema.Int64Attribute{Computed: true, Description: "Pull/merge request number."},
+						"stack":      str("Preview stack."),
+						"sha":        str("Commit the preview runs."),
+						"status":     str("Latest plan status for the preview."),
+						"url":        str("Preview URL, when routed."),
+						"updated_at": str("Last update (RFC 3339)."),
+						"plan_id":    str("Latest plan ID for the preview."),
+					},
+				},
+			},
+			"drift_checked_at": str("When the controller last checked for drift (RFC 3339); null = not checked yet."),
+			"drift": schema.ListNestedAttribute{
+				Computed:    true,
+				Description: "Environments that drifted at the last check (empty = none, or not checked yet).",
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"environment": str("Environment name."),
+						"stack":       str("Stack."),
+						"changes":     schema.Int64Attribute{Computed: true, Description: "Planned changes needed to converge."},
+					},
+				},
+			},
 			"environments": schema.ListNestedAttribute{
 				Computed:    true,
 				Description: "Environments with their latest plan.",
@@ -128,6 +176,41 @@ func (d *appDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	previews := make([]attr.Value, 0, len(app.Previews))
+	for _, p := range app.Previews {
+		obj, diags := types.ObjectValue(appPreviewAttrTypes, map[string]attr.Value{
+			"pr":         types.Int64Value(p.PR),
+			"stack":      types.StringValue(p.Stack),
+			"sha":        types.StringValue(p.Sha),
+			"status":     types.StringValue(p.Status),
+			"url":        stringPtrToValue(p.URL),
+			"updated_at": types.StringValue(p.UpdatedAt),
+			"plan_id":    types.StringValue(p.PlanID),
+		})
+		resp.Diagnostics.Append(diags...)
+		previews = append(previews, obj)
+	}
+	previewList, diags := types.ListValue(types.ObjectType{AttrTypes: appPreviewAttrTypes}, previews)
+	resp.Diagnostics.Append(diags...)
+	driftCheckedAt := types.StringNull()
+	drifts := []attr.Value{}
+	if app.Drift != nil {
+		driftCheckedAt = types.StringValue(app.Drift.CheckedAt)
+		for _, e := range app.Drift.Environments {
+			obj, diags := types.ObjectValue(appDriftAttrTypes, map[string]attr.Value{
+				"environment": types.StringValue(e.Environment),
+				"stack":       types.StringValue(e.Stack),
+				"changes":     types.Int64Value(e.Changes),
+			})
+			resp.Diagnostics.Append(diags...)
+			drifts = append(drifts, obj)
+		}
+	}
+	driftList, diags := types.ListValue(types.ObjectType{AttrTypes: appDriftAttrTypes}, drifts)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	state := appDataSourceModel{
 		RepoID:          types.StringValue(app.RepoID),
 		URL:             types.StringValue(app.URL),
@@ -136,7 +219,11 @@ func (d *appDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 		ConfigPath:      types.StringValue(app.ConfigPath),
 		AppName:         stringPtrToValue(app.AppName),
 		RequireApproval: types.BoolValue(app.RequireApproval),
+		EnforceDrift:    types.BoolValue(app.EnforceDrift),
 		Environments:    list,
+		Previews:        previewList,
+		DriftCheckedAt:  driftCheckedAt,
+		Drift:           driftList,
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }

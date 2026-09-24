@@ -9,6 +9,8 @@ resource "swarmy_git_repo" "web" {
 
   # Every planned step waits for confirmation in the dashboard.
   require_approval = true
+  # Re-apply drift on git-owned fields (default: report only).
+  enforce_drift = true
 }
 
 # A generic SSH remote with a swarmy-minted deploy key.

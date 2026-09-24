@@ -2199,6 +2199,10 @@
             "type": "boolean",
             "description": "GitOps: every planned step waits for confirmation. Set via PUT /apps/{repoId}/require-approval."
           },
+          "enforce_drift": {
+            "type": "boolean",
+            "description": "GitOps: drift on git-owned fields is re-applied. Set via PUT /apps/{repoId}/enforce-drift."
+          },
           "created_at": {
             "type": "string"
           }
@@ -2215,6 +2219,7 @@
           "service_id",
           "has_token",
           "require_approval",
+          "enforce_drift",
           "created_at"
         ]
       },
@@ -2405,6 +2410,61 @@
           "latest_created_at"
         ]
       },
+      "AppPreview": {
+        "type": "object",
+        "properties": {
+          "pr": {
+            "type": "integer"
+          },
+          "stack": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "plan_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pr",
+          "stack",
+          "sha",
+          "status",
+          "url",
+          "updated_at",
+          "plan_id"
+        ]
+      },
+      "AppDrift": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "type": "string"
+          },
+          "stack": {
+            "type": "string"
+          },
+          "changes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "environment",
+          "stack",
+          "changes"
+        ]
+      },
       "App": {
         "type": "object",
         "properties": {
@@ -2431,11 +2491,41 @@
           "require_approval": {
             "type": "boolean"
           },
+          "enforce_drift": {
+            "type": "boolean"
+          },
           "environments": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AppEnvironment"
             }
+          },
+          "previews": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppPreview"
+            },
+            "description": "Live PR previews (latest plan per PR)."
+          },
+          "drift": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "checked_at": {
+                "type": "string"
+              },
+              "environments": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AppDrift"
+                }
+              }
+            },
+            "required": [
+              "checked_at",
+              "environments"
+            ],
+            "description": "The last drift check (refreshed by the controller every ~10 min); null = not checked yet."
           }
         },
         "required": [
@@ -2446,7 +2536,10 @@
           "config_path",
           "app_name",
           "require_approval",
-          "environments"
+          "enforce_drift",
+          "environments",
+          "previews",
+          "drift"
         ]
       },
       "AppList": {
@@ -2770,6 +2863,17 @@
           "reason": {
             "type": "string",
             "nullable": true
+          },
+          "plan": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AppPlan"
+              },
+              {
+                "nullable": true,
+                "description": "The plan the deploy recorded (null when nothing was planned)."
+              }
+            ]
           }
         },
         "required": [
@@ -2777,7 +2881,8 @@
           "status",
           "environment",
           "stack",
-          "reason"
+          "reason",
+          "plan"
         ]
       },
       "DeployAppBody": {
@@ -2790,25 +2895,6 @@
             "description": "Branch head to plan + apply (default: the production branch)."
           }
         }
-      },
-      "AppDrift": {
-        "type": "object",
-        "properties": {
-          "environment": {
-            "type": "string"
-          },
-          "stack": {
-            "type": "string"
-          },
-          "changes": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "environment",
-          "stack",
-          "changes"
-        ]
       },
       "AppDriftList": {
         "type": "object",
@@ -2827,6 +2913,81 @@
         "required": [
           "data",
           "next_cursor"
+        ]
+      },
+      "AppEnforceDrift": {
+        "type": "object",
+        "properties": {
+          "repo_id": {
+            "type": "string"
+          },
+          "enforce_drift": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "repo_id",
+          "enforce_drift"
+        ]
+      },
+      "SetEnforceDriftBody": {
+        "type": "object",
+        "properties": {
+          "enforce_drift": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enforce_drift"
+        ]
+      },
+      "PurgeAppDataResult": {
+        "type": "object",
+        "properties": {
+          "stack": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "volumes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "nodes": {
+            "type": "integer",
+            "description": "Online nodes the volumes were removed from."
+          }
+        },
+        "required": [
+          "stack",
+          "resource",
+          "volumes",
+          "nodes"
+        ]
+      },
+      "PurgeAppDataBody": {
+        "type": "object",
+        "properties": {
+          "resource": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "example": "db"
+          },
+          "confirm": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Must be exactly `<stack>/<resource>` — the typed confirmation.",
+            "example": "shop/db"
+          }
+        },
+        "required": [
+          "resource",
+          "confirm"
         ]
       }
     },
@@ -6243,7 +6404,7 @@
           "Apps"
         ],
         "summary": "Compare each environment’s last applied commit with live state (changes nothing)",
-        "description": "An empty list means no drift. Note: an unknown repo also returns an empty list.",
+        "description": "An empty list means no drift.",
         "security": [
           {
             "bearerApiKey": []
@@ -6268,6 +6429,170 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AppDriftList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/apps/{repoId}/enforce-drift": {
+      "put": {
+        "tags": [
+          "Apps"
+        ],
+        "summary": "Opt in (or out) of re-applying drift on git-owned fields",
+        "description": "Default is report-only. When on, drift is re-applied as a `drift`-triggered plan; destructive steps still wait for confirmation. Admin/owner only.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "required": true,
+            "name": "repoId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetEnforceDriftBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppEnforceDrift"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/apps/{repoId}/environments/{environment}/purge": {
+      "post": {
+        "tags": [
+          "Apps"
+        ],
+        "summary": "Delete a REMOVED managed Postgres’s data permanently (its volumes on every node)",
+        "description": "Irreversible. Requires `data.destroy` (checked at the route AND per resource in the service) and the typed confirmation `confirm: \"<stack>/<resource>\"`. Refused (400) while swarmy.yaml still declares the resource, its removal is not yet confirmed, or it is still running.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "required": true,
+            "name": "repoId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            },
+            "required": true,
+            "name": "environment",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurgeAppDataBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurgeAppDataResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }
