@@ -70,10 +70,10 @@ export function ServiceHero({ service, deploying, asleep, compact }: ServiceHero
         </Link>
       ) : (
         <Link
-          to="/services"
+          to="/"
           className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm font-medium transition-colors"
         >
-          <ArrowLeftIcon className="size-4" /> Services
+          <ArrowLeftIcon className="size-4" /> Apps
         </Link>
       )}
 

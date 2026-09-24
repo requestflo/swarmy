@@ -2,9 +2,9 @@ import { z } from 'zod';
 import { orgProcedure, router } from '../trpc';
 import { abacProcedure, abacProcedureAll, resolvePeerStack, resolveStack, resolveStackByName } from '../abac';
 import {
-  addServiceToStack,
   deployFromCompose,
   listStacks,
+  parseCompose,
   redeployStack,
   removeStack,
   stackEndpointsFor,
@@ -13,6 +13,10 @@ import { connectStacks, disconnectStacks } from '../services/stack-links.service
 
 export const stacksRouter = router({
   list: orgProcedure.query(({ ctx }) => listStacks(ctx)),
+  /** Dry-run pasted compose: services it would create + translation warnings. */
+  parseCompose: orgProcedure
+    .input(z.object({ source: z.string().min(1).max(256_000) }))
+    .mutation(({ input }) => parseCompose(input.source)),
   deployFromCompose: abacProcedure('stack.deploy', resolveStackByName)
     .input(
       z.object({
@@ -25,31 +29,6 @@ export const stacksRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => deployFromCompose(ctx, input)),
-
-  // Contextual deploy: add a single app INTO an existing stack (stamped with the
-  // stack-namespace label so it lands in the same Project frame on the canvas).
-  addServiceToStack: abacProcedure('stack.deploy', resolveStackByName)
-    .input(
-      z.object({
-        stack: z.string().min(1),
-        name: z.string().regex(/^[a-z0-9][a-z0-9_.-]*$/),
-        image: z.string().min(1),
-        ports: z
-          .array(
-            z.object({
-              target: z.number().int().positive(),
-              published: z.number().int().positive().optional(),
-              protocol: z.enum(['tcp', 'udp']).optional(),
-            }),
-          )
-          .optional(),
-        env: z.record(z.string()).optional(),
-        replicas: z.number().int().min(1).max(1000).optional(),
-        override: z.boolean().optional(),
-      }),
-    )
-    .mutation(({ ctx, input }) => addServiceToStack(ctx, input)),
-
   redeploy: abacProcedure('stack.deploy', resolveStack)
     .input(
       z.object({

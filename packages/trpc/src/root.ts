@@ -13,7 +13,6 @@ import { observabilityRouter } from './routers/observability';
 import { errorsRouter } from './routers/errors';
 import { meshRouter } from './routers/mesh';
 import { imagesRouter } from './routers/images';
-import { builderRouter } from './routers/builder';
 import { authConfigRouter } from './routers/authConfig';
 import { policiesRouter } from './routers/policies';
 import { terminalRouter } from './routers/terminal';
@@ -85,7 +84,6 @@ export const appRouter = router({
   errors: errorsRouter,
   mesh: meshRouter,
   images: imagesRouter,
-  builder: builderRouter,
   authConfig: authConfigRouter,
   policies: policiesRouter,
   terminal: terminalRouter,

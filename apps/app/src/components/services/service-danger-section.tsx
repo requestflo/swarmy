@@ -18,7 +18,7 @@ export function ServiceDangerSection({ serviceId, serviceName }: ServiceDangerSe
     trpc.services.remove.mutationOptions({
       onSuccess: () => {
         toast.success('Service removed');
-        void navigate({ to: '/services' });
+        void navigate({ to: '/' });
       },
       onError: (e) => toast.error(e.message),
     }),

@@ -629,94 +629,30 @@ export async function deployFromCompose(
   };
 }
 
-export interface AddServiceToStackInput {
-  /** Target stack name = the Docker stack-namespace the new service is stamped into. */
-  stack: string;
-  name: string;
-  image: string;
-  ports?: { target: number; published?: number; protocol?: 'tcp' | 'udp' }[];
-  env?: Record<string, string>;
-  replicas?: number;
-  /** Override admission-policy violations (audited; block-level needs admin). */
-  override?: boolean;
-}
-
 /**
- * Contextual deploy: drop ONE app straight into an existing stack. Builds a
- * minimal `ServiceSpec`, runs it through the stack's telemetry injection (a
- * no-op when the stack isn't opted in), stamps the swarmy-managed +
- * stack-namespace labels so live inventory groups it under <stack>, and
- * dispatches `service.deploy` — reusing the exact spec/label/deploy path as
- * `deployFromCompose`. No Service/Deployment DB rows are written (Docker truth).
+ * A single service deployed INTO an app (the "which app?" field on the image
+ * form): refuse platform stacks, run the stack's telemetry / error-tracking
+ * injection (no-ops when the stack isn't opted in), and stamp the
+ * swarmy-managed + stack-namespace labels — the same augmentation the compose
+ * path applies, so the service behaves like one declared in the stack.
  */
-export async function addServiceToStack(
+export async function prepareStackServiceSpec(
   ctx: OrgContext,
-  input: AddServiceToStackInput,
-): Promise<{ id: string; deploymentId: string }> {
-  guardNotSystemStack(ctx, input.stack);
-  const node = await resolveManagerNode(ctx);
-
-  const baseSpec: ServiceSpec = {
-    name: input.name,
-    image: input.image,
-    mode: { replicated: { replicas: input.replicas ?? 1 } },
-    env: input.env && Object.keys(input.env).length ? input.env : undefined,
-    ports: input.ports?.length
-      ? input.ports.map((p) => ({
-          target: p.target,
-          published: p.published,
-          protocol: p.protocol ?? ('tcp' as const),
-          mode: 'ingress' as const,
-        }))
-      : undefined,
-  };
-
-  // Same augmentation pipeline as the compose path: telemetry first, then the
-  // stack-namespace + swarmy.managed labels.
-  const errorsOn = stackErrorsEnabled(ctx, input.stack);
-  const errorsDsn = errorsOn ? (await ensureProject(ctx, input.stack).catch(() => null))?.dsn || null : null;
-  const [spec] = augmentSpecsForErrors(
-    augmentSpecsForStack([baseSpec], {
-      telemetryEnabled: stackTelemetryEnabled(ctx, input.stack),
+  stack: string,
+  spec: ServiceSpec,
+): Promise<ServiceSpec> {
+  guardNotSystemStack(ctx, stack);
+  const errorsOn = stackErrorsEnabled(ctx, stack);
+  const errorsDsn = errorsOn ? (await ensureProject(ctx, stack).catch(() => null))?.dsn || null : null;
+  const [out] = augmentSpecsForErrors(
+    augmentSpecsForStack([spec], {
+      telemetryEnabled: stackTelemetryEnabled(ctx, stack),
       orgId: ctx.activeOrgId,
-      stack: input.stack,
+      stack,
     }),
     { enabled: errorsOn, dsn: errorsDsn },
-  ).map((s) => withStackLabels(s, input.stack));
-
-  // A single-app drop into a stack is a service deploy — same admission gate
-  // (and override semantics) as the compose path.
-  await enforceAdmission(
-    ctx,
-    {
-      kind: 'service.deploy',
-      orgId: ctx.activeOrgId,
-      stackName: input.stack,
-      specs: [spec],
-      override: input.override,
-    },
-    { targetType: 'service', targetId: input.name },
-  );
-
-  const gatedHosts = await registerDeployRoutes(ctx, spec ? [spec] : []);
-  const deploymentId = randomUUID();
-  try {
-    await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
-  } catch (e) {
-    throw mapDispatchError(e);
-  }
-  kickDomainChecks(ctx, gatedHosts);
-
-  // Best-effort live id (inventory is eventually consistent); name is the stable
-  // fallback until the new service surfaces under the stack.
-  const id = liveStackServices(ctx, input.stack).find((s) => s.name === input.name)?.id ?? input.name;
-  await writeAudit(ctx, {
-    action: 'service.deploy',
-    targetType: 'service',
-    targetId: id,
-    metadata: { name: input.name, image: input.image, stack: input.stack, override: input.override === true },
-  });
-  return { id, deploymentId };
+  ).map((s) => withStackLabels(s, stack));
+  return out!;
 }
 
 export async function redeployStack(
@@ -781,4 +717,27 @@ export function stackEndpointsFor(ctx: OrgContext, stack: string): StackEndpoint
   const inv = buildInventory(services, containers).services;
   if (!inv.some((s) => s.stack === stack)) throw notFound('stack', stack);
   return stackEndpoints(stack, inv);
+}
+
+// ── compose dry-run (the Deploy-from-compose page's live check) ──────────────
+
+export interface ParseComposeResult {
+  models: ReturnType<typeof composeToModels>['models'];
+  warnings: TranslationWarning[];
+  /** A structural parse error (invalid YAML), if any. */
+  parseError?: string;
+}
+
+/** Parse pasted compose into service models + translation warnings (no side effects). */
+export function parseCompose(source: string): ParseComposeResult {
+  let doc: unknown;
+  try {
+    doc = parseYaml(source);
+  } catch (e) {
+    return { models: [], warnings: [], parseError: (e as Error).message };
+  }
+  if (!doc || typeof doc !== 'object') {
+    return { models: [], warnings: [], parseError: 'compose document is empty or not an object' };
+  }
+  return composeToModels(doc as { services?: Record<string, unknown> });
 }

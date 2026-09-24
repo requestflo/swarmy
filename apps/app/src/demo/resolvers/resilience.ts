@@ -245,7 +245,7 @@ export const resilience: DomainResolvers = {
         title: '2 services run a single replica',
         detail: 'grafana, prometheus — one task means one crash or one node loss takes them offline.',
         fixHint: 'Scale to 2+ replicas so the scheduler can reschedule around failures.',
-        fixPath: '/services',
+        fixPath: '/',
         fixLabel: 'Scale the service',
         resource: 'grafana, prometheus',
       },

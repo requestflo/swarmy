@@ -1,8 +1,6 @@
 import { JOIN_TOKEN_PREFIX } from '@swarmy/core';
 import {
-  modelsToCompose,
   ServiceModel,
-  validateModel,
   type ServiceModelOut,
   type TranslationWarning,
 } from '@swarmy/core/compose';
@@ -17,15 +15,14 @@ import type { DemoStore, DomainResolvers } from '../types';
  *    guided /nodes/new one-liner): mint, list, revoke join tokens.
  *  • terminal — container exec + node-shell control plane, recorded-session
  *    replay, and the node-shell break-glass approval request.
- *  • builder — the GUI service builder's compose import/export + full-fidelity
- *    deploy path.
+ *  • stacks.parseCompose — the Deploy-from-compose page's live check.
  *
  * Everything this module owns lives under `store.extra.infraextra` so mutations
  * (mint a token, revoke it, open a session) stick for the session — the UI
  * invalidates and re-reads on success, so the change reads as live. Return
  * shapes mirror the tRPC service views exactly (token.service `JoinTokenView` /
  * `JoinTokenIssued`, terminal.service `TerminalSessionRow` / `TerminalApprovalRow`,
- * builder.service `ParseComposeResult` / `{ yaml }` / `DeployFromBuilderResult`)
+ * stack.service `ParseComposeResult`)
  * so the dashboard pages render unchanged.
  *
  * Demo mode has no data plane (no `/term/ws`), so `terminal.open` /
@@ -290,70 +287,7 @@ function seedApprovals(): TerminalApprovalView[] {
   ];
 }
 
-// ── Builder helpers ───────────────────────────────────────────────────────────
-
-/**
- * Browser-safe YAML emit. apps/app intentionally ships no `yaml` lib (it runs in
- * the browser; the controller has the real lib in non-demo mode), so we render
- * the compose object (from the PURE `modelsToCompose`) with a tiny block-style
- * serializer. It only needs to handle the compose shape: nested objects, arrays
- * of scalars/objects, and scalar leaves — enough to read in the preview pane and
- * download as a `.compose.yaml` file.
- */
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
-function yamlScalar(v: unknown): string {
-  if (v === null || v === undefined) return 'null';
-  if (typeof v === 'boolean' || typeof v === 'number') return String(v);
-  const s = String(v);
-  // Quote when the value could be misread as a non-string scalar or has YAML-
-  // significant characters; otherwise emit bare for readability.
-  if (s === '' || /^[\s]|[\s]$|[:#{}[\],&*!|>'"%@`]|^[-?]|^(true|false|null|~)$|^-?\d/.test(s)) {
-    return JSON.stringify(s);
-  }
-  return s;
-}
-
-function toYaml(value: unknown, indent = 0): string {
-  const pad = '  '.repeat(indent);
-  if (Array.isArray(value)) {
-    if (value.length === 0) return `${pad}[]\n`;
-    let out = '';
-    for (const item of value) {
-      if (isPlainObject(item) || Array.isArray(item)) {
-        const block = toYaml(item, indent + 1);
-        // Splice the dash onto the first line of the child block.
-        const trimmed = block.replace(/^\s+/, '');
-        out += `${pad}- ${trimmed}`;
-      } else {
-        out += `${pad}- ${yamlScalar(item)}\n`;
-      }
-    }
-    return out;
-  }
-  if (isPlainObject(value)) {
-    const entries = Object.entries(value);
-    if (entries.length === 0) return `${pad}{}\n`;
-    let out = '';
-    for (const [k, v] of entries) {
-      if (isPlainObject(v) && Object.keys(v).length > 0) {
-        out += `${pad}${k}:\n${toYaml(v, indent + 1)}`;
-      } else if (Array.isArray(v) && v.length > 0) {
-        out += `${pad}${k}:\n${toYaml(v, indent + 1)}`;
-      } else if (Array.isArray(v)) {
-        out += `${pad}${k}: []\n`;
-      } else if (isPlainObject(v)) {
-        out += `${pad}${k}: {}\n`;
-      } else {
-        out += `${pad}${k}: ${yamlScalar(v)}\n`;
-      }
-    }
-    return out;
-  }
-  return `${pad}${yamlScalar(value)}\n`;
-}
+// ── Compose check helper ───────────────────────────────────────────────────────────
 
 /**
  * Browser-safe compose import: parse without a YAML lib (the controller has one;
@@ -611,50 +545,9 @@ export const infraextra: DomainResolvers = {
       return row;
     },
 
-    // ── builder: compose import/export + deploy ──────────────────────────────
-    'builder.parseCompose': (input) => {
+    'stacks.parseCompose': (input) => {
       const { source } = input as { source: string };
       return parseComposeSource(source);
-    },
-
-    'builder.exportCompose': (input): { yaml: string } => {
-      const { models } = input as { models: unknown[] };
-      const parsed = models.map((m) => ServiceModel.parse(m));
-      const obj = modelsToCompose(parsed);
-      return { yaml: toYaml(obj) };
-    },
-
-    'builder.deploy': (input, store): { id: string; deploymentId: string; warnings: TranslationWarning[] } => {
-      const args = input as { model: unknown; nodeId?: string };
-      const model = ServiceModel.parse(args.model);
-      const warnings = validateModel(model);
-      const id = `svc-${model.name}-${rid(4)}`;
-      const replicas = model.mode === 'global' ? 1 : model.replicas;
-      // Land the new service in the core store so the canvas / lists show it.
-      store.services.unshift({
-        id,
-        name: model.name,
-        image: model.image,
-        status: 'deploying',
-        replicas: { desired: replicas, running: 0 },
-        ingressEnabled: model.ports.some((p) => p.mode === 'ingress'),
-        nodeId: args.nodeId ?? null,
-        stackId: null,
-        updatedAt: new Date().toISOString(),
-        env: model.env,
-        ports: model.ports.map((p) => ({
-          target: p.target,
-          published: p.published ?? p.target,
-          protocol: p.protocol,
-          mode: p.mode,
-        })),
-        volumes: [],
-        networks: model.networks.length ? model.networks : ['swarmy_public'],
-        constraints: model.placement?.constraints ?? [],
-        swarmServiceId: `svc-${id}`,
-        createdAt: new Date().toISOString(),
-      });
-      return { id, deploymentId: `dep-${rid(8)}`, warnings };
     },
   },
 

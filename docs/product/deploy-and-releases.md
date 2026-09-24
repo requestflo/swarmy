@@ -101,15 +101,17 @@ Four ideas, one story:
 
 ## Deploy & release behaviour
 
-- **Admission runs on every path.** Stack deploy, builder deploy, canary start,
+- **Admission runs on every path.** Stack deploy, image deploy, canary start,
   and rollback all call `evaluateAdmission` (guardrails · exposure · image
   policy). A `block` violation is refused unless an admin overrides; a `warn` any
   member can override; every override is audited. See `skill("hot-signal-design")`
   for how violations surface, and governance-and-access.md for the rules.
-- **Full-fidelity deploy.** The builder's `deploy` projects the *entire*
-  `ServiceModel` (placement, mounts, labels, healthcheck, resources, configs,
-  secrets) through to the agent — unlike the lossy `services.create` subset. What
-  you see on the canvas is what the agent applies.
+- **One image form.** A single-image deploy has one path: `/services/new`
+  (`services.create`), which asks which app the service joins. Deploying into an
+  app runs the stack's telemetry / error-tracking injection and stamps its labels
+  (`stack.service#prepareStackServiceSpec`), exactly like a compose service.
+  Anything richer is compose or swarmy.yaml. (The visual service builder and the
+  flat Services list were removed in 2026-09.)
 - **Stack deploy = `docker stack deploy` semantics.** `deployFromCompose` runs
   the same canonical translator (`composeToStack` in `@swarmy/core/compose`) and
   applies Docker's stack naming: service `web` in stack `shop` is the swarm
@@ -160,8 +162,8 @@ Four ideas, one story:
   (`build`, `depends_on` conditions, …) via passthrough and re-emits them on
   export; lossy normalisations (string `cpus:"0.5"` → number) are flagged, never
   silent. Round-trip is model-faithful and key-faithful, not byte-identical.
-- **One validator, advisory by default.** One Zod `ServiceModel` validates both
-  the builder form and the tRPC input, so they cannot drift. Cross-field rules
+- **One validator, advisory by default.** One Zod `ServiceModel` validates the
+  compose model on every path, so they cannot drift. Cross-field rules
   (healthcheck timeout > interval, reservation > limit, global +
   `maxReplicasPerNode`) live in the pure `validateModel` and are `info`/`warn`,
   never a hard block. Import keys fall into three tiers: mapped,
@@ -244,7 +246,7 @@ service inspect` shows only the secret's name.
   proprietary format would trap config and break the unopinionated promise.
 - **A generic JSON-Schema-to-form dump.** compose's `oneOf` unions and its ~40
   Swarm-meaningless keys make an auto-generated form surface fields that silently
-  no-op. swarmy uses curated, hand-built builder tabs over the canonical model
+  no-op. swarmy uses curated, hand-built forms over the canonical model
   instead.
 - **Persisting live service/deployment state in the DB.** Replicas and convergence
   are read from Docker each time; a `Deployment` row would drift. Only swarmy's own
@@ -265,7 +267,7 @@ homes:
 
 - **Canonical model + two-way compose**: `@swarmy/core/compose`
   (`composeToModels`, `modelsToCompose`, `modelToServiceSpec`, `validateModel`),
-  driven by `packages/trpc/src/services/builder.service.ts` + `routers/builder.ts`.
+  checked live by `stacks.parseCompose` (`stack.service#parseCompose`).
 - **Deploy + admission**: `packages/trpc/src/services/stack.service.ts`
   (`deployFromCompose`), `admission.service.ts` (+ `admission-guardrails`,
   `admission-exposure`, `admission-images`), `deployment.service.ts` (synthesised
@@ -279,7 +281,7 @@ homes:
 - **Data model**: `packages/db/prisma/schema/releases.prisma` (`Release`) and
   `schema/cluster.prisma` (`Stack`).
 - **UI**: `apps/app/src/components/canvas/*` (service canvas, inspector, toolbar,
-  layout), `components/service-builder/*`, `components/releases/*` (releases feed,
-  canary panel, release detail), `components/blueprints/*`, `components/ci/previews-*`,
-  and routes `apps/app/src/routes/_authed/stacks/$name.{index,releases}.tsx` +
-  `services/builder.tsx`.
+  layout), `components/releases/*` (releases feed, canary panel, release detail),
+  `components/blueprints/*`, and routes
+  `apps/app/src/routes/_authed/stacks/$name.{index,releases}.tsx` +
+  `services/new.tsx` (the one image form).

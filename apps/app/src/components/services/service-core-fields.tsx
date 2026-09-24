@@ -11,6 +11,9 @@ import {
   Input,
 } from '@swarmy/ui';
 import { ServiceFormSection } from '@/components/services/service-form-section';
+import { useQuery } from '@tanstack/react-query';
+import { useTRPC } from '@/integrations/trpc';
+import { ImagePicker } from './image-picker';
 
 type FormValues = z.input<typeof CreateServiceInput>;
 
@@ -18,8 +21,10 @@ interface ServiceCoreFieldsProps {
   form: UseFormReturn<FormValues>;
 }
 
-/** Name / image / replicas — the identity of the service being deployed. */
+/** Name / image / replicas / app — the identity of the service being deployed. */
 export function ServiceCoreFields({ form }: ServiceCoreFieldsProps): React.JSX.Element {
+  const trpc = useTRPC();
+  const apps = useQuery(trpc.stacks.list.queryOptions());
   return (
     <ServiceFormSection title="Service" caption="What we roll out across the swarm.">
       <FormField
@@ -42,7 +47,7 @@ export function ServiceCoreFields({ form }: ServiceCoreFieldsProps): React.JSX.E
           <FormItem>
             <FormLabel className="mono-label">Image</FormLabel>
             <FormControl>
-              <Input placeholder="nginx:latest" className="font-mono" {...field} />
+              <ImagePicker value={field.value ?? ''} onChange={field.onChange} />
             </FormControl>
             <FormMessage />
           </FormItem>
@@ -73,15 +78,21 @@ export function ServiceCoreFields({ form }: ServiceCoreFieldsProps): React.JSX.E
         name="project"
         render={({ field }) => (
           <FormItem>
-            <FormLabel className="mono-label">Project</FormLabel>
+            <FormLabel className="mono-label">App</FormLabel>
             <FormControl>
               <Input
-                placeholder="ungrouped"
+                placeholder="which app is this part of? (a new name starts one)"
                 className="font-mono"
+                list="service-app-options"
                 {...field}
                 value={field.value ?? ''}
               />
             </FormControl>
+            <datalist id="service-app-options">
+              {(apps.data ?? []).map((a) => (
+                <option key={a.id} value={a.name} />
+              ))}
+            </datalist>
             <FormMessage />
           </FormItem>
         )}

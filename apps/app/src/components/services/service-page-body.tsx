@@ -58,7 +58,7 @@ export function ServicePageBody({
         description="It may have been removed, or the link is stale."
         action={
           <Button asChild className="font-bold">
-            <Link to="/services">Back to services</Link>
+            <Link to="/">Back to apps</Link>
           </Button>
         }
       />

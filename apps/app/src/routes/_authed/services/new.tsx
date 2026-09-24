@@ -15,6 +15,9 @@ import { ServicePortFields } from '@/components/services/service-port-fields';
 import { ServiceIngressFields } from '@/components/services/service-ingress-fields';
 
 export const Route = createFileRoute('/_authed/services/new')({
+  /** `?stack=<app>` preselects which app the service joins ("Add a service" in an app). */
+  validateSearch: (search: Record<string, unknown>): { stack?: string } =>
+    typeof search.stack === 'string' && search.stack ? { stack: search.stack } : {},
   component: NewServicePage,
 });
 
@@ -23,6 +26,7 @@ type FormValues = z.input<typeof CreateServiceInput>;
 function NewServicePage(): React.JSX.Element {
   const trpc = useTRPC();
   const navigate = useNavigate();
+  const { stack } = Route.useSearch();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(CreateServiceInput),
@@ -36,6 +40,7 @@ function NewServicePage(): React.JSX.Element {
       volumes: [],
       networks: [],
       constraints: [],
+      project: stack ?? '',
       ingress: { enabled: false, tls: 'auto' },
     },
   });
@@ -52,7 +57,8 @@ function NewServicePage(): React.JSX.Element {
 
   const submit = form.handleSubmit(
     (values) => {
-      create.mutate(values as typeof CreateServiceInput._output);
+      const v = values as typeof CreateServiceInput._output;
+      create.mutate({ ...v, project: v.project?.trim() || undefined });
     },
     () => toast.error('Check the highlighted fields before deploying.'),
   );
@@ -62,7 +68,7 @@ function NewServicePage(): React.JSX.Element {
       <PageHeader
         eyebrow="Deploy"
         title={<>Ship a <em>service</em>.</>}
-        description="Point us at a container image. We'll roll it out across the swarm."
+        description="Point us at a container image and pick the app it belongs to. We'll roll it out across the swarm."
       />
       <Form {...form}>
         <form onSubmit={submit} className="grid gap-5">
@@ -76,7 +82,9 @@ function NewServicePage(): React.JSX.Element {
               type="button"
               variant="ghost"
               className="rounded-full font-bold"
-              onClick={() => navigate({ to: '/services' })}
+              onClick={() =>
+                stack ? navigate({ to: '/stacks/$name', params: { name: stack } }) : navigate({ to: '/' })
+              }
             >
               Cancel
             </Button>

@@ -31,7 +31,6 @@ import { Route as AuthedAuditRouteImport } from './routes/_authed/audit'
 import { Route as AuthedAlertsRouteImport } from './routes/_authed/alerts'
 import { Route as AuthedAiRouteImport } from './routes/_authed/ai'
 import { Route as AuthedSplatRouteImport } from './routes/_authed/$'
-import { Route as AuthedServicesIndexRouteImport } from './routes/_authed/services/index'
 import { Route as AuthedNodesIndexRouteImport } from './routes/_authed/nodes/index'
 import { Route as AuthedStacksNewRouteImport } from './routes/_authed/stacks/new'
 import { Route as AuthedStacksNameRouteImport } from './routes/_authed/stacks/$name'
@@ -41,7 +40,6 @@ import { Route as AuthedSettingsBackupRouteImport } from './routes/_authed/setti
 import { Route as AuthedSettingsApiKeysRouteImport } from './routes/_authed/settings_.api-keys'
 import { Route as AuthedSettingsAccessRouteImport } from './routes/_authed/settings_.access'
 import { Route as AuthedServicesNewRouteImport } from './routes/_authed/services/new'
-import { Route as AuthedServicesBuilderRouteImport } from './routes/_authed/services/builder'
 import { Route as AuthedServicesServiceIdRouteImport } from './routes/_authed/services/$serviceId'
 import { Route as AuthedObservabilityTraceIdRouteImport } from './routes/_authed/observability.$traceId'
 import { Route as AuthedNodesNewRouteImport } from './routes/_authed/nodes/new'
@@ -180,11 +178,6 @@ const AuthedSplatRoute = AuthedSplatRouteImport.update({
   path: '/$',
   getParentRoute: () => AuthedRoute,
 } as any)
-const AuthedServicesIndexRoute = AuthedServicesIndexRouteImport.update({
-  id: '/services/',
-  path: '/services/',
-  getParentRoute: () => AuthedRoute,
-} as any)
 const AuthedNodesIndexRoute = AuthedNodesIndexRouteImport.update({
   id: '/nodes/',
   path: '/nodes/',
@@ -229,11 +222,6 @@ const AuthedSettingsAccessRoute = AuthedSettingsAccessRouteImport.update({
 const AuthedServicesNewRoute = AuthedServicesNewRouteImport.update({
   id: '/services/new',
   path: '/services/new',
-  getParentRoute: () => AuthedRoute,
-} as any)
-const AuthedServicesBuilderRoute = AuthedServicesBuilderRouteImport.update({
-  id: '/services/builder',
-  path: '/services/builder',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedServicesServiceIdRoute = AuthedServicesServiceIdRouteImport.update({
@@ -422,7 +410,6 @@ export interface FileRoutesByFullPath {
   '/nodes/new': typeof AuthedNodesNewRoute
   '/observability/$traceId': typeof AuthedObservabilityTraceIdRoute
   '/services/$serviceId': typeof AuthedServicesServiceIdRoute
-  '/services/builder': typeof AuthedServicesBuilderRoute
   '/services/new': typeof AuthedServicesNewRoute
   '/settings/access': typeof AuthedSettingsAccessRoute
   '/settings/api-keys': typeof AuthedSettingsApiKeysRoute
@@ -432,7 +419,6 @@ export interface FileRoutesByFullPath {
   '/stacks/$name': typeof AuthedStacksNameRouteWithChildren
   '/stacks/new': typeof AuthedStacksNewRoute
   '/nodes/': typeof AuthedNodesIndexRoute
-  '/services/': typeof AuthedServicesIndexRoute
   '/nodes/$nodeId/terminal': typeof AuthedNodesNodeIdTerminalRoute
   '/services/$serviceId/terminal': typeof AuthedServicesServiceIdTerminalRoute
   '/stacks/$name/access': typeof AuthedStacksNameAccessRoute
@@ -484,7 +470,6 @@ export interface FileRoutesByTo {
   '/nodes/new': typeof AuthedNodesNewRoute
   '/observability/$traceId': typeof AuthedObservabilityTraceIdRoute
   '/services/$serviceId': typeof AuthedServicesServiceIdRoute
-  '/services/builder': typeof AuthedServicesBuilderRoute
   '/services/new': typeof AuthedServicesNewRoute
   '/settings/access': typeof AuthedSettingsAccessRoute
   '/settings/api-keys': typeof AuthedSettingsApiKeysRoute
@@ -493,7 +478,6 @@ export interface FileRoutesByTo {
   '/settings/platform': typeof AuthedSettingsPlatformRoute
   '/stacks/new': typeof AuthedStacksNewRoute
   '/nodes': typeof AuthedNodesIndexRoute
-  '/services': typeof AuthedServicesIndexRoute
   '/nodes/$nodeId/terminal': typeof AuthedNodesNodeIdTerminalRoute
   '/services/$serviceId/terminal': typeof AuthedServicesServiceIdTerminalRoute
   '/stacks/$name/access': typeof AuthedStacksNameAccessRoute
@@ -547,7 +531,6 @@ export interface FileRoutesById {
   '/_authed/nodes/new': typeof AuthedNodesNewRoute
   '/_authed/observability/$traceId': typeof AuthedObservabilityTraceIdRoute
   '/_authed/services/$serviceId': typeof AuthedServicesServiceIdRoute
-  '/_authed/services/builder': typeof AuthedServicesBuilderRoute
   '/_authed/services/new': typeof AuthedServicesNewRoute
   '/_authed/settings_/access': typeof AuthedSettingsAccessRoute
   '/_authed/settings_/api-keys': typeof AuthedSettingsApiKeysRoute
@@ -557,7 +540,6 @@ export interface FileRoutesById {
   '/_authed/stacks/$name': typeof AuthedStacksNameRouteWithChildren
   '/_authed/stacks/new': typeof AuthedStacksNewRoute
   '/_authed/nodes/': typeof AuthedNodesIndexRoute
-  '/_authed/services/': typeof AuthedServicesIndexRoute
   '/_authed/nodes/$nodeId_/terminal': typeof AuthedNodesNodeIdTerminalRoute
   '/_authed/services/$serviceId_/terminal': typeof AuthedServicesServiceIdTerminalRoute
   '/_authed/stacks/$name/access': typeof AuthedStacksNameAccessRoute
@@ -611,7 +593,6 @@ export interface FileRouteTypes {
     | '/nodes/new'
     | '/observability/$traceId'
     | '/services/$serviceId'
-    | '/services/builder'
     | '/services/new'
     | '/settings/access'
     | '/settings/api-keys'
@@ -621,7 +602,6 @@ export interface FileRouteTypes {
     | '/stacks/$name'
     | '/stacks/new'
     | '/nodes/'
-    | '/services/'
     | '/nodes/$nodeId/terminal'
     | '/services/$serviceId/terminal'
     | '/stacks/$name/access'
@@ -673,7 +653,6 @@ export interface FileRouteTypes {
     | '/nodes/new'
     | '/observability/$traceId'
     | '/services/$serviceId'
-    | '/services/builder'
     | '/services/new'
     | '/settings/access'
     | '/settings/api-keys'
@@ -682,7 +661,6 @@ export interface FileRouteTypes {
     | '/settings/platform'
     | '/stacks/new'
     | '/nodes'
-    | '/services'
     | '/nodes/$nodeId/terminal'
     | '/services/$serviceId/terminal'
     | '/stacks/$name/access'
@@ -735,7 +713,6 @@ export interface FileRouteTypes {
     | '/_authed/nodes/new'
     | '/_authed/observability/$traceId'
     | '/_authed/services/$serviceId'
-    | '/_authed/services/builder'
     | '/_authed/services/new'
     | '/_authed/settings_/access'
     | '/_authed/settings_/api-keys'
@@ -745,7 +722,6 @@ export interface FileRouteTypes {
     | '/_authed/stacks/$name'
     | '/_authed/stacks/new'
     | '/_authed/nodes/'
-    | '/_authed/services/'
     | '/_authed/nodes/$nodeId_/terminal'
     | '/_authed/services/$serviceId_/terminal'
     | '/_authed/stacks/$name/access'
@@ -932,13 +908,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedSplatRouteImport
       parentRoute: typeof AuthedRoute
     }
-    '/_authed/services/': {
-      id: '/_authed/services/'
-      path: '/services'
-      fullPath: '/services/'
-      preLoaderRoute: typeof AuthedServicesIndexRouteImport
-      parentRoute: typeof AuthedRoute
-    }
     '/_authed/nodes/': {
       id: '/_authed/nodes/'
       path: '/nodes'
@@ -1000,13 +969,6 @@ declare module '@tanstack/react-router' {
       path: '/services/new'
       fullPath: '/services/new'
       preLoaderRoute: typeof AuthedServicesNewRouteImport
-      parentRoute: typeof AuthedRoute
-    }
-    '/_authed/services/builder': {
-      id: '/_authed/services/builder'
-      path: '/services/builder'
-      fullPath: '/services/builder'
-      preLoaderRoute: typeof AuthedServicesBuilderRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/services/$serviceId': {
@@ -1280,7 +1242,6 @@ interface AuthedRouteChildren {
   AuthedNodesNewRoute: typeof AuthedNodesNewRoute
   AuthedObservabilityTraceIdRoute: typeof AuthedObservabilityTraceIdRoute
   AuthedServicesServiceIdRoute: typeof AuthedServicesServiceIdRoute
-  AuthedServicesBuilderRoute: typeof AuthedServicesBuilderRoute
   AuthedServicesNewRoute: typeof AuthedServicesNewRoute
   AuthedSettingsAccessRoute: typeof AuthedSettingsAccessRoute
   AuthedSettingsApiKeysRoute: typeof AuthedSettingsApiKeysRoute
@@ -1290,7 +1251,6 @@ interface AuthedRouteChildren {
   AuthedStacksNameRoute: typeof AuthedStacksNameRouteWithChildren
   AuthedStacksNewRoute: typeof AuthedStacksNewRoute
   AuthedNodesIndexRoute: typeof AuthedNodesIndexRoute
-  AuthedServicesIndexRoute: typeof AuthedServicesIndexRoute
   AuthedNodesNodeIdTerminalRoute: typeof AuthedNodesNodeIdTerminalRoute
   AuthedServicesServiceIdTerminalRoute: typeof AuthedServicesServiceIdTerminalRoute
   AuthedTerminalSessionsIdRoute: typeof AuthedTerminalSessionsIdRoute
@@ -1322,7 +1282,6 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedNodesNewRoute: AuthedNodesNewRoute,
   AuthedObservabilityTraceIdRoute: AuthedObservabilityTraceIdRoute,
   AuthedServicesServiceIdRoute: AuthedServicesServiceIdRoute,
-  AuthedServicesBuilderRoute: AuthedServicesBuilderRoute,
   AuthedServicesNewRoute: AuthedServicesNewRoute,
   AuthedSettingsAccessRoute: AuthedSettingsAccessRoute,
   AuthedSettingsApiKeysRoute: AuthedSettingsApiKeysRoute,
@@ -1332,7 +1291,6 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedStacksNameRoute: AuthedStacksNameRouteWithChildren,
   AuthedStacksNewRoute: AuthedStacksNewRoute,
   AuthedNodesIndexRoute: AuthedNodesIndexRoute,
-  AuthedServicesIndexRoute: AuthedServicesIndexRoute,
   AuthedNodesNodeIdTerminalRoute: AuthedNodesNodeIdTerminalRoute,
   AuthedServicesServiceIdTerminalRoute: AuthedServicesServiceIdTerminalRoute,
   AuthedTerminalSessionsIdRoute: AuthedTerminalSessionsIdRoute,

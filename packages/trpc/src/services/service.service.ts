@@ -16,6 +16,7 @@ import { enforceAdmission } from './admission-gate';
 import { writeAudit } from './audit.service';
 import { pinToNodeConstraint, resolveManagerNode } from './dispatch.service';
 import { patchLiveService } from './service-patch';
+import { prepareStackServiceSpec } from './stack.service';
 import {
   listAppSecretVersions,
   materializeSecretVars,
@@ -194,6 +195,8 @@ export async function createService(
     constraints: input.nodeId ? [...input.constraints, pinToNodeConstraint(ctx, input.nodeId)] : input.constraints,
     project: input.project,
   });
+  // Deploying INTO an app: same stack augmentation as the compose path.
+  if (input.project) spec = await prepareStackServiceSpec(ctx, input.project, spec);
 
   // Secret vars → Docker secrets (`<name>_<KEY>_v1`), mounted by name. The
   // admission gate + the deploy below only ever see the secret NAMES.

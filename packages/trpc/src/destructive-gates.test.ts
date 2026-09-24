@@ -138,7 +138,6 @@ const GATES: Array<[string, unknown, string]> = [
   ['services.update', { id: 'svc' }, 'service.configure'],
   ['services.setScaleToZero', { id: 'svc', enabled: true }, 'service.configure'],
   ['stacks.deployFromCompose', { name: 'shop', composeSource: 'services: {}' }, 'stack.deploy'],
-  ['stacks.addServiceToStack', { stack: 'shop', name: 'web', image: 'nginx' }, 'stack.deploy'],
   ['stacks.redeploy', { id: 'st1' }, 'stack.deploy'],
   ['stacks.connect', { stack: 'shop', peer: 'blog' }, 'stack.deploy'],
   // AI gateway app wiring: configuring the app it injects into.
@@ -283,12 +282,12 @@ describe('deploys carry the environment (members free outside production)', () =
     return { audit, error };
   };
 
-  it('a member may add an app to a staging stack, not to a production one', async () => {
-    const staging = await run((c) => c.stacks!.addServiceToStack!({ stack: 'blog', name: 'api', image: 'x' }));
-    expect(staging.audit).toContain('authz.permit:stack.deploy');
-    const prod = await run((c) => c.stacks!.addServiceToStack!({ stack: 'shop', name: 'api', image: 'x' }));
+  it('a member may add a service to a staging app, not to a production one', async () => {
+    const staging = await run((c) => c.services!.create!({ project: 'blog', name: 'api', image: 'x' }));
+    expect(staging.audit).toContain('authz.permit:service.deploy');
+    const prod = await run((c) => c.services!.create!({ project: 'shop', name: 'api', image: 'x' }));
     expect(isPolicyDenied(prod.error)).toBe(true);
-    expect(prod.audit).toEqual(['authz.deny:stack.deploy']);
+    expect(prod.audit).toEqual(['authz.deny:service.deploy']);
   });
 
   it('a new stack whose compose stamps production is production immediately', async () => {

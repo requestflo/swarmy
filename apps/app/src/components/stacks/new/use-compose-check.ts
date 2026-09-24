@@ -13,13 +13,13 @@ export interface ComposeCheck {
 const IDLE: ComposeCheck = { status: 'idle', services: [], warnings: [], parseError: null };
 
 /**
- * Debounced dry-run of the pasted compose through `builder.parseCompose` so
+ * Debounced dry-run of the pasted compose through `stacks.parseCompose` so
  * the deploy page can show "N services ready" / warnings / parse errors live,
  * before the user commits to the deploy.
  */
 export function useComposeCheck(source: string): ComposeCheck {
   const trpc = useTRPC();
-  const parse = useMutation(trpc.builder.parseCompose.mutationOptions());
+  const parse = useMutation(trpc.stacks.parseCompose.mutationOptions());
   const parseRef = React.useRef(parse);
   parseRef.current = parse;
   const [check, setCheck] = React.useState<ComposeCheck>(IDLE);
