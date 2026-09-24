@@ -291,7 +291,6 @@ export const MeshControlStatus = z.object({
   error: z.string().optional(),
 });
 export type MeshControlStatus = z.infer<typeof MeshControlStatus>;
-export type ApplyMeshControlResult = MeshControlStatus;
 
 // ── People access routers (plan §3.3) ─────────────────────────────────────────
 

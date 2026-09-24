@@ -8,7 +8,7 @@
  */
 import type { DB } from '@swarmy/db';
 import type { AgentHub } from '../hub/types';
-import { orgSingleton, reachableOrgIds, type KvRow } from './kv-repo';
+import { orgSingleton, reachableOrgIds } from './kv-repo';
 
 /** Mirrors the (removed) Prisma `IngressDriver` enum. */
 export type IngressDriverEnum = 'CADDY' | 'TRAEFIK' | 'NONE' | 'CLOUDFLARE_TUNNEL' | 'NGINX' | 'HAPROXY';
@@ -18,8 +18,6 @@ export interface IngressConfigDoc {
   enabled: boolean;
   settings: Record<string, unknown>;
 }
-
-export type IngressConfigRow = KvRow<IngressConfigDoc>;
 
 /**
  * New orgs start with swarmy's own Caddy edge ON (owner decision 2026-09-24),

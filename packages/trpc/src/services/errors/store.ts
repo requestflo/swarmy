@@ -39,12 +39,6 @@ export async function errorsStore(ctx: OrgContext): Promise<OrgClickhouse | null
   return ch;
 }
 
-/** Forget the ensured marker (store redeployed / tests). */
-export function forgetErrorsSchema(orgId?: string): void {
-  if (orgId) ensured.delete(orgId);
-  else ensured.clear();
-}
-
 /* ----------------------------------------------------------------------------
  * Row mappers (JSONEachRow bodies)
  * ------------------------------------------------------------------------- */

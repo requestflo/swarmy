@@ -50,8 +50,6 @@ import { effectiveImagesFor } from './platform-images';
 
 export const REGISTRY_CACHE_SERVICE_NAME = 'swarmy-registry-cache';
 export const REGISTRY_CACHE_PORT = 5001;
-/** What node dockerd's `registry-mirrors` points at (routing mesh; loopback is insecure-trusted). */
-export const REGISTRY_CACHE_MIRROR_URL = `http://localhost:${REGISTRY_CACHE_PORT}`;
 export const REGISTRY_CACHE_LABEL = 'swarmy.registry.cache';
 const DEFAULT_CACHE_UPSTREAM = 'https://registry-1.docker.io';
 

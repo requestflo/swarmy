@@ -50,8 +50,6 @@ const MAIL_DATA_VOLUME = 'swarmy-mail-data';
 const CONFIG_PATH = '/run/secrets/maddy.conf';
 /** SMTP username suffix for credentials (`<name>@swarmy`). */
 export const SMTP_USER_DOMAIN = 'swarmy';
-/** The controller's own submission login (the HTTP send API + swarmy's own mail). */
-export const CONTROLLER_SMTP_USER = `controller@${SMTP_USER_DOMAIN}`;
 /** Bounce hook login the MTA presents to the controller. */
 export const BOUNCE_HOOK_USER = 'maddy';
 /** Recent suppressions rendered into the MTA as recipient rejects (the send API checks the full list). */

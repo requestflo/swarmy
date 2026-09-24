@@ -208,14 +208,6 @@ export interface LogLine {
   message: string;
 }
 
-export interface TaskState {
-  id: string;
-  nodeId: string | null;
-  state: string;
-  desiredState: string;
-  error: string | null;
-}
-
 export interface DashboardSummary {
   nodes: { online: number; total: number };
   services: { running: number; total: number };
@@ -2294,7 +2286,6 @@ export const BLUEPRINT_IDS = [
   'meilisearch-app',
   'monitoring-notes',
 ] as const;
-export type BuiltinBlueprintId = (typeof BLUEPRINT_IDS)[number];
 /** Any catalog slug: a built-in generator or an `@swarmy/templates` app. */
 export type BlueprintId = string;
 
@@ -2921,9 +2912,6 @@ export interface DbWalShipperView {
   service: string;
   status: 'running' | 'degraded' | 'deploying' | 'failing' | 'idle' | 'stopped' | 'absent';
 }
-
-/** Replica lag above this reads as "falling behind" (amber) in the dashboard. */
-export const DB_LAG_WARN_SECONDS = 10;
 
 // ── PR preview environments (slice D4) — appended, additive ──────────────────
 

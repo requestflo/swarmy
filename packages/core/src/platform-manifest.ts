@@ -20,7 +20,6 @@ import { SYSTEM_IMAGES, parseImageRef, type SystemImage, type SystemImageKey } f
 
 export const PLATFORM_MANIFEST_SCHEMA = 1;
 export type PlatformChannel = 'stable' | 'edge';
-export const PLATFORM_CHANNELS: readonly PlatformChannel[] = ['stable', 'edge'];
 
 const DIGEST = /^sha256:[a-f0-9]{64}$/;
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;

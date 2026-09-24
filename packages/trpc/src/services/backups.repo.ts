@@ -55,7 +55,6 @@ export interface BackupScheduleDoc {
   /** Opt-out tombstone of a removed auto schedule. */
   optedOutAt: Date | null;
 }
-export type BackupScheduleRow = KvRow<BackupScheduleDoc>;
 
 export const backupSchedules = kvTable<BackupScheduleDoc>('bkp-sched', {
   dateFields: ['anchorAt', 'optedOutAt'],
@@ -75,7 +74,6 @@ export interface OffsiteMirrorDoc {
   sourceAccessKeyRef: string | null;
   sourceSecretKeyRef: string | null;
 }
-export type OffsiteMirrorRow = KvRow<OffsiteMirrorDoc>;
 
 /** One mirror per org: the row id IS the org id. */
 export const offsiteMirrors = kvTable<OffsiteMirrorDoc>('mirror', {

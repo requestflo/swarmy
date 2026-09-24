@@ -164,11 +164,6 @@ export function parseCacheClusterRef(
   return { stack: defaultStack, cluster: ref };
 }
 
-/** The cache primary's Docker service name (A3 naming: `<stack>_<cluster>-cache`). */
-export function cachePrimaryServiceName(stack: string, cluster: string): string {
-  return `${stack}_${cluster}-cache`;
-}
-
 // ── Pure: redis key builders ──────────────────────────────────────────────────
 
 export interface QueueKeys {

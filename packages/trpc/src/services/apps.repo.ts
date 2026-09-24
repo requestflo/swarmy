@@ -7,7 +7,7 @@
  *  - `registry/<orgId>` RegistryConfig (cosign private key stays a vault blob)
  *  - `image-gc/<orgId>` ImageGcPolicy (incl. the build-cache GC budget)
  */
-import { kvTable, type KvRow } from './kv-repo';
+import { kvTable } from './kv-repo';
 
 export interface StackDoc {
   name: string;
@@ -15,7 +15,6 @@ export interface StackDoc {
   /** IngressDriver enum value, or null. */
   ingressDriver: string | null;
 }
-export type StackRow = KvRow<StackDoc>;
 export const stacks = kvTable<StackDoc>('stack', { defaults: () => ({ ingressDriver: null }), unique: [['name']] });
 
 export interface RegistryConfigDoc {
@@ -27,7 +26,6 @@ export interface RegistryConfigDoc {
   cosignPublicKey: string | null;
   cosignPrivateKeyEnc: string | null;
 }
-export type RegistryConfigRow = KvRow<RegistryConfigDoc>;
 export const registryConfigs = kvTable<RegistryConfigDoc>('registry', {
   singleton: true,
   defaults: () => ({
@@ -51,7 +49,6 @@ export interface ImageGcPolicyDoc {
   /** Registry build cache: total budget; the least recently written refs go first. */
   cacheMaxGb: number;
 }
-export type ImageGcPolicyRow = KvRow<ImageGcPolicyDoc>;
 export const imageGcPolicies = kvTable<ImageGcPolicyDoc>('image-gc', {
   singleton: true,
   defaults: () => ({ mode: 'ON_HEALTHCHECK', keepProd: true, days: null, cacheMaxAgeDays: 14, cacheMaxGb: 20 }),

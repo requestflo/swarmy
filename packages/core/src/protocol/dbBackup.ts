@@ -79,9 +79,6 @@ export const DbBackupEngine = z.enum([
 ]);
 export type DbBackupEngine = z.infer<typeof DbBackupEngine>;
 
-export function isLogicalEngine(e: DbBackupEngine): boolean {
-  return e === 'pg_dump' || e === 'pg_dumpall' || e === 'snapshot-from-replica';
-}
 export function isPhysicalEngine(e: DbBackupEngine): boolean {
   return e === 'wal-g' || e === 'pgbackrest';
 }

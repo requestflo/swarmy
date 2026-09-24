@@ -72,9 +72,6 @@ export const PG_ENV = {
 
 export type PgBootRole = 'primary' | 'replica';
 
-/** The superuser the official image creates (`POSTGRES_USER` unset ⇒ postgres). */
-export const MANAGED_PG_SUPERUSER = 'postgres';
-
 /**
  * Promote a standby in place — a superuser SQL call (PG12+), so the exec needs
  * no image-specific `pg_ctl` path and no uid switch. Waits up to 25s and prints

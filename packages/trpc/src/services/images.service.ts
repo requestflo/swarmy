@@ -102,11 +102,6 @@ interface HubSearchResult {
   }>;
 }
 
-/** Docker Hub search. `[]` on a short query; `[]` too when Hub is unreachable. */
-export async function searchImages(query: string): Promise<ImageSuggestion[]> {
-  return (await searchHub(query)) ?? [];
-}
-
 /** Hub search, `null` when Hub didn't answer (so callers can hide its section). */
 async function searchHub(query: string): Promise<ImageSuggestion[] | null> {
   const q = query.trim();

@@ -24,19 +24,6 @@ export async function requireOnlineNode(ctx: OrgContext, nodeId: string): Promis
 }
 
 /**
- * Deployments are no longer persisted — swarm state is read live from Docker.
- * Kept as a no-op so existing callers compile; deploy failures now surface
- * directly as dispatch errors at the call site.
- */
-export async function failDeployment(
-  _ctx: OrgContext,
-  _deploymentId: string,
-  _e: unknown,
-): Promise<void> {
-  // no-op: nothing to persist
-}
-
-/**
  * Placement constraint pinning a service to one enrolled node. Service deploys
  * always dispatch to a MANAGER (workers can't create services); the pin rides
  * in the spec as `node.id==<docker swarm node id>`.

@@ -194,18 +194,6 @@ export async function ensureRepo(repo: ResticRepo, runner: ResticRunner): Promis
 
 // ── bundle build / write ────────────────────────────────────────────────────
 
-/** Write the bundle contents into a fresh staging dir and return paths. */
-export async function stageBundle(
-  contents: BundleContents,
-): Promise<{ dir: string; bundlePath: string }> {
-  const dir = await mkdtemp(join(tmpdir(), 'swarmy-cb-stage-'));
-  await writeFile(join(dir, 'manifest.json'), JSON.stringify(contents.manifest, null, 2));
-  await writeFile(join(dir, SNAPSHOT_MEMBER), contents.dbSnapshot);
-  await writeFile(join(dir, 'secrets.json'), JSON.stringify(contents.secrets, null, 2));
-  if (contents.swarmKv) await writeFile(join(dir, SWARM_KV_MEMBER), JSON.stringify(contents.swarmKv, null, 2));
-  return { dir, bundlePath: join(dir, BUNDLE_FILE) };
-}
-
 /**
  * Serialise the staging files into a single plaintext blob, then encrypt with
  * the user-held passphrase. We use a tiny self-describing length-prefixed

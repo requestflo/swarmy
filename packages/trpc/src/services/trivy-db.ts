@@ -33,8 +33,6 @@ export const TRIVY_DB_FRESH_SECONDS = 24 * 60 * 60;
 export const TRIVY_DB_STALE_MARKER = '@@SWARMY-TRIVY-DB-STALE@@';
 /** Printed by the refresh job after a successful download. */
 export const TRIVY_DB_REFRESHED_MARKER = '@@SWARMY-TRIVY-DB-REFRESHED@@';
-/** Daily refresh cadence. */
-export const TRIVY_DB_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 /** Env var carrying the ref to scan into the script (never shell-interpolated). */
 const REF_ENV = 'SWARMY_SCAN_REF';

@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { PROTOCOL_VERSION } from './constants';
 import { envelope } from './primitives';
 import { ProtocolError } from './errors';
 import { RegisterMsg, RegisterAckMsg } from './auth';
@@ -83,7 +82,6 @@ export const AgentToControllerMessage = z.discriminatedUnion('type', [
   IngressNodeStatusMsg,
 ]);
 export type AgentToControllerMessage = z.infer<typeof AgentToControllerMessage>;
-export type AgentMessageType = AgentToControllerMessage['type'];
 
 /** Messages (mostly commands) the controller sends to the agent. */
 export const ControllerToAgentMessage = z.discriminatedUnion('type', [
@@ -145,20 +143,12 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   ControllerErrorMsg,
 ]);
 export type ControllerToAgentMessage = z.infer<typeof ControllerToAgentMessage>;
-export type ControllerMessageType = ControllerToAgentMessage['type'];
 
 export const AgentEnvelope = envelope(AgentToControllerMessage);
 export type AgentEnvelope = z.infer<typeof AgentEnvelope>;
 
 export const ControllerEnvelope = envelope(ControllerToAgentMessage);
 export type ControllerEnvelope = z.infer<typeof ControllerEnvelope>;
-
-/** Build a complete outbound frame around an inner message. */
-export function createEnvelope<T extends AgentToControllerMessage | ControllerToAgentMessage>(
-  inner: T,
-): { v: typeof PROTOCOL_VERSION; id: string; ts: number } & T {
-  return { v: PROTOCOL_VERSION, id: crypto.randomUUID(), ts: Date.now(), ...inner };
-}
 
 export function parseAgentEnvelope(raw: unknown): AgentEnvelope {
   const r = AgentEnvelope.safeParse(raw);

@@ -346,12 +346,6 @@ export async function reconcilePeopleAccess(ctx: OrgContext): Promise<PeopleReco
   return { managed: true, enabled: settings.enabled, changes, steps, problems: routers.problems };
 }
 
-/** Test seam. */
-export function resetPeopleCaches(): void {
-  vipCache.clear();
-  lastSignature = new Map();
-}
-
 // ── admin actions ────────────────────────────────────────────────────────────
 
 async function requireManaged(ctx: OrgContext): Promise<{ m: ManagedControlPlane; api: NetbirdAdminApi }> {

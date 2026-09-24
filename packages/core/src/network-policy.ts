@@ -51,10 +51,6 @@ export function isPlatformNetwork(name: string): boolean {
   return PLATFORM_SHARED_NETWORKS.has(name) || PLATFORM_PRIVATE_NETWORKS.has(name);
 }
 
-export function isLinkNetwork(name: string): boolean {
-  return name.startsWith(LINK_NETWORK_PREFIX);
-}
-
 // ─────────────────────────────────────────────────────────────── MTU ──
 
 /** VXLAN encapsulation overhead (outer IPv4 20 + UDP 8 + VXLAN 8 + inner Ethernet 14). */

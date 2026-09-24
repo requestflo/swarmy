@@ -8,7 +8,6 @@ import {
   isNodeShellCapable,
 } from '@swarmy/core';
 import type { AgentHub } from '../hub/types';
-import type { TermTarget } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { writeAudit } from './audit.service';
 
@@ -81,14 +80,6 @@ export function terminalCapability(
         message: `Host shell is off for this node — ${NODE_SHELL_ENABLE_HINT}.`,
       };
 }
-export type TermSessionReason =
-  | 'exit'
-  | 'idle_timeout'
-  | 'max_session'
-  | 'killed'
-  | 'agent_shutdown'
-  | 'error'
-  | 'closed';
 
 export interface TerminalSessionRow {
   id: string;

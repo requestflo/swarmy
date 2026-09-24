@@ -273,9 +273,6 @@ export function resolveAuth(opts: {
  * Responses
  * ------------------------------------------------------------------------- */
 
-/** Item types swarmy stores today. Everything else is accepted and dropped (SDKs must not retry). */
-export const STORED_ITEM_TYPES = ['event'] as const;
-
 /**
  * `X-Sentry-Rate-Limits` value for a 429: `<retry_after>:<categories>:<scope>`.
  * An empty category list means "every category".

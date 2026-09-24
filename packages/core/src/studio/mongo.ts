@@ -325,11 +325,6 @@ export function mongoUpdateById(collection: string, id: unknown, set: Record<str
   return { update: collection, updates: [{ q: { _id: id }, u, multi: false }] };
 }
 
-export function mongoReplaceById(collection: string, id: unknown, doc: Record<string, unknown>): Record<string, unknown> {
-  const { _id: _ignored, ...rest } = doc;
-  return { update: collection, updates: [{ q: { _id: id }, u: rest, multi: false }] };
-}
-
 export function mongoInsert(collection: string, doc: Record<string, unknown>): Record<string, unknown> {
   return { insert: collection, documents: [doc] };
 }

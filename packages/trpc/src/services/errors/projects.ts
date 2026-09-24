@@ -79,11 +79,6 @@ export async function listProjects(ctx: OrgContext): Promise<ErrorProjectView[]>
   return rows.map(toView);
 }
 
-/** The project's plaintext DSN, or null (deploy-path injection). */
-export async function projectDsn(ctx: OrgContext, stack: string): Promise<string | null> {
-  return (await getProject(ctx, stack))?.dsn || null;
-}
-
 /**
  * Get-or-create the stack's project. Project ids are random 7–9 digit
  * numbers (unguessable enough to not enumerate, numeric as SDKs require);

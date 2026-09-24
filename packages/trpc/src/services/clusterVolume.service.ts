@@ -63,11 +63,6 @@ function toView(v: VolumeInfo): ClusterVolumeView {
   };
 }
 
-/** Mount entry to splice into a ServiceSpec for a cluster volume. */
-export function clusterMount(name: string, target: string, readOnly = false) {
-  return { type: 'volume' as const, source: name, target, readOnly };
-}
-
 /** Live cluster volumes, read from a manager. Throws when no manager answers. */
 async function liveClusterVolumes(ctx: OrgContext): Promise<VolumeInfo[]> {
   const node = await resolveManagerNode(ctx);

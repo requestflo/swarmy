@@ -61,8 +61,6 @@ export const storageClusterRepo = orgSingleton<StorageClusterDoc>('storage', DEF
 
 // ── BucketAccess ──────────────────────────────────────────────────────────────
 
-export type BucketAccessModeValue = 'INTERNAL' | 'MESH' | 'PUBLIC';
-
 interface BucketAclDoc {
   /** Garage bucket id → its alias when set + the mode. No entry = INTERNAL. */
   buckets: Record<string, { bucketName: string; mode: string }>;

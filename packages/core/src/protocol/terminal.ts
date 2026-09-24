@@ -171,15 +171,3 @@ export const TermExitMsg = z.object({
 });
 export type TermExitMsg = z.infer<typeof TermExitMsg>;
 
-/** Convenience unions (the discriminated-union members live in messages.ts). */
-export const TerminalControllerToAgentMsgs = [
-  TermStartMsg,
-  TermInputMsg,
-  TermResizeMsg,
-  TermCloseMsg,
-] as const;
-export const TerminalAgentToControllerMsgs = [
-  TermStartedMsg,
-  TermDataMsg,
-  TermExitMsg,
-] as const;

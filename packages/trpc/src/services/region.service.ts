@@ -25,11 +25,6 @@ export const REGION_NODE_LABEL = 'swarmy.region';
 /** Service-label prefix carrying a declared replica count for one region. */
 export const REGION_REPLICAS_PREFIX = 'swarmy.region.';
 export const REGION_REPLICAS_SUFFIX = '.replicas';
-/** Marker stamped by the reconcile worker with the summed desired total. */
-export const REGION_DESIRED_TOTAL_LABEL = 'swarmy.region.desiredTotal';
-/** Marker requesting an even spread of replicas across node region labels. */
-export const REGION_SPREAD_LABEL = 'swarmy.region.spread';
-export const REGION_SPREAD_VALUE = `node.labels.${REGION_NODE_LABEL}`;
 
 const REGION_REPLICAS_RE = /^swarmy\.region\.(.+)\.replicas$/;
 

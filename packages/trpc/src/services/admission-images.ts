@@ -47,11 +47,6 @@ export function readVerifyCache(
   return hit.ok;
 }
 
-/** Test hook: drop all memoized verify results. */
-export function clearVerifyCache(): void {
-  verifyCache.clear();
-}
-
 // ── Pure decision core (unit-tested) ─────────────────────────────────────────
 
 export interface ImagePolicyFlags {

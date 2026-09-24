@@ -197,11 +197,6 @@ export async function getProviders(ctx: OrgContext): Promise<AiProvidersView> {
 const defaultHostResolver: HostResolver = async (host) => (await lookup(host, { all: true })).map((a) => a.address);
 let hostResolver: HostResolver = defaultHostResolver;
 
-/** Test seam: swap the DNS resolver the provider URL check uses (null restores). */
-export function setAiHostResolver(fn: HostResolver | null): void {
-  hostResolver = fn ?? defaultHostResolver;
-}
-
 /** Hostnames of the org's in-cluster engines (Ollama / vLLM) — the SSRF allowlist. */
 export function inClusterHosts(ctx: OrgContext): string[] {
   try {

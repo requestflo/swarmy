@@ -89,7 +89,6 @@ export function nextEnforcedSince(prev: SecurityPolicy, next: Require2fa, now: D
 
 // ── Terminal step-up ────────────────────────────────────────────────────────
 
-export const DEFAULT_MFA_MAX_AGE_MS = 15 * 60_000;
 export const MIN_MFA_MAX_AGE_MS = 60_000;
 export const MAX_MFA_MAX_AGE_MS = 12 * 60 * 60_000;
 
