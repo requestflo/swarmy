@@ -63,6 +63,7 @@ import { managedSearchRouter } from './routers/search';
 import { vectorStoreRouter } from './routers/vector';
 import { aiGatewayRouter } from './routers/ai';
 import { notificationsRouter } from './routers/notifications';
+import { studioRouter } from './routers/studio';
 
 export const appRouter = router({
   org: orgRouter,
@@ -129,6 +130,7 @@ export const appRouter = router({
   vector: vectorStoreRouter,
   ai: aiGatewayRouter,
   notifications: notificationsRouter,
+  studio: studioRouter,
 });
 
 export type AppRouter = typeof appRouter;
