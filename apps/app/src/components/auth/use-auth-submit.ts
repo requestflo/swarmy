@@ -4,8 +4,10 @@ import { authClient, usernamePlaceholderEmail } from '@swarmy/auth/client';
 import { useTRPC } from '@/integrations/trpc';
 import { clearInviteCookie } from './invite-cookie';
 import { followRedirect, type AuthData } from './auth-redirect';
+import { AuthOriginError, isOriginRejection } from './auth-origin-error';
 
 export type AuthMode = 'signin' | 'signup';
+
 
 export interface AuthFields {
   name: string;
@@ -47,7 +49,7 @@ export function useAuthSubmit(inviteId: string | undefined): {
     const { name, login, email, password } = fields;
     setBusy(true);
     try {
-      let res: { data: unknown; error: { message?: string } | null };
+      let res: { data: unknown; error: { message?: string; code?: string } | null };
       if (mode === 'signup') {
         const username = login.toLowerCase();
         res = await authClient.signUp.email({
@@ -61,6 +63,7 @@ export function useAuthSubmit(inviteId: string | undefined): {
       } else {
         res = await authClient.signIn.username({ username: login.toLowerCase(), password });
       }
+      if (res.error && isOriginRejection(res.error)) throw new AuthOriginError(window.location.origin);
       if (res.error) throw new Error(res.error.message ?? (mode === 'signup' ? 'sign up failed' : 'sign in failed'));
       if ((res.data as AuthData | null)?.twoFactorRedirect) return 'two-factor';
       if (followRedirect(res.data)) return 'redirect';

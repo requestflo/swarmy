@@ -199,6 +199,19 @@ fi
 platform_feed_url_ok "$PLATFORM_FEED_URL" \
   || die "--platform-feed-url / SWARMY_PLATFORM_FEED_URL must be an http(s):// URL (the base serving <channel>/platform.json)."
 
+# ── served addresses (pure — unit-tested by sourcing this file) ─────────────
+# host_addresses [PUBLIC_IP] → space-separated addresses this host answers on
+# (every non-loopback IPv4 of its interfaces, plus the public IP). The
+# controller trusts sign-in from each of them (SWARMY_DIRECT_HOSTS): on a
+# multi-homed host the LAN, mesh and public addresses all reach the dashboard,
+# not only LOGIN_URL. `SWARMY_HOST_ADDRESSES` overrides detection (tests).
+host_addresses() {
+  local pub="${1:-}" list
+  list="${SWARMY_HOST_ADDRESSES-$( { hostname -I 2>/dev/null || ip -o -4 addr show 2>/dev/null | awk '{sub(/\/.*/, "", $4); print $4}'; } | tr ' ' '\n')}"
+  printf '%s\n%s\n' "$list" "$pub" | tr ' ' '\n' \
+    | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && !/^(127\.|169\.254\.|0\.)/ && !seen[$0]++ { printf "%s%s", sep, $0; sep = " " } END { if (sep) print "" }'
+}
+
 # ── state helpers ───────────────────────────────────────────────────────────
 # shellcheck source=/dev/null
 state_load() { [ -f "$STATE_FILE" ] && . "$STATE_FILE" || true; }
@@ -1180,6 +1193,7 @@ deploy_stack() {
   SWARMY_PUBLIC_URL="$PUBLIC_URL" \
   SWARMY_DASHBOARD_DOMAIN="$DASHBOARD_DOMAIN" \
   SWARMY_DIRECT_URL="$LOGIN_URL" \
+  SWARMY_DIRECT_HOSTS="$(host_addresses "${PUBLIC_IP:-}")" \
   SWARMY_TRUSTED_PROXIES="$trusted_proxies" \
   SWARMY_ADMIN_EMAIL="$(case "$ADMIN_EMAIL" in *@*) printf '%s' "$ADMIN_EMAIL" ;; esac)" \
   SWARMY_ADMIN_USERNAME="$(case "$ADMIN_EMAIL" in *@*) ;; *) printf '%s' "$ADMIN_EMAIL" ;; esac)" \

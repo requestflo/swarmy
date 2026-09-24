@@ -19,7 +19,7 @@ import {
   emailDomainAllowed,
   ORG_CREATE_FORBIDDEN_MESSAGE,
 } from './signup-policy';
-import { authTrustedOrigins } from './origins';
+import { trustedOriginsNow } from './origins';
 import { mfaAssurance, swarmyTwoFactor } from './two-factor';
 import { OIDC_DISABLED_PATHS, swarmyOidcProvider } from './oidc-provider';
 import {
@@ -200,7 +200,9 @@ export function buildAuth(
     baseURL: process.env.BETTER_AUTH_URL ?? 'http://localhost:3021',
     // Public URL + auth base + the direct http://<ip>:3021 (SWARMY_DIRECT_URL) —
     // an https dashboard domain must never lock out the pre-cert first login.
-    trustedOrigins: authTrustedOrigins(),
+    // …plus every address the controller is served on (multi-homed hosts, other
+    // nodes, their sslip names, the dashboard domain) — read per request (origins.ts).
+    trustedOrigins: () => trustedOriginsNow(),
     // Auto-select an active organization when a session is created and the user
     // belongs to one. The org plugin only sets `activeOrganizationId` when
     // explicitly called (the signup flow does), so a fresh sign-in would

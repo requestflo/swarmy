@@ -41,6 +41,10 @@ services:
       # The direct host-mode origin (http://<ip>:<port>). Stays a trusted auth
       # origin next to the https URL so the pre-cert first login still works.
       SWARMY_DIRECT_URL: ${SWARMY_DIRECT_URL:-}
+      # Every address this host answers on (installer-detected): each is a trusted
+      # sign-in origin, so a multi-homed host signs in from any of them (not only
+      # SWARMY_DIRECT_URL). Live node IPs are added at runtime from the hub.
+      SWARMY_DIRECT_HOSTS: ${SWARMY_DIRECT_HOSTS:-}
       # The swarmy-control overlay subnet when Caddy fronts the dashboard, so the client IP
       # (auth rate limits, sessions) comes from X-Forwarded-For, not Caddy's address.
       SWARMY_TRUSTED_PROXIES: ${SWARMY_TRUSTED_PROXIES:-}

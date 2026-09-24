@@ -18,9 +18,11 @@ export const authConfigRouter = router({
    * provider secrets or org data.
    */
   publicConfig: publicProcedure.query(
-    async ({ ctx }): Promise<{ signupMode: SignupMode; signIn: SignInOption[] }> => ({
+    async ({ ctx }): Promise<{ signupMode: SignupMode; signIn: SignInOption[]; dashboardUrl: string | null }> => ({
       signupMode: resolveSignupMode(),
       signIn: await signInOptions(ctx.db),
+      // Where the login page sends someone whose address was refused (INVALID_ORIGIN).
+      dashboardUrl: process.env.CONTROLLER_PUBLIC_URL?.trim() || null,
     }),
   ),
 

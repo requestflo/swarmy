@@ -33,11 +33,12 @@ describe('authTrustedOrigins', () => {
 });
 
 describe('directHttpHost', () => {
-  it('set only when the auth base is https and the direct URL is http', () => {
-    expect(directHttpHost(ENV)).toBe('46.101.22.121:3021');
+  it('set only when the auth base is https; matches the http direct origin(s)', () => {
+    expect(directHttpHost(ENV)?.('46.101.22.121:3021')).toBe(true);
+    expect(directHttpHost(ENV)?.('swarmy.46-101-22-121.sslip.io')).toBe(false);
     expect(directHttpHost({ ...ENV, BETTER_AUTH_URL: DIRECT })).toBeNull();
-    expect(directHttpHost({ BETTER_AUTH_URL: HTTPS })).toBeNull();
-    expect(directHttpHost({ BETTER_AUTH_URL: HTTPS, SWARMY_DIRECT_URL: HTTPS })).toBeNull();
+    expect(directHttpHost({ BETTER_AUTH_URL: HTTPS })?.('46.101.22.121:3021')).toBe(false);
+    expect(directHttpHost({ BETTER_AUTH_URL: HTTPS, SWARMY_DIRECT_URL: HTTPS })?.('46.101.22.121:3021')).toBe(false);
   });
 });
 

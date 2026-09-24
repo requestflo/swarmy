@@ -49,6 +49,9 @@ export {
 } from './api-tokens';
 export {
   authTrustedOrigins,
+  trustedOriginsNow,
+  servedOrigins,
+  setServedHostsProvider,
   directHttpHost,
   adaptDirectHttpRequest,
   adaptDirectHttpResponse,

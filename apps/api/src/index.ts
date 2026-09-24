@@ -8,6 +8,7 @@ import {
   authRegistry,
   directHttpHost,
   parseTrustedProxies,
+  setServedHostsProvider,
   resolveClientIp,
   withClientIp,
 } from '@swarmy/auth';
@@ -32,6 +33,7 @@ import { renderInstallScript } from './install-script';
 import { renderLoader, renderChecksumFile, sha256Hex } from './install/loader';
 import { renderInstaller, type RenderInstallerOptions } from './install/installer';
 import { agentWebSocketHandlers, hub, type AgentWsData } from './gateway';
+import { servedHostsFrom } from './served-hosts';
 import { activatorApp } from './activator';
 import { appAuthApp, appJwksResponse } from './app-auth';
 import {
@@ -396,6 +398,9 @@ if (trustedProxies.invalid.length > 0) {
 
 // https dashboard domain + direct http://<ip>:3021: translate auth cookies on
 // the plain-http origin so both keep a working session (@swarmy/auth origins.ts).
+// Every address the nodes serve on is a trusted sign-in origin (QA-001): the
+// installer's host list (SWARMY_DIRECT_HOSTS) plus live node IPs from the hub.
+setServedHostsProvider(() => servedHostsFrom(hub.store.swarmNodes.values()));
 const directHost = directHttpHost();
 const cookiePrefix = process.env.SWARMY_AUTH_COOKIE_PREFIX ?? 'swarmy';
 

@@ -131,7 +131,7 @@ function LoginPage(): React.JSX.Element {
             ) : mode === 'signup' && !signupOpen ? (
               <InviteOnlyNotice />
             ) : (
-              <AuthForm mode={mode} busy={busy} onSubmit={onSubmit} />
+              <AuthForm mode={mode} busy={busy} onSubmit={onSubmit} dashboardUrl={config.data?.dashboardUrl} />
             )}
             {!challenge && (signupOpen || mode === 'signup') && (
               <p className="text-muted-foreground mt-6 text-center text-sm">
