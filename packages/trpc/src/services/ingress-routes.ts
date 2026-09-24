@@ -49,6 +49,17 @@ export interface Route {
    * only the host itself is served. Expanded controller-side (`expandWww`).
    */
   www?: WwwMode;
+  /**
+   * "Protect my app": `login: true` gates the route behind swarmy sign-in at
+   * the edge (forward-auth to the controller; who may enter is the ABAC
+   * `app.access` action on the stack). Absent = public.
+   */
+  access?: RouteAccess;
+}
+
+/** A route's identity-aware-proxy setting (dev-platform §2A). */
+export interface RouteAccess {
+  login: true;
 }
 
 /** A route together with the live Docker service carrying it. */
@@ -85,7 +96,15 @@ function coerceRoute(value: unknown): Route | undefined {
   const protection = coerceProtection(v.protection);
   if (protection) route.protection = protection;
   if (typeof v.www === 'string' && (WWW_MODES as readonly string[]).includes(v.www)) route.www = v.www as WwwMode;
+  const access = coerceAccess(v.access);
+  if (access) route.access = access;
   return route;
+}
+
+/** Tolerant: only `{ login: true }` means protected; anything else is public. */
+export function coerceAccess(value: unknown): RouteAccess | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  return (value as Record<string, unknown>).login === true ? { login: true } : undefined;
 }
 
 /**
