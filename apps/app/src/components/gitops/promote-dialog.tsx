@@ -33,6 +33,8 @@ export function PromoteDialog({ repoId, env, onPlan }: PromoteDialogProps): Reac
   const services = (env.latest?.plan?.actions ?? [])
     .filter((a) => a.kind === 'service.deploy' && a.name)
     .map((a) => a.name as string);
+  const preview = useMutation(trpc.apps.promote.mutationOptions());
+  const previewImages = preview.data ? Object.entries(preview.data.images) : [];
   const promote = useMutation(
     trpc.apps.promote.mutationOptions({
       onSuccess: (r) => {
@@ -60,7 +62,11 @@ export function PromoteDialog({ repoId, env, onPlan }: PromoteDialogProps): Reac
   );
 
   return (
-    <AlertDialog>
+    <AlertDialog
+      onOpenChange={(open) => {
+        if (open) preview.mutate({ repoId, from: env.environment, dryRun: true });
+      }}
+    >
       <AlertDialogTrigger asChild>
         <Button variant="outline" size="sm" disabled={promote.isPending}>
           <ArrowUpRightIcon className="size-4" />{' '}
@@ -76,7 +82,14 @@ export function PromoteDialog({ repoId, env, onPlan }: PromoteDialogProps): Reac
           </AlertDialogDescription>
         </AlertDialogHeader>
         <ul className="bg-accent/40 space-y-1 rounded-xl px-4 py-3 text-sm">
-          {services.length ? (
+          {previewImages.length ? (
+            previewImages.map(([svc, ref]) => (
+              <li key={svc} className="flex justify-between gap-3">
+                <span className="mono-data">{svc}</span>
+                <span className="text-muted-foreground mono-data">{shortDigest(ref)}</span>
+              </li>
+            ))
+          ) : services.length ? (
             services.map((s) => (
               <li key={s} className="flex justify-between gap-3">
                 <span className="mono-data">{s}</span>
@@ -87,7 +100,13 @@ export function PromoteDialog({ repoId, env, onPlan }: PromoteDialogProps): Reac
             <li>Every service, as running on {from}.</li>
           )}
           <li className="text-muted-foreground pt-1 text-xs">
-            Exact digests are listed once it’s done.
+            {preview.isPending
+              ? 'Reading the exact digests…'
+              : preview.isError
+                ? `Couldn’t preview: ${preview.error.message}`
+                : previewImages.length
+                  ? 'These exact digests go to production.'
+                  : 'Exact digests are listed once it’s done.'}
           </li>
         </ul>
         <AlertDialogFooter>
