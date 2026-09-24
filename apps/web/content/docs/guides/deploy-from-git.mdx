@@ -1,0 +1,182 @@
+---
+title: "Deploy from git"
+description: "Describe your app in swarmy.yaml, connect the repo, and every push to the branch deploys it."
+---
+
+This guide takes a repo with a Dockerfile to a running app with a database and a
+domain.
+
+## 1. Add a swarmy.yaml
+
+Put a `swarmy.yaml` at the root of your repo:
+
+```yaml title="swarmy.yaml"
+version: 1
+app: blog
+services:
+  web:
+    build: .
+    port: 3000
+    domains: [blog.example.com]
+    env:
+      DATABASE_URL: ${{ db.url }}
+resources:
+  db: postgres
+```
+
+This says:
+
+- The app is called `blog`.
+- It has one service, `web`, built from the Dockerfile at the repo root. It
+  listens on port 3000.
+- `blog.example.com` routes to it over HTTPS.
+- It needs a managed Postgres called `db`, and `web` gets its URL as
+  `DATABASE_URL`.
+
+<Callout type="info">
+  Builds use your Dockerfile today. Zero-config builds for repos without a
+  Dockerfile are coming.
+</Callout>
+
+## 2. Connect your git host
+
+On the **CI** page, connect a git host:
+
+- **GitHub**: one click. swarmy registers a GitHub App that belongs to you,
+  through GitHub's manifest flow. No swarmy cloud is involved, and no personal
+  access token is needed.
+- **GitLab**: an OAuth application, including self-managed GitLab.
+- **Any other git host**: HTTPS with a token, or an SSH deploy key that swarmy
+  generates.
+
+If GitHub cannot reach your controller (no public URL), swarmy polls the repo
+instead of waiting for webhooks.
+
+## 3. Pick the repo and branch
+
+Choose the repo and branch. swarmy reads `swarmy.yaml` at that commit and shows
+the plan in plain words, for example:
+
+```text
+create postgres 16 "db" · build web · deploy web · route blog.example.com
+```
+
+Click **Deploy**. From now on, each push to the branch produces a new plan and
+applies it.
+
+## Bindings
+
+A binding is `${{ … }}` inside an env value. swarmy fills it in at deploy time.
+
+| Binding | Value |
+|---|---|
+| `${{ db.url }}` | A field of a resource under `resources:` |
+| `${{ services.api.url }}` | Another service's address inside the swarm |
+| `${{ app.url }}` | The app's own URL. Preview-aware. |
+| `${{ secrets.stripe-key }}` | A swarmy secret's value, delivered at container start |
+
+Each resource type exposes its own fields:
+
+| Resource | Fields |
+|---|---|
+| `postgres` | `url`, `ro_url`, `host`, `ro_host`, `port`, `database`, `user`, `password` |
+| `cache` | `url`, `host`, `port`, `password`, `password_file` |
+| `search` | `url`, `host`, `port`, `key_file` |
+| `vector` | `url`, `host`, `port` |
+| `bucket` | `endpoint`, `bucket`, `region`, `access_key_id`, `secret_access_key_file` |
+
+Compose-style `${VAR}` is left alone, so the two never clash. Write `$${{` for a
+literal `${{`.
+
+## Safe changes
+
+- **Destructive changes are never automatic.** Removing a database from the file
+  deletes nothing. The dashboard shows **1 change needs you** and waits for a
+  person to confirm.
+- **Impossible changes are blocked.** A Postgres downgrade, for example, stops
+  the whole plan and nothing is applied.
+- **Release commands.** `release: npm run migrate` runs once in the new image
+  before the deploy. If it fails, the release is aborted.
+
+## A bigger example
+
+```yaml title="swarmy.yaml"
+version: 1
+app: orders
+
+services:
+  web:
+    build:
+      path: services/orders
+      watch: [services/orders, packages/shared]
+    release: npm run migrate
+    port: 3000
+    replicas: 2
+    size: small
+    healthcheck: { path: /healthz, interval: 10s }
+    env:
+      DATABASE_URL: ${{ db.url }}
+      REDIS_URL: ${{ cache.url }}
+      S3_BUCKET: ${{ invoices.bucket }}
+    secrets: [stripe-key]
+    domains:
+      - orders.example.com
+      - host: api.example.com
+        path: /v1
+        protect:
+          rate_limit: 100/min
+          block_bots: true
+
+  worker:
+    build: { path: services/orders }
+    command: [node, dist/worker.js]
+    env:
+      DATABASE_URL: ${{ db.url }}
+      REDIS_URL: ${{ cache.url }}
+
+resources:
+  db:
+    type: postgres
+    version: 16
+    ha: primary-replica
+    backups: { schedule: daily, keep: 14 }
+  cache: { type: cache, engine: valkey, memory: 512mb }
+  invoices: { type: bucket, access: internal }
+
+jobs:
+  invoices:
+    schedule: "0 2 * * *"
+    service: worker
+    run: npm run invoices
+
+previews:
+  enabled: true
+  ttl: 48h
+
+environments:
+  staging:
+    branch: staging
+    services:
+      web: { replicas: 1, size: nano, domains: [staging.orders.example.com] }
+    resources:
+      db: { ha: single, backups: false }
+```
+
+- `watch` limits rebuilds to pushes that touch those paths, which helps in a
+  monorepo.
+- `jobs` run on a cron schedule in a service's image and env.
+- `previews` gives each pull request its own stack and its own throwaway
+  resources, removed after the TTL.
+- `environments.staging` deploys the `staging` branch as a separate stack,
+  `orders-staging`, with smaller settings.
+
+Every key is listed in the [swarmy.yaml reference](/docs/reference/swarmy-yaml).
+
+## Editor support
+
+Add this line at the top of the file for completion and validation in editors
+that use the YAML language server:
+
+```yaml
+# yaml-language-server: $schema=https://swarmy.dev/schema/swarmy.v1.json
+```

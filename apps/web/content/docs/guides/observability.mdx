@@ -1,0 +1,57 @@
+---
+title: "Observability"
+description: "Turn on OpenTelemetry for a stack with one toggle. Traces, a service map, metrics, logs, alerts, incidents and status pages."
+---
+
+## Turn it on
+
+Open a stack's **Observability** tab and flip the toggle. On the next deploy,
+swarmy adds `OTEL_*` environment variables to the stack's services, so apps that
+use an OpenTelemetry SDK start exporting.
+
+The first time any stack in your organisation turns it on, swarmy deploys one
+**OpenTelemetry Collector** and one **ClickHouse** store as system services.
+There is no DSN to paste and no Grafana to run.
+
+- Only environment is added. The image, command and behaviour are untouched.
+- A value you already set always wins. Point `OTEL_EXPORTER_OTLP_ENDPOINT` at
+  your own collector and swarmy leaves it alone.
+- Apps that ignore `OTEL_*` run exactly as before.
+
+## What you get
+
+- **Traces.** A trace list and a waterfall for each trace, built into the
+  dashboard.
+- **Service map.** Drawn from your spans: which service calls which, with call
+  rate, error rate and p95 latency on each edge. Degraded edges are highlighted.
+- **Metrics.** Node and container CPU and memory, plus the metrics your apps
+  export.
+- **Logs.** Filter by service and level, then jump from a log line to the trace
+  behind it.
+- **Health in plain words.** Each stack has a health line instead of a wall of
+  charts, such as `checkout: error rate 6.2% (target <5.0%)`.
+
+Every query is scoped to your organisation on the server. Nobody gets raw access
+to the store.
+
+<Callout type="info">
+  The log store holds logs your apps send over OpenTelemetry. Collecting stdout
+  from apps with no OpenTelemetry SDK into the same store is coming. Live service
+  logs work for every app today.
+</Callout>
+
+## Alerts
+
+Alert rules watch signals such as error rate, latency, disk usage, node offline,
+certificate expiry, crash loops, and failed builds, deploys and backups. A new
+organisation starts with sensible defaults, such as **Disk almost full** above
+85%.
+
+Send alerts to email, Slack, Microsoft Teams, Discord, Telegram, ntfy, Gotify,
+or any webhook.
+
+## Incidents and status pages
+
+A firing alert can open an **incident**. Incidents show on the stack's public
+**status page** at `/s/<slug>`, with a 90-day uptime bar, so your users see a
+problem before they email you.

@@ -1,0 +1,69 @@
+---
+title: "Backups and restore"
+description: "Add a destination once and every database is backed up nightly. Restore in place or next to the original, and rehearse restores safely."
+---
+
+## Add a destination
+
+Open **Backup destinations** (in the sidebar under Platform) and click **Add
+destination**. Choose one:
+
+- **S3**: any S3-compatible bucket, such as AWS, Backblaze B2, Cloudflare R2 or
+  MinIO. Enter the endpoint, bucket and keys.
+- **Node path**: a directory on one of your nodes, such as `/srv/backups`.
+- **swarmy object storage**: one click creates a bucket on the in-swarm Garage
+  store. Turn on the replicated store on the same page first.
+
+Destinations are shared by every stack in the organisation. Credentials are
+encrypted and only decrypted in memory when a backup runs.
+
+## What gets backed up
+
+Once a destination exists, databases are backed up **nightly with no further
+clicks**:
+
+- **Managed Postgres** gets a nightly `pg_dump`. You can also turn on WAL
+  archiving for point-in-time recovery.
+- **Databases in your own compose or templates**, such as MariaDB, MySQL,
+  Postgres, MongoDB and Redis/Valkey, get a nightly volume backup, as long as
+  they sit on a named volume.
+
+Each keeps 7 backups by default. Runs are spread between 02:00 and 05:00 UTC. A
+schedule you set yourself is never overridden.
+
+You can also schedule backups for any other named volume.
+
+Every backup is an encrypted, deduplicated **restic** repository. A bucket full of
+restic snapshots can be restored by hand without swarmy.
+
+## Restore
+
+Open the stack's **Backups** tab, pick a snapshot and click **Restore**.
+
+- Keep the volume name to restore **in place**. This overwrites that volume.
+- Give a new volume name to restore **next to** the original.
+
+Managed Postgres can also be restored to a new cluster, as a single database, or
+to a point in time.
+
+A failed backup shows its reason on the snapshot row.
+
+## Drills
+
+A backup you have never restored is untested. Drills rehearse a restore safely: on
+a throwaway cluster, or as a verify of a backup's integrity. Every drill is
+recorded, and the resilience score shows when each backup was last tested.
+
+## Back up the controller
+
+The controller can back itself up into one encrypted bundle: its database, its
+secrets and its config. The bundle is sealed with a **restore passphrase** that
+only you hold. It is shown once, so write it down.
+
+A controller restored from this bundle on a fresh server takes over the existing
+swarm. The agents reconnect by themselves, and no node has to be enrolled again.
+
+## When the controller is down
+
+`swarmy-agent backup export` copies a stack's volumes off a node with no
+controller at all. See [Node recovery](/docs/guides/node-recovery#rescue-backups-controller-down-safe).

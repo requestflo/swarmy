@@ -1,0 +1,188 @@
+---
+title: "swarmy.yaml reference"
+description: "Every key swarmy.yaml v1 accepts, for services, resources, jobs, previews, environments and connections."
+---
+
+`swarmy.yaml` lives at the root of your repo (or at a config path you choose, for
+monorepos). It is a thin layer that compiles to ordinary compose plus `swarmy.*`
+labels. For a walk-through, see [Deploy from git](/docs/guides/deploy-from-git).
+
+Durations look like `90s`, `15m`, `48h` or `7d`. Sizes look like `256mb` or
+`2gb`. Unit names (services, resources, jobs, volumes) use lowercase letters,
+digits and `-`, start with a letter, and are at most 30 characters.
+
+## Top level
+
+| Key | Type | Notes |
+|---|---|---|
+| `version` | `1` | Required. |
+| `app` | string | Required. Lowercase letters, digits and `-`, up to 40 characters. |
+| `env` | map | Env shared by every service. A service's own `env` wins. |
+| `services` | map | Required. At least one service. |
+| `resources` | map | Managed Postgres, caches, search, vectors and buckets. |
+| `jobs` | map | Cron jobs. |
+| `previews` | object | Pull request previews. |
+| `connect` | list | Other apps in your organisation this app may reach. |
+| `environments` | map | Named environments beside production, such as `staging`. |
+
+## services
+
+Each service needs exactly one of `build` or `image`.
+
+| Key | Type | Notes |
+|---|---|---|
+| `build` | path or object | A path to build from, or the object below. |
+| `image` | string | A registry image, such as `ghcr.io/acme/admin:1.4.2`. |
+| `command` | string or list | Override the image's command. |
+| `release` | string or list | Runs once in the new image before the deploy, for example migrations. A non-zero exit aborts the release. |
+| `port` | number | The port the service listens on. Needed for `domains` and HTTP health checks. |
+| `replicas` | number | 0 to 100. |
+| `sleep_after` | duration | Scale to zero after this much idle time. The next request wakes it. |
+| `size` | preset | `nano`, `small`, `medium`, `large` or `xlarge`. |
+| `cpu` | number | CPU cores, instead of a preset. |
+| `memory` | size | Memory limit, instead of a preset. |
+| `healthcheck` | object | See below. |
+| `env` | map | Env values. Values can hold [bindings](#bindings). |
+| `secrets` | list | swarmy secret names, mounted read-only at `/run/secrets/<name>`. |
+| `volumes` | map | Named volumes to mount paths, such as `data: /var/lib/app`. |
+| `domains` | list | Hostnames, or the domain object below. |
+| `regions` | list | Run only on nodes whose region is one of these. |
+| `placement.labels` | map | Extra node-label constraints, such as `gpu: "true"`. |
+
+Size presets:
+
+| Preset | CPU | Memory |
+|---|---|---|
+| `nano` | 0.25 | 256 MB |
+| `small` | 0.5 | 512 MB |
+| `medium` | 1 | 1 GB |
+| `large` | 2 | 2 GB |
+| `xlarge` | 4 | 4 GB |
+
+### build
+
+| Key | Notes |
+|---|---|
+| `path` | Build context, relative to the repo root. Default `.`. |
+| `dockerfile` | Dockerfile relative to `path`. Default `Dockerfile`. |
+| `target` | Build stage to stop at. |
+| `args` | Build arguments. |
+| `watch` | Paths whose changes trigger a rebuild. Default: `path`. |
+
+### healthcheck
+
+Set exactly one of `path` or `command`.
+
+| Key | Notes |
+|---|---|
+| `path` | HTTP GET path against `port`, such as `/healthz`. |
+| `command` | A command run in the container. |
+| `interval`, `timeout`, `start_period` | Durations. |
+| `retries` | 1 to 20. |
+
+### domains
+
+A domain is a hostname, or an object:
+
+| Key | Notes |
+|---|---|
+| `host` | The hostname. `*.example.com` is allowed. |
+| `path` | Path prefix. Default `/`. |
+| `strip_path` | Remove the prefix before forwarding. |
+| `protect` | Edge protections, below. |
+
+`protect` keys, all optional:
+
+| Key | Example |
+|---|---|
+| `rate_limit` | `100/min` |
+| `ip_allow`, `ip_deny` | lists of IPs or CIDRs |
+| `countries_allow`, `countries_deny` | lists of ISO codes, such as `GB` |
+| `block_bots` | `true` |
+| `body_max` | `10mb` |
+| `waf` | `true` |
+| `cache` | a duration, such as `5m` |
+
+## resources
+
+A resource is a type name as shorthand (`db: postgres`) or an object with `type`.
+
+| Type | Keys |
+|---|---|
+| `postgres` | `version` (14, 15, 16 or 17; default 16), `ha` (`single`, `primary-replica`, `failover`, `geo`, `active-active`), `replicas`, `regions` (per-region read replicas for `geo`), `database`, `backups` |
+| `cache` | `engine` (`valkey` or `redis`), `ha` (`single`, `replica`, `sentinel`), `replicas`, `memory` |
+| `search` | `engine` (`meilisearch` or `typesense`) |
+| `vector` | `engine` (`qdrant` or `pgvector`), `on` (the Postgres resource for pgvector) |
+| `bucket` | `access` (`internal`, `mesh` or `public`), `quota` |
+
+`backups` is `false`, or an object with `schedule` (`hourly`, `daily`, `weekly` or
+a cron expression; default `daily`) and `keep` (1 to 365; default 7).
+
+Names that are binding namespaces are reserved: `app`, `apps`, `services`,
+`secrets`, `preview`.
+
+## Bindings
+
+Write `${{ <thing>.<field> }}` inside an env value. It is filled in at deploy time.
+
+| Namespace | Fields |
+|---|---|
+| `${{ <postgres>.… }}` | `url`, `ro_url`, `host`, `ro_host`, `port`, `database`, `user`, `password` |
+| `${{ <cache>.… }}` | `url`, `host`, `port`, `password`, `password_file` |
+| `${{ <search>.… }}` | `url`, `host`, `port`, `key_file` |
+| `${{ <vector>.… }}` | `url`, `host`, `port` |
+| `${{ <bucket>.… }}` | `endpoint`, `bucket`, `region`, `access_key_id`, `secret_access_key_file` |
+| `${{ services.<name>.… }}` | `url`, `host`, `port` |
+| `${{ app.… }}` | `name`, `url`, `domain`, `environment` |
+| `${{ secrets.<name> }}` | The secret's value, exported when the container starts. |
+
+A binding can be the whole value or part of it. Compose-style `${VAR}` is passed
+through untouched. `$${{` writes a literal `${{`.
+
+## jobs
+
+| Key | Notes |
+|---|---|
+| `schedule` | Required. A five-field cron expression, such as `"0 2 * * *"`. |
+| `run` | Required. The command. |
+| `service` | Run in this service's image and env. Default: the only built service. |
+| `image` | Or run in this image. Set at most one of `service` and `image`. |
+| `timeout` | Duration. |
+| `retries` | 0 to 10. |
+| `env` | Extra env. |
+
+## previews
+
+| Key | Notes |
+|---|---|
+| `enabled` | Default `false`. |
+| `ttl` | How long a preview lives. |
+| `base_domain` | Previews are served at `pr-<N>.<base_domain>`. Default: the organisation's preview domain. |
+| `resources` | `isolated` (default): each preview gets its own throwaway resources. `shared`: reuse production's. |
+| `branches` | Also preview pushes to matching branches, such as `feature/*`. |
+| `data.from` | Start each preview's Postgres as a copy of the latest backup of `production` or a named environment. |
+| `data.scrub` | A `.sql` file in the repo run against that copy. |
+
+## environments
+
+Each key is an environment name (lowercase, up to 20 characters; `production`,
+`prod` and `preview` are reserved). Each environment deploys as its own stack,
+`<app>-<name>`.
+
+| Key | Notes |
+|---|---|
+| `branch` | Required. A push to this branch deploys the environment. |
+| `env` | Env overrides for every service. |
+| `services` | Per-service overrides: `replicas`, `sleep_after`, `size`, `cpu`, `memory`, `env`, `domains`, `regions`, `command`. `domains` replaces production's, so production hostnames never leak in. |
+| `resources` | Per-resource overrides: `version`, `ha`, `replicas`, `memory`, `backups`, `access`, `quota`. The type never changes. |
+| `jobs` | Run cron jobs here too. Default `true`. |
+| `connect` | Apps this environment links to. Default: none. |
+
+## connect
+
+A list of other apps in your organisation. Each pair gets its own private
+network, so this app's services can reach theirs.
+
+```yaml
+connect: [billing]
+```

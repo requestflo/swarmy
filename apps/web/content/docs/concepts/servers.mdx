@@ -1,0 +1,66 @@
+---
+title: "Servers"
+description: "Nodes join with a one-line install. The agent dials out to the controller, so nodes behind NAT need no inbound ports."
+---
+
+A **server** (or **node**) is any Linux machine you add to swarmy: a VPS, a bare
+metal box, a home server, a Raspberry Pi. Each node is a real Docker Swarm member
+and runs the swarmy agent.
+
+## Adding a node
+
+In the dashboard, open **Nodes → Add a node**, pick a role and copy the
+one-liner:
+
+```bash
+curl -fsSL http://<controller>:3021/install/loader.sh | SWARMY_JOIN_TOKEN=swt_… sh -s -- --controller http://<controller>:3021
+```
+
+Run it as root on the new machine. It installs Docker if needed, installs the
+agent and joins the swarm. The node shows up online in the dashboard within a few
+seconds.
+
+- The join token is passed in an environment variable, not the URL, so it does
+  not end up in proxy logs.
+- The loader pins the installer and the agent binary by checksum.
+- The scripts are POSIX `sh`, so they also run on Alpine and busybox hosts.
+
+## The agent dials out
+
+The agent opens one outbound WebSocket to the controller and keeps it open.
+Commands come down that connection and run against the node's local Docker. The
+controller never connects in to a node and never holds SSH keys.
+
+That means a node behind NAT, on a home network, or behind a firewall with no
+open ports works the same as a public VPS. The nodes still need the Docker Swarm
+ports open between each other (`2377/tcp`, `7946/tcp+udp`, `4789/udp`), or a
+[mesh](/docs/concepts/mesh) that carries them.
+
+The agent runs as a systemd service, outside Docker. If Docker breaks, the agent
+is still there to report it and repair it. On hosts without systemd it runs as a
+container.
+
+## Roles
+
+A node's roles are Docker node labels. Toggle them on the node's page.
+
+| Role | What it means |
+|---|---|
+| Manager / worker | Swarm membership. swarmy picks this for you. Demoting a manager is refused if it would break quorum. |
+| Ingress | The node accepts public HTTP traffic. The edge Caddy runs here. |
+| Outlet | Together with ingress, the node serves DNS for the geo-DNS edge. |
+| Builder | Git builds and image clean-up run here. |
+| Storage | The node holds object storage (Garage). |
+| Database | Managed databases may be placed here. |
+| Exec / shell | Container exec is on by default. Host shell is off by default because it grants root on the host. Both are audited. |
+
+A node also has a **region** (for example `eu-west`) used for geo steering and
+region-aware routing, and an optional monthly **cost** used for per-stack cost
+breakdowns.
+
+## When a node goes offline
+
+Open the node and use **Repair this node**. It gives you the same one-liner with
+a fresh token. Running it on an enrolled machine repairs it in place and keeps
+its identity. On the machine itself, `swarmy-agent doctor` explains what is
+wrong. See [Node recovery](/docs/guides/node-recovery).

@@ -1,0 +1,70 @@
+---
+title: "Edge and geo-DNS"
+description: "swarmy can be the nameserver for your domains, sending each visitor to the nearest healthy edge node, with per-route protection at the edge."
+---
+
+The **edge** is where public traffic enters your swarm: Caddy on your ingress
+nodes, and optionally swarmy's own DNS server in front of it.
+
+## One node or many
+
+On a single server, Caddy runs on a manager and publishes ports 80 and 443 there.
+Point your DNS at that node and you are done.
+
+With nodes in several places, switch Caddy to **edge-per-node**. Caddy then runs
+on every node with the **ingress** role, each with a config rendered for that
+node: upstreams in the same region first, other regions as automatic fallback.
+
+## swarmy is the nameserver
+
+Every node with both the **ingress** and **outlet** roles runs `swarmy-dns`, an
+authoritative DNS server. You pick two to four of those nodes as your advertised
+nameservers, and swarmy shows the glue records to enter at your registrar. This
+is the only manual step.
+
+From then on, each DNS query is answered with the nearest healthy ingress node:
+
+1. swarmy looks up the client's location from EDNS Client Subnet if the resolver
+   sends it, otherwise from the resolver's IP.
+2. It ranks healthy ingress nodes by distance.
+3. It answers with the nearest one or two, with a short TTL (30 seconds by
+   default).
+
+So a visitor in South Africa is served by your Johannesburg node, and a visitor
+in Germany by your Frankfurt node, on the same domain. No region subdomains, no
+anycast, no BGP.
+
+- **Web records are automatic.** Any domain you route, plus the zone apex, just
+  resolves. You still manage MX, TXT, CNAME, SRV and CAA records in a records
+  editor.
+- **GeoIP works offline.** The DNS image bundles a country-level database. Nodes
+  with internet access download a city-level one; a MaxMind license key is
+  optional.
+- **It survives the controller.** Each DNS node keeps the last zone snapshot and
+  keeps answering if the controller is down.
+- **Unhealthy regions drop out** of answers within about 15 seconds plus the TTL.
+  If nothing is healthy, swarmy answers with every node rather than nothing.
+
+Not ready to move nameservers? swarmy can push the same steered records to
+Cloudflare or Route53 instead.
+
+## Route protection
+
+Each route can carry protections that are enforced by Caddy at the edge:
+
+- rate limits, such as `100/min` per IP
+- IP allow and deny lists
+- country allow and deny lists
+- bot and scanner blocking
+- a request body size cap
+- a basic WAF rule set
+- response caching
+
+In `swarmy.yaml` these live under a domain's `protect:` key. This is HTTP-layer
+protection. Large volumetric attacks still need your hosting provider or a CDN.
+
+## Requirements
+
+Cross-region fallback rides the Docker Swarm overlay network, so nodes in
+different places need to reach each other. Use a [mesh](/docs/concepts/mesh) to
+connect them.

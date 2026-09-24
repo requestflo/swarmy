@@ -1,0 +1,45 @@
+---
+title: "Mesh"
+description: "Join nodes in different clouds, behind NAT or at home into one private WireGuard network, with no inbound ports."
+---
+
+If all your nodes sit on one private network, you do not need a mesh. The
+default is `none`, and swarmy sets up no network.
+
+Once nodes live in different clouds, behind NAT, or at home, turn on the
+**mesh**. It joins them into one encrypted WireGuard network. The Docker Swarm
+overlay then runs across it, so services in one place can reach services in
+another.
+
+## Drivers
+
+Pick a driver under **Networking**:
+
+| Driver | What it is |
+|---|---|
+| `none` | Default. swarmy provisions no mesh. |
+| NetBird | Zero-trust WireGuard mesh with NAT traversal. Use NetBird's cloud or your own NetBird server. |
+| Headscale | A self-hosted Tailscale control plane. Nodes run the official Tailscale client. |
+| Tailscale | For teams already on Tailscale. swarmy supplies an auth key; access rules stay in the Tailscale console. |
+| WireGuard | Plain WireGuard with no control plane. swarmy generates keys and configs. There is no NAT traversal, so you own routing. |
+
+The control-plane token you paste is stored encrypted and used only on the
+server. You do not see it again.
+
+## Enrolling a node
+
+Pick a node and click **Enroll**. swarmy mints a single-use, short-lived setup key
+and sends it to the agent over its existing connection. The agent starts the
+WireGuard client, and the node joins with no inbound ports and no firewall
+changes. The key is never written to disk.
+
+The node then appears in the peer list with its mesh IP, last handshake and
+status.
+
+## Direct connect
+
+Need to reach a database from your laptop? On the service, click **Direct
+connect** (available on drivers with an access-control API, such as NetBird). swarmy gives you a command that joins your laptop to the mesh as a
+temporary peer that can reach only that one service, for a number of minutes you
+choose. You connect to the service on its real port with no public exposure.
+Every direct connection is audited.

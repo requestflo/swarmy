@@ -1,0 +1,49 @@
+---
+title: "Introduction"
+description: "swarmy turns the servers you already rent or own into your own cloud. It is self-hosted, and it needs no cloud account."
+---
+
+swarmy is a platform you run yourself. Point it at one server or fifty, and you get
+what a hosted platform gives you: git deploys, one-click apps, managed Postgres
+with backups, HTTPS domains, a global edge, metrics, traces and logs. It all runs
+on your machines, and nothing phones home.
+
+Under the hood it is **Docker Swarm**. Every node is a real swarm member and every
+app is a real swarm service. swarmy adds the dashboard, the control loop, identity
+and access on top. It does not replace Docker. If swarmy stops, your apps keep
+running, and **Export compose** gives you back a plain compose file.
+
+## Install in one line
+
+On a fresh Ubuntu or Debian server, as root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/requestflo/swarmy/main/scripts/install-swarmy.sh | sudo bash
+```
+
+The installer sets up Docker, a one-node swarm and the controller, and enrols the
+server as node #1. It prints the dashboard URL and your login when it finishes.
+[Install](/docs/getting-started/install) lists every flag.
+
+## Who it is for
+
+- **Starting out.** Paste the one-liner, pick WordPress or Ghost from the
+  template gallery, type a domain, and click Deploy. You never write a compose
+  file.
+- **Shipping an app.** Add a `swarmy.yaml` to your repo. A push is a deploy:
+  swarmy builds the image, creates the database, wires `DATABASE_URL` and routes
+  the domain.
+- **Running a fleet.** Put nodes in several regions and clouds, join them with a
+  WireGuard mesh, let swarmy answer DNS for your domains, and steer each visitor
+  to the nearest healthy edge.
+
+## Where to go next
+
+<Cards>
+  <Card title="Quickstart" href="/docs/getting-started/quickstart" description="From an empty server to a site on HTTPS in about ten minutes." />
+  <Card title="Concepts" href="/docs/concepts/apps" description="Apps, services, servers, domains, the edge, the mesh and data." />
+  <Card title="Deploy from git" href="/docs/guides/deploy-from-git" description="Describe your app in swarmy.yaml. Every push deploys it." />
+  <Card title="swarmy.yaml reference" href="/docs/reference/swarmy-yaml" description="Every key the file accepts." />
+  <Card title="REST API" href="/docs/reference/api" description="The public API, the SDKs and the Terraform provider." />
+  <Card title="Node recovery" href="/docs/guides/node-recovery" description="What to do when a node will not come back online." />
+</Cards>

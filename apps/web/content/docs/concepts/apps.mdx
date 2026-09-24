@@ -1,0 +1,75 @@
+---
+title: "Apps and stacks"
+description: "A stack is a group of services deployed together. An app is a stack described by a swarmy.yaml in a git repo."
+---
+
+## Stacks
+
+A **stack** is a group of services deployed together. It is the same thing as a
+Docker Swarm stack, and swarmy uses the same semantics as `docker stack deploy`.
+
+You can create a stack in several ways:
+
+- **Import compose.** Paste a `docker-compose.yml`. Each service shows up as a
+  card on the stack canvas. swarmy flags keys it cannot map, but it keeps them.
+- **Pick a template.** The [template gallery](/docs/guides/templates) has 69
+  one-click apps, from WordPress to Immich.
+- **Connect a git repo.** See [apps](#apps) below.
+
+Whatever the source, you can **Export compose** at any time. The export runs on
+plain Docker Swarm without swarmy.
+
+<Callout type="info">
+  Compose `build:` keys are refused on a compose import. To build from source, use
+  a git app.
+</Callout>
+
+## Apps
+
+An **app** is a stack whose source of truth is a git repo. You describe it in a
+`swarmy.yaml` at the repo root:
+
+```yaml title="swarmy.yaml"
+version: 1
+app: blog
+services:
+  web:
+    build: .
+    port: 3000
+    domains: [blog.example.com]
+    env:
+      DATABASE_URL: ${{ db.url }}
+resources:
+  db: postgres
+```
+
+Connect the repo, pick a branch, and swarmy shows the plan in plain words before
+anything changes: create Postgres `db`, build `web`, route `blog.example.com`.
+You click **Deploy** once. After that, each push to the branch is a deploy.
+
+- **Bindings.** `${{ db.url }}` is filled in from the resource at deploy time.
+  You never see or paste the password.
+- **Plans.** Every push produces a plan. Destructive changes, such as removing a
+  database, are never applied automatically. The dashboard asks you to confirm
+  them.
+- **Environments.** A `staging` environment tracks its own branch and deploys as
+  its own stack, `<app>-staging`.
+- **Previews.** With previews on, each pull request gets its own stack at
+  `pr-<N>.<preview domain>`, with its own throwaway resources.
+- **Drift.** If someone changes a service by hand, the app shows drift.
+  **Enforce** puts the file's version back.
+
+The file compiles to ordinary compose plus `swarmy.*` labels, so a git app can be
+exported like any other stack.
+
+Read [Deploy from git](/docs/guides/deploy-from-git) for a walk-through and the
+[swarmy.yaml reference](/docs/reference/swarmy-yaml) for every key.
+
+## Connecting apps
+
+By default, apps cannot reach each other. List another app under `connect:` and
+swarmy creates a private network for that pair only:
+
+```yaml
+connect: [billing]
+```

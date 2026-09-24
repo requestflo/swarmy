@@ -1,0 +1,52 @@
+---
+title: "Services"
+description: "A service is one container image running as a Docker Swarm service, with replicas, env, secrets, volumes and routes."
+---
+
+A **service** is one container image, running as a Docker Swarm service. Stacks
+are made of services. There is no separate swarmy object behind it: what you see
+in the dashboard is read live from Docker.
+
+## What a service has
+
+- **An image or a build.** A registry image such as `ghcr.io/acme/web:1.4.2`, or
+  a Dockerfile in a git repo that swarmy builds for you.
+- **Replicas.** How many copies run. Swarm spreads them across nodes and
+  restarts them when they fail.
+- **Size.** CPU and memory limits, or a preset: `nano`, `small`, `medium`,
+  `large`, `xlarge`.
+- **Env and secrets.** Plain variables are set on the service. Secret variables
+  are stored as Docker secrets. You can write them but not read them back.
+- **Volumes.** Named volumes for data that must outlive a container.
+- **Routes.** Public hostnames that the edge sends to the service's port. See
+  [Domains](/docs/concepts/domains).
+- **A health check.** An HTTP path or a command. swarmy uses it to decide whether
+  a deploy worked.
+
+## Deploys and releases
+
+Every deploy becomes a **release** on the stack's Releases tab: the images, what
+changed, who deployed it and when.
+
+- **Health-gated.** After a deploy, swarmy watches the stack's health for a
+  window. If it gets worse, swarmy rolls back to the previous release by itself.
+- **One-click rollback.** Any earlier release can be restored, with a compose
+  diff of what will change.
+- **Canary.** Send a share of traffic, such as 10%, to the new version for a set
+  time. It is promoted if the error rate stays under your threshold, and rolled
+  back if not.
+- **Admission.** Before a deploy lands, it runs through your guardrails, exposure
+  rules and image policy. A blocked deploy tells you why in plain words.
+
+## Scale to zero
+
+A service can sleep after a period with no traffic. The next request wakes it.
+Set it with `sleep_after: 15m` in `swarmy.yaml`, or on the service in the
+dashboard.
+
+## Logs and a terminal
+
+Each service page streams live logs. If the service is failing, the page shows
+the **last task error**, so a crash loop tells you why without leaving the
+dashboard. You can open a terminal in a running container from the dashboard.
+Terminal sessions are recorded in the audit log.

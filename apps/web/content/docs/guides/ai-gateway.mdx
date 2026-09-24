@@ -1,0 +1,64 @@
+---
+title: "AI gateway"
+description: "Keep Anthropic and OpenAI keys on your controller. Apps get revocable virtual keys with rate limits and daily budgets, and every call is metered."
+---
+
+The AI gateway is one place for your model provider keys. Apps call the gateway
+instead of the provider, holding only a key that swarmy can revoke.
+
+## Set up a provider
+
+On the **AI** page, paste your Anthropic or OpenAI API key once. It is encrypted
+and used only inside the gateway. It never appears in a response, a label or an
+app's environment. **Test** makes one tiny call and shows the latency.
+
+You can also set a custom base URL for a provider.
+
+## Give an app a key
+
+Two ways:
+
+- **Mint a virtual key.** Name it, and optionally give it a requests-per-minute
+  limit and a daily budget in dollars. The `swk-ai-…` key is shown **once**.
+- **Attach.** Pick a service. swarmy mints a key for it, stores it in a Docker
+  secret, and redeploys the service with `AI_GATEWAY_URL` and
+  `AI_GATEWAY_KEY_FILE` set. Attaching again rotates the key.
+
+## Call the gateway
+
+The gateway speaks the providers' own APIs, so the only changes in your app are
+the base URL and one header:
+
+| Route | Shape |
+|---|---|
+| `POST /ai/v1/messages` | Anthropic Messages |
+| `POST /ai/v1/chat/completions` | OpenAI Chat Completions |
+| `POST /ai/v1/embeddings` | OpenAI Embeddings |
+
+```bash
+curl https://<controller>/ai/v1/messages \
+  -H "x-swarmy-ai-key: swk-ai-…" \
+  -H "content-type: application/json" \
+  -d '{"model":"claude-sonnet-4-5","max_tokens":256,"messages":[{"role":"user","content":"Hello"}]}'
+```
+
+Requests are routed by model name: `claude*` models go to Anthropic, `gpt*` and
+the `o` series go to OpenAI, and anything else goes to your default provider.
+Streaming responses are passed through untouched.
+
+## Limits, usage and cost
+
+- **Limits.** A key over its rate limit or daily budget gets a `429` before any
+  call reaches the provider. No limit means unlimited.
+- **Usage.** Every call records the model, tokens, latency and an **estimated**
+  cost. The AI page shows usage by model, by key and by day. Cost is an estimate
+  from a price table, not an invoice.
+- **Cache.** Turn on the cache and identical non-streaming requests are answered
+  from memory for 5 minutes, at no cost. It is off by default.
+- **Request log.** Turn on the audit log to keep one row per request, with the
+  last user message cut to 200 characters. It is off by default; prompts are not
+  stored unless you ask.
+
+## Revoke
+
+Disable a key and the next call with it gets a `403`.

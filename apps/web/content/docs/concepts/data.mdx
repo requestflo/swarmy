@@ -1,0 +1,90 @@
+---
+title: "Data"
+description: "Managed Postgres with replicas, failover, backups and point-in-time recovery, plus caches, search, vectors and S3 buckets on your own nodes."
+---
+
+Open a stack and click **Data** to give its apps a database, a cache, a search
+index, a vector store or an S3 bucket. You never type a connection string or see
+a password: swarmy provisions the service and wires it into your app.
+
+## How it works
+
+1. **Provision.** Pick a type, a name and a size. swarmy creates the swarm
+   services and generates the password, which goes into a Docker secret.
+2. **Attach.** Pick an app service. swarmy adds the connection env, such as
+   `DATABASE_URL`, mounts the secret as a file, joins the app to the data
+   service's private network, and redeploys the app.
+3. **Keep running.** The env lives on the Docker service. If swarmy is down, the
+   app and its database keep talking.
+
+Managed data is private. It publishes no ports and never faces the internet.
+Apps reach it over a private overlay network.
+
+Generated credentials are shown **once**, at creation. After that they live only
+in Docker secrets.
+
+## Postgres
+
+Managed Postgres (versions 14 to 17) comes in five topologies:
+
+| Topology | What you get |
+|---|---|
+| `single` | One primary. Restore from backup if it dies. |
+| `primary-replica` | Default. A primary plus streaming read replicas. |
+| `failover` | Primary and replicas plus a consensus member. |
+| `geo` | A write-region primary with read replicas in other regions. |
+| `active-active` | Several writable primaries. |
+
+Attaching gives your app `DATABASE_URL` for the primary and `DATABASE_RO_URL` for
+the replicas.
+
+**Failover never loses data silently.** When a primary stays unhealthy for about
+30 seconds, swarmy promotes a replica automatically only if it can prove the
+replica is fully caught up. If the best replica is even one byte behind, swarmy
+holds the failover, raises an alert, and shows the data-loss window. An owner or
+admin can then confirm the promotion, knowing exactly what they accept.
+
+**pgvector** can be switched on for an existing cluster. Apps use the
+`DATABASE_URL` they already have to query embeddings.
+
+## Backups and point-in-time recovery
+
+Once you add a [backup destination](/docs/guides/backups), managed Postgres is
+backed up nightly with no further setup.
+
+- Logical backups (`pg_dump`), optionally taken from a read replica so the
+  primary carries no load.
+- Physical backups with WAL archiving (`wal-g`) for **point-in-time recovery**.
+- Restore to a new cluster, in place, a single database, or to a point in time.
+- Backups are encrypted and deduplicated with restic.
+- **Restore drills** rehearse a restore on a throwaway cluster, so "last tested"
+  means something.
+
+## Caches
+
+Valkey or Redis, as `single`, `replica`, or `sentinel` (a primary, replicas and
+three sentinels). Attaching sets `REDIS_URL`, with the password in a file named
+by `REDIS_PASSWORD_FILE`.
+
+## Search and vectors
+
+- **Search:** Meilisearch or Typesense.
+- **Vectors:** Qdrant, or pgvector on a Postgres cluster you already have.
+
+## Object storage
+
+swarmy runs **Garage**, an S3-compatible store, across the nodes you choose. Each
+node is its own zone, so data is replicated across machines (three copies by
+default). Create buckets, mint access keys, and attach a bucket to an app in one
+click. Buckets can be internal, reachable over the mesh, or public.
+
+## Databases in your own compose
+
+Postgres, MySQL, MariaDB, MongoDB and Redis/Valkey that you deploy yourself in a
+compose file are detected. If they sit on a named volume, they get a nightly
+volume backup as soon as a backup destination exists.
+
+<Callout type="info">
+  Managed MySQL, MariaDB and MongoDB, with logical dumps and one-click restore,
+  are coming. Today those engines get volume backups only.
+</Callout>

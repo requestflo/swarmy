@@ -1,0 +1,46 @@
+---
+title: "Templates"
+description: "69 one-click apps, from WordPress and Ghost to Immich and Uptime Kuma. Fill in one form and deploy."
+---
+
+The template gallery has **69** apps you can deploy with one form: 9 blueprints
+and 60 one-click apps. Pick one, give it a name and a domain, choose a size, and
+look over the plan. The plan lists the database, volumes, secrets and route
+swarmy will create. Then click **Deploy**.
+
+- Passwords and keys the app needs are generated for you and stored as Docker
+  secrets.
+- Where an app needs Postgres or a cache, the template uses swarmy's **managed**
+  one, so it gets backups and replicas like any other managed database. Engines
+  swarmy does not manage yet, such as MySQL, ship inside the template.
+- Every template becomes an ordinary stack. You can edit it, scale it, and
+  export it as compose.
+
+## Blueprints
+
+Blueprints are hand-written starters, wired to managed data and ingress:
+
+Node API · Next.js app · Static site · WordPress · n8n · Directus · Worker +
+queue · Meilisearch app · Monitoring
+
+## One-click apps
+
+| Category | Apps |
+|---|---|
+| CMS | Ghost |
+| Analytics | Umami, Plausible CE, Matomo, GoatCounter |
+| Automation | Activepieces |
+| Developer tools | Gitea, Forgejo, code-server, IT-Tools, PocketBase, draw.io, CyberChef |
+| Data | pgAdmin, Adminer, Metabase, NocoDB, Baserow, CloudBeaver |
+| Monitoring | Uptime Kuma, Grafana, changedetection.io, Beszel, Healthchecks |
+| Communication | Mattermost, Rocket.Chat, ntfy, Gotify, Apprise API |
+| Productivity | Paperless-ngx, Nextcloud, Immich, Vaultwarden, BookStack, Wiki.js, Docmost, Memos, Stirling-PDF, Vikunja, Actual Budget, Mealie, linkding, Miniflux, Planka, File Browser, HedgeDoc, SearXNG |
+| AI | Open WebUI, Ollama, Flowise, AnythingLLM, LibreChat |
+| Media | Jellyfin, Navidrome, Audiobookshelf, Kavita |
+| Business | listmonk, Cal.com, Chatwoot, Mautic |
+
+## Your own app
+
+For your own code, use a [git app](/docs/guides/deploy-from-git) with a
+`swarmy.yaml`. You can also paste any `docker-compose.yml` with **Import
+compose** on a new stack.

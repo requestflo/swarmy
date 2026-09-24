@@ -1,0 +1,75 @@
+---
+title: "REST API"
+description: "The public REST API at /api/v1, its OpenAPI spec, API keys, the TypeScript, Python and Go SDKs, and the Terraform provider."
+---
+
+Everything you can automate in swarmy goes through one public REST API, served by
+your controller at `/api/v1`. It runs on the same service layer and the same
+access rules as the dashboard.
+
+## Reference
+
+Your controller serves the API reference itself:
+
+- `https://<controller>/api/v1/docs`: interactive reference.
+- `https://<controller>/api/v1/openapi.json`: the OpenAPI document.
+
+The spec is also committed in the repo:
+[packages/api-rest/openapi.json](https://github.com/requestflo/swarmy/blob/main/packages/api-rest/openapi.json).
+
+## Authentication
+
+Create an API key under **Settings → API keys**. Send it as a bearer token:
+
+```bash
+curl https://<controller>/api/v1/stacks \
+  -H "Authorization: Bearer swk_…"
+```
+
+A key acts inside one organisation, and the same policies that apply in the
+dashboard apply to it.
+
+## Conventions
+
+- JSON is `snake_case`.
+- Errors are RFC 9457 `application/problem+json` documents with a
+  `swarmy_code`.
+- Lists are paginated with a cursor: follow `next_cursor`.
+- Send an `Idempotency-Key` header on a POST, PUT, PATCH or DELETE to make a
+  retry safe.
+- Deploys are asynchronous. Creating, scaling or restarting a service, or
+  deploying a stack, returns `202` with a deployment reference you can poll.
+
+## Resources
+
+The API covers apps, git connections and repos, stacks, services, nodes, volumes,
+ingress domains, DNS records, mesh routes, registry credentials, backups,
+notifications, the audit log and API keys.
+
+## SDKs
+
+| Language | Package | Source |
+|---|---|---|
+| TypeScript | `@swarmy/sdk` | [sdks/typescript](https://github.com/requestflo/swarmy/tree/main/sdks/typescript) |
+| Python | `swarmy` | [sdks/python](https://github.com/requestflo/swarmy/tree/main/sdks/python) |
+| Go | `github.com/requestflo/swarmy-go` | [sdks/go](https://github.com/requestflo/swarmy/tree/main/sdks/go) |
+
+Each client takes an endpoint and an API key and appends `/api/v1` for you.
+
+## Terraform
+
+The official provider, `requestflo/swarmy`, manages apps, git connections, git
+repos, stacks, services, nodes, domains and API keys as Terraform resources:
+
+```hcl
+terraform {
+  required_providers {
+    swarmy = {
+      source = "registry.terraform.io/requestflo/swarmy"
+    }
+  }
+}
+```
+
+Source and examples:
+[terraform-provider-swarmy](https://github.com/requestflo/swarmy/tree/main/terraform-provider-swarmy).

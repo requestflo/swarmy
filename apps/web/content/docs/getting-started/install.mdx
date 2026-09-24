@@ -1,0 +1,110 @@
+---
+title: "Install"
+description: "What the installer needs, what it sets up, and every flag it takes."
+---
+
+One script installs swarmy on a fresh server. The same script upgrades it later.
+
+## Requirements
+
+- A fresh **Ubuntu or Debian** server with root access.
+- Outbound internet access. swarmy pulls its images from `ghcr.io` and Docker Hub.
+- For public HTTPS: ports **80** and **443** open to the internet, and a DNS name
+  pointed at the server. You can skip the DNS name and use a free `sslip.io`
+  name instead.
+
+## Run it
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/requestflo/swarmy/main/scripts/install-swarmy.sh | sudo bash
+```
+
+It asks a few questions: admin email, password, and optional
+ingress and mesh choices. Press Enter to accept each default. If you leave the
+password blank, the installer generates one.
+
+To skip the questions, pass flags:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/requestflo/swarmy/main/scripts/install-swarmy.sh \
+  | sudo bash -s -- --non-interactive --admin-email you@example.com
+```
+
+## What it sets up
+
+1. Installs Docker if it is missing.
+2. Creates a one-node Docker Swarm.
+3. Deploys the controller. The dashboard is part of the controller.
+4. Creates your owner account and a join token.
+5. Enrols this server as node #1.
+
+When it finishes it prints:
+
+- **Dashboard**: `http://<server-ip>:3021`. On a server with a public IP, the
+  dashboard also gets `swarmy.<ip-with-dashes>.sslip.io` with a Let's Encrypt
+  certificate.
+- **Login**: your admin email, plus the password if the installer generated it.
+  Save it.
+- **Add a node**: a one-liner for your next server. It is valid for 24 hours or 5
+  nodes.
+
+Each step is recorded in `/var/lib/swarmy/install/state.env`. Running the script
+again picks up where it left off and does not duplicate anything.
+
+<Callout type="warn">
+  Back up `/var/lib/swarmy/install/state.env` somewhere off the server. It holds
+  `SWARMY_SECRET_KEY`, which encrypts every credential swarmy stores. If you lose
+  it, those credentials cannot be recovered.
+</Callout>
+
+## Where the controller keeps its data
+
+The controller keeps its own state in an embedded SQLite store (`control.db`
+and `telemetry.db` on the `swarmy_swarmy-data` volume). There is no database
+service to run or look after.
+
+## Flags
+
+Flags win over environment variables. Environment variables are the
+non-interactive path.
+
+| Flag | Environment variable | What it does |
+|---|---|---|
+| `--non-interactive` | | Never prompt. Use flags, environment and defaults. |
+| `--check` | | Run the preflight only (network, egress). Changes nothing. |
+| `--uninstall` | | Remove the swarmy stack, its secrets and the node #1 agent. |
+| `--admin-email <e>` | `SWARMY_ADMIN_EMAIL` | Owner login. A value without `@` becomes a username login. |
+| `--admin-password <p>` | `SWARMY_ADMIN_PASSWORD` | Owner password. Generated if unset. |
+| `--domain <host>` | `SWARMY_DOMAIN` | HTTPS domain for the dashboard. Point an A record at the server. |
+| `--no-https` / `--https` | `SWARMY_NO_HTTPS=1` | Keep the dashboard on plain `http://<ip>:<port>` only, or turn HTTPS back on. |
+| `--ingress none\|caddy\|cloudflare` | `SWARMY_INGRESS` | Ingress for the dashboard. |
+| `--mesh none\|netbird-cloud\|netbird-external` | `SWARMY_MESH` | Mesh for the dashboard. |
+| `--image <ref>` | `SWARMY_IMAGE` | Controller image. |
+| `--agent-image <ref>` | `SWARMY_AGENT_IMAGE` | Agent image. |
+| `--port <n>` | `SWARMY_PUBLISH_PORT` | Dashboard port. Default `3021`. |
+| `--allow-signup` | `SWARMY_ALLOW_SIGNUP=true` | Open self-registration. By default sign-up is invite-only. |
+
+With `--ingress cloudflare`, also set `CF_API_TOKEN`, `CF_ACCOUNT_ID` and
+`CF_ZONE_ID`. With `--mesh netbird-*`, also set `NB_SERVICE_TOKEN` and
+`NB_MANAGEMENT_URL`.
+
+A re-run with no flags keeps the images, port and sign-up policy from the
+first install. It never switches them silently.
+
+## Ports
+
+| Port | Who needs it |
+|---|---|
+| `3021/tcp` | The dashboard, and every agent that dials in to the controller. |
+| `80/tcp`, `443/tcp` | Public HTTPS on edge nodes. |
+| `2377/tcp`, `7946/tcp+udp`, `4789/udp` | Docker Swarm, between your nodes. |
+| `53/udp+tcp` | Only on nodes that serve DNS for the [geo-DNS edge](/docs/concepts/edge). |
+
+Agents dial out to the controller. Nodes never need an inbound port for swarmy
+itself.
+
+## Next
+
+- [Quickstart](/docs/getting-started/quickstart): sign in, add a node, deploy a
+  site.
+- [Upgrading](/docs/getting-started/upgrading): how to move to a new version.

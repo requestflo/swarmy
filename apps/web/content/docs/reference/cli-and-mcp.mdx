@@ -1,0 +1,50 @@
+---
+title: "CLI and MCP"
+description: "The swarmy-agent CLI on every node, and the developer CLI and MCP server that are on the way."
+---
+
+## `swarmy-agent`, on every node
+
+Every node has one binary, `swarmy-agent`. It is the daemon that systemd runs and
+also a diagnostics and recovery CLI. Run it on the node itself. With no
+arguments on a terminal it opens a live diagnostics TUI.
+
+| Command | What it does |
+|---|---|
+| `status [--json]` | One-glance summary: daemon, session, mesh, swarm. |
+| `doctor [--fix] [--json]` | Walks the health checks and prints a hint for each failure. `--fix` applies the safe fixes. |
+| `reconnect` | Redial the controller now. |
+| `rejoin [--force]` | Repair swarm membership. |
+| `mesh status`, `mesh ping <ip>`, `mesh join`, `mesh leave` | Local mesh operations. |
+| `backup export`, `restore`, `push`, `list` | Rescue backups that work with the controller down. |
+| `logs [-f] [--container X]` | Agent journal or container logs. |
+| `support-bundle [--out p]` | A redacted diagnostics tarball to share. |
+| `update` | Self-update from the controller. |
+| `reset [--keep-data]` | Factory-reset this node. Asks you to type a confirmation. |
+
+On a node where the agent runs as a container (node #1 included), run it through
+Docker:
+
+```bash
+docker exec -it swarmy-agent bun run apps/agent/src/main.ts doctor
+```
+
+The full runbook is in [Node recovery](/docs/guides/node-recovery).
+
+## Developer CLI (coming)
+
+A developer CLI for deploying, tailing logs and pulling env from your laptop or CI
+is planned. It will be a thin layer over the [REST API](/docs/reference/api).
+
+Until it ships, use:
+
+- the [REST API](/docs/reference/api) with `curl`,
+- the TypeScript, Python or Go [SDKs](/docs/reference/api#sdks),
+- the [Terraform provider](/docs/reference/api#terraform),
+- or a `swarmy.yaml` in git, where a push is the deploy.
+
+## MCP server (coming)
+
+An MCP server, so AI assistants can inspect and operate your swarmy with the
+same permissions as an API key, is planned. It will sit on the same REST API
+and access rules.

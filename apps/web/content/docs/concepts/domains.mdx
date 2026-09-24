@@ -1,0 +1,73 @@
+---
+title: "Domains and TLS"
+description: "Routes send a hostname to a service. Every public service gets a working HTTPS address, and custom domains are verified before a certificate is ordered."
+---
+
+A **route** sends a hostname (and optionally a path) to a service's port. Routes
+are stored on the service itself as the `swarmy.ingress.routes` label, so they
+travel with the service and appear in a compose export.
+
+## A working address before you own a domain
+
+Every public HTTP service gets an HTTPS address as soon as it deploys:
+
+- If swarmy serves DNS for one of your zones, the address is
+  `<service>-<stack>.<your zone>`.
+- Otherwise it is `<service>-<stack>.<edge-ip>.sslip.io`. sslip.io answers any
+  name that embeds an IP with that IP, so there is no DNS step.
+
+The address is a normal route. You can edit it or remove it, and once removed it
+stays removed. Adding a custom domain first means no automatic address is added.
+Services that are private, managed data, and swarmy's own services never get
+one. Set `swarmy.ingress.auto=false` on a service to opt it out.
+
+## Custom domains
+
+Add a domain to a service and swarmy walks it through one lifecycle, shown on the
+row:
+
+`waiting for DNS` → `DNS verified` → `issuing certificate` → `secured`
+
+1. **swarmy tells you the exact record** to create: an A/AAAA record to your edge
+   nodes' public IPs, a CNAME for non-apex names, or NS delegation if the zone is
+   served by swarmy.
+2. **It checks what the public sees.** The controller resolves the name through
+   two public resolvers (1.1.1.1 and 8.8.8.8) and points out the usual traps: an
+   old IP still propagating, Cloudflare's orange cloud, a stray AAAA record.
+3. **No certificate is ordered until DNS verifies.** This avoids burning Let's
+   Encrypt rate limits on names that cannot validate.
+
+Apex and `www` are one toggle: redirect `www` to the apex, the apex to `www`, or
+serve both.
+
+## TLS
+
+TLS is set per route: `auto`, `off`, or a certificate you provide.
+
+- **Public names and public IPs** get a Let's Encrypt certificate. The first
+  request can take a few seconds while it is issued.
+- **Private names and IPs** (`.local`, `.lan`, `.internal`, `.home.arpa`,
+  `.test`, private IPs, and sslip.io names that embed a private IP) cannot be
+  validated by Let's Encrypt. swarmy serves them with **Caddy's local CA**
+  instead. Your browser warns the first time; accept it once or trust Caddy's
+  root CA on your machines.
+- **Wildcard certificates** such as `*.example.com` are issued over DNS-01 when
+  the zone is served by swarmy's own DNS. You do not need a DNS provider account
+  or API token. For a zone hosted elsewhere, you can give a Cloudflare API token.
+
+Certificate expiry is measured with a real TLS handshake to each edge and feeds
+the default `cert-expiry` alert.
+
+## Ingress drivers
+
+New organisations use **Caddy**, enabled by default. You can switch to Traefik,
+nginx, HAProxy, Cloudflare Tunnel, or `none` if you run your own routing.
+Cloudflare Tunnel works for nodes with no public IP at all.
+
+## Exposure
+
+swarmy sorts every service into one of four exposure levels: publishes a port,
+behind a public domain, internal managed data, or private. A managed database
+that publishes a port is flagged as a violation. With **Block violating deploys**
+on, the next deploy that breaks a rule is refused. swarmy never removes a live
+port by itself.

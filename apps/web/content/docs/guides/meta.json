@@ -1,0 +1,12 @@
+{
+  "title": "Guides",
+  "pages": [
+    "deploy-from-git",
+    "templates",
+    "backups",
+    "observability",
+    "ai-gateway",
+    "account-security",
+    "node-recovery"
+  ]
+}
