@@ -25,10 +25,11 @@
  *   --snapshot <id|latest>                 (default latest)
  *   --write-env <path>                     (default ./.swarmy-restored.env)
  */
+import { dirname } from 'node:path';
 import { writeFile } from 'node:fs/promises';
 import type { ResticRepo } from '@swarmy/core/protocol';
 import { ensureSchema, buildAdapter, resolveDbPaths } from '@swarmy/db';
-import { restoreBundle, installSnapshotFile } from '@swarmy/trpc';
+import { restoreBundle, installSnapshotFile, stashPendingKv } from '@swarmy/trpc';
 
 interface Flags {
   [k: string]: string | boolean;
@@ -122,6 +123,14 @@ async function main(): Promise<void> {
   const path = resolveDbPaths().control;
   const { keptAs } = await installSnapshotFile(bundle.dbSnapshot, path);
   log(`wrote ${path}${keptAs ? ` (the previous file is kept as ${keptAs})` : ''}`);
+
+  // 5b. infra config that lives in the swarm (swarm-kv). No hub in this
+  // process: stash it next to control.db; the controller writes it into each
+  // org's swarm once that org's manager agent connects (swarm-kv-restore).
+  if (bundle.swarmKv?.orgs.length) {
+    const file = await stashPendingKv(bundle.swarmKv, dirname(path));
+    log(`queued swarm config for ${bundle.swarmKv.orgs.length} org(s) in ${file}`);
+  }
 
   // 6. a bundle from an older swarmy gets the newer migrations now.
   const applied = await ensureSchema(buildAdapter());

@@ -14,7 +14,7 @@ import {
   STALE_RUN_MS,
   summarizeRun,
 } from './offsiteMirror.service';
-import { seedKv } from './swarm-kv.service';
+import { peekKvRows, seedKv, seedKvRows, shareKv, useMemoryKv } from './swarm-kv.service';
 
 process.env.SWARMY_SECRET_KEY ??= 'a'.repeat(64);
 
@@ -103,18 +103,6 @@ const ORG = 'org1';
 
 function fakeDb() {
   return {
-    offsiteMirror: table(() => ({
-      allBuckets: true,
-      buckets: [],
-      prefix: 'swarmy-mirror',
-      everyMinutes: 60,
-      mode: 'copy',
-      graceDays: 7,
-      enabled: true,
-      sourceAccessKeyRef: null,
-      sourceSecretKeyRef: null,
-      createdAt: new Date('2026-09-01T00:00:00Z'),
-    })),
     offsiteMirrorRun: table(() => ({
       status: 'RUNNING',
       objectsCopied: 0,
@@ -126,8 +114,8 @@ function fakeDb() {
       startedAt: new Date(),
       finishedAt: null,
     })),
-    backupTarget: table(() => ({ createdAt: new Date() })),
     auditLog: table(() => ({ createdAt: new Date() })),
+    organization: { findMany: async () => [{ id: ORG }] },
   };
 }
 
@@ -171,30 +159,47 @@ function fakeHub(opts: { manager?: string; rcloneOutput?: string; rcloneExit?: n
   return hub;
 }
 
-/** dbs whose org has a Garage store (the store config lives in the org's swarm, swarm-kv). */
-const withStore = new WeakSet<object>();
-const seededHubs = new WeakSet<object>();
+/**
+ * The org's swarm (swarm-kv): Garage store config, backup targets and the
+ * mirror live there. Every hub fake of one test world shares one in-memory
+ * swarm (`swarmOf`); `seedTarget` / `seedStore` write into it.
+ */
+let currentSwarm: OrgContext['hub'] | undefined;
 
 function ctxFor(db: FakeDb, hub: ReturnType<typeof fakeHub>, user: { id: string } | null = { id: 'u1' }) {
   const ctx = { db, hub, activeOrgId: ORG, user } as unknown as OrgContext;
-  if (withStore.has(db) && !seededHubs.has(hub)) {
-    seededHubs.add(hub);
-    seedKv(ctx.hub, ORG, 'storage', ORG, {
-      enabled: true,
-      driver: 'GARAGE',
-      region: 'garage',
-      adminTokenRef: encryptSecret('tok'),
-      memberNodeIds: [],
-    });
-  }
+  shareKv(ctx.hub, swarmHub(db));
+  currentSwarm = swarmHub(db);
   return ctx;
 }
 
+/** A stand-in hub object that owns the world's in-memory swarm. */
+const swarmHubs = new WeakMap<object, OrgContext['hub']>();
+function swarmHub(db: FakeDb): OrgContext['hub'] {
+  let h = swarmHubs.get(db);
+  if (!h) {
+    h = {} as OrgContext['hub'];
+    useMemoryKv(h);
+    swarmHubs.set(db, h);
+  }
+  return h;
+}
+
+/** Pin the mirror's creation time (its schedule anchor) the way the old fixture did. */
+function pinMirrorCreatedAt(at = new Date('2026-09-01T00:00:00Z')): void {
+  const { id, ...row } = mirrorRow();
+  seedKvRows(currentSwarm, ORG, 'mirror', [{ ...row, id, createdAt: at }]);
+}
+
+/** The org's mirror document as a row (or undefined). */
+function mirrorRow(): Record<string, unknown> {
+  return peekKvRows(currentSwarm, ORG, 'mirror')[0]!;
+}
+
 async function seedTarget(db: FakeDb) {
-  return db.backupTarget.create({
-    data: {
+  seedKvRows(swarmHub(db), ORG, 'bkp-target', [
+    {
       id: 't1',
-      orgId: ORG,
       name: 'b2-dr',
       kind: 'S3',
       endpoint: 'https://s3.eu-central-003.backblazeb2.com',
@@ -202,12 +207,22 @@ async function seedTarget(db: FakeDb) {
       region: 'eu-central-003',
       credentialRef: encryptSecret('b2-key-id'),
       secretKeyRef: encryptSecret('b2-secret'),
+      resticPasswordRef: encryptSecret('pw'),
+      enabled: true,
+      createdAt: new Date(),
     },
-  });
+  ]);
+  currentSwarm = swarmHub(db);
 }
 
 async function seedStore(db: FakeDb) {
-  withStore.add(db);
+  seedKv(swarmHub(db), ORG, 'storage', ORG, {
+    enabled: true,
+    driver: 'GARAGE',
+    region: 'garage',
+    adminTokenRef: encryptSecret('tok'),
+    memberNodeIds: [],
+  });
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -245,7 +260,7 @@ describe('run recording', () => {
     expect(run.finishedAt).toBeInstanceOf(Date);
 
     // the mirror key was minted, stored encrypted, granted on the bucket
-    const mirror = db.offsiteMirror.rows[0]!;
+    const mirror = mirrorRow();
     expect(typeof mirror.sourceAccessKeyRef).toBe('string');
     expect(mirror.sourceAccessKeyRef).not.toContain('GKmirror');
     // grants are an in-memory cache (never a column); the last run is derived from history
@@ -269,7 +284,7 @@ describe('run recording', () => {
     const ctx = ctxFor(db, fakeHub({ manager: 'n1' }));
     await saveMirror(ctx, { targetId: 't1', allBuckets: true });
     await db.offsiteMirrorRun.create({
-      data: { orgId: ORG, mirrorId: db.offsiteMirror.rows[0]!.id, status: 'RUNNING', startedAt: new Date() },
+      data: { orgId: ORG, mirrorId: mirrorRow().id, status: 'RUNNING', startedAt: new Date() },
     });
     await expect(startMirrorRun(ctx, { trigger: 'manual' })).rejects.toThrow(/already running/);
   });
@@ -300,6 +315,7 @@ describe('scheduler (runDueMirrors)', () => {
     await seedTarget(db); // no store row → object storage is off
     const hub = fakeHub({ manager: 'n1' });
     await saveMirror(ctxFor(db, hub), { targetId: 't1', allBuckets: true }); // never run → due
+    pinMirrorCreatedAt();
     const now = new Date('2026-09-01T05:20:00Z');
     const res = await runDueMirrors({ db: db as never, hub: hub as never, auth: {} as never }, now);
     expect(res.started).toEqual([]);
@@ -333,7 +349,7 @@ describe('scheduler (runDueMirrors)', () => {
     await db.offsiteMirrorRun.create({
       data: {
         orgId: ORG,
-        mirrorId: db.offsiteMirror.rows[0]!.id,
+        mirrorId: mirrorRow().id,
         direction: 'mirror',
         status: 'SUCCEEDED',
         startedAt: new Date('2026-09-01T06:00:00Z'),
@@ -348,18 +364,19 @@ describe('scheduler (runDueMirrors)', () => {
 
 describe('config', () => {
   test('refuses an in-cluster (Garage) destination as "off-site"', async () => {
-    await db.backupTarget.create({
-      data: {
+    seedKvRows(swarmHub(db), ORG, 'bkp-target', [
+      {
         id: 'native',
-        orgId: ORG,
         name: 'swarmy-object-storage',
         kind: 'S3',
         endpoint: 'http://swarmy-garage:3900',
         bucket: 'swarmy-backups',
         credentialRef: encryptSecret('k'),
         secretKeyRef: encryptSecret('s'),
+        resticPasswordRef: encryptSecret('pw'),
+        enabled: true,
       },
-    });
+    ]);
     await expect(
       saveMirror(ctxFor(db, fakeHub()), { targetId: 'native', allBuckets: true }),
     ).rejects.toThrow(/not off-site/);
@@ -372,7 +389,7 @@ describe('config', () => {
     expect(view.mirror?.everyMinutes).toBe(60);
     expect(view.mirror?.root).toBe('acme-dr/swarmy-mirror');
     // No stored nextRunAt: never run → due on the next tick.
-    expect('nextRunAt' in db.offsiteMirror.rows[0]!).toBe(false);
+    expect('nextRunAt' in mirrorRow()).toBe(false);
     expect(typeof view.mirror?.nextRunAt).toBe('string');
   });
 });

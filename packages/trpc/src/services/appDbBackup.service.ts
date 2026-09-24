@@ -15,6 +15,7 @@
  * the truth for which dumps exist (`appdb:<stack>/<service>` tags); history is
  * one `appdb.backup` / `appdb.restore` audit row per run. No new model.
  */
+import { backupTargets } from './backups.repo';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import { randomToken } from '@swarmy/core/crypto';
@@ -104,7 +105,7 @@ function requireAppDb(ctx: OrgContext, stack: string, service: string): AppDb {
 
 async function resolveTarget(ctx: OrgContext, explicit?: string): Promise<BackupTargetRow> {
   if (explicit) return loadTarget(ctx, explicit);
-  const rows = (await ctx.db.backupTarget.findMany({
+  const rows = (await backupTargets(ctx, ctx.activeOrgId).findMany({
     where: { orgId: ctx.activeOrgId },
   })) as unknown as BackupTargetRow[];
   const t = chooseAutoBackupTarget(rows);

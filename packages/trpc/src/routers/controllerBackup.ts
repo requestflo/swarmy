@@ -26,7 +26,7 @@ const retention = z.object({
 });
 
 export const controllerBackupRouter = router({
-  getConfig: adminProcedure.query(({ ctx }) => getConfig(ctx.db)),
+  getConfig: adminProcedure.query(({ ctx }) => getConfig(ctx)),
 
   setConfig: adminProcedure
     .input(
@@ -65,5 +65,5 @@ export const controllerBackupRouter = router({
   listSnapshots: adminProcedure.query(({ ctx }) => listSnapshots(ctx.db)),
 
   /** Live restic catalog for the configured target (restore picker). */
-  listRemoteSnapshots: adminProcedure.query(({ ctx }) => listRemoteSnapshots(ctx.db)),
+  listRemoteSnapshots: adminProcedure.query(({ ctx }) => listRemoteSnapshots(ctx)),
 });

@@ -3,6 +3,7 @@ import { startRetention } from './retention';
 import { startImageGc } from './image-gc';
 import { startNodeHygiene } from './node-hygiene';
 import { startControllerBackupScheduler } from './controller-backup-scheduler';
+import { startSwarmKvRestore } from './swarm-kv-restore';
 import { startBackupScheduler } from './backup-scheduler';
 import { startOffsiteMirror } from './offsite-mirror';
 import { startDrReconcile } from './dr-reconcile';
@@ -39,6 +40,8 @@ import { startEmailReconcile } from './email-reconcile';
 
 export function startWorkers(): () => void {
   const stops = [
+    // First: a restored bundle's swarm config goes back before reconcilers read it.
+    startSwarmKvRestore(),
     startMetricsSampler(),
     startRetention(),
     startImageGc(),

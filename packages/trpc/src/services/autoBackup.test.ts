@@ -1,3 +1,4 @@
+import { peekKvRows, seedKvRows } from './swarm-kv.service';
 import { describe, expect, it } from 'bun:test';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import {
@@ -325,29 +326,7 @@ function world(opts: {
       return (row[k] ?? null) === v;
     });
   const db = {
-    backupTarget: { findMany: () => Promise.resolve(opts.targets ?? []) },
     backupJob: { groupBy: () => Promise.resolve([]) },
-    backupSchedule: {
-      findMany: (a: { where: Record<string, unknown> }) =>
-        Promise.resolve(schedules.filter((r) => matches(r, a.where))),
-      findFirst: (a: { where: Record<string, unknown> }) =>
-        Promise.resolve(schedules.find((r) => matches(r, a.where)) ?? null),
-      create: (a: { data: Record<string, unknown> }) => {
-        const row = { id: `sch${schedules.length + 1}`, createdAt: new Date(), optedOutAt: null, ...a.data };
-        schedules.push(row);
-        return Promise.resolve(row);
-      },
-      update: (a: { where: { id: string }; data: Record<string, unknown> }) => {
-        const row = schedules.find((r) => r.id === a.where.id)!;
-        Object.assign(row, a.data);
-        return Promise.resolve(row);
-      },
-      delete: (a: { where: { id: string } }) => {
-        const i = schedules.findIndex((r) => r.id === a.where.id);
-        const [row] = schedules.splice(i, 1);
-        return Promise.resolve(row);
-      },
-    },
     auditLog: {
       create: (a: { data: { action: string; targetId: string; metadata: Record<string, unknown> } }) => {
         audits.push({ action: a.data.action, targetId: a.data.targetId, metadata: a.data.metadata });
@@ -375,7 +354,17 @@ function world(opts: {
     activeOrgId: 'org1',
     membership: { role: 'owner', orgId: 'org1' },
   } as unknown as OrgContext;
-  return { ctx, dispatches, audits, schedules };
+  // Targets + schedules live in the org's swarm (swarm-kv); `schedules` reads it back live.
+  seedKvRows(ctx.hub, 'org1', 'bkp-target', opts.targets ?? []);
+  seedKvRows(ctx.hub, 'org1', 'bkp-sched', schedules);
+  return {
+    ctx,
+    dispatches,
+    audits,
+    get schedules() {
+      return peekKvRows(ctx.hub, 'org1', 'bkp-sched', ['createdAt', 'anchorAt', 'optedOutAt']);
+    },
+  };
 }
 
 const NOW = new Date('2026-09-23T12:00:00Z');

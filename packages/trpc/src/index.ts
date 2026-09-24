@@ -370,6 +370,8 @@ export {
   dropKvCache,
   exportKvForBundle,
   importKvFromBundle,
+  stashPendingKv,
+  importPendingKv,
   KV_COLLECTIONS,
   type KvBundleSection,
   type KvCollection,
@@ -381,6 +383,13 @@ export { meshConfigRepo } from './services/mesh-config.repo';
 export { observabilityConfigRepo } from './services/observability-config.repo';
 export { geoDnsConfigRepo, dnsZoneRepo } from './services/geodns.repo';
 export { storageClusterRepo, bucketAccessRepo } from './services/storage-cluster.repo';
+export {
+  allOrgRows,
+  backupTargets,
+  backupSchedules,
+  offsiteMirrors,
+  controllerBackupConfigRepo,
+} from './services/backups.repo';
 
 // ── email service (epic developer-platform §8) ──
 export {

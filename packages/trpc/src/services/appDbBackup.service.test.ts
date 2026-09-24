@@ -1,3 +1,4 @@
+import { seedKvRows } from './swarm-kv.service';
 import { describe, expect, it } from 'bun:test';
 import { encryptSecret } from '@swarmy/core/crypto';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
@@ -150,7 +151,6 @@ function world(services: SwarmServiceInfo[], opts: { appendonly?: boolean; failB
     region: null, credentialRef: null, secretKeyRef: null, resticPasswordRef: encryptSecret('pw'), enabled: true, createdAt: new Date(0),
   };
   const db = {
-    backupTarget: { findMany: async () => [target], findFirst: async () => target },
     organization: { findMany: async () => [{ id: 'org1' }] },
     auditLog: {
       create: async (a: { data: { action: string; metadata: Record<string, unknown> } }) => {
@@ -161,6 +161,8 @@ function world(services: SwarmServiceInfo[], opts: { appendonly?: boolean; failB
     },
   };
   const ctx = { db, hub, user: { id: 'u1' }, activeOrgId: 'org1', session: null, reqHeaders: new Headers() } as unknown as OrgContext;
+  // Targets live in the org's swarm (swarm-kv).
+  seedKvRows(ctx.hub, 'org1', 'bkp-target', [target]);
   return { ctx, calls, audits, deps: { db, hub, auth: {} } as never, isRunning: (n: string) => running.has(n) };
 }
 

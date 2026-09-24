@@ -479,7 +479,11 @@ export class SwarmKv {
 
   /** Every latest document (plaintext) for the controller backup bundle. */
   async exportAll(): Promise<KvExportDoc[]> {
-    await this.refresh();
+    try {
+      await this.refresh();
+    } catch (e) {
+      if (!this.loaded) throw e; // never export "nothing" for a swarm we can't read
+    }
     const out: KvExportDoc[] = [];
     for (const [k, e] of this.entries) {
       const [collection, id] = k.split('\u0000') as [string, string];

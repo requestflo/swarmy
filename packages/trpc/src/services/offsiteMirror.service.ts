@@ -16,6 +16,7 @@
  * The scheduler (`apps/api/src/workers/offsite-mirror.ts`) calls
  * `runDueMirrors` once a minute.
  */
+import { allOrgRows, backupTargets, offsiteMirrors } from './backups.repo';
 import type { AgentHub } from '../hub/types';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
@@ -234,12 +235,13 @@ function toRunView(r: RunRow): MirrorRunView {
   };
 }
 
-async function loadMirror(db: DB, orgId: string): Promise<MirrorRow | null> {
-  return (await db.offsiteMirror.findUnique({ where: { orgId } })) as unknown as MirrorRow | null;
+/** The org's mirror (swarm-kv `mirror/<orgId>`; its id IS the org id). */
+async function loadMirror(ctx: OrgContext): Promise<MirrorRow | null> {
+  return (await offsiteMirrors(ctx, ctx.activeOrgId).findFirst()) as unknown as MirrorRow | null;
 }
 
 async function loadTarget(ctx: OrgContext, id: string): Promise<TargetRow> {
-  const row = (await ctx.db.backupTarget.findFirst({
+  const row = (await backupTargets(ctx, ctx.activeOrgId).findFirst({
     where: { id, orgId: ctx.activeOrgId },
   })) as unknown as TargetRow | null;
   if (!row) throw notFound('backup target', id);
@@ -269,8 +271,8 @@ async function isRunning(db: DB, mirror: MirrorRow): Promise<boolean> {
 
 export async function getMirror(ctx: OrgContext): Promise<OffsiteMirrorView> {
   const [row, targets] = await Promise.all([
-    loadMirror(ctx.db, ctx.activeOrgId),
-    ctx.db.backupTarget.findMany({
+    loadMirror(ctx),
+    backupTargets(ctx, ctx.activeOrgId).findMany({
       where: { orgId: ctx.activeOrgId },
       orderBy: { createdAt: 'desc' },
     }) as unknown as Promise<TargetRow[]>,
@@ -343,7 +345,7 @@ export async function getMirror(ctx: OrgContext): Promise<OffsiteMirrorView> {
 export async function offsiteSignal(
   ctx: OrgContext,
 ): Promise<{ configured: boolean; enabled: boolean; lastSuccessAt: string | null; since: string | null }> {
-  const row = await loadMirror(ctx.db, ctx.activeOrgId);
+  const row = await loadMirror(ctx);
   if (!row) return { configured: false, enabled: false, lastSuccessAt: null, since: null };
   const lastOk = await ctx.db.offsiteMirrorRun.findFirst({
     where: { mirrorId: row.id, direction: 'mirror', status: 'SUCCEEDED' },
@@ -387,7 +389,7 @@ export async function saveMirror(ctx: OrgContext, input: SaveMirrorInput): Promi
   }
   const everyMinutes = input.everyMinutes ?? DEFAULT_EVERY_MINUTES;
   const enabled = input.enabled ?? true;
-  const existing = await loadMirror(ctx.db, ctx.activeOrgId);
+  const existing = await loadMirror(ctx);
   const data = {
     targetId: target.id,
     allBuckets: input.allBuckets,
@@ -398,11 +400,8 @@ export async function saveMirror(ctx: OrgContext, input: SaveMirrorInput): Promi
     graceDays: input.graceDays ?? DEFAULT_GRACE_DAYS,
     enabled,
   };
-  await ctx.db.offsiteMirror.upsert({
-    where: { orgId: ctx.activeOrgId },
-    create: { orgId: ctx.activeOrgId, ...data },
-    update: data,
-  });
+  if (existing) await offsiteMirrors(ctx, ctx.activeOrgId).update({ where: { id: existing.id }, data });
+  else await offsiteMirrors(ctx, ctx.activeOrgId).create({ data: { ...data, id: ctx.activeOrgId } });
   // A new mirror has never run, so it is due on the next tick anyway;
   // re-enabled / re-pointed ones are armed to copy on the next tick too.
   if (existing) {
@@ -428,12 +427,14 @@ export async function saveMirror(ctx: OrgContext, input: SaveMirrorInput): Promi
 }
 
 export async function removeMirror(ctx: OrgContext): Promise<{ removed: boolean }> {
-  const row = await loadMirror(ctx.db, ctx.activeOrgId);
+  const row = await loadMirror(ctx);
   if (!row) return { removed: false };
   if (await isRunning(ctx.db, row)) {
     throw commandRejected('a mirror or restore is running — wait for it to finish');
   }
-  await ctx.db.offsiteMirror.delete({ where: { id: row.id } });
+  await offsiteMirrors(ctx, ctx.activeOrgId).delete({ where: { id: row.id } });
+  // Run history went with the mirror (the old FK cascade).
+  await ctx.db.offsiteMirrorRun.deleteMany({ where: { orgId: ctx.activeOrgId, mirrorId: row.id } });
   armedNow.delete(row.id);
   grantedByMirror.delete(row.id);
   await writeAudit(ctx, {
@@ -468,7 +469,7 @@ async function ensureSourceKey(
     }
   }
   const key = await createKey(ctx, MIRROR_KEY_NAME);
-  await ctx.db.offsiteMirror.update({
+  await offsiteMirrors(ctx, ctx.activeOrgId).update({
     where: { id: row.id },
     data: {
       sourceAccessKeyRef: encryptSecret(key.accessKeyId),
@@ -620,7 +621,7 @@ function dispatchRun(
 async function prepare(
   ctx: OrgContext,
 ): Promise<{ mirror: MirrorRow; target: TargetRow }> {
-  const mirror = await loadMirror(ctx.db, ctx.activeOrgId);
+  const mirror = await loadMirror(ctx);
   if (!mirror) throw commandRejected('no off-site mirror is configured');
   const target = await loadTarget(ctx, mirror.targetId);
   return { mirror, target };
@@ -797,7 +798,7 @@ export async function restoreFromOffsite(
   ctx: OrgContext,
   input: RestoreInput,
 ): Promise<{ runId: string; buckets: string[] }> {
-  const mirror = await loadMirror(ctx.db, ctx.activeOrgId);
+  const mirror = await loadMirror(ctx);
   const target = mirror ? await loadTarget(ctx, mirror.targetId) : null;
   const store = await bucketsOverview(ctx);
   const running = mirror ? await isRunning(ctx.db, mirror) : false;
@@ -912,9 +913,8 @@ export async function runDueMirrors(
   now: Date = new Date(),
 ): Promise<{ started: string[] }> {
   await reapStaleRuns(deps.db, now).catch(() => 0);
-  const enabled = (await deps.db.offsiteMirror.findMany({
-    where: { enabled: true },
-  })) as unknown as MirrorRow[];
+  // Mirrors live in each org's swarm (swarm-kv); unreachable orgs are skipped.
+  const enabled = (await allOrgRows(deps, offsiteMirrors, { where: { enabled: true } })) as unknown as MirrorRow[];
   const started: string[] = [];
   for (const m of enabled) {
     try {

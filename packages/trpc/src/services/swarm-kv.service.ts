@@ -258,6 +258,9 @@ export class OrgKv {
   }
 
   private async read<R>(fn: (kv: SwarmKv) => Promise<R>, empty: R): Promise<R> {
+    if (pendingRestore.has(this.orgId)) {
+      throw mapKvError(new KvError('UNAVAILABLE', 'swarm config is being restored from a controller backup — waiting for a manager agent'));
+    }
     try {
       return await fn(this.raw);
     } catch (e) {
@@ -376,4 +379,112 @@ export function peekKv<T = unknown>(hub: AgentHub | undefined, orgId: string, co
     if (!best || p.seq > best.seq) best = { seq: p.seq, dataB64: c.dataB64 };
   }
   return best ? (JSON.parse(Buffer.from(best.dataB64, 'base64').toString('utf8')) as T) : null;
+}
+
+// ── restore onto a fresh swarm ────────────────────────────────────────────────
+
+/**
+ * A restored bundle's swarm-kv section waits here (next to control.db) until
+ * each org's manager agent is connected: the disaster-restore CLI has no hub,
+ * and an in-place restore may run while some orgs' agents are still dialling
+ * in. {@link importPendingKv} drains it.
+ */
+export const PENDING_KV_FILE = 'pending-swarm-kv.json';
+
+/**
+ * Orgs whose restored swarm-kv documents haven't been written back yet. Until
+ * they are, their store reads as UNAVAILABLE (never as the fresh swarm's empty
+ * store), so no reconciler acts on "nothing configured" mid-restore.
+ */
+const pendingRestore = new Set<string>();
+
+export function isKvRestorePending(orgId: string): boolean {
+  return pendingRestore.has(orgId);
+}
+
+export async function stashPendingKv(section: KvBundleSection, dataDir: string): Promise<string> {
+  const { mkdir, writeFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  await mkdir(dataDir, { recursive: true });
+  const file = join(dataDir, PENDING_KV_FILE);
+  await writeFile(file, JSON.stringify(section), { mode: 0o600 });
+  for (const o of section.orgs) pendingRestore.add(o.orgId);
+  return file;
+}
+
+/**
+ * Import any stashed section into the orgs whose manager is connected; keeps
+ * the rest for the next call. Returns what was written and who is still waiting.
+ */
+export async function importPendingKv(
+  hub: AgentHub,
+  dataDir: string,
+): Promise<{ written: number; pending: string[] } | null> {
+  const { readFile, rm, writeFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const file = join(dataDir, PENDING_KV_FILE);
+  let section: KvBundleSection;
+  try {
+    section = JSON.parse(await readFile(file, 'utf8')) as KvBundleSection;
+  } catch {
+    return null; // nothing stashed
+  }
+  for (const o of section.orgs) pendingRestore.add(o.orgId);
+  const ready = section.orgs.filter((o) => hub.managerNode(o.orgId));
+  if (ready.length === 0) return { written: 0, pending: section.orgs.map((o) => o.orgId) };
+  const res = await importKvFromBundle(hub, { version: 1, orgs: ready });
+  const left = section.orgs.filter((o) => !ready.includes(o) || res.pending.includes(o.orgId));
+  if (left.length === 0) await rm(file, { force: true });
+  else await writeFile(file, JSON.stringify({ version: 1, orgs: left } satisfies KvBundleSection), { mode: 0o600 });
+  for (const o of ready) {
+    if (!left.includes(o)) pendingRestore.delete(o.orgId);
+    dropKvCache(hub, o.orgId);
+  }
+  return { written: res.written, pending: left.map((o) => o.orgId) };
+}
+
+/** Test seam: seed Prisma-shaped rows (with `id`; Dates become ISO strings) into a collection. */
+export function seedKvRows(
+  hub: AgentHub | undefined,
+  orgId: string,
+  collection: KvCollection,
+  rows: ReadonlyArray<Record<string, unknown>>,
+): void {
+  for (const row of rows) {
+    const { id, orgId: _o, updatedAt: _u, ...rest } = row;
+    const doc = Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, v instanceof Date ? v.toISOString() : v]));
+    seedKv(hub, orgId, collection, String(id), doc);
+  }
+}
+
+/** Test seam: every document of a collection in this hub's in-memory swarm, as rows (`id` + value; ISO dates → Date). */
+export function peekKvRows(
+  hub: AgentHub | undefined,
+  orgId: string,
+  collection: KvCollection,
+  dateFields: readonly string[] = ['createdAt'],
+): Array<Record<string, unknown>> {
+  const state = byHub.get((hub ?? noHub) as object) as (HubKv & { drivers?: Map<string, MemoryDriver> }) | undefined;
+  const driver = state?.drivers?.get(orgId);
+  if (!driver) return [];
+  const ids = new Set<string>();
+  for (const name of driver.configs.keys()) {
+    const p = parseKvConfigName(name);
+    if (p?.collection === collection) ids.add(p.id);
+  }
+  const out: Array<Record<string, unknown>> = [];
+  for (const id of ids) {
+    const v = peekKv<Record<string, unknown>>(hub, orgId, collection, id);
+    if (!v) continue;
+    const row: Record<string, unknown> = { id, orgId, ...v };
+    for (const f of dateFields) if (typeof row[f] === 'string') row[f] = new Date(row[f] as string);
+    out.push(row);
+  }
+  return out.sort((a, b) => String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')));
+}
+
+/** Test seam: make `hub` see the same (in-memory) swarm as `like` — one swarm, several hub fakes. */
+export function shareKv(hub: AgentHub, like: AgentHub): void {
+  const state = hubState(like);
+  byHub.set(hub, state);
 }

@@ -15,6 +15,7 @@
  * So even a by-hand recovery is: `restic restore` → decrypt `bundle.swcb` with
  * the passphrase → put control.db in the data dir → set secrets → start controller.
  */
+import type { KvBundleSection } from './swarm-kv.service';
 import { spawn } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -54,7 +55,16 @@ export interface BundleContents {
   /** control.db snapshot bytes (a complete SQLite file). */
   dbSnapshot: Buffer;
   secrets: ControllerSecrets;
+  /**
+   * Every org's swarm-kv documents (infra config that lives in the swarm, not
+   * control.db), so a restore onto a FRESH swarm rebuilds it. Optional: older
+   * bundles have none.
+   */
+  swarmKv?: KvBundleSection;
 }
+
+/** Optional bundle member holding {@link BundleContents.swarmKv}. */
+export const SWARM_KV_MEMBER = 'swarm-kv.json';
 
 // ── restic invocation (controller-side) ─────────────────────────────────────
 
@@ -192,6 +202,7 @@ export async function stageBundle(
   await writeFile(join(dir, 'manifest.json'), JSON.stringify(contents.manifest, null, 2));
   await writeFile(join(dir, SNAPSHOT_MEMBER), contents.dbSnapshot);
   await writeFile(join(dir, 'secrets.json'), JSON.stringify(contents.secrets, null, 2));
+  if (contents.swarmKv) await writeFile(join(dir, SWARM_KV_MEMBER), JSON.stringify(contents.swarmKv, null, 2));
   return { dir, bundlePath: join(dir, BUNDLE_FILE) };
 }
 
@@ -205,6 +216,7 @@ export function serializeBundle(contents: BundleContents): Buffer {
     'manifest.json': Buffer.from(JSON.stringify(contents.manifest)),
     [SNAPSHOT_MEMBER]: Buffer.from(contents.dbSnapshot),
     'secrets.json': Buffer.from(JSON.stringify(contents.secrets)),
+    ...(contents.swarmKv ? { [SWARM_KV_MEMBER]: Buffer.from(JSON.stringify(contents.swarmKv)) } : {}),
   };
   const chunks: Buffer[] = [Buffer.from('SWCBSTORE1')];
   for (const [name, data] of Object.entries(parts)) {
@@ -244,6 +256,9 @@ export function deserializeBundle(blob: Buffer): BundleContents {
     manifest: JSON.parse(files['manifest.json'].toString()) as ControllerManifest,
     dbSnapshot: files[SNAPSHOT_MEMBER],
     secrets: JSON.parse(files['secrets.json'].toString()) as ControllerSecrets,
+    ...(files[SWARM_KV_MEMBER]
+      ? { swarmKv: JSON.parse(files[SWARM_KV_MEMBER].toString()) as KvBundleSection }
+      : {}),
   };
 }
 

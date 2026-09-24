@@ -20,7 +20,7 @@
 import { prisma } from '@swarmy/db';
 import { decryptSecret } from '@swarmy/core/crypto';
 import type { ResticRepo, RestoreVolumeResult } from '@swarmy/core/protocol';
-import { resticNetworkFor } from '@swarmy/trpc';
+import { backupTargets, resticNetworkFor } from '@swarmy/trpc';
 import { hub } from '../gateway';
 
 const TICK_MS = 30_000;
@@ -92,7 +92,6 @@ interface ReconcileDb {
   snapshot: {
     findMany<T = SnapshotRow>(a: unknown): Promise<T[]>;
   };
-  backupTarget: { findUnique(a: unknown): Promise<TargetRow | null> };
 }
 
 /** Is a node that hosted snapshots now dead (offline past grace, per Docker truth)? */
@@ -150,7 +149,10 @@ async function reconcileOrg(orgId: string): Promise<void> {
 
       const targetNodeId = selectRestoreTarget(deadNodeId, candidates);
       if (!targetNodeId) continue;
-      const target = await db.backupTarget.findUnique({ where: { id: snap.targetId } });
+      // Targets live in the org's swarm (swarm-kv).
+      const target = (await backupTargets({ db: prisma, hub }, orgId).findFirst({
+        where: { id: snap.targetId },
+      })) as unknown as TargetRow | null;
       if (!target) continue;
 
       const op = await db.restoreOperation.create({

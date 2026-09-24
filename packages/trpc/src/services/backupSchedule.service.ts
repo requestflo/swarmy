@@ -9,6 +9,7 @@
  * DR settings UI. Models (`BackupSchedule`, `BackupJob`, `RestoreOperation`)
  * are added to Prisma as part of this epic (see INTEGRATION).
  */
+import { backupSchedules } from './backups.repo';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
@@ -53,7 +54,8 @@ function db(ctx: OrgContext): {
   update(a: unknown): Promise<ScheduleRow>;
   delete(a: unknown): Promise<ScheduleRow>;
 } {
-  return (ctx.db as unknown as { backupSchedule: ReturnType<typeof db> }).backupSchedule;
+  // Schedules live in the org's swarm (swarm-kv `bkp-sched`); run times derive from BackupJob.
+  return backupSchedules(ctx, ctx.activeOrgId) as never;
 }
 
 /** Newest run per schedule, derived from `BackupJob` history in one query. */
@@ -193,6 +195,8 @@ export async function removeSchedule(
     await db(ctx).update({ where: { id }, data: { optedOutAt: new Date(), paused: true } });
   } else {
     await db(ctx).delete({ where: { id } });
+    // Job history keeps its rows; the link goes (the old FK's SetNull).
+    await ctx.db.backupJob.updateMany({ where: { scheduleId: id }, data: { scheduleId: null } }).catch(() => undefined);
   }
   await writeAudit(ctx, {
     action: 'backup.schedule.remove',

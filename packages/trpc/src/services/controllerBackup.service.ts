@@ -6,11 +6,10 @@
  * manifest, encrypted with a user-held restore passphrase, stored to a restic
  * `BackupTarget`. Runs controller-side (never on an agent).
  *
- * The `ControllerBackupConfig` (singleton) and `ControllerSnapshot` models are
- * added by this epic's INTEGRATION Prisma additions. Until they're pushed, this
- * file accesses them through a defensively-typed accessor (the same pattern the
- * codebase already uses for not-yet-migrated columns, e.g. abac.ts /
- * backups.service.ts), so the package stays type-safe either way.
+ * The settings (`ControllerBackupConfig`) and the target they point at live in
+ * the swarm (swarm-kv, plans/epic-docker-native-state.md P4 slice 3), so a
+ * controller that lost its volume still knows where its backups are.
+ * `ControllerSnapshot` history stays in the controller store.
  */
 import {
   decryptSecret,
@@ -20,7 +19,17 @@ import {
 import type { ResticRepo } from '@swarmy/core/protocol';
 import type { DB } from '@swarmy/db';
 import { commandRejected, notFound } from '../errors';
+import { dirname } from 'node:path';
+import { resolveDbPaths } from '@swarmy/db';
+import type { AgentHub } from '../hub/types';
+import { exportKvForBundle, importKvFromBundle, stashPendingKv, type KvBundleSection } from './swarm-kv.service';
 import { writeAudit } from './audit.service';
+import {
+  backupTargets,
+  controllerBackupConfigRepo,
+  type ControllerBackupConfigDoc,
+  type ControllerBackupConfigRow as ControllerBackupConfigDocRow,
+} from './backups.repo';
 import { loadControlPlane, snapshotControlPlane } from './controllerBackup.snapshot';
 import {
   createAndStoreBundle,
@@ -34,17 +43,7 @@ import {
 
 // ── model accessors (defensive until the Prisma additions are pushed) ────────
 
-interface ControllerBackupConfigRow {
-  id: string;
-  targetId: string | null;
-  enabled: boolean;
-  schedule: string;
-  retention: unknown;
-  restorePassphraseRef: string | null;
-  restorePassphraseHint: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
+type ControllerBackupConfigRow = ControllerBackupConfigDocRow;
 
 interface BackupTargetRow {
   id: string;
@@ -74,19 +73,11 @@ interface ControllerSnapshotRow {
 }
 
 interface CbModels {
-  controllerBackupConfig: {
-    findFirst(args?: unknown): Promise<ControllerBackupConfigRow | null>;
-    create(args: unknown): Promise<ControllerBackupConfigRow>;
-    update(args: unknown): Promise<ControllerBackupConfigRow>;
-  };
   controllerSnapshot: {
     findFirst(args?: unknown): Promise<ControllerSnapshotRow | null>;
     findMany(args?: unknown): Promise<ControllerSnapshotRow[]>;
     create(args: unknown): Promise<ControllerSnapshotRow>;
     update(args: unknown): Promise<ControllerSnapshotRow>;
-  };
-  backupTarget: {
-    findFirst(args?: unknown): Promise<BackupTargetRow | null>;
   };
 }
 
@@ -182,50 +173,86 @@ function snapshotView(row: ControllerSnapshotRow): ControllerSnapshotView {
 
 // ── config CRUD ───────────────────────────────────────────────────────────────
 
-export async function getOrCreateConfig(db: DB): Promise<ControllerBackupConfigRow> {
-  const existing = await models(db).controllerBackupConfig.findFirst({
-    where: { id: SINGLETON_ID },
-  });
-  if (existing) return existing;
-  return models(db).controllerBackupConfig.create({
-    data: {
-      id: SINGLETON_ID,
-      enabled: false,
-      schedule: DEFAULT_SCHEDULE,
-      retention: DEFAULT_RETENTION,
-    },
-  });
+/** What the config functions need: the controller store + the hub (the config lives in swarm-kv). */
+export interface CbScope {
+  db: DB;
+  hub: AgentHub;
 }
 
-export async function getConfig(db: DB): Promise<ControllerBackupConfigView> {
-  const [row, state] = await Promise.all([getOrCreateConfig(db), controllerRunState(db)]);
+const DEFAULT_CONFIG = (): ControllerBackupConfigDoc => ({
+  targetId: null,
+  enabled: false,
+  schedule: DEFAULT_SCHEDULE,
+  retention: DEFAULT_RETENTION,
+  restorePassphraseRef: null,
+  restorePassphraseHint: null,
+});
+
+/**
+ * The controller self-backup settings (swarm-kv `ctl-backup/controller`, in the
+ * org that owns its target). Absent ⇒ the defaults, not written: reads never
+ * grow raft. `orgId` is null until first saved.
+ */
+export async function getOrCreateConfig(scope: CbScope, preferOrgId?: string | null): Promise<ControllerBackupConfigRow> {
+  const existing = await controllerBackupConfigRepo.find(scope, preferOrgId);
+  if (existing) return existing;
+  const now = new Date(0);
+  return { ...DEFAULT_CONFIG(), id: SINGLETON_ID, orgId: null, createdAt: now, updatedAt: now };
+}
+
+export async function getConfig(scope: CbScope): Promise<ControllerBackupConfigView> {
+  const [row, state] = await Promise.all([getOrCreateConfig(scope), controllerRunState(scope.db)]);
   return configView(row, state);
 }
 
 interface AuditCtx {
   db: DB;
+  hub: AgentHub;
   activeOrgId: string;
   user?: { id: string } | null;
+}
+
+/** Write the settings: into the org already holding them, else the caller's org. */
+async function saveConfig(
+  ctx: AuditCtx,
+  current: ControllerBackupConfigRow,
+  patch: Partial<ControllerBackupConfigDoc>,
+): Promise<ControllerBackupConfigRow> {
+  const { id: _id, orgId, createdAt: _c, updatedAt: _u, ...doc } = current;
+  const next: ControllerBackupConfigDoc = { ...doc, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) };
+  return controllerBackupConfigRepo.write(ctx, orgId ?? ctx.activeOrgId, next);
+}
+
+/** The configured target, looked up in the org whose swarm holds the settings. */
+async function configTarget(scope: CbScope, config: ControllerBackupConfigRow, fallbackOrgId?: string): Promise<BackupTargetRow | null> {
+  if (!config.targetId) return null;
+  const orgId = config.orgId ?? fallbackOrgId;
+  if (!orgId) return null;
+  return (await backupTargets(scope, orgId).findFirst({ where: { id: config.targetId } })) as unknown as BackupTargetRow | null;
+}
+
+/** A backup target was removed: controller backups stop pointing at it (the old FK SetNull). */
+export async function clearControllerBackupTarget(ctx: AuditCtx, targetId: string): Promise<void> {
+  const current = await controllerBackupConfigRepo.find(ctx, ctx.activeOrgId).catch(() => null);
+  if (current?.targetId === targetId) await saveConfig(ctx, current, { targetId: null });
 }
 
 export async function setConfig(
   ctx: AuditCtx,
   input: { targetId?: string | null; schedule?: string; enabled?: boolean; retention?: typeof DEFAULT_RETENTION },
 ): Promise<ControllerBackupConfigView> {
-  await getOrCreateConfig(ctx.db);
+  const current = await getOrCreateConfig(ctx, ctx.activeOrgId);
   if (input.targetId) {
-    const target = await models(ctx.db).backupTarget.findFirst({ where: { id: input.targetId } });
+    // The target must live in the same org (swarm) as the settings.
+    const target = await backupTargets(ctx, current.orgId ?? ctx.activeOrgId).findFirst({ where: { id: input.targetId } });
     if (!target) throw notFound('backup target', input.targetId);
     if (isNodeKind(target.kind)) throw commandRejected(NODE_TARGET_REFUSAL);
   }
-  const row = await models(ctx.db).controllerBackupConfig.update({
-    where: { id: SINGLETON_ID },
-    data: {
-      targetId: input.targetId === undefined ? undefined : input.targetId,
-      schedule: input.schedule,
-      enabled: input.enabled,
-      retention: input.retention,
-    },
+  const row = await saveConfig(ctx, current, {
+    targetId: input.targetId === undefined ? undefined : input.targetId,
+    schedule: input.schedule,
+    enabled: input.enabled,
+    retention: input.retention,
   });
   await writeAudit(ctx, {
     action: 'controller.backup.config',
@@ -246,14 +273,11 @@ export async function setRestorePassphrase(
   ctx: AuditCtx,
   passphrase: string,
 ): Promise<{ fingerprint: string }> {
-  await getOrCreateConfig(ctx.db);
+  const current = await getOrCreateConfig(ctx, ctx.activeOrgId);
   const fingerprint = passphraseFingerprint(passphrase);
-  await models(ctx.db).controllerBackupConfig.update({
-    where: { id: SINGLETON_ID },
-    data: {
-      restorePassphraseRef: encryptSecret(passphrase),
-      restorePassphraseHint: fingerprint,
-    },
+  await saveConfig(ctx, current, {
+    restorePassphraseRef: encryptSecret(passphrase),
+    restorePassphraseHint: fingerprint,
   });
   await writeAudit(ctx, {
     action: 'controller.backup.passphrase.set',
@@ -346,14 +370,14 @@ export async function runControllerBackup(
   ctx: AuditCtx,
   opts: { runner?: ResticRunner } = {},
 ): Promise<RunBackupResult> {
-  const config = await getOrCreateConfig(ctx.db);
+  const config = await getOrCreateConfig(ctx);
   if (!config.targetId) {
     throw new Error('no backup target configured for controller backups');
   }
   if (!config.restorePassphraseRef) {
     throw new Error('no restore passphrase set — capture one before backing up');
   }
-  const target = await models(ctx.db).backupTarget.findFirst({ where: { id: config.targetId } });
+  const target = await configTarget(ctx, config);
   if (!target) throw notFound('backup target', config.targetId);
   if (isNodeKind(target.kind)) throw commandRejected(NODE_TARGET_REFUSAL);
   const passphrase = decryptSecret(config.restorePassphraseRef);
@@ -363,9 +387,13 @@ export async function runControllerBackup(
   });
 
   try {
-    const [manifest, dbSnapshot] = await Promise.all([buildManifest(ctx.db), snapshotControlPlane(ctx.db)]);
+    const [manifest, dbSnapshot, swarmKv] = await Promise.all([
+      buildManifest(ctx.db),
+      snapshotControlPlane(ctx.db),
+      bundleSwarmKv(ctx),
+    ]);
     const result = await createAndStoreBundle({
-      contents: { manifest, dbSnapshot, secrets: gatherSecrets() },
+      contents: { manifest, dbSnapshot, secrets: gatherSecrets(), swarmKv },
       passphrase,
       repo: toResticRepo(target),
       runner: opts.runner ?? defaultRunner(),
@@ -413,10 +441,10 @@ export async function listSnapshots(db: DB): Promise<ControllerSnapshotView[]> {
  * Restore preview: list the live restic snapshots for the configured target and
  * return the catalog so the UI/CLI can pick one and validate before clobbering.
  */
-export async function listRemoteSnapshots(db: DB): Promise<{ id: string; time: string }[]> {
-  const config = await getOrCreateConfig(db);
+export async function listRemoteSnapshots(scope: CbScope): Promise<{ id: string; time: string }[]> {
+  const config = await getOrCreateConfig(scope);
   if (!config.targetId) return [];
-  const target = await models(db).backupTarget.findFirst({ where: { id: config.targetId } });
+  const target = await configTarget(scope, config);
   if (!target) return [];
   const snaps = await listBundleSnapshots(toResticRepo(target));
   return snaps.map((s) => ({ id: s.id, time: s.time }));
@@ -451,11 +479,11 @@ export async function restoreControllerBackup(
   ctx: AuditCtx,
   input: { snapshotId?: string; passphrase?: string; loadData?: boolean } = {},
 ): Promise<RestoreControllerResult> {
-  const config = await getOrCreateConfig(ctx.db);
+  const config = await getOrCreateConfig(ctx);
   if (!config.targetId) {
     throw new Error('no backup target configured for controller backups');
   }
-  const target = await models(ctx.db).backupTarget.findFirst({ where: { id: config.targetId } });
+  const target = await configTarget(ctx, config);
   if (!target) throw notFound('backup target', config.targetId);
 
   const passphrase =
@@ -484,9 +512,24 @@ export async function restoreControllerBackup(
   }
 
   let tablesLoaded = false;
+  let kvPending: string[] = [];
   if (input.loadData !== false) {
     await loadControlPlane(ctx.db, contents.dbSnapshot);
     tablesLoaded = true;
+    // The infra config that lives in the swarm (swarm-kv) goes back too — into
+    // a fresh swarm as well. Orgs whose manager isn't connected yet wait in the
+    // pending file (drained by the swarm-kv-restore worker).
+    if (contents.swarmKv?.orgs.length) {
+      const res = await importKvFromBundle(ctx.hub, contents.swarmKv);
+      kvPending = res.pending;
+      if (kvPending.length) {
+        await stashPendingKv(
+          { version: 1, orgs: contents.swarmKv.orgs.filter((o) => kvPending.includes(o.orgId)) },
+          dirname(resolveDbPaths().control),
+        );
+        warnings.push(`swarm config for ${kvPending.length} org(s) is queued until their manager agent connects`);
+      }
+    }
   }
 
   await writeAudit(ctx, {
@@ -529,9 +572,21 @@ export function nextRunFrom(schedule: string, from: Date = new Date()): Date {
   return next;
 }
 
+/**
+ * Every org's swarm-kv documents for the bundle. An org whose swarm can't be
+ * read right now is left out (and logged) — never recorded as "no config".
+ */
+async function bundleSwarmKv(scope: CbScope): Promise<KvBundleSection | undefined> {
+  const orgIds = (await scope.db.organization.findMany({ select: { id: true } })).map((o) => o.id);
+  const { section, skipped } = await exportKvForBundle(scope.hub, orgIds);
+  if (skipped.length) console.warn(`[controller-backup] swarm config not bundled for ${skipped.length} unreachable org(s)`);
+  return section.orgs.length ? section : undefined;
+}
+
 /** Whether a scheduled backup is due now (used by the worker). */
-export async function isBackupDue(db: DB, now: Date = new Date()): Promise<boolean> {
-  const config = await getOrCreateConfig(db);
+export async function isBackupDue(scope: CbScope, now: Date = new Date()): Promise<boolean> {
+  const db = scope.db;
+  const config = await getOrCreateConfig(scope);
   if (!config.enabled || !config.targetId || !config.restorePassphraseRef) return false;
   // Derived from history: the snapshot row is written before the run starts,
   // so a run in progress (or one that just failed) waits for the next slot.

@@ -565,14 +565,18 @@ async function loadWalTarget(orgId: string, targetId: string | undefined): Promi
     credentialRef: true,
     secretKeyRef: true,
   } as const;
+  // Targets live in the org's swarm (swarm-kv).
+  const seams = await loadSeams();
+  if (!seams) return null;
+  const targets = seams.backupTargets({ db: prisma, hub }, orgId);
   if (targetId) {
-    return prisma.backupTarget.findFirst({ where: { id: targetId, orgId }, select });
+    return (await targets.findFirst({ where: { id: targetId, orgId }, select })) as WalTargetRow | null;
   }
-  return prisma.backupTarget.findFirst({
+  return (await targets.findFirst({
     where: { orgId, enabled: true },
     orderBy: { createdAt: 'asc' },
     select,
-  });
+  })) as WalTargetRow | null;
 }
 
 /** The PITR-enabled primary spec: archive volume + extended conf + marker. */

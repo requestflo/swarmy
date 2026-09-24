@@ -1,6 +1,14 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { ensureDefaultRules, fireEvent, latestStoreProbe, observabilityConfigRepo, recordIncidentEvent, systemContext } from '@swarmy/trpc';
+import {
+  backupSchedules,
+  ensureDefaultRules,
+  fireEvent,
+  latestStoreProbe,
+  observabilityConfigRepo,
+  recordIncidentEvent,
+  systemContext,
+} from '@swarmy/trpc';
 import type { OrgContext } from '@swarmy/trpc';
 import { ALERT_SIGNAL_INFO, type AlertSignal } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
@@ -506,7 +514,7 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
   conditions.push(...queueDepthConditions(queueEntries, queueThreshold));
 
   // backup-failed — a schedule whose most recent finished job failed.
-  const scheduleRows = await prisma.backupSchedule.findMany({
+  const scheduleRows = await backupSchedules({ db: prisma, hub }, orgId).findMany({
     where: { orgId },
     select: {
       id: true,

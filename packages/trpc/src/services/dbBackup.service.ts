@@ -19,6 +19,7 @@
  * for the manageddb reconcile (slice A2). `runDueDbBackups` scans live
  * inventory across orgs each tick and dispatches whatever is due.
  */
+import { backupTargets } from './backups.repo';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import { decryptSecret, randomToken } from '@swarmy/core/crypto';
@@ -255,7 +256,7 @@ interface TargetRow {
 }
 
 async function loadTarget(ctx: OrgContext, id: string): Promise<TargetRow> {
-  const row = (await ctx.db.backupTarget.findFirst({
+  const row = (await backupTargets(ctx, ctx.activeOrgId).findFirst({
     where: { id, orgId: ctx.activeOrgId },
   })) as unknown as TargetRow | null;
   if (!row) throw notFound('backup target', id);
@@ -270,7 +271,7 @@ async function resolveTargetId(
 ): Promise<string> {
   if (explicit) return explicit;
   if (schedule?.targetId) return schedule.targetId;
-  const first = await ctx.db.backupTarget.findFirst({
+  const first = await backupTargets(ctx, ctx.activeOrgId).findFirst({
     where: { orgId: ctx.activeOrgId, enabled: true },
     orderBy: { createdAt: 'asc' },
     select: { id: true },
@@ -620,7 +621,7 @@ export async function setDbBackupSchedule(
 export async function dbBackupOverview(ctx: OrgContext): Promise<DbBackupOverviewRow[]> {
   const primaries = clusterPrimaries(ctx);
   if (primaries.length === 0) return [];
-  const targets = await ctx.db.backupTarget.findMany({
+  const targets = await backupTargets(ctx, ctx.activeOrgId).findMany({
     where: { orgId: ctx.activeOrgId },
     select: { id: true, name: true },
   });

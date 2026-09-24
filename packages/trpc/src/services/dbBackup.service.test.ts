@@ -1,3 +1,4 @@
+import { seedKvRows } from './swarm-kv.service';
 import { describe, expect, it } from 'bun:test';
 import {
   encodeScheduleLabel,
@@ -214,21 +215,6 @@ describe('runDueDbBackups (schedule sweep passes retention through)', () => {
     };
     const db = {
       organization: { findMany: () => Promise.resolve([{ id: 'org1' }]) },
-      backupTarget: {
-        findFirst: () =>
-          Promise.resolve({
-            id: 'tgt-1',
-            kind: 'S3',
-            endpoint: 'https://s3.example.com',
-            bucket: 'b',
-            prefix: null,
-            region: null,
-            credentialRef: null,
-            secretKeyRef: null,
-            resticPasswordRef: encryptSecret('restic-pw'),
-            enabled: true,
-          }),
-      },
       auditLog: {
         create: (a: { data: { action: string; metadata: Record<string, unknown> } }) => {
           audits.push({ action: a.data.action, metadata: a.data.metadata });
@@ -236,6 +222,22 @@ describe('runDueDbBackups (schedule sweep passes retention through)', () => {
         },
       },
     };
+    // The org's backup target lives in its swarm (swarm-kv).
+    seedKvRows(hub as never, 'org1', 'bkp-target', [
+      {
+        id: 'tgt-1',
+        name: 'offsite',
+        kind: 'S3',
+        endpoint: 'https://s3.example.com',
+        bucket: 'b',
+        prefix: null,
+        region: null,
+        credentialRef: null,
+        secretKeyRef: null,
+        resticPasswordRef: encryptSecret('restic-pw'),
+        enabled: true,
+      },
+    ]);
     return {
       deps: { db, hub, auth: {} } as unknown as Parameters<typeof runDueDbBackups>[1],
       dispatches,

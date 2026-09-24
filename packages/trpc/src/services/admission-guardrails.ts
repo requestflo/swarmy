@@ -1,3 +1,4 @@
+import { backupSchedules } from './backups.repo';
 import {
   buildInventory,
   STACK_LABEL,
@@ -339,7 +340,7 @@ export async function evaluate(ctx: OrgContext, intent: AdmissionIntent): Promis
     !dbClusters.some((c) => c.hasBackupSchedule)
   ) {
     hasOrgBackupSchedules =
-      (await ctx.db.backupSchedule.count({
+      (await backupSchedules(ctx, ctx.activeOrgId).count({
         where: { orgId: ctx.activeOrgId, paused: false },
       })) > 0;
   }

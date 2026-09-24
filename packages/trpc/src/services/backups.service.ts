@@ -6,6 +6,8 @@
  * repo password) are encrypted at rest via the vault and only decrypted in
  * memory when building a command. Every mutation is audited.
  */
+import { backupSchedules, backupTargets, offsiteMirrors } from './backups.repo';
+import { clearControllerBackupTarget } from './controllerBackup.service';
 import {
   decryptSecret,
   encryptSecret,
@@ -145,7 +147,7 @@ export function toResticRepo(row: TargetRow): ResticRepo {
 }
 
 export async function loadTarget(ctx: OrgContext, id: string): Promise<TargetRow> {
-  const row = (await ctx.db.backupTarget.findFirst({
+  const row = (await backupTargets(ctx, ctx.activeOrgId).findFirst({
     where: { id, orgId: ctx.activeOrgId },
   })) as unknown as TargetRow | null;
   if (!row) throw notFound('backup target', id);
@@ -273,7 +275,7 @@ export async function auditRetentionOutcome(
 // ── targets ──────────────────────────────────────────────────────────────
 
 export async function listTargets(ctx: OrgContext): Promise<BackupTargetView[]> {
-  const rows = (await ctx.db.backupTarget.findMany({
+  const rows = (await backupTargets(ctx, ctx.activeOrgId).findMany({
     where: { orgId: ctx.activeOrgId },
     orderBy: { createdAt: 'desc' },
   })) as unknown as TargetRow[];
@@ -298,7 +300,7 @@ export async function addTarget(
   input: AddTargetInput,
 ): Promise<BackupTargetView> {
   const password = input.resticPassword?.trim() || randomToken('swr');
-  const row = (await ctx.db.backupTarget.create({
+  const row = (await backupTargets(ctx, ctx.activeOrgId).create({
     data: {
       orgId: ctx.activeOrgId,
       name: input.name,
@@ -327,7 +329,14 @@ export async function removeTarget(
   id: string,
 ): Promise<{ id: string; removed: true }> {
   await loadTarget(ctx, id);
-  await ctx.db.backupTarget.delete({ where: { id } });
+  await backupTargets(ctx, ctx.activeOrgId).delete({ where: { id } });
+  // The target lived in swarm-kv, so the old FK cascades are explicit: its
+  // schedules and mirror (config) and its snapshot history (controller store).
+  await backupSchedules(ctx, ctx.activeOrgId).deleteMany({ where: { targetId: id } });
+  await offsiteMirrors(ctx, ctx.activeOrgId).deleteMany({ where: { targetId: id } });
+  await ctx.db.snapshot.deleteMany({ where: { orgId: ctx.activeOrgId, targetId: id } });
+  await ctx.db.controllerSnapshot.deleteMany({ where: { targetId: id } });
+  await clearControllerBackupTarget(ctx, id);
   await writeAudit(ctx, { action: 'backup.target.remove', targetType: 'backupTarget', targetId: id });
   return { id, removed: true };
 }
@@ -353,7 +362,7 @@ export interface NativeTargetResult {
  * existing destination. Requires the replicated store to be enabled.
  */
 export async function ensureNativeTarget(ctx: OrgContext): Promise<NativeTargetResult> {
-  const existing = (await ctx.db.backupTarget.findFirst({
+  const existing = (await backupTargets(ctx, ctx.activeOrgId).findFirst({
     where: { orgId: ctx.activeOrgId, name: NATIVE_TARGET_NAME },
   })) as unknown as TargetRow | null;
   if (existing) {
@@ -398,7 +407,7 @@ export async function ensureNativeTarget(ctx: OrgContext): Promise<NativeTargetR
   } catch (e) {
     // Concurrent double-click: the @@unique([orgId, name]) row won the race —
     // adopt it (the extra minted key is bucket-scoped and harmless).
-    const raced = (await ctx.db.backupTarget.findFirst({
+    const raced = (await backupTargets(ctx, ctx.activeOrgId).findFirst({
       where: { orgId: ctx.activeOrgId, name: NATIVE_TARGET_NAME },
     })) as unknown as TargetRow | null;
     if (!raced) throw e;
@@ -498,8 +507,11 @@ export async function listSnapshots(
     },
     orderBy: { startedAt: 'desc' },
     take: 100,
-    include: { target: { select: { name: true } } },
   });
+  // Targets live in the org's swarm (swarm-kv): join the names in memory.
+  const targetNames = new Map(
+    (await backupTargets(ctx, ctx.activeOrgId).findMany().catch(() => [])).map((t) => [t.id, t.name]),
+  );
   if (input?.stack && !input.volume) {
     // A bare prefix leaks siblings: stack `shop` would match `shop_x`'s volume
     // `shop_x_data`. Attribute each volume to the LONGEST live stack whose
@@ -518,7 +530,7 @@ export async function listSnapshots(
     id: r.id,
     volume: r.volume,
     targetId: r.targetId,
-    targetName: (r as { target?: { name?: string } }).target?.name ?? '',
+    targetName: targetNames.get(r.targetId) ?? '',
     status: r.status,
     resticId: r.resticId,
     sizeBytes: r.sizeBytes != null ? r.sizeBytes.toString() : null,

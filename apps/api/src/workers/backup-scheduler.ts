@@ -15,7 +15,15 @@ import { prisma } from '@swarmy/db';
 import { buildInventory } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import type { BackupVolumeResult, ResticRepo } from '@swarmy/core/protocol';
-import { ensureAutoBackups, resticNetworkFor, runScheduledAppDbDump, stackRetentionFor } from '@swarmy/trpc';
+import {
+  allOrgRows,
+  backupSchedules,
+  backupTargets,
+  ensureAutoBackups,
+  resticNetworkFor,
+  runScheduledAppDbDump,
+  stackRetentionFor,
+} from '@swarmy/trpc';
 import { authRegistry } from '@swarmy/auth';
 import { hub, registry } from '../gateway';
 
@@ -165,7 +173,9 @@ async function runDue(): Promise<void> {
     snapshot: { create(a: unknown): Promise<{ id: string }>; update(a: unknown): Promise<unknown> };
   };
 
-  const active = await db.backupSchedule.findMany({ where: { paused: false, optedOutAt: null } });
+  // Schedules live in each org's swarm (swarm-kv); orgs without a connected
+  // manager are skipped this tick (they couldn't run a backup anyway).
+  const active = await allOrgRows({ db: prisma, hub }, backupSchedules, { where: { paused: false, optedOutAt: null } });
   if (active.length === 0) return;
   const lastRuns = await db.backupJob.groupBy({
     by: ['scheduleId'],
@@ -208,7 +218,9 @@ async function runOne(
   now: Date,
 ): Promise<void> {
   {
-    const target = await db.backupTarget.findUnique({ where: { id: sched.targetId } });
+    const target = (await backupTargets({ db: prisma, hub }, sched.orgId).findFirst({
+      where: { id: sched.targetId },
+    })) as unknown as TargetRow | null;
     if (!target) return;
     const nodeId = await pickNode(sched.orgId, sched.nodeId);
     if (!nodeId) return;

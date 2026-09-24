@@ -18,6 +18,7 @@
  *  - backup-verify: `restic check` on the backup destination via
  *    `container.runOnce` (mirrors the agent backup handler's env contract).
  */
+import { backupTargets } from './backups.repo';
 import {
   PG_ENV,
   buildInventory,
@@ -648,8 +649,8 @@ export async function buildSnapshot(ctx: OrgContext, stack?: string): Promise<Re
       getStorageConfig(ctx).catch(() => null),
       getGeoDnsConfig(ctx).catch(() => null),
       Promise.resolve().then(() => collectGeoEndpoints(ctx)).catch(() => []),
-      getControllerBackupConfig(ctx.db).catch(() => null),
-      ctx.db.backupTarget.count({ where: { orgId: ctx.activeOrgId, enabled: true } }).catch(() => 0),
+      getControllerBackupConfig(ctx).catch(() => null),
+      backupTargets(ctx, ctx.activeOrgId).count({ where: { orgId: ctx.activeOrgId, enabled: true } }).catch(() => 0),
       latestBackupAt(ctx, inv, stack),
       listDrillHistory(ctx, 50, stack),
     ]);
@@ -1162,7 +1163,7 @@ export async function runBackupVerify(
   ctx: OrgContext,
   input: ResilienceBackupVerifyInput,
 ): Promise<ResilienceDrillResultView> {
-  const row = (await ctx.db.backupTarget.findFirst({
+  const row = (await backupTargets(ctx, ctx.activeOrgId).findFirst({
     where: input.targetId
       ? { id: input.targetId, orgId: ctx.activeOrgId }
       : { orgId: ctx.activeOrgId, enabled: true },

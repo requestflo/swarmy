@@ -14,6 +14,7 @@
  * system actor. With no destination nothing is created and nothing fails —
  * the stack's Backups tab shows "Backups are off — add a destination".
  */
+import { backupSchedules, backupTargets } from './backups.repo';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
@@ -78,15 +79,16 @@ interface ScheduleRow {
   anchorAt: Date | null;
 }
 
+/** Schedules live in the org's swarm (swarm-kv `bkp-sched`). */
 function scheduleDb(ctx: OrgContext): {
   findMany(a: unknown): Promise<ScheduleRow[]>;
   create(a: unknown): Promise<ScheduleRow>;
 } {
-  return (ctx.db as unknown as { backupSchedule: ReturnType<typeof scheduleDb> }).backupSchedule;
+  return backupSchedules(ctx, ctx.activeOrgId) as never;
 }
 
 async function loadTargets(ctx: OrgContext): Promise<TargetRow[]> {
-  return (await ctx.db.backupTarget.findMany({
+  return (await backupTargets(ctx, ctx.activeOrgId).findMany({
     where: { orgId: ctx.activeOrgId },
     select: { id: true, name: true, kind: true, enabled: true, createdAt: true },
   })) as unknown as TargetRow[];

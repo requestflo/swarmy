@@ -3,6 +3,7 @@ import { prisma } from '@swarmy/db';
 // `@swarmy/trpc` (see INTEGRATION — trpc/src/index.ts additions); the package's
 // `exports` map only exposes the root entry.
 import { isBackupDue, runControllerBackup } from '@swarmy/trpc';
+import { hub } from '../gateway';
 
 /**
  * Controller-state backup scheduler (data-store epic, P1).
@@ -17,9 +18,9 @@ import { isBackupDue, runControllerBackup } from '@swarmy/trpc';
 export function startControllerBackupScheduler(): () => void {
   const tick = async () => {
     try {
-      if (!(await isBackupDue(prisma))) return;
+      if (!(await isBackupDue({ db: prisma, hub }))) return;
       // A scheduler run is a `system` actor; org-independent (orgId is nominal).
-      await runControllerBackup({ db: prisma, activeOrgId: 'system', user: null });
+      await runControllerBackup({ db: prisma, hub, activeOrgId: 'system', user: null });
     } catch {
       // best-effort; failures are recorded on the ControllerSnapshot row.
     }

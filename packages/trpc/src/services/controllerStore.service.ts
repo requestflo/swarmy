@@ -16,6 +16,7 @@
  * manager`. Step 3 restarts the controller once (stop-first). The next
  * controller boots, holds the lease, and starts replicating.
  */
+import { backupTargets, controllerBackupConfigRepo } from './backups.repo';
 import {
   CONTROLLER_STORE_SECRET_FAMILY,
   type ControllerLeaseRecord,
@@ -246,11 +247,10 @@ async function backupTargetReplica(ctx: OrgContext, targetId: string): Promise<N
 
 /** The controller bundle the boot fallback restores when there is no replica data. */
 async function bundleSource(ctx: OrgContext): Promise<StoreDoc['bundle'] | undefined> {
-  const cfg = (await ctx.db.controllerBackupConfig.findUnique({ where: { id: 'controller' } })) as
-    | { targetId: string | null; restorePassphraseRef: string | null }
-    | null;
-  if (!cfg?.targetId || !cfg.restorePassphraseRef) return undefined;
-  const row = await ctx.db.backupTarget.findUnique({ where: { id: cfg.targetId } });
+  // Settings + target live in the swarm (swarm-kv, P4 slice 3).
+  const cfg = await controllerBackupConfigRepo.find(ctx, ctx.activeOrgId).catch(() => null);
+  if (!cfg?.targetId || !cfg.restorePassphraseRef || !cfg.orgId) return undefined;
+  const row = await backupTargets(ctx, cfg.orgId).findFirst({ where: { id: cfg.targetId } });
   if (!row || String(row.kind).toLowerCase() === 'node') return undefined; // node paths don't follow the controller
   return { label: row.name, repo: toResticRepo(row as never), passphrase: decryptSecret(cfg.restorePassphraseRef) };
 }

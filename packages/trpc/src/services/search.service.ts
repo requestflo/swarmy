@@ -1,3 +1,4 @@
+import { backupTargets } from './backups.repo';
 import { randomBytes } from 'node:crypto';
 import {
   applyDataPin,
@@ -721,13 +722,13 @@ interface TargetRow {
 
 async function resolveTarget(ctx: OrgContext, explicit?: string): Promise<TargetRow> {
   if (explicit) {
-    const row = (await ctx.db.backupTarget.findFirst({
+    const row = (await backupTargets(ctx, ctx.activeOrgId).findFirst({
       where: { id: explicit, orgId: ctx.activeOrgId },
     })) as unknown as TargetRow | null;
     if (!row) throw notFound('backup target', explicit);
     return row;
   }
-  const first = (await ctx.db.backupTarget.findFirst({
+  const first = (await backupTargets(ctx, ctx.activeOrgId).findFirst({
     where: { orgId: ctx.activeOrgId, enabled: true },
     orderBy: { createdAt: 'asc' },
   })) as unknown as TargetRow | null;
