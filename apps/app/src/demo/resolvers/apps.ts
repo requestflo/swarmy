@@ -6,9 +6,12 @@ import type { DemoStore, DomainResolvers } from '../types';
  *
  * State lives in `store.extra.apps`. Shapes mirror AppView / AppPlanView in
  * packages/trpc/src/services/apps.service.ts and the @swarmy/app-config Plan.
- * Seed: `orders` with production applied and staging holding
- * `resource.delete:search` for a confirm (plus a PR preview), and `payments`
- * (a monorepo path) whose latest production plan is an invalid swarmy.yaml.
+ * Seed: `storefront` (matches the demo stack, so its Releases tab shows the
+ * From Git panel) with production applied — including a removed Postgres
+ * `analytics` whose volume can be purged — staging holding
+ * `resource.delete:search` for a confirm, and a PR preview; and `payments`
+ * (a monorepo path, Fix drift on) whose latest production plan is an invalid
+ * swarmy.yaml.
  *
  * Every read returns a structuredClone: the demo link hands results straight
  * to the query cache, and structural sharing would otherwise see an in-place
@@ -63,9 +66,13 @@ interface AppRow {
   configPath: string;
   appName: string;
   requireApproval: boolean;
+  enforceDrift: boolean;
+  /** Postgres removed from swarmy.yaml whose volume is still on disk (purgeData). */
+  keptVolumes: string[];
   /** Extra environment branches (staging, …) → environment name. */
   envBranches: Record<string, string>;
   drift: Record<string, number>;
+  driftCheckedAt: string;
 }
 
 interface AppsState {
@@ -106,7 +113,7 @@ function plan(p: Omit<PlanRow, 'plan' | 'markdown'> & { actions: Action[] | null
   };
 }
 
-const ORDERS_ROLLOUT: Action[] = [
+const STOREFRONT_ROLLOUT: Action[] = [
   {
     id: 'build:web',
     kind: 'build',
@@ -123,15 +130,26 @@ const ORDERS_ROLLOUT: Action[] = [
     name: 'web',
   },
   {
-    id: 'route.update:orders.northwind.dev/',
+    id: 'route.update:storefront.northwind.dev/',
     kind: 'route.update',
     phase: 5,
     gate: 'auto',
-    reason: 'Point orders.northwind.dev at web',
-    host: 'orders.northwind.dev',
+    reason: 'Point storefront.northwind.dev at web',
+    host: 'storefront.northwind.dev',
     path: '/',
   },
 ];
+
+/** A Postgres dropped from swarmy.yaml, confirmed and removed — its volume is kept until purged. */
+const ANALYTICS_REMOVED: Action = {
+  id: 'resource.delete:analytics',
+  kind: 'resource.delete',
+  phase: 6,
+  gate: 'confirm',
+  reason: 'remove postgres "analytics" — its data volume is kept until you delete it permanently',
+  name: 'analytics',
+  resourceType: 'postgres',
+};
 
 function buildSeed(): AppsState {
   const prodSha = hex(40);
@@ -139,15 +157,18 @@ function buildSeed(): AppsState {
   return {
     apps: [
       {
-        repoId: 'app-orders',
-        url: 'https://github.com/northwind/orders.git',
-        fullName: 'northwind/orders',
+        repoId: 'app-storefront',
+        url: 'https://github.com/northwind/storefront.git',
+        fullName: 'northwind/storefront',
         branch: 'main',
         configPath: 'swarmy.yaml',
-        appName: 'orders',
+        appName: 'storefront',
         requireApproval: false,
+        enforceDrift: false,
+        keptVolumes: ['analytics'],
         envBranches: { staging: 'staging' },
         drift: { production: 1 },
+        driftCheckedAt: iso(6 * MIN),
       },
       {
         repoId: 'app-payments',
@@ -157,41 +178,47 @@ function buildSeed(): AppsState {
         configPath: 'services/payments/swarmy.yaml',
         appName: 'payments',
         requireApproval: true,
+        enforceDrift: true,
+        keptVolumes: [],
         envBranches: {},
         drift: {},
+        driftCheckedAt: iso(4 * MIN),
       },
     ],
     plans: [
       plan({
-        id: 'plan-orders-prod',
-        repoId: 'app-orders',
+        id: 'plan-storefront-prod',
+        repoId: 'app-storefront',
         environment: 'production',
-        stack: 'orders',
+        stack: 'storefront',
         sha: prodSha,
         trigger: 'push',
         prNumber: null,
         status: 'applied',
-        actions: ORDERS_ROLLOUT,
+        actions: [...STOREFRONT_ROLLOUT, ANALYTICS_REMOVED],
         issues: [],
         outcomes: Object.fromEntries(
-          ORDERS_ROLLOUT.map((a) => [a.id, { status: 'done' as const }]),
+          [...STOREFRONT_ROLLOUT, ANALYTICS_REMOVED].map((a) => [
+            a.id,
+            { status: 'done' as const },
+          ]),
         ),
         error: null,
-        confirmedIds: [],
+        confirmedIds: [ANALYTICS_REMOVED.id],
         createdAt: iso(3 * 60 * MIN),
         appliedAt: iso(3 * 60 * MIN - 2 * MIN),
       }),
       plan({
-        id: 'plan-orders-staging',
-        repoId: 'app-orders',
+        id: 'plan-storefront-staging',
+        repoId: 'app-storefront',
         environment: 'staging',
-        stack: 'orders-staging',
+        stack: 'storefront-staging',
         sha: stagingSha,
         trigger: 'push',
         prNumber: null,
         status: 'needs-confirmation',
         actions: [
-          ...ORDERS_ROLLOUT.slice(0, 2),
+          ...STOREFRONT_ROLLOUT.slice(0, 2),
           {
             id: 'resource.update:db',
             kind: 'resource.update',
@@ -227,15 +254,15 @@ function buildSeed(): AppsState {
         appliedAt: null,
       }),
       plan({
-        id: 'plan-orders-pr142',
-        repoId: 'app-orders',
+        id: 'plan-storefront-pr142',
+        repoId: 'app-storefront',
         environment: 'preview',
-        stack: 'pr142-orders',
+        stack: 'pr142-storefront',
         sha: hex(40),
         trigger: 'pr',
         prNumber: 142,
         status: 'applied',
-        actions: ORDERS_ROLLOUT.slice(0, 2),
+        actions: STOREFRONT_ROLLOUT.slice(0, 2),
         issues: [],
         outcomes: { 'build:web': { status: 'done' }, 'service.deploy:web': { status: 'done' } },
         error: null,
@@ -298,6 +325,14 @@ function state(s: DemoStore): AppsState {
   return fresh;
 }
 
+function driftEnvs(app: AppRow): Array<{ environment: string; stack: string; changes: number }> {
+  return Object.entries(app.drift).map(([environment, changes]) => ({
+    environment,
+    stack: environment === 'production' ? app.appName : `${app.appName}-${environment}`,
+    changes,
+  }));
+}
+
 const newest = (rows: PlanRow[]): PlanRow[] =>
   [...rows].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
@@ -326,6 +361,19 @@ export const apps: DomainResolvers = {
           configPath: a.configPath,
           appName: a.appName,
           requireApproval: a.requireApproval,
+          enforceDrift: a.enforceDrift,
+          previews: newest(st.plans.filter((p) => p.repoId === a.repoId && p.prNumber)).map(
+            (p) => ({
+              pr: p.prNumber as number,
+              stack: p.stack,
+              sha: p.sha,
+              status: p.status,
+              url: `https://pr-${p.prNumber}.preview.northwind.dev`,
+              updatedAt: p.appliedAt ?? p.createdAt,
+              planId: p.id,
+            }),
+          ),
+          drift: { checkedAt: a.driftCheckedAt, environments: driftEnvs(a) },
           environments: [
             {
               environment: 'production',
@@ -402,6 +450,7 @@ export const apps: DomainResolvers = {
           environment: env,
           stack: prev.stack,
           reason: 'swarmy.yaml still has errors on the branch head',
+          plan: clone(prev),
         };
       }
       if (prev) prev.status = prev.status === 'applied' ? 'applied' : 'superseded';
@@ -424,18 +473,50 @@ export const apps: DomainResolvers = {
       });
       st.plans.push(next);
       app.drift[env] = 0;
-      return { planId: next.id, status: next.status, environment: env, stack: next.stack };
+      return {
+        planId: next.id,
+        status: next.status,
+        environment: env,
+        stack: next.stack,
+        plan: clone(next),
+      };
     },
 
     'apps.drift': (i, s) => {
       const { repoId } = i as { repoId: string };
       const app = state(s).apps.find((a) => a.repoId === repoId);
       if (!app) return [];
-      return Object.entries(app.drift).map(([environment, changes]) => ({
-        environment,
-        stack: environment === 'production' ? app.appName : `${app.appName}-${environment}`,
-        changes,
-      }));
+      app.driftCheckedAt = new Date().toISOString();
+      return driftEnvs(app);
+    },
+
+    'apps.setEnforceDrift': (i, s) => {
+      const { repoId, enforceDrift } = i as { repoId: string; enforceDrift: boolean };
+      const app = state(s).apps.find((a) => a.repoId === repoId);
+      if (app) {
+        app.enforceDrift = enforceDrift;
+        if (enforceDrift) app.drift = Object.fromEntries(Object.keys(app.drift).map((k) => [k, 0]));
+      }
+      return { repoId, enforceDrift };
+    },
+
+    'apps.purgeData': (i, s) => {
+      const { repoId, environment, resource, confirm } = i as {
+        repoId: string;
+        environment: string;
+        resource: string;
+        confirm: string;
+      };
+      const st = state(s);
+      const app = st.apps.find((a) => a.repoId === repoId);
+      const row = latestFor(st, repoId, environment);
+      if (!app || !row) throw new Error('That app environment is gone.');
+      const expected = `${row.stack}/${resource}`;
+      if (confirm !== expected) throw new Error(`type ${expected} to delete its data permanently`);
+      if (!app.keptVolumes.includes(resource))
+        throw new Error(`${resource} has no kept data to delete`);
+      app.keptVolumes = app.keptVolumes.filter((v) => v !== resource);
+      return { stack: row.stack, resource, volumes: [`${row.stack}_${resource}-data`], nodes: 2 };
     },
   },
 };
