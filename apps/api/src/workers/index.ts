@@ -34,6 +34,7 @@ import { startTrivyDbRefresh } from './trivy-db-refresh';
 import { startPlatformUpgradeWorker } from './platform-upgrade';
 import { startAppSecretGc } from './app-secret-gc';
 import { startRumRetention } from './rum-retention';
+import { startErrorsAlerts } from './errors-alerts';
 
 export function startWorkers(): () => void {
   const stops = [
@@ -73,6 +74,7 @@ export function startWorkers(): () => void {
     startPlatformUpgradeWorker(),
     startAppSecretGc(),
     startRumRetention(),
+    startErrorsAlerts(),
   ];
   return () => stops.forEach((s) => s());
 }
