@@ -12,6 +12,7 @@ export * from './controller-url';
 export * from './manageddb-storage';
 export * from './manageddb-failover';
 export * from './data-pin';
+export * from './dotenv';
 // NOTE: './crypto' (node:crypto credential vault) is server-only and is NOT
 // re-exported here — import it via '@swarmy/core/crypto' so it never reaches the
 // browser bundle.
