@@ -41,6 +41,7 @@ resources:
   },
   {
     id: 'ollama',
+    exposure: 'private',
     name: 'Ollama',
     tagline: 'Run open-weight language models on your own server behind an API',
     category: 'ai',
@@ -50,12 +51,12 @@ resources:
     heavyReason: 'Models are loaded into RAM and run on the CPU; even a small 3B model needs 3 to 4 GB',
     postDeploy: [
       'Pull a model: open a terminal in the ollama service and run ollama pull llama3.2:3b (or pick one sized for your node from ollama.com/library).',
-      'Test it with curl <url>/api/generate -d \'{"model":"llama3.2:3b","prompt":"Hello"}\', or point Open WebUI and other clients at <url>.',
+      'It is private, with no public URL. Connect the app that uses it to this stack, then point it at <internal> (Open WebUI: OLLAMA_BASE_URL).',
     ],
     notes: [
       'API only: there is no web UI. Pair it with Open WebUI or another client.',
       'There is no GPU, so inference runs on the CPU and is slow. Pick small, quantised models that fit in the service memory limit.',
-      'The Ollama API has no authentication. Anyone who can reach the URL can run and pull models, so restrict the route (IP allow-list) or keep it on an internal address.',
+      'The Ollama API has no authentication, so swarmy deploys it private: no domain, no auto address. Only apps you connect to this stack can reach it.',
     ],
     yaml: `version: 1
 app: ollama

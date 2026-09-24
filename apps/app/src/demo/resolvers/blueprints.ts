@@ -218,7 +218,7 @@ function templateSteps(id: string, p: BlueprintParamsInput): BlueprintPlanStepVi
   for (const name of Object.keys(t.generate ?? {})) steps.push(secretStep(`${p.name}-${name}`));
   steps.push(deployStep(p.name, desired.services.map((s) => s.name)));
   const primary = primaryService(t, desired);
-  if (p.domain && primary) steps.push(routeStep(primary.name, p.domain, primary.port));
+  if (p.domain && primary && t.exposure !== 'private') steps.push(routeStep(primary.name, p.domain, primary.port));
   return steps;
 }
 

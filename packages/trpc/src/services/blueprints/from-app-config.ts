@@ -11,6 +11,7 @@ import {
 import { clusterNetworkName, primaryServiceName, replicaServiceName } from '../manageddb.service';
 import { CACHE_PORT, cacheNetworkName, cachePrimaryName } from '../cache.service';
 import { autoAddressLabels } from '../auto-address.service';
+import { AUTO_ADDRESS_LABEL } from '@swarmy/ingress';
 import {
   secretToken,
   SIZE_PRESETS,
@@ -181,7 +182,8 @@ export function compileTemplate(
   const preset = SIZE_PRESETS[params.size];
   const res = indexResources(t, desired, preset.dbReplicas);
   const primary = primaryService(t, desired);
-  const domain = params.domain ?? env.autoHost ?? null;
+  const isPrivate = t.exposure === 'private';
+  const domain = isPrivate ? null : (params.domain ?? env.autoHost ?? null);
   const bindings = bindingMap(stack, desired, res, domain);
   const notes: string[] = [];
 
@@ -304,10 +306,15 @@ export function compileTemplate(
   for (const r of t.reveal ?? []) {
     notes.push(renderValue(r, bindings).value);
   }
-  for (const p of t.postDeploy) notes.push(url ? p.replaceAll('<url>', url) : p.replaceAll('<url>', 'the app URL'));
+  const internal = primary ? `http://${stack}_${primary.name}:${primary.port}` : '';
+  for (const p of t.postDeploy) {
+    notes.push(p.replaceAll('<url>', url ?? 'the app URL').replaceAll('<internal>', internal));
+  }
 
   const postLabels: Record<string, Record<string, string>> = {};
-  if (!params.domain && env.autoHost && primary) {
+  if (isPrivate && primary) {
+    postLabels[primary.name] = { [AUTO_ADDRESS_LABEL]: 'false' };
+  } else if (!params.domain && env.autoHost && primary) {
     postLabels[primary.name] = autoAddressLabels(env.autoHost, primary.port);
   }
   const names = Object.keys(services);
@@ -323,7 +330,7 @@ export function compileTemplate(
       notes,
     },
   });
-  if (params.domain && primary) {
+  if (params.domain && primary && !isPrivate) {
     steps.push({
       kind: 'ingress.route',
       label: `Route https://${params.domain} → ${primary.name}:${primary.port}`,
@@ -340,7 +347,7 @@ export function templateEntry(t: AppTemplate): BlueprintEntry {
   const primary = loaded.desired ? primaryService(t, loaded.desired) : null;
   return {
     meta,
-    ...(primary ? { autoAddressService: primary.name } : {}),
+    ...(primary && t.exposure !== 'private' ? { autoAddressService: primary.name } : {}),
     ...(loaded.desired?.services.some((s) => s.volumes.length > 0) ? { pinsVolumes: true } : {}),
     plan: (params, env) => compileTemplate(t, params, env).steps,
   };

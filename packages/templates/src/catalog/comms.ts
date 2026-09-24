@@ -179,6 +179,7 @@ resources:
   },
   {
     id: 'apprise-api',
+    exposure: 'private',
     name: 'Apprise API',
     tagline: 'One HTTP endpoint that fans notifications out to 100+ services',
     category: 'comms',
@@ -186,11 +187,11 @@ resources:
     website: 'https://github.com/caronc/apprise-api',
     version: '1.5.4',
     postDeploy: [
-      'Before anything else, restrict who can reach <url> (an IP allow-list on the route, or keep it on an internal address): Apprise API has no login.',
-      'Open <url>/cfg/ plus a long random key, add your notification URLs (Slack, Telegram, ntfy, email and so on), then send with curl -d "body=Hello" <url>/notify/YOUR-KEY.',
+      'It is private, with no public URL (Apprise API has no login). Connect the apps that send notifications to this stack; they reach it at <internal>.',
+      'Save a config with curl -X POST -d "urls=tgram://…" <internal>/add/YOUR-LONG-KEY, then send with curl -d "body=Hello" <internal>/notify/YOUR-LONG-KEY.',
     ],
     notes: [
-      'Apprise API has no authentication by design. Anyone who can reach the URL can send through it, and anyone who knows a config key can read the saved URLs, which contain your service tokens. Use long random keys and restrict access to the route.',
+      'Apprise API has no authentication by design. Anyone who can reach the URL can send through it, and anyone who knows a config key can read the saved URLs, which contain your service tokens. swarmy deploys it private for that reason. Use long random keys.',
     ],
     yaml: `version: 1
 app: apprise

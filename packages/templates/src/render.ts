@@ -125,7 +125,8 @@ export function templateMeta(t: AppTemplate): BlueprintMetaView {
     ...(hasSecret ? ['Secret'] : []),
     ...(hasVolume ? ['Volume'] : []),
     desired.services.length > 1 ? `${desired.services.length} services` : 'App',
-    ...(primary ? ['Route'] : []),
+    ...(primary && t.exposure !== 'private' ? ['Route'] : []),
+    ...(t.exposure === 'private' ? ['Private'] : []),
   ];
   return {
     id: t.id,
@@ -134,7 +135,7 @@ export function templateMeta(t: AppTemplate): BlueprintMetaView {
     category: t.category,
     resources,
     docOnly: false,
-    supportsDomain: primary !== null,
+    supportsDomain: primary !== null && t.exposure !== 'private',
     options: t.options ?? [],
     icon: t.icon,
     website: t.website,

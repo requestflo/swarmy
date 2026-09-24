@@ -47,7 +47,7 @@ function deployOf(steps: PlanStep[]): Extract<PlanStep, { kind: 'stack.deploy' }
 
 describe('registry', () => {
   it('has at least 50 one-click apps and no id collides with a built-in', () => {
-    expect(TEMPLATE_ENTRIES.length).toBeGreaterThanOrEqual(1);
+    expect(TEMPLATE_ENTRIES.length).toBeGreaterThanOrEqual(50);
     const ids = ALL_BLUEPRINTS.map((e) => e.meta.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const b of BLUEPRINT_CATALOG) expect(findAppTemplate(b.meta.id)).toBeUndefined();
@@ -112,7 +112,10 @@ describe('every template through the compose/model pipeline', () => {
 
         // URL: a domain → route step; auto address → claim labels; neither → nothing.
         const route = steps.find((s) => s.kind === 'ingress.route');
-        if (p.domain) {
+        if (t.exposure === 'private') {
+          expect(route).toBeUndefined();
+          expect(deploy.payload.postLabels[primary!.name]).toEqual({ 'swarmy.ingress.auto': 'false' });
+        } else if (p.domain) {
           expect(route).toBeDefined();
           if (route?.kind === 'ingress.route') expect(route.payload.port).toBe(primary!.port);
         } else {

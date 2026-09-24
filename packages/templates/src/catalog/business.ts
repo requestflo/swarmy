@@ -114,7 +114,7 @@ resources:
     heavyReason: 'A Rails web server plus a Sidekiq worker want well over 1 GB of RAM together',
     notes: [
       'The web service prepares the database (db:chatwoot_prepare) every time it starts; it is safe to repeat, and the first run takes a minute or two.',
-      'Uploads live on the storage volume, which web and sidekiq share. Docker volumes are per node, so on a multi-node swarm keep both services on the same node, or switch ACTIVE_STORAGE_SERVICE to S3.',
+      'Uploads live on the storage volume, which web and sidekiq share. swarmy pins both services to one node, because Docker volumes are per node. To spread them out, switch ACTIVE_STORAGE_SERVICE to S3.',
       'Email notifications and the email channel need SMTP settings (SMTP_ADDRESS, MAILER_SENDER_EMAIL and friends) on both services.',
     ],
     postDeploy: [
@@ -185,7 +185,7 @@ resources:
     heavyReason: 'The PHP web app, its cron runner and MariaDB together want well over 1 GB of RAM',
     notes: [
       'Mautic needs MySQL or MariaDB, so it runs its own MariaDB (swarmy has no managed MySQL yet). That database is not in swarmy backups; back up the mariadb volume.',
-      'The cron service runs the segment and campaign jobs and reads the config volume the installer writes. Docker volumes are per node, so on a multi-node swarm keep web and cron on the same node.',
+      'The cron service runs the segment and campaign jobs and reads the config volume the installer writes. swarmy pins web and cron to one node, because Docker volumes are per node.',
       'Email and tracking hits are processed right away (sync://) rather than through a queue worker, which is fine for small lists.',
     ],
     postDeploy: [

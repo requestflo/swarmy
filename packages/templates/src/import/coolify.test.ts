@@ -43,7 +43,7 @@ describe('coolify importer', () => {
   const t = r.template!;
   const yaml = parseYaml(t.yaml) as {
     services: Record<string, { env: Record<string, string>; port?: number; healthcheck?: unknown }>;
-    resources: Record<string, { type: string; database?: string }>;
+    resources: Record<string, { type: string; database?: string; memory?: string }>;
   };
 
   it('converts cleanly and parses as swarmy.yaml', () => {

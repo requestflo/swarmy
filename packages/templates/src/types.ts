@@ -67,6 +67,12 @@ export interface AppTemplate {
   options?: BlueprintOptionView[];
   /** Services whose image ships its own HEALTHCHECK (so the yaml sets none). */
   imageHealthcheck?: string[];
+  /**
+   * `private`: never routed publicly (no domain, no auto address). For
+   * unauthenticated APIs (Ollama, Apprise) that other apps reach in-swarm via
+   * `connect`. `<internal>` in postDeploy renders the in-swarm URL.
+   */
+  exposure?: 'private';
   /** Why it is heavy for a 1 GB node (auto-flagged above the budget anyway). */
   heavyReason?: string;
   /** Honest caveats: bundled engines, missing features, etc. */
