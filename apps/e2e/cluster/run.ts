@@ -18,6 +18,8 @@
  *   --reuse                don't delete an existing cluster before install
  *   --source head|tree|REF build from `git archive HEAD` (default), the working tree, or a git ref
  *   --no-build             reuse images already built (skip docker build)
+ *   --hub-cache            nodes pull Docker Hub images via a host pull-through cache on
+ *                          registry-port+1 (rate limits; bypasses the installer's own mirror)
  *   --mesh none|swarmy     swarmy = self-hosted mesh + node 3 behind a simulated NAT (experimental)
  *   --upgrade-from REF     with --enable upgrade: install REF first (default: the parent of --source)
  *   --nodes N  --cpus N  --mem GiB  --disk GiB   (default 3 × 1 CPU / 1 GiB / 25 GiB, a 1 GB droplet)
@@ -75,7 +77,7 @@ function parseArgs(argv: string[]) {
     const k = argv[i]!;
     if (!k.startsWith('--')) throw new Error(`unexpected argument ${k}`);
     const [name, inline] = k.slice(2).split('=', 2) as [string, string | undefined];
-    if (['keep', 'reuse', 'reduced', 'no-build', 'help'].includes(name)) a[name] = true;
+    if (['keep', 'reuse', 'reduced', 'no-build', 'help', 'hub-cache'].includes(name)) a[name] = true;
     else a[name] = inline ?? argv[++i] ?? '';
   }
   return a;
@@ -125,6 +127,7 @@ async function main() {
     adminEmail: 'e2e@example.com',
     tag: 'e2e',
     noBuild: !!a['no-build'],
+    hubCache: !!a['hub-cache'],
     // "Previous build" defaults to the parent of what's being tested.
     upgradeFrom:
       (a['upgrade-from'] as string) ||

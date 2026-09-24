@@ -15,6 +15,7 @@ export async function install(ctx: Ctx) {
   if (!ctx.opts.reuse) await c.destroyAll();
   await c.prepareSource();
   await c.ensureRegistry();
+  await c.ensureHubCache();
   // With the upgrade scenario on, node 1 starts on the PREVIOUS build (its
   // installer, stack files and images) and the upgrade step rolls it forward.
   let tag = c.cfg.tag;

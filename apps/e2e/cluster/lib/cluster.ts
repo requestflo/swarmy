@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { Provider, NodeSpec } from './provider';
-import { log, must, poll, q, run, secret } from './util';
+import { log, must, poll, q, run, secret, sleep } from './util';
 
 export const REPO_ROOT = resolve(import.meta.dir, '../../../..');
 
@@ -27,6 +27,8 @@ export interface ClusterConfig {
   tag: string;
   /** Skip image builds and reuse the tags already in the local engine. */
   noBuild: boolean;
+  /** Opt-in Docker Hub pull-through cache on the host for the nodes (rate limits). */
+  hubCache: boolean;
   /** Git ref the upgrade scenario installs first ("the previous build"). */
   upgradeFrom: string;
 }
@@ -122,6 +124,20 @@ export class Cluster {
     await poll('local registry', async () => (await run(['curl', '-fsS', `http://127.0.0.1:${this.cfg.registryPort}/v2/`])).code === 0, { timeoutMs: 30_000, intervalMs: 1000 });
   }
 
+  /** Docker Hub pull-through cache (registry:2 proxy) the nodes use with --hub-cache. Kept across runs. */
+  async ensureHubCache() {
+    if (!this.cfg.hubCache) return;
+    const name = `${this.cfg.prefix}-hubcache`;
+    if ((await run(['docker', 'inspect', '-f', '{{.State.Running}}', name])).stdout.trim() === 'true') return;
+    await run(['docker', 'rm', '-f', name]);
+    const bind = this.provider.serveHost === '127.0.0.1' ? '127.0.0.1:' : '';
+    await must([
+      'docker', 'run', '-d', '--name', name, '--label', 'swarmy.test=e2e-cluster', '--restart', 'unless-stopped',
+      '-p', `${bind}${this.cfg.registryPort + 1}:5000`, '-v', `${name}:/var/lib/registry`,
+      '-e', 'REGISTRY_PROXY_REMOTEURL=https://registry-1.docker.io', 'registry:2',
+    ]);
+  }
+
   /** Build controller + agent images from the snapshot and push to the local registry. */
   /** → the pushed manifest digests (sha256:…) per image. */
   async buildImages(tag = this.cfg.tag, srcDir = this.srcDir, commit = this.commit): Promise<{ controller: string; agent: string }> {
@@ -135,11 +151,22 @@ export class Cluster {
       if (!this.cfg.noBuild) {
         log(`docker build ${kind} (${file}) …`);
         const t0 = Date.now();
-        await must(
-          ['docker', 'build', '-q', '-f', file, '--build-arg', `SWARMY_COMMIT=${commit}`, '-t', ref, '.'],
-          { cwd: srcDir, timeoutMs: 30 * 60_000 },
-          `docker build ${kind}`,
-        );
+        // Docker Hub rate limits (429) are common with many builders on one
+        // IP: back off and retry rather than fail the whole run.
+        for (let attempt = 1; ; attempt++) {
+          const r = await run(['docker', 'build', '-q', '-f', file, '--build-arg', `SWARMY_COMMIT=${commit}`, '-t', ref, '.'], {
+            cwd: srcDir,
+            timeoutMs: 30 * 60_000,
+          });
+          if (r.code === 0) break;
+          const out = r.stderr + r.stdout;
+          if (attempt < 4 && /429|Too Many Requests|toomanyrequests|TLS handshake timeout/i.test(out)) {
+            log(`docker build ${kind}: registry rate-limited/flaky, retry ${attempt}/3 in ${attempt * 60}s`);
+            await sleep(attempt * 60_000);
+            continue;
+          }
+          throw new Error(`docker build ${kind} failed (exit ${r.code}): ${out.trim().split('\n').filter((l) => /ERROR|error:|>>>|Dockerfile:/.test(l)).slice(-4).join(' | ')}`);
+        }
         log(`built ${kind} in ${Math.round((Date.now() - t0) / 1000)}s`);
       }
       await must(['docker', 'push', '-q', ref], { timeoutMs: 15 * 60_000 }, `docker push ${ref}`);
@@ -195,10 +222,14 @@ export class Cluster {
     // Trust the harness's registry BEFORE Docker is installed, so a fresh box
     // pulls the locally-built images exactly like it would pull ghcr.io.
     const reg = await this.registryHost();
+    // --hub-cache: Docker Hub pulls go through a harness-owned pull-through
+    // cache. NOTE it pre-empts install-swarmy.sh's own registry mirror (the
+    // installer leaves an existing registry-mirrors alone), so that product
+    // path isn't exercised in this mode.
+    const mirror = this.cfg.hubCache ? `, "registry-mirrors": ["http://${await this.provider.hostAddr(this.manager.name)}:${this.cfg.registryPort + 1}"]` : '';
+    const daemon = `{"insecure-registries": ["${reg}"${this.cfg.hubCache ? `, "${await this.provider.hostAddr(this.manager.name)}:${this.cfg.registryPort + 1}"` : ''}]${mirror}}`;
     await Promise.all(
-      this.nodes.map((n) =>
-        this.sh(n, `mkdir -p /etc/docker && [ -s /etc/docker/daemon.json ] || printf '{"insecure-registries": ["%s"]}\\n' ${q(reg)} > /etc/docker/daemon.json`),
-      ),
+      this.nodes.map((n) => this.sh(n, `mkdir -p /etc/docker && [ -s /etc/docker/daemon.json ] || printf '%s\\n' ${q(daemon)} > /etc/docker/daemon.json`)),
     );
   }
 
