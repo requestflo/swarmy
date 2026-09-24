@@ -121,6 +121,18 @@ export class CaddyDriver implements IngressDriver {
           'xcaddy --with github.com/caddyserver/cache-handler). Set a custom controller image.',
       });
     }
+    // RUM injection is swarmy's own module (swarmy_rum, docker/caddy-swarmy/rum):
+    // a stock image rejects the whole config at load, not just the tag.
+    const rum = config.domains.filter((d) => d.rum && !d.cold);
+    if (rum.length > 0 && stockImage) {
+      warnings.push({
+        path: 'globalOptions.extraConfig.controllerImage',
+        message:
+          `${rum.length} route(s) have web analytics / session replay on, but the controller image is the ` +
+          'stock caddy:2-alpine — the swarmy_rum injector needs the swarmy Caddy build (docker/caddy-swarmy). ' +
+          'Clear the custom controller image to use the default swarmy build.',
+      });
+    }
     // Wildcards can only be issued over DNS-01: without swarmy DNS serving the
     // zone (or a BYO provider token) Caddy would retry an impossible order.
     const unsolvedWildcards = [

@@ -38,6 +38,17 @@ describe('caddy validate — protection-layer plugin/config warnings', () => {
     expect((custom.warnings ?? []).every((w) => !w.message.includes('cache-handler'))).toBe(true);
   });
 
+  it('RUM on the stock image warns (swarmy_rum is swarmy-build only); on the swarmy build it does not', () => {
+    const route = {
+      domain: 'a.xyz.com',
+      service: 'web',
+      port: 3000,
+      rum: { upstream: 'swarmy_controller:3021', token: 'v1.a.b' },
+    };
+    expect((validate([route]).warnings ?? []).some((w) => w.message.includes('swarmy_rum'))).toBe(true);
+    expect((validate([route], { controllerImage: SWARMY_IMAGE }).warnings ?? []).some((w) => w.message.includes('swarmy_rum'))).toBe(false);
+  });
+
   it('cache on a cold route warns that caching is skipped (and needs no image warning)', () => {
     const res = validate(
       [
