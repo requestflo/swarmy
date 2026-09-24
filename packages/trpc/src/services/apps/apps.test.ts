@@ -440,3 +440,26 @@ describe('applyPlan', () => {
     expect(r3.outcomes['service.deploy:web']?.status).toBe('skipped');
   });
 });
+
+describe('ai: binding → one ai attachment per bound service', () => {
+  it('compiles the allowlist/budget into the attachment; its ledger key tracks changes', () => {
+    const d = desired(`version: 1
+app: shop
+services:
+  web:
+    image: ghcr.io/acme/web:1
+    port: 3000
+  worker:
+    image: ghcr.io/acme/worker:1
+ai:
+  models: [smart, embed]
+  budget: 5/day
+  services: [web]
+`);
+    const out = compileServices(d, { web: 'ghcr.io/acme/web:1', worker: 'ghcr.io/acme/worker:1' });
+    const ai = out.attachments.filter((a): a is Extract<Attachment, { kind: 'ai' }> => a.kind === 'ai');
+    expect(ai).toEqual([{ kind: 'ai', service: 'web', models: ['smart', 'embed'], dailyBudgetUsd: 5, rpm: null }]);
+    // The key never lands in the compose; the base URLs arrive with the binding.
+    expect(out.composeSource).not.toContain('OPENAI');
+  });
+});

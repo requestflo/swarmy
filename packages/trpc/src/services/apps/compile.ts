@@ -60,7 +60,9 @@ export type Attachment =
   | { kind: 'vector'; service: string; name: string; envVar: string }
   | { kind: 'bucket'; service: string; resource: string }
   /** Mounted at /run/secrets/<family>; with `envName`, exported as $envName by the secret-env shim. */
-  | { kind: 'secret'; service: string; family: string; envName?: string };
+  | { kind: 'secret'; service: string; family: string; envName?: string }
+  /** `ai:` — gateway base URLs + a per-service key (secret vars OPENAI_API_KEY / ANTHROPIC_API_KEY). */
+  | { kind: 'ai'; service: string; models: string[]; dailyBudgetUsd: number | null; rpm: number | null };
 
 /** Stable id for the ledger (`db:db:DATABASE_URL`). */
 export function attachmentKey(a: Attachment): string {
@@ -76,6 +78,9 @@ export function attachmentKey(a: Attachment): string {
       return `bucket:${a.resource}`;
     case 'secret':
       return a.envName ? `secret:${a.family}:${a.envName}` : `secret:${a.family}`;
+    case 'ai':
+      // Re-binds (policy update in place) whenever the allowlist/budget/rpm changes.
+      return `ai:${a.models.join(',')}:${a.dailyBudgetUsd ?? '-'}:${a.rpm ?? '-'}`;
   }
 }
 
@@ -243,6 +248,7 @@ export function compileServices(
         attachments.push(a);
     }
     for (const family of s.secrets) attachments.push({ kind: 'secret', service: s.name, family });
+    if (s.ai) attachments.push({ kind: 'ai', service: s.name, ...s.ai });
 
     const labels: Record<string, string> = {
       [APP_STACK_LABEL]: d.stack,

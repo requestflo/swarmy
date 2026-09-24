@@ -94,6 +94,7 @@ import {
 import { attachToService, createBucket, deleteBucket } from './buckets.service';
 import { setBucketAccess } from './bucket-access.service';
 import { attachSecretToService } from './secretsMgr.service';
+import { bindAiToService } from './ai.service';
 import { parsePreviewSettings } from './previews.service';
 import { listDbBackups, restoreDb } from './dbBackup.service';
 import { execInService, waitForPostgres } from './resilience.service';
@@ -525,6 +526,15 @@ export function realOps(
             family: a.family,
             service: app.name,
             ...(a.envName ? { envName: a.envName, delivery: 'env' as const } : {}),
+          });
+          return;
+        case 'ai':
+          await bindAiToService(ctx, {
+            stack,
+            appService: app.name,
+            models: a.models,
+            dailyBudgetUsd: a.dailyBudgetUsd,
+            rpm: a.rpm,
           });
           return;
       }
