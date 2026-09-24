@@ -58,7 +58,7 @@ describe('log rotation is wired into both installers', () => {
   it('install-swarmy.sh carries the SAME snippet (no drift) and runs it after Docker', () => {
     const script = readFileSync(SCRIPT, 'utf8');
     expect(script).toContain(DOCKER_LOG_OPTS_SH);
-    expect(script).toMatch(/ensure_docker;\s+marker_set docker; }\n\s+ensure_docker_log_opts/);
+    expect(script).toMatch(/ensure_docker;\s+marker_set docker; }\n\s+(with_public_umask )?ensure_docker_log_opts/);
     // The agent + mesh containers the installer starts are bounded too.
     expect(script.match(/--log-opt max-size=10m --log-opt max-file=3/g)?.length).toBeGreaterThanOrEqual(2);
   });

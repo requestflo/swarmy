@@ -70,7 +70,7 @@ describe('registry mirror is wired into both installers', () => {
   it('install-swarmy.sh carries the SAME snippet (no drift) and runs it after the log-opts step', () => {
     const script = readFileSync(SCRIPT, 'utf8');
     expect(script).toContain(DOCKER_REGISTRY_MIRROR_SH);
-    expect(script).toMatch(/\n\s+ensure_docker_log_opts[^\n]*\n\s+ensure_docker_registry_mirror/);
+    expect(script).toMatch(/\n\s+(with_public_umask )?ensure_docker_log_opts[^\n]*\n\s+(with_public_umask )?ensure_docker_registry_mirror/);
   });
 
   it('the worker join script merges the mirror', () => {

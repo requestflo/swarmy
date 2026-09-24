@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 // scripts/install-swarmy.sh only defines functions when SOURCED (it runs `main`
@@ -46,5 +48,44 @@ describe('install-swarmy.sh https dashboard domain', () => {
   it('bound but no public IP detected → nothing (never a bogus domain)', () => {
     const r = sh('dashboard_domain bound "" "" 0 none');
     expect(r).toEqual({ out: '', code: 0 });
+  });
+});
+
+// Secrets hygiene: state.env holds the vault key, auth secret, admin password,
+// swarm manager token and NetBird PAT; join/setup keys must never be `docker
+// run -e` (they would persist in `docker inspect`).
+describe('install-swarmy.sh secret handling', () => {
+  const script = readFileSync(SCRIPT, 'utf8');
+
+  it('sets umask 077 before anything is written', () => {
+    expect(script).toMatch(/^umask 077$/m);
+  });
+
+  it('state_set keeps the dir 0700 and state.env 0600 with no stray temp file', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'swarmy-state-'));
+    try {
+      const st = `${dir}/install`;
+      const r = sh(
+        `STATE_DIR=${st}; STATE_FILE=${st}/state.env; state_set A 1; state_set B 'x y'; state_set A 2; ` +
+          `stat -c '%a' ${st} ${st}/state.env 2>/dev/null || stat -f '%Lp' ${st} ${st}/state.env; ls -A ${st}; cat ${st}/state.env`,
+      );
+      expect(r.code).toBe(0);
+      expect(r.out).toBe("700\n600\nstate.env\nB=x\\ y\nA=2\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('no join token or setup key on a docker run -e (or the PAT on curl argv)', () => {
+    expect(script).not.toMatch(/-e\s+SWARMY_JOIN_TOKEN=/);
+    expect(script).not.toMatch(/-e\s+NB_SETUP_KEY=/);
+    expect(script).not.toMatch(/-H\s+"Authorization: Token/);
+    expect(script).toContain('-v "$AGENT_ENV_FILE":/etc/swarmy/agent.env:ro');
+    expect(script).toContain('NB_SETUP_KEY_FILE=/etc/netbird/setup-key');
+  });
+
+  it('daemon.json writers run under umask 022 (stays 0644)', () => {
+    expect(script).toContain('with_public_umask ensure_docker_log_opts');
+    expect(script).toContain('with_public_umask ensure_docker_registry_mirror');
   });
 });

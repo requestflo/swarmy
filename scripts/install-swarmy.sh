@@ -29,7 +29,16 @@
 #   --no-https                   SWARMY_NO_HTTPS=1 — keep the dashboard on plain
 #                                http://<ip>:<port> only (--https re-enables it).
 #   --ingress none|caddy|cloudflare        SWARMY_INGRESS
-#   --mesh none|netbird-cloud|netbird-external   SWARMY_MESH
+#   --mesh swarmy|none|netbird-cloud|netbird-external   SWARMY_MESH (default: swarmy —
+#                                NetBird runs inside swarmy, started here on this host's
+#                                network before the swarm exists; 'none' opts out)
+#   --mesh-domain <host>         SWARMY_MESH_DOMAIN — the mesh control plane's name
+#                                (default mesh.<dashboard domain>, else mesh-<ip>.sslip.io)
+#   --mesh-tls letsencrypt|edge|none   SWARMY_MESH_TLS (default: edge behind swarmy's
+#                                Caddy, letsencrypt on a public box without it, else none)
+#   --cluster-name <slug>        SWARMY_CLUSTER_NAME — namespaces this cluster's mesh objects
+#   --default-addr-pool <cidr>   swarm overlay pool (default with a mesh: 10.2xx.0.0/16,
+#                                clear of the 10.0.x LANs people's laptops sit on)
 #   --image <ref>                SWARMY_IMAGE       (controller image)
 #   --agent-image <ref>          SWARMY_AGENT_IMAGE
 #   --port <n>                   SWARMY_PUBLISH_PORT (default 3021)
@@ -38,7 +47,14 @@
 #                                and people an admin invites can create accounts.
 # Cloudflare (when --ingress cloudflare): CF_API_TOKEN, CF_ACCOUNT_ID, CF_ZONE_ID
 # NetBird (when --mesh netbird-*):        NB_SERVICE_TOKEN, NB_MANAGEMENT_URL
+# (--mesh swarmy needs neither: this script starts NetBird and mints the token.)
 set -euo pipefail
+# Everything this script writes under $STATE_DIR holds secrets (vault key, auth
+# secret, admin password, swarm manager token, NetBird PAT): owner-only by
+# default. Steps that write system files other users/daemons read
+# (/etc/docker/daemon.json, journald drop-ins, the Docker install) switch to
+# 022 explicitly — see with_public_umask.
+umask 077
 
 # ── constants ───────────────────────────────────────────────────────────────
 DEFAULT_IMAGE="ghcr.io/requestflo/swarmy-controller:latest"
@@ -55,9 +71,15 @@ CONTROLLER_DNS="swarmy_controller:3021"        # service name on swarmy-control
 # ClickHouse on swarmy-control): moved onto it BEFORE the controller leaves `swarmy`.
 CONTROL_BRIDGES="swarmy-ingress-caddy swarmy-cloudflared swarmy-otel-collector swarmy-clickhouse"
 AGENT_CONTAINER="swarmy-agent"
+AGENT_ENV_FILE="${SWARMY_AGENT_ENV_FILE:-/etc/swarmy/agent.env}"   # 0600, mounted :ro into the agent
 NETBIRD_CONTAINER="swarmy-netbird"
-NETBIRD_IMAGE="${SWARMY_NETBIRD_IMAGE:-netbirdio/netbird:latest}"
+NETBIRD_IMAGE="${SWARMY_NETBIRD_IMAGE:-netbirdio/netbird:0.79.0@sha256:9d8480d87b7f7c10d67b820eecf332ecca5c2756792d4bdfa532182b4fc3005f}"
 NB_INTERFACE="wt0"
+# Self-hosted mesh control plane (--mesh swarmy). Same name/volume/tmpfs/entrypoint
+# as the agent's supervisor (apps/agent/src/handlers/mesh-control.ts), so it adopts it.
+MESH_CONTROL_CONTAINER="swarmy-mesh-control"
+MESH_CONTROL_IMAGE="${SWARMY_NETBIRD_SERVER_IMAGE:-netbirdio/netbird-server:0.79.0@sha256:d1da0c0179c9e6f2ab7b48be54d06341b11037855a9426b9f2536aa79f13360b}"
+MESH_CONTROL_HTTP_PORT=8081
 
 # ── logging ─────────────────────────────────────────────────────────────────
 c_blue=''; c_green=''; c_yellow=''; c_red=''; c_dim=''; c_reset=''
@@ -81,7 +103,11 @@ DOMAIN="${SWARMY_DOMAIN:-}"
 NO_HTTPS="${SWARMY_NO_HTTPS:-0}"
 DASHBOARD_DOMAIN=""
 INGRESS="${SWARMY_INGRESS:-none}"
-MESH="${SWARMY_MESH:-none}"
+MESH="${SWARMY_MESH:-swarmy}"
+MESH_DOMAIN="${SWARMY_MESH_DOMAIN:-}"
+MESH_TLS="${SWARMY_MESH_TLS:-}"
+CLUSTER_NAME="${SWARMY_CLUSTER_NAME:-}"
+ADDR_POOL="${SWARMY_DEFAULT_ADDR_POOL:-}"
 IMAGE="${SWARMY_IMAGE:-$DEFAULT_IMAGE}"
 AGENT_IMAGE="${SWARMY_AGENT_IMAGE:-$DEFAULT_AGENT_IMAGE}"
 PUBLISH_PORT="${SWARMY_PUBLISH_PORT:-3021}"
@@ -117,6 +143,10 @@ while [ $# -gt 0 ]; do
     --https) NO_HTTPS=0 EXPLICIT="${EXPLICIT}NO_HTTPS " ;;
     --ingress) INGRESS="${2:?}"; shift ;;
     --mesh) MESH="${2:?}"; shift ;;
+    --mesh-domain) MESH_DOMAIN="${2:?}"; shift ;;
+    --mesh-tls) MESH_TLS="${2:?}"; shift ;;
+    --cluster-name) CLUSTER_NAME="${2:?}"; shift ;;
+    --default-addr-pool) ADDR_POOL="${2:?}"; shift ;;
     --image) IMAGE="${2:?}"; EXPLICIT="${EXPLICIT}IMAGE "; shift ;;
     --agent-image) AGENT_IMAGE="${2:?}"; EXPLICIT="${EXPLICIT}AGENT_IMAGE "; shift ;;
     --port) PUBLISH_PORT="${2:?}"; EXPLICIT="${EXPLICIT}PUBLISH_PORT "; shift ;;
@@ -127,16 +157,31 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+case "$MESH" in self-hosted|managed) MESH=swarmy ;; esac
+
 # ── state helpers ───────────────────────────────────────────────────────────
 # shellcheck source=/dev/null
 state_load() { [ -f "$STATE_FILE" ] && . "$STATE_FILE" || true; }
+state_dir() {  # the root-only state dir (0700 even when it pre-exists from an older install)
+  mkdir -p "$STATE_DIR"; chmod 700 "$STATE_DIR"
+}
 state_set() {  # state_set KEY VALUE  — persist (and export) a value, replacing any prior.
-  local key="$1" val="$2"
-  mkdir -p "$STATE_DIR"; touch "$STATE_FILE"; chmod 600 "$STATE_FILE"
-  grep -v "^${key}=" "$STATE_FILE" > "${STATE_FILE}.tmp" 2>/dev/null || true
-  printf '%s=%q\n' "$key" "$val" >> "${STATE_FILE}.tmp"
-  mv "${STATE_FILE}.tmp" "$STATE_FILE"; chmod 600 "$STATE_FILE"
+  local key="$1" val="$2" tmp
+  state_dir; touch "$STATE_FILE"; chmod 600 "$STATE_FILE"
+  # mktemp creates the temp file 0600 with an unpredictable name — never a
+  # world-readable "${STATE_FILE}.tmp" window holding every secret.
+  tmp="$(mktemp "$STATE_DIR/.state.XXXXXX")"
+  grep -v "^${key}=" "$STATE_FILE" > "$tmp" 2>/dev/null || true
+  printf '%s=%q\n' "$key" "$val" >> "$tmp"
+  chmod 600 "$tmp"; mv "$tmp" "$STATE_FILE"
   export "$key=$val"
+}
+# with_public_umask CMD… — run CMD with umask 022 (files other daemons/users
+# must read: daemon.json, journald.conf.d, apt keyrings from get.docker.com).
+with_public_umask() {
+  local old rc=0; old="$(umask)"; umask 022
+  "$@" || rc=$?
+  umask "$old"; return "$rc"
 }
 marker_done() { state_load; local v; eval "v=\${MARK_$1:-}"; [ "$v" = "1" ]; }
 
@@ -183,6 +228,78 @@ dashboard_domain() {
   if [ -n "$domain" ]; then printf '%s' "$domain" | tr '[:upper:]' '[:lower:]'; return 0; fi
   [ "$verdict" = bound ] || return 0
   sslip_domain "$ip" || true
+}
+
+# ── self-hosted mesh (pure — unit-tested by sourcing this file) ──────────────
+# mesh_domain EXPLICIT DASHBOARD_DOMAIN IP → the mesh control plane's name.
+#   --mesh-domain wins; else mesh.<dashboard domain> (a name you control, so a
+#   later move keeps it); else mesh-<a-b-c-d>.sslip.io (convenience only: it
+#   pins this IP, so moving the control plane means everyone signs in again).
+mesh_domain() {
+  local explicit="$1" dash="$2" ip="$3"
+  if [ -n "$explicit" ]; then printf '%s' "$explicit" | tr '[:upper:]' '[:lower:]'; return 0; fi
+  if [ -n "$dash" ]; then printf 'mesh.%s' "$dash"; return 0; fi
+  printf '%s' "$ip" | grep -qE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' || return 1
+  printf 'mesh-%s.sslip.io' "${ip//./-}"
+}
+# mesh_tls_mode EXPLICIT INGRESS DASHBOARD_DOMAIN VERDICT → letsencrypt|edge|none
+#   behind swarmy's Caddy edge the edge owns :443 (TLS handover from the start);
+#   a public box without it uses NetBird's own ACME; a LAN/NAT box plain HTTP.
+mesh_tls_mode() {
+  local explicit="$1" ingress="$2" dash="$3" verdict="$4"
+  if [ -n "$explicit" ]; then printf '%s' "$explicit"; return 0; fi
+  if [ "$ingress" = caddy ] && [ -n "$dash" ]; then printf 'edge'; return 0; fi
+  if [ "$verdict" = bound ]; then printf 'letsencrypt'; return 0; fi
+  printf 'none'
+}
+# mesh_public_url DOMAIN TLS → what peers, browsers and the controller dial.
+mesh_public_url() {
+  if [ "$2" = none ]; then printf 'http://%s:%s' "$1" "$MESH_CONTROL_HTTP_PORT"; else printf 'https://%s' "$1"; fi
+}
+# mesh_addr_pool SEED → 10.<200..249>.0.0/16, stable per seed: uncommon (clear of
+# the 10.0.x home/office LANs laptops sit on) and distinct per cluster.
+mesh_addr_pool() {
+  local n; n="$(printf '%s' "$1" | cksum | awk '{print $1}')"
+  printf '10.%s.0.0/16' "$(( 200 + n % 50 ))"
+}
+# mesh_control_config DOMAIN TLS LISTEN AUTH_SECRET ENC_KEY → the NetBird combined
+# server config (JSON is YAML). Mirrors renderMeshControlConfig in
+# packages/mesh/src/control-plane/server-config.ts (the controller re-renders it;
+# a difference only costs one restart). No disableDefaultPolicy: the combined
+# server ignores it — the Default policy is deleted after setup instead.
+mesh_control_config() {
+  local domain="$1" tls="$2" listen="$3" auth="$4" key="$5" exposed issuer tlsblock=""
+  if [ "$tls" = none ]; then exposed="http://${domain}:${MESH_CONTROL_HTTP_PORT}"; else exposed="https://${domain}:443"; fi
+  issuer="$(mesh_public_url "$domain" "$tls")/oauth2"
+  if [ "$tls" = letsencrypt ]; then
+    tlsblock=",
+    \"tls\": { \"letsencrypt\": { \"enabled\": true, \"dataDir\": \"/var/lib/netbird/letsencrypt\", \"domains\": [\"${domain}\"] } }"
+  fi
+  cat <<SWARMY_NB_EOF
+# swarmy-managed NetBird control plane — rendered by install-swarmy.sh.
+{
+  "server": {
+    "auth": {
+      "cliRedirectURIs": ["http://localhost:53000/", "http://localhost:54000/"],
+      "issuer": "${issuer}",
+      "localAuthDisabled": false,
+      "signKeyRefreshEnabled": true
+    },
+    "authSecret": "${auth}",
+    "dataDir": "/var/lib/netbird/",
+    "disableAnonymousMetrics": true,
+    "disableGeoliteUpdate": true,
+    "exposedAddress": "${exposed}",
+    "healthcheckAddress": ":9000",
+    "listenAddress": "${listen}",
+    "logFile": "console",
+    "logLevel": "info",
+    "metricsPort": 9090,
+    "store": { "encryptionKey": "${key}", "engine": "sqlite" },
+    "stunPorts": [3478]${tlsblock}
+  }
+}
+SWARMY_NB_EOF
 }
 
 need_root() {
@@ -484,10 +601,11 @@ wizard() {
     CF_ZONE_ID="${CF_ZONE_ID:-$(prompt 'Cloudflare zone id')}"
   fi
 
-  # Mesh — none by default; keep managed-in-swarm out of v1.
-  if [ "$MESH" = none ] && [ "$NON_INTERACTIVE" != 1 ]; then
-    MESH="$(choose 'Overlay mesh (for adding remote nodes later)' none none netbird-cloud netbird-external)"
+  # Mesh — NetBird inside swarmy by default (the swarm is born on it); 'none' opts out.
+  if [ "$NON_INTERACTIVE" != 1 ] && [ -z "${SWARMY_MESH:-}" ] && ! marker_done swarm; then
+    MESH="$(choose 'Overlay mesh (connect nodes anywhere, and people to their apps)' swarmy swarmy none netbird-cloud netbird-external)"
   fi
+  case "$MESH" in self-hosted|managed) MESH=swarmy ;; esac
   if [ "$MESH" = netbird-cloud ] || [ "$MESH" = netbird-external ]; then
     if [ "$MESH" = netbird-external ]; then
       NB_MANAGEMENT_URL="${NB_MANAGEMENT_URL:-$(prompt 'NetBird management URL')}"
@@ -539,7 +657,13 @@ ensure_secrets() {  # persist-once into state.env (NEVER regenerate)
   # Mesh (opt-in): persisted even when blank so re-runs without --mesh don't
   # silently drop a previously-configured token (mirrors ADMIN_PASSWORD above).
   state_set NB_MANAGEMENT_URL "${NB_MANAGEMENT_URL:-}"
+  # --mesh swarmy mints its own service token (ensure_mesh_control); keep a prior one.
   state_set NB_SERVICE_TOKEN "${NB_SERVICE_TOKEN:-}"
+  if [ "$MESH" = swarmy ]; then
+    [ -n "${MESH_AUTH_SECRET:-}" ] || state_set MESH_AUTH_SECRET "$(openssl rand -hex 24)"
+    [ -n "${MESH_ENCRYPTION_KEY:-}" ] || state_set MESH_ENCRYPTION_KEY "$(openssl rand -base64 32)"
+    [ -n "${MESH_OWNER_PASSWORD:-}" ] || state_set MESH_OWNER_PASSWORD "$(openssl rand -base64 24 | tr -d '/+=')Aa1!"
+  fi
   ok "secrets persisted to $STATE_FILE (back this up — SWARMY_SECRET_KEY is unrecoverable)."
 }
 
@@ -553,8 +677,9 @@ mesh_ip() { { ip -4 -o addr show dev "${NB_INTERFACE}" 2>/dev/null || true; } | 
 # nb_setup_key TYPE USES TTL NAME — mint a NetBird setup key with the PAT; prints the key.
 nb_setup_key() {
   local api="${NB_MANAGEMENT_URL%/}" resp key
-  resp="$(curl -fsS -X POST "${api}/api/setup-keys" \
-    -H "Authorization: Token ${NB_SERVICE_TOKEN}" -H 'Content-Type: application/json' \
+  # The PAT rides a curl config on stdin (-K -), never argv (visible in ps).
+  resp="$(printf 'header = "Authorization: Token %s"\n' "$NB_SERVICE_TOKEN" | curl -fsS -K - -X POST "${api}/api/setup-keys" \
+    -H 'Content-Type: application/json' \
     -d "{\"name\":\"$4\",\"type\":\"$1\",\"expires_in\":$3,\"auto_groups\":[],\"usage_limit\":$2,\"ephemeral\":false}" 2>&1)" \
     || die "could not mint a NetBird setup key at ${api} (check the token): ${resp}"
   key="$(printf '%s' "$resp" | sed -n 's/.*"key":"\([^"]*\)".*/\1/p')"
@@ -564,6 +689,7 @@ nb_setup_key() {
 
 ensure_mesh_node1() {
   [ "$MESH" = none ] && return 0
+  if [ "$MESH" = swarmy ]; then ensure_mesh_control; return; fi
   MESH_IP="$(mesh_ip)"
   if [ -n "$MESH_IP" ]; then ok "mesh already up on ${NB_INTERFACE} (${MESH_IP})."; return 0; fi
   [ -n "${NB_SERVICE_TOKEN:-}" ] || die "--mesh ${MESH} needs NB_SERVICE_TOKEN (a NetBird Personal Access Token)."
@@ -572,12 +698,19 @@ ensure_mesh_node1() {
   key="$(nb_setup_key one-off 1 3600 "swarmy node #1 $(hostname)")"
   docker pull "$NETBIRD_IMAGE" >/dev/null 2>&1 || warn "could not pull $NETBIRD_IMAGE; using local copy if present."
   docker rm -f "$NETBIRD_CONTAINER" >/dev/null 2>&1 || true
+  # The setup key rides a root-only 0600 file mounted read-only and read by
+  # `netbird up` via NB_SETUP_KEY_FILE (--setup-key-file) — never -e, which
+  # would keep it in `docker inspect` / config.v2.json. It stays on disk (a
+  # one-off, 1h key, already spent) so a container restart still finds the mount.
+  local key_file="$STATE_DIR/netbird-setup-key"
+  state_dir; printf '%s\n' "$key" > "$key_file"; chmod 600 "$key_file"
   # Same name/volume the agent's applyMesh uses, so it adopts this client.
   docker run -d --name "$NETBIRD_CONTAINER" --restart unless-stopped --network host \
     --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
     --cap-add NET_ADMIN --cap-add SYS_ADMIN --cap-add SYS_RESOURCE --device /dev/net/tun \
     -v "${NETBIRD_CONTAINER}:/var/lib/netbird" \
-    -e NB_SETUP_KEY="$key" -e NB_MANAGEMENT_URL="$api" -e NB_INTERFACE_NAME="$NB_INTERFACE" \
+    -v "${key_file}:/etc/netbird/setup-key:ro" \
+    -e NB_SETUP_KEY_FILE=/etc/netbird/setup-key -e NB_MANAGEMENT_URL="$api" -e NB_INTERFACE_NAME="$NB_INTERFACE" \
     "$NETBIRD_IMAGE" >/dev/null || die "failed to start the NetBird client."
   for i in $(seq 1 60); do
     MESH_IP="$(mesh_ip)"; [ -n "$MESH_IP" ] && break; sleep 1
@@ -779,6 +912,17 @@ deploy_stack() {
 # ════════════════════════════════════════════════════════════════════════════
 # Phase 10 — enrol THIS host as node #1 (agent on the overlay)
 # ════════════════════════════════════════════════════════════════════════════
+# write_agent_env — (re)write SWARMY_JOIN_TOKEN into the 0600 agent env file,
+# keeping any other keys a repair one-liner may have written there.
+write_agent_env() {
+  local tmp
+  mkdir -p "$(dirname "$AGENT_ENV_FILE")"
+  tmp="$(mktemp "$(dirname "$AGENT_ENV_FILE")/.agent-env.XXXXXX")"
+  { grep -v '^SWARMY_JOIN_TOKEN=' "$AGENT_ENV_FILE" 2>/dev/null || true; } > "$tmp"
+  printf 'SWARMY_JOIN_TOKEN=%s\n' "$BOOTSTRAP_JOIN_TOKEN" >> "$tmp"
+  chmod 600 "$tmp"; mv "$tmp" "$AGENT_ENV_FILE"
+}
+
 enrol_node1() {
   state_load
   # Re-run = upgrade: if a newer agent image is available, replace the running
@@ -812,13 +956,17 @@ enrol_node1() {
   fi
   say "Enrolling this host as node #1…"
   docker pull "$AGENT_IMAGE" >/dev/null 2>&1 || warn "could not pull $AGENT_IMAGE; using local copy if present."
+  # The join token rides a root-only 0600 env file mounted read-only at the
+  # path the agent loads itself (apps/agent/src/env.ts) — never -e, which keeps
+  # it in `docker inspect` for anyone on the socket. Mirrors installer.ts.
+  write_agent_env
   docker run -d --name "$AGENT_CONTAINER" --restart unless-stopped \
     --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
     --network "$CONTROL_NET" \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v swarmy-agent:/var/lib/swarmy \
+    -v "$AGENT_ENV_FILE":/etc/swarmy/agent.env:ro \
     -e AGENT_WS_URL="ws://${CONTROLLER_DNS}/agent/ws" \
-    -e SWARMY_JOIN_TOKEN="$BOOTSTRAP_JOIN_TOKEN" \
     -e SWARMY_AGENT_STATE=/var/lib/swarmy/agent.json \
     -e SWARMY_ALLOW_MESH=true \
     "$AGENT_IMAGE" >/dev/null \
@@ -938,9 +1086,9 @@ main() {
   discover
   marker_done egress   || { egress_gate;        marker_set egress; }
   ensure_swap
-  marker_done docker   || { ensure_docker;      marker_set docker; }
-  ensure_docker_log_opts   # idempotent: leaves an operator's log config alone
-  ensure_docker_registry_mirror   # idempotent: Docker Hub via the swarm's pull-through cache
+  marker_done docker   || { with_public_umask ensure_docker; marker_set docker; }
+  with_public_umask ensure_docker_log_opts   # idempotent; 022 keeps daemon.json/journald drop-ins 0644
+  with_public_umask ensure_docker_registry_mirror   # idempotent: Docker Hub via the swarm's pull-through cache
   remember_settings
   wizard
   ensure_secrets
