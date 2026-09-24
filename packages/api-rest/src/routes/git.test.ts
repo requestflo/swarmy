@@ -188,7 +188,7 @@ describe('git mappers', () => {
     });
     expect(Object.keys(gitRepoToDto({
       id: 'r', provider: 'github', url: 'u', branch: 'b', autodeploy: false, serviceId: null, hasToken: false,
-      createdAt: 'now', connectionId: 'c', fullName: 'a/b', configPath: 'swarmy.yaml', requireApproval: false,
+      createdAt: 'now', connectionId: 'c', fullName: 'a/b', configPath: 'swarmy.yaml', requireApproval: false, enforceDrift: false,
     }))).not.toContain('webhook');
     expect(gitConnectionToDto({
       id: 'c', kind: 'gitlab', displayName: 'd', baseUrl: 'b', account: 'me', status: 'active', repoCount: 0, createdAt: 'now',

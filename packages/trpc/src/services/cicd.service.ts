@@ -74,6 +74,8 @@ export interface GitRepoView {
   configPath: string;
   /** GitOps: every planned step waits for a human (git-apps P3 toggle). */
   requireApproval: boolean;
+  /** GitOps: drift on git-owned fields is re-applied (default: report only). */
+  enforceDrift: boolean;
 }
 
 export interface BuildView {
@@ -1039,6 +1041,7 @@ function toRepoView(r: {
   fullName?: string | null;
   configPath?: string | null;
   requireApproval?: boolean | null;
+  enforceDrift?: boolean | null;
 }): GitRepoView {
   return {
     id: r.id,
@@ -1055,6 +1058,7 @@ function toRepoView(r: {
     fullName: r.fullName ?? null,
     configPath: r.configPath ?? 'swarmy.yaml',
     requireApproval: r.requireApproval ?? false,
+    enforceDrift: r.enforceDrift ?? false,
   };
 }
 

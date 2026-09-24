@@ -26,6 +26,11 @@ type GitRepoRef struct {
 	CloneURL string `json:"clone_url"`
 }
 
+type AppDriftCheck struct {
+	CheckedAt    string     `json:"checked_at"`
+	Environments []AppDrift `json:"environments"`
+}
+
 type Node struct {
 	ID            string  `json:"id"`
 	Name          string  `json:"name"`
@@ -523,6 +528,7 @@ type GitRepo struct {
 	ServiceID       *string `json:"service_id"`
 	HasToken        bool    `json:"has_token"`
 	RequireApproval bool    `json:"require_approval"`
+	EnforceDrift    bool    `json:"enforce_drift"`
 	CreatedAt       string  `json:"created_at"`
 }
 
@@ -565,6 +571,22 @@ type AppEnvironment struct {
 	LatestCreatedAt  *string `json:"latest_created_at"`
 }
 
+type AppPreview struct {
+	Pr        int     `json:"pr"`
+	Stack     string  `json:"stack"`
+	Sha       string  `json:"sha"`
+	Status    string  `json:"status"`
+	URL       *string `json:"url"`
+	UpdatedAt string  `json:"updated_at"`
+	PlanID    string  `json:"plan_id"`
+}
+
+type AppDrift struct {
+	Environment string `json:"environment"`
+	Stack       string `json:"stack"`
+	Changes     int    `json:"changes"`
+}
+
 type App struct {
 	RepoID          string           `json:"repo_id"`
 	URL             string           `json:"url"`
@@ -573,7 +595,10 @@ type App struct {
 	ConfigPath      string           `json:"config_path"`
 	AppName         *string          `json:"app_name"`
 	RequireApproval bool             `json:"require_approval"`
+	EnforceDrift    bool             `json:"enforce_drift"`
 	Environments    []AppEnvironment `json:"environments"`
+	Previews        []AppPreview     `json:"previews"`
+	Drift           *AppDriftCheck   `json:"drift"`
 }
 
 type AppList struct {
@@ -650,24 +675,40 @@ type SetRequireApprovalBody struct {
 }
 
 type AppDeployResult struct {
-	PlanID      *string `json:"plan_id"`
-	Status      string  `json:"status"`
-	Environment *string `json:"environment"`
-	Stack       *string `json:"stack"`
-	Reason      *string `json:"reason"`
+	PlanID      *string  `json:"plan_id"`
+	Status      string   `json:"status"`
+	Environment *string  `json:"environment"`
+	Stack       *string  `json:"stack"`
+	Reason      *string  `json:"reason"`
+	Plan        *AppPlan `json:"plan"`
 }
 
 type DeployAppBody struct {
 	Branch string `json:"branch,omitempty"`
 }
 
-type AppDrift struct {
-	Environment string `json:"environment"`
-	Stack       string `json:"stack"`
-	Changes     int    `json:"changes"`
-}
-
 type AppDriftList struct {
 	Data       []AppDrift `json:"data"`
 	NextCursor *string    `json:"next_cursor"`
+}
+
+type AppEnforceDrift struct {
+	RepoID       string `json:"repo_id"`
+	EnforceDrift bool   `json:"enforce_drift"`
+}
+
+type SetEnforceDriftBody struct {
+	EnforceDrift bool `json:"enforce_drift"`
+}
+
+type PurgeAppDataResult struct {
+	Stack    string   `json:"stack"`
+	Resource string   `json:"resource"`
+	Volumes  []string `json:"volumes"`
+	Nodes    int      `json:"nodes"`
+}
+
+type PurgeAppDataBody struct {
+	Resource string `json:"resource"`
+	Confirm  string `json:"confirm"`
 }

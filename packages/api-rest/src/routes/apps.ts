@@ -5,14 +5,16 @@ import {
   getPlan,
   listApps,
   listPlans,
+  purgeAppData,
   replan,
+  setEnforceDrift,
   setRequireApproval,
   type AppPlanView,
   type AppView,
   type PlanCommitResult,
 } from '@swarmy/trpc';
 import type { RestEnv } from '../middleware';
-import { requireAdmin, requireScope } from '../middleware';
+import { requireAction, requireAdmin, requireScope } from '../middleware';
 import { ProblemDto, listEnvelope } from '../dto';
 import { run } from '../respond';
 
@@ -97,6 +99,25 @@ const AppEnvironmentDto = z
   })
   .openapi('AppEnvironment');
 
+const AppPreviewDto = z
+  .object({
+    pr: z.number().int(),
+    stack: z.string(),
+    sha: z.string(),
+    status: z.string(),
+    url: z.string().nullable(),
+    updated_at: z.string(),
+    plan_id: z.string(),
+  })
+  .openapi('AppPreview');
+
+const AppDriftDto = z
+  .object({ environment: z.string(), stack: z.string(), changes: z.number().int() })
+  .openapi('AppDrift');
+
+// Inline (not a named component) so `nullable` survives; SDKs name it AppDriftCheck.
+const AppDriftCheckDto = z.object({ checked_at: z.string(), environments: z.array(AppDriftDto) });
+
 const AppDto = z
   .object({
     repo_id: z.string(),
@@ -106,7 +127,12 @@ const AppDto = z
     config_path: z.string(),
     app_name: z.string().nullable(),
     require_approval: z.boolean(),
+    enforce_drift: z.boolean(),
     environments: z.array(AppEnvironmentDto),
+    previews: z.array(AppPreviewDto).openapi({ description: 'Live PR previews (latest plan per PR).' }),
+    drift: AppDriftCheckDto.nullable().openapi({
+      description: 'The last drift check (refreshed by the controller every ~10 min); null = not checked yet.',
+    }),
   })
   .openapi('App');
 
@@ -134,12 +160,30 @@ const PlanCommitResultDto = z
     environment: z.string().nullable(),
     stack: z.string().nullable(),
     reason: z.string().nullable(),
+    plan: AppPlanDto.nullable().openapi({ description: 'The plan the deploy recorded (null when nothing was planned).' }),
   })
   .openapi('AppDeployResult');
 
-const AppDriftDto = z
-  .object({ environment: z.string(), stack: z.string(), changes: z.number().int() })
-  .openapi('AppDrift');
+const EnforceDriftBody = z.object({ enforce_drift: z.boolean() }).openapi('SetEnforceDriftBody');
+const EnforceDriftDto = z.object({ repo_id: z.string(), enforce_drift: z.boolean() }).openapi('AppEnforceDrift');
+
+const PurgeBody = z
+  .object({
+    resource: z.string().min(1).max(40).openapi({ example: 'db' }),
+    confirm: z.string().min(1).max(200).openapi({
+      example: 'shop/db',
+      description: 'Must be exactly `<stack>/<resource>` — the typed confirmation.',
+    }),
+  })
+  .openapi('PurgeAppDataBody');
+const PurgeResultDto = z
+  .object({
+    stack: z.string(),
+    resource: z.string(),
+    volumes: z.array(z.string()),
+    nodes: z.number().int().openapi({ description: 'Online nodes the volumes were removed from.' }),
+  })
+  .openapi('PurgeAppDataResult');
 
 const AppList = listEnvelope(AppDto, 'AppList');
 const AppPlanList = listEnvelope(AppPlanDto, 'AppPlanList');
@@ -206,6 +250,17 @@ export function appToDto(v: AppView): z.infer<typeof AppDto> {
     config_path: v.configPath,
     app_name: v.appName,
     require_approval: v.requireApproval,
+    enforce_drift: v.enforceDrift,
+    previews: v.previews.map((p) => ({
+      pr: p.pr,
+      stack: p.stack,
+      sha: p.sha,
+      status: p.status,
+      url: p.url,
+      updated_at: p.updatedAt,
+      plan_id: p.planId,
+    })),
+    drift: v.drift ? { checked_at: v.drift.checkedAt, environments: v.drift.environments } : null,
     environments: v.environments.map((e) => ({
       environment: e.environment,
       branch: e.branch,
@@ -218,13 +273,16 @@ export function appToDto(v: AppView): z.infer<typeof AppDto> {
   };
 }
 
-export function planCommitResultToDto(r: PlanCommitResult): z.infer<typeof PlanCommitResultDto> {
+export function planCommitResultToDto(
+  r: PlanCommitResult & { plan?: AppPlanView | null },
+): z.infer<typeof PlanCommitResultDto> {
   return {
     plan_id: r.planId,
     status: r.status,
     environment: r.environment,
     stack: r.stack,
     reason: r.reason ?? null,
+    plan: r.plan ? appPlanToDto(r.plan) : null,
   };
 }
 
@@ -385,12 +443,13 @@ export function registerAppRoutes(app: OpenAPIHono<RestEnv>): void {
       path: '/apps/{repoId}/drift',
       tags: [TAG],
       summary: 'Compare each environment’s last applied commit with live state (changes nothing)',
-      description: 'An empty list means no drift. Note: an unknown repo also returns an empty list.',
+      description: 'An empty list means no drift.',
       security: [{ bearerApiKey: [] }],
       middleware: [requireScope('read')] as const,
       request: { params: repoParam },
       responses: {
         200: { content: { 'application/json': { schema: AppDriftList } }, description: 'Drift per environment' },
+        404: problemRes,
       },
     }),
     (c) =>
@@ -398,5 +457,67 @@ export function registerAppRoutes(app: OpenAPIHono<RestEnv>): void {
         data: await detectDrift(c.get('orgCtx'), c.req.param('repoId'), { notify: false }),
         next_cursor: null,
       })),
+  );
+
+  app.openapi(
+    createRoute({
+      method: 'put',
+      path: '/apps/{repoId}/enforce-drift',
+      tags: [TAG],
+      summary: 'Opt in (or out) of re-applying drift on git-owned fields',
+      description:
+        'Default is report-only. When on, drift is re-applied as a `drift`-triggered plan; destructive steps still wait for confirmation. Admin/owner only.',
+      security: [{ bearerApiKey: [] }],
+      middleware: [requireScope('write'), requireAdmin()] as const,
+      request: { params: repoParam, body: jsonBody(EnforceDriftBody) },
+      responses: {
+        200: { content: { 'application/json': { schema: EnforceDriftDto } }, description: 'Set' },
+        403: problemRes,
+        404: problemRes,
+      },
+    }),
+    (c) =>
+      run(c, async () => {
+        const r = await setEnforceDrift(c.get('orgCtx'), {
+          repoId: c.req.param('repoId'),
+          enforceDrift: c.req.valid('json').enforce_drift,
+        });
+        return { repo_id: r.repoId, enforce_drift: r.enforceDrift };
+      }),
+  );
+
+  app.openapi(
+    createRoute({
+      method: 'post',
+      path: '/apps/{repoId}/environments/{environment}/purge',
+      tags: [TAG],
+      summary: 'Delete a REMOVED managed Postgres’s data permanently (its volumes on every node)',
+      description:
+        'Irreversible. Requires `data.destroy` (checked at the route AND per resource in the service) and the typed confirmation `confirm: "<stack>/<resource>"`. Refused (400) while swarmy.yaml still declares the resource, its removal is not yet confirmed, or it is still running.',
+      security: [{ bearerApiKey: [] }],
+      middleware: [requireScope('write'), requireAction('data.destroy')] as const,
+      request: {
+        params: repoParam.extend({
+          environment: z.string().min(1).max(40).openapi({ param: { name: 'environment', in: 'path' } }),
+        }),
+        body: jsonBody(PurgeBody),
+      },
+      responses: {
+        200: { content: { 'application/json': { schema: PurgeResultDto } }, description: 'Deleted' },
+        400: problemRes,
+        403: problemRes,
+        404: problemRes,
+      },
+    }),
+    (c) =>
+      run(c, () => {
+        const b = c.req.valid('json');
+        return purgeAppData(c.get('orgCtx'), {
+          repoId: c.req.param('repoId'),
+          environment: c.req.param('environment'),
+          resource: b.resource,
+          confirm: b.confirm,
+        });
+      }),
   );
 }

@@ -417,3 +417,23 @@ func (s *AppsService) Drift(ctx context.Context, repoID string) (*AppDriftList, 
 	}
 	return &out, nil
 }
+
+// SetEnforceDrift opts an app in (or out) of re-applying drift on git-owned fields.
+func (s *AppsService) SetEnforceDrift(ctx context.Context, repoID string, enforce bool) (*AppEnforceDrift, error) {
+	var out AppEnforceDrift
+	if err := s.client.do(ctx, "PUT", "/apps/"+pathEscape(repoID)+"/enforce-drift", nil, SetEnforceDriftBody{EnforceDrift: enforce}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PurgeData permanently deletes a REMOVED managed Postgres's volumes on every
+// node. confirm must be exactly "<stack>/<resource>". Irreversible.
+func (s *AppsService) PurgeData(ctx context.Context, repoID, environment, resource, confirm string) (*PurgeAppDataResult, error) {
+	var out PurgeAppDataResult
+	path := "/apps/" + pathEscape(repoID) + "/environments/" + pathEscape(environment) + "/purge"
+	if err := s.client.do(ctx, "POST", path, nil, PurgeAppDataBody{Resource: resource, Confirm: confirm}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

@@ -502,6 +502,7 @@ export interface GitRepo {
   service_id: string | null;
   has_token: boolean;
   require_approval: boolean;
+  enforce_drift: boolean;
   created_at: string;
 }
 
@@ -544,6 +545,22 @@ export interface AppEnvironment {
   latest_created_at: string | null;
 }
 
+export interface AppPreview {
+  pr: number;
+  stack: string;
+  sha: string;
+  status: string;
+  url: string | null;
+  updated_at: string;
+  plan_id: string;
+}
+
+export interface AppDrift {
+  environment: string;
+  stack: string;
+  changes: number;
+}
+
 export interface App {
   repo_id: string;
   url: string;
@@ -552,7 +569,10 @@ export interface App {
   config_path: string;
   app_name: string | null;
   require_approval: boolean;
+  enforce_drift: boolean;
   environments: AppEnvironment[];
+  previews: AppPreview[];
+  drift: { checked_at: string; environments: AppDrift[] } | null;
 }
 
 export interface AppList {
@@ -634,19 +654,35 @@ export interface AppDeployResult {
   environment: string | null;
   stack: string | null;
   reason: string | null;
+  plan: AppPlan | null;
 }
 
 export interface DeployAppBody {
   branch?: string;
 }
 
-export interface AppDrift {
-  environment: string;
-  stack: string;
-  changes: number;
-}
-
 export interface AppDriftList {
   data: AppDrift[];
   next_cursor: string | null;
+}
+
+export interface AppEnforceDrift {
+  repo_id: string;
+  enforce_drift: boolean;
+}
+
+export interface SetEnforceDriftBody {
+  enforce_drift: boolean;
+}
+
+export interface PurgeAppDataResult {
+  stack: string;
+  resource: string;
+  volumes: string[];
+  nodes: number;
+}
+
+export interface PurgeAppDataBody {
+  resource: string;
+  confirm: string;
 }

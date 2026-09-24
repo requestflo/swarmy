@@ -42,6 +42,17 @@ interface OpenApi {
 const spec = JSON.parse(readFileSync(specPath, 'utf-8')) as OpenApi;
 const schemas = spec.components.schemas;
 
+// zod-to-openapi emits a described/nullable reference to a named schema as
+// `allOf: [{ $ref }, { nullable, description }]`; fold that back to
+// `{ $ref, nullable }` so the generators below see a plain (nullable) ref.
+for (const schema of Object.values(schemas)) {
+  for (const [prop, p] of Object.entries(schema.properties ?? {})) {
+    const all = (p as JsonSchema & { allOf?: JsonSchema[] }).allOf;
+    const ref = all?.find((x) => x.$ref)?.$ref;
+    if (ref) schema.properties![prop] = { $ref: ref, nullable: all!.some((x) => x.nullable) };
+  }
+}
+
 /** Schemas emitted as nested types when referenced inline. */
 const INLINE_OBJECT_NAMES: Record<string, string> = {
   // schemaName.propName -> generated nested type name
@@ -49,6 +60,7 @@ const INLINE_OBJECT_NAMES: Record<string, string> = {
   'CreateServiceRequest.env': 'EnvVar',
   'LinkedGitRepo.webhook': 'GitRepoWebhook',
   'LinkGitRepoBody.repo': 'GitRepoRef',
+  'App.drift': 'AppDriftCheck',
 };
 
 const isRequired = (schema: JsonSchema, prop: string): boolean =>
@@ -343,6 +355,10 @@ function genGo(): string {
         arrayItem = `[]${nestedName}`;
       }
       let t = arrayItem ?? goType(propSchema, nestedName, !!propSchema.nullable);
+      // A nullable reference to a named object schema decodes `null` as nil.
+      if (propSchema.$ref && propSchema.nullable && schemas[refName(propSchema.$ref)]?.type === 'object') {
+        t = `*${t}`;
+      }
       // A nullable/optional nested object is a pointer, so `null` decodes and an
       // absent request field is really omitted (omitempty never drops a struct).
       if (!arrayItem && nestedName && propSchema.type === 'object' && (propSchema.nullable || !required)) {

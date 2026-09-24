@@ -65,6 +65,19 @@ class GitRepoRef:
 
 
 @dataclass
+class AppDriftCheck:
+    checked_at: str
+    environments: List[AppDrift]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AppDriftCheck":
+        return cls(
+            checked_at=d.get("checked_at"),
+            environments=d.get("environments"),
+        )
+
+
+@dataclass
 class Node:
     id: str
     name: str
@@ -816,6 +829,7 @@ class GitRepo:
     service_id: Optional[str]
     has_token: bool
     require_approval: bool
+    enforce_drift: bool
     created_at: str
 
     @classmethod
@@ -832,6 +846,7 @@ class GitRepo:
             service_id=d.get("service_id"),
             has_token=d.get("has_token"),
             require_approval=d.get("require_approval"),
+            enforce_drift=d.get("enforce_drift"),
             created_at=d.get("created_at"),
         )
 
@@ -917,6 +932,44 @@ class AppEnvironment:
 
 
 @dataclass
+class AppPreview:
+    pr: int
+    stack: str
+    sha: str
+    status: str
+    url: Optional[str]
+    updated_at: str
+    plan_id: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AppPreview":
+        return cls(
+            pr=d.get("pr"),
+            stack=d.get("stack"),
+            sha=d.get("sha"),
+            status=d.get("status"),
+            url=d.get("url"),
+            updated_at=d.get("updated_at"),
+            plan_id=d.get("plan_id"),
+        )
+
+
+@dataclass
+class AppDrift:
+    environment: str
+    stack: str
+    changes: int
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AppDrift":
+        return cls(
+            environment=d.get("environment"),
+            stack=d.get("stack"),
+            changes=d.get("changes"),
+        )
+
+
+@dataclass
 class App:
     repo_id: str
     url: str
@@ -925,7 +978,10 @@ class App:
     config_path: str
     app_name: Optional[str]
     require_approval: bool
+    enforce_drift: bool
     environments: List[AppEnvironment]
+    previews: List[AppPreview]
+    drift: Optional[AppDriftCheck]
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "App":
@@ -937,7 +993,10 @@ class App:
             config_path=d.get("config_path"),
             app_name=d.get("app_name"),
             require_approval=d.get("require_approval"),
+            enforce_drift=d.get("enforce_drift"),
             environments=d.get("environments"),
+            previews=d.get("previews"),
+            drift=AppDriftCheck.from_dict(d["drift"]) if d.get("drift") is not None else None,
         )
 
 
@@ -1098,6 +1157,7 @@ class AppDeployResult:
     environment: Optional[str]
     stack: Optional[str]
     reason: Optional[str]
+    plan: Optional[AppPlan]
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "AppDeployResult":
@@ -1107,6 +1167,7 @@ class AppDeployResult:
             environment=d.get("environment"),
             stack=d.get("stack"),
             reason=d.get("reason"),
+            plan=d.get("plan"),
         )
 
 
@@ -1122,16 +1183,55 @@ class DeployAppBody:
 
 
 @dataclass
-class AppDrift:
-    environment: str
-    stack: str
-    changes: int
+class AppEnforceDrift:
+    repo_id: str
+    enforce_drift: bool
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "AppDrift":
+    def from_dict(cls, d: Dict[str, Any]) -> "AppEnforceDrift":
         return cls(
-            environment=d.get("environment"),
+            repo_id=d.get("repo_id"),
+            enforce_drift=d.get("enforce_drift"),
+        )
+
+
+@dataclass
+class SetEnforceDriftBody:
+    enforce_drift: bool
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "SetEnforceDriftBody":
+        return cls(
+            enforce_drift=d.get("enforce_drift"),
+        )
+
+
+@dataclass
+class PurgeAppDataResult:
+    stack: str
+    resource: str
+    volumes: List[str]
+    nodes: int
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "PurgeAppDataResult":
+        return cls(
             stack=d.get("stack"),
-            changes=d.get("changes"),
+            resource=d.get("resource"),
+            volumes=d.get("volumes"),
+            nodes=d.get("nodes"),
+        )
+
+
+@dataclass
+class PurgeAppDataBody:
+    resource: str
+    confirm: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "PurgeAppDataBody":
+        return cls(
+            resource=d.get("resource"),
+            confirm=d.get("confirm"),
         )
 

@@ -111,6 +111,9 @@ const GitRepoDto = z
     require_approval: z.boolean().openapi({
       description: 'GitOps: every planned step waits for confirmation. Set via PUT /apps/{repoId}/require-approval.',
     }),
+    enforce_drift: z.boolean().openapi({
+      description: 'GitOps: drift on git-owned fields is re-applied. Set via PUT /apps/{repoId}/enforce-drift.',
+    }),
     created_at: z.string(),
   })
   .openapi('GitRepo');
@@ -235,6 +238,7 @@ export function gitRepoToDto(v: GitRepoView): z.infer<typeof GitRepoDto> {
     service_id: v.serviceId,
     has_token: v.hasToken,
     require_approval: v.requireApproval,
+    enforce_drift: v.enforceDrift,
     created_at: v.createdAt,
   };
 }

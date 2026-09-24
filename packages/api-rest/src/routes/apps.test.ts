@@ -32,7 +32,7 @@ const planRow = {
   },
   issuesJson: [{ severity: 'warning', code: 'x/y', message: 'm', path: ['services', 'web', 0] }],
   resultsJson: { 'service.deploy:web': { status: 'done' }, 'resource.delete:files': { status: 'held', message: 'waiting' } },
-  desiredJson: { stack: 'shop' },
+  desiredJson: { stack: 'shop', resources: [] },
   error: null,
   confirmedIds: [],
   createdAt: new Date('2026-09-24T00:00:00Z'),
@@ -46,7 +46,8 @@ function appFor(role: Role, audit: string[] = []) {
       policy: { findMany: async () => [] },
       resourceGrant: { findMany: async () => [] },
       appPlan: {
-        findFirst: async ({ where }: { where: { id?: string } }) => (where.id === 'p1' ? planRow : null),
+        findFirst: async ({ where }: { where: { id?: string } }) =>
+          where.id === undefined || where.id === 'p1' ? planRow : null,
         findMany: async () => [planRow],
       },
       gitRepo: {
@@ -123,6 +124,20 @@ describe('/apps REST routes', () => {
     expect(ok.status).toBe(200);
     expect(ok.json).toEqual({ repo_id: 'gr1', require_approval: true });
   });
+  it('enforce-drift is admin-only and round-trips', async () => {
+    expect((await call('member', 'PUT', '/apps/gr1/enforce-drift', { enforce_drift: true })).status).toBe(403);
+    const ok = await call('admin', 'PUT', '/apps/gr1/enforce-drift', { enforce_drift: true });
+    expect(ok.status).toBe(200);
+    expect(ok.json).toEqual({ repo_id: 'gr1', enforce_drift: true });
+  });
+  it('purge: member refused by data.destroy at the route; a wrong typed confirmation is 400', async () => {
+    const m = await call('member', 'POST', '/apps/gr1/environments/production/purge', { resource: 'db', confirm: 'shop/db' });
+    expect(m.status).toBe(403);
+    expect(m.json.swarmy_code).toBe('POLICY_DENIED');
+    const bad = await call('admin', 'POST', '/apps/gr1/environments/production/purge', { resource: 'db', confirm: 'db' });
+    expect(bad.status).toBe(400);
+    expect(String(bad.json.detail)).toContain('shop/db');
+  });
   it('confirm → 404 problem for an unknown plan; body needs ≥1 id', async () => {
     expect((await call('admin', 'POST', '/apps/plans/nope/confirm', { action_ids: ['x'] })).status).toBe(404);
     expect((await call('admin', 'POST', '/apps/plans/p1/confirm', { action_ids: [] })).status).toBe(400);
@@ -142,8 +157,21 @@ describe('apps mappers', () => {
     const dto = appToDto({
       repoId: 'r', url: 'u', fullName: null, branch: 'main', configPath: 'swarmy.yaml', appName: 'shop',
       requireApproval: true,
+      enforceDrift: false,
       environments: [{ environment: 'staging', branch: 'staging', stack: 'shop-staging', latest: null }],
+      previews: [{ pr: 7, stack: 'shop-pr-7', sha: 'abc', status: 'applied', url: null, updatedAt: 'now', planId: 'p7' }],
+      drift: { checkedAt: 'then', environments: [{ environment: 'production', stack: 'shop', changes: 2 }] },
     });
+    expect(dto.previews).toEqual([
+      { pr: 7, stack: 'shop-pr-7', sha: 'abc', status: 'applied', url: null, updated_at: 'now', plan_id: 'p7' },
+    ]);
+    expect(dto.drift).toEqual({ checked_at: 'then', environments: [{ environment: 'production', stack: 'shop', changes: 2 }] });
+    expect(
+      appToDto({
+        repoId: 'r', url: 'u', fullName: null, branch: 'main', configPath: 'swarmy.yaml', appName: null,
+        requireApproval: false, enforceDrift: false, environments: [], previews: [], drift: null,
+      }).drift,
+    ).toBeNull();
     expect(dto.environments[0]).toEqual({
       environment: 'staging', branch: 'staging', stack: 'shop-staging',
       latest_plan_id: null, latest_plan_status: null, latest_sha: null, latest_created_at: null,

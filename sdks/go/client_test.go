@@ -259,3 +259,26 @@ func TestAppsConfirmAndPlansQuery(t *testing.T) {
 		t.Errorf("request = %s?%s", cap.path, cap.rawQ)
 	}
 }
+
+func TestAppsDeployDecodesNullPlanAndPurgePath(t *testing.T) {
+	var cap capturedRequest
+	srv := testServer(t, 200, `{"plan_id":null,"status":"skipped","environment":null,"stack":null,"reason":"no swarmy.yaml","plan":null}`, &cap)
+	defer srv.Close()
+	out, err := newTestClient(t, srv).Apps.Deploy(context.Background(), "gr1", "")
+	if err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+	if out.Plan != nil || cap.body != `{}` {
+		t.Errorf("plan = %+v, body = %s", out.Plan, cap.body)
+	}
+
+	srv2 := testServer(t, 200, `{"stack":"shop","resource":"db","volumes":["v1"],"nodes":2}`, &cap)
+	defer srv2.Close()
+	res, err := newTestClient(t, srv2).Apps.PurgeData(context.Background(), "gr1", "production", "db", "shop/db")
+	if err != nil {
+		t.Fatalf("PurgeData: %v", err)
+	}
+	if cap.path != "/api/v1/apps/gr1/environments/production/purge" || cap.body != `{"resource":"db","confirm":"shop/db"}` || res.Nodes != 2 {
+		t.Errorf("request = %s %s → %+v", cap.path, cap.body, res)
+	}
+}

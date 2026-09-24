@@ -45,6 +45,7 @@ const ADMIN_ROUTES: Array<[string, string, unknown, string]> = [
   ['PATCH', '/git/repos/gr1', { branch: 'main' }, 'gitConnections.updateRepo'],
   ['PUT', '/apps/gr1/require-approval', { require_approval: true }, 'apps.setRequireApproval'],
   ['POST', '/apps/gr1/deploy', {}, 'apps.deploy'],
+  ['PUT', '/apps/gr1/enforce-drift', { enforce_drift: true }, 'apps.setEnforceDrift'],
 ];
 
 const call = (role: Role, method: string, path: string, body: unknown) =>

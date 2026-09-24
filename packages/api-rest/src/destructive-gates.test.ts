@@ -67,6 +67,7 @@ const ROUTES: Array<[method: string, path: string, action: string, body?: unknow
   ['DELETE', '/volumes/v1', 'data.destroy'],
   ['DELETE', '/git/connections/gc1', 'cicd.remove'],
   ['DELETE', '/git/repos/gr1', 'cicd.remove'],
+  ['POST', '/apps/gr1/environments/production/purge', 'data.destroy', { resource: 'db', confirm: 'shop/db' }],
   // Deploys: member-permitted outside production (no live stack → env unknown).
   ['POST', '/services', 'service.deploy', { name: 'web', image: 'nginx' }],
   ['POST', '/stacks', 'stack.deploy', { name: 'shop', compose_source: 'services: {}' }],
