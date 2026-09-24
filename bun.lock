@@ -71,6 +71,7 @@
         "@fontsource-variable/geist-mono": "^5.0.0",
         "@fontsource-variable/instrument-sans": "^5.0.0",
         "@hookform/resolvers": "^3.10.0",
+        "@rrweb/replay": "2.1.6",
         "@swarmy/auth": "workspace:*",
         "@swarmy/core": "workspace:*",
         "@swarmy/templates": "workspace:*",
@@ -875,6 +876,8 @@
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.62.2", "", { "os": "win32", "cpu": "x64" }, "sha512-BfzEnDJOt9T8M989/lA37EcJgat01wLRnoi5dQf3QzOH7jzpqTAzdDbVfRljVr5r+jzKqpbHeyOfAaXxAd0PAA=="],
 
     "@rrweb/record": ["@rrweb/record@2.1.6", "", { "dependencies": { "@rrweb/types": "^2.1.6", "@rrweb/utils": "^2.1.6", "rrweb": "^2.1.6" } }, "sha512-dHOrWa97l3C+BBsUd+zgLtErTZavzudJunu1HN2bV6WhTBLGk7z8BY1fWw0QerYK7qJJyrBE9D6XHcISVdVGQQ=="],
+
+    "@rrweb/replay": ["@rrweb/replay@2.1.6", "", { "dependencies": { "@rrweb/types": "^2.1.6", "rrweb": "^2.1.6" } }, "sha512-Ti7zPk3Lbp33N9rKtIPCCIbUm4ctJMRRIMG5/5uI70M0efpSC1cpo/Eq8ELVW/5zWrkiElgmnPR0+h+oS79ASA=="],
 
     "@rrweb/types": ["@rrweb/types@2.1.6", "", {}, "sha512-DacFzGpPbQ91q3rRyh/AeZrtFYYonmLT+qgGlmh2iGcW2HPnrABJNgJWhpyzYwp/xed6Fbpi8yMxhRBlrOY0ZA=="],
 

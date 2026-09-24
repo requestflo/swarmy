@@ -53,6 +53,7 @@ import { Route as AuthedStacksNameIndexRouteImport } from './routes/_authed/stac
 import { Route as AuthedTerminalSessionsIdRouteImport } from './routes/_authed/terminal.sessions.$id'
 import { Route as AuthedStacksNameStudioRouteImport } from './routes/_authed/stacks/$name.studio'
 import { Route as AuthedStacksNameSettingsRouteImport } from './routes/_authed/stacks/$name.settings'
+import { Route as AuthedStacksNameRumSettingsRouteImport } from './routes/_authed/stacks/$name.rum-settings'
 import { Route as AuthedStacksNameReleasesRouteImport } from './routes/_authed/stacks/$name.releases'
 import { Route as AuthedStacksNameObservabilityRouteImport } from './routes/_authed/stacks/$name.observability'
 import { Route as AuthedStacksNameNetworkRouteImport } from './routes/_authed/stacks/$name.network'
@@ -60,10 +61,13 @@ import { Route as AuthedStacksNameMessagingRouteImport } from './routes/_authed/
 import { Route as AuthedStacksNameDataRouteImport } from './routes/_authed/stacks/$name.data'
 import { Route as AuthedStacksNameConfigRouteImport } from './routes/_authed/stacks/$name.config'
 import { Route as AuthedStacksNameBackupsRouteImport } from './routes/_authed/stacks/$name.backups'
+import { Route as AuthedStacksNameAnalyticsRouteImport } from './routes/_authed/stacks/$name.analytics'
 import { Route as AuthedStacksNameAccessRouteImport } from './routes/_authed/stacks/$name.access'
 import { Route as AuthedServicesServiceIdTerminalRouteImport } from './routes/_authed/services/$serviceId_.terminal'
 import { Route as AuthedNodesNodeIdTerminalRouteImport } from './routes/_authed/nodes/$nodeId_.terminal'
+import { Route as AuthedStacksNameReplaysIndexRouteImport } from './routes/_authed/stacks/$name.replays.index'
 import { Route as AuthedStacksNameErrorsIndexRouteImport } from './routes/_authed/stacks/$name.errors.index'
+import { Route as AuthedStacksNameReplaysSessionIdRouteImport } from './routes/_authed/stacks/$name.replays.$sessionId'
 import { Route as AuthedStacksNameErrorsFingerprintRouteImport } from './routes/_authed/stacks/$name.errors.$fingerprint'
 
 const LoginRoute = LoginRouteImport.update({
@@ -290,6 +294,12 @@ const AuthedStacksNameSettingsRoute =
     path: '/settings',
     getParentRoute: () => AuthedStacksNameRoute,
   } as any)
+const AuthedStacksNameRumSettingsRoute =
+  AuthedStacksNameRumSettingsRouteImport.update({
+    id: '/rum-settings',
+    path: '/rum-settings',
+    getParentRoute: () => AuthedStacksNameRoute,
+  } as any)
 const AuthedStacksNameReleasesRoute =
   AuthedStacksNameReleasesRouteImport.update({
     id: '/releases',
@@ -328,6 +338,12 @@ const AuthedStacksNameBackupsRoute = AuthedStacksNameBackupsRouteImport.update({
   path: '/backups',
   getParentRoute: () => AuthedStacksNameRoute,
 } as any)
+const AuthedStacksNameAnalyticsRoute =
+  AuthedStacksNameAnalyticsRouteImport.update({
+    id: '/analytics',
+    path: '/analytics',
+    getParentRoute: () => AuthedStacksNameRoute,
+  } as any)
 const AuthedStacksNameAccessRoute = AuthedStacksNameAccessRouteImport.update({
   id: '/access',
   path: '/access',
@@ -345,10 +361,22 @@ const AuthedNodesNodeIdTerminalRoute =
     path: '/nodes/$nodeId/terminal',
     getParentRoute: () => AuthedRoute,
   } as any)
+const AuthedStacksNameReplaysIndexRoute =
+  AuthedStacksNameReplaysIndexRouteImport.update({
+    id: '/replays/',
+    path: '/replays/',
+    getParentRoute: () => AuthedStacksNameRoute,
+  } as any)
 const AuthedStacksNameErrorsIndexRoute =
   AuthedStacksNameErrorsIndexRouteImport.update({
     id: '/errors/',
     path: '/errors/',
+    getParentRoute: () => AuthedStacksNameRoute,
+  } as any)
+const AuthedStacksNameReplaysSessionIdRoute =
+  AuthedStacksNameReplaysSessionIdRouteImport.update({
+    id: '/replays/$sessionId',
+    path: '/replays/$sessionId',
     getParentRoute: () => AuthedStacksNameRoute,
   } as any)
 const AuthedStacksNameErrorsFingerprintRoute =
@@ -401,6 +429,7 @@ export interface FileRoutesByFullPath {
   '/nodes/$nodeId/terminal': typeof AuthedNodesNodeIdTerminalRoute
   '/services/$serviceId/terminal': typeof AuthedServicesServiceIdTerminalRoute
   '/stacks/$name/access': typeof AuthedStacksNameAccessRoute
+  '/stacks/$name/analytics': typeof AuthedStacksNameAnalyticsRoute
   '/stacks/$name/backups': typeof AuthedStacksNameBackupsRoute
   '/stacks/$name/config': typeof AuthedStacksNameConfigRoute
   '/stacks/$name/data': typeof AuthedStacksNameDataRoute
@@ -408,12 +437,15 @@ export interface FileRoutesByFullPath {
   '/stacks/$name/network': typeof AuthedStacksNameNetworkRoute
   '/stacks/$name/observability': typeof AuthedStacksNameObservabilityRoute
   '/stacks/$name/releases': typeof AuthedStacksNameReleasesRoute
+  '/stacks/$name/rum-settings': typeof AuthedStacksNameRumSettingsRoute
   '/stacks/$name/settings': typeof AuthedStacksNameSettingsRoute
   '/stacks/$name/studio': typeof AuthedStacksNameStudioRoute
   '/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/stacks/$name/': typeof AuthedStacksNameIndexRoute
   '/stacks/$name/errors/$fingerprint': typeof AuthedStacksNameErrorsFingerprintRoute
+  '/stacks/$name/replays/$sessionId': typeof AuthedStacksNameReplaysSessionIdRoute
   '/stacks/$name/errors/': typeof AuthedStacksNameErrorsIndexRoute
+  '/stacks/$name/replays/': typeof AuthedStacksNameReplaysIndexRoute
 }
 export interface FileRoutesByTo {
   '/app-login': typeof AppLoginRoute
@@ -457,6 +489,7 @@ export interface FileRoutesByTo {
   '/nodes/$nodeId/terminal': typeof AuthedNodesNodeIdTerminalRoute
   '/services/$serviceId/terminal': typeof AuthedServicesServiceIdTerminalRoute
   '/stacks/$name/access': typeof AuthedStacksNameAccessRoute
+  '/stacks/$name/analytics': typeof AuthedStacksNameAnalyticsRoute
   '/stacks/$name/backups': typeof AuthedStacksNameBackupsRoute
   '/stacks/$name/config': typeof AuthedStacksNameConfigRoute
   '/stacks/$name/data': typeof AuthedStacksNameDataRoute
@@ -464,12 +497,15 @@ export interface FileRoutesByTo {
   '/stacks/$name/network': typeof AuthedStacksNameNetworkRoute
   '/stacks/$name/observability': typeof AuthedStacksNameObservabilityRoute
   '/stacks/$name/releases': typeof AuthedStacksNameReleasesRoute
+  '/stacks/$name/rum-settings': typeof AuthedStacksNameRumSettingsRoute
   '/stacks/$name/settings': typeof AuthedStacksNameSettingsRoute
   '/stacks/$name/studio': typeof AuthedStacksNameStudioRoute
   '/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/stacks/$name': typeof AuthedStacksNameIndexRoute
   '/stacks/$name/errors/$fingerprint': typeof AuthedStacksNameErrorsFingerprintRoute
+  '/stacks/$name/replays/$sessionId': typeof AuthedStacksNameReplaysSessionIdRoute
   '/stacks/$name/errors': typeof AuthedStacksNameErrorsIndexRoute
+  '/stacks/$name/replays': typeof AuthedStacksNameReplaysIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -516,6 +552,7 @@ export interface FileRoutesById {
   '/_authed/nodes/$nodeId_/terminal': typeof AuthedNodesNodeIdTerminalRoute
   '/_authed/services/$serviceId_/terminal': typeof AuthedServicesServiceIdTerminalRoute
   '/_authed/stacks/$name/access': typeof AuthedStacksNameAccessRoute
+  '/_authed/stacks/$name/analytics': typeof AuthedStacksNameAnalyticsRoute
   '/_authed/stacks/$name/backups': typeof AuthedStacksNameBackupsRoute
   '/_authed/stacks/$name/config': typeof AuthedStacksNameConfigRoute
   '/_authed/stacks/$name/data': typeof AuthedStacksNameDataRoute
@@ -523,12 +560,15 @@ export interface FileRoutesById {
   '/_authed/stacks/$name/network': typeof AuthedStacksNameNetworkRoute
   '/_authed/stacks/$name/observability': typeof AuthedStacksNameObservabilityRoute
   '/_authed/stacks/$name/releases': typeof AuthedStacksNameReleasesRoute
+  '/_authed/stacks/$name/rum-settings': typeof AuthedStacksNameRumSettingsRoute
   '/_authed/stacks/$name/settings': typeof AuthedStacksNameSettingsRoute
   '/_authed/stacks/$name/studio': typeof AuthedStacksNameStudioRoute
   '/_authed/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/_authed/stacks/$name/': typeof AuthedStacksNameIndexRoute
   '/_authed/stacks/$name/errors/$fingerprint': typeof AuthedStacksNameErrorsFingerprintRoute
+  '/_authed/stacks/$name/replays/$sessionId': typeof AuthedStacksNameReplaysSessionIdRoute
   '/_authed/stacks/$name/errors/': typeof AuthedStacksNameErrorsIndexRoute
+  '/_authed/stacks/$name/replays/': typeof AuthedStacksNameReplaysIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -575,6 +615,7 @@ export interface FileRouteTypes {
     | '/nodes/$nodeId/terminal'
     | '/services/$serviceId/terminal'
     | '/stacks/$name/access'
+    | '/stacks/$name/analytics'
     | '/stacks/$name/backups'
     | '/stacks/$name/config'
     | '/stacks/$name/data'
@@ -582,12 +623,15 @@ export interface FileRouteTypes {
     | '/stacks/$name/network'
     | '/stacks/$name/observability'
     | '/stacks/$name/releases'
+    | '/stacks/$name/rum-settings'
     | '/stacks/$name/settings'
     | '/stacks/$name/studio'
     | '/terminal/sessions/$id'
     | '/stacks/$name/'
     | '/stacks/$name/errors/$fingerprint'
+    | '/stacks/$name/replays/$sessionId'
     | '/stacks/$name/errors/'
+    | '/stacks/$name/replays/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/app-login'
@@ -631,6 +675,7 @@ export interface FileRouteTypes {
     | '/nodes/$nodeId/terminal'
     | '/services/$serviceId/terminal'
     | '/stacks/$name/access'
+    | '/stacks/$name/analytics'
     | '/stacks/$name/backups'
     | '/stacks/$name/config'
     | '/stacks/$name/data'
@@ -638,12 +683,15 @@ export interface FileRouteTypes {
     | '/stacks/$name/network'
     | '/stacks/$name/observability'
     | '/stacks/$name/releases'
+    | '/stacks/$name/rum-settings'
     | '/stacks/$name/settings'
     | '/stacks/$name/studio'
     | '/terminal/sessions/$id'
     | '/stacks/$name'
     | '/stacks/$name/errors/$fingerprint'
+    | '/stacks/$name/replays/$sessionId'
     | '/stacks/$name/errors'
+    | '/stacks/$name/replays'
   id:
     | '__root__'
     | '/_authed'
@@ -689,6 +737,7 @@ export interface FileRouteTypes {
     | '/_authed/nodes/$nodeId_/terminal'
     | '/_authed/services/$serviceId_/terminal'
     | '/_authed/stacks/$name/access'
+    | '/_authed/stacks/$name/analytics'
     | '/_authed/stacks/$name/backups'
     | '/_authed/stacks/$name/config'
     | '/_authed/stacks/$name/data'
@@ -696,12 +745,15 @@ export interface FileRouteTypes {
     | '/_authed/stacks/$name/network'
     | '/_authed/stacks/$name/observability'
     | '/_authed/stacks/$name/releases'
+    | '/_authed/stacks/$name/rum-settings'
     | '/_authed/stacks/$name/settings'
     | '/_authed/stacks/$name/studio'
     | '/_authed/terminal/sessions/$id'
     | '/_authed/stacks/$name/'
     | '/_authed/stacks/$name/errors/$fingerprint'
+    | '/_authed/stacks/$name/replays/$sessionId'
     | '/_authed/stacks/$name/errors/'
+    | '/_authed/stacks/$name/replays/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1021,6 +1073,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedStacksNameSettingsRouteImport
       parentRoute: typeof AuthedStacksNameRoute
     }
+    '/_authed/stacks/$name/rum-settings': {
+      id: '/_authed/stacks/$name/rum-settings'
+      path: '/rum-settings'
+      fullPath: '/stacks/$name/rum-settings'
+      preLoaderRoute: typeof AuthedStacksNameRumSettingsRouteImport
+      parentRoute: typeof AuthedStacksNameRoute
+    }
     '/_authed/stacks/$name/releases': {
       id: '/_authed/stacks/$name/releases'
       path: '/releases'
@@ -1070,6 +1129,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedStacksNameBackupsRouteImport
       parentRoute: typeof AuthedStacksNameRoute
     }
+    '/_authed/stacks/$name/analytics': {
+      id: '/_authed/stacks/$name/analytics'
+      path: '/analytics'
+      fullPath: '/stacks/$name/analytics'
+      preLoaderRoute: typeof AuthedStacksNameAnalyticsRouteImport
+      parentRoute: typeof AuthedStacksNameRoute
+    }
     '/_authed/stacks/$name/access': {
       id: '/_authed/stacks/$name/access'
       path: '/access'
@@ -1091,11 +1157,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedNodesNodeIdTerminalRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/stacks/$name/replays/': {
+      id: '/_authed/stacks/$name/replays/'
+      path: '/replays'
+      fullPath: '/stacks/$name/replays/'
+      preLoaderRoute: typeof AuthedStacksNameReplaysIndexRouteImport
+      parentRoute: typeof AuthedStacksNameRoute
+    }
     '/_authed/stacks/$name/errors/': {
       id: '/_authed/stacks/$name/errors/'
       path: '/errors'
       fullPath: '/stacks/$name/errors/'
       preLoaderRoute: typeof AuthedStacksNameErrorsIndexRouteImport
+      parentRoute: typeof AuthedStacksNameRoute
+    }
+    '/_authed/stacks/$name/replays/$sessionId': {
+      id: '/_authed/stacks/$name/replays/$sessionId'
+      path: '/replays/$sessionId'
+      fullPath: '/stacks/$name/replays/$sessionId'
+      preLoaderRoute: typeof AuthedStacksNameReplaysSessionIdRouteImport
       parentRoute: typeof AuthedStacksNameRoute
     }
     '/_authed/stacks/$name/errors/$fingerprint': {
@@ -1110,6 +1190,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthedStacksNameRouteChildren {
   AuthedStacksNameAccessRoute: typeof AuthedStacksNameAccessRoute
+  AuthedStacksNameAnalyticsRoute: typeof AuthedStacksNameAnalyticsRoute
   AuthedStacksNameBackupsRoute: typeof AuthedStacksNameBackupsRoute
   AuthedStacksNameConfigRoute: typeof AuthedStacksNameConfigRoute
   AuthedStacksNameDataRoute: typeof AuthedStacksNameDataRoute
@@ -1117,15 +1198,19 @@ interface AuthedStacksNameRouteChildren {
   AuthedStacksNameNetworkRoute: typeof AuthedStacksNameNetworkRoute
   AuthedStacksNameObservabilityRoute: typeof AuthedStacksNameObservabilityRoute
   AuthedStacksNameReleasesRoute: typeof AuthedStacksNameReleasesRoute
+  AuthedStacksNameRumSettingsRoute: typeof AuthedStacksNameRumSettingsRoute
   AuthedStacksNameSettingsRoute: typeof AuthedStacksNameSettingsRoute
   AuthedStacksNameStudioRoute: typeof AuthedStacksNameStudioRoute
   AuthedStacksNameIndexRoute: typeof AuthedStacksNameIndexRoute
   AuthedStacksNameErrorsFingerprintRoute: typeof AuthedStacksNameErrorsFingerprintRoute
+  AuthedStacksNameReplaysSessionIdRoute: typeof AuthedStacksNameReplaysSessionIdRoute
   AuthedStacksNameErrorsIndexRoute: typeof AuthedStacksNameErrorsIndexRoute
+  AuthedStacksNameReplaysIndexRoute: typeof AuthedStacksNameReplaysIndexRoute
 }
 
 const AuthedStacksNameRouteChildren: AuthedStacksNameRouteChildren = {
   AuthedStacksNameAccessRoute: AuthedStacksNameAccessRoute,
+  AuthedStacksNameAnalyticsRoute: AuthedStacksNameAnalyticsRoute,
   AuthedStacksNameBackupsRoute: AuthedStacksNameBackupsRoute,
   AuthedStacksNameConfigRoute: AuthedStacksNameConfigRoute,
   AuthedStacksNameDataRoute: AuthedStacksNameDataRoute,
@@ -1133,12 +1218,15 @@ const AuthedStacksNameRouteChildren: AuthedStacksNameRouteChildren = {
   AuthedStacksNameNetworkRoute: AuthedStacksNameNetworkRoute,
   AuthedStacksNameObservabilityRoute: AuthedStacksNameObservabilityRoute,
   AuthedStacksNameReleasesRoute: AuthedStacksNameReleasesRoute,
+  AuthedStacksNameRumSettingsRoute: AuthedStacksNameRumSettingsRoute,
   AuthedStacksNameSettingsRoute: AuthedStacksNameSettingsRoute,
   AuthedStacksNameStudioRoute: AuthedStacksNameStudioRoute,
   AuthedStacksNameIndexRoute: AuthedStacksNameIndexRoute,
   AuthedStacksNameErrorsFingerprintRoute:
     AuthedStacksNameErrorsFingerprintRoute,
+  AuthedStacksNameReplaysSessionIdRoute: AuthedStacksNameReplaysSessionIdRoute,
   AuthedStacksNameErrorsIndexRoute: AuthedStacksNameErrorsIndexRoute,
+  AuthedStacksNameReplaysIndexRoute: AuthedStacksNameReplaysIndexRoute,
 }
 
 const AuthedStacksNameRouteWithChildren =
