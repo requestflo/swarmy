@@ -1,0 +1,79 @@
+name: E2E cluster
+
+# The multi-node launch rehearsal (scripts/e2e-cluster.sh), reduced to what a
+# GitHub runner can do: three docker-in-docker "nodes" on one bridge network
+# instead of three Lima VMs. It builds the controller + agent images from this
+# checkout, installs node 1 with the real install-swarmy.sh one-liner, joins two
+# workers with the agent one-liner (container backend: dind has no systemd), and
+# runs every scenario through the REST API + TypeScript SDK.
+#
+# What CAN'T run here (run `bash scripts/e2e-cluster.sh` on a Mac with Lima):
+#   - 1 GiB node sizing is only approximate: dind nodes share the runner's
+#     kernel and page cache, so memory pressure/OOM behaviour isn't the real one.
+#   - the systemd agent backend (the default on real servers) — dind workers use
+#     the container backend.
+#   - a worker "dying" is `docker kill` of its dind container: rescheduling is
+#     real, but there's no host reboot / agent-restart-from-boot path.
+#   - NAT simulation + the self-hosted mesh (not shipped yet on any provider).
+#   - arm64: runners are amd64; the Lima run is arm64 on Apple silicon.
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Comma-separated step ids to run (blank = all)'
+        required: false
+        default: ''
+      tier:
+        description: 'Controller datastore tier'
+        required: false
+        default: lite
+        type: choice
+        options: [lite, standard]
+  schedule:
+    - cron: '17 3 * * *' # nightly, 03:17 UTC
+
+concurrency:
+  group: e2e-cluster-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cluster:
+    name: dind cluster (3 nodes) install → servers → apps → data → reschedule
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.x
+
+      - name: Install workspace deps (the harness imports the TS SDK)
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Run the cluster e2e (reduced, dind)
+        env:
+          SWARMY_E2E_WORKDIR: ${{ runner.temp }}/swarmy-e2e
+        run: |
+          args=(--provider dind --reduced --source tree --tier "${{ inputs.tier || 'lite' }}" --report-dir e2e-cluster-report)
+          if [ -n "${{ inputs.only }}" ]; then args+=(--only "${{ inputs.only }}"); fi
+          bash scripts/e2e-cluster.sh "${args[@]}"
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f e2e-cluster-report/summary.txt ]; then
+            { echo '```'; cat e2e-cluster-report/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-cluster-report
+          path: e2e-cluster-report
+          if-no-files-found: ignore
