@@ -179,6 +179,61 @@ Four ideas, one story:
   the *next deploy* through admission (warn-severity is overridable; block is
   not). swarmy never removes a live port by itself. The fix is always yours.
 
+## Custom domains: DNS first, then a certificate
+
+Adding a domain is a guided hand-off, not a hope. Each routed host walks one
+honest lifecycle, shown on the row in plain words:
+
+`waiting for DNS → DNS verified → issuing certificate → secured` — or
+`error <reason>`.
+
+- **swarmy tells you the exact record.** A/AAAA to the public IPs of the edges
+  that actually terminate traffic (the nodes running the Caddy task; else the
+  ingress-labelled nodes), or a CNAME to the dashboard domain for non-apex
+  names, or NS delegation when the host sits in a zone swarmy serves, or the
+  proxied CNAME to a Cloudflare Tunnel. Registrar-shaped: `@`, `www`, `app`.
+- **Verification asks the public, not the node.** The controller resolves the
+  host over DNS-over-HTTPS on two public resolvers (1.1.1.1, 8.8.8.8) — what
+  Let's Encrypt will see, not a node's split-horizon view — and every resolver
+  that answers must see a swarmy edge. It names the usual traps: the old IP
+  still propagating, Cloudflare's orange cloud, a stray AAAA (Let's Encrypt
+  tries IPv6 first), a leftover extra A record.
+- **No certificate order for a name that can't validate.** A domain added
+  through swarmy (add domain, set routes, the www toggle) is withheld from the
+  render — and denied by `/ingress/ask` — until its DNS verifies. Verification
+  is sticky: a later DNS change reports `error` but never un-serves a working
+  site. Hosts swarmy merely discovers on a label (routes that predate this, or
+  a compose deploy) are observed, never withheld — un-rendering a working
+  domain would be an outage. An admin can skip the check for a domain behind
+  an external load balancer (audited).
+- **Certificate status is measured, not assumed.** A TLS handshake from the
+  controller to each edge's public IP with SNI = the host: issuer, expiry, and
+  which edges serve it. Chosen over reading the cert store (sealed client-side,
+  and the single-controller topology keeps certs in a local volume). Feeds the
+  default `cert-expiry` alert (warning < 14 days, critical < 3 days or failing).
+- **Apex + www is one toggle.** A route's `www` field — redirect www → apex,
+  redirect apex → www, or serve both — expands controller-side into routes plus
+  a 308 redirect site; the companion host gets its own DNS check and cert. An
+  explicit route for the companion always wins.
+- **Every public app has an address before you own a domain.** A service that
+  already publishes an HTTP port (or declares `swarmy.expose=public`, or sets
+  `swarmy.ingress.auto=true`) gets a real route
+  `<service>-<stack>.<edge-ip>.sslip.io` on first deploy — instantly verified
+  (the name embeds the edge IP), a real Let's Encrypt certificate on a public
+  IP, the local CA on a LAN IP. The marker label `swarmy.ingress.auto.host`
+  makes removal permanent; a custom domain replaces it; an edge-IP change
+  re-hosts it; `swarmy.ingress.auto=false` opts out. Private/mesh/tunnel
+  intent, managed data and swarmy's own services never get one — an automatic
+  address never widens exposure.
+- **Where the state lives.** Check results + the gate are controller
+  observations in `IngressConfig.settings.domainChecks` (atomic jsonb merges;
+  pruned when the host stops being routed) — not a `Domain` model and not a
+  label, so a DNS check never rewrites a service spec. Routes stay on the
+  label. Implementation: pure `packages/ingress/src/{domain-verify,www,
+  auto-address}.ts`; `packages/trpc/src/services/{domain-verify,auto-address}
+  .service.ts`, `domain-checks.store.ts`; the `domain-verify` worker (30s,
+  per-host backoff).
+
 ## Service-to-service networking (inside the swarm)
 
 The flip side of exposure is who can reach a service from INSIDE the cluster.
@@ -218,6 +273,7 @@ Least privilege, by network:
 | Ingress node dies (edge-per-node) | Its certs are in the shared object-storage pool; a surviving edge already serves them and geo-DNS sheds the dead node. No re-issuance, no rate-limit hit. |
 | Object storage (cert store) blips | Served certs stay in memory — the request path is unaffected. Only *new* issuance/renewal pauses until the store returns. It is deliberately off the hot path. |
 | Custom domain not yet registered points at the swarm | `/ingress/ask` returns 403 → Caddy declines to issue. No ACME spend on domains that aren't yours. |
+| Custom domain added before its DNS record exists | Withheld from the render and denied by `/ingress/ask` until public DNS points at an edge; the row says exactly which record to create. No failed ACME orders, no rate-limit burn. |
 | Cloudflare Tunnel: connector or CF blips | Connector dials out and reconnects; no inbound port to fail. Routing rules are declarative server-side, re-pushed idempotently on the next sync. |
 | A driver can't express a protection (e.g. rate limit on `none`) | `validate()` warns; `render` still emits a working config for what it *can* do. Degraded, never broken. |
 | Managed database publishes a port | Audited as a `public-port` violation, alerted on the Exposure page, and (if enforce is on) the next deploy is refused — but the running port is left in place for the operator to remove. |
