@@ -1,3 +1,4 @@
+import { displayEmail } from '@swarmy/auth';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
@@ -12,20 +13,21 @@ import { writeAudit } from './audit.service';
 export interface MemberView {
   id: string;
   role: 'owner' | 'admin' | 'member';
-  user: { id: string; name: string | null; email: string | null };
+  /** `email` is null when the account has none (username / IdP without email). */
+  user: { id: string; name: string | null; email: string | null; username: string | null };
   attributes: Record<string, unknown>;
 }
 
 export async function listMembers(ctx: OrgContext): Promise<MemberView[]> {
   const rows = await ctx.db.member.findMany({
     where: { organizationId: ctx.activeOrgId },
-    include: { user: { select: { id: true, name: true, email: true } } },
+    include: { user: { select: { id: true, name: true, email: true, username: true } } },
     orderBy: { createdAt: 'asc' },
   });
   return rows.map((m) => ({
     id: m.id,
     role: m.role as MemberView['role'],
-    user: m.user,
+    user: { ...m.user, email: displayEmail(m.user.email), username: m.user.username ?? null },
     attributes: (m.attributes as Record<string, unknown>) ?? {},
   }));
 }

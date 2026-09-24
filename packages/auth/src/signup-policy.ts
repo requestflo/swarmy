@@ -15,7 +15,14 @@ import type { DB } from '@swarmy/db';
  *   3. `SWARMY_BOOTSTRAP=1` and the email is the installer's `ADMIN_EMAIL` — the
  *      in-process seed (apps/api/src/bootstrap/seed.ts) creates the owner through
  *      Better Auth's sign-up so it owns password hashing;
- *   4. the email has a pending, unexpired organization invitation.
+ *   4. the email has a pending, unexpired organization invitation;
+ *   5. the request carries an invite link (`swarmy_invite` cookie, set by the
+ *      login page) naming a pending, unexpired invitation — the link is the
+ *      credential, so an invitee can sign up with a username, a social account
+ *      or SSO even when they have no email or a different one;
+ *   6. the sign-up is an org SSO first login (`/oauth2/callback/<providerId>`)
+ *      and that enabled provider auto-provisions (the default): the IdP is the
+ *      org's own directory, so its people are admitted and join as members.
  *
  * Unset `SWARMY_ALLOW_SIGNUP` defaults to open outside production (so `bun dev`
  * keeps its sign-up form) and invite-only in production.
@@ -31,7 +38,25 @@ export const ORG_CREATE_FORBIDDEN_MESSAGE =
   'Creating organizations is disabled on this swarmy — ask an admin to invite you';
 
 /** The slice of the Prisma client the policy reads. */
-export type SignupPolicyDb = Pick<DB, 'user' | 'organization' | 'invitation' | 'member'>;
+export type SignupPolicyDb = Pick<DB, 'user' | 'organization' | 'invitation' | 'member'> &
+  Partial<Pick<DB, 'ssoProvider'>>;
+
+/** How the account is being created (from the Better Auth request, when there is one). */
+export interface SignupVia {
+  /** Invitation id from the invite-link cookie. */
+  inviteId?: string | null;
+  /** The org SSO provider id when the path is `/oauth2/callback/<providerId>`. */
+  ssoProviderId?: string | null;
+  /** The installer's bootstrap username (no-email first admin). */
+  username?: string | null;
+}
+
+/** Does an org SSO provider admit new people on first login? (`metadata.autoProvision`, default on). */
+export function ssoAutoProvisions(row: { enabled: boolean; metadata: unknown } | null | undefined): boolean {
+  if (!row?.enabled) return false;
+  const meta = (row.metadata ?? {}) as Record<string, unknown>;
+  return meta.autoProvision !== false;
+}
 
 export function resolveSignupMode(env: Env = process.env): SignupMode {
   const raw = env.SWARMY_ALLOW_SIGNUP?.trim().toLowerCase();
@@ -46,15 +71,14 @@ export async function isSignupAllowed(
   email: string,
   env: Env = process.env,
   now: Date = new Date(),
+  via: SignupVia = {},
 ): Promise<boolean> {
   if (resolveSignupMode(env) === 'open') return true;
   const normalized = email.trim().toLowerCase();
-  if (
-    env.SWARMY_BOOTSTRAP === '1' &&
-    env.ADMIN_EMAIL &&
-    env.ADMIN_EMAIL.trim().toLowerCase() === normalized
-  ) {
-    return true;
+  if (env.SWARMY_BOOTSTRAP === '1') {
+    if (env.ADMIN_EMAIL && env.ADMIN_EMAIL.trim().toLowerCase() === normalized) return true;
+    const adminUser = env.ADMIN_USERNAME?.trim().toLowerCase();
+    if (adminUser && via.username?.trim().toLowerCase() === adminUser) return true;
   }
   if ((await db.user.count()) === 0) return true;
   // Better Auth's organization plugin stores invitation emails lowercased.
@@ -62,7 +86,22 @@ export async function isSignupAllowed(
     where: { email: normalized, status: 'pending', expiresAt: { gt: now } },
     select: { id: true },
   });
-  return invite !== null;
+  if (invite) return true;
+  if (via.inviteId) {
+    const link = await db.invitation.findFirst({
+      where: { id: via.inviteId, status: 'pending', expiresAt: { gt: now } },
+      select: { id: true },
+    });
+    if (link) return true;
+  }
+  if (via.ssoProviderId && db.ssoProvider) {
+    const row = await db.ssoProvider.findUnique({
+      where: { providerId: via.ssoProviderId },
+      select: { enabled: true, metadata: true },
+    });
+    if (ssoAutoProvisions(row)) return true;
+  }
+  return false;
 }
 
 /** Throwing variant for the Better Auth `user.create.before` hook. */
@@ -70,8 +109,9 @@ export async function assertSignupAllowed(
   db: SignupPolicyDb,
   email: string,
   env: Env = process.env,
+  via: SignupVia = {},
 ): Promise<void> {
-  if (await isSignupAllowed(db, email, env)) return;
+  if (await isSignupAllowed(db, email, env, new Date(), via)) return;
   throw new APIError('FORBIDDEN', { message: INVITE_ONLY_MESSAGE, code: 'SIGNUP_INVITE_ONLY' });
 }
 

@@ -12,7 +12,7 @@ import {
   withClientIp,
 } from '@swarmy/auth';
 import { prisma, ensureSchema, buildAdapter, resolveDbDriver } from '@swarmy/db';
-import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim } from '@swarmy/trpc';
+import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim, writeAudit } from '@swarmy/trpc';
 import { createRestApp } from '@swarmy/api-rest';
 import { env } from './env';
 import { maybeBootstrapSeed } from './bootstrap/seed';
@@ -298,6 +298,11 @@ if (resolveDbDriver() === 'pglite' || process.env.SWARMY_SELF_MIGRATE === '1') {
   }
 }
 
+// Sign-in provisioning (invite links, SSO JIT membership + group sync) audits
+// through the one audit writer.
+authRegistry.configure({
+  audit: (orgId, entry) => writeAudit({ db: prisma, activeOrgId: orgId, user: null }, entry),
+});
 // Load stored auth-provider config so social/SSO providers are live without a restart.
 await authRegistry.rebuild();
 

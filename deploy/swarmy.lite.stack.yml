@@ -46,6 +46,8 @@ services:
       # (auth rate limits, sessions) comes from X-Forwarded-For, not Caddy's address.
       SWARMY_TRUSTED_PROXIES: ${SWARMY_TRUSTED_PROXIES:-}
       ADMIN_EMAIL: ${SWARMY_ADMIN_EMAIL}
+      # Username login for the first owner when there is no email (optional).
+      ADMIN_USERNAME: ${SWARMY_ADMIN_USERNAME:-}
       # Registration: unset/empty = invite-only (production default); "true" = open sign-up.
       SWARMY_ALLOW_SIGNUP: ${SWARMY_ALLOW_SIGNUP:-}
       # Non-secret swarm identity; the join tokens themselves arrive as secrets below.

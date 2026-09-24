@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { authRegistry, resolveSignupMode, type SignupMode } from '@swarmy/auth';
-import { adminProcedure, orgProcedure, publicProcedure, router } from '../trpc';
-import { listProviders, setProvider } from '../services/authConfig.service';
+import { adminProcedure, orgProcedure, protectedProcedure, publicProcedure, router } from '../trpc';
+import { listProviders, setProvider, signInOptions, type SignInOption } from '../services/authConfig.service';
+import { acceptInvitation, invitationPreview, type InvitationPreview } from '../services/invitations.service';
 
 /**
  * Admin-gated auth-provider configuration. Reads are org-members; writes are
@@ -10,12 +11,30 @@ import { listProviders, setProvider } from '../services/authConfig.service';
  */
 export const authConfigRouter = router({
   /**
-   * Unauthenticated: what the login page needs before anyone signs in. Only the
-   * registration mode — never provider secrets or org data.
+   * Unauthenticated: what the login page needs before anyone signs in. The
+   * registration mode and the sign-in buttons (provider ids + labels) — never
+   * provider secrets or org data.
    */
-  publicConfig: publicProcedure.query((): { signupMode: SignupMode } => ({
-    signupMode: resolveSignupMode(),
-  })),
+  publicConfig: publicProcedure.query(
+    async ({ ctx }): Promise<{ signupMode: SignupMode; signIn: SignInOption[] }> => ({
+      signupMode: resolveSignupMode(),
+      signIn: await signInOptions(ctx.db),
+    }),
+  ),
+
+  /** Unauthenticated: who an invite link is from, for the login page. The link id is the credential. */
+  invitePreview: publicProcedure
+    .input(z.object({ id: z.string().regex(/^[\w-]{1,128}$/) }))
+    .query(({ ctx, input }): Promise<InvitationPreview | null> => invitationPreview(ctx.db, input.id)),
+
+  /**
+   * Redeem an invite link for the signed-in user (any sign-in method; no email
+   * match needed) and make its org active. Idempotent: the sign-in hook
+   * usually redeemed it already.
+   */
+  acceptInvite: protectedProcedure
+    .input(z.object({ id: z.string().regex(/^[\w-]{1,128}$/) }))
+    .mutation(({ ctx, input }) => acceptInvitation(ctx, input.id)),
 
   listProviders: orgProcedure.query(({ ctx }) => listProviders(ctx)),
 
@@ -27,6 +46,7 @@ export const authConfigRouter = router({
         clientId: z.string().optional(),
         clientSecret: z.string().optional(),
         scopes: z.array(z.string()).optional(),
+        settings: z.record(z.string(), z.string().max(500)).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {

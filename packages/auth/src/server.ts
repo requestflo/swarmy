@@ -3,6 +3,7 @@ import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { APIError } from 'better-auth/api';
 import { organization, magicLink } from 'better-auth/plugins';
 import { genericOAuth } from 'better-auth/plugins/generic-oauth';
+import { username } from 'better-auth/plugins/username';
 import { prisma, type DB } from '@swarmy/db';
 import {
   loadAuthConfig,
@@ -18,6 +19,14 @@ import {
 import { authTrustedOrigins } from './origins';
 import { mfaAssurance, swarmyTwoFactor } from './two-factor';
 import { OIDC_DISABLED_PATHS, swarmyOidcProvider } from './oidc-provider';
+import {
+  inviteIdFromRequest,
+  socialProfileMapper,
+  ssoProfileMapper,
+  ssoProviderIdFromPath,
+  swarmyProvisioning,
+  type AuthAudit,
+} from './provisioning';
 
 /**
  * Per-IP limits for the credential endpoints. Keyed on the IP the host resolved
@@ -70,11 +79,16 @@ export interface BuildAuthOptions {
   sendMagicLink?: SendMagicLink;
   /** Extra plugins to merge (e.g. a host-provided passkey plugin). */
   extraPlugins?: ExtraPlugin[];
+  /** Audit sink for sign-in provisioning (apps/api wires `writeAudit`). */
+  audit?: AuthAudit;
 }
 
-/** Map a resolved OIDC SSO provider to a genericOAuth provider config. */
+/**
+ * Map a resolved OIDC SSO provider to a genericOAuth provider config. Works
+ * with any standards OIDC IdP (Keycloak, Authentik, Zitadel, Entra ID, Okta…)
+ * via its discovery URL — swarmy depends on no external cloud for sign-in.
+ */
 function ssoToGenericOAuth(p: ResolvedSsoProvider) {
-  const mapping = p.mapping ?? {};
   return {
     providerId: p.providerId,
     clientId: p.clientId ?? '',
@@ -85,19 +99,21 @@ function ssoToGenericOAuth(p: ResolvedSsoProvider) {
     ...(p.tokenUrl ? { tokenUrl: p.tokenUrl } : {}),
     ...(p.userInfoUrl ? { userInfoUrl: p.userInfoUrl } : {}),
     scopes: p.scopes ?? ['openid', 'email', 'profile'],
-    ...(Object.keys(mapping).length
-      ? {
-          mapProfileToUser: (profile: Record<string, unknown>) => {
-            const out: Record<string, unknown> = {};
-            for (const [userField, claim] of Object.entries(mapping)) {
-              if (profile[claim] !== undefined) out[userField] = profile[claim];
-            }
-            return out;
-          },
-        }
-      : {}),
+    pkce: true,
+    // Claim mapping, an email placeholder for IdPs that send none, and the
+    // group claim handed to the provisioning hook (provisioning.ts).
+    mapProfileToUser: ssoProfileMapper(p),
   };
 }
+
+type SocialConfig = {
+  clientId: string;
+  clientSecret: string;
+  scope?: string[];
+  tenantId?: string;
+  issuer?: string;
+  mapProfileToUser: (profile: Record<string, unknown>) => Record<string, unknown>;
+};
 
 /**
  * Build a Better Auth instance from a resolved (decrypted) config. The static
@@ -115,14 +131,19 @@ export function buildAuth(
   opts: BuildAuthOptions = {},
 ) {
   const db = opts.db ?? prisma;
-  const socialProviders: Record<string, { clientId: string; clientSecret: string; scope?: string[] }> =
-    {};
+  const socialProviders: Record<string, SocialConfig> = {};
   for (const [id, provider] of Object.entries(config.social)) {
     if (!provider) continue;
+    const settings = provider.settings ?? {};
     socialProviders[id] = {
       clientId: provider.clientId,
       clientSecret: provider.clientSecret,
       ...(provider.scopes ? { scope: provider.scopes } : {}),
+      // Microsoft Entra ID: pin a tenant to accept only your directory.
+      ...(id === 'microsoft' && settings.tenantId ? { tenantId: settings.tenantId } : {}),
+      // GitLab: a self-hosted instance's base URL.
+      ...(id === 'gitlab' && settings.issuer ? { issuer: settings.issuer } : {}),
+      mapProfileToUser: socialProfileMapper(id),
     };
   }
 
@@ -151,6 +172,7 @@ export function buildAuth(
   if (opts.extraPlugins?.length) {
     optional.push(...opts.extraPlugins);
   }
+  const ssoById = new Map((config.sso ?? []).map((p) => [p.providerId, p]));
 
   return betterAuth({
     database: prismaAdapter(db, { provider: 'postgresql' }),
@@ -171,8 +193,13 @@ export function buildAuth(
       // stranger. Refusal surfaces as a 403 with the invite-only message.
       user: {
         create: {
-          before: async (user) => {
-            await assertSignupAllowed(db, user.email);
+          before: async (user, ctx) => {
+            const ssoProviderId = ssoProviderIdFromPath(ctx?.path, ctx?.params as Record<string, unknown>);
+            await assertSignupAllowed(db, user.email, process.env, {
+              inviteId: inviteIdFromRequest(ctx),
+              ssoProviderId: ssoProviderId && ssoById.has(ssoProviderId) ? ssoProviderId : null,
+              username: typeof user.username === 'string' ? user.username : null,
+            });
           },
         },
       },
@@ -249,6 +276,10 @@ export function buildAuth(
       mfaAssurance(db),
       // swarmy as an OIDC provider for in-cluster tools (NetBird). See oidc-provider.ts.
       ...swarmyOidcProvider(db),
+      // Username sign-in: email is optional on swarmy (identity.ts). Static so
+      // `Auth` infers `user.username` and `/sign-in/username`.
+      username({ minUsernameLength: 2, maxUsernameLength: 40 }),
+      swarmyProvisioning(db, { sso: config.sso ?? [], audit: opts.audit }),
       ...optional,
     ],
   });
@@ -271,9 +302,14 @@ export class AuthRegistry {
   constructor(
     private readonly db: DB = prisma,
     initial?: ResolvedAuthConfig,
-    private readonly opts: BuildAuthOptions = {},
+    private opts: BuildAuthOptions = {},
   ) {
     this.current = buildAuth(initial, { db, ...opts });
+  }
+
+  /** Merge host injections (audit sink, extra plugins); applied on the next rebuild. */
+  configure(opts: Partial<BuildAuthOptions>): void {
+    this.opts = { ...this.opts, ...opts };
   }
 
   getAuth(): Auth {

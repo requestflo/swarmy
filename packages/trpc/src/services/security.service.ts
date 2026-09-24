@@ -1,5 +1,6 @@
 import { TRPCError } from '@trpc/server';
 import type { DB } from '@swarmy/db';
+import { displayEmail, usernamePlaceholderEmail } from '@swarmy/auth';
 import type { AuthedContext, OrgContext } from '../context';
 import { writeAudit } from './audit.service';
 import {
@@ -245,7 +246,7 @@ export async function listMemberMfa(ctx: OrgContext) {
       memberId: m.id,
       userId: m.user.id,
       name: m.user.name,
-      email: m.user.email,
+      email: displayEmail(m.user.email),
       role: m.role,
       enrolled: m.user.twoFactorEnabled,
       ssoOnly,
@@ -304,13 +305,20 @@ export async function resetMemberTwoFactor(ctx: OrgContext, memberId: string) {
 }
 
 /**
- * Controller-CLI recovery (`bun run reset-2fa --email …`): the locked-out-owner
+ * Controller-CLI recovery (`bun run reset-2fa --user <email|username>`): the locked-out-owner
  * path. Whoever can exec into the controller already holds the database, so
  * this adds no power; it is audited as a `system` action in every org the user
  * belongs to.
  */
-export async function resetTwoFactorByEmail(db: Db, email: string) {
-  const user = await db.user.findUnique({ where: { email: email.trim().toLowerCase() }, select: { id: true } });
+export async function resetTwoFactorByEmail(db: Db, identifier: string) {
+  const id = identifier.trim().toLowerCase();
+  // Email is optional: accept a username (or its placeholder address) too.
+  const user =
+    (await db.user.findUnique({ where: { email: id }, select: { id: true } })) ??
+    (id.includes('@')
+      ? null
+      : ((await db.user.findUnique({ where: { username: id }, select: { id: true } })) ??
+        (await db.user.findUnique({ where: { email: usernamePlaceholderEmail(id) }, select: { id: true } }))));
   if (!user) return { found: false as const };
   const orgs = await db.member.findMany({ where: { userId: user.id }, select: { organizationId: true } });
   await wipeTwoFactor(db, user.id);

@@ -996,9 +996,11 @@ export async function confirmAppActions(
       const { action, resource } = authorizationFor(a, desired.stack, ctx.activeOrgId);
       const decision = await evaluateAccess(ctx, action, resource);
       if (decision.decision !== 'permit') {
+        // Stable swarmyCode (POLICY_DENIED) so REST/SDK clients can branch on it.
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: `You can't confirm "${a.reason}" (${action}).`,
+          cause: { swarmyCode: 'POLICY_DENIED', policyId: decision.policyId },
         });
       }
       confirmed.push(id);
@@ -1211,7 +1213,7 @@ export async function detectDrift(
   opts: { notify?: boolean } = {},
 ): Promise<Array<{ environment: string; stack: string; changes: number }>> {
   const repo = await ctx.db.gitRepo.findFirst({ where: { id: repoId, orgId: ctx.activeOrgId } });
-  if (!repo) return [];
+  if (!repo) throw notFound('repo', repoId);
   const rows = await ctx.db.appPlan.findMany({
     where: { repoId, prNumber: 0, status: { in: ['applied', 'needs-confirmation'] } },
     orderBy: { updatedAt: 'desc' },

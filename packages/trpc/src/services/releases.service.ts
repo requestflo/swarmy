@@ -1,3 +1,4 @@
+import { displayEmail } from '@swarmy/auth';
 import {
   buildInventory,
   type ComposeDiffLine,
@@ -210,7 +211,7 @@ export async function recordRelease(
 ): Promise<{ id: string }> {
   const gate = parseHealthGate(input.deployLabels[DEPLOY_SAFETY_LABEL]);
   const strategy = parseStrategy(input.deployLabels[DEPLOY_STRATEGY_LABEL]);
-  const actor = ctx.user ? (ctx.user.email ?? ctx.user.name ?? ctx.user.id) : 'system';
+  const actor = ctx.user ? (displayEmail(ctx.user.email) ?? ctx.user.name ?? ctx.user.id) : 'system';
 
   await ctx.db.release.updateMany({
     where: { orgId: ctx.activeOrgId, stackName: input.stackName, status: 'DEPLOYING' },

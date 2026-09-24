@@ -7,8 +7,29 @@ import { decryptSecret } from '@swarmy/core/crypto';
  * by storing an `AuthProviderConfig` row with `enabled`, a `clientId`, and an
  * encrypted client secret.
  */
-export const SOCIAL_PROVIDERS = ['github', 'google'] as const;
+export const SOCIAL_PROVIDERS = ['microsoft', 'google', 'github', 'gitlab'] as const;
 export type SocialProviderId = (typeof SOCIAL_PROVIDERS)[number];
+
+/** Human names for the login buttons and the admin cards. */
+export const SOCIAL_PROVIDER_LABELS: Record<SocialProviderId, string> = {
+  microsoft: 'Microsoft',
+  google: 'Google',
+  github: 'GitHub',
+  gitlab: 'GitLab',
+};
+
+/**
+ * Per-provider, non-secret settings (`AuthProviderConfig.settings`):
+ *  - microsoft `tenantId`: an Entra ID tenant (GUID or domain) to accept only
+ *    your directory; default `common` (any work or personal account).
+ *  - gitlab `issuer`: a self-hosted GitLab's base URL; default gitlab.com.
+ */
+export const SOCIAL_PROVIDER_SETTINGS: Record<SocialProviderId, readonly string[]> = {
+  microsoft: ['tenantId'],
+  google: [],
+  github: [],
+  gitlab: ['issuer'],
+};
 
 export function isSocialProvider(type: string): type is SocialProviderId {
   return (SOCIAL_PROVIDERS as readonly string[]).includes(type);
@@ -31,6 +52,8 @@ export interface ResolvedSocialProvider {
   clientId: string;
   clientSecret: string;
   scopes?: string[];
+  /** Non-secret provider settings (see {@link SOCIAL_PROVIDER_SETTINGS}). */
+  settings?: Record<string, string>;
 }
 
 /** A resolved per-org enterprise SSO provider (OIDC via genericOAuth, or SAML). */
@@ -47,8 +70,20 @@ export interface ResolvedSsoProvider {
   clientId?: string | null;
   clientSecret?: string | null;
   scopes?: string[];
-  /** claim → user/member-attribute mapping (e.g. { email: "mail", name: "displayName" }). */
+  /**
+   * claim → user-field mapping (e.g. { email: "mail", name: "displayName" }).
+   * The reserved key `groups` names the group claim (default `groups`); see
+   * {@link ResolvedSsoProvider.groupMap}.
+   */
   mapping?: Record<string, string>;
+  /** Button label on the login page (`metadata.displayName`), default the providerId. */
+  displayName?: string;
+  /** Admit new people on first login and add them to `orgId` (default on). */
+  autoProvision?: boolean;
+  /** Role for an auto-provisioned member (never owner). */
+  defaultRole?: 'admin' | 'member';
+  /** IdP group → swarmy group(s) allow-list; empty = pass IdP group names through. */
+  groupMap?: Record<string, string>;
 }
 
 /**
@@ -72,6 +107,7 @@ export interface ProviderStatus {
   clientId: string | null;
   hasSecret: boolean;
   scopes: string[];
+  settings: Record<string, string>;
 }
 
 interface EnvFallback {
@@ -82,7 +118,28 @@ interface EnvFallback {
 const ENV_FALLBACK: Record<SocialProviderId, EnvFallback> = {
   github: { clientIdVar: 'GITHUB_CLIENT_ID', clientSecretVar: 'GITHUB_CLIENT_SECRET' },
   google: { clientIdVar: 'GOOGLE_CLIENT_ID', clientSecretVar: 'GOOGLE_CLIENT_SECRET' },
+  microsoft: { clientIdVar: 'MICROSOFT_CLIENT_ID', clientSecretVar: 'MICROSOFT_CLIENT_SECRET' },
+  gitlab: { clientIdVar: 'GITLAB_CLIENT_ID', clientSecretVar: 'GITLAB_CLIENT_SECRET' },
 };
+
+/** Env-only settings fallback (first-boot seeding), e.g. MICROSOFT_TENANT_ID. */
+function envSettings(type: SocialProviderId): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (type === 'microsoft' && process.env.MICROSOFT_TENANT_ID) out.tenantId = process.env.MICROSOFT_TENANT_ID;
+  if (type === 'gitlab' && process.env.GITLAB_ISSUER) out.issuer = process.env.GITLAB_ISSUER;
+  return out;
+}
+
+/** Keep only the known, non-empty string settings for a provider. */
+export function cleanSocialSettings(type: SocialProviderId, raw: unknown): Record<string, string> {
+  const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const out: Record<string, string> = {};
+  for (const key of SOCIAL_PROVIDER_SETTINGS[type]) {
+    const v = src[key];
+    if (typeof v === 'string' && v.trim()) out[key] = v.trim();
+  }
+  return out;
+}
 
 function safeDecrypt(blob: string | null | undefined): string | undefined {
   if (!blob) return undefined;
@@ -124,7 +181,8 @@ export async function loadAuthConfig(db: DB): Promise<ResolvedAuthConfig> {
     clientSecret ??= process.env[fallback.clientSecretVar];
 
     if (clientId && clientSecret) {
-      social[type] = { clientId, clientSecret, scopes: scopes.length ? scopes : undefined };
+      const settings = { ...envSettings(type), ...cleanSocialSettings(type, row.settings) };
+      social[type] = { clientId, clientSecret, scopes: scopes.length ? scopes : undefined, settings };
     }
   }
 
@@ -134,7 +192,7 @@ export async function loadAuthConfig(db: DB): Promise<ResolvedAuthConfig> {
     const fallback = ENV_FALLBACK[type];
     const clientId = process.env[fallback.clientIdVar];
     const clientSecret = process.env[fallback.clientSecretVar];
-    if (clientId && clientSecret) social[type] = { clientId, clientSecret };
+    if (clientId && clientSecret) social[type] = { clientId, clientSecret, settings: envSettings(type) };
   }
 
   const sso = await loadSsoProviders(db);
@@ -162,8 +220,19 @@ export async function loadSsoProviders(db: DB): Promise<ResolvedSsoProvider[]> {
       clientSecret: safeDecrypt(row.encryptedSecret) ?? null,
       scopes: Array.isArray(meta.scopes) ? (meta.scopes as string[]) : ['openid', 'email', 'profile'],
       mapping,
+      displayName: typeof meta.displayName === 'string' && meta.displayName.trim() ? meta.displayName.trim() : row.providerId,
+      autoProvision: meta.autoProvision !== false,
+      defaultRole: meta.defaultRole === 'admin' ? 'admin' : 'member',
+      groupMap: stringRecord(meta.groupMap),
     };
   });
+}
+
+function stringRecord(v: unknown): Record<string, string> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  return Object.fromEntries(
+    Object.entries(v as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'),
+  );
 }
 
 /**

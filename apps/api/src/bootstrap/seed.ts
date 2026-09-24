@@ -11,7 +11,9 @@
  * never sets the flag) is untouched.
  *
  * The installer hands us, via env + Docker secrets (expanded by docker-entrypoint.sh):
- *   ADMIN_EMAIL, ADMIN_PASSWORD             — the first owner login
+ *   ADMIN_EMAIL, ADMIN_PASSWORD             — the first owner login. ADMIN_USERNAME
+ *                                             may replace (or accompany) ADMIN_EMAIL:
+ *                                             email is optional on swarmy.
  *   SWARMY_BOOTSTRAP_JOIN_TOKEN             — raw join token; the installer keeps the
  *                                             same value to enrol node #1, we store only
  *                                             its hash (so no cross-language hashing risk)
@@ -33,7 +35,7 @@
  *                                             Caddy edge serves a `dashboard` controller vhost.
  */
 import { randomUUID } from 'node:crypto';
-import { auth } from '@swarmy/auth';
+import { auth, usernamePlaceholderEmail } from '@swarmy/auth';
 import { encryptSecret, hashToken } from '@swarmy/core/crypto';
 import { buildMeshConfigRow } from '@swarmy/core/mesh-bootstrap';
 import { prisma } from '@swarmy/db';
@@ -49,15 +51,16 @@ function log(m: string): void {
 export async function maybeBootstrapSeed(): Promise<void> {
   if (process.env.SWARMY_BOOTSTRAP !== '1') return;
 
-  const email = process.env.ADMIN_EMAIL;
+  const username = process.env.ADMIN_USERNAME?.trim().toLowerCase() || undefined;
+  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase() || (username ? usernamePlaceholderEmail(username) : undefined);
   const password = process.env.ADMIN_PASSWORD;
   if (!email || !password) {
-    log('SWARMY_BOOTSTRAP=1 but ADMIN_EMAIL/ADMIN_PASSWORD are unset — skipping admin seed.');
+    log('SWARMY_BOOTSTRAP=1 but ADMIN_EMAIL (or ADMIN_USERNAME) / ADMIN_PASSWORD are unset — skipping admin seed.');
     return;
   }
 
   const orgId = await ensureOrg();
-  const userId = await ensureOwner(email, password);
+  const userId = await ensureOwner(email, password, username);
   await ensureMembership(orgId, userId);
 
   const rawToken = process.env.SWARMY_BOOTSTRAP_JOIN_TOKEN;
@@ -67,7 +70,7 @@ export async function maybeBootstrapSeed(): Promise<void> {
   await ensureMeshConfig(orgId);
   await ensureDashboardDomain(orgId);
 
-  log(`bootstrap complete — org "${ORG_NAME}", owner ${email}.`);
+  log(`bootstrap complete — org "${ORG_NAME}", owner ${username ?? email}.`);
 }
 
 async function ensureOrg(): Promise<string> {
@@ -84,14 +87,17 @@ async function ensureOrg(): Promise<string> {
   return org.id;
 }
 
-async function ensureOwner(email: string, password: string): Promise<string> {
+async function ensureOwner(email: string, password: string, username?: string): Promise<string> {
   const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
   if (existing) return existing.id;
-  // Better Auth owns password hashing + the linked `account` row.
-  await auth.api.signUpEmail({ body: { email, password, name: email.split('@')[0] || 'admin' } });
+  // Better Auth owns password hashing + the linked `account` row (and, via the
+  // username plugin, the unique username).
+  await auth.api.signUpEmail({
+    body: { email, password, name: username ?? (email.split('@')[0] || 'admin'), ...(username ? { username } : {}) },
+  });
   const created = await prisma.user.findUnique({ where: { email }, select: { id: true } });
   if (!created) throw new Error('bootstrap: user sign-up reported success but no user row found');
-  log(`created owner user ${email}.`);
+  log(`created owner user ${username ?? email}.`);
   return created.id;
 }
 

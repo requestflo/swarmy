@@ -234,3 +234,23 @@ describe('regenerateInvitation', () => {
     ]);
   });
 });
+
+describe('link-only invites (email is optional)', () => {
+  it('mints an invite with no email: a placeholder address, kind link, email hidden', async () => {
+    const f = fakeCtx();
+    const view = await inviteMember(f.ctx, { email: null, role: 'member' });
+    expect(view.kind).toBe('link');
+    expect(view.email).toBeNull();
+    expect(view.link).toBe('https://swarmy.example.com/login?invite=inv-1');
+    expect(f.createCalls[0]!.email).toMatch(/^invite-[\w-]+@invite\.swarmy\.invalid$/);
+    expect(f.audits[0]!.metadata).toMatchObject({ kind: 'link', role: 'member' });
+  });
+
+  it('regenerates a link invite with a fresh placeholder', async () => {
+    const f = fakeCtx();
+    const first = await inviteMember(f.ctx, { role: 'admin' });
+    const again = await regenerateInvitation(f.ctx, first.id);
+    expect(again.kind).toBe('link');
+    expect(f.createCalls[1]!.email).not.toBe(f.createCalls[0]!.email);
+  });
+});

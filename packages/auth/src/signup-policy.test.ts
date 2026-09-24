@@ -107,6 +107,39 @@ describe('canCreateOrganization', () => {
   });
 });
 
+describe('isSignupAllowed — invite links, SSO and username bootstrap', () => {
+  const linkDb = (extra: Record<string, unknown> = {}) =>
+    ({
+      ...fakeDb({ users: 1 }),
+      invitation: {
+        findFirst: async ({ where }: { where: { id?: string; email?: string } }) =>
+          where.id === 'inv_link' ? { id: 'inv_link' } : null,
+      },
+      ...extra,
+    }) as unknown as SignupPolicyDb;
+
+  it('admits any address when the request holds a pending invite link', async () => {
+    expect(await isSignupAllowed(linkDb(), 'alice@user.swarmy.invalid', PROD, new Date(), { inviteId: 'inv_link' })).toBe(true);
+    expect(await isSignupAllowed(linkDb(), 'alice@user.swarmy.invalid', PROD, new Date(), { inviteId: 'nope' })).toBe(false);
+  });
+
+  it('admits an org SSO first login only when the provider auto-provisions', async () => {
+    const sso = (metadata: Record<string, unknown>, enabled = true) => ({
+      ssoProvider: { findUnique: async () => ({ enabled, metadata }) },
+    });
+    const via = { ssoProviderId: 'keycloak' };
+    expect(await isSignupAllowed(linkDb(sso({})), 'bob@corp.test', PROD, new Date(), via)).toBe(true);
+    expect(await isSignupAllowed(linkDb(sso({ autoProvision: false })), 'bob@corp.test', PROD, new Date(), via)).toBe(false);
+    expect(await isSignupAllowed(linkDb(sso({}, false)), 'bob@corp.test', PROD, new Date(), via)).toBe(false);
+  });
+
+  it('lets the installer seed a no-email owner by ADMIN_USERNAME', async () => {
+    const env = { ...PROD, SWARMY_BOOTSTRAP: '1', ADMIN_USERNAME: 'Root' };
+    expect(await isSignupAllowed(linkDb(), 'root@user.swarmy.invalid', env, new Date(), { username: 'root' })).toBe(true);
+    expect(await isSignupAllowed(linkDb(), 'root@user.swarmy.invalid', env, new Date(), { username: 'eve' })).toBe(false);
+  });
+});
+
 describe('buildAuth wiring', () => {
   it('runs the policy in the user.create.before hook and gates org creation', async () => {
     const prev = { ...process.env };
@@ -118,7 +151,10 @@ describe('buildAuth wiring', () => {
       const before = ctx.options.databaseHooks?.user?.create?.before;
       expect(before).toBeDefined();
       await expect(
-        before!({ id: 'u', email: 'eve@evil.test', name: 'eve', emailVerified: false, createdAt: new Date(), updatedAt: new Date() }),
+        before!(
+          { id: 'u', email: 'eve@evil.test', name: 'eve', emailVerified: false, createdAt: new Date(), updatedAt: new Date() },
+          null,
+        ),
       ).rejects.toThrow(INVITE_ONLY_MESSAGE);
 
       const org = ctx.options.plugins?.find((p) => p.id === 'organization') as

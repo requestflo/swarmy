@@ -1,5 +1,6 @@
 /**
- * Locked-out-owner recovery: `bun run reset-2fa --email owner@example.com`.
+ * Locked-out-owner recovery: `bun run reset-2fa --email owner@example.com`
+ * (or `--user <username>` for an account without email).
  *
  * Removes the user's authenticator and backup codes, turns 2FA off, and signs
  * them out everywhere, so they can sign in with their password alone and
@@ -24,16 +25,16 @@ function arg(name: string): string | undefined {
   return v && !v.startsWith('--') ? v : undefined;
 }
 
-const email = arg('email') ?? process.env.SWARMY_RESET_2FA_EMAIL;
+const email = arg('email') ?? arg('user') ?? process.env.SWARMY_RESET_2FA_EMAIL;
 if (!email) {
-  console.error('usage: bun run reset-2fa --email <user email>');
+  console.error('usage: bun run reset-2fa --email <user email> | --user <username>');
   process.exit(2);
 }
 
 try {
   const res = await resetTwoFactorByEmail(prisma, email);
   if (!res.found) {
-    console.error(`no user with email ${email}`);
+    console.error(`no user with email or username ${email}`);
     process.exit(1);
   }
   console.log(

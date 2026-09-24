@@ -21,7 +21,7 @@
 #   --check                      preflight only — detect + report, mutate nothing
 #   --uninstall                  remove the swarmy stack, secrets, and node #1 agent
 #   --standard                   Postgres tier (default: lite/embedded PGlite)
-#   --admin-email <e>            SWARMY_ADMIN_EMAIL
+#   --admin-email <e>            SWARMY_ADMIN_EMAIL (a value without "@" is a username login)
 #   --admin-password <p>         SWARMY_ADMIN_PASSWORD   (generated if unset)
 #   --domain <host>              SWARMY_DOMAIN — the dashboard's https domain (point an A
 #                                record at this box). On a public-IP box it defaults to
@@ -383,7 +383,8 @@ choose()      { # choose VAR "prompt" opt1 opt2 ...  → echoes chosen value
 
 wizard() {
   hr; say "Configuration"
-  [ -n "$ADMIN_EMAIL" ] || ADMIN_EMAIL="$(prompt 'Admin email' 'admin@localhost')"
+  # Email is optional: a value without "@" is a username login.
+  [ -n "$ADMIN_EMAIL" ] || ADMIN_EMAIL="$(prompt 'Admin username or email' 'admin')"
   if [ -z "$ADMIN_PASSWORD" ]; then
     ADMIN_PASSWORD="$(prompt_secret 'Admin password (blank = generate)')"
     [ -n "$ADMIN_PASSWORD" ] || { ADMIN_PASSWORD="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)"; GENERATED_PW=1; }
@@ -652,7 +653,8 @@ deploy_stack() {
   SWARMY_DASHBOARD_DOMAIN="$DASHBOARD_DOMAIN" \
   SWARMY_DIRECT_URL="$LOGIN_URL" \
   SWARMY_TRUSTED_PROXIES="$trusted_proxies" \
-  SWARMY_ADMIN_EMAIL="$ADMIN_EMAIL" \
+  SWARMY_ADMIN_EMAIL="$(case "$ADMIN_EMAIL" in *@*) printf '%s' "$ADMIN_EMAIL" ;; esac)" \
+  SWARMY_ADMIN_USERNAME="$(case "$ADMIN_EMAIL" in *@*) ;; *) printf '%s' "$ADMIN_EMAIL" ;; esac)" \
   SWARMY_SWARM_ID="$SWARM_ID" \
   SWARMY_MANAGER_ADDR="$SWARM_MANAGER_ADDR" \
   SWARMY_PUBLISH_PORT="$PUBLISH_PORT" \

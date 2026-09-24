@@ -57,7 +57,8 @@ export const membersRouter = router({
   invite: adminProcedure
     .input(
       z.object({
-        email: z.string().trim().toLowerCase().email(),
+        // Optional: omit for a link-only invite (not everyone has email).
+        email: z.union([z.string().trim().toLowerCase().email(), z.literal('')]).nullish(),
         role: z.enum(['owner', 'admin', 'member']),
       }),
     )

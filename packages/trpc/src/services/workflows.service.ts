@@ -1,3 +1,4 @@
+import { displayEmail } from '@swarmy/auth';
 import type {
   CreateWorkflowDefInput,
   TriggerWorkflowInput,
@@ -630,7 +631,7 @@ export async function approveRun(ctx: OrgContext, input: WorkflowDecisionInput):
   const steps = parseSteps(run.def.stepsJson);
   const step = steps[run.cursor]!;
   const state = parseRunState(run.stateJson);
-  const output = { approved: true, by: ctx.user?.email ?? 'system', ...(input.note ? { note: input.note } : {}) };
+  const output = { approved: true, by: (displayEmail(ctx.user?.email) ?? ctx.user?.name) || 'system', ...(input.note ? { note: input.note } : {}) };
   state.steps = [...state.steps, { name: step.name, output }];
   delete state.nextEligibleAt;
   const nextCursor = run.cursor + 1;
@@ -665,7 +666,7 @@ export async function rejectRun(ctx: OrgContext, input: WorkflowDecisionInput): 
   const steps = parseSteps(run.def.stepsJson);
   const step = steps[run.cursor]!;
   const state = parseRunState(run.stateJson);
-  const error = `rejected by ${ctx.user?.email ?? 'system'}${input.note ? `: ${input.note}` : ''}`;
+  const error = `rejected by ${(displayEmail(ctx.user?.email) ?? ctx.user?.name) || 'system'}${input.note ? `: ${input.note}` : ''}`;
   state.steps = [...state.steps, { name: step.name, error }];
 
   await ctx.db.workflowStepRun.updateMany({

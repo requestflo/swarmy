@@ -3,9 +3,10 @@ export {
   isSignupAllowed,
   assertSignupAllowed,
   canCreateOrganization,
+  ssoAutoProvisions,
   INVITE_ONLY_MESSAGE,
 } from './signup-policy';
-export type { SignupMode } from './signup-policy';
+export type { SignupMode, SignupVia } from './signup-policy';
 export { auth, buildAuth, AuthRegistry, authRegistry, AUTH_RATE_LIMIT_RULES } from './server';
 export {
   classifySessionPath,
@@ -44,10 +45,26 @@ export {
 } from './origins';
 export type { Auth, Session, AuthUser, SendMagicLink, BuildAuthOptions, ExtraPlugin } from './server';
 export {
+  PLACEHOLDER_EMAIL_TLD,
+  usernamePlaceholderEmail,
+  idpPlaceholderEmail,
+  invitePlaceholderEmail,
+  isPlaceholderEmail,
+  isLinkInviteEmail,
+  displayEmail,
+  INVITE_COOKIE,
+  groupsFromClaim,
+  mapGroups,
+} from './identity';
+export { redeemInvitation, provisionSsoMember, type AuthAudit } from './provisioning';
+export {
   loadAuthConfig,
   loadSsoProviders,
   resolveSsoProviderByEmail,
   SOCIAL_PROVIDERS,
+  SOCIAL_PROVIDER_LABELS,
+  SOCIAL_PROVIDER_SETTINGS,
+  cleanSocialSettings,
   AUTH_METHODS,
   isSocialProvider,
   isAuthMethod,
