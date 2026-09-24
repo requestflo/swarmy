@@ -20,6 +20,7 @@ import { incidents } from './resolvers/incidents';
 import { statuspages } from './resolvers/statuspages';
 import { releases } from './resolvers/releases';
 import { registrypolicy } from './resolvers/registrypolicy';
+import { registrycreds } from './resolvers/registrycreds';
 import { previews } from './resolvers/previews';
 import { secretsmgr } from './resolvers/secretsmgr';
 import { configsmgr } from './resolvers/configsmgr';
@@ -61,6 +62,7 @@ const MODULES: DomainResolvers[] = [
   statuspages,
   releases,
   registrypolicy,
+  registrycreds,
   previews,
   secretsmgr,
   configsmgr,

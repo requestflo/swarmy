@@ -7,6 +7,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { SectionHeader } from '@/components/section-header';
 import { CountUp } from '@/components/count-up';
 import { RegistryCard } from '@/components/ci/registry-card';
+import { RegistryCredentialsCard } from '@/components/ci/registry-credentials-card';
 import { GcPolicyCard } from '@/components/ci/gc-policy-card';
 import { ReposList } from '@/components/ci/repos-list';
 import { BuildsList } from '@/components/ci/builds-list';
@@ -57,6 +58,7 @@ function CiPage(): React.JSX.Element {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <RegistryCard config={registry.data} />
+        <RegistryCredentialsCard />
         <GcPolicyCard
           value={gc.data}
           onDone={() => qc.invalidateQueries({ queryKey: trpc.cicd.getGcPolicy.queryKey() })}
