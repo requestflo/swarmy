@@ -46,6 +46,9 @@ var appPreviewAttrTypes = map[string]attr.Type{
 	"url":        types.StringType,
 	"updated_at": types.StringType,
 	"plan_id":    types.StringType,
+	"branch":     types.StringType,
+	"data_from":  types.StringType,
+	"data_scrub": types.StringType,
 }
 
 var appDriftAttrTypes = map[string]attr.Type{
@@ -62,6 +65,12 @@ var appEnvironmentAttrTypes = map[string]attr.Type{
 	"latest_plan_status": types.StringType,
 	"latest_sha":         types.StringType,
 	"latest_created_at":  types.StringType,
+	"kept_volumes":       types.ListType{ElemType: types.ObjectType{AttrTypes: appKeptVolumesAttrTypes}},
+}
+
+var appKeptVolumesAttrTypes = map[string]attr.Type{
+	"resource": types.StringType,
+	"volumes":  types.ListType{ElemType: types.StringType},
 }
 
 // NewAppDataSource is the data source factory.
@@ -112,6 +121,9 @@ func (d *appDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, re
 						"url":        str("Preview URL, when routed."),
 						"updated_at": str("Last update (RFC 3339)."),
 						"plan_id":    str("Latest plan ID for the preview."),
+						"branch":     str("Branch of a branch preview (null for PR previews)."),
+						"data_from":  str("Environment whose latest backup the preview's data was copied from (null = no data)."),
+						"data_scrub": str("Scrub applied to the copied data, if any."),
 					},
 				},
 			},
@@ -139,6 +151,16 @@ func (d *appDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, re
 						"latest_plan_status": str("Latest plan status, e.g. applied, needs-confirmation, failed (open set)."),
 						"latest_sha":         str("Commit the latest plan is for."),
 						"latest_created_at":  str("When the latest plan was made (RFC 3339)."),
+						"kept_volumes": schema.ListNestedAttribute{
+							Computed:    true,
+							Description: "Removed Postgres clusters whose data is still on disk (delete via the purge API).",
+							NestedObject: schema.NestedAttributeObject{
+								Attributes: map[string]schema.Attribute{
+									"resource": str("Removed resource name."),
+									"volumes":  schema.ListAttribute{Computed: true, ElementType: types.StringType, Description: "Volumes still holding its data."},
+								},
+							},
+						},
 					},
 				},
 			},
@@ -159,7 +181,21 @@ func (d *appDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 	}
 	envs := make([]attr.Value, 0, len(app.Environments))
 	for _, e := range app.Environments {
+		kept := make([]attr.Value, 0, len(e.KeptVolumes))
+		for _, k := range e.KeptVolumes {
+			vols, diags := types.ListValueFrom(ctx, types.StringType, k.Volumes)
+			resp.Diagnostics.Append(diags...)
+			kv, diags := types.ObjectValue(appKeptVolumesAttrTypes, map[string]attr.Value{
+				"resource": types.StringValue(k.Resource),
+				"volumes":  vols,
+			})
+			resp.Diagnostics.Append(diags...)
+			kept = append(kept, kv)
+		}
+		keptList, diags := types.ListValue(types.ObjectType{AttrTypes: appKeptVolumesAttrTypes}, kept)
+		resp.Diagnostics.Append(diags...)
 		obj, diags := types.ObjectValue(appEnvironmentAttrTypes, map[string]attr.Value{
+			"kept_volumes":       keptList,
 			"environment":        types.StringValue(e.Environment),
 			"branch":             types.StringValue(e.Branch),
 			"stack":              types.StringValue(e.Stack),
@@ -186,6 +222,9 @@ func (d *appDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 			"url":        stringPtrToValue(p.URL),
 			"updated_at": types.StringValue(p.UpdatedAt),
 			"plan_id":    types.StringValue(p.PlanID),
+			"branch":     stringPtrToValue(p.Branch),
+			"data_from":  dataFrom(p.Data),
+			"data_scrub": dataScrub(p.Data),
 		})
 		resp.Diagnostics.Append(diags...)
 		previews = append(previews, obj)
@@ -226,4 +265,18 @@ func (d *appDataSource) Read(ctx context.Context, req datasource.ReadRequest, re
 		Drift:           driftList,
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+}
+
+func dataFrom(d *client.AppPreviewData) types.String {
+	if d == nil {
+		return types.StringNull()
+	}
+	return types.StringValue(d.From)
+}
+
+func dataScrub(d *client.AppPreviewData) types.String {
+	if d == nil {
+		return types.StringNull()
+	}
+	return stringPtrToValue(d.Scrub)
 }

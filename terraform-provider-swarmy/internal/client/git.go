@@ -154,13 +154,26 @@ func (c *Client) UpdateGitRepo(ctx context.Context, id string, body UpdateGitRep
 
 // AppEnvironment is one environment of an app with its latest plan summary.
 type AppEnvironment struct {
-	Environment      string  `json:"environment"`
-	Branch           string  `json:"branch"`
-	Stack            string  `json:"stack"`
-	LatestPlanID     *string `json:"latest_plan_id"`
-	LatestPlanStatus *string `json:"latest_plan_status"`
-	LatestSha        *string `json:"latest_sha"`
-	LatestCreatedAt  *string `json:"latest_created_at"`
+	Environment      string           `json:"environment"`
+	Branch           string           `json:"branch"`
+	Stack            string           `json:"stack"`
+	LatestPlanID     *string          `json:"latest_plan_id"`
+	LatestPlanStatus *string          `json:"latest_plan_status"`
+	LatestSha        *string          `json:"latest_sha"`
+	LatestCreatedAt  *string          `json:"latest_created_at"`
+	KeptVolumes      []AppKeptVolumes `json:"kept_volumes"`
+}
+
+// AppKeptVolumes is a removed Postgres cluster whose data is still on disk.
+type AppKeptVolumes struct {
+	Resource string   `json:"resource"`
+	Volumes  []string `json:"volumes"`
+}
+
+// AppPreviewData describes a preview seeded with a copy of an environment's backup.
+type AppPreviewData struct {
+	From  string  `json:"from"`
+	Scrub *string `json:"scrub,omitempty"`
 }
 
 // App mirrors the App DTO (a linked repo as a GitOps app).
@@ -180,13 +193,15 @@ type App struct {
 
 // AppPreview is a live PR preview of an app.
 type AppPreview struct {
-	PR        int64   `json:"pr"`
-	Stack     string  `json:"stack"`
-	Sha       string  `json:"sha"`
-	Status    string  `json:"status"`
-	URL       *string `json:"url"`
-	UpdatedAt string  `json:"updated_at"`
-	PlanID    string  `json:"plan_id"`
+	PR        int64           `json:"pr"`
+	Stack     string          `json:"stack"`
+	Sha       string          `json:"sha"`
+	Status    string          `json:"status"`
+	URL       *string         `json:"url"`
+	UpdatedAt string          `json:"updated_at"`
+	PlanID    string          `json:"plan_id"`
+	Branch    *string         `json:"branch,omitempty"`
+	Data      *AppPreviewData `json:"data,omitempty"`
 }
 
 // AppDrift is one environment's drift count.

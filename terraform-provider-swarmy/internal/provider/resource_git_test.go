@@ -101,11 +101,13 @@ func (f *fakeGitAPI) serve(w http.ResponseWriter, r *http.Request) {
 				"config_path": g["config_path"], "app_name": "shop", "require_approval": g["require_approval"],
 				"enforce_drift": g["enforce_drift"],
 				"previews": []map[string]any{{"pr": 7, "stack": "shop-pr-7", "sha": "abc", "status": "applied", "url": nil,
-					"updated_at": "2026-09-24T00:00:00.000Z", "plan_id": "p7"}},
+					"updated_at": "2026-09-24T00:00:00.000Z", "plan_id": "p7",
+					"branch": "feat/x", "data": map[string]any{"from": "staging"}}},
 				"drift": map[string]any{"checked_at": "2026-09-24T00:10:00.000Z",
 					"environments": []map[string]any{{"environment": "production", "stack": "shop", "changes": 2}}},
 				"environments": []map[string]any{{"environment": "production", "branch": g["branch"], "stack": "shop",
-					"latest_plan_id": "p1", "latest_plan_status": "applied", "latest_sha": "abc", "latest_created_at": "2026-09-24T00:00:00.000Z"}}})
+					"latest_plan_id": "p1", "latest_plan_status": "applied", "latest_sha": "abc", "latest_created_at": "2026-09-24T00:00:00.000Z",
+					"kept_volumes": []map[string]any{{"resource": "db", "volumes": []string{"shop_db_data"}}}}}})
 		}
 		reply(200, map[string]any{"data": apps, "next_cursor": nil})
 	case r.Method == "PUT" && strings.HasPrefix(path, "/apps/") && strings.HasSuffix(path, "/require-approval"):
@@ -220,6 +222,10 @@ func TestGitResourcesLifecycle(t *testing.T) {
 					resource.TestCheckResourceAttr("swarmy_git_repo.app", "enforce_drift", "true"),
 					resource.TestCheckResourceAttr("data.swarmy_app.app", "enforce_drift", "true"),
 					resource.TestCheckResourceAttr("data.swarmy_app.app", "previews.0.pr", "7"),
+					resource.TestCheckResourceAttr("data.swarmy_app.app", "previews.0.branch", "feat/x"),
+					resource.TestCheckResourceAttr("data.swarmy_app.app", "previews.0.data_from", "staging"),
+					resource.TestCheckNoResourceAttr("data.swarmy_app.app", "previews.0.data_scrub"),
+					resource.TestCheckResourceAttr("data.swarmy_app.app", "environments.0.kept_volumes.0.volumes.0", "shop_db_data"),
 					resource.TestCheckResourceAttr("data.swarmy_app.app", "drift.0.changes", "2"),
 					resource.TestCheckResourceAttr("data.swarmy_app.app", "drift_checked_at", "2026-09-24T00:10:00.000Z"),
 					func(_ *terraform.State) error {

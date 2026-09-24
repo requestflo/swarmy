@@ -2370,6 +2370,24 @@
           }
         }
       },
+      "AppKeptVolumes": {
+        "type": "object",
+        "properties": {
+          "resource": {
+            "type": "string"
+          },
+          "volumes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "resource",
+          "volumes"
+        ]
+      },
       "AppEnvironment": {
         "type": "object",
         "properties": {
@@ -2398,6 +2416,13 @@
           "latest_created_at": {
             "type": "string",
             "nullable": true
+          },
+          "kept_volumes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AppKeptVolumes"
+            },
+            "description": "Removed Postgres clusters whose data is still on disk — delete via POST …/environments/{environment}/purge."
           }
         },
         "required": [
@@ -2407,7 +2432,8 @@
           "latest_plan_id",
           "latest_plan_status",
           "latest_sha",
-          "latest_created_at"
+          "latest_created_at",
+          "kept_volumes"
         ]
       },
       "AppPreview": {
@@ -2434,6 +2460,27 @@
           },
           "plan_id": {
             "type": "string"
+          },
+          "branch": {
+            "type": "string",
+            "description": "Branch of a branch preview (absent for PR previews)."
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string",
+                "description": "Environment whose latest backup was copied."
+              },
+              "scrub": {
+                "type": "string",
+                "description": "Scrub script/profile applied to the copy."
+              }
+            },
+            "required": [
+              "from"
+            ],
+            "description": "Preview with data: a COPY of this environment’s latest backup, destroyed with the preview."
           }
         },
         "required": [
@@ -2988,6 +3035,71 @@
         "required": [
           "resource",
           "confirm"
+        ]
+      },
+      "AppPromoteResult": {
+        "type": "object",
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string",
+            "nullable": true
+          },
+          "stack": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "plan": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AppPlan"
+              },
+              {
+                "nullable": true
+              }
+            ]
+          },
+          "images": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "service → image digest promoted (no rebuild)."
+          }
+        },
+        "required": [
+          "plan_id",
+          "status",
+          "environment",
+          "stack",
+          "reason",
+          "plan",
+          "images"
+        ]
+      },
+      "PromoteAppBody": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "description": "Named environment to promote to production.",
+            "example": "staging"
+          }
+        },
+        "required": [
+          "from"
         ]
       }
     },
@@ -6563,6 +6675,83 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PurgeAppDataResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/apps/{repoId}/promote": {
+      "post": {
+        "tags": [
+          "Apps"
+        ],
+        "summary": "Promote a named environment’s running image digests (e.g. staging) to production",
+        "description": "No rebuild: production is planned with the digests the source environment runs now, through the same gates (destructive steps still wait). Admin/owner only.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "required": true,
+            "name": "repoId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteAppBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Promoted (planned)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppPromoteResult"
                 }
               }
             }
