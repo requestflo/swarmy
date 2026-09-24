@@ -1,6 +1,13 @@
 import * as React from 'react';
 import {
   ActivityIcon,
+  BarChart3Icon,
+  BotIcon,
+  BriefcaseIcon,
+  CodeIcon,
+  FolderOpenIcon,
+  FilmIcon,
+  MessagesSquareIcon,
   DatabaseZapIcon,
   FileCodeIcon,
   GlobeIcon,
@@ -11,9 +18,11 @@ import {
   ServerIcon,
   WorkflowIcon,
 } from 'lucide-react';
-import type { BlueprintId } from '@swarmy/core';
+import type { BlueprintCategory, BlueprintId } from '@swarmy/core';
 
-const ICONS: Record<BlueprintId, React.ComponentType<{ className?: string }>> = {
+type Icon = React.ComponentType<{ className?: string }>;
+
+const ICONS: Record<string, Icon> = {
   'node-api': ServerIcon,
   'nextjs-app': GlobeIcon,
   'static-site': FileCodeIcon,
@@ -25,14 +34,31 @@ const ICONS: Record<BlueprintId, React.ComponentType<{ className?: string }>> = 
   'monitoring-notes': ActivityIcon,
 };
 
-/** The gallery icon for a blueprint id (safe fallback for unknown ids). */
+/** Category glyphs for catalogue apps (their logo slug is `meta.icon`). */
+const CATEGORY_ICONS: Partial<Record<BlueprintCategory, Icon>> = {
+  cms: NewspaperIcon,
+  analytics: BarChart3Icon,
+  automation: WorkflowIcon,
+  devtools: CodeIcon,
+  data: DatabaseZapIcon,
+  monitoring: ActivityIcon,
+  comms: MessagesSquareIcon,
+  productivity: FolderOpenIcon,
+  ai: BotIcon,
+  media: FilmIcon,
+  business: BriefcaseIcon,
+};
+
+/** The gallery icon for a blueprint id, else its category, else a generic glyph. */
 export function BlueprintIcon({
   id,
+  category,
   className,
 }: {
   id: BlueprintId;
+  category?: BlueprintCategory;
   className?: string;
 }): React.JSX.Element {
-  const Icon = ICONS[id] ?? LayoutTemplateIcon;
+  const Icon = ICONS[id] ?? (category ? CATEGORY_ICONS[category] : undefined) ?? LayoutTemplateIcon;
   return <Icon className={className} />;
 }

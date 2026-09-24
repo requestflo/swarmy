@@ -5,6 +5,8 @@ import { Button, EmptyState } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { SectionHeader } from '@/components/section-header';
 import { BlueprintCard } from './blueprint-card';
+import { BlueprintFilterBar } from './blueprint-filter-bar';
+import { categoryCounts, filterBlueprints, matchesQuery, type CategoryFilter } from './blueprint-filter';
 
 /**
  * Deploy → Blueprints: the gallery of production-ready stacks. Pick a card and
@@ -16,6 +18,17 @@ export function BlueprintsPage(): React.JSX.Element {
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const blueprints = useQuery(trpc.blueprints.list.queryOptions());
   const cards = blueprints.data ?? [];
+  const [query, setQuery] = React.useState('');
+  const [category, setCategory] = React.useState<CategoryFilter>('all');
+  const categories = React.useMemo(() => categoryCounts(cards, query), [cards, query]);
+  const matchingTotal = React.useMemo(
+    () => cards.filter((m) => matchesQuery(m, query)).length,
+    [cards, query],
+  );
+  const visible = React.useMemo(
+    () => filterBlueprints(cards, query, category),
+    [cards, query, category],
+  );
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
@@ -57,16 +70,47 @@ export function BlueprintsPage(): React.JSX.Element {
           />
         </div>
       ) : (
-        <div className="grid items-start gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {cards.map((meta) => (
-            <BlueprintCard
-              key={meta.id}
-              meta={meta}
-              active={activeId === meta.id}
-              onToggle={(open) => setActiveId(open ? meta.id : null)}
-            />
-          ))}
-        </div>
+        <>
+          <BlueprintFilterBar
+            query={query}
+            onQueryChange={setQuery}
+            category={category}
+            onCategoryChange={setCategory}
+            categories={categories}
+            total={matchingTotal}
+          />
+          {visible.length === 0 ? (
+            <div className="card-pop p-2">
+              <EmptyState
+                icon={<LayoutTemplateIcon />}
+                title="No apps match"
+                description="Try another word, or pick All."
+                action={
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setQuery('');
+                      setCategory('all');
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                }
+              />
+            </div>
+          ) : (
+            <div className="grid items-start gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {visible.map((meta) => (
+                <BlueprintCard
+                  key={meta.id}
+                  meta={meta}
+                  active={activeId === meta.id}
+                  onToggle={(open) => setActiveId(open ? meta.id : null)}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

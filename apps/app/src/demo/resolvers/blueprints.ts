@@ -8,6 +8,7 @@ import type {
   BlueprintPlanView,
   BlueprintSize,
 } from '@swarmy/core';
+import { APP_TEMPLATES, findAppTemplate, loadTemplate, primaryService, templateMeta } from '@swarmy/templates';
 import type { DemoStore, DomainResolvers } from '../types';
 
 /**
@@ -16,7 +17,9 @@ import type { DemoStore, DomainResolvers } from '../types';
  * stack on the Applications surface. Shapes mirror `blueprints.service.ts`
  * views exactly (imported from @swarmy/core, never redeclared); the plan
  * generators are a compact mirror of the catalog in
- * `packages/trpc/src/services/blueprints/catalog.ts`.
+ * `packages/trpc/src/services/blueprints/catalog.ts`. The one-click app
+ * catalogue is NOT mirrored: it is the real `@swarmy/templates` data (metas via
+ * `templateMeta`, plan outline from the same parsed swarmy.yaml).
  */
 
 // ── Catalog mirror (metas match the controller catalog 1:1) ───────────────────
@@ -30,7 +33,7 @@ const opt = (
   placeholder?: string,
 ): BlueprintMetaView['options'][number] => ({ key, label, kind, defaultValue, help, placeholder });
 
-const METAS: BlueprintMetaView[] = [
+const BUILTIN_METAS: BlueprintMetaView[] = [
   {
     id: 'node-api',
     name: 'Node API',
@@ -139,6 +142,11 @@ const METAS: BlueprintMetaView[] = [
   },
 ];
 
+const METAS: BlueprintMetaView[] = [
+  ...BUILTIN_METAS.map((m) => ({ ...m, source: 'builtin' as const })),
+  ...APP_TEMPLATES.map(templateMeta),
+];
+
 // ── Plan mirror ───────────────────────────────────────────────────────────────
 
 const DB_REPLICAS: Record<BlueprintSize, number> = { s: 0, m: 1, l: 2 };
@@ -187,7 +195,36 @@ const routeStep = (service: string, host: string, port: number): BlueprintPlanSt
   detail: { host, service, port: String(port) },
 });
 
+/** Outline of a catalogue app's plan, from its parsed swarmy.yaml (mirrors from-app-config.ts). */
+function templateSteps(id: string, p: BlueprintParamsInput): BlueprintPlanStepView[] | null {
+  const t = findAppTemplate(id);
+  if (!t) return null;
+  const desired = loadTemplate(t, { stack: p.name, options: p.options }).desired;
+  if (!desired) return [];
+  const size = p.size ?? 'm';
+  const steps: BlueprintPlanStepView[] = [];
+  for (const r of desired.resources) {
+    if (r.type === 'postgres') steps.push({ ...dbStep(p.name, size), detail: { ...dbStep(p.name, size).detail, cluster: r.name } });
+  }
+  for (const r of desired.resources) {
+    if (r.type === 'cache') {
+      steps.push({
+        kind: 'cache.provision',
+        label: 'Provision Valkey cache',
+        detail: { cluster: r.name, engine: r.engine, memory: `${r.memoryMb} MB`, topology: CACHE[size].topology },
+      });
+    }
+  }
+  for (const name of Object.keys(t.generate ?? {})) steps.push(secretStep(`${p.name}-${name}`));
+  steps.push(deployStep(p.name, desired.services.map((s) => s.name)));
+  const primary = primaryService(t, desired);
+  if (p.domain && primary) steps.push(routeStep(primary.name, p.domain, primary.port));
+  return steps;
+}
+
 function planSteps(id: string, p: BlueprintParamsInput): BlueprintPlanStepView[] {
+  const fromTemplate = templateSteps(id, p);
+  if (fromTemplate) return fromTemplate;
   const n = p.name;
   const size = p.size ?? 'm';
   const steps: BlueprintPlanStepView[] = [];
@@ -324,18 +361,21 @@ export const blueprints: DomainResolvers = {
         },
         ...s.stacks,
       ];
+      const url = params.domain && meta.supportsDomain ? `https://${params.domain}` : null;
       const notes =
         id === 'directus'
           ? [
               `Directus admin login — ${strOpt(params, 'adminEmail', 'admin@example.com')} / ${rand()}${rand()} (shown once, save it now)`,
             ]
-          : [];
+          : (findAppTemplate(id)?.reveal ?? [])
+              .map((r) => r.replace(/\$\{\{\s*secrets\.[a-z0-9-]+\s*\}\}/g, () => `${rand()}${rand()}`))
+              .concat((meta.postDeploy ?? []).map((line) => line.replaceAll('<url>', url ?? 'the app URL')));
       return {
         id,
         stackName: params.name,
         ok: true,
         steps: results,
-        url: params.domain && meta.supportsDomain ? `https://${params.domain}` : null,
+        url,
         notes,
       };
     },

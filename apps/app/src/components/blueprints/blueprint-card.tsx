@@ -32,17 +32,28 @@ export function BlueprintCard({ meta, active, onToggle }: BlueprintCardProps): R
     >
       <div className="flex items-center gap-3">
         <span className="bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-xl">
-          <BlueprintIcon id={meta.id} className="size-5" />
+          <BlueprintIcon id={meta.id} category={meta.category} className="size-5" />
         </span>
         <h3 className="font-display text-lg font-bold tracking-tight">{meta.name}</h3>
       </div>
       <p className="text-muted-foreground min-h-10 text-sm">{meta.tagline}</p>
+      {meta.attribution ? (
+        <p className="text-muted-foreground -mt-2 text-[11px]">{meta.attribution}</p>
+      ) : null}
       <div className="flex flex-wrap gap-1.5">
         {meta.resources.map((r) => (
           <span key={r} className="mono-label bg-muted rounded-full px-2 py-0.5 text-[10px]">
             {r}
           </span>
         ))}
+        {meta.heavy ? (
+          <span
+            title={meta.heavyReason}
+            className="mono-label bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-[10px]"
+          >
+            {meta.minMemoryMb ? `~${Math.ceil(meta.minMemoryMb / 256) / 4} GB RAM` : 'Heavy'}
+          </span>
+        ) : null}
       </div>
       {meta.docOnly ? (
         <div className="mt-auto pt-1">
