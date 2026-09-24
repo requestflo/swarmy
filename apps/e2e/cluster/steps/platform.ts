@@ -7,7 +7,7 @@ import type { Ctx } from '../context';
 import { Skip } from '../lib/report';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { assert, Fatal, log, must, poll, q, secret } from '../lib/util';
+import { assert, Fatal, log, must, poll, q, run, secret } from '../lib/util';
 
 // ── 1. install ─────────────────────────────────────────────────────────────
 export async function install(ctx: Ctx) {
@@ -52,8 +52,11 @@ export function upgradeEnabled(ctx: Ctx) {
 export async function login(ctx: Ctx) {
   await ctx.connect(ctx.password || undefined);
   // The key must work on the public REST API (SDK) and be scoped to the org.
-  const nodes = await ctx.sdk.nodes.list();
-  assert(nodes.data.length >= 1, 'REST /nodes returned no nodes');
+  // Node 1's agent registers a few seconds after the controller is healthy.
+  const nodes = await poll('node 1 registered (REST /nodes)', async () => {
+    const r = await ctx.sdk.nodes.list();
+    return r.data.length >= 1 ? r : null;
+  }, { timeoutMs: 3 * 60_000, intervalMs: 3000 });
   // Invite-only by default: a stranger cannot self-register.
   const res = await fetch(`${ctx.url}/api/auth/sign-up/email`, {
     method: 'POST',
@@ -364,7 +367,10 @@ export async function teardown(ctx: Ctx) {
     assert(!r || r.status === 401, `revoked API key still accepted (HTTP ${r?.status})`);
   }
   await c.destroyAll();
+  // The harness registry and its volume (only what this harness created).
+  await run(['docker', 'rm', '-f', '-v', `${c.cfg.prefix}-registry`]);
+  if (c.provider.kind === 'dind') await run(['docker', 'network', 'rm', 'swarmy-e2e']);
   const left = await c.provider.list(`${c.cfg.prefix}-`);
   assert(left.filter((n) => !n.endsWith('-registry')).length === 0, `nodes left behind: ${left.join(', ')}`);
-  return 'API key revoked; nodes deleted';
+  return 'API key revoked; nodes + harness registry deleted';
 }

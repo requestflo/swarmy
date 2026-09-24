@@ -19,7 +19,7 @@
  *   --source head|tree|REF build from `git archive HEAD` (default), the working tree, or a git ref
  *   --no-build             reuse images already built (skip docker build)
  *   --mesh none|self-hosted   TODO: self-hosted once the mesh epic lands
- *   --upgrade-from REF     with --enable upgrade: install REF first (default HEAD~1)
+ *   --upgrade-from REF     with --enable upgrade: install REF first (default: the parent of --source)
  *   --nodes N  --cpus N  --mem GiB  --disk GiB   (default 3 × 1 CPU / 1 GiB / 25 GiB, a 1 GB droplet)
  *   --reduced              CI mode: skip the steps a runner can't do (see REDUCED)
  *   --report-dir DIR       report.json, junit.xml, summary.txt, diagnostics/
@@ -127,7 +127,10 @@ async function main() {
     adminEmail: 'e2e@example.com',
     tag: 'e2e',
     noBuild: !!a['no-build'],
-    upgradeFrom: (a['upgrade-from'] as string) || 'HEAD~1',
+    // "Previous build" defaults to the parent of what's being tested.
+    upgradeFrom:
+      (a['upgrade-from'] as string) ||
+      (!a.source || a.source === 'head' ? 'HEAD~1' : a.source === 'tree' ? 'HEAD' : `${a.source as string}~1`),
   };
 
   const cluster = new Cluster(cfg, provider);

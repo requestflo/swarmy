@@ -166,7 +166,7 @@ export class DindProvider implements Provider {
       await must(['docker', 'network', 'create', this.network]);
     }
     await must([
-      'docker', 'run', '-d', '--privileged', '--name', name, '--hostname', name,
+      'docker', 'run', '-d', '--privileged', '--name', name, '--hostname', name, '--label', 'swarmy.test=e2e-cluster',
       '--network', this.network, `--memory=${spec.memGiB}g`, `--cpus=${spec.cpus}`,
       '-e', 'DOCKER_TLS_CERTDIR=', this.image,
       // The harness registry is plain http on the network gateway.
@@ -207,6 +207,8 @@ export class DindProvider implements Provider {
     );
   }
   async hostAddr(_name: string) {
+    // Docker Desktop (macOS): the bridge gateway lives inside Desktop's VM.
+    if (process.platform === 'darwin') return 'host.docker.internal';
     const r = await must(['docker', 'network', 'inspect', '-f', '{{range .IPAM.Config}}{{.Gateway}}{{end}}', this.network]);
     return r.trim();
   }
