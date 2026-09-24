@@ -196,7 +196,14 @@ function listOrDict(value: unknown): Array<[string, string | null]> {
 
 // ── classification ────────────────────────────────────────────────────────────
 
-const PG_IMAGE = /^(docker\.io\/)?(library\/)?postgres:/;
+/**
+ * A bundled Postgres the importer swaps for managed Postgres: the official
+ * image, the pgvector build of it, or a Bitnami repackaging (whose
+ * `POSTGRESQL_*` env names are bound too — managed Postgres itself runs the
+ * official contract, so both upstream spellings map onto `${{ db.* }}`).
+ */
+const PG_IMAGE = /^(docker\.io\/)?((library\/)?postgres|pgvector\/pgvector|bitnami(legacy)?\/postgresql):/;
+const DB_NAME_KEYS = new Set(['POSTGRES_DB', 'POSTGRESQL_DATABASE']);
 const CACHE_IMAGE = /(^|\/)(redis|valkey|keydb|dragonfly|redis-stack-server)(:|$)|valkey\/valkey|eqalpha\/keydb|dragonflydb/;
 const UNSUPPORTED_KEYS = ['privileged', 'network_mode', 'devices', 'cap_add', 'pid', 'ipc', 'sysctls', 'userns_mode'];
 const DROPPED_KEYS = ['depends_on', 'restart', 'container_name', 'labels', 'exclude_from_hc', 'expose', 'logging', 'stop_grace_period', 'ports', 'platform', 'hostname', 'extra_hosts', 'tty', 'stdin_open', 'working_dir', 'init', 'shm_size', 'ulimits', 'deploy', 'mem_limit', 'user'];
@@ -299,14 +306,18 @@ export function convertCoolifyTemplate(slug: string, text: string): ImportResult
       const refs = envRefs(v);
       if (refs.length === 1) {
         varBinding.set(refs[0]!.name, binding);
-        if (envKey === 'POSTGRES_DB' && refs[0]!.default) database = refs[0]!.default;
-      } else if (envKey === 'POSTGRES_DB') {
+        if (DB_NAME_KEYS.has(envKey) && refs[0]!.default) database = refs[0]!.default;
+      } else if (DB_NAME_KEYS.has(envKey)) {
         database = v;
       }
     };
     bindVar('POSTGRES_USER', '${{ db.user }}');
     bindVar('POSTGRES_PASSWORD', '${{ db.password }}');
     bindVar('POSTGRES_DB', '${{ db.database }}');
+    // Bitnami spellings of the same three (bitnami/postgresql upstream templates).
+    bindVar('POSTGRESQL_USERNAME', '${{ db.user }}');
+    bindVar('POSTGRESQL_PASSWORD', '${{ db.password }}');
+    bindVar('POSTGRESQL_DATABASE', '${{ db.database }}');
     database = database.replace(/[^A-Za-z0-9_]/g, '_').slice(0, 63) || 'app';
     info.push(`${pgKey}: bundled Postgres → managed Postgres (backups, PITR, HA)`);
   }

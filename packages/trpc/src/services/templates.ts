@@ -1,4 +1,10 @@
-import type { ServiceSpec } from '@swarmy/core/protocol';
+import {
+  MANAGED_PG_ROOT,
+  pgBootCommand,
+  pgPrimaryEnv,
+  pgReplicaEnv,
+} from '@swarmy/core';
+import { DEFAULT_MANAGED_PG_IMAGE, type ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { deployFromCompose } from './stack.service';
@@ -17,8 +23,10 @@ import { writeAudit } from './audit.service';
  * `ingress.previewConfig` does. Built-ins live in code; the registry mirrors the
  * ingress driver registry so third-party templates could register later.
  *
- * MVP ships two: `postgres-ha` (streaming primary + replica) and `redis-ha`
- * (primary + replicas + sentinels). Both are region/anti-affinity aware.
+ * MVP ships two: `postgres-ha` (streaming primary + replicas) and `redis-ha`
+ * (Valkey primary + replicas + sentinels). Both are region/anti-affinity aware
+ * and run OFFICIAL upstream images only (pgvector/pgvector = official postgres
+ * + pgvector; valkey/valkey) under swarmy's small `sh -c` boot layer.
  */
 
 export type TemplateId = 'postgres-ha' | 'redis-ha';
@@ -81,10 +89,17 @@ function envBlock(env: Record<string, string>): string {
     .join('\n');
 }
 
+/** Compose interpolates `$VAR` in every string — a literal shell `$` is `$$`. */
+export function composeEscape(v: string): string {
+  return v.replace(/\$/g, '$$$$');
+}
+
 function composeService(opts: {
   name: string;
   image: string;
   env?: Record<string, string>;
+  /** Overrides the image ENTRYPOINT (the swarm spec's `command`). `$` is escaped for compose. */
+  entrypoint?: string[];
   command?: string[];
   replicas?: number;
   constraints?: string[];
@@ -98,8 +113,11 @@ function composeService(opts: {
     lines.push('    volumes:');
     for (const v of opts.volumes) lines.push(`      - ${v}`);
   }
+  if (opts.entrypoint?.length) {
+    lines.push(`    entrypoint: ${JSON.stringify(opts.entrypoint.map(composeEscape))}`);
+  }
   if (opts.command?.length) {
-    lines.push(`    command: ${JSON.stringify(opts.command)}`);
+    lines.push(`    command: ${JSON.stringify(opts.command.map(composeEscape))}`);
   }
   if (opts.env && Object.keys(opts.env).length) {
     lines.push('    environment:');
@@ -124,27 +142,39 @@ function composeService(opts: {
 
 // ───────────────────────────────────────────── postgres-ha ──
 
-// bitnami/* versioned tags were purged from Docker Hub (Aug 2025); bitnamilegacy is
-// the frozen twin with the same REPMGR_*/POSTGRESQL_* env + /bitnami paths.
-const POSTGRES_IMAGE = 'bitnamilegacy/postgresql-repmgr:16';
-
+/**
+ * postgres-ha: member 0 is the writer, members 1..n stream from it — the same
+ * swarmy boot layer the managed plane uses (@swarmy/core manageddb-pg: the
+ * replication role + pg_hba on the writer, `pg_basebackup` replicas), on the
+ * official image contract. The portable template has NO automatic promotion:
+ * a compose stack has no controller to prove a replica caught up, and a
+ * blind promote can lose writes. Automatic, provably-safe failover is the
+ * managed cluster's job (`failover` topology, `decideFailover`).
+ */
 function renderPostgresHa(p: TemplateParams): RenderedTemplate {
-  const image = p.image ?? POSTGRES_IMAGE;
+  const image = p.image ?? DEFAULT_MANAGED_PG_IMAGE;
   const regions = p.regions.length ? p.regions : ['default'];
-  const baseEnv: Record<string, string> = {
-    POSTGRESQL_PASSWORD: '${POSTGRES_PASSWORD:-changeme}',
-    REPMGR_PASSWORD: '${REPMGR_PASSWORD:-changeme}',
-    POSTGRESQL_DATABASE: p.name.replace(/[^a-z0-9_]/gi, '_'),
-    REPMGR_PRIMARY_HOST: `${p.name}-pg-0`,
+  const database = p.name.replace(/[^a-z0-9_]/gi, '_');
+  const writer = `${p.name}-pg-0`;
+  const creds = {
+    password: '${POSTGRES_PASSWORD:-changeme}',
+    replicationUser: 'repl',
+    replicationPassword: '${REPLICATION_PASSWORD:-changeme}',
   };
+  const envFor = (i: number): Record<string, string> =>
+    i === 0
+      ? pgPrimaryEnv({ ...creds, database })
+      : pgReplicaEnv({ ...creds, primaryHost: writer, primaryPort: 5432 });
+  const boot = pgBootCommand();
 
   // One pinned member per region — streaming replication, anti-affinity by region.
   const services: ServiceSpec[] = regions.map((region, i) => ({
     name: `${p.name}-pg-${i}`,
     image,
     mode: { replicated: { replicas: 1 } },
-    env: { ...baseEnv, REPMGR_NODE_NAME: `${p.name}-pg-${i}`, REPMGR_PARTNER_NODES: regions.map((_, j) => `${p.name}-pg-${j}`).join(',') },
-    mounts: [{ type: 'volume', source: `${p.name}-pg-${i}-data`, target: '/bitnami/postgresql' }],
+    command: boot,
+    env: envFor(i),
+    mounts: [{ type: 'volume', source: `${p.name}-pg-${i}-data`, target: MANAGED_PG_ROOT }],
     networks: [`${p.name}-net`],
     placement: pinnedToRegion(region),
   }));
@@ -154,12 +184,13 @@ function renderPostgresHa(p: TemplateParams): RenderedTemplate {
       composeService({
         name: `${p.name}-pg-${i}`,
         image,
-        env: { ...baseEnv, REPMGR_NODE_NAME: `${p.name}-pg-${i}` },
+        entrypoint: boot,
+        env: envFor(i),
         replicas: 1,
         constraints: [`node.labels.swarmy.region==${region}`],
         // Persist each member's data on its declared named volume (deployed as
         // `<stack>_<name>-pg-<i>-data` — docker stack naming).
-        volumes: [`${p.name}-pg-${i}-data:/bitnami/postgresql`],
+        volumes: [`${p.name}-pg-${i}-data:${MANAGED_PG_ROOT}`],
       }),
     )
     .join('\n');
@@ -178,63 +209,84 @@ function renderPostgresHa(p: TemplateParams): RenderedTemplate {
   return {
     services,
     composeSource,
-    connectionHint: `postgres://postgres@${p.name}-pg-0:5432/${baseEnv.POSTGRESQL_DATABASE}`,
+    connectionHint: `postgres://postgres@${writer}:5432/${database} (read-only: ${p.name}-pg-1..${regions.length - 1})`,
     durabilityNote:
-      regions.length >= 3
-        ? `Survives loss of 1 region (${regions.length} regions). Streaming replication is synchronous-capable; cross-region commit adds latency.`
-        : `Only ${regions.length} region(s): no quorum tiebreaker, so automatic failover is unsafe. Add a 3rd region (or a witness) for clean failover.`,
+      `Async streaming replication across ${regions.length} region(s); promotion is MANUAL ` +
+      '(SELECT pg_promote() on a caught-up replica) — for automatic, never-lose-data failover use a managed Postgres cluster with the failover topology.',
   };
 }
 
 // ───────────────────────────────────────────── redis-ha ──
 
-const REDIS_IMAGE = 'bitnamilegacy/redis-sentinel:7.4';
-const REDIS_DATA_IMAGE = 'bitnamilegacy/redis:7.4';
+const VALKEY_IMAGE = 'valkey/valkey:8';
+
+/** Valkey server command; the password comes from the member's env. */
+function valkeyServer(replicaOf?: string): string {
+  return [
+    'exec valkey-server --requirepass "$VALKEY_PASSWORD" --masterauth "$VALKEY_PASSWORD" --appendonly yes --dir /data',
+    ...(replicaOf ? [`--replicaof ${replicaOf} 6379`] : []),
+  ].join(' ');
+}
+
+/** Sentinel: follow a live peer's view of the master first, else the seeded master. */
+function valkeySentinel(p: TemplateParams, quorum: number, regions: string[]): string {
+  const master = `${p.name}-redis-master`;
+  const peers = regions.map((_, i) => `${p.name}-redis-sentinel-${i}`).join(' ');
+  return [
+    'set -eu',
+    `MASTER=${master}; MPORT=6379`,
+    `for h in ${peers}; do`,
+    '  A="$(timeout 3 valkey-cli -h "$h" -p 26379 --raw SENTINEL get-master-addr-by-name main 2>/dev/null | head -n 2 | tr \'\\n\' \' \' || true)"',
+    '  set -- $A',
+    '  if [ -n "${1:-}" ] && [ -n "${2:-}" ]; then MASTER="$1"; MPORT="$2"; break; fi',
+    'done',
+    'cat > /tmp/sentinel.conf <<EOF',
+    'port 26379',
+    'sentinel resolve-hostnames yes',
+    'sentinel announce-hostnames yes',
+    `sentinel monitor main $MASTER $MPORT ${quorum}`,
+    'sentinel auth-pass main $VALKEY_PASSWORD',
+    'EOF',
+    'exec valkey-sentinel /tmp/sentinel.conf',
+  ].join('\n');
+}
 
 function renderRedisHa(p: TemplateParams): RenderedTemplate {
-  const dataImage = p.image ?? REDIS_DATA_IMAGE;
+  const image = p.image ?? VALKEY_IMAGE;
   const regions = p.regions.length ? p.regions : ['default'];
   const replicasPerRegion = p.replicasPerRegion ?? 1;
-
-  const masterEnv: Record<string, string> = {
-    REDIS_PASSWORD: '${REDIS_PASSWORD:-changeme}',
-    REDIS_REPLICATION_MODE: 'master',
-  };
-  const replicaEnv: Record<string, string> = {
-    REDIS_PASSWORD: '${REDIS_PASSWORD:-changeme}',
-    REDIS_MASTER_PASSWORD: '${REDIS_PASSWORD:-changeme}',
-    REDIS_REPLICATION_MODE: 'replica',
-    REDIS_MASTER_HOST: `${p.name}-redis-master`,
-  };
-  const sentinelEnv: Record<string, string> = {
-    REDIS_MASTER_HOST: `${p.name}-redis-master`,
-    REDIS_MASTER_PASSWORD: '${REDIS_PASSWORD:-changeme}',
-    REDIS_SENTINEL_QUORUM: String(Math.floor(regions.length / 2) + 1),
-  };
+  const quorum = Math.floor(regions.length / 2) + 1;
+  const env: Record<string, string> = { VALKEY_PASSWORD: '${REDIS_PASSWORD:-changeme}' };
+  const master = `${p.name}-redis-master`;
+  const sh = (script: string) => ['sh', '-c', script];
+  const replicaCount = Math.max(1, (regions.length - 1) * replicasPerRegion);
 
   const services: ServiceSpec[] = [
     {
-      name: `${p.name}-redis-master`,
-      image: dataImage,
+      name: master,
+      image,
       mode: { replicated: { replicas: 1 } },
-      env: masterEnv,
+      command: sh(valkeyServer()),
+      env,
       networks: [`${p.name}-net`],
       placement: pinnedToRegion(regions[0]!),
     },
     {
       name: `${p.name}-redis-replica`,
-      image: dataImage,
-      mode: { replicated: { replicas: Math.max(1, (regions.length - 1) * replicasPerRegion) } },
-      env: replicaEnv,
+      image,
+      mode: { replicated: { replicas: replicaCount } },
+      command: sh(valkeyServer(master)),
+      env,
       networks: [`${p.name}-net`],
       placement: spreadAcrossRegions(),
     },
     // One sentinel pinned per region — clean quorum across failure domains.
     ...regions.map((region, i) => ({
       name: `${p.name}-redis-sentinel-${i}`,
-      image: REDIS_IMAGE,
+      image,
       mode: { replicated: { replicas: 1 } },
-      env: sentinelEnv,
+      command: sh(valkeySentinel(p, quorum, regions)),
+      env,
       networks: [`${p.name}-net`],
       placement: pinnedToRegion(region),
     })),
@@ -244,25 +296,28 @@ function renderRedisHa(p: TemplateParams): RenderedTemplate {
     'version: "3.8"',
     'services:',
     composeService({
-      name: `${p.name}-redis-master`,
-      image: dataImage,
-      env: masterEnv,
+      name: master,
+      image,
+      entrypoint: sh(valkeyServer()),
+      env,
       replicas: 1,
       constraints: [`node.labels.swarmy.region==${regions[0]}`],
     }),
     composeService({
       name: `${p.name}-redis-replica`,
-      image: dataImage,
-      env: replicaEnv,
-      replicas: Math.max(1, (regions.length - 1) * replicasPerRegion),
+      image,
+      entrypoint: sh(valkeyServer(master)),
+      env,
+      replicas: replicaCount,
       preferences: ['node.labels.swarmy.region'],
       maxReplicasPerNode: 1,
     }),
     ...regions.map((region, i) =>
       composeService({
         name: `${p.name}-redis-sentinel-${i}`,
-        image: REDIS_IMAGE,
-        env: sentinelEnv,
+        image,
+        entrypoint: sh(valkeySentinel(p, quorum, regions)),
+        env,
         replicas: 1,
         constraints: [`node.labels.swarmy.region==${region}`],
       }),
@@ -275,10 +330,10 @@ function renderRedisHa(p: TemplateParams): RenderedTemplate {
   return {
     services,
     composeSource,
-    connectionHint: `Use a sentinel-aware client → ${regions.map((_, i) => `${p.name}-redis-sentinel-${i}:26379`).join(', ')} (master: ${p.name}-redis-master)`,
+    connectionHint: `Use a sentinel-aware client → ${regions.map((_, i) => `${p.name}-redis-sentinel-${i}:26379`).join(', ')} (master set: main)`,
     durabilityNote:
       regions.length >= 3
-        ? `Survives loss of 1 region (${regions.length} sentinels). Redis replication is async — a small write-loss window is possible on failover (non-zero RPO).`
+        ? `Survives loss of 1 region (${regions.length} sentinels). Valkey replication is async — a small write-loss window is possible on failover (non-zero RPO).`
         : `Only ${regions.length} region(s): sentinel quorum needs >=3 for safe automatic failover. Add a 3rd region or a witness sentinel.`,
   };
 }
@@ -291,7 +346,7 @@ const TEMPLATES: Record<TemplateId, TemplateDefinition> = {
     kind: 'database',
     engine: 'postgres',
     title: 'Postgres — High Availability',
-    blurb: 'Primary + streaming replica, one per region. Survives a region going dark.',
+    blurb: 'Primary + streaming replicas, one per region (official Postgres + pgvector). Manual promotion.',
     recommendedRegions: 3,
     render: renderPostgresHa,
   },
@@ -299,8 +354,8 @@ const TEMPLATES: Record<TemplateId, TemplateDefinition> = {
     id: 'redis-ha',
     kind: 'cache',
     engine: 'redis',
-    title: 'Redis — High Availability',
-    blurb: 'Primary + replicas + sentinels spread across regions for automatic failover.',
+    title: 'Valkey (Redis-compatible) — High Availability',
+    blurb: 'Valkey primary + replicas + sentinels spread across regions for automatic failover.',
     recommendedRegions: 3,
     render: renderRedisHa,
   },
@@ -357,9 +412,12 @@ export async function deployTemplate(
   const rendered = renderTemplate(input.id, input.params);
   if (!rendered) throw notFound('template', input.id);
 
+  // `composeSource` is written for `docker stack deploy`, which interpolates
+  // `$VAR` and needs a literal shell `$` spelled `$$`. swarmy's compose pipeline
+  // does not interpolate, so undo the escape for the swarmy deploy.
   const deploy = await deployFromCompose(ctx, {
     name: input.params.name,
-    composeSource: rendered.composeSource,
+    composeSource: rendered.composeSource.replace(/\$\$/g, '$'),
   });
 
   // Geo-DNS records are DERIVED now (attach a domain via ingress and the

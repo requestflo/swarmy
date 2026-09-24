@@ -93,6 +93,26 @@ describe('coolify importer', () => {
   });
 });
 
+describe('coolify importer: bitnami-flavoured bundled Postgres', () => {
+  const BITNAMI = UMAMI.replace('image: postgres:16-alpine', 'image: bitnami/postgresql:16')
+    .replace('POSTGRES_USER=$SERVICE_USER_POSTGRES', 'POSTGRESQL_USERNAME=$SERVICE_USER_POSTGRES')
+    .replace('POSTGRES_PASSWORD=$SERVICE_PASSWORD_POSTGRES', 'POSTGRESQL_PASSWORD=$SERVICE_PASSWORD_POSTGRES')
+    .replace('POSTGRES_DB=\${POSTGRES_DB:-umami}', 'POSTGRESQL_DATABASE=\${POSTGRES_DB:-umami}');
+  const r = convertCoolifyTemplate('umami', BITNAMI);
+  const yaml = parseYaml(r.template!.yaml) as {
+    services: Record<string, { env: Record<string, string> }>;
+    resources: Record<string, { type: string; database?: string }>;
+  };
+
+  it('maps POSTGRESQL_* onto the managed db bindings, like the official names', () => {
+    expect(Object.keys(yaml.services)).toEqual(['umami']);
+    expect(yaml.resources.db).toEqual({ type: 'postgres', database: 'umami' });
+    expect(yaml.services.umami!.env.DATABASE_URL).toBe(
+      'postgres://${{ db.user }}:${{ db.password }}@${{ db.host }}:5432/${{ db.database }}',
+    );
+  });
+});
+
 describe('helpers', () => {
   it('parses magic names', () => {
     expect(parseMagic('SERVICE_URL_APP_8080')).toEqual({ kind: 'url', service: 'app', port: 8080 });
