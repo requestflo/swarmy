@@ -55,6 +55,12 @@ services:
       # Mesh (opt-in): empty driver/url are no-ops — ensureMeshConfig skips when unset.
       SWARMY_MESH_DRIVER: ${SWARMY_MESH_DRIVER:-}
       SWARMY_MESH_MANAGEMENT_URL: ${SWARMY_MESH_MANAGEMENT_URL:-}
+      # --mesh swarmy: NetBird runs inside swarmy (swarmy-mesh-control on node #1).
+      SWARMY_MESH_MODE: ${SWARMY_MESH_MODE:-}
+      SWARMY_MESH_DOMAIN: ${SWARMY_MESH_DOMAIN:-}
+      SWARMY_MESH_TLS: ${SWARMY_MESH_TLS:-}
+      SWARMY_MESH_CLUSTER: ${SWARMY_MESH_CLUSTER:-}
+      SWARMY_MESH_CONTROL_HOSTNAME: ${SWARMY_MESH_CONTROL_HOSTNAME:-}
       # Docker-secret file references (expanded by the entrypoint).
       SWARMY_SECRET_KEY_FILE: /run/secrets/swarmy_secret_key
       BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
@@ -63,6 +69,9 @@ services:
       SWARM_WORKER_TOKEN_FILE: /run/secrets/swarm_worker_token
       SWARM_MANAGER_TOKEN_FILE: /run/secrets/swarm_manager_token
       SWARMY_MESH_SERVICE_TOKEN_FILE: /run/secrets/mesh_service_token
+      # JSON {authSecret, encryptionKey, ownerEmail, ownerPassword}; read by the
+      # bootstrap seed only (sealed into swarm-kv), never exported to the env.
+      SWARMY_MESH_CONTROL_FILE: /run/secrets/mesh_control
       # Controller store (resilience P3): the replica target and the boot
       # fallback bundle, read BEFORE the DB opens (controller-store/config.ts).
       SWARMY_CONTROL_STORE_FILE: /run/secrets/control_store
@@ -82,6 +91,7 @@ services:
       - swarm_worker_token
       - swarm_manager_token
       - mesh_service_token
+      - mesh_control
       - source: control_store
         target: control_store
         mode: 0400
@@ -168,6 +178,8 @@ secrets:
   swarm_manager_token:
     external: true
   mesh_service_token:
+    external: true
+  mesh_control:
     external: true
   # `{}` until replication is on; then swarmy_control_store.<ts>. Secrets are
   # immutable, so the controller mints a new one and repoints the service.

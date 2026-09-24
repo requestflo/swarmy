@@ -13,6 +13,7 @@
  * revokes a peer by a remembered id), so it lives here too: no node label.
  */
 import { reconcilePeerState, type MeshPeerStatus, type MeshStateReport } from '@swarmy/mesh';
+import type { MeshControlStatus } from '@swarmy/core/protocol';
 
 /** `ENROLLING` while `applyMesh` is in flight; the rest mirror `reconcilePeerState`. */
 export type LiveMeshPeerStatus = MeshPeerStatus;
@@ -91,9 +92,10 @@ export const meshPeers = new MeshPeerStore();
 export function reconcileMeshPeer(
   orgId: string,
   nodeId: string,
-  report: MeshStateReport,
+  report: MeshStateReport & { control?: MeshControlStatus },
   store: MeshPeerStore = meshPeers,
 ): LiveMeshPeer | null {
+  if (report.control) meshControlLive.report(orgId, nodeId, report.control);
   if (!store.get(nodeId) && !(report.connected && report.meshIp)) return null;
   const update = reconcilePeerState(report);
   return store.upsert(orgId, nodeId, {
@@ -105,3 +107,43 @@ export function reconcileMeshPeer(
     lastSeen: update.lastSeen,
   });
 }
+
+// ── The self-hosted control plane's live status (meshState.control) ──────────
+
+export interface LiveMeshControl {
+  nodeId: string;
+  status: MeshControlStatus;
+  at: Date;
+}
+
+/**
+ * Where the org's self-hosted NetBird runs and how it is doing, from the
+ * hosting node's own `meshState` (telemetry, never stored). Two nodes may
+ * report during a move; the freshest wins in `get`.
+ */
+export class MeshControlLiveStore {
+  private readonly byOrg = new Map<string, Map<string, LiveMeshControl>>();
+
+  report(orgId: string, nodeId: string, status: MeshControlStatus, at = new Date()): void {
+    const m = this.byOrg.get(orgId) ?? new Map<string, LiveMeshControl>();
+    m.set(nodeId, { nodeId, status, at });
+    this.byOrg.set(orgId, m);
+  }
+
+  /** Every node that reported one in the last `maxAgeMs` (default 90 s), running first. */
+  all(orgId: string, maxAgeMs = 90_000, now = Date.now()): LiveMeshControl[] {
+    return [...(this.byOrg.get(orgId)?.values() ?? [])]
+      .filter((c) => now - c.at.getTime() <= maxAgeMs)
+      .sort((a, b) => Number(b.status.running) - Number(a.status.running) || b.at.getTime() - a.at.getTime());
+  }
+
+  get(orgId: string, maxAgeMs?: number): LiveMeshControl | undefined {
+    return this.all(orgId, maxAgeMs)[0];
+  }
+
+  clear(): void {
+    this.byOrg.clear();
+  }
+}
+
+export const meshControlLive = new MeshControlLiveStore();

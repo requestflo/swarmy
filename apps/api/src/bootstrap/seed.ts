@@ -32,8 +32,9 @@
  *                                             Caddy edge serves a `dashboard` controller vhost.
  */
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { auth, usernamePlaceholderEmail } from '@swarmy/auth';
-import { decryptSecret, hashToken } from '@swarmy/core/crypto';
+import { decryptSecret, encryptSecret, hashToken } from '@swarmy/core/crypto';
 import { buildMeshConfigRow } from '@swarmy/core/mesh-bootstrap';
 import { prisma } from '@swarmy/db';
 import { ingressConfigRepo, meshConfigRepo, primeSwarmJoinMaterial } from '@swarmy/trpc';
@@ -179,26 +180,82 @@ async function ensureMeshConfig(orgId: string): Promise<void> {
     onInvalidDriver: (raw) => log(`SWARMY_MESH_DRIVER="${raw}" is not a recognized driver — skipping mesh bootstrap.`),
   });
   if (!row) return;
+  const managed = managedMeshFromEnv();
 
-  whenSwarmReady(`mesh bootstrap (${row.driver})`, async () => {
+  whenSwarmReady(`mesh bootstrap (${row.driver}${managed ? ', managed by swarmy' : ''})`, async () => {
     const cur = await meshConfigRepo.find({ hub, db: prisma }, orgId);
-    const curToken = (cur?.controlPlane as { serviceTokenEnc?: string } | undefined)?.serviceTokenEnc;
+    const curCp = (cur?.controlPlane ?? {}) as { serviceTokenEnc?: string; mode?: string; managed?: Record<string, unknown> };
+    const curToken = curCp.serviceTokenEnc;
     const same =
       cur &&
       cur.driver === row.driver &&
       cur.enabled &&
       cur.managementUrl === row.managementUrl &&
       curToken !== undefined &&
-      safeDecrypt(curToken) === process.env.SWARMY_MESH_SERVICE_TOKEN;
+      safeDecrypt(curToken) === process.env.SWARMY_MESH_SERVICE_TOKEN &&
+      (!managed || (curCp.mode === 'managed-by-swarmy' && curCp.managed));
     if (same) return; // re-sealing the same token each boot would only churn raft
+    const controlPlane: Record<string, unknown> = managed
+      ? {
+          ...row.controlPlane,
+          mode: 'managed-by-swarmy',
+          // What the reconcile learnt later (connector, backups, node id) survives a re-seed.
+          managed: { ...managed, ...(curCp.mode === 'managed-by-swarmy' ? (curCp.managed ?? {}) : {}) },
+        }
+      : (row.controlPlane as Record<string, unknown>);
     await meshConfigRepo.update({ hub, db: prisma }, orgId, {
       driver: row.driver,
       enabled: true,
       managementUrl: row.managementUrl,
-      controlPlane: row.controlPlane as Record<string, unknown>,
+      controlPlane,
     });
-    log(`persisted MeshConfig (${row.driver}) — mesh enabled for this org.`);
+    log(`persisted MeshConfig (${row.driver}${managed ? `, control plane in swarmy at ${managed.meshDomain}` : ''}) — mesh enabled for this org.`);
   });
+}
+
+/**
+ * `install-swarmy.sh --mesh swarmy`: the installer started NetBird itself
+ * (swarmy-mesh-control on node #1) and hands the controller what it needs to
+ * keep running it — the mesh domain + TLS mode, the cluster slug, the node
+ * that hosts it, and (secret file, JSON) the relay authSecret, the store
+ * encryptionKey and the break-glass owner. Everything secret is sealed with
+ * encryptSecret before it reaches swarm-kv.
+ */
+function managedMeshFromEnv(): Record<string, unknown> | null {
+  if (process.env.SWARMY_MESH_MODE !== 'managed-by-swarmy') return null;
+  const domain = process.env.SWARMY_MESH_DOMAIN?.trim().toLowerCase();
+  const file = process.env.SWARMY_MESH_CONTROL_FILE;
+  if (!domain || !file) {
+    log('SWARMY_MESH_MODE=managed-by-swarmy but SWARMY_MESH_DOMAIN / SWARMY_MESH_CONTROL_FILE are unset — treating the mesh as external.');
+    return null;
+  }
+  let secrets: { authSecret?: string; encryptionKey?: string; ownerEmail?: string; ownerPassword?: string };
+  try {
+    secrets = JSON.parse(readFileSync(file, 'utf8')) as typeof secrets;
+  } catch (e) {
+    log(`could not read ${file}: ${e instanceof Error ? e.message : String(e)} — treating the mesh as external.`);
+    return null;
+  }
+  if (!secrets.authSecret || !secrets.encryptionKey) {
+    log('the mesh control secret is missing authSecret/encryptionKey — treating the mesh as external.');
+    return null;
+  }
+  const tlsRaw = process.env.SWARMY_MESH_TLS ?? 'letsencrypt';
+  const tls = tlsRaw.startsWith('none')
+    ? { mode: 'none', port: Number(tlsRaw.split(':')[1] ?? 8081) || 8081 }
+    : tlsRaw.startsWith('edge')
+      ? { mode: 'edge', listen: tlsRaw.split('=')[1] ?? '172.18.0.1:8081' }
+      : { mode: 'letsencrypt' };
+  return {
+    cluster: (process.env.SWARMY_MESH_CLUSTER || ORG_SLUG).toLowerCase(),
+    meshDomain: domain,
+    tls,
+    controlNodeHostname: process.env.SWARMY_MESH_CONTROL_HOSTNAME || process.env.SWARMY_NODE_HOSTNAME || undefined,
+    authSecretEnc: encryptSecret(secrets.authSecret),
+    encryptionKeyEnc: encryptSecret(secrets.encryptionKey),
+    ...(secrets.ownerEmail ? { ownerEmail: secrets.ownerEmail } : {}),
+    ...(secrets.ownerPassword ? { ownerPasswordEnc: encryptSecret(secrets.ownerPassword) } : {}),
+  };
 }
 
 function safeDecrypt(blob: string): string | null {
