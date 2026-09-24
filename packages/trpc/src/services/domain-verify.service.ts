@@ -23,6 +23,7 @@ import { connect as tlsConnect } from 'node:tls';
 import {
   applyCheck,
   becameRenderable,
+  certAlertFor,
   certFromProbes,
   companionHost,
   dnsGuidance,
@@ -55,6 +56,7 @@ import type { DB } from '@swarmy/db';
 import { notFound } from '../errors';
 import { systemContext } from './cicd.service';
 import { writeAudit } from './audit.service';
+import { fireEvent } from './alerts-fire';
 import { listRoutesForOrg } from './ingress-routes';
 import { ingressTaskNodes } from './ingress-controller';
 import { publicIpFromLabels } from './node.service';
@@ -455,8 +457,23 @@ async function checkHosts(
         return { before, after };
       }),
     );
-    for (const { before, after } of results) {
+    for (const [i, { before, after }] of results.entries()) {
       if (!after) continue;
+      // cert-expiry (default-on rule): expiring < 14d → warning (< 3d critical),
+      // issuance/renewal failing → critical, valid again → resolved. Deduped by
+      // (signal, resource) in fireEvent, so re-firing each check just refreshes.
+      if (after.cert) {
+        const alert = certAlertFor(after, batch[i]!, now);
+        if (alert) {
+          await fireEvent(ctx, {
+            signal: 'cert-expiry',
+            severity: alert.severity,
+            resource: `domain:${after.host}`,
+            message: alert.message,
+            status: alert.status,
+          }).catch(() => undefined);
+        }
+      }
       if (becameRenderable(before, after)) flips++;
       upserts.push(after);
       if (after.verifiedAt !== undefined && before.verifiedAt === undefined) {

@@ -7,7 +7,7 @@
  * its writers remove the label entirely (see ingress.service `removeDomain`).
  */
 import { buildInventory } from '@swarmy/core';
-import { RouteProtectionSchema, WWW_MODES, type RouteProtection, type WwwMode } from '@swarmy/ingress';
+import { AUTO_ADDRESS_HOST_LABEL, RouteProtectionSchema, WWW_MODES, type RouteProtection, type WwwMode } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
 
 /** The one label that carries a service's ingress routes (JSON-string array). */
@@ -58,6 +58,8 @@ export interface ServiceRoute {
   /** Docker stack the owning service belongs to (`com.docker.stack.namespace`), UNGROUPED when standalone. */
   stack: string;
   route: Route;
+  /** The route is the service's automatic sslip.io address (swarmy stamped it). */
+  auto?: boolean;
 }
 
 const TLS_VALUES = new Set<Route['tls']>(['auto', 'off', 'manual']);
@@ -181,8 +183,9 @@ export function listRoutesForOrg(ctx: OrgContext): ServiceRoute[] {
   const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
   const out: ServiceRoute[] = [];
   for (const s of buildInventory(services, containers).services) {
+    const autoHost = s.labels[AUTO_ADDRESS_HOST_LABEL];
     for (const route of readRoutes(s.labels)) {
-      out.push({ serviceId: s.id, serviceName: s.name, stack: s.stack, route });
+      out.push({ serviceId: s.id, serviceName: s.name, stack: s.stack, route, ...(autoHost === route.host ? { auto: true } : {}) });
     }
   }
   return out;

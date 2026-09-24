@@ -711,3 +711,50 @@ export function certFromProbes(host: string, probes: readonly TlsProbe[]): CertO
     edges,
   };
 }
+
+// ───────────────────────────────────────────── alerts ──
+
+/** Default `cert-expiry` threshold (the seeded rule's). */
+export const CERT_EXPIRY_ALERT_MS = 14 * 24 * 60 * 60_000;
+const CRITICAL_MS = 3 * 24 * 60 * 60_000;
+
+export interface CertAlert {
+  status: 'firing' | 'resolved';
+  severity: 'warning' | 'critical';
+  message: string;
+}
+
+/**
+ * The `cert-expiry` alert a check implies for one host, or null when there is
+ * nothing to say (not verified yet, still inside the issuing grace window,
+ * tunnel/private/plain-HTTP hosts). Pure — the service fires it.
+ */
+export function certAlertFor(
+  rec: DomainCheckRecord | undefined,
+  p: HostPosture,
+  now: number,
+  thresholdMs = CERT_EXPIRY_ALERT_MS,
+): CertAlert | null {
+  if (!rec?.cert || rec.verifiedAt === undefined || p.private || p.tunnel || p.tls === 'off') return null;
+  const c = rec.cert;
+  if (c.ok && c.notAfter !== null) {
+    const left = c.notAfter - now;
+    if (left <= 0) {
+      return { status: 'firing', severity: 'critical', message: `Certificate for ${rec.host} expired on ${fmtDate(c.notAfter)} and was not renewed.` };
+    }
+    if (left < thresholdMs) {
+      const days = Math.max(0, Math.floor(left / 86_400_000));
+      return {
+        status: 'firing',
+        severity: left < CRITICAL_MS ? 'critical' : 'warning',
+        message: `Certificate for ${rec.host} expires ${fmtDate(c.notAfter)} (${days} day${days === 1 ? '' : 's'}) and has not renewed yet.`,
+      };
+    }
+    return { status: 'resolved', severity: 'warning', message: `Certificate for ${rec.host} is valid until ${fmtDate(c.notAfter)}.` };
+  }
+  const s = domainState(rec, p, now);
+  if (s.state === 'error') {
+    return { status: 'firing', severity: 'critical', message: `Certificate for ${rec.host} is failing: ${c.error ?? s.reason}` };
+  }
+  return null;
+}

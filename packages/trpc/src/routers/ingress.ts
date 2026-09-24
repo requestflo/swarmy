@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { TlsMode } from '@swarmy/core';
-import { RouteProtectionSchema } from '@swarmy/ingress';
+import { RouteProtectionSchema, WwwModeSchema } from '@swarmy/ingress';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import { abacProcedure } from '../abac';
 import { tunnelsRouter } from './tunnels';
@@ -14,6 +14,7 @@ import {
   previewConfig,
   removeDomain,
   setControllerImage,
+  setDomainWww,
   setDriver,
   setEnabled,
   setOnDemandTls,
@@ -26,6 +27,11 @@ import {
   listServiceRoutes,
   setServiceRoutes,
 } from '../services/ingress-routes-api';
+import {
+  getDomainStatus,
+  skipDomainVerification,
+  verifyDomainNow,
+} from '../services/domain-verify.service';
 
 const driverEnum = z.enum(['caddy', 'traefik', 'none', 'cloudflared', 'nginx', 'haproxy']);
 
@@ -40,6 +46,8 @@ const routeInput = z.object({
   driver: z.string().optional(),
   /** Edge protections (rate limit, IP rules, body cap, bots, required headers). */
   protection: RouteProtectionSchema.optional(),
+  /** Apex ↔ www toggle for this route's host. */
+  www: WwwModeSchema.optional(),
 });
 
 export const ingressRouter = router({
@@ -110,6 +118,8 @@ export const ingressRouter = router({
          * Domain.ingressDriver column lands (see INTEGRATION).
          */
         ingressDriver: driverEnum.nullish(),
+        /** Also serve / redirect the www companion (`acme.com` ↔ `www.acme.com`). */
+        www: WwwModeSchema.nullish(),
       }),
     )
     .mutation(({ ctx, input }) => addDomain(ctx, input)),
@@ -163,6 +173,34 @@ export const ingressRouter = router({
   previewConfig: orgProcedure
     .input(z.object({ driver: driverEnum.optional() }))
     .query(({ ctx, input }) => previewConfig(ctx, input.driver)),
+
+  /**
+   * Custom-domain status: waiting_dns → verified → issuing → active | error,
+   * the exact DNS records to create, what public DNS answers, and the
+   * certificate each edge serves. `host` is a routed host (or its companion).
+   */
+  domainStatus: orgProcedure
+    .input(z.object({ host: z.string().min(1) }))
+    .query(({ ctx, input }) => getDomainStatus(ctx, input.host)),
+
+  /** Re-check DNS + certificate for a host right now ("Check again"). */
+  verifyDomain: abacProcedure('ingress.write')
+    .input(z.object({ host: z.string().min(1) }))
+    .mutation(({ ctx, input }) => verifyDomainNow(ctx, input.host)),
+
+  /** Set (or clear with `null`) the apex ↔ www toggle on a domain route. */
+  setDomainWww: abacProcedure('ingress.write')
+    .input(z.object({ id: z.string(), www: WwwModeSchema.nullable() }))
+    .mutation(({ ctx, input }) => setDomainWww(ctx, input.id, input.www)),
+
+  /**
+   * Treat a host as DNS-verified without the check — for a domain behind an
+   * external load balancer / proxy whose IPs swarmy can't know. Audited; this
+   * lets the edge request a certificate for a name swarmy could not verify.
+   */
+  skipDomainVerification: adminProcedure
+    .input(z.object({ host: z.string().min(1) }))
+    .mutation(({ ctx, input }) => skipDomainVerification(ctx, input.host)),
 
   /**
    * Cloudflare tunnels. Nested here so it is reachable without a root.ts edit;

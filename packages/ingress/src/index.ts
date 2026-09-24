@@ -4,6 +4,7 @@ export * from './registry';
 export * from './apply';
 export * from './www';
 export * from './domain-verify';
+export * from './auto-address';
 export {
   CaddyDriver,
   caddyAdminLoadUrl,

@@ -53,6 +53,13 @@ export {
 } from './services/domain-verify.service';
 export type { DomainDetailView, DomainStatusView, DomainCheckReconcileResult } from './services/domain-verify.service';
 export { domainChecksOf } from './services/domain-checks.store';
+// Automatic app addresses (<service>-<stack>.<edge-ip>.sslip.io) — worker + plan-time helpers.
+export {
+  autoAddressBase,
+  autoAddressFor,
+  autoAddressLabels,
+  reconcileAutoAddressesForOrg,
+} from './services/auto-address.service';
 
 // Observability suite convergence (observability-reconcile worker).
 export { reconcileObservabilitySuite } from './services/observability.service';

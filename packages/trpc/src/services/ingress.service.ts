@@ -252,6 +252,11 @@ export interface DomainView {
   status: DomainStatusView | null;
   /** The companion host's own status (it needs its own DNS record + certificate). */
   companionStatus: DomainStatusView | null;
+  /**
+   * swarmy's automatic `<service>-<stack>.<edge-ip>.sslip.io` address (stamped on
+   * first deploy). Removing it is permanent; adding a custom domain replaces it.
+   */
+  auto: boolean;
 }
 
 /**
@@ -1108,7 +1113,7 @@ export async function listDomains(ctx: OrgContext, stack?: string): Promise<Doma
   const statuses = await domainStatusMap(ctx).catch(() => new Map<string, DomainStatusView>());
   return listRoutesForOrg(ctx)
     .filter((r) => !stack || r.stack === stack)
-    .map(({ serviceId, serviceName, stack: svcStack, route }) => {
+    .map(({ serviceId, serviceName, stack: svcStack, route, auto }) => {
       const companion = route.www ? companionHost(route.host) : null;
       return {
         id: domainId(serviceId, route.host, route.path),
@@ -1128,6 +1133,7 @@ export async function listDomains(ctx: OrgContext, stack?: string): Promise<Doma
         companionHost: companion,
         status: statuses.get(normalizeHostname(route.host)) ?? null,
         companionStatus: companion ? statuses.get(companion) ?? null : null,
+        auto: auto ?? false,
       };
     });
 }
@@ -1210,6 +1216,7 @@ export async function addDomain(
     companionHost: companion,
     status: statuses.get(host) ?? null,
     companionStatus: companion ? statuses.get(companion) ?? null : null,
+    auto: false,
   };
 }
 

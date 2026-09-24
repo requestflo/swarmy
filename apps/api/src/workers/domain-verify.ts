@@ -1,4 +1,6 @@
-// Custom-domain verification + certificate status worker. Per org with ingress
+// Custom-domain verification + certificate status worker (+ automatic app
+// addresses: stamps `<service>-<stack>.<edge-ip>.sslip.io` on a qualifying
+// service's first deploy — pure planner `planAutoAddresses`). Per org with ingress
 // enabled, every 30s: plan which routed hosts are DUE (pure
 // `planDomainChecks` — fast while waiting for DNS, backing off to hourly for
 // a domain nobody pointed yet, 10 min once active), look them up on public
@@ -11,7 +13,7 @@
 // hosts that are not due, zero agent commands.
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { reconcileDomainChecksOrg } from '@swarmy/trpc';
+import { reconcileAutoAddressesForOrg, reconcileDomainChecksOrg } from '@swarmy/trpc';
 import { hub } from '../gateway';
 
 const TICK_MS = 30_000;
@@ -28,6 +30,9 @@ export function startDomainVerify(): () => void {
         .catch(() => [] as { orgId: string }[]);
       for (const { orgId } of orgs) {
         // One org's failure (DB blip, resolver outage) never stalls the rest.
+        // Auto addresses first: a service's first deploy gets its sslip.io route
+        // stamped (ingress-reconcile renders it); the checks then report its cert.
+        await reconcileAutoAddressesForOrg(deps, orgId).catch(() => undefined);
         await reconcileDomainChecksOrg(deps, orgId).catch(() => undefined);
       }
     } finally {

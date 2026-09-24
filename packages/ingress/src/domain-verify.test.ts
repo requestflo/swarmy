@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   apexOf,
   applyCheck,
+  certAlertFor,
   becameRenderable,
   certCoversHost,
   certFromProbes,
@@ -344,5 +345,36 @@ describe('planDomainChecks', () => {
       max: 2,
     });
     expect(plan.check).toEqual(['b.com', 'c.com']);
+  });
+});
+
+describe('certAlertFor', () => {
+  const p = posture('a.com');
+  const base = { host: 'a.com', addedAt: 0, gated: false, verifiedAt: NOW - ISSUE_GRACE_MS * 3, lastCheckedAt: NOW, dns: { ok: true, reason: null, warnings: [], a: [], aaaa: [], cname: [], matched: [] } };
+  const withCert = (notAfter: number | null, ok = true, error: string | null = null) => ({
+    ...base,
+    cert: { ok, issuer: 'R3', notAfter, error, edges: [] },
+  });
+  it('resolves when comfortably valid, warns under 14d, critical under 3d / expired', () => {
+    expect(certAlertFor(withCert(NOW + 60 * 86_400_000), p, NOW)?.status).toBe('resolved');
+    expect(certAlertFor(withCert(NOW + 10 * 86_400_000), p, NOW)).toEqual({
+      status: 'firing',
+      severity: 'warning',
+      message: 'Certificate for a.com expires 2026-10-04 (10 days) and has not renewed yet.',
+    });
+    expect(certAlertFor(withCert(NOW + 86_400_000), p, NOW)?.severity).toBe('critical');
+    expect(certAlertFor(withCert(NOW - 1), p, NOW)?.severity).toBe('critical');
+  });
+  it('critical when issuance/renewal is failing past the grace window', () => {
+    expect(certAlertFor(withCert(null, false, 'the edge has no certificate for this name yet'), p, NOW)).toEqual({
+      status: 'firing',
+      severity: 'critical',
+      message: 'Certificate for a.com is failing: the edge has no certificate for this name yet',
+    });
+  });
+  it('silent while not verified, issuing within grace, or tls off', () => {
+    expect(certAlertFor({ ...withCert(null, false), verifiedAt: undefined }, p, NOW)).toBeNull();
+    expect(certAlertFor({ ...withCert(null, false), verifiedAt: NOW - 1000 }, p, NOW)).toBeNull();
+    expect(certAlertFor(withCert(NOW + 86_400_000), posture('a.com', { tls: 'off' }), NOW)).toBeNull();
   });
 });
