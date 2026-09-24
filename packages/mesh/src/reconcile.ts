@@ -2,7 +2,7 @@
  * Pure peer-reconciliation state mapping (epic #6, Phase 2+).
  *
  * The agent pushes a `meshState` telemetry frame; the controller maps it onto a
- * `MeshPeer` row update (status/meshIp/lastSeen). The mapping is pure so it can
+ * live peer update (status/meshIp/lastSeen; held in memory, no table). The mapping is pure so it can
  * be unit-tested without a DB or a hub, and reused by both the gateway handler
  * and the reconcile worker.
  */
@@ -21,7 +21,7 @@ export interface MeshStateReport {
   sampledAt: number;
 }
 
-/** Mirrors the DB `MeshPeer.status` string domain. */
+/** The live peer status domain (`@swarmy/trpc` mesh-peers). */
 export type MeshPeerStatus = 'ENROLLING' | 'ENROLLED' | 'CONNECTED' | 'DEGRADED' | 'FAILED';
 
 export interface MeshPeerUpdate {

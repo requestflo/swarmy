@@ -1,8 +1,8 @@
 /**
  * Mesh service (epic: zero-trust-networking, MVP). Org-scoped orchestration:
  * pick the driver from `@swarmy/mesh`, provision a node (mint a single-use setup
- * key via the control plane), persist a `MeshPeer`, dispatch `applyMesh` over the
- * existing `AgentHub`, and reconcile peer status. Mirrors `ingress.service.ts`.
+ * key via the control plane), dispatch `applyMesh` over the existing `AgentHub`,
+ * and derive peer status live (`./mesh-peers`: agent meshState + control plane). Mirrors `ingress.service.ts`.
  *
  * Secrets: the NetBird control-plane service token is encrypted at rest in
  * `MeshConfig.controlPlane` (vault) and never returned to the client; the setup
@@ -13,14 +13,13 @@ import {
   provisionNode as provisionNodePkg,
   defaultRegistry,
   NetbirdControlPlane,
-  reconcilePeerState,
+  reconcileFromControlPlane,
   principalTagForRoute,
   targetTagForRoute,
   type DriverControlPlane,
   type MeshAccessIntent,
   type MeshConfig as OrgMeshConfig,
   type MeshPeerInfo,
-  type MeshStateReport,
 } from '@swarmy/mesh';
 import type { ApplyMeshResult } from '@swarmy/core/protocol';
 import { decryptSecret, encryptSecret, randomToken } from '@swarmy/core/crypto';
@@ -30,6 +29,7 @@ import { writeAudit } from '../services/audit.service';
 import { notFound } from '../errors';
 import { requireOnlineNode } from './dispatch.service';
 import { resolveExecTarget, resolveLiveService } from './live-resolve';
+import { meshPeers, type LiveMeshPeer } from './mesh-peers';
 
 function badRequest(message: string): TRPCError {
   return new TRPCError({ code: 'BAD_REQUEST', message });
@@ -182,7 +182,7 @@ export async function mintSetupKeyForOrg(ctx: OrgContext): Promise<MintedSetupKe
 export async function getConfig(ctx: OrgContext): Promise<MeshConfigView> {
   const row = await ensureConfig(ctx);
   const cp = readControlPlane(row);
-  const peerCount = await ctx.db.meshPeer.count({ where: { orgId: ctx.activeOrgId } });
+  const peerCount = meshPeers.forOrg(ctx.activeOrgId).length;
   return {
     driver: driverLower(row.driver),
     enabled: row.enabled,
@@ -264,22 +264,56 @@ export async function setControlPlane(
   return getConfig(ctx);
 }
 
-export async function listPeers(ctx: OrgContext): Promise<MeshPeerView[]> {
-  const peers = await ctx.db.meshPeer.findMany({
-    where: { orgId: ctx.activeOrgId },
-    orderBy: { createdAt: 'desc' },
-  });
-  return peers.map((p) => ({
-    id: p.id,
+function toPeerView(p: LiveMeshPeer): MeshPeerView {
+  return {
+    id: p.nodeId,
     nodeId: p.nodeId,
     meshIp: p.meshIp,
     status: p.status,
     lastSeen: p.lastSeen ? p.lastSeen.toISOString() : null,
-  }));
+  };
+}
+
+/** An agent report older than this defers to the control plane's view. */
+const AGENT_REPORT_STALE_MS = 90_000;
+
+/**
+ * The org's mesh peers, derived: the agents' live `meshState` reports, cross-
+ * checked against the control plane's `listPeers` when one is configured
+ * (NetBird names peers by hostname). The control plane fills in nodes whose
+ * agent is silent or hasn't reported since a controller restart, and refreshes
+ * stale agent reports. Nothing is stored.
+ */
+export async function listPeers(ctx: OrgContext): Promise<MeshPeerView[]> {
+  const row = await ensureConfig(ctx);
+  const driver = driverLower(row.driver);
+  if (row.enabled && driver !== 'none') {
+    const cpPeers = await makeControlPlane(toOrgConfig(ctx, row))
+      .listPeers()
+      .catch(() => [] as MeshPeerInfo[]);
+    if (cpPeers.length > 0) {
+      const nodes = (await ctx.db.node.findMany({
+        where: { orgId: ctx.activeOrgId },
+        select: { id: true, hostname: true },
+      })) as { id: string; hostname: string }[];
+      const byHost = new Map(nodes.map((n) => [n.hostname, n.id]));
+      const now = Date.now();
+      for (const cp of cpPeers) {
+        const nodeId = cp.nodeId ? byHost.get(cp.nodeId) : undefined;
+        if (!nodeId) continue;
+        const live = meshPeers.get(nodeId);
+        const stale = !live?.lastSeen || now - live.lastSeen.getTime() > AGENT_REPORT_STALE_MS;
+        if (live && !stale) continue;
+        const update = reconcileFromControlPlane(cp);
+        meshPeers.upsert(ctx.activeOrgId, nodeId, { driver, ...update });
+      }
+    }
+  }
+  return meshPeers.forOrg(ctx.activeOrgId).map(toPeerView);
 }
 
 /**
- * Enroll a node: provision (mint setup key) → persist `MeshPeer` → dispatch
+ * Enroll a node: provision (mint setup key) → note the live peer → dispatch
  * `applyMesh` to the node agent. Org-scoped + audited.
  */
 export async function enrollNode(
@@ -300,39 +334,26 @@ export async function enrollNode(
     control,
   );
 
-  const peer = await ctx.db.meshPeer.upsert({
-    where: { nodeId: input.nodeId },
-    create: {
-      orgId: ctx.activeOrgId,
-      nodeId: input.nodeId,
-      driver: row.driver,
-      status: 'ENROLLING',
-    },
-    update: { status: 'ENROLLING', driver: row.driver },
-  });
+  const driver = driverLower(row.driver);
+  meshPeers.upsert(ctx.activeOrgId, input.nodeId, { driver, status: 'ENROLLING' });
 
   // Dispatch the join; the setup key rides this single frame only.
   let result: ApplyMeshResult | null = null;
   try {
     result = await ctx.hub.dispatch<ApplyMeshResult>(input.nodeId, 'applyMesh', { rendered });
-    await ctx.db.meshPeer.update({
-      where: { id: peer.id },
-      data: {
-        status: result.joined ? 'CONNECTED' : 'ENROLLED',
-        meshIp: result.meshIp ?? peer.meshIp,
-        peerId: result.peerId ?? peer.peerId,
-        lastSeen: new Date(),
-      },
+    const prev = meshPeers.get(input.nodeId);
+    meshPeers.upsert(ctx.activeOrgId, input.nodeId, {
+      status: result.joined ? 'CONNECTED' : 'ENROLLED',
+      meshIp: result.meshIp ?? prev?.meshIp ?? null,
+      peerId: result.peerId ?? prev?.peerId ?? null,
+      lastSeen: new Date(),
     });
   } catch (e) {
-    await ctx.db.meshPeer.update({
-      where: { id: peer.id },
-      data: { status: 'FAILED' },
-    });
+    meshPeers.upsert(ctx.activeOrgId, input.nodeId, { status: 'FAILED' });
     await writeAudit(ctx, {
       action: 'mesh.peer.enrollFailed',
       targetType: 'meshPeer',
-      targetId: peer.id,
+      targetId: input.nodeId,
       metadata: { nodeId: input.nodeId, error: e instanceof Error ? e.message : String(e) },
     });
     throw e;
@@ -341,46 +362,17 @@ export async function enrollNode(
   await writeAudit(ctx, {
     action: 'mesh.peer.join',
     targetType: 'meshPeer',
-    targetId: peer.id,
+    targetId: input.nodeId,
     metadata: { nodeId: input.nodeId, driver: enrollment.driver },
   });
 
-  const fresh = await ctx.db.meshPeer.findUniqueOrThrow({ where: { id: peer.id } });
-  return {
-    id: fresh.id,
-    nodeId: fresh.nodeId,
-    meshIp: fresh.meshIp,
-    status: fresh.status,
-    lastSeen: fresh.lastSeen ? fresh.lastSeen.toISOString() : null,
-  };
+  return toPeerView(meshPeers.get(input.nodeId)!);
 }
 
-// ── Live peer reconciliation (Phase 2+) ──────────────────────────────────────
-
-/** Minimal DB surface so the reconcile helpers can run from a worker too. */
-export interface MeshReconcileDb {
-  meshPeer: {
-    updateMany(args: {
-      where: { nodeId: string };
-      data: { status: string; meshIp: string | null; peerId: string | null; lastSeen: Date };
-    }): Promise<{ count: number }>;
-  };
-}
-
-/**
- * Reconcile a single agent `meshState` report onto its `MeshPeer` row. Pure
- * mapping lives in `@swarmy/mesh` (`reconcilePeerState`); this just persists it.
- * Used by the gateway `meshState` handler AND the periodic reconcile worker (see
- * INTEGRATION). `updateMany` so a report for an un-enrolled node is a safe no-op.
- */
-export async function reconcileMeshPeer(
-  db: MeshReconcileDb,
-  nodeId: string,
-  report: MeshStateReport,
-): Promise<void> {
-  const update = reconcilePeerState(report);
-  await db.meshPeer.updateMany({ where: { nodeId }, data: update });
-}
+// ── Live peer reconciliation ─────────────────────────────────────────────────
+// Agent `meshState` reports fold into the live map in `./mesh-peers`
+// (`reconcileMeshPeer`); there is no peer table.
+export { reconcileMeshPeer } from './mesh-peers';
 
 // ── Direct stack connect (Phase 2) ───────────────────────────────────────────
 
@@ -499,7 +491,7 @@ export async function grantDirectRoute(
     if (!svc) throw notFound('service', input.serviceId);
     const host = resolveExecTarget(ctx, svc.id);
     if (host) {
-      const peer = await ctx.db.meshPeer.findUnique({ where: { nodeId: host.nodeId } });
+      const peer = meshPeers.get(host.nodeId);
       if (peer?.meshIp) meshHost = peer.meshIp;
     }
   }
@@ -545,21 +537,8 @@ export async function grantDirectRoute(
     }
   }
 
-  await ctx.db.meshAcl.create({
-    data: {
-      orgId: ctx.activeOrgId,
-      routeId: route.id,
-      driver,
-      kind: access.kind,
-      rendered:
-        access.kind === 'control-plane'
-          ? (access.plan as unknown as object)
-          : access.kind === 'file'
-            ? { path: access.path, contents: access.contents }
-            : { summary: access.summary },
-      appliedAt: access.kind === 'none' ? null : new Date(),
-    },
-  });
+  // The rendered ACL is not stored: it is a pure function of the org's
+  // MeshRoutes (`buildAccessIntent` → `applyAccess`), re-rendered on demand.
 
   if (policyRef) {
     await ctx.db.meshRoute.update({ where: { id: route.id }, data: { policyRef } });

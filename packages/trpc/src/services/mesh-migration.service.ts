@@ -38,6 +38,7 @@ import {
 } from './mesh-migration.plan';
 import { applyServicePatch, liveServiceSpec } from './service-patch';
 import { fetchLiveJoinMaterial, SWARM_COMMAND } from './swarm.service';
+import { MESH_CONNECTED, meshPeers } from './mesh-peers';
 
 // ── Persisted run state (MeshConfig.settings.swarmMigration) ────────────────
 
@@ -109,7 +110,7 @@ const REJOIN_TIMEOUT_MS = 120_000;
 const DEPLOY_TIMEOUT_MS = 60_000;
 const SWARM_SERVICE_ID_LABEL = 'com.docker.swarm.service.id';
 const CONTROLLER_SERVICE = 'swarmy_controller';
-const CONNECTED = new Set(['ONLINE', 'CONNECTED']);
+const CONNECTED = MESH_CONNECTED;
 
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const now = (): string => new Date().toISOString();
@@ -147,14 +148,8 @@ async function planInputs(ctx: OrgContext): Promise<{ nodes: PlanNodeInput[]; se
     where: { orgId: ctx.activeOrgId },
     select: { id: true, hostname: true },
   })) as { id: string; hostname: string }[];
-  const peers = (await ctx.db.meshPeer.findMany({ where: { orgId: ctx.activeOrgId } })) as {
-    nodeId: string;
-    meshIp: string | null;
-    status: string;
-  }[];
-  const peerBy = new Map(peers.map((p) => [p.nodeId, p]));
   const nodes: PlanNodeInput[] = rows.map((r) => {
-    const peer = peerBy.get(r.id);
+    const peer = meshPeers.get(r.id);
     return {
       nodeId: r.id,
       hostname: r.hostname,
@@ -434,11 +429,11 @@ async function moveNode(ctx: OrgContext, run: MigrationRun, node: NodeMoveState,
   if (node.step === 'pending' || node.step === 'enrolling') {
     await step(ctx, run, node, 'enrolling');
     if (run.direction === 'onto-mesh') {
-      const peer = await ctx.db.meshPeer.findUnique({ where: { nodeId: node.nodeId } });
+      const peer = meshPeers.get(node.nodeId);
       if (!(peer && CONNECTED.has(peer.status) && peer.meshIp)) await seams.enroll(ctx, node.nodeId);
       let meshIp: string | null = null;
       await waitFor(seams, seams.meshTimeoutMs, 'the node’s mesh peer to connect', async () => {
-        const p = await ctx.db.meshPeer.findUnique({ where: { nodeId: node.nodeId } });
+        const p = meshPeers.get(node.nodeId);
         meshIp = p && CONNECTED.has(p.status) ? p.meshIp : null;
         return Boolean(meshIp);
       });

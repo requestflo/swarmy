@@ -45,7 +45,7 @@ export interface PlanNodeInput {
   online: boolean;
   /** Live swarm node (Docker truth) — undefined = not reported yet. */
   swarm?: SwarmNodeInfo;
-  /** Mesh IP from the MeshPeer row / telemetry. */
+  /** Mesh IP from the live peer map (agent meshState telemetry). */
   meshIp?: string | null;
   /** Mesh client reports connected. */
   meshConnected: boolean;

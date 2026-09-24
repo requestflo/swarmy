@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
 import type { ContainerInfo, SwarmNodeInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
+import { meshPeers } from './mesh-peers';
 import { readRun, resumeMigration, runMeshMigration, startMigration, type MigrationSeams } from './mesh-migration.service';
 
 beforeAll(() => {
@@ -51,13 +52,13 @@ function harness(opts: { meshWorkerIp?: string; startOnMesh?: boolean; failRejoi
   let rejoinFailures = opts.failRejoinOnce ? 1 : 0;
   let seq = 0;
 
+  // Live mesh peers (agent meshState) — the in-memory map, no table.
+  meshPeers.clear();
+  meshPeers.upsert(ORG, 'lon-a', { driver: 'netbird', status: 'CONNECTED', meshIp: '100.92.0.10' });
+  meshPeers.upsert(ORG, 'nyc-a', { driver: 'netbird', status: 'ENROLLING', meshIp: null });
   const db = {
     settings: {} as Record<string, unknown>,
     meshConfigRow: { orgId: ORG, driver: 'NETBIRD', enabled: true, settings: {} as unknown },
-    peers: [
-      { nodeId: 'lon-a', orgId: ORG, meshIp: '100.92.0.10', status: 'ONLINE' },
-      { nodeId: 'nyc-a', orgId: ORG, meshIp: null as string | null, status: 'ENROLLING' },
-    ],
     audits: [] as { action: string; metadata?: unknown }[],
   };
   const prisma = {
@@ -66,10 +67,6 @@ function harness(opts: { meshWorkerIp?: string; startOnMesh?: boolean; failRejoi
       findMany: async () => [db.meshConfigRow],
       update: async ({ data }: { data: Record<string, unknown> }) => Object.assign(db.meshConfigRow, data),
       upsert: async ({ update }: { update: Record<string, unknown> }) => Object.assign(db.meshConfigRow, update),
-    },
-    meshPeer: {
-      findMany: async () => db.peers,
-      findUnique: async ({ where }: { where: { nodeId: string } }) => db.peers.find((p) => p.nodeId === where.nodeId) ?? null,
     },
     node: {
       findMany: async () => [
@@ -155,9 +152,7 @@ function harness(opts: { meshWorkerIp?: string; startOnMesh?: boolean; failRejoi
     drainTimeoutMs: 50,
     readyTimeoutMs: 50,
     enroll: async (_c, nodeId) => {
-      const p = db.peers.find((x) => x.nodeId === nodeId)!;
-      p.meshIp = meshIp;
-      p.status = 'ONLINE';
+      meshPeers.upsert(ORG, nodeId, { meshIp, status: 'CONNECTED' });
     },
   };
   return { ctx, seams, swarm, services, calls, db, meshIp };
@@ -248,8 +243,7 @@ describe('mesh migration runner — onto the mesh', () => {
 describe('mesh migration runner — reverse (off the mesh)', () => {
   it('rejoins the mesh worker on its own address, restores labels + pin, and can turn the mesh off at the end', async () => {
     const h = harness({ startOnMesh: true, managerAddr: '203.0.113.10' });
-    h.db.peers[1]!.meshIp = h.meshIp;
-    h.db.peers[1]!.status = 'ONLINE';
+    meshPeers.upsert(ORG, 'nyc-a', { meshIp: h.meshIp, status: 'CONNECTED' });
     await startMigration(h.ctx, { direction: 'off-mesh', acknowledgeWarnings: true, disableWhenDone: true }, h.seams);
     await settle(h);
 

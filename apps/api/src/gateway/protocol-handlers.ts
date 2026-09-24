@@ -13,6 +13,7 @@ import { prisma } from '@swarmy/db';
 import {
   enrollMeshNode,
   orchestrateSwarmMembership,
+  reconcileMeshPeer,
   stampDefaultBuilderRole,
   stampProfileLabels,
   stampReportedPublicIp,
@@ -189,28 +190,12 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
     }
     case 'meshState': {
       const nodeId = ws.data.nodeId;
-      if (!nodeId) return;
-      const p = env.payload;
-      const data = {
-        status: p.connected ? 'ONLINE' : 'OFFLINE',
-        meshIp: p.meshIp ?? null,
-        peerId: p.peerId ?? null,
-        lastSeen: new Date(),
-      };
-      const orgId = deps.store.nodeOrg.get(nodeId);
-      // A node that joined the mesh BEFORE registering (installer node #1,
-      // mesh-first "Add a node" one-liners) was never enrolled from the
-      // dashboard, so it has no row yet: create it from the first connected
-      // sample so its mesh IP is visible to migration + direct-connect.
-      const write =
-        p.connected && p.meshIp && orgId
-          ? prisma.meshPeer.upsert({
-              where: { nodeId },
-              create: { orgId, nodeId, driver: p.driver.toUpperCase(), ...data },
-              update: data,
-            })
-          : prisma.meshPeer.updateMany({ where: { nodeId }, data });
-      await write.catch(() => undefined);
+      const orgId = nodeId ? deps.store.nodeOrg.get(nodeId) : undefined;
+      if (!nodeId || !orgId) return;
+      // Live peer state, in memory (epic-docker-native-state: no MeshPeer table).
+      // A node that joined the mesh before registering gets its peer from its
+      // first connected sample, so migration + direct-connect see its mesh IP.
+      reconcileMeshPeer(orgId, nodeId, env.payload);
       return;
     }
     default:

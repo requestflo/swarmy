@@ -41,7 +41,8 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
    the client (`getConfig` exposes only `tokenConfigured: boolean`).
 6. **Reads are telemetry, not commands.** Live peer state is the agent's
    `meshState` push (sampled from `netbird status --json` / `tailscale status`
-   / `wg show`), reconciled onto `MeshPeer`. Never add a command just to read
+   / `wg show`), folded into the in-memory live peer map (`mesh-peers.ts`,
+   no table — epic-docker-native-state P1). Never add a command just to read
    mesh state — surface it from the pushed snapshot / control-plane `listPeers`.
 7. **The mesh client is a privileged, off-by-default sidecar.** `applyMesh` and
    `grantDirectRoute` are gated by `SWARMY_ALLOW_MESH` (default on) and reject
@@ -49,9 +50,10 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
    sidecar (`swarmy-netbird`/`swarmy-tailscale`, host net, `NET_ADMIN`,
    `/dev/net/tun`) has a **stable name** so re-applies reconcile one container,
    never duplicate. Widening privilege adds a gate; it never removes one.
-8. **Mesh membership + ACLs are swarmy's OWN state (DB), placement is Docker
-   truth.** `MeshConfig`/`MeshPeer`/`MeshRoute`/`MeshAcl` are access-control +
-   audit — legitimately DB, unlike node roles/cost which are Docker labels. But
+8. **Mesh grants are swarmy's OWN state (DB); peers and placement are live.**
+   `MeshConfig`/`MeshRoute` are config + access control — legitimately DB.
+   Peers are derived (agent `meshState` + control-plane `listPeers`) and the
+   rendered ACL is re-rendered from `MeshRoute` on demand. Likewise
    *which node runs a service* (and thus a direct route's target `meshIp`) is
    read live from Docker inventory (`resolveLiveService`/`resolveExecTarget`),
    never a swarmy column. See `skill("docker-native-storage")`.
@@ -79,8 +81,9 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
   is the mesh analog of ingress's `DriverDispatch`.
 - **Agent → controller telemetry**: the 20s `reportMeshState` loop in
   `apps/agent/src/index.ts` calls `sampleMeshState()` and `conn.send('meshState',
-  …)`. The gateway (`protocol-handlers.ts` `case 'meshState'`) persists it onto
-  `MeshPeer` via `updateMany` (safe no-op for un-enrolled nodes). Pure mapping
+  …)`. The gateway (`protocol-handlers.ts` `case 'meshState'`) folds it into
+  the live peer map via `reconcileMeshPeer` (`packages/trpc/src/services/mesh-peers.ts`;
+  a no-op for an unknown node unless it reports connected with an IP). Pure mapping
   lives in `reconcilePeerState` / `reconcileFromControlPlane` (`reconcile.ts`).
 - **Access render**: `driver.applyAccess(config, intent)` returns
   `{ kind:'control-plane', plan }` (NetBird → `applyPolicyPlan`),
@@ -108,7 +111,8 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 | Encrypt/decrypt service token, random keys | `packages/core/src/crypto.ts` |
 | Agent: sidecar apply, `meshState` sampler, WG grant | `apps/agent/src/handlers/mesh.ts` |
 | Agent: executor cases + `SWARMY_ALLOW_MESH` gate | `apps/agent/src/{executor,env,index}.ts` |
-| Gateway `meshState` → `MeshPeer` reconcile | `apps/api/src/gateway/protocol-handlers.ts` |
+| Live peer map (no table) + `reconcileMeshPeer` | `packages/trpc/src/services/mesh-peers.ts` |
+| Gateway `meshState` → live peer map | `apps/api/src/gateway/protocol-handlers.ts` |
 | DB models | `packages/db/prisma/schema/mesh.prisma` |
 | Networking UI (driver/enroll/control-plane/peers/direct-connect) | `apps/app/src/routes/_authed/networking.tsx`, `apps/app/src/components/networking/*` |
 
@@ -154,9 +158,9 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
   ClickHouse live only on the private `swarmy-control` overlay; user specs may
   never join it nor alias names on the shared `swarmy` overlay (admission
   refuses, not overridable; the agent strips such aliases as a floor).
-- `meshState` in the gateway currently writes coarse `ONLINE`/`OFFLINE`, while
-  `reconcilePeerState` models the fuller `ENROLLING`/`ENROLLED`/`CONNECTED`/
-  `DEGRADED`/`FAILED` domain — prefer the pure mapping when unifying them.
+- Live peers use the `reconcilePeerState` domain (`ENROLLING`/`ENROLLED`/
+  `CONNECTED`/`DEGRADED`/`FAILED`). After a controller restart the map refills
+  within one 20 s `meshState` tick; `listPeers` fills gaps from the control plane.
 - **The swarm is born on the mesh.** With `--mesh netbird-*` the installer
   mints a one-off key, starts `swarmy-netbird` (state volume `swarmy-netbird`,
   which `applyMesh` adopts instead of recreating: a re-create is a NEW peer

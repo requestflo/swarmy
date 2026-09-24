@@ -62,6 +62,7 @@ import {
   type EdgeCertStorageSettings,
 } from './ingress-certs';
 import { domainChecksOf } from './domain-checks.store';
+import { meshPeers } from './mesh-peers';
 import { domainStatusMap, registerDomainHosts, type DomainStatusView } from './domain-verify.service';
 import { edgeAcmeDnsSecrets, orgDnsChallenge, readAcmeDnsSettings, requiredAcmeDnsSecrets } from './acme-dns.service';
 
@@ -1509,11 +1510,8 @@ export async function applyObjectStorageExposure(ctx: OrgContext, edgePortsChang
 export async function edgeMeshIps(ctx: OrgContext): Promise<string[]> {
   const nodeIds = await ingressTaskNodes(ctx).catch(() => [] as string[]);
   if (nodeIds.length === 0) return [];
-  const peers = await ctx.db.meshPeer.findMany({
-    where: { orgId: ctx.activeOrgId, nodeId: { in: nodeIds }, meshIp: { not: null } },
-    select: { meshIp: true },
-  });
-  return peers.map((p) => p.meshIp!).filter(Boolean);
+  // Live mesh peers (agent meshState), never a stored row.
+  return nodeIds.map((id) => meshPeers.get(id)?.meshIp ?? null).filter((ip): ip is string => Boolean(ip));
 }
 
 /** The org's dashboard hostname (the public S3 domain derives from it). */
