@@ -1,11 +1,35 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
-import { addDomain, getDomainStatus, listDomains, parseDomainId, removeDomain, setDomainWww, verifyDomainNow } from '@swarmy/trpc';
+import {
+  addDomain,
+  getDomainStatus,
+  listDomains,
+  parseDomainId,
+  removeDomain,
+  resolveService,
+  setDomainWww,
+  verifyDomainNow,
+  type ResolveResource,
+} from '@swarmy/trpc';
 import type { TlsMode } from '@swarmy/core';
 import type { RestEnv } from '../middleware';
 import { requireAction, requireScope } from '../middleware';
 import { AddDomainBody, DomainDetailDto, DomainDto, ProblemDto, RemovedDto, UpdateDomainBody, listEnvelope } from '../dto';
 import { domainDetailToDto, domainToDto } from '../mappers';
 import { run } from '../respond';
+
+/**
+ * A domain inherits its target service's live labels (a production service's
+ * domain is production) — the same resolution as the tRPC ingress router.
+ * `{ id }` is the domain id path param; `{ serviceId }` comes from the body.
+ */
+const resolveDomain: ResolveResource = (ctx, input) => {
+  const id = (input as { id?: unknown } | null)?.id;
+  return typeof id === 'string' && id ? resolveService(ctx, { id: parseDomainId(id).serviceId }) : null;
+};
+const resolveRouteService: ResolveResource = (ctx, input) => {
+  const serviceId = (input as { serviceId?: unknown } | null)?.serviceId;
+  return typeof serviceId === 'string' && serviceId ? resolveService(ctx, { id: serviceId }) : null;
+};
 
 const DomainList = listEnvelope(DomainDto, 'IngressDomainList');
 const idParam = z.object({ id: z.string().openapi({ param: { name: 'id', in: 'path' } }) });
@@ -42,7 +66,10 @@ export function registerIngressRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Ingress'],
       summary: 'Add an ingress domain',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [
+        requireScope('write'),
+        requireAction('ingress.write', resolveRouteService, (b) => ({ serviceId: b.service_id })),
+      ] as const,
       request: { body: { content: { 'application/json': { schema: AddDomainBody } } } },
       responses: {
         201: { content: { 'application/json': { schema: DomainDto } }, description: 'Created' },
@@ -77,7 +104,7 @@ export function registerIngressRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Ingress'],
       summary: 'Remove an ingress domain',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write'), requireAction('ingress.write')] as const,
+      middleware: [requireScope('write'), requireAction('ingress.write', resolveDomain)] as const,
       request: { params: idParam },
       responses: {
         200: { content: { 'application/json': { schema: RemovedDto } }, description: 'Removed' },
@@ -116,7 +143,7 @@ export function registerIngressRoutes(app: OpenAPIHono<RestEnv>): void {
       summary: 'Re-check a domain now',
       description: 'Runs the DNS (and, once verified, certificate) check immediately instead of waiting for the next scheduled check.',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write'), requireAction('ingress.write')] as const,
+      middleware: [requireScope('write'), requireAction('ingress.write', resolveDomain)] as const,
       request: { params: idParam },
       responses: {
         200: { content: { 'application/json': { schema: DomainDetailDto } }, description: 'Status after the check' },
@@ -133,7 +160,7 @@ export function registerIngressRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Ingress'],
       summary: 'Update a domain (apex ↔ www)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write'), requireAction('ingress.write')] as const,
+      middleware: [requireScope('write'), requireAction('ingress.write', resolveDomain)] as const,
       request: { params: idParam, body: { content: { 'application/json': { schema: UpdateDomainBody } } } },
       responses: {
         200: { content: { 'application/json': { schema: DomainDto } }, description: 'Updated' },
