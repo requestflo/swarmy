@@ -1,9 +1,10 @@
 import { Hono } from 'hono';
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { SCALE_TO_ZERO_TARGET_LABEL } from '@swarmy/core';
+import { SCALE_TO_ZERO_LABEL, SCALE_TO_ZERO_TARGET_LABEL } from '@swarmy/core';
 import { reapplyIngressForOrg } from '@swarmy/trpc';
 import { hub, store } from './gateway';
+import { safeReturn } from './activator-return';
 
 /**
  * Scale-to-zero activator (epic #4B).
@@ -28,7 +29,10 @@ export function lastActivityMs(name: string): number | undefined {
 
 function findService(name: string): { orgId: string; running: number; target: number } | undefined {
   for (const [nodeId, services] of store.serviceInfo) {
-    const svc = services.find((s) => s.name === name);
+    // Only services that opted into scale-to-zero are wakeable: this route is
+    // unauthenticated (public traffic wakes a cold app), so it must never scale
+    // a service an operator deliberately stopped at 0.
+    const svc = services.find((s) => s.name === name && s.labels[SCALE_TO_ZERO_LABEL] === 'true');
     if (svc) {
       const orgId = store.nodeOrg.get(nodeId);
       if (orgId) {
@@ -77,7 +81,7 @@ activatorApp.all('/:service', async (c) => {
       );
     }
   }
-  const back = c.req.query('return');
+  const back = safeReturn(c.req.query('return'), c.req.header('host'));
   if (back) return c.redirect(back, 307);
   return c.json({ service: name, ready });
 });
