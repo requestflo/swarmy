@@ -12,7 +12,8 @@
 import pkg from '../package.json' with { type: 'json' };
 import { PROTOCOL_VERSION } from '@swarmy/core/protocol';
 
-export const VERSION: string = pkg.version;
+/** `SWARMY_VERSION` (CI build arg: edge builds carry `x.y.z-edge.N`) wins over package.json. */
+export const VERSION: string = process.env.SWARMY_VERSION || pkg.version;
 export const PROTOCOL_VERSION_NUMBER: number = PROTOCOL_VERSION;
 export const COMMIT: string = process.env.SWARMY_COMMIT ?? 'dev';
 

@@ -19,8 +19,36 @@ permissions:
   id-token: write # cosign keyless / OIDC signing
 
 jobs:
+  # The release version every image + platform.json of this run carries.
+  # Tag vX.Y.Z → X.Y.Z on Stable; a main build → <next patch>-edge.<run> on Edge
+  # (so the next Stable release always sorts above the Edge builds before it).
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      channel: ${{ steps.v.outputs.channel }}
+      previous: ${{ steps.v.outputs.previous }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: v
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            ver="${GITHUB_REF#refs/tags/v}"; channel=stable
+            prev="$(git describe --tags --abbrev=0 --match 'v*' "${GITHUB_REF}^" 2>/dev/null || true)"
+          else
+            prev="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo v0.0.0)"
+            IFS=. read -r ma mi pa <<<"${prev#v}"
+            ver="${ma}.${mi}.$((pa + 1))-edge.${GITHUB_RUN_NUMBER}"; channel=edge
+          fi
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "previous=$prev" >> "$GITHUB_OUTPUT"
+
   build:
     name: ${{ matrix.name }} image
+    needs: version
     runs-on: ubuntu-latest
     strategy:
       # One image failing (e.g. a Caddy plugin break) must never cancel the
@@ -28,18 +56,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # bom: the key in packages/core/src/system-images.ts this image fills in platform.json.
           - name: controller
+            bom: controller
             image: ghcr.io/${{ github.repository_owner }}/swarmy-controller
             dockerfile: apps/api/Dockerfile
           - name: agent
+            bom: agent
             image: ghcr.io/${{ github.repository_owner }}/swarmy-agent
             dockerfile: apps/agent/Dockerfile
           - name: dns
+            bom: dns
             image: ghcr.io/${{ github.repository_owner }}/swarmy-dns
             dockerfile: apps/dns/Dockerfile
           # swarmy's Caddy build (rate_limit, redis cert storage, cache, maxmind):
           # required for edge-per-node, where N edges share one ACME store.
           - name: caddy
+            bom: caddySwarmy
             image: ghcr.io/${{ github.repository_owner }}/caddy-swarmy
             dockerfile: docker/caddy-swarmy/Dockerfile
             context: docker/caddy-swarmy
@@ -74,6 +107,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             SWARMY_COMMIT=${{ github.sha }}
+            SWARMY_VERSION=${{ needs.version.outputs.version }}
           provenance: true
           sbom: true
           cache-from: type=gha
@@ -111,3 +145,84 @@ jobs:
         with:
           name: sbom-${{ matrix.name }}
           path: sbom-${{ matrix.name }}.spdx.json
+
+      # platform.json input: this image's index digest, keyed by its BOM entry.
+      - name: Record digest for the platform manifest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "${{ matrix.bom }}=${DIGEST}" > "digest-${{ matrix.name }}.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.name }}
+          path: digest-${{ matrix.name }}.txt
+
+  # The release manifest (BOM): GENERATED from packages/core/src/system-images.ts
+  # + the digests built above, signed with the swarmy release key (cosign key
+  # pair, no transparency log — controllers verify it offline), and published
+  # to the feed: rolling GitHub releases `stable` / `edge`
+  # (<feed>/<channel>/platform.json + .sig) plus the versioned release.
+  manifest:
+    name: platform manifest
+    needs: [version, build]
+    # Every image must have built: a manifest with a missing digest is not a release.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      CHANNEL: ${{ needs.version.outputs.channel }}
+      PREVIOUS: ${{ needs.version.outputs.previous }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          merge-multiple: true
+      - name: Generate platform.json
+        run: |
+          set -euo pipefail
+          digests=()
+          for f in digest-*.txt; do digests+=(--digest "$(cat "$f")"); done
+          range=""
+          [ -n "$PREVIOUS" ] && git rev-parse -q --verify "$PREVIOUS" >/dev/null && range="${PREVIOUS}..${GITHUB_SHA}"
+          tag="$VERSION"; [ "$CHANNEL" = edge ] && tag="sha-${GITHUB_SHA::7}"
+          bun scripts/platform-manifest.ts --version "$VERSION" --channel "$CHANNEL" \
+            --commit "$GITHUB_SHA" --tag "$tag" "${digests[@]}" \
+            ${range:+--notes-from-git "$range"} --out platform.json
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign with the swarmy release key
+        env:
+          SWARMY_RELEASE_KEY: ${{ secrets.SWARMY_RELEASE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.SWARMY_RELEASE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$SWARMY_RELEASE_KEY" ]; then
+            echo "::warning::SWARMY_RELEASE_KEY is not set — publishing an UNSIGNED manifest (controllers will refuse it)."
+            : > platform.json.sig
+            exit 0
+          fi
+          cosign sign-blob --yes --key env://SWARMY_RELEASE_KEY --tlog-upload=false \
+            --output-signature platform.json.sig platform.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: platform-manifest
+          path: platform.json*
+      - name: Publish to the feed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Rolling channel release: <feed>/<channel>/platform.json.
+          gh release view "$CHANNEL" >/dev/null 2>&1 || gh release create "$CHANNEL" --prerelease \
+            --title "swarmy ${CHANNEL} channel" --notes "Rolling platform manifest for the ${CHANNEL} channel (swarmy upgrade feed)."
+          gh release upload "$CHANNEL" platform.json platform.json.sig --clobber
+          # The versioned release keeps its own copy (history; offline bundles).
+          if [ "$CHANNEL" = stable ] && gh release view "v${VERSION}" >/dev/null 2>&1; then
+            gh release upload "v${VERSION}" platform.json platform.json.sig --clobber
+          fi
