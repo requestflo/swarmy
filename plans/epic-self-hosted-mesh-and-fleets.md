@@ -1,6 +1,7 @@
 # Epic: self-hosted mesh, people on the mesh, and fleets of clusters
 
-Status: **design, 2026-09-24.** Owner decisions taken: the mesh control plane
+Status: **M0 spike done, M1/M2 building, 2026-09-24** (spike results in §11,
+main's picks on §9 recorded there). Owner decisions taken: the mesh control plane
 runs **inside swarmy** (self-hosted NetBird). NetBird Cloud is optional at
 most. **People** join the mesh too, not just servers. Owning skills:
 `mesh-networking` (mesh), `geo-edge-routing` (edge/DNS), `auth-abac`
@@ -87,8 +88,11 @@ node #1 (public IP, manager)                         any node, anywhere (NAT ok)
   `authSecret`, `encryptionKey` and the owner password come from swarmy's vault.
   They ride the `applyMeshControl` frame and are written to a **tmpfs** inside
   the container, never to host disk (same rule as setup keys, invariant 5).
-  The spike must confirm that the combined server can read its config from a
-  tmpfs path; env overrides are the fallback.
+  **Spike (§11.1): confirmed**, with a wait-for-file entrypoint; there is no
+  env-override fallback in the combined server. `disableDefaultPolicy` and
+  `disableGeoliteUpdate` do not do what their names say there (§11.3), so the
+  bootstrap deletes the Default policy and the container sets
+  `NB_DISABLE_GEOLOCATION=true`.
 - **The one exception to "no mesh state on node disk":** the control-plane
   node holds NetBird's SQLite files, because they *are* the control plane.
   Sensitive columns are encrypted with the vault-held `encryptionKey`. Peers'
@@ -179,8 +183,9 @@ That is rejected.
   which removes `oidcProvider`. We never used it, so the move is just keeping
   up.
 - The controller creates one confidential, `skip_consent` client,
-  `swarmy-mesh`, via `adminCreateOAuthClient`. Its redirect is
-  `https://$MESH_DOMAIN/oauth2/callback/<connector-id>`. The controller then
+  `swarmy-mesh`, via `ensureOidcClient` (swarmy's own table, no HTTP
+  registration). Its redirect is `https://$MESH_DOMAIN/oauth2/callback`
+  (spike: Dex uses one callback for every connector, with PKCE S256). The controller then
   registers it in NetBird with `POST /api/identity-providers {type:'oidc',
   issuer:<swarmy issuer>, client_id, client_secret}`. After that it sets
   `localAuthDisabled`. Dex then has one connector and goes straight to
@@ -420,7 +425,7 @@ Why this and not the alternatives:
   our FQDN, so we'd need a rewriting forwarder). Rejected: one router joined
   to every overlay (joining a network restarts the router for all stacks, and
   it bridges walls).
-- **Constraints the spike must settle.**
+- **Constraints the spike settled (§11.5).**
   - The router is a container attached to an overlay, so the stack overlay
     must be `attachable`. Swarmy-created overlays are. For compose stacks we
     set it at creation. An existing non-attachable overlay needs a recreate,
@@ -669,3 +674,177 @@ not a new model.
 - **Better Auth 1.7** removes `oidcProvider`. We must take `oauth-provider`
   plus `jwt` without disturbing session cookies, the passkey or 2FA flows,
   or the REST API key auth. `auth-abac` owns that review.
+
+## 11. M0 spike results (2026-09-24)
+
+Run on NetBird **v0.79.0** (`netbirdio/netbird-server@sha256:d1da0c01…`,
+`netbirdio/netbird@sha256:9d8480d8…`), locally on Docker 29.6 and on a Lima
+Ubuntu 24.04 VM (Docker 29.8, one-node swarm). Scripts were throwaway; what
+they proved is below. "Pass" means seen working, not read in the docs.
+
+### 11.1 Config from tmpfs: pass, with a wait-for-file entrypoint
+
+- The combined server reads **only** `--config <file>`. There is no general env
+  override. Only a few `NB_*` switches exist (`NB_SETUP_PAT_ENABLED`,
+  `NB_DISABLE_GEOLOCATION`, the SQLite file paths). So "env overrides as a
+  fallback" is not available.
+- It works with the container started as
+  `sh -c 'while [ ! -s /run/swarmy-mesh/config.yaml ]; do sleep 0.2; done; exec netbird-server --config /run/swarmy-mesh/config.yaml'`
+  on `--tmpfs /run/swarmy-mesh:mode=0700`. The supervisor then writes the
+  file with `docker exec -i … cat >`. The config never touches the image, the
+  container spec or `docker inspect`.
+- **The catch is cold boot.** A tmpfs is empty after a restart. If the node
+  that hosts the control plane reboots, its agent must write the config again
+  before NetBird starts. The agent reaches the controller over the overlay,
+  and the overlay rides the mesh. When the controller runs on another node,
+  that is a deadlock. **Decision:** the agent keeps the rendered config in its
+  own state dir (`/var/lib/swarmy/mesh-control/config.yaml`, 0600, next to the
+  agent's session secret) and rewrites the tmpfs from it on every start. It is
+  never in the NetBird volume, so `store.db` and its `encryptionKey` don't
+  sit together. The controller re-sends it on every reconcile.
+- The server does not re-read its config. A change is a container restart,
+  which is a few seconds of control-plane blip; tunnels ride through.
+
+### 11.2 gRPC through our Caddy: pass
+
+- Caddy 2 in front of the server: `@grpc header Content-Type application/grpc*`
+  → `reverse_proxy h2c://<upstream>` with `flush_interval -1` and 24 h
+  read/write timeouts. Plus a **named** matcher
+  `@nb path /relay* /ws-proxy/* /api/* /oauth2/*` → plain `reverse_proxy`.
+  Watch out: `reverse_proxy /a* /b* up:80` is **not** a multi-path matcher. It
+  takes the extra paths as upstreams and silently answers 200 with an empty
+  body.
+- Two clients enrolled through Caddy (`tls internal`, CA via `SSL_CERT_FILE`)
+  got Management + Signal "Connected", relayed over `rels://mesh:443`, then
+  went P2P and pinged each other.
+- On a swarm node, a container on a stack overlay reaches a host-network
+  NetBird bound on the `docker_gwbridge` gateway (`172.18.0.1:8081`). So the
+  TLS handover upstream works as planned. The gwbridge bind exposes nothing
+  that public :443 doesn't already expose (API needs a token, gRPC needs peer
+  keys).
+- STUN (3478/udp) can't go through Caddy, as documented. On the real host it
+  is bound on the host network directly.
+- Not checked here: NetBird's own `tls.letsencrypt` (it needs a public name).
+  The code path is built; the DO launch sweep checks it.
+- The server also always opens the legacy gRPC port **33073** on all
+  interfaces, plus **9090** (metrics) and **9000** (health, `/health`
+  returns 503 until ready and 200 after). There is no switch in the combined
+  config to close 33073. The preflight must not treat it as a conflict, and
+  host firewalls should keep 33073/9090/9000 closed.
+
+### 11.3 `disableDefaultPolicy`: fail. It is not reachable in the combined server
+
+- The field exists only on the internal management struct, which the
+  combined config fills with `yaml:"-"`. `server.disableDefaultPolicy` is
+  ignored. After `POST /api/setup` the account has group **All** and policy
+  **Default** (All ↔ All, bidirectional, all protocols).
+- **Fix, verified:** the bootstrap deletes every policy right after setup,
+  **before** any peer joins, then creates only `swarmy:<c>:nodes ↔ nodes`. An
+  adopted instance gets the same treatment on first reconcile: it deletes
+  `Default` by name, and only if it is exactly All ↔ All.
+- Related: `disableGeoliteUpdate: true` still downloads the 73 MB GeoLite and
+  geonames databases on first boot (it only stops updates).
+  **`NB_DISABLE_GEOLOCATION=true`** skips geolocation entirely (no download,
+  no geo posture checks). We set it.
+- Useful defaults found in account settings: `groups_propagation_enabled:
+  true`, `peer_login_expiration: 86400` (we set 43200 = 12 h),
+  `extra.user_approval_required: true` (we set false; access is gated by
+  groups, and a user with no groups reaches nothing).
+- The setup PAT belongs to the owner. An **admin** service user cannot list
+  or delete the owner's tokens (403). The bootstrap deletes the setup PAT
+  **with the PAT itself** (`DELETE /api/users/<owner>/tokens/<id>`), verified
+  by a 404 on the next call. Service-user tokens have a max lifetime of 365
+  days, so M3 adds rotation (see the risks).
+
+### 11.4 Hiding the local login behind the swarmy connector: pass
+
+- `POST /api/identity-providers {type:'oidc', name, issuer, client_id,
+  client_secret}` registers a Dex connector. The issuer's discovery must be
+  reachable from the server.
+- With the connector present and `auth.localAuthDisabled: true` (restart), the
+  CLI's `GET /oauth2/auth?client_id=netbird-cli…` is a **302 to
+  `/oauth2/auth/<connector-id>`**, then a 302 to the external IdP's authorize
+  URL. There is no NetBird page in between. Dex requests `openid profile
+  email` with PKCE S256, and its redirect is **`https://<mesh>/oauth2/callback`**
+  (not `/callback/<id>`).
+- Startup **fails** with `localAuthDisabled: true` and no other connector. So
+  the order is fixed: connector first, then the flag. On disable, NetBird
+  **deletes** the local connector. The owner row stays (`idp_id: local`) and
+  comes back when the flag is off. **Break-glass** is therefore "re-render with
+  `localAuthDisabled: false`, restart" (`swarmy-agent mesh break-glass` on the
+  control-plane node), and the owner password is in the vault.
+- The end-to-end login through Better Auth is covered by the M2 e2e (§11.7),
+  not the spike.
+
+### 11.5 Routers on existing stack overlays: pass, attachable only
+
+- A NetBird client container on the stack overlay (`--network <stack>_default`,
+  `NET_ADMIN`, `/dev/net/tun`), enrolled with a key whose `auto_groups` is the
+  router group, works as the routing peer of a NetBird **Network**. It has
+  `wt0` plus overlay `eth0` plus gwbridge `eth1`, and resolves `<svc>` through
+  Docker DNS.
+- Resource `db` = the service **VIP** `/32`. Router = `peer_groups:[router
+  group]`, `masquerade: true`. Policy = source access group → destination
+  resource `{id, type:'host'}`, `protocol: tcp`, `ports: ['5432']`. From a
+  person peer: **:5432 on the VIP answered; :6000 on the same VIP timed out.**
+  Per-port least privilege holds.
+- **Revocation**: removing the person's peer from the access group cut new
+  connections in **~2 s**.
+- A non-attachable overlay refuses the container
+  (`network st_locked not manually attachable`). The router needs
+  `attachable: true`. Swarmy creates its overlays attachable. For a stack whose
+  overlay isn't, people access for that stack says so and offers the recreate;
+  the netstack fallback stays unbuilt.
+- The new pool works: `swarm init --default-addr-pool 10.201.0.0/16` put the
+  ingress network on `10.201.0.0/24` and stack overlays on `10.201.x.0/24`.
+
+### 11.6 DNS: zones work, short names don't (portably)
+
+- A Custom Zone `<stack>.<c>.swarmy.internal` with an A record for
+  `db.<stack>.<c>.swarmy.internal` → VIP, distributed only to the access
+  group, resolves on the person peer and not elsewhere.
+- **Short names are unreliable, so the UI leads with the FQDN.**
+  - `db.st` resolved to a public IP. `st` is a real TLD with a wildcard, and
+    resolvers try a dotted name as-is first. `app`, `dev`, `shop` and `cloud`
+    are TLDs too.
+  - musl (Alpine) never applies search domains to a dotted name.
+    `db.<stack>` fails there even with a search domain.
+  - glibc falls back to the search list and resolves it. macOS: not tested.
+  - A per-stack search domain would make bare `db` work, but two stacks would
+    collide.
+  - So: one zone per stack, `enable_search_domain: false`, and the UI hands out
+    `db.<stack>.<c>.swarmy.internal`. `<c>.swarmy.internal` as a cluster-wide
+    search zone (it needs one record before NetBird distributes it) is an
+    optional nicety, not relied on.
+- A zone created while a peer was connected reached it only after the peer
+  reconnected, once. Record changes in an existing zone were live. The access
+  reconcile therefore creates a stack's zone together with its first grant
+  (before anyone connects), and only edits records after that.
+
+### 11.7 Client profiles: pass, but only one active at a time
+
+- `netbird profile add <name>` then `netbird up --profile <name>
+  --management-url <url>` makes a separate profile: its own key, peer and
+  mesh IP. `netbird profile select` switches. The daemon connects **one
+  profile at a time**. The owner's own Mac shows the same thing: a
+  `Gomacrae` profile active, `default` idle.
+- So "Connect from your laptop" uses a named profile per cluster
+  (`swarmy-<slug>`). It never clobbers someone's existing NetBird (a work
+  NetBird Cloud account stays in its own profile). The UI says that switching
+  clusters disconnects the other one.
+- Docker Desktop containers on macOS can't reach Lima vzNAT addresses
+  (192.168.64.x), though the Mac itself can. The e2e's laptop is the
+  `swarmy-mac` Lima VM, not a Docker Desktop container, and not the owner's
+  real NetBird.
+
+### 11.8 Main's picks on §9 (standing unless the owner overrides)
+
+1. One-time TLS handover NetBird ACME → edge Caddy: **yes**.
+2. Break-glass local owner: **keep**, CLI-only, vault-held.
+3. People logins expire after **12 h**. People access is **off** until an
+   admin enables it.
+4. Headscale stays as an **advanced** driver.
+5. Staging is an **environment in the same cluster**.
+6. Promoting a home / Docker Desktop node to manager is **hard-refused**.
+7. NetBird Enterprise HA goes on the roadmap **after launch**.
+8. Fleets use the **customer's own IdP**.
