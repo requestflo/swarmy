@@ -19,16 +19,13 @@
  * `E_MESH_DISABLED` when a node opts out (parity with `ALLOW_EXEC`).
  *
  * Also exports the `meshState` reporter loop (telemetry the agent PUSHES, read
- * from `netbird status --json` / `tailscale status` / `wg show`) and the
- * node-local `grantDirectRoute` handler for the raw-WireGuard escape hatch.
+ * from `netbird status --json` / `tailscale status` / `wg show`).
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DockerClient, defaultContainerLogConfig } from '@swarmy/core/docker';
 import type {
   ApplyMeshResult,
-  GrantDirectRoutePayload,
-  GrantDirectRouteResult,
   MeshStatePayload,
   RenderedMesh,
 } from '@swarmy/core/protocol';
@@ -325,20 +322,4 @@ async function sampleClientState(docker: DockerClient): Promise<MeshStatePayload
   }
 
   return null;
-}
-
-/**
- * Node-local direct-route gate for the raw-WireGuard escape hatch (no control
- * plane). For NetBird/Headscale/Tailscale the controller pushes the ACL to the
- * control plane and this is a no-op. Best-effort iptables; failures are reported.
- */
-export async function grantDirectRoute(payload: GrantDirectRoutePayload): Promise<GrantDirectRouteResult> {
-  const { target, action } = payload;
-  if (!target.cidr && !target.host) return { applied: false };
-  const dest = target.cidr ?? target.host ?? '';
-  const op = action === 'revoke' ? '-D' : '-I';
-  const rule = ['iptables', op, 'FORWARD', '-d', dest, '-j', 'ACCEPT'];
-  if (target.port) rule.push('-p', 'tcp', '--dport', String(target.port));
-  await execShell(rule).catch(() => undefined);
-  return { applied: true };
 }

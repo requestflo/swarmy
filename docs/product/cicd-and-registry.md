@@ -205,7 +205,7 @@ enable, GC policy, live logs), `packages/trpc/src/services/image-gc.service.ts`
 + `admission-images.ts` (Trivy scan, cosign sign/verify, admission),
 `packages/trpc/src/services/previews.service.ts` (PR preview lifecycle),
 `packages/trpc/src/routers/{cicd,registryPolicy,previews}.ts` (the tRPC surface),
-`apps/agent/src/handlers/{build,prune,registry-tls}.ts` +
+`apps/agent/src/handlers/{build,prune}.ts` +
 `packages/core/src/protocol/build.ts` (the agent capability),
 `apps/api/src/webhooks.ts` (the git webhook receiver),
 `apps/api/src/workers/{image-gc,preview-reconcile}.ts` (the background sweeps),

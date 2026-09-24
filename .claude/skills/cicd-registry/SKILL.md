@@ -1,6 +1,6 @@
 ---
 name: cicd-registry
-description: Invariants, contracts, and file map for swarmy's git CI/CD + in-swarm registry — BuildKit builds as an agent command, the single `registry:2` swarm service, Trivy CVE scans + cosign signing/admission, image GC that never prunes an in-prod digest, and PR preview environments. Load before touching anything under services/{cicd,image-gc,registryPolicy,admission-images,previews}.service.ts, routers/{cicd,registryPolicy,previews}.ts, apps/agent/src/handlers/{build,prune,registry-tls}.ts, protocol/build.ts, apps/api/src/webhooks.ts, the image-gc/preview-reconcile workers, or the /ci UI. Product rationale lives in docs/product/cicd-and-registry.md.
+description: Invariants, contracts, and file map for swarmy's git CI/CD + in-swarm registry — BuildKit builds as an agent command, the single `registry:2` swarm service, Trivy CVE scans + cosign signing/admission, image GC that never prunes an in-prod digest, and PR preview environments. Load before touching anything under services/{cicd,image-gc,registryPolicy,admission-images,previews}.service.ts, routers/{cicd,registryPolicy,previews}.ts, apps/agent/src/handlers/{build,prune}.ts, protocol/build.ts, apps/api/src/webhooks.ts, the image-gc/preview-reconcile workers, or the /ci UI. Product rationale lives in docs/product/cicd-and-registry.md.
 ---
 
 # CI/CD & registry: build → push → scan → deploy → GC
@@ -54,8 +54,7 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
    traffic to :5000/:5001 except local docker bridges and
    `SWARMY_REGISTRY_FIREWALL_ALLOW`; `SWARMY_REGISTRY_FIREWALL=false` opts out.
    Never publish a new registry-ish port without adding it there;
-   the agent only RENDERS TLS/insecure-registry hints — it never rewrites
-   `/etc/docker/daemon.json` itself (`handlers/registry-tls.ts`).
+   the agent never rewrites `/etc/docker/daemon.json` itself.
    The installers (never the agent) merge `registry-mirrors` → the Docker Hub
    pull-through cache (`swarmy-registry-cache`, :5001) into daemon.json.
    System images are MIRRORED into the registry (`swarmy-system/…`, BOM in
@@ -185,7 +184,7 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 | Builder/cache payload, cache refs + GC plan, wizard detection (pure) | `cicd.service.ts` `buildStrategyPayload`, `services/build-cache.ts`, `services/git-providers/detect-build.ts` |
 | Third-party registry creds (match/test pure core; CRUD + JIT resolver; hub decorator) | `packages/trpc/src/services/registry-credentials{,.service}.ts`, `registry-auth.ts` (`createRegistryAuthDecorator`), router `registryCredentials`, REST `routes/registry-credentials.ts` |
 | tRPC surface | `packages/trpc/src/routers/{cicd,registryPolicy,previews}.ts` |
-| Agent: BuildKit build / image prune / TLS hint | `apps/agent/src/handlers/{build,prune,registry-tls}.ts` |
+| Agent: BuildKit build / image prune | `apps/agent/src/handlers/{build,prune}.ts` |
 | Build gate (`env.BUILD_OVERRIDE` + `buildGateAllows`) + executor cases | `apps/agent/src/{env,executor}.ts`, `packages/core/src/types.ts` |
 | Wire protocol (build/prune payloads + results) | `packages/core/src/protocol/build.ts` (+ `messages.ts`) |
 | `CommandName` → wire `type` | `packages/trpc/src/hub/types.ts` (`COMMAND_PROTOCOL_TYPE`) |

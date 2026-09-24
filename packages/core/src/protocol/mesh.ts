@@ -163,33 +163,6 @@ export interface ApplyMeshResult {
 
 // ── Direct-stack-connect: control-plane access intent (Phase 2) ──────────────
 
-/**
- * A grant command pushed to a node-local WireGuard driver when there is no
- * control plane to enforce ACLs (the raw-WireGuard escape hatch). For
- * NetBird/Headscale/Tailscale most enforcement is control-plane side via
- * `applyAccess`; this command lets the `wireguard` driver gate locally.
- */
-export const GrantDirectRoutePayload = z.object({
-  commandId: CommandId,
-  timeoutMs: z.number().int().positive().optional(),
-  /** The mesh peer (public key / id) being granted. */
-  principal: z.object({ publicKey: z.string().optional(), peerId: z.string().optional() }),
-  /** What it may reach: a CIDR or host:port the agent allows. */
-  target: z.object({ cidr: z.string().optional(), host: z.string().optional(), port: z.number().int().optional() }),
-  action: z.enum(['grant', 'revoke']).default('grant'),
-});
-export type GrantDirectRoutePayload = z.infer<typeof GrantDirectRoutePayload>;
-
-export const GrantDirectRouteMsg = z.object({
-  type: z.literal('grantDirectRoute'),
-  payload: GrantDirectRoutePayload,
-});
-export type GrantDirectRouteMsg = z.infer<typeof GrantDirectRouteMsg>;
-
-export interface GrantDirectRouteResult {
-  applied: boolean;
-}
-
 // ── Agent → controller: live mesh-state report (Phase 2+) ────────────────────
 
 /**

@@ -22,7 +22,7 @@ import {
   PingMsg,
 } from './commands';
 import { ApplyIngressMsg, IngressNodeStatusMsg } from './ingress';
-import { ApplyMeshMsg, MeshStateMsg, GrantDirectRouteMsg, ApplyMeshControlMsg, ApplyAccessRouterMsg } from './mesh';
+import { ApplyMeshMsg, MeshStateMsg, ApplyMeshControlMsg, ApplyAccessRouterMsg } from './mesh';
 import { ApplyDnsMsg } from './dns';
 import { BuildImageMsg } from './build';
 import { PruneImagesMsg } from './prune';
@@ -101,7 +101,6 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   StreamLogsMsg,
   ApplyIngressMsg,
   ApplyMeshMsg,
-  GrantDirectRouteMsg,
   ApplyMeshControlMsg,
   ApplyAccessRouterMsg,
   ApplyDnsMsg,

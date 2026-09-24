@@ -12,7 +12,7 @@ import { dbQuery } from './handlers/studio';
 import { execCommand } from './handlers/exec';
 import { applyDns } from './handlers/dns';
 import { localReload } from './handlers/ingress-local';
-import { applyMesh, grantDirectRoute } from './handlers/mesh';
+import { applyMesh } from './handlers/mesh';
 import { applyMeshControl } from './handlers/mesh-control';
 import { applyAccessRouter } from './handlers/access-router';
 import { applyIngressConnector } from './handlers/ingress-connector';
@@ -163,18 +163,6 @@ export async function handleCommand(
         return;
       }
       return run(conn, commandId, () => applyMesh(docker, rendered));
-    }
-    case 'grantDirectRoute': {
-      const p = envlp.payload;
-      if (!env.ALLOW_MESH) {
-        conn.send('commandResult', {
-          commandId: p.commandId,
-          status: 'rejected',
-          error: { code: 'E_MESH_DISABLED', message: 'mesh disabled on this agent' },
-        });
-        return;
-      }
-      return run(conn, p.commandId, () => grantDirectRoute(p));
     }
     case 'applyMeshControl':
     case 'applyAccessRouter': {

@@ -43,7 +43,6 @@ export type CommandName =
   | 'volume.list' // derive volumes (e.g. CSI cluster volumes) from Docker, never a table
   | 'image.prune'
   | 'node.hygiene' // disk hygiene: prune stopped one-shots, unused images, build cache
-  | 'mesh.grantDirectRoute'
   | 'mesh.control' // self-hosted NetBird control plane (swarmy-mesh-control, agent-supervised)
   | 'mesh.accessRouter' // people access: a stack's routing peer (swarmy-access-<stackId>)
   | 'swarm.join' // node-onboarding P2: init/join the org's Docker Swarm
@@ -104,7 +103,6 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'volume.list': 'listVolumes',
   'image.prune': 'pruneImages',
   'node.hygiene': 'nodeHygiene',
-  'mesh.grantDirectRoute': 'grantDirectRoute',
   'mesh.control': 'applyMeshControl',
   'mesh.accessRouter': 'applyAccessRouter',
   'swarm.join': 'swarmJoin',
