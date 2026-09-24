@@ -144,7 +144,6 @@ mode).
 - Live-verify the held-failover path on a real geo cluster (kill the primary
   mid-write; confirm the Data-tab window, then promote) and persist the LSN
   watermark across controller restarts (today a restart ⇒ unknown ⇒ hold).
-- HA templates (`postgres-ha`, `redis-ha`) exist server-side with no gallery UI.
 - Garage presigned URLs sign the in-swarm endpoint; add a public S3 endpoint
   setting.
 - Registry GC is node-local only; registry manifests/blobs are never deleted, so

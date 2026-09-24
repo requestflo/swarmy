@@ -33,7 +33,6 @@ export const CANNED_QUESTIONS: CannedQuestion[] = [
       'stack.deploy',
       'service.builder.deploy',
       'service.deploy',
-      'templates.deploy',
       'cicd.autodeploy',
       'release.',
     ],

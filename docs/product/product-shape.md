@@ -144,8 +144,8 @@ across a dozen domains. Every product doc in this folder is one domain honouring
 them:
 
 - **Docker is the source of truth — no lock-in.** Config lives on Docker
-  labels/configs/secrets; HA templates "store their compose so the exact stack runs
-  without swarmy"; managed data keeps its secrets in Docker secrets. Delete swarmy
+  labels/configs/secrets; blueprints and git apps deploy plain compose, so the exact
+  stack runs without swarmy; managed data keeps its secrets in Docker secrets. Delete swarmy
   and your stacks keep running.
 - **Off by default, pluggable, individually disableable.** Mesh driver is "None"
   by default; observability is a per-stack toggle; ingress is optional; guardrails

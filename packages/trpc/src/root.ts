@@ -23,7 +23,6 @@ import { cicdRouter } from './routers/cicd';
 import { gitConnectionsRouter } from './routers/gitConnections';
 import { appsRouter } from './routers/apps';
 import { geodnsRouter } from './routers/geodns';
-import { templatesRouter } from './routers/templates';
 import { apiKeysRouter } from './routers/apiKeys';
 import { controllerBackupRouter } from './routers/controllerBackup';
 import { controllerStoreRouter } from './routers/controllerStore';
@@ -102,7 +101,6 @@ export const appRouter = router({
   gitConnections: gitConnectionsRouter,
   apps: appsRouter,
   geodns: geodnsRouter,
-  templates: templatesRouter,
   apiKeys: apiKeysRouter,
   controllerBackup: controllerBackupRouter,
   controllerStore: controllerStoreRouter,

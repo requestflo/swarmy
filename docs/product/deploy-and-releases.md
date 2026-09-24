@@ -253,10 +253,9 @@ homes:
   (`recordRelease`, `rollbackTo`, `getSafety`/`setSafety`, `startCanary`/
   `promoteCanary`/`abortCanary`), `routers/releases.ts`, and the workers
   `apps/api/src/workers/{deploy-safety,deploy-canary,scale-to-zero}.ts`.
-- **Blueprints, previews, HA templates**: `services/blueprints.service.ts` (+
+- **Blueprints, previews**: `services/blueprints.service.ts` (+
   `blueprints/catalog.ts`), `services/previews.service.ts` +
-  `workers/preview-reconcile.ts`, `services/templates.ts` (region-aware HA compose
-  that stores its own portable source).
+  `workers/preview-reconcile.ts`.
 - **Data model**: `packages/db/prisma/schema/releases.prisma` (`Release`) and
   `schema/cluster.prisma` (`Stack`, `CanvasLayout`).
 - **UI**: `apps/app/src/components/canvas/*` (service canvas, inspector, toolbar,

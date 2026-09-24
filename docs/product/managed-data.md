@@ -175,12 +175,6 @@ Four ideas, one story:
   that probe and never streamed to any replica is invisible to every
   asynchronous scheme; only synchronous replication closes it (not offered in
   the base slice).
-- **HA templates.** `postgres-ha` (repmgr) and `redis-ha` (Sentinel, quorum
-  ⌊n/2⌋+1) render one pinned member per `swarmy.region` plus a portable compose
-  file (`services/templates.ts`, `routers/templates.ts`). With fewer than 3
-  regions they warn that automatic failover is unsafe (no tiebreaker) and offer a
-  witness. Every template states its RPO/RTO honestly; none claims zero data
-  loss. No gallery UI calls `templates.*` yet.
 
 ## Failure modes (designed, not accidental)
 

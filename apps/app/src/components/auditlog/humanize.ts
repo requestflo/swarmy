@@ -12,7 +12,6 @@ const EXACT: Record<string, string> = {
   'stack.deploy': 'deployed stack',
   'stack.deploy.override': 'deployed stack (override)',
   'service.builder.deploy': 'deployed service',
-  'templates.deploy': 'deployed template',
   'cicd.autodeploy': 'auto-deployed',
   'cicd.triggerBuild': 'triggered a build for',
   'release.rollback': 'rolled back',
