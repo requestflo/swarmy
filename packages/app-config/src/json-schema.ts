@@ -81,9 +81,29 @@ const service = {
               ...relPath,
               description: 'Build context (monorepo subpath). Default: repo root',
             },
+            type: {
+              enum: ['dockerfile', 'railpack'],
+              description:
+                'dockerfile, or railpack (zero-config: Node, Python, Go, Ruby, PHP, Rust, static). Default: the Dockerfile at path if there is one, else railpack',
+            },
             dockerfile: { type: 'string', description: 'Relative to path. Default: Dockerfile' },
             target: { type: 'string', description: 'Multi-stage build target' },
             args: { type: 'object', additionalProperties: { type: 'string' } },
+            install: { type: 'string', description: 'Railpack: replace the install step, e.g. npm ci' },
+            build: { type: 'string', description: 'Railpack: replace the build step, e.g. npm run build' },
+            start: { type: 'string', description: 'Railpack: the start command baked into the image' },
+            packages: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Railpack: extra tools/versions via mise, e.g. node@22, python@3.12',
+            },
+            apt: { type: 'array', items: { type: 'string' }, description: 'Railpack: extra apt packages in the runtime image' },
+            build_apt: { type: 'array', items: { type: 'string' }, description: 'Railpack: extra apt packages for the build only' },
+            env: {
+              type: 'object',
+              additionalProperties: { type: ['string', 'number', 'boolean'] },
+              description: 'Build-time env (Railpack build secrets; Dockerfile build args)',
+            },
             watch: {
               type: 'array',
               items: relPath,
@@ -418,6 +438,11 @@ export const SWARMY_YAML_JSON_SCHEMA = {
       type: 'array',
       items: { type: 'string' },
       description: 'Other apps this app may reach privately',
+    },
+    errors: {
+      type: 'boolean',
+      description:
+        'Error tracking: bind SENTRY_DSN (and SENTRY_RELEASE / SENTRY_ENVIRONMENT) so any Sentry SDK reports to swarmy',
     },
     environments: {
       type: 'object',

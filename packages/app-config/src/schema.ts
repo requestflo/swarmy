@@ -79,20 +79,65 @@ const countries = z.array(z.string().regex(/^[A-Z]{2}$/, 'ISO country code, e.g.
 
 // ── services ─────────────────────────────────────────────────────────────────
 
+/** Build-time env: plain values (Railpack mounts them as build secrets; never baked into a layer). */
+const buildEnvMap = z.record(
+  z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'an env var name'),
+  envValue.refine((v) => !String(v).includes('${{'), 'build-time env takes plain values (bindings are resolved at deploy time)'),
+);
+const pkgList = z.array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9@._+:/-]*$/, 'a package name like node@22 or ffmpeg')).nonempty();
+
+/** Railpack-only keys (zero-config builds). */
+export const RAILPACK_BUILD_KEYS = ['install', 'build', 'start', 'packages', 'apt', 'build_apt'] as const;
+/** Dockerfile-only keys. */
+export const DOCKERFILE_BUILD_KEYS = ['dockerfile', 'target', 'args'] as const;
+
 export const BuildSchema = z.union([
   relPath,
   z
     .object({
       /** Build context, relative to the repo root (monorepo subpath). */
       path: relPath.default('.'),
+      /**
+       * How to build: `dockerfile`, or `railpack` (zero-config: Node, Python,
+       * Go, Ruby, PHP, Rust, static, …). Absent = the Dockerfile when one is
+       * at `path`, else Railpack.
+       */
+      type: z.enum(['dockerfile', 'railpack']).optional(),
       /** Dockerfile relative to `path`. */
       dockerfile: z.string().min(1).optional(),
       target: z.string().min(1).optional(),
       args: z.record(z.string()).optional(),
+      /** Railpack: replace the install step (e.g. `npm ci`). */
+      install: z.string().min(1).optional(),
+      /** Railpack: replace the build step (e.g. `npm run build`). */
+      build: z.string().min(1).optional(),
+      /** Railpack: the start command baked into the image. */
+      start: z.string().min(1).optional(),
+      /** Railpack: extra tools/versions via mise (`node@22`, `python@3.12`, `jq`). */
+      packages: pkgList.optional(),
+      /** Railpack: extra apt packages in the runtime image. */
+      apt: pkgList.optional(),
+      /** Railpack: extra apt packages for the build only. */
+      build_apt: pkgList.optional(),
+      /** Build-time env (both builders: build args for a Dockerfile, build secrets for Railpack). */
+      env: buildEnvMap.optional(),
       /** Paths whose change triggers a rebuild (default: `path`). */
       watch: z.array(relPath).optional(),
     })
-    .strict(),
+    .strict()
+    .superRefine((b, ctx) => {
+      if (b.type === 'dockerfile') {
+        for (const k of RAILPACK_BUILD_KEYS)
+          if (b[k] !== undefined)
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: [k], message: `${k} is a Railpack setting; this build is type: dockerfile` });
+      }
+      const railpack = b.type === 'railpack' || RAILPACK_BUILD_KEYS.some((k) => b[k] !== undefined);
+      if (railpack) {
+        for (const k of DOCKERFILE_BUILD_KEYS)
+          if (b[k] !== undefined)
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: [k], message: `${k} is a Dockerfile setting; Railpack builds take install/build/start/packages/env` });
+      }
+    }),
 ]);
 
 export const HealthcheckSchema = z
@@ -390,6 +435,8 @@ export const AppConfigSchema = z
     auth: AuthSchema.optional(),
     /** Other apps (stacks) in this org whose services this app may reach — one private overlay per pair. */
     connect: z.array(z.string().regex(/^[a-z][a-z0-9-]{0,39}$/, 'an app name')).optional(),
+    /** Error tracking: bind SENTRY_DSN (+ SENTRY_RELEASE/ENVIRONMENT) into every service. */
+    errors: z.boolean().optional(),
     /** Named environments beside production, each its own stack `<app>-<name>` tracking a branch. */
     environments: z
       .record(

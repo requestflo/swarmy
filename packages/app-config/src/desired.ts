@@ -38,6 +38,22 @@ export interface BuildSource {
   args: Record<string, string>;
   /** Changed paths under any of these trigger a rebuild. */
   watch: string[];
+  /** `dockerfile` / `railpack`; absent = auto (the Dockerfile if present, else Railpack). */
+  builder?: 'dockerfile' | 'railpack';
+  /** Railpack overrides (zero-config builds). */
+  railpack?: RailpackOverrides;
+  /** Build-time env (Railpack build secrets / Dockerfile build args). */
+  env?: Record<string, string>;
+}
+
+/** swarmy.yaml `build:` Railpack keys, normalised. */
+export interface RailpackOverrides {
+  installCmd?: string;
+  buildCmd?: string;
+  startCmd?: string;
+  packages?: string[];
+  deployAptPackages?: string[];
+  buildAptPackages?: string[];
 }
 export interface ImageSource {
   kind: 'image';
@@ -158,6 +174,8 @@ export interface DesiredApp {
   jobs: DesiredJob[];
   /** Peer apps linked by a private per-pair overlay (none for previews). */
   connect: string[];
+  /** `errors: true` — services get the `swarmy.errors.enabled` label (SENTRY_DSN bound on deploy). */
+  errors?: boolean;
   previews: {
     enabled: boolean;
     ttlSeconds: number;
@@ -306,12 +324,28 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
       if (s.build !== undefined) {
         const b = typeof s.build === 'string' ? { path: s.build } : s.build;
         const context = normPath(b.path ?? '.');
+        const o = typeof s.build === 'string' ? undefined : s.build;
+        const railpack: RailpackOverrides = {
+          ...(o?.install ? { installCmd: o.install } : {}),
+          ...(o?.build ? { buildCmd: o.build } : {}),
+          ...(o?.start ? { startCmd: o.start } : {}),
+          ...(o?.packages ? { packages: [...o.packages] } : {}),
+          ...(o?.apt ? { deployAptPackages: [...o.apt] } : {}),
+          ...(o?.build_apt ? { buildAptPackages: [...o.build_apt] } : {}),
+        };
+        const hasRailpack = Object.keys(railpack).length > 0;
+        const builder = o?.type ?? (hasRailpack ? 'railpack' : undefined);
+        const buildEnv = o?.env ? strEnv(o.env) : undefined;
+        // New keys only when set, so an existing app's build key never changes.
         const inputs = {
           context,
           dockerfile: 'dockerfile' in b && b.dockerfile ? b.dockerfile : 'Dockerfile',
           ...('target' in b && b.target ? { target: b.target } : {}),
           args: ('args' in b && b.args) || {},
           watch: ('watch' in b && b.watch ? b.watch.map(normPath) : [context]).sort(),
+          ...(builder ? { builder } : {}),
+          ...(hasRailpack ? { railpack } : {}),
+          ...(buildEnv && Object.keys(buildEnv).length ? { env: buildEnv } : {}),
         };
         source = { kind: 'build', key: signature(inputs), ...inputs };
       } else {
@@ -321,6 +355,11 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
       const env = {
         // `auth:` — every app service can find its auth service (@swarmy/app-auth getSession).
         ...(cfg.auth && name !== AUTH_UNIT ? { SWARMY_AUTH_URL: authServiceUrl(stack) } : {}),
+        // Railpack images start on $PORT (gunicorn/Caddy/most frameworks honour
+        // it): an explicitly-Railpack service listens where swarmy routes.
+        ...(source.kind === 'build' && source.builder === 'railpack' && s.port !== undefined
+          ? { PORT: String(s.port) }
+          : {}),
         ...strEnv(cfg.env),
         ...strEnv(s.env),
       };
@@ -502,6 +541,7 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
     routes,
     jobs,
     connect: preview ? [] : [...new Set(cfg.connect ?? [])].sort(),
+    ...(cfg.errors ? { errors: true } : {}),
     previews: previewsCfg,
   };
 }
