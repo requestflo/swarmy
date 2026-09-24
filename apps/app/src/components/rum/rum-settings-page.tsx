@@ -1,0 +1,74 @@
+import * as React from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useTRPC } from '@/integrations/trpc';
+import { CardSkeleton, ErrorState } from '@/components/states';
+import { AnalyticsModeCard } from './analytics-mode-card';
+import { ConsentCard } from './consent-card';
+import { GdprDeleteUserCard } from './gdpr-delete-user-card';
+import { KeepCard } from './keep-card';
+import { LegalCard } from './legal-card';
+import { MaskingCard } from './masking-card';
+import { ObsSubTabs } from './obs-sub-tabs';
+import { RecordingCard } from './recording-card';
+import { RoutesCard } from './routes-card';
+import type { RumSettings } from './rum-shared';
+import { useIsOrgAdmin, useRumSettings, useSaveRumSettings } from './use-rum';
+
+/**
+ * Replay & analytics settings for one app. Every change is a label on the
+ * app's services that the edge reads — it applies on the next page view,
+ * with no redeploy.
+ */
+export function RumSettingsPage({ stack }: { stack: string }): React.JSX.Element {
+  const trpc = useTRPC();
+  const q = useRumSettings(stack);
+  const footprint = useQuery(trpc.rum.footprint.queryOptions({ stack }));
+  const admin = useIsOrgAdmin();
+  const { save } = useSaveRumSettings(stack);
+  const tabs = <ObsSubTabs stack={stack} active="rsettings" aside={`${stack} · applies at the edge, no redeploy`} />;
+
+  if (q.isPending) {
+    return (
+      <div className="pb-8">
+        {tabs}
+        <div className="grid gap-4 lg:grid-cols-2">
+          <CardSkeleton lines={3} />
+          <CardSkeleton lines={3} />
+        </div>
+      </div>
+    );
+  }
+  if (q.isError) {
+    return (
+      <div className="pb-8">
+        {tabs}
+        <ErrorState error={q.error} retry={() => void q.refetch()} retrying={q.isFetching} />
+      </div>
+    );
+  }
+  const s = q.data.settings;
+  const card = { settings: s, onChange: (patch: Partial<RumSettings>) => save(s, patch), disabled: !admin };
+
+  return (
+    <div className="pb-8">
+      {tabs}
+      {!admin ? (
+        <p className="text-muted-foreground mb-4 text-sm">Only owners and admins can change these settings.</p>
+      ) : null}
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)]">
+        <div className="flex min-w-0 flex-col gap-4">
+          <RecordingCard {...card} stores={q.data.stores} />
+          <RoutesCard stack={stack} routes={q.data.routes} disabled={!admin} />
+          <KeepCard {...card} footprint={footprint.data ?? undefined} />
+          <MaskingCard {...card} />
+        </div>
+        <div className="flex min-w-0 flex-col gap-4">
+          <AnalyticsModeCard stack={stack} {...card} />
+          <ConsentCard {...card} />
+          <LegalCard />
+          <GdprDeleteUserCard stack={stack} disabled={!admin} />
+        </div>
+      </div>
+    </div>
+  );
+}

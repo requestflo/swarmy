@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useLocation } from '@tanstack/react-router';
 import { cn } from '@swarmy/ui';
 import { isSystemStack } from '@swarmy/core';
 import { STACK_TABS, SYSTEM_STACK_TABS } from '@/lib/stack-nav';
@@ -17,6 +17,8 @@ const BASE =
  */
 export function StackTabStrip({ stack }: { stack: string }): React.JSX.Element {
   const tabs = isSystemStack(stack) ? SYSTEM_STACK_TABS : STACK_TABS;
+  // Replays, analytics and their settings are Observability sub-tabs with their own URLs.
+  const obsChild = /^\/stacks\/[^/]+\/(replays|analytics|rum-settings)(\/|$)/.test(useLocation().pathname);
   return (
     <nav className="scrollbar-none -mx-1 mt-5 flex gap-1 overflow-x-auto border-b pb-3 pl-1">
       {tabs.map((tab) => (
@@ -27,7 +29,10 @@ export function StackTabStrip({ stack }: { stack: string }): React.JSX.Element {
           activeOptions={{ exact: tab.exact ?? false }}
           activeProps={{ className: cn(BASE, 'bg-ink text-ink-foreground shadow-sm') }}
           inactiveProps={{
-            className: cn(BASE, 'text-muted-foreground hover:text-foreground hover:bg-accent'),
+            className:
+              obsChild && tab.to === '/stacks/$name/observability'
+                ? cn(BASE, 'bg-ink text-ink-foreground shadow-sm')
+                : cn(BASE, 'text-muted-foreground hover:text-foreground hover:bg-accent'),
           }}
         >
           <tab.icon className="size-4" />

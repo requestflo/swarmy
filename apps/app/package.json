@@ -15,6 +15,7 @@
     "@fontsource-variable/geist-mono": "^5.0.0",
     "@fontsource-variable/instrument-sans": "^5.0.0",
     "@hookform/resolvers": "^3.10.0",
+    "@rrweb/replay": "2.1.6",
     "@swarmy/auth": "workspace:*",
     "@swarmy/core": "workspace:*",
     "@swarmy/templates": "workspace:*",
