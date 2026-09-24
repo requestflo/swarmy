@@ -24,8 +24,8 @@ async function ensureEdge(ctx: Ctx) {
 }
 
 /** GET https://host/ through the edge on `ip` (no DNS needed). → status code */
-async function edgeGet(host: string, ip: string): Promise<{ code: number; body: string }> {
-  const r = await run(['curl', '-sk', '-m', '10', '-o', '-', '-w', '\n%{http_code}', '--resolve', `${host}:443:${ip}`, `https://${host}/`]);
+async function edgeGet(host: string, endpoint: string): Promise<{ code: number; body: string }> {
+  const r = await run(['curl', '-sk', '-m', '10', '-o', '-', '-w', '\n%{http_code}', '--connect-to', `${host}:443:${endpoint}`, `https://${host}/`]);
   const lines = r.stdout.split('\n');
   const code = Number(lines.pop() ?? 0);
   return { code, body: lines.join('\n') };
@@ -35,7 +35,8 @@ async function edgeGet(host: string, ip: string): Promise<{ code: number; body: 
 export async function templates(ctx: Ctx) {
   await ensureEdge(ctx);
   // The edge publishes 80/443 in host mode on the manager (default placement).
-  const edgeIp = ctx.cluster.manager.ip;
+  const edgeIp = ctx.cluster.manager.fabricIp || ctx.cluster.manager.ip;
+  const edge = await ctx.cluster.provider.hostEndpoint(ctx.cluster.manager.name, 443);
   const results: string[] = [];
   const deployed: string[] = [];
   try {
@@ -57,7 +58,7 @@ export async function templates(ctx: Ctx) {
       const got = await poll(
         `${id} answering at https://${host}/`,
         async () => {
-          const r = await edgeGet(host, edgeIp);
+          const r = await edgeGet(host, edge);
           return r.code >= 200 && r.code < 400 ? r : null;
         },
         { timeoutMs: 10 * 60_000, intervalMs: 10_000 },

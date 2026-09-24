@@ -209,7 +209,7 @@ export class Cluster {
         n.fabricIp = await this.provider.fabricIp(n.name);
       }
     }
-    this.controllerUrl = `http://${this.manager.ip}:3021`;
+    this.controllerUrl = `http://${await this.provider.hostEndpoint(this.manager.name, 3021)}`;
     // What the installer baked as the public/auth origin (LOGIN_URL = the
     // manager's default-route IP) and what workers dial.
     this.controllerOrigin = `http://${this.manager.fabricIp}:3021`;

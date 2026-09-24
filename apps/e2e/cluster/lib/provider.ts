@@ -33,6 +33,8 @@ export interface Provider {
   ip(name: string): Promise<string>;
   /** The node's address the OTHER NODES reach it on (swarm advertise, agent dial). */
   fabricIp(name: string): Promise<string>;
+  /** host:port the HOST uses to reach `port` on the node (a published port on Docker Desktop). */
+  hostEndpoint(name: string, port: number): Promise<string>;
   /** Run once on a fresh node, before anything is installed. */
   prepare(name: string): Promise<void>;
   /** Run a bash script as root on the node. */
@@ -99,6 +101,9 @@ export class LimaProvider implements Provider {
   fabricIp(name: string) {
     return this.addr(name, 'eth0');
   }
+  async hostEndpoint(name: string, port: number) {
+    return `${await this.ip(name)}:${port}`;
+  }
   async prepare(name: string) {
     // Make the user-v2 fabric the default route, so the installer's "local
     // IP" (ip route get 1.1.1.1) — the swarm advertise address — is the one
@@ -163,11 +168,15 @@ export class DindProvider implements Provider {
   }
   async create(name: string, spec: NodeSpec) {
     if ((await run(['docker', 'network', 'inspect', this.network])).code !== 0) {
-      await must(['docker', 'network', 'create', this.network]);
+      // Nodes are created in parallel: losing the create race is fine.
+      const r = await run(['docker', 'network', 'create', '--label', 'swarmy.test=e2e-cluster', this.network]);
+      if (r.code !== 0 && !/already exists/.test(r.stderr)) throw new Error(`docker network create: ${r.stderr.trim()}`);
     }
     await must([
       'docker', 'run', '-d', '--privileged', '--name', name, '--hostname', name, '--label', 'swarmy.test=e2e-cluster',
       '--network', this.network, `--memory=${spec.memGiB}g`, `--cpus=${spec.cpus}`,
+      // Docker Desktop: publish the controller + edge ports (random host ports).
+      ...(process.platform === 'darwin' ? ['-p', '127.0.0.1::3021', '-p', '127.0.0.1::443'] : []),
       '-e', 'DOCKER_TLS_CERTDIR=', this.image,
       // The harness registry is plain http on the network gateway.
       `--insecure-registry=${await this.hostAddr(name)}:${this.registryPort}`,
@@ -185,6 +194,12 @@ export class DindProvider implements Provider {
   }
   fabricIp(name: string) {
     return this.ip(name);
+  }
+  async hostEndpoint(name: string, port: number) {
+    // Docker Desktop can't route to container IPs: use the published port.
+    if (process.platform !== 'darwin') return `${await this.ip(name)}:${port}`;
+    const r = await must(['docker', 'port', name, `${port}/tcp`]);
+    return r.split('\n')[0]!.trim().replace(/^0\.0\.0\.0/, '127.0.0.1');
   }
   async prepare(_name: string) {}
   sh(name: string, script: string, opts: ShOpts = {}) {
