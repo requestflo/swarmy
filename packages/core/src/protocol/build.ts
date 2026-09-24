@@ -52,6 +52,71 @@ export const GitBuildSource = z.object({
 });
 export type GitBuildSource = z.infer<typeof GitBuildSource>;
 
+/** Env var names (build-time env, Railpack config). */
+const EnvName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/);
+
+/**
+ * How to turn the source into an image. `auto` = the Dockerfile when one is at
+ * `source.dockerfile` in the context, else Railpack. ABSENT = `dockerfile`
+ * (older controllers), so the program an old payload renders never changes.
+ */
+export const BuildBuilder = z.enum(['auto', 'dockerfile', 'railpack']);
+export type BuildBuilder = z.infer<typeof BuildBuilder>;
+
+/**
+ * Railpack (zero-config) options. The builder runs `railpack prepare` (the
+ * CLI shipped inside the frontend image, so plan and frontend are the SAME
+ * version), then `buildctl build --frontend gateway.v0` with that frontend.
+ * Every value here is optional; with none set Railpack detects everything.
+ */
+export const RailpackBuildOptions = z.object({
+  /** Frontend image (also carries `/railpack`). Default: the pinned BOM ref. */
+  frontendImage: z.string().min(1).optional(),
+  /** Image `railpack prepare` runs in (needs sh + bash). Default: the pinned BOM ref. */
+  prepareImage: z.string().min(1).optional(),
+  /**
+   * Plan image rewrites: the exact tag refs a plan names (railpack-builder /
+   * railpack-runtime) → digest-pinned or mirrored refs. Default: the BOM pins.
+   */
+  imageRewrites: z.record(z.string().min(1)).optional(),
+  /** Override the install step (`RAILPACK_INSTALL_CMD`). */
+  installCmd: z.string().min(1).optional(),
+  /** Override the build step (`--build-cmd`). */
+  buildCmd: z.string().min(1).optional(),
+  /** Override the start command baked into the image (`--start-cmd`). */
+  startCmd: z.string().min(1).optional(),
+  /** Mise tools, e.g. `node@22`, `python@3.12` (`RAILPACK_PACKAGES`). */
+  packages: z.array(z.string().min(1)).optional(),
+  /** apt packages for the build image (`RAILPACK_BUILD_APT_PACKAGES`). */
+  buildAptPackages: z.array(z.string().min(1)).optional(),
+  /** apt packages for the runtime image (`RAILPACK_DEPLOY_APT_PACKAGES`). */
+  deployAptPackages: z.array(z.string().min(1)).optional(),
+  /**
+   * Build-time env. Railpack mounts these as BuildKit SECRETS in its steps:
+   * values ride the builder container env, never the program text, the plan
+   * (names only) or an image layer.
+   */
+  env: z.record(EnvName, z.string()).optional(),
+  /** Prefix for Railpack's cache-mount ids (isolates apps sharing a builder). */
+  cacheKey: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/).optional(),
+});
+export type RailpackBuildOptions = z.infer<typeof RailpackBuildOptions>;
+
+/**
+ * Registry build cache (`--import-cache/--export-cache type=registry`) in the
+ * in-swarm registry. A missing import ref is a cold build, never a failure;
+ * a failed export (`ignore-error=true`) never fails the build.
+ */
+export const BuildCacheOptions = z.object({
+  /** Refs to warm from, in order (the branch's cache, then the default branch's). */
+  importRefs: z.array(z.string().min(1)).max(4).optional(),
+  /** Ref to write this build's cache to. */
+  exportRef: z.string().min(1).optional(),
+  /** `max` also exports intermediate stages (the useful one for multi-stage/Railpack). */
+  mode: z.enum(['min', 'max']).default('max'),
+});
+export type BuildCacheOptions = z.infer<typeof BuildCacheOptions>;
+
 export const BuildImagePayload = z.object({
   ...cmd,
   source: GitBuildSource,
@@ -79,6 +144,10 @@ export const BuildImagePayload = z.object({
    * overrides. Absent (older controller) ⇒ default-off.
    */
   builderCapable: z.boolean().optional(),
+  /** Dockerfile vs Railpack (additive; absent = dockerfile, see {@link BuildBuilder}). */
+  builder: BuildBuilder.optional(),
+  railpack: RailpackBuildOptions.optional(),
+  cache: BuildCacheOptions.optional(),
 });
 export type BuildImagePayload = z.infer<typeof BuildImagePayload>;
 
@@ -94,5 +163,25 @@ export interface BuildImageResult {
   imageRefs: string[];
   digest: string;
   sizeBytes?: number;
+  /** At least one step was served from cache. */
   cacheHit?: boolean;
+  /** Steps BuildKit reported `CACHED` (the warm-build signal). */
+  cachedSteps?: number;
+  /** Which builder actually ran (after `auto` resolved). */
+  builder?: 'dockerfile' | 'railpack';
+  /** What Railpack detected (from `railpack prepare --info-out` + the plan). */
+  railpack?: RailpackBuildInfo;
+}
+
+/** The slice of Railpack's build info swarmy keeps. */
+export interface RailpackBuildInfo {
+  version?: string;
+  /** e.g. `["node"]`. */
+  providers: string[];
+  /** Resolved tool versions, e.g. `{ node: "22.23.2" }`. */
+  packages: Record<string, string>;
+  /** Provider metadata (`nodePackageManager`, framework hints, …). */
+  metadata: Record<string, string>;
+  /** The start command baked into the image. */
+  startCommand?: string;
 }

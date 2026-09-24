@@ -33,6 +33,10 @@ export type SystemImageKey =
   | 'registry'
   | 'regctl'
   | 'buildkit'
+  | 'railpackFrontend'
+  | 'railpackBuilder'
+  | 'railpackRuntime'
+  | 'railpackPrepare'
   | 'trivy'
   | 'cosign'
   | 'busybox'
@@ -44,6 +48,7 @@ export type SystemImageKey =
   | 'otelCollector'
   | 'curl'
   | 'valkey'
+  | 'dockerCli'
   | 'caddy'
   | 'caddySwarmy'
   | 'dns'
@@ -68,6 +73,18 @@ export const SYSTEM_IMAGES: readonly SystemImage[] = [
   { key: 'registry', ref: 'registry:2', digest: 'sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373', noRewrite: true },
   { key: 'regctl', ref: 'ghcr.io/regclient/regctl:v0.9.0-alpine', digest: 'sha256:9e5b4ad04dd7ee9b37b360289231eb4ebadfe3a72f3ddaa1cd6a585efb6d1e4c', noRewrite: true },
   { key: 'buildkit', ref: 'moby/buildkit:rootless', digest: 'sha256:80b15f0735e87bab7bf59ec4d695dfb4a7cfb25521cf56dc75d6f256285b63ef' },
+  // Railpack v0.40.0 (zero-config builds). The frontend image also carries the
+  // `railpack` CLI the builder runs for `prepare`, so plan and frontend are
+  // always the same version. builder/runtime are the base images a v0.40.0
+  // plan names (by tag, `mise-<version>`); the build rewrites them to these
+  // digests (or their mirrored copies). Bump all three together.
+  { key: 'railpackFrontend', ref: 'ghcr.io/railwayapp/railpack-frontend:v0.40.0', digest: 'sha256:fc6d5fa434c9310500dc18bebb0a4eb4854fee8546a6d7a090e7a36e39d9d153' },
+  { key: 'railpackBuilder', ref: 'ghcr.io/railwayapp/railpack-builder:mise-2026.9.12', digest: 'sha256:a104c45734b7c59fa7f52ab5afac87c3a4dfa5ee1c5495ae0c798756c670c865' },
+  { key: 'railpackRuntime', ref: 'ghcr.io/railwayapp/railpack-runtime:mise-2026.9.12', digest: 'sha256:b699280f7b492ddba483ee1d03badaae238b8846ff2ef1e71ad8a2fd637c25b5' },
+  // Where `railpack prepare` runs (inside BuildKit): alpine + bash, which
+  // mise's version resolvers need (the BuildKit image is busybox-only). A few
+  // MB instead of pulling the whole railpack-builder image per build.
+  { key: 'railpackPrepare', ref: 'bash:5.2', digest: 'sha256:a54fb4422b18f05dd3107c36f39d67b26334fda7ec89f4126052b45e228e2f15' },
   { key: 'trivy', ref: 'aquasec/trivy:0.58.1', digest: 'sha256:ab70a02200597efa04748f210f793936eb647cbcdb0ea69cc30b226d6f5a22c7' },
   { key: 'cosign', ref: 'gcr.io/projectsigstore/cosign:v2.4.1', digest: 'sha256:b03690aa52bfe94054187142fba24dc54137650682810633901767d8a3e15b31' },
   { key: 'busybox', ref: 'busybox:1.36', digest: 'sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662' },
@@ -79,6 +96,9 @@ export const SYSTEM_IMAGES: readonly SystemImage[] = [
   { key: 'otelCollector', ref: 'otel/opentelemetry-collector-contrib:0.111.0', digest: 'sha256:a2a52e43c1a80aa94120ad78c2db68780eb90e6d11c8db5b3ce2f6a0cc6b5029' },
   { key: 'curl', ref: 'curlimages/curl:8.10.1', digest: 'sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b' },
   { key: 'valkey', ref: 'valkey/valkey:8', digest: 'sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2' },
+  // Platform upgrades: `docker service update --image … --update-failure-action rollback`
+  // one-shots (docker.sock bound) for the controller and system services.
+  { key: 'dockerCli', ref: 'docker:27.5-cli', digest: 'sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c' },
   { key: 'caddy', ref: 'caddy:2-alpine', digest: 'sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b' },
   { key: 'caddySwarmy', ref: 'ghcr.io/requestflo/caddy-swarmy:latest' },
   { key: 'dns', ref: 'ghcr.io/requestflo/swarmy-dns:latest' },
@@ -297,4 +317,37 @@ export function mirrorLabelsAfter(
 /** Keep only the mirror labels from a label set (to carry across a registry redeploy). */
 export function mirrorLabelsOf(labels: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.entries(labels).filter(([k]) => k.startsWith(MIRROR_LABEL_PREFIX)));
+}
+
+// ── Railpack (zero-config builds) ────────────────────────────────────────────
+
+/** BOM keys of the base images a Railpack plan names (rewritten in the plan). */
+export const RAILPACK_PLAN_IMAGE_KEYS = ['railpackBuilder', 'railpackRuntime'] as const satisfies readonly SystemImageKey[];
+
+/**
+ * The digest-pinned ref to use for a system image: the mirrored copy when it
+ * is trusted, else the pinned upstream (`host/path@sha256:…`).
+ */
+export function pinnedSystemRef(
+  key: SystemImageKey,
+  mirror?: { registryHost: string; labels: Record<string, string>; registryNodeId: string | null },
+  images: readonly SystemImage[] = SYSTEM_IMAGES,
+): string {
+  const img = systemImage(key, images);
+  const mirrored = mirror ? mirroredRefFor(img.ref, mirror.registryHost, mirror.labels, mirror.registryNodeId, images) : null;
+  return mirrored ?? copySourceFor(img);
+}
+
+/**
+ * Plan image rewrites for a Railpack build: the exact tag refs a plan names →
+ * digest-pinned refs (mirrored when trusted), so a build never floats on a tag
+ * and pulls from the cluster when it can.
+ */
+export function railpackImageRewrites(
+  mirror?: { registryHost: string; labels: Record<string, string>; registryNodeId: string | null },
+  images: readonly SystemImage[] = SYSTEM_IMAGES,
+): Record<string, string> {
+  return Object.fromEntries(
+    RAILPACK_PLAN_IMAGE_KEYS.map((k) => [systemImage(k, images).ref, pinnedSystemRef(k, mirror, images)]),
+  );
 }
