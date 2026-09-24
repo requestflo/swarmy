@@ -14,6 +14,7 @@ import { registry } from './gateway';
 import { TerminalRecorder } from './terminal-recording';
 import { finalizeTerminalSession, loadTerminalRuntimePolicy } from './terminal-store';
 import { TicketStore, termStartPayload } from './terminal-tickets';
+import { TERMINAL_SWEEP_MS, terminalLimitExpired, terminalLimitMessage } from './terminal-limits';
 
 /**
  * Browser-facing terminal data plane (`/term/ws`).
@@ -28,9 +29,12 @@ import { TicketStore, termStartPayload } from './terminal-tickets';
  *  - server-side session RECORDING (asciicast v2). The controller is the choke
  *    point — output is always recorded; recording is non-disableable for
  *    nodeShell and org-policy-controlled for container exec.
- *  - idle-timeout + the agent's hard output cap are enforced node-side; here we
- *    pass the org's idleTimeout into `termStart` and finalize the
- *    `TerminalSession` row (bytes / exit / recordingRef) on close.
+ *  - the agent's hard output cap and its own idle timer are enforced node-side;
+ *    the org's idleTimeout is passed in `termStart`. The CONTROLLER also
+ *    enforces idle timeout and `maxSessionMs` itself (a sweeper over live
+ *    sessions, terminal-limits.ts), so a policy holds regardless of agent
+ *    version. The `TerminalSession` row (bytes / exit / recordingRef) is
+ *    finalized and audited on every close.
  *
  * Wiring (see INTEGRATION):
  *  - apps/api/src/index.ts: the `/term/ws` upgrade branch + websocket handler set.
@@ -56,6 +60,10 @@ interface LiveSession {
   bytesOut: number;
   recorder: TerminalRecorder | null;
   finalized: boolean;
+  startedAt: number;
+  lastInputAt: number;
+  idleTimeoutMs: number;
+  maxSessionMs: number;
 }
 
 function frame(type: string, payload: unknown): string {
@@ -74,6 +82,32 @@ class TerminalHub {
   private tickets = new TicketStore();
   private sessions = new Map<string, LiveSession>();
   private byTicket = new Map<string, string>(); // ticket → sessionId
+  private sweeper: ReturnType<typeof setInterval> | null = null;
+
+  /** Close every live session past its idle timeout or max length. */
+  private sweep(now = Date.now()): void {
+    for (const session of this.sessions.values()) {
+      const reason = terminalLimitExpired({ ...session, now });
+      if (!reason) continue;
+      this.sessions.delete(session.sessionId);
+      registry.send(session.nodeId, JSON.parse(frame('termClose', { sessionId: session.sessionId })));
+      if (session.ws.readyState === 1) {
+        session.ws.send(frame('termExit', { sessionId: session.sessionId, exitCode: null, reason }));
+        session.ws.close(TermCloseCode.IDLE, terminalLimitMessage(reason));
+      }
+      void this.finalize(session, null, reason);
+    }
+    if (this.sessions.size === 0 && this.sweeper) {
+      clearInterval(this.sweeper);
+      this.sweeper = null;
+    }
+  }
+
+  private ensureSweeper(): void {
+    if (this.sweeper) return;
+    this.sweeper = setInterval(() => this.sweep(), TERMINAL_SWEEP_MS);
+    (this.sweeper as { unref?: () => void }).unref?.();
+  }
 
   /**
    * Control plane (tRPC) calls this after the full ABAC + policy gate to mint a
@@ -132,8 +166,13 @@ class TerminalHub {
       bytesOut: 0,
       recorder,
       finalized: false,
+      startedAt: Date.now(),
+      lastInputAt: Date.now(),
+      idleTimeoutMs: policy.idleTimeoutMs,
+      maxSessionMs: policy.maxSessionMs,
     };
     this.sessions.set(t.sessionId, session);
+    this.ensureSweeper();
     this.byTicket.set(ws.data.ticket, t.sessionId);
 
     registry.send(
@@ -158,6 +197,8 @@ class TerminalHub {
           nodeId: t.nodeId,
           target: t.target,
           recording: !!recordingRef,
+          idleTimeoutMs: policy.idleTimeoutMs,
+          maxSessionMs: policy.maxSessionMs,
         },
       },
     );
@@ -179,6 +220,7 @@ class TerminalHub {
     if (msg.type === 'termInput' && typeof msg.payload?.data === 'string') {
       const data = msg.payload.data as string;
       session.bytesIn += data.length;
+      session.lastInputAt = Date.now();
       session.recorder?.record('i', b64decodeLen(data));
       registry.send(session.nodeId, JSON.parse(frame('termInput', { ...msg.payload, sessionId })));
     } else if (msg.type === 'termResize') {

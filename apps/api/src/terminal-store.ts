@@ -18,6 +18,7 @@ interface TerminalSessionDelegate {
 interface TerminalPolicyRowLike {
   recordContainerExec?: boolean;
   idleTimeoutMs?: number;
+  maxSessionMs?: number;
 }
 interface TerminalPolicyDelegate {
   findUnique(args: { where: { orgId: string } }): Promise<TerminalPolicyRowLike | null>;
@@ -34,14 +35,16 @@ function policies(): TerminalPolicyDelegate {
 export interface TerminalRuntimePolicy {
   recordContainerExec: boolean;
   idleTimeoutMs: number;
+  maxSessionMs: number;
 }
 
 const DEFAULT_RUNTIME_POLICY: TerminalRuntimePolicy = {
   recordContainerExec: true,
   idleTimeoutMs: 300_000,
+  maxSessionMs: 3_600_000,
 };
 
-/** Read the org's record/idle knobs (safe defaults if no row). Best-effort. */
+/** Read the org's record/idle/max-session knobs (safe defaults if no row). Best-effort. */
 export async function loadTerminalRuntimePolicy(orgId: string): Promise<TerminalRuntimePolicy> {
   try {
     const row = await policies().findUnique({ where: { orgId } });
@@ -49,6 +52,7 @@ export async function loadTerminalRuntimePolicy(orgId: string): Promise<Terminal
     return {
       recordContainerExec: row.recordContainerExec ?? DEFAULT_RUNTIME_POLICY.recordContainerExec,
       idleTimeoutMs: row.idleTimeoutMs ?? DEFAULT_RUNTIME_POLICY.idleTimeoutMs,
+      maxSessionMs: row.maxSessionMs ?? DEFAULT_RUNTIME_POLICY.maxSessionMs,
     };
   } catch {
     return DEFAULT_RUNTIME_POLICY;

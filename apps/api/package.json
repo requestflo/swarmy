@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist .turbo",
     "restore": "bun run src/restore.ts",
+    "reset-2fa": "bun run src/reset-2fa.ts",
     "test": "bun test"
   },
   "dependencies": {
