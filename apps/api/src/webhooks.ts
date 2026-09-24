@@ -18,6 +18,7 @@
  * someone who is not a collaborator.
  */
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { decryptSecret } from '@swarmy/core/crypto';
 import { prisma, type DB } from '@swarmy/db';
 import {
@@ -47,6 +48,18 @@ import {
 } from './webhook-verify';
 
 export const webhooksApp = new Hono();
+
+/**
+ * Webhooks are unauthenticated until the HMAC check, which needs the whole
+ * raw body (and `/github` tries every App secret) — so cap the body BEFORE
+ * reading it. GitHub truncates push payloads (20 commits); 10 MB is generous.
+ * bodyLimit also counts chunked bodies, which carry no Content-Length.
+ */
+export const WEBHOOK_MAX_BODY_BYTES = 10 * 1024 * 1024;
+webhooksApp.use(
+  '*',
+  bodyLimit({ maxSize: WEBHOOK_MAX_BODY_BYTES, onError: (c) => c.json({ error: 'payload too large' }, 413) }),
+);
 
 // ── D4: PR preview environments ───────────────────────────────────────────────
 // ORCHESTRATOR TODO (spine seam missing): add to packages/trpc/src/index.ts
