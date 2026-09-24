@@ -344,7 +344,7 @@ function findCluster(
 /**
  * The PGDATA volume a physical engine should use: explicit input wins, else the
  * primary's declared `swarmy.db.dataVolume` (the persistent-layout volume,
- * `<stack>_<cluster>-primary-data`, mounted at `/bitnami/postgresql`).
+ * `<stack>_<cluster>-primary-data`, mounted at `/var/lib/postgresql/data`).
  */
 export function effectiveDataVolume(
   explicit: string | undefined,
@@ -374,8 +374,8 @@ function connFrom(svc: InvService, database?: string): DbConnection {
     host: svc.name,
     port: PG_PORT,
     user: DEFAULT_USER,
-    password: env.POSTGRESQL_PASSWORD ?? '',
-    database: (database ?? env.POSTGRESQL_DATABASE ?? DEFAULT_DATABASE) || DEFAULT_DATABASE,
+    password: env.POSTGRES_PASSWORD ?? '',
+    database: (database ?? env.POSTGRES_DB ?? DEFAULT_DATABASE) || DEFAULT_DATABASE,
   };
 }
 

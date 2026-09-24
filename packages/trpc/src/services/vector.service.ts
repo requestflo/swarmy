@@ -507,7 +507,7 @@ export function listPgvectorClusters(ctx: OrgContext, stack?: string): PgvectorC
 
 /**
  * Enable pgvector on a managed cluster: exec `CREATE EXTENSION IF NOT EXISTS
- * vector` on the primary (bitnami exposes the superuser password + database as
+ * vector` on the primary (the member exposes the superuser password + database as
  * container env — nothing rides the wire), then stamp
  * `swarmy.vector.pgvector=true`. Apps then just use their injected
  * DATABASE_URL (manageddb `injectConnection`) — pgvector needs no extra attach.
@@ -529,7 +529,7 @@ export async function enablePgvector(
   if (!target) throw commandRejected(`no running container for "${primary.name}" — is the cluster up?`);
 
   const script =
-    'PGPASSWORD="$POSTGRESQL_PASSWORD" psql -U postgres -d "${POSTGRESQL_DATABASE:-postgres}" ' +
+    'PGPASSWORD="$POSTGRES_PASSWORD" psql -U postgres -d "${POSTGRES_DB:-postgres}" ' +
     '-v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS vector"';
   try {
     const res = await ctx.hub.dispatch<{ exitCode: number; output?: string }>(

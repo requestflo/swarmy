@@ -7,7 +7,13 @@ import {
   DB_FAILOVER_PENDING_LABEL,
   DB_PIN_NODE_LABEL,
   STACK_LABEL,
-  applyDbStorage,
+  MANAGED_PG_ROOT,
+  PG_ENV,
+  PG_PROMOTE_SQL,
+  applyPgMember,
+  pgBootRole,
+  pgPrimaryEnv,
+  pgReplicaEnv,
   choosePinNode,
   decideFailover,
   encodePendingFailover,
@@ -24,9 +30,7 @@ import {
 } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import {
-  BITNAMI_PGDATA,
-  BITNAMI_PG_CTL,
-  BITNAMI_PITR_CONF_TARGET,
+  MANAGED_PG_PITR_CONF_TARGET,
   DEFAULT_WALG_IMAGE,
   WAL_ARCHIVE_MOUNT,
   pitrExtraConf,
@@ -76,7 +80,8 @@ import {
  *   PITR / WAL archiving — when the primary carries `swarmy.db.backup.pitr=true`
  *   (stamped by dbBackup.service#setSchedule): ensure a `<base>-wal-archive`
  *   volume on the primary, a Docker config enabling `archive_mode=on` +
- *   the idempotent cp `archive_command` (mounted at bitnami's conf.d), and a
+ *   the idempotent cp `archive_command` (mounted in the conf dir swarmy's boot
+ *   layer includes — @swarmy/core manageddb-pg), and a
  *   per-cluster `<base>-wal-shipper` sidecar service (wal-g image) that loops
  *   `wal-g wal-push`ing archived segments to the cluster's BackupTarget S3
  *   prefix (the SAME `WALG_S3_PREFIX` the `db.backup` wal-g base backups use, so
@@ -102,13 +107,16 @@ import {
  *   worker stamps the data-loss window as `swarmy.db.failover.pending`, raises a
  *   critical alert + incident, and waits for an admin confirmation
  *   (`swarmy.db.failover.confirm`, written by `manageddb.confirmFailover`).
- *   Promotion itself: exec `pg_ctl promote` (bitnami paths),
+ *   Promotion itself: exec `SELECT pg_promote()` via psql,
  *   verify `pg_is_in_recovery()=f`, flip `swarmy.db.role` labels (labels-only —
  *   the promoted task keeps its promoted in-memory state), repoint every other
- *   replica's `POSTGRESQL_MASTER_HOST` (redeploy specs), then
- *   `recordIncidentEvent` + `fireEvent` + `writeAudit`. Caveat: the promoted
- *   service keeps slave-mode env (a redeploy would restart it as a replica of
- *   the dead writer), so the PITR convergence skips slave-env primaries.
+ *   member's `SWARMY_PG_PRIMARY_HOST` under a fresh `SWARMY_PG_REJOIN` epoch
+ *   (redeploy specs; the boot layer re-points standbys and moves a demoted
+ *   ex-writer's data ASIDE before re-cloning — never deletes it), then
+ *   `recordIncidentEvent` + `fireEvent` + `writeAudit`. The promoted service
+ *   keeps its replica-role env (not redeployed); its boot layer sees writer
+ *   data with no new epoch and keeps starting it as a writer, and the PITR
+ *   convergence skips replica-env primaries (a PITR redeploy would restart it).
  *
  *   Scheduled backups — once per minute the worker calls A1's
  *   `runDueDbBackups(now, deps)` seam so `swarmy.db.backup.schedule` labels fire.
@@ -116,7 +124,7 @@ import {
  * Storage (the persistent layout — see @swarmy/core manageddb-storage): every
  * spec this worker rebuilds re-derives the member's data mount + node pin /
  * anti-affinity from its `swarmy.db.dataVolume|node|avoidNode` labels via
- * `applyDbStorage` — never a bare spec. A LEGACY primary (data on an anonymous
+ * `applyPgMember` (storage + the swarmy boot layer) — never a bare spec. A LEGACY primary (data on an anonymous
  * volume) is never redeployed here (that would start it empty): the tick fires
  * a `db-storage` warning and the operator runs `db.migrateStorage`. A mounted
  * but undeclared primary (pre-label PITR `dataVolume`) is adopted (labels
@@ -157,10 +165,13 @@ const SWARM_SERVICE_ID_LABEL = 'com.docker.swarm.service.id';
 const PG_PORT = 5432;
 const REPLICATION_USER = 'repl';
 const DEFAULT_DATABASE = 'app';
-/** Election substrate for `failover` — a Patroni/Stolon image talks to this. */
-// bitnami/* versioned tags were purged from Docker Hub (Aug 2025); the frozen
-// bitnamilegacy twin keeps the same ETCD_* env contract. 3.5 (not 3) is multi-arch.
-const ETCD_IMAGE = 'bitnamilegacy/etcd:3.5';
+/**
+ * Election substrate for `failover` — a Patroni/Stolon image talks to this.
+ * The etcd project's own release image (gcr.io/etcd-development is the
+ * primary registry in etcd's release docs; multi-arch), configured by etcd's
+ * native `ETCD_*` env flags — no vendor repackaging.
+ */
+const ETCD_IMAGE = 'gcr.io/etcd-development/etcd:v3.5.21';
 
 const EXEC_TIMEOUT_MS = 15_000;
 const PROMOTE_TIMEOUT_MS = 30_000;
@@ -249,8 +260,10 @@ function dcsSpec(c: Cluster): ServiceSpec {
     name,
     image: ETCD_IMAGE,
     mode: { replicated: { replicas: 1 } },
+    command: ['/usr/local/bin/etcd'],
     env: {
-      ALLOW_NONE_AUTHENTICATION: 'yes',
+      ETCD_NAME: name,
+      ETCD_DATA_DIR: '/etcd-data',
       ETCD_LISTEN_CLIENT_URLS: 'http://0.0.0.0:2379',
       ETCD_ADVERTISE_CLIENT_URLS: `http://${name}:2379`,
     },
@@ -268,7 +281,7 @@ function regionReplicaSpec(
   multiNode: boolean,
 ): ServiceSpec {
   const env = envRecord(primary.env ?? []);
-  const password = env.POSTGRESQL_PASSWORD ?? '';
+  const password = env[PG_ENV.password] ?? '';
   const pin = primary.labels[DB_PIN_NODE_LABEL];
   const labels = memberLabels(c, 'replica', 'geo', {
     [DB_REGION_LABEL]: region,
@@ -278,18 +291,17 @@ function regionReplicaSpec(
       ...(multiNode && pin ? { avoidNode: pin } : {}),
     }),
   });
-  return applyDbStorage<ServiceSpec>({
+  return applyPgMember<ServiceSpec>({
     name: `${c.base}-replica-${region}`,
     image: primary.image,
     mode: { replicated: { replicas: n } },
-    env: {
-      POSTGRESQL_REPLICATION_MODE: 'slave',
-      POSTGRESQL_REPLICATION_USER: env.POSTGRESQL_REPLICATION_USER ?? REPLICATION_USER,
-      POSTGRESQL_REPLICATION_PASSWORD: env.POSTGRESQL_REPLICATION_PASSWORD ?? password,
-      POSTGRESQL_MASTER_HOST: primary.name,
-      POSTGRESQL_MASTER_PORT_NUMBER: String(PG_PORT),
-      POSTGRESQL_PASSWORD: password,
-    },
+    env: pgReplicaEnv({
+      password,
+      replicationUser: env[PG_ENV.replicationUser] ?? REPLICATION_USER,
+      replicationPassword: env[PG_ENV.replicationPassword] ?? password,
+      primaryHost: primary.name,
+      primaryPort: PG_PORT,
+    }),
     labels,
     networks: [clusterNet(c)],
     placement: { constraints: [`node.labels.${REGION_NODE_LABEL}==${region}`] },
@@ -308,17 +320,16 @@ function extraPrimarySpec(
     [DB_MEMBER_LABEL]: String(index),
     ...dbStorageLabels({ dataVolume: extraPrimaryDataVolumeName(c.base, index), pinNode }),
   });
-  return applyDbStorage<ServiceSpec>({
+  return applyPgMember<ServiceSpec>({
     name: `${c.base}-primary-${index}`,
     image: primary.image,
     mode: { replicated: { replicas: 1 } },
-    env: {
-      POSTGRESQL_REPLICATION_MODE: 'master',
-      POSTGRESQL_REPLICATION_USER: env.POSTGRESQL_REPLICATION_USER ?? REPLICATION_USER,
-      POSTGRESQL_REPLICATION_PASSWORD: env.POSTGRESQL_REPLICATION_PASSWORD ?? env.POSTGRESQL_PASSWORD ?? '',
-      POSTGRESQL_PASSWORD: env.POSTGRESQL_PASSWORD ?? '',
-      POSTGRESQL_DATABASE: env.POSTGRESQL_DATABASE ?? DEFAULT_DATABASE,
-    },
+    env: pgPrimaryEnv({
+      password: env[PG_ENV.password] ?? '',
+      database: env[PG_ENV.database] ?? DEFAULT_DATABASE,
+      replicationUser: env[PG_ENV.replicationUser] ?? REPLICATION_USER,
+      replicationPassword: env[PG_ENV.replicationPassword] ?? env[PG_ENV.password] ?? '',
+    }),
     labels,
     networks: [clusterNet(c)],
   }, labels);
@@ -335,7 +346,7 @@ function extraPrimarySpec(
 function placePrimarySpec(primary: SwarmServiceInfo, region: string, net: string): ServiceSpec {
   const networks = (primary.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
   const labels = { ...primary.labels, [DB_PLACED_REGION_LABEL]: region };
-  return applyDbStorage<ServiceSpec>({
+  return applyPgMember<ServiceSpec>({
     name: primary.name,
     image: primary.image,
     mode: { replicated: { replicas: primary.desiredReplicas ?? 1 } },
@@ -349,7 +360,7 @@ function placePrimarySpec(primary: SwarmServiceInfo, region: string, net: string
 /** Base read-replica rebuilt from live truth with its storage re-derived from `labels`. */
 function replicaStorageSpec(replica: SwarmServiceInfo, labels: Record<string, string>, net: string): ServiceSpec {
   const networks = (replica.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
-  return applyDbStorage<ServiceSpec>(
+  return applyPgMember<ServiceSpec>(
     {
       name: replica.name,
       image: replica.image,
@@ -404,7 +415,7 @@ const PRIMARY_LSN_SQL = 'SELECT pg_current_wal_flush_lsn()::text';
 const IN_RECOVERY_SQL = 'SELECT pg_is_in_recovery()';
 
 function psql(sql: string): string {
-  return `PGPASSWORD="$POSTGRESQL_PASSWORD" psql -U postgres -d postgres -tAc "${sql}"`;
+  return `PGPASSWORD="$POSTGRES_PASSWORD" psql -U postgres -d postgres -tAc "${sql}"`;
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -573,8 +584,8 @@ function pitrPrimarySpec(
   const placedRegion = primary.labels[DB_PLACED_REGION_LABEL];
   const confName = `${c.base}-pitr-conf`;
   const labels = { ...primary.labels, [DB_PITR_APPLIED_LABEL]: version };
-  // The declared storage volume (applyDbStorage below) wins /bitnami/postgresql.
-  return applyDbStorage<ServiceSpec>({
+  // The declared storage volume (applyPgMember below) wins the data root.
+  return applyPgMember<ServiceSpec>({
     name: primary.name,
     image: primary.image,
     mode: { replicated: { replicas: primary.desiredReplicas ?? 1 } },
@@ -584,14 +595,14 @@ function pitrPrimarySpec(
     mounts: [
       { type: 'volume' as const, source: `${c.base}-wal-archive`, target: WAL_ARCHIVE_MOUNT },
       // Physical base backups (wal-g backup-push) need the PGDATA on a named
-      // volume; mount it at bitnami's persistence root when the schedule names one.
+      // volume; mount it at the data root when the schedule names one.
       ...(dataVolume
-        ? [{ type: 'volume' as const, source: dataVolume, target: '/bitnami/postgresql' }]
+        ? [{ type: 'volume' as const, source: dataVolume, target: MANAGED_PG_ROOT }]
         : []),
     ],
     configs: [
       ...(primary.configs ?? []).filter((n) => n !== confName).map((n) => ({ source: n })),
-      { source: confName, target: BITNAMI_PITR_CONF_TARGET },
+      { source: confName, target: MANAGED_PG_PITR_CONF_TARGET },
     ],
     ...((primary.secrets ?? []).length > 0
       ? { secrets: (primary.secrets ?? []).map((n) => ({ source: n })) }
@@ -608,7 +619,7 @@ function stripPitrSpec(primary: SwarmServiceInfo, c: Cluster): ServiceSpec {
   delete labels[DB_PITR_APPLIED_LABEL];
   const networks = (primary.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
   const placedRegion = primary.labels[DB_PLACED_REGION_LABEL];
-  return applyDbStorage<ServiceSpec>({
+  return applyPgMember<ServiceSpec>({
     name: primary.name,
     image: primary.image,
     mode: { replicated: { replicas: primary.desiredReplicas ?? 1 } },
@@ -714,9 +725,10 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
     return;
   }
 
-  // Never redeploy an in-place-promoted primary: its env still says slave-mode,
-  // so a restart would rejoin it as a replica of the dead old writer.
-  if (envRecord(primary.env ?? []).POSTGRESQL_REPLICATION_MODE === 'slave') return;
+  // Never redeploy an in-place-promoted primary: its env still says replica, and
+  // a PITR redeploy restarts the writer for nothing (its boot layer would keep
+  // it a writer, but the archive bits wait for a re-provision as a primary).
+  if (pgBootRole(envRecord(primary.env ?? [])) === 'replica') return;
   if (!primaryRedeployable) return; // legacy storage — surfaced as a db-storage warning
 
   const schedule = parseScheduleLite(primary.labels[DB_BACKUP_SCHEDULE_LABEL]);
@@ -808,8 +820,13 @@ const lastHealthyAt = new Map<string, number>();
 /** Clusters whose "failover needs confirmation" alert fired this episode. */
 const confirmAlerted = new Set<string>();
 
-/** Spec repointing a replica-role service at the promoted writer. */
-function repointSpec(s: SwarmServiceInfo, promoted: string, net: string): ServiceSpec {
+/**
+ * Spec repointing a replica-role service at the promoted writer. `epoch` is
+ * the promotion's rejoin token: a standby just re-points; a member holding
+ * WRITER data (the demoted ex-primary) moves it aside and re-clones — see
+ * @swarmy/core manageddb-pg.
+ */
+function repointSpec(s: SwarmServiceInfo, promoted: string, net: string, epoch: string): ServiceSpec {
   const env = envRecord(s.env ?? []);
   const networks = (s.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
   const region = s.labels[DB_REGION_LABEL];
@@ -827,16 +844,19 @@ function repointSpec(s: SwarmServiceInfo, promoted: string, net: string): Servic
   delete labels[DB_PITR_APPLIED_LABEL];
   // Storage is carried forward from the member's own labels: the demoted
   // ex-primary keeps its pinned data volume, replicas keep their per-node one.
-  return applyDbStorage<ServiceSpec>({
+  const replEnv = pgReplicaEnv({
+    password: env[PG_ENV.password] ?? '',
+    replicationUser: env[PG_ENV.replicationUser] ?? REPLICATION_USER,
+    replicationPassword: env[PG_ENV.replicationPassword] ?? env[PG_ENV.password] ?? '',
+    primaryHost: promoted,
+    primaryPort: PG_PORT,
+    rejoin: epoch,
+  });
+  return applyPgMember<ServiceSpec>({
     name: s.name,
     image: s.image,
     mode: { replicated: { replicas: s.desiredReplicas ?? 1 } },
-    env: {
-      ...env,
-      POSTGRESQL_REPLICATION_MODE: 'slave',
-      POSTGRESQL_MASTER_HOST: promoted,
-      POSTGRESQL_MASTER_PORT_NUMBER: String(PG_PORT),
-    },
+    env: { ...env, ...replEnv },
     labels,
     networks: networks.length > 0 ? networks : [net],
     ...((s.secrets ?? []).length > 0 ? { secrets: (s.secrets ?? []).map((n) => ({ source: n })) } : {}),
@@ -845,14 +865,9 @@ function repointSpec(s: SwarmServiceInfo, promoted: string, net: string): Servic
   }, labels);
 }
 
-/** exec `pg_ctl promote` in one running task + verify recovery ended. */
+/** exec `SELECT pg_promote()` in one running task + verify recovery ended. */
 async function promoteInPlace(orgId: string, svc: SwarmServiceInfo): Promise<boolean> {
-  const promote = await execIn(
-    orgId,
-    svc,
-    `${BITNAMI_PG_CTL} -D ${BITNAMI_PGDATA} promote`,
-    PROMOTE_TIMEOUT_MS,
-  );
+  const promote = await execIn(orgId, svc, psql(PG_PROMOTE_SQL), PROMOTE_TIMEOUT_MS);
   if (!promote || promote.exitCode !== 0) return false;
   for (let attempt = 0; attempt < 5; attempt++) {
     const verify = await execIn(orgId, svc, psql(IN_RECOVERY_SQL));
@@ -1060,11 +1075,12 @@ async function maybePromote(
 
   // Repoint every other replica (and the demoted ex-primary) at the new writer.
   const net = clusterNet(c);
+  const epoch = `${target.name}@${new Date(now).toISOString()}`;
   const repointed: string[] = [];
   for (const member of others) {
     if (member.labels[DB_ROLE_LABEL] === 'dcs') continue;
     await hub
-      .dispatch(node, 'service.deploy', { spec: repointSpec(member, target.name, net), pullPolicy: 'missing' })
+      .dispatch(node, 'service.deploy', { spec: repointSpec(member, target.name, net, epoch), pullPolicy: 'missing' })
       .catch(() => undefined);
     repointed.push(member.name);
   }

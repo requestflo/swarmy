@@ -25,7 +25,7 @@ const PENDING = {
 
 function svc(name: string, labels: Record<string, string>) {
   return {
-    id: name, name, image: 'bitnamilegacy/postgresql:17', mode: 'replicated', replicas: 1,
+    id: name, name, image: 'pgvector/pgvector:pg17', mode: 'replicated', replicas: 1,
     runningReplicas: name.includes('primary') ? 0 : 1, desiredReplicas: 1,
     labels: { 'com.docker.stack.namespace': 'app', 'swarmy.db.engine': 'postgres', 'swarmy.db.cluster': 'db', ...labels },
     networks: [], env: [], ports: [], createdAt: 0, updatedAt: 0,

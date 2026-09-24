@@ -3,13 +3,13 @@
  * controller (`@swarmy/trpc` manageddb.service / dbBackup.service) and the
  * manageddb-reconcile worker (which cannot subpath-import trpc internals).
  *
- * Why this exists: clusters used to be deployed with NO mounts, so the bitnami
- * image's `VOLUME /bitnami/postgresql` landed in an anonymous volume and any task
- * restart / reschedule / drain / image update started an EMPTY database. The
- * layout is now:
+ * Why this exists: clusters used to be deployed with NO mounts, so the image's
+ * data VOLUME landed in an anonymous volume and any task restart / reschedule /
+ * drain / image update started an EMPTY database. The layout is now:
  *
  *   primary  → named local volume `<stack>_<cluster>-primary-data` mounted at
- *              `/bitnami/postgresql`, pinned to ONE swarm node
+ *              `/var/lib/postgresql/data` (the official image's VOLUME; PGDATA
+ *              is its `pgdata/` subdirectory), pinned to ONE swarm node
  *              (`node.id==<swarm node id>`) so the node-local volume and the
  *              writer never part.
  *   replicas → per-node volume `<stack>_<cluster>-replica-data` (Docker creates
@@ -22,13 +22,12 @@
  * service labels (`swarmy.db.dataVolume`, `swarmy.db.node`,
  * `swarmy.db.avoidNode`), so every spec rebuild — failover repoint, geo
  * re-placement, PITR apply/strip — re-derives the mounts + constraints from the
- * live labels via {@link applyDbStorage} instead of rebuilding a bare spec.
+ * live labels via {@link applyPgMember} (storage + the swarmy boot layer of
+ * `manageddb-pg`) instead of rebuilding a bare spec.
  */
+import { MANAGED_PG_PGDATA, MANAGED_PG_ROOT, applyPgBoot, type PgBootSpecLike } from './manageddb-pg';
 
-/** Bitnami persistence root (the image's VOLUME). PGDATA is `<root>/data`. */
-export const BITNAMI_PG_ROOT = '/bitnami/postgresql';
-
-/** Named volume this member's `/bitnami/postgresql` lives on. */
+/** Named volume this member's data root (`/var/lib/postgresql/data`) lives on. */
 export const DB_DATA_VOLUME_LABEL = 'swarmy.db.dataVolume';
 /** Docker swarm node id this member is pinned to (`node.id==<id>`). */
 export const DB_PIN_NODE_LABEL = 'swarmy.db.node';
@@ -86,7 +85,7 @@ export function dbStorageLabels(opts: {
  * Re-derive a DB member's data mount + placement from its declared labels and
  * merge them onto `spec`. Idempotent; other mounts (wal-archive) and other
  * constraints (region pins) are preserved. The declared data volume WINS the
- * `/bitnami/postgresql` target over any other mount for that path. No storage
+ * data-root target over any other mount for that path. No storage
  * label ⇒ the spec is returned unchanged (legacy — see {@link dbStorageState}).
  */
 export function applyDbStorage<S extends StorageSpecLike>(
@@ -102,8 +101,8 @@ export function applyDbStorage<S extends StorageSpecLike>(
   let outMounts = mounts;
   if (dataVolume) {
     outMounts = [
-      { type: 'volume', source: dataVolume, target: BITNAMI_PG_ROOT },
-      ...mounts.filter((m) => m.target !== BITNAMI_PG_ROOT),
+      { type: 'volume', source: dataVolume, target: MANAGED_PG_ROOT },
+      ...mounts.filter((m) => m.target !== MANAGED_PG_ROOT),
     ];
   }
 
@@ -125,6 +124,19 @@ export function applyDbStorage<S extends StorageSpecLike>(
   if (constraints.length === 0) delete placement.constraints;
 
   return { ...spec, mounts: outMounts, placement };
+}
+
+/**
+ * A managed Postgres member spec, fully derived: storage from its labels
+ * ({@link applyDbStorage}) + the swarmy boot layer (`applyPgBoot`: entrypoint
+ * command + PGDATA). Use this — not a bare `applyDbStorage` — for every
+ * Postgres member spec, so no rebuild can drop the entrypoint.
+ */
+export function applyPgMember<S extends StorageSpecLike & PgBootSpecLike>(
+  spec: S,
+  labels: Record<string, string> | undefined,
+): S {
+  return applyPgBoot(applyDbStorage(spec, labels));
 }
 
 /** One mount as reported by the agent (service spec or container inspect). */
@@ -177,7 +189,7 @@ export function dbStorageState(svc: {
   }
   const data = svc.mounts.find(
     (m) =>
-      (m.target === BITNAMI_PG_ROOT || m.target === `${BITNAMI_PG_ROOT}/data`) &&
+      (m.target === MANAGED_PG_ROOT || m.target === MANAGED_PG_PGDATA) &&
       (m.type === undefined || m.type === 'volume' || m.type === 'bind') &&
       Boolean(m.source),
   );
@@ -236,38 +248,35 @@ export function pinnedPrimaryCounts(
   return out;
 }
 
-/** Bitnami's non-root postgres uid (image `USER 1001`, group root). */
-export const BITNAMI_PG_UID = '1001';
 /** Marker the basebackup script prints on a verified copy (the controller checks it). */
 export const BASEBACKUP_OK_MARKER = 'SWARMY_PGDATA_OK';
 
 /**
  * The one-shot ONLINE copy that seeds a legacy primary's named volume
- * (mounted at `/bitnami/postgresql`) from the RUNNING primary with
- * `pg_basebackup` over the cluster overlay — the primary keeps serving and is
- * never stopped. Runs as root in the primary's OWN image (so pg_basebackup
- * matches the server major), reading `SRC_HOST` / `PGUSER` / `PGPASSWORD` from
- * container env (the replication credential never rides argv).
+ * (mounted at the data root `/var/lib/postgresql/data`) from the RUNNING
+ * primary with `pg_basebackup` over the cluster overlay — the primary keeps
+ * serving and is never stopped. Runs as root in the primary's OWN image (so
+ * pg_basebackup matches the server major), reading `SRC_HOST` / `PGUSER` /
+ * `PGPASSWORD` from container env (the replication credential never rides argv).
  *
  * - Anything already in the volume (a previous failed attempt) is moved aside
  *   to `.swarmy-premigrate-<stamp>`, never deleted.
  * - `-X stream` makes the copy self-consistent (backup_label + WAL kept, so the
  *   first start crash-recovers to the backup end point).
  * - `standby.signal`/`recovery.signal` are removed (this copy becomes the
- *   WRITER; bitnami also clears them on start), and a
+ *   WRITER — the boot layer never removes them itself), and a
  *   `default_transaction_read_only` the migration's write-freeze put in
  *   `postgresql.auto.conf` is stripped so the new primary starts writable.
- * - `conf/conf.d` is recreated (bitnami's mounted-conf dir; an empty volume is
- *   not seeded from the image once we have written to it).
- * - Ownership → bitnami's uid 1001 (group root), PGDATA mode 0700.
+ * - Ownership → the image's `postgres` user, PGDATA mode 0700.
  *
- * bitnami treats a non-empty PGDATA as "persisted data" (no initdb, users not
- * re-created) and regenerates postgresql.conf/pg_hba.conf in its own conf dir
- * from env, so a basebackup PGDATA boots as-is. Exits non-zero unless
- * `data/PG_VERSION` exists; prints {@link BASEBACKUP_OK_MARKER} on success.
+ * The official entrypoint treats a PGDATA with `PG_VERSION` as existing data
+ * (no initdb), and the swarmy boot layer re-asserts its includes + pg_hba rule
+ * on start, so a basebackup PGDATA boots as-is. Exits non-zero unless
+ * `pgdata/PG_VERSION` exists; prints {@link BASEBACKUP_OK_MARKER} on success.
  */
 export function storageBasebackupScript(stamp: string): string {
-  const R = BITNAMI_PG_ROOT;
+  const R = MANAGED_PG_ROOT;
+  const D = MANAGED_PG_PGDATA;
   const aside = `${R}/.swarmy-premigrate-${stamp}`;
   return [
     'set -eu',
@@ -275,13 +284,13 @@ export function storageBasebackupScript(stamp: string): string {
     `if [ -n "$(ls -A ${R} 2>/dev/null)" ]; then mkdir -p ${aside}; ` +
       `for f in ${R}/* ${R}/.[!.]*; do [ -e "$f" ] || continue; case "$f" in ${R}/.swarmy-premigrate-*) continue;; esac; ` +
       `mv "$f" ${aside}/; done; fi`,
-    `mkdir -p ${R}/data ${R}/conf/conf.d`,
-    `pg_basebackup -h "$SRC_HOST" -p 5432 -U "$PGUSER" -w -D ${R}/data -X stream -c fast -P`,
-    `test -f ${R}/data/PG_VERSION || { echo "basebackup verification failed (data/PG_VERSION missing)"; exit 4; }`,
-    `rm -f ${R}/data/standby.signal ${R}/data/recovery.signal ${R}/data/postmaster.pid`,
-    `if [ -f ${R}/data/postgresql.auto.conf ]; then sed -i '/^[[:space:]]*default_transaction_read_only[[:space:]]*=/d' ${R}/data/postgresql.auto.conf; fi`,
-    `chown -R ${BITNAMI_PG_UID}:0 ${R}`,
-    `chmod 700 ${R}/data`,
-    `echo "${BASEBACKUP_OK_MARKER} pg=$(cat ${R}/data/PG_VERSION) kb=$(du -sk ${R}/data | cut -f1)"`,
+    `mkdir -p ${D}`,
+    `pg_basebackup -h "$SRC_HOST" -p 5432 -U "$PGUSER" -w -D ${D} -X stream -c fast -P`,
+    `test -f ${D}/PG_VERSION || { echo "basebackup verification failed (pgdata/PG_VERSION missing)"; exit 4; }`,
+    `rm -f ${D}/standby.signal ${D}/recovery.signal ${D}/postmaster.pid`,
+    `if [ -f ${D}/postgresql.auto.conf ]; then sed -i '/^[[:space:]]*default_transaction_read_only[[:space:]]*=/d' ${D}/postgresql.auto.conf; fi`,
+    `chown -R postgres:postgres ${R}`,
+    `chmod 700 ${D}`,
+    `echo "${BASEBACKUP_OK_MARKER} pg=$(cat ${D}/PG_VERSION) kb=$(du -sk ${D} | cut -f1)"`,
   ].join('\n');
 }

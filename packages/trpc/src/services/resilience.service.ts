@@ -19,6 +19,7 @@
  *    `container.runOnce` (mirrors the agent backup handler's env contract).
  */
 import {
+  PG_ENV,
   buildInventory,
   type InvService,
   type ResilienceBackupVerifyInput,
@@ -42,6 +43,7 @@ import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
+import { patchLiveService } from './service-patch';
 import {
   DB_BACKUP_LAST_RUN_LABEL,
   listDbBackups,
@@ -919,9 +921,9 @@ async function execInService(ctx: OrgContext, service: string, script: string): 
   return (res.output ?? '').trim();
 }
 
-/** psql one-liner against localhost inside a bitnami postgres container. */
+/** psql one-liner against localhost inside a managed postgres member. */
 function psqlScript(sql: string): string {
-  return `PGPASSWORD="$POSTGRESQL_PASSWORD" psql -U postgres -h 127.0.0.1 -p 5432 -tAc "${sql}"`;
+  return `PGPASSWORD="$POSTGRES_PASSWORD" psql -U postgres -h 127.0.0.1 -p 5432 -tAc "${sql}"`;
 }
 
 async function waitForPostgres(ctx: OrgContext, service: string): Promise<void> {
@@ -1051,6 +1053,27 @@ export async function runRestoreDrill(
 
 // ── Drill 2: failover (promote a standby, verify, rejoin) ─────────────────────
 
+/**
+ * Rejoin the drill-promoted standby: redeploy it (full live spec, via
+ * `patchLiveService`) under a fresh `drill:` rejoin epoch. The managed boot
+ * layer (@swarmy/core manageddb-pg) then sees writer data under a new epoch,
+ * moves it aside to `pgdata.drill-<utc>` (keeping only the latest drill copy)
+ * and re-clones from the primary. A plain restart would NOT do: the boot layer
+ * keeps a promoted writer a writer (that is what protects a real failover).
+ */
+async function rejoinDrillReplica(ctx: OrgContext, nodeId: string, replica: InvService): Promise<void> {
+  try {
+    await patchLiveService(
+      ctx,
+      replica,
+      { setEnv: { [PG_ENV.rejoin]: `drill:${new Date().toISOString()}` } },
+      { nodeId },
+    );
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
+}
+
 export async function runFailoverDrill(
   ctx: OrgContext,
   input: ResilienceFailoverDrillInput,
@@ -1099,14 +1122,7 @@ export async function runFailoverDrill(
     });
 
     await rec.run('Rejoin as replica', async () => {
-      try {
-        await ctx.hub.dispatch(node.id, 'service.restart', {
-          service: replica.name,
-          forceNewTask: true,
-        });
-      } catch (e) {
-        throw mapDispatchError(e);
-      }
+      await rejoinDrillReplica(ctx, node.id, replica);
     });
 
     return await finishDrill(ctx, { kind: 'failover', target, startedAt }, rec, {
@@ -1114,10 +1130,11 @@ export async function runFailoverDrill(
       summary: `Promoted a ${target} standby, verified it left recovery, rejoined it to the chain.`,
     });
   } catch (e) {
-    // Best-effort: force the replica back through its entrypoint regardless.
-    await ctx.hub
-      .dispatch(node.id, 'service.restart', { service: replica.name, forceNewTask: true })
-      .catch(() => undefined);
+    // Best-effort: send the replica back through its entrypoint as a rejoining
+    // standby regardless (a new drill epoch ⇒ writer data is set aside, re-cloned).
+    await rejoinDrillReplica(ctx, node.id, replica).catch(() =>
+      ctx.hub.dispatch(node.id, 'service.restart', { service: replica.name, forceNewTask: true }).catch(() => undefined),
+    );
     return await finishDrill(ctx, { kind: 'failover', target, startedAt }, rec, {
       status: 'failed',
       summary: `Failover drill against ${target} failed.`,

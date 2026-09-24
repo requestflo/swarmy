@@ -318,7 +318,7 @@ describe('manageddb.injectConnection keeps the app whole', () => {
     const primary = svc({
       name: 'shop_pg-primary',
       labels: { [STACK_NS]: STACK, [DB_CLUSTER_LABEL]: 'pg', [DB_ROLE_LABEL]: 'primary' },
-      env: ['POSTGRESQL_PASSWORD=pw', 'POSTGRESQL_DATABASE=app'],
+      env: ['POSTGRES_PASSWORD=pw', 'POSTGRES_DB=app'],
     });
     const { ctx, deployed } = fakeCtx({ services: [primary, appInfo()] });
     await injectConnection(ctx, { stack: STACK, appService: APP, cluster: 'pg' });

@@ -21,31 +21,38 @@ const cmd = { commandId: CommandId, timeoutMs: z.number().int().positive().optio
 /**
  * Managed-Postgres engine image — the ONE place the default lives.
  *
- * The whole managed-DB plane is built on Bitnami's env contract
- * (`POSTGRESQL_REPLICATION_MODE=master|slave`, `POSTGRESQL_*_PASSWORD`), its
- * paths (`/bitnami/postgresql` persistence root, the conf.d PITR mount, the
- * `/opt/bitnami/postgresql/bin/pg_ctl` promotion path below) and its psql
- * client. In Aug 2025 Bitnami pulled every versioned tag from the free
- * `bitnami/*` Docker Hub namespace (only `latest` + digests remain); the
- * identical images were frozen under `bitnamilegacy/*`, which is what we pin
- * here so replication keeps working unchanged. `bitnamilegacy` receives no
- * further updates — the long-term fix is porting to the official `postgres`
- * image (init-script replication + `pg_basebackup` entrypoint). Per-cluster
- * override: `provisionDb({ image | imageTag })`; the reconcile worker clones new
- * members from the live primary's image, so the service image IS the
- * Docker-truth per-cluster setting.
+ * `pgvector/pgvector:pg17`: the OFFICIAL `postgres:17` (Debian) image plus the
+ * pgvector extension, built FROM the upstream image and rebuilt on every
+ * upstream release by the pgvector project (github.com/pgvector/pgvector,
+ * Docker Hub `pgvector/pgvector`). Why this and not plain `postgres:17`:
+ * templates (Chatwoot, Activepieces, AI apps) and `vector.enablePgvector` need
+ * `CREATE EXTENSION vector` on the managed cluster, and the official image
+ * ships no pgvector. Why not a swarmy-built image: it would add a build +
+ * sign + mirror pipeline for a one-line `apt install`, and every node would
+ * pull from swarmy's registry instead of Docker Hub's library mirror network.
+ * The pgvector image keeps the official image's entire contract
+ * (`docker-entrypoint.sh`, `POSTGRES_*`, `PGDATA`, the `postgres` user), so
+ * swarmy's own boot layer (`@swarmy/core` manageddb-pg: replication role,
+ * pg_basebackup replicas, failover rejoin) runs unchanged on plain
+ * `postgres:17` too — an operator can override to it (or a private mirror)
+ * with `provisionDb({ image })` and lose only pgvector.
+ *
+ * 17 rather than 18: PG18's official image moved PGDATA/VOLUME to
+ * `/var/lib/postgresql/18/docker` (per-major directories); 17 keeps the
+ * `/var/lib/postgresql/data` layout the boot layer mounts. Per-cluster
+ * override: `provisionDb({ image | imageTag })` (`imageTag: "16"` →
+ * `pgvector/pgvector:pg16`); the reconcile worker clones new members from the
+ * live primary's image, so the service image IS the Docker-truth per-cluster
+ * setting.
  */
-export const MANAGED_PG_IMAGE_REPO = 'bitnamilegacy/postgresql';
-export const MANAGED_PG_DEFAULT_TAG = '16';
+export const MANAGED_PG_IMAGE_REPO = 'pgvector/pgvector';
+export const MANAGED_PG_DEFAULT_TAG = 'pg17';
 export const DEFAULT_MANAGED_PG_IMAGE = `${MANAGED_PG_IMAGE_REPO}:${MANAGED_PG_DEFAULT_TAG}`;
 
-/**
- * Rewrite an image ref from the dead free `bitnami/*` namespace to its frozen
- * `bitnamilegacy/*` twin (same image, same env/paths). Anything else is returned
- * unchanged. Lets a re-provision heal clusters deployed with the old default.
- */
-export function migrateDeadBitnamiImage(image: string): string {
-  return image.startsWith('bitnami/') ? `bitnamilegacy/${image.slice('bitnami/'.length)}` : image;
+/** `imageTag` → the managed repo's tag: a bare major ("16") maps to "pg16". */
+export function managedPgTag(tag: string): string {
+  const t = tag.trim();
+  return /^\d+$/.test(t) ? `pg${t}` : t;
 }
 
 /** Pinned default images for the DB engines. */
@@ -244,9 +251,5 @@ export function pitrExtraConf(): string {
   return `archive_mode = on\narchive_command = '${PITR_ARCHIVE_COMMAND}'\n`;
 }
 
-/** Where the extended conf mounts in a bitnami/postgresql container. */
-export const BITNAMI_PITR_CONF_TARGET = '/bitnami/postgresql/conf/conf.d/swarmy-pitr.conf';
-
-/** bitnami paths for a replica→primary promotion (`pg_ctl promote`). */
-export const BITNAMI_PG_CTL = '/opt/bitnami/postgresql/bin/pg_ctl';
-export const BITNAMI_PGDATA = '/bitnami/postgresql/data';
+/** Where the extended conf mounts in a managed member (included by swarmy's boot layer). */
+export { MANAGED_PG_PITR_CONF_TARGET, MANAGED_PG_PGDATA_SUBDIR } from '../manageddb-pg';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import { MANAGED_PG_ROOT } from './manageddb-pg';
 import {
-  BITNAMI_PG_ROOT,
   DB_AVOID_NODE_LABEL,
   DB_DATA_VOLUME_LABEL,
   DB_PIN_NODE_LABEL,
@@ -30,14 +30,14 @@ describe('applyDbStorage — never rebuild a bare spec', () => {
         mounts: [
           { type: 'volume' as const, source: 'hello_main-wal-archive', target: '/wal-archive' },
           // a stale/foreign mount on the data path is replaced by the declared volume
-          { type: 'volume' as const, source: 'something-else', target: BITNAMI_PG_ROOT },
+          { type: 'volume' as const, source: 'something-else', target: MANAGED_PG_ROOT },
         ],
         placement: { constraints: ['node.labels.swarmy.region==eu', 'node.id==stale'] },
       },
       { [DB_DATA_VOLUME_LABEL]: 'hello_main-primary-data', [DB_PIN_NODE_LABEL]: 'n1' },
     );
     expect(out.mounts).toEqual([
-      { type: 'volume', source: 'hello_main-primary-data', target: BITNAMI_PG_ROOT },
+      { type: 'volume', source: 'hello_main-primary-data', target: MANAGED_PG_ROOT },
       { type: 'volume', source: 'hello_main-wal-archive', target: '/wal-archive' },
     ]);
     expect(out.placement).toEqual({
@@ -82,7 +82,7 @@ describe('dbStorageState — legacy detection', () => {
     expect(
       dbStorageState({
         labels: { [DB_DATA_VOLUME_LABEL]: 'v', [DB_PIN_NODE_LABEL]: 'n1' },
-        mounts: [{ type: 'volume', source: 'v', target: BITNAMI_PG_ROOT }],
+        mounts: [{ type: 'volume', source: 'v', target: MANAGED_PG_ROOT }],
       }),
     ).toEqual({ state: 'persistent', dataVolume: 'v', pinnedNode: 'n1' });
   });
@@ -90,7 +90,7 @@ describe('dbStorageState — legacy detection', () => {
   it('marks a mounted-but-undeclared volume (pre-label PITR dataVolume) for adoption', () => {
     const s = dbStorageState({
       labels: {},
-      mounts: [{ type: 'volume', source: 'pgdata', target: BITNAMI_PG_ROOT }],
+      mounts: [{ type: 'volume', source: 'pgdata', target: MANAGED_PG_ROOT }],
     });
     expect(s).toEqual({ state: 'persistent', dataVolume: 'pgdata', undeclared: true });
   });
@@ -148,7 +148,7 @@ describe('storageBasebackupScript — online copy into the named volume', () => 
   const s = storageBasebackupScript('123');
   it('pg_basebackups from the RUNNING primary into PGDATA (stream WAL, fast checkpoint)', () => {
     expect(s).toContain(
-      'pg_basebackup -h "$SRC_HOST" -p 5432 -U "$PGUSER" -w -D /bitnami/postgresql/data -X stream -c fast -P',
+      'pg_basebackup -h "$SRC_HOST" -p 5432 -U "$PGUSER" -w -D /var/lib/postgresql/data/pgdata -X stream -c fast -P',
     );
   });
   it('credentials come from env only — never argv', () => {
@@ -156,11 +156,11 @@ describe('storageBasebackupScript — online copy into the named volume', () => 
     expect(s).toContain('[ -z "${PGPASSWORD:-}" ]');
   });
   it('verifies PGDATA, strips standby/recovery signals + the write-freeze, fixes ownership', () => {
-    expect(s).toContain('test -f /bitnami/postgresql/data/PG_VERSION');
-    expect(s).toContain('rm -f /bitnami/postgresql/data/standby.signal /bitnami/postgresql/data/recovery.signal');
+    expect(s).toContain('test -f /var/lib/postgresql/data/pgdata/PG_VERSION');
+    expect(s).toContain('rm -f /var/lib/postgresql/data/pgdata/standby.signal /var/lib/postgresql/data/pgdata/recovery.signal');
     expect(s).toContain('default_transaction_read_only');
-    expect(s).toContain('chown -R 1001:0 /bitnami/postgresql');
-    expect(s).toContain('chmod 700 /bitnami/postgresql/data');
+    expect(s).toContain('chown -R postgres:postgres /var/lib/postgresql/data');
+    expect(s).toContain('chmod 700 /var/lib/postgresql/data/pgdata');
     expect(s).toContain(BASEBACKUP_OK_MARKER);
     // backup_label must survive: it is what makes the first start consistent.
     expect(s).not.toContain('backup_label');
@@ -175,7 +175,7 @@ describe('protocol: mounts on services/containers (round-trip)', () => {
   const svc = {
     id: 's',
     name: 'hello_main-primary',
-    image: 'bitnamilegacy/postgresql:16',
+    image: 'pgvector/pgvector:pg17',
     mode: 'replicated',
     runningReplicas: 1,
     createdAt: 1,
@@ -183,7 +183,7 @@ describe('protocol: mounts on services/containers (round-trip)', () => {
     labels: {},
   };
   it('keeps mounts when reported and leaves them undefined for older agents', () => {
-    const mounts = [{ type: 'volume', source: 'v', target: BITNAMI_PG_ROOT }];
+    const mounts = [{ type: 'volume', source: 'v', target: MANAGED_PG_ROOT }];
     expect(SwarmServiceInfo.parse({ ...svc, mounts }).mounts).toEqual(mounts);
     expect(SwarmServiceInfo.parse(svc).mounts).toBeUndefined();
     const parsed = SwarmServiceInfo.parse(JSON.parse(JSON.stringify(SwarmServiceInfo.parse({ ...svc, mounts }))));
@@ -199,7 +199,7 @@ describe('protocol: mounts on services/containers (round-trip)', () => {
       createdAt: 1,
       ports: [],
       labels: {},
-      mounts: [{ type: 'volume', source: 'a1b2c3', target: BITNAMI_PG_ROOT }],
+      mounts: [{ type: 'volume', source: 'a1b2c3', target: MANAGED_PG_ROOT }],
     });
     expect(c.mounts?.[0]?.source).toBe('a1b2c3');
   });

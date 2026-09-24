@@ -257,8 +257,8 @@ check_7() {  # managed Postgres data survives a task reschedule
   poll 300 5 "$svc running 1/1" service_ready "$svc"
 
   docker service inspect "$svc" --format '{{json .Spec.TaskTemplate.ContainerSpec.Mounts}}' \
-    | jq -e 'any(.[]?; .Target == "/bitnami/postgresql" and .Type == "volume")' >/dev/null \
-    || { log "$svc has no volume mount at /bitnami/postgresql"; return 1; }
+    | jq -e 'any(.[]?; .Target == "/var/lib/postgresql/data" and .Type == "volume")' >/dev/null \
+    || { log "$svc has no volume mount at /var/lib/postgresql/data"; return 1; }
 
   poll 120 3 "postgres accepting connections" pg_sql 'SELECT 1'
   pg_sql "CREATE TABLE IF NOT EXISTS e2e_persist (v text PRIMARY KEY); INSERT INTO e2e_persist VALUES ('$marker')" >/dev/null

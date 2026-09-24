@@ -26,7 +26,7 @@ const REPLICA = 'hello_main-replica';
 const NET = 'hello_main-net';
 const TARGET = 'hello_main-primary-data';
 const ANON = '3f1c0ffeeanonymousvolumehash';
-const IMAGE = 'bitnamilegacy/postgresql:16';
+const IMAGE = 'pgvector/pgvector:pg17';
 
 interface Call {
   nodeId: string;
@@ -71,16 +71,16 @@ function container(id: string, serviceId: string, source: string): ContainerInfo
     ports: [],
     labels: { 'com.docker.swarm.service.id': serviceId },
     serviceId,
-    mounts: [{ type: 'volume', source, target: '/bitnami/postgresql' }],
+    mounts: [{ type: 'volume', source, target: '/var/lib/postgresql/data' }],
   } as ContainerInfo;
 }
 
 const PRIMARY_ENV = [
-  'POSTGRESQL_REPLICATION_MODE=master',
-  'POSTGRESQL_REPLICATION_USER=repl',
-  'POSTGRESQL_REPLICATION_PASSWORD=replpw',
-  'POSTGRESQL_PASSWORD=pw',
-  'POSTGRESQL_DATABASE=app',
+  'SWARMY_PG_ROLE=primary',
+  'SWARMY_PG_REPLICATION_USER=repl',
+  'SWARMY_PG_REPLICATION_PASSWORD=replpw',
+  'POSTGRES_PASSWORD=pw',
+  'POSTGRES_DB=app',
 ];
 
 interface Behaviour {
@@ -95,7 +95,7 @@ interface Behaviour {
 function harness(b: Behaviour = {}) {
   const calls: Call[] = [];
   let primary = svc(PRIMARY, 'primary', [], b.primaryEnv ?? PRIMARY_ENV);
-  const replica = svc(REPLICA, 'replica', [], ['POSTGRESQL_REPLICATION_MODE=slave']);
+  const replica = svc(REPLICA, 'replica', [], ['SWARMY_PG_ROLE=replica']);
   // node-a hosts the primary's task (anonymous volume); node-b the replica.
   const containers: Record<string, ContainerInfo[]> = {
     'node-a': [container('c-old', primary.id, ANON)],
@@ -103,7 +103,7 @@ function harness(b: Behaviour = {}) {
   };
 
   const applyCutover = () => {
-    primary = { ...primary, mounts: [{ type: 'volume', source: TARGET, target: '/bitnami/postgresql' }] };
+    primary = { ...primary, mounts: [{ type: 'volume', source: TARGET, target: '/var/lib/postgresql/data' }] };
     // swarm removes the old task container WITH its anonymous volume.
     containers['node-a'] = b.newTaskNeverRuns ? [] : [container('c-new', primary.id, TARGET)];
   };
@@ -195,15 +195,15 @@ describe('basebackupRunOncePayload — golden', () => {
       image: IMAGE,
       entrypoint: ['/bin/sh', '-c'],
       env: { SRC_HOST: PRIMARY, PGUSER: 'repl', PGPASSWORD: 'replpw' },
-      binds: [`${TARGET}:/bitnami/postgresql`],
+      binds: [`${TARGET}:/var/lib/postgresql/data`],
       networks: [NET],
       user: '0:0',
       pull: false,
       timeoutMs: 1000,
     });
     const script = p.cmd![0]!;
-    expect(script).toContain('pg_basebackup -h "$SRC_HOST" -p 5432 -U "$PGUSER" -w -D /bitnami/postgresql/data -X stream -c fast -P');
-    expect(script).toContain('chown -R 1001:0 /bitnami/postgresql');
+    expect(script).toContain('pg_basebackup -h "$SRC_HOST" -p 5432 -U "$PGUSER" -w -D /var/lib/postgresql/data/pgdata -X stream -c fast -P');
+    expect(script).toContain('chown -R postgres:postgres /var/lib/postgresql/data');
     expect(script).not.toContain('replpw'); // never argv
   });
 });
@@ -234,7 +234,7 @@ describe('migrateStorage — online copy, stop only after verification', () => {
     expect(copy.payload).toMatchObject({
       image: IMAGE,
       networks: [NET],
-      binds: [`${TARGET}:/bitnami/postgresql`],
+      binds: [`${TARGET}:/var/lib/postgresql/data`],
       user: '0:0',
       env: { SRC_HOST: PRIMARY, PGUSER: 'repl', PGPASSWORD: 'replpw' },
     });
@@ -246,7 +246,7 @@ describe('migrateStorage — online copy, stop only after verification', () => {
       labels: Record<string, string>;
     };
     expect(cut.name).toBe(PRIMARY);
-    expect(cut.mounts).toEqual([{ type: 'volume', source: TARGET, target: '/bitnami/postgresql' }] as never);
+    expect(cut.mounts).toEqual([{ type: 'volume', source: TARGET, target: '/var/lib/postgresql/data' }] as never);
     expect(cut.placement.constraints).toEqual(['node.id==swarm-node-a']);
     expect(cut.labels['swarmy.db.dataVolume']).toBe(TARGET);
 
@@ -286,7 +286,7 @@ describe('migrateStorage — online copy, stop only after verification', () => {
   });
 
   it('preflight: no replication credentials → nothing dispatched at all', async () => {
-    const { ctx, calls } = harness({ primaryEnv: ['POSTGRESQL_PASSWORD=pw'] });
+    const { ctx, calls } = harness({ primaryEnv: ['POSTGRES_PASSWORD=pw'] });
     await expect(run(ctx)).rejects.toThrow(/nothing was changed/);
     expect(calls).toEqual([]);
   });

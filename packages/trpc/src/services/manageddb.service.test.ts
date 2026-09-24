@@ -6,13 +6,14 @@ import {
   parseLagLabels,
   pitrConfigName,
   rebuildDbMemberSpec,
+  isBitnamiImage,
   resolveManagedPgImage,
   roVarName,
   walArchiveVolumeName,
   walShipperServiceName,
 } from './manageddb.service';
 import { DEFAULT_MANAGED_PG_IMAGE } from '@swarmy/core/protocol';
-import { primaryDataVolumeName, replicaDataVolumeName } from '@swarmy/core';
+import { pgBootCommand, primaryDataVolumeName, replicaDataVolumeName } from '@swarmy/core';
 
 describe('lag labels (swarmy.db.lag.<member>) — codec', () => {
   it('round-trips a stamped member lag', () => {
@@ -65,20 +66,21 @@ describe('roVarName — read-only env var derivation (existing behaviour)', () =
 });
 
 describe('resolveManagedPgImage — engine image default + per-cluster override', () => {
-  it('defaults to the pinned, still-published bitnamilegacy image', () => {
-    expect(resolveManagedPgImage({})).toBe('bitnamilegacy/postgresql:16');
-    expect(DEFAULT_MANAGED_PG_IMAGE).toBe('bitnamilegacy/postgresql:16');
+  it('defaults to the official-postgres + pgvector image (no Bitnami)', () => {
+    expect(resolveManagedPgImage({})).toBe('pgvector/pgvector:pg17');
+    expect(DEFAULT_MANAGED_PG_IMAGE).toBe('pgvector/pgvector:pg17');
   });
 
-  it('never emits the dead free-tier bitnami/postgresql namespace', () => {
-    expect(resolveManagedPgImage({}, 'bitnami/postgresql:16')).toBe('bitnamilegacy/postgresql:16');
-    expect(resolveManagedPgImage({ image: 'bitnami/postgresql:17' })).toBe(
-      'bitnamilegacy/postgresql:17',
-    );
+  it('never carries a live Bitnami engine forward (different env/path contract)', () => {
+    expect(resolveManagedPgImage({}, 'bitnamilegacy/postgresql:16')).toBe('pgvector/pgvector:pg17');
+    expect(resolveManagedPgImage({}, 'bitnami/postgresql:16@sha256:abc')).toBe('pgvector/pgvector:pg17');
+    expect(isBitnamiImage('docker.io/bitnamilegacy/postgresql:16')).toBe(true);
+    expect(isBitnamiImage('postgres:17')).toBe(false);
   });
 
-  it('imageTag picks a tag of the managed repo', () => {
-    expect(resolveManagedPgImage({ imageTag: '17' })).toBe('bitnamilegacy/postgresql:17');
+  it('imageTag picks a tag of the managed repo (bare major → pgNN)', () => {
+    expect(resolveManagedPgImage({ imageTag: '16' })).toBe('pgvector/pgvector:pg16');
+    expect(resolveManagedPgImage({ imageTag: 'pg17-bookworm' })).toBe('pgvector/pgvector:pg17-bookworm');
   });
 
   it('explicit image wins over imageTag and the live image', () => {
@@ -96,7 +98,7 @@ describe('managedPgSpecs — persistent storage layout golden', () => {
   const { primarySpec, replicaSpec } = managedPgSpecs({
     stack: 'hello',
     cluster: 'main',
-    image: 'bitnamilegacy/postgresql:16',
+    image: 'pgvector/pgvector:pg17',
     password: 'pw',
     database: 'app',
     replicas: 2,
@@ -106,9 +108,9 @@ describe('managedPgSpecs — persistent storage layout golden', () => {
     multiNode: true,
   });
 
-  it('primary: named volume at /bitnami/postgresql + node.id pin + swarmy.db.* storage labels', () => {
+  it('primary: named volume at the data root + node.id pin + swarmy.db.* storage labels', () => {
     expect(primarySpec.mounts).toEqual([
-      { type: 'volume', source: 'hello_main-primary-data', target: '/bitnami/postgresql' },
+      { type: 'volume', source: 'hello_main-primary-data', target: '/var/lib/postgresql/data' },
     ]);
     expect(primarySpec.placement).toEqual({
       constraints: ['node.id==swarmnode1'],
@@ -124,7 +126,7 @@ describe('managedPgSpecs — persistent storage layout golden', () => {
 
   it('replica: per-node volume + anti-affinity from the primary node + one task per node', () => {
     expect(replicaSpec.mounts).toEqual([
-      { type: 'volume', source: 'hello_main-replica-data', target: '/bitnami/postgresql' },
+      { type: 'volume', source: 'hello_main-replica-data', target: '/var/lib/postgresql/data' },
     ]);
     expect(replicaSpec.placement).toEqual({
       constraints: ['node.id!=swarmnode1'],
@@ -136,6 +138,31 @@ describe('managedPgSpecs — persistent storage layout golden', () => {
       'swarmy.db.avoidNode': 'swarmnode1',
     });
     expect(replicaSpec.labels?.['swarmy.db.node']).toBeUndefined();
+  });
+
+  it('boot layer: swarmy entrypoint + official POSTGRES_* / SWARMY_PG_* env, no Bitnami names', () => {
+    for (const spec of [primarySpec, replicaSpec]) {
+      expect(spec.command).toEqual(pgBootCommand());
+      expect(spec.args).toBeUndefined();
+      expect(JSON.stringify(spec.env)).not.toContain('POSTGRESQL_');
+    }
+    expect(primarySpec.env).toEqual({
+      SWARMY_PG_ROLE: 'primary',
+      POSTGRES_PASSWORD: 'pw',
+      POSTGRES_DB: 'app',
+      PGDATA: '/var/lib/postgresql/data/pgdata',
+      SWARMY_PG_REPLICATION_USER: 'repl',
+      SWARMY_PG_REPLICATION_PASSWORD: 'pw',
+    });
+    expect(replicaSpec.env).toEqual({
+      SWARMY_PG_ROLE: 'replica',
+      POSTGRES_PASSWORD: 'pw',
+      PGDATA: '/var/lib/postgresql/data/pgdata',
+      SWARMY_PG_REPLICATION_USER: 'repl',
+      SWARMY_PG_REPLICATION_PASSWORD: 'pw',
+      SWARMY_PG_PRIMARY_HOST: 'hello_main-primary',
+      SWARMY_PG_PRIMARY_PORT: '5432',
+    });
   });
 
   it('single-node swarm: replica has no anti-affinity (would be unschedulable)', () => {
@@ -189,7 +216,7 @@ describe('rebuildDbMemberSpec — never a bare spec', () => {
         updatedAt: 0,
         labels: {},
         networks: [{ name: 'hello_main-net', aliases: [] }],
-        env: ['POSTGRESQL_PASSWORD=pw'],
+        env: ['POSTGRES_PASSWORD=pw'],
         ports: [],
         secrets: [],
         configs: [],
@@ -201,10 +228,12 @@ describe('rebuildDbMemberSpec — never a bare spec', () => {
     expect(spec.mounts?.[0]).toEqual({
       type: 'volume',
       source: 'hello_main-primary-data',
-      target: '/bitnami/postgresql',
+      target: '/var/lib/postgresql/data',
     });
     expect(spec.placement?.constraints).toEqual(['node.id==n1']);
-    expect(spec.env).toEqual({ POSTGRESQL_PASSWORD: 'pw' });
+    // The live inventory carries no command: the rebuild re-stamps the boot layer.
+    expect(spec.command).toEqual(pgBootCommand());
+    expect(spec.env).toEqual({ POSTGRES_PASSWORD: 'pw', PGDATA: '/var/lib/postgresql/data/pgdata' });
     expect(spec.networks).toEqual(['hello_main-net']);
   });
 });

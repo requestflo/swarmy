@@ -179,7 +179,7 @@ describe('runDueDbBackups (schedule sweep passes retention through)', () => {
     const primary = {
       id: 'svc1',
       name: 'shop_main-db',
-      image: 'bitnamilegacy/postgresql:16',
+      image: 'pgvector/pgvector:pg17',
       mode: 'replicated' as const,
       desiredReplicas: 1,
       runningReplicas: 1,
@@ -189,7 +189,7 @@ describe('runDueDbBackups (schedule sweep passes retention through)', () => {
         'swarmy.db.role': 'primary',
         'swarmy.db.backup.schedule': encodeScheduleLabel(schedule),
       },
-      env: ['POSTGRESQL_PASSWORD=pw', 'POSTGRESQL_DATABASE=app'],
+      env: ['POSTGRES_PASSWORD=pw', 'POSTGRES_DB=app'],
       networks: [],
       ports: [],
     };

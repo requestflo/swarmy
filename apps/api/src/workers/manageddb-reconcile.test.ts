@@ -180,7 +180,7 @@ describe('shipperScript — the wal-push loop', () => {
 
 describe('planClusterStorage — persistent layout convergence', () => {
   const base = 'hello_main';
-  const PG = '/bitnami/postgresql';
+  const PG = '/var/lib/postgresql/data';
   const persistentPrimary = {
     name: `${base}-primary`,
     labels: { 'swarmy.db.dataVolume': `${base}-primary-data`, 'swarmy.db.node': 'n1' },

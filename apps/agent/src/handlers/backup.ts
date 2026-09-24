@@ -25,6 +25,7 @@ import type {
 } from '@swarmy/core/protocol';
 import {
   DEFAULT_PG_CLIENT_IMAGE,
+  MANAGED_PG_PGDATA_SUBDIR,
   DEFAULT_PGBACKREST_IMAGE,
   DEFAULT_RESTIC_IMAGE,
   DEFAULT_WALG_IMAGE,
@@ -37,12 +38,12 @@ const MOUNT = '/data';
 /** Where the logical dump is staged (scratch volume) inside the db sidecars. */
 const DUMP_MOUNT = '/backup';
 /**
- * The managed primary's data volume is its bitnami persistence ROOT (mounted at
- * `/bitnami/postgresql` in the service — see @swarmy/core manageddb-storage), so
- * the cluster's PGDATA is the `data/` subdirectory of the volume, not its root.
+ * The managed primary's data volume is its data ROOT (mounted at
+ * `/var/lib/postgresql/data` in the service — see @swarmy/core manageddb-pg), so
+ * the cluster's PGDATA is the `pgdata/` subdirectory of the volume, not its root.
  */
 const PGVOL_MOUNT = '/pgvol';
-const PGDATA_MOUNT = `${PGVOL_MOUNT}/data`;
+const PGDATA_MOUNT = `${PGVOL_MOUNT}/${MANAGED_PG_PGDATA_SUBDIR}`;
 
 interface RunOutput {
   exitCode: number;
@@ -515,8 +516,8 @@ async function backupDbLogical(
         env: pgEnv(p.conn),
         binds: [`${scratch}:${DUMP_MOUNT}`],
         networkMode: p.network,
-        // The Postgres client images run as a non-root uid (bitnami: 1001) and
-        // can't write the fresh, root-owned scratch volume. The dump only talks
+        // Some Postgres client images run as a non-root uid and can't write
+        // the fresh, root-owned scratch volume. The dump only talks
         // to the DB over the network, so root in this throwaway container is safe.
         user: '0:0',
       },

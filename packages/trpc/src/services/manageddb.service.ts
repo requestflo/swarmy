@@ -1,6 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import {
-  BITNAMI_PG_ROOT,
+  MANAGED_PG_ROOT,
+  PG_ENV,
+  pgBootRole,
+  pgPrimaryEnv,
+  pgReplicaEnv,
   DB_DATA_VOLUME_LABEL,
   DB_FAILOVER_CONFIRM_LABEL,
   DB_FAILOVER_PENDING_LABEL,
@@ -8,7 +12,7 @@ import {
   parsePendingFailover,
   type PendingFailover,
   BASEBACKUP_OK_MARKER,
-  applyDbStorage,
+  applyPgMember,
   buildInventory,
   choosePinNode,
   dbStorageLabels,
@@ -27,7 +31,7 @@ import {
 import {
   DEFAULT_MANAGED_PG_IMAGE,
   MANAGED_PG_IMAGE_REPO,
-  migrateDeadBitnamiImage,
+  managedPgTag,
   type ContainerInfo,
   type RunOncePayload,
   type RunOnceResult,
@@ -51,11 +55,14 @@ import { patchLiveService } from './service-patch';
  * Prisma model, and the exact same stack would still run under a plain
  * `docker stack deploy` with these labels as inert metadata.
  *
- * Engine: Bitnami's postgresql image (pinned via `DEFAULT_MANAGED_PG_IMAGE`,
- * currently `bitnamilegacy/postgresql:16`), which does primary/replica streaming replication
- * purely from env (`POSTGRESQL_REPLICATION_MODE=master|slave`). We deploy:
- *   - <stack>_<cluster>-primary  (mode=master, 1 replica)
- *   - <stack>_<cluster>-replica  (mode=slave,  N replicas, swarm DNS round-robin)
+ * Engine: the official Postgres image contract (pinned via
+ * `DEFAULT_MANAGED_PG_IMAGE`, currently `pgvector/pgvector:pg17` = official
+ * `postgres:17` + pgvector) under swarmy's own boot layer (@swarmy/core
+ * manageddb-pg), which does primary/replica streaming replication from env
+ * (`SWARMY_PG_ROLE=primary|replica`: replication role + pg_hba on the writer,
+ * `pg_basebackup` + `standby.signal` on replicas). We deploy:
+ *   - <stack>_<cluster>-primary  (role=primary, 1 replica)
+ *   - <stack>_<cluster>-replica  (role=replica, N replicas, swarm DNS round-robin)
  * both attached to a per-cluster overlay network so the replica resolves the
  * primary by service name, both stamped with the `swarmy.db.*` label scheme.
  *
@@ -338,12 +345,13 @@ export interface ProvisionDbInput {
   database?: string;
   /**
    * Tag of the managed Postgres image repo (`MANAGED_PG_IMAGE_REPO`, default
-   * tag "16"). Ignored when `image` is set.
+   * tag "pg17"; a bare major like "16" means "pg16"). Ignored when `image` is set.
    */
   imageTag?: string;
   /**
-   * Full image ref override (e.g. a private mirror). Must honour the Bitnami
-   * postgresql env/path contract. Wins over `imageTag`.
+   * Full image ref override (e.g. a private mirror, or plain `postgres:17`
+   * without pgvector). Must honour the official postgres image contract
+   * (docker-entrypoint.sh, POSTGRES_*, PGDATA, gosu). Wins over `imageTag`.
    */
   image?: string;
   /**
@@ -354,25 +362,30 @@ export interface ProvisionDbInput {
   autoBackup?: boolean;
 }
 
+/** A Bitnami (or frozen bitnamilegacy) image ref — the pre-B5 engine contract. */
+export function isBitnamiImage(image: string): boolean {
+  return /^(docker\.io\/)?bitnami(legacy)?\//.test(image.trim());
+}
+
 /**
  * Resolve the engine image for a (re-)provision: explicit `image` → explicit
  * `imageTag` → the live primary's image (so re-provisioning keeps a per-cluster
- * override) → the pinned default. Dead free-tier `bitnami/*` refs are rewritten
- * to `bitnamilegacy/*` so re-provisioning heals clusters deployed before the
- * Bitnami tag purge.
+ * override) → the pinned default. A live Bitnami image (the pre-B5 engine, a
+ * different env/path contract the boot layer cannot drive) is never carried
+ * forward — the default replaces it.
  */
 export function resolveManagedPgImage(
   input: Pick<ProvisionDbInput, 'image' | 'imageTag'>,
   existingImage?: string,
 ): string {
   const explicit = input.image?.trim();
-  if (explicit) return migrateDeadBitnamiImage(explicit);
+  if (explicit) return explicit;
   const tag = input.imageTag?.trim();
-  if (tag) return `${MANAGED_PG_IMAGE_REPO}:${tag}`;
+  if (tag) return `${MANAGED_PG_IMAGE_REPO}:${managedPgTag(tag)}`;
   // Inventory images can carry a pinned digest (`repo:tag@sha256:…`); drop it so
   // a rewritten repo is not pinned to a digest from the old namespace.
   const live = existingImage?.split('@')[0]?.trim();
-  if (live) return migrateDeadBitnamiImage(live);
+  if (live && !isBitnamiImage(live)) return live;
   return DEFAULT_MANAGED_PG_IMAGE;
 }
 
@@ -406,7 +419,7 @@ export interface ManagedPgSpecInput {
   password: string;
   database: string;
   replicas: number;
-  /** Named volume holding the primary's `/bitnami/postgresql`. */
+  /** Named volume holding the primary's data root (`/var/lib/postgresql/data`). */
   dataVolume: string;
   /** Per-node replica volume name. */
   replicaVolume: string;
@@ -421,7 +434,7 @@ export interface ManagedPgSpecInput {
 /**
  * The primary + replica ServiceSpecs of a managed Postgres cluster. Pure —
  * exported for the golden test. The storage layout (mount + pin + anti-affinity
- * + one-task-per-node) is declared on labels and derived by `applyDbStorage`,
+ * + one-task-per-node) is declared on labels and derived by `applyPgMember`,
  * the same function every reconcile rebuild uses, so they can never disagree.
  */
 export function managedPgSpecs(input: ManagedPgSpecInput): {
@@ -440,19 +453,18 @@ export function managedPgSpecs(input: ManagedPgSpecInput): {
   if (input.carryLabels?.[DB_TOPOLOGY_LABEL]) {
     primaryLabels[DB_TOPOLOGY_LABEL] = input.carryLabels[DB_TOPOLOGY_LABEL];
   }
-  const primarySpec: ServiceSpec = applyDbStorage<ServiceSpec>(
+  const primarySpec: ServiceSpec = applyPgMember<ServiceSpec>(
     {
       name: primary,
       image: input.image,
       mode: { replicated: { replicas: 1 } },
       labels: primaryLabels,
-      env: {
-        POSTGRESQL_REPLICATION_MODE: 'master',
-        POSTGRESQL_REPLICATION_USER: REPLICATION_USER,
-        POSTGRESQL_REPLICATION_PASSWORD: password,
-        POSTGRESQL_PASSWORD: password,
-        POSTGRESQL_DATABASE: input.database,
-      },
+      env: pgPrimaryEnv({
+        password,
+        database: input.database,
+        replicationUser: REPLICATION_USER,
+        replicationPassword: password,
+      }),
       networks: [network],
     },
     primaryLabels,
@@ -465,20 +477,19 @@ export function managedPgSpecs(input: ManagedPgSpecInput): {
       ...(input.multiNode ? { avoidNode: input.pinNode } : {}),
     }),
   };
-  const replicaSpec: ServiceSpec = applyDbStorage<ServiceSpec>(
+  const replicaSpec: ServiceSpec = applyPgMember<ServiceSpec>(
     {
       name: replicaServiceName(stack, cluster),
       image: input.image,
       mode: { replicated: { replicas: input.replicas } },
       labels: replicaLabels,
-      env: {
-        POSTGRESQL_REPLICATION_MODE: 'slave',
-        POSTGRESQL_REPLICATION_USER: REPLICATION_USER,
-        POSTGRESQL_REPLICATION_PASSWORD: password,
-        POSTGRESQL_MASTER_HOST: primary,
-        POSTGRESQL_MASTER_PORT_NUMBER: String(PG_PORT),
-        POSTGRESQL_PASSWORD: password,
-      },
+      env: pgReplicaEnv({
+        password,
+        replicationUser: REPLICATION_USER,
+        replicationPassword: password,
+        primaryHost: primary,
+        primaryPort: PG_PORT,
+      }),
       networks: [network],
     },
     replicaLabels,
@@ -489,11 +500,11 @@ export function managedPgSpecs(input: ManagedPgSpecInput): {
 /**
  * Provision a managed Postgres cluster on the swarm.
  *
- * Secret tradeoff: bitnami needs the password as env. swarmy has no
+ * Secret tradeoff: the image reads the password as env (`POSTGRES_PASSWORD`). swarmy has no
  * secret-create agent command yet, so the generated password is set as a
  * **label-free env var** on the service spec (visible via `docker service
  * inspect`, like any compose secret-in-env). Productionising this = a Docker
- * secret (`POSTGRESQL_PASSWORD_FILE`) once a `secret.create` command exists.
+ * secret (`POSTGRES_PASSWORD_FILE`, which the official image honours) once a `secret.create` command exists.
  */
 export async function provisionDb(
   ctx: OrgContext,
@@ -519,7 +530,7 @@ export async function provisionDb(
   const image = resolveManagedPgImage(input, existing?.image);
   const password =
     input.password?.trim() ||
-    (existing ? envRecord(existing).POSTGRESQL_PASSWORD : '') ||
+    (existing ? envRecord(existing)[PG_ENV.password] : '') ||
     generatePassword();
 
   // ── Storage: never let a (re-)provision move a live writer onto an empty volume.
@@ -1067,8 +1078,8 @@ export async function injectConnection(
   if (!app) throw notFound('service', input.appService);
 
   const primaryEnv = envRecord(primary);
-  const password = primaryEnv.POSTGRESQL_PASSWORD ?? '';
-  const database = primaryEnv.POSTGRESQL_DATABASE ?? DEFAULT_DATABASE;
+  const password = primaryEnv[PG_ENV.password] ?? '';
+  const database = primaryEnv[PG_ENV.database] ?? DEFAULT_DATABASE;
   const rwHost = primary.name;
   const roHost = replica?.name ?? primary.name; // fall back to primary if no replica yet
   const rwUrl = `postgres://postgres:${password}@${rwHost}:${PG_PORT}/${database}`;
@@ -1109,7 +1120,7 @@ export function rebuildDbMemberSpec(
     const i = kv.indexOf('=');
     env[i >= 0 ? kv.slice(0, i) : kv] = i >= 0 ? kv.slice(i + 1) : '';
   }
-  return applyDbStorage<ServiceSpec>(
+  return applyPgMember<ServiceSpec>(
     {
       name: live.name,
       image: live.image,
@@ -1198,7 +1209,7 @@ export const WRITER_CHECK_SCRIPT = psqlInContainer(
  * for the golden test. Runs in the primary's own image (pg_basebackup matches
  * the server major; already on the node, so no pull), on the cluster overlay so
  * it resolves the primary by swarm DNS, with the named volume mounted at the
- * bitnami root. The replication credential rides container env only.
+ * data root. The replication credential rides container env only.
  */
 export function basebackupRunOncePayload(input: {
   image: string;
@@ -1219,9 +1230,9 @@ export function basebackupRunOncePayload(input: {
       PGUSER: input.replicationUser,
       PGPASSWORD: input.replicationPassword,
     },
-    binds: [`${input.dataVolume}:${BITNAMI_PG_ROOT}`],
+    binds: [`${input.dataVolume}:${MANAGED_PG_ROOT}`],
     networks: [input.network],
-    // root: move aside + chown to bitnami's uid 1001 after the copy.
+    // root: move aside + chown to the image's postgres user after the copy.
     user: '0:0',
     pull: false,
     timeoutMs: input.timeoutMs ?? COPY_TIMEOUT_MS,
@@ -1249,7 +1260,7 @@ type RunOncePayloadInput = Omit<RunOncePayload, 'commandId'>;
  * Why online: swarm REMOVES a stopped task's container together with its
  * anonymous volumes, so a stop-then-copy finds nothing to copy — and mounting
  * the anonymous volume "by name" afterwards silently creates an EMPTY volume
- * that bitnami initdb's. This flow therefore never stops the primary before
+ * that the image initdb's. This flow therefore never stops the primary before
  * the copy is verified, and never rolls back by mounting a volume by name.
  *
  * Failure before cutover: writes are thawed, nothing else was touched (the
@@ -1307,21 +1318,21 @@ export async function migrateStorage(
     );
   }
   const source = task.container.mounts?.find(
-    (m) => m.target === BITNAMI_PG_ROOT && (m.type === undefined || m.type === 'volume') && m.source,
+    (m) => m.target === MANAGED_PG_ROOT && (m.type === undefined || m.type === 'volume') && m.source,
   )?.source;
   const pin = ctx.hub.swarmNodeIdFor(task.nodeId);
   if (!pin) throw commandRejected('cannot resolve the swarm node id of the node hosting the primary — nothing was changed');
   const env = envRecord(primary);
-  if (env.POSTGRESQL_REPLICATION_MODE === 'slave') {
+  if (pgBootRole(env) === 'replica') {
     throw commandRejected(
       'this primary still runs in replica mode (an in-place failover promotion) — nothing was changed. Re-provision it as a primary first.',
     );
   }
-  const replUser = env.POSTGRESQL_REPLICATION_USER ?? '';
-  const replPassword = env.POSTGRESQL_REPLICATION_PASSWORD ?? '';
+  const replUser = env[PG_ENV.replicationUser] ?? '';
+  const replPassword = env[PG_ENV.replicationPassword] ?? '';
   if (!replUser || !replPassword) {
     throw commandRejected(
-      'the primary has no replication credentials (POSTGRESQL_REPLICATION_USER/_PASSWORD) to run pg_basebackup with — nothing was changed',
+      'the primary has no replication credentials (SWARMY_PG_REPLICATION_USER/_PASSWORD) to run pg_basebackup with — nothing was changed',
     );
   }
   const clusterNet = clusterNetworkName(stack, cluster);
@@ -1330,7 +1341,7 @@ export async function migrateStorage(
   if (!network) {
     throw commandRejected('the primary is on no overlay network the copy can reach it over — nothing was changed');
   }
-  const database = env.POSTGRESQL_DATABASE ?? DEFAULT_DATABASE;
+  const database = env[PG_ENV.database] ?? DEFAULT_DATABASE;
 
   // ── 1. Logical safety net — covers the app database ONLY.
   let backupSnapshotId: string | undefined;
@@ -1353,7 +1364,7 @@ export async function migrateStorage(
     }
   }
 
-  const superPassword = env.POSTGRESQL_PASSWORD ?? '';
+  const superPassword = env[PG_ENV.password] ?? '';
   const sqlOnPrimary = (nodeId: string, script: string) =>
     ctx.hub.dispatch<RunOnceResult>(
       nodeId,
@@ -1474,7 +1485,7 @@ export async function migrateStorage(
   for (;;) {
     const now = liveSwarmService(ctx, live.name);
     const t = now ? runningTaskOf(ctx, now) : undefined;
-    const onTarget = t?.container.mounts?.some((m) => m.target === BITNAMI_PG_ROOT && m.source === target);
+    const onTarget = t?.container.mounts?.some((m) => m.target === MANAGED_PG_ROOT && m.source === target);
     if (t && onTarget) {
       try {
         const res = await sqlOnPrimary(t.nodeId, WRITER_CHECK_SCRIPT);
