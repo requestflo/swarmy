@@ -135,6 +135,39 @@ Four ideas, one story:
   sampled by the alert-evaluator worker. Every fire, resolve, and override is
   audited.
 
+## Error tracking (Sentry-compatible)
+
+Existing Sentry SDKs work unchanged: point the DSN at swarmy. Turning on
+**Errors** for an app (the stack tab, `swarmy.yaml` `errors: true`, or a
+template that opts in) gives it a DSN of the form `https://<key>@<controller>/<project>`.
+On the next deploy, swarmy binds `SENTRY_DSN`, `SENTRY_RELEASE` (the git sha of
+the build) and `SENTRY_ENVIRONMENT`. It never overwrites values the app already sets.
+
+- **Ingest.** `POST /api/<project>/envelope/` and the legacy `/store/`, on the
+  controller. Bodies may be gzip, deflate, br or zstd. The DSN key is checked
+  per project, and each project has its own rate limit (429 with `Retry-After`
+  and `X-Sentry-Rate-Limits`). Sessions, spans and client reports are accepted
+  and dropped, so SDKs never retry them.
+- **Storage.** Events, issue state (resolve / ignore / resolve in next release),
+  releases and source maps live in the same ClickHouse store as traces, in
+  `swarmy_error_*` tables. Retention follows the suite TTL. The controller DB
+  holds only the DSN identity (`ErrorProject`).
+- **Grouping.** Sentry's default shape: the SDK's `fingerprint` first
+  (`{{ default }}` expanded), then the in-app frames with exception types, then
+  all frames, then type + parametrised value, then the message template. Line
+  numbers and content-hashed filenames never split an issue.
+- **Source maps.** Uploaded per release (or release-less, using debug ids) via
+  `POST /errors/v1/stacks/<app>/releases/<release>/files` with an admin API key.
+  This is what `swarmy sourcemaps upload` and a CI step call. Frames are
+  resolved at ingest, so grouping uses the original names.
+- **Links.** Each event keeps its `trace_id`, which maps to the OTel trace in
+  the waterfall. It also keeps the release that introduced it (with the deploy
+  swarmy recorded) and a `replay_id` (swarmy's recorder tag
+  `swarmy.replay_id`, or Sentry Replay's).
+- **Alerts.** The existing channels carry them: `error-new-issue` and
+  `error-regression` fire at ingest, and `error-spike` fires from a one-minute
+  sweep (last 10 minutes against the previous day).
+
 ## Failure modes (designed, not accidental)
 
 | Failure | Behaviour |
@@ -180,7 +213,7 @@ collector/ClickHouse config, `create_schema: true`), `observability-query.ts` /
 (the read/enable layer), the alerting spine
 (`alerts.service.ts`/`alerts-fire.ts`/`incidents-record.ts`/`statusPages.service.ts`
 + their routers), `apps/api/src/workers/{observability-reconcile,alert-evaluator}.ts`,
-and the UI at `apps/app/src/components/observability/*` (the stack
+error tracking in `packages/trpc/src/services/errors/*` + `routers/errors.ts` + `apps/api/src/errors-ingest.ts` (UI `components/errors/*`, stack tab `routes/_authed/stacks/$name.errors.*`), and the UI at `apps/app/src/components/observability/*` (the stack
 Observability tab `routes/_authed/stacks/$name.observability.tsx`, trace detail
 `routes/_authed/observability.$traceId.tsx`) and the public status page at
 `routes/s.$slug.tsx`.

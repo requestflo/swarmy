@@ -75,6 +75,16 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
     `apps/api/src/status-public.ts` serves `GET /status/<slug>.json` with no auth
     — never add a mutating or org-crossing path to it.
 
+12. **Error tracking owns its OWN ClickHouse tables (`swarmy_error_*`) in the
+    same store**, created by idempotent DDL (`services/errors/schema.ts`,
+    `CREATE … IF NOT EXISTS` + `MODIFY TTL`) — never touch the collector's
+    `otel_*` tables. Issue state is a ReplacingMergeTree row per status change
+    (read `FINAL`), never a controller-DB column; the DB holds only the DSN
+    identity (`ErrorProject`). Opt-in is the `swarmy.errors.enabled` label;
+    `SENTRY_*` injection follows the same never-overwrite / identity-when-off
+    rules as `injectOtel`. Grouping hashes are pinned by goldens in
+    `errors/grouping.test.ts` — changing them splits every install's issues.
+
 ## Contracts between the layers
 
 - **Enable → deploy**: `observability.service.ts#setEnabled` deploys the store +
@@ -119,6 +129,7 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
 | Store-state reconcile (probe reachability/footprint) | `apps/api/src/workers/observability-reconcile.ts` |
 | Alert eval + uptime sampling worker | `apps/api/src/workers/alert-evaluator.ts` |
 | Prisma: config/store-state + alerts/incidents/status | `packages/db/prisma/schema/{observability,alerts}.prisma` |
+| Error tracking: envelope parse, grouping, source maps, ingest, issue/release/artifact reads | `packages/trpc/src/services/errors/*`, `routers/errors.ts`; ingest HTTP `apps/api/src/errors-ingest.ts`; spike worker `apps/api/src/workers/errors-alerts.ts`; UI `apps/app/src/components/errors/*` |
 | Trace UI: waterfall/map/metrics/logs panels | `apps/app/src/components/observability/*` |
 | Per-stack Observability tab + trace detail route | `apps/app/src/routes/_authed/stacks/$name.observability.tsx` (→ `components/observability/stack-observability-tab.tsx`), `routes/_authed/observability.$traceId.tsx` |
 | Alerts/incidents routes, status pages, public page | `routes/_authed/{alerts,incidents,incidents_.$incidentId}.tsx`; status pages are per stack (`components/statuspages/stack-status-pages.tsx`); public `routes/s.$slug.tsx` |
