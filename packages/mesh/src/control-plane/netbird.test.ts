@@ -25,6 +25,7 @@ describe('NetbirdControlPlane.createSetupKey', () => {
   test('POSTs /api/setup-keys with the token and returns the key', async () => {
     const calls: { url: string; init?: RequestInit }[] = [];
     const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith('/api/groups')) return jsonResponse([]);
       calls.push({ url: String(url), init });
       return jsonResponse({ id: 'sk1', key: 'NB_KEY_XYZ', name: 'swarmy-n1', expires: 'soon' });
     }) as unknown as typeof fetch;
@@ -40,6 +41,37 @@ describe('NetbirdControlPlane.createSetupKey', () => {
     const headers = calls[0]!.init!.headers as Record<string, string>;
     expect(headers.Authorization).toBe('Token tok');
     expect(JSON.parse(String(calls[0]!.init!.body)).usage_limit).toBe(1);
+  });
+});
+
+describe('NetbirdControlPlane.createSetupKey auto-groups', () => {
+  function cpWith(groups: { id: string; name: string }[], seen: unknown[], nodeGroup?: string) {
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith('/api/groups')) return jsonResponse(groups);
+      seen.push(JSON.parse(String(init!.body)));
+      return jsonResponse({ id: 'sk1', key: 'K' });
+    }) as unknown as typeof fetch;
+    return new NetbirdControlPlane({ managementUrl: 'https://x', serviceToken: 't', fetchImpl, nodeGroup });
+  }
+
+  test('a node key joins the one swarmy:<c>:nodes group', async () => {
+    const seen: { auto_groups: string[] }[] = [];
+    await cpWith([{ id: 'gAll', name: 'All' }, { id: 'gN', name: 'swarmy:lon:nodes' }], seen).createSetupKey({ nodeId: 'n1' });
+    expect(seen[0]!.auto_groups).toEqual(['gN']);
+  });
+
+  test('an ephemeral (direct-connect) key never joins the nodes group', async () => {
+    const seen: { auto_groups: string[] }[] = [];
+    await cpWith([{ id: 'gN', name: 'swarmy:lon:nodes' }], seen).createSetupKey({ nodeId: 'dc-1', ephemeral: true });
+    expect(seen[0]!.auto_groups).toEqual([]);
+  });
+
+  test('two clusters sharing a NetBird: no guess, unless told which', async () => {
+    const groups = [{ id: 'a', name: 'swarmy:lon:nodes' }, { id: 'b', name: 'swarmy:nyc:nodes' }];
+    const seen: { auto_groups: string[] }[] = [];
+    await cpWith(groups, seen).createSetupKey({ nodeId: 'n1' });
+    await cpWith(groups, seen, 'swarmy:nyc:nodes').createSetupKey({ nodeId: 'n2' });
+    expect(seen.map((s) => s.auto_groups)).toEqual([[], ['b']]);
   });
 });
 

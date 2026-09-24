@@ -222,6 +222,11 @@ export const MeshStatePayload = z.object({
     )
     .default([]),
   error: z.string().optional(),
+  /**
+   * The self-hosted control plane, when THIS node runs it (swarmy-mesh-control).
+   * Declared lazily: MeshControlStatus is defined further down.
+   */
+  control: z.lazy(() => MeshControlStatus).optional(),
   sampledAt: z.number().int(),
 });
 export type MeshStatePayload = z.infer<typeof MeshStatePayload>;
@@ -231,3 +236,116 @@ export const MeshStateMsg = z.object({
   payload: MeshStatePayload,
 });
 export type MeshStateMsg = z.infer<typeof MeshStateMsg>;
+
+// ── Self-hosted control plane (plans/epic-self-hosted-mesh-and-fleets.md M1) ──
+
+/**
+ * The Litestream sidecar that ships the control plane's SQLite files to Garage
+ * (`swarmy-mesh-litestream`). Its config holds no credentials; the key rides
+ * `env` (LITESTREAM_ACCESS_KEY_ID / LITESTREAM_SECRET_ACCESS_KEY).
+ */
+export const MeshControlLitestream = z.object({
+  image: z.string(),
+  configYaml: z.string(),
+  env: z.record(z.string()).default({}),
+  /** Overlay the sidecar attaches to so it reaches Garage (`swarmy`). */
+  network: z.string().default('swarmy'),
+});
+export type MeshControlLitestream = z.infer<typeof MeshControlLitestream>;
+
+/**
+ * What the agent runs as `swarmy-mesh-control`: the combined NetBird server on
+ * the host network, NOT a swarm service (the swarm depends on the mesh, so the
+ * mesh must not depend on the swarm). `configYaml` carries the vault secrets
+ * (authSecret, encryptionKey); the agent writes it into the container's tmpfs
+ * and keeps a 0600 copy in its own state dir for cold boots (spike §11.1).
+ */
+export const MeshControlSpec = z.object({
+  image: z.string(),
+  configYaml: z.string(),
+  /** Non-secret env (NB_DISABLE_GEOLOCATION, GOMEMLIMIT). */
+  env: z.record(z.string()).default({}),
+  litestream: MeshControlLitestream.nullable().default(null),
+});
+export type MeshControlSpec = z.infer<typeof MeshControlSpec>;
+
+export const ApplyMeshControlPayload = z.object({
+  commandId: CommandId,
+  timeoutMs: z.number().int().positive().optional(),
+  /**
+   * apply = converge to `spec` (restart only when the config or image changed);
+   * restore = `litestream restore` the replica into an EMPTY volume first, then
+   * apply (moving the control plane to this node); stop = fence (stop + forget
+   * the local copy); status = report only.
+   */
+  action: z.enum(['apply', 'restore', 'stop', 'status']).default('apply'),
+  spec: MeshControlSpec.optional(),
+});
+export type ApplyMeshControlPayload = z.infer<typeof ApplyMeshControlPayload>;
+
+export const ApplyMeshControlMsg = z.object({
+  type: z.literal('applyMeshControl'),
+  payload: ApplyMeshControlPayload,
+});
+export type ApplyMeshControlMsg = z.infer<typeof ApplyMeshControlMsg>;
+
+/** Live control-plane status on the node that hosts it (result + meshState). */
+export const MeshControlStatus = z.object({
+  running: z.boolean(),
+  /** `:9000/health` answered 200. */
+  healthy: z.boolean(),
+  image: z.string().optional(),
+  /** sha256 of the config the server is running with. */
+  configHash: z.string().optional(),
+  /** The server is up but waiting for its config (tmpfs empty after a restart). */
+  waitingForConfig: z.boolean().default(false),
+  startedAt: z.string().optional(),
+  litestream: z
+    .object({ running: z.boolean(), lastError: z.string().optional() })
+    .optional(),
+  restored: z.boolean().optional(),
+  error: z.string().optional(),
+});
+export type MeshControlStatus = z.infer<typeof MeshControlStatus>;
+export type ApplyMeshControlResult = MeshControlStatus;
+
+// ── People access routers (plan §3.3) ─────────────────────────────────────────
+
+/**
+ * `swarmy-access-<stackId>`: a NetBird client attached ONLY to one stack's
+ * overlay, enrolled into `swarmy:<c>:router:<stackId>`, acting as the routing
+ * peer of the stack's NetBird Network. It also resolves the stack's service
+ * VIPs through Docker DNS on that overlay (VIPs are read live, never stored).
+ */
+export const ApplyAccessRouterPayload = z.object({
+  commandId: CommandId,
+  timeoutMs: z.number().int().positive().optional(),
+  action: z.enum(['up', 'down', 'resolve']).default('up'),
+  stackId: z.string(),
+  /** The stack overlay (must be attachable). */
+  network: z.string(),
+  image: z.string().optional(),
+  managementUrl: z.string().optional(),
+  /** Single-use key (only on first create; the peer identity lives on its volume). */
+  setupKey: z.string().optional(),
+  /** Service DNS names on the overlay to resolve to VIPs (`storefront_db`). */
+  resolve: z.array(z.string()).default([]),
+});
+export type ApplyAccessRouterPayload = z.infer<typeof ApplyAccessRouterPayload>;
+
+export const ApplyAccessRouterMsg = z.object({
+  type: z.literal('applyAccessRouter'),
+  payload: ApplyAccessRouterPayload,
+});
+export type ApplyAccessRouterMsg = z.infer<typeof ApplyAccessRouterMsg>;
+
+export interface ApplyAccessRouterResult {
+  running: boolean;
+  /** The router has a mesh IP (enrolled + connected to management). */
+  connected: boolean;
+  meshIp?: string;
+  /** name → VIP for each requested service that resolved. */
+  vips: Record<string, string>;
+  /** Set when the overlay refused a container (not attachable). */
+  error?: string;
+}

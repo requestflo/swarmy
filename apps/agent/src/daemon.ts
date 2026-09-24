@@ -9,6 +9,7 @@ import { collectMetrics } from './stats';
 import { sendContainerList, sendServiceState, sendNodeList } from './snapshots';
 import { applyMesh, sampleMeshState } from './handlers/mesh';
 import { swarmRejoinInFlight } from './handlers/swarm';
+import { superviseMeshControl } from './handlers/mesh-control';
 import { detectPublicIp, setObservedPublicIp } from './public-ip';
 import { sampleIngressStatus } from './handlers/ingress-status';
 import { agentPackaging } from './handlers/update';
@@ -148,6 +149,21 @@ export async function runDaemon(): Promise<void> {
   };
   void firewallTick();
   const firewallTimer = setInterval(() => void firewallTick(), REGISTRY_FIREWALL_INTERVAL_MS);
+
+  // Self-hosted mesh control plane (when this node holds one): keep it up and
+  // its tmpfs config present, BEFORE and regardless of the controller
+  // connection — on a cold boot the controller is reached over the overlay,
+  // which rides the mesh this container serves.
+  let lastMeshControl = '';
+  const meshControlTick = async () => {
+    const st = await superviseMeshControl(docker);
+    if (!st) return;
+    const line = st.error ? `error: ${st.error}` : st.healthy ? 'healthy' : st.waitingForConfig ? 'waiting for config' : 'starting';
+    if (line !== lastMeshControl) log(`mesh control plane ${line}`);
+    lastMeshControl = line;
+  };
+  void meshControlTick();
+  const meshControlTimer = setInterval(() => void meshControlTick(), 10_000);
 
   // Live diagnostics surface for the local CLI (status/doctor/reconnect over
   // the unix socket). Everything here is what the daemon KNOWS — the CLI
@@ -476,6 +492,7 @@ export async function runDaemon(): Promise<void> {
   const shutdown = () => {
     for (const t of timers) clearInterval(t);
     clearInterval(firewallTimer);
+    clearInterval(meshControlTimer);
     stopBeacon();
     localSocket?.stop();
     conn.stop();

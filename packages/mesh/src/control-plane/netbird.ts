@@ -22,6 +22,14 @@ export interface NetbirdClientOptions {
   serviceToken: string;
   /** Setup-key TTL in seconds (single-use, short-lived). */
   setupKeyTtlSec?: number;
+  /**
+   * Group every non-ephemeral (node) setup key auto-joins. When unset and the
+   * control plane holds exactly one `swarmy:<c>:nodes` group (a swarmy-managed
+   * NetBird), that group is used, so every caller of `createSetupKey` enrols
+   * servers into the nodes ↔ nodes policy without extra plumbing. Ephemeral
+   * keys (direct-connect principals) never get it.
+   */
+  nodeGroup?: string;
   /** Injected for tests. */
   fetchImpl?: typeof fetch;
 }
@@ -52,6 +60,7 @@ export class NetbirdControlPlane implements DriverControlPlane {
   private readonly token: string;
   private readonly ttl: number;
   private readonly fetchImpl: typeof fetch;
+  private readonly nodeGroup?: string;
 
   constructor(opts: NetbirdClientOptions) {
     if (!opts.managementUrl) {
@@ -64,6 +73,19 @@ export class NetbirdControlPlane implements DriverControlPlane {
     this.token = opts.serviceToken;
     this.ttl = opts.setupKeyTtlSec ?? 24 * 3600;
     this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.nodeGroup = opts.nodeGroup;
+  }
+
+  /** Group ids a node key auto-joins (see {@link NetbirdClientOptions.nodeGroup}). */
+  private async nodeAutoGroups(): Promise<string[]> {
+    const raw = await this.api<unknown>('/groups').catch(() => []);
+    const groups = Array.isArray(raw) ? (raw as NbGroup[]) : [];
+    if (this.nodeGroup) {
+      const g = groups.find((x) => x.name === this.nodeGroup);
+      return g ? [g.id] : [];
+    }
+    const nodes = groups.filter((g) => /^swarmy:[a-z0-9-]+:nodes$/.test(g.name));
+    return nodes.length === 1 ? [nodes[0]!.id] : [];
   }
 
   private async api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -98,7 +120,7 @@ export class NetbirdControlPlane implements DriverControlPlane {
       type: 'one-off',
       expires_in: this.ttl,
       revoked: false,
-      auto_groups: [] as string[],
+      auto_groups: opts.ephemeral ? [] : await this.nodeAutoGroups(),
       usage_limit: 1,
       ephemeral: Boolean(opts.ephemeral),
     };

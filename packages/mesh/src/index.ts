@@ -20,3 +20,8 @@ export { generateWireguardKeypair, publicKeyFromPrivate } from './render/keygen'
 export type { WireguardKeypair } from './render/keygen';
 export { NetbirdControlPlane } from './control-plane/netbird';
 export type { NetbirdClientOptions } from './control-plane/netbird';
+export * from './people';
+export * from './control-plane/server-config';
+export * from './control-plane/litestream';
+export * from './control-plane/netbird-admin';
+export * from './control-plane/people-sync';

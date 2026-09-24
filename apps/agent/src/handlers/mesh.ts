@@ -32,6 +32,7 @@ import type {
   MeshStatePayload,
   RenderedMesh,
 } from '@swarmy/core/protocol';
+import { sampleMeshControl } from './mesh-control';
 
 /** Default client images if the controller didn't pin one. */
 const DEFAULT_NETBIRD_IMAGE = 'netbirdio/netbird:latest';
@@ -239,6 +240,17 @@ function bareMeshIp(ip: string | undefined): string | undefined {
  * reported in the payload's `error` field rather than thrown.
  */
 export async function sampleMeshState(docker: DockerClient = defaultDocker()): Promise<MeshStatePayload | null> {
+  const state = await sampleClientState(docker);
+  // The node that hosts the self-hosted control plane reports it too, even
+  // when its own client is down (that is when the card matters most).
+  const control = await sampleMeshControl(docker).catch(() => undefined);
+  if (!control) return state;
+  return state
+    ? { ...state, control }
+    : { driver: 'netbird', connected: false, relayed: false, advertisedRoutes: [], peers: [], control, sampledAt: Date.now() };
+}
+
+async function sampleClientState(docker: DockerClient): Promise<MeshStatePayload | null> {
   const sampledAt = Date.now();
 
   // NetBird: `netbird status --json` (inside the sidecar).
