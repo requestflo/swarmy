@@ -5,6 +5,7 @@ import {
   getPlan,
   listApps,
   listPlans,
+  promoteEnvironment,
   purgeAppData,
   replan,
   setEnforceDrift,
@@ -87,6 +88,16 @@ const AppPlanDto = z
   })
   .openapi('AppPlan');
 
+const AppKeptVolumesDto = z
+  .object({ resource: z.string(), volumes: z.array(z.string()) })
+  .openapi('AppKeptVolumes');
+
+// Inline so it stays optional-nested; SDKs name it AppPreviewData.
+const AppPreviewDataDto = z.object({
+  from: z.string().openapi({ description: 'Environment whose latest backup was copied.' }),
+  scrub: z.string().optional().openapi({ description: 'Scrub script/profile applied to the copy.' }),
+});
+
 const AppEnvironmentDto = z
   .object({
     environment: z.string().openapi({ example: 'production' }),
@@ -96,6 +107,9 @@ const AppEnvironmentDto = z
     latest_plan_status: z.string().nullable(),
     latest_sha: z.string().nullable(),
     latest_created_at: z.string().nullable(),
+    kept_volumes: z.array(AppKeptVolumesDto).openapi({
+      description: 'Removed Postgres clusters whose data is still on disk — delete via POST …/environments/{environment}/purge.',
+    }),
   })
   .openapi('AppEnvironment');
 
@@ -108,6 +122,10 @@ const AppPreviewDto = z
     url: z.string().nullable(),
     updated_at: z.string(),
     plan_id: z.string(),
+    branch: z.string().optional().openapi({ description: 'Branch of a branch preview (absent for PR previews).' }),
+    data: AppPreviewDataDto.optional().openapi({
+      description: 'Preview with data: a COPY of this environment’s latest backup, destroyed with the preview.',
+    }),
   })
   .openapi('AppPreview');
 
@@ -166,6 +184,21 @@ const PlanCommitResultDto = z
 
 const EnforceDriftBody = z.object({ enforce_drift: z.boolean() }).openapi('SetEnforceDriftBody');
 const EnforceDriftDto = z.object({ repo_id: z.string(), enforce_drift: z.boolean() }).openapi('AppEnforceDrift');
+
+const PromoteBody = z
+  .object({ from: z.string().min(1).max(40).openapi({ example: 'staging', description: 'Named environment to promote to production.' }) })
+  .openapi('PromoteAppBody');
+const PromoteResultDto = z
+  .object({
+    plan_id: z.string().nullable(),
+    status: z.string(),
+    environment: z.string().nullable(),
+    stack: z.string().nullable(),
+    reason: z.string().nullable(),
+    plan: AppPlanDto.nullable(),
+    images: z.record(z.string()).openapi({ description: 'service → image digest promoted (no rebuild).' }),
+  })
+  .openapi('AppPromoteResult');
 
 const PurgeBody = z
   .object({
@@ -259,6 +292,8 @@ export function appToDto(v: AppView): z.infer<typeof AppDto> {
       url: p.url,
       updated_at: p.updatedAt,
       plan_id: p.planId,
+      ...(p.branch !== undefined ? { branch: p.branch } : {}),
+      ...(p.data ? { data: { from: p.data.from, ...(p.data.scrub !== undefined ? { scrub: p.data.scrub } : {}) } } : {}),
     })),
     drift: v.drift ? { checked_at: v.drift.checkedAt, environments: v.drift.environments } : null,
     environments: v.environments.map((e) => ({
@@ -269,6 +304,7 @@ export function appToDto(v: AppView): z.infer<typeof AppDto> {
       latest_plan_status: e.latest?.status ?? null,
       latest_sha: e.latest?.sha ?? null,
       latest_created_at: e.latest?.createdAt ?? null,
+      kept_volumes: (e.keptVolumes ?? []).map((k) => ({ resource: k.resource, volumes: k.volumes })),
     })),
   };
 }
@@ -518,6 +554,34 @@ export function registerAppRoutes(app: OpenAPIHono<RestEnv>): void {
           resource: b.resource,
           confirm: b.confirm,
         });
+      }),
+  );
+
+  app.openapi(
+    createRoute({
+      method: 'post',
+      path: '/apps/{repoId}/promote',
+      tags: [TAG],
+      summary: 'Promote a named environment’s running image digests (e.g. staging) to production',
+      description:
+        'No rebuild: production is planned with the digests the source environment runs now, through the same gates (destructive steps still wait). Admin/owner only.',
+      security: [{ bearerApiKey: [] }],
+      middleware: [requireScope('write'), requireAdmin()] as const,
+      request: { params: repoParam, body: jsonBody(PromoteBody) },
+      responses: {
+        200: { content: { 'application/json': { schema: PromoteResultDto } }, description: 'Promoted (planned)' },
+        400: problemRes,
+        403: problemRes,
+        404: problemRes,
+      },
+    }),
+    (c) =>
+      run(c, async () => {
+        const r = await promoteEnvironment(c.get('orgCtx'), {
+          repoId: c.req.param('repoId'),
+          from: c.req.valid('json').from,
+        });
+        return { ...planCommitResultToDto(r), images: r.images };
       }),
   );
 }

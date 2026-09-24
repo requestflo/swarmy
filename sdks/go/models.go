@@ -26,6 +26,11 @@ type GitRepoRef struct {
 	CloneURL string `json:"clone_url"`
 }
 
+type AppPreviewData struct {
+	From  string `json:"from"`
+	Scrub string `json:"scrub,omitempty"`
+}
+
 type AppDriftCheck struct {
 	CheckedAt    string     `json:"checked_at"`
 	Environments []AppDrift `json:"environments"`
@@ -561,24 +566,32 @@ type UpdateGitRepoBody struct {
 	ConfigPath string `json:"config_path,omitempty"`
 }
 
+type AppKeptVolumes struct {
+	Resource string   `json:"resource"`
+	Volumes  []string `json:"volumes"`
+}
+
 type AppEnvironment struct {
-	Environment      string  `json:"environment"`
-	Branch           string  `json:"branch"`
-	Stack            string  `json:"stack"`
-	LatestPlanID     *string `json:"latest_plan_id"`
-	LatestPlanStatus *string `json:"latest_plan_status"`
-	LatestSha        *string `json:"latest_sha"`
-	LatestCreatedAt  *string `json:"latest_created_at"`
+	Environment      string           `json:"environment"`
+	Branch           string           `json:"branch"`
+	Stack            string           `json:"stack"`
+	LatestPlanID     *string          `json:"latest_plan_id"`
+	LatestPlanStatus *string          `json:"latest_plan_status"`
+	LatestSha        *string          `json:"latest_sha"`
+	LatestCreatedAt  *string          `json:"latest_created_at"`
+	KeptVolumes      []AppKeptVolumes `json:"kept_volumes"`
 }
 
 type AppPreview struct {
-	Pr        int     `json:"pr"`
-	Stack     string  `json:"stack"`
-	Sha       string  `json:"sha"`
-	Status    string  `json:"status"`
-	URL       *string `json:"url"`
-	UpdatedAt string  `json:"updated_at"`
-	PlanID    string  `json:"plan_id"`
+	Pr        int             `json:"pr"`
+	Stack     string          `json:"stack"`
+	Sha       string          `json:"sha"`
+	Status    string          `json:"status"`
+	URL       *string         `json:"url"`
+	UpdatedAt string          `json:"updated_at"`
+	PlanID    string          `json:"plan_id"`
+	Branch    string          `json:"branch,omitempty"`
+	Data      *AppPreviewData `json:"data,omitempty"`
 }
 
 type AppDrift struct {
@@ -711,4 +724,18 @@ type PurgeAppDataResult struct {
 type PurgeAppDataBody struct {
 	Resource string `json:"resource"`
 	Confirm  string `json:"confirm"`
+}
+
+type AppPromoteResult struct {
+	PlanID      *string        `json:"plan_id"`
+	Status      string         `json:"status"`
+	Environment *string        `json:"environment"`
+	Stack       *string        `json:"stack"`
+	Reason      *string        `json:"reason"`
+	Plan        *AppPlan       `json:"plan"`
+	Images      map[string]any `json:"images"`
+}
+
+type PromoteAppBody struct {
+	From string `json:"from"`
 }

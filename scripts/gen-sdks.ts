@@ -61,6 +61,7 @@ const INLINE_OBJECT_NAMES: Record<string, string> = {
   'LinkedGitRepo.webhook': 'GitRepoWebhook',
   'LinkGitRepoBody.repo': 'GitRepoRef',
   'App.drift': 'AppDriftCheck',
+  'AppPreview.data': 'AppPreviewData',
 };
 
 const isRequired = (schema: JsonSchema, prop: string): boolean =>

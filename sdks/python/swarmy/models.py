@@ -65,6 +65,19 @@ class GitRepoRef:
 
 
 @dataclass
+class AppPreviewData:
+    from: str
+    scrub: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AppPreviewData":
+        return cls(
+            from=d.get("from"),
+            scrub=d.get("scrub"),
+        )
+
+
+@dataclass
 class AppDriftCheck:
     checked_at: str
     environments: List[AppDrift]
@@ -909,6 +922,19 @@ class UpdateGitRepoBody:
 
 
 @dataclass
+class AppKeptVolumes:
+    resource: str
+    volumes: List[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AppKeptVolumes":
+        return cls(
+            resource=d.get("resource"),
+            volumes=d.get("volumes"),
+        )
+
+
+@dataclass
 class AppEnvironment:
     environment: str
     branch: str
@@ -917,6 +943,7 @@ class AppEnvironment:
     latest_plan_status: Optional[str]
     latest_sha: Optional[str]
     latest_created_at: Optional[str]
+    kept_volumes: List[AppKeptVolumes]
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "AppEnvironment":
@@ -928,6 +955,7 @@ class AppEnvironment:
             latest_plan_status=d.get("latest_plan_status"),
             latest_sha=d.get("latest_sha"),
             latest_created_at=d.get("latest_created_at"),
+            kept_volumes=d.get("kept_volumes"),
         )
 
 
@@ -940,6 +968,8 @@ class AppPreview:
     url: Optional[str]
     updated_at: str
     plan_id: str
+    branch: Optional[str] = None
+    data: Optional[AppPreviewData] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "AppPreview":
@@ -951,6 +981,8 @@ class AppPreview:
             url=d.get("url"),
             updated_at=d.get("updated_at"),
             plan_id=d.get("plan_id"),
+            branch=d.get("branch"),
+            data=AppPreviewData.from_dict(d["data"]) if d.get("data") is not None else None,
         )
 
 
@@ -1233,5 +1265,39 @@ class PurgeAppDataBody:
         return cls(
             resource=d.get("resource"),
             confirm=d.get("confirm"),
+        )
+
+
+@dataclass
+class AppPromoteResult:
+    plan_id: Optional[str]
+    status: str
+    environment: Optional[str]
+    stack: Optional[str]
+    reason: Optional[str]
+    plan: Optional[AppPlan]
+    images: Dict[str, Any]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AppPromoteResult":
+        return cls(
+            plan_id=d.get("plan_id"),
+            status=d.get("status"),
+            environment=d.get("environment"),
+            stack=d.get("stack"),
+            reason=d.get("reason"),
+            plan=d.get("plan"),
+            images=d.get("images"),
+        )
+
+
+@dataclass
+class PromoteAppBody:
+    from: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "PromoteAppBody":
+        return cls(
+            from=d.get("from"),
         )
 

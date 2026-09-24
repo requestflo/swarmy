@@ -437,3 +437,13 @@ func (s *AppsService) PurgeData(ctx context.Context, repoID, environment, resour
 	}
 	return &out, nil
 }
+
+// Promote plans production with the image digests a named environment (e.g.
+// "staging") runs now — no rebuild, same gates.
+func (s *AppsService) Promote(ctx context.Context, repoID, from string) (*AppPromoteResult, error) {
+	var out AppPromoteResult
+	if err := s.client.do(ctx, "POST", "/apps/"+pathEscape(repoID)+"/promote", nil, PromoteAppBody{From: from}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

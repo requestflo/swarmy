@@ -138,6 +138,11 @@ describe('/apps REST routes', () => {
     expect(bad.status).toBe(400);
     expect(String(bad.json.detail)).toContain('shop/db');
   });
+  it('promote: admin-only; promoting FROM production is refused (400)', async () => {
+    expect((await call('member', 'POST', '/apps/gr1/promote', { from: 'staging' })).status).toBe(403);
+    const r = await call('admin', 'POST', '/apps/gr1/promote', { from: 'production' });
+    expect(r.status).toBe(400);
+  });
   it('confirm → 404 problem for an unknown plan; body needs ≥1 id', async () => {
     expect((await call('admin', 'POST', '/apps/plans/nope/confirm', { action_ids: ['x'] })).status).toBe(404);
     expect((await call('admin', 'POST', '/apps/plans/p1/confirm', { action_ids: [] })).status).toBe(400);
@@ -158,13 +163,23 @@ describe('apps mappers', () => {
       repoId: 'r', url: 'u', fullName: null, branch: 'main', configPath: 'swarmy.yaml', appName: 'shop',
       requireApproval: true,
       enforceDrift: false,
-      environments: [{ environment: 'staging', branch: 'staging', stack: 'shop-staging', latest: null }],
-      previews: [{ pr: 7, stack: 'shop-pr-7', sha: 'abc', status: 'applied', url: null, updatedAt: 'now', planId: 'p7' }],
+      environments: [
+        { environment: 'staging', branch: 'staging', stack: 'shop-staging', latest: null, keptVolumes: [{ resource: 'db', volumes: ['v1'] }] },
+      ],
+      previews: [
+        { pr: 7, stack: 'shop-pr-7', sha: 'abc', status: 'applied', url: null, updatedAt: 'now', planId: 'p7' },
+        { pr: 0, branch: 'feat/x', data: { from: 'staging', scrub: 'pii' }, stack: 'shop-feat-x', sha: 'def', status: 'applied', url: null, updatedAt: 'now', planId: 'p8' },
+      ],
       drift: { checkedAt: 'then', environments: [{ environment: 'production', stack: 'shop', changes: 2 }] },
     });
     expect(dto.previews).toEqual([
       { pr: 7, stack: 'shop-pr-7', sha: 'abc', status: 'applied', url: null, updated_at: 'now', plan_id: 'p7' },
+      {
+        pr: 0, branch: 'feat/x', data: { from: 'staging', scrub: 'pii' }, stack: 'shop-feat-x', sha: 'def',
+        status: 'applied', url: null, updated_at: 'now', plan_id: 'p8',
+      },
     ]);
+    expect(dto.environments[0]?.kept_volumes).toEqual([{ resource: 'db', volumes: ['v1'] }]);
     expect(dto.drift).toEqual({ checked_at: 'then', environments: [{ environment: 'production', stack: 'shop', changes: 2 }] });
     expect(
       appToDto({
@@ -175,6 +190,7 @@ describe('apps mappers', () => {
     expect(dto.environments[0]).toEqual({
       environment: 'staging', branch: 'staging', stack: 'shop-staging',
       latest_plan_id: null, latest_plan_status: null, latest_sha: null, latest_created_at: null,
+      kept_volumes: [{ resource: 'db', volumes: ['v1'] }],
     });
   });
 });

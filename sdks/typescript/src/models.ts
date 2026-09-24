@@ -535,6 +535,11 @@ export interface UpdateGitRepoBody {
   config_path?: string;
 }
 
+export interface AppKeptVolumes {
+  resource: string;
+  volumes: string[];
+}
+
 export interface AppEnvironment {
   environment: string;
   branch: string;
@@ -543,6 +548,7 @@ export interface AppEnvironment {
   latest_plan_status: string | null;
   latest_sha: string | null;
   latest_created_at: string | null;
+  kept_volumes: AppKeptVolumes[];
 }
 
 export interface AppPreview {
@@ -553,6 +559,8 @@ export interface AppPreview {
   url: string | null;
   updated_at: string;
   plan_id: string;
+  branch?: string;
+  data?: { from: string; scrub?: string };
 }
 
 export interface AppDrift {
@@ -685,4 +693,18 @@ export interface PurgeAppDataResult {
 export interface PurgeAppDataBody {
   resource: string;
   confirm: string;
+}
+
+export interface AppPromoteResult {
+  plan_id: string | null;
+  status: string;
+  environment: string | null;
+  stack: string | null;
+  reason: string | null;
+  plan: AppPlan | null;
+  images: {  };
+}
+
+export interface PromoteAppBody {
+  from: string;
 }
