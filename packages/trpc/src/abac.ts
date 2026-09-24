@@ -529,3 +529,27 @@ export const resolveNewService: ResolveResource = async (ctx, input) => {
   const labels = typeof i.project === 'string' ? (liveStackLabels(ctx, i.project) ?? {}) : {};
   return { type: 'service', id: name, orgId: ctx.activeOrgId, labels };
 };
+
+/**
+ * Resolve the APP service a managed-data mutation wires (`{ stack, appService }`
+ * — inject/attach/detach). The service is looked up live by id, name, or its
+ * stack-qualified name (`<stack>_<appService>`); when it is not running yet the
+ * stack itself stands in (its live labels), so a production stack's app is
+ * never judged as "no resource".
+ */
+export const resolveStackService: ResolveResource = async (ctx, input) => {
+  const i = (input ?? {}) as { stack?: unknown; appService?: unknown };
+  const stack = typeof i.stack === 'string' && i.stack ? i.stack : null;
+  const app = typeof i.appService === 'string' && i.appService ? i.appService : null;
+  if (app) {
+    const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+    const all = buildInventory(services, containers).services;
+    // Stack-qualified first: a same-named service in ANOTHER stack must not
+    // stand in for the one this mutation actually touches.
+    const svc =
+      (stack ? all.find((s) => s.name === `${stack}_${app}`) : undefined) ??
+      all.find((s) => s.id === app || s.name === app);
+    if (svc) return { type: 'service', id: svc.id, orgId: ctx.activeOrgId, labels: svc.labels };
+  }
+  return stack ? stackResource(ctx, stack) : null;
+};

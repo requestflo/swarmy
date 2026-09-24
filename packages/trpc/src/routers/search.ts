@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AttachSearchInput, ProvisionSearchInput } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
-import { abacProcedure } from '../abac';
+import { abacProcedure, resolveStackByName, resolveStackService } from '../abac';
 import {
   attachSearchToService,
   backupSearch,
@@ -36,7 +36,7 @@ const instanceRef = z.object({ stack: stackName, name: instanceName });
  */
 export const managedSearchRouter = router({
   /** Provision an instance. Returns the generated master key ONCE — never again. */
-  provision: orgProcedure
+  provision: abacProcedure('stack.deploy', resolveStackByName)
     .input(ProvisionSearchInput)
     .mutation(({ ctx, input }) => provisionSearch(ctx, input)),
 
@@ -54,12 +54,12 @@ export const managedSearchRouter = router({
     .mutation(({ ctx, input }) => destroySearch(ctx, input)),
 
   /** Wire an app: MEILI_HOST/TYPESENSE_* env + key secret ref + network. */
-  attachToService: orgProcedure
+  attachToService: abacProcedure('service.configure', resolveStackService)
     .input(AttachSearchInput)
     .mutation(({ ctx, input }) => attachSearchToService(ctx, input)),
 
   /** Unwire an app (drops env, secret ref, network and inject labels). */
-  detach: orgProcedure
+  detach: abacProcedure('service.configure', resolveStackService)
     .input(instanceRef.extend({ appService: z.string().min(1) }))
     .mutation(({ ctx, input }) => detachSearchFromService(ctx, input)),
 

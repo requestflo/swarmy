@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AttachVectorInput, EnablePgvectorInput, ProvisionVectorInput } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
-import { abacProcedure } from '../abac';
+import { abacProcedure, resolveStackByName, resolveStackService } from '../abac';
 import {
   attachVectorToService,
   destroyVector,
@@ -28,7 +28,7 @@ const listInput = z.object({ stack: z.string().min(1).max(63).optional() }).opti
  */
 export const vectorStoreRouter = router({
   /** Provision a qdrant instance. Returns the API key ONCE — never again. */
-  provision: orgProcedure
+  provision: abacProcedure('stack.deploy', resolveStackByName)
     .input(ProvisionVectorInput)
     .mutation(({ ctx, input }) => provisionVector(ctx, input)),
 
@@ -46,12 +46,12 @@ export const vectorStoreRouter = router({
     .mutation(({ ctx, input }) => destroyVector(ctx, input)),
 
   /** Wire an app: QDRANT_URL + API-key secret ref + instance network. */
-  attachToService: orgProcedure
+  attachToService: abacProcedure('service.configure', resolveStackService)
     .input(AttachVectorInput)
     .mutation(({ ctx, input }) => attachVectorToService(ctx, input)),
 
   /** Unwire an app (drops env, secret ref, network and inject labels). */
-  detach: orgProcedure
+  detach: abacProcedure('service.configure', resolveStackService)
     .input(instanceRef.extend({ appService: z.string().min(1) }))
     .mutation(({ ctx, input }) => detachVectorFromService(ctx, input)),
 
@@ -64,7 +64,7 @@ export const vectorStoreRouter = router({
     .query(({ ctx, input }) => listPgvectorClusters(ctx, input?.stack)),
 
   /** `CREATE EXTENSION IF NOT EXISTS vector` on a cluster primary + stamp. */
-  enablePgvector: orgProcedure
+  enablePgvector: abacProcedure('stack.deploy', resolveStackByName)
     .input(EnablePgvectorInput)
     .mutation(({ ctx, input }) => enablePgvector(ctx, input)),
 });

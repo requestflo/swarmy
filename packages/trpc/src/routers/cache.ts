@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AttachCacheInput, ProvisionCacheInput } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
-import { abacProcedure } from '../abac';
+import { abacProcedure, resolveStackByName, resolveStackService } from '../abac';
 import {
   CachePurposeInput,
   attachCacheToService,
@@ -39,7 +39,7 @@ const clusterRef = z.object({ stack: stackName, cluster: clusterName });
  */
 export const managedCacheRouter = router({
   /** Provision a cluster. Returns the generated password ONCE — never again. */
-  provision: orgProcedure
+  provision: abacProcedure('stack.deploy', resolveStackByName)
     .input(ProvisionCacheInput.extend({ purpose: CachePurposeInput.optional() }))
     .mutation(({ ctx, input }) => provisionCache(ctx, input)),
 
@@ -52,12 +52,12 @@ export const managedCacheRouter = router({
   get: orgProcedure.input(clusterRef).query(({ ctx, input }) => getCacheCluster(ctx, input)),
 
   /** Scale read replicas to N (sentinel topology holds a floor of 1). */
-  setReplicas: orgProcedure
+  setReplicas: abacProcedure('stack.deploy', resolveStackByName)
     .input(clusterRef.extend({ replicas: z.number().int().min(0).max(10) }))
     .mutation(({ ctx, input }) => setCacheReplicas(ctx, input)),
 
   /** Change maxmemory (MB) — redeploys members with the new limit. */
-  setMemory: orgProcedure
+  setMemory: abacProcedure('stack.deploy', resolveStackByName)
     .input(clusterRef.extend({ memoryMb: z.number().int().min(64).max(65536) }))
     .mutation(({ ctx, input }) => setCacheMemory(ctx, input)),
 
@@ -67,12 +67,12 @@ export const managedCacheRouter = router({
     .mutation(({ ctx, input }) => destroyCache(ctx, input)),
 
   /** Wire an app: REDIS_URL + password secret ref + cluster network. */
-  attachToService: orgProcedure
+  attachToService: abacProcedure('service.configure', resolveStackService)
     .input(AttachCacheInput)
     .mutation(({ ctx, input }) => attachCacheToService(ctx, input)),
 
   /** Unwire an app (drops env, secret ref, network and inject labels). */
-  detach: orgProcedure
+  detach: abacProcedure('service.configure', resolveStackService)
     .input(clusterRef.extend({ appService: z.string().min(1) }))
     .mutation(({ ctx, input }) => detachCacheFromService(ctx, input)),
 

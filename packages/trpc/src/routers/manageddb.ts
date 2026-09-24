@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { orgProcedure, router } from '../trpc';
-import { abacProcedure } from '../abac';
+import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure, resolveStackByName, resolveStackService } from '../abac';
 import {
   DB_TOPOLOGIES,
   confirmFailover,
@@ -42,7 +42,7 @@ const topologyEnum = z.enum(DB_TOPOLOGIES);
  */
 export const managedDbRouter = router({
   /** Provision a cluster (deploy primary + N replicas, stamp swarmy.db.* labels). */
-  provision: orgProcedure
+  provision: abacProcedure('stack.deploy', resolveStackByName)
     .input(
       z.object({
         stack: stackName,
@@ -74,7 +74,7 @@ export const managedDbRouter = router({
     .query(({ ctx, input }) => getDbTopology(ctx, input.stack)),
 
   /** Scale a cluster's read replicas to N. */
-  setReplicas: orgProcedure
+  setReplicas: abacProcedure('stack.deploy', resolveStackByName)
     .input(
       z.object({
         stack: stackName,
@@ -89,7 +89,7 @@ export const managedDbRouter = router({
    * converges live infra to match — single | primary-replica | failover | geo |
    * active-active.
    */
-  setTopology: orgProcedure
+  setTopology: abacProcedure('stack.deploy', resolveStackByName)
     .input(
       z.object({
         stack: stackName,
@@ -122,7 +122,7 @@ export const managedDbRouter = router({
     .mutation(({ ctx, input }) => confirmFailover(ctx, input)),
 
   /** Geo: pin the single writer to a node-label region (`swarmy.region==<region>`). */
-  setWriteRegion: orgProcedure
+  setWriteRegion: abacProcedure('stack.deploy', resolveStackByName)
     .input(
       z.object({
         stack: stackName,
@@ -133,7 +133,7 @@ export const managedDbRouter = router({
     .mutation(({ ctx, input }) => setWriteRegion(ctx, input)),
 
   /** Geo: declare N read replicas pinned to a region (0 removes the region sibling). */
-  setRegionReplicas: orgProcedure
+  setRegionReplicas: abacProcedure('stack.deploy', resolveStackByName)
     .input(
       z.object({
         stack: stackName,
@@ -153,7 +153,7 @@ export const managedDbRouter = router({
    * redeploy mounted + pinned. The primary is never stopped before that.
    * Idempotent (`already` when done).
    */
-  migrateStorage: orgProcedure
+  migrateStorage: adminProcedure
     .input(
       z.object({
         stack: stackName,
@@ -165,7 +165,7 @@ export const managedDbRouter = router({
     .mutation(({ ctx, input }) => migrateStorage(ctx, input)),
 
   /** Inject DATABASE_URL (+ *_RO_URL) env onto an app service in the stack. */
-  inject: orgProcedure
+  inject: abacProcedure('service.configure', resolveStackService)
     .input(
       z.object({
         stack: stackName,

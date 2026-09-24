@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
-import { abacProcedure } from '../abac';
+import { abacProcedure, authorize } from '../abac';
 import {
   addTarget,
   backupVolume,
@@ -56,7 +56,12 @@ export const backupsRouter = router({
         retentionDays: retentionDays.optional(),
       }),
     )
-    .mutation(({ ctx, input }) => backupVolume(ctx, input)),
+    .mutation(async ({ ctx, input }) => {
+      // A retention override prunes (restic forget) older snapshots on this
+      // run — loses recoverability, so it needs the destructive gate.
+      if (input.retentionDays !== undefined) await authorize(ctx, 'data.destroy', null);
+      return backupVolume(ctx, input);
+    }),
 
   /** The stack's volume-backup retention window (`swarmy.backup.retentionDays`). */
   stackRetention: orgProcedure
