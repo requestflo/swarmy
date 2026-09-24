@@ -33,16 +33,19 @@ function ctxWith(opts: { zones?: Array<{ zone: string; settings?: object }>; lab
   const ctx = {
     activeOrgId: 'org_1',
     db: {
-      ingressConfig: { findUnique: async () => row },
+      ingressConfig: {
+        findUnique: async () => row,
+        update: async (args: { data: { settings: { domainChecks: { hosts: Record<string, unknown> } } } }) => {
+          gated.push(...Object.keys(args.data.settings.domainChecks.hosts));
+          return row;
+        },
+      },
       node: { findMany: async () => [{ id: 'n1' }] },
       dnsZone: {
         findMany: async () => (opts.zones ?? []).map((z) => ({ ...z, enabled: true, mode: 'swarmy-ns' })),
       },
       auditLog: { create: async () => ({}) },
-      $executeRaw: async (_s: TemplateStringsArray, ...vals: unknown[]) => {
-        gated.push(...Object.keys(JSON.parse(String(vals[0]))));
-        return 1;
-      },
+      $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(ctx.db),
     },
     hub: {
       isOnline: () => true,

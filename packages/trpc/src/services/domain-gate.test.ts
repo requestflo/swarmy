@@ -160,15 +160,19 @@ describe('deploy-path domain gate', () => {
   it('a compose deploy declaring a new host writes a GATED record before the spec lands', async () => {
     const writes: string[] = [];
     const row = { driver: 'CADDY', enabled: true, settings: { domainChecks: { hosts: {} } } };
-    const ctx = {
-      activeOrgId: 'org_1',
-      db: {
-        ingressConfig: { findUnique: async () => row },
-        $executeRaw: async (_s: TemplateStringsArray, ...vals: unknown[]) => {
-          writes.push(String(vals[0]));
-          return 1;
+    const db = {
+      ingressConfig: {
+        findUnique: async () => row,
+        update: async (args: { data: { settings: { domainChecks: { hosts: unknown } } } }) => {
+          writes.push(JSON.stringify(args.data.settings.domainChecks.hosts));
+          return row;
         },
       },
+      $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(db),
+    };
+    const ctx = {
+      activeOrgId: 'org_1',
+      db,
       hub: {
         liveInventory: () => ({ services: [svc(lbl([{ host: 'live.acme.com', port: 80, tls: 'auto' }]))], containers: [] }),
       },
@@ -187,7 +191,7 @@ describe('deploy-path domain gate', () => {
   it('a redeploy of already-routed hosts writes nothing', async () => {
     const ctx = {
       activeOrgId: 'org_1',
-      db: { $executeRaw: async () => { throw new Error('must not write'); } },
+      db: { $transaction: async () => { throw new Error('must not write'); } },
       hub: { liveInventory: () => ({ services: [svc(lbl([{ host: 'a.com', port: 80, tls: 'auto' }]))], containers: [] }) },
     } as unknown as OrgContext;
     expect(await registerDeployRoutes(ctx, [{ labels: lbl([{ host: 'a.com', port: 80, tls: 'auto' }]) }])).toEqual([]);

@@ -62,11 +62,7 @@ import { listRoutesForOrg, readRoutes, type Route } from './ingress-routes';
 import { ingressTaskNodes } from './ingress-controller';
 import { publicIpFromLabels } from './node.service';
 import { dnsDb } from './dns-snapshot.service';
-import {
-  domainChecksOf,
-  patchDomainChecks,
-  readIngressSettingsRaw,
-} from './domain-checks.store';
+import { patchDomainChecks, readDomainChecks, readIngressSettingsRaw } from './domain-checks.store';
 
 // ───────────────────────────────────────────── postures ──
 
@@ -132,7 +128,7 @@ export async function registerDomainHosts(
   opts: { except?: ReadonlySet<string> } = {},
 ): Promise<void> {
   const driver = await orgDriver(ctx);
-  const checks = domainChecksOf(await readIngressSettingsRaw(ctx));
+  const checks = await readDomainChecks(ctx);
   const now = Date.now();
   const upserts = hostPostures(routes, driver)
     .filter((p) => !p.private && !checks?.hosts[p.host] && !opts.except?.has(p.host))
@@ -529,7 +525,7 @@ export function toStatusView(host: string, rec: DomainCheckRecord | undefined, p
 /** Status views for every routed host, keyed by host (for listDomains). */
 export async function domainStatusMap(ctx: OrgContext): Promise<Map<string, DomainStatusView>> {
   const driver = await orgDriver(ctx);
-  const checks = domainChecksOf(await readIngressSettingsRaw(ctx));
+  const checks = await readDomainChecks(ctx);
   const now = Date.now();
   const out = new Map<string, DomainStatusView>();
   for (const p of orgPostures(ctx, driver)) out.set(p.host, toStatusView(p.host, checks?.hosts[p.host], p, now));
@@ -548,7 +544,7 @@ export async function getDomainStatus(ctx: OrgContext, rawHost: string): Promise
   const driver = await orgDriver(ctx);
   const postures = orgPostures(ctx, driver);
   const posture = requirePosture(postures, host);
-  const checks = domainChecksOf(await readIngressSettingsRaw(ctx));
+  const checks = await readDomainChecks(ctx);
   const expected = await expectedTarget(ctx);
   const zone = await zoneFor(ctx, host);
   const now = Date.now();
@@ -598,7 +594,7 @@ export async function skipDomainVerification(ctx: OrgContext, rawHost: string): 
   const host = normalizeHostname(rawHost);
   const driver = await orgDriver(ctx);
   const posture = requirePosture(orgPostures(ctx, driver), host);
-  const checks = domainChecksOf(await readIngressSettingsRaw(ctx));
+  const checks = await readDomainChecks(ctx);
   const now = Date.now();
   const rec = checks?.hosts[host] ?? newDomainRecord(posture, now);
   await patchDomainChecks(ctx, {
@@ -632,7 +628,7 @@ async function checkHosts(
 ): Promise<number> {
   if (postures.length === 0) return 0;
   const now = opts.now ?? Date.now();
-  const checks = opts.checks ?? domainChecksOf(await readIngressSettingsRaw(ctx));
+  const checks = opts.checks ?? await readDomainChecks(ctx);
   const created = new Map((opts.create ?? []).map((r) => [r.host, r]));
   const expected = await expectedTarget(ctx);
   let flips = 0;
@@ -709,14 +705,14 @@ export async function reconcileDomainChecksOrg(
   const ctx = systemContext(deps, orgId);
   const driver = await orgDriver(ctx);
   const postures = orgPostures(ctx, driver);
-  const checks = domainChecksOf(await readIngressSettingsRaw(ctx));
+  const checks = await readDomainChecks(ctx);
   const plan = planDomainChecks({ hosts: postures, checks, now });
   if (plan.create.length > 0 || plan.prune.length > 0) {
     await patchDomainChecks(ctx, { upserts: plan.create, remove: plan.prune });
   }
   const due = postures.filter((p) => plan.check.includes(p.host));
   const flips = await checkHosts(ctx, due, { checks, create: plan.create, now });
-  const after = domainChecksOf(await readIngressSettingsRaw(ctx));
+  const after = await readDomainChecks(ctx);
   const signature = JSON.stringify(
     Object.values(after?.hosts ?? {})
       .sort((a, b) => (a.host < b.host ? -1 : 1))
