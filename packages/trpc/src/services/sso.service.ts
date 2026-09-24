@@ -1,4 +1,5 @@
 import { encryptSecret } from '@swarmy/core/crypto';
+import { SOCIAL_PROVIDERS } from '@swarmy/auth';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
@@ -94,9 +95,28 @@ export interface UpsertSsoArgs {
   mapping?: Record<string, string>;
 }
 
+const RESERVED_SSO_IDS = new Set<string>([
+  'credential',
+  'email',
+  'email-password',
+  'magic-link',
+  'passkey',
+  'username',
+  'anonymous',
+  'phone-number',
+  'siwe',
+  ...SOCIAL_PROVIDERS,
+]);
+
 export async function upsertSsoProvider(ctx: OrgContext, args: UpsertSsoArgs): Promise<SsoProviderView> {
   if (!/^[a-z0-9-]{2,40}$/.test(args.providerId)) {
     throw new Error('providerId must be a slug (a-z, 0-9, dash; 2–40 chars)');
+  }
+  // Mirrors @swarmy/auth account-linking RESERVED_PROVIDER_IDS (buildAuth also
+  // skips such rows): an SSO provider sharing a built-in/social providerId
+  // could answer with an existing account's subject and sign in as its owner.
+  if (RESERVED_SSO_IDS.has(args.providerId)) {
+    throw new Error(`providerId "${args.providerId}" is reserved — pick another name`);
   }
   const encryptedSecret = args.clientSecret ? encryptSecret(args.clientSecret) : undefined;
 

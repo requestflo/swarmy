@@ -11,6 +11,7 @@ import {
   type ResolvedSsoProvider,
 } from './config';
 import { CLIENT_IP_HEADER } from './client-ip';
+import { assertAccountLinkAllowed, isReservedProviderId } from './account-linking';
 import {
   assertSignupAllowed,
   canCreateOrganization,
@@ -155,8 +156,15 @@ export function buildAuth(
 
   // Enterprise SSO (OIDC) goes through genericOAuth; SAML providers are stored
   // but skipped here (no SAML plugin in this Better Auth version — see INTEGRATION).
+  // A provider id that collides with a built-in/social account kind is never
+  // registered (account-linking.ts: it would share those accounts' providerId).
   const oidcSso = (config.sso ?? []).filter(
-    (p) => p.protocol === 'oidc' && p.clientId && p.clientSecret && (p.discoveryUrl || p.issuer || p.authorizationUrl),
+    (p) =>
+      p.protocol === 'oidc' &&
+      !isReservedProviderId(p.providerId) &&
+      p.clientId &&
+      p.clientSecret &&
+      (p.discoveryUrl || p.issuer || p.authorizationUrl),
   );
 
   // Optional plugins, typed as BetterAuthPlugin so the array stays well-typed.
@@ -208,12 +216,25 @@ export function buildAuth(
               ssoProviderId: ssoProviderId && ssoById.has(ssoProviderId) ? ssoProviderId : null,
               username: typeof user.username === 'string' ? user.username : null,
               emailVerified: user.emailVerified === true,
-              viaIdp: Boolean(ssoProviderId || social),
+              // Only the provider's own org's invitations trust its directory;
+              // social / other IdPs count only via a verified email (above).
+              idpOrgId: ssoProviderId ? (ssoById.get(ssoProviderId)?.orgId ?? null) : null,
               socialDomainAllowed:
                 Boolean(social) &&
                 user.emailVerified === true &&
                 emailDomainAllowed(user.email, allowedDomainsFor(config.social, social!)),
             });
+          },
+        },
+      },
+      // Org SSO providers never link onto a stranger: an account on an org's
+      // genericOAuth provider is created only for a brand-new user or a member
+      // of that org (account-linking.ts). Covers implicit linking by email,
+      // explicit /oauth2/link and first login alike.
+      account: {
+        create: {
+          before: async (account) => {
+            await assertAccountLinkAllowed(db, account);
           },
         },
       },
@@ -235,6 +256,20 @@ export function buildAuth(
     emailAndPassword: {
       enabled: true,
       autoSignIn: true,
+    },
+    // Implicit account linking, pinned explicitly so an upgrade can't loosen
+    // it: a new IdP identity joins an existing same-email user only when the
+    // IdP asserted the email verified AND the local user is verified. No
+    // provider is "trusted" — Better Auth's trustedProviders skips the IdP's
+    // email_verified check, which would weaken this. Org SSO providers are
+    // further restricted to their own org's members (account.create.before).
+    account: {
+      accountLinking: {
+        enabled: true,
+        trustedProviders: [],
+        requireLocalEmailVerified: true,
+        allowDifferentEmails: false,
+      },
     },
     // swarmy is also an OIDC provider (oidc-provider.ts); the jwt plugin's
     // session→JWT `/token` endpoint must not exist alongside it.

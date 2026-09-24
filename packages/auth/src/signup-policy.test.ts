@@ -28,7 +28,7 @@ function fakeDb(s: FakeState): SignupPolicyDb {
         const hit = (s.invites ?? []).find(
           (i) => i.email === where.email && i.status === where.status && i.expiresAt > where.expiresAt.gt,
         );
-        return hit ? { id: 'inv_1', email: hit.email } : null;
+        return hit ? { id: 'inv_1', email: hit.email, organizationId: 'org_a' } : null;
       },
     },
     member: {
@@ -64,9 +64,13 @@ describe('isSignupAllowed', () => {
 
   it('allows a proven email with a pending, unexpired invitation (case-insensitive)', async () => {
     const db = fakeDb({ users: 1, invites: [{ email: 'bob@team.test', status: 'pending', expiresAt: future }] });
-    expect(await isSignupAllowed(db, 'Bob@Team.test', PROD, new Date(), { viaIdp: true })).toBe(true);
+    expect(await isSignupAllowed(db, 'Bob@Team.test', PROD, new Date(), { emailVerified: true })).toBe(true);
+    // The inviting org's own SSO directory carrying the address is proof.
+    expect(await isSignupAllowed(db, 'Bob@Team.test', PROD, new Date(), { idpOrgId: 'org_a' })).toBe(true);
     // A typed-in, unverified address is not proof.
     expect(await isSignupAllowed(db, 'Bob@Team.test', PROD)).toBe(false);
+    // Nor is another org's SSO provider asserting an unverified address.
+    expect(await isSignupAllowed(db, 'Bob@Team.test', PROD, new Date(), { idpOrgId: 'org_rogue' })).toBe(false);
   });
 
   it('refuses expired or already-accepted invitations', async () => {
@@ -77,8 +81,8 @@ describe('isSignupAllowed', () => {
         { email: 'done@team.test', status: 'accepted', expiresAt: future },
       ],
     });
-    expect(await isSignupAllowed(db, 'old@team.test', PROD, new Date(), { viaIdp: true })).toBe(false);
-    expect(await isSignupAllowed(db, 'done@team.test', PROD, new Date(), { viaIdp: true })).toBe(false);
+    expect(await isSignupAllowed(db, 'old@team.test', PROD, new Date(), { emailVerified: true })).toBe(false);
+    expect(await isSignupAllowed(db, 'done@team.test', PROD, new Date(), { emailVerified: true })).toBe(false);
   });
 
   it('allows anyone when registration is open', async () => {
@@ -131,14 +135,15 @@ describe('isSignupAllowed — invite links, SSO and username bootstrap', () => {
     const db = linkDb({
       invitation: {
         findFirst: async ({ where }: { where: { id?: string; email?: string } }) =>
-          where.id === 'inv_ann' || where.email === 'ann@corp.io' ? { email: 'ann@corp.io' } : null,
+          where.id === 'inv_ann' || where.email === 'ann@corp.io' ? { email: 'ann@corp.io', organizationId: 'org_a' } : null,
       },
     });
     const at = new Date();
-    expect(await isSignupAllowed(db, 'eve@x.io', PROD, at, { inviteId: 'inv_ann', viaIdp: true })).toBe(false);
+    expect(await isSignupAllowed(db, 'eve@x.io', PROD, at, { inviteId: 'inv_ann', emailVerified: true })).toBe(false);
     expect(await isSignupAllowed(db, 'ann@corp.io', PROD, at, { inviteId: 'inv_ann' })).toBe(false);
     expect(await isSignupAllowed(db, 'ann@corp.io', PROD, at, {})).toBe(false);
-    expect(await isSignupAllowed(db, 'ann@corp.io', PROD, at, { viaIdp: true })).toBe(true);
+    expect(await isSignupAllowed(db, 'ann@corp.io', PROD, at, { idpOrgId: 'org_a' })).toBe(true);
+    expect(await isSignupAllowed(db, 'ann@corp.io', PROD, at, { inviteId: 'inv_ann', idpOrgId: 'org_b' })).toBe(false);
     expect(await isSignupAllowed(db, 'ann@corp.io', PROD, at, { inviteId: 'inv_ann', emailVerified: true })).toBe(true);
   });
 

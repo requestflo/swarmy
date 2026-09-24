@@ -19,7 +19,10 @@ interface Row {
 function fakeDb(init: {
   members?: Row[];
   invites?: Array<{ id: string; organizationId: string; role: string; email: string; status: string; expiresAt: Date }>;
-  idpAccount?: boolean;
+  /** The user's non-credential accounts (provider ids). */
+  accounts?: string[];
+  /** Org SSO providers: providerId → orgId. */
+  sso?: Record<string, string>;
 }) {
   const members = [...(init.members ?? [])];
   const invites = [...(init.invites ?? [])];
@@ -43,7 +46,16 @@ function fakeDb(init: {
         return { count: row ? 1 : 0 };
       },
     },
-    account: { findFirst: async () => (init.idpAccount ? { id: 'acc' } : null) },
+    account: {
+      findFirst: async ({ where }: { where: { providerId: { in: string[] } } }) =>
+        (init.accounts ?? []).some((p) => where.providerId.in.includes(p)) ? { id: 'acc' } : null,
+    },
+    ssoProvider: {
+      findMany: async ({ where }: { where: { orgId: string } }) =>
+        Object.entries(init.sso ?? {})
+          .filter(([, org]) => org === where.orgId)
+          .map(([providerId]) => ({ providerId })),
+    },
     organization: { findFirst: async () => ({ id: 'org-1' }) },
     session: { updateMany: async () => ({ count: 1 }) },
   };
@@ -78,11 +90,25 @@ describe('redeemInvitation (single-use; email invites need a proven address)', (
     expect(f.invites[0]!.status).toBe('pending');
   });
 
-  it('an email invite admits the verified address, or an SSO/social identity carrying it', async () => {
+  it('an email invite admits the verified address, or the inviting org\'s own SSO identity carrying it', async () => {
     const verified = fakeDb({ invites: [inv('ann@corp.io')] });
     expect((await redeemInvitation(verified.db, { invitationId: 'inv', user: { id: 'u', email: 'ANN@corp.io', emailVerified: true } })).ok).toBe(true);
-    const idp = fakeDb({ invites: [inv('ann@corp.io')], idpAccount: true });
+    const idp = fakeDb({ invites: [inv('ann@corp.io')], accounts: ['kc'], sso: { kc: 'org' } });
     expect((await redeemInvitation(idp.db, { invitationId: 'inv', user: { id: 'u', email: 'ann@corp.io' } })).ok).toBe(true);
+  });
+
+  it('an unverified address carried by a social or another org\'s SSO identity is not proof', async () => {
+    const unverified = { id: 'u', email: 'ann@corp.io', emailVerified: false };
+    const social = fakeDb({ invites: [inv('ann@corp.io')], accounts: ['github'], sso: { kc: 'org' } });
+    expect(await redeemInvitation(social.db, { invitationId: 'inv', user: unverified })).toEqual({
+      ok: false,
+      reason: 'email_mismatch',
+      invitedEmail: 'ann@corp.io',
+    });
+    const rogue = fakeDb({ invites: [inv('ann@corp.io')], accounts: ['rogue'], sso: { kc: 'org', rogue: 'org-evil' } });
+    expect((await redeemInvitation(rogue.db, { invitationId: 'inv', user: unverified })).ok).toBe(false);
+    expect(rogue.members).toHaveLength(0);
+    expect(rogue.invites[0]!.status).toBe('pending');
   });
 
   it('refuses an expired invite', async () => {

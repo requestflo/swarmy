@@ -106,8 +106,8 @@ export type RedeemResult =
 /**
  * Redeem a pending, unexpired invitation (single-use). A link-only invite
  * admits whoever holds it; an invite naming an email admits only an account
- * with that address, verified or asserted by an SSO/social identity
- * ({@link inviteAdmits}). The pending → accepted flip is a conditional update,
+ * with that address, verified, or carried by an SSO provider of the inviting
+ * org ({@link inviteAdmits}). The pending → accepted flip is a conditional update,
  * so two redemptions of one link can't both succeed. Never demotes a member.
  */
 export async function redeemInvitation(
@@ -123,13 +123,23 @@ export async function redeemInvitation(
   if (!inv) return { ok: false, reason: 'gone' };
   const userId = input.user.id;
   let admitted = inviteAdmits(inv.email, { email: input.user.email, emailVerified: Boolean(input.user.emailVerified) });
-  if (!admitted && db.account) {
-    // Not verified: an SSO/social identity carrying the address counts as proof.
-    const idp = await db.account.findFirst({
-      where: { userId, providerId: { not: 'credential' } },
-      select: { id: true },
+  if (!admitted && db.account && db.ssoProvider) {
+    // Not verified: only an identity from one of the INVITING org's own SSO
+    // providers counts as proof. Any other IdP (social, another org's SSO) had
+    // its chance to assert the address verified — which sets emailVerified.
+    const orgProviders = await db.ssoProvider.findMany({
+      where: { orgId: inv.organizationId },
+      select: { providerId: true },
     });
-    admitted = inviteAdmits(inv.email, { email: input.user.email, viaIdp: Boolean(idp) });
+    const ids = orgProviders.map((p) => p.providerId);
+    const idp = ids.length
+      ? await db.account.findFirst({ where: { userId, providerId: { in: ids } }, select: { id: true } })
+      : null;
+    admitted = inviteAdmits(
+      inv.email,
+      { email: input.user.email, idpOrgId: idp ? inv.organizationId : null },
+      inv.organizationId,
+    );
   }
   if (!admitted) return { ok: false, reason: 'email_mismatch', invitedEmail: displayEmail(inv.email) ?? undefined };
 

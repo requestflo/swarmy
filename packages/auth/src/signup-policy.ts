@@ -17,8 +17,8 @@ import { isLinkInviteEmail } from './identity';
  *      in-process seed (apps/api/src/bootstrap/seed.ts) creates the owner through
  *      Better Auth's sign-up so it owns password hashing;
  *   4. the email has a pending, unexpired invitation AND the address is
- *      proven: verified, or asserted by the SSO/social identity signing up
- *      (see {@link inviteAdmits});
+ *      proven: verified (locally or asserted verified by the IdP), or carried
+ *      by an SSO provider of the inviting org (see {@link inviteAdmits});
  *   5. the request carries an invite link (`swarmy_invite` cookie, set by the
  *      login page) naming a pending, unexpired invitation that admits this
  *      person: a link-only invite admits whoever holds it (username, social,
@@ -58,8 +58,13 @@ export interface SignupVia {
   username?: string | null;
   /** The account's email is verified (Better Auth `emailVerified`). */
   emailVerified?: boolean;
-  /** The sign-up comes through an SSO/social identity (its IdP asserted the email). */
-  viaIdp?: boolean;
+  /**
+   * The org whose own SSO provider (`/oauth2/callback/<providerId>`) carries
+   * this identity. That org's directory counts as proof of an address for ITS
+   * invitations only; any other IdP (social, another org's SSO) must assert the
+   * email as verified (`emailVerified`).
+   */
+  idpOrgId?: string | null;
   /** Social sign-up whose verified email domain the provider's allowedDomains accepts. */
   socialDomainAllowed?: boolean;
 }
@@ -67,16 +72,22 @@ export interface SignupVia {
 /**
  * Does this invitation admit this person? A link-only invite (placeholder
  * address) admits whoever holds the link. An invite naming an email admits
- * only an account with that address, proven either by verification or by the
- * SSO/social identity carrying it. A typed-in, unverified email is not proof.
+ * only an account with that address, proven either by verification (the
+ * address was verified locally, or the IdP asserted it verified) or by an SSO
+ * provider of the INVITING org carrying it (`idpOrgId === invitationOrgId`).
+ * A typed-in, unverified email is not proof, and neither is an arbitrary IdP:
+ * another org's SSO provider can assert any address it likes.
  */
 export function inviteAdmits(
   invitationEmail: string,
-  person: { email: string | null | undefined; emailVerified?: boolean; viaIdp?: boolean },
+  person: { email: string | null | undefined; emailVerified?: boolean; idpOrgId?: string | null },
+  invitationOrgId?: string | null,
 ): boolean {
   if (isLinkInviteEmail(invitationEmail)) return true;
   const same = (person.email ?? '').trim().toLowerCase() === invitationEmail.trim().toLowerCase();
-  return same && Boolean(person.emailVerified || person.viaIdp);
+  if (!same) return false;
+  if (person.emailVerified) return true;
+  return Boolean(person.idpOrgId && invitationOrgId && person.idpOrgId === invitationOrgId);
 }
 
 /** Parse an `allowedDomains` setting ("company.com, corp.io") into lowercase domains. */
@@ -125,18 +136,18 @@ export async function isSignupAllowed(
   }
   if ((await db.user.count()) === 0) return true;
   // Better Auth's organization plugin stores invitation emails lowercased.
-  const person = { email: normalized, emailVerified: via.emailVerified, viaIdp: via.viaIdp };
+  const person = { email: normalized, emailVerified: via.emailVerified, idpOrgId: via.idpOrgId };
   const invite = await db.invitation.findFirst({
     where: { email: normalized, status: 'pending', expiresAt: { gt: now } },
-    select: { email: true },
+    select: { email: true, organizationId: true },
   });
-  if (invite && inviteAdmits(invite.email, person)) return true;
+  if (invite && inviteAdmits(invite.email, person, invite.organizationId)) return true;
   if (via.inviteId) {
     const link = await db.invitation.findFirst({
       where: { id: via.inviteId, status: 'pending', expiresAt: { gt: now } },
-      select: { email: true },
+      select: { email: true, organizationId: true },
     });
-    if (link && inviteAdmits(link.email, person)) return true;
+    if (link && inviteAdmits(link.email, person, link.organizationId)) return true;
   }
   if (via.socialDomainAllowed) return true;
   if (via.ssoProviderId && db.ssoProvider) {
