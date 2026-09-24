@@ -15,6 +15,7 @@
  * Best-effort like the Hub proxy: any failure yields `null` (no local section),
  * never an error.
  */
+import { registryConfigs } from './apps.repo';
 import type { SwarmNodeInfo } from '@swarmy/core/protocol';
 import type { DB } from '@swarmy/db';
 import type { AgentHub } from '../hub/types';
@@ -109,9 +110,7 @@ const catalogCache = new Map<string, { value: string[]; expires: number }>();
 const tagsCache = new Map<string, { value: string[]; expires: number }>();
 
 async function resolveLocalRegistry(db: DB, hub: AgentHub, orgId: string): Promise<LocalRegistry | null> {
-  const row = await db.registryConfig
-    .findUnique({ where: { orgId }, select: { enabled: true, host: true, credentialsEnc: true } })
-    .catch(() => null);
+  const row = await registryConfigs({ db, hub }, orgId).findFirst().catch(() => null);
   if (!row?.enabled) return null;
   const host = canonicalRegistryHost(row.host);
   let nodes: SwarmNodeInfo[] = [];

@@ -30,6 +30,7 @@
  * Resumable: the run row carries per-step `data`; `resumePlatformUpgrades`
  * (the worker tick) re-drives any `running` run this process isn't driving.
  */
+import { registryConfigs } from './apps.repo';
 import type { RunOnceResult } from '@swarmy/core/protocol';
 import {
   componentRef,
@@ -166,9 +167,7 @@ function manager(ctx: OrgContext): string {
 }
 
 async function registryLogin(ctx: OrgContext): Promise<{ host?: string; env: Record<string, string> }> {
-  const reg = await ctx.db.registryConfig
-    .findUnique({ where: { orgId: ctx.activeOrgId }, select: { enabled: true, host: true, credentialsEnc: true } })
-    .catch(() => null);
+  const reg = await registryConfigs(ctx, ctx.activeOrgId).findFirst().catch(() => null);
   if (!reg?.enabled) return { env: {} };
   const creds = decodeRegistryCreds(reg.credentialsEnc);
   return {
