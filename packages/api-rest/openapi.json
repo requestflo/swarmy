@@ -401,11 +401,172 @@
           "compose_source"
         ]
       },
+      "IngressWwwMode": {
+        "type": "string",
+        "nullable": true,
+        "enum": [
+          "redirect-www-to-apex",
+          "redirect-apex-to-www",
+          "serve-both"
+        ],
+        "description": "Apex ↔ www pairing for the host: serve the apex and 308 www onto it, serve www and 308 the apex onto it, or serve both."
+      },
+      "IngressDomainState": {
+        "type": "string",
+        "enum": [
+          "waiting_dns",
+          "verified",
+          "issuing",
+          "active",
+          "error"
+        ]
+      },
+      "IngressDomainStatus": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/IngressDomainState"
+          },
+          "reason": {
+            "type": "string",
+            "description": "One plain-words sentence explaining the state."
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "gated": {
+            "type": "boolean",
+            "description": "Withheld from the edge until DNS points at swarmy — no certificate is requested meanwhile."
+          },
+          "verified_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "verified_manually": {
+            "type": "boolean"
+          },
+          "last_checked_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "next_check_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "dns": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "a": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "aaaa": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "cname": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "matched": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "a",
+              "aaaa",
+              "cname",
+              "matched"
+            ]
+          },
+          "certificate": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "issuer": {
+                "type": "string",
+                "nullable": true
+              },
+              "expires_at": {
+                "type": "string",
+                "nullable": true
+              },
+              "error": {
+                "type": "string",
+                "nullable": true
+              },
+              "edges": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ip": {
+                      "type": "string"
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "ip",
+                    "ok"
+                  ]
+                }
+              },
+              "checked_at": {
+                "type": "string",
+                "nullable": true
+              }
+            },
+            "required": [
+              "issuer",
+              "expires_at",
+              "error",
+              "edges",
+              "checked_at"
+            ]
+          }
+        },
+        "required": [
+          "host",
+          "state",
+          "reason",
+          "warnings",
+          "gated",
+          "verified_at",
+          "verified_manually",
+          "last_checked_at",
+          "next_check_at",
+          "dns",
+          "certificate"
+        ]
+      },
       "IngressDomain": {
         "type": "object",
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "description": "`<serviceId>:<host>` (+ `/<path>` for a path route). URL-encode it in paths."
           },
           "host": {
             "type": "string"
@@ -430,6 +591,23 @@
           "path_prefix": {
             "type": "string",
             "nullable": true
+          },
+          "www": {
+            "$ref": "#/components/schemas/IngressWwwMode"
+          },
+          "companion_host": {
+            "type": "string",
+            "nullable": true
+          },
+          "auto": {
+            "type": "boolean",
+            "description": "swarmy's automatic `<service>-<stack>.<edge-ip>.sslip.io` address."
+          },
+          "status": {
+            "$ref": "#/components/schemas/IngressDomainStatus"
+          },
+          "companion_status": {
+            "$ref": "#/components/schemas/IngressDomainStatus"
           }
         },
         "required": [
@@ -485,12 +663,113 @@
           },
           "path_prefix": {
             "type": "string"
+          },
+          "www": {
+            "$ref": "#/components/schemas/IngressWwwMode"
           }
         },
         "required": [
           "host",
           "service_id",
           "target_port"
+        ]
+      },
+      "DnsRecordHint": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "A",
+              "AAAA",
+              "CNAME",
+              "NS"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "description": "What most registrar UIs want in the host box (`@`, `www`, `app`)."
+          },
+          "value": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "name",
+          "label",
+          "value"
+        ]
+      },
+      "IngressDomainDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/IngressDomainStatus"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "guidance": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "records",
+                      "zone",
+                      "tunnel",
+                      "private"
+                    ]
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                  "records": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/DnsRecordHint"
+                    }
+                  },
+                  "alternatives": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/DnsRecordHint"
+                    }
+                  }
+                },
+                "required": [
+                  "mode",
+                  "summary",
+                  "records",
+                  "alternatives"
+                ]
+              },
+              "companion": {
+                "$ref": "#/components/schemas/IngressDomainStatus"
+              }
+            },
+            "required": [
+              "guidance",
+              "companion"
+            ]
+          }
+        ]
+      },
+      "UpdateDomainRequest": {
+        "type": "object",
+        "properties": {
+          "www": {
+            "$ref": "#/components/schemas/IngressWwwMode"
+          }
+        },
+        "required": [
+          "www"
         ]
       },
       "ApiKey": {
@@ -1459,6 +1738,209 @@
           "to",
           "subject"
         ]
+      },
+      "RegistryProvider": {
+        "type": "string",
+        "enum": [
+          "ghcr",
+          "dockerhub",
+          "gitlab",
+          "ecr",
+          "gcr",
+          "acr",
+          "generic"
+        ]
+      },
+      "RegistryCredential": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string",
+            "example": "ghcr.io/acme"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/RegistryProvider"
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "username": {
+            "type": "string"
+          },
+          "has_secret": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "last_tested_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "last_test_ok": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "last_test_message": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "prefix",
+          "provider",
+          "label",
+          "username",
+          "has_secret",
+          "last_tested_at",
+          "last_test_ok",
+          "last_test_message",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "RegistryCredentialList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RegistryCredential"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "CreateRegistryCredentialBody": {
+        "type": "object",
+        "properties": {
+          "prefix": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "example": "ghcr.io"
+          },
+          "username": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "secret": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384,
+            "description": "Token/password. Write-only; never returned."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/RegistryProvider"
+          },
+          "label": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "prefix",
+          "username",
+          "secret"
+        ]
+      },
+      "UpdateRegistryCredentialBody": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "secret": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384,
+            "description": "Rotate the token. Write-only."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/RegistryProvider"
+          },
+          "label": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 120
+          }
+        }
+      },
+      "RegistryCredentialDeleted": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
+      "RegistryTestResult": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "unauthorized",
+              "not_found",
+              "unreachable",
+              "error"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "checked_manifest": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "status",
+          "message",
+          "checked_manifest"
+        ]
+      },
+      "TestRegistryCredentialBody": {
+        "type": "object",
+        "properties": {
+          "image": {
+            "type": "string",
+            "maxLength": 512,
+            "example": "ghcr.io/acme/web:1.2"
+          }
+        }
       }
     },
     "parameters": {}
@@ -2330,6 +2812,160 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Removed"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Ingress"
+        ],
+        "summary": "Update a domain (apex ↔ www)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDomainRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngressDomain"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ingress/domains/{id}/status": {
+      "get": {
+        "tags": [
+          "Ingress"
+        ],
+        "summary": "Domain DNS + certificate status",
+        "description": "Lifecycle state (waiting_dns → verified → issuing → active | error), the exact DNS records to create, what public DNS answers, and the certificate each edge serves.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngressDomainDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ingress/domains/{id}/verify": {
+      "post": {
+        "tags": [
+          "Ingress"
+        ],
+        "summary": "Re-check a domain now",
+        "description": "Runs the DNS (and, once verified, certificate) check immediately instead of waiting for the next scheduled check.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status after the check",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngressDomainDetail"
                 }
               }
             }
@@ -3498,6 +4134,244 @@
             }
           },
           "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/registry-credentials": {
+      "get": {
+        "tags": [
+          "Registry Credentials"
+        ],
+        "summary": "List registry credentials (secrets never returned)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryCredentialList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Registry Credentials"
+        ],
+        "summary": "Create a registry credential (or rotate the login for an existing prefix)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRegistryCredentialBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryCredential"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/registry-credentials/{id}": {
+      "patch": {
+        "tags": [
+          "Registry Credentials"
+        ],
+        "summary": "Update a registry credential (username/label, or rotate the secret)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRegistryCredentialBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryCredential"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Registry Credentials"
+        ],
+        "summary": "Delete a registry credential",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryCredentialDeleted"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/registry-credentials/{id}/test": {
+      "post": {
+        "tags": [
+          "Registry Credentials"
+        ],
+        "summary": "Test a stored credential (registry v2 auth; manifest HEAD when `image` is given)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRegistryCredentialBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryTestResult"
+                }
+              }
+            }
+          },
+          "404": {
             "description": "Problem",
             "content": {
               "application/problem+json": {

@@ -55,15 +55,88 @@ export const StackDto = z
   })
   .openapi('Stack');
 
+const WwwMode = z
+  .enum(['redirect-www-to-apex', 'redirect-apex-to-www', 'serve-both'])
+  .openapi('IngressWwwMode', {
+    description:
+      'Apex ↔ www pairing for the host: serve the apex and 308 www onto it, serve www and 308 the apex onto it, or serve both.',
+  });
+
+/** Custom-domain lifecycle state (open enum — new values may be added). */
+const DomainState = z.enum(['waiting_dns', 'verified', 'issuing', 'active', 'error']).openapi('IngressDomainState');
+
+export const DomainStatusDto = z
+  .object({
+    host: z.string(),
+    state: DomainState,
+    reason: z.string().openapi({ description: 'One plain-words sentence explaining the state.' }),
+    warnings: z.array(z.string()),
+    gated: z.boolean().openapi({
+      description: 'Withheld from the edge until DNS points at swarmy — no certificate is requested meanwhile.',
+    }),
+    verified_at: z.string().nullable(),
+    verified_manually: z.boolean(),
+    last_checked_at: z.string().nullable(),
+    next_check_at: z.string().nullable(),
+    dns: z
+      .object({
+        a: z.array(z.string()),
+        aaaa: z.array(z.string()),
+        cname: z.array(z.string()),
+        matched: z.array(z.string()),
+      })
+      .nullable(),
+    certificate: z
+      .object({
+        issuer: z.string().nullable(),
+        expires_at: z.string().nullable(),
+        error: z.string().nullable(),
+        edges: z.array(z.object({ ip: z.string(), ok: z.boolean(), error: z.string().optional() })),
+        checked_at: z.string().nullable(),
+      })
+      .nullable(),
+  })
+  .openapi('IngressDomainStatus');
+
+const DnsRecordHintDto = z
+  .object({
+    type: z.enum(['A', 'AAAA', 'CNAME', 'NS']),
+    name: z.string(),
+    label: z.string().openapi({ description: 'What most registrar UIs want in the host box (`@`, `www`, `app`).' }),
+    value: z.string(),
+    note: z.string().optional(),
+  })
+  .openapi('DnsRecordHint');
+
+export const DomainDetailDto = DomainStatusDto.extend({
+  guidance: z.object({
+    mode: z.enum(['records', 'zone', 'tunnel', 'private']),
+    summary: z.string(),
+    records: z.array(DnsRecordHintDto),
+    alternatives: z.array(DnsRecordHintDto),
+  }),
+  companion: DomainStatusDto.nullable(),
+}).openapi('IngressDomainDetail');
+
 export const DomainDto = z
   .object({
-    id: z.string(),
+    id: z.string().openapi({
+      description: '`<serviceId>:<host>` (+ `/<path>` for a path route). URL-encode it in paths.',
+    }),
     host: z.string(),
     service_id: z.string(),
     service_name: z.string(),
     target_port: z.number(),
     tls: z.enum(['auto', 'off', 'custom']),
     path_prefix: z.string().nullable(),
+    www: WwwMode.nullable().optional(),
+    companion_host: z.string().nullable().optional(),
+    auto: z
+      .boolean()
+      .optional()
+      .openapi({ description: "swarmy's automatic `<service>-<stack>.<edge-ip>.sslip.io` address." }),
+    status: DomainStatusDto.nullable().optional(),
+    companion_status: DomainStatusDto.nullable().optional(),
   })
   .openapi('IngressDomain');
 
@@ -116,5 +189,10 @@ export const AddDomainBody = z
     target_port: z.number().int().min(1).max(65535),
     tls: z.enum(['auto', 'off', 'custom']).optional(),
     path_prefix: z.string().optional(),
+    www: WwwMode.optional(),
   })
   .openapi('AddDomainRequest');
+
+export const UpdateDomainBody = z
+  .object({ www: WwwMode.nullable() })
+  .openapi('UpdateDomainRequest');

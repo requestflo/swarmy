@@ -1,7 +1,7 @@
 /** Map internal `@swarmy/core` views / service results → public REST DTOs. */
 import type { NodeSummary, ServiceSummary } from '@swarmy/core/views';
 import type { StackSummary } from '@swarmy/trpc';
-import type { DomainView } from '@swarmy/trpc';
+import type { DomainDetailView, DomainStatusView, DomainView } from '@swarmy/trpc';
 
 export function nodeToDto(n: NodeSummary) {
   return {
@@ -41,6 +41,38 @@ export function stackToDto(s: StackSummary) {
   };
 }
 
+export function domainStatusToDto(s: DomainStatusView) {
+  return {
+    host: s.host,
+    state: s.state,
+    reason: s.reason,
+    warnings: s.warnings,
+    gated: s.gated,
+    verified_at: s.verifiedAt,
+    verified_manually: s.verifiedManually,
+    last_checked_at: s.lastCheckedAt,
+    next_check_at: s.nextCheckAt,
+    dns: s.dns,
+    certificate: s.certificate
+      ? {
+          issuer: s.certificate.issuer,
+          expires_at: s.certificate.expiresAt,
+          error: s.certificate.error,
+          edges: s.certificate.edges,
+          checked_at: s.certificate.checkedAt,
+        }
+      : null,
+  };
+}
+
+export function domainDetailToDto(d: DomainDetailView) {
+  return {
+    ...domainStatusToDto(d),
+    guidance: d.guidance,
+    companion: d.companion ? domainStatusToDto(d.companion) : null,
+  };
+}
+
 export function domainToDto(d: DomainView) {
   return {
     id: d.id,
@@ -50,5 +82,10 @@ export function domainToDto(d: DomainView) {
     target_port: d.targetPort,
     tls: d.tls,
     path_prefix: d.pathPrefix,
+    www: d.www,
+    companion_host: d.companionHost,
+    auto: d.auto,
+    status: d.status ? domainStatusToDto(d.status) : null,
+    companion_status: d.companionStatus ? domainStatusToDto(d.companionStatus) : null,
   };
 }
