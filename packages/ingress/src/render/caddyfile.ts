@@ -12,6 +12,7 @@ import {
   APP_AUTH_PATH_PREFIX,
   type RouteAuth,
 } from '../app-auth';
+import { CADDY_RUM_ORDER, caddyRumDirective, caddyRumHandle, caddyRumSpanAttributes, rumIdentified } from '../rum';
 import type { HostRedirect } from '../www';
 import { caddyDnsTlsLines } from '../dns-challenge';
 
@@ -59,6 +60,9 @@ export function buildCaddyfile(config: IngressConfig): string {
   }
   // Tracing runs first so its span wraps the whole request (incl. the proxy).
   if (config.globalOptions.tracing) global.push('  order tracing first');
+  // RUM injector (swarmy_rum — swarmy Caddy build only). Before the cache
+  // order line, so it wraps the cache: a cached page never pins a nonce.
+  if (config.domains.some((d) => d.rum && !d.cold)) global.push(CADDY_RUM_ORDER);
   // Response caching (caddyserver/cache-handler — swarmy Caddy build only):
   // the nonstandard `cache` directive needs an explicit slot in Caddy's
   // directive order, and the bare global `cache` option provisions the module.
@@ -380,20 +384,27 @@ function buildSite(host: string, routes: DomainRoute[], config: IngressConfig): 
   // Distributed tracing: one span per request through this host, exported over
   // OTLP by the controller (OTEL_* env). `order tracing first` (global options)
   // guarantees it wraps the proxy so the span covers the whole request.
+  const ordered = [...routes].sort(bySpecificity);
+  const rum = ordered.find((r) => r.rum && !r.cold)?.rum;
   if (config.globalOptions.tracing) {
-    out.push('  tracing {', '    span swarmy-edge', '  }');
+    // Identified RUM: the edge span carries the browser session id, so a
+    // replay can list the requests (and their traces) it made.
+    const attrs = ordered.some((r) => !r.cold && rumIdentified(r.rum)) ? caddyRumSpanAttributes() : [];
+    out.push('  tracing {', '    span swarmy-edge', ...attrs, '  }');
   }
 
-  const ordered = [...routes].sort(bySpecificity);
   // "Protect my app": the login callback lives on THIS host (first-party cookie),
   // so a host with any protected route carries the controller callback handle —
   // outside forward_auth, or nobody could ever finish signing in.
   const auth = ordered.find((r) => r.auth)?.auth;
   if (auth) out.push(...appAuthCallbackHandle(auth));
+  // RUM: `/_swarmy/*` on this host is the controller's first-party script +
+  // ingest — ahead of every route handle so no app path shadows it.
+  if (rum) out.push(...caddyRumHandle(rum));
   // The overwhelmingly common case — a single service at the host root — renders
   // WITHOUT a handle wrapper, byte-for-byte identical to the pre-grouping output.
   const only = ordered.length === 1 ? ordered[0] : undefined;
-  const bareRoot = !auth && only !== undefined && routePath(only) === '/';
+  const bareRoot = !auth && !rum && only !== undefined && routePath(only) === '/';
   for (const r of ordered) appendRoute(out, r, bareRoot, config);
 
   out.push('}');
@@ -610,6 +621,15 @@ function appendRoute(out: string[], r: DomainRoute, bare: boolean, config: Ingre
     // controller) and before the proxy / wake (an anonymous caller never wakes
     // a cold service).
     ...(r.auth ? appAuthGateLines(r.auth) : []),
+    // RUM tag injection: after the login gate (so data-uid sees the identity
+    // headers forward_auth copied), wrapping the proxy. Never on a cold route
+    // (the body is the activator's wake page).
+    ...(r.rum && !r.cold
+      ? caddyRumDirective(r.rum, {
+          userHeader: r.auth ? APP_AUTH_IDENTITY_HEADERS[0] : undefined,
+          serverTiming: config.globalOptions.tracing,
+        })
+      : []),
     ...(r.cold
       ? [
           `rewrite * ${r.cold.wakePath}?return={scheme}://{host}{uri}`,

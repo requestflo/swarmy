@@ -7,6 +7,7 @@ export * from './domain-verify';
 export * from './auto-address';
 export * from './dns-challenge';
 export * from './app-auth';
+export * from './rum';
 export {
   CaddyDriver,
   caddyAdminLoadUrl,

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { HostRedirectSchema } from './www';
 import { DnsChallengeSchema } from './dns-challenge';
 import { RouteAuthSchema } from './app-auth';
+import { RouteRumSchema } from './rum';
 
 // Wire/render types are owned by @swarmy/core so the agent and the controller
 // share one definition. The ingress package re-exports them.
@@ -232,6 +233,14 @@ export const DomainRouteSchema = z.object({
    * See `app-auth.ts`. Absent ⇒ byte-identical legacy output.
    */
   auth: RouteAuthSchema.optional(),
+  /**
+   * Real-user monitoring (web analytics / session replay). Present ⇒ the edge
+   * injects the same-origin RUM tag into this route's HTML documents and maps
+   * `/_swarmy/*` on the host onto the controller. Controller-computed from the
+   * app's `swarmy.rum` settings + the route's own `rum` toggle. See `rum.ts`.
+   * Absent ⇒ byte-identical legacy output.
+   */
+  rum: RouteRumSchema.optional(),
 });
 export type DomainRoute = z.infer<typeof DomainRouteSchema>;
 
