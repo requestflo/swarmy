@@ -1,0 +1,136 @@
+// Email service (plans/epic-developer-platform.md §8): swarmy's own outbound
+// MTA (maddy, a system service) + an HTTP send API on the controller.
+//
+// What lives here and why (docker-native-storage decision order):
+//   - identity + secrets swarmy owns: per-app credentials (hashed), DKIM
+//     private keys and smarthost passwords (vault-encrypted) — never labels;
+//   - queryable history: the suppression list;
+//   - the user's own input: sending domains, templates, org email settings.
+// NOT here: the MTA's deploy state (its live service + a pin label), DNS check
+// results and the port-25 probe (process memory, re-derived after a restart),
+// the send log (ClickHouse, next to the org's telemetry).
+//
+// SQLite-portable shapes only: String for small enums, Json for structure.
+
+/// One row per org: the email service switch and its settings.
+model EmailConfig {
+  id        String   @id @default(cuid())
+  orgId     String   @unique
+  enabled   Boolean  @default(false)
+  /// Keep message bodies in the send log (off by default: metadata only).
+  logBodies Boolean  @default(false)
+  /// The domain swarmy's own mail (invites, verification, alerts) is sent from; null = the first verified domain.
+  systemDomainId String?
+  /// sha-256 of the token for POST /email/v1/inbound (forwarded DSN/ARF reports); null = off.
+  inboundTokenHash String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("email_config")
+}
+
+/// A domain mail is sent from.
+model EmailDomain {
+  id                String    @id @default(cuid())
+  orgId             String
+  /// Lowercase, no trailing dot: "example.com".
+  domain            String
+  /// DKIM selector: the key lives at `<selector>._domainkey.<domain>`.
+  selector          String    @default("swarmy")
+  /// PKCS#8 PEM, vault-encrypted (SWARMY_SECRET_KEY). Never returned to clients.
+  dkimPrivateKeyEnc String
+  /// Base64 SPKI — the record's `p=`.
+  dkimPublicKey     String
+  /// "direct" (MX delivery from the mail node) | "relay" (smarthost).
+  delivery          String    @default("direct")
+  /// Smarthost settings: { host, port, security: "tls"|"starttls"|"none", username?, spfInclude? }.
+  relay             Json?
+  /// Smarthost password, vault-encrypted.
+  relayPasswordEnc  String?
+  /// DMARC policy published for the domain: "none" | "quarantine" | "reject".
+  dmarcPolicy       String    @default("none")
+  /// The gate: set once the DKIM record was seen in DNS. Mail is only accepted
+  /// from verified domains.
+  verifiedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, domain])
+  @@index([orgId])
+  @@map("email_domain")
+}
+
+/// Per-app sending credentials: an SMTP login for the MTA and an HTTP API key.
+model EmailCredential {
+  id               String   @id @default(cuid())
+  orgId            String
+  name             String
+  /// The app (stack) the credential was minted for by swarmy.yaml `email:`; null = made by hand.
+  stack            String?
+  /// SMTP AUTH username (`<name>@swarmy`), unique across the MTA.
+  smtpUsername     String   @unique
+  /// maddy pass_table hash (`bcrypt:$2a$…`); the plaintext lives only in the app's Docker secret.
+  smtpPasswordHash String
+  /// sha-256 of the HTTP API key (`sem_…`).
+  apiKeyHash       String   @unique
+  /// First characters of the API key, for the UI.
+  apiKeyPrefix     String
+  /// Allowed sending domains (lowercase); [] = every verified domain of the org.
+  domains          Json     @default("[]")
+  /// Where bounce/complaint webhooks for this app go; null = none.
+  webhookUrl       String?
+  /// Webhook signing secret, vault-encrypted.
+  webhookSecretEnc String?
+  disabled         Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("email_credential")
+}
+
+/// A stored message template for the send API (`{{ var }}` placeholders).
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  orgId     String
+  name      String
+  subject   String
+  html      String?
+  text      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, name])
+  @@index([orgId])
+  @@map("email_template")
+}
+
+/// Addresses swarmy will not send to (hard bounce, complaint, or added by hand).
+model EmailSuppression {
+  id           String   @id @default(cuid())
+  orgId        String
+  /// Lowercase address.
+  address      String
+  /// "bounce" | "complaint" | "manual".
+  reason       String
+  /// The diagnostic that caused it (e.g. `550 5.1.1 user unknown`).
+  detail       String?
+  /// Credential whose mail caused it, when known.
+  credentialId String?
+  createdAt    DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, address])
+  @@index([orgId, createdAt])
+  @@map("email_suppression")
+}
