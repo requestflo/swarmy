@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MailIcon, MessageSquareIcon, PlusIcon, SendIcon, Trash2Icon, WebhookIcon } from 'lucide-react';
+import { BellRingIcon, MailIcon, MessageSquareIcon, PlusIcon, SendIcon, Trash2Icon, WebhookIcon } from 'lucide-react';
 import type { NotificationChannelKindView, NotificationChannelView } from '@swarmy/core';
 import { Button, EmptyState, Switch, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
@@ -10,6 +10,10 @@ const KIND_ICON: Record<NotificationChannelKindView, React.JSX.Element> = {
   email: <MailIcon className="size-4" />,
   slack: <MessageSquareIcon className="size-4" />,
   teams: <MessageSquareIcon className="size-4" />,
+  discord: <MessageSquareIcon className="size-4" />,
+  telegram: <SendIcon className="size-4" />,
+  ntfy: <BellRingIcon className="size-4" />,
+  gotify: <BellRingIcon className="size-4" />,
   webhook: <WebhookIcon className="size-4" />,
 };
 

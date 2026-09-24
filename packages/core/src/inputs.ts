@@ -668,6 +668,28 @@ export const ChannelConfigInput = z.discriminatedUnion('kind', [
     /** Optional HMAC secret — deliveries carry `X-Swarmy-Signature` when set. */
     secret: z.string().min(8).max(256).optional(),
   }),
+  /** Discord incoming webhook (`https://discord.com/api/webhooks/…`); rendered as an embed. */
+  z.object({ kind: z.literal('discord'), url: z.string().url().max(1024) }),
+  /** Telegram Bot API: bot token + chat id (optional forum topic thread). MarkdownV2. */
+  z.object({
+    kind: z.literal('telegram'),
+    botToken: z.string().regex(/^\d+:[A-Za-z0-9_-]{20,}$/, 'expected a BotFather token like 123456:ABC…'),
+    chatId: z.string().regex(/^-?\d+$|^@[A-Za-z0-9_]{4,}$/, 'expected a numeric chat id or @channel'),
+    threadId: z.number().int().positive().optional(),
+  }),
+  /** ntfy (self-hostable): server URL + topic, optional access token. */
+  z.object({
+    kind: z.literal('ntfy'),
+    server: z.string().url().max(1024).default('https://ntfy.sh'),
+    topic: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'topic: letters, digits, _ and - only'),
+    token: z.string().min(1).max(256).optional(),
+  }),
+  /** Gotify: server URL + application token. */
+  z.object({
+    kind: z.literal('gotify'),
+    server: z.string().url().max(1024),
+    token: z.string().min(1).max(256),
+  }),
 ]);
 export type ChannelConfigInput = z.infer<typeof ChannelConfigInput>;
 

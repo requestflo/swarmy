@@ -1146,7 +1146,16 @@ export interface ServiceMapView {
 // ── Alerts (slice C3) — rules, notification channels, firing/resolved events ──
 
 /** Channel kinds swarmy can notify through. */
-export const NOTIFICATION_CHANNEL_KINDS = ['email', 'slack', 'teams', 'webhook'] as const;
+export const NOTIFICATION_CHANNEL_KINDS = [
+  'email',
+  'slack',
+  'teams',
+  'discord',
+  'telegram',
+  'ntfy',
+  'gotify',
+  'webhook',
+] as const;
 export type NotificationChannelKindView = (typeof NOTIFICATION_CHANNEL_KINDS)[number];
 
 export const ALERT_SEVERITIES = ['info', 'warning', 'critical'] as const;
@@ -1158,6 +1167,10 @@ export type AlertEventStatusView = (typeof ALERT_EVENT_STATUSES)[number];
 /** The signals the alert-evaluator understands (default rule per signal). */
 export const ALERT_SIGNALS = [
   'node-offline',
+  'build-failed',
+  'deploy-failed',
+  'deploy-rolled-back',
+  'crash-loop',
   'service-down',
   'db-degraded',
   'db-failover',
@@ -1175,20 +1188,63 @@ export interface AlertSignalInfo {
   label: string;
   description: string;
   /** Unit of `threshold` (null = the signal has no threshold). */
-  unit: '%' | 'seconds' | 'jobs' | 'days' | null;
+  unit: '%' | 'seconds' | 'jobs' | 'days' | 'restarts' | null;
   defaultThreshold: number | null;
   defaultForSeconds: number;
   severity: AlertSeverityView;
 }
 
-/** The default rule catalog (one seeded rule per signal, editable in the UI). */
+/**
+ * Event-style signals: each fire is a discrete happening (a build broke, a
+ * deploy was rolled back), so a repeat fire re-notifies even while the
+ * previous event is still open. Level signals (disk, node-offline…) notify
+ * once per open event and resolve when the condition clears.
+ */
+export const EVENT_ALERT_SIGNALS: readonly string[] = ['build-failed', 'deploy-failed', 'deploy-rolled-back'];
+
+/**
+ * The default rule catalog: one rule per signal, seeded ON for every org and
+ * editable in the UI. Deleting a default opts the org out (never re-seeded).
+ */
 export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
   'node-offline': {
     label: 'Node offline',
-    description: 'An enrolled node stopped heartbeating the controller.',
+    description: 'An enrolled node stopped heartbeating the controller for the for-duration.',
     unit: null,
     defaultThreshold: null,
-    defaultForSeconds: 60,
+    defaultForSeconds: 300,
+    severity: 'critical',
+  },
+  'build-failed': {
+    label: 'Build failed',
+    description: 'A git build (or git-app build) failed; the message carries the log tail.',
+    unit: null,
+    defaultThreshold: null,
+    defaultForSeconds: 0,
+    severity: 'warning',
+  },
+  'deploy-failed': {
+    label: 'Deploy failed',
+    description: 'A release failed its post-deploy health gate.',
+    unit: null,
+    defaultThreshold: null,
+    defaultForSeconds: 0,
+    severity: 'critical',
+  },
+  'deploy-rolled-back': {
+    label: 'Deploy rolled back',
+    description: 'swarmy automatically rolled a release (or a canary) back to the last healthy one.',
+    unit: null,
+    defaultThreshold: null,
+    defaultForSeconds: 0,
+    severity: 'critical',
+  },
+  'crash-loop': {
+    label: 'Container crash-looping',
+    description: 'A service’s tasks keep failing and restarting (failures in the last 10 minutes).',
+    unit: 'restarts',
+    defaultThreshold: 3,
+    defaultForSeconds: 0,
     severity: 'critical',
   },
   'service-down': {
@@ -1216,8 +1272,8 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     severity: 'critical',
   },
   'backup-failed': {
-    label: 'Backup failed',
-    description: 'The most recent run of a backup schedule failed.',
+    label: 'Backup failed or missed',
+    description: 'The most recent run of a backup schedule failed, or a scheduled run is overdue.',
     unit: null,
     defaultThreshold: null,
     defaultForSeconds: 0,
@@ -1225,7 +1281,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
   },
   'cert-expiry': {
     label: 'Certificate expiring',
-    description: 'A TLS certificate on an ingress domain expires soon.',
+    description: 'A TLS certificate on an ingress domain expires within the threshold, or failed to renew.',
     unit: 'days',
     defaultThreshold: 14,
     defaultForSeconds: 0,
@@ -1233,9 +1289,9 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
   },
   'disk-usage': {
     label: 'Disk almost full',
-    description: 'A node’s filesystem usage crossed the threshold.',
+    description: 'A node’s filesystem usage crossed the threshold (critical above 95%).',
     unit: '%',
-    defaultThreshold: 80,
+    defaultThreshold: 85,
     defaultForSeconds: 0,
     severity: 'warning',
   },

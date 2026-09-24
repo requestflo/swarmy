@@ -7,6 +7,10 @@ export const KIND_LABEL: Record<NotificationChannelKindView, string> = {
   email: 'Email',
   slack: 'Slack',
   teams: 'Teams',
+  discord: 'Discord',
+  telegram: 'Telegram',
+  ntfy: 'ntfy',
+  gotify: 'Gotify',
   webhook: 'Webhook',
 };
 
@@ -15,7 +19,7 @@ interface ChannelKindPickerProps {
   onChange: (kind: NotificationChannelKindView) => void;
 }
 
-/** Chip picker for the channel kind — email, slack, teams or webhook. */
+/** Chip picker for the channel kind (email, chat apps, push services, webhook). */
 export function ChannelKindPicker({ value, onChange }: ChannelKindPickerProps): React.JSX.Element {
   return (
     <div className="flex flex-wrap gap-2">

@@ -1,3 +1,4 @@
+import { EVENT_ALERT_SIGNALS } from '@swarmy/core';
 import type { OrgContext } from '../context';
 import { writeAudit } from './audit.service';
 import { notifyChannels, parseChannelIds } from './alerts.service';
@@ -17,6 +18,9 @@ import type { AlertNotification } from './alerts.service';
  *   repeated fires refresh its message/severity instead of stacking rows
  *   (`AlertEvent` has no lastSeen column — the open row itself is the "still
  *   firing" marker; the evaluator resolves it when the condition clears).
+ *   Event-style signals (`EVENT_ALERT_SIGNALS`: build-failed, deploy-failed,
+ *   deploy-rolled-back) still refresh the open row but RE-NOTIFY each time —
+ *   a second broken build is news, a still-full disk is not.
  * - Notifications go to the channels bound to the rule, or to every enabled
  *   channel when the rule binds none / no rule matches (org-default set).
  * - `status: 'resolved'` routes to `resolveEvent` so out-of-package callers
@@ -84,10 +88,22 @@ export async function fireEvent(ctx: OrgContext, input: FireEventInput): Promise
   });
   if (open) {
     // Still firing — refresh the row instead of stacking a duplicate.
-    await ctx.db.alertEvent.update({
+    const refreshed = await ctx.db.alertEvent.update({
       where: { id: open.id },
       data: { message: input.message, severity: input.severity },
     });
+    if (EVENT_ALERT_SIGNALS.includes(input.signal)) {
+      await notifyChannels(ctx, ruleChannels(rule), {
+        kind: 'firing',
+        signal: input.signal,
+        severity: input.severity,
+        resource: input.resource,
+        message: input.message,
+        ruleName: rule?.name ?? null,
+        at: new Date().toISOString(),
+        eventId: refreshed?.id ?? open.id,
+      }).catch(() => undefined);
+    }
     return;
   }
 

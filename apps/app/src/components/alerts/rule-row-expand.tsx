@@ -34,6 +34,21 @@ export function RuleRowExpand({ rule }: { rule: AlertRuleView }): React.JSX.Elem
     }),
   );
 
+  const [confirmRemove, setConfirmRemove] = React.useState(false);
+  const remove = useMutation(
+    trpc.alerts.deleteRule.mutationOptions({
+      onSuccess: () => {
+        toast.success(
+          rule.isDefault
+            ? `${rule.name} removed — swarmy won't add it back.`
+            : `${rule.name} removed.`,
+        );
+        void qc.invalidateQueries();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+
   const toggleChannel = (id: string): void =>
     setChannelIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
 
@@ -90,7 +105,31 @@ export function RuleRowExpand({ rule }: { rule: AlertRuleView }): React.JSX.Elem
         )}
         <p className="text-muted-foreground text-xs">Select none to notify every enabled channel.</p>
       </div>
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {confirmRemove ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-muted-foreground text-xs">
+              {rule.isDefault
+                ? 'Remove this default alert? It stays off for good. Disable it instead if you may want it back.'
+                : 'Remove this rule?'}
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmRemove(false)}>
+              Keep
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate({ id: rule.id })}
+            >
+              {remove.isPending ? 'Removing…' : 'Remove'}
+            </Button>
+          </div>
+        ) : (
+          <Button variant="ghost" size="sm" onClick={() => setConfirmRemove(true)}>
+            Remove rule
+          </Button>
+        )}
         <Button
           disabled={!ready || save.isPending}
           onClick={() =>

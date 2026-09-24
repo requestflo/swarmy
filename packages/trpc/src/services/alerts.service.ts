@@ -21,20 +21,40 @@ import { ALERT_SIGNAL_INFO, ALERT_SIGNALS } from '@swarmy/core';
 import type { OrgContext } from '../context';
 import { commandRejected, notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import {
+  buildChannelRequest,
+  channelTarget,
+  redactSecrets,
+  renderNotificationSubject,
+  renderNotificationText,
+  type AlertNotification,
+} from './alerts-channels';
 import { sendNotification } from './notifications-send';
 import { signPayload } from './webhooks-out.service';
+
+export {
+  channelTarget,
+  renderNotificationSubject,
+  renderNotificationText,
+  type AlertNotification,
+} from './alerts-channels';
 
 /**
  * Alerting (slice C3) — notification channels, alert rules and the
  * firing/resolved event feed.
  *
  * - Channels: email (delivered via the org notification provider, F6), slack /
- *   teams (incoming-webhook URL) and generic webhook (URL + optional HMAC
- *   secret). Destination config is vault-encrypted in `configEnc` and NEVER
+ *   teams / discord (incoming-webhook URL), telegram (bot token + chat id),
+ *   ntfy (server + topic + optional token), gotify (server + app token) and
+ *   generic webhook (URL + optional HMAC secret). Per-kind payloads are
+ *   rendered by the pure `alerts-channels.ts`. Destination config is vault-encrypted in `configEnc` and NEVER
  *   returned to clients — views carry a redacted target only.
  * - Rules: one seeded default per known signal (`ensureDefaultRules`, called
- *   from `listRules`) plus user-defined rules; thresholds/for-duration/channel
- *   bindings are editable, defaults can be disabled but not deleted.
+ *   from `listRules` AND every alert-evaluator tick, so every org is covered
+ *   without opening the page) plus user-defined rules; thresholds/for-duration/
+ *   channel bindings are editable. Deleting a default leaves an opt-out
+ *   tombstone (`optedOutAt`, disabled, hidden) so the seed never re-creates it
+ *   and the signal stays muted — the autoBackup opt-out pattern.
  * - Events: `AlertEvent` rows raised through `alerts-fire.ts` (`fireEvent` /
  *   `resolveEvent`) by the alert-evaluator worker and other slices.
  */
@@ -45,13 +65,25 @@ export const ALERT_SIGNATURE_HEADER = 'X-Swarmy-Signature';
 
 // ── Channel config codec (pure, unit-tested) ──────────────────────────────────
 
-export type ChannelKindDb = 'EMAIL' | 'SLACK' | 'TEAMS' | 'WEBHOOK';
+export type ChannelKindDb =
+  | 'EMAIL'
+  | 'SLACK'
+  | 'TEAMS'
+  | 'WEBHOOK'
+  | 'DISCORD'
+  | 'TELEGRAM'
+  | 'NTFY'
+  | 'GOTIFY';
 
 const KIND_TO_DB: Record<ChannelConfigInput['kind'], ChannelKindDb> = {
   email: 'EMAIL',
   slack: 'SLACK',
   teams: 'TEAMS',
   webhook: 'WEBHOOK',
+  discord: 'DISCORD',
+  telegram: 'TELEGRAM',
+  ntfy: 'NTFY',
+  gotify: 'GOTIFY',
 };
 
 const KIND_FROM_DB: Record<ChannelKindDb, ChannelConfigInput['kind']> = {
@@ -59,7 +91,13 @@ const KIND_FROM_DB: Record<ChannelKindDb, ChannelConfigInput['kind']> = {
   SLACK: 'slack',
   TEAMS: 'teams',
   WEBHOOK: 'webhook',
+  DISCORD: 'discord',
+  TELEGRAM: 'telegram',
+  NTFY: 'ntfy',
+  GOTIFY: 'gotify',
 };
+
+const str = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 
 /** Parse a decrypted config blob; malformed/mismatched blobs degrade to null. */
 export function parseChannelConfig(json: string): ChannelConfigInput | null {
@@ -69,8 +107,27 @@ export function parseChannelConfig(json: string): ChannelConfigInput | null {
     if (raw.kind === 'email' && typeof raw.to === 'string') {
       return { kind: 'email', to: raw.to };
     }
-    if ((raw.kind === 'slack' || raw.kind === 'teams') && typeof raw.url === 'string') {
+    if ((raw.kind === 'slack' || raw.kind === 'teams' || raw.kind === 'discord') && typeof raw.url === 'string') {
       return { kind: raw.kind, url: raw.url };
+    }
+    if (raw.kind === 'telegram' && str(raw.botToken) && str(raw.chatId)) {
+      return {
+        kind: 'telegram',
+        botToken: raw.botToken,
+        chatId: raw.chatId,
+        ...(typeof raw.threadId === 'number' && raw.threadId > 0 ? { threadId: raw.threadId } : {}),
+      };
+    }
+    if (raw.kind === 'ntfy' && str(raw.topic)) {
+      return {
+        kind: 'ntfy',
+        server: str(raw.server) ? raw.server : 'https://ntfy.sh',
+        topic: raw.topic,
+        ...(str(raw.token) ? { token: raw.token } : {}),
+      };
+    }
+    if (raw.kind === 'gotify' && str(raw.server) && str(raw.token)) {
+      return { kind: 'gotify', server: raw.server, token: raw.token };
     }
     if (raw.kind === 'webhook' && typeof raw.url === 'string') {
       return {
@@ -83,51 +140,6 @@ export function parseChannelConfig(json: string): ChannelConfigInput | null {
   } catch {
     return null;
   }
-}
-
-/**
- * Redacted destination for the view: an email address, or the URL host — never
- * the full webhook URL (slack/teams incoming-webhook paths are secrets).
- */
-export function channelTarget(config: ChannelConfigInput | null): string {
-  if (!config) return 'unconfigured';
-  if (config.kind === 'email') return config.to;
-  try {
-    return new URL(config.url).host;
-  } catch {
-    return 'invalid URL';
-  }
-}
-
-// ── Notification payload + text rendering (pure, unit-tested) ─────────────────
-
-export interface AlertNotification {
-  kind: 'firing' | 'resolved' | 'test';
-  signal: string;
-  severity: AlertSeverityView;
-  resource: string;
-  message: string;
-  ruleName: string | null;
-  /** ISO timestamp of the transition. */
-  at: string;
-  eventId: string | null;
-}
-
-/** One-line text rendering shared by slack/teams/email deliveries. */
-export function renderNotificationText(n: AlertNotification): string {
-  if (n.kind === 'test') {
-    return `swarmy test notification — if you can read this, the channel works. (${n.at})`;
-  }
-  const head = n.kind === 'firing' ? `🔥 FIRING [${n.severity}]` : `✅ RESOLVED`;
-  const rule = n.ruleName ? ` · rule "${n.ruleName}"` : '';
-  return `${head} ${n.signal} on ${n.resource} — ${n.message}${rule} (${n.at})`;
-}
-
-/** Email subject line for a notification. */
-export function renderNotificationSubject(n: AlertNotification): string {
-  if (n.kind === 'test') return 'swarmy: test notification';
-  const head = n.kind === 'firing' ? `[${n.severity.toUpperCase()}]` : '[RESOLVED]';
-  return `swarmy ${head} ${n.signal}: ${n.resource}`;
 }
 
 // ── Channel delivery ───────────────────────────────────────────────────────────
@@ -151,19 +163,44 @@ function decryptConfig(row: ChannelRow): ChannelConfigInput | null {
   }
 }
 
-async function postJson(url: string, body: string): Promise<{ ok: boolean; detail: string }> {
+/**
+ * POST one rendered channel request. On failure the detail carries the
+ * provider's own reason when it gives one (Telegram's `description`, ntfy's
+ * `error`, Discord's `message`) — with every secret scrubbed out.
+ */
+async function sendChannelRequest(req: {
+  url: string;
+  headers: Record<string, string>;
+  body: string;
+  secrets: string[];
+}): Promise<{ ok: boolean; detail: string }> {
   try {
-    const res = await fetch(url, {
+    const res = await fetch(req.url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
+      headers: req.headers,
+      body: req.body,
       signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
     });
-    return res.ok
-      ? { ok: true, detail: `delivered (HTTP ${res.status})` }
-      : { ok: false, detail: `HTTP ${res.status}` };
+    if (res.ok) return { ok: true, detail: `delivered (HTTP ${res.status})` };
+    let reason = '';
+    try {
+      const text = (await res.text()).slice(0, 2000);
+      try {
+        const j = JSON.parse(text) as Record<string, unknown>;
+        const r = j.description ?? j.error ?? j.message;
+        reason = typeof r === 'string' ? r : '';
+      } catch {
+        reason = text.trim().slice(0, 200);
+      }
+    } catch {
+      // body unreadable — status alone
+    }
+    return {
+      ok: false,
+      detail: redactSecrets(reason ? `HTTP ${res.status}: ${reason}` : `HTTP ${res.status}`, req.secrets),
+    };
   } catch (e) {
-    return { ok: false, detail: e instanceof Error ? e.message : String(e) };
+    return { ok: false, detail: redactSecrets(e instanceof Error ? e.message : String(e), req.secrets) };
   }
 }
 
@@ -188,9 +225,9 @@ export async function deliverToChannel(
       return { ok: false, detail: e instanceof Error ? e.message : String(e) };
     }
   }
-  if (config.kind === 'slack' || config.kind === 'teams') {
-    return postJson(config.url, JSON.stringify({ text: renderNotificationText(n) }));
-  }
+  const push = buildChannelRequest(config, n);
+  if (push) return sendChannelRequest(push);
+  if (config.kind !== 'webhook') return { ok: false, detail: `unsupported channel kind ${config.kind}` };
   // Generic webhook: the structured event + optional HMAC signature.
   const body = JSON.stringify({ event: n });
   try {
@@ -240,7 +277,11 @@ function toChannelView(row: ChannelRow): NotificationChannelView {
     kind: KIND_FROM_DB[row.kind],
     enabled: row.enabled,
     target: channelTarget(config),
-    hasSecret: config?.kind === 'webhook' && Boolean(config.secret),
+    hasSecret:
+      (config?.kind === 'webhook' && Boolean(config.secret)) ||
+      (config?.kind === 'ntfy' && Boolean(config.token)) ||
+      config?.kind === 'telegram' ||
+      config?.kind === 'gotify',
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -386,17 +427,29 @@ function toRuleView(row: RuleRow): AlertRuleView {
 }
 
 /**
+ * The default signals still to seed: every catalog signal with no `isDefault`
+ * row yet. A tombstoned (user-deleted) default counts as present — that is the
+ * opt-out: once removed, a default is never re-created. Pure, unit-tested.
+ */
+export function missingDefaultSignals(existingDefaultSignals: Iterable<string>): AlertSignal[] {
+  const have = new Set(existingDefaultSignals);
+  return ALERT_SIGNALS.filter((s) => !have.has(s));
+}
+
+/**
  * Idempotent default-rule seed: one `isDefault` rule per known signal, created
- * only when that signal has no default yet. Called from `listRules` so every
- * org sees the catalog the first time the page loads.
+ * only when that signal has no default yet (tombstones included — see
+ * `missingDefaultSignals`). Called from `listRules` and from every
+ * alert-evaluator tick, so default alerts are ON for every org from its first
+ * connected node — nobody has to open the Alerts page first. A steady state
+ * writes nothing.
  */
 export async function ensureDefaultRules(ctx: OrgContext): Promise<void> {
   const existing = await ctx.db.alertRule.findMany({
     where: { orgId: ctx.activeOrgId, isDefault: true },
     select: { signal: true },
   });
-  const have = new Set(existing.map((r) => r.signal));
-  const missing = ALERT_SIGNALS.filter((s) => !have.has(s));
+  const missing = missingDefaultSignals(existing.map((r) => r.signal));
   if (missing.length === 0) return;
   await ctx.db.alertRule.createMany({
     data: missing.map((signal: AlertSignal) => ({
@@ -415,7 +468,8 @@ export async function ensureDefaultRules(ctx: OrgContext): Promise<void> {
 export async function listRules(ctx: OrgContext): Promise<AlertRuleView[]> {
   await ensureDefaultRules(ctx);
   const rows = await ctx.db.alertRule.findMany({
-    where: { orgId: ctx.activeOrgId },
+    // Opt-out tombstones are hidden — they exist only to stop the re-seed.
+    where: { orgId: ctx.activeOrgId, optedOutAt: null },
     orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
   });
   return rows.map((r) => toRuleView(r as RuleRow));
@@ -453,7 +507,7 @@ export async function updateRule(
   const existing = await ctx.db.alertRule.findFirst({
     where: { id: input.id, orgId: ctx.activeOrgId },
   });
-  if (!existing) throw notFound('alert rule', input.id);
+  if (!existing || existing.optedOutAt) throw notFound('alert rule', input.id);
   const row = await ctx.db.alertRule.update({
     where: { id: existing.id },
     data: {
@@ -486,16 +540,22 @@ export async function deleteRule(
   const existing = await ctx.db.alertRule.findFirst({
     where: { id: input.id, orgId: ctx.activeOrgId },
   });
-  if (!existing) throw notFound('alert rule', input.id);
+  if (!existing || existing.optedOutAt) throw notFound('alert rule', input.id);
   if (existing.isDefault) {
-    throw commandRejected('default rules cannot be deleted — disable them instead');
+    // Opt-out tombstone: keep the row (disabled + hidden) so the default seed
+    // never re-creates it and the signal stays muted for this org.
+    await ctx.db.alertRule.update({
+      where: { id: existing.id },
+      data: { optedOutAt: new Date(), enabled: false },
+    });
+  } else {
+    await ctx.db.alertRule.delete({ where: { id: existing.id } });
   }
-  await ctx.db.alertRule.delete({ where: { id: existing.id } });
   await writeAudit(ctx, {
     action: 'alerts.deleteRule',
     targetType: 'alertRule',
     targetId: existing.id,
-    metadata: { name: existing.name, signal: existing.signal },
+    metadata: { name: existing.name, signal: existing.signal, optOut: existing.isDefault },
   });
   return { removed: true };
 }
@@ -573,8 +633,8 @@ export async function overview(ctx: OrgContext): Promise<AlertsOverview> {
     ctx.db.alertEvent.count({ where: { orgId, status: 'FIRING' } }),
     ctx.db.alertEvent.count({ where: { orgId, status: 'FIRING', severity: 'critical' } }),
     ctx.db.alertEvent.count({ where: { orgId, status: 'RESOLVED', resolvedAt: { gte: dayAgo } } }),
-    ctx.db.alertRule.count({ where: { orgId } }),
-    ctx.db.alertRule.count({ where: { orgId, enabled: true } }),
+    ctx.db.alertRule.count({ where: { orgId, optedOutAt: null } }),
+    ctx.db.alertRule.count({ where: { orgId, enabled: true, optedOutAt: null } }),
     ctx.db.notificationChannel.count({ where: { orgId } }),
   ]);
   return { firing, firingCritical, resolved24h, rules, rulesEnabled, channels };

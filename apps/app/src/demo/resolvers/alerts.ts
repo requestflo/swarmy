@@ -212,7 +212,7 @@ export const alerts: DomainResolvers = {
       const st = getState(s);
       const rule = st.rules.find((r) => r.id === ruleId);
       if (!rule) throw new Error('alert rule not found');
-      if (rule.isDefault) throw new Error('default rules cannot be deleted — disable them instead');
+      // Defaults are opt-out tombstoned server-side; the demo simply drops them.
       st.rules = st.rules.filter((r) => r.id !== ruleId);
       return { removed: true };
     },
@@ -226,17 +226,12 @@ export const alerts: DomainResolvers = {
         name: b.name,
         kind: b.config.kind,
         enabled: true,
-        target:
-          b.config.kind === 'email'
-            ? b.config.to
-            : (() => {
-                try {
-                  return new URL(b.config.url).host;
-                } catch {
-                  return 'invalid URL';
-                }
-              })(),
-        hasSecret: b.config.kind === 'webhook' && Boolean(b.config.secret),
+        target: demoChannelTarget(b.config),
+        hasSecret:
+          (b.config.kind === 'webhook' && Boolean(b.config.secret)) ||
+          (b.config.kind === 'ntfy' && Boolean(b.config.token)) ||
+          b.config.kind === 'telegram' ||
+          b.config.kind === 'gotify',
         createdAt: nowIso(),
       };
       getState(s).channels.push(channel);
@@ -270,3 +265,16 @@ export const alerts: DomainResolvers = {
     },
   },
 };
+
+/** Mirror of the controller's redacted `channelTarget` (alerts-channels.ts). */
+function demoChannelTarget(config: ChannelConfigInput): string {
+  if (config.kind === 'email') return config.to;
+  if (config.kind === 'telegram') return `chat ${config.chatId}`;
+  const raw = config.kind === 'ntfy' || config.kind === 'gotify' ? config.server : config.url;
+  try {
+    const host = new URL(raw).host;
+    return config.kind === 'ntfy' ? `${host}/${config.topic}` : host;
+  } catch {
+    return 'invalid URL';
+  }
+}

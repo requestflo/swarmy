@@ -5,6 +5,10 @@ enum NotificationChannelKind {
   SLACK
   TEAMS
   WEBHOOK
+  DISCORD
+  TELEGRAM
+  NTFY
+  GOTIFY
 }
 
 enum AlertEventStatus {
@@ -39,7 +43,9 @@ model AlertRule {
   orgId        String
   name         String
   // Signal key evaluated by the alert-evaluator worker (e.g. node-offline,
-  // service-down, db-degraded, queue-depth, error-rate, cert-expiry, disk).
+  // service-down, db-degraded, queue-depth, error-rate, cert-expiry,
+  // disk-usage, crash-loop) or fired by a slice (build-failed, deploy-failed,
+  // deploy-rolled-back, backup-failed).
   signal       String
   selectorJson Json     @default("{}")
   threshold    Float?
@@ -48,6 +54,10 @@ model AlertRule {
   channelIds   Json     @default("[]")
   enabled      Boolean  @default(true)
   isDefault    Boolean  @default(false)
+  /// Opt-out tombstone: the user deleted this DEFAULT rule. Kept (disabled,
+  /// hidden from lists) so the default seed never re-creates it — the
+  /// autoBackup `optedOutAt` pattern.
+  optedOutAt   DateTime? @db.Timestamptz(3)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
