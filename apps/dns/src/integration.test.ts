@@ -235,3 +235,31 @@ describe('persistence', () => {
     expect(revived.current?.zones[0]?.zone).toBe('example.com');
   });
 });
+
+describe('ACME DNS-01 + wildcards (end to end)', () => {
+  it('serves a staged _acme-challenge TXT and synthesizes wildcard A answers', async () => {
+    const b = bundle(100);
+    const z = b.zones[0]!;
+    z.geoRecords.push({
+      host: '*.example.com',
+      maxAnswers: 1,
+      endpoints: [{ nodeId: 'n1', region: 'eu-west', ip: '203.0.113.10', healthy: true }],
+    });
+    z.staticRecords.push({ name: '_acme-challenge', type: 'TXT', value: 'LoqXcYV8q5ONbJQxbmR7SCTNo3tiAXDfowyjxAjEuX0', ttl: 10 });
+    const res = await adminFetch('/v1/snapshot', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(b),
+    });
+    expect(res.status).toBe(200);
+
+    const txt = await udpQuery({ type: 'query', id: 7, flags: dnsPacket.RECURSION_DESIRED, questions: [{ type: 'TXT', name: '_acme-challenge.example.com' }] });
+    expect(txt.flags & dnsPacket.AUTHORITATIVE_ANSWER).toBeTruthy();
+    const data = (txt.answers ?? []).map((a) => String((a as { data: Buffer[] }).data));
+    expect(data).toEqual(['LoqXcYV8q5ONbJQxbmR7SCTNo3tiAXDfowyjxAjEuX0']);
+
+    const wild = await udpQuery({ type: 'query', id: 8, flags: 0, questions: [{ type: 'A', name: 'shop.example.com' }] });
+    expect(wild.rcode).toBe('NOERROR');
+    expect((wild.answers ?? []).map((a) => [a.name, (a as { data: string }).data])).toEqual([['shop.example.com', '203.0.113.10']]);
+  });
+});
