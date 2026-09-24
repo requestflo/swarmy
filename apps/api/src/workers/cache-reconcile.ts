@@ -87,6 +87,8 @@ interface Decl {
   memoryMb: number;
   replicas: number;
   regionReplicas: Record<string, number>;
+  /** `swarmy.cache.purpose=queue` ⇒ noeviction — a converge must never revert it to LRU. */
+  queue: boolean;
 }
 
 function topologyOf(labels: Record<string, string> | undefined): CacheTopology {
@@ -112,6 +114,7 @@ function declOf(c: Cluster): Decl {
     memoryMb: Number.isFinite(memory) && memory > 0 ? memory : 256,
     replicas: Number.isFinite(replicas) && replicas >= 0 ? replicas : 0,
     regionReplicas,
+    queue: anchor['swarmy.cache.purpose'] === 'queue',
   };
 }
 
@@ -132,6 +135,7 @@ function toClusterDecl(
     memoryMb: decl.memoryMb,
     replicas: decl.replicas,
     regionReplicas: decl.regionReplicas,
+    ...(decl.queue ? { purpose: 'queue' as const } : {}),
     ...(pin.pinNode ? { pinNode: pin.pinNode } : {}),
     ...(pin.pinNode && pin.multiNode ? { avoidNode: pin.pinNode } : {}),
   };

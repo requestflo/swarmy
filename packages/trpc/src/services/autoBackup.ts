@@ -98,6 +98,11 @@ function isNamedVolume(m: { type?: string; source?: string }): m is { type?: str
   return !m.source.startsWith('/');
 }
 
+/** The primary of a managed queue cache (`swarmy.cache.purpose=queue`). */
+function isQueuePrimary(s: SwarmServiceInfo): boolean {
+  return s.labels['swarmy.cache.purpose'] === 'queue' && s.labels['swarmy.cache.role'] === 'primary';
+}
+
 function underDir(target: string, dir: string): boolean {
   const t = target.replace(/\/+$/, '');
   return t === dir || t.startsWith(`${dir}/`);
@@ -121,7 +126,10 @@ export function detectDbServices(services: SwarmServiceInfo[]): DetectedDb[] {
     // it can't tell a user's database from swarmy plumbing. Plumbing is the
     // `swarmy-` prefix or the system label; managed members are skipped below.
     if (s.name.startsWith('swarmy-') || s.labels['swarmy.system'] === 'true') continue;
-    if (Object.keys(s.labels).some((k) => MANAGED_PREFIXES.some((p) => k.startsWith(p)))) continue;
+    // A BullMQ-ready queue cache is the exception: its primary IS the job store
+    // (noeviction, AOF), so it rides the same nightly volume copy + logical
+    // valkey/redis dump as a compose DB (its password file is named in env).
+    if (!isQueuePrimary(s) && Object.keys(s.labels).some((k) => MANAGED_PREFIXES.some((p) => k.startsWith(p)))) continue;
     const named = (s.mounts ?? []).flatMap((m) =>
       isNamedVolume(m) ? [{ source: m.source, target: m.target }] : [],
     );

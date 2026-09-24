@@ -3,6 +3,7 @@ import { AttachCacheInput, ProvisionCacheInput } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
 import { abacProcedure } from '../abac';
 import {
+  CachePurposeInput,
   attachCacheToService,
   backupCache,
   cacheStats,
@@ -39,7 +40,7 @@ const clusterRef = z.object({ stack: stackName, cluster: clusterName });
 export const managedCacheRouter = router({
   /** Provision a cluster. Returns the generated password ONCE — never again. */
   provision: orgProcedure
-    .input(ProvisionCacheInput)
+    .input(ProvisionCacheInput.extend({ purpose: CachePurposeInput.optional() }))
     .mutation(({ ctx, input }) => provisionCache(ctx, input)),
 
   /** Managed cache clusters — the whole org, or one stack when `stack` is given. */

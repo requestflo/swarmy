@@ -6,6 +6,7 @@ import {
   cacheRegionReplicaSpec,
   cacheReplicaSpec,
   cacheSentinelSpec,
+  defaultCacheEnvVar,
   encodeStatsLabel,
   memoryLimitBytes,
   parseCacheInfo,
@@ -302,6 +303,45 @@ describe('spec builders — private-only, secret-fed, memory-capped', () => {
       { type: 'volume', source: 'shop_main-cache-data', target: '/data' },
     ]);
     expect(spec.labels?.['swarmy.cache.region.eu-west.replicas']).toBe('1');
+  });
+});
+
+describe('queue purpose — a BullMQ-ready cache', () => {
+  const q = {
+    stack: 'shop',
+    cluster: 'jobs',
+    engine: 'valkey' as const,
+    topology: 'replica' as const,
+    memoryMb: 256,
+    replicas: 1,
+    purpose: 'queue' as const,
+  };
+
+  it('data members run noeviction with AOF; plain caches keep allkeys-lru', () => {
+    for (const spec of [cachePrimarySpec(q), cacheReplicaSpec(q, 1)]) {
+      expect(spec.args?.[0]).toContain('--maxmemory-policy noeviction');
+      expect(spec.args?.[0]).toContain('--appendonly yes');
+      expect(spec.labels?.['swarmy.cache.purpose']).toBe('queue');
+    }
+    const plain = cachePrimarySpec({ ...q, purpose: undefined });
+    expect(plain.args?.[0]).toContain('--maxmemory-policy allkeys-lru');
+    expect(plain.labels?.['swarmy.cache.purpose']).toBeUndefined();
+  });
+
+  it('the queue primary names its password FILE for the logical backup, never the value', () => {
+    const spec = cachePrimarySpec(q);
+    expect(spec.env).toEqual({ VALKEY_PASSWORD_FILE: '/run/secrets/cache-password' });
+    expect(cachePrimarySpec({ ...q, engine: 'redis' }).env).toEqual({
+      REDIS_PASSWORD_FILE: '/run/secrets/cache-password',
+    });
+    expect(cacheReplicaSpec(q, 1).env).toBeUndefined();
+    expect(cachePrimarySpec({ ...q, purpose: undefined }).env).toBeUndefined();
+  });
+
+  it('queues bind QUEUE_URL by default, caches REDIS_URL', () => {
+    expect(defaultCacheEnvVar('queue')).toBe('QUEUE_URL');
+    expect(defaultCacheEnvVar('cache')).toBe('REDIS_URL');
+    expect(cachePasswordFileVar('QUEUE_URL')).toBe('QUEUE_PASSWORD_FILE');
   });
 });
 

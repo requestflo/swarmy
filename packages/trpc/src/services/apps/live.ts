@@ -91,6 +91,7 @@ export function resourceServiceName(
     case 'postgres':
       return primaryServiceName(stack, r.name);
     case 'cache':
+    case 'queue':
       return cachePrimaryName(stack, r.name);
     case 'search':
       return searchServiceName(stack, r.name);

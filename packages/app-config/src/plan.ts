@@ -467,6 +467,10 @@ export function gateResourceUpdate(
     if (JSON.stringify(after.backups) !== JSON.stringify(before.backups) && after.backups)
       auto.push('backup schedule');
   } else if (before.type === 'cache' && after.type === 'cache') {
+    if ((after.purpose ?? 'cache') !== (before.purpose ?? 'cache'))
+      confirm.push(
+        `switch ${before.purpose ?? 'cache'} → ${after.purpose ?? 'cache'} (queues never evict; caches do) — declare a new resource instead`,
+      );
     if (after.engine !== before.engine)
       confirm.push(`switch ${before.engine} → ${after.engine} (cache starts empty)`);
     if (after.memoryMb < before.memoryMb)

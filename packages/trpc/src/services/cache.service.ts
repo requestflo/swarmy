@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import {
   applyDataPin,
@@ -85,6 +86,13 @@ export const CACHE_REPLICAS_LABEL = 'swarmy.cache.replicas';
 export const CACHE_REGION_LABEL = 'swarmy.cache.region';
 /** JSON CacheStatsView stamped on the primary by the reconcile worker. */
 export const CACHE_STATS_LABEL = 'swarmy.cache.stats';
+/**
+ * `queue` on every member of a BullMQ-ready cluster: `noeviction` instead of
+ * `allkeys-lru` (an evicted job key is a lost job — BullMQ refuses to run on
+ * an evicting instance) and the primary joins the default-on backups.
+ */
+export const CACHE_PURPOSE_LABEL = 'swarmy.cache.purpose';
+export type CachePurpose = 'cache' | 'queue';
 /** On an APP service: which cluster it is wired to + the env var name used. */
 export const CACHE_INJECT_LABEL = 'swarmy.cache.inject';
 export const CACHE_INJECT_VAR_LABEL = 'swarmy.cache.inject.var';
@@ -389,6 +397,27 @@ export interface CacheClusterDecl {
   pinNode?: string;
   /** Base replicas avoid this swarm node (multi-node swarms: the primary's pin). */
   avoidNode?: string;
+  /** `queue` = BullMQ-ready (noeviction). Omitted = a plain LRU cache. */
+  purpose?: CachePurpose;
+}
+
+/**
+ * Provision input: the core schema + the queue purpose. (Kept here, not in
+ * `@swarmy/core` inputs, so the router's `.extend` is the one wire schema.)
+ */
+export const CachePurposeInput = z.enum(['cache', 'queue']);
+export type ProvisionCacheRequest = ProvisionCacheInput & { purpose?: CachePurpose };
+/** A cluster view + its purpose (`swarmy.cache.purpose`). */
+export type CacheClusterPurposeView = CacheClusterView & { purpose: CachePurpose };
+
+/** `swarmy.cache.purpose` off a member's labels (default `cache`). */
+export function cachePurposeOf(labels: Record<string, string> | undefined): CachePurpose {
+  return labels?.[CACHE_PURPOSE_LABEL] === 'queue' ? 'queue' : 'cache';
+}
+
+/** The default app env var for a cluster: queues bind `QUEUE_URL`, caches `REDIS_URL`. */
+export function defaultCacheEnvVar(purpose: CachePurpose | undefined): string {
+  return purpose === 'queue' ? 'QUEUE_URL' : 'REDIS_URL';
 }
 
 function cacheLabels(
@@ -407,6 +436,7 @@ function cacheLabels(
     [CACHE_REPLICAS_LABEL]: String(decl.replicas),
     // Caches must stay warm — the idle sleeper must never scale them to 0.
     [SCALE_TO_ZERO_EXEMPT_LABEL]: 'true',
+    ...(decl.purpose === 'queue' ? { [CACHE_PURPOSE_LABEL]: 'queue' } : {}),
     ...(role === 'sentinel' ? {} : { [CACHE_APPLIED_MEMORY_LABEL]: String(decl.memoryMb) }),
     ...extra,
   };
@@ -435,7 +465,7 @@ export function cacheServerCommand(decl: CacheClusterDecl, replicaOf?: string): 
     '--requirepass "$(cat /run/secrets/cache-password)"',
     '--masterauth "$(cat /run/secrets/cache-password)"',
     `--maxmemory ${decl.memoryMb}mb`,
-    '--maxmemory-policy allkeys-lru',
+    `--maxmemory-policy ${decl.purpose === 'queue' ? 'noeviction' : 'allkeys-lru'}`,
     '--appendonly yes',
     '--dir /data',
   ];
@@ -467,6 +497,15 @@ function dataMemberSpec(
     networks: [cacheNetworkName(decl.stack, decl.cluster)],
     secrets: secretRef(decl),
     resources: { limits: { memoryBytes: memoryLimitBytes(decl.memoryMb) } },
+    // A queue primary names its password FILE (the official image ignores the
+    // var) so the default-on logical backup resolves credentials in-task.
+    ...(isPrimary && decl.purpose === 'queue'
+      ? {
+          env: {
+            [decl.engine === 'redis' ? 'REDIS_PASSWORD_FILE' : 'VALKEY_PASSWORD_FILE']: `/run/secrets/${CACHE_SECRET_TARGET}`,
+          },
+        }
+      : {}),
     // Only the primary persists — its volume is the backup/restore unit.
     ...(isPrimary
       ? {
@@ -654,6 +693,7 @@ function declOf(c: LiveCluster, multiNode = false): CacheClusterDecl {
     regionReplicas: parseCacheRegionReplicas(anchor),
     ...(pinNode ? { pinNode } : {}),
     ...(pinNode && multiNode ? { avoidNode: pinNode } : {}),
+    ...(cachePurposeOf(anchor) === 'queue' ? { purpose: 'queue' as const } : {}),
   };
 }
 
@@ -677,7 +717,7 @@ function redeployDeclOf(ctx: OrgContext, c: LiveCluster): CacheClusterDecl {
 
 // ── View projection ───────────────────────────────────────────────────────────
 
-function toView(ctx: OrgContext, c: LiveCluster): CacheClusterView {
+function toView(ctx: OrgContext, c: LiveCluster): CacheClusterPurposeView {
   const decl = declOf(c);
   const host = c.primary?.name ?? cachePrimaryName(c.stack, c.name);
   const memberViews: CacheMemberView[] = c.members
@@ -700,7 +740,10 @@ function toView(ctx: OrgContext, c: LiveCluster): CacheClusterView {
   );
   const attachments: CacheAttachmentView[] = liveOrgServices(ctx)
     .filter((s) => s.stack === c.stack && s.labels[CACHE_INJECT_LABEL] === c.name)
-    .map((s) => ({ service: s.name, envVar: s.labels[CACHE_INJECT_VAR_LABEL] ?? 'REDIS_URL' }))
+    .map((s) => ({
+      service: s.name,
+      envVar: s.labels[CACHE_INJECT_VAR_LABEL] ?? defaultCacheEnvVar(decl.purpose),
+    }))
     .sort((a, b) => a.service.localeCompare(b.service));
 
   return {
@@ -709,6 +752,7 @@ function toView(ctx: OrgContext, c: LiveCluster): CacheClusterView {
     engine: decl.engine,
     topology: decl.topology,
     memoryMb: decl.memoryMb,
+    purpose: decl.purpose ?? 'cache',
     declaredReplicas: decl.replicas,
     primary: { service: host, status: c.primary?.status ?? 'absent' },
     replicas: {
@@ -732,7 +776,7 @@ function toView(ctx: OrgContext, c: LiveCluster): CacheClusterView {
 }
 
 /** Managed cache clusters — org-wide, or scoped to one stack when given. */
-export function listCacheClusters(ctx: OrgContext, stack?: string): CacheClusterView[] {
+export function listCacheClusters(ctx: OrgContext, stack?: string): CacheClusterPurposeView[] {
   return groupClusters(liveOrgServices(ctx))
     .map((c) => toView(ctx, c))
     .filter((v) => !stack || v.stack === stack)
@@ -743,7 +787,7 @@ export function listCacheClusters(ctx: OrgContext, stack?: string): CacheCluster
 export function getCacheCluster(
   ctx: OrgContext,
   input: { stack: string; cluster: string },
-): CacheClusterView {
+): CacheClusterPurposeView {
   return toView(ctx, requireCluster(ctx, input.stack, input.cluster));
 }
 
@@ -756,7 +800,7 @@ export function getCacheCluster(
  */
 export async function provisionCache(
   ctx: OrgContext,
-  input: ProvisionCacheInput,
+  input: ProvisionCacheRequest,
 ): Promise<CacheProvisionResult> {
   const stack = input.stack.trim();
   const cluster = input.name.trim();
@@ -775,6 +819,7 @@ export async function provisionCache(
     topology: input.topology,
     memoryMb: input.memoryMb,
     replicas: input.replicas,
+    ...(input.purpose === 'queue' ? { purpose: 'queue' as const } : {}),
     regionReplicas: Object.fromEntries(
       input.regions.filter((r) => r.replicas > 0).map((r) => [r.region.trim(), r.replicas]),
     ),
@@ -843,6 +888,7 @@ export async function provisionCache(
       memoryMb: decl.memoryMb,
       replicas: decl.replicas,
       regions: Object.keys(decl.regionReplicas ?? {}),
+      purpose: decl.purpose ?? 'cache',
     },
   });
 
@@ -853,7 +899,7 @@ export async function provisionCache(
       stack,
       cluster,
       appService: input.attachService,
-      envVar: 'REDIS_URL',
+      envVar: defaultCacheEnvVar(decl.purpose),
     }).catch(() => undefined);
   }
 

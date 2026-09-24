@@ -141,6 +141,31 @@ describe('detectDbServices — DB services with a named data volume', () => {
   });
 });
 
+describe('detectDbServices — managed queue caches are backed up like a DB', () => {
+  it('includes a queue primary (noeviction job store) but not its replica or a plain cache', () => {
+    const labels = {
+      'com.docker.stack.namespace': 'shop',
+      'swarmy.cache.cluster': 'jobs',
+      'swarmy.cache.purpose': 'queue',
+    };
+    const primary = svc({
+      name: 'shop_jobs-cache',
+      image: 'valkey/valkey:8',
+      labels: { ...labels, 'swarmy.cache.role': 'primary' },
+      mounts: [{ type: 'volume', source: 'shop_jobs-cache-data', target: '/data' }],
+    });
+    const replica = svc({
+      name: 'shop_jobs-cache-replica',
+      image: 'valkey/valkey:8',
+      labels: { ...labels, 'swarmy.cache.role': 'replica' },
+      mounts: [{ type: 'volume', source: 'shop_jobs-cache-data', target: '/data' }],
+    });
+    expect(detectDbServices([primary, replica])).toEqual([
+      { stack: 'shop', service: 'shop_jobs-cache', engine: 'valkey', volume: 'shop_jobs-cache-data' },
+    ]);
+  });
+});
+
 // ── destination choice ──────────────────────────────────────────────────────
 
 describe('chooseAutoBackupTarget — native store → off-box S3 → node path → none', () => {
