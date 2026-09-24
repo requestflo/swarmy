@@ -399,7 +399,10 @@ export function planApp(desired: DesiredApp, live: LiveApp, opts: PlanOptions = 
       id: `resource.delete:${l.name}`,
       phase: 6,
       gate: 'confirm',
-      reason: `delete ${l.type} "${l.name}" and all of its data`,
+      reason:
+        l.type === 'postgres'
+          ? `remove postgres "${l.name}" — its data volume is kept until you delete it permanently`
+          : `delete ${l.type} "${l.name}" and all of its data`,
       kind: 'resource.delete',
       name: l.name,
       resourceType: l.type,

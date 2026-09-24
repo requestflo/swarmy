@@ -69,6 +69,15 @@ describe('environments', () => {
     expect(prod.jobs).toHaveLength(1);
   });
 
+  it('a PR against staging previews the staging definition with pr hosts', () => {
+    const d = toDesired(cfg(FULL_EXAMPLE), { environment: 'staging', preview: { pr: 9, baseDomain: 'p.example.com' } });
+    expect(d.stack).toBe('orders-pr9');
+    expect(d.environment).toBe('preview');
+    expect(d.services.find((s) => s.name === 'web')?.env.LOG_LEVEL).toBe('debug'); // staging's env
+    expect(d.routes.map((r) => r.host)).toEqual(['pr-9-admin.p.example.com', 'pr-9.p.example.com']);
+    expect(d.jobs).toEqual([]);
+  });
+
   it('resolveEnvironment is the identity for production', () => {
     const c = cfg(FULL_EXAMPLE);
     expect(resolveEnvironment(c, 'production')).toBe(c);

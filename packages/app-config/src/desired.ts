@@ -365,7 +365,9 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
   for (const [name, s] of Object.entries(cfg.services)) {
     if (s.port === undefined) continue;
     const port = s.port;
-    const domains = s.domains ?? [];
+    // A preview of a named environment still needs to know which services are
+    // web-facing: fall back to the production domains (their HOSTS are never used).
+    const domains = s.domains ?? (preview ? input.services[name]?.domains : undefined) ?? [];
     if (preview) {
       // One host per service: the first routed service gets pr-<N>.<base>.
       if (!domains.length) continue;
