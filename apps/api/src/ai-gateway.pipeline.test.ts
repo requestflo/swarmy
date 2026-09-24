@@ -17,7 +17,7 @@ process.env.SWARMY_SECRET_KEY ??= 'test-secret-key-for-the-ai-gateway-pipeline-0
 
 const { prisma, ensureSchema, buildAdapter } = await import('@swarmy/db');
 const { encryptSecret } = await import('@swarmy/core/crypto');
-const { aiGatewayApp, setRetryOptions } = await import('./ai-gateway');
+const { aiGatewayApp, configureUpstreamGuard, setRetryOptions } = await import('./ai-gateway');
 
 const ORG = 'org_ai';
 const USER = 'user_member';
@@ -41,7 +41,8 @@ beforeAll(async () => {
       const url = new URL(req.url);
       hits.push(url.pathname);
       const body = (await req.json().catch(() => ({}))) as { model?: string; stream?: boolean };
-      if (url.pathname.startsWith('/flaky/')) return new Response('overloaded', { status: 503 });
+      if (url.pathname.startsWith('/flaky/')) return new Response('overloaded internal-secret-body', { status: 503 });
+      if (url.pathname.startsWith('/redir/')) return new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data' } });
       if (url.pathname === '/anth/v1/messages') {
         return Response.json({
           id: 'msg_mock',
@@ -109,6 +110,8 @@ beforeAll(async () => {
     },
   });
   setRetryOptions({ retries: 2, baseDelayMs: 1, maxDelayMs: 2, sleep: async () => {} });
+  // The mock upstream is on loopback, which the SSRF guard refuses by default.
+  configureUpstreamGuard({ allowHosts: ['127.0.0.1'] });
 });
 
 afterAll(() => {
@@ -228,5 +231,54 @@ describe('AI gateway pipeline', () => {
     expect(ids).toEqual([]);
     const all = await aiGatewayApp.request('/v1/models', { headers: { authorization: 'Bearer swk-ai-free' } });
     expect(((await all.json()) as { data: Array<{ id: string }> }).data.map((d) => d.id)).toContain('smart');
+  });
+});
+
+describe('AI gateway hardening (security review H13/H14)', () => {
+  it('refuses an oversized chunked body (no Content-Length) with 413 before auth', async () => {
+    const chunk = new Uint8Array(1024 * 1024);
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(ctrl) {
+        if (sent > 10 * 1024 * 1024) return ctrl.close();
+        sent += chunk.length;
+        ctrl.enqueue(chunk);
+      },
+    });
+    const res = await aiGatewayApp.request('/v1/chat/completions', { method: 'POST', body, duplex: 'half' } as RequestInit);
+    expect(res.status).toBe(413);
+  });
+
+  it('never reflects an upstream error body to the caller', async () => {
+    const res = await post('chat/completions', 'free', chat('some-unknown-model'));
+    expect(res.status).toBe(503);
+    const text = await res.text();
+    expect(text).not.toContain('internal-secret-body');
+    expect(text).toContain('HTTP 503');
+  });
+
+  it('refuses a loopback upstream that is not allowlisted, and never follows redirects', async () => {
+    configureUpstreamGuard({ allowHosts: [] });
+    try {
+      hits.length = 0;
+      const res = await post('chat/completions', 'free', chat('some-unknown-model'));
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain('upstream URL refused');
+      expect(hits).toHaveLength(0);
+    } finally {
+      configureUpstreamGuard({ allowHosts: ['127.0.0.1'] });
+    }
+    const cfg = await prisma.aiProviderConfig.findUniqueOrThrow({ where: { orgId: ORG } });
+    const doc = cfg.providersJson as { providers: Array<{ kind: string; baseUrl: string }> };
+    const original = doc.providers.map((p) => ({ ...p }));
+    doc.providers = doc.providers.map((p) => (p.kind === 'custom' ? { ...p, baseUrl: p.baseUrl.replace('/flaky', '/redir') } : p));
+    await prisma.aiProviderConfig.update({ where: { orgId: ORG }, data: { providersJson: doc as object } });
+    try {
+      const res = await post('chat/completions', 'free', chat('some-unknown-model'));
+      expect(res.status).toBe(502);
+      expect(await res.text()).toContain('redirect');
+    } finally {
+      await prisma.aiProviderConfig.update({ where: { orgId: ORG }, data: { providersJson: { ...doc, providers: original } as object } });
+    }
   });
 });

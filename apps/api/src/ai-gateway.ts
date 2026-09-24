@@ -27,12 +27,15 @@
  * Control plane: @swarmy/trpc `ai.service.ts`. Mounted at `/ai`.
  */
 import { createHash } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
 import { Hono, type Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import {
   AI_PROVIDERS,
   AI_PROVIDER_KINDS,
   MODEL_CATALOG,
   aiModelResource,
+  checkProviderUrl,
   costMicros,
   discoverInClusterModels,
   effectiveRoutes,
@@ -53,6 +56,7 @@ import {
   type AiKeyPolicy,
   type AiProviderKind,
   type AiRouteTarget,
+  type HostResolver,
   type ResolvedModel,
 } from '@swarmy/core/views';
 import { decryptSecret } from '@swarmy/core/crypto';
@@ -201,6 +205,8 @@ export function appOfKey(appRef: string | null): string | null {
 export interface GatewayConfig {
   doc: AiConfigDoc;
   keys: Partial<Record<AiProviderKind, string>>;
+  /** Hostnames of the org's discovered in-cluster engines (SSRF allowlist). */
+  allowHosts?: string[];
 }
 
 /** Column pair → parsed doc + decrypted credential map (undecryptable = none). */
@@ -301,7 +307,40 @@ async function loadConfig(orgId: string): Promise<GatewayConfig> {
     found = [];
   }
   cfg.doc.providers = withDiscovered(cfg.doc.providers, found);
+  cfg.allowHosts = found.map((f) => hostPort(f.baseUrl).address).filter((h): h is string => Boolean(h));
   return cfg;
+}
+
+// ── Upstream SSRF guard ──────────────────────────────────────────────────────
+
+const defaultResolver: HostResolver = async (host) => (await lookup(host, { all: true })).map((a) => a.address);
+let upstreamResolver: HostResolver = defaultResolver;
+let extraAllowHosts: string[] = [];
+
+/** Test seam: the DNS resolver and extra allowed hosts for the upstream guard. */
+export function configureUpstreamGuard(o: { resolve?: HostResolver | null; allowHosts?: string[] }): void {
+  if (o.resolve !== undefined) upstreamResolver = o.resolve ?? defaultResolver;
+  if (o.allowHosts) extraAllowHosts = o.allowHosts;
+}
+
+/**
+ * Checked right before every upstream fetch: http(s), no userinfo, and the
+ * host resolves only to public addresses unless it is one of the org's
+ * in-cluster engines. Returns a refusal reason, or null when the URL is fine.
+ */
+async function upstreamRefusal(url: string, allowHosts: readonly string[] = []): Promise<string | null> {
+  const r = await checkProviderUrl(url, { allowQuery: true, resolve: upstreamResolver, allowHosts: [...allowHosts, ...extraAllowHosts] });
+  return r.ok ? null : r.reason;
+}
+
+/** Upstream fetch that never follows redirects (a 3xx could point anywhere). */
+async function upstreamFetch(url: string, init: RequestInit): Promise<Response> {
+  const res = await fetch(url, { ...init, redirect: 'manual' });
+  if (res.status >= 300 && res.status < 400) {
+    await res.body?.cancel().catch(() => {});
+    throw new Error(`upstream redirect (HTTP ${res.status}) refused`);
+  }
+  return res;
 }
 
 /** ABAC `ai.use` for the member behind the key (cached 30s). */
@@ -491,9 +530,17 @@ async function callUpstream(
           resource: { orgId: ctx.key.orgId, stack: app },
         };
         ctx.spans.push(span);
+        const refused = await upstreamRefusal(up.url, ctx.cfg.allowHosts);
+        if (refused) {
+          span.endMs = Date.now();
+          span.error = `upstream refused: ${refused}`;
+          span.attributes['error.type'] = 'ssrf_refused';
+          console.warn(`[ai-gateway] org ${ctx.key.orgId} ${target.provider}: upstream URL refused (${refused})`);
+          return { ok: false, status: 400, error: `${target.provider} upstream URL refused: ${refused}` };
+        }
         let res: Response;
         try {
-          res = await fetch(up.url, {
+          res = await upstreamFetch(up.url, {
             method: 'POST',
             headers: { ...up.headers, traceparent: formatTraceparent(ctx.trace.traceId, spanId, ctx.trace.sampled) },
             body: up.body,
@@ -506,14 +553,17 @@ async function callUpstream(
           return { ok: false, status: null, error: `upstream unreachable: ${span.error}` };
         }
         if (!res.ok) {
+          // Upstream error text stays in the server log — never reflected to
+          // the caller (it may be an internal host's response body).
           const text = await res.text().catch(() => '');
+          if (text) console.warn(`[ai-gateway] org ${ctx.key.orgId} ${target.provider} HTTP ${res.status}: ${text.slice(0, 300)}`);
           span.endMs = Date.now();
           span.error = `HTTP ${res.status}`;
           span.attributes['error.type'] = String(res.status);
           return {
             ok: false,
             status: res.status,
-            error: `${target.provider} HTTP ${res.status}${text ? `: ${text.slice(0, 300)}` : ''}`,
+            error: `${target.provider} HTTP ${res.status}`,
             retryAfterMs: parseRetryAfter(res.headers.get('retry-after')) ?? undefined,
           };
         }
@@ -921,8 +971,7 @@ function opFor(path: string): Op | null {
 async function proxy(c: Context): Promise<Response> {
   const path = c.req.path.replace(/^\/ai/, '');
   const op = opFor(path)!;
-  const declared = Number(c.req.header('content-length') ?? 0);
-  if (declared > BODY_MAX_BYTES) return errResponse(op, 413, 'request body too large');
+  // The body cap (chunked included) is enforced by bodyLimit on the app.
   const rawBody = await c.req.text();
   const r = await runPipeline({
     op,
@@ -962,6 +1011,16 @@ async function listModels(c: Context): Promise<Response> {
 }
 
 export const aiGatewayApp = new Hono();
+
+// Before auth and before any handler reads: bodyLimit counts chunked bodies
+// too (no Content-Length), so a stream can't bypass the cap.
+aiGatewayApp.use(
+  '*',
+  bodyLimit({
+    maxSize: BODY_MAX_BYTES,
+    onError: (c) => errResponse(opFor(c.req.path) ?? 'chat', 413, 'request body too large'),
+  }),
+);
 
 aiGatewayApp.post('/v1/chat/completions', proxy);
 aiGatewayApp.post('/v1/embeddings', proxy);
@@ -1052,12 +1111,18 @@ export async function probeProvider(orgId: string, provider: AiProviderKind): Pr
     return { ok: false, latencyMs: 0, target: provider, message: e instanceof Error ? e.message : String(e) };
   }
   const target = t.model && !url.includes('/models') && !url.endsWith('/key') ? t.model : url;
+  const refused = await upstreamRefusal(url, cfg.allowHosts);
+  if (refused) return { ok: false, latencyMs: 0, target, message: `upstream URL refused: ${refused}` };
   try {
-    const res = await fetch(url, { ...init, signal: AbortSignal.timeout(15_000) });
+    const res = await upstreamFetch(url, { ...init, signal: AbortSignal.timeout(15_000) });
     const latencyMs = Date.now() - started;
-    if (res.ok) return { ok: true, latencyMs, target, message: null };
+    if (res.ok) {
+      await res.body?.cancel().catch(() => {});
+      return { ok: true, latencyMs, target, message: null };
+    }
     const text = await res.text().catch(() => '');
-    return { ok: false, latencyMs, target, message: `HTTP ${res.status}${text ? `: ${text.slice(0, 160)}` : ''}` };
+    if (text) console.warn(`[ai-gateway] probe org ${orgId} ${provider} HTTP ${res.status}: ${text.slice(0, 300)}`);
+    return { ok: false, latencyMs, target, message: `HTTP ${res.status}` };
   } catch (e) {
     return { ok: false, latencyMs: Date.now() - started, target, message: e instanceof Error ? e.message : String(e) };
   }
