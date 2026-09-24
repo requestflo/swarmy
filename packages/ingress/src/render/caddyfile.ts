@@ -6,6 +6,7 @@ import type {
   RouteProtection,
 } from '../types';
 import type { HostRedirect } from '../www';
+import { caddyDnsTlsLines } from '../dns-challenge';
 
 /**
  * Curated scanner-path list backing `waf.blockScannerPaths` — the endpoints
@@ -333,6 +334,9 @@ function siteTls(host: string, tls: DomainRoute['tls'], config: IngressConfig): 
     return material ? [`  tls ${material.cert} ${material.key}`] : [];
   }
   if (tls === 'auto' && isPrivateHost(host)) return ['  tls internal'];
+  // Wildcards: DNS-01 through swarmy's own nameservers (or a BYO provider).
+  const dns = tls === 'auto' ? caddyDnsTlsLines(host, config.dnsChallenge) : null;
+  if (dns) return dns;
   if (config.globalOptions.onDemandTls && tls === 'auto') return ['  tls {', '    on_demand', '  }'];
   return [];
 }

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { HostRedirectSchema } from './www';
+import { DnsChallengeSchema } from './dns-challenge';
 
 // Wire/render types are owned by @swarmy/core so the agent and the controller
 // share one definition. The ingress package re-exports them.
@@ -368,6 +369,12 @@ export const IngressConfigSchema = z.object({
    * and query kept. A host that also has a route/vhost is skipped (explicit wins).
    */
   hostRedirects: z.array(HostRedirectSchema).optional(),
+  /**
+   * ACME DNS-01 for wildcard hosts (controller-planned, `planDnsChallenges`):
+   * which hosts solve DNS-01 and through which provider. Coordinates only —
+   * tokens are read by the edge from Docker secret files, never rendered.
+   */
+  dnsChallenge: DnsChallengeSchema.optional(),
   /** Per-bucket S3 exposure (absent = object storage stays in-cluster only). */
   objectStorage: ObjectStorageEdgeSchema.optional(),
   /**

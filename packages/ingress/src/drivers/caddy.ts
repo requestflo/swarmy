@@ -121,6 +121,32 @@ export class CaddyDriver implements IngressDriver {
           'xcaddy --with github.com/caddyserver/cache-handler). Set a custom controller image.',
       });
     }
+    // Wildcards can only be issued over DNS-01: without swarmy DNS serving the
+    // zone (or a BYO provider token) Caddy would retry an impossible order.
+    const unsolvedWildcards = [
+      ...new Set(
+        config.domains
+          .filter((d) => d.tls === 'auto' && d.domain.startsWith('*.') && !config.dnsChallenge?.hosts[d.domain])
+          .map((d) => d.domain),
+      ),
+    ];
+    if (unsolvedWildcards.length > 0) {
+      warnings.push({
+        path: 'dnsChallenge',
+        message:
+          `${unsolvedWildcards.join(', ')}: a wildcard certificate needs ACME DNS-01 — add the zone to swarmy DNS ` +
+          'and point its NS records at swarmy (recommended), or add a DNS provider token for it.',
+      });
+    }
+    const dnsSolved = Object.values(config.dnsChallenge?.hosts ?? {});
+    if (dnsSolved.length > 0 && stockImage) {
+      errors.push({
+        path: 'globalOptions.extraConfig.controllerImage',
+        message:
+          'wildcard certificates (DNS-01) need the swarmy Caddy build (docker/caddy-swarmy — compiles the ' +
+          '`dns swarmy` and `dns cloudflare` providers); the stock caddy image cannot load them.',
+      });
+    }
     const coldCached = config.domains.filter((d) => d.protection?.cache && d.cold);
     if (coldCached.length > 0) {
       warnings.push({
