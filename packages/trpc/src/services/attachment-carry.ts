@@ -25,6 +25,7 @@
  */
 import { STACK_LABEL } from '@swarmy/core';
 import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
+import { EMAIL_BIND_LABEL } from './email/maddy';
 import { AI_BIND_ENV, AI_BIND_LABEL, AI_ENV_VAR, AI_INJECT_KEY_LABEL, AI_INJECT_LABEL, AI_KEY_FILE_VAR, aiKeySecretName } from './ai.service';
 import { ATTACH_ENV_KEYS, S3_BUCKET_LABEL, S3_KEY_LABEL, S3_SECRET_LABEL } from './buckets.service';
 import {
@@ -161,6 +162,18 @@ export function attachedDomains(source: Pick<SwarmServiceInfo, 'name' | 'labels'
   // secret variable, carried by `carrySecretVars`).
   if (l[AI_BIND_LABEL]) {
     out.push({ marker: AI_BIND_LABEL, labels: [AI_BIND_LABEL], env: [...AI_BIND_ENV] });
+  }
+  // swarmy.yaml `email:` binding: SMTP_HOST/PORT/USER/FROM + EMAIL_API_URL ride
+  // env (the label lists them); SMTP_PASS / EMAIL_API_KEY are secret variables.
+  if (l[EMAIL_BIND_LABEL]) {
+    let keys: string[] = [];
+    try {
+      const parsed = JSON.parse(l[EMAIL_BIND_LABEL]) as unknown;
+      keys = Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) : [];
+    } catch {
+      keys = [];
+    }
+    out.push({ marker: EMAIL_BIND_LABEL, labels: [EMAIL_BIND_LABEL], env: keys });
   }
   return out;
 }

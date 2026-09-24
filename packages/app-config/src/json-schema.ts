@@ -439,6 +439,21 @@ export const SWARMY_YAML_JSON_SCHEMA = {
       items: { type: 'string' },
       description: 'Other apps this app may reach privately',
     },
+    email: {
+      description:
+        'Send mail through the swarmy email service: SMTP_HOST/PORT/USER/PASS, SMTP_FROM/EMAIL_FROM and EMAIL_API_URL/KEY are bound into services (the password and API key as Docker secrets)',
+      anyOf: [
+        { const: true },
+        {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            from: { type: 'string', description: 'Sender address at a verified sending domain (default noreply@<org sending domain>)' },
+            services: { type: 'array', items: { type: 'string' }, description: 'Services to bind (default: all)' },
+          },
+        },
+      ],
+    },
     ai: {
       type: 'object',
       additionalProperties: false,

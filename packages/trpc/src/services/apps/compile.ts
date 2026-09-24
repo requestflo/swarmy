@@ -30,6 +30,7 @@ import {
   type DesiredApp,
   type DesiredResource,
   type DesiredService,
+  type EmailBindingField,
 } from '@swarmy/app-config';
 import { primaryServiceName, replicaServiceName, roVarName } from '../manageddb.service';
 import { CACHE_PORT, cachePasswordFileVar, cachePrimaryName } from '../cache.service';
@@ -62,7 +63,9 @@ export type Attachment =
   /** Mounted at /run/secrets/<family>; with `envName`, exported as $envName by the secret-env shim. */
   | { kind: 'secret'; service: string; family: string; envName?: string }
   /** `ai:` — gateway base URLs + a per-service key (secret vars OPENAI_API_KEY / ANTHROPIC_API_KEY). */
-  | { kind: 'ai'; service: string; models: string[]; dailyBudgetUsd: number | null; rpm: number | null };
+  | { kind: 'ai'; service: string; models: string[]; dailyBudgetUsd: number | null; rpm: number | null }
+  /** `email:` — SMTP_* / EMAIL_API_* (env name → field); credentials as secret variables. */
+  | { kind: 'email'; service: string; from: string | null; env: Record<string, EmailBindingField> };
 
 /** Stable id for the ledger (`db:db:DATABASE_URL`). */
 export function attachmentKey(a: Attachment): string {
@@ -81,6 +84,9 @@ export function attachmentKey(a: Attachment): string {
     case 'ai':
       // Re-binds (policy update in place) whenever the allowlist/budget/rpm changes.
       return `ai:${a.models.join(',')}:${a.dailyBudgetUsd ?? '-'}:${a.rpm ?? '-'}`;
+    case 'email':
+      // Re-binds when the sender or the bound env names change.
+      return `email:${a.from ?? '-'}:${Object.entries(a.env).sort(([x], [y]) => x.localeCompare(y)).map(([k, f]) => `${k}=${f}`).join(',')}`;
   }
 }
 
@@ -194,6 +200,8 @@ export function compileServices(
     const env: Record<string, string> = {};
     for (const [key, raw] of Object.entries(s.env)) {
       const path = ['services', s.name, 'env', key];
+      // `${{ email.* }}` values are set by the email attachment on deploy.
+      if (s.email?.env[key]) continue;
       const credential = extractBindings(raw).filter(
         (b) =>
           b.ref?.ns === 'secret' ||
@@ -249,6 +257,7 @@ export function compileServices(
     }
     for (const family of s.secrets) attachments.push({ kind: 'secret', service: s.name, family });
     if (s.ai) attachments.push({ kind: 'ai', service: s.name, ...s.ai });
+    if (s.email) attachments.push({ kind: 'email', service: s.name, from: s.email.from, env: s.email.env });
 
     const labels: Record<string, string> = {
       [APP_STACK_LABEL]: d.stack,

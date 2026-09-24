@@ -8,6 +8,7 @@
 import {
   APP_BINDING_FIELDS,
   RESERVED_NAMES,
+  EMAIL_FIELDS,
   RESOURCE_BINDING_FIELDS,
   SERVICE_BINDING_FIELDS,
   extractBindings,
@@ -136,6 +137,13 @@ export function validateConfig(cfg: AppConfig): ConfigIssue[] {
                 path,
                 `service "${ref.name}" has no port to address`,
               ),
+            );
+          }
+        } else if (ref.ns === 'email') {
+          // Presence of `email:` and whole-value use are checked in email.ts.
+          if (!(EMAIL_FIELDS as readonly string[]).includes(ref.field)) {
+            out.push(
+              issue('error', 'binding/unknown-field', path, `email has ${EMAIL_FIELDS.join(', ')} — not "${ref.field}"`),
             );
           }
         } else if (ref.ns === 'app') {

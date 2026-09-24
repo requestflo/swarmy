@@ -14,6 +14,7 @@ import { CACHE_ENGINES, CACHE_TOPOLOGIES, SEARCH_ENGINES } from '@swarmy/core/vi
 import { isCron, parseDuration, parseRate, parseSizeMb } from './units';
 import { AuthSchema } from './auth';
 import { AiSchema } from './ai';
+import { EmailSchema } from './email';
 
 /**
  * Managed-Postgres HA topologies. Mirrors `DB_TOPOLOGIES` in
@@ -440,6 +441,8 @@ export const AppConfigSchema = z
     errors: z.boolean().optional(),
     /** AI gateway: OPENAI_BASE_URL / ANTHROPIC_BASE_URL + a per-service key (Docker secret) (ai.ts). */
     ai: AiSchema.optional(),
+    /** Email service: SMTP_* + EMAIL_API_* bound into services, a per-app credential (email.ts). */
+    email: EmailSchema.optional(),
     /** Named environments beside production, each its own stack `<app>-<name>` tracking a branch. */
     environments: z
       .record(

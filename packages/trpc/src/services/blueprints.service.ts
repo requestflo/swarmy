@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { bindEmailToService } from './email/bind';
 import {
   buildInventory,
   SECRET_ENV_VAR,
@@ -301,6 +302,20 @@ async function applyWire(
       if (!bucketId) throw commandRejected(`bucket "${wire.bucket}" was not created by this plan`);
       await attachBucketToService(ctx, { bucketId, appService: wire.service });
       waitKeys = ['S3_BUCKET'];
+      break;
+    }
+    case 'email': {
+      // Best-effort for templates: with the email service off (or no verified
+      // domain) the app deploys without mail, as it always did, plus a note.
+      try {
+        const r = await bindEmailToService(ctx, { stack, appService: wire.service, from: wire.from, env: wire.env });
+        waitKeys = r.env.length ? r.env : [SECRET_ENV_VAR];
+      } catch (e) {
+        sctx.notes.push(
+          `Email is not wired yet (${e instanceof Error ? e.message : String(e)}). Set up the email service under Email, then redeploy ${stack} to bind it.`,
+        );
+        return;
+      }
       break;
     }
     case 'env': {

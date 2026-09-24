@@ -10,7 +10,7 @@ import {
   type DesiredJob,
 } from '@swarmy/app-config';
 import { applyPlan, type AppOps } from './apply';
-import { addressingMap, appBucketName, compileServices, type Attachment } from './compile';
+import { addressingMap, appBucketName, attachmentKey, compileServices, type Attachment } from './compile';
 import {
   APP_SIG_LABEL,
   APP_STACK_LABEL,
@@ -461,5 +461,34 @@ ai:
     expect(ai).toEqual([{ kind: 'ai', service: 'web', models: ['smart', 'embed'], dailyBudgetUsd: 5, rpm: null }]);
     // The key never lands in the compose; the base URLs arrive with the binding.
     expect(out.composeSource).not.toContain('OPENAI');
+  });
+});
+
+describe('email: binding → one email attachment per bound service', () => {
+  it('SMTP_* / EMAIL_API_* come from the attachment, never the compose; explicit ${{ email.* }} names too', () => {
+    const d = desired(`version: 1
+app: shop
+services:
+  web:
+    image: ghcr.io/acme/web:1
+    port: 3000
+    env:
+      MAIL_PASSWORD: \${{ email.password }}
+  worker:
+    image: ghcr.io/acme/worker:1
+email:
+  from: noreply@shop.example.com
+  services: [worker]
+`);
+    const out = compileServices(d, { web: 'ghcr.io/acme/web:1', worker: 'ghcr.io/acme/worker:1' });
+    expect(out.issues.filter((i) => i.severity === 'error')).toEqual([]);
+    const email = out.attachments.filter((a): a is Extract<Attachment, { kind: 'email' }> => a.kind === 'email');
+    expect(email.map((a) => [a.service, a.from, Object.keys(a.env)])).toEqual([
+      ['web', 'noreply@shop.example.com', ['MAIL_PASSWORD']],
+      ['worker', 'noreply@shop.example.com', ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM', 'EMAIL_FROM', 'EMAIL_API_URL', 'EMAIL_API_KEY']],
+    ]);
+    expect(out.composeSource).not.toContain('MAIL_PASSWORD');
+    expect(out.composeSource).not.toContain('SMTP_');
+    expect(attachmentKey(email[0]!)).toBe('email:noreply@shop.example.com:MAIL_PASSWORD=password');
   });
 });

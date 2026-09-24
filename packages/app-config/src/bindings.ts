@@ -33,15 +33,18 @@ export const RESOURCE_BINDING_FIELDS: Record<ResourceType, readonly string[]> = 
 };
 export const SERVICE_BINDING_FIELDS = ['url', 'host', 'port'] as const;
 export const APP_BINDING_FIELDS = ['name', 'url', 'domain', 'environment'] as const;
+/** `${{ email.<field> }}` — see email.ts (needs `email:`). */
+export const EMAIL_FIELDS = ['host', 'port', 'user', 'password', 'from', 'api_url', 'api_key'] as const;
 
 /** Names a resource/service can't take because they are binding namespaces. */
-export const RESERVED_NAMES = ['app', 'apps', 'services', 'secrets', 'preview'] as const;
+export const RESERVED_NAMES = ['app', 'apps', 'services', 'secrets', 'preview', 'email'] as const;
 
 export type BindingRef =
   | { ns: 'resource'; name: string; field: string }
   | { ns: 'service'; name: string; field: string }
   | { ns: 'app'; field: string }
-  | { ns: 'secret'; name: string };
+  | { ns: 'secret'; name: string }
+  | { ns: 'email'; field: string };
 
 export interface ParsedBinding {
   /** The expression between the braces, trimmed, e.g. `db.url`. */
@@ -67,6 +70,10 @@ export function parseBindingExpr(expr: string): ParsedBinding {
   if (a === 'secrets') {
     if (parts.length !== 2 || !b) return { expr, ref: null, error: 'use ${{ secrets.<name> }}' };
     return { expr, ref: { ns: 'secret', name: b } };
+  }
+  if (a === 'email') {
+    if (parts.length !== 2 || !b) return { expr, ref: null, error: 'use ${{ email.<field> }}' };
+    return { expr, ref: { ns: 'email', field: b } };
   }
   if (a === 'app') {
     if (parts.length !== 2 || !b) return { expr, ref: null, error: 'use ${{ app.<field> }}' };
@@ -97,6 +104,8 @@ export function refKey(ref: BindingRef): string {
       return `app.${ref.field}`;
     case 'secret':
       return `secrets.${ref.name}`;
+    case 'email':
+      return `email.${ref.field}`;
   }
 }
 

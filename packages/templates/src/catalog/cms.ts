@@ -15,7 +15,7 @@ export const CMS_TEMPLATES: AppTemplate[] = [
     notes: ['Ghost needs MySQL 8 in production, so it runs its own MySQL (swarmy has no managed MySQL yet). That database is not in swarmy backups; back up the volume.'],
     postDeploy: [
       'Open <url>/ghost to create the owner account.',
-      'Set up email: add mail__transport and mail__options__* env vars for SMTP, or newsletters and staff invites will not send.',
+      'Staff invites and newsletters send through the swarmy email service when it is on (wired on deploy); otherwise add mail__* env vars for your own SMTP.',
     ],
     yaml: `version: 1
 app: ghost
@@ -32,6 +32,13 @@ services:
       database__connection__user: ghost
       database__connection__database: ghost
       database__connection__password: \${{ secrets.db-password }}
+      mail__transport: SMTP
+      mail__from: \${{ email.from }}
+      mail__options__host: \${{ email.host }}
+      mail__options__port: \${{ email.port }}
+      mail__options__secure: "false"
+      mail__options__auth__user: \${{ email.user }}
+      mail__options__auth__pass: \${{ email.password }}
     volumes:
       content: /var/lib/ghost/content
     healthcheck:
@@ -55,6 +62,8 @@ services:
       interval: 15s
       timeout: 5s
       start_period: 60s
+email:
+  services: [ghost]
 `,
   },
 ];

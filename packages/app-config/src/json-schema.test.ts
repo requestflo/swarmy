@@ -19,6 +19,7 @@ import {
 } from './schema';
 import { AuthSchema } from './auth';
 import { AiSchema } from './ai';
+import { EmailObjectSchema } from './email';
 
 /** Keys of a Zod object, unwrapping refinements. */
 const zkeys = (t: z.ZodTypeAny): string[] => {
@@ -39,6 +40,7 @@ describe('JSON Schema ↔ Zod drift guard', () => {
     expect(jkeys(S.properties.previews)).toEqual(zkeys(PreviewsSchema));
     expect(jkeys(S.properties.auth)).toEqual(zkeys(AuthSchema));
     expect(jkeys(S.properties.ai)).toEqual(zkeys(AiSchema));
+    expect(jkeys(S.properties.email.anyOf[1])).toEqual(zkeys(EmailObjectSchema));
     expect(jkeys(service.properties.healthcheck)).toEqual(zkeys(HealthcheckSchema));
     expect(jkeys(service.properties.domains.items.anyOf[1].properties.protect)).toEqual(
       zkeys(ProtectSchema),

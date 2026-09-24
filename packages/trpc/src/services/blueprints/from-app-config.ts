@@ -252,7 +252,10 @@ export function compileTemplate(
     const wireEnv: Record<string, string> = {};
     let usesDb = false;
     let usesCache = false;
+    // `email:` — SMTP_* / `${{ email.* }}` are bound on deploy by the email wire.
+    if (s.email) wires.push({ type: 'email', service: s.name, from: s.email.from, env: s.email.env });
     for (const [key, raw] of Object.entries(s.env)) {
+      if (s.email?.env[key]) continue;
       const mounted = s.secrets.find((x) => raw === `/run/secrets/${x}`);
       if (mounted) {
         wires.push({ type: 'secret', service: s.name, family: templateSecretFamily(stack, mounted), envName: key });

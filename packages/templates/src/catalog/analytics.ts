@@ -48,7 +48,7 @@ resources:
     notes: [
       'Plausible stores its events in ClickHouse, so this template runs its own ClickHouse (swarmy has no managed ClickHouse). That database is not in swarmy backups; back up the clickhouse volume.',
       'ClickHouse runs with its stock system log tables, so its volume grows slowly over time.',
-      'Email (password resets, reports) is off until you add SMTP settings (MAILER_EMAIL, SMTP_HOST_ADDR and friends) to the plausible service.',
+      'Email (password resets, reports) sends through the swarmy email service when it is on (wired on deploy); otherwise add your own SMTP settings (MAILER_EMAIL, SMTP_HOST_ADDR and friends).',
     ],
     postDeploy: [
       'Open <url>/register and create the first account, which becomes the owner. Registration closes after that.',
@@ -70,6 +70,13 @@ services:
       HTTP_PORT: "8000"
       LISTEN_IP: 0.0.0.0
       TMPDIR: /var/lib/plausible/tmp
+      MAILER_ADAPTER: Bamboo.SMTPAdapter
+      MAILER_EMAIL: \${{ email.from }}
+      SMTP_HOST_ADDR: \${{ email.host }}
+      SMTP_HOST_PORT: \${{ email.port }}
+      SMTP_USER_NAME: \${{ email.user }}
+      SMTP_USER_PWD: \${{ email.password }}
+      SMTP_HOST_SSL_ENABLED: "false"
     volumes:
       data: /var/lib/plausible
     healthcheck:
@@ -94,6 +101,8 @@ resources:
   db:
     type: postgres
     database: plausible
+email:
+  services: [plausible]
 `,
   },
   {

@@ -21,6 +21,7 @@ import { environmentStack, PRODUCTION, resolveEnvironment } from './environments
 import { branchSlug } from './branches';
 import { defaultJobService, domainHost } from './validate';
 import { toDesiredAi, type DesiredAi } from './ai';
+import { emailEnvFor, toDesiredEmail, type DesiredEmail, type EmailBindingField } from './email';
 import { AUTH_PORT, AUTH_ROUTE_PATH, AUTH_UNIT, authServiceInput, authServiceUrl } from './auth';
 
 export const DEFAULT_PREVIEW_TTL_SECONDS = 72 * 3600;
@@ -96,6 +97,8 @@ export interface DesiredService {
   dependsOn: string[];
   /** Bound to the AI gateway by `ai:` (part of the signature, so a change redeploys + rebinds). */
   ai?: { models: string[]; dailyBudgetUsd: number | null; rpm: number | null };
+  /** Bound to the email service by `email:` / `${{ email.* }}`: env name → field (part of the signature). */
+  email?: { from: string | null; env: Record<string, EmailBindingField> };
   sig: string;
 }
 
@@ -181,6 +184,8 @@ export interface DesiredApp {
   errors?: boolean;
   /** `ai:` — services bound to the AI gateway (base URLs + a per-service key secret, on deploy). */
   ai?: DesiredAi;
+  /** `email:` — services bound to the email service (SMTP_* / EMAIL_API_* on deploy). */
+  email?: DesiredEmail;
   previews: {
     enabled: boolean;
     ttlSeconds: number;
@@ -325,6 +330,7 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
 
   // ── services ──
   const desiredAi = toDesiredAi(cfg, Object.keys(cfg.services));
+  const desiredEmail = toDesiredEmail(cfg, Object.keys(cfg.services));
   const toService = ([name, s]: [string, AppConfig['services'][string]]): DesiredService => {
       let source: BuildSource | ImageSource;
       if (s.build !== undefined) {
@@ -442,6 +448,10 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
         ...(desiredAi?.services.includes(name)
           ? { ai: { models: desiredAi.models, dailyBudgetUsd: desiredAi.dailyBudgetUsd, rpm: desiredAi.rpm } }
           : {}),
+        ...((): Partial<DesiredService> => {
+          const emailEnv = emailEnvFor(desiredEmail, name, env);
+          return emailEnv ? { email: { from: desiredEmail!.from, env: emailEnv } } : {};
+        })(),
       };
       return withSig(unit);
   };
@@ -552,6 +562,7 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
     connect: preview ? [] : [...new Set(cfg.connect ?? [])].sort(),
     ...(cfg.errors ? { errors: true } : {}),
     ...(desiredAi ? { ai: desiredAi } : {}),
+    ...(desiredEmail ? { email: desiredEmail } : {}),
     previews: previewsCfg,
   };
 }

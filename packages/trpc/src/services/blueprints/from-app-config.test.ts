@@ -204,3 +204,26 @@ describe('binding resolution', () => {
     expect(s.payload).toMatchObject({ family: 'stats-app-secret', format: 'hex', length: 64 });
   });
 });
+
+describe('templates that send mail: the email wire', () => {
+  it('Ghost binds its mail__* settings through the email service, never through compose', () => {
+    const { steps } = compileTemplate(findAppTemplate('ghost')!, params({ name: 'blog' }));
+    const deploy = deployOf(steps);
+    const email = deploy.payload.wires.filter((w) => w.type === 'email');
+    expect(email).toHaveLength(1);
+    expect(email[0]).toMatchObject({ type: 'email', service: 'ghost', from: null });
+    const env = (email[0] as Extract<(typeof email)[number], { type: 'email' }>).env;
+    expect(env).toMatchObject({ mail__options__host: 'host', mail__options__auth__pass: 'password', mail__from: 'from', SMTP_PASS: 'password' });
+    expect(deploy.payload.composeSource).not.toContain('mail__options__auth__pass');
+    expect(deploy.payload.composeSource).not.toContain('email.');
+    // Plain settings stay in compose.
+    expect(deploy.payload.composeSource).toContain('mail__transport');
+  });
+
+  it('Vaultwarden and Plausible are wired too', () => {
+    for (const id of ['vaultwarden', 'plausible']) {
+      const deploy = deployOf(compileTemplate(findAppTemplate(id)!, params({ name: id })).steps);
+      expect(deploy.payload.wires.some((w) => w.type === 'email')).toBe(true);
+    }
+  });
+});

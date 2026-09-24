@@ -70,7 +70,12 @@ export type WireAction =
   /** buckets `attachToService`: S3_* env + bucket-scoped key as a Docker secret. */
   | { type: 'bucket'; service: string; bucket: string }
   /** Merge env vars (values may contain tokens) onto the live service spec. */
-  | { type: 'env'; service: string; env: Record<string, string> };
+  | { type: 'env'; service: string; env: Record<string, string> }
+  /**
+   * swarmy.yaml `email:` — bind the service to the email service (email/bind.ts):
+   * env name → field; credentials as secret variables. Best-effort for templates.
+   */
+  | { type: 'email'; service: string; from: string | null; env: Record<string, 'host' | 'port' | 'user' | 'password' | 'from' | 'api_url' | 'api_key'> };
 
 export type PlanStep =
   | {

@@ -10,6 +10,7 @@ import { AppConfigSchema, type AppConfig } from './schema';
 import { validateConfig } from './validate';
 import { validateAuth } from './auth';
 import { validateAi } from './ai';
+import { validateEmail } from './email';
 
 export const CONFIG_FILENAMES = ['swarmy.yaml', 'swarmy.yml'] as const;
 /** swarmy.yaml is small by design; anything bigger is a mistake (or an attack). */
@@ -86,7 +87,7 @@ export function parseAppConfig(text: string): ParseResult {
     return { issues: [...yamlIssues, ...dedupe(issues)] };
   }
 
-  const semantic = [...validateConfig(parsed.data), ...validateAuth(parsed.data), ...validateAi(parsed.data)].map((i) => ({ ...i, ...locate(i.path) }));
+  const semantic = [...validateConfig(parsed.data), ...validateAuth(parsed.data), ...validateAi(parsed.data), ...validateEmail(parsed.data)].map((i) => ({ ...i, ...locate(i.path) }));
   const issues = [...yamlIssues, ...semantic];
   return hasErrors(issues) ? { issues } : { config: parsed.data, issues };
 }

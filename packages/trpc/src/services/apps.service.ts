@@ -95,6 +95,7 @@ import { attachToService, createBucket, deleteBucket } from './buckets.service';
 import { setBucketAccess } from './bucket-access.service';
 import { attachSecretToService } from './secretsMgr.service';
 import { bindAiToService } from './ai.service';
+import { bindEmailToService } from './email/bind';
 import { parsePreviewSettings } from './previews.service';
 import { listDbBackups, restoreDb } from './dbBackup.service';
 import { execInService, waitForPostgres } from './resilience.service';
@@ -536,6 +537,9 @@ export function realOps(
             dailyBudgetUsd: a.dailyBudgetUsd,
             rpm: a.rpm,
           });
+          return;
+        case 'email':
+          await bindEmailToService(ctx, { stack, appService: app.name, from: a.from, env: a.env });
           return;
       }
     },

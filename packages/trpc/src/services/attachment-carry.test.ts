@@ -194,3 +194,21 @@ describe('carryManagedAttachments', () => {
     expect(out.secrets).toBeUndefined();
   });
 });
+
+describe('carryManagedAttachments — swarmy.yaml email: binding', () => {
+  it('keeps the env keys the email binding set (listed on its marker label)', () => {
+    const source = live({
+      name: 'shop_web',
+      labels: { 'swarmy.email.bind': JSON.stringify(['SMTP_HOST', 'SMTP_PORT', 'EMAIL_API_URL']) },
+      env: ['SMTP_HOST=swarmy-mail', 'SMTP_PORT=587', 'EMAIL_API_URL=https://swarm.test/email/v1', 'OTHER=x'],
+    });
+    const out = carryManagedAttachments(composeWeb(), source);
+    expect(out.env).toEqual({ NODE_ENV: 'production', SMTP_HOST: 'swarmy-mail', SMTP_PORT: '587', EMAIL_API_URL: 'https://swarm.test/email/v1' });
+    expect(out.labels?.['swarmy.email.bind']).toBe(source.labels['swarmy.email.bind']);
+  });
+
+  it('a malformed marker carries nothing but the marker', () => {
+    const out = carryManagedAttachments(composeWeb(), live({ name: 'shop_web', labels: { 'swarmy.email.bind': '{nope' }, env: ['SMTP_HOST=x'] }));
+    expect(out.env).toEqual({ NODE_ENV: 'production' });
+  });
+});

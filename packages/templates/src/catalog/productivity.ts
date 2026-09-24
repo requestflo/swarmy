@@ -196,7 +196,7 @@ resources:
     postDeploy: [
       'Open <url>, create your account, then point the Bitwarden apps and browser extension at <url> as a self-hosted server.',
       'Open <url>/admin with the token above and turn off "Allow new signups" once your accounts exist.',
-      'Set SMTP in the admin panel so invites, 2FA email and password hints work.',
+      'Invites, 2FA email and password hints send through the swarmy email service when it is on (SMTP is wired on deploy); otherwise set SMTP in the admin panel.',
     ],
     yaml: `version: 1
 app: vaultwarden
@@ -209,6 +209,9 @@ services:
       DOMAIN: \${{ app.url }}
       DATABASE_URL: \${{ db.url }}
       ADMIN_TOKEN_FILE: /run/secrets/admin-token
+      SMTP_USERNAME: \${{ email.user }}
+      SMTP_PASSWORD: \${{ email.password }}
+      SMTP_SECURITY: "off"
     secrets: [admin-token]
     volumes:
       data: /data
@@ -216,6 +219,7 @@ resources:
   db:
     type: postgres
     database: vaultwarden
+email: true
 `,
   },
   {
