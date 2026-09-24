@@ -39,7 +39,6 @@ model ScheduledJob {
   retries        Int              @default(0)
   alertOnFailure Boolean          @default(true)
   enabled        Boolean          @default(true)
-  lastRunAt      DateTime?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
@@ -49,7 +48,7 @@ model ScheduledJob {
   @@unique([orgId, name])
   @@index([orgId])
   @@index([orgId, stackName])
-  @@index([enabled, lastRunAt])
+  @@index([enabled])
   @@map("scheduled_job")
 }
 

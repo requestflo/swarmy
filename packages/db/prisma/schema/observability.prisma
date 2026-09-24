@@ -5,7 +5,6 @@ model ObservabilityConfig {
   orgId           String   @unique
   enabled         Boolean  @default(false)
   clickhouseDsn   String?  @db.Text
-  collectorStatus String   @default("OFFLINE")
   retentionDays   Int      @default(7)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

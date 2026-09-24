@@ -71,8 +71,6 @@ model ControllerBackupConfig {
   retention             Json      @default("{\"keepDaily\":7,\"keepWeekly\":4,\"keepMonthly\":3}")
   restorePassphraseRef  String?
   restorePassphraseHint String?
-  lastRunAt             DateTime?
-  nextRunAt             DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -178,8 +176,6 @@ model BackupSchedule {
   every     Int
   unit      String
   paused    Boolean   @default(false)
-  lastRunAt DateTime?
-  nextRunAt DateTime?
   /// Created by swarmy's default-on DB backups (not a user) — the UI badges it
   /// "Auto". A user editing/replacing it takes ownership.
   auto          Boolean   @default(false)
@@ -201,7 +197,7 @@ model BackupSchedule {
 
   @@index([orgId])
   @@index([orgId, volume])
-  @@index([paused, nextRunAt])
+  @@index([paused])
   @@map("backup_schedule")
 }
 
@@ -219,6 +215,7 @@ model BackupJob {
   schedule BackupSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
 
   @@index([orgId])
+  @@index([scheduleId, startedAt])
   @@map("backup_job")
 }
 
@@ -263,10 +260,6 @@ model OffsiteMirror {
   /// Encrypted (vault) Garage key the rclone one-shot reads the store with.
   sourceAccessKeyRef String?
   sourceSecretKeyRef String?
-  /// Garage bucket ids the mirror key has already been granted on.
-  grantedBucketIds   Json      @default("[]")
-  lastRunAt          DateTime?
-  nextRunAt          DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
@@ -274,7 +267,6 @@ model OffsiteMirror {
   target BackupTarget       @relation(fields: [targetId], references: [id], onDelete: Cascade)
   runs   OffsiteMirrorRun[]
 
-  @@index([enabled, nextRunAt])
   @@map("offsite_mirror")
 }
 
