@@ -124,6 +124,7 @@ export { controllerPublicUrl, repoCredentials } from './services/git-credentials
 export { previewCommentBody, reportCommitStatus, upsertPrComment } from './services/git-feedback.service';
 // ── git-apps P3: the GitOps apply loop ──
 export {
+  checkDriftNow,
   confirmAppActions,
   detectDrift,
   getPlan,
