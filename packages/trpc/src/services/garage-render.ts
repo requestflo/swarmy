@@ -11,7 +11,7 @@
  */
 import { garageMajorOf, toGarageRequest } from './garage-admin';
 import { createHash } from 'node:crypto';
-import { STACK_LABEL, SWARMY_OVERLAY_NETWORK, SYSTEM_STACK, SYSTEM_STACK_LABEL } from '@swarmy/core';
+import { STACK_LABEL, SWARMY_CONTROL_NETWORK, SWARMY_OVERLAY_NETWORK, SYSTEM_STACK, SYSTEM_STACK_LABEL } from '@swarmy/core';
 
 /**
  * Structural copy of `RenderedStoreDeployment` from the new
@@ -261,7 +261,9 @@ export function renderGarageDeployment(input: GarageRenderInput): RenderedStoreD
     placement: { constraints: [`node.labels.${GARAGE_MEMBER_NODE_LABEL}==true`] },
     serviceMode: 'global',
     // Overlay-only: the agent publishes no ports when `networks` is set.
-    networks: [GARAGE_NETWORK],
+    // Also on the private control overlay: the controller (which never joins
+    // `swarmy`) replicates control.db into the `swarmy-control` bucket.
+    networks: [GARAGE_NETWORK, SWARMY_CONTROL_NETWORK],
     serviceName: input.serviceName,
     image,
     s3Port: GARAGE_S3_PORT,

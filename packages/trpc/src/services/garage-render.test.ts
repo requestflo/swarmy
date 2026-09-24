@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { SWARMY_CONTROL_NETWORK } from '@swarmy/core';
 import {
   DEFAULT_GARAGE_IMAGE,
   GARAGE_S3_PORT,
@@ -157,7 +158,7 @@ describe('garage deployment — overlay-only, nothing published', () => {
   it('joins the canonical swarmy overlay (agent then publishes no ports)', () => {
     const r = renderGarageDeployment(BASE);
     expect(GARAGE_NETWORK).toBe('swarmy');
-    expect(r.networks).toEqual([GARAGE_NETWORK]);
+    expect(r.networks).toEqual([GARAGE_NETWORK, SWARMY_CONTROL_NETWORK]);
   });
 
   it('admin base URL is the service name on the overlay', () => {

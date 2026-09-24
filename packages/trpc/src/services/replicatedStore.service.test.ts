@@ -37,7 +37,7 @@ describe('storeNeedsConverge', () => {
     mode: 'global' as const,
     configs: ['swarmy-garage-config-abcd1234'],
     mounts: [{ type: 'volume', target: '/m' }],
-    networks: [{ name: 'swarmy', aliases: [] }],
+    networks: [{ name: 'swarmy', aliases: [] }, { name: 'swarmy-control', aliases: [] }],
     ports: [],
     secrets: ['swarmy-garage-rpc-secret-11111111', 'swarmy-garage-admin-token-22222222'],
   };
@@ -62,6 +62,9 @@ describe('storeNeedsConverge', () => {
     expect(storeNeedsConverge({ ...good, networks: [] })).toBe(true);
     expect(storeNeedsConverge({ ...good, networks: undefined })).toBe(true);
     expect(storeNeedsConverge({ ...good, networks: [{ name: 'other', aliases: [] }] })).toBe(true);
+  });
+  it('a store off the control overlay converges (the controller replicates control.db into it)', () => {
+    expect(storeNeedsConverge({ ...good, networks: [{ name: 'swarmy', aliases: [] }] })).toBe(true);
   });
   it('a store whose secrets are not mounted as Docker secrets converges (legacy secrets-in-toml)', () => {
     expect(storeNeedsConverge({ ...good, secrets: [] })).toBe(true);
@@ -174,7 +177,7 @@ describe('enable — 2-node swarm, no explicit members', () => {
     expect(rendered.files).toEqual([]);
     expect(rendered.configs[0]!.source).toBe(create.payload.name as string);
     expect(rendered.serviceMode).toBe('global');
-    expect((rendered as unknown as { networks: string[] }).networks).toEqual(['swarmy']);
+    expect((rendered as unknown as { networks: string[] }).networks).toEqual(['swarmy', 'swarmy-control']);
 
     // The overlay is ensured (attachable) before the service references it.
     const ensure = dispatched.findIndex((d) => d.cmd === 'network.ensure');
