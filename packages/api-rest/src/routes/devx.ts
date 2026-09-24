@@ -3,7 +3,7 @@ import { streamSSE } from 'hono/streaming';
 import { resolveService } from '@swarmy/trpc';
 import {
   collectServiceLogs,
-  createManualPreview,
+  createAppPreview,
   enableForStack,
   errorsStackStatus,
   getDeployStatus,
@@ -123,7 +123,7 @@ const PreviewBody = z
   .openapi('CreatePreviewBody');
 const PreviewResultDto = z
   .object({
-    action: z.string().openapi({ description: 'deployed, torn-down, skipped (open set).' }),
+    action: z.string().openapi({ description: 'deployed, skipped or failed (open set).' }),
     stack: z.string().nullable(),
     url: z.string().nullable(),
     reason: z.string().nullable(),
@@ -397,7 +397,7 @@ export function registerDevxRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: [TAG],
       summary: 'Preview a branch (trial deploy)',
       description:
-        'Builds the branch and deploys it as its own preview stack, the same machinery as a pull-request preview. Torn down by the app’s preview TTL.',
+        'Plans the branch’s swarmy.yaml and deploys it as a preview environment with its own stack and URL, the same machinery as a branch or pull-request preview. Torn down by `previews.ttl` or when the branch is deleted.',
       security: [{ bearerApiKey: [] }],
       middleware: [requireScope('write')] as const,
       request: { params: repoParam, body: jsonBody(PreviewBody) },
@@ -412,7 +412,7 @@ export function registerDevxRoutes(app: OpenAPIHono<RestEnv>): void {
       run(
         c,
         async () => {
-          const r = await createManualPreview(c.get('orgCtx'), {
+          const r = await createAppPreview(c.get('orgCtx'), {
             repoId: c.req.param('repoId'),
             branch: c.req.valid('json').branch,
           });

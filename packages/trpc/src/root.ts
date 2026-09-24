@@ -48,7 +48,6 @@ import { statusPagesRouter } from './routers/statusPages';
 import { releasesRouter } from './routers/releases';
 import { registryPolicyRouter } from './routers/registryPolicy';
 import { registryCredentialsRouter } from './routers/registryCredentials';
-import { previewsRouter } from './routers/previews';
 import { secretsMgrRouter } from './routers/secretsMgr';
 import { configsMgrRouter } from './routers/configsMgr';
 import { exposureRouter } from './routers/exposure';
@@ -117,7 +116,6 @@ export const appRouter = router({
   releases: releasesRouter,
   registryPolicy: registryPolicyRouter,
   registryCredentials: registryCredentialsRouter,
-  previews: previewsRouter,
   secrets: secretsMgrRouter,
   configs: configsMgrRouter,
   exposure: exposureRouter,

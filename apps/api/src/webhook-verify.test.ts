@@ -4,6 +4,7 @@ import {
   githubSignature,
   isForkPullRequest,
   parseCommitSha,
+  parsePrWebhookEvent,
   parsePushRef,
   pushChangedPaths,
   verifyGiteaSignature,
@@ -126,5 +127,52 @@ describe('git-apps webhook helpers', () => {
     expect(d.firstSeen('a', 10)).toBe(false);
     expect(d.firstSeen('a', 2000)).toBe(true); // expired → fresh
     expect(d.firstSeen(null)).toBe(true);
+  });
+});
+
+describe('provider PR webhook parsing — parsePrWebhookEvent', () => {
+  const gh = (action: string) => ({
+    action,
+    number: 142,
+    pull_request: { number: 142, head: { ref: 'feat/cart', sha: 'abc123' } },
+  });
+
+  it('github: opened/reopened/synchronize/closed map through; others ignored', () => {
+    expect(parsePrWebhookEvent('github', 'pull_request', gh('opened'))).toEqual({
+      action: 'opened',
+      prNumber: 142,
+      branch: 'feat/cart',
+      commit: 'abc123',
+    });
+    expect(parsePrWebhookEvent('github', 'pull_request', gh('reopened'))?.action).toBe('opened');
+    expect(parsePrWebhookEvent('github', 'pull_request', gh('synchronize'))?.action).toBe('synchronize');
+    expect(parsePrWebhookEvent('github', 'pull_request', gh('closed'))?.action).toBe('closed');
+    expect(parsePrWebhookEvent('github', 'pull_request', gh('labeled'))).toBeNull();
+    expect(parsePrWebhookEvent('github', 'push', { ref: 'refs/heads/main' })).toBeNull();
+  });
+
+  it('gitlab: MR open/update/close/merge map through; pushes ignored', () => {
+    const gl = (action: string) => ({
+      object_kind: 'merge_request',
+      object_attributes: { iid: 7, action, source_branch: 'fix/tax', last_commit: { id: 'deadbeef' } },
+    });
+    expect(parsePrWebhookEvent('gitlab', 'Merge Request Hook', gl('open'))).toEqual({
+      action: 'opened',
+      prNumber: 7,
+      branch: 'fix/tax',
+      commit: 'deadbeef',
+    });
+    expect(parsePrWebhookEvent('gitlab', 'Merge Request Hook', gl('update'))?.action).toBe('synchronize');
+    expect(parsePrWebhookEvent('gitlab', 'Merge Request Hook', gl('merge'))?.action).toBe('closed');
+    expect(parsePrWebhookEvent('gitlab', 'Merge Request Hook', gl('approved'))).toBeNull();
+    expect(parsePrWebhookEvent('gitlab', 'Push Hook', { object_kind: 'push' })).toBeNull();
+  });
+
+  it('rejects malformed payloads', () => {
+    expect(parsePrWebhookEvent('github', 'pull_request', null)).toBeNull();
+    expect(parsePrWebhookEvent('github', 'pull_request', { action: 'opened' })).toBeNull();
+    expect(
+      parsePrWebhookEvent('gitlab', 'Merge Request Hook', { object_kind: 'merge_request', object_attributes: {} }),
+    ).toBeNull();
   });
 });

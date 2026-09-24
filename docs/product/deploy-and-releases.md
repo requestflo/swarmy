@@ -186,9 +186,9 @@ Four ideas, one story:
   the live `service.inspect` so nothing is stripped; abort restores 100% stable,
   untouched.
 - **Blueprints & previews.** Blueprints are a parameterised catalog (gallery →
-  dry-run plan → sequential deploy through existing services). PR previews are
-  ephemeral `pr<N>-<repo>` stacks (`swarmy.preview.*` labels) that the
-  preview-reconcile worker tears down on merge/close — see cicd-and-registry.md.
+  dry-run plan → sequential deploy through existing services). Previews are
+  swarmy.yaml preview environments (PR, branch or trial deploy) torn down on
+  close/delete or past `previews.ttl` — see cicd-and-registry.md.
 
 ## Secret variables (protected, not masked)
 
@@ -274,9 +274,8 @@ homes:
   (`recordRelease`, `rollbackTo`, `getSafety`/`setSafety`, `startCanary`/
   `promoteCanary`/`abortCanary`), `routers/releases.ts`, and the workers
   `apps/api/src/workers/{deploy-safety,deploy-canary,scale-to-zero}.ts`.
-- **Blueprints, previews**: `services/blueprints.service.ts` (+
-  `blueprints/catalog.ts`), `services/previews.service.ts` +
-  `workers/preview-reconcile.ts`.
+- **Blueprints**: `services/blueprints.service.ts` (+ `blueprints/catalog.ts`).
+  Previews live with git apps (`services/apps.service.ts`).
 - **Data model**: `packages/db/prisma/schema/releases.prisma` (`Release`) and
   `schema/cluster.prisma` (`Stack`).
 - **UI**: `apps/app/src/components/canvas/*` (service canvas, inspector, toolbar,

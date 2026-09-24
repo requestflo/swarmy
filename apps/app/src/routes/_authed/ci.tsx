@@ -15,7 +15,6 @@ import { BuildsList } from '@/components/ci/builds-list';
 import { ScanPolicyCard } from '@/components/ci/scan-policy-card';
 import { ScanList } from '@/components/ci/scan-list';
 // D4: PR preview environments
-import { PreviewsSection } from '@/components/ci/previews-section';
 // git-apps P5: provider connections + New app from Git
 import { GitConnectionsCard } from '@/components/ci/git-connections-card';
 import { GitNewAppCard } from '@/components/ci/git-new-app-card';
@@ -108,7 +107,6 @@ function CiPage(): React.JSX.Element {
       <ScanList />
 
       {/* D4: PR preview environments */}
-      <PreviewsSection repos={repos.data ?? []} />
     </div>
   );
 }

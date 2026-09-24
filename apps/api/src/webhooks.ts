@@ -20,7 +20,7 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { decryptSecret } from '@swarmy/core/crypto';
-import { prisma, type DB } from '@swarmy/db';
+import { prisma } from '@swarmy/db';
 import {
   handleBranchPush,
   isAppBinding,
@@ -29,21 +29,22 @@ import {
   teardownAppPreviewForRepo,
   triggerBuildForRepo,
   upsertPrComment,
-  type AgentHub,
 } from '@swarmy/trpc';
-import { authRegistry, type Auth } from '@swarmy/auth';
+import { authRegistry } from '@swarmy/auth';
 import { hub } from './gateway';
 import {
   DeliveryDeduper,
   githubSignature,
   isForkPullRequest,
   parseCommitSha,
+  parsePrWebhookEvent,
   parsePushRef,
   pushChangedPaths,
   safeEqual,
   verifyGiteaSignature,
   verifySwarmySignature,
   verifyWebhookSignature,
+  type PrWebhookEvent,
   type WebhookProvider,
 } from './webhook-verify';
 
@@ -60,55 +61,6 @@ webhooksApp.use(
   '*',
   bodyLimit({ maxSize: WEBHOOK_MAX_BODY_BYTES, onError: (c) => c.json({ error: 'payload too large' }, 413) }),
 );
-
-// ── D4: PR preview environments ───────────────────────────────────────────────
-// ORCHESTRATOR TODO (spine seam missing): add to packages/trpc/src/index.ts
-//   export { handlePrEventForRepo, parsePrWebhookEvent } from './services/previews.service';
-// …then replace this dynamic seam with a static root import. Until then the
-// canonical implementation is loaded by file URL — Bun resolves the workspace
-// package by realpath, so module identity (build-log bus, etc.) is SHARED with
-// the '@swarmy/trpc' graph.
-
-type PrAction = 'opened' | 'synchronize' | 'closed';
-interface PrEvent {
-  action: PrAction;
-  prNumber: number;
-  branch: string;
-  commit: string | null;
-}
-
-/** Signature mirror of previews.service.ts exports — keep in sync (D4). */
-interface PreviewsSeam {
-  parsePrWebhookEvent(
-    provider: WebhookProvider,
-    eventHeader: string | null | undefined,
-    body: unknown,
-  ): PrEvent | null;
-  handlePrEventForRepo(
-    deps: { db: DB; hub: AgentHub; auth: Auth },
-    input: {
-      repoId: string;
-      orgId: string;
-      action: PrAction;
-      prNumber: number;
-      branch: string;
-      commit?: string | null;
-    },
-  ): Promise<{
-    action: 'deployed' | 'torn-down' | 'skipped';
-    stack?: string;
-    url?: string | null;
-    reason?: string;
-  }>;
-}
-
-let previewsSeamPromise: Promise<PreviewsSeam> | null = null;
-function previewsSeam(): Promise<PreviewsSeam> {
-  previewsSeamPromise ??= import(
-    new URL('../../../packages/trpc/src/services/previews.service.ts', import.meta.url).href
-  ) as Promise<PreviewsSeam>;
-  return previewsSeamPromise;
-}
 
 const deliveries = new DeliveryDeduper();
 const deps = () => ({ db: prisma, hub, auth: authRegistry.getAuth() });
@@ -202,9 +154,9 @@ function kickPush(
     });
 }
 
-/** A PR on an app binding deploys (or tears down) its swarmy.yaml preview; legacy repos keep compose previews. */
-function kickPr(r: RepoHookRow, pr: PrEvent, baseRef?: string): void {
-  if (!isAppBinding(r)) return kickPreview(r, pr);
+/** A PR on an app binding deploys (or tears down) its swarmy.yaml preview. */
+function kickPr(r: RepoHookRow, pr: PrWebhookEvent, baseRef?: string): void {
+  if (!isAppBinding(r)) return;
   const run =
     pr.action === 'closed'
       ? teardownAppPreviewForRepo(deps(), r.orgId, { repoId: r.id, prNumber: pr.prNumber }).then(
@@ -247,43 +199,6 @@ function kickBuild(repo: RepoHookRow, ref: string, sha: string | null): void {
       );
     },
   );
-}
-
-/** Fire-and-forget a preview for one repo binding, then keep the sticky PR comment current. */
-function kickPreview(repo: RepoHookRow, pr: PrEvent): void {
-  void (async () => {
-    const previews = await previewsSeam();
-    const res = await previews
-      .handlePrEventForRepo(deps(), { ...pr, repoId: repo.id, orgId: repo.orgId })
-      .catch((e: unknown) => ({
-        action: 'failed' as const,
-        reason: e instanceof Error ? e.message : String(e),
-        stack: undefined,
-        url: null,
-      }));
-    if (res.action === 'skipped') return;
-    const stack = res.stack ?? `pr${pr.prNumber}`;
-    await upsertPrComment(prisma, repo, {
-      pr: pr.prNumber,
-      key: `preview:${repo.id}`,
-      body: previewCommentBody({
-        stack,
-        url: res.url ?? null,
-        sha: pr.commit,
-        state:
-          res.action === 'deployed'
-            ? 'deployed'
-            : res.action === 'torn-down'
-              ? 'torn-down'
-              : 'failed',
-        reason: 'reason' in res ? res.reason : undefined,
-      }),
-    });
-  })().catch((e: unknown) => {
-    console.warn(
-      `[webhooks] preview for ${repo.url}#${pr.prNumber} failed: ${e instanceof Error ? e.message : String(e)}`,
-    );
-  });
 }
 
 // ── GitHub App (one endpoint for every installation) ─────────────────────────
@@ -361,8 +276,7 @@ webhooksApp.post('/github', async (c) => {
   }
 
   if (event === 'pull_request') {
-    const previews = await previewsSeam().catch(() => null);
-    const pr = previews?.parsePrWebhookEvent('github', event, body) ?? null;
+    const pr = parsePrWebhookEvent('github', event, body);
     if (!pr) return c.json({ ok: true, ignored: 'pr action' });
     if (pr.action !== 'closed' && isForkPullRequest('github', body)) {
       return c.json({
@@ -449,9 +363,8 @@ webhooksApp.post('/git/:repoId', async (c) => {
   const dialect: WebhookProvider = kind === 'gitlab' ? 'gitlab' : 'github';
 
   // PR / MR → preview (same verification already applied).
-  const previews = await previewsSeam().catch(() => null);
-  const pr = previews?.parsePrWebhookEvent(dialect, event ?? null, body) ?? null;
-  if (previews && pr) {
+  const pr = parsePrWebhookEvent(dialect, event ?? null, body);
+  if (pr) {
     if (
       pr.action !== 'closed' &&
       isForkPullRequest(kind === 'gitlab' ? 'gitlab' : kind === 'gitea' ? 'gitea' : 'github', body)

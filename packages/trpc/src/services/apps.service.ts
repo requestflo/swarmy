@@ -96,7 +96,6 @@ import { setBucketAccess } from './bucket-access.service';
 import { attachSecretToService } from './secretsMgr.service';
 import { bindAiToService } from './ai.service';
 import { bindEmailToService } from './email/bind';
-import { parsePreviewSettings } from './previews.service';
 import { listDbBackups, restoreDb } from './dbBackup.service';
 import { execInService, waitForPostgres } from './resilience.service';
 import { applyPlan, type ActionOutcome, type AppOps } from './apps/apply';
@@ -706,6 +705,12 @@ async function seedPreviewDatabase(
 
 // ── planning ─────────────────────────────────────────────────────────────────
 
+/** The repo-level preview domain some older bindings stored (`GitRepo.previewsJson.baseDomain`). */
+function legacyPreviewDomain(json: unknown): string {
+  const v = typeof json === 'object' && json !== null ? (json as { baseDomain?: unknown }).baseDomain : undefined;
+  return typeof v === 'string' ? v.trim().toLowerCase() : '';
+}
+
 export interface PlanCommitInput {
   repoId: string;
   /** Branch the commit is on (push) or the PR's head branch. */
@@ -718,6 +723,12 @@ export interface PlanCommitInput {
   changedPaths?: string[];
   /** Plan only — never apply (drift detection, dry runs). */
   dryRun?: boolean;
+  /**
+   * A trial preview someone asked for (CLI `deploy --preview`, MCP
+   * `trial_deploy`): deploy the branch as a preview even when swarmy.yaml does
+   * not opt it into `previews.branches`.
+   */
+  manualPreview?: boolean;
 }
 
 export interface PlanCommitResult {
@@ -726,6 +737,8 @@ export interface PlanCommitResult {
   environment: string | null;
   stack: string | null;
   reason?: string;
+  /** The preview's public URL (preview environments with a route only). */
+  url?: string;
 }
 
 const envKey = (repoId: string, env: string, pr: number) => `${repoId}:${env}:${pr}`;
@@ -821,7 +834,7 @@ export async function planCommit(
   if (input.trigger === 'branch') {
     // Branch previews: any branch matching previews.branches (this commit's own file decides).
     const patterns = cfg.previews?.branches ?? [];
-    if (!cfg.previews?.enabled || !branchMatchesAny(patterns, input.ref)) {
+    if (!input.manualPreview && (!cfg.previews?.enabled || !branchMatchesAny(patterns, input.ref))) {
       return {
         planId: null,
         status: 'skipped',
@@ -830,15 +843,14 @@ export async function planCommit(
         reason: `branch ${input.ref} has no preview`,
       };
     }
-    const settings = parsePreviewSettings(repo.previewsJson);
-    const baseDomain = cfg.previews.base_domain ?? settings.baseDomain;
+    const baseDomain = cfg.previews?.base_domain ?? legacyPreviewDomain(repo.previewsJson);
     if (!baseDomain) {
       return {
         planId: null,
         status: 'skipped',
         environment: null,
         stack: null,
-        reason: 'set previews.base_domain (or the repo preview domain) first',
+        reason: 'set previews.base_domain in swarmy.yaml first',
       };
     }
     environment = 'preview';
@@ -853,15 +865,14 @@ export async function planCommit(
         stack: null,
         reason: 'previews are off in swarmy.yaml',
       };
-    const settings = parsePreviewSettings(repo.previewsJson);
-    const baseDomain = cfg.previews.base_domain ?? settings.baseDomain;
+    const baseDomain = cfg.previews?.base_domain ?? legacyPreviewDomain(repo.previewsJson);
     if (!baseDomain) {
       return {
         planId: null,
         status: 'skipped',
         environment: null,
         stack: null,
-        reason: 'set previews.base_domain (or the repo preview domain) first',
+        reason: 'set previews.base_domain in swarmy.yaml first',
       };
     }
     environment = 'preview';
@@ -989,11 +1000,12 @@ export async function planCommit(
       }).catch(() => undefined);
       return { planId: row.id, status: 'blocked', environment, stack: desired.stack };
     }
+    const url = preview && desired.routes[0] ? `https://${desired.routes[0].host}` : undefined;
     if (plan.status === 'noop')
-      return { planId: row.id, status: 'applied', environment, stack: desired.stack };
+      return { planId: row.id, status: 'applied', environment, stack: desired.stack, ...(url ? { url } : {}) };
 
     const res = await executePlan(ctx, row.id, { plan, desired, ledger, sha, repo, confirmed: [] });
-    return { planId: row.id, status: res, environment, stack: desired.stack };
+    return { planId: row.id, status: res, environment, stack: desired.stack, ...(url ? { url } : {}) };
   });
 }
 
@@ -1924,6 +1936,31 @@ export async function handleBranchPush(
 /** Is this repo binding a swarmy.yaml app (vs a legacy build-and-redeploy-one-service repo)? */
 export function isAppBinding(repo: { serviceId: string | null }): boolean {
   return repo.serviceId === null;
+}
+
+/**
+ * Trial-deploy one branch as a swarmy.yaml preview (CLI `deploy --preview`,
+ * MCP `trial_deploy`, REST `POST /apps/{repoId}/previews`). Same machinery as a
+ * branch preview: its own stack, torn down by `previews.ttl` or when the branch
+ * is deleted.
+ */
+export async function createAppPreview(
+  ctx: OrgContext,
+  input: { repoId: string; branch: string },
+): Promise<{ action: 'deployed' | 'skipped' | 'failed'; stack: string | null; url: string | null; reason: string | null }> {
+  const res = await planCommit(ctx, {
+    repoId: input.repoId,
+    ref: input.branch,
+    trigger: 'branch',
+    manualPreview: true,
+  });
+  const action = res.status === 'applied' ? 'deployed' : res.status === 'skipped' || res.status === 'no-config' ? 'skipped' : 'failed';
+  return {
+    action,
+    stack: res.stack,
+    url: res.url ?? null,
+    reason: res.reason ?? (action === 'failed' ? `the preview plan is ${res.status} — open it in the dashboard` : null),
+  };
 }
 
 export type { AppConfig, DesiredResource };

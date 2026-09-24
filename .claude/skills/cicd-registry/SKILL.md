@@ -1,6 +1,6 @@
 ---
 name: cicd-registry
-description: Invariants, contracts, and file map for swarmy's git CI/CD + in-swarm registry — BuildKit builds as an agent command, the single `registry:2` swarm service, Trivy CVE scans + cosign signing/admission, image GC that never prunes an in-prod digest, and PR preview environments. Load before touching anything under services/{cicd,image-gc,registryPolicy,admission-images,previews}.service.ts, routers/{cicd,registryPolicy,previews}.ts, apps/agent/src/handlers/{build,prune}.ts, protocol/build.ts, apps/api/src/webhooks.ts, the image-gc/preview-reconcile workers, or the /ci UI. Product rationale lives in docs/product/cicd-and-registry.md.
+description: Invariants, contracts, and file map for swarmy's git CI/CD + in-swarm registry — BuildKit builds as an agent command, the single `registry:2` swarm service, Trivy CVE scans + cosign signing/admission, image GC that never prunes an in-prod digest, and PR preview environments. Load before touching anything under services/{cicd,image-gc,registryPolicy,admission-images}.service.ts, routers/{cicd,registryPolicy}.ts, apps/agent/src/handlers/{build,prune}.ts, protocol/build.ts, apps/api/src/webhooks.ts, the image-gc worker, or the /ci UI. Product rationale lives in docs/product/cicd-and-registry.md.
 ---
 
 # CI/CD & registry: build → push → scan → deploy → GC
@@ -80,13 +80,14 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
    critical CVEs `block`, unscanned `warn`, unsigned `block`, signature
    unverifiable → **fail closed** (treated as a block). Only org-registry images
    (`isOrgRegistryImage`) are in scope.
-9. **A preview is Docker-truth; one DB write only.** A PR deploys
-   `pr<N>-<repo-short>` from the linked stack's compose with the built image
-   swapped in, all published ports dropped (the `pr-<N>.<baseDomain>` ingress
-   route label is the only front door), on the shared `swarmy` overlay. Identity
-   lives entirely in `swarmy.preview.*` service labels; the list/expiry/teardown
-   are derived from live labels. The ONLY DB write is `GitRepo.previewsJson`
-   (repo input config). See `skill("docker-native-storage")`.
+9. **Previews are swarmy.yaml previews — there is one engine.** A PR, an
+   opted-in branch (`previews.branches`) or a trial deploy (`createAppPreview`:
+   CLI `deploy --preview`, MCP `trial_deploy`, REST `POST /apps/{repoId}/previews`)
+   runs `planCommit` with `toDesired(cfg, { preview })` — its own stack, isolated
+   resources, `AppPlan` rows (`environment: 'preview'`). `app-reconcile` tears
+   them down past `previews.ttl`; a closed PR or deleted branch tears down at
+   once. The older compose-swap engine (`previews.service`) was removed
+   (2026-09).
 10. **Docker owns "what runs"; the DB owns swarmy's identity + history.** New CI
     state that describes a running thing (registry, builder role, preview stack)
     is a Docker label/service, not a Prisma column. `Build`/`ImageScan` are
@@ -163,10 +164,10 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
   (`images/critical-cves` block, `images/unscanned` warn, `images/unsigned`
   block). `verifyImageSignature` runs cosign in a `container.runOnce` on a
   builder node; verify is memoized per digest for `VERIFY_CACHE_TTL_MS` (10 min).
-- **Previews**: the webhook receiver loads `previews.service` (dynamic seam — see
-  the ORCHESTRATOR TODO in `apps/api/src/webhooks.ts`) and calls
-  `parsePrWebhookEvent` + `handlePrEventForRepo`; TTL sweep is the
-  `preview-reconcile` worker calling `teardownExpiredPreviews`.
+- **Previews**: the webhook receiver parses PR/MR events with
+  `parsePrWebhookEvent` (`apps/api/src/webhook-verify.ts`) and calls
+  `planCommitForRepo` / `teardownAppPreviewForRepo`; the TTL sweep is
+  `teardownExpiredAppPreviews` in the `app-reconcile` worker.
 
 ## File map
 
@@ -178,18 +179,18 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 | Trivy DB cache (shared volume, stale fallback) + daily refresh | `packages/trpc/src/services/trivy-db{,.service}.ts`, worker `trivy-db-refresh` |
 | System-image BOM + mirror + Hub pull-through cache | `packages/core/src/system-images.ts`, `packages/trpc/src/services/system-images.service.ts`, worker `system-image-mirror`, `apps/api/src/install/docker-registry-mirror.ts` |
 | Image admission decision (pure + evaluator) | `packages/trpc/src/services/admission-images.ts` |
-| PR preview lifecycle (labels, specs, teardown, webhook parse) | `packages/trpc/src/services/previews.service.ts` |
+| Previews (PR / branch / trial) | `packages/trpc/src/services/apps.service.ts` (`planCommit`, `createAppPreview`, `teardownAppPreview*`) |
 | Build-log fan-out bus | `packages/trpc/src/services/build-log-bus.ts` |
 | Railpack program + meta capture (agent) | `apps/agent/src/handlers/build.ts` (`renderRailpackSteps`, `parseBuildMeta`) |
 | Builder/cache payload, cache refs + GC plan, wizard detection (pure) | `cicd.service.ts` `buildStrategyPayload`, `services/build-cache.ts`, `services/git-providers/detect-build.ts` |
 | Third-party registry creds (match/test pure core; CRUD + JIT resolver; hub decorator) | `packages/trpc/src/services/registry-credentials{,.service}.ts`, `registry-auth.ts` (`createRegistryAuthDecorator`), router `registryCredentials`, REST `routes/registry-credentials.ts` |
-| tRPC surface | `packages/trpc/src/routers/{cicd,registryPolicy,previews}.ts` |
+| tRPC surface | `packages/trpc/src/routers/{cicd,registryPolicy,apps}.ts` |
 | Agent: BuildKit build / image prune | `apps/agent/src/handlers/{build,prune}.ts` |
 | Build gate (`env.BUILD_OVERRIDE` + `buildGateAllows`) + executor cases | `apps/agent/src/{env,executor}.ts`, `packages/core/src/types.ts` |
 | Wire protocol (build/prune payloads + results) | `packages/core/src/protocol/build.ts` (+ `messages.ts`) |
 | `CommandName` → wire `type` | `packages/trpc/src/hub/types.ts` (`COMMAND_PROTOCOL_TYPE`) |
 | Git webhook receiver (HMAC verify → SYSTEM build / PR) | `apps/api/src/webhooks.ts` + `apps/api/src/webhook-verify.ts` |
-| Background sweeps (GC / preview TTL) | `apps/api/src/workers/{image-gc,preview-reconcile}.ts` |
+| Background sweeps (GC / preview TTL) | `apps/api/src/workers/{image-gc,app-reconcile}.ts` |
 | Prisma models | `packages/db/prisma/schema/cicd.prisma` (`GitRepo`/`Build`/`RegistryConfig`/`ImageGcPolicy`/`ImageScan`) |
 | `/ci` workspace UI | `apps/app/src/routes/_authed/ci.tsx` |
 | git-apps: swarmy.yaml schema/parser/planner (pure) | `packages/app-config/src/*` (`plans/epic-git-apps.md`) |
@@ -232,7 +233,7 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 - The webhook secret is decrypted and surfaced exactly once (`getWebhookInfo`)
   so the operator can paste it into the provider — never log it elsewhere.
 - Verify: `bun --filter @swarmy/trpc typecheck` and the pure-core tests
-  (`image-gc.test.ts`, `admission-images.test.ts`, `previews.service.test.ts`,
+  (`image-gc.test.ts`, `admission-images.test.ts`,
   `prune.test.ts`, `registryPolicy.service.test.ts`) plus the protocol
   round-trip over `build.ts`. Multi-node: `scripts/local-vms.sh`
   (`skill("run-local")`) — toggle the Builder role on a node (or set

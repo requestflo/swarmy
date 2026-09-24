@@ -133,3 +133,69 @@ export class DeliveryDeduper {
     return true;
   }
 }
+
+// ── Pull / merge request events ───────────────────────────────────────────────
+
+export type PrAction = 'opened' | 'synchronize' | 'closed';
+
+export interface PrWebhookEvent {
+  action: PrAction;
+  prNumber: number;
+  branch: string;
+  commit: string | null;
+}
+
+const GH_OPENED = new Set(['opened', 'reopened', 'ready_for_review']);
+const GL_OPENED = new Set(['open', 'reopen']);
+const GL_CLOSED = new Set(['close', 'merge']);
+
+/**
+ * Detect + normalize a GitHub `pull_request` / GitLab `Merge Request Hook`
+ * payload. Returns null for anything else (pushes, pings, label churn …) so the
+ * webhook receiver can fall through to its existing push handling.
+ */
+export function parsePrWebhookEvent(
+  provider: 'github' | 'gitlab',
+  eventHeader: string | null | undefined,
+  body: unknown,
+): PrWebhookEvent | null {
+  if (typeof body !== 'object' || body === null) return null;
+  const b = body as Record<string, unknown>;
+
+  if (provider === 'github') {
+    if (eventHeader !== 'pull_request') return null;
+    const prObj = (b.pull_request ?? {}) as Record<string, unknown>;
+    const head = (prObj.head ?? {}) as Record<string, unknown>;
+    const number = typeof prObj.number === 'number' ? prObj.number : typeof b.number === 'number' ? b.number : Number.NaN;
+    const branch = typeof head.ref === 'string' ? head.ref : '';
+    if (!Number.isSafeInteger(number) || number < 1 || !branch) return null;
+    const raw = typeof b.action === 'string' ? b.action : '';
+    const action: PrAction | null = GH_OPENED.has(raw)
+      ? 'opened'
+      : raw === 'synchronize'
+        ? 'synchronize'
+        : raw === 'closed'
+          ? 'closed'
+          : null;
+    if (!action) return null;
+    return { action, prNumber: number, branch, commit: typeof head.sha === 'string' ? head.sha : null };
+  }
+
+  // gitlab — MR hooks mirror the push-hook token verification already applied.
+  if (b.object_kind !== 'merge_request' && eventHeader !== 'Merge Request Hook') return null;
+  const attrs = (b.object_attributes ?? {}) as Record<string, unknown>;
+  const iid = typeof attrs.iid === 'number' ? attrs.iid : Number.NaN;
+  const branch = typeof attrs.source_branch === 'string' ? attrs.source_branch : '';
+  if (!Number.isSafeInteger(iid) || iid < 1 || !branch) return null;
+  const raw = typeof attrs.action === 'string' ? attrs.action : '';
+  const action: PrAction | null = GL_OPENED.has(raw)
+    ? 'opened'
+    : raw === 'update'
+      ? 'synchronize'
+      : GL_CLOSED.has(raw)
+        ? 'closed'
+        : null;
+  if (!action) return null;
+  const lastCommit = (attrs.last_commit ?? {}) as Record<string, unknown>;
+  return { action, prNumber: iid, branch, commit: typeof lastCommit.id === 'string' ? lastCommit.id : null };
+}

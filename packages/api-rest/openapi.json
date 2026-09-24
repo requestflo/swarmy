@@ -3404,7 +3404,7 @@
         "properties": {
           "action": {
             "type": "string",
-            "description": "deployed, torn-down, skipped (open set)."
+            "description": "deployed, skipped or failed (open set)."
           },
           "stack": {
             "type": "string",
@@ -7581,7 +7581,7 @@
           "Developer"
         ],
         "summary": "Preview a branch (trial deploy)",
-        "description": "Builds the branch and deploys it as its own preview stack, the same machinery as a pull-request preview. Torn down by the app’s preview TTL.",
+        "description": "Plans the branch’s swarmy.yaml and deploys it as a preview environment with its own stack and URL, the same machinery as a branch or pull-request preview. Torn down by `previews.ttl` or when the branch is deleted.",
         "security": [
           {
             "bearerApiKey": []

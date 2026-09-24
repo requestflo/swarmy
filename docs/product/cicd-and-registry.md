@@ -93,12 +93,10 @@ Four ideas, one story:
   `@sha256` image plus every running container's pulled digest — never from a
   `Service`/`Deployment` DB row. A digest a node is running (or could pull) is
   never collected. See `skill("docker-native-storage")`.
-- **The registry, the builder, and previews are Docker-native.** The registry
-  is a swarm service; a builder is any node carrying the `swarmy.role=builder`
-  label; a preview environment is an ephemeral stack whose entire identity lives
-  in `swarmy.preview.*` service labels (repo, PR, branch, url, createdAt,
-  ttlHours). The previews list, TTL expiry, and teardown are all derived from
-  live labels — the ONLY DB write is the repo's input config.
+- **The registry and the builder are Docker-native.** The registry is a swarm
+  service; a builder is any node carrying the `swarmy.role=builder` label.
+  Previews are git-app environments (see `epic-git-apps.md`): their plans are
+  `AppPlan` history, their running state is the preview stack itself.
 - **The DB owns swarmy's own identity, config, secrets, and queryable history**:
   `GitRepo` (repo input config + vault-encrypted git token & webhook secret +
   `previewsJson`), `Build` (the bridge row: which build produced which digest,
@@ -155,11 +153,12 @@ Four ideas, one story:
 - **Autodeploy is per-repo and opt-in.** A `SUCCEEDED` build whose repo is linked
   to a service and has `autodeploy` on redeploys that service to the new digest;
   otherwise builds pile up as history for a human to promote.
-- **Previews are private-by-default and self-tearing.** A PR builds its branch,
-  deploys `pr<N>-<repo-short>` from the linked stack's compose with the built
-  image swapped in, drops all published ports (the `pr-<N>.<domain>` ingress
-  route is the only front door), and carries a TTL. Closing the PR tears it down;
-  the hourly `preview-reconcile` sweep tears down anything past its expiry.
+- **Previews come from swarmy.yaml and tear themselves down.** A PR, an opted-in
+  branch, or a trial deploy (`swarmy deploy --preview`) plans the branch's
+  swarmy.yaml as its own preview environment (own stack, own URL under
+  `previews.base_domain`, optionally a scrubbed data copy). Closing the PR or
+  deleting the branch tears it down; `app-reconcile` removes anything past
+  `previews.ttl`.
 
 ## Failure modes (designed, not accidental)
 
@@ -203,11 +202,11 @@ registry service, the scan/sign path, and previews fit together. Key homes:
 enable, GC policy, live logs), `packages/trpc/src/services/image-gc.service.ts`
 (pinned-set + plan execution), `packages/trpc/src/services/registryPolicy.service.ts`
 + `admission-images.ts` (Trivy scan, cosign sign/verify, admission),
-`packages/trpc/src/services/previews.service.ts` (PR preview lifecycle),
-`packages/trpc/src/routers/{cicd,registryPolicy,previews}.ts` (the tRPC surface),
+`packages/trpc/src/services/apps.service.ts` (swarmy.yaml plans, incl. previews),
+`packages/trpc/src/routers/{cicd,registryPolicy,apps}.ts` (the tRPC surface),
 `apps/agent/src/handlers/{build,prune}.ts` +
 `packages/core/src/protocol/build.ts` (the agent capability),
 `apps/api/src/webhooks.ts` (the git webhook receiver),
-`apps/api/src/workers/{image-gc,preview-reconcile}.ts` (the background sweeps),
+`apps/api/src/workers/{image-gc,app-reconcile}.ts` (the background sweeps),
 `packages/db/prisma/schema/cicd.prisma` (the models), and
 `apps/app/src/routes/_authed/ci.tsx` (the `/ci` workspace).

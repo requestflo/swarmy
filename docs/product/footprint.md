@@ -114,8 +114,7 @@ were deleted with the SQLite switch. `MIMALLOC_PURGE_DELAY=0` stays.
 - **Pre-bundle the controller** (`bun build --target bun --minify`, with Prisma
   as an external). The prototype was measured on the PGlite store. In a prototype this cut about 25–40 MiB (anon
   303 → 263 MiB). It first needs the `import.meta.url`-relative paths fixed:
-  `ensure-schema.ts` migrationsDir, the `webhooks.ts` and
-  `preview-reconcile.ts` lazy imports, and `agent-release.service.ts` repoRoot.
+  `ensure-schema.ts` migrationsDir and `agent-release.service.ts` repoRoot.
 - **Lazy-load feature surfaces** that a lite install with a few stacks never
   touches (managed data, search, vector, storage, AI gateway). Today
   the tRPC router and the worker index import every service at boot.
