@@ -6,6 +6,7 @@
  */
 export * from './units';
 export * from './schema';
+export * from './auth';
 export * from './issues';
 export * from './bindings';
 export * from './validate';

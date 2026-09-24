@@ -26,6 +26,7 @@ export const BINDING_RE = /(\$?)\$\{\{\s*([^}]*?)\s*\}\}/g;
 export const RESOURCE_BINDING_FIELDS: Record<ResourceType, readonly string[]> = {
   postgres: ['url', 'ro_url', 'host', 'ro_host', 'port', 'database', 'user', 'password'],
   cache: ['url', 'host', 'port', 'password', 'password_file'],
+  queue: ['url', 'host', 'port', 'password', 'password_file'],
   search: ['url', 'host', 'port', 'key_file'],
   vector: ['url', 'host', 'port'],
   bucket: ['endpoint', 'bucket', 'region', 'access_key_id', 'secret_access_key_file'],

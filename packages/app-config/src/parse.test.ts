@@ -90,7 +90,7 @@ describe('parseAppConfig', () => {
     const text =
       'version: 1\napp: shop\nservices: { web: { image: nginx:1.27 } }\nresources:\n  db: { type: mysql }\n';
     expect(errors(text)[0]?.message).toBe(
-      'type must be one of postgres, cache, search, vector, bucket',
+      'type must be one of postgres, cache, queue, search, vector, bucket',
     );
   });
 

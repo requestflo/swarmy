@@ -12,6 +12,7 @@
 import { z } from 'zod';
 import { CACHE_ENGINES, CACHE_TOPOLOGIES, SEARCH_ENGINES } from '@swarmy/core/views';
 import { isCron, parseDuration, parseRate, parseSizeMb } from './units';
+import { AuthSchema } from './auth';
 
 /**
  * Managed-Postgres HA topologies. Mirrors `DB_TOPOLOGIES` in
@@ -220,6 +221,21 @@ export const CacheSchema = z
   })
   .strict();
 
+/**
+ * A managed BullMQ queue: a BullMQ-ready Valkey (maxmemory-policy noeviction,
+ * AOF on, in the default-on backups). Bind it like a cache —
+ * `QUEUE_URL: ${{ jobs.url }}` — and point BullMQ's connection at it.
+ */
+export const QueueSchema = z
+  .object({
+    type: z.literal('queue'),
+    engine: z.enum(CACHE_ENGINES).optional(),
+    ha: z.enum(CACHE_TOPOLOGIES).optional(),
+    replicas: z.number().int().min(0).max(10).optional(),
+    memory: size.optional(),
+  })
+  .strict();
+
 export const SearchSchema = z
   .object({ type: z.literal('search'), engine: z.enum(SEARCH_ENGINES).optional() })
   .strict();
@@ -241,12 +257,13 @@ export const BucketSchema = z
   })
   .strict();
 
-export const RESOURCE_TYPES = ['postgres', 'cache', 'search', 'vector', 'bucket'] as const;
+export const RESOURCE_TYPES = ['postgres', 'cache', 'queue', 'search', 'vector', 'bucket'] as const;
 export type ResourceType = (typeof RESOURCE_TYPES)[number];
 
 export const ResourceObjectSchema = z.discriminatedUnion('type', [
   PostgresSchema,
   CacheSchema,
+  QueueSchema,
   SearchSchema,
   VectorSchema,
   BucketSchema,
@@ -369,6 +386,8 @@ export const AppConfigSchema = z
     resources: z.record(unitName, ResourceSchema).optional(),
     jobs: z.record(unitName, JobSchema).optional(),
     previews: PreviewsSchema.optional(),
+    /** End-user sign-in: a per-app Better Auth service at /auth on the app's domains (auth.ts). */
+    auth: AuthSchema.optional(),
     /** Other apps (stacks) in this org whose services this app may reach — one private overlay per pair. */
     connect: z.array(z.string().regex(/^[a-z][a-z0-9-]{0,39}$/, 'an app name')).optional(),
     /** Named environments beside production, each its own stack `<app>-<name>` tracking a branch. */

@@ -15,6 +15,7 @@ import {
   SIZE_PRESETS,
   VECTOR_ENGINES,
 } from './schema';
+import { AUTH_EMAIL_MODES, AUTH_PROVIDERS } from './auth';
 
 const name = { type: 'string', pattern: '^[a-z][a-z0-9-]{0,29}$' } as const;
 const duration = {
@@ -187,7 +188,7 @@ const backups = {
 const resource = {
   anyOf: [
     {
-      enum: ['postgres', 'cache', 'search', 'vector', 'bucket'],
+      enum: ['postgres', 'cache', 'queue', 'search', 'vector', 'bucket'],
       description: 'Shorthand with all defaults',
     },
     {
@@ -214,6 +215,19 @@ const resource = {
       required: ['type'],
       properties: {
         type: { const: 'cache' },
+        engine: { enum: [...CACHE_ENGINES], default: 'valkey' },
+        ha: { enum: [...CACHE_TOPOLOGIES], default: 'single' },
+        replicas: { type: 'integer', minimum: 0, maximum: 10 },
+        memory: size,
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['type'],
+      description: 'A managed BullMQ queue: Valkey with noeviction + AOF, backed up. Bind QUEUE_URL: ${{ <name>.url }}.',
+      properties: {
+        type: { const: 'queue' },
         engine: { enum: [...CACHE_ENGINES], default: 'valkey' },
         ha: { enum: [...CACHE_TOPOLOGIES], default: 'single' },
         replicas: { type: 'integer', minimum: 0, maximum: 10 },
@@ -318,6 +332,38 @@ const environment = {
   },
 } as const;
 
+const emailDomains = {
+  type: 'array',
+  items: { type: 'string' },
+  description: 'Only people with an email at these domains may sign up (e.g. acme.com)',
+} as const;
+
+const auth = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "End-user sign-in: swarmy runs a Better Auth service for this app at /auth on its domains. Provider credentials are the Docker secrets auth-<provider>-client-id / auth-<provider>-client-secret",
+  properties: {
+    providers: { type: 'array', items: { enum: [...AUTH_PROVIDERS] }, uniqueItems: true },
+    email: { enum: [...AUTH_EMAIL_MODES], description: 'Email sign-in: a magic link, a password, or none' },
+    allowedDomains: emailDomains,
+    allowed_domains: emailDomains,
+    oidc: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['issuer'],
+      properties: { issuer: { type: 'string', format: 'uri' }, name: { type: 'string' } },
+    },
+    microsoft: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tenant'],
+      properties: { tenant: { type: 'string', description: 'Entra tenant id (default common)' } },
+    },
+    database: { type: 'string', description: 'Postgres resource for users (default: the only one, else SQLite)' },
+  },
+} as const;
+
 export const SWARMY_YAML_JSON_SCHEMA = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: 'https://swarmy.dev/schema/swarmy.v1.json',
@@ -337,6 +383,7 @@ export const SWARMY_YAML_JSON_SCHEMA = {
     },
     resources: { type: 'object', propertyNames: name, additionalProperties: resource },
     jobs: { type: 'object', propertyNames: name, additionalProperties: job },
+    auth,
     previews: {
       type: 'object',
       additionalProperties: false,

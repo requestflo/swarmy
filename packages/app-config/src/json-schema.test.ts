@@ -17,6 +17,7 @@ import {
   ServiceSchema,
   VectorSchema,
 } from './schema';
+import { AuthSchema } from './auth';
 
 /** Keys of a Zod object, unwrapping refinements. */
 const zkeys = (t: z.ZodTypeAny): string[] => {
@@ -35,6 +36,7 @@ describe('JSON Schema ↔ Zod drift guard', () => {
     expect(jkeys(service)).toEqual(zkeys(ServiceSchema));
     expect(jkeys(S.properties.jobs.additionalProperties)).toEqual(zkeys(JobSchema));
     expect(jkeys(S.properties.previews)).toEqual(zkeys(PreviewsSchema));
+    expect(jkeys(S.properties.auth)).toEqual(zkeys(AuthSchema));
     expect(jkeys(service.properties.healthcheck)).toEqual(zkeys(HealthcheckSchema));
     expect(jkeys(service.properties.domains.items.anyOf[1].properties.protect)).toEqual(
       zkeys(ProtectSchema),

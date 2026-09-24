@@ -20,6 +20,7 @@ import { parseDuration, parseRate, parseSizeMb } from './units';
 import { environmentStack, PRODUCTION, resolveEnvironment } from './environments';
 import { branchSlug } from './branches';
 import { defaultJobService, domainHost } from './validate';
+import { AUTH_PORT, AUTH_ROUTE_PATH, AUTH_UNIT, authServiceInput, authServiceUrl } from './auth';
 
 export const DEFAULT_PREVIEW_TTL_SECONDS = 72 * 3600;
 export const DEFAULT_JOB_TIMEOUT_SECONDS = 600;
@@ -89,7 +90,15 @@ export type DesiredResource = { name: string; sig: string } & (
       database: string;
       backups: { schedule: string; keep: number } | null;
     }
-  | { type: 'cache'; engine: string; ha: string; replicas: number; memoryMb: number }
+  | {
+      type: 'cache';
+      engine: string;
+      ha: string;
+      replicas: number;
+      memoryMb: number;
+      /** `queue` for a swarmy.yaml `type: queue` (BullMQ-ready, noeviction). */
+      purpose?: 'queue';
+    }
   | { type: 'search'; engine: string }
   | { type: 'vector'; engine: 'qdrant' | 'pgvector'; on?: string }
   | { type: 'bucket'; access: BucketAccess; quotaMb?: number }
@@ -250,7 +259,10 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
                 backups,
               });
             }
-            case 'cache': {
+            case 'cache':
+            case 'queue': {
+              // A queue IS a managed cache with the BullMQ purpose — every
+              // downstream step (attach, bindings, plan) is the cache path.
               const ha = preview ? 'single' : (r.ha ?? 'single');
               const replicas = ha === 'single' ? 0 : (r.replicas ?? 1);
               return withSig({
@@ -260,6 +272,7 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
                 ha,
                 replicas,
                 memoryMb: r.memory !== undefined ? (parseSizeMb(r.memory) ?? 256) : 256,
+                ...(r.type === 'queue' ? { purpose: 'queue' as const } : {}),
               });
             }
             case 'search':
@@ -288,8 +301,7 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
       );
 
   // ── services ──
-  const services = sortByName(
-    Object.entries(cfg.services).map(([name, s]): DesiredService => {
+  const toService = ([name, s]: [string, AppConfig['services'][string]]): DesiredService => {
       let source: BuildSource | ImageSource;
       if (s.build !== undefined) {
         const b = typeof s.build === 'string' ? { path: s.build } : s.build;
@@ -306,7 +318,12 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
         source = { kind: 'image', image: s.image ?? '' };
       }
 
-      const env = { ...strEnv(cfg.env), ...strEnv(s.env) };
+      const env = {
+        // `auth:` — every app service can find its auth service (@swarmy/app-auth getSession).
+        ...(cfg.auth && name !== AUTH_UNIT ? { SWARMY_AUTH_URL: authServiceUrl(stack) } : {}),
+        ...strEnv(cfg.env),
+        ...strEnv(s.env),
+      };
       const bindings = new Set<string>();
       const dependsOn = new Set<string>();
       for (const v of Object.values(env)) {
@@ -379,8 +396,8 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
         dependsOn: [...dependsOn].sort(),
       };
       return withSig(unit);
-    }),
-  );
+  };
+  const services = sortByName(Object.entries(cfg.services).map(toService));
 
   // ── routes ──
   const routes: DesiredRoute[] = [];
@@ -428,6 +445,15 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
           ...(protection ? { protection } : {}),
         }),
       );
+    }
+  }
+  // ── auth: (end-user sign-in) — one Better Auth service, /auth/* on every host ──
+  if (cfg.auth) {
+    const hosts = [...new Set(routes.map((r) => r.host))];
+    services.push(toService([AUTH_UNIT, authServiceInput(cfg, stack, hosts)]));
+    sortByName(services);
+    for (const host of hosts) {
+      routes.push(withSig({ host, path: AUTH_ROUTE_PATH, service: AUTH_UNIT, port: AUTH_PORT, stripPath: false }));
     }
   }
   routes.sort((a, b) => (a.host + a.path < b.host + b.path ? -1 : 1));

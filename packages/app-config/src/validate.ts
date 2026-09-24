@@ -276,7 +276,7 @@ export function validateConfig(cfg: AppConfig): ConfigIssue[] {
           ),
         );
       }
-    } else if (r.type === 'cache') {
+    } else if (r.type === 'cache' || r.type === 'queue') {
       if (r.ha === 'sentinel' && r.replicas === 0) {
         out.push(
           issue(
