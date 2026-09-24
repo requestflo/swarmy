@@ -15,6 +15,7 @@
  *
  * Pure render + a checksum helper; unit-tested.
  */
+import { assertSafeInstallVersion } from './version-guard';
 import { createHash } from 'node:crypto';
 
 /** sha256 hex digest of an installer body (matches the `.sha256` route output). */
@@ -61,7 +62,7 @@ function shq(v: string): string {
  * unverified body.
  */
 export function renderLoader(opts: RenderLoaderOptions): string {
-  const { version } = opts;
+  const version = assertSafeInstallVersion(opts.version);
   const controllerUrl = opts.controllerUrl.replace(/\/+$/, '');
   const sha = opts.installerSha256.toLowerCase();
   const installerPath = `/install/${version}/install.sh`;

@@ -26,6 +26,7 @@ import {
 } from './systemd';
 import { DOCKER_LOG_OPTS_SH, DOCKER_RUN_LOG_FLAGS } from './docker-log-opts';
 import { DOCKER_REGISTRY_MIRROR_SH } from './docker-registry-mirror';
+import { assertSafeInstallVersion } from './version-guard';
 
 export interface RenderInstallerOptions {
   controllerUrl: string;
@@ -54,7 +55,8 @@ function unitTemplate(): string {
 }
 
 export function renderInstaller(opts: RenderInstallerOptions): string {
-  const { controllerUrl, version, agentImage, binaryBaseUrl } = opts;
+  const { controllerUrl, agentImage, binaryBaseUrl } = opts;
+  const version = assertSafeInstallVersion(opts.version);
   const shaCases = Object.entries(opts.binarySha256)
     .map(([platform, sha]) => `    ${platform}) echo "${sha.toLowerCase()}" ;;`)
     .join('\n');
@@ -260,6 +262,8 @@ write_env() {
     [ -z "$MESH_MANAGEMENT_URL" ] || echo "SWARMY_MESH_MANAGEMENT_URL=$MESH_MANAGEMENT_URL"
     echo "SWARMY_MESH_DRIVER=$MESH_DRIVER"
   } > "$ENV_FILE"
+  # A repair rewrites an existing file, which keeps its old mode: force 0600.
+  chmod 600 "$ENV_FILE"
 }
 
 install_systemd() {
@@ -297,19 +301,24 @@ install_docker() {
     say "New join token differs from the existing installation — dropping the saved agent session volume so this node re-enrolls fresh."
     docker volume rm "$STATE_VOLUME" >/dev/null 2>&1 || true
   fi
+  # Secrets (join token, mesh setup key) ride a root-only 0600 env file mounted
+  # read-only — never \`-e\`, which would keep them in \`docker inspect\` (and
+  # config.v2.json) for anyone who can reach the Docker socket. The agent loads
+  # /etc/swarmy/agent.env itself (apps/agent/src/env.ts); -e values win.
+  write_env
+  chmod 600 "$ENV_FILE"
   docker run -d \\
     --name "$CONTAINER_NAME" \\
     --restart unless-stopped \\
     ${DOCKER_RUN_LOG_FLAGS} \\
     -v /var/run/docker.sock:/var/run/docker.sock \\
     -v "$STATE_VOLUME":/var/lib/swarmy \\
+    -v "$ENV_FILE":/etc/swarmy/agent.env:ro \\
     -e AGENT_WS_URL="$WS_URL" \\
-    -e SWARMY_JOIN_TOKEN="$JOIN_TOKEN" \\
     -e SWARMY_NODE_LABELS="$NODE_LABELS" \\
     -e SWARMY_AGENT_STATE=/var/lib/swarmy/agent.json \\
     -e SWARMY_ALLOW_MESH="$ALLOW_MESH" \\
     -e SWARMY_ALLOW_BUILD="$ALLOW_BUILD" \\
-    -e SWARMY_MESH_SETUP_KEY="$MESH_SETUP_KEY" \\
     -e SWARMY_MESH_MANAGEMENT_URL="$MESH_MANAGEMENT_URL" \\
     -e SWARMY_MESH_DRIVER="$MESH_DRIVER" \\
     "$AGENT_IMAGE" >/dev/null || die "Failed to start the agent container."
