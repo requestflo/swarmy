@@ -5,6 +5,7 @@ import type { OrgContext } from '@swarmy/trpc';
 import { ALERT_SIGNAL_INFO, type AlertSignal } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import { hub, store } from '../gateway';
+import { forecastConditions, loadDiskSeries } from './disk-forecast-alerts';
 
 /**
  * Alert evaluator worker (slice C3). Every 30s, per org, derive signal
@@ -421,6 +422,26 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
       diskThreshold,
     ),
   );
+  // disk-usage forecast — "full in N days" + a concrete next step (same rule).
+  {
+    const now = Date.now();
+    const swarmNodes = hub.nodeInventory(orgId, true);
+    const forecastNodes = await Promise.all(
+      nodes.map(async (n) => {
+        const s = hub.latestNodeStats(n.id);
+        const swarmNodeId = hub.swarmNodeIdFor(n.id);
+        const sw = swarmNodes.find((x) => x.swarmNodeId === swarmNodeId);
+        return {
+          name: n.name,
+          swarmNodeId,
+          series: await loadDiskSeries(orgId, n.id, now),
+          live: s?.fsUsedBytes != null && s.fsTotalBytes ? { usedBytes: s.fsUsedBytes, totalBytes: s.fsTotalBytes } : null,
+          schedulable: hub.isOnline(n.id) && sw?.availability === 'active' && sw.status === 'ready',
+        };
+      }),
+    );
+    conditions.push(...forecastConditions(forecastNodes, hub.liveInventory(orgId).services, now));
+  }
 
   // service-down + db lag + queue depth — one pass over the live inventory.
   const { services } = hub.liveInventory(orgId);
