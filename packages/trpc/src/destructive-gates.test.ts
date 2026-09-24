@@ -125,6 +125,9 @@ const GATES: Array<[string, unknown, string]> = [
   ['stacks.addServiceToStack', { stack: 'shop', name: 'web', image: 'nginx' }, 'stack.deploy'],
   ['stacks.redeploy', { id: 'st1' }, 'stack.deploy'],
   ['stacks.connect', { stack: 'shop', peer: 'blog' }, 'stack.deploy'],
+  // AI gateway app wiring: configuring the app it injects into.
+  ['ai.attachToService', { stack: 'shop', appService: 'web' }, 'service.configure'],
+  ['ai.grantStackAccess', { stack: 'shop' }, 'service.configure'],
 ];
 
 /** Member-allowed today (orgProcedure before the sweep) — must stay allowed. */
@@ -301,4 +304,20 @@ describe('deploys carry the environment (members free outside production)', () =
     const prod = await run((c) => c.services!.create!({ name: 'worker', image: 'x', project: 'shop' }));
     expect(isPolicyDenied(prod.error)).toBe(true);
   });
+});
+
+describe('AI gateway provider credentials are admin-only (security review C5)', () => {
+  const ADMIN_ONLY: Array<[string, unknown]> = [
+    ['ai.setProvider', { kind: 'openai', baseUrl: 'https://attacker.example' }],
+    ['ai.removeProvider', { kind: 'openai' }],
+    ['ai.setSettings', { auditLog: true }],
+    ['ai.setStackOutlet', { stack: 'shop', domain: 'ai.example.com' }],
+    ['ai.mintKey', { name: 'k' }],
+  ];
+  for (const [path, input] of ADMIN_ONLY) {
+    it(`${path}: a member is refused before the service runs`, async () => {
+      const { error } = await call('member', path, input);
+      expect(error instanceof TRPCError && error.code === 'FORBIDDEN').toBe(true);
+    });
+  }
 });

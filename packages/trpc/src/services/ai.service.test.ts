@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   aggregateUsage,
   generateVirtualKey,
+  keepsStoredKey,
   parseConfigDoc,
   parseKeyLimits,
 } from './ai.service';
@@ -204,5 +205,20 @@ describe('key policy + swarmy.yaml binding helpers', () => {
     const out = carryManagedAttachments({ name: 'shop_web', image: 'x' } as never, live as never);
     expect(out.env).toEqual({ OPENAI_BASE_URL: 'https://c/ai/v1', ANTHROPIC_BASE_URL: 'https://c/ai', AI_GATEWAY_URL: 'https://c/ai/v1' });
     expect(out.labels?.['swarmy.ai.bind']).toBe('app:shop/shop_web');
+  });
+});
+
+describe('keepsStoredKey — the stored credential never follows a new origin (C5)', () => {
+  it('keeps the key when the origin is unchanged (path edits, default ↔ explicit default)', () => {
+    expect(keepsStoredKey('openai', null, 'https://api.openai.com')).toBe(true);
+    expect(keepsStoredKey('openai', 'https://api.openai.com', null)).toBe(true);
+    expect(keepsStoredKey('custom', 'https://llm.example.com/v1', 'https://llm.example.com/api')).toBe(true);
+  });
+
+  it('drops it when the host, port or scheme changes', () => {
+    expect(keepsStoredKey('openai', null, 'https://attacker.example')).toBe(false);
+    expect(keepsStoredKey('custom', 'https://llm.example.com', 'https://llm.example.com:8443')).toBe(false);
+    expect(keepsStoredKey('custom', 'https://llm.example.com', 'http://llm.example.com')).toBe(false);
+    expect(keepsStoredKey('custom', 'https://llm.example.com', 'https://evil.example')).toBe(false);
   });
 });

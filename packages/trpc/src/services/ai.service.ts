@@ -1,6 +1,9 @@
 import { randomBytes } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
 import {
   AI_PROVIDERS,
+  checkProviderUrl,
+  type HostResolver,
   MODEL_CATALOG,
   aiGatewayRunner,
   aiModelResource,
@@ -190,6 +193,46 @@ export async function getProviders(ctx: OrgContext): Promise<AiProvidersView> {
   return { providers, gatewayUrl: gatewayUrl() };
 }
 
+/** Resolve a hostname to every address (the SSRF guard checks all of them). */
+const defaultHostResolver: HostResolver = async (host) => (await lookup(host, { all: true })).map((a) => a.address);
+let hostResolver: HostResolver = defaultHostResolver;
+
+/** Test seam: swap the DNS resolver the provider URL check uses (null restores). */
+export function setAiHostResolver(fn: HostResolver | null): void {
+  hostResolver = fn ?? defaultHostResolver;
+}
+
+/** Hostnames of the org's in-cluster engines (Ollama / vLLM) — the SSRF allowlist. */
+export function inClusterHosts(ctx: OrgContext): string[] {
+  try {
+    return discoverInClusterModels(
+      liveOrgServices(ctx).map((s) => ({ name: s.name, image: s.image, stack: s.stack, labels: s.labels })),
+    ).map((f) => new URL(f.baseUrl).hostname);
+  } catch {
+    return [];
+  }
+}
+
+function originOf(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a stored provider credential may stay when the base URL changes
+ * without a new key. The stored key is only ever sent to the origin it was
+ * entered for: a new origin drops it, so re-pointing a provider at another
+ * host can never exfiltrate the org's key.
+ */
+export function keepsStoredKey(kind: AiProviderKind, prevBaseUrl: string | null, nextBaseUrl: string | null): boolean {
+  const dflt = AI_PROVIDERS[kind].defaultBaseUrl;
+  return originOf(prevBaseUrl ?? dflt) === originOf(nextBaseUrl ?? dflt);
+}
+
 export async function setProvider(ctx: OrgContext, input: SetAiProviderInput): Promise<AiProvidersView> {
   const row = await loadConfig(ctx);
   const doc = parseConfigDoc(row.providersJson);
@@ -200,6 +243,12 @@ export async function setProvider(ctx: OrgContext, input: SetAiProviderInput): P
   const live = withLiveEngines(ctx, { ...doc, providers: [] }).providers.find((p) => p.kind === input.kind);
   if (!info.defaultBaseUrl && !baseUrl && input.kind !== 'bedrock' && !live) {
     throw commandRejected(`${info.label} needs a base URL`);
+  }
+  if (baseUrl) {
+    // SSRF: the gateway sends the org's credential here — public hosts only,
+    // or one of the org's own in-cluster engines.
+    const check = await checkProviderUrl(baseUrl, { allowHosts: inClusterHosts(ctx), resolve: hostResolver });
+    if (!check.ok) throw commandRejected(`${info.label} base URL refused: ${check.reason}`);
   }
   if (input.kind === 'bedrock' && !(input.region ?? existing?.region)) {
     throw commandRejected('AWS Bedrock needs a region (e.g. us-east-1)');
@@ -222,13 +271,24 @@ export async function setProvider(ctx: OrgContext, input: SetAiProviderInput): P
   if (!doc.providers.some((p) => p.isDefault) && doc.providers.length > 0) {
     doc.providers[0]!.isDefault = true;
   }
+  // A new origin without a new key drops the stored one (re-enter it).
+  const keyDropped =
+    !input.apiKey && Boolean(keys[input.kind]) && !keepsStoredKey(input.kind, existing?.baseUrl ?? null, next.baseUrl);
+  if (keyDropped) delete keys[input.kind];
   if (input.apiKey) keys[input.kind] = input.apiKey.trim();
   await saveConfig(ctx, doc, Object.keys(keys).length > 0 ? encryptSecret(JSON.stringify(keys)) : null);
   await writeAudit(ctx, {
     action: 'ai.provider.set',
     targetType: 'aiProvider',
     targetId: input.kind,
-    metadata: { baseUrl: next.baseUrl, region: next.region ?? null, keyUpdated: Boolean(input.apiKey), makeDefault: input.makeDefault },
+    metadata: {
+      baseUrl: next.baseUrl,
+      previousBaseUrl: existing?.baseUrl ?? null,
+      region: next.region ?? null,
+      keyUpdated: Boolean(input.apiKey),
+      keyDropped,
+      makeDefault: input.makeDefault,
+    },
   });
   return getProviders(ctx);
 }

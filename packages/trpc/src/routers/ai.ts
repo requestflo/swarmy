@@ -13,7 +13,8 @@ import {
   SetAiRouteInput,
   UpdateAiKeyInput,
 } from '@swarmy/core';
-import { orgProcedure, router } from '../trpc';
+import { abacProcedure, resolveStackByName, resolveStackService } from '../abac';
+import { adminProcedure, orgProcedure, router } from '../trpc';
 import {
   attachAiToService,
   getProviders,
@@ -66,18 +67,23 @@ const SetStackOutletInput = z.object({
  * AI gateway control plane (slice F5) — providers (keys vault-encrypted,
  * write-only), virtual keys (revealed once), usage/cost aggregates, request
  * log and settings. The data plane lives in apps/api/src/ai-gateway.ts.
+ *
+ * Provider credentials, settings, outlets and raw key minting are admin-only:
+ * a member who could re-point a provider's base URL could aim the org's key at
+ * any host. Wiring an app is `service.configure` on that app / stack (members
+ * outside production, by the seeded defaults).
  */
 export const aiGatewayRouter = router({
   /** Configured upstream providers + the gateway base URL (no secrets). */
   providers: orgProcedure.query(({ ctx }) => getProviders(ctx)),
 
   /** Save/update a provider. The API key is encrypted and never returned. */
-  setProvider: orgProcedure
+  setProvider: adminProcedure
     .input(SetAiProviderInput)
     .mutation(({ ctx, input }) => setProvider(ctx, input)),
 
   /** Remove a provider (and its stored key). */
-  removeProvider: orgProcedure
+  removeProvider: adminProcedure
     .input(RemoveAiProviderInput)
     .mutation(({ ctx, input }) => removeProvider(ctx, input.kind)),
 
@@ -90,7 +96,7 @@ export const aiGatewayRouter = router({
   keys: orgProcedure.query(({ ctx }) => listKeys(ctx)),
 
   /** Mint a virtual key — the plaintext is returned ONCE, then hash-only. */
-  mintKey: orgProcedure.input(MintAiKeyInput).mutation(({ ctx, input }) => mintKey(ctx, input)),
+  mintKey: adminProcedure.input(MintAiKeyInput).mutation(({ ctx, input }) => mintKey(ctx, input)),
 
   /** Edit a key's model allowlist / limits in place (no rotation). */
   updateKey: orgProcedure.input(UpdateAiKeyInput).mutation(({ ctx, input }) => updateKey(ctx, input)),
@@ -127,12 +133,12 @@ export const aiGatewayRouter = router({
 
   /** Gateway toggles: request audit log + exact-match response cache. */
   settings: orgProcedure.query(({ ctx }) => getSettings(ctx)),
-  setSettings: orgProcedure
+  setSettings: adminProcedure
     .input(AiSettingsInput)
     .mutation(({ ctx, input }) => setSettings(ctx, input)),
 
   /** Wire an app: AI_GATEWAY_URL env + a per-app key in a Docker secret. */
-  attachToService: orgProcedure
+  attachToService: abacProcedure('service.configure', resolveStackService)
     .input(AttachAiInput)
     .mutation(({ ctx, input }) => attachAiToService(ctx, input)),
 
@@ -142,7 +148,7 @@ export const aiGatewayRouter = router({
     .query(({ ctx, input }) => stackAccess(ctx, input.stack)),
 
   /** Grant a stack access: mint its key (revealed ONCE) + wire chosen services. */
-  grantStackAccess: orgProcedure
+  grantStackAccess: abacProcedure('service.configure', resolveStackByName)
     .input(GrantStackAccessInput)
     .mutation(({ ctx, input }) => grantStackAccess(ctx, input)),
 
@@ -152,7 +158,7 @@ export const aiGatewayRouter = router({
     .mutation(({ ctx, input }) => revokeStackAccess(ctx, input.stack)),
 
   /** Point a public outlet domain at the stack's gateway (empty clears). */
-  setStackOutlet: orgProcedure
+  setStackOutlet: adminProcedure
     .input(SetStackOutletInput)
     .mutation(({ ctx, input }) => setStackOutlet(ctx, input)),
 
