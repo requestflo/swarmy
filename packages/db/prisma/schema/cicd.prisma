@@ -53,12 +53,17 @@ model GitRepo {
   // vault-encrypted, never returned; public half shown to paste into the host).
   deployKeyEnc    String? @db.Text
   deployKeyPublic String?
+  // git-apps P3: every change waits for a human (not only destructive ones).
+  requireApproval Boolean @default(false)
+  // Branches the swarmy.yaml's `environments:` track (webhook/poll routing).
+  envBranches     String[] @default([])
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
 
   org        Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   connection GitConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
   builds     Build[]
+  appPlans   AppPlan[]
 
   @@unique([orgId, url, branch, configPath])
   @@index([orgId])
@@ -241,4 +246,44 @@ model RegistryCredential {
   @@unique([orgId, prefix])
   @@index([orgId])
   @@map("registry_credential")
+}
+
+/// One swarmy.yaml plan for one app environment at one commit (git-apps P3):
+/// queryable HISTORY of what swarmy decided and did — who confirmed which
+/// held step, what failed. `ledgerJson` is the cumulative "what swarmy has
+/// applied for this app environment" after this plan (the diff base for the
+/// next one). What RUNS is still Docker truth; this never shadows it.
+model AppPlan {
+  id            String    @id @default(cuid())
+  orgId         String
+  repoId        String
+  // production | <environment name> | preview
+  environment   String
+  stack         String
+  sha           String
+  // push | pr | manual | poll | drift | confirm
+  trigger       String
+  prNumber      Int       @default(0)
+  // planned | applying | applied | partial | needs-confirmation | blocked | failed | superseded | invalid
+  status        String
+  planJson      Json      @default("{}")
+  desiredJson   Json      @default("{}")
+  issuesJson    Json      @default("[]")
+  ledgerJson    Json?
+  // Per-action outcomes: { [actionId]: { status, message?, at } }
+  resultsJson   Json      @default("{}")
+  error         String?   @db.Text
+  confirmedIds  String[]  @default([])
+  confirmedById String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  appliedAt     DateTime?
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  repo GitRepo      @relation(fields: [repoId], references: [id], onDelete: Cascade)
+
+  @@unique([repoId, environment, sha, trigger, prNumber])
+  @@index([orgId, createdAt])
+  @@index([repoId, environment, createdAt])
+  @@map("app_plan")
 }

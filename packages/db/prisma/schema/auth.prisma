@@ -124,6 +124,7 @@ model Organization {
   resourceGrants      ResourceGrant[]
   gitRepos            GitRepo[]
   gitConnections      GitConnection[]
+  appPlans            AppPlan[]
   builds              Build[]
   registryConfig      RegistryConfig?
   registryCredentials RegistryCredential[]
