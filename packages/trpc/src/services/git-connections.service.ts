@@ -680,7 +680,13 @@ export async function linkRepo(ctx: OrgContext, input: LinkRepoInput): Promise<L
  */
 export async function inspectCommit(
   ctx: OrgContext,
-  input: { repoId: string; ref?: string; baseSha?: string; paths?: string[] },
+  input: {
+    repoId: string;
+    ref?: string;
+    baseSha?: string;
+    paths?: string[];
+    fallbackBranch?: string;
+  },
 ): Promise<InspectResult & { configPaths: string[] }> {
   const repo = await ctx.db.gitRepo.findFirst({
     where: { id: input.repoId, orgId: ctx.activeOrgId },
@@ -692,6 +698,7 @@ export async function inspectCommit(
     ref: input.ref ?? repo.branch,
     paths: input.paths ?? [repo.configPath],
     ...(input.baseSha ? { baseSha: input.baseSha } : {}),
+    ...(input.fallbackBranch ? { fallbackBranch: input.fallbackBranch } : {}),
     creds,
   });
 }
@@ -719,7 +726,14 @@ export async function inspectSource(
 
 async function runInspect(
   ctx: OrgContext,
-  input: { url: string; ref: string; paths: string[]; baseSha?: string; creds: GitCredentials },
+  input: {
+    url: string;
+    ref: string;
+    paths: string[];
+    baseSha?: string;
+    fallbackBranch?: string;
+    creds: GitCredentials;
+  },
 ): Promise<InspectResult & { configPaths: string[] }> {
   const { creds, paths } = input;
   const req = {
@@ -727,6 +741,7 @@ async function runInspect(
     ref: input.ref,
     paths,
     ...(input.baseSha ? { baseSha: input.baseSha } : {}),
+    ...(input.fallbackBranch ? { fallbackBranch: input.fallbackBranch } : {}),
     ...creds,
   };
   let program: string;

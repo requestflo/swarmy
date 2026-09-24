@@ -43,6 +43,12 @@ export interface InspectRequest {
   tokenUser?: string;
   /** OpenSSH private key for ssh:// / scp-style URLs. */
   sshKey?: string;
+  /**
+   * Branch to fall back to when the host refuses a fetch-by-sha (some
+   * self-hosted servers disable `allowReachableSHA1InWant`): fetch the branch
+   * tip history and check out the sha from it.
+   */
+  fallbackBranch?: string;
 }
 
 export interface InspectResult {
@@ -56,6 +62,12 @@ export interface InspectResult {
 
 export function validateInspectRequest(r: InspectRequest): string | null {
   if (!REF_RE.test(r.ref) || r.ref.includes('..')) return `invalid ref "${r.ref}"`;
+  if (
+    r.fallbackBranch !== undefined &&
+    (!REF_RE.test(r.fallbackBranch) || r.fallbackBranch.includes('..'))
+  ) {
+    return `invalid branch "${r.fallbackBranch}"`;
+  }
   if (r.baseSha !== undefined && !/^[0-9a-f]{40,64}$/.test(r.baseSha)) return 'invalid base sha';
   for (const p of r.paths) {
     if (!PATH_RE.test(p) || p.split('/').includes('..') || p.startsWith('/'))
@@ -83,8 +95,15 @@ export function renderInspectProgram(r: InspectRequest): string {
     '  git config http.extraHeader "Authorization: Basic $B"',
     'fi',
     'echo SWARMY_BEGIN',
-    `git fetch -q --filter=blob:none --depth=1 origin ${shq(r.ref)}`,
-    'H=$(git rev-parse FETCH_HEAD)',
+    ...(r.fallbackBranch && /^[0-9a-f]{40,64}$/.test(r.ref)
+      ? [
+          `if git fetch -q --filter=blob:none --depth=1 origin ${shq(r.ref)} 2>/dev/null; then H=$(git rev-parse FETCH_HEAD);`,
+          `else git fetch -q --filter=blob:none --depth=100 origin ${shq(r.fallbackBranch)} && git cat-file -e ${shq(r.ref)}^{commit} && H=${shq(r.ref)}; fi`,
+        ]
+      : [
+          `git fetch -q --filter=blob:none --depth=1 origin ${shq(r.ref)}`,
+          'H=$(git rev-parse FETCH_HEAD)',
+        ]),
     'echo "SWARMY_HEAD $H"',
   ];
   if (r.baseSha) {

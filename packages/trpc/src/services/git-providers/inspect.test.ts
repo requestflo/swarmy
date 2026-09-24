@@ -137,6 +137,46 @@ describe('inspect program', () => {
   );
 });
 
+describe('inspect fallback when a host refuses fetch-by-sha', () => {
+  it.skipIf(!has('git'))('checks the sha out of the branch history instead', () => {
+    const root = mkdtempSync(join(tmpdir(), 'swarmy-inspect-fb-'));
+    const repo = join(root, 'repo');
+    mkdirSync(repo);
+    const git = (...args: string[]) => {
+      const r = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(r.stderr);
+      return r.stdout.trim();
+    };
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 't@t');
+    git('config', 'user.name', 't');
+    git('config', 'uploadpack.allowFilter', 'true');
+    git('config', 'uploadpack.allowAnySHA1InWant', 'false'); // the refusing host
+    writeFileSync(join(repo, 'swarmy.yaml'), 'version: 1\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'one');
+    const target = git('rev-parse', 'HEAD');
+    writeFileSync(join(repo, 'x.txt'), 'later\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'two'); // the branch moved on past the webhook's sha
+    const req = {
+      url: `file://${repo}`,
+      ref: target,
+      fallbackBranch: 'main',
+      paths: ['swarmy.yaml'],
+    };
+    const home = join(root, 'home');
+    mkdirSync(home);
+    const r = spawnSync('sh', ['-c', renderInspectProgram(req)], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH ?? '', HOME: home, ...inspectEnv(req) },
+    });
+    const res = parseInspectOutput(`${r.stdout}\n${r.stderr}`, req.paths);
+    expect(res.sha).toBe(target);
+    expect(res.files['swarmy.yaml']).toBe('version: 1\n');
+  });
+});
+
 describe('deploy keys', () => {
   it('emits OpenSSH-format keys', () => {
     const k = generateDeployKey('swarmy@orders');

@@ -599,6 +599,7 @@ export async function planCommit(
     repoId: repo.id,
     ref: input.sha ?? input.ref,
     paths: [repo.configPath],
+    ...(input.sha ? { fallbackBranch: input.ref } : {}),
   });
   const sha = inspected.sha;
   const text = inspected.files[repo.configPath];
