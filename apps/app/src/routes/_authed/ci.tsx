@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { PlusIcon } from 'lucide-react';
+import { GitBranchPlusIcon, PlusIcon } from 'lucide-react';
 import { Button } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { SectionHeader } from '@/components/section-header';
@@ -16,8 +16,13 @@ import { ScanPolicyCard } from '@/components/ci/scan-policy-card';
 import { ScanList } from '@/components/ci/scan-list';
 // D4: PR preview environments
 import { PreviewsSection } from '@/components/ci/previews-section';
+// git-apps P5: provider connections + New app from Git
+import { GitConnectionsCard } from '@/components/ci/git-connections-card';
+import { GitNewAppCard } from '@/components/ci/git-new-app-card';
+import { GitResultBanner, parseGitResultSearch } from '@/components/ci/git-result-banner';
 
 export const Route = createFileRoute('/_authed/ci')({
+  validateSearch: parseGitResultSearch,
   component: CiPage,
 });
 
@@ -32,6 +37,8 @@ function CiPage(): React.JSX.Element {
   const invalidate = React.useCallback(() => qc.invalidateQueries(), [qc]);
   const repoCount = repos.data?.length ?? 0;
   const [createOpen, setCreateOpen] = React.useState(false);
+  // `false` = closed; otherwise open, optionally on a just-connected provider.
+  const [newApp, setNewApp] = React.useState<false | { connectionId?: string }>(false);
 
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
@@ -50,11 +57,29 @@ function CiPage(): React.JSX.Element {
         }
         description="Link a repo, build on your nodes, push to a registry that lives inside the swarm. No external CI."
         actions={
-          <Button onClick={() => setCreateOpen((o) => !o)}>
-            <PlusIcon className="size-4" /> Link a repo
-          </Button>
+          <>
+            <Button variant="outline" onClick={() => setCreateOpen((o) => !o)}>
+              <PlusIcon className="size-4" /> Link a repo
+            </Button>
+            <Button
+              variant={newApp ? 'outline' : 'default'}
+              onClick={() => setNewApp((o) => (o ? false : {}))}
+            >
+              <GitBranchPlusIcon className="size-4" /> New app from Git
+            </Button>
+          </>
         }
       />
+
+      <GitResultBanner onStart={(connectionId) => setNewApp({ connectionId })} />
+      {newApp ? (
+        <GitNewAppCard
+          key={newApp.connectionId ?? 'any'}
+          initialConnectionId={newApp.connectionId}
+          onClose={() => setNewApp(false)}
+        />
+      ) : null}
+      <GitConnectionsCard />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <RegistryCard config={registry.data} />
