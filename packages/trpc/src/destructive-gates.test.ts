@@ -98,6 +98,8 @@ const GATES: Array<[string, unknown, string]> = [
   ['policies.delete', { id: 'p1' }, 'policy.write'],
   ['sso.delete', { id: 'sso1' }, 'authconfig.write'],
   ['cicd.removeRepo', { id: 'r1' }, 'cicd.remove'],
+  ['security.policy.set', { require2fa: 'admins' }, 'authconfig.write'],
+  ['security.resetMember', { memberId: 'm' }, 'member.write'],
   ['gitConnections.remove', { id: 'g1' }, 'cicd.remove'],
   ['registryCredentials.remove', { id: 'rc1' }, 'secret.delete'],
   ['db.confirmFailover', {}, 'data.failover'],
