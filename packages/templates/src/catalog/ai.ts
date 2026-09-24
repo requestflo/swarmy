@@ -57,6 +57,7 @@ resources:
       'API only: there is no web UI. Pair it with Open WebUI or another client.',
       'There is no GPU, so inference runs on the CPU and is slow. Pick small, quantised models that fit in the service memory limit.',
       'The Ollama API has no authentication, so swarmy deploys it private: no domain, no auto address. Only apps you connect to this stack can reach it.',
+      'The swarmy AI gateway registers it automatically as an in-cluster provider: apps with `ai:` in swarmy.yaml (or any gateway key) can call `ollama/<model>`, and the `fast` / `embed` aliases fall back to it, with no per-token cost.',
     ],
     yaml: `version: 1
 app: ollama
@@ -72,6 +73,103 @@ services:
       interval: 30s
       timeout: 10s
       start_period: 30s
+`,
+  },
+  {
+    id: 'vllm',
+    exposure: 'private',
+    name: 'vLLM',
+    tagline: 'High-throughput OpenAI-compatible inference server for open-weight models on a GPU',
+    category: 'ai',
+    icon: 'lucide:cpu',
+    website: 'https://docs.vllm.ai',
+    version: '0.11.0',
+    options: [
+      {
+        key: 'model',
+        label: 'Model',
+        kind: 'string',
+        help: 'A Hugging Face model id that fits your GPU memory.',
+        placeholder: 'Qwen/Qwen2.5-1.5B-Instruct',
+        defaultValue: 'Qwen/Qwen2.5-1.5B-Instruct',
+      },
+    ],
+    heavyReason: 'Needs an NVIDIA GPU node (label gpu=true) and holds the whole model in GPU memory; the container itself wants about 8 GB of RAM',
+    postDeploy: [
+      'Label a GPU node with gpu=true (Infrastructure → the node → Labels) so the service can be placed; the first start downloads the model.',
+      'It is private, with no public URL. The swarmy AI gateway registers it automatically: call `vllm/<model>` with any gateway key, or point an app you connect to this stack at <internal>/v1.',
+    ],
+    notes: [
+      'vLLM needs a GPU with the NVIDIA container runtime on the node. On CPU-only nodes use the Ollama template instead.',
+      'Gated Hugging Face models need an HF_TOKEN secret variable on the service.',
+      'The OpenAI-compatible API has no authentication here, so swarmy deploys it private. Only the gateway and apps you connect can reach it.',
+    ],
+    yaml: `version: 1
+app: vllm
+services:
+  vllm:
+    image: vllm/vllm-openai:v0.11.0
+    command: ["vllm", "serve", "[[opt.model]]", "--host", "0.0.0.0", "--port", "8000"]
+    port: 8000
+    memory: 8gb
+    placement:
+      labels:
+        gpu: "true"
+    volumes:
+      cache: /root/.cache/huggingface
+    healthcheck:
+      path: /health
+      interval: 30s
+      timeout: 10s
+      start_period: 600s
+`,
+  },
+  {
+    id: 'litellm',
+    name: 'LiteLLM',
+    tagline: 'Self-hosted LiteLLM proxy for teams that want its own UI and config on top of the swarmy gateway',
+    category: 'ai',
+    icon: 'lucide:route',
+    website: 'https://docs.litellm.ai',
+    version: '1.77.7',
+    generate: {
+      'master-key': { format: 'alnum', length: 40 },
+      'salt-key': { format: 'alnum', length: 40 },
+    },
+    reveal: ['LiteLLM admin key: sk-${{ secrets.master-key }} (shown once, so save it now)'],
+    heavyReason: 'A Python proxy with its admin UI and Prisma client; wants about 1 GB of RAM plus its Postgres database',
+    postDeploy: [
+      'Open <url>/ui and sign in as admin with the key shown above.',
+      'Add models under Models. To keep provider keys in swarmy, add an OpenAI-compatible model whose API base is your swarmy gateway (the AI page shows it) and whose key is a swarmy virtual key.',
+    ],
+    notes: [
+      'You usually do not need this: swarmy has a built-in LiteLLM-class gateway (AI page) with virtual keys, budgets, fallbacks and traces. Use this template when you want LiteLLM itself.',
+      'Enterprise-licensed LiteLLM features (SSO, audit logs and some guardrails) stay off without a LiteLLM licence.',
+      'Keys, teams and spend live in the managed Postgres database.',
+    ],
+    yaml: `version: 1
+app: litellm
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm-database:main-v1.77.7-stable
+    command: ["sh", "-c", "export LITELLM_MASTER_KEY=sk-$LITELLM_MASTER_KEY_RAW; exec litellm --port 4000"]
+    port: 4000
+    memory: 1gb
+    env:
+      LITELLM_MASTER_KEY_RAW: \${{ secrets.master-key }}
+      LITELLM_SALT_KEY: \${{ secrets.salt-key }}
+      DATABASE_URL: \${{ db.url }}
+      STORE_MODEL_IN_DB: "True"
+      LITELLM_LOG: ERROR
+    healthcheck:
+      path: /health/liveliness
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+resources:
+  db:
+    type: postgres
+    database: litellm
 `,
   },
   {
