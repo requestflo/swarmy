@@ -89,7 +89,7 @@ function bindingMap(
   res: ResourceIndex,
   appDomain: string | null,
 ): Record<string, string> {
-  const m: Record<string, string> = { 'app.name': stack };
+  const m: Record<string, string> = { 'app.name': stack, 'app.environment': 'production' };
   if (appDomain) {
     m['app.domain'] = appDomain;
     m['app.url'] = `https://${appDomain}`;
