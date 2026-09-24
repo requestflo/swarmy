@@ -11,7 +11,14 @@ import {
 } from '@swarmy/app-config';
 import { applyPlan, type AppOps } from './apply';
 import { addressingMap, appBucketName, compileServices, type Attachment } from './compile';
-import { APP_SIG_LABEL, APP_STACK_LABEL, emptyLedger, readLiveApp, type AppLedger } from './live';
+import {
+  APP_SIG_LABEL,
+  APP_STACK_LABEL,
+  emptyLedger,
+  readLiveApp,
+  type AppLedger,
+  type LiveServiceLike,
+} from './live';
 
 const desired = (text: string, opts?: Parameters<typeof toDesired>[1]): DesiredApp => {
   const r = parseAppConfig(text);
@@ -251,16 +258,18 @@ describe('applyPlan', () => {
     const live = readLiveApp({
       stack: 'shop',
       services: d.services
-        .map((s) => ({
-          name: s.serviceName,
-          image: res.ledger.services[s.name]!.image,
-          labels: {
-            [APP_STACK_LABEL]: 'shop',
-            'swarmy.app.service': s.name,
-            [APP_SIG_LABEL]: s.sig,
-            ...(s.source.kind === 'build' ? { 'swarmy.app.build': s.source.key } : {}),
-          },
-        }))
+        .map(
+          (s): LiveServiceLike => ({
+            name: s.serviceName,
+            image: res.ledger.services[s.name]!.image,
+            labels: {
+              [APP_STACK_LABEL]: 'shop',
+              'swarmy.app.service': s.name,
+              [APP_SIG_LABEL]: s.sig,
+              ...(s.source.kind === 'build' ? { 'swarmy.app.build': s.source.key } : {}),
+            },
+          }),
+        )
         .concat([
           { name: 'shop_db-primary', image: 'pg', labels: {} },
           { name: 'shop_cache-cache', image: 'valkey', labels: {} },
@@ -283,16 +292,18 @@ describe('applyPlan', () => {
     const live = readLiveApp({
       stack: 'shop',
       services: d.services
-        .map((s) => ({
-          name: s.serviceName,
-          image: 'old',
-          labels: {
-            [APP_STACK_LABEL]: 'shop',
-            'swarmy.app.service': s.name,
-            [APP_SIG_LABEL]: s.sig,
-            ...(s.source.kind === 'build' ? { 'swarmy.app.build': s.source.key } : {}),
-          },
-        }))
+        .map(
+          (s): LiveServiceLike => ({
+            name: s.serviceName,
+            image: 'old',
+            labels: {
+              [APP_STACK_LABEL]: 'shop',
+              'swarmy.app.service': s.name,
+              [APP_SIG_LABEL]: s.sig,
+              ...(s.source.kind === 'build' ? { 'swarmy.app.build': s.source.key } : {}),
+            },
+          }),
+        )
         .concat([
           { name: 'shop_db-primary', image: 'pg', labels: {} },
           { name: 'shop_cache-cache', image: 'valkey', labels: {} },
@@ -333,16 +344,18 @@ describe('applyPlan', () => {
     const live = readLiveApp({
       stack: 'shop',
       services: before.services
-        .map((s) => ({
-          name: s.serviceName,
-          image: 'i',
-          labels: {
-            [APP_STACK_LABEL]: 'shop',
-            'swarmy.app.service': s.name,
-            [APP_SIG_LABEL]: s.sig,
-            'swarmy.app.build': s.source.kind === 'build' ? s.source.key : '',
-          },
-        }))
+        .map(
+          (s): LiveServiceLike => ({
+            name: s.serviceName,
+            image: 'i',
+            labels: {
+              [APP_STACK_LABEL]: 'shop',
+              'swarmy.app.service': s.name,
+              [APP_SIG_LABEL]: s.sig,
+              'swarmy.app.build': s.source.kind === 'build' ? s.source.key : '',
+            },
+          }),
+        )
         .concat([
           { name: 'shop_db-primary', image: 'pg', labels: {} },
           { name: 'shop_cache-cache', image: 'v', labels: {} },
