@@ -21,6 +21,7 @@
     "dev:agent": "bash scripts/run-agent.sh",
     "dev:vms": "bash scripts/local-vms.sh",
     "build:agent-bin": "bun run scripts/build-agent-binaries.ts",
+    "build:cli-bin": "bun run scripts/build-cli-binaries.ts",
     "mint-token": "bun --env-file=.env run scripts/mint-token.ts",
     "seed-dev": "bun --env-file=.env run scripts/seed-dev.ts",
     "lint": "turbo run lint",

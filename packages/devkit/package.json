@@ -1,0 +1,41 @@
+{
+  "name": "@swarmy/devkit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./check": {
+      "types": "./src/check/index.ts",
+      "import": "./src/check/index.ts"
+    },
+    "./mcp": {
+      "types": "./src/mcp/index.ts",
+      "import": "./src/mcp/index.ts"
+    },
+    "./testing": {
+      "types": "./src/testing/fake-api.ts",
+      "import": "./src/testing/fake-api.ts"
+    }
+  },
+  "scripts": {
+    "build": "echo '@swarmy/devkit resolves to src'",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.1.0",
+    "@swarmy/app-config": "workspace:*",
+    "yaml": "^2.6.1",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.1.0",
+    "@types/bun": "latest",
+    "typescript": "^5.5.4"
+  }
+}
