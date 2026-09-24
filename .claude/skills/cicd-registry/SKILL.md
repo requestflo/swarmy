@@ -51,6 +51,14 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
    Firewall 5000 from outside the swarm;
    the agent only RENDERS TLS/insecure-registry hints — it never rewrites
    `/etc/docker/daemon.json` itself (`handlers/registry-tls.ts`).
+   The installers (never the agent) merge `registry-mirrors` → the Docker Hub
+   pull-through cache (`swarmy-registry-cache`, :5001) into daemon.json.
+   System images are MIRRORED into the registry (`swarmy-system/…`, BOM in
+   `@swarmy/core/system-images`, `system-image-mirror` worker; the index lives
+   in `swarmy.mirror.*` labels on the registry service, trusted only while the
+   registry task stays on `swarmy.mirror.node`) and the hub decorator rewrites
+   exact upstream system refs to the mirrored `@sha256` ref. A registry
+   redeploy must carry `mirrorLabelsOf(live.labels)`.
 6. **Secrets are JIT-resolved and never baked in.** Git tokens, registry creds,
    and the cosign private key are stored encrypted (`@swarmy/core/crypto` vault,
    `SWARMY_SECRET_KEY`), decrypted at dispatch, passed as a git auth header /
@@ -146,6 +154,8 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 | Repos / build core / registry enable / GC policy / live logs | `packages/trpc/src/services/cicd.service.ts` |
 | GC pinned-set + plan execution (dispatch prune) | `packages/trpc/src/services/image-gc.service.ts` |
 | Trivy scan, cosign keygen/sign/verify, policy | `packages/trpc/src/services/registryPolicy.service.ts` |
+| Trivy DB cache (shared volume, stale fallback) + daily refresh | `packages/trpc/src/services/trivy-db{,.service}.ts`, worker `trivy-db-refresh` |
+| System-image BOM + mirror + Hub pull-through cache | `packages/core/src/system-images.ts`, `packages/trpc/src/services/system-images.service.ts`, worker `system-image-mirror`, `apps/api/src/install/docker-registry-mirror.ts` |
 | Image admission decision (pure + evaluator) | `packages/trpc/src/services/admission-images.ts` |
 | PR preview lifecycle (labels, specs, teardown, webhook parse) | `packages/trpc/src/services/previews.service.ts` |
 | Build-log fan-out bus | `packages/trpc/src/services/build-log-bus.ts` |

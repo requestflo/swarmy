@@ -58,9 +58,34 @@ CI emits `platform.json` for every build and bakes it into the controller image:
   tags in running services. The controller's own manifest is "what this cluster
   should run"; live service images vs manifest = drift (surfaced, and converged by
   the existing reconcile workers).
-- Published alongside each GitHub release (stable) and a rolling `edge` pre-release
-  (every main build). The controller polls the feed for its channel; manifests are
-  signed (cosign keyless, same identity as the images) and verified before use.
+- **The BOM already exists** (self-reliance B3/B4, 2026-09-24):
+  `packages/core/src/system-images.ts` lists every system image with its upstream
+  index digest pinned (third-party) or floating (swarmy's own builds, until CI's
+  `platform.json` fills them in). The `system-image-mirror` worker copies the BOM
+  into the built-in `registry:2` (`swarmy-system/<host>/<path>`, digest-preserving
+  `regctl image copy`) and records `swarmy.mirror.<key>=<ref>@<digest>` labels on
+  the registry service; the hub dispatch decorator then deploys those services from
+  the cluster by digest. `platform.json` should be GENERATED from that module (CI
+  resolves the own-image digests and writes them back), not maintained twice.
+- **Feed = a setting.** `SWARMY_PLATFORM_FEED_URL` (org/controller setting), default
+  the GitHub Releases feed for the channel; an air-gapped estate points it at its own
+  static mirror (any HTTPS URL serving `<channel>/platform.json` + `.sig`). Same
+  shape as every other default external URL (self-reliance rule 4).
+- **Signed with a swarmy release key, not Sigstore keyless.** CI signs
+  `platform.json` with a cosign KEY PAIR (`cosign sign-blob --key`, tlog off — the
+  same `--tlog-upload=false` / `--insecure-ignore-tlog` mode image signing already
+  uses). The public key is baked into the controller image
+  (`SWARMY_RELEASE_PUBKEY` overrides it for forks/self-builders). Verification is
+  offline (`cosign verify-blob --key … --insecure-ignore-tlog`, in a runOnce like
+  image verify), so no Fulcio/Rekor round-trip. A manifest that fails verification
+  is never used — the Platform page shows "unverified release" and Upgrade stays
+  disabled.
+- **Offline bundles.** `swarmy-<ver>.tar` = `platform.json` + `.sig` + every BOM
+  image as an OCI layout. `swarmy upgrade --bundle file.tar` (and
+  `install-swarmy.sh --bundle`) verifies the signature, pushes the images into the
+  built-in registry with the same `swarmy-system/…` paths + mirror labels, then runs
+  the normal upgrade against that manifest. The pull-through cache and mirror mean a
+  bundle is only needed when the cluster has no egress at all.
 
 ### 2. The upgrade run (resumable, like the mesh migration)
 
@@ -107,5 +132,9 @@ converges; it just stops meaning "latest").
    CRC64NVME checksums; v1.0.1 and v1.3.1 reject them, v2.4.1 accepts — verified).
 2. **Manifest + pinning** — CI `platform.json`, digest-pinned system services, a
    read-only Platform page (versions + drift).
-3. **Upgrade run + button** — the orchestrator, feed + signature verification,
-   channels, auto-patch, history.
+3. **Upgrade run + button** — the orchestrator, feed (URL setting) + release-key
+   signature verification, channels, auto-patch, history, offline bundles.
+
+When phase 3 lands, the hooks to add: `platformFeedUrl()` (env/setting → default
+GitHub), `verifyPlatformManifest(json, sig, pubkey)` (pure input builder + runOnce
+cosign verify-blob), and `loadBundle(tar)` → registry push + mirror labels.

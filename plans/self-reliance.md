@@ -4,6 +4,19 @@ Status: **audit, 2026-09-24.** Code not changed. Every row was checked against
 `apps/`, `packages/` and `scripts/` on that date (node_modules, dist, demo
 resolvers, tests and the template catalogue's homepage links excluded).
 
+## Progress (2026-09-24)
+
+| Item | State |
+|---|---|
+| B3 + B4 | **Built** (7a104fa). BOM `packages/core/src/system-images.ts` (third-party index digests pinned). `system-image-mirror` worker: enables the built-in registry for the bootstrap org at install (`SWARMY_BUILTIN_REGISTRY=0` opts out), deploys it + the Docker Hub pull-through cache (`swarmy-registry-cache`, registry:2 proxy on :5001, `SWARMY_REGISTRY_CACHE_UPSTREAM`), copies the BOM by digest with `regctl` and records `swarmy.mirror.*` labels on the registry service. The hub decorator deploys system images from `localhost:5000/swarmy-system/…@sha256` (runOnce/build fall back to upstream on the agent). Both installers merge `registry-mirrors: ["http://localhost:5001"]` into daemon.json (`apps/api/src/install/docker-registry-mirror.ts`, `SWARMY_REGISTRY_MIRROR`). Not yet: the agent-side mesh images (`netbirdio/netbird`, `tailscale/tailscale` — B1 owner) and the bitnami data images (B5). |
+| B6 | **Built** (b034fae). `swarmy-trivy-cache` volume on every scan, daily `trivy-db-refresh` worker, stale DB → `images/scan-db-stale` warning (never a block), `SWARMY_TRIVY_DB_REPOSITORY`. |
+| B7 | **Plan updated** (`epic-platform-upgrades.md` §1): feed URL setting, swarmy release key, offline bundle. No upgrade code exists yet. |
+| B8 | **Built** (cdd99f2): controller-observed source IP in `registerAck`; echo is last resort; `SWARMY_PUBLIC_IP_ECHO`. The installer's own sslip lookup still echoes (no controller yet at that point). |
+| ntfy | **Built** (67c9d8e): server required, UI points at the ntfy template, template's ntfy.sh upstream dropped. |
+| DB-IP mmdb | **Built** (bb560f5): Country Lite bundled in the swarmy-dns image (CC-BY 4.0 attribution in image labels, NOTICE and UI). |
+| DoH order | **Built** (328589a): system resolver → swarmy-dns → public DoH; `SWARMY_DOH_RESOLVERS`. |
+| Image picker | **Built** (3fd281d): built-in registry first, Hub second, Hub hidden when unreachable. |
+
 Owner direction: *"The whole point of Swarmy is to make it your own cloud, so it's
 not to depend on any other cloud. Anything we need to run outside, we need to
 think about that."*
