@@ -11,6 +11,8 @@ import { NodeContainersPanel } from '@/components/nodes/node-containers-panel';
 import { NodeControlsPanel } from '@/components/nodes/node-controls-panel';
 import { NodeRepairCard } from '@/components/nodes/node-repair-card';
 import { NodeHygienePanel } from '@/components/nodes/node-hygiene-panel';
+import { NodeOldCopiesCard } from '@/components/nodes/node-old-copies-card';
+import { NodeRetirePanel } from '@/components/nodes/node-retire-panel';
 
 export const Route = createFileRoute('/_authed/nodes/$nodeId')({
   component: NodeDetailPage,
@@ -76,6 +78,8 @@ function NodeDetailPage(): React.JSX.Element {
       <NodeControlsPanel node={n} monthlyUsd={monthlyUsd} />
       <NodeContainersPanel containers={containers.data} />
       <NodeHygienePanel nodeId={nodeId} />
+      <NodeOldCopiesCard nodeId={nodeId} />
+      <NodeRetirePanel nodeId={nodeId} />
     </div>
   );
 }
