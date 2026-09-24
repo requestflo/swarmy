@@ -12,7 +12,7 @@ import {
   withClientIp,
 } from '@swarmy/auth';
 import { prisma, ensureSchema, buildAdapter, resolveDbDriver } from '@swarmy/db';
-import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim, writeAudit } from '@swarmy/trpc';
+import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim, writeAudit, acmeDnsRequest } from '@swarmy/trpc';
 import { createRestApp } from '@swarmy/api-rest';
 import { env } from './env';
 import { maybeBootstrapSeed } from './bootstrap/seed';
@@ -59,6 +59,24 @@ app.get('/ingress/ask', async (c) => {
     c.req.query('domain'),
   );
   return c.text(body, status as 200 | 400 | 403);
+});
+
+// ACME DNS-01 for wildcard certificates: the edge's `dns swarmy` provider asks
+// us to publish `_acme-challenge` TXT on swarmy-dns (the org's own nameservers).
+// Bearer-gated per org (HMAC-derived token mounted on the edge as a Docker
+// secret); only names the org routes inside its own zones are accepted.
+app.post('/ingress/acme-dns/:orgId/:action', async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const { status, body: text } = await acmeDnsRequest(
+    { db: prisma, hub, auth: authRegistry.getAuth() },
+    {
+      orgId: c.req.param('orgId'),
+      action: c.req.param('action'),
+      authorization: c.req.header('authorization'),
+      body,
+    },
+  );
+  return c.text(text, status);
 });
 
 // Live node installer: curl -fsSL <controller>/install.sh | SWARMY_JOIN_TOKEN=… sh

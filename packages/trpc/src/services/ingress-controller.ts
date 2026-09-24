@@ -85,6 +85,15 @@ export interface EnsureControllerOptions {
    * scopes on). Unset ⇒ no telemetry env (observability off).
    */
   otelOrgId?: string;
+  /** ACME DNS-01 token secrets (acme-dns.service `acmeDnsServiceSecrets`) — wildcard certs. */
+  acmeDnsSecrets?: EdgeSecretMount[];
+}
+
+/** A Docker secret mounted into a swarmy Caddy task. */
+export interface EdgeSecretMount {
+  source: string;
+  target: string;
+  mode: number;
 }
 
 export interface EnsureControllerResult {
@@ -96,8 +105,9 @@ export interface EnsureControllerResult {
   adminUrl: string;
 }
 
-export type ResolvedOptions = Required<Omit<EnsureControllerOptions, 'otelOrgId'>> & {
+export type ResolvedOptions = Required<Omit<EnsureControllerOptions, 'otelOrgId' | 'acmeDnsSecrets'>> & {
   otelOrgId?: string;
+  acmeDnsSecrets?: EdgeSecretMount[];
   /** Publish the mesh-peer object-storage listener (see {@link objectStorageMeshPort}). */
   objectStorageMeshPort?: number;
 };
@@ -254,6 +264,9 @@ export function caddyControllerSpec(
       { type: 'volume', source: DATA_VOLUME, target: '/data' },
       { type: 'volume', source: CONFIG_VOLUME, target: '/config' },
     ],
+    // DNS-01 token(s) for wildcard certificates — read by the `dns swarmy` /
+    // `dns cloudflare` providers from /run/secrets, never the Caddyfile.
+    ...(opts.acmeDnsSecrets?.length ? { secrets: opts.acmeDnsSecrets } : {}),
     // The org's edge network (fronted apps) + the PRIVATE control network,
     // where the dashboard vhost / scale-to-zero activator reach
     // `swarmy_controller:3021` — the controller is on no network apps join.
@@ -295,6 +308,7 @@ export async function ensureCaddyController(
     targetNodes: options.targetNodes ?? [],
     otelOrgId,
     objectStorageMeshPort: await objectStorageMeshPort(ctx),
+    acmeDnsSecrets: options.acmeDnsSecrets,
   };
   const node = await resolveManagerNode(ctx);
 
@@ -354,6 +368,8 @@ export interface EnsureEdgeOptions {
   certStoreSecret?: string;
   /** The store's encryption-key secret (mounted beside it). */
   certStoreEncSecret?: string;
+  /** ACME DNS-01 token secrets (wildcard certs). */
+  acmeDnsSecrets?: EdgeSecretMount[];
 }
 
 /**
@@ -398,6 +414,8 @@ export function caddyEdgeSpec(opts: {
   certStoreEncSecret?: string;
   /** Publish the mesh-peer object-storage listener on every edge. */
   objectStorageMeshPort?: number;
+  /** ACME DNS-01 token secrets (wildcard certs). */
+  acmeDnsSecrets?: EdgeSecretMount[];
 }): ServiceSpec {
   const certs = opts.certStoreSecret
     ? edgeCertsServiceWiring(opts.certStoreSecret, opts.certStoreEncSecret)
@@ -446,7 +464,10 @@ export function caddyEdgeSpec(opts: {
     ],
     // Credentials for the shared `storage s3` cert store ride ONLY in this
     // mounted secret (AWS SDK default chain) — never in the Caddyfile.
-    ...(certs ? { secrets: certs.secrets } : {}),
+    // (+ the DNS-01 token secrets for wildcard certificates, same rule.)
+    ...(certs || opts.acmeDnsSecrets?.length
+      ? { secrets: [...(certs?.secrets ?? []), ...(opts.acmeDnsSecrets ?? [])] }
+      : {}),
     // `swarmy` is also the object store's overlay (`swarmy-garage:3900`);
     // `swarmy-control` carries the dashboard vhost to the controller.
     networks: edgeNetworks(opts.network),
@@ -565,6 +586,7 @@ export async function ensureCaddyEdge(
       certStoreSecret: options.certStoreSecret,
       certStoreEncSecret: options.certStoreEncSecret,
       objectStorageMeshPort: await objectStorageMeshPort(ctx),
+      acmeDnsSecrets: options.acmeDnsSecrets,
     }),
   );
   const id = liveService(ctx, CADDY_EDGE_SERVICE)?.id ?? CADDY_EDGE_SERVICE;

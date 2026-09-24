@@ -13,6 +13,7 @@ import type {
 import type { OrgContext } from '../context';
 import { listRoutesForOrg } from './ingress-routes';
 import { publicIpFromLabels } from './node.service';
+import { challengeRecords } from './acme-challenges';
 
 /**
  * Snapshot composition — gathers the DERIVED inputs (invariant #5,
@@ -178,17 +179,20 @@ export async function composeZone(
     (h) => h.host === row.zone || h.host.endsWith(`.${row.zone}`),
   );
 
-  const manualRecords = (
-    await dnsDb(ctx).dnsRecord.findMany({ where: { zoneId: row.id } })
-  ).map(
-    (r): StaticDnsRecord => ({
-      name: r.name,
-      type: r.type as StaticDnsRecord['type'],
-      value: r.value,
-      ttl: r.ttl ?? undefined,
-      priority: r.priority ?? undefined,
-    }),
-  );
+  const manualRecords = [
+    ...(await dnsDb(ctx).dnsRecord.findMany({ where: { zoneId: row.id } })).map(
+      (r): StaticDnsRecord => ({
+        name: r.name,
+        type: r.type as StaticDnsRecord['type'],
+        value: r.value,
+        ttl: r.ttl ?? undefined,
+        priority: r.priority ?? undefined,
+      }),
+    ),
+    // ACME DNS-01 challenges the edge asked us to publish (wildcard certs) —
+    // derived, ephemeral zone content, never stored (acme-challenges.ts).
+    ...challengeRecords(ctx.activeOrgId, row.zone),
+  ];
 
   const { snapshot, conflicts } = composeZoneSnapshot({
     zone: {

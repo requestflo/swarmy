@@ -63,6 +63,7 @@ import {
 } from './ingress-certs';
 import { domainChecksOf } from './domain-checks.store';
 import { domainStatusMap, registerDomainHosts, type DomainStatusView } from './domain-verify.service';
+import { edgeAcmeDnsSecrets, orgDnsChallenge, readAcmeDnsSettings, requiredAcmeDnsSecrets } from './acme-dns.service';
 
 /** Service label that marks a Docker service as ingress-enabled (replaces the dropped column). */
 const INGRESS_ENABLED_LABEL = 'swarmy.ingress';
@@ -610,13 +611,21 @@ async function loadOrgConfig(
   const expanded = expandWww(allDomains, wwwModes);
   const checks = domainChecksOf(persisted as unknown as Record<string, unknown>);
   const served = (host: string) => !isHostGated(checks, normalizeHostname(host));
+  const servedRoutes = expanded.routes.filter((d) => served(d.domain));
+  // Wildcards: ACME DNS-01 through swarmy's own nameservers (or a BYO token).
+  const { dnsChallenge } = await orgDnsChallenge(
+    ctx,
+    servedRoutes.map((d) => normalizeHostname(d.domain)),
+    persisted,
+  ).catch(() => ({ dnsChallenge: undefined }));
   return {
     driver: driverLower(row.driver),
     enabled: row.enabled,
     orgId: ctx.activeOrgId,
     targetNodes: settings.targetNodes ?? [],
-    domains: expanded.routes.filter((d) => served(d.domain)),
+    domains: servedRoutes,
     hostRedirects: expanded.redirects.filter((r) => served(r.from) && served(r.to)),
+    ...(dnsChallenge ? { dnsChallenge } : {}),
     // Controller-upstream vhosts (status-page / webhook domains) — persisted rows
     // resolved at render time onto the controller upstream.
     controllerVhosts: await computeControllerVhosts(ctx, settings),
@@ -790,11 +799,15 @@ async function deployTopology(
   topology: Topology,
   settings: IngressSettings,
 ): Promise<void> {
+  // Wildcard certificates (DNS-01): mount the provider token secret(s) the
+  // render's `dns swarmy` / `dns cloudflare` blocks read. Never fails a deploy.
+  const acmeDnsSecrets = await edgeAcmeDnsSecrets(ctx, settings).catch(() => []);
   if (topology === 'edge-per-node') {
     await ensureCaddyEdge(ctx, {
       image: settings.controllerImage ?? undefined,
       certStoreSecret: settings.certStorage?.secretName,
       certStoreEncSecret: settings.certStorage?.encSecretName,
+      acmeDnsSecrets,
     });
     return;
   }
@@ -803,6 +816,7 @@ async function deployTopology(
     image: settings.controllerImage ?? undefined,
     targetNodes: settings.targetNodes ?? [],
     adminOnOverlay: extra.applyVia === 'admin',
+    acmeDnsSecrets,
   });
 }
 
@@ -1663,6 +1677,27 @@ export async function reconcileIngressOrg(
       if (Date.now() - last >= CONVERGE_RETRY_MS && (await objectStoreState(ctx)).enabled) {
         lastCertStoreAt.set(orgId, Date.now());
         const error = await adoptEdgeCertStorage(ctx);
+        return { signature: null, skipped: false, applied: false, error: error ?? undefined };
+      }
+    }
+  }
+
+  // Wildcards on DNS-01 need the provider token mounted on the edge: roll the
+  // edge onto it when the live service lacks it (first wildcard, token
+  // rotation, a new BYO token). Rate-limited like the converges above.
+  if (swarmyRunsCaddy && config.dnsChallenge && ctx.hub.managerNode(orgId)) {
+    const need = requiredAcmeDnsSecrets(
+      config.dnsChallenge,
+      readAcmeDnsSettings(readSettings(await ensureConfig(ctx))),
+    );
+    const mounted = new Set(
+      ctx.hub.liveInventory(orgId).services.find((s) => s.name === CADDY_CONTROLLER_SERVICE)?.secrets ?? [],
+    );
+    if (need.some((n) => !mounted.has(n))) {
+      const last = lastConvergeAt.get(orgId) ?? 0;
+      if (Date.now() - last >= CONVERGE_RETRY_MS) {
+        lastConvergeAt.set(orgId, Date.now());
+        const error = await convergeEdge(ctx);
         return { signature: null, skipped: false, applied: false, error: error ?? undefined };
       }
     }

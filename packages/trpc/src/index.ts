@@ -55,6 +55,9 @@ export {
   reapplyIngressForOrg,
 } from './services/ingress.service';
 export type { DomainView, IngressConfigView, IngressColdReconcileDeps } from './services/ingress.service';
+// Wildcard certificates: ACME DNS-01 through swarmy's own nameservers (apps/api route).
+export { acmeDnsRequest, getDnsChallengeView, setByoDnsProvider } from './services/acme-dns.service';
+export type { DnsChallengeView } from './services/acme-dns.service';
 // Custom domains: DNS verification + certificate status (domain-verify worker, REST).
 export {
   getDomainStatus,
@@ -138,6 +141,11 @@ export {
   computePinnedDigests,
 } from './services/image-gc.service';
 export type { GcRunResult } from './services/image-gc.service';
+// Self-reliance B3/B4/B6: system-image mirror + Hub pull-through cache, Trivy DB cache refresh.
+export { mirrorSystemImagesAllOrgs } from './services/system-images.service';
+export type { MirrorTickResult } from './services/system-images.service';
+export { ensureRegistryDeployed } from './services/cicd.service';
+export { refreshTrivyDbAllOrgs } from './services/trivy-db.service';
 // In-swarm registry auth: the hub dispatch decorator attaching pull creds to
 // org-registry deploys (wired onto AgentHubImpl in apps/api).
 export { createRegistryAuthDecorator } from './services/registry-auth';
