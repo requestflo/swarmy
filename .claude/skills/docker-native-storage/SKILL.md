@@ -34,8 +34,9 @@ Before adding a Prisma model or column, run the decision below.
    the **stack level**. Two good homes:
    - a label on every service in the stack carrying `com.docker.stack.namespace=<stack>`
      (e.g. `swarmy.stack.<key>` stamped on the stack's services), or
-   - a thin DB row keyed by stack name when it is genuinely the user's INPUT artifact
-     (e.g. `Stack.composeSource`) rather than derived swarm state.
+   - a swarm-kv document when it is genuinely the user's INPUT artifact
+     (e.g. the stack's compose source, `stacks` in `apps.repo.ts`) rather than
+     derived swarm state.
    Derive the stack's LIVE status/membership from the namespace label via
    `buildInventory` — never persist it.
 
@@ -46,7 +47,21 @@ Before adding a Prisma model or column, run the decision below.
 
 5. **Network-scoped metadata** → **network label**.
 
-6. Otherwise → it may legitimately belong in the embedded SQLite store
+6. **Org-level infra config a reconciler converges** (edge/mesh/DNS settings,
+   backup targets + schedules, registry policy, store config — small, changed at
+   human speed, needed for DR before control.db exists) → **swarm-kv**: a
+   versioned, vault-sealed document in the org's swarm (Swarm configs named
+   `swarmy-kv.<collection>.<id>.v<N>`, `@swarmy/core` `swarm-kv.ts`, controller
+   side `services/swarm-kv.service.ts`). Add a repository in a `*.repo.ts`
+   (`orgSingleton` / `orgCollection` / `kvTable` in `kv-repo.ts`) and add the
+   collection to `KV_COLLECTIONS` (≤ 12 chars). Rules: ≤ 64 KB per document,
+   2 MB total; **no timestamps, counters or run state in raft** (those go to
+   memory or control.db — e.g. `OperationRun` for resumable runs); reads never
+   write; "kv unavailable" (no manager agent yet) is never "no config" —
+   readers fail or workers skip the org. Tests: `useMemoryKv` / `seedKv` /
+   `peekKv`.
+
+7. Otherwise → it may legitimately belong in the embedded SQLite store
    (`control.db`; see below).
 
 ## Stays in the embedded store (do NOT move these to Docker)
