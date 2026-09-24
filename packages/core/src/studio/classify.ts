@@ -44,14 +44,100 @@ const TXN_FIRST = new Set(['BEGIN', 'COMMIT', 'ROLLBACK', 'SAVEPOINT', 'RELEASE'
 /** DML keywords that may hide anywhere (data-modifying CTEs, subqueries). */
 const DML_ANYWHERE = new Set(['INSERT', 'UPDATE', 'DELETE', 'MERGE', 'TRUNCATE', 'DROP', 'ALTER', 'CREATE', 'GRANT', 'REVOKE']);
 
-/** Functions with side effects outside the read-only transaction (or that read the server host). */
+/**
+ * Functions with side effects outside the read-only transaction, that read the
+ * server host, or that EXECUTE a query given as a string (`query_to_xml('select
+ * pg_terminate_backend(…)')` would otherwise hide the call from this lexer).
+ */
 const DANGEROUS_FUNCS = new Set([
   'PG_TERMINATE_BACKEND', 'PG_CANCEL_BACKEND', 'PG_RELOAD_CONF', 'PG_ROTATE_LOGFILE', 'PG_PROMOTE',
-  'PG_READ_FILE', 'PG_READ_BINARY_FILE', 'PG_LS_DIR', 'PG_STAT_FILE', 'LO_IMPORT', 'LO_EXPORT', 'LO_UNLINK',
-  'DBLINK', 'DBLINK_EXEC', 'DBLINK_CONNECT', 'PG_SWITCH_WAL', 'PG_CREATE_RESTORE_POINT', 'PG_DROP_REPLICATION_SLOT',
-  'PG_CREATE_PHYSICAL_REPLICATION_SLOT', 'PG_CREATE_LOGICAL_REPLICATION_SLOT', 'PG_LOGICAL_EMIT_MESSAGE',
+  'PG_READ_FILE', 'PG_READ_BINARY_FILE', 'PG_STAT_FILE', 'PG_SWITCH_WAL', 'PG_CREATE_RESTORE_POINT',
+  'PG_DROP_REPLICATION_SLOT', 'PG_CREATE_PHYSICAL_REPLICATION_SLOT', 'PG_CREATE_LOGICAL_REPLICATION_SLOT',
+  'PG_LOGICAL_EMIT_MESSAGE', 'PG_WAL_REPLAY_PAUSE', 'PG_WAL_REPLAY_RESUME', 'PG_BACKUP_START', 'PG_BACKUP_STOP',
+  'PG_START_BACKUP', 'PG_STOP_BACKUP', 'PG_IMPORT_SYSTEM_COLLATIONS', 'PG_LOG_BACKEND_MEMORY_CONTEXTS',
+  'SET_CONFIG', 'TS_STAT',
+  'QUERY_TO_XML', 'QUERY_TO_XMLSCHEMA', 'QUERY_TO_XML_AND_XMLSCHEMA',
+  'CURSOR_TO_XML', 'CURSOR_TO_XMLSCHEMA',
+  'TABLE_TO_XML', 'TABLE_TO_XMLSCHEMA', 'TABLE_TO_XML_AND_XMLSCHEMA',
+  'SCHEMA_TO_XML', 'SCHEMA_TO_XMLSCHEMA', 'SCHEMA_TO_XML_AND_XMLSCHEMA',
+  'DATABASE_TO_XML', 'DATABASE_TO_XMLSCHEMA', 'DATABASE_TO_XML_AND_XMLSCHEMA',
   'LOAD_FILE', 'SYS_EXEC', 'SYS_EVAL',
 ]);
+/** Whole families: pg_ls_dir/logdir/waldir/…, adminpack pg_file_write/rename/unlink, lo_*, dblink*. */
+const DANGEROUS_FUNC_PREFIXES = ['PG_LS_', 'PG_FILE_', 'LO_', 'DBLINK'];
+
+/**
+ * The function name a token calls, upper-cased — `word` tokens AND quoted
+ * identifiers (`"pg_read_file"(…)`). Quoted Postgres identifiers are
+ * case-sensitive, but the dangerous built-ins are all lower-case, so folding
+ * only ever classifies UP.
+ */
+function dangerousCall(t: SqlToken): string | null {
+  if (t.kind !== 'word' && t.kind !== 'ident') return null;
+  const name = t.value.toUpperCase();
+  if (DANGEROUS_FUNCS.has(name) || DANGEROUS_FUNC_PREFIXES.some((p) => name.startsWith(p))) return name;
+  return null;
+}
+
+/**
+ * MySQL `SET` targets a read-mode run may change: session-only, no privilege
+ * or persistent effect. Anything else (`SET PASSWORD`, `SET ROLE`, `SET
+ * DEFAULT ROLE`, `SET autocommit`, `SET transaction_read_only`) is a write.
+ */
+const MYSQL_SAFE_SET_VARS = new Set([
+  'NAMES', 'CHARACTER', 'CHARSET', 'TIME_ZONE', 'SQL_MODE', 'SQL_SELECT_LIMIT', 'MAX_EXECUTION_TIME',
+  'GROUP_CONCAT_MAX_LEN', 'LC_TIME_NAMES', 'SQL_BIG_SELECTS', 'SQL_SAFE_UPDATES', 'MAX_JOIN_SIZE',
+  'OPTIMIZER_SEARCH_DEPTH', 'CTE_MAX_RECURSION_DEPTH', 'SQL_QUOTE_SHOW_CREATE', 'DIV_PRECISION_INCREMENT',
+]);
+
+/**
+ * Classify a MySQL `SET` statement. Returns null when every assignment is a
+ * user variable (`@v`) or an allowlisted session variable; otherwise the
+ * reason it is a write.
+ */
+function mysqlSetWrite(tokens: SqlToken[]): string | null {
+  // Split the assignments after `SET` on top-level commas.
+  const parts: SqlToken[][] = [[]];
+  for (const t of tokens.slice(1)) {
+    if (t.kind === 'punct' && t.value === ',' && t.depth === 0) parts.push([]);
+    else parts[parts.length - 1]!.push(t);
+  }
+  for (const part of parts) {
+    let i = 0;
+    const at = (k: number) => part[k];
+    const isAt = (k: number) => at(k)?.kind === 'punct' && at(k)!.value === '@';
+    if (isAt(0) && !isAt(1)) continue; // user variable `@v = …`
+    if (isAt(0) && isAt(1)) {
+      // `@@[session.|local.]var`
+      i = 2;
+      const scope = at(i);
+      if (scope?.kind === 'word' && at(i + 1)?.kind === 'punct' && at(i + 1)!.value === '.') {
+        if (scope.value !== 'SESSION' && scope.value !== 'LOCAL') return `SET @@${scope.value.toLowerCase()} changes more than this session`;
+        i += 2;
+      }
+    } else if (at(0)?.kind === 'word' && (at(0)!.value === 'SESSION' || at(0)!.value === 'LOCAL')) {
+      i = 1;
+    }
+    const name = at(i);
+    const v = name && (name.kind === 'word' || name.kind === 'ident') ? name.value.toUpperCase() : '';
+    if (!MYSQL_SAFE_SET_VARS.has(v)) return `SET ${v || '…'} is not a read-only session setting`;
+  }
+  return null;
+}
+
+/** Postgres `SET` forms that change who you are or the transaction's read-only mode. */
+function pgSetWrite(w: string[]): string | null {
+  const [, a = '', b = ''] = w;
+  const target = a === 'SESSION' || a === 'LOCAL' ? b : a;
+  if (target === 'ROLE' || (target === 'AUTHORIZATION' && a === 'SESSION') || (a === 'SESSION' && b === 'AUTHORIZATION')) {
+    return 'SET ROLE / SESSION AUTHORIZATION changes the acting role';
+  }
+  if (a === 'SESSION' && b === 'CHARACTERISTICS') return 'SET SESSION CHARACTERISTICS changes transaction defaults';
+  if (['TRANSACTION_READ_ONLY', 'DEFAULT_TRANSACTION_READ_ONLY', 'SESSION_AUTHORIZATION', 'ROLE'].includes(target)) {
+    return `SET ${target.toLowerCase()} changes the transaction's access`;
+  }
+  return null;
+}
 
 function words(tokens: SqlToken[]): string[] {
   return tokens.filter((t) => t.kind === 'word').map((t) => t.value);
@@ -142,9 +228,15 @@ function classifySqlStatement(tokens: SqlToken[], dialect: SqlDialect): Classifi
     if (cls === 'write' && first !== 'COPY') reasons.push(`${first} changes data`);
   } else if (READ_FIRST.has(first)) {
     if (first === 'SET') {
-      if (['GLOBAL', 'PERSIST', 'PERSIST_ONLY'].includes(second) || tokens.some((t) => t.kind === 'punct' && t.value === '@') && w.includes('GLOBAL')) {
+      if (['GLOBAL', 'PERSIST', 'PERSIST_ONLY'].includes(second) || tokens.some((t) => t.kind === 'punct' && t.value === '@') && (w.includes('GLOBAL') || w.includes('PERSIST') || w.includes('PERSIST_ONLY'))) {
         cls = 'destructive';
         reasons.push('SET GLOBAL changes the whole server');
+      } else {
+        const why = dialect === 'mysql' ? mysqlSetWrite(tokens) : pgSetWrite(w);
+        if (why) {
+          cls = up(cls, 'write');
+          reasons.push(why);
+        }
       }
     }
     if (first === 'EXPLAIN' && w.includes('ANALYZE')) {
@@ -223,9 +315,10 @@ function classifySqlStatement(tokens: SqlToken[], dialect: SqlDialect): Classifi
   for (let k = 0; k < tokens.length - 1; k++) {
     const t = tokens[k]!;
     const nx = tokens[k + 1]!;
-    if (t.kind === 'word' && DANGEROUS_FUNCS.has(t.value) && nx.kind === 'punct' && nx.value === '(') {
+    const fn = dangerousCall(t);
+    if (fn && nx.kind === 'punct' && nx.value === '(') {
       cls = 'destructive';
-      reasons.push(`${t.value.toLowerCase()}() acts outside the transaction`);
+      reasons.push(`${fn.toLowerCase()}() acts outside the transaction`);
     }
   }
 

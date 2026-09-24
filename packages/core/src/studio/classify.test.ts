@@ -121,6 +121,71 @@ describe('SQL classification — destructive', () => {
     expect(my('DELETE FROM t LIMIT 10').class).toBe('destructive');
     expect(my('SELECT LOAD_FILE("/etc/passwd")').class).toBe('destructive');
   });
+
+  // A read-mode run must not reach a side-effecting function by quoting its
+  // name (an `ident` token) or by handing a query string to an executor.
+  it.each([
+    `SELECT "pg_read_file"('/etc/passwd')`,
+    `SELECT pg_catalog."pg_read_file"('/etc/passwd')`,
+    `SELECT "PG_TERMINATE_BACKEND"(1)`,
+    `SELECT query_to_xml('select pg_terminate_backend(1)', true, true, '')`,
+    `SELECT query_to_xml_and_xmlschema('select 1', true, true, '')`,
+    `SELECT cursor_to_xml('c', 1, true, true, '')`,
+    `SELECT table_to_xml('t', true, true, '')`,
+    `SELECT database_to_xml(true, true, '')`,
+    `SELECT ts_stat('select pg_cancel_backend(1)')`,
+    `SELECT pg_ls_dir('/')`,
+    `SELECT pg_ls_waldir()`,
+    `SELECT pg_ls_logdir()`,
+    `SELECT pg_file_write('/tmp/x', 'y', false)`,
+    `SELECT pg_read_binary_file('/etc/shadow')`,
+    `SELECT lo_import('/etc/passwd')`,
+    `SELECT lo_export(1, '/tmp/x')`,
+    `SELECT lo_from_bytea(0, 'x')`,
+    `SELECT dblink('host=evil', 'select 1')`,
+    `SELECT dblink_send_query('c', 'delete from t')`,
+    `SELECT pg_cancel_backend(1)`,
+    `SELECT set_config('default_transaction_read_only', 'off', false)`,
+  ])('destructive (dangerous function): %s', (s) => {
+    expect(pg(s).class).toBe('destructive');
+  });
+
+  it('ordinary functions and COPY … TO STDOUT stay reads', () => {
+    expect(pg('SELECT lower(name), log(2, 8), "my_func"(1) FROM t').class).toBe('read');
+    expect(pg('COPY (SELECT 1) TO STDOUT').class).toBe('read');
+  });
+
+  it('MySQL SET: only user variables and allowlisted session settings are reads', () => {
+    expect(my('SET @x = 1').class).toBe('read');
+    expect(my('SET @a = 1, @b = 2').class).toBe('read');
+    expect(my("SET SESSION sql_mode = 'ANSI'").class).toBe('read');
+    expect(my('SET NAMES utf8mb4').class).toBe('read');
+    expect(my("SET time_zone = '+00:00'").class).toBe('read');
+    expect(my('SET @@session.max_execution_time = 1000').class).toBe('read');
+    for (const s of [
+      "SET PASSWORD = 'x'",
+      "SET PASSWORD FOR 'root'@'%' = 'x'",
+      'SET ROLE ALL',
+      'SET DEFAULT ROLE ALL TO bob',
+      'SET autocommit = 1',
+      'SET SESSION transaction_read_only = 0',
+      'SET @x = 1, autocommit = 0',
+    ]) {
+      expect(my(s).class).not.toBe('read');
+    }
+    expect(my('SET GLOBAL read_only = 0').class).toBe('destructive');
+    expect(my('SET @@global.read_only = 0').class).toBe('destructive');
+    expect(my('SET PERSIST max_connections = 1').class).toBe('destructive');
+    expect(my('SET TRANSACTION READ WRITE').blocked).toContain('transaction control');
+  });
+
+  it('Postgres SET: role / read-only mode changes are writes; plain settings stay reads', () => {
+    expect(pg('SET search_path = app').class).toBe('read');
+    expect(pg("SET statement_timeout = '5s'").class).toBe('read');
+    for (const s of ['SET ROLE postgres', 'SET SESSION AUTHORIZATION postgres', 'SET LOCAL ROLE admin', 'SET transaction_read_only = off', 'SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE']) {
+      expect(pg(s).class).toBe('write');
+    }
+  });
 });
 
 describe('SQL classification — blocked', () => {
