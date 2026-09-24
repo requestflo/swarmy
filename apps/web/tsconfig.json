@@ -3,13 +3,14 @@
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "noEmit": true,
     "paths": {
+      "@/*": ["./src/*"],
       "@swarmy/ui": ["../../packages/ui/src/index.ts"],
       "@swarmy/ui/*": ["../../packages/ui/src/*"]
     }
   },
   "include": ["src", "vite.config.ts"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", ".output", ".tanstack"]
 }

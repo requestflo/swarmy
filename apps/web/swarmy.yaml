@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://swarmy.dev/schema/swarmy.v1.json
+#
+# swarmy.dev, deployed by swarmy itself. Link the repo in the dashboard with
+# config path `apps/web/swarmy.yaml`; every push to main rebuilds and deploys
+# the prerendered site, and every PR touching it gets a preview.
+# Paths are relative to the repo root (the build context), not this file.
+version: 1
+app: swarmy-web
+
+services:
+  web:
+    build:
+      path: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_SITE_URL: https://swarmy.dev
+        # Where "Live demo" links point: a dashboard built with VITE_SWARMY_DEMO_LINKS=1.
+        VITE_APP_URL: https://demo.swarmy.dev
+      watch: [apps/web, packages/ui, packages/app-config, packages/core]
+    port: 8080
+    replicas: 2
+    size: nano
+    healthcheck: { path: /, interval: 30s }
+    domains:
+      - swarmy.dev
+      - www.swarmy.dev
+
+previews:
+  enabled: true
+  ttl: 48h

@@ -7,7 +7,7 @@ description: Reference for the shared @swarmy/ui package and the apps/web market
 
 Load this skill when:
 - Working in the shared **`@swarmy/ui`** package (adding/using primitives, import paths, package boundaries).
-- Building or editing the **`apps/web` marketing site** (Vite, port 4020).
+- Building or editing the **`apps/web` marketing site + docs** (TanStack Start + Fumadocs, port 4020).
 
 > **For `apps/app` product UI, load `skill("hot-signal-design")`** — the source of
 > truth for the product experience (tokens, classes, shell, copy).
@@ -21,7 +21,7 @@ Unlike a per-app token split, swarmy centralises Hot Signal tokens + utility
 classes in **`@swarmy/ui/src/styles.css`**, exported as `@swarmy/ui/styles.css`.
 Both apps import it:
 - `apps/app/src/styles/globals.css` → `@import '@swarmy/ui/styles.css';` + `@source` + fonts.
-- `apps/web/src/styles.css` → `@import '@swarmy/ui/styles.css';` + `@source`.
+- `apps/web/src/styles.css` → `@import '@swarmy/ui/styles.css';` + Fumadocs' `shadcn.css`/`preset.css` (maps `--color-fd-*` onto the Hot Signal tokens) + fonts + `@source`.
 
 `@swarmy/ui` primitives use token names (`bg-primary`, `border-border`,
 `text-status-online`, …) that resolve at render time, so they inherit Hot Signal
@@ -62,9 +62,23 @@ Export roots: `@swarmy/ui` (barrel), `@swarmy/ui/components/*`, `@swarmy/ui/lib/
 - Status tokens (`--status-online|progress|warning|offline|idle`) as Tailwind
   colors (`text-status-online`, `bg-status-warning/12`) — never raw palette colors.
 
-## apps/web marketing site
+## apps/web marketing site + docs
 
-`apps/web` (port **4020**, Vite + React) is a thin landing site: hero, features,
-CTA, footer, using Hot Signal tokens + framer-motion reveals. It mirrors the
-product's tokens so the jump to the dashboard is zero-surprise. Not the product
-app; no `/app` shell.
+`apps/web` (port **4020**) is **TanStack Start**, fully prerendered to static
+HTML (`dist/client`) and served by Caddy (`apps/web/Dockerfile`, deployed by
+swarmy from `apps/web/swarmy.yaml`). It mirrors the product's tokens so the
+jump to the dashboard is zero-surprise. Not the product app; no `/app` shell.
+
+- Marketing pages: `src/routes/{index,features,compare,pricing}.tsx`, blog stub
+  in `src/lib/blog.ts`. Every route's `head()` calls `seo()` (`src/lib/seo.ts`)
+  for title/description/canonical/OG. Mark unshipped features with `<ComingTag />`
+  and keep claims to what the code does.
+- Docs: Markdown/MDX in `apps/web/content/docs/**` (folders + `meta.json` =
+  sidebar), loaded with the `fumadocs-mdx/macro` collection in
+  `src/lib/source.ts`. The docs loader is isomorphic (no server functions):
+  the site is static, so client navigation must not need a server. Search is
+  Orama, prerendered to `/api/search` and queried in the browser.
+- Prerender crawls links and fails the build on a broken internal link.
+  `/sitemap.xml`, `/robots.txt` and `/schema/swarmy.v1.json` are server routes
+  prerendered to files.
+- Internal design docs (`docs/product/`, `plans/`) never go on the site.

@@ -1,0 +1,21 @@
+# Per-Dockerfile ignore for apps/web/Dockerfile (replaces the root .dockerignore,
+# which excludes apps/web and all Markdown). Keep the context small and clean.
+**/node_modules
+**/dist
+**/.output
+**/.tanstack
+**/.turbo
+**/.env
+**/.env.*
+.git
+.github
+.swarmy-dev-token
+**/.swarmy
+plans
+issues
+docs
+sdks
+terraform-provider-swarmy
+packages/db/src/generated
+**/*.log
+.DS_Store

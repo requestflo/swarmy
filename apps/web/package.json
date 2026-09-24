@@ -4,23 +4,31 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .output .tanstack .turbo"
   },
   "dependencies": {
     "@fontsource-variable/bricolage-grotesque": "^5.0.0",
     "@fontsource-variable/geist-mono": "^5.0.0",
     "@fontsource-variable/instrument-sans": "^5.0.0",
+    "@swarmy/app-config": "workspace:*",
     "@swarmy/ui": "workspace:*",
-    "lucide-react": "^0.469.0",
+    "@tanstack/react-router": "1.170.16",
+    "@tanstack/react-start": "1.168.26",
+    "fumadocs-core": "16.15.14",
+    "fumadocs-mdx": "15.4.4",
+    "fumadocs-ui": "npm:@fumadocs/base-ui@16.15.14",
+    "lucide-react": "^1.48.0",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
+    "@types/mdx": "^2.0.13",
+    "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",

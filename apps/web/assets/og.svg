@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <radialGradient id="g1" cx="8%" cy="0%" r="70%"><stop offset="0" stop-color="#ff5a45" stop-opacity=".35"/><stop offset="1" stop-color="#ff5a45" stop-opacity="0"/></radialGradient>
+    <radialGradient id="g2" cx="100%" cy="10%" r="60%"><stop offset="0" stop-color="#4f7cff" stop-opacity=".28"/><stop offset="1" stop-color="#4f7cff" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#10152a"/>
+  <rect width="1200" height="630" fill="url(#g1)"/>
+  <rect width="1200" height="630" fill="url(#g2)"/>
+  <g transform="translate(80 90)">
+    <rect width="64" height="64" rx="18" fill="#ff5a45" fill-opacity=".14"/>
+    <path d="M18 25 32 18l14 7v14l-14 7-14-7z M18 25l14 7 14-7 M32 32v14" fill="none" stroke="#ff5a45" stroke-width="4" stroke-linejoin="round"/>
+    <text x="84" y="46" font-family="Bricolage Grotesque" font-weight="800" font-size="44" fill="#f7f4ef">swarm<tspan fill="#ff5a45">y</tspan></text>
+  </g>
+  <text x="80" y="330" font-family="Bricolage Grotesque" font-weight="800" font-size="92" letter-spacing="-2" fill="#f7f4ef">Your own cloud.</text>
+  <text x="80" y="430" font-family="Bricolage Grotesque" font-weight="800" font-size="92" letter-spacing="-2" fill="#ff5a45">On your own servers.</text>
+  <text x="80" y="530" font-family="Menlo, monospace" font-size="26" fill="#aab0c4">Self-hosted · open source · no cloud dependency</text>
+</svg>
