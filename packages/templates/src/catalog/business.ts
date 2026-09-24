@@ -139,6 +139,8 @@ env:
   REDIS_PASSWORD: \${{ cache.password }}
   ACTIVE_STORAGE_SERVICE: local
   ENABLE_ACCOUNT_SIGNUP: "false"
+# Chatwoot ships the Sentry SDK and reads SENTRY_DSN: its errors land in the Errors tab.
+errors: true
 services:
   web:
     image: chatwoot/chatwoot:v4.18.0
