@@ -486,3 +486,16 @@ the most.
   the lease fence and the floating controller.
 - `docs/product/footprint.md`, the `run-local` skill (no Postgres in dev after
   P2), `README.md`.
+
+## Decision (2026-09-24)
+
+The owner keeps **PGlite** as the controller engine. It is already embedded in the
+controller process, so swarmy runs no database service by default. This plan stays
+as a reference and is **not scheduled**. The opt-in `--standard` tier and the
+managed-Postgres upgrade path stay for now.
+
+Early findings from the stopped SQLite spike (Prisma 7.8.0 / 7.10.0), for any future look:
+- `Json @default("{}")` / `@default("[]")` render unquoted in SQLite DDL, and both
+  `migrate diff` and `db push` fail. swarmy has ~20 of these defaults.
+- `BigInt @id @default(autoincrement())` becomes `BIGINT PRIMARY KEY`, which is not
+  SQLite's rowid alias, so ids are probably not auto-filled (unconfirmed at runtime).
