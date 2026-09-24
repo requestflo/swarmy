@@ -2,6 +2,7 @@ import { initTRPC, TRPCError } from '@trpc/server';
 import superjson from 'superjson';
 import type { BaseContext } from './context';
 import { enforceOrgMfa } from './services/security.service';
+import { INSTANCE_OWNER_REQUIRED, isInstanceOwner } from './services/instance-owner';
 
 const t = initTRPC.context<BaseContext>().create({
   transformer: superjson,
@@ -57,6 +58,23 @@ export const orgProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 export const adminProcedure = orgProcedure.use(({ ctx, next }) => {
   if (ctx.membership.role === 'member') {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'requires admin or owner' });
+  }
+  return next();
+});
+
+/**
+ * Instance-wide configuration (rows with `orgId = null`: social providers,
+ * magic link, passkeys). Org roles don't reach it — only the owner of the
+ * controller's organization (the oldest org; one org per controller) may
+ * write it. See services/instance-owner.ts.
+ */
+export const instanceOwnerProcedure = orgProcedure.use(async ({ ctx, next }) => {
+  if (!(await isInstanceOwner(ctx.db, ctx.user.id))) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: INSTANCE_OWNER_REQUIRED,
+      cause: { swarmyCode: 'INSTANCE_OWNER_REQUIRED' },
+    });
   }
   return next();
 });

@@ -1,13 +1,15 @@
 import { z } from 'zod';
 import { authRegistry, resolveSignupMode, type SignupMode } from '@swarmy/auth';
-import { adminProcedure, orgProcedure, protectedProcedure, publicProcedure, router } from '../trpc';
+import { instanceOwnerProcedure, orgProcedure, protectedProcedure, publicProcedure, router } from '../trpc';
 import { listProviders, setProvider, signInOptions, type SignInOption } from '../services/authConfig.service';
 import { acceptInvitation, invitationPreview, type InvitationPreview } from '../services/invitations.service';
 
 /**
- * Admin-gated auth-provider configuration. Reads are org-members; writes are
- * admin-only, audited (in the service), and trigger an `AuthRegistry.rebuild()`
- * so a toggled provider goes live with no restart.
+ * Auth-provider configuration. Reads are org-members; writes change
+ * INSTANCE-WIDE rows (social providers, magic link, passkeys), so only the
+ * instance owner (owner of the controller's org) may make them
+ * (`instanceOwnerProcedure`). Audited (in the service), and each triggers an
+ * `AuthRegistry.rebuild()` so a toggled provider goes live with no restart.
  */
 export const authConfigRouter = router({
   /**
@@ -38,7 +40,7 @@ export const authConfigRouter = router({
 
   listProviders: orgProcedure.query(({ ctx }) => listProviders(ctx)),
 
-  setProvider: adminProcedure
+  setProvider: instanceOwnerProcedure
     .input(
       z.object({
         type: z.string(),
