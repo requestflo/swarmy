@@ -71,7 +71,17 @@ export function isSystemStack(name: string): boolean {
 }
 
 /** Networks that never imply an application link. */
-const SYSTEM_NETWORKS = new Set(['ingress', 'bridge', 'host', 'none', 'docker_gwbridge']);
+// `swarmy` / `swarmy-control` are platform plumbing: sharing them (every routed
+// service meets the edge on `swarmy`) is not an application link.
+const SYSTEM_NETWORKS = new Set([
+  'ingress',
+  'bridge',
+  'host',
+  'none',
+  'docker_gwbridge',
+  SWARMY_OVERLAY_NETWORK,
+  'swarmy-control',
+]);
 
 /**
  * `failing` = wants replicas, has none running, and it is not converging: tasks

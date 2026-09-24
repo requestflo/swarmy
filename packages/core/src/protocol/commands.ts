@@ -156,6 +156,13 @@ export const EnsureNetworkPayload = z.object({
   driver: z.string().default('overlay'),
   attachable: z.boolean().default(true),
   labels: z.record(z.string()).optional(),
+  /**
+   * Docker driver options applied at CREATE time only (an existing network is
+   * never recreated): `com.docker.network.driver.mtu` when the data path rides
+   * a WireGuard mesh, `encrypted` for IPsec. Optional — older agents ignore it
+   * and inherit nothing; newer agents also inherit the platform overlay's MTU.
+   */
+  options: z.record(z.string()).optional(),
 });
 export const EnsureNetworkMsg = z.object({
   type: z.literal('ensureNetwork'),

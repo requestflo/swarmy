@@ -7,6 +7,7 @@ export * from './types';
 export * from './views';
 export * from './inputs';
 export * from './inventory';
+export * from './network-policy';
 export * from './controller-url';
 export * from './manageddb-storage';
 export * from './data-pin';

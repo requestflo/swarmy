@@ -1,6 +1,7 @@
 import { composeToModels, type ComposeFile } from './from-compose';
 import { modelToServiceSpec, type ServiceSpecLike } from './to-spec';
 import type { TranslationWarning } from './warnings';
+import { PLATFORM_PRIVATE_NETWORKS, PLATFORM_SHARED_NETWORKS } from '../network-policy';
 
 /**
  * compose object + stack name -> the namespaced swarm specs a
@@ -16,6 +17,9 @@ import type { TranslationWarning } from './warnings';
  *  - a service that lists no networks joins `<stack>_default`,
  *  - every service joins each of its networks with its SHORT compose name as a
  *    DNS alias (plus any compose `aliases:`), so `db:5432` resolves in-stack,
+ *    EXCEPT on swarmy's shared platform network (`swarmy`): aliases there are
+ *    dropped (warned) — an app aliasing `postgres` on it could impersonate a
+ *    platform name; swarmy's private `swarmy-control` is refused outright,
  *  - secrets/configs: external / undeclared / `name:` keep their name; a
  *    file- or environment-sourced one is referenced as `<stack>_<name>` (swarmy
  *    can't upload the file — create that secret first; warned).
@@ -32,6 +36,8 @@ export interface StackNetworkDecl {
   driver: string;
   attachable: boolean;
   labels: Record<string, string>;
+  /** Compose `driver_opts` (e.g. `encrypted`, an MTU) — create-time only. */
+  options?: Record<string, string>;
 }
 
 export interface StackPlan {
@@ -150,7 +156,13 @@ export function composeToStack(
       });
     }
     const { name, external } = declaredName(stack, key, decl);
-    if (!external && !networks.has(name)) {
+    if (PLATFORM_PRIVATE_NETWORKS.has(name)) {
+      throw new ComposeStackError(
+        `service "${svcShort}" joins \`${name}\` — that is swarmy's private control-plane network; app services can't join it`,
+      );
+    }
+    if (!external && !networks.has(name) && !PLATFORM_SHARED_NETWORKS.has(name)) {
+      const driverOpts = listOrDict(decl?.driver_opts);
       networks.set(name, {
         name,
         driver: decl?.driver != null ? String(decl.driver) : 'overlay',
@@ -160,6 +172,7 @@ export function composeToStack(
           [STACK_NAMESPACE_LABEL]: stack,
           'swarmy.managed': 'true',
         },
+        ...(Object.keys(driverOpts).length ? { options: driverOpts } : {}),
       });
     }
     return name;
@@ -249,6 +262,15 @@ export function composeToStack(
       if (netNames.includes(netName)) continue;
       netNames.push(netName);
       const extra = asObj(asObj(rawNets)?.[key])?.aliases;
+      if (PLATFORM_SHARED_NETWORKS.has(netName)) {
+        warnings.push({
+          level: 'info',
+          path: `${short}.networks.${key}`,
+          code: 'platform-network-alias-dropped',
+          message: `joins the shared \`${netName}\` network without DNS aliases — reach it as \`${stack}_${short}\`; for app-to-app traffic use "connect apps".`,
+        });
+        continue;
+      }
       const list = [short, ...(Array.isArray(extra) ? extra.map(String) : [])];
       aliases[netName] = [...new Set(list)];
     }

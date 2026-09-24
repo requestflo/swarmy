@@ -1,3 +1,4 @@
+import { networkIsolationViolations } from '@swarmy/core';
 import { TRPCError } from '@trpc/server';
 import type { OrgContext } from '../context';
 import { evaluateAdmission, type AdmissionIntent, type Violation } from './admission.service';
@@ -50,6 +51,11 @@ export async function enforceAdmission(
   intent: AdmissionIntent,
   opts: EnforceAdmissionOptions,
 ): Promise<Violation[]> {
+  // The network wall is not a policy: no override (admin or not) lets an app
+  // join the control-plane network or alias a name on the shared platform one.
+  const wall = networkIsolationViolations(intent.specs);
+  if (wall.length) throw admissionDenied(wall.map((v) => ({ ...v, severity: 'block' as const })));
+
   const automation = opts.mode === 'automation';
   const effective: AdmissionIntent = automation ? { ...intent, override: false } : intent;
   const violations = await evaluateAdmission(ctx, effective);

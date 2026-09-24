@@ -198,3 +198,63 @@ describe('composeToStack — legacy migration', () => {
     expect(plan.specs.find((s) => s.name === 'shop_db')!.mounts?.[0]?.source).toBe('shop_pgdata');
   });
 });
+
+/**
+ * Network wall (security): an app may attach to the shared `swarmy` platform
+ * network (routed services meet the edge there) but may never register a DNS
+ * alias on it — `postgres`/`swarmy_controller` aliases would let it impersonate
+ * platform names to the dual-homed edge/collector/agent — and may never join
+ * the private `swarmy-control` network at all.
+ */
+describe('composeToStack — platform network wall', () => {
+  it('attaches to external `swarmy` with NO aliases (warned), keeps short alias on the app net', () => {
+    const plan = composeToStack(
+      {
+        services: {
+          postgres: {
+            image: 'postgres:16',
+            networks: { default: {}, swarmy: { aliases: ['swarmy_controller'] } },
+          },
+        },
+        networks: { swarmy: { external: true } },
+      },
+      'evil',
+    );
+    const spec = plan.specs[0]!;
+    expect(spec.networks).toEqual(['evil_default', 'swarmy']);
+    expect(spec.networkAliases).toEqual({ evil_default: ['postgres'] });
+    expect(plan.networks.map((n) => n.name)).toEqual(['evil_default']);
+    expect(plan.warnings.some((w) => w.code === 'platform-network-alias-dropped')).toBe(true);
+  });
+
+  it('a non-external network NAMED `swarmy` is never (re)declared by the stack', () => {
+    const plan = composeToStack(
+      { services: { web: { image: 'nginx', networks: ['edge'] } }, networks: { edge: { name: 'swarmy' } } },
+      'shop',
+    );
+    expect(plan.networks).toEqual([]);
+    expect(plan.specs[0]!.networkAliases).toEqual({});
+  });
+
+  it('refuses `swarmy-control`, external or by name', () => {
+    for (const decl of [{ external: true, name: 'swarmy-control' }, { name: 'swarmy-control' }]) {
+      expect(() =>
+        composeToStack(
+          { services: { web: { image: 'nginx', networks: ['ctl'] } }, networks: { ctl: decl } },
+          'shop',
+        ),
+      ).toThrow(ComposeStackError);
+    }
+  });
+
+  it('carries compose driver_opts onto the declared network', () => {
+    const plan = composeToStack(
+      {
+        services: { web: { image: 'nginx', networks: ['front'] } },
+        networks: { front: { driver_opts: { encrypted: '', 'com.docker.network.driver.mtu': '1200' } } },
+      },
+      'shop',
+    );
+    expect(plan.networks[0]!.options).toEqual({ encrypted: '', 'com.docker.network.driver.mtu': '1200' });
+  });
+});

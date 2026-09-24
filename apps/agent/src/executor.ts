@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { carryNetworkAliases, DockerClient, toServiceCreateOptions } from '@swarmy/core/docker';
+import { carryNetworkAliases, DockerClient, dropAliasesOnTargets, toServiceCreateOptions } from '@swarmy/core/docker';
 import type { ControllerEnvelope, RegistryAuth, RenderedConfig, ServiceSpec } from '@swarmy/core/protocol';
 import type { AgentConnection } from './connection';
 import { buildGateAllows, BUILDER_ENABLE_HINT, execGateAllows, EXEC_LOCAL_VETO_HINT, EXEC_ENABLE_HINT } from '@swarmy/core';
@@ -167,6 +167,7 @@ export async function handleCommand(
           driver: p.driver,
           attachable: p.attachable,
           labels: p.labels,
+          options: p.options,
         }),
       }));
     }
@@ -354,6 +355,11 @@ export async function deployOrUpdate(
     spec,
     (inspect.Spec?.TaskTemplate as { Networks?: Array<{ Target?: string; Aliases?: string[] }> } | undefined)
       ?.Networks,
+  );
+  // …but never onto the platform overlays: a legacy alias there is dropped.
+  dropAliasesOnTargets(
+    opts as Parameters<typeof dropAliasesOnTargets>[0],
+    (await docker.platformNetworkIds?.()) ?? new Set<string>(),
   );
   await docker.updateServiceWithAuth(existing, { version: inspect.Version.Index, ...opts }, auth);
   return { serviceId: inspect.ID, created: false };

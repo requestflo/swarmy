@@ -9,7 +9,8 @@ import type {
   SwarmNodeInfo,
   SwarmState,
 } from './protocol';
-import { isSwarmyStackNetwork, summarizeTasks, type TaskLike } from './inventory';
+import { isSwarmyStackNetwork, summarizeTasks, SWARMY_OVERLAY_NETWORK, type TaskLike } from './inventory';
+import { isPlatformNetwork, OVERLAY_MTU_OPTION, stripPlatformAliases, SWARMY_CONTROL_NETWORK } from './network-policy';
 
 /** The subset of a Docker swarm ServiceSpec the agent reads (dockerode types are loose). */
 interface SwarmNetworkAttachment {
@@ -525,21 +526,35 @@ export class DockerClient {
    */
   async ensureNetwork(
     name: string,
-    opts: { driver?: string; attachable?: boolean; labels?: Record<string, string> } = {},
+    opts: {
+      driver?: string;
+      attachable?: boolean;
+      labels?: Record<string, string>;
+      /** Driver options (`com.docker.network.driver.mtu`, `encrypted`, …). Create-time only. */
+      options?: Record<string, string>;
+    } = {},
   ): Promise<string> {
-    const findByName = async (): Promise<string | undefined> => {
-      const nets = await this.docker.listNetworks();
-      return nets.find((n) => n.Name === name)?.Id;
-    };
-    const existing = await findByName();
+    const nets = await this.docker.listNetworks();
+    const existing = nets.find((n) => n.Name === name)?.Id;
     if (existing) return existing;
+    const driver = opts.driver ?? 'overlay';
+    // An overlay created without an explicit MTU inherits the platform
+    // overlays' (the installer sets it when the swarm data path rides a
+    // WireGuard mesh) — so every swarmy-created network fits the tunnel even
+    // when a caller doesn't know about the mesh.
+    const options = driver === 'overlay' ? withInheritedMtu(opts.options, nets) : opts.options;
+    const findByName = async (): Promise<string | undefined> => {
+      const again = await this.docker.listNetworks();
+      return again.find((n) => n.Name === name)?.Id;
+    };
     try {
       const net = await this.docker.createNetwork({
         Name: name,
-        Driver: opts.driver ?? 'overlay',
+        Driver: driver,
         Attachable: opts.attachable ?? true,
         CheckDuplicate: true,
         Labels: opts.labels,
+        ...(options && Object.keys(options).length ? { Options: options } : {}),
       });
       return net.id;
     } catch (e) {
@@ -674,7 +689,10 @@ export class DockerClient {
 
   /** Resolve network NAMES → ids in a spec. Docker's TaskTemplate.Networks resolves
    *  ids reliably but is flaky resolving freshly-created overlay names at create time. */
-  private async resolveSpecNetworks(spec: ServiceSpec): Promise<ServiceSpec> {
+  private async resolveSpecNetworks(input: ServiceSpec): Promise<ServiceSpec> {
+    // Safety floor: nothing the agent deploys may register a DNS alias on the
+    // shared/private platform networks (impersonation — see network-policy).
+    const spec = stripPlatformAliases(input);
     if (!spec.networks?.length) return spec;
     const byName = new Map<string, string>();
     try {
@@ -693,6 +711,16 @@ export class DockerClient {
       networks: spec.networks.map(resolve),
       ...(networkAliases ? { networkAliases } : {}),
     };
+  }
+
+  /** Ids of the platform overlays (`swarmy`, `swarmy-control`) — alias-free zones. */
+  async platformNetworkIds(): Promise<Set<string>> {
+    try {
+      const nets = await this.docker.listNetworks();
+      return new Set(nets.filter((n) => n.Name && isPlatformNetwork(n.Name) && n.Id).map((n) => n.Id as string));
+    } catch {
+      return new Set();
+    }
   }
 
   async getServiceByName(name: string) {
@@ -798,6 +826,22 @@ export class DockerClient {
 }
 
 /**
+ * Fill `com.docker.network.driver.mtu` from the platform overlays (`swarmy-control`,
+ * then `swarmy`) when the caller set none. PURE — exported for tests.
+ */
+export function withInheritedMtu(
+  options: Record<string, string> | undefined,
+  nets: Array<{ Name?: string; Options?: Record<string, string> | null }>,
+): Record<string, string> | undefined {
+  if (options?.[OVERLAY_MTU_OPTION]) return options;
+  for (const template of [SWARMY_CONTROL_NETWORK, SWARMY_OVERLAY_NETWORK]) {
+    const mtu = nets.find((n) => n.Name === template)?.Options?.[OVERLAY_MTU_OPTION];
+    if (mtu) return { ...(options ?? {}), [OVERLAY_MTU_OPTION]: mtu };
+  }
+  return options;
+}
+
+/**
  * On an UPDATE whose spec does not express `networkAliases`, carry the live
  * service's per-network aliases onto the new options (matched by network
  * Target id). Lossy rebuilds (env/image/network patches built from the
@@ -817,6 +861,22 @@ export function carryNetworkAliases(
   for (const n of options.TaskTemplate?.Networks ?? []) {
     const aliases = n.Target ? byTarget.get(n.Target) : undefined;
     if (aliases && !n.Aliases?.length) n.Aliases = [...aliases];
+  }
+  return options;
+}
+
+/**
+ * Remove DNS aliases from every TaskTemplate network whose Target is a platform
+ * overlay id — run AFTER {@link carryNetworkAliases} so a live alias an older
+ * deploy put on `swarmy` is dropped on the next update instead of carried.
+ * PURE — mutates and returns `options`.
+ */
+export function dropAliasesOnTargets(
+  options: { TaskTemplate?: { Networks?: Array<{ Target?: string; Aliases?: string[] }> } },
+  targets: ReadonlySet<string>,
+): typeof options {
+  for (const n of options.TaskTemplate?.Networks ?? []) {
+    if (n.Target && targets.has(n.Target) && n.Aliases) delete n.Aliases;
   }
   return options;
 }
