@@ -882,18 +882,56 @@ export class DockerClient {
     return new Promise((resolve, reject) => {
       this.docker.pull(image, { authconfig }, (err: Error | null, stream?: NodeJS.ReadableStream) => {
         if (err || !stream) return reject(err ?? new Error('no pull stream'));
-        let digest = '';
+        const acc = newPullAccumulator();
         this.docker.modem.followProgress(
           stream,
-          (doneErr: Error | null) => (doneErr ? reject(doneErr) : resolve(digest)),
-          (event: { status?: string; aux?: { Digest?: string } }) => {
-            if (event.aux?.Digest) digest = event.aux.Digest;
+          (doneErr: Error | null) => {
+            if (doneErr) return reject(doneErr);
+            // docker-modem reports a mid-pull daemon failure ("no space left on
+            // device", "manifest unknown", 429…) as a progress EVENT, not as
+            // doneErr — surface it instead of resolving an absent image.
+            if (acc.error) return reject(new Error(`pull ${image}: ${acc.error}`));
+            resolve(acc.digest);
+          },
+          (event: PullProgressEvent) => {
+            foldPullEvent(acc, event);
             if (onProgress && event.status) onProgress(event.status);
           },
         );
       });
     });
   }
+}
+
+/** One `docker pull` JSON progress event (the fields swarmy reads). */
+export interface PullProgressEvent {
+  status?: string;
+  aux?: { Digest?: string };
+  error?: string;
+  errorDetail?: { message?: string; code?: number };
+}
+
+export interface PullAccumulator {
+  digest: string;
+  /** First daemon error seen mid-stream, if any. */
+  error?: string;
+}
+
+export function newPullAccumulator(): PullAccumulator {
+  return { digest: '' };
+}
+
+/**
+ * Fold one pull progress event into the accumulator: record the digest, and
+ * the FIRST `{error}` / `errorDetail` the daemon streamed. PURE — exported for tests.
+ */
+export function foldPullEvent(acc: PullAccumulator, event: PullProgressEvent): PullAccumulator {
+  if (event.aux?.Digest) acc.digest = event.aux.Digest;
+  if (!acc.error) {
+    const msg = event.errorDetail?.message || event.error;
+    if (msg) acc.error = msg;
+  }
+  return acc;
 }
 
 /**
