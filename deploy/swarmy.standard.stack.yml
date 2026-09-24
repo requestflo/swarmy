@@ -1,0 +1,173 @@
+# swarmy control plane — STANDARD tier (managed Postgres service + controller).
+#
+# Deployed by scripts/install-swarmy.sh (--standard) on the bootstrap host via:
+#   docker stack deploy -c deploy/swarmy.standard.stack.yml swarmy
+#
+# Same conventions as the lite stack: ${VARS} from the installer env, external
+# secrets surfaced as *_FILE. `depends_on` is ignored by `docker stack deploy`, so
+# the controller simply crash-restarts until Postgres accepts connections — its
+# restart_policy makes that the ordering mechanism.
+version: "3.8"
+
+# Bounded container logs for the control plane (node disks must never fill).
+# Every service swarmy itself deploys gets the same default (core
+# DEFAULT_LOG_DRIVER); the installer also sets daemon-level log-opts.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    logging: *logging
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${SWARMY_POSTGRES_USER:-swarmy}
+      POSTGRES_DB: ${SWARMY_POSTGRES_DB:-swarmy}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - swarmy-pgdata:/var/lib/postgresql/data
+    networks:
+      # PRIVATE control-plane overlay only. Never the shared `swarmy` network:
+      # every routed/observed app joins that one, and an app there could reach
+      # (or alias-impersonate) the controller and its database.
+      - swarmy-control
+    deploy:
+      # The control plane is platform plumbing, not a user app stack.
+      labels:
+        swarmy.system: "true"
+      replicas: 1
+      placement:
+        constraints:
+          # Node-local volume → pin to the bootstrap host.
+          - node.hostname == ${SWARMY_NODE_HOSTNAME}
+      restart_policy:
+        condition: any
+        delay: 5s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SWARMY_POSTGRES_USER:-swarmy} -d ${SWARMY_POSTGRES_DB:-swarmy}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  controller:
+    logging: *logging
+    image: ${SWARMY_IMAGE}
+    hostname: swarmy_controller
+    environment:
+      NODE_ENV: production
+      PORT: "3021"
+      SWARMY_DB_DRIVER: postgres
+      SWARMY_STATIC_DIR: /app/public
+      SWARMY_SELF_MIGRATE: "1"
+      SWARMY_BOOTSTRAP: "1"
+      CONTROLLER_PUBLIC_URL: ${SWARMY_PUBLIC_URL}
+      BETTER_AUTH_URL: ${SWARMY_PUBLIC_URL}
+      # https dashboard (public-IP installs default to swarmy.<ip-dashed>.sslip.io):
+      # the bootstrap seed binds it to the org edge, which serves a `dashboard`
+      # controller vhost for it. Empty = no https vhost (behind NAT / --no-https).
+      SWARMY_DASHBOARD_DOMAIN: ${SWARMY_DASHBOARD_DOMAIN:-}
+      # The direct host-mode origin (http://<ip>:<port>). Stays a trusted auth
+      # origin next to the https URL so the pre-cert first login still works.
+      SWARMY_DIRECT_URL: ${SWARMY_DIRECT_URL:-}
+      # The swarmy-control overlay subnet when Caddy fronts the dashboard, so the client IP
+      # (auth rate limits, sessions) comes from X-Forwarded-For, not Caddy's address.
+      SWARMY_TRUSTED_PROXIES: ${SWARMY_TRUSTED_PROXIES:-}
+      ADMIN_EMAIL: ${SWARMY_ADMIN_EMAIL}
+      # Registration: unset/empty = invite-only (production default); "true" = open sign-up.
+      SWARMY_ALLOW_SIGNUP: ${SWARMY_ALLOW_SIGNUP:-}
+      SWARM_ID: ${SWARMY_SWARM_ID}
+      SWARM_MANAGER_ADDR: ${SWARMY_MANAGER_ADDR}
+      # Mesh (opt-in): empty driver/url are no-ops — ensureMeshConfig skips when unset.
+      SWARMY_MESH_DRIVER: ${SWARMY_MESH_DRIVER:-}
+      SWARMY_MESH_MANAGEMENT_URL: ${SWARMY_MESH_MANAGEMENT_URL:-}
+      # DATABASE_URL is composed by docker-entrypoint.sh from POSTGRES_* + the secret.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${SWARMY_POSTGRES_USER:-swarmy}
+      POSTGRES_DB: ${SWARMY_POSTGRES_DB:-swarmy}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      SWARMY_SECRET_KEY_FILE: /run/secrets/swarmy_secret_key
+      BETTER_AUTH_SECRET_FILE: /run/secrets/better_auth_secret
+      ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      SWARMY_BOOTSTRAP_JOIN_TOKEN_FILE: /run/secrets/bootstrap_join_token
+      SWARM_WORKER_TOKEN_FILE: /run/secrets/swarm_worker_token
+      SWARM_MANAGER_TOKEN_FILE: /run/secrets/swarm_manager_token
+      SWARMY_MESH_SERVICE_TOKEN_FILE: /run/secrets/mesh_service_token
+    secrets:
+      - postgres_password
+      - swarmy_secret_key
+      - better_auth_secret
+      - admin_password
+      - bootstrap_join_token
+      - swarm_worker_token
+      - swarm_manager_token
+      - mesh_service_token
+    ports:
+      - target: 3021
+        published: ${SWARMY_PUBLISH_PORT}
+        protocol: tcp
+        mode: host
+    networks:
+      # PRIVATE control-plane overlay only. Never the shared `swarmy` network:
+      # every routed/observed app joins that one, and an app there could reach
+      # (or alias-impersonate) the controller and its database.
+      - swarmy-control
+    deploy:
+      # The control plane is platform plumbing, not a user app stack.
+      labels:
+        swarmy.system: "true"
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == ${SWARMY_NODE_HOSTNAME}
+      update_config:
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3021/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+networks:
+  # swarmy's PRIVATE control-plane overlay: the controller (+ its Postgres on
+  # the standard tier), ClickHouse, and the trusted bridges that must reach them
+  # (edge Caddy's dashboard vhost, cloudflared, the OTel collector, the node-#1
+  # agent). User services never join it — swarmy's admission refuses it, and
+  # compose→stack rejects it. External + literally named so docker stack
+  # doesn't prefix it. The installer creates it (encrypted; MTU sized for the
+  # mesh when the swarm rides one) before deploying this file.
+  #
+  # The shared `swarmy` overlay (edge ↔ routed apps, OTel collector, Garage)
+  # is deliberately NOT attached here.
+  swarmy-control:
+    external: true
+    name: swarmy-control
+
+volumes:
+  swarmy-pgdata:
+
+secrets:
+  postgres_password:
+    external: true
+  swarmy_secret_key:
+    external: true
+  better_auth_secret:
+    external: true
+  admin_password:
+    external: true
+  bootstrap_join_token:
+    external: true
+  swarm_worker_token:
+    external: true
+  swarm_manager_token:
+    external: true
+  mesh_service_token:
+    external: true
