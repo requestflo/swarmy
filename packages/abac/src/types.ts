@@ -74,6 +74,13 @@ export const ACTIONS = [
   'data.read',
   /** Insert, update or delete rows (or run a write statement) in the database studio. */
   'data.write',
+  // Auth for your apps (epic developer-platform §2). "Protect my app": who may
+  // sign in to an app behind the swarmy identity-aware proxy, evaluated on the
+  // app's STACK (its env/labels) for every request. Owner/admin-only in the
+  // seeded defaults (the `*` superuser permits); an org grants members, groups
+  // or SSO groups explicitly — the app's Access panel writes those rules.
+  /** Enter a login-protected app (the edge forward-auth check). */
+  'app.access',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];
