@@ -100,6 +100,15 @@ interface CicdState {
   logs: Record<string, BuildLog>;
   registry: RegistryConfigView;
   gc: GcPolicyView;
+  /** Docker Hub login of the pull-through cache (username only); absent = anonymous. */
+  cacheUsername?: string | null;
+}
+
+/** Mirrors `RegistryCacheView` (system-images.service). */
+interface RegistryCacheView {
+  username: string | null;
+  applied: boolean;
+  deployed: boolean;
 }
 
 const REGISTRY_HOST = 'localhost:5000';
@@ -412,6 +421,19 @@ export const cicd: DomainResolvers = {
 
     // ── Registry ──
     'cicd.getRegistryConfig': (_i, s): RegistryConfigView => state(s).registry,
+
+    'cicd.getRegistryCache': (_i, s): RegistryCacheView => ({
+      username: state(s).cacheUsername ?? null,
+      applied: true,
+      deployed: state(s).registry.enabled,
+    }),
+
+    'cicd.setRegistryCacheCredentials': (i, s): RegistryCacheView => {
+      const { login } = i as { login: { username: string; password: string } | null };
+      const st = state(s);
+      st.cacheUsername = login ? login.username.trim() : null;
+      return { username: st.cacheUsername, applied: true, deployed: st.registry.enabled };
+    },
 
     'cicd.setRegistryEnabled': (i, s): RegistryConfigView => {
       const b = i as { enabled: boolean; username?: string; password?: string };
