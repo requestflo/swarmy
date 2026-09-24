@@ -1,0 +1,12 @@
+@swarmy/templates
+
+Some templates in this package are adapted from the Coolify service templates
+(https://github.com/coollabsio/coolify, templates/compose), which are
+Copyright (c) Coolify contributors and licensed under the Apache License,
+Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0).
+
+Templates adapted from Coolify carry `source: { kind: 'coolify', path }`,
+which the gallery shows as an attribution line. They were modified for swarmy:
+they are rewritten as swarmy.yaml, bundled databases are replaced with
+swarmy-managed services, and Coolify's magic variables are replaced with
+swarmy-generated secrets.
