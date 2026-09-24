@@ -17,7 +17,7 @@ import { DockerClient, defaultContainerLogConfig } from '@swarmy/core/docker';
 import type { ApplyAccessRouterPayload, ApplyAccessRouterResult } from '@swarmy/core/protocol';
 import { putSecretFile } from './secret-file';
 
-const DEFAULT_IMAGE = 'netbirdio/netbird:0.79.0@sha256:9d8480d87b7f7c10d67b820eecf332ecca5c2756792d4bdfa532182b4fc3005f';
+const DEFAULT_IMAGE = 'ghcr.io/netbirdio/netbird:0.79.0@sha256:9d8480d87b7f7c10d67b820eecf332ecca5c2756792d4bdfa532182b4fc3005f';
 const FORBIDDEN_NETWORKS = new Set(['swarmy-control', 'host', 'bridge', 'none', 'ingress']);
 
 export function accessRouterName(stackId: string): string {

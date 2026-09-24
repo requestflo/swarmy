@@ -75,12 +75,12 @@ CONTROL_BRIDGES="swarmy-ingress-caddy swarmy-cloudflared swarmy-otel-collector s
 AGENT_CONTAINER="swarmy-agent"
 AGENT_ENV_FILE="${SWARMY_AGENT_ENV_FILE:-/etc/swarmy/agent.env}"   # 0600, mounted :ro into the agent
 NETBIRD_CONTAINER="swarmy-netbird"
-NETBIRD_IMAGE="${SWARMY_NETBIRD_IMAGE:-netbirdio/netbird:0.79.0@sha256:9d8480d87b7f7c10d67b820eecf332ecca5c2756792d4bdfa532182b4fc3005f}"
+NETBIRD_IMAGE="${SWARMY_NETBIRD_IMAGE:-ghcr.io/netbirdio/netbird:0.79.0@sha256:9d8480d87b7f7c10d67b820eecf332ecca5c2756792d4bdfa532182b4fc3005f}"
 NB_INTERFACE="wt0"
 # Self-hosted mesh control plane (--mesh swarmy). Same name/volume/tmpfs/entrypoint
 # as the agent's supervisor (apps/agent/src/handlers/mesh-control.ts), so it adopts it.
 MESH_CONTROL_CONTAINER="swarmy-mesh-control"
-MESH_CONTROL_IMAGE="${SWARMY_NETBIRD_SERVER_IMAGE:-netbirdio/netbird-server:0.79.0@sha256:d1da0c0179c9e6f2ab7b48be54d06341b11037855a9426b9f2536aa79f13360b}"
+MESH_CONTROL_IMAGE="${SWARMY_NETBIRD_SERVER_IMAGE:-ghcr.io/netbirdio/netbird-server:0.79.0@sha256:d1da0c0179c9e6f2ab7b48be54d06341b11037855a9426b9f2536aa79f13360b}"
 MESH_CONTROL_HTTP_PORT=8081
 
 # ── logging ─────────────────────────────────────────────────────────────────
