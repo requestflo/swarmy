@@ -35,7 +35,8 @@ interface ProviderRepo {
 }
 
 interface GitState {
-  appRegistered: boolean;
+  /** webBases with a registered GitHub App (github.com + a GHES that isn't installed anywhere yet). */
+  githubApps: string[];
   connections: ConnectionView[];
   /** connectionId → the repos that provider can see. */
   repos: Record<string, ProviderRepo[]>;
@@ -43,6 +44,9 @@ interface GitState {
   linked: Record<string, { fullName: string; configPath: string; branch: string }>;
 }
 
+const GITHUB_WEB = 'https://github.com';
+const webBaseOf = (i: unknown): string =>
+  ((i as { webBase?: string } | undefined)?.webBase ?? GITHUB_WEB).replace(/\/+$/, '');
 const DAY = 24 * 60 * 60 * 1000;
 const iso = (agoMs: number): string => new Date(Date.now() - agoMs).toISOString();
 const rid = (p: string): string => `${p}-${Math.random().toString(36).slice(2, 10)}`;
@@ -69,7 +73,7 @@ function gh(fullName: string, defaultBranch = 'main', priv = true): ProviderRepo
 
 function buildSeed(): GitState {
   return {
-    appRegistered: true,
+    githubApps: [GITHUB_WEB, 'https://github.corp.example'],
     connections: [
       {
         id: 'gc-github',
@@ -204,31 +208,53 @@ export const gitconnections: DomainResolvers = {
     // Copies — see mirrorIntoCicd on why store references can't be returned.
     'gitConnections.list': (_i, s): ConnectionView[] => state(s).connections.map((c) => ({ ...c })),
 
-    'gitConnections.githubApp': (_i, s) => ({
-      registered: state(s).appRegistered,
-      slug: state(s).appRegistered ? 'swarmy-northwind' : null,
-      name: state(s).appRegistered ? 'swarmy (northwind)' : null,
-      htmlUrl: state(s).appRegistered ? 'https://github.com/apps/swarmy-northwind' : null,
-      webBase: 'https://github.com',
-    }),
+    'gitConnections.githubApp': (i, s) => {
+      const webBase = webBaseOf(i);
+      const registered = state(s).githubApps.includes(webBase);
+      const slug = webBase === GITHUB_WEB ? 'swarmy-northwind' : 'swarmy-corp';
+      return {
+        registered,
+        slug: registered ? slug : null,
+        name: registered ? `swarmy (${webBase === GITHUB_WEB ? 'northwind' : 'corp'})` : null,
+        htmlUrl: registered ? `${webBase}/apps/${slug}` : null,
+        webBase,
+      };
+    },
 
     'gitConnections.startGithubManifest': (i, s) => {
       const st = state(s);
       const org = (i as { githubOrg?: string } | undefined)?.githubOrg;
-      st.appRegistered = true;
+      const webBase = webBaseOf(i);
+      if (st.githubApps.includes(webBase))
+        throw new Error('This controller already has a GitHub App — install it instead.');
+      st.githubApps.push(webBase);
+      // Real flow: manifest → install on GitHub → back here. The demo does both at once.
       const conn = addConnection(st, {
         kind: 'github',
         displayName: org ?? 'demo-user',
-        baseUrl: 'https://github.com',
+        baseUrl: webBase,
         account: org ?? 'demo-user',
       });
       st.repos[conn.id] = [gh(`${conn.account}/hello-swarmy`)];
       return { postUrl: connectedPath('github', conn.id), manifest: '{}' };
     },
 
-    'gitConnections.githubInstallLink': (_i, s) => {
-      const conn = state(s).connections.find((c) => c.kind === 'github');
-      return { url: conn ? connectedPath('github', conn.id) : '/ci?git=requested' };
+    'gitConnections.githubInstallLink': (i, s) => {
+      const st = state(s);
+      const webBase = webBaseOf(i);
+      if (!st.githubApps.includes(webBase)) throw new Error('Register the GitHub App first.');
+      let conn = st.connections.find((c) => c.kind === 'github' && c.baseUrl === webBase);
+      if (!conn) {
+        // Installing somewhere new — the demo binds a fresh installation.
+        conn = addConnection(st, {
+          kind: 'github',
+          displayName: 'platform-team',
+          baseUrl: webBase,
+          account: 'platform-team',
+        });
+        st.repos[conn.id] = [gh('platform-team/billing')];
+      }
+      return { url: connectedPath('github', conn.id) };
     },
 
     'gitConnections.create': (i, s) => {

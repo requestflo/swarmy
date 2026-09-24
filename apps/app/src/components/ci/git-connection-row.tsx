@@ -66,7 +66,13 @@ export function GitConnectionRow({ conn }: { conn: GitConnection }): React.JSX.E
         <Button
           variant="outline"
           size="sm"
-          onClick={() => install.mutate(undefined)}
+          onClick={() =>
+            install.mutate(
+              conn.baseUrl.replace(/\/+$/, '') === 'https://github.com'
+                ? undefined
+                : { webBase: conn.baseUrl },
+            )
+          }
           disabled={install.isPending}
         >
           <PlusIcon className="size-4" /> Install on more repos
