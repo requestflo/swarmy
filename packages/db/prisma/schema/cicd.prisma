@@ -51,12 +51,12 @@ model GitRepo {
   lastAppliedSha  String?
   // Generic git over SSH: swarmy-generated ed25519 deploy key (private half
   // vault-encrypted, never returned; public half shown to paste into the host).
-  deployKeyEnc    String? @db.Text
+  deployKeyEnc    String?
   deployKeyPublic String?
   // git-apps P3: every change waits for a human (not only destructive ones).
   requireApproval Boolean @default(false)
-  // Branches the swarmy.yaml's `environments:` track (webhook/poll routing).
-  envBranches     String[] @default([])
+  // Branches the swarmy.yaml's `environments:` track (webhook/poll routing): string[] as JSON.
+  envBranches     Json?
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
 
@@ -86,7 +86,7 @@ model GitHubApp {
   ownerLogin       String?
   clientId         String
   clientSecretEnc  String
-  privateKeyEnc    String   @db.Text
+  privateKeyEnc    String
   webhookSecretEnc String
   // The org whose admin registered it (audit context only — not a scope).
   createdByOrgId   String?
@@ -117,8 +117,8 @@ model GitConnection {
   // GITLAB/GITEA OAuth application (per org) + the grant's tokens.
   clientId        String?
   clientSecretEnc String?
-  accessTokenEnc  String?         @db.Text
-  refreshTokenEnc String?         @db.Text
+  accessTokenEnc  String?
+  refreshTokenEnc String?
   tokenExpiresAt  DateTime?
   // HTTPS username paired with a stored token (oauth2 for GitLab).
   tokenUser       String?
@@ -266,14 +266,14 @@ model AppPlan {
   prNumber      Int       @default(0)
   // planned | applying | applied | partial | needs-confirmation | blocked | failed | superseded | invalid
   status        String
-  planJson      Json      @default("{}")
-  desiredJson   Json      @default("{}")
-  issuesJson    Json      @default("[]")
+  planJson      Json?
+  desiredJson   Json?
+  issuesJson    Json?
   ledgerJson    Json?
   // Per-action outcomes: { [actionId]: { status, message?, at } }
-  resultsJson   Json      @default("{}")
-  error         String?   @db.Text
-  confirmedIds  String[]  @default([])
+  resultsJson   Json?
+  error         String?
+  confirmedIds  Json?
   confirmedById String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
