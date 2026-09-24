@@ -15,6 +15,7 @@ import {
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { PrivateHostNote } from './private-host-note';
+import { WWW_LABEL, canPairWww, type WwwMode } from './domain-state';
 
 interface AddDomainCardProps {
   stack: string;
@@ -32,11 +33,12 @@ export function AddDomainCard({ stack, open, onOpenChange }: AddDomainCardProps)
   const [serviceId, setServiceId] = React.useState('');
   const [port, setPort] = React.useState(80);
   const [tls, setTls] = React.useState<'auto' | 'off' | 'custom'>('auto');
+  const [www, setWww] = React.useState<WwwMode | 'none'>('none');
 
   const add = useMutation(
     trpc.ingress.addDomain.mutationOptions({
       onSuccess: () => {
-        toast.success(`${host} added`);
+        toast.success(`${host} added — expand it for the DNS record to create`);
         setHost('');
         setPathPrefix('');
         setServiceId('');
@@ -90,6 +92,23 @@ export function AddDomainCard({ stack, open, onOpenChange }: AddDomainCardProps)
               <Label className="mono-label">Target port</Label>
               <Input type="number" min={1} max={65535} value={port} onChange={(e) => setPort(Number(e.target.value))} />
             </div>
+            {canPairWww(host) ? (
+              <div className="grid gap-1.5 sm:col-span-2">
+                <Label className="mono-label">www</Label>
+                <Select value={www} onValueChange={(v) => setWww(v as typeof www)}>
+                  <SelectTrigger className="sm:w-72">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(WWW_LABEL) as Array<keyof typeof WWW_LABEL>).map((k) => (
+                      <SelectItem key={k} value={k}>
+                        {WWW_LABEL[k]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             <div className="grid gap-1.5 sm:col-span-2">
               <Label className="mono-label">TLS</Label>
               <Select value={tls} onValueChange={(v) => setTls(v as typeof tls)}>
@@ -116,6 +135,7 @@ export function AddDomainCard({ stack, open, onOpenChange }: AddDomainCardProps)
                   targetPort: port,
                   tls,
                   pathPrefix: pathPrefix.trim() || undefined,
+                  www: www === 'none' || !canPairWww(host) ? undefined : www,
                 })
               }
               disabled={!ready || add.isPending}

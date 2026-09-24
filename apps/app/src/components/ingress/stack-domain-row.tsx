@@ -23,6 +23,8 @@ import { ProtectionChips } from './protection-chips';
 import { ProtectionEditor } from './protection-editor';
 import { edgeTone, notServingLabel, type EdgeState } from './edge-runtime';
 import type { RouteProtection } from './protection-model';
+import { DomainDnsPanel } from './domain-dns-panel';
+import { DOMAIN_STATE_LABEL, WWW_LABEL, canPairWww, domainStateTone, type DomainStatus, type WwwMode } from './domain-state';
 
 /** One stack-scoped domain route (mirrors the controller's DomainView). */
 export interface StackDomain {
@@ -38,6 +40,13 @@ export interface StackDomain {
   /** Actually served right now (org edge runtime is `serving`). */
   serving: boolean;
   edgeState: EdgeState;
+  /** Apex ↔ www toggle (null = only this host). */
+  www?: WwwMode | null;
+  companionHost?: string | null;
+  /** swarmy's automatic sslip.io address. */
+  auto?: boolean;
+  /** DNS + certificate lifecycle (null while unknown). */
+  status?: DomainStatus | null;
 }
 
 function tlsTone(tls: string): StatusTone {
@@ -56,6 +65,15 @@ export function StackDomainRow({ domain }: { domain: StackDomain }): React.JSX.E
     trpc.ingress.removeDomain.mutationOptions({
       onSuccess: () => {
         toast.success(`${domain.host} removed`);
+        void qc.invalidateQueries();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+  const setWww = useMutation(
+    trpc.ingress.setDomainWww.mutationOptions({
+      onSuccess: () => {
+        toast.success('Saved');
         void qc.invalidateQueries();
       },
       onError: (e) => toast.error(e.message),
@@ -103,19 +121,45 @@ export function StackDomainRow({ domain }: { domain: StackDomain }): React.JSX.E
           </p>
           <p className="text-muted-foreground mono-label truncate">
             {domain.serviceName} · :{domain.targetPort}
+            {domain.auto ? ' · automatic address' : null}
+            {domain.companionHost ? ` · + ${domain.companionHost}` : null}
           </p>
         </div>
         <ProtectionChips protection={domain.protection} />
         {domain.canaryPct !== null ? (
           <StatusBadge tone="progress" label={`canary ${Math.round(domain.canaryPct)}%`} className="hidden sm:inline-flex" />
         ) : null}
-        {domain.serving ? (
+        {!domain.serving ? (
+          <StatusBadge tone={edgeTone(domain.edgeState)} label={notServingLabel(domain.edgeState)} />
+        ) : domain.status ? (
+          <StatusBadge tone={domainStateTone(domain.status.state)} label={DOMAIN_STATE_LABEL[domain.status.state]} />
+        ) : domain.serving ? (
           <StatusBadge tone={tlsTone(domain.tls)} label={`TLS ${domain.tls}`} className="hidden sm:inline-flex" />
         ) : (
           <StatusBadge tone={edgeTone(domain.edgeState)} label={notServingLabel(domain.edgeState)} />
         )}
         <ChevronDownIcon className={cn('text-muted-foreground size-4 shrink-0 transition-transform', expanded && 'rotate-180')} />
       </button>
+      {expanded ? <DomainDnsPanel host={domain.host} /> : null}
+      {expanded && canPairWww(domain.host) ? (
+        <div className="flex flex-wrap items-center gap-3 border-t px-6 py-3">
+          <span className="mono-label text-muted-foreground">www</span>
+          <select
+            className="border-input bg-background rounded-md border px-2 py-1 text-sm"
+            value={domain.www ?? 'none'}
+            disabled={setWww.isPending}
+            onChange={(e) =>
+              setWww.mutate({ id: domain.id, www: e.target.value === 'none' ? null : (e.target.value as WwwMode) })
+            }
+          >
+            {(Object.keys(WWW_LABEL) as Array<keyof typeof WWW_LABEL>).map((k) => (
+              <option key={k} value={k}>
+                {WWW_LABEL[k]}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
       {expanded ? (
         <ProtectionEditor
           initial={domain.protection}

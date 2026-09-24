@@ -41,6 +41,79 @@ interface DomainView {
   ingressDriver: IngressDriverId | null;
   protection: RouteProtection | null;
   canaryPct: number | null;
+  /** Apex ↔ www toggle. */
+  www?: DemoWwwMode | null;
+  /** swarmy's automatic sslip.io address. */
+  auto?: boolean;
+  /** Demo-only: the DNS "record" exists (flip it with verifyDomain). Absent = seeded, active. */
+  dnsPending?: boolean;
+}
+
+type DemoWwwMode = 'redirect-www-to-apex' | 'redirect-apex-to-www' | 'serve-both';
+const DEMO_EDGE_IP = '203.0.113.10';
+
+function demoCompanion(host: string): string | null {
+  if (host.startsWith('*.') || !host.includes('.')) return null;
+  return host.startsWith('www.') ? host.slice(4) : `www.${host}`;
+}
+
+/** Mirror of `DomainStatusView`: pending demo domains wait for DNS; the rest are secured. */
+function demoStatus(host: string, pending: boolean, tls: TlsMode) {
+  const now = Date.now();
+  const verified = !pending;
+  return {
+    host,
+    state: pending ? ('waiting_dns' as const) : ('active' as const),
+    reason: pending
+      ? `No DNS record for ${host} yet.`
+      : tls === 'off'
+        ? 'Serving over plain HTTP (TLS is off).'
+        : `Secured by Let's Encrypt until ${new Date(now + 80 * 86_400_000).toISOString().slice(0, 10)}.`,
+    warnings: [] as string[],
+    gated: pending && tls === 'auto',
+    verifiedAt: verified ? new Date(now - 86_400_000).toISOString() : null,
+    verifiedManually: false,
+    lastCheckedAt: new Date(now - 20_000).toISOString(),
+    nextCheckAt: new Date(now + 10_000).toISOString(),
+    dns: { a: pending ? [] : [DEMO_EDGE_IP], aaaa: [], cname: [], matched: pending ? [] : [DEMO_EDGE_IP] },
+    certificate:
+      verified && tls !== 'off'
+        ? {
+            issuer: "Let's Encrypt",
+            expiresAt: new Date(now + 80 * 86_400_000).toISOString(),
+            error: null,
+            edges: [{ ip: DEMO_EDGE_IP, ok: true }],
+            checkedAt: new Date(now - 20_000).toISOString(),
+          }
+        : null,
+  };
+}
+
+function demoGuidance(host: string) {
+  const labels = host.split('.');
+  const apexLabels = labels.length > 2 ? labels.slice(1) : labels;
+  const label = labels.length > 2 ? labels[0]! : '@';
+  return {
+    mode: 'records' as const,
+    summary: `At your DNS provider, point ${host} at swarmy\u2019s edge. Remove any other A/AAAA records for this name.`,
+    records: [{ type: 'A' as const, name: host, label, value: DEMO_EDGE_IP }],
+    alternatives:
+      labels.length > 2
+        ? [{ type: 'CNAME' as const, name: host, label, value: `swarmy.${DEMO_EDGE_IP.replace(/\./g, '-')}.sslip.io`, note: `Follows the edge if its IPs change. Not allowed at the apex (${apexLabels.join('.')}).` }]
+        : [],
+  };
+}
+
+function withDomainStatus(d: DomainView) {
+  const companion = d.www ? demoCompanion(d.host) : null;
+  return {
+    ...d,
+    www: d.www ?? null,
+    auto: d.auto ?? false,
+    companionHost: companion,
+    status: demoStatus(d.host, d.dnsPending ?? false, d.tls),
+    companionStatus: companion ? demoStatus(companion, d.dnsPending ?? false, d.tls) : null,
+  };
 }
 
 /** Mirror of the controller's `IngressConfigView` (ingress.service.ts). */
@@ -283,6 +356,21 @@ function renderPreview(st: IngressState, driver: IngressDriverId): RenderedConfi
   return { ...base, summary: 'None mode · swarmy tracks domains but writes nothing to nodes.' };
 }
 
+function demoDomainDetail(s: DemoStore, host: string) {
+  const st = getState(s);
+  const d = st.domains.find((x) => x.host === host || (x.www && demoCompanion(x.host) === host));
+  if (!d) throw new Error(`domain ${host} not found`);
+  const v = withDomainStatus(d);
+  const own = host === d.host ? v.status : v.companionStatus!;
+  return { ...own, guidance: demoGuidance(host), companion: host === d.host ? v.companionStatus : null };
+}
+
+function demoVerify(s: DemoStore, host: string) {
+  const st = getState(s);
+  st.domains = st.domains.map((d) => (d.host === host ? { ...d, dnsPending: false } : d));
+  return demoDomainDetail(s, host);
+}
+
 export const ingress: DomainResolvers = {
   handlers: {
     'ingress.getConfig': (_i, s): IngressConfigView => toConfigView(getState(s)),
@@ -293,7 +381,7 @@ export const ingress: DomainResolvers = {
       const stack = (i as { stack?: string } | undefined)?.stack;
       const st = getState(s);
       const rt = demoRuntime(st);
-      const rows = st.domains.map((d) => ({ ...d, serving: rt.serving, edgeState: rt.state }));
+      const rows = st.domains.map((d) => ({ ...withDomainStatus(d), serving: rt.serving, edgeState: rt.state }));
       return stack ? rows.filter((d) => d.stack === stack) : rows;
     },
 
@@ -376,6 +464,7 @@ export const ingress: DomainResolvers = {
         tls?: TlsMode;
         pathPrefix?: string;
         ingressDriver?: IngressDriverId | null;
+        www?: DemoWwwMode | null;
       };
       const st = getState(s);
       const svc = s.services.find((sv) => sv.id === b.serviceId);
@@ -394,11 +483,32 @@ export const ingress: DomainResolvers = {
         ingressDriver: driverOverride,
         protection: null,
         canaryPct: null,
+        www: b.www ?? null,
+        // A freshly added domain waits for its DNS record (press "Check again").
+        dnsPending: b.tls !== 'off',
       };
       st.domains = [row, ...st.domains];
       if (svc) svc.ingressEnabled = true;
       st.updatedAt = nowIso();
       return row;
+    },
+
+    'ingress.domainStatus': (i, s) => demoDomainDetail(s, (i as { host: string }).host),
+
+    // Demo: the DNS "record" appears on the first check.
+    'ingress.verifyDomain': (i, s) => demoVerify(s, (i as { host: string }).host),
+
+    'ingress.skipDomainVerification': (i, s) => demoVerify(s, (i as { host: string }).host),
+
+    'ingress.setDomainWww': (i, s) => {
+      const { id, www } = i as { id: string; www: DemoWwwMode | null };
+      const st = getState(s);
+      const d = st.domains.find((x) => x.id === id);
+      if (!d) throw new Error(`domain ${id} not found`);
+      d.www = www;
+      st.updatedAt = nowIso();
+      const rt = demoRuntime(st);
+      return { ...withDomainStatus(d), serving: rt.serving, edgeState: rt.state };
     },
 
     'ingress.removeDomain': (i, s): { id: string; removed: true } => {
@@ -575,6 +685,7 @@ export const ingress: DomainResolvers = {
             requiredHeaders: [],
           },
           canaryPct: 10,
+          www: 'redirect-www-to-apex',
         },
         {
           id: 'dom-api',
@@ -601,6 +712,20 @@ export const ingress: DomainResolvers = {
           ingressDriver: 'cloudflared',
           protection: null,
           canaryPct: null,
+        },
+        {
+          id: 'dom-auto-web',
+          host: 'web-store.203-0-113-10.sslip.io',
+          serviceId: 'svc-web',
+          serviceName: 'web',
+          stack: stackName(store, 's-store'),
+          targetPort: 3000,
+          tls: 'auto',
+          pathPrefix: null,
+          ingressDriver: null,
+          protection: null,
+          canaryPct: null,
+          auto: true,
         },
         {
           id: 'dom-grafana',
