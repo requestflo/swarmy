@@ -215,15 +215,17 @@ export function compileTemplate(
   }
   if (res.cache) {
     const c = desired.resources.find((r) => r.type === 'cache');
+    const queue = c?.type === 'cache' && c.purpose === 'queue';
     steps.push({
       kind: 'cache.provision',
-      label: 'Provision Valkey cache',
+      label: queue ? 'Provision BullMQ queue (Valkey, never evicts)' : 'Provision Valkey cache',
       payload: {
         cluster: res.cache.name,
         engine: (c && c.type === 'cache' ? c.engine : 'valkey') as CacheEngine,
         topology: preset.cacheReplicas > 0 ? 'replica' : 'single',
         memoryMb: c && c.type === 'cache' ? c.memoryMb : 128,
         replicas: preset.cacheReplicas,
+        ...(queue ? { purpose: 'queue' as const } : {}),
       },
     });
   }

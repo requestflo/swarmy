@@ -87,6 +87,8 @@ export type PlanStep =
         topology: CacheTopology;
         memoryMb: number;
         replicas: number;
+        /** `queue` = BullMQ-ready (noeviction) — a swarmy.yaml `type: queue`. */
+        purpose?: 'queue';
       };
     }
   | { kind: 'bucket'; label: string; payload: { name: string } }

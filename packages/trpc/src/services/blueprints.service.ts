@@ -354,6 +354,7 @@ async function runStep(
         memoryMb: step.payload.memoryMb,
         replicas: step.payload.replicas,
         regions: [],
+        ...(step.payload.purpose === 'queue' ? { purpose: 'queue' as const } : {}),
       });
       sctx.tokens[TOKEN_REDIS_URL] = `redis://:${res.password}@${res.host}:${res.port}`;
       sctx.tokens[TOKEN_REDIS_PASSWORD] = res.password;

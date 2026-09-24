@@ -262,4 +262,109 @@ services:
       start_period: 10s
 `,
   },
+  {
+    id: 'bullmq-worker',
+    name: 'BullMQ worker',
+    tagline: 'A sample job queue: an enqueue API and an autoscaled BullMQ worker on a managed queue',
+    category: 'devtools',
+    icon: 'lucide:list-ordered',
+    website: 'https://docs.bullmq.io',
+    version: '5.81.5',
+    notes: [
+      'A starting point, not a product: both services install bullmq@5.81.5 from npm when they start, so the swarm needs outbound internet. Replace them with your own images when you build a real worker.',
+      'The queue is a managed Valkey that never evicts (maxmemory-policy noeviction), keeps an append-only log and is backed up nightly. Attach the worker in Messaging → Queues to autoscale it on backlog.',
+    ],
+    postDeploy: [
+      'Open the URL: it shows the queue counts. POST /jobs with {"to":"you@example.com"} to enqueue a job, or leave demo load on.',
+      'About one job in ten fails on purpose and retries with backoff. Open Messaging → Queues → Open studio to retry, promote, clean or pause.',
+      'To scale the worker on backlog, attach it: Messaging → Queues → Attach worker (queue "emails", cache "jobs").',
+    ],
+    options: [
+      {
+        key: 'demo',
+        label: 'Demo load',
+        kind: 'boolean',
+        help: 'Enqueue a sample job every 3 seconds so the studio has something to show.',
+        defaultValue: true,
+      },
+    ],
+    yaml: `version: 1
+app: bullmq-worker
+env:
+  QUEUE_URL: \${{ jobs.url }}
+  QUEUE_NAME: emails
+  BULLMQ_CONNECT: |
+    const fs = require('fs');
+    const u = new URL(process.env.QUEUE_URL);
+    const file = process.env.QUEUE_PASSWORD_FILE;
+    const password = file && fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim() : decodeURIComponent(u.password || '');
+    module.exports = { host: u.hostname, port: Number(u.port || 6379), password: password || undefined, maxRetriesPerRequest: null };
+services:
+  api:
+    image: node:22.20.0-alpine
+    port: 3000
+    memory: 192mb
+    command: ["sh", "-c", "mkdir -p /srv && cd /srv && printf '%s' \\"$BULLMQ_CONNECT\\" > connect.js && printf '%s' \\"$API_JS\\" > api.js && npm i --no-save --no-audit --no-fund --silent bullmq@5.81.5 && exec node api.js"]
+    env:
+      DEMO_LOAD: "[[opt.demo]]"
+      API_JS: |
+        const http = require('http');
+        const { Queue } = require('bullmq');
+        const queue = new Queue(process.env.QUEUE_NAME, { connection: require('./connect.js') });
+        const add = (to) => queue.add('send', { to, at: Date.now() }, { attempts: 3, backoff: { type: 'exponential', delay: 1000 }, removeOnComplete: 1000 });
+        if (process.env.DEMO_LOAD === 'true') setInterval(() => add('demo-' + Math.floor(Math.random() * 1000) + '@example.com').catch(() => {}), 3000);
+        http.createServer(async (req, res) => {
+          try {
+            if (req.url === '/healthz') return res.end('ok');
+            if (req.method === 'POST' && req.url === '/jobs') {
+              let body = '';
+              for await (const c of req) body += c;
+              const job = await add((JSON.parse(body || '{}').to) || 'someone@example.com');
+              res.writeHead(201, { 'content-type': 'application/json' });
+              return res.end(JSON.stringify({ id: job.id }));
+            }
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ queue: process.env.QUEUE_NAME, counts: await queue.getJobCounts() }, null, 2));
+          } catch (e) {
+            res.writeHead(500);
+            res.end(String(e));
+          }
+        }).listen(3000);
+    healthcheck:
+      path: /healthz
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+  worker:
+    image: node:22.20.0-alpine
+    memory: 192mb
+    command: ["sh", "-c", "mkdir -p /srv && cd /srv && printf '%s' \\"$BULLMQ_CONNECT\\" > connect.js && printf '%s' \\"$WORKER_JS\\" > worker.js && npm i --no-save --no-audit --no-fund --silent bullmq@5.81.5 && exec node worker.js"]
+    env:
+      WORKER_JS: |
+        const fs = require('fs');
+        const { Worker } = require('bullmq');
+        const beat = () => fs.writeFileSync('/tmp/alive', String(Date.now()));
+        beat();
+        setInterval(beat, 5000);
+        const worker = new Worker(process.env.QUEUE_NAME, async (job) => {
+          await job.log('sending to ' + job.data.to);
+          await job.updateProgress(50);
+          await new Promise((r) => setTimeout(r, 200 + Math.random() * 600));
+          if (Math.random() < 0.1) throw new Error('mailbox ' + job.data.to + ' is unreachable');
+          await job.updateProgress(100);
+          return { delivered: true };
+        }, { connection: require('./connect.js'), concurrency: 5 });
+        worker.on('failed', (job, err) => console.log('job', job && job.id, 'failed:', err.message));
+        process.on('SIGTERM', async () => { await worker.close(); process.exit(0); });
+    healthcheck:
+      command: ["sh", "-c", "test -f /tmp/alive && test $(( $(date +%s) - $(stat -c %Y /tmp/alive) )) -lt 30"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+resources:
+  jobs:
+    type: queue
+    memory: 128mb
+`,
+  },
 ];
