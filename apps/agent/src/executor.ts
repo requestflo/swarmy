@@ -18,6 +18,7 @@ import { runNodeHygiene } from './handlers/hygiene';
 import { applyStorageNode, provisionVolume, removeVolume } from './handlers/storage';
 import { applySwarmJoin, rotateSwarmTokens, setSwarmAutolock } from './handlers/swarm';
 import { updateAgent } from './handlers/update';
+import { prepareSecretEnv } from './handlers/secret-env';
 import {
   secretCreate,
   secretRemove,
@@ -56,8 +57,10 @@ export async function handleCommand(
       conn.send('ack', { refId: envlp.id, accepted: true });
       return;
     case 'deployService': {
-      const { commandId, spec, registryAuth } = envlp.payload;
-      await run(conn, commandId, () => deployOrUpdate(docker, spec, registryAuth ?? spec.registryAuth));
+      const { commandId, spec, registryAuth, pullPolicy } = envlp.payload;
+      await run(conn, commandId, () =>
+        deployOrUpdate(docker, spec, registryAuth ?? spec.registryAuth, { pullPolicy }),
+      );
       pushInventory(docker, conn);
       return;
     }
@@ -360,14 +363,21 @@ async function run(
 
 export async function deployOrUpdate(
   docker: DockerClient,
-  spec: ServiceSpec,
+  input: ServiceSpec,
   registryAuth?: RegistryAuth,
+  deployOpts: { pullPolicy?: 'always' | 'missing' | 'never' } = {},
 ): Promise<{ serviceId: string; created: boolean }> {
   // Pull creds ride the X-Registry-Auth header (never the spec body) so the swarm
   // stores them with the service and every node can pull a private image.
   const auth = registryAuth
     ? { username: registryAuth.username, password: registryAuth.password, serveraddress: registryAuth.server }
     : undefined;
+  // Secret app variables delivered as env: wrap the container in the
+  // secret-env shim (values stay in /run/secrets — see handlers/secret-env).
+  const spec = await prepareSecretEnv(docker, input, {
+    pull: deployOpts.pullPolicy === 'always',
+    authconfig: auth,
+  });
   const existing = await docker.getServiceByName(spec.name);
   if (!existing) {
     const id = await docker.createService(spec, auth);
