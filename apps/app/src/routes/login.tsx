@@ -7,6 +7,7 @@ import { InviteBanner } from '@/components/auth/invite-banner';
 import { setInviteCookie } from '@/components/auth/invite-cookie';
 import { InviteOnlyNotice } from '@/components/auth/invite-only-notice';
 import { OrDivider, SignInOptions } from '@/components/auth/sign-in-options';
+import { useInviteReturn } from '@/components/auth/use-invite-return';
 import { isOAuthAuthorizeFlow, resumeAuthorize, useOAuthResume } from '@/components/auth/use-oauth-resume';
 import { LoginTwoFactorStep } from '@/components/auth/login-two-factor-step';
 import { type AuthFields, type AuthMode, useAuthSubmit } from '@/components/auth/use-auth-submit';
@@ -51,16 +52,25 @@ function LoginPage(): React.JSX.Element {
   React.useEffect(() => {
     if (invite) setInviteCookie(invite);
   }, [invite]);
-  // SSO/social come back to the page they started from; the server hook has
-  // already redeemed any invite by then.
-  const callbackURL = returnTo ?? (isOAuthAuthorizeFlow() ? `/login${window.location.search}` : '/');
+  // SSO/social come back to the page they started from (with an invite, to
+  // this page, which confirms it); the server hook redeems it on sign-in.
+  const callbackURL =
+    returnTo ?? (isOAuthAuthorizeFlow() || invite ? `/login${window.location.search}` : '/');
 
   async function land(): Promise<void> {
     if (returnTo) router.history.push(returnTo);
     else await navigate({ to: '/' });
   }
+  // The form path accepts the invite itself; this covers SSO/social returns.
+  const viaForm = React.useRef(false);
+  const inviteError = useInviteReturn(
+    invite,
+    Boolean(session.data) && !isOAuthAuthorizeFlow() && !busy && !viaForm.current,
+    land,
+  );
 
   async function onSubmit(fields: AuthFields): Promise<void> {
+    viaForm.current = true;
     try {
       const result = await submit(mode, fields);
       if (result === 'redirect') return;
@@ -102,6 +112,7 @@ function LoginPage(): React.JSX.Element {
         <Card className="card-pop border-0">
           <CardContent className="pt-6">
             {invite && !challenge && <InviteBanner inviteId={invite} />}
+            {inviteError && <p className="text-status-offline mb-4 text-sm font-medium">{inviteError}</p>}
             {!challenge && (config.data?.signIn.length ?? 0) > 0 && (
               <>
                 <SignInOptions options={config.data?.signIn ?? []} callbackURL={callbackURL} />

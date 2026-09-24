@@ -24,7 +24,7 @@ export function InviteLinkPanel({ invite }: { invite: IssuedInvite }): React.JSX
       </AlertTitle>
       <AlertDescription className="text-ink-foreground/70">
         <p className="text-xs">
-          It works once and expires <span className="mono-data">{absTime(invite.expiresAt)}</span>. They open it,
+          It works once and expires <span className="mono-data">{absTime(invite.expiresAt)}</span> (links last 7 days). They open it,
           sign in with SSO, a social account or a new username, and land in this org as{' '}
           <span className="font-semibold">{invite.role}</span>.
         </p>

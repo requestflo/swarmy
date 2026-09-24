@@ -233,15 +233,26 @@ export async function invitationPreview(db: DB, id: string, now: Date = new Date
 }
 
 /**
- * Redeem an invite link for the signed-in user and activate its org. Works for
- * any sign-in method; the invitee's email (if any) need not match. Idempotent:
- * when the sign-in hook already redeemed it, the user's membership answers.
+ * Redeem an invite link for the signed-in user and activate its org. A
+ * link-only invite works for any sign-in method; one that names an email
+ * needs that address verified or carried by the SSO/social identity used.
+ * Idempotent: when the sign-in hook already redeemed it, the user's
+ * membership answers.
  */
 export async function acceptInvitation(ctx: AuthedContext, id: string): Promise<{ orgId: string }> {
-  const redeemed = await redeemInvitation(ctx.db, { invitationId: id, userId: ctx.user.id }, (orgId, entry) =>
-    writeAudit({ db: ctx.db, activeOrgId: orgId, user: ctx.user }, entry),
+  const redeemed = await redeemInvitation(
+    ctx.db,
+    { invitationId: id, user: { id: ctx.user.id, email: ctx.user.email, emailVerified: ctx.user.emailVerified } },
+    (orgId, entry) => writeAudit({ db: ctx.db, activeOrgId: orgId, user: ctx.user }, entry),
   );
-  let orgId = redeemed?.orgId ?? null;
+  if (!redeemed.ok && redeemed.reason === 'email_mismatch') {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: `This invite is for ${redeemed.invitedEmail ?? 'a specific email address'}. Sign in with an SSO or social account that uses that address.`,
+      cause: { swarmyCode: 'INVITE_EMAIL_MISMATCH' },
+    });
+  }
+  let orgId = redeemed.ok ? redeemed.orgId : null;
   if (!orgId) {
     // Already redeemed (by the sign-in hook, or a second click): find the org.
     const inv = await ctx.db.invitation.findFirst({

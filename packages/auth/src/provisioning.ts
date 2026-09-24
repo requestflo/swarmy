@@ -2,15 +2,18 @@ import { randomUUID } from 'node:crypto';
 import type { BetterAuthPlugin } from 'better-auth';
 import { createAuthMiddleware } from 'better-auth/api';
 import type { DB } from '@swarmy/db';
+import { emailDomainAllowed, inviteAdmits, parseAllowedDomains } from './signup-policy';
 import {
+  displayEmail,
   groupsFromClaim,
+  isLinkInviteEmail,
   INVITE_COOKIE,
   idpPlaceholderEmail,
   mapGroups,
   readCookie,
   usernamePlaceholderEmail,
 } from './identity';
-import type { ResolvedSsoProvider } from './config';
+import type { ResolvedAuthConfig, ResolvedSsoProvider } from './config';
 
 /**
  * Who joins which org, and with which groups, when they sign in.
@@ -93,42 +96,95 @@ export function socialProfileMapper(providerId: string) {
   };
 }
 
-type ProvisionDb = Pick<DB, 'member' | 'invitation' | 'session'> & Partial<Pick<DB, 'ssoProvider'>>;
+type ProvisionDb = Pick<DB, 'member' | 'invitation' | 'session'> &
+  Partial<Pick<DB, 'ssoProvider' | 'account' | 'organization'>>;
+
+export type RedeemResult =
+  | { ok: true; orgId: string; role: string }
+  | { ok: false; reason: 'gone' | 'email_mismatch'; invitedEmail?: string };
 
 /**
- * Redeem a pending, unexpired invitation for `userId` (idempotent). Returns the
- * org joined, or null when the invite is gone. Never demotes an existing member.
+ * Redeem a pending, unexpired invitation (single-use). A link-only invite
+ * admits whoever holds it; an invite naming an email admits only an account
+ * with that address, verified or asserted by an SSO/social identity
+ * ({@link inviteAdmits}). The pending → accepted flip is a conditional update,
+ * so two redemptions of one link can't both succeed. Never demotes a member.
  */
 export async function redeemInvitation(
   db: ProvisionDb,
-  input: { invitationId: string; userId: string },
+  input: { invitationId: string; user: { id: string; email: string; emailVerified?: boolean | null } },
   audit?: AuthAudit,
   now: Date = new Date(),
-): Promise<{ orgId: string; role: string } | null> {
+): Promise<RedeemResult> {
   const inv = await db.invitation.findFirst({
     where: { id: input.invitationId, status: 'pending', expiresAt: { gt: now } },
     select: { id: true, organizationId: true, role: true, email: true },
   });
-  if (!inv) return null;
+  if (!inv) return { ok: false, reason: 'gone' };
+  const userId = input.user.id;
+  let admitted = inviteAdmits(inv.email, { email: input.user.email, emailVerified: Boolean(input.user.emailVerified) });
+  if (!admitted && db.account) {
+    // Not verified: an SSO/social identity carrying the address counts as proof.
+    const idp = await db.account.findFirst({
+      where: { userId, providerId: { not: 'credential' } },
+      select: { id: true },
+    });
+    admitted = inviteAdmits(inv.email, { email: input.user.email, viaIdp: Boolean(idp) });
+  }
+  if (!admitted) return { ok: false, reason: 'email_mismatch', invitedEmail: displayEmail(inv.email) ?? undefined };
+
+  const claimed = await db.invitation.updateMany({
+    where: { id: inv.id, status: 'pending' },
+    data: { status: 'accepted' },
+  });
+  if (claimed.count === 0) return { ok: false, reason: 'gone' };
   const role = inv.role === 'owner' || inv.role === 'admin' ? inv.role : 'member';
   const existing = await db.member.findFirst({
-    where: { organizationId: inv.organizationId, userId: input.userId },
+    where: { organizationId: inv.organizationId, userId },
     select: { id: true },
   });
   if (!existing) {
     await db.member.create({
-      data: { id: randomUUID(), organizationId: inv.organizationId, userId: input.userId, role },
+      data: { id: randomUUID(), organizationId: inv.organizationId, userId, role },
     });
   }
-  await db.invitation.update({ where: { id: inv.id }, data: { status: 'accepted' } });
   await audit?.(inv.organizationId, {
     action: 'member.invite.accept',
     targetType: 'invitation',
     targetId: inv.id,
-    actorId: input.userId,
-    metadata: { role, alreadyMember: Boolean(existing) },
+    actorId: userId,
+    metadata: { role, alreadyMember: Boolean(existing), kind: isLinkInviteEmail(inv.email) ? 'link' : 'email' },
   });
-  return { orgId: inv.organizationId, role };
+  return { ok: true, orgId: inv.organizationId, role };
+}
+
+/**
+ * A social sign-in whose provider-verified email domain the provider's
+ * `allowedDomains` accepts joins the controller's org as a member (one org
+ * per controller: the oldest). No-op when they already belong somewhere.
+ */
+export async function provisionDomainMember(
+  db: ProvisionDb,
+  input: { userId: string; providerId: string },
+  audit?: AuthAudit,
+): Promise<{ orgId: string } | null> {
+  const any = await db.member.findFirst({ where: { userId: input.userId }, select: { organizationId: true } });
+  if (any) return null;
+  const org = db.organization
+    ? await db.organization.findFirst({ orderBy: { createdAt: 'asc' }, select: { id: true } })
+    : null;
+  if (!org) return null;
+  await db.member.create({
+    data: { id: randomUUID(), organizationId: org.id, userId: input.userId, role: 'member' },
+  });
+  await audit?.(org.id, {
+    action: 'member.domain.provision',
+    targetType: 'user',
+    targetId: input.userId,
+    actorId: input.userId,
+    metadata: { providerId: input.providerId },
+  });
+  return { orgId: org.id };
 }
 
 /** JIT-provision an SSO user into the provider's org and sync their SSO groups. */
@@ -197,6 +253,21 @@ export function ssoProviderIdFromPath(path: string | undefined, params?: Record<
   return tail && !tail.startsWith(':') ? tail : null;
 }
 
+/** `/callback/:id` (social OAuth) → the provider id. */
+export function socialProviderFromPath(path: string | undefined, params?: Record<string, unknown> | null): string | null {
+  if (!path?.startsWith('/callback/')) return null;
+  const fromParams = params?.id;
+  if (typeof fromParams === 'string' && fromParams) return fromParams;
+  const tail = path.slice('/callback/'.length);
+  return tail && !tail.startsWith(':') ? tail : null;
+}
+
+/** A social provider's `allowedDomains` setting, parsed. */
+export function allowedDomainsFor(social: ResolvedAuthConfig['social'] | undefined, providerId: string): string[] {
+  const settings = (social as Record<string, { settings?: Record<string, string> } | undefined> | undefined)?.[providerId]?.settings;
+  return parseAllowedDomains(settings?.allowedDomains);
+}
+
 /** Session-minting paths an invite cookie is redeemed on. */
 function isSignInPath(path: string | undefined): boolean {
   if (!path) return false;
@@ -216,7 +287,7 @@ function isSignInPath(path: string | undefined): boolean {
  */
 export function swarmyProvisioning(
   db: ProvisionDb,
-  opts: { sso: ResolvedSsoProvider[]; audit?: AuthAudit },
+  opts: { sso: ResolvedSsoProvider[]; social?: ResolvedAuthConfig['social']; audit?: AuthAudit },
 ): BetterAuthPlugin {
   const byId = new Map(opts.sso.map((p) => [p.providerId, p]));
   return {
@@ -257,11 +328,26 @@ export function swarmyProvisioning(
               orgId = res?.orgId ?? null;
             }
 
+            const social = socialProviderFromPath(ctx.path, ctx.params as Record<string, unknown>);
+            if (social && created.user.emailVerified) {
+              const domains = allowedDomainsFor(opts.social, social);
+              if (emailDomainAllowed(created.user.email, domains)) {
+                const res = await provisionDomainMember(db, { userId, providerId: social }, opts.audit);
+                orgId = res?.orgId ?? orgId;
+              }
+            }
+
             const inviteId = inviteIdFromRequest(ctx);
             if (inviteId) {
-              const res = await redeemInvitation(db, { invitationId: inviteId, userId }, opts.audit);
-              if (res) orgId = res.orgId;
-              ctx.setCookie(INVITE_COOKIE, '', { path: '/', maxAge: 0 });
+              const res = await redeemInvitation(
+                db,
+                { invitationId: inviteId, user: created.user as { id: string; email: string; emailVerified?: boolean } },
+                opts.audit,
+              );
+              if (res.ok) orgId = res.orgId;
+              // An email mismatch keeps the cookie so the page can explain it
+              // (authConfig.acceptInvite answers with the reason).
+              if (res.ok || res.reason === 'gone') ctx.setCookie(INVITE_COOKIE, '', { path: '/', maxAge: 0 });
             }
 
             // Land the new session in the org it just joined.

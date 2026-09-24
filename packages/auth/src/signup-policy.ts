@@ -1,5 +1,6 @@
 import { APIError } from 'better-auth/api';
 import type { DB } from '@swarmy/db';
+import { isLinkInviteEmail } from './identity';
 
 /**
  * Who may create an account (and a new organization) on this controller.
@@ -15,14 +16,20 @@ import type { DB } from '@swarmy/db';
  *   3. `SWARMY_BOOTSTRAP=1` and the email is the installer's `ADMIN_EMAIL` — the
  *      in-process seed (apps/api/src/bootstrap/seed.ts) creates the owner through
  *      Better Auth's sign-up so it owns password hashing;
- *   4. the email has a pending, unexpired organization invitation;
+ *   4. the email has a pending, unexpired invitation AND the address is
+ *      proven: verified, or asserted by the SSO/social identity signing up
+ *      (see {@link inviteAdmits});
  *   5. the request carries an invite link (`swarmy_invite` cookie, set by the
- *      login page) naming a pending, unexpired invitation — the link is the
- *      credential, so an invitee can sign up with a username, a social account
- *      or SSO even when they have no email or a different one;
+ *      login page) naming a pending, unexpired invitation that admits this
+ *      person: a link-only invite admits whoever holds it (username, social,
+ *      SSO — no email needed); an invite that names an email admits only that
+ *      proven address, as in 4;
  *   6. the sign-up is an org SSO first login (`/oauth2/callback/<providerId>`)
  *      and that enabled provider auto-provisions (the default): the IdP is the
- *      org's own directory, so its people are admitted and join as members.
+ *      org's own directory, so its people are admitted and join as members;
+ *   7. a social sign-in (`/callback/<provider>`) whose provider-verified email
+ *      is in that provider's `allowedDomains` (e.g. only @company.com Google
+ *      accounts). Empty (the default) means an invite is required.
  *
  * Unset `SWARMY_ALLOW_SIGNUP` defaults to open outside production (so `bun dev`
  * keeps its sign-up form) and invite-only in production.
@@ -49,6 +56,42 @@ export interface SignupVia {
   ssoProviderId?: string | null;
   /** The installer's bootstrap username (no-email first admin). */
   username?: string | null;
+  /** The account's email is verified (Better Auth `emailVerified`). */
+  emailVerified?: boolean;
+  /** The sign-up comes through an SSO/social identity (its IdP asserted the email). */
+  viaIdp?: boolean;
+  /** Social sign-up whose verified email domain the provider's allowedDomains accepts. */
+  socialDomainAllowed?: boolean;
+}
+
+/**
+ * Does this invitation admit this person? A link-only invite (placeholder
+ * address) admits whoever holds the link. An invite naming an email admits
+ * only an account with that address, proven either by verification or by the
+ * SSO/social identity carrying it. A typed-in, unverified email is not proof.
+ */
+export function inviteAdmits(
+  invitationEmail: string,
+  person: { email: string | null | undefined; emailVerified?: boolean; viaIdp?: boolean },
+): boolean {
+  if (isLinkInviteEmail(invitationEmail)) return true;
+  const same = (person.email ?? '').trim().toLowerCase() === invitationEmail.trim().toLowerCase();
+  return same && Boolean(person.emailVerified || person.viaIdp);
+}
+
+/** Parse an `allowedDomains` setting ("company.com, corp.io") into lowercase domains. */
+export function parseAllowedDomains(raw: string | null | undefined): string[] {
+  return (raw ?? '')
+    .split(/[\s,]+/)
+    .map((d) => d.trim().toLowerCase().replace(/^@/, ''))
+    .filter((d) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d));
+}
+
+/** Is `email`'s domain one of `domains` (exact match; no subdomain wildcard)? */
+export function emailDomainAllowed(email: string | null | undefined, domains: string[]): boolean {
+  if (!email || domains.length === 0) return false;
+  const at = email.lastIndexOf('@');
+  return at > 0 && domains.includes(email.slice(at + 1).toLowerCase());
 }
 
 /** Does an org SSO provider admit new people on first login? (`metadata.autoProvision`, default on). */
@@ -82,18 +125,20 @@ export async function isSignupAllowed(
   }
   if ((await db.user.count()) === 0) return true;
   // Better Auth's organization plugin stores invitation emails lowercased.
+  const person = { email: normalized, emailVerified: via.emailVerified, viaIdp: via.viaIdp };
   const invite = await db.invitation.findFirst({
     where: { email: normalized, status: 'pending', expiresAt: { gt: now } },
-    select: { id: true },
+    select: { email: true },
   });
-  if (invite) return true;
+  if (invite && inviteAdmits(invite.email, person)) return true;
   if (via.inviteId) {
     const link = await db.invitation.findFirst({
       where: { id: via.inviteId, status: 'pending', expiresAt: { gt: now } },
-      select: { id: true },
+      select: { email: true },
     });
-    if (link) return true;
+    if (link && inviteAdmits(link.email, person)) return true;
   }
+  if (via.socialDomainAllowed) return true;
   if (via.ssoProviderId && db.ssoProvider) {
     const row = await db.ssoProvider.findUnique({
       where: { providerId: via.ssoProviderId },

@@ -14,13 +14,16 @@ import { CLIENT_IP_HEADER } from './client-ip';
 import {
   assertSignupAllowed,
   canCreateOrganization,
+  emailDomainAllowed,
   ORG_CREATE_FORBIDDEN_MESSAGE,
 } from './signup-policy';
 import { authTrustedOrigins } from './origins';
 import { mfaAssurance, swarmyTwoFactor } from './two-factor';
 import { OIDC_DISABLED_PATHS, swarmyOidcProvider } from './oidc-provider';
 import {
+  allowedDomainsFor,
   inviteIdFromRequest,
+  socialProviderFromPath,
   socialProfileMapper,
   ssoProfileMapper,
   ssoProviderIdFromPath,
@@ -73,6 +76,9 @@ const defaultSendMagicLink: SendMagicLink = async ({ email, url }) => {
  * here when `config.passkey` is on. Keeps `@swarmy/auth` dependency-light.
  */
 export type ExtraPlugin = BetterAuthPlugin;
+
+/** How long an invite link stays redeemable (7 days). */
+export const INVITATION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 export interface BuildAuthOptions {
   db?: DB;
@@ -194,11 +200,19 @@ export function buildAuth(
       user: {
         create: {
           before: async (user, ctx) => {
-            const ssoProviderId = ssoProviderIdFromPath(ctx?.path, ctx?.params as Record<string, unknown>);
+            const params = ctx?.params as Record<string, unknown> | undefined;
+            const ssoProviderId = ssoProviderIdFromPath(ctx?.path, params);
+            const social = socialProviderFromPath(ctx?.path, params);
             await assertSignupAllowed(db, user.email, process.env, {
               inviteId: inviteIdFromRequest(ctx),
               ssoProviderId: ssoProviderId && ssoById.has(ssoProviderId) ? ssoProviderId : null,
               username: typeof user.username === 'string' ? user.username : null,
+              emailVerified: user.emailVerified === true,
+              viaIdp: Boolean(ssoProviderId || social),
+              socialDomainAllowed:
+                Boolean(social) &&
+                user.emailVerified === true &&
+                emailDomainAllowed(user.email, allowedDomainsFor(config.social, social!)),
             });
           },
         },
@@ -251,6 +265,11 @@ export function buildAuth(
     },
     plugins: [
       organization({
+        // Invite links are single-use (redeemed once) and last 7 days.
+        invitationExpiresIn: INVITATION_TTL_SECONDS,
+        // Better Auth's own accept path: only a verified address may redeem an
+        // email-named invite (swarmy's redeem also accepts an IdP identity).
+        requireEmailVerificationOnInvitation: true,
         // Same policy for org creation: a signed-in user with no org cannot mint
         // one (and from it join tokens) unless registration is open, it is the
         // first-run bootstrap, or they already own an org (instance admin).
@@ -279,7 +298,7 @@ export function buildAuth(
       // Username sign-in: email is optional on swarmy (identity.ts). Static so
       // `Auth` infers `user.username` and `/sign-in/username`.
       username({ minUsernameLength: 2, maxUsernameLength: 40 }),
-      swarmyProvisioning(db, { sso: config.sso ?? [], audit: opts.audit }),
+      swarmyProvisioning(db, { sso: config.sso ?? [], social: config.social, audit: opts.audit }),
       ...optional,
     ],
   });

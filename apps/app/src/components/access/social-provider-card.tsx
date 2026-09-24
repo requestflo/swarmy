@@ -35,6 +35,7 @@ export function SocialProviderCard({ provider }: { provider: ProviderEntry }): R
   const [clientSecret, setClientSecret] = React.useState('');
   const settingKey = SETTING[provider.type];
   const [setting, setSetting] = React.useState(settingKey ? (provider.settings?.[settingKey.key] ?? '') : '');
+  const [domains, setDomains] = React.useState(provider.settings?.allowedDomains ?? '');
 
   const save = useMutation(
     trpc.authConfig.setProvider.mutationOptions({
@@ -100,6 +101,14 @@ export function SocialProviderCard({ provider }: { provider: ProviderEntry }): R
             <p className="text-muted-foreground text-xs">{settingKey.hint}</p>
           </div>
         )}
+        <div className="grid gap-1.5">
+          <Label className="mono-label">Allowed domains (optional)</Label>
+          <Input value={domains} placeholder="company.com, corp.io" onChange={(e) => setDomains(e.target.value)} />
+          <p className="text-muted-foreground text-xs">
+            Accounts with a verified email at these domains may sign up without an invite and join as members. Blank:
+            an invite is required.
+          </p>
+        </div>
         <Button
           className="w-fit"
           onClick={() =>
@@ -107,7 +116,7 @@ export function SocialProviderCard({ provider }: { provider: ProviderEntry }): R
               type: provider.type,
               clientId,
               clientSecret: clientSecret || undefined,
-              ...(settingKey ? { settings: { [settingKey.key]: setting } } : {}),
+              settings: { ...(settingKey ? { [settingKey.key]: setting } : {}), allowedDomains: domains },
             })
           }
           disabled={save.isPending}

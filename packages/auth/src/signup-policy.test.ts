@@ -5,7 +5,9 @@ import {
   assertSignupAllowed,
   canCreateOrganization,
   INVITE_ONLY_MESSAGE,
+  emailDomainAllowed,
   isSignupAllowed,
+  parseAllowedDomains,
   resolveSignupMode,
   type SignupPolicyDb,
 } from './signup-policy';
@@ -26,7 +28,7 @@ function fakeDb(s: FakeState): SignupPolicyDb {
         const hit = (s.invites ?? []).find(
           (i) => i.email === where.email && i.status === where.status && i.expiresAt > where.expiresAt.gt,
         );
-        return hit ? { id: 'inv_1' } : null;
+        return hit ? { id: 'inv_1', email: hit.email } : null;
       },
     },
     member: {
@@ -60,9 +62,11 @@ describe('isSignupAllowed', () => {
     );
   });
 
-  it('allows an email with a pending, unexpired invitation (case-insensitive)', async () => {
+  it('allows a proven email with a pending, unexpired invitation (case-insensitive)', async () => {
     const db = fakeDb({ users: 1, invites: [{ email: 'bob@team.test', status: 'pending', expiresAt: future }] });
-    expect(await isSignupAllowed(db, 'Bob@Team.test', PROD)).toBe(true);
+    expect(await isSignupAllowed(db, 'Bob@Team.test', PROD, new Date(), { viaIdp: true })).toBe(true);
+    // A typed-in, unverified address is not proof.
+    expect(await isSignupAllowed(db, 'Bob@Team.test', PROD)).toBe(false);
   });
 
   it('refuses expired or already-accepted invitations', async () => {
@@ -73,8 +77,8 @@ describe('isSignupAllowed', () => {
         { email: 'done@team.test', status: 'accepted', expiresAt: future },
       ],
     });
-    expect(await isSignupAllowed(db, 'old@team.test', PROD)).toBe(false);
-    expect(await isSignupAllowed(db, 'done@team.test', PROD)).toBe(false);
+    expect(await isSignupAllowed(db, 'old@team.test', PROD, new Date(), { viaIdp: true })).toBe(false);
+    expect(await isSignupAllowed(db, 'done@team.test', PROD, new Date(), { viaIdp: true })).toBe(false);
   });
 
   it('allows anyone when registration is open', async () => {
@@ -113,14 +117,33 @@ describe('isSignupAllowed — invite links, SSO and username bootstrap', () => {
       ...fakeDb({ users: 1 }),
       invitation: {
         findFirst: async ({ where }: { where: { id?: string; email?: string } }) =>
-          where.id === 'inv_link' ? { id: 'inv_link' } : null,
+          where.id === 'inv_link' ? { id: 'inv_link', email: 'invite-l@invite.swarmy.invalid' } : null,
       },
       ...extra,
     }) as unknown as SignupPolicyDb;
 
-  it('admits any address when the request holds a pending invite link', async () => {
+  it('admits any address when the request holds a pending link-only invite', async () => {
     expect(await isSignupAllowed(linkDb(), 'alice@user.swarmy.invalid', PROD, new Date(), { inviteId: 'inv_link' })).toBe(true);
     expect(await isSignupAllowed(linkDb(), 'alice@user.swarmy.invalid', PROD, new Date(), { inviteId: 'nope' })).toBe(false);
+  });
+
+  it('an email-named invite admits only that proven address', async () => {
+    const db = linkDb({
+      invitation: {
+        findFirst: async ({ where }: { where: { id?: string; email?: string } }) =>
+          where.id === 'inv_ann' || where.email === 'ann@corp.io' ? { email: 'ann@corp.io' } : null,
+      },
+    });
+    const at = new Date();
+    expect(await isSignupAllowed(db, 'eve@x.io', PROD, at, { inviteId: 'inv_ann', viaIdp: true })).toBe(false);
+    expect(await isSignupAllowed(db, 'ann@corp.io', PROD, at, { inviteId: 'inv_ann' })).toBe(false);
+    expect(await isSignupAllowed(db, 'ann@corp.io', PROD, at, {})).toBe(false);
+    expect(await isSignupAllowed(db, 'ann@corp.io', PROD, at, { viaIdp: true })).toBe(true);
+    expect(await isSignupAllowed(db, 'ann@corp.io', PROD, at, { inviteId: 'inv_ann', emailVerified: true })).toBe(true);
+  });
+
+  it('admits a social sign-up from an allowed domain', async () => {
+    expect(await isSignupAllowed(linkDb(), 'bob@company.com', PROD, new Date(), { socialDomainAllowed: true })).toBe(true);
   });
 
   it('admits an org SSO first login only when the provider auto-provisions', async () => {
@@ -164,5 +187,15 @@ describe('buildAuth wiring', () => {
     } finally {
       process.env = prev;
     }
+  });
+});
+
+describe('allowedDomains', () => {
+  it('parses a setting and matches exact domains only', () => {
+    const d = parseAllowedDomains(' @Company.com, corp.io  nonsense ');
+    expect(d).toEqual(['company.com', 'corp.io']);
+    expect(emailDomainAllowed('a@company.com', d)).toBe(true);
+    expect(emailDomainAllowed('a@evil.company.com', d)).toBe(false);
+    expect(emailDomainAllowed('a@company.com', [])).toBe(false);
   });
 });

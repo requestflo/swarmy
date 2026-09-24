@@ -121,7 +121,8 @@ export function InviteMemberDialog({ callerRole }: { callerRole: InviteRole }): 
                 placeholder="teammate@example.com"
               />
               <p className="text-muted-foreground text-xs">
-                Leave blank for a plain link. They can join with SSO, a social account or a username.
+                Blank: a plain link anyone holding it can use (SSO, social or a new username). With an email: only a
+                sign-in proving that address (SSO/social with it, or a verified email) can redeem it.
               </p>
               {emailError && <p className="text-status-offline text-xs font-medium">{emailError}</p>}
             </div>

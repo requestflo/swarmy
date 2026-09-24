@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  provisionDomainMember,
   provisionSsoMember,
   redeemInvitation,
   ssoProfileMapper,
@@ -15,14 +16,20 @@ interface Row {
   attributes?: Record<string, unknown>;
 }
 
-function fakeDb(init: { members?: Row[]; invites?: Array<{ id: string; organizationId: string; role: string; email: string; status: string; expiresAt: Date }> }) {
+function fakeDb(init: {
+  members?: Row[];
+  invites?: Array<{ id: string; organizationId: string; role: string; email: string; status: string; expiresAt: Date }>;
+  idpAccount?: boolean;
+}) {
   const members = [...(init.members ?? [])];
   const invites = [...(init.invites ?? [])];
   const audit: string[] = [];
   const db = {
     member: {
-      findFirst: async ({ where }: { where: { organizationId: string; userId: string } }) =>
-        members.find((m) => m.organizationId === where.organizationId && m.userId === where.userId) ?? null,
+      findFirst: async ({ where }: { where: { organizationId?: string; userId: string } }) =>
+        members.find(
+          (m) => (where.organizationId === undefined || m.organizationId === where.organizationId) && m.userId === where.userId,
+        ) ?? null,
       create: async ({ data }: { data: Row }) => void members.push(data),
       update: async ({ where, data }: { where: { id: string }; data: Partial<Row> }) =>
         Object.assign(members.find((m) => m.id === where.id)!, data),
@@ -30,9 +37,14 @@ function fakeDb(init: { members?: Row[]; invites?: Array<{ id: string; organizat
     invitation: {
       findFirst: async ({ where }: { where: { id: string; status: string; expiresAt: { gt: Date } } }) =>
         invites.find((i) => i.id === where.id && i.status === where.status && i.expiresAt > where.expiresAt.gt) ?? null,
-      update: async ({ where, data }: { where: { id: string }; data: { status: string } }) =>
-        Object.assign(invites.find((i) => i.id === where.id)!, data),
+      updateMany: async ({ where, data }: { where: { id: string; status: string }; data: { status: string } }) => {
+        const row = invites.find((i) => i.id === where.id && i.status === where.status);
+        if (row) Object.assign(row, data);
+        return { count: row ? 1 : 0 };
+      },
     },
+    account: { findFirst: async () => (init.idpAccount ? { id: 'acc' } : null) },
+    organization: { findFirst: async () => ({ id: 'org-1' }) },
     session: { updateMany: async () => ({ count: 1 }) },
   };
   const sink = async (_org: string, e: { action: string }) => void audit.push(e.action);
@@ -41,23 +53,50 @@ function fakeDb(init: { members?: Row[]; invites?: Array<{ id: string; organizat
 
 const future = new Date(Date.now() + 86_400_000);
 
-describe('redeemInvitation (invite links are the credential)', () => {
-  it('joins the invited org with the invited role, once', async () => {
-    const f = fakeDb({
-      invites: [{ id: 'inv', organizationId: 'org', role: 'admin', email: 'invite-x@invite.swarmy.invalid', status: 'pending', expiresAt: future }],
-    });
-    expect(await redeemInvitation(f.db, { invitationId: 'inv', userId: 'u1' }, f.sink)).toEqual({ orgId: 'org', role: 'admin' });
-    expect(f.members).toHaveLength(1);
+describe('redeemInvitation (single-use; email invites need a proven address)', () => {
+  const u1 = { id: 'u1', email: 'u1@user.swarmy.invalid' };
+  const inv = (email: string, role = 'admin') => ({
+    id: 'inv', organizationId: 'org', role, email, status: 'pending', expiresAt: future,
+  });
+
+  it('a link-only invite admits whoever holds it, once', async () => {
+    const f = fakeDb({ invites: [inv('invite-x@invite.swarmy.invalid')] });
+    expect(await redeemInvitation(f.db, { invitationId: 'inv', user: u1 }, f.sink)).toEqual({ ok: true, orgId: 'org', role: 'admin' });
     expect(f.members[0]).toMatchObject({ userId: 'u1', role: 'admin' });
     expect(f.invites[0]!.status).toBe('accepted');
-    expect(await redeemInvitation(f.db, { invitationId: 'inv', userId: 'u1' }, f.sink)).toBeNull();
+    expect(await redeemInvitation(f.db, { invitationId: 'inv', user: u1 }, f.sink)).toEqual({ ok: false, reason: 'gone' });
     expect(f.audit).toEqual(['member.invite.accept']);
   });
+
+  it('an email invite refuses a different or unverified address', async () => {
+    const f = fakeDb({ invites: [inv('ann@corp.io')] });
+    const other = await redeemInvitation(f.db, { invitationId: 'inv', user: { id: 'u', email: 'eve@x.io', emailVerified: true } });
+    expect(other).toEqual({ ok: false, reason: 'email_mismatch', invitedEmail: 'ann@corp.io' });
+    const unverified = await redeemInvitation(f.db, { invitationId: 'inv', user: { id: 'u', email: 'ann@corp.io' } });
+    expect(unverified.ok).toBe(false);
+    expect(f.members).toHaveLength(0);
+    expect(f.invites[0]!.status).toBe('pending');
+  });
+
+  it('an email invite admits the verified address, or an SSO/social identity carrying it', async () => {
+    const verified = fakeDb({ invites: [inv('ann@corp.io')] });
+    expect((await redeemInvitation(verified.db, { invitationId: 'inv', user: { id: 'u', email: 'ANN@corp.io', emailVerified: true } })).ok).toBe(true);
+    const idp = fakeDb({ invites: [inv('ann@corp.io')], idpAccount: true });
+    expect((await redeemInvitation(idp.db, { invitationId: 'inv', user: { id: 'u', email: 'ann@corp.io' } })).ok).toBe(true);
+  });
+
   it('refuses an expired invite', async () => {
-    const f = fakeDb({
-      invites: [{ id: 'inv', organizationId: 'org', role: 'member', email: 'e', status: 'pending', expiresAt: new Date(Date.now() - 1) }],
-    });
-    expect(await redeemInvitation(f.db, { invitationId: 'inv', userId: 'u1' })).toBeNull();
+    const f = fakeDb({ invites: [{ ...inv('invite-x@invite.swarmy.invalid'), expiresAt: new Date(Date.now() - 1) }] });
+    expect((await redeemInvitation(f.db, { invitationId: 'inv', user: u1 })).ok).toBe(false);
+  });
+});
+
+describe('provisionDomainMember (social allowedDomains)', () => {
+  it('adds a newcomer to the controller org, and no-ops for existing members', async () => {
+    const f = fakeDb({});
+    expect(await provisionDomainMember(f.db, { userId: 'u', providerId: 'google' }, f.sink)).toEqual({ orgId: 'org-1' });
+    expect(f.members[0]).toMatchObject({ organizationId: 'org-1', role: 'member' });
+    expect(await provisionDomainMember(f.db, { userId: 'u', providerId: 'google' })).toBeNull();
   });
 });
 

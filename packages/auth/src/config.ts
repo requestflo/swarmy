@@ -23,12 +23,15 @@ export const SOCIAL_PROVIDER_LABELS: Record<SocialProviderId, string> = {
  *  - microsoft `tenantId`: an Entra ID tenant (GUID or domain) to accept only
  *    your directory; default `common` (any work or personal account).
  *  - gitlab `issuer`: a self-hosted GitLab's base URL; default gitlab.com.
+ *  - every provider `allowedDomains`: comma-separated email domains whose
+ *    provider-verified accounts may sign up WITHOUT an invite (and join as
+ *    members). Empty (default) = an invite is required.
  */
 export const SOCIAL_PROVIDER_SETTINGS: Record<SocialProviderId, readonly string[]> = {
-  microsoft: ['tenantId'],
-  google: [],
-  github: [],
-  gitlab: ['issuer'],
+  microsoft: ['tenantId', 'allowedDomains'],
+  google: ['allowedDomains'],
+  github: ['allowedDomains'],
+  gitlab: ['issuer', 'allowedDomains'],
 };
 
 export function isSocialProvider(type: string): type is SocialProviderId {
