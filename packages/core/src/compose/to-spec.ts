@@ -72,6 +72,8 @@ export interface ServiceSpecLike {
   configs?: ServiceSpecConfigSecretRef[];
   secrets?: ServiceSpecConfigSecretRef[];
   stopGracePeriodNs?: number;
+  /** compose `logging` (omitted = swarmy's bounded json-file default). */
+  logging?: { driver: string; options?: Record<string, string> };
 }
 
 export function modelToServiceSpec(model: ServiceModelOut): ServiceSpecLike {
@@ -112,6 +114,16 @@ export function modelToServiceSpec(model: ServiceModelOut): ServiceSpecLike {
       placement.maxReplicasPerNode = model.placement.maxReplicasPerNode;
     }
     if (Object.keys(placement).length) spec.placement = placement;
+  }
+
+  if (model.logging?.driver) {
+    spec.logging = {
+      driver: model.logging.driver,
+      ...(Object.keys(model.logging.options).length ? { options: model.logging.options } : {}),
+    };
+  } else if (model.logging && Object.keys(model.logging.options).length) {
+    // Options without a driver (e.g. just `max-size`) tune the default driver.
+    spec.logging = { driver: 'json-file', options: model.logging.options };
   }
 
   if (model.healthcheck) {

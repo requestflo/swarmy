@@ -124,6 +124,16 @@ export const ServiceSpec = z.object({
     )
     .optional(),
   stopGracePeriodNs: z.number().int().nonnegative().optional(),
+  /**
+   * Container log driver (compose `logging`). OMITTED = swarmy's bounded
+   * default (`json-file`, 10m × 3 — see `DEFAULT_LOG_DRIVER`) so no container
+   * swarmy deploys can fill a node's disk with logs; on an update the live
+   * service's driver is carried instead (`carryLogDriver`). Set it to override
+   * (e.g. `{ driver: 'local' }`, a loki/fluentd driver, or bigger limits).
+   */
+  logging: z
+    .object({ driver: z.string().min(1), options: z.record(z.string()).optional() })
+    .optional(),
 });
 export type ServiceSpec = z.infer<typeof ServiceSpec>;
 

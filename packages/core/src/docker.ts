@@ -895,6 +895,64 @@ function normalizeState(state: string): ContainerState {
   return (known as string[]).includes(s) ? (s as ContainerState) : 'dead';
 }
 
+/**
+ * Bounded default log driver for every service swarmy deploys (system AND user
+ * services) — node disks must never fill with container logs. `json-file`
+ * keeps `docker logs` / swarmy's log streaming working; 10 MiB × 3 files caps
+ * each container at ~30 MiB. A spec's own `logging` always wins.
+ */
+export const DEFAULT_LOG_DRIVER: { Name: string; Options: Record<string, string> } = {
+  Name: 'json-file',
+  Options: { 'max-size': '10m', 'max-file': '3' },
+};
+
+/**
+ * The same bound for a plain container swarmy starts outside a service (the
+ * agent itself on self-update, the mesh sidecar) — `HostConfig.LogConfig`.
+ */
+export function defaultContainerLogConfig(): { Type: string; Config: Record<string, string> } {
+  return { Type: DEFAULT_LOG_DRIVER.Name, Config: { ...DEFAULT_LOG_DRIVER.Options } };
+}
+
+/**
+ * Keep a container's operator-chosen log config across a re-create, unless it
+ * is the unbounded daemon default (json-file / local with no options) — then
+ * swarmy's bounded default. PURE.
+ */
+export function boundedLogConfig(
+  live: { Type?: string; Config?: Record<string, string> } | null | undefined,
+): { Type: string; Config: Record<string, string> } {
+  if (live?.Type && (Object.keys(live.Config ?? {}).length > 0 || !['json-file', ''].includes(live.Type))) {
+    return { Type: live.Type, Config: { ...(live.Config ?? {}) } };
+  }
+  return defaultContainerLogConfig();
+}
+
+/** A spec's `logging` → the swarm `TaskTemplate.LogDriver` (default when omitted). */
+export function logDriverFor(spec: Pick<ServiceSpec, 'logging'>): { Name: string; Options: Record<string, string> } {
+  if (!spec.logging) return { Name: DEFAULT_LOG_DRIVER.Name, Options: { ...DEFAULT_LOG_DRIVER.Options } };
+  return { Name: spec.logging.driver, Options: { ...(spec.logging.options ?? {}) } };
+}
+
+/**
+ * On an UPDATE whose spec does not express `logging`, keep the live service's
+ * log driver when it has one — so a lossy rebuild (env/image patch from the
+ * inventory) never swaps an operator's loki/fluentd driver for swarmy's
+ * default. A live service with NO driver gets the bounded default (that is
+ * how existing services pick up log rotation on their next deploy). A spec
+ * that DOES carry `logging` is authoritative. PURE — mutates and returns
+ * `options`.
+ */
+export function carryLogDriver(
+  options: { TaskTemplate?: { LogDriver?: { Name?: string; Options?: Record<string, string> } } },
+  spec: Pick<ServiceSpec, 'logging'>,
+  live: { Name?: string; Options?: Record<string, string> } | undefined,
+): typeof options {
+  if (spec.logging || !live?.Name || !options.TaskTemplate) return options;
+  options.TaskTemplate.LogDriver = { Name: live.Name, Options: { ...(live.Options ?? {}) } };
+  return options;
+}
+
 /** Map a swarmy `ServiceSpec` onto a dockerode `createService` body. */
 export function toServiceCreateOptions(spec: ServiceSpec): Docker.CreateServiceOptions {
   const env = spec.env ? Object.entries(spec.env).map(([k, v]) => `${k}=${v}`) : undefined;
@@ -976,6 +1034,7 @@ export function toServiceCreateOptions(spec: ServiceSpec): Docker.CreateServiceO
         const aliases = spec.networkAliases?.[n];
         return aliases?.length ? { Target: n, Aliases: aliases } : { Target: n };
       }),
+      LogDriver: logDriverFor(spec),
     },
     Mode: mode,
     EndpointSpec: spec.ports

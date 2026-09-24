@@ -26,7 +26,7 @@ import { createWriteStream } from 'node:fs';
 import { chmod, rename, rm, stat } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import type { DockerClient } from '@swarmy/core/docker';
+import { boundedLogConfig, type DockerClient } from '@swarmy/core/docker';
 import type { UpdateAgentMsg } from '@swarmy/core/protocol';
 
 type Payload = UpdateAgentMsg['payload'];
@@ -130,6 +130,8 @@ async function dockerRecreate(docker: DockerClient, payload: Payload): Promise<v
         Mounts: inspect.HostConfig?.Mounts ?? undefined,
         RestartPolicy: inspect.HostConfig?.RestartPolicy ?? { Name: 'unless-stopped' },
         NetworkMode: inspect.HostConfig?.NetworkMode ?? undefined,
+        // Bounded logs even when the original run had none (older installers).
+        LogConfig: boundedLogConfig(inspect.HostConfig?.LogConfig as { Type?: string; Config?: Record<string, string> } | undefined),
       },
     });
     await replacement.start();

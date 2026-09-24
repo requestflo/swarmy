@@ -9,8 +9,18 @@
 # restart_policy makes that the ordering mechanism.
 version: "3.8"
 
+# Bounded container logs for the control plane (node disks must never fill).
+# Every service swarmy itself deploys gets the same default (core
+# DEFAULT_LOG_DRIVER); the installer also sets daemon-level log-opts.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
+    logging: *logging
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${SWARMY_POSTGRES_USER:-swarmy}
@@ -44,6 +54,7 @@ services:
       retries: 20
 
   controller:
+    logging: *logging
     image: ${SWARMY_IMAGE}
     hostname: swarmy_controller
     environment:

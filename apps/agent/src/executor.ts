@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { carryNetworkAliases, DockerClient, dropAliasesOnTargets, toServiceCreateOptions } from '@swarmy/core/docker';
+import { carryLogDriver, carryNetworkAliases, DockerClient, dropAliasesOnTargets, toServiceCreateOptions } from '@swarmy/core/docker';
 import type { ControllerEnvelope, RegistryAuth, RenderedConfig, ServiceSpec } from '@swarmy/core/protocol';
 import type { AgentConnection } from './connection';
 import { buildGateAllows, BUILDER_ENABLE_HINT, execGateAllows, EXEC_LOCAL_VETO_HINT, EXEC_ENABLE_HINT } from '@swarmy/core';
@@ -369,6 +369,14 @@ async function execShell(cmd: string[]): Promise<void> {
   if (!cmd.length) return;
   const proc = Bun.spawn(cmd, { stdout: 'ignore', stderr: 'ignore' });
   const code = await proc.exited;
+  // Keep an operator-set log driver across lossy rebuilds; a service with none
+  // picks up swarmy's bounded json-file default (see DEFAULT_LOG_DRIVER).
+  carryLogDriver(
+    opts as Parameters<typeof carryLogDriver>[0],
+    spec,
+    (inspect.Spec?.TaskTemplate as { LogDriver?: { Name?: string; Options?: Record<string, string> } } | undefined)
+      ?.LogDriver,
+  );
   if (code !== 0) throw new Error(`${cmd[0]} exited ${code}`);
 }
 

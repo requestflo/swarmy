@@ -24,6 +24,7 @@ import {
   DEFAULT_BINARY_PATH,
   DEFAULT_STATE_DIR,
 } from './systemd';
+import { DOCKER_LOG_OPTS_SH, DOCKER_RUN_LOG_FLAGS } from './docker-log-opts';
 
 export interface RenderInstallerOptions {
   controllerUrl: string;
@@ -238,6 +239,9 @@ else
 fi
 docker info >/dev/null 2>&1 || die "Docker is installed but not running (need root?)."
 
+# --- log rotation (daemon.json log-opts + journald cap; merges, never clobbers)
+${DOCKER_LOG_OPTS_SH}ensure_docker_log_opts
+
 write_env() {
   mkdir -p "$(dirname "$ENV_FILE")"
   umask 077
@@ -292,6 +296,7 @@ install_docker() {
   docker run -d \\
     --name "$CONTAINER_NAME" \\
     --restart unless-stopped \\
+    ${DOCKER_RUN_LOG_FLAGS} \\
     -v /var/run/docker.sock:/var/run/docker.sock \\
     -v "$STATE_VOLUME":/var/lib/swarmy \\
     -e AGENT_WS_URL="$WS_URL" \\

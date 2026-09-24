@@ -24,7 +24,7 @@
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { DockerClient } from '@swarmy/core/docker';
+import { DockerClient, defaultContainerLogConfig } from '@swarmy/core/docker';
 import type {
   ApplyMeshResult,
   GrantDirectRoutePayload,
@@ -120,6 +120,7 @@ async function joinNetbird(docker: DockerClient, rendered: RenderedMesh): Promis
     HostConfig: {
       NetworkMode: 'host',
       RestartPolicy: { Name: 'unless-stopped' },
+      LogConfig: defaultContainerLogConfig(),
       // Peer identity (WireGuard key + login) survives a container re-create,
       // so the node keeps its mesh IP. Never holds the setup key (env only).
       Binds: [`${NETBIRD_STATE_VOLUME}:/var/lib/netbird`],
@@ -162,6 +163,7 @@ async function joinTailscale(docker: DockerClient, rendered: RenderedMesh): Prom
     HostConfig: {
       NetworkMode: 'host',
       RestartPolicy: { Name: 'unless-stopped' },
+      LogConfig: defaultContainerLogConfig(),
       CapAdd: ['NET_ADMIN', 'SYS_MODULE'],
       Devices: [{ PathOnHost: '/dev/net/tun', PathInContainer: '/dev/net/tun', CgroupPermissions: 'rwm' }],
     },
