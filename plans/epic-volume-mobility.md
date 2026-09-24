@@ -1,6 +1,10 @@
 # Epic: volume mobility — add a disk, move a volume, retire a server
 
-Status: **design, 2026-09-24. Phase 3's planner is built** (`packages/trpc/src/services/node-decommission.plan.ts`, 24 tests).
+Status: **design, 2026-09-24.** Built so far (pure, unit-tested): phase 3's
+planner (`packages/trpc/src/services/node-decommission.plan.ts`), phase 5's
+forecast (`packages/core/src/disk-forecast.ts`) and phase 1's disk
+classifier + format gate (`packages/core/src/disk-inventory.ts`). No runner,
+agent command or UI yet.
 Owning skills: `managed-data-services` (Postgres/cache/search/vector, Garage,
 `volume.list`), `backups-dr` (restic, dr-reconcile, drills),
 `docker-native-storage` (where state lives), `reconcile-workers` (the runner),
@@ -127,7 +131,8 @@ asks once, formats and mounts it, and new data goes there.
 **Detection (agent).** New agent command `disk.list` → `lsblk -J -b -o
 NAME,PATH,SIZE,TYPE,FSTYPE,MOUNTPOINTS,SERIAL,MODEL,RO,RM,PTTYPE` plus
 `blkid -p` for the chosen device. A pure classifier in `@swarmy/core`
-(`disk-inventory.ts`) turns it into one of:
+(`disk-inventory.ts`, **built**: `parseLsblk`, `classifyDisks`, `formatGate`,
+`growableBytes`) turns it into one of:
 
 | State | Rule | Offered action |
 |---|---|---|
@@ -326,7 +331,8 @@ managed PG primary, a volume app, Garage rf=2 and the edge on the target).
 
 ## 6. Phase 5 — "Disk-full prevention"
 
-- **Forecast:** pure `forecastDiskFull(samples)` in `@swarmy/core`:
+- **Forecast (built):** pure `forecastDiskFull(samples)` in `@swarmy/core`
+  (`disk-forecast.ts`, with `diskForecastSeverity` and `describeDiskForecast`):
   least-squares line over the last 7 days of `MetricSample.diskUsedBytes` per
   node (telemetry.db, already sampled), ignoring drops (prunes, moves) by
   fitting only since the last large decrease. Output: bytes/day, days until
