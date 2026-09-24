@@ -80,4 +80,6 @@ export const DEFAULT_COMMAND_TIMEOUTS: Record<string, number> = {
   // plus the in-task kill margin). Callers pass statement timeout + 15s.
   dbQuery: 60_000,
   ping: 5_000,
+  // Up to 5 MX targets × perTargetMs (6s default), sequential.
+  probeSmtp: 45_000,
 };

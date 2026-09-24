@@ -56,6 +56,7 @@ export type CommandName =
   | 'config.list'
   | 'config.inspect'
   | 'container.runOnce' // one-shot utility container → { exitCode, output }
+  | 'email.probeSmtp' // email service: can the mail node reach MX hosts on :25? (no mail sent)
   | 'agent.update'; // self-update: download + verify + swap the agent binary (or recreate its container)
 
 /**
@@ -112,6 +113,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'config.list': 'configList',
   'config.inspect': 'configInspect',
   'container.runOnce': 'runOnce',
+  'email.probeSmtp': 'probeSmtp',
   'agent.update': 'updateAgent',
 };
 

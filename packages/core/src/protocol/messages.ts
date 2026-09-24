@@ -33,6 +33,7 @@ import { BackupVolumeMsg, RestoreVolumeMsg, ListSnapshotsMsg } from './backup';
 import { DbBackupMsg, DbRestoreMsg } from './dbBackup';
 import { AppDbBackupMsg, AppDbRestoreMsg, AppDbVerifyMsg } from './appDb';
 import { DbQueryMsg } from './studio';
+import { ProbeSmtpMsg } from './email';
 import {
   SecretCreateMsg,
   SecretRemoveMsg,
@@ -119,6 +120,7 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   AppDbRestoreMsg,
   AppDbVerifyMsg,
   DbQueryMsg,
+  ProbeSmtpMsg,
   SecretCreateMsg,
   SecretRemoveMsg,
   SecretListMsg,
