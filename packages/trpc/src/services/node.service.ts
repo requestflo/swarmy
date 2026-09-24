@@ -596,6 +596,8 @@ export function isSameAgentBuild(
 export async function upgradeAgent(
   ctx: OrgContext,
   id: string,
+  /** Platform upgrades pin the container agent to the release manifest's digest. */
+  opts: { image?: string } = {},
 ): Promise<{ id: string; targetVersion: string; strategy: string } | { id: string; upToDate: true }> {
   const release = agentRelease();
   if (!release) {
@@ -626,7 +628,7 @@ export async function upgradeAgent(
   // Unreleased builds all say 0.0.0 — pin the image to the controller's commit
   // (CI tags every image `sha-<7>`), else the version tag.
   const tag = release.commit ? `sha-${release.commit.slice(0, 7)}` : release.version;
-  const image = process.env.SWARMY_AGENT_IMAGE ?? `ghcr.io/requestflo/swarmy-agent:${tag}`;
+  const image = opts.image ?? process.env.SWARMY_AGENT_IMAGE ?? `ghcr.io/requestflo/swarmy-agent:${tag}`;
   await ctx.hub.dispatch(node.id, 'agent.update', {
     targetVersion: release.version,
     strategy: 'docker-recreate',

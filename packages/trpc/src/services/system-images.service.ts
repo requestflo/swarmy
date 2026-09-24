@@ -25,17 +25,22 @@ import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import type { RunOnceResult, ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
 import {
+  SYSTEM_IMAGES,
   SWARM_NODE_ID_LABEL,
+  copySourceFor,
   mirrorLabelsAfter,
   mirroredRefFor,
   parseMirrorOutput,
   planMirror,
   renderMirrorScript,
   systemImage,
+  systemImageForRef,
+  type SystemImage,
 } from '@swarmy/core/system-images';
 import type { AgentHub, CommandName } from '../hub/types';
 import { canonicalRegistryHost } from './registryPolicy.service';
 import { REGISTRY_IMAGE, REGISTRY_MANAGED_LABEL, REGISTRY_SERVICE_NAME, decodeRegistryCreds } from './registry-auth';
+import { effectiveImagesFor } from './platform-images';
 
 // ── Pull-through cache (Docker Hub) ──────────────────────────────────────────
 
@@ -111,10 +116,17 @@ export function mirrorStateFrom(inv: {
  * the mirrored / upstream ref is on the node (agent `presentOrFallback`), and
  * the pull command has no upstream fallback of its own.
  */
-export function rewriteSystemImages<P>(cmd: CommandName, payload: P, registryHost: string, state: MirrorState): P {
+export function rewriteSystemImages<P>(
+  cmd: CommandName,
+  payload: P,
+  registryHost: string,
+  state: MirrorState,
+  /** The BOM with the running release's digests (platform manifest); default the compiled BOM. */
+  images: readonly SystemImage[] = SYSTEM_IMAGES,
+): P {
   if (!state.registryNodeId) return payload;
   const map = (ref: unknown) =>
-    typeof ref === 'string' ? mirroredRefFor(ref, registryHost, state.labels, state.registryNodeId) : null;
+    typeof ref === 'string' ? mirroredRefFor(ref, registryHost, state.labels, state.registryNodeId, images) : null;
   const p = payload as Record<string, unknown> & { spec?: Record<string, unknown> };
   if (cmd === 'service.deploy' && p?.spec) {
     const to = map(p.spec.image);
@@ -125,10 +137,26 @@ export function rewriteSystemImages<P>(cmd: CommandName, payload: P, registryHos
     return to ? ({ ...p, image: to, fallbackImage: p.image } as P) : payload;
   }
   if (cmd === 'image.build' && p && !p.builderImage) {
-    const to = map(systemImage('buildkit').ref);
+    const to = map(systemImage('buildkit', images).ref);
     return to ? ({ ...p, builderImage: to } as P) : payload;
   }
   return payload;
+}
+
+/**
+ * Deploy by digest even without a mirror (plans/epic-platform-upgrades.md §1:
+ * no floating tags in running services): a `service.deploy` of an exact
+ * system ref whose release digest is known becomes `<upstream repo>@<digest>`.
+ * Runs AFTER {@link rewriteSystemImages} (a mirrored ref is no longer an
+ * upstream ref, so it is left alone). One-shots keep their tag: they stage
+ * images by tag for `pull: false` runs. Pure.
+ */
+export function pinSystemImages<P>(cmd: CommandName, payload: P, images: readonly SystemImage[] = SYSTEM_IMAGES): P {
+  const p = payload as Record<string, unknown> & { spec?: Record<string, unknown> };
+  if (cmd !== 'service.deploy' || !p?.spec || typeof p.spec.image !== 'string') return payload;
+  const img = systemImageForRef(p.spec.image, images);
+  if (!img?.digest || img.noRewrite) return payload;
+  return { ...p, spec: { ...p.spec, image: copySourceFor(img) } } as P;
 }
 
 // ── Mirror tick ──────────────────────────────────────────────────────────────
@@ -155,7 +183,10 @@ export async function mirrorSystemImagesForOrg(
   deps: Deps,
   orgId: string,
   ensureRegistry?: EnsureRegistry,
+  /** What to mirror: default the running release's BOM (platform manifest digests filled in). */
+  imagesIn?: readonly SystemImage[],
 ): Promise<MirrorTickResult> {
+  const images = imagesIn ?? (await effectiveImagesFor(deps.db, orgId));
   const row = await deps.db.registryConfig.findUnique({
     where: { orgId },
     select: { enabled: true, host: true, credentialsEnc: true },
@@ -169,7 +200,7 @@ export async function mirrorSystemImagesForOrg(
   const state = mirrorStateFrom(deps.hub.liveInventory(orgId));
   if (!state.registry || !state.registryNodeId) return { orgId, copied: [], failed: [], skipped: 'registry not running yet' };
   const host = canonicalRegistryHost(row.host);
-  const todo = planMirror(state.labels, state.registryNodeId);
+  const todo = planMirror(state.labels, state.registryNodeId, images);
   if (!todo.length) return { orgId, copied: [], failed: [] };
 
   const creds = decodeRegistryCreds(row.credentialsEnc);
@@ -187,7 +218,7 @@ export async function mirrorSystemImagesForOrg(
     { timeoutMs: 46 * 60_000 },
   );
   const out = parseMirrorOutput(res.output);
-  const { add, removeKeys } = mirrorLabelsAfter(state.labels, state.registryNodeId, out.ok);
+  const { add, removeKeys } = mirrorLabelsAfter(state.labels, state.registryNodeId, out.ok, images);
   await deps.hub.dispatch(manager, 'service.updateLabels', { service: REGISTRY_SERVICE_NAME, add, removeKeys });
   return { orgId, copied: [...out.ok.keys()], failed: out.failed };
 }

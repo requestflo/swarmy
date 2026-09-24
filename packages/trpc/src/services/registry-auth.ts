@@ -25,7 +25,8 @@ import type { CommandName, DispatchDecorator } from '../hub/types';
 import { canonicalRegistryHost, isOrgRegistryImage } from './registryPolicy.service';
 import { buildPullAuths, matchCredential, toRegistryAuth, type ResolvedCredential } from './registry-credentials';
 import { loadOrgRegistryCredentials } from './registry-credentials.service';
-import { mirrorStateFrom, rewriteSystemImages } from './system-images.service';
+import { mirrorStateFrom, pinSystemImages, rewriteSystemImages } from './system-images.service';
+import { effectiveImagesFor } from './platform-images';
 
 export const REGISTRY_SERVICE_NAME = 'swarmy-registry';
 export const REGISTRY_IMAGE = 'registry:2';
@@ -169,9 +170,14 @@ export function createRegistryAuthDecorator(
   const mirror = async (orgId: string, cmd: CommandName, payload: unknown): Promise<unknown> => {
     if (!liveInventory || !MIRROR_CMDS.has(cmd)) return payload;
     try {
+      // The running release's digests (platform manifest) — the compiled BOM
+      // until a platform upgrade has recorded one.
+      const images = await effectiveImagesFor(db, orgId);
       const row = await db.registryConfig.findUnique({ where: { orgId }, select: { enabled: true, host: true } });
-      if (!row?.enabled) return payload;
-      return rewriteSystemImages(cmd, payload, canonicalRegistryHost(row.host), mirrorStateFrom(liveInventory(orgId)));
+      const mirrored = row?.enabled
+        ? rewriteSystemImages(cmd, payload, canonicalRegistryHost(row.host), mirrorStateFrom(liveInventory(orgId)), images)
+        : payload;
+      return pinSystemImages(cmd, mirrored, images);
     } catch {
       return payload;
     }
