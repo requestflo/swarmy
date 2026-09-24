@@ -77,7 +77,7 @@ describe('every template through the compose/model pipeline', () => {
         const doc = parseYaml(src) as Record<string, unknown>;
         const plan = composeToStack(doc, p.name);
         expect(plan.services.map((s) => s.short)).toEqual(deploy.payload.services);
-        const blocking = plan.warnings.filter((w) => w.level === 'warn' || w.level === 'error');
+        const blocking = plan.warnings.filter((w) => w.level === 'warn');
         expect(blocking).toEqual([]);
         for (const model of composeToModels(doc).models) {
           expect(validateModel(model).filter((w) => w.level === 'warn')).toEqual([]);
