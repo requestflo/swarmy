@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { Reader, type CityResponse } from 'mmdb-lib';
 import type { GeoIpReader, LatLon } from '@swarmy/dns';
 import { log, logError, type DnsServerConfig } from './config';
+import { geoipCandidatePaths, locateRecord } from './geoip-fallback';
 
 /**
  * GeoIP database lifecycle. Sources (SWARMY_DNS_GEOIP):
@@ -18,6 +19,11 @@ import { log, logError, type DnsServerConfig } from './config';
  *   /run/secrets/maxmind-license (higher accuracy, operator opt-in).
  * - `file`: operator-provisioned mmdb at SWARMY_DNS_GEOIP_FILE (air-gapped).
  * - `off`: no geo steering (deterministic answers).
+ *
+ * Offline floor: the image BUNDLES DB-IP Country Lite (CC BY 4.0, see
+ * geoip-fallback.ts / apps/dns/Dockerfile). Whenever no downloaded (or
+ * operator) mmdb is on disk, that copy is served — country-level steering on a
+ * fresh node with no egress. The online refresh is an optional upgrade on top.
  *
  * Failure posture: keep last-good on refresh errors; serve WITHOUT geo until
  * the first success. A missing DB degrades steering, never resolution.
@@ -49,10 +55,9 @@ export class GeoIpManager implements GeoIpReader {
   lookup(ip: string): LatLon | undefined {
     if (!this.reader) return undefined;
     try {
-      const city = this.reader.get(ip);
-      const location = city?.location;
-      if (location?.latitude === undefined || location.longitude === undefined) return undefined;
-      return { lat: location.latitude, lon: location.longitude };
+      // City editions carry `location`; the bundled country edition resolves
+      // via a representative point per country/continent.
+      return locateRecord(this.reader.get(ip));
     } catch {
       return undefined;
     }
@@ -101,12 +106,20 @@ export class GeoIpManager implements GeoIpReader {
   }
 
   private async loadFromDisk(): Promise<void> {
-    const path = this.config.geoipSource === 'file' ? this.config.geoipFile : this.dbPath;
-    if (!path) return;
-    try {
-      this.swap(mapFile(path), `disk:${path}`);
-    } catch {
-      // nothing on disk yet — fine
+    const candidates = geoipCandidatePaths({
+      source: this.config.geoipSource,
+      downloadedPath: this.dbPath,
+      operatorFile: this.config.geoipFile,
+      bundledPath: this.config.geoipBundledFile,
+    });
+    for (const path of candidates) {
+      try {
+        const label = path === this.config.geoipBundledFile ? `bundled:${path}` : `disk:${path}`;
+        this.swap(mapFile(path), label);
+        return;
+      } catch {
+        // not there (or unreadable) — try the next candidate
+      }
     }
   }
 

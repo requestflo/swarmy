@@ -82,6 +82,7 @@ beforeAll(async () => {
     dataDir,
     geoipSource: 'off',
     geoipFile: undefined,
+    geoipBundledFile: undefined,
     adminToken: TOKEN,
     allowInsecureAdmin: false,
   };

@@ -92,10 +92,14 @@ Three layers, one story:
   ingress node → nearest 1–2 answers, short TTL (default 30s). Unhealthy regions
   are omitted; if nothing is healthy we answer with everything rather than
   nothing (degraded beats dark).
-- **GeoIP is zero-config**: DB-IP Lite city database auto-downloaded by each
-  DNS node (CC BY 4.0 — attribution shown in the UI), optional MaxMind GeoLite2
-  license key for accuracy, file mode for air-gapped swarms. Missing DB never
-  breaks resolution — answers just lose geo preference.
+- **GeoIP is zero-config and works offline**: the swarmy-dns image bundles
+  DB-IP Country Lite (CC BY 4.0 — "IP Geolocation by DB-IP", in the image's
+  `/usr/share/swarmy-dns/geoip/NOTICE`, its labels and the UI), so a fresh node
+  with no egress still steers by country. On top of that floor, each DNS node
+  optionally downloads the DB-IP Lite city database (the `dbip` default),
+  an optional MaxMind GeoLite2 license key adds accuracy, and file mode takes an
+  operator mmdb. A failed download keeps the last-good/bundled copy; a missing
+  DB never breaks resolution — answers just lose geo preference.
 - **Survives the controller dying.** The controller pushes zone snapshots to
   every DNS node (agent-mediated, versioned); nodes persist the last snapshot
   and keep answering from it. DNS is a data plane, not a control plane.
@@ -110,7 +114,8 @@ Three layers, one story:
 | A region's nodes go offline | Its IPs drop from answers within one reconcile tick (~15s) + TTL (~30s). In-flight clients with cached answers fail over at the Caddy layer only if the node is actually up but the backends died; a hard node death relies on the short TTL. |
 | Local region's containers die, node fine | Caddy `lb_policy first` fails over to next-region upstreams over the mesh; DNS keeps answering with the node (degraded, not dead). |
 | Controller down | DNS nodes serve the last pushed snapshot; Caddy keeps its last config. New topology changes wait; traffic does not. |
-| GeoIP DB missing/stale | Deterministic (unsteered) answers; never an outage. |
+| GeoIP download fails / no egress | The bundled DB-IP Country Lite copy serves (country-level steering). |
+| GeoIP DB missing entirely (`SWARMY_DNS_GEOIP_BUNDLED=` or `off`) | Deterministic (unsteered) answers; never an outage. |
 | All regions unhealthy | Answer with all endpoints (spill), never empty. |
 
 ## Explicitly rejected

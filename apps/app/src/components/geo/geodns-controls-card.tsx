@@ -73,7 +73,8 @@ export function GeoDnsControlsCard({ config }: { config?: GeoDnsConfig }): React
           Apply now
         </Button>
 
-        {source === 'dbip' ? (
+        {/* Every non-off source can serve the bundled DB-IP Country Lite floor. */}
+        {source !== 'off' ? (
           <p className="text-muted-foreground w-full text-xs">
             IP geolocation by{' '}
             <a
