@@ -28,10 +28,10 @@ export function RecoveryClaimsBanner(): React.JSX.Element | null {
   if (pending.length === 0) return null;
 
   return (
-    <Card className="card-pop border-amber-500/40 border">
+    <Card className="card-pop border-status-warning/40 border">
       <CardContent className="grid gap-3 pt-4 text-sm">
         <div className="flex items-center gap-2 font-medium">
-          <ShieldAlertIcon className="size-4 text-amber-500" />
+          <ShieldAlertIcon className="size-4 text-status-warning" />
           {pending.length === 1 ? 'A machine is asking to reconnect' : `${pending.length} machines are asking to reconnect`}
         </div>
         {pending.map((claim) => (
