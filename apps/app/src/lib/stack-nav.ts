@@ -1,11 +1,13 @@
 import {
   ActivityIcon,
+  BugIcon,
   DatabaseBackupIcon,
   DatabaseIcon,
   LayoutDashboardIcon,
   LockKeyholeIcon,
   NetworkIcon,
   RocketIcon,
+  ShieldCheckIcon,
   SettingsIcon,
   WorkflowIcon,
   type LucideIcon,
@@ -24,7 +26,9 @@ export interface StackTab {
     | '/stacks/$name/data'
     | '/stacks/$name/messaging'
     | '/stacks/$name/observability'
+    | '/stacks/$name/errors'
     | '/stacks/$name/network'
+    | '/stacks/$name/access'
     | '/stacks/$name/config'
     | '/stacks/$name/backups'
     | '/stacks/$name/releases'
@@ -83,11 +87,27 @@ export const STACK_TABS: StackTab[] = [
     systemSafe: true,
   },
   {
+    to: '/stacks/$name/errors',
+    label: 'Errors',
+    icon: BugIcon,
+    blurb: 'Sentry-compatible error tracking',
+    keywords: 'errors exceptions issues sentry dsn crashes stack trace source maps regressions',
+    systemSafe: false,
+  },
+  {
     to: '/stacks/$name/network',
     label: 'Network',
     icon: NetworkIcon,
     blurb: 'Domains, protections & geo DNS',
     keywords: 'ingress domains routes tls https rate limit protection ip allow deny geo dns',
+    systemSafe: false,
+  },
+  {
+    to: '/stacks/$name/access',
+    label: 'Access',
+    icon: ShieldCheckIcon,
+    blurb: 'Require login, who can enter, app users',
+    keywords: 'login sso protect private identity proxy forward auth users sign in auth better-auth',
     systemSafe: false,
   },
   {
