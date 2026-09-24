@@ -6,6 +6,8 @@ import {
   UpdateScheduledJobInput,
 } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
+import { authorize, resolveService } from '../abac';
+import type { OrgContext } from '../context';
 import {
   cancelRun,
   createJob,
@@ -23,6 +25,33 @@ import {
 const StackScopeInput = z.object({ stack: z.string().min(1).optional() }).optional();
 
 const stackNameField = z.string().min(1).max(63).optional();
+
+/**
+ * A job runs code: a `service-exec` job execs into a live service (and its
+ * output tail is readable) — the same power as a shell, so it needs
+ * `terminal.open` on that service; an `image` job runs a one-shot container,
+ * a deploy (`service.deploy`). Checked on create, update (merged with the
+ * stored job) and runNow, so a member can't reach prod through the scheduler.
+ */
+async function authorizeJobTarget(
+  ctx: OrgContext,
+  job: { kind?: string | null; serviceRef?: string | null },
+): Promise<void> {
+  if (job.kind === 'service-exec' || job.kind === 'SERVICE_EXEC') {
+    const resource = job.serviceRef ? await resolveService(ctx, { id: job.serviceRef }) : null;
+    await authorize(ctx, 'terminal.open', resource);
+  } else {
+    await authorize(ctx, 'service.deploy', null);
+  }
+}
+
+/** The stored job (org-scoped) for update/runNow; `null` lets the service 404. */
+async function storedJob(ctx: OrgContext, id: string) {
+  return ctx.db.scheduledJob.findFirst({
+    where: { id, orgId: ctx.activeOrgId },
+    select: { kind: true, serviceRef: true },
+  });
+}
 
 /**
  * Scheduled jobs (slice B2) — user cron firing one-shot containers
@@ -52,12 +81,24 @@ export const jobsRouter = router({
   /** Create a job (cron validated server-side; audited). */
   create: orgProcedure
     .input(CreateScheduledJobInput.extend({ stackName: stackNameField }))
-    .mutation(({ ctx, input }) => createJob(ctx, input)),
+    .mutation(async ({ ctx, input }) => {
+      await authorizeJobTarget(ctx, input);
+      return createJob(ctx, input);
+    }),
 
   /** Update a job (merged config re-validated; audited). */
   update: orgProcedure
     .input(UpdateScheduledJobInput.extend({ stackName: stackNameField }))
-    .mutation(({ ctx, input }) => updateJob(ctx, input)),
+    .mutation(async ({ ctx, input }) => {
+      const row = await storedJob(ctx, input.id);
+      if (row) {
+        await authorizeJobTarget(ctx, {
+          kind: input.kind ?? row.kind,
+          serviceRef: input.serviceRef ?? row.serviceRef,
+        });
+      }
+      return updateJob(ctx, input);
+    }),
 
   /** Delete a job and its run history (audited). */
   remove: orgProcedure
@@ -67,12 +108,23 @@ export const jobsRouter = router({
   /** Pause/resume the schedule without losing the job (audited). */
   toggle: orgProcedure
     .input(z.object({ id: z.string().min(1), enabled: z.boolean() }))
-    .mutation(({ ctx, input }) => toggleJob(ctx, input)),
+    .mutation(async ({ ctx, input }) => {
+      // Resuming a schedule makes the job run again — same gate as runNow.
+      if (input.enabled) {
+        const row = await storedJob(ctx, input.id);
+        if (row) await authorizeJobTarget(ctx, row);
+      }
+      return toggleJob(ctx, input);
+    }),
 
   /** Fire immediately; returns the run id, the UI polls `runs` (audited). */
   runNow: orgProcedure
     .input(z.object({ id: z.string().min(1) }))
-    .mutation(({ ctx, input }) => runNow(ctx, input.id)),
+    .mutation(async ({ ctx, input }) => {
+      const row = await storedJob(ctx, input.id);
+      if (row) await authorizeJobTarget(ctx, row);
+      return runNow(ctx, input.id);
+    }),
 
   /** Best-effort cancel of a running attempt (audited). */
   cancelRun: orgProcedure

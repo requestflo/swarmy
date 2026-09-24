@@ -8,7 +8,9 @@ import {
   WorkflowRunRefInput,
   WorkflowRunsInput,
 } from '@swarmy/core';
-import { orgProcedure, router } from '../trpc';
+import { adminProcedure, orgProcedure, router } from '../trpc';
+import { authorize, resolveService } from '../abac';
+import type { OrgContext } from '../context';
 import {
   approveRun,
   cancelRun,
@@ -18,6 +20,7 @@ import {
   listRuns,
   listVersions,
   overview,
+  parseSteps,
   rejectRun,
   removeDef,
   setEnabled,
@@ -36,6 +39,46 @@ import {
 const StackScopeInput = z.object({ stack: z.string().min(1).optional() }).optional();
 
 const stackNameField = z.string().min(1).max(63).optional();
+
+/**
+ * Workflow steps run code: a `service-exec` step execs into a live service
+ * (its output lands in the readable run timeline) — shell power, so it needs
+ * `terminal.open` on that service; a `container` step runs a one-shot
+ * container (`service.deploy`). Checked when steps are written (create/update)
+ * and when a run starts (trigger), so a member can't reach prod through it.
+ */
+async function authorizeSteps(
+  ctx: OrgContext,
+  steps: ReadonlyArray<{ kind: string; config?: { serviceRef?: string | null } | null }>,
+): Promise<void> {
+  const refs = new Set<string>();
+  let container = false;
+  for (const step of steps) {
+    if (step.kind === 'service-exec') refs.add(step.config?.serviceRef ?? '');
+    else if (step.kind === 'container') container = true;
+  }
+  for (const ref of refs) {
+    const resource = ref ? await resolveService(ctx, { id: ref }) : null;
+    await authorize(ctx, 'terminal.open', resource);
+  }
+  if (container) await authorize(ctx, 'service.deploy', null);
+}
+
+/** The def a trigger would run (org-scoped); `null` lets the service 404. */
+async function defToRun(ctx: OrgContext, input: { defId?: string; name?: string }) {
+  if (input.defId) {
+    return ctx.db.workflowDef.findFirst({
+      where: { id: input.defId, orgId: ctx.activeOrgId },
+      select: { stepsJson: true },
+    });
+  }
+  if (!input.name) return null;
+  return ctx.db.workflowDef.findFirst({
+    where: { name: input.name, orgId: ctx.activeOrgId },
+    orderBy: { version: 'desc' },
+    select: { stepsJson: true },
+  });
+}
 
 export const workflowEngineRouter = router({
   /** Counts for the Workflows hero (defs, live runs, 24h outcomes). */
@@ -64,12 +107,18 @@ export const workflowEngineRouter = router({
   /** Create version 1 of a workflow (steps validated; audited). */
   create: orgProcedure
     .input(CreateWorkflowDefInput.extend({ stackName: stackNameField }))
-    .mutation(({ ctx, input }) => createDef(ctx, input)),
+    .mutation(async ({ ctx, input }) => {
+      await authorizeSteps(ctx, input.steps);
+      return createDef(ctx, input);
+    }),
 
   /** Edit = a new version row; history stays intact (audited). */
   update: orgProcedure
     .input(UpdateWorkflowDefInput.extend({ stackName: stackNameField }))
-    .mutation(({ ctx, input }) => updateDef(ctx, input)),
+    .mutation(async ({ ctx, input }) => {
+      await authorizeSteps(ctx, input.steps);
+      return updateDef(ctx, input);
+    }),
 
   /** Enable/disable triggering across all versions of the name (audited). */
   setEnabled: orgProcedure
@@ -84,7 +133,11 @@ export const workflowEngineRouter = router({
   /** Start a run (by def id or latest of name) — the runner advances it. */
   trigger: orgProcedure
     .input(TriggerWorkflowInput)
-    .mutation(({ ctx, input }) => triggerWorkflow(ctx, input)),
+    .mutation(async ({ ctx, input }) => {
+      const def = await defToRun(ctx, input);
+      if (def) await authorizeSteps(ctx, parseSteps(def.stepsJson));
+      return triggerWorkflow(ctx, input);
+    }),
 
   /** Cancel an active run (in-flight step completion becomes a no-op). */
   cancel: orgProcedure
@@ -92,12 +145,12 @@ export const workflowEngineRouter = router({
     .mutation(({ ctx, input }) => cancelRun(ctx, input.runId)),
 
   /** Approve the waiting approval step — the run resumes (audited). */
-  approve: orgProcedure
+  approve: adminProcedure
     .input(WorkflowDecisionInput)
     .mutation(({ ctx, input }) => approveRun(ctx, input)),
 
   /** Reject the waiting approval step — the run fails (audited). */
-  reject: orgProcedure
+  reject: adminProcedure
     .input(WorkflowDecisionInput)
     .mutation(({ ctx, input }) => rejectRun(ctx, input)),
 });
