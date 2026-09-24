@@ -91,12 +91,12 @@ Four ideas, one story:
   record the last outcome and whether WAL archiving is on. The schedule survives
   swarmy — the stack carries its own protection intent. See the
   `docker-native-storage` skill.
-- **What swarmy's DB owns is the catalog, the config, and the history** — the
-  parts that are swarmy's own queryable record, not swarm state: `BackupTarget`
-  (a destination + encrypted `*Ref` credentials), `Snapshot` / `BackupJob`
-  (restic run catalog), `BackupSchedule` (volume schedules the worker reads),
-  `RestoreOperation` (DR restore history), and `ControllerBackupConfig` /
-  `ControllerSnapshot` (the singleton controller-backup config + its snapshots).
+- **Config lives in the swarm; the DB owns the catalog and the history.**
+  `BackupTarget` (a destination + encrypted `*Ref` credentials), `BackupSchedule`
+  (volume schedules the worker reads) and `ControllerBackupConfig` are swarm-kv
+  documents (`backups.repo.ts`), so they survive with the swarm. The DB keeps
+  swarmy's queryable record: `Snapshot` / `BackupJob` (restic run catalog),
+  `RestoreOperation` (DR restore history) and `ControllerSnapshot`.
 - **Destinations are estate-wide.** A `BackupTarget` is org-scoped and shared
   across stacks — "Destinations are managed estate-wide." The native destination
   is the in-swarm Garage object store (`swarmy-object-storage` → the

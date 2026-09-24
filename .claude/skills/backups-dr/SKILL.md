@@ -36,9 +36,11 @@ and where everything lives. Backups are dispatched to the agent as commands — 
    (`controllerBackup.service.ts`), because it contains the controller's secrets
    and must work before any agent exists. Do not push the controller bundle to an
    agent, and do not run a volume backup on the controller.
-4. **The DB is swarmy's catalog + history + config; Docker owns the schedule.** DB
-   holds `BackupTarget`, `Snapshot`, `BackupJob`, `BackupSchedule`,
-   `RestoreOperation`, `ControllerBackupConfig`, `ControllerSnapshot`. A managed
+4. **Config lives in the swarm; the DB is catalog + history; Docker owns DB
+   schedules.** `BackupTarget`, `BackupSchedule` and `ControllerBackupConfig`
+   are swarm-kv documents (`backups.repo.ts`: `bkp-target/`, `bkp-sched/`,
+   `ctl-backup/`). The DB holds `Snapshot`, `BackupJob`, `RestoreOperation` and
+   `ControllerSnapshot`. A managed
    DB cluster's recurring-backup intent lives on Docker: the
    `swarmy.db.backup.schedule` JSON label on the primary (+ `.lastRun`, `.pitr`).
    If you're about to add a column that mirrors a service label, stop — see

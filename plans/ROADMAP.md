@@ -72,8 +72,8 @@ LB = launch-blocker. Size S/M/L.
    PAT, GitHub/GitLab only. M, LB. (`epic-git-apps.md`.)
 3. ~~Automatic HTTPS route per HTTP service~~ — shipped (84c6b93:
    `<service>-<stack>.<edge-ip>.sslip.io` on the default Caddy edge).
-4. **Third-party registry credentials** (GHCR, Docker Hub): `registryAuth` is
-   only filled for the org registry, so private GHCR images can't deploy. S, LB.
+4. ~~Third-party registry credentials~~ — shipped (33e39af: per-org pull
+   credentials for GHCR, Docker Hub and other registries).
 5. **Compose template catalogue ≥ 50 at launch** (9 blueprints today vs Dokploy
    532 / Coolify 368), CDN-indexed, plus an importer for Coolify's Apache-2.0
    templates. M, LB at ≥ 50.

@@ -349,8 +349,8 @@ ingress-routes,ingress-routes-api,ingress-regions,tunnel.service}.ts` with the
 route label constant in `ingress-routes.ts` (`INGRESS_ROUTES_LABEL`); routers
 `packages/trpc/src/routers/{ingress,tunnels,exposure}.ts`; the exposure audit +
 admission `packages/trpc/src/services/{exposure.service,admission-exposure}.ts`;
-DB rows `packages/db/prisma/schema/ingress.prisma` (`IngressConfig`, `Tunnel`) and
-`governance.prisma` (`ExposureConfig`); the public on-demand-TLS gate
+config in swarm-kv via `services/ingress-config.repo.ts` (`IngressConfig`, incl.
+the tunnel block) and the `governance.prisma` row (`ExposureConfig`); the public on-demand-TLS gate
 `apps/api/src/ingress-ask.ts` mounted at `/ingress/ask` in `apps/api/src/index.ts`;
 agent handlers `apps/agent/src/handlers/{ingress-local,ingress-connector,
 ingress-status}.ts`; UI `apps/app/src/routes/_authed/{ingress,exposure}.tsx` with

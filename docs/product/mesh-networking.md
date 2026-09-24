@@ -113,10 +113,10 @@ Four ideas, one story:
   raw WireGuard are first-class alternatives behind the same `MeshDriver`
   interface — pluralism for power users without complicating the default path.
   Headscale suits teams that keep ACLs as code (HuJSON); raw `wireguard` means
-  "you own routing/NAT/key exchange", like the `none` ingress driver. Today
-  `managed-by-swarmy` is a mode value only — swarmy does not yet stand up its
-  own NetBird server, so a real control plane (NetBird cloud or self-hosted) is
-  still required.
+  "you own routing/NAT/key exchange", like the `none` ingress driver. With
+  `managed-by-swarmy` (the installer's `--mesh swarmy`, the default) swarmy runs
+  its own NetBird control plane inside the swarm, started before the swarm
+  exists; NetBird cloud or an external self-hosted server are the alternatives.
 - **Mesh identity is swarmy's service token**, which owns the NetBird account.
   There is no OIDC federation, so removing an org member does not revoke their
   mesh peers automatically.

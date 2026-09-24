@@ -260,9 +260,6 @@ export const ingressRouter = router({
     )
     .mutation(({ ctx, input }) => setByoDnsProvider(ctx, input)),
 
-  /**
-   * Cloudflare tunnels. Nested here so it is reachable without a root.ts edit;
-   * the INTEGRATION snippet also mounts it top-level as `tunnels` if preferred.
-   */
+  /** Cloudflare tunnels (created through the Cloudflare API). */
   tunnels: tunnelsRouter,
 });

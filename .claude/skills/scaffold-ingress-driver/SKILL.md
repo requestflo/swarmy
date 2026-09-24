@@ -40,13 +40,13 @@ that generic intent — drivers never touch a node directly.
 
 5. **Surface it** — add the name to:
    - the wire enum `IngressDriverName` in `packages/core/src/protocol/ingress.ts`,
-   - the DB enum `IngressDriver` in `packages/db/prisma/schema/ingress.prisma`
-     (UPPER_SNAKE; wire and DB names may differ, e.g. `cloudflared` ↔
-     `CLOUDFLARE_TUNNEL`) — `bun db:generate` **and a migration** under
-     `packages/db/prisma/migrations/` (CI fails a schema change without one),
+   - the stored enum `IngressDriverEnum` in
+     `packages/trpc/src/services/ingress-config.repo.ts` (UPPER_SNAKE; the
+     config lives in swarm-kv, so no migration — but wire and stored names may
+     differ, e.g. `cloudflared` ↔ `CLOUDFLARE_TUNNEL`),
    - `INGRESS_DRIVERS` + `INGRESS_DRIVER_LABELS` in `packages/core/src/types.ts`,
    - `packages/trpc/src/services/ingress.service.ts`: the `IngressDriverId`
-     union, `DRIVER_TO_ENUM`, `driverLower()`, `listDrivers()`; and `driverEnum`
+     union, `DRIVER_TO_ENUM`, `driverLower()`; and `driverEnum`
      in `packages/trpc/src/routers/ingress.ts`,
    - the dashboard picker: `apps/app/src/components/ingress/driver-panel.tsx`,
      fed by `ALL_DRIVERS` / `DRIVER_LABELS` / `DRIVER_BLURB` / `IngressDriverId`
