@@ -69,7 +69,11 @@ adapter contract.
    `app.route('/api/v1', restApp)` in `apps/api/src/index.ts` — **no new server,
    no new port**, just more routes on the running controller. Within `v1` you
    add endpoints/optional fields freely; you never remove or repurpose a field
-   or path. A breaking change is a `v2`, not an edit.
+   or path. A breaking change is a `v2`, not an edit, with a deprecation
+   window: deprecated v1 endpoints emit `Deprecation` + `Sunset` headers (RFC
+   8594) and `x-swarmy-deprecated` in the spec (not built yet — nothing is
+   deprecated). New enum values are documented as open, so adding one is
+   non-breaking.
 9. **Mutations are idempotent-replayable; reads are never commands.** A mutation
    (POST/PUT/PATCH/DELETE) carrying `Idempotency-Key` stores `(orgId, key) →
    (status, body)` and replays it verbatim on retry (`idempotency.ts`, runs

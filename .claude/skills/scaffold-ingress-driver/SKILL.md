@@ -13,13 +13,14 @@ that generic intent — drivers never touch a node directly.
 ## Steps
 
 1. **Read the contracts first** so the new driver matches:
-   - `packages/ingress/src/types.ts` — `IngressDriver` interface, `IngressConfig`, `DomainRoute`.
-   - `packages/core/src/protocol/ingress.ts` — `RenderedConfig`, `RenderedFile`, `ServiceLabels` (the wire types).
-   - An existing driver: `packages/ingress/src/drivers/caddy.ts` (file strategy) or `traefik.ts` (label strategy).
+   - `packages/ingress/src/types.ts` — `IngressDriver` interface, `IngressConfig`, `DomainRoute`, `DriverDispatch`.
+   - `packages/core/src/protocol/ingress.ts` — `RenderedConfig`, `RenderedFile`, `ServiceLabels`, and the optional `connector` block (tunnel/connector deployments), i.e. the wire types.
+   - An existing driver: `packages/ingress/src/drivers/caddy.ts` (file strategy), `traefik.ts` (label strategy), or `cloudflared.ts` (tunnel/connector).
 
-2. **Pure renderer** — add `packages/ingress/src/render/<driver>-conf.ts` with a
-   function that builds the config string(s) from `IngressConfig` (no IO). Mirror
-   `render/caddyfile.ts`.
+2. **Pure renderer** — add `packages/ingress/src/render/<driver>.ts` (the
+   convention: `nginx.ts`, `haproxy.ts`, `cloudflared.ts`, `traefik-labels.ts`)
+   that builds the config string(s) from `IngressConfig` with no IO, and export
+   it from `packages/ingress/src/index.ts`. Mirror `render/caddyfile.ts`.
 
 3. **Driver** — add `packages/ingress/src/drivers/<driver>.ts` exporting a class
    implementing `IngressDriver` with `name`, `validate`, `render`, `apply`,
@@ -27,6 +28,9 @@ that generic intent — drivers never touch a node directly.
    - file-based proxies → `files: [{ path, contents, mode }]` + `reloadCommand`
      (or `adminApi`).
    - label-based proxies → `serviceLabels: [{ service, labels, removeLabelKeys }]`.
+   - tunnels → a `connector` block (`render/connector.ts`
+     `buildConnectorServiceSpec`, secrets passed by reference); provider API
+     calls happen controller-side (see `tunnel.service.ts`, `cloudflare.client.ts`).
    `apply` should `dispatch.resolveTargetNodes(...)` then `dispatch.sendToNode(...)`
    for each, exactly like `CaddyDriver.apply`.
 
@@ -36,16 +40,29 @@ that generic intent — drivers never touch a node directly.
 
 5. **Surface it** — add the name to:
    - the wire enum `IngressDriverName` in `packages/core/src/protocol/ingress.ts`,
-   - the DB enum `IngressDriver` in `packages/db/prisma/schema.prisma` (then `bun db:generate`),
+   - the DB enum `IngressDriver` in `packages/db/prisma/schema/ingress.prisma`
+     (UPPER_SNAKE; wire and DB names may differ, e.g. `cloudflared` ↔
+     `CLOUDFLARE_TUNNEL`) — `bun db:generate` **and a migration** under
+     `packages/db/prisma/migrations/` (CI fails a schema change without one),
    - `INGRESS_DRIVERS` + `INGRESS_DRIVER_LABELS` in `packages/core/src/types.ts`,
-   - `listDrivers()` / `driverEnum` in `packages/trpc/src/services/ingress.service.ts` and `routers/ingress.ts`,
-   - the driver `<Select>` in `apps/app/src/routes/_authed/ingress.tsx`.
+   - `packages/trpc/src/services/ingress.service.ts`: the `IngressDriverId`
+     union, `DRIVER_TO_ENUM`, `driverLower()`, `listDrivers()`; and `driverEnum`
+     in `packages/trpc/src/routers/ingress.ts`,
+   - the dashboard picker: `apps/app/src/components/ingress/driver-panel.tsx`,
+     fed by `ALL_DRIVERS` / `DRIVER_LABELS` / `DRIVER_BLURB` / `IngressDriverId`
+     in `components/ingress/driver-config.ts`; any driver-specific card goes in
+     `routes/_authed/ingress.tsx` (as nginx/haproxy do),
+   - the demo resolver `apps/app/src/demo/resolvers/ingress.ts`.
 
-6. **Verify** — `bun --filter @swarmy/ingress typecheck` and add a render unit test.
+6. **Verify** — a colocated golden render test (`render/<driver>.test.ts`, see
+   `nginx.test.ts`), then `bun --filter @swarmy/ingress test` and
+   `bun --filter @swarmy/ingress typecheck`.
 
 ## Notes
 - Keep `none` first-class: never make a new driver the forced default.
 - If the driver needs a process in the swarm (e.g. its own container), document
-  the placement and whether it stores shared state (e.g. certs in Redis).
-- For tunnel-style drivers (cloudflared/ngrok), `render` may emit credentials
-  files + a `reloadCommand` that (re)starts the tunnel; no public ports needed.
+  the placement and where it keeps shared state. Shared certs today live in
+  swarmy object storage (bucket `swarmy-edge-certs`, certmagic-s3) — see
+  `skill("geo-edge-routing")`; never render a credential into a config file.
+- Tunnel drivers prefer the `connector` block over files + `reloadCommand`; the
+  credentials-file path in `cloudflared.ts` is the fallback mode only.

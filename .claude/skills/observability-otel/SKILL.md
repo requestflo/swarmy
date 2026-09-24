@@ -117,8 +117,8 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
 | Alert eval + uptime sampling worker | `apps/api/src/workers/alert-evaluator.ts` |
 | Prisma: config/store-state + alerts/incidents/status | `packages/db/prisma/schema/{observability,alerts}.prisma` |
 | Trace UI: waterfall/map/metrics/logs panels | `apps/app/src/components/observability/*` |
-| Top-level nav + trace detail routes | `apps/app/src/routes/_authed/observability{,.$traceId}.tsx` |
-| Alerts/incidents/status routes + public page | `routes/_authed/{alerts,incidents,status-pages}.tsx`, `routes/s.$slug.tsx` |
+| Per-stack Observability tab + trace detail route | `apps/app/src/routes/_authed/stacks/$name.observability.tsx` (→ `components/observability/stack-observability-tab.tsx`), `routes/_authed/observability.$traceId.tsx` |
+| Alerts/incidents routes, status pages, public page | `routes/_authed/{alerts,incidents,incidents_.$incidentId}.tsx`; status pages are per stack (`components/statuspages/stack-status-pages.tsx`); public `routes/s.$slug.tsx` |
 
 ## Adding a signal / query (the recipe)
 
@@ -147,8 +147,10 @@ observe-only (ClickHouse `TTL` owns deletion).
   `otel-injection.test.ts` pins both the no-op-when-disabled identity and the
   don't-overwrite rule; keep them green.
 - ClickHouse is heavy: keep the suite strictly opt-in (zero footprint when off),
-  keep tail sampling + short `TTL` defaults, and surface `diskUsedBytes` in the
-  UI so growth is visible before it hurts.
+  keep short `TTL` defaults, and surface `diskUsedBytes` in the UI so growth is
+  visible before it hurts. The collector pipelines are OTLP-only (`resource` +
+  `batch`) — no `filelog` stdout tailing, tail sampling or gateway tier yet,
+  although `docs/product/observability.md` describes them as the direction.
 - The collector schema is the writer's — if you touch table shape, change
   `renderCollectorConfig`'s exporter settings, not a hand-rolled `CREATE TABLE`
   in `renderClickhouseInitSql`.

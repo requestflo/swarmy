@@ -138,7 +138,12 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
 ## Operational gotchas
 
 - The sidecar needs `NET_ADMIN` + `/dev/net/tun` and runs `NetworkMode: 'host'`;
-  it is pinned and off-by-default for a reason — never widen its caps casually.
+  it is privileged for a reason — never widen its caps casually. Its image
+  (`NETBIRD_CLIENT_IMAGE`, and the installer's) is currently `:latest`, not
+  pinned — pinning it is part of `plans/epic-platform-upgrades.md`.
+- MTU is not managed yet. WireGuard (~1420) under VXLAN (+50B) can fragment or
+  silently drop packets; lower the overlay / `docker_gwbridge` MTU on
+  mesh-attached nodes if large packets stall.
 - `meshState` in the gateway currently writes coarse `ONLINE`/`OFFLINE`, while
   `reconcilePeerState` models the fuller `ENROLLING`/`ENROLLED`/`CONNECTED`/
   `DEGRADED`/`FAILED` domain — prefer the pure mapping when unifying them.

@@ -157,6 +157,10 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
   and cosign images must be pullable from a public registry to bootstrap.
 - BuildKit's cache volume is itself a disk consumer — GC prunes images, not the
   build cache; watch it on builder nodes.
+- GC is node-local only: `image.prune` reclaims node disk, but registry
+  manifests/blobs are never deleted — rollback and a fresh node's pull depend on
+  that, so the registry volume only grows. Any future registry-side GC must
+  reuse the live pinned set and add a grace window for in-flight builds/deploys.
 - Single-replica registry is a data-loss SPOT — treat it as cache-rebuildable
   (rebuild from git); document S3 storage for HA.
 - The webhook secret is decrypted and surfaced exactly once (`getWebhookInfo`)

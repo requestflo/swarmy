@@ -6,23 +6,38 @@ description: Build a new swarmy feature end-to-end across the stack (db model �
 # Add a feature slice
 
 swarmy features cut vertically. Build in dependency order so types flow through.
+Each layer has an owning skill with the invariants — this one is the map.
 
-## 1. Data (`packages/db`)
-- Add/extend models in `prisma/schema.prisma`. Domain tables use `orgId` + an
+## 1. Data — Docker first, Postgres only if it must (`packages/db`)
+- **First run `skill("docker-native-storage")`.** Anything describing how a
+  service/stack/node should behave lives on the Docker object (label / config /
+  secret), not in a new Prisma model. Postgres is for swarmy's own identity,
+  access, audit, and queryable history.
+- If it does belong in the DB: the schema is multi-file —
+  `packages/db/prisma/schema/<domain>.prisma`. Domain tables use `orgId` + an
   `org` relation (NOT `organizationId` — that's Better-Auth-only). Use enums,
   `Json`, `BigInt`, `@db.Timestamptz(3)` consistently with neighbours.
-- `bun db:generate` then `bun db:push` (or `bun db:migrate`).
+- **Ship a migration.** Installs build their schema from
+  `packages/db/prisma/migrations/*` (never `db push`), and CI fails a schema
+  change with no migration. `bun db:generate`, then `bun db:migrate` (or write
+  the SQL with the `prisma migrate diff` command CI prints) into the next
+  numbered folder. `bun db:push` is for a throwaway local DB only.
 
 ## 2. Agent protocol (`packages/core/src/protocol`) — only if the agent acts
-- Add a controller→agent command message (a `z.object` with `commandId` +
-  `timeoutMs?`) to the right file (`commands.ts` / `ingress.ts`) and include it in
-  the `ControllerToAgentMessage` union in `messages.ts`.
-- Add the `CommandName` + its protocol `type` to `COMMAND_PROTOCOL_TYPE` in
-  `packages/trpc/src/hub/types.ts`.
-- Implement it in the agent: handle the case in `apps/agent/src/executor.ts` via
-  the `@swarmy/core/docker` wrapper; `run(...)` sends `commandResult`.
-- Telemetry the agent PUSHES (no round-trip) goes through the gateway store +
-  `AgentHub` snapshot/subscription methods instead.
+- Follow the "Adding a command" recipe in `skill("agent-handlers")`: a Zod
+  message in `protocol/<domain>.ts` added to the `ControllerToAgentMessage`
+  union, a `CommandName` in `COMMAND_PROTOCOL_TYPE`
+  (`packages/trpc/src/hub/types.ts`), a `case` in `apps/agent/src/executor.ts`
+  calling a handler in `apps/agent/src/handlers/`, plus its round-trip parse
+  test (`skill("testing-conventions")`).
+- Reads are not commands: telemetry the agent PUSHES goes through the gateway
+  store + hub snapshots instead.
+- If something must keep converging (labels → Docker), that's a worker:
+  `skill("reconcile-workers")`.
+- Don't add a command for one-shot tools (trivy, cosign, wal-g, drills) — use
+  `container.runOnce`; in-container CLIs (`psql`, `redis-cli`) use `exec`. Any
+  credential stored in a DB row goes through `encryptSecret`
+  (`@swarmy/core/crypto`) and is never returned to a client.
 
 ## 3. Shared input/view types (`packages/core`)
 - Form/API input schemas → `src/inputs.ts` (Zod, shared by RHF + tRPC `.input()`).
@@ -34,13 +49,21 @@ swarmy features cut vertically. Build in dependency order so types flow through.
 - Thin router in `src/routers/<feature>.ts` using `orgProcedure`/`adminProcedure`;
   mount it in `src/root.ts`.
 - Mutations that need the agent call `ctx.hub.dispatch(nodeId, cmd, payload)`.
+- Every mutation writes audit through the single writer `writeAudit`
+  (`services/audit.service.ts`); policy-gated ones use `abacProcedure`
+  (`skill("auth-abac")`). If it should be public API too, add the REST route
+  over the same service (`skill("rest-api-surface")`).
 
 ## 5. Dashboard (`apps/app`)
 - Route under `src/routes/_authed/...`. Use `const trpc = useTRPC()` then
   `useQuery(trpc.x.queryOptions())` / `useMutation(trpc.x.mutationOptions())`.
-  Live data: poll with `refetchInterval`. Build from `@swarmy/ui` components.
+  Live data: poll with `refetchInterval`. Build from `@swarmy/ui` components
+  (`skill("react-components")`, `skill("hot-signal-design")`). Add a demo
+  resolver in `apps/app/src/demo/resolvers/*` for every new query so `?demo=1`
+  keeps working.
 
 ## 6. Verify
-- `bun typecheck` (whole graph). For the app, `bun --filter @swarmy/app build`
-  regenerates the route tree and validates bundling.
-- Everything is org-scoped and should write an `auditLog` row for mutations.
+- `bun typecheck` (whole graph) and the package tests. For the app,
+  `bun --filter @swarmy/app build` regenerates the route tree and validates
+  bundling.
+- Everything is org-scoped; every mutation is audited.

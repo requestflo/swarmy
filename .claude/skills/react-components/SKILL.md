@@ -37,7 +37,7 @@ Load when working on React components (`.tsx` in `apps/app/src`), custom hooks
 
 Every distinct UI concern lives in its own file. **Never inline forms, dialogs,
 or filter bars in a route component.** A route file orchestrates; sub-components
-live in `apps/app/src/components/<feature>/` or `src/features/<feature>/`.
+live in `apps/app/src/components/<feature>/`.
 
 | UI element | File pattern |
 |---|---|
@@ -103,7 +103,8 @@ import { NodeRow } from './node-row'
 - **Named exports**, **explicit return types** (`React.JSX.Element`), **`interface`** for props.
 - **`import type`** for type-only imports (verbatimModuleSyntax is on).
 - **`cn()`** for conditional Tailwind; tokens only (no raw palette).
-- Handle **loading / error / empty / success** explicitly; every empty state sells the next action.
+- Handle **loading / error / empty / success** explicitly — pending renders a skeleton from `@/components/states` (never a placeholder `0`); every empty state sells the next action.
+- Add a demo resolver (`apps/app/src/demo/resolvers/*`) for every new tRPC query so `?demo=1` keeps working.
 - Mobile-first responsive; the layout swap is `lg` (1024px) via `useBelowLg()`.
 
 ### Do not

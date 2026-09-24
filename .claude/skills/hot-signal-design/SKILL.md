@@ -1,6 +1,6 @@
 ---
 name: hot-signal-design
-description: Hot Signal — the swarmy apps/app design system. Principles, tokens, typography, shell (desktop navy sidenav + mobile tab bar), responsive rules, and the utility classes every apps/app surface must use. Load before touching anything in apps/app.
+description: Hot Signal — the swarmy apps/app design system. Principles, tokens, typography, shell (desktop navy sidenav + mobile tab bar), responsive rules, and the utility classes every apps/app surface must use. Load before touching anything in apps/app. Its nav, hero-headline and vocabulary rules are superseded by plans/redesign-dashboard-2026-09.md (marked inline) until redesign P1 rewrites them.
 ---
 
 ## When to use me
@@ -11,15 +11,23 @@ product experience. `apps/web` is the marketing site and mirrors the same Hot
 Signal tokens so login is zero-surprise — see `skill("design-reference")` for the
 shared `@swarmy/ui` primitives.
 
+> **Redesign in flight — read `plans/redesign-dashboard-2026-09.md` first.** The
+> approved direction ("a calm ops console for novices and experts") supersedes
+> three rules below, each marked **⚠ Superseded**: the hero headline on every
+> page, the 8-row sectioned nav, and the stack/node vocabulary. Tokens, type,
+> colour, dark mode, width strategy and the Do/Don't list still hold. Phase P1 of
+> that plan rewrites this skill; until then, new work follows the plan where the
+> two disagree, and existing surfaces aren't churned just to match it.
+
 ## The direction — non-negotiable
 
 swarmy's dashboard is, always:
 
 > **Simple. Cool. Ultra premium. Bold. Easy to use — always.**
 
-- **Simple** — one obvious thing to do per screen. Six destinations (Overview,
-  Nodes, Services, Stacks, Ingress, Settings). No settings sprawl, no admin-panel
-  chrome, no feature you have to explain. "Anyone can just deploy."
+- **Simple** — one obvious thing to do per screen. A handful of flat
+  destinations (the redesign's target is seven — plan §B.1). No settings sprawl,
+  no admin-panel chrome, no feature you have to explain. "Anyone can just deploy."
 - **Cool & next-gen** — feels like a modern consumer app (Monzo / Linear energy),
   not a SaaS dashboard. Big confident type, colour used loudly but purposefully,
   moments of delight (count-ups on metrics, spring reveals, a live "It's online.").
@@ -102,7 +110,9 @@ First-class, not an afterthought.
 `apps/app/src/components/shell/sidenav.tsx`:
 1. Wordmark (white "swarm" + coral "y").
 2. Coral "Create" pill + ⌘K search.
-3. Nav: **8 flat destinations, never accordions/collapsing groups** — the 3
+3. Nav (**⚠ Superseded** by plan §B.1 — seven rows Overview / Apps / Servers /
+   Network / Data / Activity / Settings, Deploy becomes a verb on Create/⌘K;
+   still flat, still never accordions). Today's code: **8 flat destinations** — the 3
    anchors (Overview / Stacks / Infrastructure) then one row per section
    (Deploy / Platform / Operations / Governance / Settings, from `NAV_GROUPS`
    in `lib/destinations.ts`). Active item is a **white pill with navy text**
@@ -122,9 +132,10 @@ becomes a tab, never a new sidenav row.
 
 **Mobile (< 1024px)** — `apps/app/src/components/shell/mobile-chrome.tsx`:
 - `MobileHeader` — compact sticky header: wordmark + avatar only.
-- `MobileTabBar` — fixed bottom tab bar: Overview, Nodes, **centre coral `+` FAB**
-  (deploys a new service), Services, Settings. Safe-area padded; content gets
-  `pb-28` so the bar never covers it.
+- `MobileTabBar` — fixed bottom tab bar: Apps, Infra, **centre coral `+` FAB**
+  (the Create sheet), More (opens the full grouped navigation). Safe-area
+  padded; content gets `pb-28` so the bar never covers it. (Plan §E target:
+  Overview · Apps · `+` · Servers · Activity.)
 
 **Breakpoint rule:** the layout swap happens at **`lg` (1024px)**. For JS-driven
 swaps use `useBelowLg()` from `apps/app/src/lib/use-below-lg.ts`.
@@ -136,7 +147,10 @@ always-visible tab bar.
 
 1. `.eyebrow` page marker (wayfinding).
 2. `.headline` hero — a statement with the key number, coral `<em>` on the word
-   that matters. Optionally over a `.mesh` wash.
+   that matters. Optionally over a `.mesh` wash. **⚠ Superseded** (plan §E): the
+   hero is retired everywhere but Overview; other pages get a compact header —
+   `h1` = the page name at `text-2xl/3xl`, an inline status chip, one coral CTA.
+   Don't add a new hero to a non-Overview page.
 3. One coral CTA (if the screen has a primary action).
 4. The data: `.card-pop` surfaces; KPI rows as big mono numbers with `count-up`;
    live series in hand-tuned charts (coral line, never stock chart-library
@@ -145,6 +159,11 @@ always-visible tab bar.
 5. Status always via `--status-*` tokens + `StatusBadge`.
 6. Every empty state sells the next action ("No nodes yet — add one." with the CTA),
    never "No data available".
+7. **Never a fake zero.** While a query is pending render a skeleton from
+   `apps/app/src/components/states/*` (`PageSkeleton`, `CardSkeleton`,
+   `ErrorState`); a number is shown only once it has settled. A metric shown in
+   two places comes from one hook (e.g. `lib/use-estate-summary.ts`), so the
+   sidenav footer and a KPI card can never disagree.
 
 ## Width strategy
 
@@ -164,6 +183,10 @@ Width goes to data, focus goes to input.
 
 ## Voice & microcopy
 
+**Words** (**⚠ Superseded** by plan §B.3, applied in UI copy only — routes and
+API names don't change): App (not stack) · Service · Server (not node) ·
+Domain (not route/ingress) · Edge · Mesh.
+
 Talk like a sharp SRE colleague, not a system: "All green, Calum.", "3 nodes
 offline — take a look.", "Quiet so far. Add a node.", "It's live." Short.
 Confident. Human. Lead with numbers.
@@ -182,6 +205,7 @@ Confident. Human. Lead with numbers.
 - Tokens & utilities: `@swarmy/ui/src/styles.css` (shared by both apps).
 - App globals + fonts + `@source`: `apps/app/src/styles/globals.css`.
 - Shell: `apps/app/src/components/shell/{app-shell,sidenav,mobile-chrome}.tsx`, `components/theme-menu.tsx`.
-- Primitives: `apps/app/src/components/{count-up,page-header,charts,status-pill}.tsx`.
+- Primitives: `apps/app/src/components/{count-up,page-header,section-header,charts}.tsx`, `components/states/*`; `StatusBadge` from `@swarmy/ui`.
+- Nav model: `apps/app/src/lib/destinations.ts` (`NAV_GROUPS`, destinations, Create menu), stack tabs in `lib/stack-nav.ts`.
 - Data: components use `const trpc = useTRPC()` + `useQuery(trpc.x.queryOptions())` (see `skill("react-components")`).
 - Auth: `apps/app/src/...` imports `@swarmy/auth/client` — never the package root in browser code.

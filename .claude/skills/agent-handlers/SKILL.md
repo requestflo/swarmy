@@ -65,10 +65,17 @@ skill is the agent-and-protocol third of that.
    active→inactive transition, send `swarmLeft` then exit (so the node drops
    offline / restarts and the controller audits it) — but never exit a
    node that has not yet joined (freshly-enrolling nodes wait for `swarm.join`).
-10. **Privileged capabilities are off by default and env-gated.** Exec/terminal/
-    node-shell/mesh/build run only when the agent's explicit flag is set
-    (`SWARMY_ALLOW_EXEC`/`_MESH`/…); they are TTL'd and audited controller-side.
-    A new privileged handler adds a gate — it does not widen an existing one.
+10. **Every privileged capability has its OWN gate: a controller-asserted node
+    label plus a local env veto** (`apps/agent/src/env.ts`, gate fns in
+    `@swarmy/core`). Container exec is default-ON — the real gate is
+    controller-side (`terminal.open` ABAC + TerminalPolicy + audit + recording);
+    `swarmy.node.exec=false` turns it off and `SWARMY_ALLOW_EXEC` is a tri-state
+    override. Node shell (host RCE) is default-OFF: only `swarmy.node.shell=true`
+    enables it, `SWARMY_ALLOW_NODE_SHELL=false` vetoes locally and `true` can NOT
+    force it on. Builds follow the `swarmy.node.builder` role
+    (`SWARMY_ALLOW_BUILD` override); mesh is on unless `SWARMY_ALLOW_MESH=false`.
+    Terminals are output-capped (`SWARMY_TERM_MAX_OUTPUT_BYTES`, 64 MiB). A new
+    privileged handler adds its own gate — it never rides or widens another's.
 
 ## Contracts between the layers
 
@@ -99,6 +106,7 @@ skill is the agent-and-protocol third of that.
 | Reconnecting WS client (backoff, register on open, `redial()`) | `apps/agent/src/connection.ts` |
 | Command dispatch (switch on envelope `type`) + `run()` | `apps/agent/src/executor.ts` |
 | Capabilities (deploy/mesh/dns/backup/build/storage/terminal/…) | `apps/agent/src/handlers/*` |
+| Web terminal: exec/node-shell PTY over the agent WS, tickets, recording | `apps/agent/src/handlers/terminal.ts`, `protocol/terminal.ts`, `apps/api/src/terminal{,-tickets,-recording}.ts`, `schema/terminal.prisma` |
 | Node facts, public-IP detect, snapshots, stats | `apps/agent/src/{public-ip,snapshots,stats,state}.ts` |
 | Wire protocol: envelope, messages, auth, per-domain types | `packages/core/src/protocol/*` |
 | Docker/dockerode wrapper (single source) | `@swarmy/core/docker` (`packages/core/src/docker.ts`) |
@@ -106,7 +114,7 @@ skill is the agent-and-protocol third of that.
 | Controller-side dispatch / snapshot hub | `packages/trpc/src/hub/*`, `packages/trpc/src/services/dispatch.service.ts` |
 | Register / session handshake | `apps/api/src/gateway/protocol-handlers.ts` |
 | Node roles/region/public-ip labels, drain | `packages/trpc/src/services/node.service.ts` |
-| Install script routes + agent binary serving | `apps/api/src/install/*` (see `plans/epic-node-onboarding.md`) |
+| Install script routes + agent binary serving | `apps/api/src/install/*`, `scripts/install-swarmy.sh` (WHY: `docs/product/compute-and-onboarding.md`) |
 
 ## Adding a command (the recipe)
 

@@ -57,6 +57,12 @@ and where everything lives. Backups are dispatched to the agent as commands — 
    (`Node.sessionSecretHash`/`sessionVersion`) inside the dump — restoring the DB
    lets agents dial back out and re-adopt. Never hot-swap `SWARMY_SECRET_KEY` in a
    running process; a key mismatch is a surfaced warning, not a silent overwrite.
+   The dump is data-only `INSERT`s — schema is recreated by migrate/`ensureSchema`
+   on restore — and skips `EXCLUDED_TABLES` (`metric_sample` is rebuildable
+   telemetry). The bundle is a passphrase-encrypted `bundle.swcb` inside restic,
+   so a by-hand restore needs swarmy's decrypt as well as restic. Lite (PGlite) →
+   managed Postgres is bundle → flip `SWARMY_DB_DRIVER`/`DATABASE_URL` → restore;
+   there is no separate migration path (`controllerDb.service.ts`).
 7. **Drills are safe-by-construction, admin-only, confirmed, audited.** The
    restore drill only ever touches a throwaway `drill-<ts>` cluster and cleans up
    on success AND failure; the failover drill refuses anything but a fully-healthy
@@ -120,10 +126,13 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | DB backups: engines, `swarmy.db.backup.*` labels, schedule, PITR, restore | `packages/trpc/src/services/dbBackup.service.ts` (+ `routers/dbBackup.ts`) |
 | Controller brain: config, passphrase, bundle build/restore, re-adopt | `packages/trpc/src/services/controllerBackup.{service,bundle,dump}.ts` (+ `routers/controllerBackup.ts`) |
 | Standalone disaster-restore entrypoint (dashboard is down) | `apps/api/src/restore.ts` |
-| Resilience: 9 checks, score math, 3 drills, drill history | `packages/trpc/src/services/resilience.service.ts` (+ `routers/resilience.ts`) |
+| Resilience: checks (`CHECKS_RUN`), score math, 3 drills, drill history | `packages/trpc/src/services/resilience.service.ts` (+ `routers/resilience.ts`) |
+| Default-on DB backups (nightly `pg_dump` for managed PG, crash-consistent volume backup for compose DBs, opt-out markers) | `packages/trpc/src/services/autoBackup{,.service}.ts` |
+| Controller datastore (lite PGlite ↔ managed `swarmy-postgres`) | `packages/trpc/src/services/controllerDb.service.ts` |
 | Workers: scheduled backups / restore-on-recovery / controller schedule | `apps/api/src/workers/{backup-scheduler,dr-reconcile,controller-backup-scheduler}.ts` |
-| UI: estate backups, resilience score, controller-backup settings, per-stack | `apps/app/src/routes/_authed/{backups,backups.schedules,resilience,settings.backup}.tsx`, `stacks/$name.backups.tsx` |
-| Crypto: `encryptSecret`/`decryptSecret`, passphrase gen + fingerprint | `packages/core/src/crypto.ts` |
+| UI: estate destinations, controller backup | `apps/app/src/routes/_authed/{backups,settings_.backup}.tsx`, `components/controllerbackup/*` |
+| UI: per-stack Backups tab (schedules, resilience score, drills) | `routes/_authed/stacks/$name.backups.tsx` → `components/backups/{stack-backups,stack-schedules-card,…}.tsx`, `components/resilience/*`; overview card `components/overview/resilience-card.tsx` |
+| Crypto: `encryptSecret`/`decryptSecret`, `generateRestorePassphrase` + fingerprint | `packages/core/src/crypto.ts` |
 | Off-site mirror of the Garage store (rclone one-shot, env-only creds, copy/sync, restore-from-offsite) | `packages/trpc/src/services/offsiteMirror.{core,service}.ts` (+ `routers/offsiteMirror.ts`, worker `apps/api/src/workers/offsite-mirror.ts`, UI `components/backups/offsite-mirror-card.tsx`) |
 
 ## Adding a check or a drill (the recipe)
@@ -157,7 +166,8 @@ ends with `finishDrill(...)` (which `recordDrill`s the audit row); wire it as an
 - **Never let a preflight touch prod.** The restore drill's snapshot lookup +
   engine check run *before* it creates the `drill-<ts>` cluster; keep new
   validation there, not after.
-- **The controller passphrase is shown once.** `generatePassphrase` returns it
+- **The controller passphrase is shown once.** The `generatePassphrase`
+  procedure (→ `generateRestorePassphrase`) returns it
   without storing; `setPassphrase` stores only `encryptSecret` + a
   `passphraseFingerprint` hint. Zero-knowledge disaster restore supplies it via
   the CLI; the stored copy is for in-place operational rollback only.

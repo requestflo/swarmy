@@ -73,8 +73,9 @@ state belongs see `skill("docker-native-storage")`.
   validate with `@swarmy/core` input schemas (`ProvisionCacheInput`,
   `AttachBucketInput`, …) and call the service. Services mutate the swarm via
   `ctx.hub.dispatch(nodeId, cmd, payload)` — `service.deploy`, `network.ensure`,
-  `secret.create`/`secret.remove`, and (storage/volumes) `applyStorageNode`,
-  `provisionVolume`, `removeVolume`, `container.runOnce`. Never hand-roll a wire
+  `secret.create`/`secret.remove`, and (storage/volumes) `storage.apply`,
+  `volume.provision`, `volume.remove` (wire types `applyStorageNode` /
+  `provisionVolume` / `removeVolume`), `container.runOnce`. Never hand-roll a wire
   frame — see `skill("agent-handlers")`.
 - **Provision result carries the secret once.** `provision*` returns
   `{ …, password|masterKey|apiKey|secretAccessKey }` exactly once; the router
@@ -104,7 +105,8 @@ state belongs see `skill("docker-native-storage")`.
 | Storage/volume protocol messages | `packages/core/src/protocol/storage.ts` |
 | Input schemas + engine/topology enums | `packages/core/src/inputs.ts`, `packages/core/src/views.ts` |
 | StorageCluster / ClusterVolume models | `packages/db/prisma/schema/backups.prisma` |
-| Data surfaces (DB/cache/search/vector/buckets) | `apps/app/src/routes/_authed/data*.tsx` |
+| Data surfaces | per stack: `apps/app/src/routes/_authed/stacks/$name.data.tsx` → `components/stacks/managed-db-panel.tsx`, `components/{cache,searchsvc,vector,pitr-ha}/*`; buckets: `routes/_authed/data_.buckets.tsx` |
+| HA templates (`postgres-ha` repmgr, `redis-ha` Sentinel; no gallery UI yet) | `packages/trpc/src/services/templates.ts`, `routers/templates.ts` |
 
 ## Adding a managed-data type (the recipe)
 

@@ -156,7 +156,11 @@ from invariant 6 intact.
 **Touch the repair one-liner.** `install/installer.ts` renders the shell script;
 `bash -n`/`sh -n` the rendered output (see the `apps/api/src/install/*.test.ts`
 golden tests) and keep REPAIR-mode detection (env-file/state/container present)
-before enrollment.
+before enrollment. Installers are POSIX `sh` (Alpine/busybox have no bash). The
+loader must render the same bytes whichever address fetched it, because its
+sha256 pins it (`installerOptionsFor` in `apps/api/src/index.ts`).
+`get.docker.com` is a known unpinned trust hop — prefer the distro's own Docker
+when present.
 
 ## Verification
 

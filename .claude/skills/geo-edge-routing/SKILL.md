@@ -40,8 +40,8 @@ invariants that must survive every change, and where everything lives.
 6. **Pure core, thin IO.** All DNS logic (steering, zone composition, query
    answering, wire encode/decode, signatures) lives in `packages/dns` and is
    imported by controller, worker, AND server. Never inline a copy into a
-   worker (`apps/api/src/workers/geodns-reconcile.ts` drift was the v1 bug this
-   killed). Same rule as ingress drivers: render pure, apply at the edge.
+   worker (the deleted v1 `geodns-reconcile.ts` drifted — the bug this
+   killed; `dns-reconcile.ts` now only schedules `reconcileDnsOrg`). Same rule as ingress drivers: render pure, apply at the edge.
 7. **Never answer empty because of health.** Unhealthy regions are omitted;
    zero healthy endpoints → answer ALL (degraded spill). Missing GeoIP DB →
    deterministic unsteered answers. NXDOMAIN only for names that don't exist.
@@ -110,7 +110,7 @@ invariants that must survive every change, and where everything lives.
 | Region-aware Caddy render | `packages/ingress/src/render/caddyfile.ts` (+ `types.ts` RegionUpstream/localRegion) |
 | Region sibling discovery | `packages/trpc/src/services/ingress-regions.ts` |
 | Edge Caddy service spec / topology | `packages/trpc/src/services/ingress-controller.ts` |
-| DNS UI (zones, NS onboarding, preview, records) | `apps/app/src/components/geo/*`, Edge & ingress route |
+| DNS UI (zones, NS onboarding, preview, records) | `apps/app/src/components/geo/*`, used by `routes/_authed/ingress.tsx` and the stack `stacks/$name.network.tsx` tab |
 
 ## Operational gotchas
 

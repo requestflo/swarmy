@@ -98,7 +98,20 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
 - **Identity**: `@swarmy/auth` wraps Better Auth (`organization` plugin always
   present as element 0; social/OIDC-SSO/magic-link/passkey injected at runtime
   from `AuthProviderConfig`). API keys/OAuth clients are hashed at rest and
-  scoped — see `skill("rest-api-surface")`.
+  scoped — see `skill("rest-api-surface")`. Provider changes never restart the
+  process: `authRegistry.rebuild()` builds a new instance fully, then swaps it
+  atomically; in-flight requests keep the instance they captured, and sessions
+  live in the DB so they survive. One instance serves the whole controller —
+  social/passkey/magic-link are instance-wide; only SSO rows are per-org.
+  Provider/SSO secrets are write-only: encrypted via `@swarmy/core/crypto`
+  (`SWARMY_SECRET_KEY`), decrypted only in `loadAuthConfig`, never returned by
+  any read (the UI shows "set"/"rotate"). SAML rows are stored but skipped at
+  build time (no SAML plugin in this Better Auth version).
+- **Coverage today**: `abacProcedure` currently gates only the terminal
+  (`routers/terminal.ts`); destructive mutations like `services.scale/restart/
+  remove` are still `orgProcedure`, `nodes.remove` is `adminProcedure`. Moving
+  them behind policy is open work (`plans/ROADMAP.md`) — when you touch one, move
+  it to `abacProcedure` rather than adding another role check.
 
 ## File map
 
@@ -119,7 +132,7 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
 | Better Auth wiring (runtime-built) | `packages/auth/src/{server,config,client}.ts` |
 | Access & auth models | `packages/db/prisma/schema/access.prisma` (`Policy`, `ResourceGrant`, `SsoProvider`, `AuthProviderConfig`) |
 | Governance config + identity + audit models | `packages/db/prisma/schema/{governance,api,auth}.prisma`; `AuditLog`/`JoinToken` in `cluster.prisma` |
-| UI surfaces | `apps/app/src/routes/_authed/{governance,exposure,settings.access,audit,cost}.tsx` |
+| UI surfaces | routes `apps/app/src/routes/_authed/{governance,exposure,settings_.access,audit,cost}.tsx` over `apps/app/src/components/{guardrails,exposure,access,auditlog,cost}/*` (the redesign moves these under Settings → Access and Activity — `plans/redesign-dashboard-2026-09.md` §B.2) |
 
 ## Recipe: put a mutation behind a policy + audit it
 

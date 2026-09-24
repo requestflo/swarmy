@@ -44,13 +44,14 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
    `ControllerToAgentMessage` variant is not done until it has this test — an
    unparsed frame is dropped silently on the wire, so the test is the only thing
    that catches a bad schema.
-6. **The five required CI gates are load-bearing, not optional** (ROADMAP
-   "Testing" cross-cut). Each headline capability owns one:
+6. **The five required CI gates are load-bearing, not optional.** Each
+   headline capability owns one:
    protocol parse (inv. 5), compose two-way golden round-trip
    (`packages/core/src/compose/*.test.ts`), ABAC policy units
    (`packages/abac/src/*.test.ts` + `trpc/src/abac.test.ts`), GC "never prune the
    in-prod digest" (`trpc/src/services/image-gc.test.ts`), and the headline e2e
-   (`install.sh` → node ONLINE → deploy → reachable over ingress). Deleting the
+   (`scripts/e2e-smoke.sh`: real install → node ONLINE → deploy → reachable
+   over HTTPS). Deleting the
    last assertion of any of these is a regression in the gate, not cleanup.
 7. **The GC test's job is to prove a digest running in prod is never removed.**
    `computeGcPlan` tests assert `plan.remove` never contains a pinned digest under
@@ -77,13 +78,16 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
 - **Turbo → workspaces**: `turbo run test` fans out to each workspace's `bun
   test` after `^build`. A package with no test file still passes (bun test exits 0
   on no matches) — absence is silent, so a required gate must be an actual file.
-- **CI → gates** (`.github/workflows/`): `ci.yml` `verify` job runs
-  `typecheck` + `build` + Prisma schema validate against a real `postgres:16`
-  service (`DATABASE_URL` wired to it) and `images-dryrun` builds both Dockerfiles
-  without pushing; `commitlint` lints PR commits; `pr-title.yml` lints the PR
-  title; `release.yml` runs semantic-release on `main`. **A `bun run test` job is a
-  known P0 gap** (ROADMAP: "CI today runs no lint/test") — when you add it, it
-  needs the same Postgres service block as `verify` for any DB-touching test.
+- **CI → gates** (`.github/workflows/`): `ci.yml` `verify` job, against a real
+  `postgres:16` service, runs `prisma migrate deploy` then **fails if
+  `prisma/schema` differs from the migrations** (a model change must ship a
+  migration), proves the boot-time `ensureSchema` path on Postgres, then
+  `typecheck` + `build`; `images-dryrun` builds both Dockerfiles without pushing;
+  `commitlint` lints PR commits; `pr-title.yml` lints the PR title; `e2e.yml`
+  runs the headline self-host e2e (below); `release.yml` runs semantic-release on
+  `main`. **CI still runs no `bun run test` job** — the unit gates above only
+  protect you if you run them; when you add the job, give it the same Postgres
+  service block as `verify` for any DB-touching test.
 - **Test → source purity**: a test importing from `@swarmy/core`,
   `@swarmy/ingress`, `@swarmy/dns`, `@swarmy/abac`, `@swarmy/mesh` gets pure
   functions; a test in `packages/trpc/src/services` mocks `OrgContext`/the hub.
@@ -109,7 +113,6 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
 | Headline self-host e2e (real install → ONLINE → deploy → HTTPS) | `scripts/e2e-smoke.sh`, `.github/workflows/e2e.yml` |
 | CI gates | `.github/workflows/{ci,e2e,pr-title,release,images}.yml` |
 | Conventional-commit rules (scopes = workspaces) | `commitlint.config.mjs` |
-| Release-engineering rationale | `plans/epic-licensing-release-engineering.md`, `plans/ROADMAP.md` (Testing cross-cut) |
 
 ## Adding a test (the recipe)
 

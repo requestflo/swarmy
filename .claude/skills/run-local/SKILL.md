@@ -116,7 +116,7 @@ wrong database.
 To exercise the caddy/traefik ingress drivers locally:
 
 ```bash
-bun docker:up --profile ingress      # also starts caddy + traefik
+docker compose --env-file .env -f docker/docker-compose.yml --profile ingress up -d   # + caddy, traefik
 ```
 
 (Bound to non-conflicting host ports — see `docker/docker-compose.yml`.)
