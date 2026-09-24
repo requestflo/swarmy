@@ -20,8 +20,18 @@ export * from './errors';
 // ── REST front door: api-key→OrgContext seam + service functions it reuses ──
 export { resolveOrgContextFromApiKey } from './apiKeyContext';
 // The fine-grained policy step both front doors share (REST `requireAction`).
-export { authorize, resolveNode, resolveService, resolveStack } from './abac';
-export type { AuthzGrant, ResolveResource } from './abac';
+export {
+  authorize,
+  resolveNode,
+  resolveService,
+  resolveStack,
+  resolveStackByName,
+  resolveNewService,
+  whoCan,
+  canPrincipal,
+  liveStackLabels,
+} from './abac';
+export type { AuthzGrant, ResolveResource, WhoCanRow } from './abac';
 export type { ResolvedApiKeyContext, ResolveApiKeyDeps, ApiKeyScope } from './apiKeyContext';
 export { getNode, listNodes } from './services/node.service';
 export {

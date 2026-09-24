@@ -51,7 +51,7 @@ export const cicdRouter = router({
     .mutation(({ ctx, input }) => triggerBuild(ctx, input)),
 
   // Webhook URL + secret to paste into the provider (GitHub/GitLab).
-  webhookInfo: adminProcedure
+  webhookInfo: abacProcedure('secrets.read')
     .input(z.object({ repoId: z.string() }))
     .query(({ ctx, input }) => getWebhookInfo(ctx, input.repoId, CONTROLLER_PUBLIC_URL)),
 

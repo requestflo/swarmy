@@ -1,7 +1,13 @@
 import { z } from 'zod';
-import { CreateServiceInput, LogsInput, UpdateServiceInput } from '@swarmy/core';
+import {
+  CreateServiceInput,
+  LogsInput,
+  SecretVarRefInput,
+  SetSecretVarInput,
+  UpdateServiceInput,
+} from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
-import { abacProcedure, resolveService } from '../abac';
+import { abacProcedure, resolveNewService, resolveService } from '../abac';
 import {
   createService,
   getServiceDetail,
@@ -21,6 +27,12 @@ import {
   watchDeployStatus,
 } from '../services/deployment.service';
 import { resolveManagerNode } from '../services/dispatch.service';
+import {
+  listSecretVars,
+  removeSecretVar,
+  revealSecretVar,
+  setSecretVar,
+} from '../services/app-secrets.service';
 import { resolveServiceLogTarget } from '../services/live-resolve';
 
 export const servicesRouter = router({
@@ -46,9 +58,33 @@ export const servicesRouter = router({
     .input(z.object({ id: z.string() }))
     .query(({ ctx, input }) => inspectService(ctx, input.id)),
 
-  create: orgProcedure.input(CreateServiceInput).mutation(({ ctx, input }) => createService(ctx, input)),
+  create: abacProcedure('service.deploy', resolveNewService).input(CreateServiceInput).mutation(({ ctx, input }) => createService(ctx, input)),
 
-  update: orgProcedure.input(UpdateServiceInput).mutation(({ ctx, input }) => updateService(ctx, input)),
+  update: abacProcedure('service.configure', resolveService).input(UpdateServiceInput).mutation(({ ctx, input }) => updateService(ctx, input)),
+
+  // ── Secret app variables (Docker secrets; write-only) ──────────────────────
+  /** Metadata only (key, delivery, version, set by/at) — never a value. */
+  secretVars: orgProcedure
+    .input(z.object({ id: z.string() }))
+    .query(({ ctx, input }) => listSecretVars(ctx, input.id)),
+
+  /** Create/rotate one secret var (new Docker secret version → rolling update). */
+  setSecretVar: abacProcedure('service.configure', resolveService)
+    .input(SetSecretVarInput)
+    .mutation(({ ctx, input }) => setSecretVar(ctx, input)),
+
+  removeSecretVar: abacProcedure('service.configure', resolveService)
+    .input(SecretVarRefInput)
+    .mutation(({ ctx, input }) => removeSecretVar(ctx, input)),
+
+  /**
+   * Reveal a value — gated on `secrets.read` inside the service (authorize →
+   * audited permit/deny) plus a `secrets.reveal` audit row per call. A
+   * mutation so it is never cached, prefetched or retried by the client.
+   */
+  revealSecretVar: orgProcedure
+    .input(SecretVarRefInput)
+    .mutation(({ ctx, input }) => revealSecretVar(ctx, input)),
 
   scale: abacProcedure('service.scale', resolveService)
     .input(z.object({ id: z.string(), replicas: z.number().int().min(0).max(1000) }))
@@ -62,7 +98,7 @@ export const servicesRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeService(ctx, input.id)),
 
-  setScaleToZero: orgProcedure
+  setScaleToZero: abacProcedure('service.configure', resolveService)
     .input(
       z.object({
         id: z.string(),

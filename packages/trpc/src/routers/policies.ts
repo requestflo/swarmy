@@ -9,6 +9,8 @@ import {
   validatePolicy,
   simulatePolicy,
   policySchema,
+  whoCanPolicy,
+  resetDefaultPolicies,
 } from '../services/policies.service';
 
 /**
@@ -28,8 +30,8 @@ export const policiesRouter = router({
 
   /** Compile-only validation (no save) for validate-on-type in the editor. */
   validate: orgProcedure
-    .input(z.object({ source: z.string() }))
-    .query(({ input }) => validatePolicy(input.source)),
+    .input(z.object({ source: z.string(), effect: z.enum(['permit', 'forbid']).optional() }))
+    .query(({ input }) => validatePolicy(input.source, input.effect)),
 
   /** Run a PARC request for the current user against live policies. */
   simulate: orgProcedure
@@ -42,7 +44,26 @@ export const policiesRouter = router({
     )
     .query(({ ctx, input }) => simulatePolicy(ctx, input)),
 
-  set: adminProcedure
+  /**
+   * "Who can do X on Y?" — every member's decision + the deciding rule. Needs
+   * `member.write` (it lists every member's reach), i.e. admins by default.
+   */
+  whoCan: abacProcedure('member.write')
+    .input(
+      z.object({
+        action: z.string(),
+        resourceType: z.enum(['node', 'service', 'stack']).optional(),
+        resourceId: z.string().optional(),
+        env: z.string().max(64).optional(),
+        labels: z.record(z.string(), z.string()).optional(),
+      }),
+    )
+    .query(({ ctx, input }) => whoCanPolicy(ctx, input)),
+
+  /** Re-seed the default rules (upgrade orgs persisted before the ABAC model). */
+  resetDefaults: abacProcedure('policy.write').mutation(({ ctx }) => resetDefaultPolicies(ctx)),
+
+  set: abacProcedure('policy.write')
     .input(
       z.object({
         id: z.string().optional(),

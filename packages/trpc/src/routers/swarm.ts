@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { adminProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   demoteNode,
   promoteNode,
@@ -32,7 +33,7 @@ export const swarmRouter = router({
     ),
 
   /** Decrypt the stored unlock key (audited). 404 when none is stored. */
-  revealUnlockKey: adminProcedure.mutation(({ ctx }) => revealUnlockKey(ctx)),
+  revealUnlockKey: abacProcedure('secrets.read').mutation(({ ctx }) => revealUnlockKey(ctx)),
 
   /** Rotate the worker/manager join tokens and re-store them encrypted. */
   rotateJoinTokens: adminProcedure

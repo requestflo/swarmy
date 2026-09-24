@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { orgProcedure, router } from '../trpc';
-import { abacProcedure, resolveStack } from '../abac';
+import { abacProcedure, resolveStack, resolveStackByName } from '../abac';
 import {
   addServiceToStack,
   deployFromCompose,
@@ -17,7 +17,7 @@ export const stacksRouter = router({
 
   get: orgProcedure.input(z.object({ id: z.string() })).query(({ ctx, input }) => getStack(ctx, input.id)),
 
-  deployFromCompose: orgProcedure
+  deployFromCompose: abacProcedure('stack.deploy', resolveStackByName)
     .input(
       z.object({
         name: z.string().regex(/^[a-z0-9][a-z0-9_.-]*$/),
@@ -30,7 +30,7 @@ export const stacksRouter = router({
 
   // Contextual deploy: add a single app INTO an existing stack (stamped with the
   // stack-namespace label so it lands in the same Project frame on the canvas).
-  addServiceToStack: orgProcedure
+  addServiceToStack: abacProcedure('stack.deploy', resolveStackByName)
     .input(
       z.object({
         stack: z.string().min(1),
@@ -52,7 +52,7 @@ export const stacksRouter = router({
     )
     .mutation(({ ctx, input }) => addServiceToStack(ctx, input)),
 
-  redeploy: orgProcedure
+  redeploy: abacProcedure('stack.deploy', resolveStack)
     .input(z.object({ id: z.string(), composeSource: z.string().optional(), override: z.boolean().optional() }))
     .mutation(({ ctx, input }) => redeployStack(ctx, input)),
 
@@ -69,11 +69,11 @@ export const stacksRouter = router({
     .query(({ ctx, input }) => stackEndpointsFor(ctx, input.stack)),
 
   /** "Connect apps": one private overlay for exactly this pair (both directions). */
-  connect: abacProcedure('stack.deploy')
+  connect: abacProcedure('stack.deploy', resolveStackByName)
     .input(z.object({ stack: z.string().min(1), peer: z.string().min(1) }))
     .mutation(({ ctx, input }) => connectStacks(ctx, input)),
 
-  disconnect: abacProcedure('stack.deploy')
+  disconnect: abacProcedure('stack.deploy', resolveStackByName)
     .input(z.object({ stack: z.string().min(1), peer: z.string().min(1) }))
     .mutation(({ ctx, input }) => disconnectStacks(ctx, input)),
 });

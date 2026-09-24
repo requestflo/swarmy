@@ -1,74 +1,51 @@
-import { parsePolicyDoc, PolicyParseError, defaultPolicyInputs, ACTIONS, isAction } from '@swarmy/abac';
-import type { Action } from '@swarmy/abac';
+import {
+  parsePolicyDoc,
+  PolicyParseError,
+  ACTIONS,
+  ACTION_CATALOG,
+  CONDITION_OPS,
+  isAction,
+  describePolicy,
+} from '@swarmy/abac';
+import type { Action, PolicyDoc, ResourceInput } from '@swarmy/abac';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
-import { evaluateAccess } from '../abac';
+import { evaluateAccess, resolveNode, resolveService, resolveStack, whoCan, type WhoCanRow } from '../abac';
+import { policyRepo, type PolicyRecord } from './policy-repo';
 
-export interface PolicyView {
-  id: string;
-  name: string;
-  description: string | null;
-  effect: 'permit' | 'forbid';
-  source: string;
-  priority: number;
-  enabled: boolean;
-  isDefault: boolean;
-  updatedAt: Date;
+export interface PolicyView extends PolicyRecord {
+  /** The rule in plain words ("Members of platform can deploy apps …"). */
+  sentence: string;
+  /** The parsed document (null when the stored source no longer parses). */
+  doc: PolicyDoc | null;
 }
 
-function toView(row: {
-  id: string;
-  name: string;
-  description: string | null;
-  effect: string;
-  source: string;
-  priority: number;
-  enabled: boolean;
-  isdefault: boolean;
-  updatedAt: Date;
-}): PolicyView {
+function toView(row: PolicyRecord): PolicyView {
+  let doc: PolicyDoc | null = null;
+  try {
+    doc = parsePolicyDoc(row.source);
+  } catch {
+    doc = null;
+  }
   return {
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    effect: row.effect as PolicyView['effect'],
-    source: row.source,
-    priority: row.priority,
-    enabled: row.enabled,
-    isDefault: row.isdefault,
-    updatedAt: row.updatedAt,
+    ...row,
+    doc,
+    sentence: doc ? describePolicy(row.effect, doc) : 'This rule no longer parses; edit its JSON.',
   };
 }
 
 /**
- * Seed the behaviour-preserving default policy set for an org the first time the
- * policy UI is opened (idempotent). Keeps zero-config orgs identical to today.
+ * Seed the default policy set the first time the policy UI is opened, and top
+ * up defaults added since (idempotent, additive — see PolicyRepository).
  */
 export async function ensureDefaultPolicies(ctx: OrgContext): Promise<void> {
-  const count = await ctx.db.policy.count({ where: { orgId: ctx.activeOrgId } });
-  if (count > 0) return;
-  await ctx.db.policy.createMany({
-    data: defaultPolicyInputs().map((p) => ({
-      orgId: ctx.activeOrgId,
-      name: p.name,
-      effect: p.effect,
-      source: p.source,
-      priority: p.priority,
-      enabled: true,
-      isdefault: true,
-      createdById: ctx.user.id,
-    })),
-  });
+  await policyRepo(ctx.db).ensureDefaults(ctx.activeOrgId, ctx.user.id);
 }
 
 export async function listPolicies(ctx: OrgContext): Promise<PolicyView[]> {
   await ensureDefaultPolicies(ctx);
-  const rows = await ctx.db.policy.findMany({
-    where: { orgId: ctx.activeOrgId },
-    orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
-  });
-  return rows.map(toView);
+  return (await policyRepo(ctx.db).list(ctx.activeOrgId)).map(toView);
 }
 
 export interface SetPolicyArgs {
@@ -91,48 +68,10 @@ export async function setPolicy(ctx: OrgContext, args: SetPolicyArgs): Promise<P
     }
     throw e;
   }
-
-  if (args.id) {
-    const existing = await ctx.db.policy.findFirst({
-      where: { id: args.id, orgId: ctx.activeOrgId },
-      select: { id: true, isdefault: true },
-    });
-    if (!existing) throw notFound('policy', args.id);
-    const row = await ctx.db.policy.update({
-      where: { id: args.id },
-      data: {
-        name: args.name,
-        description: args.description ?? null,
-        effect: args.effect,
-        source: args.source,
-        ...(args.priority !== undefined ? { priority: args.priority } : {}),
-        ...(args.enabled !== undefined ? { enabled: args.enabled } : {}),
-      },
-    });
-    await writeAudit(ctx, {
-      action: 'policy.update',
-      targetType: 'policy',
-      targetId: row.id,
-      metadata: { name: row.name, effect: row.effect },
-    });
-    return toView(row);
-  }
-
-  const row = await ctx.db.policy.create({
-    data: {
-      orgId: ctx.activeOrgId,
-      name: args.name,
-      description: args.description ?? null,
-      effect: args.effect,
-      source: args.source,
-      priority: args.priority ?? 0,
-      enabled: args.enabled ?? true,
-      isdefault: false,
-      createdById: ctx.user.id,
-    },
-  });
+  const row = await policyRepo(ctx.db).upsert(ctx.activeOrgId, args, ctx.user.id);
+  if (!row) throw notFound('policy', args.id ?? '');
   await writeAudit(ctx, {
-    action: 'policy.create',
+    action: args.id ? 'policy.update' : 'policy.create',
     targetType: 'policy',
     targetId: row.id,
     metadata: { name: row.name, effect: row.effect },
@@ -144,15 +83,24 @@ export async function deletePolicy(
   ctx: OrgContext,
   id: string,
 ): Promise<{ id: string; deleted: true }> {
-  const row = await ctx.db.policy.findFirst({
-    where: { id, orgId: ctx.activeOrgId },
-    select: { id: true, isdefault: true },
-  });
+  const repo = policyRepo(ctx.db);
+  const row = await repo.get(ctx.activeOrgId, id);
   if (!row) throw notFound('policy', id);
-  if (row.isdefault) throw new Error('default policies cannot be deleted');
-  await ctx.db.policy.delete({ where: { id } });
+  if (row.isDefault) throw new Error('default policies cannot be deleted');
+  await repo.delete(ctx.activeOrgId, id);
   await writeAudit(ctx, { action: 'policy.delete', targetType: 'policy', targetId: id });
   return { id, deleted: true };
+}
+
+/**
+ * Replace the org's default rows with the current seeded set. The upgrade path
+ * for orgs whose defaults were persisted before the attribute-based model;
+ * custom rules are untouched.
+ */
+export async function resetDefaultPolicies(ctx: OrgContext): Promise<PolicyView[]> {
+  await policyRepo(ctx.db).resetDefaults(ctx.activeOrgId, ctx.user.id);
+  await writeAudit(ctx, { action: 'policy.resetDefaults', targetType: 'org', targetId: ctx.activeOrgId });
+  return listPolicies(ctx);
 }
 
 /**
@@ -160,10 +108,13 @@ export async function deletePolicy(
  * the recognised clauses (so the UI can confirm what it understood) or the parse
  * error message. The "validate-on-type" path for the editor.
  */
-export function validatePolicy(source: string): { valid: boolean; error?: string; doc?: unknown } {
+export function validatePolicy(
+  source: string,
+  effect: 'permit' | 'forbid' = 'permit',
+): { valid: boolean; error?: string; doc?: PolicyDoc; sentence?: string } {
   try {
     const doc = parsePolicyDoc(source);
-    return { valid: true, doc };
+    return { valid: true, doc, sentence: describePolicy(effect, doc) };
   } catch (e) {
     return { valid: false, error: e instanceof PolicyParseError ? e.message : String(e) };
   }
@@ -185,10 +136,16 @@ export async function simulatePolicy(ctx: OrgContext, args: SimulateArgs) {
     throw new Error(`unknown action "${args.action}"`);
   }
   const action: Action = args.action;
-  const resource =
-    args.resourceType && args.resourceId
-      ? { type: args.resourceType, id: args.resourceId, orgId: ctx.activeOrgId, labels: {} }
-      : null;
+  let resource: ResourceInput | null = null;
+  if (args.resourceType && args.resourceId) {
+    const resolver = { node: resolveNode, service: resolveService, stack: resolveStack }[args.resourceType];
+    resource = (await resolver(ctx, { id: args.resourceId })) ?? {
+      type: args.resourceType,
+      id: args.resourceId,
+      orgId: ctx.activeOrgId,
+      labels: {},
+    };
+  }
   const result = await evaluateAccess(ctx, action, resource);
   return {
     decision: result.decision,
@@ -197,10 +154,56 @@ export async function simulatePolicy(ctx: OrgContext, args: SimulateArgs) {
   };
 }
 
+export interface WhoCanArgs {
+  action: string;
+  resourceType?: 'node' | 'service' | 'stack';
+  /** A real resource: its live labels/env are resolved. */
+  resourceId?: string;
+  /** A hypothetical resource ("an app where env = production"). */
+  env?: string;
+  labels?: Record<string, string>;
+}
+
+/**
+ * "Who can do X?" — every member's decision for one action on one resource
+ * (real, or hypothetical from env/labels), through the same decision path as
+ * enforcement. No audit: it decides nothing.
+ */
+export async function whoCanPolicy(
+  ctx: OrgContext,
+  args: WhoCanArgs,
+): Promise<{ action: Action; resource: ResourceInput | null; rows: WhoCanRow[] }> {
+  if (!isAction(args.action)) throw new Error(`unknown action "${args.action}"`);
+  let resource: ResourceInput | null = null;
+  if (args.resourceType && args.resourceId) {
+    const resolver = { node: resolveNode, service: resolveService, stack: resolveStack }[args.resourceType];
+    resource = (await resolver(ctx, { id: args.resourceId })) ?? null;
+    if (!resource) throw notFound(args.resourceType, args.resourceId);
+  } else if (args.resourceType || args.env || (args.labels && Object.keys(args.labels).length)) {
+    resource = {
+      type: args.resourceType ?? 'service',
+      id: '(any)',
+      orgId: ctx.activeOrgId,
+      labels: { ...(args.labels ?? {}) },
+      ...(args.env ? { env: args.env } : {}),
+    };
+  }
+  return { action: args.action, resource, rows: await whoCan(ctx.db, ctx.activeOrgId, args.action, resource) };
+}
+
 /** The action catalogue + the JSON policy-doc schema, for the UI builder. */
 export function policySchema() {
   return {
     actions: [...ACTIONS],
+    actionCatalog: ACTION_CATALOG,
+    conditionOps: [...CONDITION_OPS],
+    attributes: [
+      { key: 'resource.env', label: 'Environment', hint: 'from the swarmy.env label; prod → production' },
+      { key: 'resource.type', label: 'Resource type', hint: 'node | service | stack' },
+      { key: 'resource.label.<key>', label: 'App / stack label', hint: 'any Docker label on the resource' },
+      { key: 'principal.groups', label: 'Groups', hint: 'member groups, SSO group claims, teams' },
+      { key: 'principal.<key>', label: 'Member attribute', hint: 'any key of the member attribute bag' },
+    ],
     relations: ['owner', 'operator', 'viewer'],
     clauses: [
       { key: 'actions', label: 'Actions', type: 'string[]', hint: 'allowed actions, or ["*"]' },
@@ -210,6 +213,9 @@ export function policySchema() {
       { key: 'attributes', label: 'Subject attributes', type: 'object', hint: 'e.g. { "team": "payments" }' },
       { key: 'relations', label: 'ReBAC relations', type: 'string[]', hint: 'owner | operator | viewer' },
       { key: 'ownerOnly', label: 'Owner only', type: 'boolean', hint: 'principal must own the resource' },
+      { key: 'groups', label: 'Groups', type: 'string[]', hint: 'member is in any of these groups' },
+      { key: 'members', label: 'People', type: 'string[]', hint: 'member ids' },
+      { key: 'conditions', label: 'Conditions', type: 'condition[]', hint: '{ attr, op, value }' },
     ],
   };
 }

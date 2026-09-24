@@ -13,11 +13,17 @@ import {
   type Resource,
   type ResourceInput,
   type PolicyInput,
+  ENV_LABEL,
+  PRODUCTION,
+  resourceEnv,
 } from '@swarmy/abac';
-import { buildInventory } from '@swarmy/core';
+import { buildInventory, STACK_LABEL } from '@swarmy/core';
+import type { DB } from '@swarmy/db';
+import { parse as parseYaml } from 'yaml';
 import { orgProcedure } from './trpc';
 import type { OrgContext } from './context';
 import { writeAudit } from './services/audit.service';
+import { policyRepo } from './services/policy-repo';
 
 /**
  * Resolves the target resource for a procedure from its input. Returns a
@@ -37,10 +43,29 @@ function teamIdsFromAttributes(attributes: Record<string, unknown> | null | unde
   return [];
 }
 
+type Role = 'owner' | 'admin' | 'member';
+
+/** Build a principal from a `Member` row (role, id, attributes → groups/teams). */
+export function principalFromMember(
+  orgId: string,
+  member: { id: string; userId: string; role: string; attributes: unknown },
+): Principal {
+  const attributes = (member.attributes as Record<string, unknown> | null) ?? {};
+  const role: Role = member.role === 'owner' || member.role === 'admin' ? member.role : 'member';
+  return buildAbacPrincipal({
+    userId: member.userId,
+    orgId,
+    role,
+    memberId: member.id,
+    teamIds: teamIdsFromAttributes(attributes),
+    attributes,
+  });
+}
+
 /**
- * Build the ABAC principal from the org context: role, member id, team ids and
- * the free-form attribute bag (all from the `Member` row). Roles become one
- * attribute among many.
+ * Build the ABAC principal from the org context: role, member id, groups (SSO
+ * claims in `attributes.groups` ∪ team ids) and the free-form attribute bag
+ * (all from the `Member` row). Roles become one attribute among many.
  */
 export async function buildPrincipal(ctx: OrgContext): Promise<Principal> {
   const member = await ctx.db.member.findFirst({
@@ -59,9 +84,9 @@ export async function buildPrincipal(ctx: OrgContext): Promise<Principal> {
 }
 
 /** Load the org's ResourceGrant edges for a single resource (ReBAC). */
-async function loadGrants(ctx: OrgContext, resource: ResourceInput): Promise<GrantEdge[]> {
-  const rows = await ctx.db.resourceGrant.findMany({
-    where: { orgId: ctx.activeOrgId, resourceType: resource.type, resourceId: resource.id },
+async function loadGrants(db: DB, orgId: string, resource: ResourceInput): Promise<GrantEdge[]> {
+  const rows = await db.resourceGrant.findMany({
+    where: { orgId, resourceType: resource.type, resourceId: resource.id },
     select: { principalType: true, principalId: true, resourceType: true, resourceId: true, relation: true },
   });
   return rows.map((r) => ({
@@ -73,11 +98,12 @@ async function loadGrants(ctx: OrgContext, resource: ResourceInput): Promise<Gra
   }));
 }
 
-/** Load the org's enabled policies (or fall back to the seeded defaults). */
-async function loadEngine(ctx: OrgContext): Promise<IPolicyEngine> {
-  const rows = await ctx.db.policy.findMany({
-    where: { orgId: ctx.activeOrgId, enabled: true },
-  });
+/**
+ * Load the org's enabled policies through the {@link policyRepo} (or fall back
+ * to the seeded defaults) and build the engine.
+ */
+export async function loadPolicyEngine(db: DB, orgId: string): Promise<IPolicyEngine> {
+  const rows = await policyRepo(db).list(orgId, { enabledOnly: true });
   const inputs: PolicyInput[] =
     rows.length === 0
       ? // No stored policies → behave exactly as the seeded defaults.
@@ -95,7 +121,7 @@ async function loadEngine(ctx: OrgContext): Promise<IPolicyEngine> {
           (r): PolicyInput => ({
             id: r.id,
             name: r.name,
-            effect: r.effect as PolicyInput['effect'],
+            effect: r.effect,
             source: r.source,
             priority: r.priority,
             enabled: r.enabled,
@@ -104,28 +130,141 @@ async function loadEngine(ctx: OrgContext): Promise<IPolicyEngine> {
   return createEngine(inputs);
 }
 
+export interface AccessResult {
+  decision: 'permit' | 'deny';
+  policyId: string | null;
+  reasons: string[];
+  resource: Resource | null;
+}
+
+/**
+ * The one decision path. `evaluateAccess` (requests), `whoCan` (simulator,
+ * mesh group sync) and `canPrincipal` all end here, so a rule means the same
+ * thing everywhere. No audit — callers that enforce go through {@link authorize}.
+ */
+export async function decide(args: {
+  db: DB;
+  orgId: string;
+  principal: Principal;
+  action: Action;
+  resource: ResourceInput | null;
+  engine?: IPolicyEngine;
+  userAgent?: string | null;
+}): Promise<AccessResult> {
+  const engine = args.engine ?? (await loadPolicyEngine(args.db, args.orgId));
+  let resource: Resource | null = null;
+  if (args.resource) {
+    const grants = await loadGrants(args.db, args.orgId, args.resource);
+    resource = buildAbacResource(args.resource, args.principal, grants);
+  }
+  const result = engine.evaluate({
+    principal: args.principal,
+    action: args.action,
+    resource,
+    context: { now: new Date(), ip: null, userAgent: args.userAgent ?? null },
+  });
+  return { ...result, resource };
+}
+
 /**
  * Evaluate one PARC request for the active org. Exposed so routers/services (e.g.
  * the policy simulator and list-filtering) can reuse the exact decision path.
+ * `opts.principal` evaluates for someone else (the "who can" simulator);
+ * `opts.engine` reuses an already-loaded policy set across many calls.
  */
 export async function evaluateAccess(
   ctx: OrgContext,
   action: Action,
   resourceInput: ResourceInput | null,
-): Promise<{ decision: 'permit' | 'deny'; policyId: string | null; reasons: string[]; resource: Resource | null }> {
-  const [principal, engine] = await Promise.all([buildPrincipal(ctx), loadEngine(ctx)]);
-  let resource: Resource | null = null;
-  if (resourceInput) {
-    const grants = await loadGrants(ctx, resourceInput);
-    resource = buildAbacResource(resourceInput, principal, grants);
-  }
-  const result = engine.evaluate({
+  opts: { principal?: Principal; engine?: IPolicyEngine } = {},
+): Promise<AccessResult> {
+  const [principal, engine] = await Promise.all([
+    opts.principal ?? buildPrincipal(ctx),
+    opts.engine ?? loadPolicyEngine(ctx.db, ctx.activeOrgId),
+  ]);
+  return decide({
+    db: ctx.db,
+    orgId: ctx.activeOrgId,
     principal,
     action,
-    resource,
-    context: { now: new Date(), ip: null, userAgent: ctx.reqHeaders.get('user-agent') },
+    resource: resourceInput,
+    engine,
+    userAgent: ctx.reqHeaders.get('user-agent'),
   });
-  return { ...result, resource };
+}
+
+export interface WhoCanRow {
+  memberId: string;
+  userId: string;
+  name: string | null;
+  email: string | null;
+  role: Role;
+  groups: string[];
+  decision: 'permit' | 'deny';
+  policyId: string | null;
+  reasons: string[];
+}
+
+/**
+ * "Who can do X on Y?" — every member of the org with their decision and the
+ * deciding policy. Pure over the db (no request context, no audit), so the
+ * policy simulator and a worker (e.g. the mesh NetBird group sync: one group
+ * per app stack, `whoCan(db, orgId, 'mesh.connect', stackResource)`) share it.
+ */
+export async function whoCan(
+  db: DB,
+  orgId: string,
+  action: Action,
+  resource: ResourceInput | null,
+): Promise<WhoCanRow[]> {
+  const [engine, members] = await Promise.all([
+    loadPolicyEngine(db, orgId),
+    db.member.findMany({
+      where: { organizationId: orgId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        userId: true,
+        role: true,
+        attributes: true,
+        user: { select: { name: true, email: true } },
+      },
+    }),
+  ]);
+  const rows: WhoCanRow[] = [];
+  for (const m of members) {
+    const principal = principalFromMember(orgId, m);
+    const d = await decide({ db, orgId, principal, action, resource, engine });
+    rows.push({
+      memberId: m.id,
+      userId: m.userId,
+      name: m.user?.name ?? null,
+      email: m.user?.email ?? null,
+      role: principal.roles[0] as Role,
+      groups: principal.groups ?? [],
+      decision: d.decision,
+      policyId: d.policyId,
+      reasons: d.reasons,
+    });
+  }
+  return rows;
+}
+
+/** One member's decision (by user id); `deny` when they are not a member. */
+export async function canPrincipal(
+  db: DB,
+  orgId: string,
+  userId: string,
+  action: Action,
+  resource: ResourceInput | null,
+): Promise<boolean> {
+  const m = await db.member.findFirst({
+    where: { organizationId: orgId, userId },
+    select: { id: true, userId: true, role: true, attributes: true },
+  });
+  if (!m) return false;
+  const d = await decide({ db, orgId, principal: principalFromMember(orgId, m), action, resource });
+  return d.decision === 'permit';
 }
 
 /**
@@ -243,14 +382,113 @@ export const resolveService: ResolveResource = (ctx, input) => {
   return { type: 'service', id: svc.id, orgId: ctx.activeOrgId, labels: svc.labels };
 };
 
-/** Resolve a Stack row from `{ id }` input. */
+/**
+ * A stack's labels as Docker reports them: the union of its live services'
+ * labels. Environment is conservative — if ANY service of the stack is
+ * production, the stack is production.
+ */
+export function liveStackLabels(ctx: OrgContext, stackName: string): Record<string, string> | null {
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  const members = buildInventory(services, containers).services.filter(
+    (s) => s.labels?.[STACK_LABEL] === stackName,
+  );
+  if (members.length === 0) return null;
+  const labels: Record<string, string> = {};
+  for (const svc of members) Object.assign(labels, svc.labels);
+  const envs = members.map((s) => resourceEnv({ labels: s.labels }));
+  const prod = envs.find((e) => e === PRODUCTION);
+  if (prod) labels[ENV_LABEL] = prod;
+  return labels;
+}
+
+/** Labels declared in a compose document (service `labels` + `deploy.labels`). */
+export function composeLabels(source: string): Record<string, string> {
+  let doc: unknown;
+  try {
+    doc = parseYaml(source);
+  } catch {
+    return {};
+  }
+  const services = (doc as { services?: Record<string, unknown> } | null)?.services;
+  if (!services || typeof services !== 'object') return {};
+  const labelsOf = (raw: unknown): Record<string, string> => {
+    const out: Record<string, string> = {};
+    if (Array.isArray(raw)) {
+      for (const entry of raw) {
+        if (typeof entry !== 'string') continue;
+        const i = entry.indexOf('=');
+        if (i > 0) out[entry.slice(0, i)] = entry.slice(i + 1);
+      }
+    } else if (raw && typeof raw === 'object') {
+      for (const [k, v] of Object.entries(raw)) if (v !== null && v !== undefined) out[k] = String(v);
+    }
+    return out;
+  };
+  const merged: Record<string, string> = {};
+  let prod = false;
+  for (const svc of Object.values(services)) {
+    if (!svc || typeof svc !== 'object') continue;
+    const s = svc as { labels?: unknown; deploy?: { labels?: unknown } };
+    const own = { ...labelsOf(s.labels), ...labelsOf(s.deploy?.labels) };
+    if (resourceEnv({ labels: own }) === PRODUCTION) prod = true;
+    Object.assign(merged, own);
+  }
+  if (prod) merged[ENV_LABEL] = PRODUCTION;
+  return merged;
+}
+
+/** The stack resource for a name: live labels, else the incoming compose's. */
+async function stackResource(
+  ctx: OrgContext,
+  name: string,
+  composeSource?: string,
+): Promise<ResourceInput> {
+  const row = await ctx.db.stack.findFirst({
+    where: { name, orgId: ctx.activeOrgId },
+    select: { id: true },
+  });
+  const live = liveStackLabels(ctx, name);
+  const incoming = composeSource ? composeLabels(composeSource) : {};
+  const labels = { ...incoming, ...(live ?? {}) };
+  // A deploy that STAMPS production counts as production immediately.
+  if (resourceEnv({ labels: incoming }) === PRODUCTION) labels[ENV_LABEL] = PRODUCTION;
+  return { type: 'stack', id: row?.id ?? name, orgId: ctx.activeOrgId, labels };
+}
+
+/** Resolve a Stack row from `{ id }` input; labels are the live stack's. */
 export const resolveStack: ResolveResource = async (ctx, input) => {
   const id = (input as { id?: string })?.id;
   if (!id) return null;
   const row = await ctx.db.stack.findFirst({
     where: { id, orgId: ctx.activeOrgId },
-    select: { id: true, orgId: true },
+    select: { id: true, orgId: true, name: true },
   });
   if (!row) return null;
-  return { type: 'stack', id: row.id, orgId: row.orgId, labels: {} };
+  const composeSource = (input as { composeSource?: unknown }).composeSource;
+  const r = await stackResource(ctx, row.name, typeof composeSource === 'string' ? composeSource : undefined);
+  return { ...r, id: row.id, orgId: row.orgId };
+};
+
+/**
+ * Resolve a stack by NAME from `{ name | stack, composeSource? }` — deploys that
+ * may create the stack. Env comes from the live stack or the incoming compose.
+ */
+export const resolveStackByName: ResolveResource = async (ctx, input) => {
+  const i = (input ?? {}) as { name?: unknown; stack?: unknown; composeSource?: unknown };
+  const name = typeof i.stack === 'string' ? i.stack : typeof i.name === 'string' ? i.name : null;
+  if (!name) return null;
+  return stackResource(ctx, name, typeof i.composeSource === 'string' ? i.composeSource : undefined);
+};
+
+/**
+ * Resolve a service that is about to be CREATED from `{ name, project? }`: it
+ * inherits its project (stack) labels, so "members can't deploy to prod"
+ * covers adding an app to a production stack.
+ */
+export const resolveNewService: ResolveResource = async (ctx, input) => {
+  const i = (input ?? {}) as { name?: unknown; project?: unknown };
+  const name = typeof i.name === 'string' ? i.name : null;
+  if (!name) return null;
+  const labels = typeof i.project === 'string' ? (liveStackLabels(ctx, i.project) ?? {}) : {};
+  return { type: 'service', id: name, orgId: ctx.activeOrgId, labels };
 };

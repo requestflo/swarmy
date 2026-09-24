@@ -62,13 +62,24 @@ export function requireScope(scope: ApiKeyScope): MiddlewareHandler<RestEnv> {
 export function requireAction(
   action: Parameters<typeof authorize>[1],
   resolver?: ResolveResource,
+  /**
+   * For create/deploy routes whose resource is in the BODY (a new stack's
+   * name + compose): map the JSON body to the resolver's tRPC-shaped input.
+   * Hono caches the parsed body, so the route's validator still sees it.
+   */
+  fromBody?: (body: Record<string, unknown>) => Record<string, unknown>,
 ): MiddlewareHandler<RestEnv> {
   return async (c, next) => {
     const ctx = c.get('orgCtx');
     try {
       // Path params ARE the resolver input (`/services/{id}` → `{ id }`), the
       // same shape the tRPC procedure's input carries.
-      const resourceInput = resolver ? await resolver(ctx, c.req.param()) : null;
+      let input: Record<string, unknown> = c.req.param();
+      if (fromBody) {
+        const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown> | null;
+        input = { ...input, ...fromBody(body && typeof body === 'object' ? body : {}) };
+      }
+      const resourceInput = resolver ? await resolver(ctx, input) : null;
       await authorize(ctx, action, resourceInput);
     } catch (e) {
       const p = trpcErrorToProblem(e, c.req.path);

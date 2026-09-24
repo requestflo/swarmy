@@ -67,8 +67,18 @@ const ROUTES: Array<[method: string, path: string, action: string, body?: unknow
   ['DELETE', '/volumes/v1', 'data.destroy'],
   ['DELETE', '/git/connections/gc1', 'cicd.remove'],
   ['DELETE', '/git/repos/gr1', 'cicd.remove'],
+  // Deploys: member-permitted outside production (no live stack → env unknown).
+  ['POST', '/services', 'service.deploy', { name: 'web', image: 'nginx' }],
+  ['POST', '/stacks', 'stack.deploy', { name: 'shop', compose_source: 'services: {}' }],
 ];
-const MEMBER_KEEPS = new Set(['service.scale', 'service.restart', 'node.drain', 'ingress.write']);
+const MEMBER_KEEPS = new Set([
+  'service.scale',
+  'service.restart',
+  'node.drain',
+  'ingress.write',
+  'service.deploy',
+  'stack.deploy',
+]);
 
 async function hit(role: Role, method: string, path: string, body?: unknown) {
   const audit: string[] = [];
@@ -101,4 +111,14 @@ describe('REST destructive routes run the policy step (requireAction)', () => {
       }
     });
   }
+});
+
+describe('REST deploys carry the environment from the body', () => {
+  it('a member API key cannot deploy a compose that stamps production', async () => {
+    const compose = 'services:\n  web:\n    image: nginx\n    labels: ["swarmy.env=production"]\n';
+    const r = await hit('member', 'POST', '/stacks', { name: 'shop', compose_source: compose });
+    expect(r.status).toBe(403);
+    expect(r.code).toBe('POLICY_DENIED');
+    expect(r.audit).toEqual(['authz.deny:stack.deploy']);
+  });
 });

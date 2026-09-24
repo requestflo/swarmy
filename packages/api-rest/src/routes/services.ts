@@ -4,6 +4,7 @@ import {
   getServiceDetail,
   listServices,
   removeService,
+  resolveNewService,
   resolveService,
   restartService,
   scaleService,
@@ -77,7 +78,7 @@ export function registerServiceRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Services'],
       summary: 'Create a service (async deploy)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('service.deploy', resolveNewService, (b) => ({ name: b.name }))] as const,
       request: { body: jsonBody(CreateServiceBody) },
       responses: {
         202: {

@@ -1,5 +1,5 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
-import { deployFromCompose, getStack, listStacks, removeStack, resolveStack } from '@swarmy/trpc';
+import { deployFromCompose, getStack, listStacks, removeStack, resolveStack, resolveStackByName } from '@swarmy/trpc';
 import type { RestEnv } from '../middleware';
 import { requireAction, requireScope } from '../middleware';
 import {
@@ -65,7 +65,10 @@ export function registerStackRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Stacks'],
       summary: 'Deploy a stack from a compose document (async)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [
+        requireScope('write'),
+        requireAction('stack.deploy', resolveStackByName, (b) => ({ name: b.name, composeSource: b.compose_source })),
+      ] as const,
       request: { body: { content: { 'application/json': { schema: DeployStackBody } } } },
       responses: {
         202: { content: { 'application/json': { schema: DeploymentRefDto } }, description: 'Accepted' },

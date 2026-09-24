@@ -105,10 +105,32 @@ const GATES: Array<[string, unknown, string]> = [
   ['gitConnections.remove', { id: 'g1' }, 'cicd.remove'],
   ['registryCredentials.remove', { id: 'rc1' }, 'secret.delete'],
   ['db.confirmFailover', {}, 'data.failover'],
+  ['swarm.revealUnlockKey', undefined, 'secrets.read'],
+  ['cicd.webhookInfo', { repoId: 'r1' }, 'secrets.read'],
+  ['policies.set', { name: 'p', effect: 'permit', source: '{}' }, 'policy.write'],
+  ['policies.resetDefaults', undefined, 'policy.write'],
+  ['policies.whoCan', { action: 'service.read' }, 'member.write'],
+  // Deploy / configure: member-permitted outside production (no live stack
+  // here → env unknown → non-production).
+  ['services.create', { name: 'web', image: 'nginx' }, 'service.deploy'],
+  ['services.update', { id: 'svc' }, 'service.configure'],
+  ['services.setScaleToZero', { id: 'svc', enabled: true }, 'service.configure'],
+  ['stacks.deployFromCompose', { name: 'shop', composeSource: 'services: {}' }, 'stack.deploy'],
+  ['stacks.addServiceToStack', { stack: 'shop', name: 'web', image: 'nginx' }, 'stack.deploy'],
+  ['stacks.redeploy', { id: 'st1' }, 'stack.deploy'],
+  ['stacks.connect', { stack: 'shop', peer: 'blog' }, 'stack.deploy'],
 ];
 
 /** Member-allowed today (orgProcedure before the sweep) — must stay allowed. */
-const MEMBER_KEEPS = new Set(['service.scale', 'service.restart', 'node.drain', 'ingress.write']);
+const MEMBER_KEEPS = new Set([
+  'service.scale',
+  'service.restart',
+  'node.drain',
+  'ingress.write',
+  'service.deploy',
+  'service.configure',
+  'stack.deploy',
+]);
 
 async function call(role: Role, path: string, input: unknown): Promise<{ audit: string[]; error: unknown }> {
   const audit: string[] = [];
@@ -212,5 +234,57 @@ describe('resource-scoped policies reach the router gate (raw input → resolver
     const prod = await run('web-prod');
     expect(isPolicyDenied(prod.error)).toBe(true);
     expect(prod.audit).toEqual(['authz.deny:service.remove']);
+  });
+});
+
+describe('deploys carry the environment (members free outside production)', () => {
+  const svc = (id: string, stack: string, env?: string) => ({
+    id, name: id, image: 'x', mode: 'replicated', replicas: 1, runningReplicas: 1, desiredReplicas: 1,
+    labels: { 'com.docker.stack.namespace': stack, ...(env ? { 'swarmy.env': env } : {}) },
+    networks: [], env: [], ports: [], createdAt: 0, updatedAt: 0,
+  });
+  const live = [svc('shop_web', 'shop', 'production'), svc('shop_db', 'shop'), svc('blog_web', 'blog', 'staging')];
+  const run = async (fn: (c: Record<string, Record<string, (i: unknown) => Promise<unknown>>>) => Promise<unknown>) => {
+    const audit: string[] = [];
+    const base = ctxFor('member', audit) as unknown as Record<string, unknown>;
+    const ctx = {
+      ...base,
+      hub: new Proxy(base.hub as Record<string, unknown>, {
+        get: (t, k: string) => (k === 'liveInventory' ? () => ({ services: live, containers: [] }) : t[k]),
+      }),
+    };
+    const caller = appRouter.createCaller(ctx as never) as never;
+    const error = await fn(caller).then(() => null, (e: unknown) => e);
+    return { audit, error };
+  };
+
+  it('a member may add an app to a staging stack, not to a production one', async () => {
+    const staging = await run((c) => c.stacks!.addServiceToStack!({ stack: 'blog', name: 'api', image: 'x' }));
+    expect(staging.audit).toContain('authz.permit:stack.deploy');
+    const prod = await run((c) => c.stacks!.addServiceToStack!({ stack: 'shop', name: 'api', image: 'x' }));
+    expect(isPolicyDenied(prod.error)).toBe(true);
+    expect(prod.audit).toEqual(['authz.deny:stack.deploy']);
+  });
+
+  it('a new stack whose compose stamps production is production immediately', async () => {
+    const compose = 'services:\n  web:\n    image: nginx\n    labels:\n      swarmy.env: prod\n';
+    const r = await run((c) => c.stacks!.deployFromCompose!({ name: 'fresh', composeSource: compose }));
+    expect(isPolicyDenied(r.error)).toBe(true);
+    const plain = await run((c) =>
+      c.stacks!.deployFromCompose!({ name: 'fresh', composeSource: 'services:\n  web:\n    image: nginx\n' }),
+    );
+    expect(plain.audit).toContain('authz.permit:stack.deploy');
+  });
+
+  it('a member may not reconfigure a production service, may a staging one', async () => {
+    const prod = await run((c) => c.services!.update!({ id: 'shop_web' }));
+    expect(isPolicyDenied(prod.error)).toBe(true);
+    const staging = await run((c) => c.services!.update!({ id: 'blog_web' }));
+    expect(staging.audit).toContain('authz.permit:service.configure');
+  });
+
+  it('creating an app in a production project is a production deploy', async () => {
+    const prod = await run((c) => c.services!.create!({ name: 'worker', image: 'x', project: 'shop' }));
+    expect(isPolicyDenied(prod.error)).toBe(true);
   });
 });
