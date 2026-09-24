@@ -2,93 +2,43 @@ import { describe, expect, it } from 'bun:test';
 import {
   RpmWindow,
   TtlLruCache,
+  appOfKey,
   budgetExhausted,
-  costMicros,
   estimateTokens,
-  keyLimits,
   parseGatewayConfig,
-  parseUsageFromSse,
-  parseUsageJson,
+  presentedKey,
+  promptCap,
   redactPrompt,
-  resolveProviderKind,
   startOfUtcDay,
-  upstreamHeaders,
-  type ProviderDescriptor,
 } from './ai-gateway';
 
-const p = (kind: ProviderDescriptor['kind'], over: Partial<ProviderDescriptor> = {}): ProviderDescriptor => ({
-  kind,
-  baseUrl: null,
-  isDefault: false,
-  ...over,
-});
-
-describe('resolveProviderKind — model → provider routing', () => {
-  const all = [p('anthropic'), p('openai'), p('custom', { isDefault: true, baseUrl: 'https://x' })];
-
-  it('routes claude* to anthropic and gpt*/o<digit>* to openai', () => {
-    expect(resolveProviderKind('claude-haiku-4-5', all)).toBe('anthropic');
-    expect(resolveProviderKind('claude-opus-4-8', all)).toBe('anthropic');
-    expect(resolveProviderKind('gpt-4o-mini', all)).toBe('openai');
-    expect(resolveProviderKind('o3', all)).toBe('openai');
-    expect(resolveProviderKind('o4-mini', all)).toBe('openai');
-    expect(resolveProviderKind('text-embedding-3-small', all)).toBe('openai');
-  });
-
-  it('does not treat non-o-series o-words as openai', () => {
-    // "ollama-llama3" must fall through to the default provider.
-    expect(resolveProviderKind('ollama-llama3', all)).toBe('custom');
-  });
-
-  it('routes unknown prefixes to the default provider', () => {
-    expect(resolveProviderKind('llama-3.3-70b', all)).toBe('custom');
-    const defaulted = [p('anthropic', { isDefault: true }), p('openai')];
-    expect(resolveProviderKind('mistral-large', defaulted)).toBe('anthropic');
-  });
-
-  it('falls back to the default when the prefix provider is unconfigured', () => {
-    const onlyCustom = [p('custom', { isDefault: true, baseUrl: 'https://x' })];
-    expect(resolveProviderKind('claude-sonnet-5', onlyCustom)).toBe('custom');
-    expect(resolveProviderKind('gpt-4o', onlyCustom)).toBe('custom');
-  });
-
-  it('uses the first configured provider when nothing is default', () => {
-    expect(resolveProviderKind('mystery-model', [p('openai'), p('anthropic')])).toBe('openai');
-  });
-
-  it('returns null when nothing is configured', () => {
-    expect(resolveProviderKind('claude-opus-4-8', [])).toBeNull();
+describe('presentedKey — any header a stock SDK sends', () => {
+  const h = (m: Record<string, string>) => (n: string) => m[n];
+  it('accepts x-swarmy-ai-key, Bearer (OpenAI SDK), x-api-key (Anthropic SDK), api-key (Azure SDK)', () => {
+    expect(presentedKey(h({ 'x-swarmy-ai-key': 'swk-ai-a' }))).toBe('swk-ai-a');
+    expect(presentedKey(h({ authorization: 'Bearer swk-ai-b' }))).toBe('swk-ai-b');
+    expect(presentedKey(h({ 'x-api-key': 'swk-ai-c' }))).toBe('swk-ai-c');
+    expect(presentedKey(h({ 'api-key': 'swk-ai-d' }))).toBe('swk-ai-d');
+    expect(presentedKey(h({}))).toBeNull();
   });
 });
 
-describe('costMicros — static $/MTok estimate table', () => {
-  it('prices anthropic models per tier ($/MTok == µ$/token)', () => {
-    // claude-haiku-4-5: $1 in / $5 out per MTok.
-    expect(costMicros('claude-haiku-4-5', 1000, 1000)).toBe(6000);
-    // claude-opus-4-8: $5 / $25.
-    expect(costMicros('claude-opus-4-8', 1_000_000, 0)).toBe(5_000_000);
-    // claude-fable-5 must not match the shorter 'claude' prefix rate.
-    expect(costMicros('claude-fable-5', 1_000_000, 1_000_000)).toBe(60_000_000);
-    expect(costMicros('claude-sonnet-5', 1000, 0)).toBe(3000);
+describe('prompt cap + app scoping', () => {
+  it('takes the tighter of the org guardrail and the key cap', () => {
+    const doc = (n: number | null) => ({ settings: { auditLog: false, cache: false, guardrails: { redactPii: true, maxPromptTokens: n } } });
+    expect(promptCap(doc(8000), { maxPromptTokens: 2000 })).toBe(2000);
+    expect(promptCap(doc(1000), { maxPromptTokens: null })).toBe(1000);
+    expect(promptCap(doc(null), { maxPromptTokens: null })).toBeNull();
   });
-
-  it('longest prefix wins (gpt-4o-mini vs gpt-4o)', () => {
-    expect(costMicros('gpt-4o-mini', 1_000_000, 0)).toBe(150_000);
-    expect(costMicros('gpt-4o', 1_000_000, 0)).toBe(2_500_000);
-    expect(costMicros('o4-mini', 1_000_000, 0)).toBe(1_100_000);
+  it('the app of a key is its appRef stack', () => {
+    expect(appOfKey('shop/web')).toBe('shop');
+    expect(appOfKey('shop')).toBe('shop');
+    expect(appOfKey(null)).toBeNull();
   });
-
-  it('prices embeddings with zero output cost', () => {
-    expect(costMicros('text-embedding-3-small', 1_000_000, 0)).toBe(20_000);
-  });
-
-  it('falls back to the default rate for unknown models', () => {
-    expect(costMicros('llama-3.3-70b', 1_000_000, 1_000_000)).toBe(10_000_000);
-  });
-
-  it('rounds to whole micro-dollars and handles zero', () => {
-    expect(costMicros('claude-haiku-4-5', 0, 0)).toBe(0);
-    expect(costMicros('gpt-4o-mini', 1, 1)).toBe(1); // 0.15 + 0.6 = 0.75 → 1
+  it('an undecryptable configEnc means no credentials', () => {
+    const cfg = parseGatewayConfig({ providers: [{ kind: 'openai' }] }, 'v1.bogus.blob.zz');
+    expect(cfg.keys).toEqual({});
+    expect(cfg.doc.providers.map((p) => p.kind)).toEqual(['openai']);
   });
 });
 
@@ -145,60 +95,6 @@ describe('TtlLruCache', () => {
   });
 });
 
-describe('parseUsageJson', () => {
-  it('reads anthropic usage', () => {
-    expect(
-      parseUsageJson('anthropic', { usage: { input_tokens: 12, output_tokens: 34 } }),
-    ).toEqual({ inTokens: 12, outTokens: 34 });
-  });
-
-  it('reads openai usage (chat + embeddings)', () => {
-    expect(
-      parseUsageJson('openai', { usage: { prompt_tokens: 7, completion_tokens: 3 } }),
-    ).toEqual({ inTokens: 7, outTokens: 3 });
-    expect(parseUsageJson('openai', { usage: { prompt_tokens: 9, total_tokens: 9 } })).toEqual({
-      inTokens: 9,
-      outTokens: 0,
-    });
-  });
-
-  it('returns null when usage is absent or malformed', () => {
-    expect(parseUsageJson('anthropic', {})).toBeNull();
-    expect(parseUsageJson('openai', { usage: { prompt_tokens: 'x' } })).toBeNull();
-    expect(parseUsageJson('openai', null)).toBeNull();
-  });
-});
-
-describe('parseUsageFromSse — best-effort stream tail parse', () => {
-  it('combines anthropic message_start input with final message_delta output', () => {
-    const sse = [
-      'event: message_start',
-      'data: {"type":"message_start","message":{"usage":{"input_tokens":25,"output_tokens":1}}}',
-      '',
-      'event: message_delta',
-      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":118}}',
-      '',
-    ].join('\n');
-    expect(parseUsageFromSse('anthropic', sse)).toEqual({ inTokens: 25, outTokens: 118 });
-  });
-
-  it('reads the openai include_usage final chunk and ignores [DONE]', () => {
-    const sse = [
-      'data: {"choices":[{"delta":{"content":"hi"}}],"usage":null}',
-      'data: {"choices":[],"usage":{"prompt_tokens":11,"completion_tokens":42}}',
-      'data: [DONE]',
-      '',
-    ].join('\n');
-    expect(parseUsageFromSse('openai', sse)).toEqual({ inTokens: 11, outTokens: 42 });
-  });
-
-  it('returns null when the tail carries no usage (caller estimates)', () => {
-    const sse = 'data: {"choices":[{"delta":{"content":"partial"}}]}\n';
-    expect(parseUsageFromSse('openai', sse)).toBeNull();
-    expect(parseUsageFromSse('anthropic', 'data: not-json\n')).toBeNull();
-  });
-});
-
 describe('redactPrompt', () => {
   it('takes the last user message, capped at 200 chars', () => {
     const long = 'x'.repeat(500);
@@ -221,63 +117,7 @@ describe('redactPrompt', () => {
   });
 });
 
-describe('parseGatewayConfig (mirror of ai.service parseConfigDoc)', () => {
-  it('parses the wrapper doc + settings without creds', () => {
-    const cfg = parseGatewayConfig(
-      {
-        providers: [{ kind: 'anthropic', isDefault: true }, { kind: 'custom', baseUrl: 'https://llm.internal/' }],
-        settings: { auditLog: true, cache: false },
-      },
-      null,
-    );
-    expect(cfg.providers).toEqual([
-      { kind: 'anthropic', baseUrl: null, isDefault: true },
-      { kind: 'custom', baseUrl: 'https://llm.internal', isDefault: false },
-    ]);
-    expect(cfg.settings).toEqual({ auditLog: true, cache: false });
-    expect(cfg.keys).toEqual({});
-  });
-
-  it('tolerates the spine default and garbage', () => {
-    expect(parseGatewayConfig([], null).providers).toEqual([]);
-    expect(parseGatewayConfig('junk', null).providers).toEqual([]);
-    expect(parseGatewayConfig({ providers: [{ kind: 'nope' }] }, null).providers).toEqual([]);
-  });
-
-  it('treats an undecryptable configEnc as no keys stored', () => {
-    const cfg = parseGatewayConfig({ providers: [{ kind: 'openai' }] }, 'v1.bogus.blob.zz');
-    expect(cfg.keys).toEqual({});
-  });
-});
-
-describe('upstreamHeaders', () => {
-  it('anthropic gets x-api-key + anthropic-version, never a bearer', () => {
-    const h = upstreamHeaders('anthropic', 'sk-ant-x');
-    expect(h['x-api-key']).toBe('sk-ant-x');
-    expect(h['anthropic-version']).toBe('2023-06-01');
-    expect(h.authorization).toBeUndefined();
-  });
-
-  it('openai/custom get a bearer token', () => {
-    expect(upstreamHeaders('openai', 'sk-x').authorization).toBe('Bearer sk-x');
-    expect(upstreamHeaders('custom', 'k').authorization).toBe('Bearer k');
-  });
-});
-
 describe('budget limiter', () => {
-  it('parses limitsJson with unlimited fallbacks', () => {
-    expect(keyLimits({ rpm: 60, dailyBudgetMicros: 5_000_000 })).toEqual({
-      rpm: 60,
-      dailyBudgetMicros: 5_000_000,
-    });
-    expect(keyLimits({})).toEqual({ rpm: null, dailyBudgetMicros: null });
-    expect(keyLimits(null)).toEqual({ rpm: null, dailyBudgetMicros: null });
-    expect(keyLimits({ rpm: -1, dailyBudgetMicros: 'lots' })).toEqual({
-      rpm: null,
-      dailyBudgetMicros: null,
-    });
-  });
-
   it('blocks at the budget boundary, never below, never when unlimited', () => {
     expect(budgetExhausted(4_999_999, 5_000_000)).toBe(false);
     expect(budgetExhausted(5_000_000, 5_000_000)).toBe(true);
