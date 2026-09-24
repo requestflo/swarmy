@@ -34,7 +34,6 @@ import { securityRouter } from './routers/security';
 import { membersRouter } from './routers/members';
 import { oauthRouter } from './routers/oauth';
 import { webhooksOutRouter } from './routers/webhooksOut';
-import { canvasRouter } from './routers/canvas';
 import { inventoryRouter } from './routers/inventory';
 import { regionRouter } from './routers/region';
 import { managedDbRouter } from './routers/manageddb';
@@ -109,7 +108,6 @@ export const appRouter = router({
   members: membersRouter,
   oauth: oauthRouter,
   webhooksOut: webhooksOutRouter,
-  canvas: canvasRouter,
   // ── platform buildout spine (see plans/platform-buildout-manifest.md) ──
   cache: managedCacheRouter,
   buckets: objectStorageRouter,

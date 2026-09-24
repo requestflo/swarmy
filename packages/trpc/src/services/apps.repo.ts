@@ -6,8 +6,6 @@
  *                      Retained versions double as "undo my last compose edit".
  *  - `registry/<orgId>` RegistryConfig (cosign private key stays a vault blob)
  *  - `image-gc/<orgId>` ImageGcPolicy (incl. the build-cache GC budget)
- *  - `canvas/<orgId>`  CanvasLayout positions. The viewport is a per-viewer
- *                      preference and lives in the browser, never in raft.
  */
 import { kvTable, type KvRow } from './kv-repo';
 
@@ -58,9 +56,3 @@ export const imageGcPolicies = kvTable<ImageGcPolicyDoc>('image-gc', {
   singleton: true,
   defaults: () => ({ mode: 'ON_HEALTHCHECK', keepProd: true, days: null, cacheMaxAgeDays: 14, cacheMaxGb: 20 }),
 });
-
-export interface CanvasLayoutDoc {
-  /** serviceId/stackId → { x, y }. */
-  positions: Record<string, { x: number; y: number }>;
-}
-export const canvasLayouts = kvTable<CanvasLayoutDoc>('canvas', { singleton: true, defaults: () => ({ positions: {} }) });

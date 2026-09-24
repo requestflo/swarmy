@@ -400,7 +400,7 @@ export {
   offsiteMirrors,
   controllerBackupConfigRepo,
 } from './services/backups.repo';
-export { stacks, registryConfigs, imageGcPolicies, canvasLayouts } from './services/apps.repo';
+export { stacks, registryConfigs, imageGcPolicies } from './services/apps.repo';
 
 // Protect my app (identity-aware proxy) + end-user auth users (dev-platform §2).
 export * from './services/app-access.service';

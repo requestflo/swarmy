@@ -65,8 +65,8 @@ Four ideas, one story:
   the middle — which is why "the exact stack runs without swarmy" is a guarantee,
   not a slogan.
 - **Reads are the canvas; only Deploy mutates.** The canvas is rendered from the
-  hub's live inventory (Docker truth) — dragging a card writes only a `CanvasLayout`
-  position, never a spec. A real change is one `service.deploy` dispatch. See
+  hub's live inventory (Docker truth) — dragging a card writes only its `swarmy.canvas.x/y`
+  labels, never a spec. A real change is one `service.deploy` dispatch. See
   `skill("agent-handlers")`.
 - **Every deploy is admitted, then remembered.** The admission pipeline judges the
   specs before dispatch; the `Release` row records who shipped what compose, which
@@ -92,8 +92,9 @@ Four ideas, one story:
 - **What swarmy's DB owns is its own identity + history + convenience state**: the
   `Release` model (compose snapshot, resolved image refs, actor, strategy, gate
   verdict, status — the queryable "who shipped what, when"); the `Stack` config row
-  (its `composeSource` is the authoritative exportable artifact, `ingressDriver`);
-  and `CanvasLayout` (drag positions + viewport — visual only, never behaviour).
+  (its `composeSource` is the authoritative exportable artifact, `ingressDriver`).
+  Canvas drag positions are `swarmy.canvas.x/y` service labels; the viewport is
+  browser-local.
 - **The compose source is the canonical anchor.** Redeploy re-parses the stored
   `composeSource`, so a hand-edit of the source is never overruled by stale model
   state. The model is a cache over compose, not a lock-in format.
@@ -257,7 +258,7 @@ homes:
   `blueprints/catalog.ts`), `services/previews.service.ts` +
   `workers/preview-reconcile.ts`.
 - **Data model**: `packages/db/prisma/schema/releases.prisma` (`Release`) and
-  `schema/cluster.prisma` (`Stack`, `CanvasLayout`).
+  `schema/cluster.prisma` (`Stack`).
 - **UI**: `apps/app/src/components/canvas/*` (service canvas, inspector, toolbar,
   layout), `components/service-builder/*`, `components/releases/*` (releases feed,
   canary panel, release detail), `components/blueprints/*`, `components/ci/previews-*`,

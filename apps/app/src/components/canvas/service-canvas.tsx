@@ -40,8 +40,8 @@ interface ServiceCanvasProps {
  * The service-level canvas: the live Docker inventory as a React Flow graph —
  * Project (stack) → Service → Container with inferred network/depends links.
  * Scoped to one stack (drill-in) or the whole swarm ("All services"). Drag
- * arranges services within their frame (visual only, persisted per-org via
- * canvas.get/save). Tapping a card transports you into it: a service card
+ * arranges services within their frame (visual only, persisted as the
+ * service's swarmy.canvas.x/y labels). Tapping a card transports you into it: a service card
  * opens the zoom-in service overlay, a db-cluster frame the stack's Data tab.
  * Fills whatever height its parent gives it (`h-full`) — the route layout owns
  * viewport fit. Mounted under a keyed ReactFlowProvider so switching scope

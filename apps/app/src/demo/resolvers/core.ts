@@ -305,7 +305,6 @@ export const core: DomainResolvers = {
     'services.remove': (i, s) => {
       const { id } = i as { id: string };
       s.services = s.services.filter((sv) => sv.id !== id);
-      delete s.positions[id];
       return { id, removed: true as const };
     },
     'services.update': (i, s) => {
@@ -353,14 +352,6 @@ export const core: DomainResolvers = {
       return { id, removed: true as const };
     },
     'stacks.deployFromCompose': () => ({ ok: true as const, deploymentId: 'dep-demo', warnings: [] }),
-
-    'canvas.get': (_i, s) => ({ positions: s.positions, viewport: s.viewport }),
-    'canvas.save': (i, s) => {
-      const b = i as { positions?: Record<string, { x: number; y: number }>; viewport?: { x: number; y: number; zoom: number } | null };
-      if (b.positions) s.positions = b.positions;
-      if (b.viewport !== undefined) s.viewport = b.viewport ?? null;
-      return { ok: true as const };
-    },
   },
 };
 

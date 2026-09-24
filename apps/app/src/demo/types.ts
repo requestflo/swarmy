@@ -16,9 +16,6 @@ export interface DemoStore {
   nodes: NodeDetail[];
   services: ServiceDetail[];
   stacks: Array<{ id: string; name: string; serviceCount: number; status: string; updatedAt: string }>;
-  /** canvas node positions + viewport (drag = visual only). */
-  positions: Record<string, { x: number; y: number }>;
-  viewport: { x: number; y: number; zoom: number } | null;
   /** Per-domain collections owned by resolver modules (keyed by domain name). */
   extra: Record<string, unknown>;
 }

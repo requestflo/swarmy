@@ -13,8 +13,6 @@ export function getStore(): DemoStore {
     nodes: DEMO_NODES.map((n) => ({ ...n })),
     services: DEMO_SERVICES.map((sv) => ({ ...sv })),
     stacks: DEMO_STACKS.map((st) => ({ ...st })),
-    positions: {},
-    viewport: null,
     extra: {},
   };
   for (const seed of SEEDS) seed(s);
