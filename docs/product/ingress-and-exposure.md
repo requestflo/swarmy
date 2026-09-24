@@ -217,6 +217,26 @@ honest lifecycle, shown on the row in plain words:
   redirect apex → www, or serve both — expands controller-side into routes plus
   a 308 redirect site; the companion host gets its own DNS check and cert. An
   explicit route for the companion always wins.
+- **Apex + www redirects work on every driver.** Caddy renders a redirect
+  site; nginx a `return 308 …$request_uri` server; HAProxy an `http-request
+  redirect prefix … code 308` on the SNI/Host frontend; Traefik a `Host(from)`
+  router on `noop@internal` with a permanent `redirectRegex` (labels and file
+  provider). Goldens: `packages/ingress/src/render/redirects.test.ts`.
+- **Wildcard certificates, from your own nameservers.** `*.acme.com` can only
+  be issued over ACME DNS-01. When the zone is served by swarmy-dns (NS
+  delegated to the ingress+outlet nodes), the edge's `dns swarmy` Caddy module
+  (`docker/caddy-swarmy/dnsprovider`) POSTs the challenge to the controller
+  (`/ingress/acme-dns/<orgId>/{present,cleanup}`); the controller accepts only
+  `_acme-challenge.<host>` for a host the org routes inside one of its zones,
+  stages the TXT in memory, and pushes the zone to every nameserver before it
+  answers. No DNS provider account, no API token. The bearer is derived
+  (HMAC of the org id), reaches the edge as a content-addressed Docker secret,
+  and is read from the file at each call — never in the Caddyfile, the adapted
+  JSON or the autosave. Optional secondary, only for a zone swarmy does not
+  serve: a Cloudflare API token (`ingress.setDnsProvider`), stored solely as a
+  Docker secret and read with `{file.*}`. Exact hosts keep HTTP-01/TLS-ALPN.
+  swarmy-dns answers wildcards (RFC 4592 synthesis), so `*.acme.com` resolves
+  and verifies like any other host.
 - **Every public app has an address before you own a domain.** A service that
   already publishes an HTTP port (or declares `swarmy.expose=public`, or sets
   `swarmy.ingress.auto=true`) gets a real route
@@ -224,7 +244,13 @@ honest lifecycle, shown on the row in plain words:
   (the name embeds the edge IP), a real Let's Encrypt certificate on a public
   IP, the local CA on a LAN IP. The marker label `swarmy.ingress.auto.host`
   makes removal permanent; a custom domain replaces it; an edge-IP change
-  re-hosts it; `swarmy.ingress.auto=false` opts out. Private/mesh/tunnel
+  re-hosts it; `swarmy.ingress.auto=false` opts out. **Own zone first:**
+  flag one delegated swarmy-ns zone (`geodns.setZoneAutoAddresses` — refused
+  until public NS already points at swarmy, sticky afterwards) and apps get
+  `<service>-<stack>.<zone>` answered by swarmy-dns instead; existing sslip.io
+  addresses re-host onto it (through the DNS gate, so the certificate is
+  ordered once the name resolves). sslip.io is only the fallback when no zone
+  is delegated. Private/mesh/tunnel
   intent, managed data and swarmy's own services never get one — an automatic
   address never widens exposure.
 - **Where the state lives.** Check results + the gate are controller

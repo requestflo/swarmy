@@ -65,8 +65,23 @@ invariants that must survive every change, and where everything lives.
   caddyRunning, lastStatusAt}` + `localUpstreamsHealthy`. DNS healthiness =
   node online AND caddy running; local-upstreams-down = DEPRIORITISE, don't
   drop (Caddy can still proxy cross-region).
-- **DNS → ACME (phase 2)**: swarmy-dns can answer `_acme-challenge` TXT for
-  DNS-01 — controller endpoint stages TXT into the snapshot; enables wildcards.
+- **DNS → ACME (DNS-01, built)**: edge Caddy's `dns swarmy` module
+  (`docker/caddy-swarmy/dnsprovider`) POSTs `/ingress/acme-dns/<orgId>/
+  {present,cleanup}` (bearer = `HMAC(SWARMY_SECRET_KEY,'acme-dns:'+orgId)`,
+  Docker secret `swarmy-acme-dns-<hash>` read from file per call). The
+  controller (`acme-dns.service.ts`) refuses anything but
+  `_acme-challenge.<routed host>` inside an org swarmy zone
+  (`checkChallengeName`), stages the TXT IN MEMORY (`acme-challenges.ts` —
+  ephemeral zone content, never the DB), `composeZone` folds it in, and it
+  force-pushes to every DNS node before answering. Only wildcards use DNS-01
+  (`planDnsChallenges`); BYO Cloudflare token is the secondary for zones
+  swarmy doesn't serve. `answerQuery` does RFC 4592 wildcard synthesis
+  (closest encloser only) — keep it, wildcard routes and their
+  `swarmy-dns-check.<base>` verification depend on it.
+- **Auto addresses on the org's zone**: a swarmy-ns zone flagged
+  `settings.autoAddresses` (set only while delegated) replaces the sslip.io
+  base (`auto-address.service` `autoAddressBase`); own-zone auto hosts go
+  through the DNS gate.
 - **Edge Caddy spec**: `caddyEdgeSpec(opts)` exported from
   `ingress-controller.ts` is THE spec; the swarmy-stack composition must
   consume it, never hand-roll (topology/ports/mounts single-sourced).
