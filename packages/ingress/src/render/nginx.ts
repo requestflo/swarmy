@@ -1,5 +1,70 @@
 import type { DomainRoute, IngressConfig } from '../types';
 import type { HostRedirect } from '../www';
+import {
+  APP_AUTH_CONTROLLER_PREFIX,
+  APP_AUTH_IDENTITY_HEADERS,
+  APP_AUTH_MODE_HEADER,
+  APP_AUTH_PATH_PREFIX,
+  type RouteAuth,
+} from '../app-auth';
+
+/** `X-Swarmy-Jwt` → `$swarmy_jwt` (the auth_request_set variable). */
+function identityVar(header: string): string {
+  return `$${header.toLowerCase().replace(/-/g, '_').replace(/^x_/, '')}`;
+}
+
+/**
+ * "Protect my app" server-level locations: the app-domain login callback
+ * (Host kept → first-party cookie), the internal auth_request subrequest in
+ * `status` mode (nginx only honours 2xx/401/403 from it, never a 302), and
+ * the named login location a 401 falls through to — the controller builds
+ * the properly-encoded redirect to swarmy's login page from the original URI.
+ */
+function authServerLocations(a: RouteAuth): string[] {
+  const fwd = [
+    '    proxy_set_header Host $host;',
+    '    proxy_set_header X-Forwarded-Host $host;',
+    '    proxy_set_header X-Forwarded-Proto $scheme;',
+  ];
+  return [
+    `  location ${APP_AUTH_PATH_PREFIX}/ {`,
+    `    proxy_pass http://${a.upstream}${APP_AUTH_CONTROLLER_PREFIX}/;`,
+    ...fwd,
+    '  }',
+    '  location = /_swarmy_verify {',
+    '    internal;',
+    `    proxy_pass http://${a.upstream}${a.verifyPath};`,
+    '    proxy_pass_request_body off;',
+    '    proxy_set_header Content-Length "";',
+    ...fwd,
+    '    proxy_set_header X-Forwarded-Uri $request_uri;',
+    '    proxy_set_header X-Forwarded-Method $request_method;',
+    `    proxy_set_header ${APP_AUTH_MODE_HEADER} status;`,
+    '  }',
+    '  location @swarmy_login {',
+    `    rewrite ^ ${APP_AUTH_CONTROLLER_PREFIX}/login break;`,
+    ...fwd,
+    '    proxy_set_header X-Forwarded-Uri $request_uri;',
+    `    proxy_pass http://${a.upstream};`,
+    '  }',
+  ];
+}
+
+/**
+ * The gate inside a protected location: auth_request, then every identity
+ * header is SET from the controller's answer — which also overwrites any
+ * value a client sent (nginx cannot wildcard-delete X-Swarmy-*).
+ */
+function authLocationLines(): string[] {
+  return [
+    '    auth_request /_swarmy_verify;',
+    ...APP_AUTH_IDENTITY_HEADERS.map(
+      (h) => `    auth_request_set ${identityVar(h)} $upstream_http_${h.toLowerCase().replace(/-/g, '_')};`,
+    ),
+    '    error_page 401 = @swarmy_login;',
+    ...APP_AUTH_IDENTITY_HEADERS.map((h) => `    proxy_set_header ${h} ${identityVar(h)};`),
+  ];
+}
 
 /**
  * nginx render (pure string construction). Emits a single `server { … }` block
@@ -45,6 +110,8 @@ function buildServer(r: DomainRoute, config: IngressConfig): string[] {
     out.push(`  ssl_certificate ${tls.cert};`);
     out.push(`  ssl_certificate_key ${tls.key};`);
   }
+  if (r.auth) out.push(...authServerLocations(r.auth));
+  const gate = r.auth ? authLocationLines() : [];
 
   // Scale-to-zero COLD: route the whole vhost to the controller activator. The
   // `rewrite ... break` replaces the request URI with the wake path + a `return`
@@ -53,6 +120,7 @@ function buildServer(r: DomainRoute, config: IngressConfig): string[] {
   // is required. The activator wakes the service then 307s the caller back.
   if (r.cold) {
     out.push('  location / {');
+    out.push(...gate);
     out.push(`    rewrite ^ ${r.cold.wakePath}?return=$scheme://$host$request_uri break;`);
     out.push('    proxy_set_header Host $host;');
     out.push('    proxy_set_header X-Real-IP $remote_addr;');
@@ -66,6 +134,7 @@ function buildServer(r: DomainRoute, config: IngressConfig): string[] {
 
   const loc = r.pathPrefix && r.pathPrefix !== '/' ? r.pathPrefix : '/';
   out.push(`  location ${loc} {`);
+  out.push(...gate);
   if (r.stripPathPrefix && loc !== '/') {
     // Trailing slash on proxy_pass strips the matched prefix.
     out.push(`    proxy_pass ${upstream}/;`);

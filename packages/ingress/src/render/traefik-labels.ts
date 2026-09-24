@@ -1,5 +1,27 @@
 import type { DomainRoute, IngressConfig } from '../types';
 import type { HostRedirect } from '../www';
+import {
+  APP_AUTH_CONTROLLER_PREFIX,
+  APP_AUTH_IDENTITY_HEADERS,
+  APP_AUTH_ORIGINAL_URI_HEADER,
+  APP_AUTH_PATH_PREFIX,
+} from '../app-auth';
+
+/**
+ * Header hygiene for a login-protected route: blank every identity header a
+ * client might forge (Traefik's `customRequestHeaders` with an empty value
+ * DELETES the header). Traefik cannot wildcard-delete, so the known set is
+ * listed; the forwardAuth step then sets them from the controller's answer.
+ */
+const STRIPPED_IDENTITY_HEADERS = [...APP_AUTH_IDENTITY_HEADERS, APP_AUTH_ORIGINAL_URI_HEADER];
+
+function authMiddlewareNames(rn: string): { strip: string; auth: string } {
+  return { strip: `${rn}-swarmy-strip`, auth: `${rn}-swarmy-auth` };
+}
+
+function forwardAuthAddress(r: DomainRoute): string {
+  return `http://${r.auth!.upstream}${r.auth!.verifyPath}`;
+}
 
 function sanitize(s: string): string {
   return s
@@ -58,7 +80,21 @@ export function buildTraefikLabels(config: IngressConfig): Map<string, Record<st
     if (r.tls === 'auto') labels[`traefik.http.routers.${rn}.tls.certresolver`] = 'le';
     labels[`traefik.http.services.${rn}.loadbalancer.server.port`] = String(r.port);
 
-    const middlewares = [...r.middlewares];
+    // Login gate first (strip forged identity headers, then forward-auth), so
+    // the controller sees the caller's original, un-stripped path.
+    const middlewares: string[] = [];
+    if (r.auth) {
+      const mw = authMiddlewareNames(rn);
+      STRIPPED_IDENTITY_HEADERS.forEach((h) => {
+        labels[`traefik.http.middlewares.${mw.strip}.headers.customrequestheaders.${h}`] = '';
+      });
+      labels[`traefik.http.middlewares.${mw.auth}.forwardauth.address`] = forwardAuthAddress(r);
+      labels[`traefik.http.middlewares.${mw.auth}.forwardauth.trustforwardheader`] = 'false';
+      labels[`traefik.http.middlewares.${mw.auth}.forwardauth.authresponseheaders`] =
+        APP_AUTH_IDENTITY_HEADERS.join(',');
+      middlewares.push(mw.strip, mw.auth);
+    }
+    middlewares.push(...r.middlewares);
     if (r.stripPathPrefix && r.pathPrefix && r.pathPrefix !== '/') {
       const mw = `${rn}-strip`;
       labels[`traefik.http.middlewares.${mw}.stripprefix.prefixes`] = r.pathPrefix;
@@ -106,13 +142,32 @@ export function buildTraefikDynamicYaml(config: IngressConfig): string {
     // activator wake endpoint and the service points at the activator host. As with
     // HAProxy, the seamless 307 `return` bounce is Caddy/nginx-only; here the service
     // wakes and is served direct on the next (re-rendered) request.
+    const chain: string[] = [];
+    if (r.auth) {
+      // "Protect my app": strip forged identity headers, then forward-auth
+      // against the controller (a 302/401/403 answer is passed to the caller).
+      const mw = authMiddlewareNames(rn);
+      chain.push(mw.strip, mw.auth);
+      middlewares.push(`    ${mw.strip}:`);
+      middlewares.push('      headers:');
+      middlewares.push('        customRequestHeaders:');
+      for (const h of STRIPPED_IDENTITY_HEADERS) middlewares.push(`          ${h}: ""`);
+      middlewares.push(`    ${mw.auth}:`);
+      middlewares.push('      forwardAuth:');
+      middlewares.push(`        address: "${forwardAuthAddress(r)}"`);
+      middlewares.push('        trustForwardHeader: false');
+      middlewares.push(
+        `        authResponseHeaders: [${APP_AUTH_IDENTITY_HEADERS.map((h) => `"${h}"`).join(', ')}]`,
+      );
+    }
     if (r.cold) {
       const mw = `${rn}-wake`;
-      routers.push(`      middlewares: ["${mw}"]`);
+      chain.push(mw);
       middlewares.push(`    ${mw}:`);
       middlewares.push('      replacePath:');
       middlewares.push(`        path: "${r.cold.wakePath}"`);
     }
+    if (chain.length) routers.push(`      middlewares: [${chain.map((m) => `"${m}"`).join(', ')}]`);
     if (r.tls === 'auto') {
       routers.push('      tls:');
       routers.push('        certResolver: le');
@@ -121,6 +176,32 @@ export function buildTraefikDynamicYaml(config: IngressConfig): string {
     services.push('      loadBalancer:');
     services.push('        servers:');
     services.push(`          - url: "http://${r.cold ? r.cold.upstream : `${r.service}:${r.port}`}"`);
+  }
+  // App login callback, once per protected host: `/.swarmy/auth/*` → the
+  // controller's `/_app-auth/*` with the Host kept (first-party cookie). The
+  // longer rule outranks the host's own routers (Traefik's default priority).
+  const callbackHosts = new Map<string, DomainRoute>();
+  for (const r of config.domains) if (r.auth && !callbackHosts.has(r.domain)) callbackHosts.set(r.domain, r);
+  for (const [host, r] of callbackHosts) {
+    const rn = sanitize(`swarmy-auth-${host}`);
+    routers.push(`    ${rn}:`);
+    routers.push(`      rule: "Host(\`${host}\`) && PathPrefix(\`${APP_AUTH_PATH_PREFIX}/\`)"`);
+    routers.push(`      service: "${rn}"`);
+    routers.push(`      entryPoints: ["${r.tls === 'off' ? 'web' : 'websecure'}"]`);
+    routers.push(`      middlewares: ["${rn}-path"]`);
+    if (r.tls === 'auto') {
+      routers.push('      tls:');
+      routers.push('        certResolver: le');
+    }
+    services.push(`    ${rn}:`);
+    services.push('      loadBalancer:');
+    services.push('        passHostHeader: true');
+    services.push('        servers:');
+    services.push(`          - url: "http://${r.auth!.upstream}"`);
+    middlewares.push(`    ${rn}-path:`);
+    middlewares.push('      replacePathRegex:');
+    middlewares.push(`        regex: '^${APP_AUTH_PATH_PREFIX.replace(/\./g, '\\.')}/(.*)'`);
+    middlewares.push(`        replacement: '${APP_AUTH_CONTROLLER_PREFIX}/$1'`);
   }
   for (const r of redirectsOf(config)) {
     const rn = redirectRouterName(r);

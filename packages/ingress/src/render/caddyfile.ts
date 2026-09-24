@@ -5,6 +5,13 @@ import type {
   RegionUpstream,
   RouteProtection,
 } from '../types';
+import {
+  APP_AUTH_CONTROLLER_PREFIX,
+  APP_AUTH_IDENTITY_HEADERS,
+  APP_AUTH_ORIGINAL_URI_HEADER,
+  APP_AUTH_PATH_PREFIX,
+  type RouteAuth,
+} from '../app-auth';
 import type { HostRedirect } from '../www';
 import { caddyDnsTlsLines } from '../dns-challenge';
 
@@ -25,9 +32,13 @@ export const WAF_SCANNER_PATHS: readonly string[] = [
   '/wp-content/uploads/*.php',
 ];
 
-/** Does any route cache? (Cold routes never cache — the wake redirect must not stick.) */
+/**
+ * Does any route cache? Cold routes never cache (the wake redirect must not
+ * stick), and neither do login-protected ones: a shared cache would serve one
+ * signed-in user's page to the next caller.
+ */
 function anyCached(config: IngressConfig): boolean {
-  return config.domains.some((d) => d.protection?.cache && !d.cold);
+  return config.domains.some((d) => d.protection?.cache && !d.cold && !d.auth);
 }
 
 /** Build a Caddyfile from an org ingress config. Pure string construction. */
@@ -374,10 +385,15 @@ function buildSite(host: string, routes: DomainRoute[], config: IngressConfig): 
   }
 
   const ordered = [...routes].sort(bySpecificity);
+  // "Protect my app": the login callback lives on THIS host (first-party cookie),
+  // so a host with any protected route carries the controller callback handle —
+  // outside forward_auth, or nobody could ever finish signing in.
+  const auth = ordered.find((r) => r.auth)?.auth;
+  if (auth) out.push(...appAuthCallbackHandle(auth));
   // The overwhelmingly common case — a single service at the host root — renders
   // WITHOUT a handle wrapper, byte-for-byte identical to the pre-grouping output.
   const only = ordered.length === 1 ? ordered[0] : undefined;
-  const bareRoot = only !== undefined && routePath(only) === '/';
+  const bareRoot = !auth && only !== undefined && routePath(only) === '/';
   for (const r of ordered) appendRoute(out, r, bareRoot, config);
 
   out.push('}');
@@ -557,7 +573,7 @@ function protectionLines(r: DomainRoute, geoipMmdbPath?: string): string[] {
   // a request must clear every gate above before it can hit or fill the cache.
   // Cold routes never cache — the body is the activator's wake redirect.
   const cache = p.cache;
-  if (cache && !r.cold) {
+  if (cache && !r.cold && !r.auth) {
     out.push('cache {', `  ttl ${cache.ttlSeconds}s`);
     if (cache.staleWhileRevalidateSeconds !== undefined) {
       out.push(`  stale ${cache.staleWhileRevalidateSeconds}s`);
@@ -588,8 +604,12 @@ function appendRoute(out: string[], r: DomainRoute, bare: boolean, config: Ingre
   const geoipMmdbPath = typeof extra.geoipMmdbPath === 'string' ? extra.geoipMmdbPath : undefined;
   // Protections run first so a blocked request never reaches the upstream —
   // and never wakes a cold service.
-  const body: string[] = [
+  const inner: string[] = [
     ...protectionLines(r, geoipMmdbPath),
+    // Login gate after the protections (a blocked request never reaches the
+    // controller) and before the proxy / wake (an anonymous caller never wakes
+    // a cold service).
+    ...(r.auth ? appAuthGateLines(r.auth) : []),
     ...(r.cold
       ? [
           `rewrite * ${r.cold.wakePath}?return={scheme}://{host}{uri}`,
@@ -597,6 +617,10 @@ function appendRoute(out: string[], r: DomainRoute, bare: boolean, config: Ingre
         ]
       : warmProxy(r, config.localRegion)),
   ];
+  // A protected route runs as one `route` block: Caddy's directive order puts
+  // forward_auth BEFORE request_header, so without the literal ordering the
+  // header strip would run after the auth step and delete the identity headers.
+  const body = r.auth ? ['route {', ...inner.map((l) => `  ${l}`), '}'] : inner;
 
   if (bare) {
     for (const line of body) out.push(`  ${line}`);
@@ -617,4 +641,40 @@ function appendRoute(out: string[], r: DomainRoute, bare: boolean, config: Ingre
   out.push(`  ${directive} ${path}* {`);
   for (const line of body) out.push(`    ${line}`);
   out.push('  }');
+}
+
+/**
+ * The app-domain login callback: `/.swarmy/auth/*` → the controller's
+ * `/_app-auth/*`, Host kept, so the controller sets its session cookie as a
+ * first-party cookie on THIS domain. Never behind forward_auth.
+ */
+function appAuthCallbackHandle(a: RouteAuth): string[] {
+  return [
+    // Host-wide: an UNprotected sibling route on this host must not receive
+    // forged identity headers either (Caddy runs request_header before handle).
+    '  request_header -X-Swarmy-*',
+    '  # swarmy app login callback (sets the first-party session cookie)',
+    `  handle_path ${APP_AUTH_PATH_PREFIX}/* {`,
+    `    rewrite * ${APP_AUTH_CONTROLLER_PREFIX}{uri}`,
+    `    reverse_proxy ${a.upstream}`,
+    '  }',
+  ];
+}
+
+/**
+ * The login gate for one protected route: drop every client-sent X-Swarmy-*
+ * header (only the controller may speak them), then forward-auth against the
+ * controller, copying its identity headers onto the upstream request. The
+ * subrequest carries the pre-rewrite URI so the login round trip returns
+ * the caller to the exact page they asked for.
+ */
+function appAuthGateLines(a: RouteAuth): string[] {
+  return [
+    'request_header -X-Swarmy-*',
+    `forward_auth ${a.upstream} {`,
+    `  uri ${a.verifyPath}`,
+    `  header_up ${APP_AUTH_ORIGINAL_URI_HEADER} {http.request.orig_uri}`,
+    `  copy_headers ${APP_AUTH_IDENTITY_HEADERS.join(' ')}`,
+    '}',
+  ];
 }

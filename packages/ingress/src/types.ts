@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { HostRedirectSchema } from './www';
 import { DnsChallengeSchema } from './dns-challenge';
+import { RouteAuthSchema } from './app-auth';
 
 // Wire/render types are owned by @swarmy/core so the agent and the controller
 // share one definition. The ingress package re-exports them.
@@ -223,6 +224,14 @@ export const DomainRouteSchema = z.object({
    * legacy output). Precedence: cold > canary > regionUpstreams > plain.
    */
   regionUpstreams: z.array(RegionUpstreamSchema).optional(),
+  /**
+   * "Protect my app" (identity-aware proxy). Present ⇒ every request is
+   * forward-authed against the swarmy controller before it reaches the
+   * upstream (or wakes a cold one); client-sent `X-Swarmy-*` headers are
+   * dropped first. Controller-computed from the route label's `access.login`.
+   * See `app-auth.ts`. Absent ⇒ byte-identical legacy output.
+   */
+  auth: RouteAuthSchema.optional(),
 });
 export type DomainRoute = z.infer<typeof DomainRouteSchema>;
 
