@@ -136,8 +136,9 @@ mode).
 
 ## Data & storage
 
-- Managed Postgres still runs `bitnamilegacy/postgresql`; port to the official
-  `postgres` image.
+- ~~Managed Postgres still runs `bitnamilegacy/postgresql`~~ — done (B5):
+  `pgvector/pgvector:pg17` (official `postgres` + pgvector) under swarmy's own
+  boot layer (`@swarmy/core` manageddb-pg); caches/sentinels on official Valkey/Redis.
 - Managed-DB placement ignores the `swarmy.node.database` role label
   (`manageddb-reconcile.ts` places by region only).
 - Live-verify the held-failover path on a real geo cluster (kill the primary

@@ -116,8 +116,10 @@ and where everything lives. Backups are dispatched to the agent as commands — 
   controller-backup configs from their services. All gathered in `buildSnapshot`.
 - **Drill exec contract**: drills exec inside a running container via the `exec`
   command (`execInService` → `resolveExecTarget`) and dispatch `container.runOnce`
-  for `restic check`; `psqlScript` runs psql against localhost in a bitnami PG
-  container.
+  for `restic check`; `psqlScript` runs psql against localhost in a managed PG
+  member (official image, `$POSTGRES_PASSWORD`). The failover drill rejoins the
+  promoted standby by redeploying it under a `drill:` `SWARMY_PG_REJOIN` epoch
+  (never a plain restart — the boot layer keeps a promoted writer a writer).
 
 ## File map
 

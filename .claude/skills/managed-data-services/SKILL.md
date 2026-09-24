@@ -75,7 +75,21 @@ state belongs see `skill("docker-native-storage")`.
     `active-active` never promote. Never add a promotion path that skips
     `decideFailover`, and never use seconds-lag as proof. The watermark maps are
     module-level (a controller restart ⇒ unknown ⇒ hold) — that is the safe
-    default, not a bug.
+    default, not a bug. Promotion is `SELECT pg_promote()`; the repoint
+    redeploys every other member under a fresh `SWARMY_PG_REJOIN` epoch, and
+    the boot layer moves a demoted ex-writer's PGDATA ASIDE
+    (`pgdata.diverged-<utc>`) before re-cloning — never deletes it.
+12. **Official images + swarmy's boot layer, never a vendor repackaging.**
+    Managed Postgres runs `pgvector/pgvector:pg17` (official `postgres:17` +
+    pgvector) with `@swarmy/core` `manageddb-pg` as the service `command`
+    (replication role + pg_hba on first boot, `pg_basebackup` replicas,
+    rejoin/aside on failover). Env is the official `POSTGRES_*` +
+    `SWARMY_PG_*` (role, replication user/password, primary host/port,
+    rejoin). Every member spec goes through `applyPgMember` (storage + boot
+    layer) — the live inventory carries no command, so a bare rebuild would
+    fall back to the image entrypoint. Caches run `valkey/valkey` / `redis`
+    official images with `sh -c` wrappers; sentinels are the engine's own
+    `*-sentinel` from the same image. No `bitnami*` image anywhere.
 11. **Cluster volumes register against an EXISTING CSI driver.** swarmy ships no
     storage driver. `register`/`removeVolume` ride `volume.provision`/
     `volume.remove` agent commands with `cluster:true`; restic backups
@@ -122,7 +136,8 @@ state belongs see `skill("docker-native-storage")`.
 | StorageCluster model | `packages/db/prisma/schema/backups.prisma` |
 | Cluster volumes (live `volume.list`, no table) | `packages/trpc/src/services/clusterVolume.service.ts` |
 | Data surfaces | per stack: `apps/app/src/routes/_authed/stacks/$name.data.tsx` → `components/stacks/managed-db-panel.tsx`, `components/{cache,searchsvc,vector,pitr-ha}/*`; buckets: `routes/_authed/data_.buckets.tsx` |
-| HA templates (`postgres-ha` repmgr, `redis-ha` Sentinel; no gallery UI yet) | `packages/trpc/src/services/templates.ts`, `routers/templates.ts` |
+| Postgres boot layer (entrypoint script, env contract, `applyPgBoot`) | `packages/core/src/manageddb-pg.ts` (+ `.test.ts`) |
+| HA templates (`postgres-ha` streaming + manual promotion, `redis-ha` Valkey Sentinel; no gallery UI yet) | `packages/trpc/src/services/templates.ts`, `routers/templates.ts` |
 
 ## Adding a managed-data type (the recipe)
 
@@ -147,9 +162,15 @@ state belongs see `skill("docker-native-storage")`.
 
 ## Operational gotchas
 
-- The DB password is the one env exception: bitnami reads `POSTGRESQL_PASSWORD`
-  from env, so a managed Postgres primary carries it as env (documented tradeoff)
-  while cache/search/vector keep the credential in a mounted secret file only.
+- The DB password is the one env exception: a managed Postgres member carries
+  `POSTGRES_PASSWORD` (+ `SWARMY_PG_REPLICATION_PASSWORD`) as env (documented
+  tradeoff; the replication password reaches libpq via a container-local 0600
+  passfile, never the data volume) while cache/search/vector keep the
+  credential in a mounted secret file only.
+- The data volume mounts at `/var/lib/postgresql/data` (the image's VOLUME —
+  mounting anywhere else leaves an anonymous volume on top) and PGDATA is its
+  `pgdata/` subdirectory. PG18 moved the official layout, so bumping the major
+  past 17 means revisiting `MANAGED_PG_ROOT`.
 - Swarm memory limit for a cache = declared maxmemory + 64 MB headroom
   (`memoryLimitBytes`) so the engine isn't OOM-killed at its own cap; the
   reconcile worker treats an `appliedMemoryMb` label mismatch as drift.

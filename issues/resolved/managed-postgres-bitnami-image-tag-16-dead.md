@@ -1,6 +1,7 @@
 # Managed Postgres is completely broken out of the box: the hardcoded `bitnami/postgresql:16` image no longer exists on Docker Hub, and no product surface lets you override it
 
 **Status:** Fixed (2026-09) — default switched to the still-published `bitnamilegacy/postgresql:16` (stopgap; see below). Primary→replica streaming replication verified live.
+**Superseded (self-reliance B5):** the stopgap is gone — managed Postgres now runs `pgvector/pgvector:pg17` (official `postgres:17` + pgvector) under swarmy's own boot layer (`packages/core/src/manageddb-pg.ts`), and caches/sentinels/etcd run official upstream images. No `bitnami*` image remains in the data plane.
 **Severity:** Critical — blocks 100% of the "managed database" feature area, which the governing
 `/goal` directive explicitly named as a must-test feature ("the kind of database stuff, everything").
 

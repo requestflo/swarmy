@@ -39,7 +39,7 @@ dashboard: stack → Data                         one form: name + replicas + Pr
    │  ① provision → stamp swarmy.db.* / cache.* / search.* / vector.* LABELS
    │     on the swarm services; generate password/key → Docker SECRET (once)
    ▼
-Docker Swarm services (bitnami/valkey/meili/qdrant/garage) = the real workload
+Docker Swarm services (postgres+pgvector/valkey/meili/qdrant/garage) = the real workload
    │  ② reconcile worker (per domain, ~tick) reads declared labels vs live tasks,
    │     converges replicas/memory/topology, stamps swarmy.*.stats back on labels
    ▼
@@ -86,8 +86,8 @@ Four ideas, one story:
 - **Secrets are Docker secrets.** Passwords and keys live in Docker secrets
   (`swarmy-search-<stack>_<name>-key`, cache password secret, per-attach bucket
   key secret), mounted as files. The `REDIS_URL` gets a `REDIS_PASSWORD_FILE`
-  companion; the DB password is the one env exception bitnami forces
-  (`POSTGRESQL_PASSWORD`), a documented tradeoff.
+  companion; the DB password is the one env exception the Postgres image
+  reads (`POSTGRES_PASSWORD`), a documented tradeoff.
 - **Bucket/key state is Garage's, not ours.** For object storage the Garage
   admin API is the source of truth for every bucket, key, quota, and grant.
   swarmy reaches it by running a one-shot `container.runOnce` curl on the
