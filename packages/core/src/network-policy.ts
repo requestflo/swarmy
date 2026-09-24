@@ -163,9 +163,22 @@ export interface NetworkedSpecLike {
 }
 
 export interface NetworkIsolationViolation {
-  rule: 'network.control-plane' | 'network.platform-alias';
+  rule: 'network.control-plane' | 'network.platform-alias' | 'platform.reserved-name';
   message: string;
   resource?: string;
+}
+
+/**
+ * Service names swarmy's own plumbing uses: the controller stack (`swarmy_*`:
+ * `swarmy_controller`, `swarmy_postgres`) and every platform service
+ * (`swarmy-*`: ingress Caddy, Garage, ClickHouse, the OTel collector, the
+ * registry, …). A swarm service name is also its DNS name, and `service.deploy`
+ * is create-OR-UPDATE by name — a user spec named `swarmy_controller` would
+ * replace the control plane; one named `swarmy-otel-collector` (before
+ * observability is on) would receive every app's telemetry.
+ */
+export function isReservedServiceName(name: string): boolean {
+  return /^swarmy[-_]/.test(name) || name === 'swarmy';
 }
 
 /**
@@ -174,13 +187,21 @@ export interface NetworkIsolationViolation {
  *  - joining `swarmy-control` (the controller's database lives there);
  *  - any DNS alias on the shared `swarmy` network (impersonation of
  *    `postgres` / `swarmy_controller` / `swarmy-garage` to the dual-homed
- *    edge, collector and agent).
+ *    edge, collector and agent);
+ *  - a platform service NAME (squatting or overwriting it).
  */
 export function networkIsolationViolations(specs: readonly unknown[] | undefined): NetworkIsolationViolation[] {
   const out: NetworkIsolationViolation[] = [];
   for (const raw of specs ?? []) {
     const spec = (raw ?? {}) as NetworkedSpecLike;
     const name = spec.name ?? '(unnamed)';
+    if (spec.name && isReservedServiceName(spec.name)) {
+      out.push({
+        rule: 'platform.reserved-name',
+        message: `service names starting with \`swarmy-\` / \`swarmy_\` are reserved for swarmy's own platform services`,
+        resource: name,
+      });
+    }
     for (const net of spec.networks ?? []) {
       if (PLATFORM_PRIVATE_NETWORKS.has(net)) {
         out.push({

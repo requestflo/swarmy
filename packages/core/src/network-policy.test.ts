@@ -65,6 +65,15 @@ describe('network isolation guard', () => {
     expect(networkIsolationViolations([{ name: 'x', networks: ['swarmy'], networkAliases: { swarmy: [] } }])).toEqual([]);
     expect(networkIsolationViolations(undefined)).toEqual([]);
   });
+  it('refuses platform service names (create-or-update by name would replace/squat them)', () => {
+    const v = networkIsolationViolations([
+      { name: 'swarmy_controller' },
+      { name: 'swarmy-otel-collector' },
+      { name: 'shop_swarmy-web' },
+      { name: 'myswarmy' },
+    ]);
+    expect(v.map((x) => x.resource)).toEqual(['swarmy_controller', 'swarmy-otel-collector']);
+  });
   it('stripPlatformAliases drops only platform-network aliases', () => {
     const aliases: Record<string, string[]> = { a_default: ['web'], swarmy: ['web'], 'swarmy-control': ['x'] };
     expect(stripPlatformAliases({ networkAliases: aliases })).toEqual({ networkAliases: { a_default: ['web'] } });
