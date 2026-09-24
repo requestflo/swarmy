@@ -2,13 +2,15 @@ import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { DEFAULT_REGISTRY_MIRROR_URL, DOCKER_REGISTRY_MIRROR_SH } from './docker-registry-mirror';
+import { DEFAULT_REGISTRY_MIRROR_FALLBACK_URL, DEFAULT_REGISTRY_MIRROR_URL, DOCKER_REGISTRY_MIRROR_SH } from './docker-registry-mirror';
 import { renderInstaller } from './installer';
 
 const SCRIPT = path.resolve(import.meta.dir, '../../../../scripts/install-swarmy.sh');
 
 /** Run `merge_registry_mirror` from the snippet under `sh -eu` (the join script's shell). */
-function merge(content: string | null): { out: string; code: number } {
+const MIRRORS = [DEFAULT_REGISTRY_MIRROR_URL, DEFAULT_REGISTRY_MIRROR_FALLBACK_URL];
+
+function merge(content: string | null, env: Record<string, string> = {}): { out: string; code: number } {
   const dir = mkdtempSync(path.join(tmpdir(), 'swarmy-regmirror-'));
   const file = path.join(dir, 'daemon.json');
   if (content !== null) writeFileSync(file, content);
@@ -16,7 +18,7 @@ function merge(content: string | null): { out: string; code: number } {
   writeFileSync(lib, DOCKER_REGISTRY_MIRROR_SH);
   const r = Bun.spawnSync(
     ['sh', '-euc', `ok(){ :; }; warn(){ :; }; . "$0"; rc=0; merge_registry_mirror "$1" || rc=$?; echo "rc=$rc"`, lib, file],
-    { stdout: 'pipe', stderr: 'pipe' },
+    { stdout: 'pipe', stderr: 'pipe', env: { ...process.env, ...env } },
   );
   const text = r.stdout.toString();
   const m = /rc=(\d+)\n$/.exec(text);
@@ -28,7 +30,7 @@ describe('daemon.json registry-mirrors merge (installer + join script)', () => {
     for (const c of [null, '', '  \n']) {
       const r = merge(c);
       expect(r.code).toBe(0);
-      expect(JSON.parse(r.out)).toEqual({ 'registry-mirrors': [DEFAULT_REGISTRY_MIRROR_URL] });
+      expect(JSON.parse(r.out)).toEqual({ 'registry-mirrors': MIRRORS });
     }
   });
 
@@ -39,8 +41,25 @@ describe('daemon.json registry-mirrors merge (installer + join script)', () => {
       'log-driver': 'json-file',
       'log-opts': { 'max-size': '10m' },
       'live-restore': true,
-      'registry-mirrors': [DEFAULT_REGISTRY_MIRROR_URL],
+      'registry-mirrors': MIRRORS,
     });
+  });
+
+  it('lists mirror.gcr.io after the cache, so a failing cache falls back before Hub', () => {
+    expect(MIRRORS).toEqual(['http://localhost:5001', 'https://mirror.gcr.io']);
+  });
+
+  it("upgrades swarmy's older cache-only list; a current list is left alone", () => {
+    const r = merge(`{"live-restore": true, "registry-mirrors": ["${DEFAULT_REGISTRY_MIRROR_URL}"]}`);
+    expect(r.code).toBe(0);
+    expect(JSON.parse(r.out)).toEqual({ 'live-restore': true, 'registry-mirrors': MIRRORS });
+    expect(merge(JSON.stringify({ 'registry-mirrors': MIRRORS })).code).toBe(3);
+  });
+
+  it('SWARMY_REGISTRY_MIRROR_FALLBACK=off keeps the cache alone', () => {
+    const r = merge(null, { SWARMY_REGISTRY_MIRROR_FALLBACK: 'off' });
+    expect(JSON.parse(r.out)).toEqual({ 'registry-mirrors': [DEFAULT_REGISTRY_MIRROR_URL] });
+    expect(merge(`{"registry-mirrors": ["${DEFAULT_REGISTRY_MIRROR_URL}"]}`, { SWARMY_REGISTRY_MIRROR_FALLBACK: '' }).code).toBe(3);
   });
 
   it("never touches an operator's own mirrors", () => {
