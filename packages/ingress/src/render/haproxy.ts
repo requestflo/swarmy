@@ -1,4 +1,5 @@
 import type { IngressConfig } from '../types';
+import type { HostRedirect } from '../www';
 
 /**
  * HAProxy render (pure string construction). Emits a single frontend that
@@ -41,12 +42,24 @@ export function buildHaproxyConfig(config: IngressConfig): string {
   out.push('  option httplog');
   out.push('');
 
-  const anyTls = config.domains.some((d) => d.tls !== 'off');
-  const anyPlain = config.domains.some((d) => d.tls === 'off');
+  // Apex ↔ www redirects (explicit route for the same host wins). `redirect
+  // prefix` keeps the path + query; 308 is method-preserving permanent.
+  const routed = new Set(config.domains.map((d) => d.domain));
+  const redirects: HostRedirect[] = [];
+  for (const r of config.hostRedirects ?? []) {
+    if (routed.has(r.from) || redirects.some((x) => x.from === r.from)) continue;
+    redirects.push(r);
+  }
+  const redirectLine = (r: HostRedirect, match: string) =>
+    `  http-request redirect prefix ${r.tls === 'off' ? 'http' : 'https'}://${r.to} code 308 if { ${match} -i ${r.from} }`;
+
+  const anyTls = config.domains.some((d) => d.tls !== 'off') || redirects.some((r) => r.tls !== 'off');
+  const anyPlain = config.domains.some((d) => d.tls === 'off') || redirects.some((r) => r.tls === 'off');
 
   if (anyPlain) {
     out.push('frontend http_in');
     out.push('  bind *:80');
+    for (const r of redirects) if (r.tls === 'off') out.push(redirectLine(r, 'hdr(host)'));
     for (const r of config.domains) {
       if (r.tls !== 'off') continue;
       out.push(`  use_backend ${backendName(r.domain)} if { hdr(host) -i ${r.domain} }`);
@@ -58,6 +71,7 @@ export function buildHaproxyConfig(config: IngressConfig): string {
     out.push('frontend https_in');
     out.push(`  bind *:443 ssl crt ${CERT_DIR}`);
     out.push('  http-request set-header X-Forwarded-Proto https');
+    for (const r of redirects) if (r.tls !== 'off') out.push(redirectLine(r, 'ssl_fc_sni'));
     for (const r of config.domains) {
       if (r.tls === 'off') continue;
       out.push(`  use_backend ${backendName(r.domain)} if { ssl_fc_sni -i ${r.domain} }`);

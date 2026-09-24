@@ -1,4 +1,5 @@
 import type { DomainRoute, IngressConfig } from '../types';
+import type { HostRedirect } from '../www';
 
 /**
  * nginx render (pure string construction). Emits a single `server { … }` block
@@ -80,11 +81,39 @@ function buildServer(r: DomainRoute, config: IngressConfig): string[] {
   return out;
 }
 
-/** Build the full nginx config (one server block per domain). */
+/**
+ * A redirect-only server (apex ↔ www toggle): 308 to the canonical host with
+ * the path + query kept (`$request_uri`). The redirect host needs its own cert
+ * (the browser handshakes before it sees the redirect) — same layout as a
+ * route: custom material when supplied for `from`, else the ACME-companion path.
+ */
+function buildRedirectServer(r: HostRedirect, config: IngressConfig): string[] {
+  const scheme = r.tls === 'off' ? 'http' : 'https';
+  let tls: { cert: string; key: string } | undefined;
+  if (r.tls !== 'off') {
+    const asRoute = { domain: r.from, tls: 'custom' } as DomainRoute;
+    tls = (r.tls === 'custom' ? certPaths(asRoute, config) : undefined) ??
+      certPaths({ ...asRoute, tls: 'auto' }, config);
+  }
+  const out = ['server {', `  listen ${tls ? '443 ssl' : '80'};`, `  server_name ${r.from};`];
+  if (tls) out.push(`  ssl_certificate ${tls.cert};`, `  ssl_certificate_key ${tls.key};`);
+  out.push('  # swarmy www redirect', `  return 308 ${scheme}://${r.to}$request_uri;`, '}');
+  return out;
+}
+
+/** Build the full nginx config (one server block per domain, then redirects). */
 export function buildNginxConfig(config: IngressConfig): string {
   const out: string[] = [];
+  const hosts = new Set<string>();
   for (const r of config.domains) {
+    hosts.add(r.domain);
     out.push(...buildServer(r, config), '');
+  }
+  // Apex ↔ www redirects; a host that also has a route is skipped (explicit wins).
+  for (const r of config.hostRedirects ?? []) {
+    if (hosts.has(r.from)) continue;
+    hosts.add(r.from);
+    out.push(...buildRedirectServer(r, config), '');
   }
   return `${out.join('\n').trimEnd()}\n`;
 }

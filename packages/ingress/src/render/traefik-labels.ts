@@ -1,4 +1,5 @@
 import type { DomainRoute, IngressConfig } from '../types';
+import type { HostRedirect } from '../www';
 
 function sanitize(s: string): string {
   return s
@@ -10,6 +11,38 @@ function sanitize(s: string): string {
 export function routerName(r: DomainRoute): string {
   const suffix = r.pathPrefix && r.pathPrefix !== '/' ? `-${r.pathPrefix}` : '';
   return sanitize(`${r.service}-${r.domain}${suffix}`);
+}
+
+/** Escape a hostname for a Traefik (Go RE2) regex. */
+function reHost(host: string): string {
+  return host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function redirectRouterName(r: HostRedirect): string {
+  return sanitize(`www-redirect-${r.from}`);
+}
+
+/**
+ * The apex ↔ www redirects this render emits: an explicit route for `from`
+ * wins (skipped), duplicates collapse. Each is a router on `Host(from)` whose
+ * only job is a `redirectRegex` middleware (path + query kept, permanent)
+ * bound to Traefik's built-in `noop@internal` service.
+ */
+function redirectsOf(config: IngressConfig): HostRedirect[] {
+  const routed = new Set(config.domains.map((d) => d.domain));
+  const out: HostRedirect[] = [];
+  for (const r of config.hostRedirects ?? []) {
+    if (routed.has(r.from) || out.some((x) => x.from === r.from)) continue;
+    out.push(r);
+  }
+  return out;
+}
+
+function redirectRegex(r: HostRedirect): { regex: string; replacement: string } {
+  return {
+    regex: `^https?://${reHost(r.from)}(:[0-9]+)?(.*)$`,
+    replacement: `${r.tls === 'off' ? 'http' : 'https'}://${r.to}\${2}`,
+  };
 }
 
 /** Build per-service Traefik docker labels (labels provider). */
@@ -33,6 +66,25 @@ export function buildTraefikLabels(config: IngressConfig): Map<string, Record<st
     }
     if (middlewares.length) labels[`traefik.http.routers.${rn}.middlewares`] = middlewares.join(',');
     byService.set(r.service, labels);
+  }
+  // Redirect routers ride on the label set of the service that serves the
+  // canonical host (labels need a swarm service to live on); a redirect whose
+  // destination has no route here has nowhere to live and is skipped.
+  for (const r of redirectsOf(config)) {
+    const owner = config.domains.find((d) => d.domain === r.to && !d.service.includes(':'));
+    if (!owner) continue;
+    const labels = byService.get(owner.service) ?? { 'traefik.enable': 'true' };
+    const rn = redirectRouterName(r);
+    const { regex, replacement } = redirectRegex(r);
+    labels[`traefik.http.routers.${rn}.rule`] = `Host(\`${r.from}\`)`;
+    labels[`traefik.http.routers.${rn}.entrypoints`] = r.tls === 'off' ? 'web' : 'websecure';
+    if (r.tls !== 'off') labels[`traefik.http.routers.${rn}.tls.certresolver`] = 'le';
+    labels[`traefik.http.routers.${rn}.service`] = 'noop@internal';
+    labels[`traefik.http.routers.${rn}.middlewares`] = rn;
+    labels[`traefik.http.middlewares.${rn}.redirectregex.regex`] = regex;
+    labels[`traefik.http.middlewares.${rn}.redirectregex.replacement`] = replacement;
+    labels[`traefik.http.middlewares.${rn}.redirectregex.permanent`] = 'true';
+    byService.set(owner.service, labels);
   }
   return byService;
 }
@@ -69,6 +121,25 @@ export function buildTraefikDynamicYaml(config: IngressConfig): string {
     services.push('      loadBalancer:');
     services.push('        servers:');
     services.push(`          - url: "http://${r.cold ? r.cold.upstream : `${r.service}:${r.port}`}"`);
+  }
+  for (const r of redirectsOf(config)) {
+    const rn = redirectRouterName(r);
+    const { regex, replacement } = redirectRegex(r);
+    routers.push(`    ${rn}:`);
+    routers.push(`      rule: "Host(\`${r.from}\`)"`);
+    routers.push('      service: "noop@internal"');
+    routers.push(`      entryPoints: ["${r.tls === 'off' ? 'web' : 'websecure'}"]`);
+    routers.push(`      middlewares: ["${rn}"]`);
+    if (r.tls !== 'off') {
+      routers.push('      tls:');
+      routers.push('        certResolver: le');
+    }
+    middlewares.push(`    ${rn}:`);
+    middlewares.push('      redirectRegex:');
+    // Single-quoted YAML scalars: the regex's backslashes stay literal.
+    middlewares.push(`        regex: '${regex}'`);
+    middlewares.push(`        replacement: '${replacement}'`);
+    middlewares.push('        permanent: true');
   }
   const out = ['http:', '  routers:', ...routers, '  services:', ...services];
   if (middlewares.length) out.push('  middlewares:', ...middlewares);
