@@ -58,8 +58,8 @@ LB = launch-blocker. Size S/M/L.
 2. **GitHub App** manifest flow + repo picker + PR comment / commit status with
    the preview URL + webhook watch paths; Gitea next. Today: paste webhook +
    PAT, GitHub/GitLab only. M, LB. (`epic-git-apps.md`.)
-3. **Automatic HTTPS route per HTTP service** —
-   `<svc>-<stack>.<ip>.sslip.io` on the (now default) Caddy edge. S, LB.
+3. ~~Automatic HTTPS route per HTTP service~~ — shipped (84c6b93:
+   `<service>-<stack>.<edge-ip>.sslip.io` on the default Caddy edge).
 4. **Third-party registry credentials** (GHCR, Docker Hub): `registryAuth` is
    only filled for the org registry, so private GHCR images can't deploy. S, LB.
 5. **Compose template catalogue ≥ 50 at launch** (9 blueprints today vs Dokploy
