@@ -381,12 +381,70 @@ export async function restoreVolume(
   if (res.exitCode !== 0) {
     throw new Error(res.stderr.trim() || `restic restore exited ${res.exitCode}`);
   }
-  const summary = parseSummary(res.stdout);
   return {
     targetVolume: p.targetVolume,
-    bytesRestored: summary.total_bytes ?? summary.total_bytes_processed ?? 0,
+    bytesRestored: await restoredBytes(docker, res.stdout, {
+      image,
+      repo: p.repo,
+      snapshotId: p.snapshotId,
+      network: p.network,
+    }),
     durationMs: Date.now() - started,
   };
+}
+
+/**
+ * Bytes a `restic restore` wrote. restic ≥0.17 ends `--json` with a summary
+ * (`bytes_restored` / `total_bytes`), but the pinned 0.16 prints no JSON
+ * summary for restore at all, so every restore (restore-as-copy included)
+ * reported "0 bytes". Without a summary, ask restic for the snapshot's
+ * restore size (`stats --mode restore-size`), which is exactly what a full
+ * restore writes. 0 only when both fail.
+ */
+export async function restoredBytes(
+  docker: DockerClient,
+  restoreStdout: string,
+  q: { image: string; repo: RestoreVolumePayload['repo']; snapshotId: string; network?: string },
+): Promise<number> {
+  const fromSummary = restoredBytesFromSummary(restoreStdout);
+  if (fromSummary !== null) return fromSummary;
+  const stats = await runSidecar(docker, {
+    image: q.image,
+    args: ['stats', q.snapshotId, '--json', '--mode', 'restore-size'],
+    env: repoEnv(q.repo),
+    binds: repoBinds(q.repo),
+    networkMode: q.network,
+  }).catch(() => null);
+  return (stats && stats.exitCode === 0 ? parseStatsSize(stats.stdout) : null) ?? 0;
+}
+
+/** PURE — bytes from a restic ≥0.17 restore summary line, else null. */
+export function restoredBytesFromSummary(stdout: string): number | null {
+  const lines = stdout.split('\n').filter((l) => l.trim());
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const o = JSON.parse(lines[i] ?? '') as { message_type?: string; bytes_restored?: number; total_bytes?: number };
+      if (o.message_type !== 'summary') continue;
+      const n = o.bytes_restored ?? o.total_bytes;
+      if (typeof n === 'number' && n > 0) return n;
+    } catch {
+      // non-JSON progress / text output (restic 0.16)
+    }
+  }
+  return null;
+}
+
+/** PURE — `restic stats --json` → `total_size`, else null. */
+export function parseStatsSize(stdout: string): number | null {
+  for (const line of stdout.split('\n').reverse()) {
+    try {
+      const o = JSON.parse(line) as { total_size?: number };
+      if (typeof o.total_size === 'number') return o.total_size;
+    } catch {
+      // skip
+    }
+  }
+  return null;
 }
 
 export async function listSnapshots(
@@ -781,6 +839,12 @@ async function restoreDbLogical(
     if (fetch.exitCode !== 0) {
       throw new Error(fetch.stderr.trim() || `restic restore exited ${fetch.exitCode}`);
     }
+    const bytesRestored = await restoredBytes(docker, fetch.stdout, {
+      image: resticImage,
+      repo: p.repo,
+      snapshotId: p.snapshotId,
+      network: p.resticNetwork,
+    });
 
     // 2) Load it back into the target database.
     const targetDb = assertDbName(p.database ?? p.conn.database);
@@ -804,7 +868,7 @@ async function restoreDbLogical(
       mode: p.mode,
       engine: p.engine,
       database: dumpAll ? undefined : targetDb,
-      bytesRestored: 0,
+      bytesRestored,
       durationMs: Date.now() - started,
     };
   } finally {
