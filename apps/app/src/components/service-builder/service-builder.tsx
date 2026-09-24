@@ -17,6 +17,7 @@ import {
 import type { ServiceModelOut } from '@swarmy/core/compose';
 import { ImagePicker } from './image-picker';
 import { KvEditor } from './kv-editor';
+import { EnvPasteButton } from './env-paste-button';
 import { ListEditor } from './list-editor';
 import { PortsEditor } from './ports-editor';
 import { MountsEditor } from './mounts-editor';
@@ -96,6 +97,7 @@ export function ServiceBuilder({ state }: ServiceBuilderProps): React.JSX.Elemen
           <TabsContent value="env" className="grid gap-4">
             <Field label="Environment">
               <KvEditor value={model.env} onChange={(v) => set('env', v)} emptyHint="No env yet." />
+              <EnvPasteButton current={model.env} onApply={(v) => set('env', v)} />
             </Field>
             <Field label="Labels">
               <KvEditor

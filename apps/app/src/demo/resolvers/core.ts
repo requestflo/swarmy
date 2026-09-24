@@ -287,6 +287,16 @@ export const core: DomainResolvers = {
       delete s.positions[id];
       return { id, removed: true as const };
     },
+    'services.update': (i, s) => {
+      const b = i as { id: string; env?: { key: string; value: string }[]; image?: string; replicas?: number };
+      const sv = s.services.find((x) => x.id === b.id);
+      if (!sv) throw new Error(`service "${b.id}" not found`);
+      if (b.env) sv.env = Object.fromEntries(b.env.map((e) => [e.key, e.value]));
+      if (b.image) sv.image = b.image;
+      if (b.replicas !== undefined) sv.replicas = { ...sv.replicas, desired: b.replicas };
+      sv.updatedAt = new Date().toISOString();
+      return { id: b.id, deploymentId: `dep-${Math.random().toString(36).slice(2, 8)}` };
+    },
     'services.create': (i, s) => {
       const b = i as { name: string; image: string; replicas?: number; nodeId?: string };
       const id = `svc-${b.name}-${Math.random().toString(36).slice(2, 6)}`;
