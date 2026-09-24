@@ -6,7 +6,7 @@
 #     -e SWARMY_JOIN_TOKEN=swt_... \
 #     -e SWARMY_AGENT_STATE=/var/lib/swarmy/agent.json \
 #     swarmy/agent
-FROM oven/bun:1.3-alpine
+FROM oven/bun:1.3-alpine AS base
 
 # iptables: the registry firewall floor runs in a one-shot host-network
 # sidecar of this image (handlers/registry-firewall.ts). Both backends, so
@@ -17,27 +17,23 @@ WORKDIR /app
 
 # Workspace install (run from repo root build context).
 # bun validates the whole lockfile graph, so every workspace member's manifest
-# must be present even though we only build the agent. We copy all package.json
-# files (cheap, cache-friendly) but only the agent's source closure
-# (core + mesh + agent) afterwards, keeping the image lean.
+# must be present even though we only build the agent. A throwaway stage
+# collects every apps/*/ and packages/*/ package.json (so a NEW workspace
+# package can't break this build), then only the agent's source closure
+# (core + mesh + agent) is copied afterwards, keeping the image lean. The
+# collected layer is content-addressed, so the install stays cached until a
+# manifest actually changes. apps/web and apps/e2e are excluded by
+# .dockerignore — leaf apps nothing in the agent's graph depends on.
+FROM oven/bun:1.3-alpine AS manifests
+COPY apps /src/apps
+COPY packages /src/packages
+RUN cd /src && for f in apps/*/package.json packages/*/package.json; do \
+      mkdir -p "/out/$(dirname "$f")" && cp "$f" "/out/$f"; \
+    done
+
+FROM base
 COPY package.json bun.lock ./
-# apps/web and apps/e2e are excluded by .dockerignore — they're leaf apps that
-# nothing in the agent's graph depends on, so bun tolerates their absence.
-COPY apps/agent/package.json apps/agent/
-COPY apps/api/package.json apps/api/
-COPY apps/app/package.json apps/app/
-COPY packages/abac/package.json packages/abac/
-COPY packages/api-rest/package.json packages/api-rest/
-COPY packages/app-config/package.json packages/app-config/
-COPY packages/auth/package.json packages/auth/
-COPY packages/core/package.json packages/core/
-COPY packages/db/package.json packages/db/
-COPY packages/dns/package.json packages/dns/
-COPY packages/ingress/package.json packages/ingress/
-COPY packages/mesh/package.json packages/mesh/
-COPY packages/templates/package.json packages/templates/
-COPY packages/trpc/package.json packages/trpc/
-COPY packages/ui/package.json packages/ui/
+COPY --from=manifests /out/ ./
 RUN bun install --filter @swarmy/agent --filter @swarmy/core --filter @swarmy/mesh
 
 COPY packages/core packages/core

@@ -137,7 +137,7 @@ async function main() {
     nodes: String(cfg.nodeCount),
     size: `${cfg.spec.cpus}cpu/${cfg.spec.memGiB}GiB`,
     mesh,
-    source: cfg.source,
+    source: cfg.source === 'tree' ? 'working-tree' : 'HEAD',
   });
 
   say(`swarmy cluster e2e · provider=${provider.kind} nodes=${cfg.nodeCount} mesh=${mesh} report=${reportDir}`);
