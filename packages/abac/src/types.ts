@@ -66,6 +66,14 @@ export const ACTIONS = [
   'secrets.read',
   /** Join a stack's mesh network from a client (NetBird group sync). */
   'mesh.connect',
+  // Database studio (epic developer-platform §3). Reading rows is data access
+  // (member-permitted outside production); writing rows needs `data.write`
+  // (owner/admin-only until granted). DDL / DELETE-without-WHERE rides the
+  // existing `data.destroy`.
+  /** Browse tables and run read-only queries in the database studio. */
+  'data.read',
+  /** Insert, update or delete rows (or run a write statement) in the database studio. */
+  'data.write',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];

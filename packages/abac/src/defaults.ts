@@ -23,6 +23,7 @@ export const NON_PRODUCTION = { attr: 'resource.env', op: 'ne', value: 'producti
  *    with no resource, counts as non-production). Production is the
  *    `swarmy.env=production` Docker label;
  *  - members may join the mesh of NON-production stacks (`mesh.connect`);
+ *  - members may read NON-production databases in the studio (`data.read`);
  *  - a production deploy or mesh connect, every destructive action (`data.*`,
  *    `*.remove`, `secret.delete`, …), `terminal.open` and `secrets.read` need
  *    an explicit grant: a policy naming the member's group / the member, or a
@@ -92,6 +93,16 @@ export const DEFAULT_POLICY_SPECS: DefaultPolicySpec[] = [
     effect: 'permit',
     priority: 38,
     doc: { roles: ['member'], actions: ['mesh.connect'], conditions: [{ ...NON_PRODUCTION }] },
+  },
+  {
+    // Database studio: members browse rows and run read-only queries on
+    // NON-production databases. Production data, and every write
+    // (`data.write`) or destructive statement (`data.destroy`), needs a grant.
+    key: 'member-data-read-nonprod',
+    name: 'Members can read non-production databases',
+    effect: 'permit',
+    priority: 37,
+    doc: { roles: ['member'], actions: ['data.read'], conditions: [{ ...NON_PRODUCTION }] },
   },
   {
     // ReBAC: a member granted `operator` (or `owner`) on a specific resource may
