@@ -46,6 +46,7 @@ type Client struct {
 	Stacks   *StacksService
 	Nodes    *NodesService
 	Ingress  *IngressService
+	Git      *GitService
 }
 
 // Option configures a Client.
@@ -87,6 +88,7 @@ func NewClient(endpoint, apiKey string, opts ...Option) (*Client, error) {
 	c.Stacks = &StacksService{client: c}
 	c.Nodes = &NodesService{client: c}
 	c.Ingress = &IngressService{client: c}
+	c.Git = &GitService{client: c}
 	return c, nil
 }
 

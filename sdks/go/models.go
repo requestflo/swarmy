@@ -15,6 +15,17 @@ type EnvVar struct {
 	Value string `json:"value"`
 }
 
+type GitRepoWebhook struct {
+	URL    string `json:"url"`
+	Secret string `json:"secret"`
+}
+
+type GitRepoRef struct {
+	ID       string `json:"id"`
+	FullName string `json:"full_name"`
+	CloneURL string `json:"clone_url"`
+}
+
 type Node struct {
 	ID            string  `json:"id"`
 	Name          string  `json:"name"`
@@ -113,14 +124,33 @@ type DeployStackRequest struct {
 	ComposeSource string `json:"compose_source"`
 }
 
+type IngressDomainStatus struct {
+	Host             string         `json:"host"`
+	State            string         `json:"state"`
+	Reason           string         `json:"reason"`
+	Warnings         []string       `json:"warnings"`
+	Gated            bool           `json:"gated"`
+	VerifiedAt       *string        `json:"verified_at"`
+	VerifiedManually bool           `json:"verified_manually"`
+	LastCheckedAt    *string        `json:"last_checked_at"`
+	NextCheckAt      *string        `json:"next_check_at"`
+	Dns              map[string]any `json:"dns"`
+	Certificate      map[string]any `json:"certificate"`
+}
+
 type IngressDomain struct {
-	ID          string  `json:"id"`
-	Host        string  `json:"host"`
-	ServiceID   string  `json:"service_id"`
-	ServiceName string  `json:"service_name"`
-	TargetPort  int     `json:"target_port"`
-	TLS         string  `json:"tls"`
-	PathPrefix  *string `json:"path_prefix"`
+	ID              string              `json:"id"`
+	Host            string              `json:"host"`
+	ServiceID       string              `json:"service_id"`
+	ServiceName     string              `json:"service_name"`
+	TargetPort      int                 `json:"target_port"`
+	TLS             string              `json:"tls"`
+	PathPrefix      *string             `json:"path_prefix"`
+	Www             string              `json:"www,omitempty"`
+	CompanionHost   *string             `json:"companion_host"`
+	Auto            bool                `json:"auto,omitempty"`
+	Status          IngressDomainStatus `json:"status,omitempty"`
+	CompanionStatus IngressDomainStatus `json:"companion_status,omitempty"`
 }
 
 type IngressDomainList struct {
@@ -134,6 +164,19 @@ type AddDomainRequest struct {
 	TargetPort int    `json:"target_port"`
 	TLS        string `json:"tls,omitempty"`
 	PathPrefix string `json:"path_prefix,omitempty"`
+	Www        string `json:"www,omitempty"`
+}
+
+type DnsRecordHint struct {
+	Type  string `json:"type"`
+	Name  string `json:"name"`
+	Label string `json:"label"`
+	Value string `json:"value"`
+	Note  string `json:"note,omitempty"`
+}
+
+type UpdateDomainRequest struct {
+	Www string `json:"www"`
 }
 
 type ApiKey struct {
@@ -163,12 +206,43 @@ type Revoked struct {
 	Revoked bool   `json:"revoked"`
 }
 
+type DnsZone struct {
+	ID          string           `json:"id"`
+	Zone        string           `json:"zone"`
+	Mode        string           `json:"mode"`
+	Enabled     bool             `json:"enabled"`
+	Ttl         int              `json:"ttl"`
+	Serial      int              `json:"serial"`
+	ApexToEdge  bool             `json:"apex_to_edge"`
+	AutoWww     bool             `json:"auto_www"`
+	Nameservers []map[string]any `json:"nameservers"`
+}
+
+type DnsZoneList struct {
+	Data       []DnsZone `json:"data"`
+	NextCursor *string   `json:"next_cursor"`
+}
+
+type CreateDnsZoneRequest struct {
+	Zone string `json:"zone"`
+	Mode string `json:"mode,omitempty"`
+}
+
+type DnsDelegationCheck struct {
+	Zone        string           `json:"zone"`
+	Delegated   bool             `json:"delegated"`
+	PublicNs    []string         `json:"public_ns"`
+	Nameservers []map[string]any `json:"nameservers"`
+}
+
 type DnsRecord struct {
-	ID            string `json:"id"`
-	Host          string `json:"host"`
-	Region        string `json:"region"`
-	TargetIngress string `json:"target_ingress"`
-	Healthy       bool   `json:"healthy"`
+	ID       string `json:"id"`
+	ZoneID   string `json:"zone_id"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Value    string `json:"value"`
+	Ttl      *int   `json:"ttl"`
+	Priority *int   `json:"priority"`
 }
 
 type DnsRecordList struct {
@@ -177,10 +251,11 @@ type DnsRecordList struct {
 }
 
 type UpsertDnsRecordRequest struct {
-	Host          string `json:"host"`
-	Region        string `json:"region"`
-	TargetIngress string `json:"target_ingress"`
-	Healthy       bool   `json:"healthy,omitempty"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Value    string `json:"value"`
+	Ttl      int    `json:"ttl,omitempty"`
+	Priority int    `json:"priority,omitempty"`
 }
 
 type BackupTarget struct {
@@ -317,4 +392,159 @@ type GrantMeshRouteRequest struct {
 	Port          int    `json:"port,omitempty"`
 	Proto         string `json:"proto,omitempty"`
 	TtlSec        int    `json:"ttl_sec,omitempty"`
+}
+
+type NotifyQueued struct {
+	Queued bool   `json:"queued"`
+	To     string `json:"to"`
+}
+
+type NotifyBody struct {
+	To       string         `json:"to"`
+	Subject  string         `json:"subject"`
+	Body     string         `json:"body,omitempty"`
+	Html     string         `json:"html,omitempty"`
+	Template string         `json:"template,omitempty"`
+	Vars     map[string]any `json:"vars,omitempty"`
+}
+
+type RegistryCredential struct {
+	ID              string  `json:"id"`
+	Prefix          string  `json:"prefix"`
+	Provider        string  `json:"provider"`
+	Label           *string `json:"label"`
+	Username        string  `json:"username"`
+	HasSecret       bool    `json:"has_secret"`
+	LastTestedAt    *string `json:"last_tested_at"`
+	LastTestOk      *bool   `json:"last_test_ok"`
+	LastTestMessage *string `json:"last_test_message"`
+	CreatedAt       string  `json:"created_at"`
+	UpdatedAt       string  `json:"updated_at"`
+}
+
+type RegistryCredentialList struct {
+	Data       []RegistryCredential `json:"data"`
+	NextCursor *string              `json:"next_cursor"`
+}
+
+type CreateRegistryCredentialBody struct {
+	Prefix   string  `json:"prefix"`
+	Username string  `json:"username"`
+	Secret   string  `json:"secret"`
+	Provider string  `json:"provider,omitempty"`
+	Label    *string `json:"label"`
+}
+
+type UpdateRegistryCredentialBody struct {
+	Username string  `json:"username,omitempty"`
+	Secret   string  `json:"secret,omitempty"`
+	Provider string  `json:"provider,omitempty"`
+	Label    *string `json:"label"`
+}
+
+type RegistryCredentialDeleted struct {
+	Ok bool `json:"ok"`
+}
+
+type RegistryTestResult struct {
+	Ok              bool   `json:"ok"`
+	Status          string `json:"status"`
+	Message         string `json:"message"`
+	CheckedManifest bool   `json:"checked_manifest"`
+}
+
+type TestRegistryCredentialBody struct {
+	Image string `json:"image,omitempty"`
+}
+
+type GitConnection struct {
+	ID          string  `json:"id"`
+	Kind        string  `json:"kind"`
+	DisplayName string  `json:"display_name"`
+	BaseURL     string  `json:"base_url"`
+	Account     *string `json:"account"`
+	Status      string  `json:"status"`
+	RepoCount   int     `json:"repo_count"`
+	CreatedAt   string  `json:"created_at"`
+}
+
+type GitConnectionList struct {
+	Data       []GitConnection `json:"data"`
+	NextCursor *string         `json:"next_cursor"`
+}
+
+type CreateGitConnectionBody struct {
+	Kind        string `json:"kind"`
+	Mode        string `json:"mode,omitempty"`
+	BaseURL     string `json:"base_url,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	Token       string `json:"token,omitempty"`
+	TokenUser   string `json:"token_user,omitempty"`
+}
+
+type GitRemoved struct {
+	ID      string `json:"id"`
+	Removed bool   `json:"removed"`
+}
+
+type GitProviderRepo struct {
+	ID            string `json:"id"`
+	FullName      string `json:"full_name"`
+	CloneURL      string `json:"clone_url"`
+	HtmlURL       string `json:"html_url"`
+	DefaultBranch string `json:"default_branch"`
+	Private       bool   `json:"private"`
+}
+
+type GitProviderRepoList struct {
+	Data       []GitProviderRepo `json:"data"`
+	NextCursor *string           `json:"next_cursor"`
+}
+
+type GitProviderBranch struct {
+	Name string `json:"name"`
+	Sha  string `json:"sha"`
+}
+
+type GitProviderBranchList struct {
+	Data       []GitProviderBranch `json:"data"`
+	NextCursor *string             `json:"next_cursor"`
+}
+
+type GitRepo struct {
+	ID           string  `json:"id"`
+	Kind         string  `json:"kind"`
+	URL          string  `json:"url"`
+	Branch       string  `json:"branch"`
+	ConfigPath   string  `json:"config_path"`
+	ConnectionID *string `json:"connection_id"`
+	FullName     *string `json:"full_name"`
+	Autodeploy   bool    `json:"autodeploy"`
+	ServiceID    *string `json:"service_id"`
+	HasToken     bool    `json:"has_token"`
+	CreatedAt    string  `json:"created_at"`
+}
+
+type GitRepoList struct {
+	Data       []GitRepo `json:"data"`
+	NextCursor *string   `json:"next_cursor"`
+}
+
+type LinkedGitRepo struct {
+	ID              string          `json:"id"`
+	URL             string          `json:"url"`
+	Branch          string          `json:"branch"`
+	ConfigPath      string          `json:"config_path"`
+	FullName        *string         `json:"full_name"`
+	Webhook         *GitRepoWebhook `json:"webhook"`
+	DeployKeyPublic *string         `json:"deploy_key_public"`
+}
+
+type LinkGitRepoBody struct {
+	ConnectionID string      `json:"connection_id,omitempty"`
+	Repo         *GitRepoRef `json:"repo,omitempty"`
+	URL          string      `json:"url,omitempty"`
+	Branch       string      `json:"branch"`
+	ConfigPath   string      `json:"config_path,omitempty"`
+	DeployKey    bool        `json:"deploy_key,omitempty"`
 }

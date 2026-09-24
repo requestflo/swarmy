@@ -37,6 +37,34 @@ class EnvVar:
 
 
 @dataclass
+class GitRepoWebhook:
+    url: str
+    secret: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GitRepoWebhook":
+        return cls(
+            url=d.get("url"),
+            secret=d.get("secret"),
+        )
+
+
+@dataclass
+class GitRepoRef:
+    id: str
+    full_name: str
+    clone_url: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GitRepoRef":
+        return cls(
+            id=d.get("id"),
+            full_name=d.get("full_name"),
+            clone_url=d.get("clone_url"),
+        )
+
+
+@dataclass
 class Node:
     id: str
     name: str
@@ -183,6 +211,37 @@ class Stack:
 
 
 @dataclass
+class IngressDomainStatus:
+    host: str
+    state: str
+    reason: str
+    warnings: List[str]
+    gated: bool
+    verified_at: Optional[str]
+    verified_manually: bool
+    last_checked_at: Optional[str]
+    next_check_at: Optional[str]
+    dns: Optional[Dict[str, Any]]
+    certificate: Optional[Dict[str, Any]]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "IngressDomainStatus":
+        return cls(
+            host=d.get("host"),
+            state=d.get("state"),
+            reason=d.get("reason"),
+            warnings=d.get("warnings"),
+            gated=d.get("gated"),
+            verified_at=d.get("verified_at"),
+            verified_manually=d.get("verified_manually"),
+            last_checked_at=d.get("last_checked_at"),
+            next_check_at=d.get("next_check_at"),
+            dns=d.get("dns"),
+            certificate=d.get("certificate"),
+        )
+
+
+@dataclass
 class IngressDomain:
     id: str
     host: str
@@ -191,6 +250,11 @@ class IngressDomain:
     target_port: float
     tls: str
     path_prefix: Optional[str]
+    www: Optional[str] = None
+    companion_host: Optional[str] = None
+    auto: Optional[bool] = None
+    status: Optional[IngressDomainStatus] = None
+    companion_status: Optional[IngressDomainStatus] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "IngressDomain":
@@ -202,6 +266,30 @@ class IngressDomain:
             target_port=d.get("target_port"),
             tls=d.get("tls"),
             path_prefix=d.get("path_prefix"),
+            www=d.get("www"),
+            companion_host=d.get("companion_host"),
+            auto=d.get("auto"),
+            status=d.get("status"),
+            companion_status=d.get("companion_status"),
+        )
+
+
+@dataclass
+class DnsRecordHint:
+    type: str
+    name: str
+    label: str
+    value: str
+    note: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "DnsRecordHint":
+        return cls(
+            type=d.get("type"),
+            name=d.get("name"),
+            label=d.get("label"),
+            value=d.get("value"),
+            note=d.get("note"),
         )
 
 
@@ -246,21 +334,69 @@ class Revoked:
 
 
 @dataclass
+class DnsZone:
+    id: str
+    zone: str
+    mode: str
+    enabled: bool
+    ttl: int
+    serial: int
+    apex_to_edge: bool
+    auto_www: bool
+    nameservers: List[Dict[str, Any]]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "DnsZone":
+        return cls(
+            id=d.get("id"),
+            zone=d.get("zone"),
+            mode=d.get("mode"),
+            enabled=d.get("enabled"),
+            ttl=d.get("ttl"),
+            serial=d.get("serial"),
+            apex_to_edge=d.get("apex_to_edge"),
+            auto_www=d.get("auto_www"),
+            nameservers=d.get("nameservers"),
+        )
+
+
+@dataclass
+class DnsDelegationCheck:
+    zone: str
+    delegated: bool
+    public_ns: List[str]
+    nameservers: List[Dict[str, Any]]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "DnsDelegationCheck":
+        return cls(
+            zone=d.get("zone"),
+            delegated=d.get("delegated"),
+            public_ns=d.get("public_ns"),
+            nameservers=d.get("nameservers"),
+        )
+
+
+@dataclass
 class DnsRecord:
     id: str
-    host: str
-    region: str
-    target_ingress: str
-    healthy: bool
+    zone_id: str
+    name: str
+    type: str
+    value: str
+    ttl: Optional[int]
+    priority: Optional[int]
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "DnsRecord":
         return cls(
             id=d.get("id"),
-            host=d.get("host"),
-            region=d.get("region"),
-            target_ingress=d.get("target_ingress"),
-            healthy=d.get("healthy"),
+            zone_id=d.get("zone_id"),
+            name=d.get("name"),
+            type=d.get("type"),
+            value=d.get("value"),
+            ttl=d.get("ttl"),
+            priority=d.get("priority"),
         )
 
 
@@ -431,5 +567,313 @@ class GrantMeshRouteResult:
         return cls(
             route=d.get("route"),
             connect=d.get("connect"),
+        )
+
+
+@dataclass
+class NotifyQueued:
+    queued: bool
+    to: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "NotifyQueued":
+        return cls(
+            queued=d.get("queued"),
+            to=d.get("to"),
+        )
+
+
+@dataclass
+class NotifyBody:
+    to: str
+    subject: str
+    body: Optional[str] = None
+    html: Optional[str] = None
+    template: Optional[str] = None
+    vars: Optional[Dict[str, Any]] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "NotifyBody":
+        return cls(
+            to=d.get("to"),
+            subject=d.get("subject"),
+            body=d.get("body"),
+            html=d.get("html"),
+            template=d.get("template"),
+            vars=d.get("vars"),
+        )
+
+
+@dataclass
+class RegistryCredential:
+    id: str
+    prefix: str
+    provider: str
+    label: Optional[str]
+    username: str
+    has_secret: bool
+    last_tested_at: Optional[str]
+    last_test_ok: Optional[bool]
+    last_test_message: Optional[str]
+    created_at: str
+    updated_at: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "RegistryCredential":
+        return cls(
+            id=d.get("id"),
+            prefix=d.get("prefix"),
+            provider=d.get("provider"),
+            label=d.get("label"),
+            username=d.get("username"),
+            has_secret=d.get("has_secret"),
+            last_tested_at=d.get("last_tested_at"),
+            last_test_ok=d.get("last_test_ok"),
+            last_test_message=d.get("last_test_message"),
+            created_at=d.get("created_at"),
+            updated_at=d.get("updated_at"),
+        )
+
+
+@dataclass
+class CreateRegistryCredentialBody:
+    prefix: str
+    username: str
+    secret: str
+    provider: Optional[str] = None
+    label: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "CreateRegistryCredentialBody":
+        return cls(
+            prefix=d.get("prefix"),
+            username=d.get("username"),
+            secret=d.get("secret"),
+            provider=d.get("provider"),
+            label=d.get("label"),
+        )
+
+
+@dataclass
+class UpdateRegistryCredentialBody:
+    username: Optional[str] = None
+    secret: Optional[str] = None
+    provider: Optional[str] = None
+    label: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "UpdateRegistryCredentialBody":
+        return cls(
+            username=d.get("username"),
+            secret=d.get("secret"),
+            provider=d.get("provider"),
+            label=d.get("label"),
+        )
+
+
+@dataclass
+class RegistryCredentialDeleted:
+    ok: bool
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "RegistryCredentialDeleted":
+        return cls(
+            ok=d.get("ok"),
+        )
+
+
+@dataclass
+class RegistryTestResult:
+    ok: bool
+    status: str
+    message: str
+    checked_manifest: bool
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "RegistryTestResult":
+        return cls(
+            ok=d.get("ok"),
+            status=d.get("status"),
+            message=d.get("message"),
+            checked_manifest=d.get("checked_manifest"),
+        )
+
+
+@dataclass
+class TestRegistryCredentialBody:
+    image: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "TestRegistryCredentialBody":
+        return cls(
+            image=d.get("image"),
+        )
+
+
+@dataclass
+class GitConnection:
+    id: str
+    kind: str
+    display_name: str
+    base_url: str
+    account: Optional[str]
+    status: str
+    repo_count: int
+    created_at: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GitConnection":
+        return cls(
+            id=d.get("id"),
+            kind=d.get("kind"),
+            display_name=d.get("display_name"),
+            base_url=d.get("base_url"),
+            account=d.get("account"),
+            status=d.get("status"),
+            repo_count=d.get("repo_count"),
+            created_at=d.get("created_at"),
+        )
+
+
+@dataclass
+class CreateGitConnectionBody:
+    kind: str
+    mode: Optional[str] = None
+    base_url: Optional[str] = None
+    display_name: Optional[str] = None
+    token: Optional[str] = None
+    token_user: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "CreateGitConnectionBody":
+        return cls(
+            kind=d.get("kind"),
+            mode=d.get("mode"),
+            base_url=d.get("base_url"),
+            display_name=d.get("display_name"),
+            token=d.get("token"),
+            token_user=d.get("token_user"),
+        )
+
+
+@dataclass
+class GitRemoved:
+    id: str
+    removed: bool
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GitRemoved":
+        return cls(
+            id=d.get("id"),
+            removed=d.get("removed"),
+        )
+
+
+@dataclass
+class GitProviderRepo:
+    id: str
+    full_name: str
+    clone_url: str
+    html_url: str
+    default_branch: str
+    private: bool
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GitProviderRepo":
+        return cls(
+            id=d.get("id"),
+            full_name=d.get("full_name"),
+            clone_url=d.get("clone_url"),
+            html_url=d.get("html_url"),
+            default_branch=d.get("default_branch"),
+            private=d.get("private"),
+        )
+
+
+@dataclass
+class GitProviderBranch:
+    name: str
+    sha: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GitProviderBranch":
+        return cls(
+            name=d.get("name"),
+            sha=d.get("sha"),
+        )
+
+
+@dataclass
+class GitRepo:
+    id: str
+    kind: str
+    url: str
+    branch: str
+    config_path: str
+    connection_id: Optional[str]
+    full_name: Optional[str]
+    autodeploy: bool
+    service_id: Optional[str]
+    has_token: bool
+    created_at: str
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "GitRepo":
+        return cls(
+            id=d.get("id"),
+            kind=d.get("kind"),
+            url=d.get("url"),
+            branch=d.get("branch"),
+            config_path=d.get("config_path"),
+            connection_id=d.get("connection_id"),
+            full_name=d.get("full_name"),
+            autodeploy=d.get("autodeploy"),
+            service_id=d.get("service_id"),
+            has_token=d.get("has_token"),
+            created_at=d.get("created_at"),
+        )
+
+
+@dataclass
+class LinkedGitRepo:
+    id: str
+    url: str
+    branch: str
+    config_path: str
+    full_name: Optional[str]
+    webhook: Optional[GitRepoWebhook]
+    deploy_key_public: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "LinkedGitRepo":
+        return cls(
+            id=d.get("id"),
+            url=d.get("url"),
+            branch=d.get("branch"),
+            config_path=d.get("config_path"),
+            full_name=d.get("full_name"),
+            webhook=GitRepoWebhook.from_dict(d["webhook"]) if d.get("webhook") is not None else None,
+            deploy_key_public=d.get("deploy_key_public"),
+        )
+
+
+@dataclass
+class LinkGitRepoBody:
+    branch: str
+    connection_id: Optional[str] = None
+    repo: Optional[GitRepoRef] = None
+    url: Optional[str] = None
+    config_path: Optional[str] = None
+    deploy_key: Optional[bool] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "LinkGitRepoBody":
+        return cls(
+            connection_id=d.get("connection_id"),
+            repo=GitRepoRef.from_dict(d["repo"]) if d.get("repo") is not None else None,
+            url=d.get("url"),
+            branch=d.get("branch"),
+            config_path=d.get("config_path"),
+            deploy_key=d.get("deploy_key"),
         )
 

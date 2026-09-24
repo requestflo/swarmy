@@ -1,6 +1,9 @@
 package swarmy
 
-import "context"
+import (
+	"context"
+	"net/url"
+)
 
 // ServicesService groups service operations.
 type ServicesService struct{ client *Client }
@@ -227,4 +230,105 @@ func (s *IngressService) IterateDomains(ctx context.Context, limit int, fn func(
 		}
 		cursor = *page.NextCursor
 	}
+}
+
+// GitService groups git provider connection + linked-repo operations
+// (/git/*). Only token-based connections (GitLab token, Gitea, generic) can be
+// created over the API; GitHub App and GitLab OAuth need the dashboard.
+type GitService struct{ client *Client }
+
+// ListConnections returns the org's git provider connections (no credentials).
+func (s *GitService) ListConnections(ctx context.Context) (*GitConnectionList, error) {
+	var out GitConnectionList
+	if err := s.client.do(ctx, "GET", "/git/connections", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// GetConnection returns a single git connection.
+func (s *GitService) GetConnection(ctx context.Context, id string) (*GitConnection, error) {
+	var out GitConnection
+	if err := s.client.do(ctx, "GET", "/git/connections/"+pathEscape(id), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// CreateConnection connects a GitLab (token), Gitea or generic git host (201).
+func (s *GitService) CreateConnection(ctx context.Context, body CreateGitConnectionBody) (*GitConnection, error) {
+	var out GitConnection
+	if err := s.client.do(ctx, "POST", "/git/connections", nil, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// RemoveConnection deletes a git connection.
+func (s *GitService) RemoveConnection(ctx context.Context, id string) (*GitRemoved, error) {
+	var out GitRemoved
+	if err := s.client.do(ctx, "DELETE", "/git/connections/"+pathEscape(id), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ListProviderRepos lists repositories the connection can see (optional search).
+func (s *GitService) ListProviderRepos(ctx context.Context, connectionID, search string) (*GitProviderRepoList, error) {
+	q := url.Values{}
+	if search != "" {
+		q.Set("search", search)
+	}
+	var out GitProviderRepoList
+	if err := s.client.do(ctx, "GET", "/git/connections/"+pathEscape(connectionID)+"/repos", q, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ListProviderBranches lists branches of a provider repo visible to the connection.
+func (s *GitService) ListProviderBranches(ctx context.Context, connectionID, repo string) (*GitProviderBranchList, error) {
+	q := url.Values{"repo": []string{repo}}
+	var out GitProviderBranchList
+	if err := s.client.do(ctx, "GET", "/git/connections/"+pathEscape(connectionID)+"/branches", q, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ListRepos returns the org's linked repositories.
+func (s *GitService) ListRepos(ctx context.Context) (*GitRepoList, error) {
+	var out GitRepoList
+	if err := s.client.do(ctx, "GET", "/git/repos", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// GetRepo returns a single linked repository.
+func (s *GitService) GetRepo(ctx context.Context, id string) (*GitRepo, error) {
+	var out GitRepo
+	if err := s.client.do(ctx, "GET", "/git/repos/"+pathEscape(id), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// LinkRepo links a repository (201). The webhook secret and deploy-key public
+// half in the response are returned ONCE — store them.
+func (s *GitService) LinkRepo(ctx context.Context, body LinkGitRepoBody) (*LinkedGitRepo, error) {
+	var out LinkedGitRepo
+	if err := s.client.do(ctx, "POST", "/git/repos", nil, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// RemoveRepo unlinks a repository.
+func (s *GitService) RemoveRepo(ctx context.Context, id string) (*GitRemoved, error) {
+	var out GitRemoved
+	if err := s.client.do(ctx, "DELETE", "/git/repos/"+pathEscape(id), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }

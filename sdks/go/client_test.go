@@ -189,3 +189,46 @@ func TestNewClientValidation(t *testing.T) {
 		t.Error("expected error for empty apiKey")
 	}
 }
+
+func TestGitLinkRepoOmitsAbsentRepoAndDecodesNullWebhook(t *testing.T) {
+	var cap capturedRequest
+	srv := testServer(t, 201, `{"id":"r1","url":"https://x.dev/a.git","branch":"main","config_path":"swarmy.yaml","full_name":null,"webhook":null,"deploy_key_public":null}`, &cap)
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	out, err := c.Git.LinkRepo(context.Background(), LinkGitRepoBody{URL: "https://x.dev/a.git", Branch: "main"})
+	if err != nil {
+		t.Fatalf("LinkRepo: %v", err)
+	}
+	if cap.method != "POST" || cap.path != "/api/v1/git/repos" {
+		t.Errorf("request = %s %s", cap.method, cap.path)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(cap.body), &body); err != nil {
+		t.Fatalf("body unmarshal: %v", err)
+	}
+	if _, ok := body["repo"]; ok {
+		t.Errorf("absent repo must be omitted, body = %s", cap.body)
+	}
+	if out.Webhook != nil {
+		t.Errorf("webhook = %+v, want nil", out.Webhook)
+	}
+}
+
+func TestGitListBranchesQuery(t *testing.T) {
+	var cap capturedRequest
+	srv := testServer(t, 200, `{"data":[{"name":"main","sha":"abc"}],"next_cursor":null}`, &cap)
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	out, err := c.Git.ListProviderBranches(context.Background(), "gc1", "acme/web")
+	if err != nil {
+		t.Fatalf("ListProviderBranches: %v", err)
+	}
+	if cap.path != "/api/v1/git/connections/gc1/branches" || cap.rawQ != "repo=acme%2Fweb" {
+		t.Errorf("request = %s?%s", cap.path, cap.rawQ)
+	}
+	if len(out.Data) != 1 || out.Data[0].Name != "main" {
+		t.Errorf("data = %+v", out.Data)
+	}
+}

@@ -103,6 +103,20 @@ export interface DeployStackRequest {
   compose_source: string;
 }
 
+export interface IngressDomainStatus {
+  host: string;
+  state: 'waiting_dns' | 'verified' | 'issuing' | 'active' | 'error';
+  reason: string;
+  warnings: string[];
+  gated: boolean;
+  verified_at: string | null;
+  verified_manually: boolean;
+  last_checked_at: string | null;
+  next_check_at: string | null;
+  dns: { a: string[]; aaaa: string[]; cname: string[]; matched: string[] } | null;
+  certificate: { issuer: string; expires_at: string; error: string; edges: { ip: string; ok: boolean; error?: string }[]; checked_at: string } | null;
+}
+
 export interface IngressDomain {
   id: string;
   host: string;
@@ -111,6 +125,11 @@ export interface IngressDomain {
   target_port: number;
   tls: 'auto' | 'off' | 'custom';
   path_prefix: string | null;
+  www?: 'redirect-www-to-apex' | 'redirect-apex-to-www' | 'serve-both';
+  companion_host?: string | null;
+  auto?: boolean;
+  status?: IngressDomainStatus;
+  companion_status?: IngressDomainStatus;
 }
 
 export interface IngressDomainList {
@@ -124,6 +143,19 @@ export interface AddDomainRequest {
   target_port: number;
   tls?: 'auto' | 'off' | 'custom';
   path_prefix?: string;
+  www?: 'redirect-www-to-apex' | 'redirect-apex-to-www' | 'serve-both';
+}
+
+export interface DnsRecordHint {
+  type: 'A' | 'AAAA' | 'CNAME' | 'NS';
+  name: string;
+  label: string;
+  value: string;
+  note?: string;
+}
+
+export interface UpdateDomainRequest {
+  www: 'redirect-www-to-apex' | 'redirect-apex-to-www' | 'serve-both';
 }
 
 export interface ApiKey {
@@ -153,12 +185,43 @@ export interface Revoked {
   revoked: true;
 }
 
+export interface DnsZone {
+  id: string;
+  zone: string;
+  mode: 'swarmy-ns' | 'cloudflare' | 'route53';
+  enabled: boolean;
+  ttl: number;
+  serial: number;
+  apex_to_edge: boolean;
+  auto_www: boolean;
+  nameservers: { label: string; fqdn: string; ip: string; node_id: string }[];
+}
+
+export interface DnsZoneList {
+  data: DnsZone[];
+  next_cursor: string | null;
+}
+
+export interface CreateDnsZoneRequest {
+  zone: string;
+  mode?: 'swarmy-ns' | 'cloudflare' | 'route53';
+}
+
+export interface DnsDelegationCheck {
+  zone: string;
+  delegated: boolean;
+  public_ns: string[];
+  nameservers: { fqdn: string; ip: string; reachable: boolean; serial: number; serial_matches: boolean }[];
+}
+
 export interface DnsRecord {
   id: string;
-  host: string;
-  region: string;
-  target_ingress: string;
-  healthy: boolean;
+  zone_id: string;
+  name: string;
+  type: string;
+  value: string;
+  ttl: number | null;
+  priority: number | null;
 }
 
 export interface DnsRecordList {
@@ -167,10 +230,11 @@ export interface DnsRecordList {
 }
 
 export interface UpsertDnsRecordRequest {
-  host: string;
-  region: string;
-  target_ingress: string;
-  healthy?: boolean;
+  name: string;
+  type: 'A' | 'AAAA' | 'CNAME' | 'TXT' | 'MX' | 'SRV' | 'CAA' | 'NS';
+  value: string;
+  ttl?: number;
+  priority?: number;
 }
 
 export interface BackupTarget {
@@ -307,4 +371,159 @@ export interface GrantMeshRouteRequest {
   port?: number;
   proto?: 'tcp' | 'udp';
   ttl_sec?: number;
+}
+
+export interface NotifyQueued {
+  queued: true;
+  to: string;
+}
+
+export interface NotifyBody {
+  to: string;
+  subject: string;
+  body?: string;
+  html?: string;
+  template?: string;
+  vars?: {  };
+}
+
+export interface RegistryCredential {
+  id: string;
+  prefix: string;
+  provider: 'ghcr' | 'dockerhub' | 'gitlab' | 'ecr' | 'gcr' | 'acr' | 'generic';
+  label: string | null;
+  username: string;
+  has_secret: true;
+  last_tested_at: string | null;
+  last_test_ok: boolean | null;
+  last_test_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RegistryCredentialList {
+  data: RegistryCredential[];
+  next_cursor: string | null;
+}
+
+export interface CreateRegistryCredentialBody {
+  prefix: string;
+  username: string;
+  secret: string;
+  provider?: 'ghcr' | 'dockerhub' | 'gitlab' | 'ecr' | 'gcr' | 'acr' | 'generic';
+  label?: string | null;
+}
+
+export interface UpdateRegistryCredentialBody {
+  username?: string;
+  secret?: string;
+  provider?: 'ghcr' | 'dockerhub' | 'gitlab' | 'ecr' | 'gcr' | 'acr' | 'generic';
+  label?: string | null;
+}
+
+export interface RegistryCredentialDeleted {
+  ok: true;
+}
+
+export interface RegistryTestResult {
+  ok: boolean;
+  status: 'ok' | 'unauthorized' | 'not_found' | 'unreachable' | 'error';
+  message: string;
+  checked_manifest: boolean;
+}
+
+export interface TestRegistryCredentialBody {
+  image?: string;
+}
+
+export interface GitConnection {
+  id: string;
+  kind: 'github' | 'gitlab' | 'gitea' | 'generic';
+  display_name: string;
+  base_url: string;
+  account: string | null;
+  status: string;
+  repo_count: number;
+  created_at: string;
+}
+
+export interface GitConnectionList {
+  data: GitConnection[];
+  next_cursor: string | null;
+}
+
+export interface CreateGitConnectionBody {
+  kind: 'github' | 'gitlab' | 'gitea' | 'generic';
+  mode?: 'token' | 'oauth';
+  base_url?: string;
+  display_name?: string;
+  token?: string;
+  token_user?: string;
+}
+
+export interface GitRemoved {
+  id: string;
+  removed: true;
+}
+
+export interface GitProviderRepo {
+  id: string;
+  full_name: string;
+  clone_url: string;
+  html_url: string;
+  default_branch: string;
+  private: boolean;
+}
+
+export interface GitProviderRepoList {
+  data: GitProviderRepo[];
+  next_cursor: string | null;
+}
+
+export interface GitProviderBranch {
+  name: string;
+  sha: string;
+}
+
+export interface GitProviderBranchList {
+  data: GitProviderBranch[];
+  next_cursor: string | null;
+}
+
+export interface GitRepo {
+  id: string;
+  kind: 'github' | 'gitlab' | 'gitea' | 'generic';
+  url: string;
+  branch: string;
+  config_path: string;
+  connection_id: string | null;
+  full_name: string | null;
+  autodeploy: boolean;
+  service_id: string | null;
+  has_token: boolean;
+  created_at: string;
+}
+
+export interface GitRepoList {
+  data: GitRepo[];
+  next_cursor: string | null;
+}
+
+export interface LinkedGitRepo {
+  id: string;
+  url: string;
+  branch: string;
+  config_path: string;
+  full_name: string | null;
+  webhook: { url: string; secret: string } | null;
+  deploy_key_public: string | null;
+}
+
+export interface LinkGitRepoBody {
+  connection_id?: string;
+  repo?: { id: string; full_name: string; clone_url: string };
+  url?: string;
+  branch: string;
+  config_path?: string;
+  deploy_key?: boolean;
 }

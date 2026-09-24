@@ -47,6 +47,8 @@ const INLINE_OBJECT_NAMES: Record<string, string> = {
   // schemaName.propName -> generated nested type name
   'Service.replicas': 'ServiceReplicas',
   'CreateServiceRequest.env': 'EnvVar',
+  'LinkedGitRepo.webhook': 'GitRepoWebhook',
+  'LinkGitRepoBody.repo': 'GitRepoRef',
 };
 
 const isRequired = (schema: JsonSchema, prop: string): boolean =>
@@ -55,6 +57,17 @@ const isRequired = (schema: JsonSchema, prop: string): boolean =>
 /** Resolve a local `$ref` (e.g. "#/components/schemas/Service") to its name. */
 function refName(ref: string): string {
   return ref.split('/').pop() ?? ref;
+}
+
+/**
+ * A `$ref` to a non-object component (a named string enum such as
+ * `RegistryProvider`) — returned so the generators inline the target's type
+ * instead of referencing a type they never emit. Object refs return undefined.
+ */
+function scalarRefTarget(schema: JsonSchema): JsonSchema | undefined {
+  if (!schema.$ref) return undefined;
+  const target = schemas[refName(schema.$ref)];
+  return target && target.type !== 'object' ? target : undefined;
 }
 
 // ----------------------------------------------------------------------------
@@ -87,6 +100,8 @@ function goFieldName(key: string): string {
 // ----------------------------------------------------------------------------
 
 function tsType(schema: JsonSchema): string {
+  const scalar = scalarRefTarget(schema);
+  if (scalar) return tsType(scalar);
   if (schema.$ref) return refName(schema.$ref);
   if (schema.enum) {
     if (schema.type === 'boolean') return schema.enum.map((v) => String(v)).join(' | ');
@@ -148,6 +163,8 @@ function genTypeScript(): string {
 // ----------------------------------------------------------------------------
 
 function pyType(schema: JsonSchema, nestedName?: string): string {
+  const scalar = scalarRefTarget(schema);
+  if (scalar) return pyType(scalar);
   if (schema.$ref) return refName(schema.$ref);
   if (schema.type === 'object' && nestedName) return nestedName;
   if (schema.enum && schema.type !== 'boolean') return 'str';
@@ -223,7 +240,13 @@ function genPython(): string {
       const key = `${name}.${prop}`;
       const nestedName = INLINE_OBJECT_NAMES[key];
       if (nestedName && propSchema.type === 'object') {
-        lines.push(`            ${prop}=${nestedName}.from_dict(d.get("${prop}") or {}),`);
+        if (propSchema.nullable || !isRequired(schema, prop)) {
+          lines.push(
+            `            ${prop}=${nestedName}.from_dict(d["${prop}"]) if d.get("${prop}") is not None else None,`,
+          );
+        } else {
+          lines.push(`            ${prop}=${nestedName}.from_dict(d.get("${prop}") or {}),`);
+        }
       } else {
         lines.push(`            ${prop}=d.get("${prop}"),`);
       }
@@ -256,6 +279,8 @@ function genPython(): string {
 // ----------------------------------------------------------------------------
 
 function goType(schema: JsonSchema, nestedName: string | undefined, nullable: boolean): string {
+  const scalar = scalarRefTarget(schema);
+  if (scalar) return goType(scalar, undefined, nullable);
   if (schema.$ref) return refName(schema.$ref);
   if (schema.type === 'object' && nestedName) return nestedName;
   let base: string;
@@ -317,7 +342,12 @@ function genGo(): string {
       if (propSchema.type === 'array' && propSchema.items?.type === 'object' && nestedName) {
         arrayItem = `[]${nestedName}`;
       }
-      const t = arrayItem ?? goType(propSchema, nestedName, !!propSchema.nullable);
+      let t = arrayItem ?? goType(propSchema, nestedName, !!propSchema.nullable);
+      // A nullable/optional nested object is a pointer, so `null` decodes and an
+      // absent request field is really omitted (omitempty never drops a struct).
+      if (!arrayItem && nestedName && propSchema.type === 'object' && (propSchema.nullable || !required)) {
+        t = `*${t}`;
+      }
       // omitempty for optional, non-nullable scalar request fields.
       const omit = !required && !propSchema.nullable ? ',omitempty' : '';
       lines.push(`\t${goName} ${t} \`json:"${prop}${omit}"\``);
