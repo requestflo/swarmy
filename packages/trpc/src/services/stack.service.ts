@@ -28,6 +28,10 @@ import { augmentSpecsForStack } from './otel-injection';
 import { stackTelemetryEnabled } from './observability.service';
 import { DEPLOY_SAFETY_LABEL, DEPLOY_STRATEGY_LABEL, recordRelease } from './releases.service';
 import { INGRESS_ROUTES_LABEL, readRoutes } from './ingress-routes';
+import { carryManagedAttachments } from './attachment-carry';
+import { overlayOptionsFor } from './platform-networks';
+import { carryLinks, stackPeers } from './stack-links.service';
+import { stackEndpoints, type StackEndpoints } from './service-endpoints';
 
 /**
  * Swarm state lives in Docker, not the DB. The Stack model is now config-only
@@ -378,11 +382,20 @@ export async function deployFromCompose(
 
   const plan = planComposeStack(input.composeSource, input.name, migration.legacyVolumes);
   const liveByName = new Map(liveRaw.map((s) => [s.name, s]));
+  // "Connect apps" pairings are stack-level Docker truth (`swarmy.links` on
+  // its services): every (re)deployed or newly added service keeps them.
+  const peers = stackPeers(liveStackServices(ctx, input.name));
   const specs = plan.specs.map((spec, i) => {
     const short = plan.services[i]!.short;
     const source =
       liveByName.get(spec.name) ?? migration.legacy.find((l) => migration.shortOf[l.name] === short);
-    return carryIngressRoutes(spec as ServiceSpec, source);
+    // A redeploy rebuilds each spec from compose: carry what swarmy wired onto
+    // the LIVE service since — ingress routes (+ edge network), managed-data
+    // attachments (DATABASE_URL & co + their private overlay + secret), and
+    // app links — or the deploy silently unwires the app.
+    const routed = carryIngressRoutes(spec as ServiceSpec, source);
+    const attached = carryManagedAttachments(routed, source);
+    return carryLinks(attached, { orgId: ctx.activeOrgId, stack: input.name, peers });
   });
 
   // D1: every stack deploy runs the admission pipeline first. Violations refuse
@@ -406,10 +419,19 @@ export async function deployFromCompose(
   // before any service attaches — same `network.ensure` as managed data.
   try {
     for (const net of plan.networks) {
+      // MTU sized for the WireGuard mesh when the org runs one (compose
+      // `driver_opts` win) — applied at create time only.
+      const options = net.driver === 'overlay' ? await overlayOptionsFor(ctx, { extra: net.options }) : net.options;
       await ctx.hub.dispatch(
         node.id,
         'network.ensure',
-        { name: net.name, driver: net.driver, attachable: net.attachable, labels: net.labels },
+        {
+          name: net.name,
+          driver: net.driver,
+          attachable: net.attachable,
+          labels: net.labels,
+          ...(options ? { options } : {}),
+        },
         { timeoutMs: NETWORK_ENSURE_TIMEOUT_MS },
       );
     }
@@ -636,4 +658,15 @@ export async function removeStack(
   }
   await ctx.db.stack.delete({ where: { id } });
   return { id, removed: true };
+}
+
+/**
+ * Internal hostnames for a stack's services + managed resources, from live
+ * inventory (see `service-endpoints.ts`). Org-scoped: only this org's services.
+ */
+export function stackEndpointsFor(ctx: OrgContext, stack: string): StackEndpoints {
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  const inv = buildInventory(services, containers).services;
+  if (!inv.some((s) => s.stack === stack)) throw notFound('stack', stack);
+  return stackEndpoints(stack, inv);
 }

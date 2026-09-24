@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { linkNetworkName } from '@swarmy/core';
 import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import {
@@ -277,5 +278,34 @@ describe('removeStack — cleans up the stack overlays', () => {
     expect(dispatched.slice(0, 2).map((d) => d.payload.service)).toEqual(['site_web', 'site_db']);
     // Stack-scoped: the agent only removes networks labelled for THIS stack + swarmy.managed.
     expect(dispatched[2]!.payload).toEqual({ stack: 'site' });
+  });
+});
+
+describe('deployFromCompose — a redeploy never unwires the app', () => {
+  it('keeps the managed-DB wiring (env + private overlay) and the connect-apps link', async () => {
+    const live = svc({
+      name: 'site_web',
+      labels: {
+        'com.docker.stack.namespace': 'site',
+        'swarmy.db.inject': 'db',
+        'swarmy.db.inject.var': 'DATABASE_URL',
+        'swarmy.links': 'billing',
+      },
+      env: ['DATABASE_URL=postgres://postgres:pw@site_db-primary:5432/app', 'DATABASE_RO_URL=postgres://ro'],
+      networks: [
+        { name: 'site_default', aliases: ['web'] },
+        { name: 'site_db-net', aliases: [] },
+      ],
+    });
+    const { ctx, dispatched } = fakeCtx([live]);
+    await deployFromCompose(ctx, { name: 'site', composeSource: APP });
+    const [web, db] = deployed(dispatched);
+    const link = linkNetworkName('org1', 'site', 'billing');
+    expect(web!.env?.DATABASE_URL).toBe('postgres://postgres:pw@site_db-primary:5432/app');
+    expect(web!.networks).toEqual(['site_default', 'site_db-net', link]);
+    expect(web!.networkAliases?.[link]).toEqual(['web.site']);
+    // A newly deployed sibling inherits the stack's link too.
+    expect(db!.networks).toContain(link);
+    expect(db!.labels?.['swarmy.links']).toBe('billing');
   });
 });

@@ -8,7 +8,9 @@ import {
   listStacks,
   redeployStack,
   removeStack,
+  stackEndpointsFor,
 } from '../services/stack.service';
+import { connectStacks, disconnectStacks } from '../services/stack-links.service';
 
 export const stacksRouter = router({
   list: orgProcedure.query(({ ctx }) => listStacks(ctx)),
@@ -57,4 +59,21 @@ export const stacksRouter = router({
   remove: abacProcedure('stack.remove', resolveStack)
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeStack(ctx, input.id)),
+
+  /**
+   * Internal DNS names for an app's services and managed resources, and who
+   * can use each ("reach this at `db:5432` from inside storefront").
+   */
+  endpoints: orgProcedure
+    .input(z.object({ stack: z.string().min(1) }))
+    .query(({ ctx, input }) => stackEndpointsFor(ctx, input.stack)),
+
+  /** "Connect apps": one private overlay for exactly this pair (both directions). */
+  connect: abacProcedure('stack.deploy')
+    .input(z.object({ stack: z.string().min(1), peer: z.string().min(1) }))
+    .mutation(({ ctx, input }) => connectStacks(ctx, input)),
+
+  disconnect: abacProcedure('stack.deploy')
+    .input(z.object({ stack: z.string().min(1), peer: z.string().min(1) }))
+    .mutation(({ ctx, input }) => disconnectStacks(ctx, input)),
 });
