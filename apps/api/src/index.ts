@@ -41,6 +41,7 @@ import { webhooksApp } from './webhooks';
 import { gitCallbackApp } from './git-callback';
 import { inboundHooksApp } from './inbound-hooks';
 import { statusPublicApp } from './status-public';
+import { rumApp } from './rum';
 import { aiGatewayApp } from './ai-gateway';
 import { oauthApp } from './oauth';
 import { versionInfo } from './version';
@@ -264,6 +265,10 @@ app.route('/oauth', oauthApp);
 
 // Scale-to-zero activator (epic #4B): wake a cold service on the first request.
 app.route('/_wake', activatorApp);
+
+// Web analytics + session replay ingest: the edge maps /_swarmy/* on every
+// RUM-enabled app domain here (first-party to the browser). Public, capped.
+app.route('/_rum', rumApp);
 
 // ── Dashboard SPA (self-host single-image) ──────────────────────────────────
 // In production the controller image bundles the built dashboard and serves it

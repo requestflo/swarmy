@@ -50,6 +50,11 @@ export const RouteRumSchema = z.object({
   consent: z.enum(RUM_CONSENT_MODES).default('none'),
   /** Mask ALL text in replays (inputs are always masked). */
   maskAllText: z.boolean().default(false),
+  /** CSS selectors never recorded (blocked, drawn as a grey box). */
+  blockSelectors: z
+    .array(z.string().min(1).max(200).regex(/^[^<>"`{}\\\n]+$/, 'selector must not contain < > " ` { } \\ or newlines'))
+    .max(20)
+    .default([]),
   /** How the edge treats a page CSP: `rewrite` admits the tag, `skip` leaves CSP pages alone. */
   csp: z.enum(['rewrite', 'skip']).default('rewrite'),
 });
@@ -96,6 +101,7 @@ export function caddyRumDirective(
     if (r.replaySampleRate > 0) out.push(`  attr data-replay ${formatRate(r.replaySampleRate)}`);
     if (r.consent !== 'none') out.push(`  attr data-consent ${r.consent}`);
     if (r.maskAllText) out.push('  attr data-mask all');
+    if (r.blockSelectors.length > 0) out.push(`  attr data-block "${r.blockSelectors.join(',')}"`);
     if (opts.userHeader) out.push(`  attr data-uid {http.request.header.${opts.userHeader}}`);
   }
   if (r.csp === 'skip') out.push('  csp skip');

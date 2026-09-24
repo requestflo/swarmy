@@ -64,6 +64,7 @@ import { vectorStoreRouter } from './routers/vector';
 import { aiGatewayRouter } from './routers/ai';
 import { notificationsRouter } from './routers/notifications';
 import { studioRouter } from './routers/studio';
+import { rumRouter } from './routers/rum';
 
 export const appRouter = router({
   org: orgRouter,
@@ -81,6 +82,7 @@ export const appRouter = router({
   offsiteMirror: offsiteMirrorRouter,
   dbBackups: dbBackupRouter,
   observability: observabilityRouter,
+  rum: rumRouter,
   mesh: meshRouter,
   images: imagesRouter,
   builder: builderRouter,

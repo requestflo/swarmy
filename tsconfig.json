@@ -12,6 +12,7 @@
     { "path": "./packages/dns" },
     { "path": "./packages/auth" },
     { "path": "./packages/ingress" },
+    { "path": "./packages/rum" },
     { "path": "./packages/trpc" },
     { "path": "./packages/ui" },
     { "path": "./apps/api" },

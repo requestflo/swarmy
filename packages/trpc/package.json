@@ -24,6 +24,7 @@
     "@swarmy/db": "workspace:*",
     "@swarmy/ingress": "workspace:*",
     "@swarmy/mesh": "workspace:*",
+    "@swarmy/rum": "workspace:*",
     "@swarmy/templates": "workspace:*",
     "@trpc/server": "^11.0.0",
     "superjson": "^2.2.2",

@@ -51,6 +51,7 @@ import {
   type Route,
 } from './ingress-routes';
 import { regionUpstreamsFor } from './ingress-regions';
+import { rumRouteResolver } from './rum/rum-settings.service';
 import { attachRoutedServicesToEdge } from './ingress-network';
 import { publicIpFromLabels } from './node.service';
 import { objectStoreState } from './buckets.service';
@@ -578,7 +579,9 @@ async function loadOrgConfig(
   // Geo-edge: services with materialised region siblings render region-ordered
   // multi-upstream proxies (same-region first, cross-region failover).
   const liveServices = ctx.hub.liveInventory(ctx.activeOrgId).services;
-  const allDomains = serviceRoutes.map(({ serviceName, route }) => ({
+  // Web analytics / session replay: per-app `swarmy.rum` settings + the route's own toggle.
+  const rumFor = rumRouteResolver(ctx, activatorUpstream());
+  const allDomains = serviceRoutes.map(({ serviceName, stack, route }) => ({
       domain: route.host,
       pathPrefix: route.path ?? '/',
       service: serviceName,
@@ -592,6 +595,7 @@ async function loadOrgConfig(
       // Edge protections — carried on the route label, pure render input.
       protection: route.protection,
       regionUpstreams: regionUpstreamsFor(serviceName, route.port, liveServices),
+      rum: rumFor(stack, route.rum),
     }));
   // Apex ↔ www toggles expand into plain routes + redirect sites, then the DNS
   // gate withholds every host whose DNS has not yet verifiably pointed at us —

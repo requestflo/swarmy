@@ -82,6 +82,10 @@ export {
   latestStoreProbe,
   type StoreProbe,
 } from './services/observability.service';
+// RUM (web analytics + session replay): the public /_rum ingest + retention sweep + replay links.
+export { handleRumRequest, type RumIngestDeps } from './services/rum/rum-ingest';
+export { sweepRumRetentionForOrg, type RetentionSweepResult } from './services/rum/rum-retention';
+export { replayLinkFor } from './services/rum/rum-query';
 // Garage store convergence (storage-reconcile worker).
 export { convergeStoreDeployment, garageCapacityGb } from './services/replicatedStore.service';
 

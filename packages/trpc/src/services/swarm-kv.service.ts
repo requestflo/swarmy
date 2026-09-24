@@ -68,6 +68,7 @@ export const KV_COLLECTIONS = [
   'registry', // RegistryConfig (id = orgId)
   'image-gc', // ImageGcPolicy (id = orgId)
   'stack', // Stack compose source (id = stack id)
+  'rum', // RUM replay-store credential, vault-sealed (id = orgId)
 ] as const;
 export type KvCollection = (typeof KV_COLLECTIONS)[number];
 

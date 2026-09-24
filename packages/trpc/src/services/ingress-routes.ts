@@ -50,6 +50,12 @@ export interface Route {
    */
   www?: WwwMode;
   /**
+   * Web analytics / session replay for THIS route: `on` injects even when the
+   * app has RUM off, `off` never injects. Absent = follow the app's
+   * `swarmy.rum` settings. Rendered by `rumRouteResolver`.
+   */
+  rum?: 'on' | 'off';
+  /**
    * "Protect my app": `login: true` gates the route behind swarmy sign-in at
    * the edge (forward-auth to the controller; who may enter is the ABAC
    * `app.access` action on the stack). Absent = public.
@@ -96,6 +102,7 @@ function coerceRoute(value: unknown): Route | undefined {
   const protection = coerceProtection(v.protection);
   if (protection) route.protection = protection;
   if (typeof v.www === 'string' && (WWW_MODES as readonly string[]).includes(v.www)) route.www = v.www as WwwMode;
+  if (v.rum === 'on' || v.rum === 'off') route.rum = v.rum;
   const access = coerceAccess(v.access);
   if (access) route.access = access;
   return route;

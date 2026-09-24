@@ -33,6 +33,7 @@ import { startSystemImageMirror } from './system-image-mirror';
 import { startTrivyDbRefresh } from './trivy-db-refresh';
 import { startPlatformUpgradeWorker } from './platform-upgrade';
 import { startAppSecretGc } from './app-secret-gc';
+import { startRumRetention } from './rum-retention';
 
 export function startWorkers(): () => void {
   const stops = [
@@ -71,6 +72,7 @@ export function startWorkers(): () => void {
     startTrivyDbRefresh(),
     startPlatformUpgradeWorker(),
     startAppSecretGc(),
+    startRumRetention(),
   ];
   return () => stops.forEach((s) => s());
 }
