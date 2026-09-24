@@ -85,6 +85,52 @@ export function swarmyTwoFactor() {
  */
 export const STEP_UP_LOCKOUT = { maxFailedAttempts: 10, durationMs: 900_000 } as const;
 
+/**
+ * Endpoints a session that still OWES its second factor (`mfaPending`) may not
+ * call. `orgProcedure` walls off tRPC; these are the Better Auth routes that
+ * would otherwise let a half-authenticated session (e.g. a magic link to a
+ * 2FA-enrolled account) skip the factor: turn 2FA off or re-enrol it (with
+ * `allowPasswordless` there is no password to ask), read the TOTP secret or
+ * mint backup codes, change credentials or profile, attach another sign-in
+ * method (social/SSO link, passkey registration — a passkey sign-in counts as
+ * MFA-verified), manage orgs, or hand an OIDC relying party a code.
+ * Verifying a code (`/two-factor/verify-*`), session reads and sign-out stay open.
+ */
+export const MFA_PENDING_BLOCKED_PATHS: readonly string[] = [
+  '/two-factor/disable',
+  '/two-factor/enable',
+  '/two-factor/generate-backup-codes',
+  '/two-factor/get-totp-uri',
+  '/two-factor/view-backup-codes',
+  '/change-password',
+  '/change-email',
+  '/update-user',
+  '/delete-user',
+  '/set-password',
+  '/link-social',
+  '/unlink-account',
+  '/oauth2/link',
+  '/passkey/generate-register-options',
+  '/passkey/verify-registration',
+  '/passkey/delete-passkey',
+  '/passkey/update-passkey',
+  '/oauth2/authorize',
+  '/oauth2/consent',
+  '/oauth2/continue',
+];
+
+/** Org-plugin routes a pending session still needs (landing on its org). */
+const MFA_PENDING_ORG_ALLOWED = new Set(['/organization/set-active', '/organization/list']);
+
+/** Pure: is `path` refused while the live session owes its second factor? */
+export function blockedWhileMfaPending(path: string | undefined): boolean {
+  if (!path) return false;
+  if (MFA_PENDING_BLOCKED_PATHS.includes(path)) return true;
+  return path.startsWith('/organization/') && !MFA_PENDING_ORG_ALLOWED.has(path);
+}
+
+export const MFA_PENDING_MESSAGE = 'Enter your two-factor code to finish signing in first.';
+
 /** Paths that verify a code against a LIVE session when one is present. */
 const STEP_UP_PATHS = ['/two-factor/verify-totp', '/two-factor/verify-backup-code'];
 
@@ -116,6 +162,22 @@ export function mfaAssurance(db: DB): BetterAuthPlugin {
     id: 'swarmy-mfa-assurance',
     hooks: {
       before: [
+        {
+          // A half-authenticated session (mfaPending) reaches none of the
+          // sensitive routes above until it verifies a code in-session.
+          matcher: (ctx) => blockedWhileMfaPending(ctx.path),
+          handler: createAuthMiddleware(async (ctx) => {
+            const live = await getSessionFromCtx(ctx).catch(() => null);
+            if (!live) return;
+            const row = await db.session.findFirst({
+              where: { token: live.session.token },
+              select: { mfaPending: true },
+            });
+            if (row?.mfaPending) {
+              throw new APIError('FORBIDDEN', { message: MFA_PENDING_MESSAGE, code: 'MFA_CHALLENGE_REQUIRED' });
+            }
+          }),
+        },
         {
           matcher: (ctx) => STEP_UP_PATHS.includes(ctx.path ?? ''),
           handler: createAuthMiddleware(async (ctx) => {

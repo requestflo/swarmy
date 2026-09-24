@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHmac } from 'node:crypto';
 import { createTestDb, type DB, type TestDb } from '@swarmy/db';
 import { buildAuth } from './server';
-import { classifySessionPath, nextStepUpCounters, STEP_UP_LOCKOUT } from './two-factor';
+import { blockedWhileMfaPending, classifySessionPath, nextStepUpCounters, STEP_UP_LOCKOUT } from './two-factor';
 
 describe('classifySessionPath', () => {
   it('treats a code verify (and passkey sign-in) as MFA-verified', () => {
@@ -22,6 +22,42 @@ describe('classifySessionPath', () => {
     expect(classifySessionPath('/sign-in/email')).toBe('none');
     expect(classifySessionPath('/change-password')).toBe('none');
     expect(classifySessionPath(undefined)).toBe('none');
+  });
+});
+
+describe('blockedWhileMfaPending', () => {
+  it('refuses 2FA management, credential/profile changes, linking and OIDC authorize', () => {
+    for (const p of [
+      '/two-factor/disable',
+      '/two-factor/enable',
+      '/two-factor/generate-backup-codes',
+      '/two-factor/get-totp-uri',
+      '/change-password',
+      '/change-email',
+      '/update-user',
+      '/link-social',
+      '/oauth2/link',
+      '/passkey/verify-registration',
+      '/oauth2/authorize',
+      '/oauth2/consent',
+      '/oauth2/continue',
+      '/organization/invite-member',
+    ]) {
+      expect(blockedWhileMfaPending(p)).toBe(true);
+    }
+  });
+  it('leaves the challenge itself, session reads, sign-out and org landing open', () => {
+    for (const p of [
+      '/two-factor/verify-totp',
+      '/two-factor/verify-backup-code',
+      '/get-session',
+      '/sign-out',
+      '/organization/set-active',
+      '/oauth2/token',
+      undefined,
+    ]) {
+      expect(blockedWhileMfaPending(p)).toBe(false);
+    }
   });
 });
 
@@ -182,6 +218,15 @@ describe('twoFactor end to end', () => {
     let row = await sessionRow(cookie);
     expect(row?.mfaPending).toBe(true);
     expect(row?.mfaVerifiedAt).toBeNull();
+
+    // The pending session cannot skip the factor by turning 2FA off (no
+    // password needed: allowPasswordless), reading the TOTP secret, or
+    // minting fresh backup codes.
+    const pending = new Headers({ cookie });
+    await expect(auth.api.disableTwoFactor({ body: {}, headers: pending })).rejects.toThrow(/two-factor code/);
+    await expect(auth.api.getTOTPURI({ body: {}, headers: pending })).rejects.toThrow(/two-factor code/);
+    await expect(auth.api.generateBackupCodes({ body: {}, headers: pending })).rejects.toThrow(/two-factor code/);
+    expect((await db.user.findUnique({ where: { email } }))?.twoFactorEnabled).toBe(true);
 
     const step = await auth.api.verifyBackupCode({
       body: { code: backupCodes[0]! },
