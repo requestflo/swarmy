@@ -7,6 +7,7 @@ import { buildGateAllows, BUILDER_ENABLE_HINT, execGateAllows, EXEC_LOCAL_VETO_H
 import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots, backupDb, restoreDb } from './handlers/backup';
 import { appDbBackup, appDbRestore, appDbVerify } from './handlers/appdb';
+import { execCommand } from './handlers/exec';
 import { applyDns } from './handlers/dns';
 import { localReload } from './handlers/ingress-local';
 import { applyMesh, grantDirectRoute } from './handlers/mesh';
@@ -328,12 +329,7 @@ export async function handleCommand(
         });
         return;
       }
-      conn.send('commandResult', {
-        commandId,
-        status: 'rejected',
-        error: { code: 'E_EXEC_DISABLED', message: 'exec not implemented' },
-      });
-      return;
+      return run(conn, commandId, () => execCommand(docker, conn, envlp.payload));
     }
     default:
       return;

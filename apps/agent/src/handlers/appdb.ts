@@ -37,6 +37,7 @@ import {
   type AppDbVerifyResult,
 } from '@swarmy/core/protocol';
 import type { AgentConnection } from '../connection';
+import { demuxDockerStream, execCapture } from './exec';
 import {
   applyRetention,
   ensureRepo,
@@ -48,30 +49,6 @@ import {
 } from './backup';
 
 const D = APPDB_DUMP_MOUNT;
-
-// ── docker stream demux (pure) ───────────────────────────────────────────────
-
-/**
- * Split Docker's multiplexed (non-TTY) stream: 8-byte frames `[type,0,0,0,
- * size(u32 BE)]` + payload, type 1 = stdout, 2 = stderr. A buffer that is not
- * framed (a TTY stream) is returned whole as stdout.
- */
-export function demuxDockerStream(buf: Buffer): { stdout: string; stderr: string } {
-  const out: Buffer[] = [];
-  const err: Buffer[] = [];
-  let i = 0;
-  while (i + 8 <= buf.length) {
-    const type = buf[i]!;
-    if ((type !== 0 && type !== 1 && type !== 2) || buf[i + 1] !== 0 || buf[i + 2] !== 0 || buf[i + 3] !== 0) {
-      return { stdout: buf.toString('utf8'), stderr: '' };
-    }
-    const size = buf.readUInt32BE(i + 4);
-    const chunk = buf.subarray(i + 8, i + 8 + size);
-    (type === 2 ? err : out).push(chunk);
-    i += 8 + size;
-  }
-  return { stdout: Buffer.concat(out).toString('utf8'), stderr: Buffer.concat(err).toString('utf8') };
-}
 
 // ── container helpers ────────────────────────────────────────────────────────
 
@@ -96,32 +73,6 @@ async function requireTask(docker: DockerClient, service: string): Promise<Local
   return t;
 }
 
-/** Non-interactive exec capturing output (non-hijacked — fine under Bun). */
-async function execCapture(
-  docker: DockerClient,
-  containerId: string,
-  script: string,
-  env: string[] = [],
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const exec = await docker.docker.getContainer(containerId).exec({
-    Cmd: ['sh', '-c', script],
-    Env: env,
-    AttachStdout: true,
-    AttachStderr: true,
-    Tty: false,
-  });
-  const stream = (await exec.start({})) as unknown as NodeJS.ReadableStream;
-  const chunks: Buffer[] = [];
-  await new Promise<void>((resolve) => {
-    stream.on('data', (c: Buffer) => chunks.push(Buffer.from(c)));
-    stream.on('end', () => resolve());
-    stream.on('close', () => resolve());
-    stream.on('error', () => resolve());
-  });
-  const inspect = await exec.inspect();
-  return { exitCode: inspect.ExitCode ?? 0, ...demuxDockerStream(Buffer.concat(chunks)) };
-}
-
 /** Resolve credentials inside the task. The values never leave this process. */
 async function probe(docker: DockerClient, task: LocalTask, p: { creds: AppDbBackupPayload['creds'] }): Promise<string[]> {
   const env: string[] = [];
@@ -132,7 +83,7 @@ async function probe(docker: DockerClient, task: LocalTask, p: { creds: AppDbBac
     if (hints.password) env.push(`SWARMY_REDIS_ARGPW=${hints.password}`);
     if (hints.conf) env.push(`SWARMY_REDIS_CONF=${hints.conf}`);
   }
-  const res = await execCapture(docker, task.id, probeScript(p.creds), env);
+  const res = await execCapture(docker, task.id, { cmd: ['sh', '-c', probeScript(p.creds)], env, timeoutMs: 60_000 });
   if (res.exitCode !== 0) throw new Error(`credential probe exited ${res.exitCode}: ${res.stderr.trim().slice(-300)}`);
   const vars = parseProbeOutput(res.stdout);
   return Object.entries(vars).map(([k, v]) => `${k}=${v}`);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { demuxDockerStream } from './appdb';
+import { demuxDockerStream, execResultView } from './exec';
 
 function frame(type: number, s: string): Buffer {
   const payload = Buffer.from(s, 'utf8');
@@ -25,5 +25,12 @@ describe('demuxDockerStream (exec probe output)', () => {
 
   it('treats an unframed (TTY) buffer as plain stdout', () => {
     expect(demuxDockerStream(Buffer.from('hello world\n'))).toEqual({ stdout: 'hello world\n', stderr: '' });
+  });
+});
+
+describe('execResultView (what controller exec callers read)', () => {
+  it('output is stdout on success; stderr is appended on failure', () => {
+    expect(execResultView({ exitCode: 0, stdout: '1\n', stderr: 'warn' })).toEqual({ exitCode: 0, output: '1\n', stderr: 'warn' });
+    expect(execResultView({ exitCode: 2, stdout: 'partial', stderr: 'boom' }).output).toBe('partial\nboom');
   });
 });
