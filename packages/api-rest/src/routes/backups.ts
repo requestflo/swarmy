@@ -8,7 +8,7 @@ import {
   restoreSnapshot,
 } from '@swarmy/trpc';
 import type { RestEnv } from '../middleware';
-import { requireAction, requireScope } from '../middleware';
+import { requireAction, requireScope, requireAdmin } from '../middleware';
 import { ProblemDto, RemovedDto, listEnvelope } from '../dto';
 import {
   AddBackupTargetBody,
@@ -67,7 +67,7 @@ export function registerBackupRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Backups'],
       summary: 'Add a backup target (restic repo)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAdmin()] as const,
       request: { body: jsonBody(AddBackupTargetBody) },
       responses: {
         201: { content: { 'application/json': { schema: BackupTargetDto } }, description: 'Created' },

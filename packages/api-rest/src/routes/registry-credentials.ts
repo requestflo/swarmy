@@ -9,7 +9,7 @@ import {
   type RegistryCredentialView,
 } from '@swarmy/trpc';
 import type { RestEnv } from '../middleware';
-import { requireAction, requireScope } from '../middleware';
+import { requireAction, requireScope, requireAdmin } from '../middleware';
 import { ProblemDto, listEnvelope } from '../dto';
 import { run } from '../respond';
 
@@ -126,7 +126,7 @@ export function registerRegistryCredentialRoutes(app: OpenAPIHono<RestEnv>): voi
       tags: [TAG],
       summary: 'Create a registry credential (or rotate the login for an existing prefix)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAdmin()] as const,
       request: { body: jsonBody(CreateRegistryCredentialBody) },
       responses: {
         201: { content: { 'application/json': { schema: RegistryCredentialDto } }, description: 'Stored' },
@@ -149,7 +149,7 @@ export function registerRegistryCredentialRoutes(app: OpenAPIHono<RestEnv>): voi
       tags: [TAG],
       summary: 'Update a registry credential (username/label, or rotate the secret)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAdmin()] as const,
       request: { params: idParam, body: jsonBody(UpdateRegistryCredentialBody) },
       responses: {
         200: { content: { 'application/json': { schema: RegistryCredentialDto } }, description: 'Updated' },
@@ -188,7 +188,7 @@ export function registerRegistryCredentialRoutes(app: OpenAPIHono<RestEnv>): voi
       tags: [TAG],
       summary: 'Test a stored credential (registry v2 auth; manifest HEAD when `image` is given)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAdmin()] as const,
       request: { params: idParam, body: jsonBody(TestRegistryCredentialBody) },
       responses: {
         200: { content: { 'application/json': { schema: RegistryTestResultDto } }, description: 'Result' },

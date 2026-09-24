@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
 import { createApiKey, listApiKeys, revokeApiKey } from '@swarmy/trpc';
 import type { RestEnv } from '../middleware';
-import { requireAction, requireScope } from '../middleware';
+import { requireAction, requireScope, requireAdmin } from '../middleware';
 import { ProblemDto, listEnvelope } from '../dto';
 import {
   ApiKeyDto,
@@ -50,7 +50,7 @@ export function registerApiKeyRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['API Keys'],
       summary: 'Create an API key (plaintext returned once)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAdmin()] as const,
       request: { body: jsonBody(CreateApiKeyBody) },
       responses: {
         201: {

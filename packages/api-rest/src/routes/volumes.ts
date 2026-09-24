@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
 import { deregisterClusterVolume, listClusterVolumes, registerClusterVolume } from '@swarmy/trpc';
 import type { RestEnv } from '../middleware';
-import { requireAction, requireScope } from '../middleware';
+import { requireAction, requireScope, requireAdmin } from '../middleware';
 import { ProblemDto, RemovedDto, listEnvelope } from '../dto';
 import { ClusterVolumeDto, RegisterVolumeBody } from '../dto-extra';
 import { clusterVolumeToDto } from '../mappers-extra';
@@ -46,7 +46,7 @@ export function registerVolumeRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Volumes'],
       summary: 'Register + provision a cluster volume',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAdmin()] as const,
       request: { body: jsonBody(RegisterVolumeBody) },
       responses: {
         201: { content: { 'application/json': { schema: ClusterVolumeDto } }, description: 'Registered' },

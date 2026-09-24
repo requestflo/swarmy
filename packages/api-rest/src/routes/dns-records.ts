@@ -9,7 +9,7 @@ import {
   upsertDnsRecord,
 } from '@swarmy/trpc';
 import type { RestEnv } from '../middleware';
-import { requireAction, requireScope } from '../middleware';
+import { requireAction, requireScope, requireAdmin } from '../middleware';
 import { ProblemDto, RemovedDto, listEnvelope } from '../dto';
 import { CreateDnsZoneBody, DnsRecordDto, DnsZoneDto, UpsertDnsRecordBody } from '../dto-extra';
 import { dnsRecordToDto, dnsZoneToDto } from '../mappers-extra';
@@ -58,7 +58,7 @@ export function registerDnsRecordRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['DNS'],
       summary: 'Create a DNS zone',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAdmin()] as const,
       request: { body: jsonBody(CreateDnsZoneBody) },
       responses: {
         200: { content: { 'application/json': { schema: DnsZoneDto } }, description: 'Created' },
@@ -174,7 +174,7 @@ export function registerDnsRecordRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['DNS'],
       summary: 'Create or update a manual record (upsert by name+type+value)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAdmin()] as const,
       request: { params: idParam, body: jsonBody(UpsertDnsRecordBody) },
       responses: {
         200: { content: { 'application/json': { schema: DnsRecordDto } }, description: 'Upserted' },
