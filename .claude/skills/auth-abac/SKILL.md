@@ -140,6 +140,29 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   2FA is opt-in everywhere: social/SSO sessions are exempt, terminal step-up
   defaults off. swarmy is also an OIDC provider (`oidc-provider.ts`,
   `oidc-clients.ts` → `ensureNetbirdOidcClient`).
+- **One org per controller (assumption, owner 2026-09-24).** A self-hosted
+  controller serves one organization. The OIDC provider's claims come from
+  the user's earliest membership, and social `allowedDomains` sign-ups join the
+  oldest org. Multi-org controllers would need an org chooser in both places.
+- **Invites**: single-use (a conditional pending→accepted flip) and 7 days
+  (`INVITATION_TTL_SECONDS`). Link-only invites admit whoever holds them; an
+  invite naming an email admits only that address when verified or carried by
+  an SSO/social identity (`inviteAdmits`, `redeemInvitation`). Social
+  providers' `allowedDomains` setting admits verified accounts at those domains
+  without an invite (default empty = invite required).
+- **Defaults are managed.** `loadPolicyEngine` always evaluates the SHIPPED
+  default rules (stored default rows only carry enable/disable + a real id) and
+  rewrites drifted default rows automatically (`policy-repo` `ensureDefaults`,
+  `defaultsDrift`). There is no "reset defaults"; admins may switch a default
+  off, never edit it. Editing `defaults.ts` changes every org on its next
+  decision — cover it with a unit.
+- **`authorize()` is the only who-may check.** `TerminalPolicy.allowedRoles` is
+  gone; terminal access is `terminal.open` (owners/admins by default, others by
+  a grant). Container exec is governed on the service, node shells on the node.
+  Two-resource mutations use `abacProcedureAll(action, [resolvers])` (e.g.
+  `stacks.connect` checks the stack AND the peer). View filters use
+  `evaluateAccess` without an audit row: `services.inspect` and config contents
+  mask secret-looking values unless `secrets.read` (`secret-redact.ts`).
 - **Coverage today**: `abacProcedure` gates the terminal AND every destructive
   mutation (owner decision 2026-09-24 — the action table is in
   `docs/product/governance-and-access.md`): service/stack/node remove, scale,

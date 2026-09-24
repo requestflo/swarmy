@@ -11,6 +11,7 @@ import {
 } from '@swarmy/core';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import { abacProcedure } from '../abac';
+import { canReadSecrets, redactConfigText } from '../services/secret-redact';
 import {
   applyConfigVersion,
   attachConfigToService,
@@ -41,9 +42,17 @@ export const configsMgrRouter = router({
     .query(({ ctx, input }) => listConfigFamilies(ctx, input?.stack)),
 
   /** Decoded content of one version (current when unspecified) — feeds the diff. */
+  // Secret-looking values are masked unless the caller holds `secrets.read`
+  // (`redacted` tells the UI the diff is partial).
   content: orgProcedure
     .input(GetConfigContentInput)
-    .query(({ ctx, input }) => getConfigContent(ctx, input)),
+    .query(async ({ ctx, input }) => {
+      const view = await getConfigContent(ctx, input);
+      const resource = { type: 'config', id: view.family, orgId: ctx.activeOrgId, labels: {} };
+      if (await canReadSecrets(ctx, resource)) return { ...view, redacted: false };
+      const { text, redacted } = redactConfigText(view.content);
+      return { ...view, content: text, redacted };
+    }),
 
   /** Dry-run of apply: exactly which services restart, none touched. */
   restartPreview: orgProcedure

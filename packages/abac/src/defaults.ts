@@ -22,14 +22,16 @@ export const NON_PRODUCTION = { attr: 'resource.env', op: 'ne', value: 'producti
  *    (`resource.env ne production`: an unlabelled app, or an org-scoped call
  *    with no resource, counts as non-production). Production is the
  *    `swarmy.env=production` Docker label;
- *  - a production deploy, every destructive action (`data.*`, `*.remove`,
- *    `secret.delete`, …), `terminal.open`, `secrets.read` and `mesh.connect`
- *    need an explicit grant: a policy naming the member's group / the member,
- *    or a `ResourceGrant` operator/owner edge on that resource.
+ *  - members may join the mesh of NON-production stacks (`mesh.connect`);
+ *  - a production deploy or mesh connect, every destructive action (`data.*`,
+ *    `*.remove`, `secret.delete`, …), `terminal.open` and `secrets.read` need
+ *    an explicit grant: a policy naming the member's group / the member, or a
+ *    `ResourceGrant` operator/owner edge on that resource.
  *
  * Effects compose forbid-wins; among permits the highest priority wins for audit.
- * Orgs whose defaults were persisted as `Policy` rows before this change keep
- * those rows until an admin runs "Reset defaults".
+ * Defaults are managed: when this set changes, every org's stored default rows
+ * are rewritten to match on its next decision (policy-repo `ensureDefaults`);
+ * custom rules are untouched.
  */
 export const DEFAULT_POLICY_SPECS: DefaultPolicySpec[] = [
   {
@@ -83,6 +85,13 @@ export const DEFAULT_POLICY_SPECS: DefaultPolicySpec[] = [
       ],
       conditions: [{ ...NON_PRODUCTION }],
     },
+  },
+  {
+    key: 'member-mesh-nonprod',
+    name: 'Members can connect to non-production stacks',
+    effect: 'permit',
+    priority: 38,
+    doc: { roles: ['member'], actions: ['mesh.connect'], conditions: [{ ...NON_PRODUCTION }] },
   },
   {
     // ReBAC: a member granted `operator` (or `owner`) on a specific resource may

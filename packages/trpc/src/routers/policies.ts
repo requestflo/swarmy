@@ -10,7 +10,6 @@ import {
   simulatePolicy,
   policySchema,
   whoCanPolicy,
-  resetDefaultPolicies,
 } from '../services/policies.service';
 
 /**
@@ -61,7 +60,6 @@ export const policiesRouter = router({
     .query(({ ctx, input }) => whoCanPolicy(ctx, input)),
 
   /** Re-seed the default rules (upgrade orgs persisted before the ABAC model). */
-  resetDefaults: abacProcedure('policy.write').mutation(({ ctx }) => resetDefaultPolicies(ctx)),
 
   set: abacProcedure('policy.write')
     .input(

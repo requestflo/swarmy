@@ -27,6 +27,7 @@ import {
   watchDeployStatus,
 } from '../services/deployment.service';
 import { resolveManagerNode } from '../services/dispatch.service';
+import { canReadSecrets, redactInspect } from '../services/secret-redact';
 import {
   listSecretVars,
   removeSecretVar,
@@ -53,10 +54,15 @@ export const servicesRouter = router({
     getServiceDetail(ctx, input.id),
   ),
 
-  // Full raw `docker service inspect` for the details/debug view (on-demand dispatch).
+  // Full raw `docker service inspect` for the details/debug view (on-demand
+  // dispatch). Secret-looking env values are masked unless the caller holds
+  // `secrets.read` on this service.
   inspect: orgProcedure
     .input(z.object({ id: z.string() }))
-    .query(({ ctx, input }) => inspectService(ctx, input.id)),
+    .query(async ({ ctx, input }) => {
+      const [inspect, resource] = await Promise.all([inspectService(ctx, input.id), resolveService(ctx, input)]);
+      return (await canReadSecrets(ctx, resource)) ? inspect : redactInspect(inspect);
+    }),
 
   create: abacProcedure('service.deploy', resolveNewService).input(CreateServiceInput).mutation(({ ctx, input }) => createService(ctx, input)),
 

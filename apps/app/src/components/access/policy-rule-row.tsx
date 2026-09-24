@@ -46,16 +46,17 @@ export function PolicyRuleRow({ rule, onEdit }: PolicyRuleRowProps): React.JSX.E
           set.mutate({ id: rule.id, name: rule.name, effect: rule.effect, source: rule.source, priority: rule.priority, enabled })
         }
       />
-      <div className="flex">
-        <Button variant="ghost" size="sm" aria-label="Edit rule" onClick={() => onEdit(rule)}>
-          <PencilIcon className="size-4" />
-        </Button>
-        {!rule.isDefault && (
+      {/* Default rules are managed by swarmy: switch them off, never rewrite them. */}
+      {!rule.isDefault && (
+        <div className="flex">
+          <Button variant="ghost" size="sm" aria-label="Edit rule" onClick={() => onEdit(rule)}>
+            <PencilIcon className="size-4" />
+          </Button>
           <Button variant="ghost" size="sm" aria-label="Delete rule" onClick={() => del.mutate({ id: rule.id })}>
             <Trash2Icon className="size-4" />
           </Button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

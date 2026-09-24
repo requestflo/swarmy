@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { PlusIcon, RotateCcwIcon, ScrollTextIcon } from 'lucide-react';
-import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState, toast } from '@swarmy/ui';
+import { useQuery } from '@tanstack/react-query';
+import { PlusIcon, ScrollTextIcon } from 'lucide-react';
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, EmptyState } from '@swarmy/ui';
 import { CardSkeleton, ErrorState } from '@/components/states';
 import { useTRPC } from '@/integrations/trpc';
 import { PolicyRuleEditor } from './policy-rule-editor';
@@ -17,19 +17,9 @@ import type { PolicyRow } from './use-policy-editor';
  */
 export function PoliciesTab(): React.JSX.Element {
   const trpc = useTRPC();
-  const qc = useQueryClient();
   const policies = useQuery(trpc.policies.list.queryOptions());
   // undefined = closed, null = new rule, row = editing that rule.
   const [editing, setEditing] = React.useState<PolicyRow | null | undefined>(undefined);
-  const reset = useMutation(
-    trpc.policies.resetDefaults.mutationOptions({
-      onSuccess: () => {
-        toast.success('Default rules restored');
-        void qc.invalidateQueries();
-      },
-      onError: (e) => toast.error(e.message),
-    }),
-  );
   const rows = (policies.data ?? []) as PolicyRow[];
 
   return (
@@ -39,14 +29,12 @@ export function PoliciesTab(): React.JSX.Element {
           <div className="grid gap-1.5">
             <CardTitle className="text-base">Rules</CardTitle>
             <CardDescription>
-              Owners and admins can do everything. Members deploy and operate freely outside production;
-              production, destructive actions, terminals and secrets need a rule below.
+              Owners and admins can do everything. Members deploy, operate and join the mesh freely outside
+              production; production, destructive actions, terminals and secrets need a rule below. The default
+              rules are kept current by swarmy: you can turn one off, and add rules (a forbid overrides).
             </CardDescription>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => reset.mutate()} disabled={reset.isPending}>
-              <RotateCcwIcon className="size-4" /> Reset defaults
-            </Button>
             <Button onClick={() => setEditing(null)}>
               <PlusIcon className="size-4" /> New rule
             </Button>

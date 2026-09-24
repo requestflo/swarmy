@@ -10,7 +10,7 @@ import type { Principal, Resource } from './types';
  *   - `resource.type` / `resource.id`
  *   - `resource.label.<key>`  a Docker label on the resource (app/stack labels)
  *   - `principal.role`        the member's role(s)
- *   - `principal.groups`      Member.attributes.groups ∪ teamIds
+ *   - `principal.groups`      Member.attributes.groups ∪ ssoGroups ∪ teamIds
  *   - `principal.<key>`       any key of Member.attributes
  *
  * Every attribute resolves to a list of strings (empty = unset), so `eq` on a
@@ -59,14 +59,21 @@ function strings(v: unknown): string[] {
   return [String(v)];
 }
 
-/** Groups the principal is in: explicit `groups`, attributes.groups, and team ids. */
+/**
+ * Groups from a `Member.attributes` bag: admin-set `groups` ∪ IdP-derived
+ * `ssoGroups` (replaced on every SSO login) ∪ `teamIds`. Pure; shared by the
+ * policy engine, the SSO group sync and the OIDC provider's groups claim.
+ */
+export function groupsFromAttributes(attributes: Record<string, unknown> | null | undefined): string[] {
+  const a = attributes ?? {};
+  return [...new Set([...strings(a.groups), ...strings(a.ssoGroups), ...strings(a.teamIds)])];
+}
+
+/** Groups the principal is in: explicit `groups` ∪ team ids ∪ {@link groupsFromAttributes}. */
 export function principalGroups(principal: Principal): string[] {
-  const out = new Set<string>();
-  for (const g of principal.groups ?? []) out.add(g);
-  for (const g of strings(principal.attributes.groups)) out.add(g);
-  for (const t of principal.teamIds ?? []) out.add(t);
-  for (const t of strings(principal.attributes.teamIds)) out.add(t);
-  return [...out];
+  return [
+    ...new Set([...(principal.groups ?? []), ...(principal.teamIds ?? []), ...groupsFromAttributes(principal.attributes)]),
+  ];
 }
 
 export const RESOURCE_ATTRS = ['resource.env', 'resource.type', 'resource.id'] as const;

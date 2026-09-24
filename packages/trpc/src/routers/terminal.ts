@@ -32,8 +32,10 @@ import { resolveExecTarget, resolveLiveService } from '../services/live-resolve'
  * Both `open` (container exec) and `openNodeShell` are gated by the ABAC action
  * `terminal.open` (so org policies + the audit trail govern who may open a
  * shell at all — denies are audited as `authz.deny:terminal.open`). On top of
- * ABAC, the org `TerminalPolicy` adds: allowedRoles, container-exec/node-shell
- * enable toggles, node-shell approval (four-eyes break-glass), and recording.
+ * ABAC (the single enforcement point for WHO may open a shell; owners/admins
+ * via the default rules, anyone else by an explicit grant), the org
+ * `TerminalPolicy` adds: container-exec/node-shell enable toggles, node-shell
+ * approval (four-eyes break-glass), and recording.
  *
  * Optional approval flag (documented): when `TerminalPolicy.requireApprovalFor
  * NodeShell` is true (the default), `openNodeShell` requires an active, approved,
@@ -82,16 +84,6 @@ function assertNodeCapable(cap: TerminalCapability): void {
   });
 }
 
-function assertAllowedRole(ctx: OrgContext, allowedRoles: string[]): void {
-  if (!allowedRoles.includes(ctx.membership.role)) {
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: `your role (${ctx.membership.role}) may not open terminals`,
-      cause: { swarmyCode: 'ROLE_NOT_ALLOWED' },
-    });
-  }
-}
-
 /** Best-effort hub kill (the WS teardown lives in apps/api; see INTEGRATION). */
 function tryKillSession(ctx: OrgContext, sessionId: string): void {
   const hub = ctx.hub as unknown as { killTerminalSession?: (id: string) => boolean };
@@ -107,7 +99,6 @@ export const terminalRouter = router({
       if (!policy.containerExecEnabled) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'container exec is disabled for this org' });
       }
-      assertAllowedRole(ctx, policy.allowedRoles);
 
       // Docker-direct: resolve the service + a running container (and the node it
       // lives on) from the live inventory by Docker id — no DB service/node rows.
@@ -167,7 +158,6 @@ export const terminalRouter = router({
           cause: { swarmyCode: 'NODE_SHELL_DISABLED' },
         });
       }
-      assertAllowedRole(ctx, policy.allowedRoles);
 
       const node = await ctx.db.node.findFirst({
         where: { id: input.nodeId, orgId: ctx.activeOrgId },
@@ -301,7 +291,6 @@ export const terminalRouter = router({
           idleTimeoutMs: z.number().int().min(60_000).max(86_400_000).optional(),
           maxSessionMs: z.number().int().min(300_000).max(86_400_000).optional(),
           mfaMaxAgeMs: z.number().int().min(MIN_MFA_MAX_AGE_MS).max(MAX_MFA_MAX_AGE_MS).optional(),
-          allowedRoles: z.array(z.enum(['owner', 'admin', 'member'])).optional(),
         }),
       )
       .mutation(({ ctx, input }) => setTerminalPolicy(ctx, input)),

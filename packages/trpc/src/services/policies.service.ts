@@ -68,7 +68,22 @@ export async function setPolicy(ctx: OrgContext, args: SetPolicyArgs): Promise<P
     }
     throw e;
   }
-  const row = await policyRepo(ctx.db).upsert(ctx.activeOrgId, args, ctx.user.id);
+  const repo = policyRepo(ctx.db);
+  if (args.id) {
+    // Default rules are managed by swarmy (kept equal to the shipped set): an
+    // admin may turn one off or on, not rewrite it.
+    const existing = await repo.get(ctx.activeOrgId, args.id);
+    if (existing?.isDefault) {
+      const rewritten =
+        existing.source !== args.source ||
+        existing.effect !== args.effect ||
+        (args.priority !== undefined && existing.priority !== args.priority);
+      if (rewritten) {
+        throw new Error('Default rules are managed by swarmy. Turn this one off, or add your own rule (a forbid overrides).');
+      }
+    }
+  }
+  const row = await repo.upsert(ctx.activeOrgId, args, ctx.user.id);
   if (!row) throw notFound('policy', args.id ?? '');
   await writeAudit(ctx, {
     action: args.id ? 'policy.update' : 'policy.create',
@@ -90,17 +105,6 @@ export async function deletePolicy(
   await repo.delete(ctx.activeOrgId, id);
   await writeAudit(ctx, { action: 'policy.delete', targetType: 'policy', targetId: id });
   return { id, deleted: true };
-}
-
-/**
- * Replace the org's default rows with the current seeded set. The upgrade path
- * for orgs whose defaults were persisted before the attribute-based model;
- * custom rules are untouched.
- */
-export async function resetDefaultPolicies(ctx: OrgContext): Promise<PolicyView[]> {
-  await policyRepo(ctx.db).resetDefaults(ctx.activeOrgId, ctx.user.id);
-  await writeAudit(ctx, { action: 'policy.resetDefaults', targetType: 'org', targetId: ctx.activeOrgId });
-  return listPolicies(ctx);
 }
 
 /**

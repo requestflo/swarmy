@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { orgProcedure, router } from '../trpc';
-import { abacProcedure, resolveStack, resolveStackByName } from '../abac';
+import { abacProcedure, abacProcedureAll, resolvePeerStack, resolveStack, resolveStackByName } from '../abac';
 import {
   addServiceToStack,
   deployFromCompose,
@@ -69,11 +69,13 @@ export const stacksRouter = router({
     .query(({ ctx, input }) => stackEndpointsFor(ctx, input.stack)),
 
   /** "Connect apps": one private overlay for exactly this pair (both directions). */
-  connect: abacProcedure('stack.deploy', resolveStackByName)
+  // Both sides must be deployable by the caller: linking into a production
+  // peer is a change to that peer.
+  connect: abacProcedureAll('stack.deploy', [resolveStackByName, resolvePeerStack])
     .input(z.object({ stack: z.string().min(1), peer: z.string().min(1) }))
     .mutation(({ ctx, input }) => connectStacks(ctx, input)),
 
-  disconnect: abacProcedure('stack.deploy', resolveStackByName)
+  disconnect: abacProcedureAll('stack.deploy', [resolveStackByName, resolvePeerStack])
     .input(z.object({ stack: z.string().min(1), peer: z.string().min(1) }))
     .mutation(({ ctx, input }) => disconnectStacks(ctx, input)),
 });

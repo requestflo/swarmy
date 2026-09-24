@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { conditionHolds, lookupAttr, normaliseEnv, principalGroups, resourceEnv } from './attrs';
+import { conditionHolds, groupsFromAttributes, lookupAttr, normaliseEnv, principalGroups, resourceEnv } from './attrs';
 import { parsePolicyDoc, PolicyParseError } from './policy';
 import { policyDocToCedar, buildCedarContext } from './cedar';
 import { ACTION_CATALOG, describePolicy } from './describe';
@@ -38,6 +38,15 @@ describe('environment attribute', () => {
 describe('attribute lookup + conditions', () => {
   it('groups = attributes.groups ∪ teamIds', () => {
     expect(principalGroups(P).sort()).toEqual(['oncall', 'platform', 't-web']);
+  });
+
+  it('groupsFromAttributes adds IdP ssoGroups without clobbering admin groups', () => {
+    expect(groupsFromAttributes({ groups: ['a'], ssoGroups: ['b', 'a'], teamIds: ['t'] }).sort()).toEqual([
+      'a',
+      'b',
+      't',
+    ]);
+    expect(groupsFromAttributes(null)).toEqual([]);
   });
 
   it('resolves resource and principal paths as string lists', () => {

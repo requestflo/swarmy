@@ -29,6 +29,7 @@ export {
   normaliseEnv,
   resourceEnv,
   principalGroups,
+  groupsFromAttributes,
   lookupAttr,
   conditionHolds,
   isAttrPath,

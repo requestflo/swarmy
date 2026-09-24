@@ -108,7 +108,6 @@ const GATES: Array<[string, unknown, string]> = [
   ['swarm.revealUnlockKey', undefined, 'secrets.read'],
   ['cicd.webhookInfo', { repoId: 'r1' }, 'secrets.read'],
   ['policies.set', { name: 'p', effect: 'permit', source: '{}' }, 'policy.write'],
-  ['policies.resetDefaults', undefined, 'policy.write'],
   ['policies.whoCan', { action: 'service.read' }, 'member.write'],
   // Deploy / configure: member-permitted outside production (no live stack
   // here → env unknown → non-production).
@@ -281,6 +280,14 @@ describe('deploys carry the environment (members free outside production)', () =
     expect(isPolicyDenied(prod.error)).toBe(true);
     const staging = await run((c) => c.services!.update!({ id: 'blog_web' }));
     expect(staging.audit).toContain('authz.permit:service.configure');
+  });
+
+  it('connecting two stacks needs deploy on BOTH: a production peer refuses a member', async () => {
+    const both = await run((c) => c.stacks!.connect!({ stack: 'blog', peer: 'fresh' }));
+    expect(both.audit.filter((a) => a === 'authz.permit:stack.deploy')).toHaveLength(2);
+    const prodPeer = await run((c) => c.stacks!.connect!({ stack: 'blog', peer: 'shop' }));
+    expect(isPolicyDenied(prodPeer.error)).toBe(true);
+    expect(prodPeer.audit).toEqual(['authz.permit:stack.deploy', 'authz.deny:stack.deploy']);
   });
 
   it('creating an app in a production project is a production deploy', async () => {

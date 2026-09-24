@@ -23,7 +23,7 @@ import { parse as parseYaml } from 'yaml';
 import { orgProcedure } from './trpc';
 import type { OrgContext } from './context';
 import { writeAudit } from './services/audit.service';
-import { policyRepo } from './services/policy-repo';
+import { defaultsDrift, policyRepo } from './services/policy-repo';
 
 /**
  * Resolves the target resource for a procedure from its input. Returns a
@@ -103,30 +103,37 @@ async function loadGrants(db: DB, orgId: string, resource: ResourceInput): Promi
  * to the seeded defaults) and build the engine.
  */
 export async function loadPolicyEngine(db: DB, orgId: string): Promise<IPolicyEngine> {
-  const rows = await policyRepo(db).list(orgId, { enabledOnly: true });
-  const inputs: PolicyInput[] =
-    rows.length === 0
-      ? // No stored policies → behave exactly as the seeded defaults.
-        defaultPolicyInputs().map(
-          (p): PolicyInput => ({
-            id: `default:${p.key}`,
-            name: p.name,
-            effect: p.effect,
-            source: p.source,
-            priority: p.priority,
-            enabled: true,
-          }),
-        )
-      : rows.map(
-          (r): PolicyInput => ({
-            id: r.id,
-            name: r.name,
-            effect: r.effect,
-            source: r.source,
-            priority: r.priority,
-            enabled: r.enabled,
-          }),
-        );
+  const repo = policyRepo(db);
+  let all = await repo.list(orgId);
+  // Defaults are managed (pre-launch, no back-compat): when the shipped set
+  // changed, or an org has custom rows but no defaults, rewrite its stored
+  // default rows. Best-effort — the decision below never depends on it.
+  if (all.length > 0 && (defaultsDrift(all) || !all.some((r) => r.isDefault))) {
+    try {
+      if (await repo.ensureDefaults(orgId)) all = await repo.list(orgId);
+    } catch {
+      /* evaluate the shipped defaults in memory */
+    }
+  }
+  // The engine always runs the SHIPPED default rules (stored default rows only
+  // carry the admin's enable/disable and a real id for the audit trail) plus
+  // the org's enabled custom rules.
+  const storedDefaults = new Map(all.filter((r) => r.isDefault).map((r) => [r.name, r]));
+  const defaults: PolicyInput[] = defaultPolicyInputs().map((p) => {
+    const stored = storedDefaults.get(p.name);
+    return {
+      id: stored?.id ?? `default:${p.key}`,
+      name: p.name,
+      effect: p.effect,
+      source: p.source,
+      priority: p.priority,
+      enabled: stored ? stored.enabled : true,
+    };
+  });
+  const custom: PolicyInput[] = all
+    .filter((r) => !r.isDefault && r.enabled)
+    .map((r) => ({ id: r.id, name: r.name, effect: r.effect, source: r.source, priority: r.priority, enabled: true }));
+  const inputs = [...defaults.filter((d) => d.enabled), ...custom];
   return createEngine(inputs);
 }
 
@@ -303,6 +310,36 @@ export function abacProcedure(action: Action, resolveResource?: ResolveResource)
     return opts.next({ ctx: { authz } });
   });
 }
+
+/**
+ * {@link abacProcedure} over SEVERAL resources: the action must be permitted on
+ * every one (each decision audited by `authorize`). For mutations that touch
+ * two things at once, e.g. connecting a stack to a peer stack. A resolver that
+ * returns null is skipped; the first deny throws.
+ */
+export function abacProcedureAll(action: Action, resolvers: ResolveResource[]) {
+  if (!isAction(action)) {
+    throw new Error(`abacProcedureAll: unknown action "${action}"`);
+  }
+  return orgProcedure.use(async (opts) => {
+    const ctx = opts.ctx as unknown as OrgContext;
+    const input = opts.input ?? (await opts.getRawInput());
+    let authz: AuthzGrant | null = null;
+    for (const resolve of resolvers) {
+      const resourceInput = await resolve(ctx, input);
+      if (!resourceInput) continue;
+      authz = await authorize(ctx, action, resourceInput);
+    }
+    authz ??= await authorize(ctx, action, null);
+    return opts.next({ ctx: { authz } });
+  });
+}
+
+/** The `peer` stack of a two-stack mutation (`{ stack, peer }`). */
+export const resolvePeerStack: ResolveResource = (ctx, input) => {
+  const peer = (input as { peer?: unknown } | null)?.peer;
+  return typeof peer === 'string' && peer ? resolveStackByName(ctx, { stack: peer }) : null;
+};
 
 /** What {@link authorize} returns on permit (also stamped on ctx by abacProcedure). */
 export interface AuthzGrant {

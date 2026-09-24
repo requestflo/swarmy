@@ -855,13 +855,6 @@ export const access: DomainResolvers = {
       return validateSource(source, effect);
     },
 
-    'policies.resetDefaults': (_i, store) => {
-      const s = state(store);
-      const fresh = seedPolicies().filter((p) => p.isDefault);
-      s.policies = [...fresh, ...s.policies.filter((p) => !p.isDefault)].sort((a, b) => b.priority - a.priority);
-      return s.policies.map(policyWithSentence);
-    },
-
     'policies.whoCan': (input, store) => {
       const args = input as { action: string; resourceType?: string; resourceId?: string; env?: string; labels?: Record<string, string> };
       if (!isAction(args.action)) throw new Error(`unknown action "${args.action}"`);

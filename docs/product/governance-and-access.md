@@ -129,8 +129,11 @@ Four ideas, one story:
   explicit grant — a group/member rule or a `ResourceGrant`. A stack's env is its
   live services' labels (production if any is), or for a brand-new stack the
   labels its compose stamps, so "deploy it straight to prod" can't dodge the gate.
-  Orgs whose defaults were persisted as rows before this keep them (opening the
-  policy page tops up new default rules additively); **Reset defaults** re-seeds.
+  Default rules are managed: when the shipped set changes, every org's stored
+  default rows are rewritten on its next decision (custom rules untouched), and
+  the engine always evaluates the shipped rules, so no org runs stale defaults.
+  Admins may turn a default off, never rewrite it. Members may also
+  `mesh.connect` to non-production stacks.
 - **Guardrails are per-rule, prod-aware, and overridable on the record.** Each
   rule is `block` or `warn`. A **warn** surfaces in the deploy dialog and any
   member may confirm through it; a **block** refuses and only an admin may

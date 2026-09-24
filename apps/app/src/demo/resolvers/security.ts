@@ -24,7 +24,6 @@ interface SecurityBag {
     idleTimeoutMs: number;
     maxSessionMs: number;
     mfaMaxAgeMs: number;
-    allowedRoles: string[];
   };
   members: Array<{
     memberId: string;
@@ -70,7 +69,6 @@ export const security: DomainResolvers = {
         idleTimeoutMs: 300_000,
         maxSessionMs: 3_600_000,
         mfaMaxAgeMs: 900_000,
-        allowedRoles: ['owner', 'admin'],
       },
       members: [
         { memberId: 'mem-pilot', userId: store.user.id, name: store.user.name, email: store.user.email, role: 'owner', enrolled: true, ssoOnly: false, joinedDaysAgo: 200 },

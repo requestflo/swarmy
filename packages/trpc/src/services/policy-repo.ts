@@ -38,12 +38,13 @@ export interface PolicyRepository {
   upsert(orgId: string, input: PolicyWrite, actorId?: string | null): Promise<PolicyRecord | null>;
   delete(orgId: string, id: string): Promise<boolean>;
   /**
-   * Seed the default set on first use, and top up any default added since
-   * (matched by name) — additive only, never rewrites an existing row.
+   * Keep the org's default rows equal to the current seeded set (pre-launch,
+   * no back-compat: defaults are managed by swarmy, not by the org). Seeds
+   * them on first use and rewrites them whenever the shipped defaults change;
+   * an admin's enable/disable of a default is kept by name. Custom rows are
+   * never touched. Returns true when it wrote.
    */
-  ensureDefaults(orgId: string, actorId?: string | null): Promise<void>;
-  /** Replace the org's default rows with the current seeded set (custom rows untouched). */
-  resetDefaults(orgId: string, actorId?: string | null): Promise<void>;
+  ensureDefaults(orgId: string, actorId?: string | null): Promise<boolean>;
 }
 
 interface PolicyRow {
@@ -72,14 +73,34 @@ function toRecord(r: PolicyRow): PolicyRecord {
   };
 }
 
-function defaultRows(orgId: string, actorId: string | null | undefined) {
+/**
+ * Pure: do the stored default rows differ from the shipped default set? Any
+ * missing, extra or edited default row (name, effect, source, priority) is
+ * drift. An org with no rows at all is not drift: the engine evaluates the
+ * shipped defaults in memory.
+ */
+export function defaultsDrift(
+  rows: Array<Pick<PolicyRecord, 'name' | 'effect' | 'source' | 'priority' | 'isDefault'>>,
+): boolean {
+  if (rows.length === 0) return false;
+  const stored = rows.filter((r) => r.isDefault);
+  const shipped = defaultPolicyInputs();
+  if (stored.length !== shipped.length) return true;
+  const byName = new Map(stored.map((r) => [r.name, r]));
+  return shipped.some((d) => {
+    const r = byName.get(d.name);
+    return !r || r.effect !== d.effect || r.source !== d.source || r.priority !== d.priority;
+  });
+}
+
+function defaultRows(orgId: string, actorId: string | null | undefined, disabled: Set<string> = new Set()) {
   return defaultPolicyInputs().map((p) => ({
     orgId,
     name: p.name,
     effect: p.effect,
     source: p.source,
     priority: p.priority,
-    enabled: true,
+    enabled: !disabled.has(p.name),
     isdefault: true,
     createdById: actorId ?? null,
   }));
@@ -140,24 +161,18 @@ export function prismaPolicyRepository(db: DB): PolicyRepository {
     },
 
     async ensureDefaults(orgId, actorId) {
-      const existing = await db.policy.findMany({
-        where: { orgId, isdefault: true },
-        select: { name: true },
-      });
-      // An org with rows but no default ones runs custom rules only (legacy
-      // state); never seed defaults into it behind its back.
-      if (existing.length === 0 && (await db.policy.count({ where: { orgId } })) > 0) return;
-      const have = new Set(existing.map((r) => r.name));
-      const missing = defaultRows(orgId, actorId).filter((r) => !have.has(r.name));
-      if (missing.length) await db.policy.createMany({ data: missing });
-    },
-
-    async resetDefaults(orgId, actorId) {
+      const all = (await db.policy.findMany({ where: { orgId } })) as PolicyRow[];
+      const records = all.map(toRecord);
+      const hasDefaults = records.some((r) => r.isDefault);
+      if (hasDefaults && !defaultsDrift(records)) return false;
+      const disabled = new Set(records.filter((r) => r.isDefault && !r.enabled).map((r) => r.name));
       await db.$transaction([
         db.policy.deleteMany({ where: { orgId, isdefault: true } }),
-        db.policy.createMany({ data: defaultRows(orgId, actorId) }),
+        db.policy.createMany({ data: defaultRows(orgId, actorId, disabled) }),
       ]);
+      return true;
     },
+
   };
 }
 

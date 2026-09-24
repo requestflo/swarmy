@@ -219,8 +219,16 @@ describe('attribute-based defaults (members free outside production)', () => {
     }
   });
 
-  it('terminal, secrets.read and mesh.connect need an explicit grant, even outside prod', () => {
-    for (const action of ['terminal.open', 'secrets.read', 'mesh.connect'] as const) {
+  it('members join the mesh of non-production stacks; production needs a grant', () => {
+    const stack = (labels: Record<string, string>) => resource({ type: 'stack', labels });
+    const m = principal();
+    expect(engine.evaluate({ principal: m, action: 'mesh.connect', resource: stack({ 'swarmy.env': 'staging' }) }).decision).toBe('permit');
+    expect(engine.evaluate({ principal: m, action: 'mesh.connect', resource: stack({}) }).decision).toBe('permit');
+    expect(engine.evaluate({ principal: m, action: 'mesh.connect', resource: stack({ 'swarmy.env': 'production' }) }).decision).toBe('deny');
+  });
+
+  it('terminal and secrets.read need an explicit grant, even outside prod', () => {
+    for (const action of ['terminal.open', 'secrets.read'] as const) {
       expect(engine.evaluate({ principal: principal(), action, resource: staging }).decision).toBe('deny');
       expect(engine.evaluate({ principal: principal({ roles: ['admin'] }), action, resource: prod }).decision).toBe(
         'permit',
