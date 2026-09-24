@@ -48,7 +48,12 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
    LEGACY overlay-only host — `canonicalRegistryHost` maps it, and
    `isOrgRegistryImage` still recognises it. The builder runs host-network and
    pushes with `registry.insecure=true`; trivy/cosign `runOnce` use `host` too.
-   Firewall 5000 from outside the swarm;
+   Swarm can't bind a published port to loopback, so EVERY agent keeps a
+   firewall floor (`handlers/registry-firewall.ts`: a `SWARMY-REGISTRY` chain
+   jumped from `DOCKER-USER`, re-asserted every 5 min) dropping forwarded
+   traffic to :5000/:5001 except local docker bridges and
+   `SWARMY_REGISTRY_FIREWALL_ALLOW`; `SWARMY_REGISTRY_FIREWALL=false` opts out.
+   Never publish a new registry-ish port without adding it there;
    the agent only RENDERS TLS/insecure-registry hints — it never rewrites
    `/etc/docker/daemon.json` itself (`handlers/registry-tls.ts`).
    The installers (never the agent) merge `registry-mirrors` → the Docker Hub

@@ -12,6 +12,7 @@ import { swarmRejoinInFlight } from './handlers/swarm';
 import { detectPublicIp, setObservedPublicIp } from './public-ip';
 import { sampleIngressStatus } from './handlers/ingress-status';
 import { agentPackaging } from './handlers/update';
+import { REGISTRY_FIREWALL_INTERVAL_MS, enforceRegistryFirewall, parseAllowCidrs } from './handlers/registry-firewall';
 import { COMMIT, VERSION, versionInfo } from './version';
 import { handleCommand } from './executor';
 import { startLocalSocket, type DaemonStatus } from './local-socket';
@@ -130,6 +131,23 @@ export async function runDaemon(): Promise<void> {
   const docker = new DockerClient(env.DOCKER_SOCKET);
   let state: AgentState | null = await loadState();
   const startedAt = Date.now();
+
+  // Registry firewall floor: independent of the controller link (a node must
+  // never expose :5000/:5001, connected or not) and re-asserted on a timer
+  // because netfilter rules do not survive a reboot.
+  let lastFirewallStatus = '';
+  const firewallTick = async () => {
+    const r = await enforceRegistryFirewall(docker, {
+      enabled: env.REGISTRY_FIREWALL,
+      packaging: agentPackaging(),
+      allowCidrs: parseAllowCidrs(env.REGISTRY_FIREWALL_ALLOW),
+    });
+    const line = `${r.status}${r.detail ? `: ${r.detail}` : ''}`;
+    if (r.status !== 'unchanged' && line !== lastFirewallStatus) log(`registry firewall ${line}`);
+    lastFirewallStatus = line;
+  };
+  void firewallTick();
+  const firewallTimer = setInterval(() => void firewallTick(), REGISTRY_FIREWALL_INTERVAL_MS);
 
   // Live diagnostics surface for the local CLI (status/doctor/reconnect over
   // the unix socket). Everything here is what the daemon KNOWS — the CLI
@@ -457,6 +475,7 @@ export async function runDaemon(): Promise<void> {
 
   const shutdown = () => {
     for (const t of timers) clearInterval(t);
+    clearInterval(firewallTimer);
     stopBeacon();
     localSocket?.stop();
     conn.stop();

@@ -8,6 +8,11 @@
 #     swarmy/agent
 FROM oven/bun:1.3-alpine
 
+# iptables: the registry firewall floor runs in a one-shot host-network
+# sidecar of this image (handlers/registry-firewall.ts). Both backends, so
+# the script can match whichever one the host's dockerd uses.
+RUN apk add --no-cache iptables && (apk add --no-cache iptables-legacy 2>/dev/null || true)
+
 WORKDIR /app
 
 # Workspace install (run from repo root build context).

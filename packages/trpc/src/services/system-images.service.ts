@@ -25,6 +25,7 @@ import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import type { RunOnceResult, ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
 import {
+  RAILPACK_PLAN_IMAGE_KEYS,
   SYSTEM_IMAGES,
   SWARM_NODE_ID_LABEL,
   copySourceFor,
@@ -32,6 +33,7 @@ import {
   mirroredRefFor,
   parseMirrorOutput,
   planMirror,
+  railpackImageRewrites,
   renderMirrorScript,
   systemImage,
   systemImageForRef,
@@ -55,7 +57,8 @@ const DEFAULT_CACHE_UPSTREAM = 'https://registry-1.docker.io';
  * The pull-through cache: a second `registry:2` in proxy mode (a proxy
  * registry is read-only, so it can't share the push registry). Unauthenticated
  * on purpose — dockerd's `registry-mirrors` sends no creds — so, like :5000,
- * port 5001 must be firewalled from outside the swarm. Cached blobs expire
+ * port 5001 is kept loopback-only by the agent's registry firewall floor
+ * (apps/agent/src/handlers/registry-firewall.ts, DOCKER-USER). Cached blobs expire
  * after `REGISTRY_PROXY_TTL`. `SWARMY_REGISTRY_CACHE_UPSTREAM` points it at
  * another upstream (an estate mirror) for air-gapped installs.
  */
@@ -136,9 +139,40 @@ export function rewriteSystemImages<P>(
     const to = map(p?.image);
     return to ? ({ ...p, image: to, fallbackImage: p.image } as P) : payload;
   }
-  if (cmd === 'image.build' && p && !p.builderImage) {
-    const to = map(systemImage('buildkit', images).ref);
-    return to ? ({ ...p, builderImage: to } as P) : payload;
+  if (cmd === 'image.build' && p) {
+    let out = p;
+    if (!p.builderImage) {
+      const to = map(systemImage('buildkit', images).ref);
+      if (to) out = { ...out, builderImage: to };
+    }
+    // Zero-config builds: the Railpack frontend, the `prepare` image and the
+    // plan's base images come from the cluster too (by digest) when mirrored.
+    if (p.builder === 'railpack' || p.builder === 'auto') {
+      const rp = (p.railpack ?? {}) as Record<string, unknown>;
+      const frontend = rp.frontendImage ? null : map(systemImage('railpackFrontend', images).ref);
+      const prepare = rp.prepareImage ? null : map(systemImage('railpackPrepare', images).ref);
+      const rewrites: Record<string, string> = {};
+      if (!rp.imageRewrites) {
+        for (const k of RAILPACK_PLAN_IMAGE_KEYS) {
+          const img = systemImage(k, images);
+          const to = map(img.ref);
+          if (to) rewrites[img.ref] = to;
+        }
+      }
+      if (frontend || prepare || Object.keys(rewrites).length) {
+        out = {
+          ...out,
+          railpack: {
+            ...rp,
+            ...(frontend ? { frontendImage: frontend } : {}),
+            ...(prepare ? { prepareImage: prepare } : {}),
+            // Unmirrored plan images keep the agent's digest-pinned default.
+            ...(Object.keys(rewrites).length ? { imageRewrites: { ...railpackImageRewrites(undefined, images), ...rewrites } } : {}),
+          },
+        };
+      }
+    }
+    return out === p ? payload : (out as P);
   }
   return payload;
 }

@@ -88,4 +88,13 @@ export const env = {
    * the built-in defaults; empty / `off` → never call out.
    */
   PUBLIC_IP_ECHO: parsePublicIpEcho(process.env.SWARMY_PUBLIC_IP_ECHO),
+  /**
+   * Registry firewall floor (handlers/registry-firewall.ts): the agent keeps
+   * DOCKER-USER rules so the routing-mesh registry (:5000) and pull-through
+   * cache (:5001) answer only on this node's loopback. ON by default;
+   * `SWARMY_REGISTRY_FIREWALL=false` opts the node out. Extra IPv4 CIDRs that
+   * may reach them (e.g. a mesh range) go in SWARMY_REGISTRY_FIREWALL_ALLOW.
+   */
+  REGISTRY_FIREWALL: (process.env.SWARMY_REGISTRY_FIREWALL ?? 'true') !== 'false',
+  REGISTRY_FIREWALL_ALLOW: process.env.SWARMY_REGISTRY_FIREWALL_ALLOW ?? '',
 };
