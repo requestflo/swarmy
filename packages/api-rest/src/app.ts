@@ -16,6 +16,7 @@ import { registerMeshRouteRoutes } from './routes/mesh-routes';
 import { registerAuditRoutes } from './routes/audit';
 import { registerNotifyRoutes } from './routes/notify';
 import { registerRegistryCredentialRoutes } from './routes/registry-credentials';
+import { registerGitRoutes } from './routes/git';
 import { idempotency } from './idempotency';
 
 export const OPENAPI_DOC_ROUTE = '/openapi.json';
@@ -64,6 +65,7 @@ function buildResourceApp(deps: RestDeps, withAuth = true): OpenAPIHono<RestEnv>
   registerAuditRoutes(app);
   registerNotifyRoutes(app);
   registerRegistryCredentialRoutes(app);
+  registerGitRoutes(app);
 
   app.onError((e, c) => {
     const p = trpcErrorToProblem(e, c.req.path);

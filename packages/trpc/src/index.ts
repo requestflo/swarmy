@@ -82,7 +82,25 @@ export {
   completeGithubManifest,
   completeGithubSetup,
   completeGitlabOAuth,
+  // REST parity (/api/v1/git/*) — the same functions the gitConnections router calls.
+  createConnection,
+  getConnection,
+  linkRepo,
+  listConnections,
+  listProviderBranches,
+  listProviderRepos,
+  removeConnection,
 } from './services/git-connections.service';
+export type {
+  CreateConnectionInput,
+  GitConnectionKind,
+  GitConnectionView,
+  LinkRepoInput,
+  LinkedRepoView,
+} from './services/git-connections.service';
+export type { ProviderBranch, ProviderRepo } from './services/git-providers';
+export { getRepo, listRepos, removeRepo } from './services/cicd.service';
+export type { GitRepoView } from './services/cicd.service';
 export { controllerPublicUrl, repoCredentials } from './services/git-credentials';
 export { previewCommentBody, reportCommitStatus, upsertPrComment } from './services/git-feedback.service';
 export {

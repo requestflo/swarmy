@@ -1941,6 +1941,407 @@
             "example": "ghcr.io/acme/web:1.2"
           }
         }
+      },
+      "GitConnectionKind": {
+        "type": "string",
+        "enum": [
+          "github",
+          "gitlab",
+          "gitea",
+          "generic"
+        ],
+        "description": "Git provider kind. Open enum — new kinds may be added."
+      },
+      "GitConnection": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/GitConnectionKind"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string",
+            "example": "https://gitlab.com"
+          },
+          "account": {
+            "type": "string",
+            "nullable": true,
+            "description": "Provider account the credential acts as, when known."
+          },
+          "status": {
+            "type": "string",
+            "description": "`active` or `pending` (an OAuth grant not yet completed)."
+          },
+          "repo_count": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "display_name",
+          "base_url",
+          "account",
+          "status",
+          "repo_count",
+          "created_at"
+        ]
+      },
+      "GitConnectionList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitConnection"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "CreateGitConnectionBody": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/GitConnectionKind"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "token",
+              "oauth"
+            ],
+            "description": "GitLab only. `token` (default) — only mode available over REST; `oauth` needs a browser and is refused."
+          },
+          "base_url": {
+            "type": "string",
+            "maxLength": 500,
+            "format": "uri",
+            "description": "Provider base URL. Defaults to https://gitlab.com for GitLab; required for gitea/generic."
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "gitea/generic only."
+          },
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Access token. Required for GitLab (≥ 8 chars), optional for gitea/generic. Write-only; never returned."
+          },
+          "token_user": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "HTTP basic username the token is sent as (gitea/generic; default `git`)."
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "GitRemoved": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "removed"
+        ]
+      },
+      "GitProviderRepo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "full_name": {
+            "type": "string"
+          },
+          "clone_url": {
+            "type": "string"
+          },
+          "html_url": {
+            "type": "string"
+          },
+          "default_branch": {
+            "type": "string"
+          },
+          "private": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "full_name",
+          "clone_url",
+          "html_url",
+          "default_branch",
+          "private"
+        ]
+      },
+      "GitProviderRepoList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitProviderRepo"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "GitProviderBranch": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "sha"
+        ]
+      },
+      "GitProviderBranchList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitProviderBranch"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "GitRepo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/GitConnectionKind"
+          },
+          "url": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "config_path": {
+            "type": "string"
+          },
+          "connection_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "full_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "autodeploy": {
+            "type": "boolean"
+          },
+          "service_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "has_token": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "url",
+          "branch",
+          "config_path",
+          "connection_id",
+          "full_name",
+          "autodeploy",
+          "service_id",
+          "has_token",
+          "created_at"
+        ]
+      },
+      "GitRepoList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitRepo"
+            }
+          },
+          "next_cursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "next_cursor"
+        ]
+      },
+      "LinkedGitRepo": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "config_path": {
+            "type": "string"
+          },
+          "full_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "webhook": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "url": {
+                "type": "string"
+              },
+              "secret": {
+                "type": "string",
+                "description": "HMAC secret. WRITE-ONCE: returned only by this response."
+              }
+            },
+            "required": [
+              "url",
+              "secret"
+            ],
+            "description": "Webhook to configure on the git host when swarmy could not register it itself (null for GitHub App / auto-registered GitLab hooks). WRITE-ONCE: never returned again."
+          },
+          "deploy_key_public": {
+            "type": "string",
+            "nullable": true,
+            "description": "Public deploy key to add to the git host. WRITE-ONCE: never returned again."
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "branch",
+          "config_path",
+          "full_name",
+          "webhook",
+          "deploy_key_public"
+        ]
+      },
+      "LinkGitRepoBody": {
+        "type": "object",
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "repo": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "full_name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "clone_url": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "id",
+              "full_name",
+              "clone_url"
+            ],
+            "description": "A picked provider repo. Give exactly one of `repo` or `url`."
+          },
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Raw clone URL (generic git). Give exactly one of `repo` or `url`."
+          },
+          "branch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+          },
+          "config_path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "pattern": "^(\\.\\/)?[A-Za-z0-9._/@+-]*swarmy\\.ya?ml$",
+            "description": "Path of the swarmy.yaml to apply (default `swarmy.yaml`)."
+          },
+          "deploy_key": {
+            "type": "boolean",
+            "description": "Mint an ed25519 deploy key (SSH remotes). Its public half is returned once."
+          }
+        },
+        "required": [
+          "branch"
+        ]
       }
     },
     "parameters": {}
@@ -4367,6 +4768,529 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RegistryTestResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/git/connections": {
+      "get": {
+        "tags": [
+          "Git"
+        ],
+        "summary": "List git provider connections (credentials never returned)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitConnectionList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Git"
+        ],
+        "summary": "Connect a GitLab (token), Gitea or generic git host",
+        "description": "GitHub App and GitLab OAuth connections need a browser and are refused with `422` (`swarmy_code: BROWSER_FLOW_REQUIRED`) — make those in the dashboard. A GitLab token is verified against the provider before it is saved. Admin/owner only.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGitConnectionBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitConnection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/git/connections/{id}": {
+      "get": {
+        "tags": [
+          "Git"
+        ],
+        "summary": "Get a git provider connection",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Connection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitConnection"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Git"
+        ],
+        "summary": "Remove a git provider connection",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitRemoved"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/git/connections/{id}/repos": {
+      "get": {
+        "tags": [
+          "Git"
+        ],
+        "summary": "List repositories the connection can see (the provider's repo picker)",
+        "description": "Generic git hosts have no listing API and return an empty list — link them by URL.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "required": false,
+            "name": "search",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Repositories",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitProviderRepoList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/git/connections/{id}/branches": {
+      "get": {
+        "tags": [
+          "Git"
+        ],
+        "summary": "List branches of a repository visible to the connection",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300,
+              "description": "Provider repo: `owner/name` (GitHub) or project id/path (GitLab)."
+            },
+            "required": true,
+            "name": "repo",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Branches",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitProviderBranchList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/git/repos": {
+      "get": {
+        "tags": [
+          "Git"
+        ],
+        "summary": "List linked repositories (secrets never returned)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Repositories",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitRepoList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Git"
+        ],
+        "summary": "Link a repository (branch + swarmy.yaml path) as an app binding",
+        "description": "Give either a picked provider `repo` (with its `connection_id`) or a raw `url`. The response carries the webhook secret and deploy-key public half ONCE — store them; no read returns them again. Admin/owner only.",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkGitRepoBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Linked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkedGitRepo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/git/repos/{id}": {
+      "get": {
+        "tags": [
+          "Git"
+        ],
+        "summary": "Get a linked repository",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitRepo"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Git"
+        ],
+        "summary": "Unlink a repository",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitRemoved"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
                 }
               }
             }

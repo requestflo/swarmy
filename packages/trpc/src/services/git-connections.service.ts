@@ -147,6 +147,16 @@ export async function listConnections(ctx: OrgContext): Promise<GitConnectionVie
   return rows.map(toConnectionView);
 }
 
+/** One connection (org-scoped, secrets never included) — the REST/Terraform detail read. */
+export async function getConnection(ctx: OrgContext, id: string): Promise<GitConnectionView> {
+  const row = await ctx.db.gitConnection.findFirst({
+    where: { id, orgId: ctx.activeOrgId },
+    include: { _count: { select: { repos: true } } },
+  });
+  if (!row) throw notFound('git connection', id);
+  return toConnectionView(row);
+}
+
 async function loadConnection(ctx: OrgContext, id: string) {
   const row = await ctx.db.gitConnection.findFirst({
     where: { id, orgId: ctx.activeOrgId },

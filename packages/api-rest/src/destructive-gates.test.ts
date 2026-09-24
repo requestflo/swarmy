@@ -65,6 +65,8 @@ const ROUTES: Array<[method: string, path: string, action: string, body?: unknow
   ['DELETE', '/dns/zones/z1', 'dns.remove'],
   ['DELETE', '/dns/records/r1', 'dns.remove'],
   ['DELETE', '/volumes/v1', 'data.destroy'],
+  ['DELETE', '/git/connections/gc1', 'cicd.remove'],
+  ['DELETE', '/git/repos/gr1', 'cicd.remove'],
 ];
 const MEMBER_KEEPS = new Set(['service.scale', 'service.restart', 'node.drain', 'ingress.write']);
 

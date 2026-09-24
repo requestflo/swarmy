@@ -77,3 +77,21 @@ export function requireAction(
     await next();
   };
 }
+
+/**
+ * REST twin of tRPC's `adminProcedure` (`role !== 'member'`): the key acts as
+ * its creator's CURRENT role (resolved per request in `apiKeyContext`), so a
+ * member-minted key can't do over REST what the dashboard refuses a member.
+ * Runs after `requireScope`. Use on routes whose tRPC procedure is
+ * `adminProcedure`; destructive routes use `requireAction` instead.
+ */
+export function requireAdmin(): MiddlewareHandler<RestEnv> {
+  return async (c, next) => {
+    if (c.get('orgCtx').membership.role === 'member') {
+      return c.json(problem(403, 'requires admin or owner', 'POLICY_DENIED'), 403, {
+        'content-type': PROBLEM_CONTENT_TYPE,
+      });
+    }
+    await next();
+  };
+}

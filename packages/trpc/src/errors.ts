@@ -7,7 +7,9 @@ export type SwarmyCode =
   | 'COMMAND_TIMEOUT'
   | 'COMMAND_REJECTED'
   | 'NOT_FOUND'
-  | 'POLICY_DENIED';
+  | 'POLICY_DENIED'
+  /** The operation needs an interactive browser round-trip (OAuth / GitHub App install) — use the dashboard. */
+  | 'BROWSER_FLOW_REQUIRED';
 
 type TRPCCode = ConstructorParameters<typeof TRPCError>[0]['code'];
 
@@ -42,6 +44,16 @@ export function policyDenied(action: string, policyId: string | null): TRPCError
     message: `not permitted: ${action}`,
     cause: { swarmyCode: 'POLICY_DENIED', policyId },
   });
+}
+
+/** The operation can't complete without a browser round-trip (e.g. an OAuth grant); REST/Terraform refuse it. */
+export function browserFlowRequired(message: string): TRPCError {
+  return err('UNPROCESSABLE_CONTENT', message, 'BROWSER_FLOW_REQUIRED');
+}
+
+/** Invalid input the schema alone can't express (cross-field rules) — 400. */
+export function badRequest(message: string): TRPCError {
+  return new TRPCError({ code: 'BAD_REQUEST', message });
 }
 
 /** Map a dispatch failure into a typed TRPCError. */

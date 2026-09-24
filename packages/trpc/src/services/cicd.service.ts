@@ -62,6 +62,14 @@ export interface GitRepoView {
   serviceId: string | null;
   hasToken: boolean;
   createdAt: string;
+  /** Exact provider kind (`provider` predates gitea/generic and folds them into 'github'). */
+  kind: 'github' | 'gitlab' | 'gitea' | 'generic';
+  /** Provider connection this repo authenticates through (git-apps P2), or null (legacy/public). */
+  connectionId: string | null;
+  /** `owner/name` (GitHub) / `group/…/name` (GitLab) when linked from a provider picker. */
+  fullName: string | null;
+  /** swarmy.yaml path this binding applies. */
+  configPath: string;
 }
 
 export interface BuildView {
@@ -104,6 +112,13 @@ export async function listRepos(ctx: OrgContext): Promise<GitRepoView[]> {
     orderBy: { createdAt: 'desc' },
   });
   return rows.map(toRepoView);
+}
+
+/** One repo (org-scoped) — the REST/Terraform detail read. */
+export async function getRepo(ctx: OrgContext, id: string): Promise<GitRepoView> {
+  const row = await ctx.db.gitRepo.findFirst({ where: { id, orgId: ctx.activeOrgId } });
+  if (!row) throw notFound('repo', id);
+  return toRepoView(row);
 }
 
 export async function addRepo(
@@ -966,6 +981,9 @@ function toRepoView(r: {
   serviceId: string | null;
   tokenEnc: string | null;
   createdAt: Date;
+  connectionId?: string | null;
+  fullName?: string | null;
+  configPath?: string | null;
 }): GitRepoView {
   return {
     id: r.id,
@@ -976,6 +994,12 @@ function toRepoView(r: {
     serviceId: r.serviceId,
     hasToken: Boolean(r.tokenEnc),
     createdAt: r.createdAt.toISOString(),
+    kind: (['GITHUB', 'GITLAB', 'GITEA', 'GENERIC'].includes(r.provider)
+      ? r.provider.toLowerCase()
+      : 'github') as GitRepoView['kind'],
+    connectionId: r.connectionId ?? null,
+    fullName: r.fullName ?? null,
+    configPath: r.configPath ?? 'swarmy.yaml',
   };
 }
 
