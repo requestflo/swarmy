@@ -15,6 +15,7 @@
 import { createHmac } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 import type { Auth } from '@swarmy/auth';
+import { composeToAppConfig } from '@swarmy/app-config';
 import { decryptSecret, encryptSecret, isVaultConfigured, randomToken } from '@swarmy/core/crypto';
 import type { RunOnceResult } from '@swarmy/core/protocol';
 import type { DB } from '@swarmy/db';
@@ -713,18 +714,40 @@ export async function inspectCommit(
 export async function inspectSource(
   ctx: OrgContext,
   input: { connectionId?: string; cloneUrl: string; ref: string; paths?: string[] },
-): Promise<InspectResult & { configPaths: string[]; detected: BuildDetection }> {
+): Promise<
+  InspectResult & { configPaths: string[]; detected: BuildDetection; composeDraft: ComposeDraft | null }
+> {
   let creds: GitCredentials = {};
   if (input.connectionId) {
     const conn = await loadConnection(ctx, input.connectionId);
     creds = await connectionCredentials(ctx.db, conn);
   }
-  return runInspect(ctx, {
+  const res = await runInspect(ctx, {
     url: input.cloneUrl,
     ref: input.ref,
-    paths: input.paths ?? ['swarmy.yaml'],
+    paths: [...(input.paths ?? ['swarmy.yaml']), ...COMPOSE_FILES],
     creds,
   });
+  return { ...res, composeDraft: res.configPaths.length === 0 ? composeDraftFrom(res.files, input.cloneUrl) : null };
+}
+
+/** The compose files the New app wizard can convert, in the order compose itself prefers. */
+const COMPOSE_FILES = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'];
+
+/** A starter swarmy.yaml converted from the repo's compose file (no swarmy.yaml yet). */
+export interface ComposeDraft {
+  /** The compose file it came from. */
+  from: string;
+  yaml: string;
+  notes: string[];
+}
+
+function composeDraftFrom(files: Record<string, string | null>, cloneUrl: string): ComposeDraft | null {
+  const from = COMPOSE_FILES.find((f) => typeof files[f] === 'string');
+  if (!from) return null;
+  const repoName = cloneUrl.replace(/\.git$/, '').split(/[/:]/).pop() ?? 'my-app';
+  const r = composeToAppConfig(files[from] as string, { app: repoName });
+  return r.yaml ? { from, yaml: r.yaml, notes: r.notes } : null;
 }
 
 async function runInspect(

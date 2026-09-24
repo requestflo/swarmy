@@ -153,6 +153,11 @@ Four ideas, one story:
 - **Autodeploy is per-repo and opt-in.** A `SUCCEEDED` build whose repo is linked
   to a service and has `autodeploy` on redeploys that service to the new digest;
   otherwise builds pile up as history for a human to promote.
+- **A compose repo gets a swarmy.yaml for free.** When the New app wizard finds
+  a compose file and no swarmy.yaml, it shows a converted starter
+  (`@swarmy/app-config` `composeToAppConfig`): postgres/redis/meilisearch/qdrant/
+  minio services become managed resources and the env vars pointing at them
+  become bindings; anything it can't carry over is listed in plain words.
 - **Previews come from swarmy.yaml and tear themselves down.** A PR, an opted-in
   branch, or a trial deploy (`swarmy deploy --preview`) plans the branch's
   swarmy.yaml as its own preview environment (own stack, own URL under

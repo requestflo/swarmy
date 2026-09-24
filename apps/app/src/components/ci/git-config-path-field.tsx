@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { FileCode2Icon } from 'lucide-react';
 import { cn, Input, Label } from '@swarmy/ui';
+import { GitComposeDraft } from './git-compose-draft';
 import { useInspectSource } from './use-inspect-source';
 
 interface GitConfigPathFieldProps {
@@ -31,6 +32,8 @@ export function GitConfigPathField({
         <p className="text-muted-foreground text-sm">
           Couldn’t look inside yet ({found.error.message}). Type the path if it isn’t at the root.
         </p>
+      ) : found.data && paths.length === 0 && found.data.composeDraft ? (
+        <GitComposeDraft draft={found.data.composeDraft} />
       ) : found.data && paths.length === 0 ? (
         <p className="text-sm">
           No swarmy.yaml on {source.ref} yet — add one and push, or type where it’ll live.

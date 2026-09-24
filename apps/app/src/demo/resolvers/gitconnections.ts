@@ -211,7 +211,32 @@ function fakeInspect(name: string, configPath: string) {
         healthPath: '/',
         summary: 'Next.js · Node 22 · start: pnpm start',
       };
-  return { sha: sha(), files, tree, configPaths, detected };
+  // A compose-only repo gets the converted starter the real controller returns.
+  const composeDraft =
+    configPaths.length === 0 && tree.includes('docker-compose.yml')
+      ? {
+          from: 'docker-compose.yml',
+          yaml: [
+            '# Converted from docker-compose by swarmy — review before you commit it.',
+            'version: 1',
+            'app: legacy-billing',
+            'services:',
+            '  web:',
+            '    build: .',
+            '    port: 3000',
+            '    env:',
+            '      DATABASE_URL: ${{ db.url }}',
+            'resources:',
+            '  db: postgres',
+            '',
+          ].join('\n'),
+          notes: [
+            'db (postgres:15) becomes a managed postgres resource "db" — swarmy runs, backs up and wires it.',
+            'web: DATABASE_URL now binds to ${{ db.url }} (swarmy fills in the real address and password).',
+          ],
+        }
+      : null;
+  return { sha: sha(), files, tree, configPaths, detected, composeDraft };
 }
 
 export const gitconnections: DomainResolvers = {
