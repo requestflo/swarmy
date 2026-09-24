@@ -2211,7 +2211,11 @@ export interface ResilienceOverviewView {
 
 // ── Blueprints (slice F3) — the parameterized app catalog ─────────────────────
 
-/** Catalog ids, in gallery order. */
+/**
+ * The hand-written (code-generator) blueprint ids, in gallery order. The
+ * one-click app catalogue (`@swarmy/templates`, swarmy.yaml-backed) adds ~50
+ * more at runtime, so a blueprint id is any slug — the catalog resolves it.
+ */
 export const BLUEPRINT_IDS = [
   'node-api',
   'nextjs-app',
@@ -2223,7 +2227,33 @@ export const BLUEPRINT_IDS = [
   'meilisearch-app',
   'monitoring-notes',
 ] as const;
-export type BlueprintId = (typeof BLUEPRINT_IDS)[number];
+export type BuiltinBlueprintId = (typeof BLUEPRINT_IDS)[number];
+/** Any catalog slug: a built-in generator or an `@swarmy/templates` app. */
+export type BlueprintId = string;
+
+/**
+ * Gallery categories, in display order. Keep the labels short — they are the
+ * filter chips on the Blueprints page.
+ */
+export const BLUEPRINT_CATEGORIES = [
+  { id: 'cms', label: 'CMS & blogs' },
+  { id: 'analytics', label: 'Analytics' },
+  { id: 'automation', label: 'Automation' },
+  { id: 'devtools', label: 'Developer tools' },
+  { id: 'data', label: 'Databases & BI' },
+  { id: 'monitoring', label: 'Monitoring' },
+  { id: 'comms', label: 'Chat & notifications' },
+  { id: 'productivity', label: 'Files & productivity' },
+  { id: 'ai', label: 'AI' },
+  { id: 'media', label: 'Media' },
+  { id: 'business', label: 'Business & marketing' },
+  { id: 'app', label: 'Bring your own app' },
+  { id: 'docs', label: 'Docs' },
+] as const;
+export type BlueprintCategory = (typeof BLUEPRINT_CATEGORIES)[number]['id'];
+
+/** Managed data services a blueprint provisions and wires (card badges). */
+export type BlueprintManaged = 'postgres' | 'cache' | 'bucket' | 'search';
 
 /** T-shirt size → replica/memory presets resolved by the catalog. */
 export const BLUEPRINT_SIZES = ['s', 'm', 'l'] as const;
@@ -2256,7 +2286,7 @@ export interface BlueprintMetaView {
   id: BlueprintId;
   name: string;
   tagline: string;
-  category: 'app' | 'cms' | 'automation' | 'data' | 'docs';
+  category: BlueprintCategory;
   /** Human resource chips ("Postgres", "Cache", "Route") shown on the card. */
   resources: string[];
   /** Doc-only cards link elsewhere instead of opening the deploy wizard. */
@@ -2264,6 +2294,30 @@ export interface BlueprintMetaView {
   /** Whether the domain param unlocks an ingress-route step. */
   supportsDomain: boolean;
   options: BlueprintOptionView[];
+  // ── App-catalogue metadata (set for `@swarmy/templates` entries) ──
+  /** Logo: a simple-icons slug (`ghost`) — the UI falls back to a glyph. */
+  icon?: string;
+  /** Upstream project site. */
+  website?: string;
+  /** The pinned upstream app version the template deploys. */
+  version?: string;
+  /** Sum of the service memory limits + managed data at size `s`, in MB. */
+  minMemoryMb?: number;
+  /** True when it won't fit a 1 GB node (see `heavyReason`). */
+  heavy?: boolean;
+  heavyReason?: string;
+  /** Managed data services it provisions (badges). */
+  managed?: BlueprintManaged[];
+  /** Short service names the stack creates. */
+  services?: string[];
+  /** The service + port that gets the URL. */
+  httpPort?: number;
+  /** First-login steps, shown after a deploy. */
+  postDeploy?: string[];
+  /** Where the template came from (curated here, or seeded from Coolify's Apache-2.0 set). */
+  source?: 'builtin' | 'curated' | 'coolify';
+  /** Attribution line for imported templates. */
+  attribution?: string;
 }
 
 /** One planned step (dry-run preview). Detail values are display-safe strings. */

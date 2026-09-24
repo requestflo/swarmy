@@ -10,7 +10,8 @@ import {
   type InvService,
 } from '@swarmy/core';
 import type { OrgContext } from '../context';
-import { commandRejected, mapDispatchError } from '../errors';
+import { commandRejected, mapDispatchError, notFound } from '../errors';
+import { autoAddressFor } from './auto-address.service';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { patchLiveService } from './service-patch';
@@ -25,18 +26,21 @@ import { deployFromCompose } from './stack.service';
 import { setServiceRoutes } from './ingress-routes-api';
 import {
   buildPlanSummary,
-  getBlueprint,
   planStepView,
   substituteTokens,
-  BLUEPRINT_CATALOG,
   TOKEN_DB_HOST,
   TOKEN_DB_NAME,
   TOKEN_DB_PASSWORD,
   TOKEN_DB_URL,
+  TOKEN_REDIS_PASSWORD,
   TOKEN_REDIS_URL,
+  type BlueprintEntry,
+  type PlanEnv,
   type PlanStep,
   type WireAction,
 } from './blueprints/catalog';
+import { ALL_BLUEPRINTS, findBlueprint } from './blueprints/registry';
+import { TemplateCompileError } from './blueprints/from-app-config';
 
 /**
  * Blueprints (slice F3) — list the static catalog, dry-run a plan, and deploy
@@ -60,15 +64,50 @@ const NETWORK_TIMEOUT_MS = 30_000;
 
 // ── Reads ─────────────────────────────────────────────────────────────────────
 
-/** The whole gallery (static catalog metadata). */
+/** The whole gallery (built-in generators + the `@swarmy/templates` app catalogue). */
 export function listBlueprints(_ctx: OrgContext): BlueprintMetaView[] {
-  return BLUEPRINT_CATALOG.map((e) => e.meta);
+  return ALL_BLUEPRINTS.map((e) => e.meta);
+}
+
+function getEntry(id: string): BlueprintEntry {
+  const entry = findBlueprint(id);
+  if (!entry) throw notFound('blueprint', id);
+  return entry;
+}
+
+/**
+ * Resolve the async facts a pure plan needs: with no domain, the primary
+ * service's auto address (null when the edge IP is unknown / tunnel-only).
+ */
+async function planEnv(
+  ctx: OrgContext,
+  entry: BlueprintEntry,
+  input: BlueprintPlanInput,
+): Promise<PlanEnv> {
+  if (input.params.domain || !entry.autoAddressService) return {};
+  const autoHost = await autoAddressFor(ctx, input.params.name, entry.autoAddressService).catch(
+    () => null,
+  );
+  return { autoHost };
+}
+
+/** Run a plan generator, mapping a template compile failure onto a 400. */
+function planSteps(entry: BlueprintEntry, input: BlueprintPlanInput, env: PlanEnv): PlanStep[] {
+  try {
+    return entry.plan(input.params, env);
+  } catch (e) {
+    if (e instanceof TemplateCompileError) throw commandRejected(e.message);
+    throw e;
+  }
 }
 
 /** Dry-run: what a deploy WOULD create, as display-safe steps + a summary. */
-export function planBlueprint(_ctx: OrgContext, input: BlueprintPlanInput): BlueprintPlanView {
-  const entry = getBlueprint(input.id);
-  const steps = entry.plan(input.params);
+export async function planBlueprint(
+  ctx: OrgContext,
+  input: BlueprintPlanInput,
+): Promise<BlueprintPlanView> {
+  const entry = getEntry(input.id);
+  const steps = planSteps(entry, input, await planEnv(ctx, entry, input));
   return {
     id: input.id,
     stackName: input.params.name,
@@ -149,6 +188,36 @@ export function stackServiceName(stack: string, short: string): string {
 }
 
 // ── Step execution ────────────────────────────────────────────────────────────
+
+const ALNUM = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+/**
+ * A generated secret value. Default = 32 random bytes as base64url; templates
+ * ask for a shape (`hex` 64 for a 32-byte key, `alnum` for passwords that
+ * must survive URLs and shell quoting). Alnum uses rejection sampling so every
+ * character is uniform.
+ */
+export function generateSecretValue(
+  format: 'hex' | 'alnum' | 'base64url' = 'base64url',
+  length?: number,
+): string {
+  if (format === 'hex') {
+    const n = length ?? 64;
+    return randomBytes(Math.ceil(n / 2)).toString('hex').slice(0, n);
+  }
+  if (format === 'alnum') {
+    const n = length ?? 32;
+    let out = '';
+    while (out.length < n) {
+      for (const b of randomBytes(n * 2)) {
+        if (b < 248 && out.length < n) out += ALNUM[b % 62];
+      }
+    }
+    return out;
+  }
+  const v = randomBytes(32).toString('base64url');
+  return length ? randomBytes(Math.ceil((length * 3) / 4) + 1).toString('base64url').slice(0, length) : v;
+}
 
 interface StepContext {
   /** `__SWARMY_*__` → resolved value (passwords, generated secrets). */
@@ -273,6 +342,7 @@ async function runStep(
         regions: [],
       });
       sctx.tokens[TOKEN_REDIS_URL] = `redis://:${res.password}@${res.host}:${res.port}`;
+      sctx.tokens[TOKEN_REDIS_PASSWORD] = res.password;
       return `${step.payload.engine} cache ${stack}/${step.payload.cluster} · ${step.payload.memoryMb} MB · ${step.payload.topology}`;
     }
     case 'bucket': {
@@ -281,7 +351,7 @@ async function runStep(
       return `Bucket ${bucket.name} created`;
     }
     case 'secret': {
-      const value = randomBytes(32).toString('base64url');
+      const value = generateSecretValue(step.payload.format, step.payload.length);
       await createSecretFamily(ctx, { family: step.payload.family, value });
       if (step.payload.token) sctx.tokens[step.payload.token] = value;
       if (step.payload.revealNote) {
@@ -313,6 +383,9 @@ async function runStep(
       for (const wire of step.payload.wires) {
         await applyWire(ctx, stack, { ...wire, service: stackServiceName(stack, wire.service) }, sctx);
       }
+      for (const note of step.payload.notes ?? []) {
+        sctx.notes.push(substituteTokens(note, sctx.tokens));
+      }
       return `Stack ${stack} deployed · ${step.payload.services.join(', ')}`;
     }
     case 'ingress.route': {
@@ -341,7 +414,7 @@ export async function deployBlueprint(
   ctx: OrgContext,
   input: BlueprintDeployInput,
 ): Promise<BlueprintDeployResultView> {
-  const entry = getBlueprint(input.id);
+  const entry = getEntry(input.id);
   if (entry.meta.docOnly) {
     throw commandRejected(`blueprint "${input.id}" is documentation — nothing to deploy`);
   }
@@ -356,7 +429,7 @@ export async function deployBlueprint(
     throw commandRejected(`stack "${stack}" already exists — pick another name`);
   }
 
-  const steps = entry.plan(input.params);
+  const steps = planSteps(entry, input, await planEnv(ctx, entry, input));
   const sctx: StepContext = { tokens: {}, notes: [], bucketIds: {} };
   const results: BlueprintStepResultView[] = [];
   let failed = false;

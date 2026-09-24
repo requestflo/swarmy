@@ -26,7 +26,7 @@ function composeOf(steps: PlanStep[]): string {
 }
 
 describe('catalog — shape invariants for every blueprint', () => {
-  it('covers exactly the published ids, uniquely', () => {
+  it('covers exactly the built-in ids, uniquely', () => {
     const ids = BLUEPRINT_CATALOG.map((e) => e.meta.id);
     expect([...ids].sort()).toEqual([...BLUEPRINT_IDS].sort());
     expect(new Set(ids).size).toBe(ids.length);

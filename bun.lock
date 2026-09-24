@@ -70,6 +70,7 @@
         "@hookform/resolvers": "^3.10.0",
         "@swarmy/auth": "workspace:*",
         "@swarmy/core": "workspace:*",
+        "@swarmy/templates": "workspace:*",
         "@swarmy/trpc": "workspace:*",
         "@swarmy/ui": "workspace:*",
         "@tanstack/react-query": "^5.62.7",
@@ -267,17 +268,31 @@
         "typescript": "^5.5.4",
       },
     },
+    "packages/templates": {
+      "name": "@swarmy/templates",
+      "version": "0.0.0",
+      "dependencies": {
+        "@swarmy/app-config": "workspace:*",
+        "@swarmy/core": "workspace:*",
+        "yaml": "^2.6.1",
+      },
+      "devDependencies": {
+        "typescript": "^5.5.4",
+      },
+    },
     "packages/trpc": {
       "name": "@swarmy/trpc",
       "version": "0.0.0",
       "dependencies": {
         "@swarmy/abac": "workspace:*",
+        "@swarmy/app-config": "workspace:*",
         "@swarmy/auth": "workspace:*",
         "@swarmy/core": "workspace:*",
         "@swarmy/db": "workspace:*",
         "@swarmy/dns": "workspace:*",
         "@swarmy/ingress": "workspace:*",
         "@swarmy/mesh": "workspace:*",
+        "@swarmy/templates": "workspace:*",
         "@trpc/server": "^11.0.0",
         "superjson": "^2.2.2",
         "yaml": "^2.6.1",
@@ -835,6 +850,8 @@
     "@swarmy/ingress": ["@swarmy/ingress@workspace:packages/ingress"],
 
     "@swarmy/mesh": ["@swarmy/mesh@workspace:packages/mesh"],
+
+    "@swarmy/templates": ["@swarmy/templates@workspace:packages/templates"],
 
     "@swarmy/trpc": ["@swarmy/trpc@workspace:packages/trpc"],
 

@@ -1110,9 +1110,14 @@ export const ResilienceDrillHistoryInput = z.object({
 export type ResilienceDrillHistoryInput = z.infer<typeof ResilienceDrillHistoryInput>;
 
 // ── Blueprints (slice F3) — gallery params (name, domain?, size, options) ─────
-import { BLUEPRINT_IDS, BLUEPRINT_SIZES } from './views';
+import { BLUEPRINT_SIZES } from './views';
 
-export const BlueprintIdInput = z.enum(BLUEPRINT_IDS);
+/** A catalog slug — built-in generator or `@swarmy/templates` app (resolved by the catalog). */
+export const BlueprintIdInput = z
+  .string()
+  .min(1)
+  .max(40)
+  .regex(/^[a-z0-9][a-z0-9-]*$/, 'a catalog slug');
 export type BlueprintIdInput = z.infer<typeof BlueprintIdInput>;
 
 export const BlueprintSizeInput = z.enum(BLUEPRINT_SIZES);

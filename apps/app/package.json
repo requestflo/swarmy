@@ -17,6 +17,7 @@
     "@hookform/resolvers": "^3.10.0",
     "@swarmy/auth": "workspace:*",
     "@swarmy/core": "workspace:*",
+    "@swarmy/templates": "workspace:*",
     "@swarmy/trpc": "workspace:*",
     "@swarmy/ui": "workspace:*",
     "@tanstack/react-query": "^5.62.7",

@@ -37,6 +37,7 @@ export const TOKEN_DB_HOST = '__SWARMY_DB_HOST__';
 export const TOKEN_DB_PASSWORD = '__SWARMY_DB_PASSWORD__';
 export const TOKEN_DB_NAME = '__SWARMY_DB_NAME__';
 export const TOKEN_REDIS_URL = '__SWARMY_REDIS_URL__';
+export const TOKEN_REDIS_PASSWORD = '__SWARMY_REDIS_PASSWORD__';
 
 /** Deterministic token name for a generated secret value. */
 export function secretToken(family: string): string {
@@ -94,6 +95,9 @@ export type PlanStep =
         token?: string;
         /** One-time reveal appended to the deploy result (tokens substituted). */
         revealNote?: string;
+        /** Generated value shape (default: 32 random bytes, base64url). */
+        format?: 'hex' | 'alnum' | 'base64url';
+        length?: number;
       };
     }
   | {
@@ -107,6 +111,12 @@ export type PlanStep =
         /** Labels stamped per service right after the deploy (e.g. queue defs). */
         postLabels: Record<string, Record<string, string>>;
         wires: WireAction[];
+        /**
+         * Lines appended to the deploy result after the stack lands (first-login
+         * steps, one-time reveals). Tokens are substituted by the executor, so
+         * a reveal is shown ONCE and never persisted.
+         */
+        notes?: string[];
       };
     }
   | { kind: 'ingress.route'; label: string; payload: { service: string; host: string; port: number } };
@@ -281,9 +291,17 @@ function routeStep(service: string, host: string, port: number): PlanStep {
 
 // ── The catalog ───────────────────────────────────────────────────────────────
 
+/** Facts the service layer resolves (async) before a pure plan runs. */
+export interface PlanEnv {
+  /** Auto address (`<svc>-<stack>.<ip>.sslip.io`) for the primary service, when no domain was given. */
+  autoHost?: string | null;
+}
+
 export interface BlueprintEntry {
   meta: BlueprintMetaView;
-  plan: (params: Params) => PlanStep[];
+  plan: (params: Params, env?: PlanEnv) => PlanStep[];
+  /** Short name of the service that takes the auto address when no domain is given. */
+  autoAddressService?: string;
 }
 
 const imageOption = (defaultValue: string, help: string) => ({
@@ -302,6 +320,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
       name: 'Node API',
       tagline: 'Your Node.js API with a managed Postgres wired in.',
       category: 'app',
+      source: 'builtin',
       resources: ['Postgres', 'App', 'Route'],
       docOnly: false,
       supportsDomain: true,
@@ -345,6 +364,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
       name: 'Next.js app',
       tagline: 'A production Next.js deployment, optionally with an uploads bucket.',
       category: 'app',
+      source: 'builtin',
       resources: ['App', 'Bucket', 'Route'],
       docOnly: false,
       supportsDomain: true,
@@ -383,6 +403,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
       name: 'Static site',
       tagline: 'A static site or SPA behind swarmy ingress with automatic TLS.',
       category: 'app',
+      source: 'builtin',
       resources: ['App', 'Route'],
       docOnly: false,
       supportsDomain: true,
@@ -406,6 +427,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
       name: 'WordPress',
       tagline: 'WordPress + MariaDB with persistent volumes and a routed domain.',
       category: 'cms',
+      source: 'builtin',
       resources: ['MariaDB', 'Volume', 'App', 'Route'],
       docOnly: false,
       supportsDomain: true,
@@ -465,6 +487,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
       name: 'n8n',
       tagline: 'Workflow automation on managed Postgres with an encrypted key store.',
       category: 'automation',
+      source: 'builtin',
       resources: ['Postgres', 'Secret', 'App', 'Route'],
       docOnly: false,
       supportsDomain: true,
@@ -515,6 +538,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
       name: 'Directus',
       tagline: 'Instant headless CMS + admin app on a managed Postgres.',
       category: 'cms',
+      source: 'builtin',
       resources: ['Postgres', 'Secret', 'App', 'Route'],
       docOnly: false,
       supportsDomain: true,
@@ -586,6 +610,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
       name: 'Worker + queue',
       tagline: 'A background worker on a managed cache, autoscaled by queue depth.',
       category: 'app',
+      source: 'builtin',
       resources: ['Cache', 'Queue', 'Worker'],
       docOnly: false,
       supportsDomain: false,
@@ -638,6 +663,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
       name: 'Meilisearch app',
       tagline: 'Lightning-fast search: Meilisearch plus your app, keys wired in.',
       category: 'data',
+      source: 'builtin',
       resources: ['Search', 'Secret', 'App', 'Route'],
       docOnly: false,
       supportsDomain: true,
@@ -695,6 +721,7 @@ export const BLUEPRINT_CATALOG: BlueprintEntry[] = [
       name: 'Monitoring',
       tagline: 'Nothing to deploy — observability is already built into swarmy.',
       category: 'docs',
+      source: 'builtin',
       resources: ['Docs'],
       docOnly: true,
       supportsDomain: false,
