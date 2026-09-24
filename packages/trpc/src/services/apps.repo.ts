@@ -34,6 +34,10 @@ export interface RegistryConfigDoc {
   blockCriticalCves: boolean;
   cosignPublicKey: string | null;
   cosignPrivateKeyEnc: string | null;
+  /** Docker Hub login for the pull-through cache (lifts the anonymous rate limit). */
+  cacheUsername?: string | null;
+  /** Docker secret holding that login's password/token (the value never lands here). */
+  cacheSecret?: string | null;
 }
 export const registryConfigs = kvTable<RegistryConfigDoc>('registry', {
   singleton: true,
@@ -45,6 +49,8 @@ export const registryConfigs = kvTable<RegistryConfigDoc>('registry', {
     blockCriticalCves: false,
     cosignPublicKey: null,
     cosignPrivateKeyEnc: null,
+    cacheUsername: null,
+    cacheSecret: null,
   }),
 });
 

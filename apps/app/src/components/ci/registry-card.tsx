@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   Card,
@@ -7,6 +7,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Input,
   Label,
   StatusBadge,
   Switch,
@@ -107,7 +108,80 @@ export function RegistryCard({ config }: RegistryCardProps): React.JSX.Element {
             </Button>
           </div>
         )}
+        {config?.enabled && <HubCacheLogin />}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Docker Hub login for the pull-through cache (`swarmy-registry-cache`).
+ * Anonymous Hub pulls are capped per IP; once the cap hits, every docker.io
+ * deploy fails. The token is stored as a Docker secret, never shown again.
+ */
+function HubCacheLogin(): React.JSX.Element {
+  const trpc = useTRPC();
+  const qc = useQueryClient();
+  const cache = useQuery(trpc.cicd.getRegistryCache.queryOptions());
+  const [username, setUsername] = React.useState('');
+  const [password, setPassword] = React.useState('');
+  const save = useMutation(
+    trpc.cicd.setRegistryCacheCredentials.mutationOptions({
+      onSuccess: (_r, vars) => {
+        toast.success(vars.login ? 'Docker Hub login saved — the cache is rolling' : 'Docker Hub login removed');
+        setPassword('');
+        qc.invalidateQueries();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+  const current = cache.data?.username ?? null;
+  return (
+    <div className="bg-accent/40 grid gap-3 rounded-xl px-4 py-3">
+      <div>
+        <Label className="font-medium">Docker Hub login (pull-through cache)</Label>
+        <p className="text-muted-foreground text-xs">
+          {current ? (
+            <>
+              <span className="mono-data">{current}</span>
+              {cache.data?.applied ? ' · in use' : ' · applying…'}
+            </>
+          ) : (
+            'Anonymous — Docker Hub rate-limits anonymous pulls per IP. Add a login (an access token works) to lift it.'
+          )}
+        </p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Input
+          aria-label="Docker Hub username"
+          placeholder="Docker Hub username"
+          autoComplete="off"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+        />
+        <Input
+          aria-label="Docker Hub password or access token"
+          placeholder="Password or access token"
+          type="password"
+          autoComplete="new-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+      </div>
+      <div className="flex justify-end gap-2">
+        {current ? (
+          <Button variant="ghost" size="sm" disabled={save.isPending} onClick={() => save.mutate({ login: null })}>
+            Remove
+          </Button>
+        ) : null}
+        <Button
+          size="sm"
+          disabled={save.isPending || !username.trim() || !password}
+          onClick={() => save.mutate({ login: { username: username.trim(), password } })}
+        >
+          Save login
+        </Button>
+      </div>
+    </div>
   );
 }
