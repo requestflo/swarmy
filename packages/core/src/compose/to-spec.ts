@@ -71,6 +71,8 @@ export interface ServiceSpecLike {
   resources?: ServiceSpecResources;
   configs?: ServiceSpecConfigSecretRef[];
   secrets?: ServiceSpecConfigSecretRef[];
+  /** Secret targets exported as env by the secret-env shim (protocol ServiceSpec). */
+  secretEnv?: string[];
   stopGracePeriodNs?: number;
   /** compose `logging` (omitted = swarmy's bounded json-file default). */
   logging?: { driver: string; options?: Record<string, string> };
@@ -171,6 +173,7 @@ export function modelToServiceSpec(model: ServiceModelOut): ServiceSpecLike {
   });
   if (model.configs.length) spec.configs = model.configs.map(cleanRef);
   if (model.secrets.length) spec.secrets = model.secrets.map(cleanRef);
+  if (model.secretEnv?.length) spec.secretEnv = [...model.secretEnv];
   if (model.stopGracePeriodNs != null) spec.stopGracePeriodNs = model.stopGracePeriodNs;
 
   return spec;

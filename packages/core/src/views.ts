@@ -151,6 +151,34 @@ export interface ServiceDetail extends ServiceSummary {
   lastError?: string;
   /** ISO time `lastError` was observed. */
   lastErrorAt?: string;
+  /**
+   * Secret app variables by KEY → delivery. Names only: values live in Docker
+   * secrets and are never returned (see `services.secretVars` for metadata).
+   */
+  secretKeys?: Record<string, 'env' | 'file'>;
+}
+
+/** One secret app variable — metadata only, the value is write-only. */
+export interface ServiceSecretVarView {
+  key: string;
+  delivery: 'env' | 'file';
+  /** Version the live spec mounts. */
+  version: number;
+  /** Physical Docker secret name (`<service>_<KEY>_v<N>`). */
+  secretName: string;
+  /** ISO time this version was set. */
+  updatedAt: string;
+  /** Who set it (display name / email), when known. */
+  updatedBy: string | null;
+  /** Older versions still held for rollback (removed after the update converges). */
+  pendingCleanup: number;
+}
+
+/** Result of an audited reveal (`secrets.read`). */
+export interface RevealSecretVarView {
+  key: string;
+  version: number;
+  value: string;
 }
 
 /** Live swarm state for a service, read from the gateway's in-memory snapshot. */

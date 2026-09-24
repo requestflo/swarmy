@@ -291,6 +291,9 @@ function dependsOnNames(value: unknown): string[] {
   return [];
 }
 
+/** swarmy extension: mounted secret targets exported as env by the secret-env shim. */
+export const SECRET_ENV_COMPOSE_KEY = 'x-swarmy-secret-env';
+
 /** Keys we fully map; everything else falls through to `unsupported`. */
 const MAPPED_KEYS = new Set([
   'image',
@@ -310,6 +313,7 @@ const MAPPED_KEYS = new Set([
   'logging',
   'depends_on',
   'stop_grace_period',
+  SECRET_ENV_COMPOSE_KEY,
 ]);
 
 export function composeToModels(doc: ComposeFile | null | undefined): FromComposeResult {
@@ -414,6 +418,9 @@ export function composeToModels(doc: ComposeFile | null | undefined): FromCompos
       resources: parseResources(deploy.resources),
       configs: parseConfigSecrets(svc.configs),
       secrets: parseConfigSecrets(svc.secrets),
+      ...(Array.isArray(svc[SECRET_ENV_COMPOSE_KEY])
+        ? { secretEnv: (svc[SECRET_ENV_COMPOSE_KEY] as unknown[]).map(String) }
+        : {}),
       ulimits: parseUlimits(svc.ulimits),
       logging: parseLogging(svc.logging),
       dependsOn,

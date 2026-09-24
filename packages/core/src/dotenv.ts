@@ -145,6 +145,8 @@ const SECRET_VALUE = [
   /^xox[abprs]-/, // Slack
   /^AKIA[0-9A-Z]{16}$/, // AWS access key id
   /^glpat-/, // GitLab
+  /^sk-(ant-|proj-)?[A-Za-z0-9_-]{20,}/, // OpenAI / Anthropic API keys
+  /^eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\./, // a JWT (signed token)
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
 ];
 

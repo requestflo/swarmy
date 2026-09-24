@@ -134,6 +134,13 @@ export const ServiceModel = z.object({
   resources: ModelResources.optional(),
   configs: z.array(ModelConfigSecretRef).default([]),
   secrets: z.array(ModelConfigSecretRef).default([]),
+  /**
+   * compose `x-swarmy-secret-env: [TARGET, …]` — mounted secrets (by target)
+   * exported as env vars of the same name at container start by swarmy's
+   * secret-env shim, so an app that only reads env gets the value without it
+   * ever being written into the service spec. Optional: absent = none.
+   */
+  secretEnv: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).optional(),
   ulimits: z.array(ModelUlimit).default([]),
   logging: ModelLogging.optional(),
   dependsOn: z.array(z.string()).default([]),

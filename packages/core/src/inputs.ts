@@ -10,8 +10,35 @@ export const EnvVar = z.object({
     .string()
     .regex(/^[A-Z_][A-Z0-9_]*$/, 'UPPER_SNAKE_CASE, starting with a letter or underscore'),
   value: z.string(),
+  /**
+   * Secret variable: stored as a Docker Swarm secret (never in the service
+   * spec). Write-only — an EMPTY value on update means "keep the current
+   * secret" (the client never has it); a non-empty value replaces it
+   * (rotation). Omitted/false = a plain env var.
+   */
+  secret: z.boolean().optional(),
+  /** Secret delivery: `env` (default, via the swarmy shim) or `file` (`<KEY>_FILE`). */
+  delivery: z.enum(['env', 'file']).optional(),
 });
 export type EnvVar = z.infer<typeof EnvVar>;
+
+/** Env var name for secret app variables (the key of `/run/secrets/<KEY>`). */
+const SecretVarKey = z
+  .string()
+  .regex(/^[A-Z_][A-Z0-9_]*$/, 'UPPER_SNAKE_CASE, starting with a letter or underscore');
+
+/** Set (create or rotate) one secret app variable. The value is write-only. */
+export const SetSecretVarInput = z.object({
+  id: z.string().min(1),
+  key: SecretVarKey,
+  /** Omit to change only the delivery; required when the key has no secret yet. */
+  value: z.string().min(1).max(500_000).optional(),
+  delivery: z.enum(['env', 'file']).default('env'),
+});
+export type SetSecretVarInput = z.infer<typeof SetSecretVarInput>;
+
+export const SecretVarRefInput = z.object({ id: z.string().min(1), key: SecretVarKey });
+export type SecretVarRefInput = z.infer<typeof SecretVarRefInput>;
 
 export const PortMapping = z.object({
   target: z.number().int().min(1).max(65535),
@@ -70,6 +97,12 @@ export type CreateServiceInput = z.infer<typeof CreateServiceInput>;
 
 export const UpdateServiceInput = CreateServiceInput.partial().extend({
   id: z.string(),
+  /**
+   * Secret variables to stop mounting. Explicit on purpose: a client that
+   * sends only plain `env` (it never has secret values) must not silently
+   * drop the service's secrets.
+   */
+  removeSecretKeys: z.array(z.string().regex(/^[A-Z_][A-Z0-9_]*$/)).optional(),
 });
 export type UpdateServiceInput = z.infer<typeof UpdateServiceInput>;
 
@@ -883,6 +916,13 @@ export const AttachSecretInput = z.object({
     .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'must be a valid env var name')
     .max(120)
     .optional(),
+  /**
+   * `file` (default): `envName` is set to the mount PATH (`_FILE` style).
+   * `env`: the VALUE is exported as `envName` at container start by the
+   * secret-env shim (mounted at `/run/secrets/<envName>`; the value never
+   * enters the spec). `env` requires `envName`.
+   */
+  delivery: z.enum(['file', 'env']).optional(),
 });
 export type AttachSecretInput = z.infer<typeof AttachSecretInput>;
 

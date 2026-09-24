@@ -123,6 +123,17 @@ export const ServiceSpec = z.object({
       }),
     )
     .optional(),
+  /**
+   * Secret app variables delivered as ENV without their value ever entering
+   * the spec: each name must be a `secrets` ref TARGET (`/run/secrets/<NAME>`).
+   * The agent wraps the container in the secret-env shim at deploy time
+   * (`wrapSecretEnv` in `@swarmy/core` app-secrets: `/bin/sh <shim> <original
+   * argv>`, `SWARMY_SECRET_ENV=<names>`), which exports each file then execs
+   * the app. Never carried to Docker as-is; `specFromInspect` reverses the
+   * wrap. Additive — an agent that predates it ignores the field (use `file`
+   * delivery there).
+   */
+  secretEnv: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).optional(),
   stopGracePeriodNs: z.number().int().nonnegative().optional(),
   /**
    * Container log driver (compose `logging`). OMITTED = swarmy's bounded

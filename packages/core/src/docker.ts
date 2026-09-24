@@ -824,6 +824,56 @@ export class DockerClient {
     await node.update({ version: inspect.Version.Index, ...spec });
   }
 
+  /**
+   * The image's own ENTRYPOINT / CMD (`docker image inspect` → Config) — what
+   * the secret-env shim must exec. Pulls first when `pull` is set or the image
+   * is not present locally.
+   */
+  async imageArgv(
+    image: string,
+    opts: { pull?: boolean; authconfig?: { username: string; password: string; serveraddress?: string } } = {},
+  ): Promise<{ entrypoint: string[]; cmd: string[] }> {
+    const toArr = (v: unknown): string[] =>
+      Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : typeof v === 'string' && v ? [v] : [];
+    const read = async () => {
+      const info = (await this.docker.getImage(image).inspect()) as {
+        Config?: { Entrypoint?: unknown; Cmd?: unknown };
+      };
+      return { entrypoint: toArr(info.Config?.Entrypoint), cmd: toArr(info.Config?.Cmd) };
+    };
+    if (opts.pull) {
+      await this.pullImage(image, opts.authconfig);
+      return read();
+    }
+    try {
+      return await read();
+    } catch {
+      await this.pullImage(image, opts.authconfig);
+      return read();
+    }
+  }
+
+  /**
+   * Does the image ship `/bin/sh`? (The secret-env shim needs it.) Checked
+   * without running anything: create a stopped container, stat the path via
+   * the archive API, remove it. Assumes the image is present locally
+   * (`imageArgv` pulls). Unknown (API error) → true, so a transient failure
+   * never blocks a deploy; the task error would still say why.
+   */
+  async imageHasShell(image: string): Promise<boolean> {
+    let c: Docker.Container | undefined;
+    try {
+      c = await this.docker.createContainer({ Image: image, Entrypoint: ['/bin/sh'], Cmd: [], Labels: { 'swarmy.probe': 'shell' } });
+      await (c as unknown as { infoArchive(o: { path: string }): Promise<unknown> }).infoArchive({ path: '/bin/sh' });
+      return true;
+    } catch (e) {
+      const code = (e as { statusCode?: number }).statusCode;
+      return code !== 404;
+    } finally {
+      await c?.remove({ force: true }).catch(() => undefined);
+    }
+  }
+
   async pullImage(
     image: string,
     authconfig?: { username: string; password: string; serveraddress?: string },

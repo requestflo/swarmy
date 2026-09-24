@@ -162,6 +162,9 @@ export function modelToComposeService(model: ServiceModelOut): ComposeServiceOut
   if (model.secrets.length) {
     out.secrets = model.secrets.map((s) => ({ ...s }));
   }
+  if (model.secretEnv?.length) {
+    (out as Record<string, unknown>)['x-swarmy-secret-env'] = [...model.secretEnv];
+  }
   if (model.ulimits.length) {
     out.ulimits = {};
     for (const u of model.ulimits) {
