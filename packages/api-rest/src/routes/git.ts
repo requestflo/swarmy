@@ -12,6 +12,7 @@ import {
   listRepos,
   removeConnection,
   removeRepo,
+  updateRepo,
   type CreateConnectionInput,
   type GitConnectionView,
   type GitRepoView,
@@ -107,6 +108,9 @@ const GitRepoDto = z
     autodeploy: z.boolean(),
     service_id: z.string().nullable(),
     has_token: z.boolean(),
+    require_approval: z.boolean().openapi({
+      description: 'GitOps: every planned step waits for confirmation. Set via PUT /apps/{repoId}/require-approval.',
+    }),
     created_at: z.string(),
   })
   .openapi('GitRepo');
@@ -144,6 +148,13 @@ const LinkGitRepoBody = z
     }),
   })
   .openapi('LinkGitRepoBody');
+
+const UpdateGitRepoBody = z
+  .object({
+    branch: branchName.optional(),
+    config_path: configPath.optional(),
+  })
+  .openapi('UpdateGitRepoBody');
 
 const GitRepoWebhookDto = z
   .object({
@@ -214,7 +225,7 @@ export function providerRepoToDto(r: ProviderRepo): z.infer<typeof ProviderRepoD
 export function gitRepoToDto(v: GitRepoView): z.infer<typeof GitRepoDto> {
   return {
     id: v.id,
-    kind: v.kind,
+    kind: v.provider,
     url: v.url,
     branch: v.branch,
     config_path: v.configPath,
@@ -223,6 +234,7 @@ export function gitRepoToDto(v: GitRepoView): z.infer<typeof GitRepoDto> {
     autodeploy: v.autodeploy,
     service_id: v.serviceId,
     has_token: v.hasToken,
+    require_approval: v.requireApproval,
     created_at: v.createdAt,
   };
 }
@@ -503,6 +515,37 @@ export function registerGitRoutes(app: OpenAPIHono<RestEnv>): void {
       },
     }),
     (c) => run(c, async () => gitRepoToDto(await getRepo(c.get('orgCtx'), c.req.param('id')))),
+  );
+
+  app.openapi(
+    createRoute({
+      method: 'patch',
+      path: '/git/repos/{id}',
+      tags: [TAG],
+      summary: 'Change a linked repository\'s branch and/or swarmy.yaml path in place',
+      description: 'Admin/owner only. The next push/poll plans against the new branch/path.',
+      security: [{ bearerApiKey: [] }],
+      middleware: [requireScope('write'), requireAdmin()] as const,
+      request: { params: idParam, body: jsonBody(UpdateGitRepoBody) },
+      responses: {
+        200: { content: { 'application/json': { schema: GitRepoDto } }, description: 'Updated' },
+        400: problemRes,
+        403: problemRes,
+        404: problemRes,
+      },
+    }),
+    (c) =>
+      run(c, async () => {
+        const b = c.req.valid('json');
+        const ctx = c.get('orgCtx');
+        const id = c.req.param('id');
+        await updateRepo(ctx, {
+          id,
+          ...(b.branch ? { branch: b.branch } : {}),
+          ...(b.config_path ? { configPath: b.config_path } : {}),
+        });
+        return gitRepoToDto(await getRepo(ctx, id));
+      }),
   );
 
   app.openapi(

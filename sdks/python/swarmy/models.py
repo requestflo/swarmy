@@ -815,6 +815,7 @@ class GitRepo:
     autodeploy: bool
     service_id: Optional[str]
     has_token: bool
+    require_approval: bool
     created_at: str
 
     @classmethod
@@ -830,6 +831,7 @@ class GitRepo:
             autodeploy=d.get("autodeploy"),
             service_id=d.get("service_id"),
             has_token=d.get("has_token"),
+            require_approval=d.get("require_approval"),
             created_at=d.get("created_at"),
         )
 
@@ -875,5 +877,261 @@ class LinkGitRepoBody:
             branch=d.get("branch"),
             config_path=d.get("config_path"),
             deploy_key=d.get("deploy_key"),
+        )
+
+
+@dataclass
+class UpdateGitRepoBody:
+    branch: Optional[str] = None
+    config_path: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "UpdateGitRepoBody":
+        return cls(
+            branch=d.get("branch"),
+            config_path=d.get("config_path"),
+        )
+
+
+@dataclass
+class AppEnvironment:
+    environment: str
+    branch: str
+    stack: str
+    latest_plan_id: Optional[str]
+    latest_plan_status: Optional[str]
+    latest_sha: Optional[str]
+    latest_created_at: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AppEnvironment":
+        return cls(
+            environment=d.get("environment"),
+            branch=d.get("branch"),
+            stack=d.get("stack"),
+            latest_plan_id=d.get("latest_plan_id"),
+            latest_plan_status=d.get("latest_plan_status"),
+            latest_sha=d.get("latest_sha"),
+            latest_created_at=d.get("latest_created_at"),
+        )
+
+
+@dataclass
+class App:
+    repo_id: str
+    url: str
+    full_name: Optional[str]
+    branch: str
+    config_path: str
+    app_name: Optional[str]
+    require_approval: bool
+    environments: List[AppEnvironment]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "App":
+        return cls(
+            repo_id=d.get("repo_id"),
+            url=d.get("url"),
+            full_name=d.get("full_name"),
+            branch=d.get("branch"),
+            config_path=d.get("config_path"),
+            app_name=d.get("app_name"),
+            require_approval=d.get("require_approval"),
+            environments=d.get("environments"),
+        )
+
+
+@dataclass
+class AppPlanCounts:
+    auto: int
+    confirm: int
+    blocked: int
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AppPlanCounts":
+        return cls(
+            auto=d.get("auto"),
+            confirm=d.get("confirm"),
+            blocked=d.get("blocked"),
+        )
+
+
+@dataclass
+class AppPlanAction:
+    id: str
+    kind: str
+    phase: int
+    gate: str
+    reason: str
+    outcome: Optional[str]
+    outcome_message: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AppPlanAction":
+        return cls(
+            id=d.get("id"),
+            kind=d.get("kind"),
+            phase=d.get("phase"),
+            gate=d.get("gate"),
+            reason=d.get("reason"),
+            outcome=d.get("outcome"),
+            outcome_message=d.get("outcome_message"),
+        )
+
+
+@dataclass
+class AppConfigIssue:
+    severity: str
+    code: str
+    message: str
+    path: str
+    line: Optional[int]
+    col: Optional[int]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AppConfigIssue":
+        return cls(
+            severity=d.get("severity"),
+            code=d.get("code"),
+            message=d.get("message"),
+            path=d.get("path"),
+            line=d.get("line"),
+            col=d.get("col"),
+        )
+
+
+@dataclass
+class AppPlan:
+    id: str
+    repo_id: str
+    environment: str
+    stack: str
+    sha: str
+    trigger: str
+    pr_number: Optional[int]
+    status: str
+    plan_status: Optional[str]
+    counts: AppPlanCounts
+    actions: List[AppPlanAction]
+    issues: List[AppConfigIssue]
+    error: Optional[str]
+    confirmed_ids: List[str]
+    markdown: str
+    created_at: str
+    applied_at: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AppPlan":
+        return cls(
+            id=d.get("id"),
+            repo_id=d.get("repo_id"),
+            environment=d.get("environment"),
+            stack=d.get("stack"),
+            sha=d.get("sha"),
+            trigger=d.get("trigger"),
+            pr_number=d.get("pr_number"),
+            status=d.get("status"),
+            plan_status=d.get("plan_status"),
+            counts=d.get("counts"),
+            actions=d.get("actions"),
+            issues=d.get("issues"),
+            error=d.get("error"),
+            confirmed_ids=d.get("confirmed_ids"),
+            markdown=d.get("markdown"),
+            created_at=d.get("created_at"),
+            applied_at=d.get("applied_at"),
+        )
+
+
+@dataclass
+class ConfirmAppActionsResult:
+    status: str
+    confirmed: List[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ConfirmAppActionsResult":
+        return cls(
+            status=d.get("status"),
+            confirmed=d.get("confirmed"),
+        )
+
+
+@dataclass
+class ConfirmAppActionsBody:
+    action_ids: List[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ConfirmAppActionsBody":
+        return cls(
+            action_ids=d.get("action_ids"),
+        )
+
+
+@dataclass
+class AppRequireApproval:
+    repo_id: str
+    require_approval: bool
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AppRequireApproval":
+        return cls(
+            repo_id=d.get("repo_id"),
+            require_approval=d.get("require_approval"),
+        )
+
+
+@dataclass
+class SetRequireApprovalBody:
+    require_approval: bool
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "SetRequireApprovalBody":
+        return cls(
+            require_approval=d.get("require_approval"),
+        )
+
+
+@dataclass
+class AppDeployResult:
+    plan_id: Optional[str]
+    status: str
+    environment: Optional[str]
+    stack: Optional[str]
+    reason: Optional[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AppDeployResult":
+        return cls(
+            plan_id=d.get("plan_id"),
+            status=d.get("status"),
+            environment=d.get("environment"),
+            stack=d.get("stack"),
+            reason=d.get("reason"),
+        )
+
+
+@dataclass
+class DeployAppBody:
+    branch: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "DeployAppBody":
+        return cls(
+            branch=d.get("branch"),
+        )
+
+
+@dataclass
+class AppDrift:
+    environment: str
+    stack: str
+    changes: int
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "AppDrift":
+        return cls(
+            environment=d.get("environment"),
+            stack=d.get("stack"),
+            changes=d.get("changes"),
         )
 

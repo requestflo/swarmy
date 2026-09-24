@@ -512,17 +512,18 @@ type GitProviderBranchList struct {
 }
 
 type GitRepo struct {
-	ID           string  `json:"id"`
-	Kind         string  `json:"kind"`
-	URL          string  `json:"url"`
-	Branch       string  `json:"branch"`
-	ConfigPath   string  `json:"config_path"`
-	ConnectionID *string `json:"connection_id"`
-	FullName     *string `json:"full_name"`
-	Autodeploy   bool    `json:"autodeploy"`
-	ServiceID    *string `json:"service_id"`
-	HasToken     bool    `json:"has_token"`
-	CreatedAt    string  `json:"created_at"`
+	ID              string  `json:"id"`
+	Kind            string  `json:"kind"`
+	URL             string  `json:"url"`
+	Branch          string  `json:"branch"`
+	ConfigPath      string  `json:"config_path"`
+	ConnectionID    *string `json:"connection_id"`
+	FullName        *string `json:"full_name"`
+	Autodeploy      bool    `json:"autodeploy"`
+	ServiceID       *string `json:"service_id"`
+	HasToken        bool    `json:"has_token"`
+	RequireApproval bool    `json:"require_approval"`
+	CreatedAt       string  `json:"created_at"`
 }
 
 type GitRepoList struct {
@@ -547,4 +548,126 @@ type LinkGitRepoBody struct {
 	Branch       string      `json:"branch"`
 	ConfigPath   string      `json:"config_path,omitempty"`
 	DeployKey    bool        `json:"deploy_key,omitempty"`
+}
+
+type UpdateGitRepoBody struct {
+	Branch     string `json:"branch,omitempty"`
+	ConfigPath string `json:"config_path,omitempty"`
+}
+
+type AppEnvironment struct {
+	Environment      string  `json:"environment"`
+	Branch           string  `json:"branch"`
+	Stack            string  `json:"stack"`
+	LatestPlanID     *string `json:"latest_plan_id"`
+	LatestPlanStatus *string `json:"latest_plan_status"`
+	LatestSha        *string `json:"latest_sha"`
+	LatestCreatedAt  *string `json:"latest_created_at"`
+}
+
+type App struct {
+	RepoID          string           `json:"repo_id"`
+	URL             string           `json:"url"`
+	FullName        *string          `json:"full_name"`
+	Branch          string           `json:"branch"`
+	ConfigPath      string           `json:"config_path"`
+	AppName         *string          `json:"app_name"`
+	RequireApproval bool             `json:"require_approval"`
+	Environments    []AppEnvironment `json:"environments"`
+}
+
+type AppList struct {
+	Data       []App   `json:"data"`
+	NextCursor *string `json:"next_cursor"`
+}
+
+type AppPlanCounts struct {
+	Auto    int `json:"auto"`
+	Confirm int `json:"confirm"`
+	Blocked int `json:"blocked"`
+}
+
+type AppPlanAction struct {
+	ID             string  `json:"id"`
+	Kind           string  `json:"kind"`
+	Phase          int     `json:"phase"`
+	Gate           string  `json:"gate"`
+	Reason         string  `json:"reason"`
+	Outcome        *string `json:"outcome"`
+	OutcomeMessage *string `json:"outcome_message"`
+}
+
+type AppConfigIssue struct {
+	Severity string `json:"severity"`
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+	Path     string `json:"path"`
+	Line     *int   `json:"line"`
+	Col      *int   `json:"col"`
+}
+
+type AppPlan struct {
+	ID           string           `json:"id"`
+	RepoID       string           `json:"repo_id"`
+	Environment  string           `json:"environment"`
+	Stack        string           `json:"stack"`
+	Sha          string           `json:"sha"`
+	Trigger      string           `json:"trigger"`
+	PrNumber     *int             `json:"pr_number"`
+	Status       string           `json:"status"`
+	PlanStatus   *string          `json:"plan_status"`
+	Counts       AppPlanCounts    `json:"counts"`
+	Actions      []AppPlanAction  `json:"actions"`
+	Issues       []AppConfigIssue `json:"issues"`
+	Error        *string          `json:"error"`
+	ConfirmedIds []string         `json:"confirmed_ids"`
+	Markdown     string           `json:"markdown"`
+	CreatedAt    string           `json:"created_at"`
+	AppliedAt    *string          `json:"applied_at"`
+}
+
+type ConfirmAppActionsResult struct {
+	Status    string   `json:"status"`
+	Confirmed []string `json:"confirmed"`
+}
+
+type ConfirmAppActionsBody struct {
+	ActionIds []string `json:"action_ids"`
+}
+
+type AppPlanList struct {
+	Data       []AppPlan `json:"data"`
+	NextCursor *string   `json:"next_cursor"`
+}
+
+type AppRequireApproval struct {
+	RepoID          string `json:"repo_id"`
+	RequireApproval bool   `json:"require_approval"`
+}
+
+type SetRequireApprovalBody struct {
+	RequireApproval bool `json:"require_approval"`
+}
+
+type AppDeployResult struct {
+	PlanID      *string `json:"plan_id"`
+	Status      string  `json:"status"`
+	Environment *string `json:"environment"`
+	Stack       *string `json:"stack"`
+	Reason      *string `json:"reason"`
+}
+
+type DeployAppBody struct {
+	Branch string `json:"branch,omitempty"`
+}
+
+type AppDrift struct {
+	Environment string `json:"environment"`
+	Stack       string `json:"stack"`
+	Changes     int    `json:"changes"`
+}
+
+type AppDriftList struct {
+	Data       []AppDrift `json:"data"`
+	NextCursor *string    `json:"next_cursor"`
 }

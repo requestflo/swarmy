@@ -232,3 +232,30 @@ func TestGitListBranchesQuery(t *testing.T) {
 		t.Errorf("data = %+v", out.Data)
 	}
 }
+
+func TestAppsConfirmAndPlansQuery(t *testing.T) {
+	var cap capturedRequest
+	srv := testServer(t, 200, `{"status":"applied","confirmed":["resource.delete:files"]}`, &cap)
+	defer srv.Close()
+	c := newTestClient(t, srv)
+
+	out, err := c.Apps.Confirm(context.Background(), "p1", []string{"resource.delete:files"})
+	if err != nil {
+		t.Fatalf("Confirm: %v", err)
+	}
+	if cap.method != "POST" || cap.path != "/api/v1/apps/plans/p1/confirm" || cap.body != `{"action_ids":["resource.delete:files"]}` {
+		t.Errorf("request = %s %s %s", cap.method, cap.path, cap.body)
+	}
+	if out.Status != "applied" {
+		t.Errorf("status = %q", out.Status)
+	}
+
+	srv2 := testServer(t, 200, `{"data":[],"next_cursor":null}`, &cap)
+	defer srv2.Close()
+	if _, err := newTestClient(t, srv2).Apps.ListPlans(context.Background(), "gr1", "staging", 5); err != nil {
+		t.Fatalf("ListPlans: %v", err)
+	}
+	if cap.path != "/api/v1/apps/gr1/plans" || cap.rawQ != "environment=staging&limit=5" {
+		t.Errorf("request = %s?%s", cap.path, cap.rawQ)
+	}
+}

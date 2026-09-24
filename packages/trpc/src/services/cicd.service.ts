@@ -53,23 +53,26 @@ import {
 
 // ── Views (secrets never included) ──────────────────────────────────────────
 
+/** The provider kind a repo row really has (`GitProvider` is only what the legacy `addRepo` accepts). */
+export type GitRepoKind = 'github' | 'gitlab' | 'gitea' | 'generic';
+
 export interface GitRepoView {
   id: string;
-  provider: GitProvider;
+  provider: GitRepoKind;
   url: string;
   branch: string;
   autodeploy: boolean;
   serviceId: string | null;
   hasToken: boolean;
   createdAt: string;
-  /** Exact provider kind (`provider` predates gitea/generic and folds them into 'github'). */
-  kind: 'github' | 'gitlab' | 'gitea' | 'generic';
   /** Provider connection this repo authenticates through (git-apps P2), or null (legacy/public). */
   connectionId: string | null;
   /** `owner/name` (GitHub) / `group/…/name` (GitLab) when linked from a provider picker. */
   fullName: string | null;
   /** swarmy.yaml path this binding applies. */
   configPath: string;
+  /** GitOps: every planned step waits for a human (git-apps P3 toggle). */
+  requireApproval: boolean;
 }
 
 export interface BuildView {
@@ -1000,22 +1003,23 @@ function toRepoView(r: {
   connectionId?: string | null;
   fullName?: string | null;
   configPath?: string | null;
+  requireApproval?: boolean | null;
 }): GitRepoView {
   return {
     id: r.id,
-    provider: r.provider === 'GITLAB' ? 'gitlab' : 'github',
+    provider: (['GITHUB', 'GITLAB', 'GITEA', 'GENERIC'].includes(r.provider)
+      ? r.provider.toLowerCase()
+      : 'github') as GitRepoKind,
     url: r.url,
     branch: r.branch,
     autodeploy: r.autodeploy,
     serviceId: r.serviceId,
     hasToken: Boolean(r.tokenEnc),
     createdAt: r.createdAt.toISOString(),
-    kind: (['GITHUB', 'GITLAB', 'GITEA', 'GENERIC'].includes(r.provider)
-      ? r.provider.toLowerCase()
-      : 'github') as GitRepoView['kind'],
     connectionId: r.connectionId ?? null,
     fullName: r.fullName ?? null,
     configPath: r.configPath ?? 'swarmy.yaml',
+    requireApproval: r.requireApproval ?? false,
   };
 }
 

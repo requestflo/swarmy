@@ -3,6 +3,7 @@ package swarmy
 import (
 	"context"
 	"net/url"
+	"strconv"
 )
 
 // ServicesService groups service operations.
@@ -328,6 +329,90 @@ func (s *GitService) LinkRepo(ctx context.Context, body LinkGitRepoBody) (*Linke
 func (s *GitService) RemoveRepo(ctx context.Context, id string) (*GitRemoved, error) {
 	var out GitRemoved
 	if err := s.client.do(ctx, "DELETE", "/git/repos/"+pathEscape(id), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// UpdateRepo changes a linked repository's branch and/or swarmy.yaml path in place.
+func (s *GitService) UpdateRepo(ctx context.Context, id string, body UpdateGitRepoBody) (*GitRepo, error) {
+	var out GitRepo
+	if err := s.client.do(ctx, "PATCH", "/git/repos/"+pathEscape(id), nil, body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// AppsService groups GitOps app operations (/apps/*): plans per environment,
+// confirming held steps, the require-approval toggle, deploy-now and drift.
+type AppsService struct{ client *Client }
+
+// List returns every app with each environment's latest plan.
+func (s *AppsService) List(ctx context.Context) (*AppList, error) {
+	var out AppList
+	if err := s.client.do(ctx, "GET", "/apps", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ListPlans returns an app's plans, newest first. environment "" and limit 0 mean unfiltered/default.
+func (s *AppsService) ListPlans(ctx context.Context, repoID, environment string, limit int) (*AppPlanList, error) {
+	q := url.Values{}
+	if environment != "" {
+		q.Set("environment", environment)
+	}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	var out AppPlanList
+	if err := s.client.do(ctx, "GET", "/apps/"+pathEscape(repoID)+"/plans", q, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// GetPlan returns one plan.
+func (s *AppsService) GetPlan(ctx context.Context, planID string) (*AppPlan, error) {
+	var out AppPlan
+	if err := s.client.do(ctx, "GET", "/apps/plans/"+pathEscape(planID), nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Confirm confirms held steps of a plan by id, then applies them. A step the
+// caller may not confirm fails the call with 403.
+func (s *AppsService) Confirm(ctx context.Context, planID string, actionIDs []string) (*ConfirmAppActionsResult, error) {
+	var out ConfirmAppActionsResult
+	if err := s.client.do(ctx, "POST", "/apps/plans/"+pathEscape(planID)+"/confirm", nil, ConfirmAppActionsBody{ActionIds: actionIDs}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SetRequireApproval toggles "every step waits for confirmation" for an app.
+func (s *AppsService) SetRequireApproval(ctx context.Context, repoID string, require bool) (*AppRequireApproval, error) {
+	var out AppRequireApproval
+	if err := s.client.do(ctx, "PUT", "/apps/"+pathEscape(repoID)+"/require-approval", nil, SetRequireApprovalBody{RequireApproval: require}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Deploy plans and applies the head of a branch now ("" = production branch).
+func (s *AppsService) Deploy(ctx context.Context, repoID, branch string) (*AppDeployResult, error) {
+	var out AppDeployResult
+	if err := s.client.do(ctx, "POST", "/apps/"+pathEscape(repoID)+"/deploy", nil, DeployAppBody{Branch: branch}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Drift compares each environment's last applied commit with live state.
+func (s *AppsService) Drift(ctx context.Context, repoID string) (*AppDriftList, error) {
+	var out AppDriftList
+	if err := s.client.do(ctx, "GET", "/apps/"+pathEscape(repoID)+"/drift", nil, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

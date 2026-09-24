@@ -501,6 +501,7 @@ export interface GitRepo {
   autodeploy: boolean;
   service_id: string | null;
   has_token: boolean;
+  require_approval: boolean;
   created_at: string;
 }
 
@@ -526,4 +527,126 @@ export interface LinkGitRepoBody {
   branch: string;
   config_path?: string;
   deploy_key?: boolean;
+}
+
+export interface UpdateGitRepoBody {
+  branch?: string;
+  config_path?: string;
+}
+
+export interface AppEnvironment {
+  environment: string;
+  branch: string;
+  stack: string;
+  latest_plan_id: string | null;
+  latest_plan_status: string | null;
+  latest_sha: string | null;
+  latest_created_at: string | null;
+}
+
+export interface App {
+  repo_id: string;
+  url: string;
+  full_name: string | null;
+  branch: string;
+  config_path: string;
+  app_name: string | null;
+  require_approval: boolean;
+  environments: AppEnvironment[];
+}
+
+export interface AppList {
+  data: App[];
+  next_cursor: string | null;
+}
+
+export interface AppPlanCounts {
+  auto: number;
+  confirm: number;
+  blocked: number;
+}
+
+export interface AppPlanAction {
+  id: string;
+  kind: string;
+  phase: number;
+  gate: 'auto' | 'confirm' | 'blocked';
+  reason: string;
+  outcome: string | null;
+  outcome_message: string | null;
+}
+
+export interface AppConfigIssue {
+  severity: 'error' | 'warning';
+  code: string;
+  message: string;
+  path: string;
+  line: number | null;
+  col: number | null;
+}
+
+export interface AppPlan {
+  id: string;
+  repo_id: string;
+  environment: string;
+  stack: string;
+  sha: string;
+  trigger: string;
+  pr_number: number | null;
+  status: string;
+  plan_status: string | null;
+  counts: AppPlanCounts;
+  actions: AppPlanAction[];
+  issues: AppConfigIssue[];
+  error: string | null;
+  confirmed_ids: string[];
+  markdown: string;
+  created_at: string;
+  applied_at: string | null;
+}
+
+export interface ConfirmAppActionsResult {
+  status: string;
+  confirmed: string[];
+}
+
+export interface ConfirmAppActionsBody {
+  action_ids: string[];
+}
+
+export interface AppPlanList {
+  data: AppPlan[];
+  next_cursor: string | null;
+}
+
+export interface AppRequireApproval {
+  repo_id: string;
+  require_approval: boolean;
+}
+
+export interface SetRequireApprovalBody {
+  require_approval: boolean;
+}
+
+export interface AppDeployResult {
+  plan_id: string | null;
+  status: string;
+  environment: string | null;
+  stack: string | null;
+  reason: string | null;
+}
+
+export interface DeployAppBody {
+  branch?: string;
+}
+
+export interface AppDrift {
+  environment: string;
+  stack: string;
+  changes: number;
+}
+
+export interface AppDriftList {
+  data: AppDrift[];
+  next_cursor: string | null;
 }

@@ -51,6 +51,10 @@ function appFor(role: Role) {
       gitRepo: {
         findMany: async () => [repoRow],
         findFirst: async ({ where }: { where: { id: string } }) => (where.id === 'gr1' ? repoRow : null),
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          Object.assign(repoRow, data);
+          return repoRow;
+        },
       },
       auditLog: { create: async () => ({}) },
     } as Record<string, unknown>,
@@ -147,6 +151,13 @@ describe('/git REST routes', () => {
     expect(repo.json).toMatchObject({ id: 'gr1', kind: 'generic', config_path: 'deploy/swarmy.yaml', has_token: true });
     expect(JSON.stringify([list.json, repo.json])).not.toContain('enc:');
   });
+  it('PATCH /git/repos/{id} updates branch/config_path in place (admin-only)', async () => {
+    expect((await call('member', 'PATCH', '/git/repos/gr1', { branch: 'release' })).status).toBe(403);
+    expect((await call('admin', 'PATCH', '/git/repos/gr1', { config_path: '../swarmy.yaml' })).status).toBe(400);
+    const r = await call('admin', 'PATCH', '/git/repos/gr1', { branch: 'release' });
+    expect(r.status).toBe(200);
+    expect(r.json).toMatchObject({ id: 'gr1', branch: 'release', require_approval: false });
+  });
   it('GET /git/connections/{id} → 404 problem for another org / missing row', async () => {
     const r = await call('admin', 'GET', '/git/connections/nope');
     expect(r.status).toBe(404);
@@ -177,7 +188,7 @@ describe('git mappers', () => {
     });
     expect(Object.keys(gitRepoToDto({
       id: 'r', provider: 'github', url: 'u', branch: 'b', autodeploy: false, serviceId: null, hasToken: false,
-      createdAt: 'now', kind: 'gitea', connectionId: 'c', fullName: 'a/b', configPath: 'swarmy.yaml',
+      createdAt: 'now', connectionId: 'c', fullName: 'a/b', configPath: 'swarmy.yaml', requireApproval: false,
     }))).not.toContain('webhook');
     expect(gitConnectionToDto({
       id: 'c', kind: 'gitlab', displayName: 'd', baseUrl: 'b', account: 'me', status: 'active', repoCount: 0, createdAt: 'now',

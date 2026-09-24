@@ -90,6 +90,7 @@ export {
   listProviderBranches,
   listProviderRepos,
   removeConnection,
+  updateRepo,
 } from './services/git-connections.service';
 export type {
   CreateConnectionInput,
@@ -100,7 +101,7 @@ export type {
 } from './services/git-connections.service';
 export type { ProviderBranch, ProviderRepo } from './services/git-providers';
 export { getRepo, listRepos, removeRepo } from './services/cicd.service';
-export type { GitRepoView } from './services/cicd.service';
+export type { GitRepoKind, GitRepoView } from './services/cicd.service';
 export { controllerPublicUrl, repoCredentials } from './services/git-credentials';
 export { previewCommentBody, reportCommitStatus, upsertPrComment } from './services/git-feedback.service';
 // ── git-apps P3: the GitOps apply loop ──
