@@ -100,6 +100,32 @@ and where everything lives. Backups are dispatched to the agent as commands — 
     volumes lived where from `Snapshot.hostNodeId` (the only Docker-independent
     record), restoring only after a grace window. RPO = backup interval, RTO =
     restore time — never claim zero-RPO/HA for a scheduled-backup path.
+11. **One controller writes `control.db`, fenced by an epoch lease in raft.**
+    The lease is the `swarmy.controller.lease` JSON label on the controller's
+    own service (`protocol/controllerService.ts`). The agent writes it only
+    with a version-checked `service update` (`handlers/controller-service.ts`;
+    `decideLeaseWrite` is the pure rule). Expiry is judged by the challenger's
+    OWN observation (the same write unchanged for a TTL), never by comparing
+    clocks. The holder fences first (TTL − margin, timed from when its last
+    renewal was SENT). Workers and Litestream run only while the lease is held
+    (`controller-store/supervisor.ts`). On lease loss: `query_only`, SIGKILL
+    Litestream (no final sync), exit 70. On SIGTERM: stop writes, SIGTERM
+    Litestream (final sync), release, exit 0. Never run Litestream through
+    `-exec` (it can't tell those two apart), and never start it before the
+    pre-replication check passes.
+12. **Restore-on-boot runs before the DB opens and follows lineage, not
+    timestamps.** `controller-store/boot.ts`, run from the entrypoint, reads
+    the replica target from the mounted `control_store` Docker secret (never
+    from the DB, which may not exist yet). It compares the local writer marker
+    (`.control.db-swarmy.json`) with the replica's `<prefix>/writer.json`: equal
+    = keep the local file, different = the file is stale, so move it aside and
+    restore. Priority is replica, then bundle, then fresh. Never start empty
+    while the replica is unreachable, or in a swarm that already had a
+    controller (`SWARMY_ALLOW_FRESH=1` overrides). Whatever puts a different
+    control.db in place must clear `-wal`/`-shm`/`.control.db-litestream`/the
+    marker (`clearSidecarFiles`). Litestream v0.5 takes ONE replica per DB, so
+    off-site copies come from the Garage off-site mirror, not a second
+    replica.
 
 ## Contracts between the layers
 
@@ -142,6 +168,10 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | DB backups: engines, `swarmy.db.backup.*` labels, schedule, PITR, restore | `packages/trpc/src/services/dbBackup.service.ts` (+ `routers/dbBackup.ts`) |
 | Controller brain: config, passphrase, bundle build/restore, re-adopt | `packages/trpc/src/services/controllerBackup.{service,bundle,snapshot}.ts` (+ `routers/controllerBackup.ts`) |
 | Standalone disaster-restore entrypoint (dashboard is down) | `apps/api/src/restore.ts` |
+| Controller store runtime: boot restore, restore selection, lease rules, Litestream supervisor, replica markers | `apps/api/src/controller-store/{boot,restore-select,lease,supervisor,litestream,replica,config}.ts` (entrypoint: `apps/api/docker-entrypoint.sh`) |
+| Lease/placement wire + agent handler (acquire/renew/release, configure, move) | `packages/core/src/protocol/controllerService.ts`, `apps/agent/src/handlers/controller-service.ts` |
+| Replication status / on-off / "Move controller to…" (ABAC `data.failover`) | `packages/trpc/src/services/controllerStore.service.ts` (+ `routers/controllerStore.ts`), UI `components/controllerbackup/{replication-card,replication-target-form,move-controller-dialog}.tsx` |
+| Failover e2e (Garage + Litestream crash/move/stale/fence; lease + move on a 2-manager dind Swarm) | `scripts/e2e/controller-store/run.sh` |
 | Resilience: checks (`CHECKS_RUN`), score math, 3 drills, drill history | `packages/trpc/src/services/resilience.service.ts` (+ `routers/resilience.ts`) |
 | Default-on DB backups (nightly `pg_dump` for managed PG, crash-consistent volume backup for compose DBs, opt-out markers) | `packages/trpc/src/services/autoBackup{,.service}.ts` |
 | Compose-DB logical dumps + restore (MySQL/MariaDB/Postgres/Mongo/Redis/Valkey: credential recipe, `appdb.*` commands, scheduler hook, drill leg) | `packages/trpc/src/services/appDbBackup.service.ts` (router `routers/appDbBackup.ts` → `backups.appDb`), wire + pure scripts `packages/core/src/protocol/appDb{,Scripts}.ts`, agent `apps/agent/src/handlers/appdb.ts`, UI `components/backups/{appdb-dumps,restore-appdb-confirm}.tsx` |
@@ -188,6 +218,12 @@ ends with `finishDrill(...)` (which `recordDrill`s the audit row); wire it as an
   without storing; `setPassphrase` stores only `encryptSecret` + a
   `passphraseFingerprint` hint. Zero-knowledge disaster restore supplies it via
   the CLI; the stored copy is for in-place operational rollback only.
+- The controller floats only when the store is replicated: `configure`
+  switches `node.hostname == X` ↔ `node.role == manager` and repoints the
+  `control_store` secret (one controller restart). The installer keeps whichever
+  placement, secret and lease label are live on a re-run. Node-label changes
+  EVICT running tasks (Swarm's constraint enforcer), and that is how "move"
+  works. So never put `swarmy.controller.avoid=true` on every manager.
 - Verify: `bun --filter @swarmy/trpc typecheck` and the pure suites
   (`resilience.service.test.ts`, `dbBackup.service.test.ts`,
   `controllerBackup.bundle.test.ts`, `controllerBackup.snapshot.test.ts`,

@@ -132,8 +132,48 @@ Four ideas, one story:
   keys into `control.db`). Both live in `SWARMY_DATA_DIR`
   (`/var/lib/swarmy/data` on the `swarmy-data` volume in prod). There is no
   database service, port or password. The controller migrates both files on boot
-  (`ensureSchema`). P3 (in progress) adds Litestream replication of `control.db`
-  to Garage; until it lands, the bundle below is the controller's only off-box copy.
+  (`ensureSchema`).
+- **`control.db` streams to object storage, continuously.** Once replication is
+  on (Settings → Platform → Backups), Litestream ships every write to a dedicated
+  Garage bucket (`swarmy-control`), or to any S3 backup target, about once a
+  second. `telemetry.db` is never replicated. The replica target lives in a
+  Docker secret (`swarmy_control_store.<ts>`) and not in the database, because a
+  controller that lands on an empty volume must read it before any database
+  exists. Garage's own off-site mirror carries the bucket further. Without a
+  replica, the nightly bundle below is the only off-box copy, and the dashboard
+  says so.
+- **The controller can move to any manager.** With the store replicated, the
+  controller's placement floats from `node.hostname == <bootstrap host>` to
+  `node.role == manager`. Volumes stay node-local. A controller that starts on a
+  new node restores from the replica before the database opens. The boot
+  decision is **keep the local file** (when it is the replica's current
+  lineage), **restore the replica**, **restore the latest controller bundle**,
+  or **start fresh**. A stale file left on a node the controller used before is
+  kept as `control.db.stale-<ts>` and replaced. Boot never starts empty while a
+  replica it can't reach may hold the data, and never starts empty in a swarm
+  that already had a controller unless `SWARMY_ALLOW_FRESH=1` is set.
+  "Move controller to…" is a controlled version of the same thing: the
+  controller ships its last writes, releases its lease and starts on the manager
+  you pick.
+- **Exactly one controller writes: a lease in raft, fenced by epoch.** The
+  controller holds `swarmy.controller.lease = {holder, epoch, …}` on its own
+  service's labels and renews it every 10 s. Each renewal is a version-checked
+  `service update` through a manager agent, so it is an atomic compare-and-swap
+  that needs raft quorum. A challenger takes over only after it has watched the
+  same lease write sit unchanged for 30 s on its own clock (no clock
+  comparison). The holder stops writing earlier than that: 22 s after its last
+  successful renewal it kills Litestream WITHOUT a final sync and exits. Every
+  takeover bumps the epoch, and a superseded holder can't renew. Workers and
+  Litestream start only while the lease is held. Before it replicates, a new
+  holder checks that the replica is exactly what it restored: the same writer
+  marker and no newer transactions. If not, it restarts and restores again.
+- **The loss window is about 1 second.** Litestream ships every second. A node
+  that dies loses at most the writes of that last second (the e2e measures
+  0–1 s). A clean move or stop (SIGTERM, drain, "Move controller to…") ships the
+  tail first and loses nothing. When the old node dies, a failover takes about
+  40 s: Swarm reschedules, then the new controller waits out the 30 s lease.
+  After a clean stop the new controller takes the lease at once. Without a
+  replica, the loss window is everything since the last controller bundle.
 - **The controller can back up its own brain.** A single encrypted bundle —
   a `VACUUM INTO` hot snapshot of `control.db` + the controller's secrets
   (`SWARMY_SECRET_KEY`, `BETTER_AUTH_SECRET`) + a compatibility manifest — sealed
@@ -180,6 +220,9 @@ Four ideas, one story:
 |---|---|
 | A backup target is down when a scheduled backup fires | The `Snapshot` row is marked `FAILED` with the error; the schedule's `nextRunAt` still advances; backup recency turns the Resilience score red until a good run lands. |
 | Node holding a `local` volume dies | Past the grace window, `dr-reconcile` restores the volume's latest snapshot (by `Snapshot.hostNodeId`) onto a healthy manager and writes a `RestoreOperation` — recovery to the last backup, not zero-RPO. |
+| The controller's node dies (replicated store) | Swarm starts the controller on another manager. Its empty volume is restored from the replica before the DB opens, it takes the lease once the old one has been silent for 30 s, and agents re-adopt. Up to about 1 s of writes is lost. |
+| The controller is partitioned from the managers | It can't renew (no raft quorum on its side), so it stops writing and exits within 22 s, without a final sync. The majority side's new controller can take over only after 30 s. If the old side still shipped after the new one's restore, the new one's pre-replication check sees it and restores again. No two lineages are ever interleaved. |
+| The replica (Garage) is down at boot | With a local file: keep it, start without replicating, and retry the check every 15 s. With an empty volume: exit and let Swarm retry. Never start empty. |
 | Controller (the brain) is lost entirely | Stand up a new controller, stop the controller and run the standalone `restore` entrypoint with the target coords + user-held passphrase; it puts the snapshot in place as `control.db` (the old file kept as `control.db.pre-restore-<ts>`), applies newer migrations, and the agents re-adopt via their hashed session secrets. Disaster recovery uses the CLI (the dashboard is down); in-place rollback uses the UI. |
 | Restore passphrase is lost | The controller-state bundle is unreadable — by design (zero-knowledge). swarmy cannot recover it; the setup flow gates on "I've stored it" for exactly this reason. |
 | Restore drill fails midway | The throwaway `drill-<ts>` cluster is destroyed regardless; the drill is recorded `failed` with the step that broke; nothing on the real cluster was touched (preconditions throw before anything is created). |
@@ -234,8 +277,8 @@ Four ideas, one story:
     Prisma adapter, and only logical `INSERT` dumps. No continuous replication
     meant the controller was pinned to one host.
   - *What SQLite gives:* a few MB of memory, `VACUUM INTO` hot snapshots for the
-    bundle, and Litestream WAL shipping to Garage (P3, in progress), which is
-    what lets the controller move between managers.
+    bundle, and Litestream WAL shipping to Garage, which is what lets the
+    controller move between managers (shipped in P3).
 
 ## Implementation map
 
@@ -250,7 +293,10 @@ backups.prisma` (targets, snapshots, controller backup, schedules, restore ops),
 `control.db` snapshot) with `apps/api/src/restore.ts` (the standalone
 disaster-restore entrypoint), `packages/trpc/src/services/resilience.service.ts`
 (the checks, the score, and the three drills), `autoBackup{,.service}.ts`
-(default-on DB backups), the workers
+(default-on DB backups), the controller store (`apps/api/src/controller-store/*`:
+boot restore, lease, Litestream supervisor; the agent's
+`handlers/controller-service.ts`; `controllerStore.service.ts` for status /
+replication / move), the workers
 `apps/api/src/workers/{backup-scheduler,dr-reconcile,controller-backup-scheduler}.ts`,
 and the UI: estate destinations at `apps/app/src/routes/_authed/backups.tsx`,
 controller backup at `settings_.backup.tsx`, and each stack's Backups tab

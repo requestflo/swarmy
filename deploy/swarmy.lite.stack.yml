@@ -63,6 +63,17 @@ services:
       SWARM_WORKER_TOKEN_FILE: /run/secrets/swarm_worker_token
       SWARM_MANAGER_TOKEN_FILE: /run/secrets/swarm_manager_token
       SWARMY_MESH_SERVICE_TOKEN_FILE: /run/secrets/mesh_service_token
+      # Controller store (resilience P3): the replica target and the boot
+      # fallback bundle, read BEFORE the DB opens (controller-store/config.ts).
+      SWARMY_CONTROL_STORE_FILE: /run/secrets/control_store
+      # Who am I, for the raft lease (Swarm templates, resolved per task).
+      SWARMY_TASK_ID: "{{.Task.ID}}"
+      SWARMY_NODE_ID: "{{.Node.ID}}"
+      SWARMY_NODE_HOSTNAME: "{{.Node.Hostname}}"
+      SWARMY_SERVICE_NAME: "{{.Service.Name}}"
+      # The lease as it stood when this task was created. Non-empty = a controller
+      # ran before, so boot refuses to start empty (controller-store/restore-select.ts).
+      SWARMY_LEASE_AT_START: '{{index .Service.Labels "swarmy.controller.lease"}}'
     secrets:
       - swarmy_secret_key
       - better_auth_secret
@@ -71,11 +82,17 @@ services:
       - swarm_worker_token
       - swarm_manager_token
       - mesh_service_token
+      - source: control_store
+        target: control_store
+        mode: 0400
     volumes:
       - swarmy-data:/var/lib/swarmy
     ports:
       # Host-mode publish so first login works at http://<host-ip>:<port> before
-      # ingress exists. Pinned to the bootstrap host by the placement constraint.
+      # ingress exists, and auth rate limits see the real client IP. It follows
+      # the controller: once the controller floats, use the https dashboard (the
+      # edge reaches swarmy_controller over swarmy-control wherever it runs)
+      # rather than one node's IP.
       - target: 3021
         published: ${SWARMY_PUBLISH_PORT}
         protocol: tcp
@@ -89,17 +106,30 @@ services:
       # The control plane is platform plumbing, not a user app stack.
       labels:
         swarmy.system: "true"
+        # The raft lease (controller-store/lease.ts). `docker stack deploy` rewrites
+        # service labels, so the installer carries the live value through; dropping
+        # it would fence the running controller mid-upgrade.
+        swarmy.controller.lease: '${SWARMY_CONTROLLER_LEASE:-}'
       replicas: 1
       placement:
         constraints:
-          # Pin to the bootstrap host: the store's volume is node-local, so a floating
-          # task on another node would mount an empty DB. node.hostname, not node.role.
-          - node.hostname == ${SWARMY_NODE_HOSTNAME}
+          # `node.hostname == <bootstrap host>` until control.db is replicated,
+          # `node.role == manager` after (the installer keeps whichever is live).
+          # The volume stays node-local: a controller that lands on another
+          # manager restores from the replica before the DB opens (controller-store/boot.ts).
+          - ${SWARMY_CONTROLLER_PLACEMENT}
+          # "Move controller to…" labels every other manager with this; Swarm's
+          # constraint enforcer evicts the task and the scheduler places it on the target.
+          - node.labels.swarmy.controller.avoid != true
       update_config:
+        # stop-first: the old controller releases the raft lease (after its final
+        # Litestream sync) before the new one starts. replicas: 1 never means two writers.
         order: stop-first
       restart_policy:
         condition: any
         delay: 5s
+    # A clean stop: stop writes, let Litestream ship the tail (≤ 20 s), release the lease.
+    stop_grace_period: 30s
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3021/health"]
       interval: 10s
@@ -139,3 +169,8 @@ secrets:
     external: true
   mesh_service_token:
     external: true
+  # `{}` until replication is on; then swarmy_control_store.<ts>. Secrets are
+  # immutable, so the controller mints a new one and repoints the service.
+  control_store:
+    external: true
+    name: ${SWARMY_CONTROL_STORE_SECRET}

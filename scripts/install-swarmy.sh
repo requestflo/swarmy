@@ -628,7 +628,28 @@ ensure_docker_secrets() {
   # unconditionally — an empty token makes ensureMeshConfig() skip, same
   # opt-in-by-absence behavior as every other mesh env var.
   secret_put mesh_service_token    "${NB_SERVICE_TOKEN:-}"
+  # Controller store (resilience P3): `{}` = not replicated yet. The controller
+  # mints swarmy_control_store.<ts> when replication is switched on.
+  secret_put swarmy_control_store.0 '{}'
   ok "secrets present."
+}
+
+# The live controller's store secret + placement, so a re-run (upgrade) keeps
+# replication on and the controller floating instead of re-pinning it to an
+# empty volume on this host.
+controller_store_secret() {
+  local cur
+  cur="$(docker service inspect "${STACK_NAME}_controller" \
+    -f '{{range .Spec.TaskTemplate.ContainerSpec.Secrets}}{{if eq .File.Name "control_store"}}{{.SecretName}}{{end}}{{end}}' 2>/dev/null || true)"
+  if [ -n "$cur" ] && docker secret inspect "$cur" >/dev/null 2>&1; then printf '%s' "$cur"; else printf '%s' swarmy_control_store.0; fi
+}
+controller_placement() {
+  if docker service inspect "${STACK_NAME}_controller" \
+    -f '{{range .Spec.TaskTemplate.Placement.Constraints}}{{println .}}{{end}}' 2>/dev/null | tr -d ' ' | grep -qx 'node.role==manager'; then
+    printf '%s' 'node.role == manager'
+  else
+    printf '%s' "node.hostname == ${NODE_HOSTNAME}"
+  fi
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -716,7 +737,10 @@ deploy_stack() {
     trusted_proxies="$(docker network inspect "$CONTROL_NET" -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null | xargs || true)"
     [ -z "$trusted_proxies" ] || trusted_proxies="127.0.0.0/8 ::1/128 $trusted_proxies"
   fi
-  say "Deploying the swarmy control plane…"
+  local store_secret placement
+  store_secret="$(controller_store_secret)"
+  placement="$(controller_placement)"
+  say "Deploying the swarmy control plane (${placement})…"
   SWARMY_IMAGE="$IMAGE" \
   SWARMY_PUBLIC_URL="$PUBLIC_URL" \
   SWARMY_DASHBOARD_DOMAIN="$DASHBOARD_DOMAIN" \
@@ -729,6 +753,9 @@ deploy_stack() {
   SWARMY_PUBLISH_PORT="$PUBLISH_PORT" \
   SWARMY_ALLOW_SIGNUP="$ALLOW_SIGNUP" \
   SWARMY_NODE_HOSTNAME="$NODE_HOSTNAME" \
+  SWARMY_CONTROLLER_PLACEMENT="$placement" \
+  SWARMY_CONTROL_STORE_SECRET="$store_secret" \
+  SWARMY_CONTROLLER_LEASE="$(docker service inspect "${STACK_NAME}_controller" -f '{{index .Spec.Labels "swarmy.controller.lease"}}' 2>/dev/null || true)" \
   SWARMY_MESH_DRIVER="$mesh_driver" \
   SWARMY_MESH_MANAGEMENT_URL="${NB_MANAGEMENT_URL:-}" \
     docker stack deploy --with-registry-auth -c "$f" "$STACK_NAME" >/dev/null \
@@ -737,6 +764,13 @@ deploy_stack() {
   local i
   for i in $(seq 1 120); do
     curl -fsS -m 2 "http://localhost:${PUBLISH_PORT}/health" >/dev/null 2>&1 && { ok "controller healthy at http://localhost:${PUBLISH_PORT}."; return; }
+    # A floating (replicated) controller may run on another manager: its task
+    # being up is as good as a local health hit.
+    if [ "$placement" = 'node.role == manager' ] \
+      && docker service ps "${STACK_NAME}_controller" --filter desired-state=running --format '{{.CurrentState}}' 2>/dev/null | grep -q '^Running' ; then
+      ok "controller running on $(docker service ps "${STACK_NAME}_controller" --filter desired-state=running --format '{{.Node}}' | head -1) (floating)."
+      return
+    fi
     sleep 2
   done
   die "controller did not become healthy in time — check 'docker service logs ${STACK_NAME}_controller'."
@@ -885,7 +919,8 @@ do_uninstall() {
   docker rm -f "$AGENT_CONTAINER" >/dev/null 2>&1 || true
   docker stack rm "$STACK_NAME" >/dev/null 2>&1 || true
   sleep 3
-  for s in swarmy_secret_key better_auth_secret admin_password bootstrap_join_token swarm_worker_token swarm_manager_token mesh_service_token; do
+  for s in swarmy_secret_key better_auth_secret admin_password bootstrap_join_token swarm_worker_token swarm_manager_token mesh_service_token \
+    $(docker secret ls --format '{{.Name}}' 2>/dev/null | grep '^swarmy_control_store\.' || true); do
     docker secret rm "$s" >/dev/null 2>&1 || true
   done
   ok "removed. The swarmy-data volume (the controller store) and $STATE_FILE are preserved; delete them manually to wipe state."
