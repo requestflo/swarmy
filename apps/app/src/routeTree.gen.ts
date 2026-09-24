@@ -33,6 +33,7 @@ import { Route as AuthedNodesIndexRouteImport } from './routes/_authed/nodes/ind
 import { Route as AuthedWorkflowsRunIdRouteImport } from './routes/_authed/workflows.$runId'
 import { Route as AuthedStacksNewRouteImport } from './routes/_authed/stacks/new'
 import { Route as AuthedStacksNameRouteImport } from './routes/_authed/stacks/$name'
+import { Route as AuthedSettingsPlatformRouteImport } from './routes/_authed/settings_.platform'
 import { Route as AuthedSettingsNotificationsRouteImport } from './routes/_authed/settings_.notifications'
 import { Route as AuthedSettingsBackupRouteImport } from './routes/_authed/settings_.backup'
 import { Route as AuthedSettingsApiKeysRouteImport } from './routes/_authed/settings_.api-keys'
@@ -176,6 +177,11 @@ const AuthedStacksNewRoute = AuthedStacksNewRouteImport.update({
 const AuthedStacksNameRoute = AuthedStacksNameRouteImport.update({
   id: '/stacks/$name',
   path: '/stacks/$name',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedSettingsPlatformRoute = AuthedSettingsPlatformRouteImport.update({
+  id: '/settings_/platform',
+  path: '/settings/platform',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedSettingsNotificationsRoute =
@@ -346,6 +352,7 @@ export interface FileRoutesByFullPath {
   '/settings/api-keys': typeof AuthedSettingsApiKeysRoute
   '/settings/backup': typeof AuthedSettingsBackupRoute
   '/settings/notifications': typeof AuthedSettingsNotificationsRoute
+  '/settings/platform': typeof AuthedSettingsPlatformRoute
   '/stacks/$name': typeof AuthedStacksNameRouteWithChildren
   '/stacks/new': typeof AuthedStacksNewRoute
   '/workflows/$runId': typeof AuthedWorkflowsRunIdRoute
@@ -396,6 +403,7 @@ export interface FileRoutesByTo {
   '/settings/api-keys': typeof AuthedSettingsApiKeysRoute
   '/settings/backup': typeof AuthedSettingsBackupRoute
   '/settings/notifications': typeof AuthedSettingsNotificationsRoute
+  '/settings/platform': typeof AuthedSettingsPlatformRoute
   '/stacks/new': typeof AuthedStacksNewRoute
   '/workflows/$runId': typeof AuthedWorkflowsRunIdRoute
   '/nodes': typeof AuthedNodesIndexRoute
@@ -447,6 +455,7 @@ export interface FileRoutesById {
   '/_authed/settings_/api-keys': typeof AuthedSettingsApiKeysRoute
   '/_authed/settings_/backup': typeof AuthedSettingsBackupRoute
   '/_authed/settings_/notifications': typeof AuthedSettingsNotificationsRoute
+  '/_authed/settings_/platform': typeof AuthedSettingsPlatformRoute
   '/_authed/stacks/$name': typeof AuthedStacksNameRouteWithChildren
   '/_authed/stacks/new': typeof AuthedStacksNewRoute
   '/_authed/workflows/$runId': typeof AuthedWorkflowsRunIdRoute
@@ -499,6 +508,7 @@ export interface FileRouteTypes {
     | '/settings/api-keys'
     | '/settings/backup'
     | '/settings/notifications'
+    | '/settings/platform'
     | '/stacks/$name'
     | '/stacks/new'
     | '/workflows/$runId'
@@ -549,6 +559,7 @@ export interface FileRouteTypes {
     | '/settings/api-keys'
     | '/settings/backup'
     | '/settings/notifications'
+    | '/settings/platform'
     | '/stacks/new'
     | '/workflows/$runId'
     | '/nodes'
@@ -599,6 +610,7 @@ export interface FileRouteTypes {
     | '/_authed/settings_/api-keys'
     | '/_authed/settings_/backup'
     | '/_authed/settings_/notifications'
+    | '/_authed/settings_/platform'
     | '/_authed/stacks/$name'
     | '/_authed/stacks/new'
     | '/_authed/workflows/$runId'
@@ -792,6 +804,13 @@ declare module '@tanstack/react-router' {
       path: '/stacks/$name'
       fullPath: '/stacks/$name'
       preLoaderRoute: typeof AuthedStacksNameRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/settings_/platform': {
+      id: '/_authed/settings_/platform'
+      path: '/settings/platform'
+      fullPath: '/settings/platform'
+      preLoaderRoute: typeof AuthedSettingsPlatformRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/settings_/notifications': {
@@ -1029,6 +1048,7 @@ interface AuthedRouteChildren {
   AuthedSettingsApiKeysRoute: typeof AuthedSettingsApiKeysRoute
   AuthedSettingsBackupRoute: typeof AuthedSettingsBackupRoute
   AuthedSettingsNotificationsRoute: typeof AuthedSettingsNotificationsRoute
+  AuthedSettingsPlatformRoute: typeof AuthedSettingsPlatformRoute
   AuthedStacksNameRoute: typeof AuthedStacksNameRouteWithChildren
   AuthedStacksNewRoute: typeof AuthedStacksNewRoute
   AuthedWorkflowsRunIdRoute: typeof AuthedWorkflowsRunIdRoute
@@ -1069,6 +1089,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedSettingsApiKeysRoute: AuthedSettingsApiKeysRoute,
   AuthedSettingsBackupRoute: AuthedSettingsBackupRoute,
   AuthedSettingsNotificationsRoute: AuthedSettingsNotificationsRoute,
+  AuthedSettingsPlatformRoute: AuthedSettingsPlatformRoute,
   AuthedStacksNameRoute: AuthedStacksNameRouteWithChildren,
   AuthedStacksNewRoute: AuthedStacksNewRoute,
   AuthedWorkflowsRunIdRoute: AuthedWorkflowsRunIdRoute,

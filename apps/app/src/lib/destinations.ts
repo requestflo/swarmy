@@ -1,6 +1,7 @@
 import {
   ActivityIcon,
   ArchiveIcon,
+  ArrowUpCircleIcon,
   BellIcon,
   BlocksIcon,
   BoxesIcon,
@@ -114,6 +115,7 @@ export const SECTIONS: Destination[] = [
   { to: '/data/buckets', label: 'Object storage', icon: ArchiveIcon, group: 'Platform', blurb: 'S3 buckets on your nodes', keywords: 's3 object storage garage buckets keys minio' },
   { to: '/ai', label: 'AI gateway', icon: SparklesIcon, group: 'Platform', blurb: 'Providers, keys & metering', keywords: 'llm anthropic openai openrouter models virtual keys usage tokens embeddings gateway' },
   { to: '/backups', label: 'Backup destinations', icon: DatabaseBackupIcon, group: 'Platform', blurb: 'Where backups go — incl. your own buckets', keywords: 'targets restic s3 destinations snapshots volumes restore dr' },
+  { to: '/settings/platform', label: 'Platform & upgrades', icon: ArrowUpCircleIcon, group: 'Platform', blurb: 'swarmy version, channel & one-button upgrade', keywords: 'upgrade version release channel stable edge patch maintenance window update controller agents' },
   { to: '/settings/backup', label: 'Controller backup', icon: ShieldIcon, group: 'Platform', blurb: 'Back up swarmy itself', keywords: 'control plane bundle dump restore passphrase' },
 
   // ── Operations (cross-stack rollup; full controls live per-stack) ───────
