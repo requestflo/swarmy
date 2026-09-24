@@ -156,6 +156,16 @@ export interface AgentHub {
     signal: AbortSignal,
   ): AsyncIterable<T>;
 
+  /**
+   * In-flight deploy progress the agent reported for a service (e.g. pulling
+   * its image before the deploy can run), cleared when the deploy settles.
+   * Optional: test/demo hubs omit it.
+   */
+  deployProgress?(
+    orgId: string,
+    service: string,
+  ): { phase: 'pulling'; message: string | null; startedAt: number; at: number } | undefined;
+
   latestNodeStats(nodeId: string): NodeStatsSnapshot | undefined;
   latestContainers(nodeId: string): ContainerInfo[];
   latestContainerStats(nodeId: string): ContainerStatsSnapshot[];

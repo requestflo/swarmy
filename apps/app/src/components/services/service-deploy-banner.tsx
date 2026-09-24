@@ -18,6 +18,9 @@ export function ServiceDeployBanner({ deploy, desired }: ServiceDeployBannerProp
         <div>
           <p className="mono-label text-ink-foreground/70">Deploying</p>
           <p className="font-display text-lg font-bold capitalize">{deploy.phase}</p>
+          {deploy.message ? (
+            <p className="mono-data text-ink-foreground/70 mt-1 max-w-xl truncate text-xs">{deploy.message}</p>
+          ) : null}
         </div>
       </div>
       <p className="text-ink-foreground/80 text-sm">

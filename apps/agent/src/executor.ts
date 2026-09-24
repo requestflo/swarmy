@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { carryLogDriver, carryNetworkAliases, DockerClient, dropAliasesOnTargets, toServiceCreateOptions } from '@swarmy/core/docker';
-import type { ControllerEnvelope, RegistryAuth, RenderedConfig, ServiceSpec } from '@swarmy/core/protocol';
+import type { CommandProgress, ControllerEnvelope, RegistryAuth, RenderedConfig, ServiceSpec } from '@swarmy/core/protocol';
 import type { AgentConnection } from './connection';
 import { buildGateAllows, BUILDER_ENABLE_HINT, execGateAllows, EXEC_LOCAL_VETO_HINT, EXEC_ENABLE_HINT } from '@swarmy/core';
 import { env } from './env';
@@ -25,6 +25,7 @@ import { applyControllerService } from './handlers/controller-service';
 import { probeSmtp } from './handlers/email';
 import { updateAgent } from './handlers/update';
 import { prepareSecretEnv } from './handlers/secret-env';
+import { prePullForDeploy } from './handlers/deploy-pull';
 import {
   secretCreate,
   secretRemove,
@@ -81,7 +82,12 @@ export async function handleCommand(
     case 'deployService': {
       const { commandId, spec, registryAuth, pullPolicy } = envlp.payload;
       await run(conn, commandId, () =>
-        deployOrUpdate(docker, spec, registryAuth ?? spec.registryAuth, { pullPolicy }),
+        deployOrUpdate(docker, spec, registryAuth ?? spec.registryAuth, {
+          pullPolicy,
+          // Heartbeats while the image pulls: the hub re-arms the deadline and
+          // the dashboard shows "pulling image…" (handlers/deploy-pull).
+          onProgress: (progress) => conn.send('commandResult', { commandId, status: 'running', progress }),
+        }),
       );
       pushInventory(docker, conn);
       return;
@@ -417,7 +423,10 @@ export async function deployOrUpdate(
   docker: DockerClient,
   input: ServiceSpec,
   registryAuth?: RegistryAuth,
-  deployOpts: { pullPolicy?: 'always' | 'missing' | 'never' } = {},
+  deployOpts: {
+    pullPolicy?: 'always' | 'missing' | 'never';
+    onProgress?: (p: CommandProgress) => void;
+  } = {},
 ): Promise<{ serviceId: string; created: boolean }> {
   // Pull creds ride the X-Registry-Auth header (never the spec body) so the swarm
   // stores them with the service and every node can pull a private image.
@@ -426,8 +435,23 @@ export async function deployOrUpdate(
     : undefined;
   // Secret app variables delivered as env: wrap the container in the
   // secret-env shim (values stay in /run/secrets — see handlers/secret-env).
+  // The pull is its own phase with progress heartbeats, so a big image never
+  // eats the deploy's budget; prepareSecretEnv then reads it locally.
+  const pulled = await prePullForDeploy(
+    {
+      pullImage: (image, authconfig, onLine) => docker.pullImage(image, authconfig, onLine),
+      imagePresent: (image) =>
+        docker.docker
+          .getImage(image)
+          .inspect()
+          .then(() => true)
+          .catch(() => false),
+    },
+    input,
+    { pullPolicy: deployOpts.pullPolicy, authconfig: auth, onProgress: deployOpts.onProgress },
+  );
   const spec = await prepareSecretEnv(docker, input, {
-    pull: deployOpts.pullPolicy === 'always',
+    pull: !pulled && deployOpts.pullPolicy === 'always',
     authconfig: auth,
   });
   const existing = await docker.getServiceByName(spec.name);

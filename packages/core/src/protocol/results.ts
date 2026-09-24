@@ -14,6 +14,12 @@ export const CommandStatus = z.enum([
 ]);
 export type CommandStatus = z.infer<typeof CommandStatus>;
 
+export const CommandProgress = z.object({
+  phase: z.enum(['pulling']),
+  message: z.string().max(500).optional(),
+});
+export type CommandProgress = z.infer<typeof CommandProgress>;
+
 export const CommandResultPayload = z.object({
   /** Correlates back to the controller command's `payload.commandId`. */
   commandId: CommandId,
@@ -25,6 +31,12 @@ export const CommandResultPayload = z.object({
   error: z
     .object({ code: z.string(), message: z.string(), detail: z.unknown().optional() })
     .optional(),
+  /**
+   * Non-terminal progress on a `running` frame (e.g. a deploy pulling its
+   * image). The hub treats each one as a heartbeat that extends the command's
+   * deadline, and surfaces the phase on the service's deploy status.
+   */
+  progress: CommandProgress.optional(),
 });
 export type CommandResultPayload = z.infer<typeof CommandResultPayload>;
 

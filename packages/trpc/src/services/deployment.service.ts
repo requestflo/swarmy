@@ -31,10 +31,47 @@ function synth(svc: InvService, deploymentId: string): DeployStatus {
   };
 }
 
+type DeployProgress = NonNullable<ReturnType<NonNullable<OrgContext['hub']['deployProgress']>>>;
+
+/**
+ * Overlay an in-flight deploy's agent-reported progress (the deploy is pulling
+ * its image before it can touch the service) onto the synthesized status, so
+ * the dashboard says "pulling" instead of "complete" while a big image lands.
+ * With no live service yet (a first deploy), synthesize from the progress alone.
+ * PURE — exported for tests.
+ */
+export function withDeployProgress(
+  status: DeployStatus | null,
+  progress: DeployProgress | undefined,
+  deploymentId: string,
+): DeployStatus | null {
+  if (!progress) return status;
+  return {
+    deploymentId: status?.deploymentId ?? deploymentId,
+    serviceId: status?.serviceId ?? null,
+    kind: 'deploy',
+    desired: status?.desired ?? null,
+    ready: status?.ready ?? null,
+    phase: progress.phase,
+    message: progress.message ?? 'pulling image…',
+    startedAt: new Date(progress.startedAt).toISOString(),
+    finishedAt: null,
+  };
+}
+
+function progressFor(ctx: OrgContext, name: string): DeployProgress | undefined {
+  return ctx.hub.deployProgress?.(ctx.activeOrgId, name);
+}
+
 export function getDeployStatus(ctx: OrgContext, deploymentId: string): DeployStatus {
   const svc = liveService(ctx, deploymentId);
-  if (!svc) throw notFound('deployment', deploymentId);
-  return synth(svc, deploymentId);
+  const status = withDeployProgress(
+    svc ? synth(svc, deploymentId) : null,
+    progressFor(ctx, svc?.name ?? deploymentId),
+    deploymentId,
+  );
+  if (!status) throw notFound('deployment', deploymentId);
+  return status;
 }
 
 export function getLatestServiceDeployStatus(
@@ -42,5 +79,6 @@ export function getLatestServiceDeployStatus(
   serviceId: string,
 ): DeployStatus | null {
   const svc = liveService(ctx, serviceId);
-  return svc ? synth(svc, svc.id) : null;
+  if (!svc) return null;
+  return withDeployProgress(synth(svc, svc.id), progressFor(ctx, svc.name), svc.id);
 }

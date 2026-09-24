@@ -51,10 +51,22 @@ export const CloseCode = {
 } as const;
 export type CloseCode = (typeof CloseCode)[keyof typeof CloseCode];
 
+/**
+ * While a command reports `progress` (a deploy pulling a big image on a small
+ * node), the hub re-arms its deadline to at least this idle budget on every
+ * frame — so a pull that keeps moving never times out, and one that stalls
+ * fails after this long without a frame.
+ */
+export const PROGRESS_IDLE_TIMEOUT_MS = 300_000;
+/** Hard ceiling from dispatch for a command that keeps reporting progress. */
+export const PROGRESS_MAX_TIMEOUT_MS = 45 * 60_000;
+
 /** Per-command execution timeouts (ms) the agent enforces. 0 = no timeout. */
 export const DEFAULT_COMMAND_TIMEOUTS: Record<string, number> = {
   buildImage: 1800000,
   pruneImages: 120000,
+  // Idle budget: a deploy that pulls its image first (secret-env shim) streams
+  // `progress` frames, each re-arming the deadline — see DEPLOY_PULL_*.
   deployService: 120_000,
   removeService: 60_000,
   scaleService: 60_000,

@@ -167,7 +167,10 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
       // Intermediate progress frames ('running'/'accepted') are NOT terminal —
       // settling on them would resolve/reject the dispatch before the real
       // outcome arrives. Only settle on a terminal status.
-      if (status === 'running' || status === 'accepted') return;
+      if (status === 'running' || status === 'accepted') {
+        if (env.payload.progress) deps.hub.commandProgress(commandId, env.payload.progress);
+        return;
+      }
       const ok = status === 'succeeded';
       deps.hub.settleCommand(commandId, ok, result, error ? { message: error.message } : undefined);
       return;

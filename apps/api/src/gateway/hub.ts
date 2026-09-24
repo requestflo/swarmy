@@ -1,6 +1,9 @@
 import {
   DEFAULT_COMMAND_TIMEOUTS,
+  PROGRESS_IDLE_TIMEOUT_MS,
+  PROGRESS_MAX_TIMEOUT_MS,
   PROTOCOL_VERSION,
+  type CommandProgress,
   type ContainerInfo,
   type SwarmServiceInfo,
   type SwarmNodeInfo,
@@ -29,6 +32,16 @@ interface Pending {
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  /** Base (idle) budget and dispatch time — progress frames re-arm from these. */
+  timeoutMs: number;
+  dispatchedAt: number;
+  /** deployService only: where its progress shows on the service's deploy status. */
+  deploy?: { orgId: string; service: string };
+}
+
+/** Key for {@link GatewayStore.deployProgress}. */
+export function deployProgressKey(orgId: string, service: string): string {
+  return `${orgId}\u0000${service}`;
 }
 
 function frame(type: string, payload: unknown) {
@@ -77,11 +90,57 @@ export class AgentHubImpl implements AgentHub {
     this.decorate = fn;
   }
 
+  /**
+   * Called by the protocol handler on a non-terminal `running` frame carrying
+   * `progress`: a heartbeat that re-arms the deadline (see
+   * {@link progressDeadlineMs}) and records the phase for the deploy status.
+   */
+  commandProgress(commandId: string, progress: CommandProgress): void {
+    const p = this.pending.get(commandId);
+    if (!p) return;
+    const now = Date.now();
+    clearTimeout(p.timer);
+    p.timer = setTimeout(
+      () => this.expire(commandId),
+      progressDeadlineMs(p.timeoutMs, p.dispatchedAt, now),
+    );
+    if (p.deploy) {
+      this.store.deployProgress.set(deployProgressKey(p.deploy.orgId, p.deploy.service), {
+        phase: progress.phase,
+        message: progress.message ?? null,
+        startedAt: p.dispatchedAt,
+        at: now,
+      });
+    }
+  }
+
+  /** In-flight deploy progress for a service (e.g. "pulling image…"), if any. */
+  deployProgress(
+    orgId: string,
+    service: string,
+  ): { phase: CommandProgress['phase']; message: string | null; startedAt: number; at: number } | undefined {
+    return this.store.deployProgress.get(deployProgressKey(orgId, service));
+  }
+
+  private expire(commandId: string): void {
+    const p = this.pending.get(commandId);
+    if (!p) return;
+    this.pending.delete(commandId);
+    this.clearDeployProgress(p);
+    p.reject(new Error('command timeout'));
+  }
+
+  private clearDeployProgress(p: Pending): void {
+    if (p.deploy) this.store.deployProgress.delete(deployProgressKey(p.deploy.orgId, p.deploy.service));
+  }
+
   /** Called by the protocol handler when a `commandResult` arrives. */
   settleCommand(commandId: string, ok: boolean, data?: unknown, error?: { message: string }): void {
     const p = this.pending.get(commandId);
     if (!p) return;
     this.pending.delete(commandId);
+    clearTimeout(p.timer);
+    this.clearDeployProgress(p);
     if (ok) p.resolve(data);
     else p.reject(new Error(error?.message ?? 'command rejected'));
   }
@@ -107,15 +166,17 @@ export class AgentHubImpl implements AgentHub {
     const type = COMMAND_PROTOCOL_TYPE[cmd];
     const body = { ...(payload as Record<string, unknown>), commandId };
     const timeoutMs = commandTimeoutMs(type, opts?.timeoutMs);
+    const deployName =
+      type === 'deployService' ? (body as { spec?: { name?: unknown } }).spec?.name : undefined;
     const promise = new Promise<R>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(commandId);
-        reject(new Error('command timeout'));
-      }, timeoutMs);
+      const timer = setTimeout(() => this.expire(commandId), timeoutMs);
       this.pending.set(commandId, {
         resolve: (v) => resolve(v as R),
         reject,
         timer,
+        timeoutMs,
+        dispatchedAt: Date.now(),
+        deploy: orgId && typeof deployName === 'string' ? { orgId, service: deployName } : undefined,
       });
     });
     this.registry.send(nodeId, frame(type, body));
@@ -325,6 +386,18 @@ const MAX_TIMER_MS = 2_147_483_647;
  * "command timeout" (found on the launch test: an arm64 agent update). `0` in
  * the table means "no deadline" (streams). Pure.
  */
+/**
+ * The re-armed deadline (ms from `now`) after a progress frame: at least the
+ * command's own budget and {@link PROGRESS_IDLE_TIMEOUT_MS} of silence, but
+ * never past {@link PROGRESS_MAX_TIMEOUT_MS} (or the base budget, if larger)
+ * from dispatch. A pull that keeps moving survives; one that stalls fails. Pure.
+ */
+export function progressDeadlineMs(baseMs: number, dispatchedAt: number, now: number): number {
+  const idle = Math.max(baseMs, PROGRESS_IDLE_TIMEOUT_MS);
+  const ceilingAt = dispatchedAt + Math.max(baseMs, PROGRESS_MAX_TIMEOUT_MS);
+  return Math.max(0, Math.min(idle, ceilingAt - now, MAX_TIMER_MS));
+}
+
 export function commandTimeoutMs(type: string, explicit?: number): number {
   const ms = explicit ?? DEFAULT_COMMAND_TIMEOUTS[type] ?? FALLBACK_COMMAND_TIMEOUT_MS;
   return ms <= 0 ? MAX_TIMER_MS : Math.min(ms, MAX_TIMER_MS);

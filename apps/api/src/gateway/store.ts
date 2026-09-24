@@ -108,6 +108,11 @@ export class GatewayStore {
 
   readonly nodeStatsEvent = new Emitter<{ nodeId: string; snap: NodeStatsSnapshot }>();
   readonly logEvent = new Emitter<{ commandId: string; line: LogLine }>();
+  /** In-flight deploy progress (e.g. pulling its image), keyed by deployProgressKey(org, service). */
+  readonly deployProgress = new Map<
+    string,
+    { phase: 'pulling'; message: string | null; startedAt: number; at: number }
+  >();
   /** A node reported it left the swarm. Future hook: alerts, incidents, re-placement. */
   readonly swarmLeftEvent = new Emitter<{ nodeId: string; orgId: string; swarmState: SwarmState; at: number }>();
 
