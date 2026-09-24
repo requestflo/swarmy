@@ -1,0 +1,6 @@
+status: 200
+Content-Security-Policy: default-src 'self'
+Content-Type: text/html; charset=utf-8
+Swarmy-Rum: skipped; reason=csp
+
+<!doctype html><html><HEAD><title>Demo</title></HEAD><body><h1>hi</h1></body></html>

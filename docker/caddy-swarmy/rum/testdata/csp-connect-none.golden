@@ -1,0 +1,6 @@
+status: 200
+Content-Security-Policy: default-src 'self'; connect-src 'none'
+Content-Type: text/html; charset=utf-8
+Swarmy-Rum: skipped; reason=csp-connect-none
+
+<!doctype html><html><HEAD><title>Demo</title></HEAD><body><h1>hi</h1></body></html>

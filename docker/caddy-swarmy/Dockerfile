@@ -19,7 +19,11 @@
 #     read from a Docker secret file, never the Caddyfile.
 #   - `dns cloudflare` (BYO DNS-01 token)    — caddy-dns/cloudflare, only for a
 #     wildcard in a zone swarmy DNS does not serve; token via {file.*}.
-# This image is the stock Caddy plus all six, built with xcaddy.
+#   - `swarmy_rum` (analytics + replay tag)  — ./rum, swarmy's own module: adds
+#     the same-origin `<script src="/_swarmy/rum.js">` before `</head>` on HTML
+#     documents (identity upstream, gzip re-encode, CSP-aware, skips and says
+#     why via a `Swarmy-Rum` header). The app itself is never changed.
+# This image is the stock Caddy plus all seven, built with xcaddy.
 #
 # Country rules also need a GeoIP country mmdb visible INSIDE the container:
 # mount one and point `extraConfig.geoipMmdbPath` at it. swarmy does not
@@ -43,9 +47,11 @@
 FROM caddy:2.11.4-builder AS builder
 
 COPY dnsprovider /src/dnsprovider
+COPY rum /src/rum
 
 RUN xcaddy build \
     --with github.com/requestflo/caddy-dns-swarmy=/src/dnsprovider \
+    --with github.com/requestflo/caddy-swarmy-rum=/src/rum \
     --with github.com/caddy-dns/cloudflare@v0.2.4 \
     --with github.com/mholt/caddy-ratelimit@v0.1.0 \
     --with github.com/techknowlogick/certmagic-s3@9136b2abaf525cad77c3b30f60dc6b1ba9047b69 \

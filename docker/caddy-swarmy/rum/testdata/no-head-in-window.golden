@@ -1,0 +1,6 @@
+status: 200
+Content-Type: text/html; charset=utf-8
+Swarmy-Rum: skipped; reason=no-head
+Vary: Accept-Encoding
+
+<html><body>xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</body></html>

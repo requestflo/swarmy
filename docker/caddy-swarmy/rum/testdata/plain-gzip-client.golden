@@ -1,0 +1,7 @@
+status: 200
+Content-Encoding: gzip
+Content-Type: text/html; charset=utf-8
+Swarmy-Rum: injected
+Vary: Accept-Encoding
+
+[gunzipped] <!doctype html><html><HEAD><title>Demo</title><script src="/_swarmy/rum.js" async data-app="tok.abc" data-mode="analytics"></script></HEAD><body><h1>hi</h1></body></html>

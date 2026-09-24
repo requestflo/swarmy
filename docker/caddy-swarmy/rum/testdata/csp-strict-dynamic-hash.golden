@@ -1,0 +1,7 @@
+status: 200
+Content-Security-Policy: script-src 'sha256-abc=' 'strict-dynamic' 'nonce-TESTNONCE'
+Content-Type: text/html; charset=utf-8
+Swarmy-Rum: injected
+Vary: Accept-Encoding
+
+<!doctype html><html><HEAD><title>Demo</title><script src="/_swarmy/rum.js" async data-app="tok.abc" data-mode="analytics" nonce="TESTNONCE"></script></HEAD><body><h1>hi</h1></body></html>

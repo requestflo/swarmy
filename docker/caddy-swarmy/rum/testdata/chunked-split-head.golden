@@ -1,0 +1,6 @@
+status: 200
+Content-Type: text/html; charset=utf-8
+Swarmy-Rum: injected
+Vary: Accept-Encoding
+
+<html><head><title>x</title><script src="/_swarmy/rum.js" async data-app="tok.abc" data-mode="analytics"></script></head><body>streamed</body></html>

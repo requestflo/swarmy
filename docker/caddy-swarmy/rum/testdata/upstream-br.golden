@@ -1,0 +1,6 @@
+status: 200
+Content-Encoding: br
+Content-Type: text/html; charset=utf-8
+Swarmy-Rum: skipped; reason=encoding-br
+
+binary
