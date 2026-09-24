@@ -157,7 +157,9 @@ export function ServiceCanvas({ stackFilter, onBack, onOpenService }: ServiceCan
           nodeStrokeWidth={2}
           className="!rounded-xl"
         />
-        <CanvasBreadcrumb stack={stackFilter} onBack={onBack} />
+        {/* Inside a stack the workspace's StackHeader is the breadcrumb; only the
+            flat all-services view needs its own way back to the stack grid. */}
+        {isAll ? <CanvasBreadcrumb stack={null} onBack={onBack} /> : null}
         <CanvasToolbar count={scoped?.services.length ?? 0} stack={stackFilter} />
       </ReactFlow>
     </div>
