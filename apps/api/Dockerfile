@@ -49,6 +49,30 @@ RUN SWARMY_COMMIT=${SWARMY_COMMIT} bun run scripts/build-agent-binaries.ts /app/
 # the alpine runtime as-is.
 FROM restic/restic:0.16.4 AS restic
 
+# ── Stage 1e: GeoIP for web analytics (countries) ──────────────────────────
+# DB-IP "IP to Country Lite" (CC BY 4.0), the same floor the swarmy-dns image
+# bundles. RUM ingest looks the visitor IP up, keeps only the ISO country and
+# drops the IP (packages/rum/src/geoip.ts). BEST-EFFORT: a build with no egress
+# ships without it and analytics shows "Unknown" countries; SWARMY_BUNDLE_GEOIP=0
+# opts out. DBIP_MONTH=YYYY-MM pins an edition.
+FROM alpine:3.20 AS geoip
+ARG DBIP_MONTH=
+ARG SWARMY_BUNDLE_GEOIP=1
+RUN set -eu; mkdir -p /out; \
+  if [ "$SWARMY_BUNDLE_GEOIP" = "0" ]; then echo "geoip bundle skipped"; exit 0; fi; \
+  if [ -n "$DBIP_MONTH" ]; then months="$DBIP_MONTH"; else \
+    y=$(date -u +%Y); m=$(date -u +%m); m=${m#0}; \
+    py=$y; pm=$((m - 1)); if [ "$pm" -eq 0 ]; then pm=12; py=$((y - 1)); fi; \
+    months="$(printf '%s-%02d' "$y" "$m") $(printf '%s-%02d' "$py" "$pm")"; fi; \
+  for ym in $months; do \
+    if wget -q -T 120 -O /tmp/db.mmdb.gz "https://download.db-ip.com/free/dbip-country-lite-$ym.mmdb.gz"; then \
+      gunzip -c /tmp/db.mmdb.gz > /out/dbip-country-lite.mmdb && echo "$ym" > /out/EDITION && break; fi; \
+  done; \
+  if [ -s /out/dbip-country-lite.mmdb ]; then \
+    printf '%s\n' 'IP Geolocation by DB-IP (https://db-ip.com)' \
+      "DB-IP \"IP to Country Lite\" (edition $(cat /out/EDITION)), CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)." > /out/NOTICE; \
+  else echo "no DB-IP edition reachable ($months) - analytics countries will read Unknown"; fi
+
 # ── Stage 2: the controller runtime ─────────────────────────────────────────
 FROM oven/bun:1.3-alpine
 WORKDIR /app
@@ -56,6 +80,8 @@ WORKDIR /app
 # restic on $PATH for controller backups (+ CA roots for S3/B2 destinations).
 RUN apk add --no-cache ca-certificates
 COPY --from=restic /usr/bin/restic /usr/local/bin/restic
+# GeoIP for web analytics countries (may be empty: see the geoip stage).
+COPY --from=geoip /out/ /usr/share/swarmy/geoip/
 
 # Workspace manifests first for a cached install.
 COPY package.json bun.lock ./
