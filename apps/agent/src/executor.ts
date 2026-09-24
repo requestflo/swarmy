@@ -1,6 +1,14 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { carryLogDriver, carryNetworkAliases, DockerClient, dropAliasesOnTargets, toServiceCreateOptions } from '@swarmy/core/docker';
+import {
+  carryLogDriver,
+  carryNetworkAliases,
+  DockerClient,
+  dropAliasesOnTargets,
+  isVersionConflict,
+  toServiceCreateOptions,
+  withVersionRetry,
+} from '@swarmy/core/docker';
 import type { CommandProgress, ControllerEnvelope, RegistryAuth, RenderedConfig, ServiceSpec } from '@swarmy/core/protocol';
 import type { AgentConnection } from './connection';
 import { buildGateAllows, BUILDER_ENABLE_HINT, execGateAllows, EXEC_LOCAL_VETO_HINT, EXEC_ENABLE_HINT } from '@swarmy/core';
@@ -454,35 +462,49 @@ export async function deployOrUpdate(
     pull: !pulled && deployOpts.pullPolicy === 'always',
     authconfig: auth,
   });
-  const existing = await docker.getServiceByName(spec.name);
-  if (!existing) {
-    const id = await docker.createService(spec, auth);
-    return { serviceId: id, created: true };
-  }
-  const inspect = await existing.inspect();
-  const opts = (await docker.prepareServiceOptions(spec)) as Record<string, unknown>;
-  // Keep in-stack DNS aliases across lossy rebuilds (see carryNetworkAliases).
-  carryNetworkAliases(
-    opts as Parameters<typeof carryNetworkAliases>[0],
-    spec,
-    (inspect.Spec?.TaskTemplate as { Networks?: Array<{ Target?: string; Aliases?: string[] }> } | undefined)
-      ?.Networks,
+  // Concurrent deploys of one stack (or a deploy racing a scale / label sync)
+  // lose the optimistic version race with "update out of sequence", and two
+  // creates of one name race too: re-read the live service and re-apply.
+  return withVersionRetry(
+    async () => {
+      const existing = await docker.getServiceByName(spec.name);
+      if (!existing) {
+        const id = await docker.createService(spec, auth);
+        return { serviceId: id, created: true };
+      }
+      const inspect = await existing.inspect();
+      const opts = (await docker.prepareServiceOptions(spec)) as Record<string, unknown>;
+      // Keep in-stack DNS aliases across lossy rebuilds (see carryNetworkAliases).
+      carryNetworkAliases(
+        opts as Parameters<typeof carryNetworkAliases>[0],
+        spec,
+        (inspect.Spec?.TaskTemplate as { Networks?: Array<{ Target?: string; Aliases?: string[] }> } | undefined)
+          ?.Networks,
+      );
+      // Keep an operator-set log driver across lossy rebuilds; a service with none
+      // picks up swarmy's bounded json-file default (see DEFAULT_LOG_DRIVER).
+      carryLogDriver(
+        opts as Parameters<typeof carryLogDriver>[0],
+        spec,
+        (inspect.Spec?.TaskTemplate as { LogDriver?: { Name?: string; Options?: Record<string, string> } } | undefined)
+          ?.LogDriver,
+      );
+      // …but never onto the platform overlays: a legacy alias there is dropped.
+      dropAliasesOnTargets(
+        opts as Parameters<typeof dropAliasesOnTargets>[0],
+        (await docker.platformNetworkIds?.()) ?? new Set<string>(),
+      );
+      await docker.updateServiceWithAuth(existing, { version: inspect.Version.Index, ...opts }, auth);
+      return { serviceId: inspect.ID, created: false };
+    },
+    { retryIf: (e) => isVersionConflict(e) || isNameConflict(e) },
   );
-  // Keep an operator-set log driver across lossy rebuilds; a service with none
-  // picks up swarmy's bounded json-file default (see DEFAULT_LOG_DRIVER).
-  carryLogDriver(
-    opts as Parameters<typeof carryLogDriver>[0],
-    spec,
-    (inspect.Spec?.TaskTemplate as { LogDriver?: { Name?: string; Options?: Record<string, string> } } | undefined)
-      ?.LogDriver,
-  );
-  // …but never onto the platform overlays: a legacy alias there is dropped.
-  dropAliasesOnTargets(
-    opts as Parameters<typeof dropAliasesOnTargets>[0],
-    (await docker.platformNetworkIds?.()) ?? new Set<string>(),
-  );
-  await docker.updateServiceWithAuth(existing, { version: inspect.Version.Index, ...opts }, auth);
-  return { serviceId: inspect.ID, created: false };
+}
+
+/** A create that lost the race to a concurrent create of the same name. */
+export function isNameConflict(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /name conflicts with an existing object/i.test(msg);
 }
 
 async function execShell(cmd: string[]): Promise<void> {

@@ -62,6 +62,41 @@ interface DockerInfoLike {
 }
 
 /**
+ * Swarm objects are updated optimistically: every update names the version it
+ * read, and a concurrent writer (two stack deploys, a deploy racing a
+ * scale or the ingress label sync) makes the loser fail with
+ * "update out of sequence". That is not an error in intent. Re-read and
+ * re-apply. PURE predicate — exported for tests.
+ */
+export function isVersionConflict(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : typeof e === 'string' ? e : '';
+  return /update out of sequence|out of sequence|version (conflict|mismatch)|object version .* is out of date/i.test(msg);
+}
+
+/**
+ * Run a read-modify-write `fn` (it must RE-READ the object each attempt), and
+ * retry it on {@link isVersionConflict} (or `retryIf`) up to `attempts` times
+ * with jittered backoff. The last error is rethrown.
+ */
+export async function withVersionRetry<T>(
+  fn: (attempt: number) => Promise<T>,
+  opts: { attempts?: number; baseDelayMs?: number; retryIf?: (e: unknown) => boolean; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<T> {
+  const attempts = opts.attempts ?? 6;
+  const base = opts.baseDelayMs ?? 100;
+  const retryIf = opts.retryIf ?? isVersionConflict;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (e) {
+      if (attempt >= attempts || !retryIf(e)) throw e;
+      await sleep(base * 2 ** (attempt - 1) * (0.5 + Math.random()));
+    }
+  }
+}
+
+/**
  * Thin, typed wrapper over dockerode used by the node agent. Maps Docker's
  * shapes onto the swarmy wire protocol. The controller never imports this — it
  * only ever sees the protocol types the agent emits.
@@ -769,21 +804,25 @@ export class DockerClient {
 
   async scaleService(nameOrId: string, replicas: number): Promise<string> {
     const svc = (await this.getServiceByName(nameOrId)) ?? this.docker.getService(nameOrId);
-    const inspect = await svc.inspect();
-    const spec = inspect.Spec;
-    spec.Mode = { Replicated: { Replicas: replicas } };
-    await svc.update({ version: inspect.Version.Index, ...spec });
-    return inspect.ID;
+    return withVersionRetry(async () => {
+      const inspect = await svc.inspect();
+      const spec = inspect.Spec;
+      spec.Mode = { Replicated: { Replicas: replicas } };
+      await svc.update({ version: inspect.Version.Index, ...spec });
+      return inspect.ID as string;
+    });
   }
 
   async restartService(nameOrId: string): Promise<string> {
     const svc = (await this.getServiceByName(nameOrId)) ?? this.docker.getService(nameOrId);
-    const inspect = await svc.inspect();
-    const spec = inspect.Spec;
-    spec.TaskTemplate = spec.TaskTemplate || {};
-    spec.TaskTemplate.ForceUpdate = (spec.TaskTemplate.ForceUpdate || 0) + 1;
-    await svc.update({ version: inspect.Version.Index, ...spec });
-    return inspect.ID;
+    return withVersionRetry(async () => {
+      const inspect = await svc.inspect();
+      const spec = inspect.Spec;
+      spec.TaskTemplate = spec.TaskTemplate || {};
+      spec.TaskTemplate.ForceUpdate = (spec.TaskTemplate.ForceUpdate || 0) + 1;
+      await svc.update({ version: inspect.Version.Index, ...spec });
+      return inspect.ID as string;
+    });
   }
 
   async removeService(nameOrId: string): Promise<void> {
@@ -798,12 +837,14 @@ export class DockerClient {
     removeKeys: string[] = [],
   ): Promise<string> {
     const svc = (await this.getServiceByName(nameOrId)) ?? this.docker.getService(nameOrId);
-    const inspect = await svc.inspect();
-    const spec = inspect.Spec as { Labels?: Record<string, string> };
-    spec.Labels = { ...(spec.Labels ?? {}), ...add };
-    for (const k of removeKeys) delete spec.Labels[k];
-    await svc.update({ version: inspect.Version.Index, ...(spec as Record<string, unknown>) });
-    return inspect.ID;
+    return withVersionRetry(async () => {
+      const inspect = await svc.inspect();
+      const spec = inspect.Spec as { Labels?: Record<string, string> };
+      spec.Labels = { ...(spec.Labels ?? {}), ...add };
+      for (const k of removeKeys) delete spec.Labels[k];
+      await svc.update({ version: inspect.Version.Index, ...(spec as Record<string, unknown>) });
+      return inspect.ID as string;
+    });
   }
 
   async updateSwarmNode(
@@ -816,12 +857,14 @@ export class DockerClient {
     },
   ): Promise<void> {
     const node = this.docker.getNode(swarmNodeId);
-    const inspect = await node.inspect();
-    const spec = inspect.Spec || {};
-    if (opts.availability) spec.Availability = opts.availability;
-    if (opts.labels) spec.Labels = { ...(spec.Labels || {}), ...opts.labels };
-    if (opts.role) spec.Role = opts.role;
-    await node.update({ version: inspect.Version.Index, ...spec });
+    await withVersionRetry(async () => {
+      const inspect = await node.inspect();
+      const spec = inspect.Spec || {};
+      if (opts.availability) spec.Availability = opts.availability;
+      if (opts.labels) spec.Labels = { ...(spec.Labels || {}), ...opts.labels };
+      if (opts.role) spec.Role = opts.role;
+      await node.update({ version: inspect.Version.Index, ...spec });
+    });
   }
 
   /**
