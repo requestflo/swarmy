@@ -57,6 +57,7 @@ type IntervalUnit = 'minutes' | 'hours' | 'days';
 interface BackupScheduleView {
   id: string;
   targetId: string;
+  secondaryTargetId?: string | null;
   volume: string;
   nodeId: string | null;
   every: number;
@@ -679,11 +680,19 @@ export const data: DomainResolvers = {
     },
 
     'backupSchedules.create': (i, s): BackupScheduleView => {
-      const b = i as { targetId: string; volume: string; nodeId?: string; every: number; unit: IntervalUnit };
+      const b = i as {
+        targetId: string;
+        secondaryTargetId?: string | null;
+        volume: string;
+        nodeId?: string;
+        every: number;
+        unit: IntervalUnit;
+      };
       const st = getState(s);
       const row: BackupScheduleView = {
         id: rid('sch'),
         targetId: b.targetId,
+        secondaryTargetId: b.secondaryTargetId ?? null,
         volume: b.volume,
         nodeId: b.nodeId ?? null,
         every: b.every,
@@ -694,6 +703,17 @@ export const data: DomainResolvers = {
         createdAt: nowIso(),
       };
       st.schedules = [row, ...st.schedules];
+      return row;
+    },
+
+    'backupSchedules.setSecondary': (i, s): BackupScheduleView => {
+      const b = i as { id: string; secondaryTargetId: string | null };
+      const row = getState(s).schedules.find((x) => x.id === b.id);
+      if (!row) throw new Error(`schedule ${b.id} not found`);
+      if (b.secondaryTargetId && b.secondaryTargetId === row.targetId) {
+        throw new Error('The second destination must differ from the first.');
+      }
+      row.secondaryTargetId = b.secondaryTargetId;
       return row;
     },
 

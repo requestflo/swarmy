@@ -214,84 +214,98 @@ type SchedDb = {
 
 async function runOne(
   db: SchedDb,
-  sched: { id: string; orgId: string; targetId: string; volume: string; nodeId: string | null; retentionDays: number | null },
+  sched: {
+    id: string;
+    orgId: string;
+    targetId: string;
+    secondaryTargetId?: string | null;
+    volume: string;
+    nodeId: string | null;
+    retentionDays: number | null;
+  },
   now: Date,
 ): Promise<void> {
-  {
-    const target = (await backupTargets({ db: prisma, hub }, sched.orgId).findFirst({
-      where: { id: sched.targetId },
-    })) as unknown as TargetRow | null;
-    if (!target) return;
-    const nodeId = await pickNode(sched.orgId, sched.nodeId);
-    if (!nodeId) return;
+  const targetOf = async (id: string) =>
+    (await backupTargets({ db: prisma, hub }, sched.orgId).findFirst({ where: { id } })) as unknown as TargetRow | null;
+  const target = await targetOf(sched.targetId);
+  if (!target) return;
+  const nodeId = await pickNode(sched.orgId, sched.nodeId);
+  if (!nodeId) return;
+  // The history row IS the "last run": written before dispatch so a slow run
+  // (or an overlapping tick) never double-fires.
+  const job = await db.backupJob.create({
+    data: { orgId: sched.orgId, scheduleId: sched.id, status: 'RUNNING', startedAt: now },
+  });
+  // The stack's retention label (`swarmy.backup.retentionDays`) rides the
+  // dispatch; the agent enforces it with `restic forget --keep-within --prune`
+  // after the backup succeeds. Absent label = keep forever.
+  const retentionDays = retentionFor(sched.orgId, sched.volume, sched.retentionDays);
 
-    // The history row IS the "last run": written before dispatch so a slow run
-    // (or an overlapping tick) never double-fires.
-    const job = await db.backupJob.create({
-      data: { orgId: sched.orgId, scheduleId: sched.id, status: 'RUNNING', startedAt: now },
+  const primary = await backupToTarget(db, sched, target, nodeId, retentionDays);
+  await db.backupJob.update({
+    where: { id: job.id },
+    data: primary.ok
+      ? { status: 'SUCCEEDED', finishedAt: new Date(), snapshotId: primary.snapshotId }
+      : { status: 'FAILED', finishedAt: new Date(), error: primary.error },
+  });
+
+  // Two destinations: the same run also copies the volume to the schedule's
+  // second target (typically off-site S3). Its snapshot is catalogued under
+  // that target; a failure there never fails the primary run.
+  if (sched.secondaryTargetId && sched.secondaryTargetId !== sched.targetId) {
+    const secondary = await targetOf(sched.secondaryTargetId);
+    if (secondary) await backupToTarget(db, sched, secondary, nodeId, retentionDays);
+  }
+
+  // Belt and braces: when the volume is a compose MySQL/MariaDB/Mongo/Redis/
+  // Valkey data volume, also take a transaction-consistent logical dump to the
+  // same destination with the same retention (skipped, not failed, when its
+  // credentials can't be resolved — the volume copy above still covers it).
+  await runScheduledAppDbDump(
+    { db: prisma, hub, auth: authRegistry.getAuth() },
+    { orgId: sched.orgId, volume: sched.volume, targetId: target.id, retentionDays },
+  ).catch(() => undefined);
+}
+
+/** One restic backup of the volume into one destination, catalogued as a Snapshot row. */
+async function backupToTarget(
+  db: SchedDb,
+  sched: { orgId: string; volume: string },
+  target: TargetRow,
+  nodeId: string,
+  retentionDays: number | null,
+): Promise<{ ok: true; snapshotId: string } | { ok: false; error: string }> {
+  const snapshot = await db.snapshot.create({
+    data: { orgId: sched.orgId, targetId: target.id, volume: sched.volume, status: 'RUNNING', hostNodeId: nodeId },
+  });
+  try {
+    const result = await hub.dispatch<BackupVolumeResult>(nodeId, 'backup.run', {
+      jobId: snapshot.id,
+      repo: toRepo(target),
+      volume: sched.volume,
+      tags: [`org:${sched.orgId}`, `volume:${sched.volume}`],
+      ...(retentionDays != null ? { retentionDays } : {}),
+      // In-cluster destinations (native `swarmy-garage`) only resolve on the swarmy overlay.
+      network: resticNetworkFor(target.endpoint),
     });
-    const snapshot = await db.snapshot.create({
+    await db.snapshot.update({
+      where: { id: snapshot.id },
       data: {
-        orgId: sched.orgId,
-        targetId: target.id,
-        volume: sched.volume,
-        status: 'RUNNING',
-        hostNodeId: nodeId,
+        status: 'SUCCEEDED',
+        resticId: result.snapshotId,
+        sizeBytes: BigInt(result.sizeBytes),
+        finishedAt: new Date(),
       },
     });
-
-    // The stack's retention label (`swarmy.backup.retentionDays`) rides the
-    // dispatch; the agent enforces it with `restic forget --keep-within --prune`
-    // after the backup succeeds. Absent label = keep forever.
-    const retentionDays = retentionFor(sched.orgId, sched.volume, sched.retentionDays);
-
-    try {
-      const result = await hub.dispatch<BackupVolumeResult>(nodeId, 'backup.run', {
-        jobId: snapshot.id,
-        repo: toRepo(target),
-        volume: sched.volume,
-        tags: [`org:${sched.orgId}`, `volume:${sched.volume}`],
-        ...(retentionDays != null ? { retentionDays } : {}),
-        // In-cluster destinations (native `swarmy-garage`) only resolve on the swarmy overlay.
-        network: resticNetworkFor(target.endpoint),
-      });
-      await db.snapshot.update({
-        where: { id: snapshot.id },
-        data: {
-          status: 'SUCCEEDED',
-          resticId: result.snapshotId,
-          sizeBytes: BigInt(result.sizeBytes),
-          finishedAt: new Date(),
-        },
-      });
-      await db.backupJob.update({
-        where: { id: job.id },
-        data: { status: 'SUCCEEDED', finishedAt: new Date(), snapshotId: snapshot.id },
-      });
-      await auditRetention(sched.orgId, sched.volume, snapshot.id, result.retention);
-    } catch (e) {
-      await db.snapshot.update({
-        where: { id: snapshot.id },
-        data: {
-          status: 'FAILED',
-          error: e instanceof Error ? e.message : String(e),
-          finishedAt: new Date(),
-        },
-      });
-      await db.backupJob.update({
-        where: { id: job.id },
-        data: { status: 'FAILED', finishedAt: new Date(), error: e instanceof Error ? e.message : String(e) },
-      });
-    }
-
-    // Belt and braces: when the volume is a compose MySQL/MariaDB/Mongo/Redis/
-    // Valkey data volume, also take a transaction-consistent logical dump to the
-    // same destination with the same retention (skipped, not failed, when its
-    // credentials can't be resolved — the volume copy above still covers it).
-    await runScheduledAppDbDump(
-      { db: prisma, hub, auth: authRegistry.getAuth() },
-      { orgId: sched.orgId, volume: sched.volume, targetId: target.id, retentionDays },
-    ).catch(() => undefined);
+    await auditRetention(sched.orgId, sched.volume, snapshot.id, result.retention);
+    return { ok: true, snapshotId: snapshot.id };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    await db.snapshot.update({
+      where: { id: snapshot.id },
+      data: { status: 'FAILED', error, finishedAt: new Date() },
+    });
+    return { ok: false, error };
   }
 }
 

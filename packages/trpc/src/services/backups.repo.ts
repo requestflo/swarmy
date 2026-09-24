@@ -43,6 +43,8 @@ export const backupTargets = kvTable<BackupTargetDoc>('bkp-target', {
 
 export interface BackupScheduleDoc {
   targetId: string;
+  /** Optional second destination: every run also copies the volume here (off-site copy). */
+  secondaryTargetId: string | null;
   volume: string;
   nodeId: string | null;
   every: number;
@@ -58,7 +60,7 @@ export interface BackupScheduleDoc {
 
 export const backupSchedules = kvTable<BackupScheduleDoc>('bkp-sched', {
   dateFields: ['anchorAt', 'optedOutAt'],
-  defaults: () => ({ nodeId: null, paused: false, auto: false, retentionDays: null, anchorAt: null, optedOutAt: null }),
+  defaults: () => ({ secondaryTargetId: null, nodeId: null, paused: false, auto: false, retentionDays: null, anchorAt: null, optedOutAt: null }),
 });
 
 export interface OffsiteMirrorDoc {

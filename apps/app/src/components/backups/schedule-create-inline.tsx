@@ -13,6 +13,7 @@ import {
 import { useTRPC } from '@/integrations/trpc';
 import { Field } from './field';
 import type { TargetOption } from './target-option';
+import { SecondaryTargetPicker } from './schedule-secondary-select';
 
 type Unit = 'minutes' | 'hours' | 'days';
 
@@ -40,6 +41,7 @@ export function ScheduleCreateInline({
   }, [initialVolume]);
   const [every, setEvery] = React.useState('1');
   const [unit, setUnit] = React.useState<Unit>('days');
+  const [secondaryId, setSecondaryId] = React.useState<string | null>(null);
 
   const create = useMutation(
     trpc.backupSchedules.create.mutationOptions({
@@ -76,6 +78,14 @@ export function ScheduleCreateInline({
           </SelectContent>
         </Select>
       </Field>
+      <Field label="Also copy to (optional)">
+        <SecondaryTargetPicker
+          targets={targets}
+          primaryId={targetId}
+          value={secondaryId === targetId ? null : secondaryId}
+          onChange={setSecondaryId}
+        />
+      </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Every">
           <Input type="number" min={1} value={every} onChange={(e) => setEvery(e.target.value)} />
@@ -101,7 +111,13 @@ export function ScheduleCreateInline({
             create.isPending || !targetId || volume.trim() === `${stack}_` || Number(every) < 1
           }
           onClick={() =>
-            create.mutate({ targetId, volume: volume.trim(), every: Number(every), unit })
+            create.mutate({
+              targetId,
+              secondaryTargetId: secondaryId && secondaryId !== targetId ? secondaryId : null,
+              volume: volume.trim(),
+              every: Number(every),
+              unit,
+            })
           }
         >
           {create.isPending ? 'Creating…' : 'Create schedule'}

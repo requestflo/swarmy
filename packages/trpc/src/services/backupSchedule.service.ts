@@ -11,13 +11,15 @@
  */
 import { backupSchedules } from './backups.repo';
 import type { OrgContext } from '../context';
-import { notFound } from '../errors';
+import { badRequest, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { intervalMs, nextIntervalRun, type IntervalUnit, type ScheduleSpec } from './schedule';
 
 export interface BackupScheduleView {
   id: string;
   targetId: string;
+  /** Second destination each run also copies to (null = one copy). */
+  secondaryTargetId: string | null;
   volume: string;
   nodeId: string | null;
   every: number;
@@ -35,6 +37,7 @@ export interface BackupScheduleView {
 interface ScheduleRow {
   id: string;
   targetId: string;
+  secondaryTargetId?: string | null;
   volume: string;
   nodeId: string | null;
   every: number;
@@ -92,6 +95,7 @@ function toView(row: ScheduleRow, lastRunAt: Date | null = null): BackupSchedule
   return {
     id: row.id,
     targetId: row.targetId,
+    secondaryTargetId: row.secondaryTargetId ?? null,
     volume: row.volume,
     nodeId: row.nodeId,
     every: row.every,
@@ -125,6 +129,7 @@ export async function listSchedules(
 
 export interface CreateScheduleInput {
   targetId: string;
+  secondaryTargetId?: string | null;
   volume: string;
   nodeId?: string;
   every: number;
@@ -137,6 +142,9 @@ export async function createSchedule(
 ): Promise<BackupScheduleView> {
   const spec: ScheduleSpec = { every: input.every, unit: input.unit };
   intervalMs(spec); // validate
+  if (input.secondaryTargetId && input.secondaryTargetId === input.targetId) {
+    throw badRequest('The second destination must differ from the first.');
+  }
   const now = new Date();
   // The user is taking over this volume: retire the auto schedule as an
   // opt-out tombstone (so the loop doesn't re-create it next to theirs).
@@ -150,6 +158,7 @@ export async function createSchedule(
     data: {
       orgId: ctx.activeOrgId,
       targetId: input.targetId,
+      secondaryTargetId: input.secondaryTargetId ?? null,
       volume: input.volume,
       nodeId: input.nodeId ?? null,
       every: input.every,
@@ -161,9 +170,38 @@ export async function createSchedule(
     action: 'backup.schedule.create',
     targetType: 'backupSchedule',
     targetId: row.id,
-    metadata: { volume: input.volume, every: input.every, unit: input.unit },
+    metadata: {
+      volume: input.volume,
+      every: input.every,
+      unit: input.unit,
+      ...(input.secondaryTargetId ? { secondaryTargetId: input.secondaryTargetId } : {}),
+    },
   });
   return toView(row);
+}
+
+/** Add, change or drop a schedule's second destination (its off-site copy). */
+export async function setScheduleSecondary(
+  ctx: OrgContext,
+  input: { id: string; secondaryTargetId: string | null },
+): Promise<BackupScheduleView> {
+  const row = await db(ctx).findFirst({ where: { id: input.id, orgId: ctx.activeOrgId, optedOutAt: null } });
+  if (!row) throw notFound('backup schedule', input.id);
+  if (input.secondaryTargetId && input.secondaryTargetId === row.targetId) {
+    throw badRequest('The second destination must differ from the first.');
+  }
+  const updated = await db(ctx).update({
+    where: { id: input.id },
+    data: { secondaryTargetId: input.secondaryTargetId },
+  });
+  const last = await lastRunBySchedule(ctx.db, [input.id]);
+  await writeAudit(ctx, {
+    action: 'backup.schedule.secondary',
+    targetType: 'backupSchedule',
+    targetId: input.id,
+    metadata: { secondaryTargetId: input.secondaryTargetId },
+  });
+  return toView(updated, last.get(input.id) ?? null);
 }
 
 export async function setSchedulePaused(

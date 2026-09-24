@@ -19,9 +19,13 @@ import { AutoBackupBadge } from './auto-backup-badge';
 import { RemoveScheduleConfirm } from './remove-schedule-confirm';
 import { ScheduleCreateInline } from './schedule-create-inline';
 import type { TargetOption } from './target-option';
+import { ScheduleSecondarySelect } from './schedule-secondary-select';
 
 export interface ScheduleRow {
   id: string;
+  targetId: string;
+  /** Second destination every run also copies to. */
+  secondaryTargetId?: string | null;
   volume: string;
   every: number;
   unit: string;
@@ -114,6 +118,11 @@ export function StackSchedulesCard({
                   <p className="mono-data truncate font-medium">{s.volume}</p>
                   <p className="text-muted-foreground mono-label truncate">
                     every {s.every} {s.unit} · next {untilTime(s.nextRunAt)}
+                    {' · '}
+                    {targets.find((t) => t.id === s.targetId)?.name ?? 'destination gone'}
+                    {s.secondaryTargetId
+                      ? ` + ${targets.find((t) => t.id === s.secondaryTargetId)?.name ?? 'second destination gone'}`
+                      : ''}
                     {s.auto ? ' · crash-consistent copy of the live volume' : ''}
                   </p>
                 </div>
@@ -131,6 +140,14 @@ export function StackSchedulesCard({
                     }
                   />
                 )}
+                {targets.length > 1 ? (
+                  <ScheduleSecondarySelect
+                    scheduleId={s.id}
+                    targets={targets}
+                    primaryId={s.targetId}
+                    value={s.secondaryTargetId ?? null}
+                  />
+                ) : null}
                 <StatusBadge
                   tone={s.paused ? 'neutral' : 'online'}
                   label={s.paused ? 'paused' : 'active'}

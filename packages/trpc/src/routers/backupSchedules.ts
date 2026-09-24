@@ -9,6 +9,7 @@ import {
   listSchedules,
   removeSchedule,
   setSchedulePaused,
+  setScheduleSecondary,
 } from '../services/backupSchedule.service';
 
 const unit = z.enum(['minutes', 'hours', 'days']);
@@ -26,6 +27,8 @@ export const backupSchedulesRouter = router({
     .input(
       z.object({
         targetId: z.string(),
+        /** Optional second destination every run also copies to. */
+        secondaryTargetId: z.string().nullish(),
         volume: z.string().min(1),
         nodeId: z.string().optional(),
         every: z.number().int().positive(),
@@ -33,6 +36,10 @@ export const backupSchedulesRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => createSchedule(ctx, input)),
+
+  setSecondary: adminProcedure
+    .input(z.object({ id: z.string(), secondaryTargetId: z.string().nullable() }))
+    .mutation(({ ctx, input }) => setScheduleSecondary(ctx, input)),
 
   setPaused: adminProcedure
     .input(z.object({ id: z.string(), paused: z.boolean() }))
