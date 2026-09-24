@@ -5,5 +5,10 @@
  */
 export { CardSkeleton, TextSkeleton } from './card-skeleton';
 export { ErrorState, PageError } from './error-state';
-export { HeaderSkeleton, PageSkeleton, SkeletonBody, type PageSkeletonVariant } from './page-skeleton';
+export {
+  HeaderSkeleton,
+  PageSkeleton,
+  SkeletonBody,
+  type PageSkeletonVariant,
+} from './page-skeleton';
 export { EmptyState } from '@swarmy/ui';

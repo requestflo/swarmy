@@ -26,7 +26,10 @@ export type EstateSummaryState =
  * disagree. `status` is `pending` until every part has settled: callers draw a
  * skeleton, never a placeholder zero.
  */
-export function useEstateSummary(): EstateSummaryState & { refetch: () => void; isFetching: boolean } {
+export function useEstateSummary(): EstateSummaryState & {
+  refetch: () => void;
+  isFetching: boolean;
+} {
   const trpc = useTRPC();
   const summary = useQuery({
     ...trpc.system.dashboardSummary.queryOptions(),

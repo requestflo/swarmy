@@ -27,5 +27,10 @@ export function CardSkeleton({ lines = 2, className }: CardSkeletonProps): React
 
 /** Inline shimmer for a single number or word (a footer count, a name). */
 export function TextSkeleton({ className }: { className?: string }): React.JSX.Element {
-  return <span className={cn('shimmer-line inline-block h-3.5 w-12 rounded align-middle', className)} aria-hidden />;
+  return (
+    <span
+      className={cn('shimmer-line inline-block h-3.5 w-12 rounded align-middle', className)}
+      aria-hidden
+    />
+  );
 }

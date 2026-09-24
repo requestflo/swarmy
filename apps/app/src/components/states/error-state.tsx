@@ -42,7 +42,12 @@ export function ErrorState({
         {detail ? <p className="text-muted-foreground mx-auto max-w-md text-sm">{detail}</p> : null}
       </div>
       {retry ? (
-        <Button variant="outline" className="rounded-full font-bold" onClick={retry} disabled={retrying}>
+        <Button
+          variant="outline"
+          className="rounded-full font-bold"
+          onClick={retry}
+          disabled={retrying}
+        >
           <RefreshCwIcon className={cn('size-4', retrying && 'animate-spin')} /> Try again
         </Button>
       ) : null}
