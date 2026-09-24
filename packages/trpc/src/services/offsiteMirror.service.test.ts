@@ -5,6 +5,7 @@ import {
   BUCKET_MARKER,
   EXIT_MARKER,
   finishRun,
+  getMirror,
   reapStaleRuns,
   restoreFromOffsite,
   runDueMirrors,
@@ -111,9 +112,6 @@ function fakeDb() {
       enabled: true,
       sourceAccessKeyRef: null,
       sourceSecretKeyRef: null,
-      grantedBucketIds: [],
-      lastRunAt: null,
-      nextRunAt: null,
       createdAt: new Date('2026-09-01T00:00:00Z'),
     })),
     offsiteMirrorRun: table(() => ({
@@ -237,8 +235,11 @@ describe('run recording', () => {
     const mirror = db.offsiteMirror.rows[0]!;
     expect(typeof mirror.sourceAccessKeyRef).toBe('string');
     expect(mirror.sourceAccessKeyRef).not.toContain('GKmirror');
-    expect(mirror.grantedBucketIds).toEqual(['b1']);
-    expect(mirror.lastRunAt).toBeInstanceOf(Date);
+    // grants are an in-memory cache (never a column); the last run is derived from history
+    expect('grantedBucketIds' in mirror).toBe(false);
+    const allows = () => hub.calls.filter((c) => c.payload.env?.GARAGE_URL?.endsWith('/bucket/allow')).length;
+    expect(allows()).toBe(1);
+    expect((await getMirror(ctx)).mirror?.lastRunAt).toBe((running.startedAt as Date).toISOString());
 
     // the rclone dispatch carries creds in env only
     const rclone = hub.calls.find((c) => c.payload.image.startsWith('rclone/'))!;
@@ -285,13 +286,13 @@ describe('scheduler (runDueMirrors)', () => {
   test('a due mirror that cannot start still advances and records a FAILED run', async () => {
     await seedTarget(db); // no store row → object storage is off
     const hub = fakeHub({ manager: 'n1' });
-    await saveMirror(ctxFor(db, hub), { targetId: 't1', allBuckets: true });
+    await saveMirror(ctxFor(db, hub), { targetId: 't1', allBuckets: true }); // never run → due
     const now = new Date('2026-09-01T05:20:00Z');
-    db.offsiteMirror.rows[0]!.nextRunAt = new Date('2026-09-01T05:00:00Z');
     const res = await runDueMirrors({ db: db as never, hub: hub as never, auth: {} as never }, now);
     expect(res.started).toEqual([]);
-    const mirror = db.offsiteMirror.rows[0]!;
-    expect((mirror.nextRunAt as Date).toISOString()).toBe('2026-09-01T06:00:00.000Z');
+    // The FAILED row is the last run, so the derived next slot moved on.
+    expect((await getMirror(ctxFor(db, hub))).mirror?.nextRunAt).toBe('2026-09-01T06:00:00.000Z');
+    await runDueMirrors({ db: db as never, hub: hub as never, auth: {} as never }, new Date('2026-09-01T05:40:00Z'));
     const runs = db.offsiteMirrorRun.rows;
     expect(runs).toHaveLength(1);
     expect(runs[0]!.status).toBe('FAILED');
@@ -315,9 +316,19 @@ describe('scheduler (runDueMirrors)', () => {
     await seedTarget(db);
     const hub = fakeHub({ manager: 'n1' });
     await saveMirror(ctxFor(db, hub), { targetId: 't1', allBuckets: true });
-    db.offsiteMirror.rows[0]!.nextRunAt = new Date('2026-09-01T07:00:00Z');
+    // Last run at 06:00 → next hourly slot is 07:00.
+    await db.offsiteMirrorRun.create({
+      data: {
+        orgId: ORG,
+        mirrorId: db.offsiteMirror.rows[0]!.id,
+        direction: 'mirror',
+        status: 'SUCCEEDED',
+        startedAt: new Date('2026-09-01T06:00:00Z'),
+        finishedAt: new Date('2026-09-01T06:02:00Z'),
+      },
+    });
     await runDueMirrors({ db: db as never, hub: hub as never, auth: {} as never }, new Date('2026-09-01T06:30:00Z'));
-    expect(db.offsiteMirrorRun.rows).toHaveLength(0);
+    expect(db.offsiteMirrorRun.rows).toHaveLength(1);
     expect(hub.calls).toHaveLength(0);
   });
 });
@@ -347,7 +358,9 @@ describe('config', () => {
     expect(view.mirror?.mode).toBe('copy');
     expect(view.mirror?.everyMinutes).toBe(60);
     expect(view.mirror?.root).toBe('acme-dr/swarmy-mirror');
-    expect(db.offsiteMirror.rows[0]!.nextRunAt).toBeInstanceOf(Date);
+    // No stored nextRunAt: never run → due on the next tick.
+    expect('nextRunAt' in db.offsiteMirror.rows[0]!).toBe(false);
+    expect(typeof view.mirror?.nextRunAt).toBe('string');
   });
 });
 

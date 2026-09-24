@@ -7,10 +7,11 @@ import { hub } from '../gateway';
 
 /**
  * Scheduled-job worker (slice B2). Every 30s: fire every due, enabled
- * `ScheduledJob` — due = the next cron occurrence after `lastRunAt` (or
- * `createdAt` when never run) has passed. `lastRunAt` is advanced BEFORE
- * executing (backup-scheduler precedent) so overlapping ticks never
- * double-fire; execution runs detached with one `JobRun` row per attempt,
+ * `ScheduledJob` — due = the next cron occurrence after its last fire (the
+ * newest first-attempt `JobRun.startedAt`, or `createdAt` when never run) has
+ * passed. There is no run-state column: the first `JobRun` row is written
+ * BEFORE executing so the next tick already sees the fire and never
+ * double-fires; execution runs detached with one `JobRun` row per attempt,
  * retry backoff, and a `job-failed` alert event when the final attempt fails
  * and the job asks for it.
  *
@@ -244,14 +245,17 @@ async function performAttempt(job: JobRow): Promise<AttemptOutcome> {
 }
 
 /** One `JobRun` row per attempt; a cancelled row (no longer RUNNING) stops the chain. */
-async function executeJob(ctx: OrgContext, job: JobRow): Promise<void> {
+async function executeJob(ctx: OrgContext, job: JobRow, firstRunId: string): Promise<void> {
   const budget = 1 + Math.max(0, job.retries);
   let final: AttemptOutcome | null = null;
   for (let attempt = 1; attempt <= budget; attempt++) {
-    const run = await prisma.jobRun.create({
-      data: { orgId: job.orgId, jobId: job.id, status: 'RUNNING', attempt },
-      select: { id: true },
-    });
+    const run =
+      attempt === 1
+        ? { id: firstRunId }
+        : await prisma.jobRun.create({
+            data: { orgId: job.orgId, jobId: job.id, status: 'RUNNING', attempt },
+            select: { id: true },
+          });
     const outcome = await performAttempt(job);
     const updated = await prisma.jobRun.updateMany({
       where: { id: run.id, status: 'RUNNING' },
@@ -281,15 +285,37 @@ async function executeJob(ctx: OrgContext, job: JobRow): Promise<void> {
 
 // ── tick ─────────────────────────────────────────────────────────────────────
 
+/** Last fire per job, derived from run history (first attempts only). */
+async function lastFireByJob(jobIds: string[]): Promise<Map<string, Date>> {
+  if (jobIds.length === 0) return new Map();
+  const rows = await prisma.jobRun.groupBy({
+    by: ['jobId'],
+    where: { jobId: { in: jobIds }, attempt: 1 },
+    _max: { startedAt: true },
+  });
+  const out = new Map<string, Date>();
+  for (const r of rows) if (r._max.startedAt) out.set(r.jobId, r._max.startedAt);
+  return out;
+}
+
 async function tick(now: Date): Promise<void> {
   const jobs = await prisma.scheduledJob.findMany({ where: { enabled: true } });
-  const due = new Set(selectDueJobs(jobs, now));
+  const lastFire = await lastFireByJob(jobs.map((j) => j.id));
+  const due = new Set(
+    selectDueJobs(
+      jobs.map((j) => ({ ...j, lastRunAt: lastFire.get(j.id) ?? null })),
+      now,
+    ),
+  );
   if (due.size === 0) return;
   const auth = authRegistry.getAuth();
   for (const job of jobs) {
     if (!due.has(job.id)) continue;
-    // Advance first so a slow run (or overlapping tick) never double-fires.
-    await prisma.scheduledJob.update({ where: { id: job.id }, data: { lastRunAt: now } });
+    // Record the fire first so a slow run (or overlapping tick) never double-fires.
+    const first = await prisma.jobRun.create({
+      data: { orgId: job.orgId, jobId: job.id, status: 'RUNNING', attempt: 1 },
+      select: { id: true },
+    });
     const ctx = systemContext({ db: prisma, hub, auth }, job.orgId);
     await writeAudit(ctx, {
       action: 'job.fire',
@@ -299,7 +325,7 @@ async function tick(now: Date): Promise<void> {
       metadata: { name: job.name, schedule: job.schedule },
     });
     // Detached: a 10-minute container must not block the scheduler tick.
-    void executeJob(ctx, job).catch(() => undefined);
+    void executeJob(ctx, job, first.id).catch(() => undefined);
   }
 }
 

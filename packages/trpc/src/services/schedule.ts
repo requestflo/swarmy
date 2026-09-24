@@ -3,7 +3,8 @@
  *
  * No IO. We support a small "cron-ish" interval model rather than full cron:
  * `every` N minutes/hours/days from an anchor. This is deterministic and easy
- * to golden-test; the scheduler worker reads `nextRunAt` and advances it.
+ * to golden-test. There is no stored `nextRunAt`: the scheduler derives it
+ * from the schedule and its newest run in history (`nextIntervalRun`).
  */
 
 export type IntervalUnit = 'minutes' | 'hours' | 'days';
@@ -37,6 +38,22 @@ export function nextRun(spec: ScheduleSpec, anchor: Date, from: Date): Date {
   const elapsed = fromMs - anchorMs;
   const k = Math.floor(elapsed / step) + 1;
   return new Date(anchorMs + k * step);
+}
+
+/**
+ * The next run of an interval schedule, derived (no run-state column):
+ * `lastRunAt` is the newest run in history (`BackupJob.startedAt`), null when
+ * it never ran. A never-run schedule's first slot is the first one after
+ * `createdAt`; afterwards, the first slot after the last run. A slot that has
+ * passed means "due" — including after a pause or a controller outage.
+ */
+export function nextIntervalRun(
+  spec: ScheduleSpec,
+  anchor: Date,
+  createdAt: Date,
+  lastRunAt: Date | null,
+): Date {
+  return nextRun(spec, anchor, lastRunAt ?? createdAt);
 }
 
 /** Whether a job with this `nextRunAt` is due as of `now`. */

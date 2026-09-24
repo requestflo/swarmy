@@ -43,8 +43,6 @@ interface ControllerBackupConfigRow {
   retention: unknown;
   restorePassphraseRef: string | null;
   restorePassphraseHint: string | null;
-  lastRunAt: Date | null;
-  nextRunAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -128,7 +126,34 @@ export interface ControllerSnapshotView {
   error: string | null;
 }
 
-function configView(row: ControllerBackupConfigRow): ControllerBackupConfigView {
+/**
+ * Run state, derived from `ControllerSnapshot` history (the config row stores
+ * none): the newest attempt drives the schedule, the newest success is what
+ * the UI and the Resilience score call "last run".
+ */
+export interface ControllerRunState {
+  lastAttemptAt: Date | null;
+  lastSuccessAt: Date | null;
+}
+
+export async function controllerRunState(db: DB): Promise<ControllerRunState> {
+  const [attempt, success] = await Promise.all([
+    models(db).controllerSnapshot.findFirst({ orderBy: { startedAt: 'desc' }, select: { startedAt: true } }),
+    models(db).controllerSnapshot.findFirst({
+      where: { status: 'SUCCEEDED' },
+      orderBy: { startedAt: 'desc' },
+      select: { startedAt: true },
+    }),
+  ]);
+  return { lastAttemptAt: attempt?.startedAt ?? null, lastSuccessAt: success?.startedAt ?? null };
+}
+
+/** The next scheduled run after the newest attempt; null = never run (due now). */
+export function controllerNextRunAt(schedule: string, lastAttemptAt: Date | null): Date | null {
+  return lastAttemptAt ? nextRunFrom(schedule, lastAttemptAt) : null;
+}
+
+function configView(row: ControllerBackupConfigRow, state: ControllerRunState): ControllerBackupConfigView {
   return {
     enabled: row.enabled,
     targetId: row.targetId,
@@ -136,8 +161,8 @@ function configView(row: ControllerBackupConfigRow): ControllerBackupConfigView 
     retention: { ...DEFAULT_RETENTION, ...((row.retention as object) ?? {}) },
     hasPassphrase: Boolean(row.restorePassphraseRef),
     passphraseHint: row.restorePassphraseHint,
-    lastRunAt: row.lastRunAt?.toISOString() ?? null,
-    nextRunAt: row.nextRunAt?.toISOString() ?? null,
+    lastRunAt: state.lastSuccessAt?.toISOString() ?? null,
+    nextRunAt: row.enabled ? (controllerNextRunAt(row.schedule, state.lastAttemptAt)?.toISOString() ?? null) : null,
   };
 }
 
@@ -174,7 +199,8 @@ export async function getOrCreateConfig(db: DB): Promise<ControllerBackupConfigR
 }
 
 export async function getConfig(db: DB): Promise<ControllerBackupConfigView> {
-  return configView(await getOrCreateConfig(db));
+  const [row, state] = await Promise.all([getOrCreateConfig(db), controllerRunState(db)]);
+  return configView(row, state);
 }
 
 interface AuditCtx {
@@ -208,7 +234,7 @@ export async function setConfig(
     targetId: SINGLETON_ID,
     metadata: { enabled: row.enabled, schedule: row.schedule, targetId: row.targetId },
   });
-  return configView(row);
+  return configView(row, await controllerRunState(ctx.db));
 }
 
 /**
@@ -356,10 +382,6 @@ export async function runControllerBackup(
         manifestJson: manifest as unknown as object,
         finishedAt: new Date(),
       },
-    });
-    await models(ctx.db).controllerBackupConfig.update({
-      where: { id: SINGLETON_ID },
-      data: { lastRunAt: new Date(), nextRunAt: nextRunFrom(config.schedule) },
     });
     await writeAudit(ctx, {
       action: 'controller.backup.run',
@@ -516,6 +538,8 @@ export function nextRunFrom(schedule: string, from: Date = new Date()): Date {
 export async function isBackupDue(db: DB, now: Date = new Date()): Promise<boolean> {
   const config = await getOrCreateConfig(db);
   if (!config.enabled || !config.targetId || !config.restorePassphraseRef) return false;
-  if (!config.nextRunAt) return true;
-  return config.nextRunAt <= now;
+  // Derived from history: the snapshot row is written before the run starts,
+  // so a run in progress (or one that just failed) waits for the next slot.
+  const next = controllerNextRunAt(config.schedule, (await controllerRunState(db)).lastAttemptAt);
+  return next == null || next <= now;
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   backupMissedConditions,
+  derivedNextBackupRun,
   conditionKey,
   crashLoopConditions,
   dbLagConditions,
@@ -223,5 +224,14 @@ describe('default-alert signals (launch-blocker #6)', () => {
     );
     expect(out.map((c) => [c.signal, c.resource])).toEqual([['backup-failed', 'backup:late']]);
     expect(out[0]!.message).toContain('180 min late');
+  });
+
+  it('derives a backup schedule next slot from its last run (no stored nextRunAt)', () => {
+    const at = (iso: string) => new Date(iso);
+    const s = { every: 1, unit: 'days', createdAt: at('2026-09-20T10:00:00Z'), anchorAt: at('2026-09-20T03:00:00Z') };
+    expect(derivedNextBackupRun(s, null)?.toISOString()).toBe('2026-09-21T03:00:00.000Z');
+    expect(derivedNextBackupRun(s, at('2026-09-23T03:00:04Z'))?.toISOString()).toBe('2026-09-24T03:00:00.000Z');
+    expect(derivedNextBackupRun({ ...s, anchorAt: null }, null)?.toISOString()).toBe('2026-09-21T10:00:00.000Z');
+    expect(derivedNextBackupRun({ ...s, unit: 'fortnights' }, null)).toBeNull();
   });
 });

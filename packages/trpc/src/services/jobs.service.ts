@@ -177,8 +177,13 @@ interface JobRow {
   retries: number;
   alertOnFailure: boolean;
   enabled: boolean;
-  lastRunAt: Date | null;
   createdAt: Date;
+}
+
+/** The newest run of a job (run history is the only record of "last run"). */
+interface LastRun {
+  status: JobRunStatusView;
+  startedAt: Date;
 }
 
 /** `ScheduledJobView` + the stack-scoped IA field (local until core absorbs it). */
@@ -218,7 +223,7 @@ function nextRunAtOf(row: Pick<JobRow, 'schedule' | 'enabled'>, now: Date): Date
   }
 }
 
-function toView(row: JobRow, lastRunStatus: JobRunStatusView | null, now: Date): ScheduledJobFullView {
+function toView(row: JobRow, lastRun: LastRun | null, now: Date): ScheduledJobFullView {
   return {
     id: row.id,
     name: row.name,
@@ -235,8 +240,8 @@ function toView(row: JobRow, lastRunStatus: JobRunStatusView | null, now: Date):
     retries: row.retries,
     alertOnFailure: row.alertOnFailure,
     enabled: row.enabled,
-    lastRunAt: row.lastRunAt?.toISOString() ?? null,
-    lastRunStatus,
+    lastRunAt: lastRun?.startedAt.toISOString() ?? null,
+    lastRunStatus: lastRun?.status ?? null,
     nextRunAt: nextRunAtOf(row, now)?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
@@ -248,13 +253,30 @@ async function requireJob(ctx: OrgContext, id: string): Promise<JobRow> {
   return row;
 }
 
-async function latestRunStatus(ctx: OrgContext, jobId: string): Promise<JobRunStatusView | null> {
+async function latestRun(ctx: OrgContext, jobId: string): Promise<LastRun | null> {
   const run = await ctx.db.jobRun.findFirst({
     where: { orgId: ctx.activeOrgId, jobId },
     orderBy: { startedAt: 'desc' },
-    select: { status: true },
+    select: { status: true, startedAt: true },
   });
-  return run ? (RUN_STATUS_TO_VIEW[run.status] ?? 'running') : null;
+  return run ? { status: RUN_STATUS_TO_VIEW[run.status] ?? 'running', startedAt: run.startedAt } : null;
+}
+
+/**
+ * Last FIRE per job (first attempts only; a retry is the same fire), derived
+ * from run history in one query. Drives the due rule — there is no
+ * `lastRunAt` column.
+ */
+async function lastFireByJob(db: DB, jobIds: string[]): Promise<Map<string, Date>> {
+  if (jobIds.length === 0) return new Map();
+  const rows = await db.jobRun.groupBy({
+    by: ['jobId'],
+    where: { jobId: { in: jobIds }, attempt: 1 },
+    _max: { startedAt: true },
+  });
+  const out = new Map<string, Date>();
+  for (const r of rows) if (r._max.startedAt) out.set(r.jobId, r._max.startedAt);
+  return out;
 }
 
 // ── queries ──────────────────────────────────────────────────────────────────
@@ -305,10 +327,12 @@ export async function listJobs(ctx: OrgContext, stack?: string): Promise<Schedul
     where: { orgId: ctx.activeOrgId, jobId: { in: rows.map((r) => r.id) } },
     orderBy: { startedAt: 'desc' },
     distinct: ['jobId'],
-    select: { jobId: true, status: true },
+    select: { jobId: true, status: true, startedAt: true },
   });
-  const statusByJob = new Map(latest.map((r) => [r.jobId, RUN_STATUS_TO_VIEW[r.status] ?? 'running']));
-  return rows.map((row) => toView(row, statusByJob.get(row.id) ?? null, now));
+  const lastByJob = new Map<string, LastRun>(
+    latest.map((r) => [r.jobId, { status: RUN_STATUS_TO_VIEW[r.status] ?? 'running', startedAt: r.startedAt }]),
+  );
+  return rows.map((row) => toView(row, lastByJob.get(row.id) ?? null, now));
 }
 
 export async function listRuns(ctx: OrgContext, input: JobRunsInput): Promise<JobRunsPage> {
@@ -443,7 +467,7 @@ export async function updateJob(
     targetId: row.id,
     metadata: { name: updated.name, schedule: updated.schedule },
   });
-  return toView(updated, await latestRunStatus(ctx, row.id), new Date());
+  return toView(updated, await latestRun(ctx, row.id), new Date());
 }
 
 export async function removeJob(ctx: OrgContext, id: string): Promise<{ id: string }> {
@@ -470,7 +494,7 @@ export async function toggleJob(ctx: OrgContext, input: { id: string; enabled: b
     targetId: row.id,
     metadata: { name: row.name, enabled: input.enabled },
   });
-  return toView(updated, await latestRunStatus(ctx, row.id), new Date());
+  return toView(updated, await latestRun(ctx, row.id), new Date());
 }
 
 /**
@@ -497,8 +521,9 @@ export async function cancelRun(ctx: OrgContext, runId: string): Promise<JobRunV
 }
 
 /**
- * Fire a job immediately. Stamps `lastRunAt` (a manual run IS the last run —
- * under the due rule this never skips a pending slot that already passed) and
+ * Fire a job immediately. Its first `JobRun` row is the new last fire (a manual
+ * run IS the last run — under the due rule this never skips a pending slot
+ * that already passed) and
  * executes in the background; the UI polls `runs` for the outcome.
  */
 export async function runNow(ctx: OrgContext, id: string): Promise<{ jobId: string; runId: string }> {
@@ -511,7 +536,6 @@ export async function runNow(ctx: OrgContext, id: string): Promise<{ jobId: stri
     command: parseCommand(row.command),
     env: parseEnv(row.envJson),
   });
-  await ctx.db.scheduledJob.update({ where: { id: row.id }, data: { lastRunAt: new Date() } });
   const runId = await startJobExecution(ctx, row);
   await writeAudit(ctx, {
     action: 'job.runNow',
@@ -666,14 +690,16 @@ export interface RunDueJobsDeps {
 
 /**
  * Fire every due, enabled job across all orgs: due = the next cron occurrence
- * after `lastRunAt` (or `createdAt` when never run) has passed. `lastRunAt` is
- * advanced BEFORE executing so an overlapping tick never double-fires
- * (backup-scheduler precedent); execution itself runs detached. Without `deps`
+ * after the last fire (newest first-attempt `JobRun`, or `createdAt` when never
+ * run) has passed. The first `JobRun` row is written BEFORE executing so an
+ * overlapping tick already sees the fire and never double-fires; execution
+ * itself runs detached. Without `deps`
  * there is nothing to scan with, so it no-ops (spine-era call shape).
  */
 export async function runDueScheduledJobs(now: Date, deps?: RunDueJobsDeps): Promise<void> {
   if (!deps) return;
   const jobs = await deps.db.scheduledJob.findMany({ where: { enabled: true } });
+  const lastFire = await lastFireByJob(deps.db, jobs.map((j) => j.id));
   for (const job of jobs) {
     let spec: CronSpec;
     try {
@@ -681,9 +707,8 @@ export async function runDueScheduledJobs(now: Date, deps?: RunDueJobsDeps): Pro
     } catch {
       continue; // unparseable cron surfaces as nextRunAt=null in the UI
     }
-    if (!isJobDue(spec, job.lastRunAt, job.createdAt, now)) continue;
+    if (!isJobDue(spec, lastFire.get(job.id) ?? null, job.createdAt, now)) continue;
     const ctx = systemContext(deps, job.orgId);
-    await deps.db.scheduledJob.update({ where: { id: job.id }, data: { lastRunAt: now } });
     const runId = await startJobExecution(ctx, job);
     await writeAudit(ctx, {
       action: 'job.fire',

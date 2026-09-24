@@ -342,6 +342,15 @@ export function nextMirrorRun(everyMinutes: number, anchor: Date, from: Date): D
   return new Date(a + (Math.floor((f - a) / step) + 1) * step);
 }
 
+/**
+ * The next scheduled run, derived (no stored `nextRunAt`): the first interval
+ * slot, anchored at the mirror's creation, after its newest mirror run.
+ * Null = it has never run (or was just re-armed) — due on the next tick.
+ */
+export function mirrorNextRunAt(everyMinutes: number, createdAt: Date, lastRunAt: Date | null): Date | null {
+  return lastRunAt ? nextMirrorRun(everyMinutes, createdAt, lastRunAt) : null;
+}
+
 /** Whether a scheduled run is due now. A paused (disabled) mirror never is. */
 export function isMirrorDue(
   m: { enabled: boolean; nextRunAt: Date | null },

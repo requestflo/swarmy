@@ -2,7 +2,9 @@
  * Backup schedule + DR restore-operation read/CRUD service
  * (epic: volumes-dr, P2 — scheduler + restore-on-recovery surfacing).
  *
- * Schedules drive the `backup-scheduler` worker (it reads `nextRunAt`). Restore
+ * Schedules drive the `backup-scheduler` worker. There is no stored run state:
+ * `lastRunAt` is the schedule's newest `BackupJob`, and `nextRunAt` is computed
+ * from the interval (`nextIntervalRun`). Restore
  * operations are written by the `dr-reconcile` worker and surfaced here for the
  * DR settings UI. Models (`BackupSchedule`, `BackupJob`, `RestoreOperation`)
  * are added to Prisma as part of this epic (see INTEGRATION).
@@ -10,7 +12,7 @@
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
-import { intervalMs, nextRun, type IntervalUnit, type ScheduleSpec } from './schedule';
+import { intervalMs, nextIntervalRun, type IntervalUnit, type ScheduleSpec } from './schedule';
 
 export interface BackupScheduleView {
   id: string;
@@ -37,9 +39,8 @@ interface ScheduleRow {
   every: number;
   unit: string;
   paused: boolean;
-  lastRunAt: Date | null;
-  nextRunAt: Date | null;
   createdAt: Date;
+  anchorAt?: Date | null;
   auto?: boolean;
   retentionDays?: number | null;
   optedOutAt?: Date | null;
@@ -55,7 +56,37 @@ function db(ctx: OrgContext): {
   return (ctx.db as unknown as { backupSchedule: ReturnType<typeof db> }).backupSchedule;
 }
 
-function toView(row: ScheduleRow): BackupScheduleView {
+/** Newest run per schedule, derived from `BackupJob` history in one query. */
+export async function lastRunBySchedule(
+  dbc: OrgContext['db'],
+  scheduleIds: string[],
+): Promise<Map<string, Date>> {
+  if (scheduleIds.length === 0) return new Map();
+  const rows = await dbc.backupJob.groupBy({
+    by: ['scheduleId'],
+    where: { scheduleId: { in: scheduleIds } },
+    _max: { startedAt: true },
+  });
+  const out = new Map<string, Date>();
+  for (const r of rows) if (r.scheduleId && r._max.startedAt) out.set(r.scheduleId, r._max.startedAt);
+  return out;
+}
+
+/** The derived next run of a schedule row (null for a bad interval). */
+export function scheduleNextRunAt(
+  row: Pick<ScheduleRow, 'every' | 'unit' | 'createdAt' | 'anchorAt'>,
+  lastRunAt: Date | null,
+): Date | null {
+  try {
+    const spec: ScheduleSpec = { every: row.every, unit: row.unit as IntervalUnit };
+    return nextIntervalRun(spec, row.anchorAt ?? row.createdAt, row.createdAt, lastRunAt);
+  } catch {
+    return null;
+  }
+}
+
+function toView(row: ScheduleRow, lastRunAt: Date | null = null): BackupScheduleView {
+  const nextRunAt = scheduleNextRunAt(row, lastRunAt);
   return {
     id: row.id,
     targetId: row.targetId,
@@ -64,8 +95,8 @@ function toView(row: ScheduleRow): BackupScheduleView {
     every: row.every,
     unit: row.unit as IntervalUnit,
     paused: row.paused,
-    lastRunAt: row.lastRunAt ? row.lastRunAt.toISOString() : null,
-    nextRunAt: row.nextRunAt ? row.nextRunAt.toISOString() : null,
+    lastRunAt: lastRunAt ? lastRunAt.toISOString() : null,
+    nextRunAt: nextRunAt ? nextRunAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
     auto: row.auto === true,
     retentionDays: row.retentionDays ?? null,
@@ -86,7 +117,8 @@ export async function listSchedules(
     },
     orderBy: { createdAt: 'desc' },
   });
-  return rows.map(toView);
+  const last = await lastRunBySchedule(ctx.db, rows.map((r) => r.id));
+  return rows.map((r) => toView(r, last.get(r.id) ?? null));
 }
 
 export interface CreateScheduleInput {
@@ -121,7 +153,6 @@ export async function createSchedule(
       every: input.every,
       unit: input.unit,
       paused: false,
-      nextRunAt: nextRun(spec, now, now),
     },
   });
   await writeAudit(ctx, {
@@ -140,12 +171,13 @@ export async function setSchedulePaused(
   const row = await db(ctx).findFirst({ where: { id: input.id, orgId: ctx.activeOrgId } });
   if (!row) throw notFound('backup schedule', input.id);
   const updated = await db(ctx).update({ where: { id: input.id }, data: { paused: input.paused } });
+  const last = await lastRunBySchedule(ctx.db, [input.id]);
   await writeAudit(ctx, {
     action: input.paused ? 'backup.schedule.pause' : 'backup.schedule.resume',
     targetType: 'backupSchedule',
     targetId: input.id,
   });
-  return toView(updated);
+  return toView(updated, last.get(input.id) ?? null);
 }
 
 export async function removeSchedule(

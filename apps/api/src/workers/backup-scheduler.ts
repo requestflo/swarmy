@@ -1,10 +1,13 @@
 /**
  * Backup scheduler worker (epic: volumes-dr, P2).
  *
- * Every minute: find enabled, non-paused `BackupSchedule`s whose `nextRunAt` is
- * due, dispatch a `runBackup` to a node that hosts the volume (or an online
- * manager), record a `BackupJob` row, then advance `nextRunAt` from the
- * cron-ish interval. Secrets are decrypted just-in-time from the target.
+ * Every minute: find non-paused `BackupSchedule`s that are due, dispatch a
+ * `runBackup` to a node that hosts the volume (or an online manager) and record
+ * a `BackupJob` row. No run state is stored on the schedule: the last run is
+ * the newest `BackupJob`, and the next run is the first interval slot after it
+ * (`nextIntervalRun` in `@swarmy/trpc` schedule.ts). A due schedule whose
+ * target or node is unavailable stays due and is retried next tick. Secrets
+ * are decrypted just-in-time from the target.
  *
  * Mirrors `metrics-sampler`/`retention`: prisma + the shared gateway hub.
  */
@@ -41,6 +44,10 @@ function nextRun(spec: ScheduleSpec, anchor: Date, from: Date): Date {
   if (fromMs < anchorMs) return new Date(anchorMs);
   const k = Math.floor((fromMs - anchorMs) / step) + 1;
   return new Date(anchorMs + k * step);
+}
+/** Mirror of `nextIntervalRun`: the slot after the last run (or creation). */
+function nextIntervalRun(spec: ScheduleSpec, anchor: Date, createdAt: Date, lastRunAt: Date | null): Date {
+  return nextRun(spec, anchor, lastRunAt ?? createdAt);
 }
 
 interface TargetRow {
@@ -146,34 +153,68 @@ async function runDue(): Promise<void> {
           createdAt: Date;
           anchorAt: Date | null;
           retentionDays: number | null;
-          nextRunAt: Date | null;
         }>
       >;
-      update(a: unknown): Promise<unknown>;
     };
-    backupJob: { create(a: unknown): Promise<{ id: string }>; update(a: unknown): Promise<unknown> };
+    backupJob: {
+      create(a: unknown): Promise<{ id: string }>;
+      update(a: unknown): Promise<unknown>;
+      groupBy(a: unknown): Promise<Array<{ scheduleId: string | null; _max: { startedAt: Date | null } }>>;
+    };
     backupTarget: { findUnique(a: unknown): Promise<TargetRow | null> };
     snapshot: { create(a: unknown): Promise<{ id: string }>; update(a: unknown): Promise<unknown> };
   };
 
-  const due = await db.backupSchedule.findMany({
-    where: { paused: false, optedOutAt: null, nextRunAt: { lte: now } },
+  const active = await db.backupSchedule.findMany({ where: { paused: false, optedOutAt: null } });
+  if (active.length === 0) return;
+  const lastRuns = await db.backupJob.groupBy({
+    by: ['scheduleId'],
+    where: { scheduleId: { in: active.map((s) => s.id) } },
+    _max: { startedAt: true },
+  });
+  const lastRunOf = new Map<string, Date>();
+  for (const r of lastRuns) if (r.scheduleId && r._max.startedAt) lastRunOf.set(r.scheduleId, r._max.startedAt);
+  const due = active.filter((sched) => {
+    if (inFlight.has(sched.id)) return false;
+    const spec: ScheduleSpec = { every: sched.every, unit: sched.unit as ScheduleSpec['unit'] };
+    if (!(spec.every > 0) || !UNIT_MS[spec.unit]) return false;
+    const next = nextIntervalRun(spec, sched.anchorAt ?? sched.createdAt, sched.createdAt, lastRunOf.get(sched.id) ?? null);
+    return next.getTime() <= now.getTime();
   });
 
   for (const sched of due) {
-    const spec: ScheduleSpec = { every: sched.every, unit: sched.unit as ScheduleSpec['unit'] };
-    // Advance first so a slow run doesn't double-fire next tick.
-    const next = nextRun(spec, sched.anchorAt ?? sched.createdAt, now);
-    await db.backupSchedule.update({
-      where: { id: sched.id },
-      data: { lastRunAt: now, nextRunAt: next },
-    });
+    inFlight.add(sched.id);
+    try {
+      await runOne(db, sched, now);
+    } finally {
+      inFlight.delete(sched.id);
+    }
+  }
+}
 
+/** Schedules with a run in progress in this process (belt and braces: the
+ *  `BackupJob` row written before dispatch already makes them not-due). */
+const inFlight = new Set<string>();
+
+type SchedDb = {
+  backupJob: { create(a: unknown): Promise<{ id: string }>; update(a: unknown): Promise<unknown> };
+  backupTarget: { findUnique(a: unknown): Promise<TargetRow | null> };
+  snapshot: { create(a: unknown): Promise<{ id: string }>; update(a: unknown): Promise<unknown> };
+};
+
+async function runOne(
+  db: SchedDb,
+  sched: { id: string; orgId: string; targetId: string; volume: string; nodeId: string | null; retentionDays: number | null },
+  now: Date,
+): Promise<void> {
+  {
     const target = await db.backupTarget.findUnique({ where: { id: sched.targetId } });
-    if (!target) continue;
+    if (!target) return;
     const nodeId = await pickNode(sched.orgId, sched.nodeId);
-    if (!nodeId) continue;
+    if (!nodeId) return;
 
+    // The history row IS the "last run": written before dispatch so a slow run
+    // (or an overlapping tick) never double-fires.
     const job = await db.backupJob.create({
       data: { orgId: sched.orgId, scheduleId: sched.id, status: 'RUNNING', startedAt: now },
     });

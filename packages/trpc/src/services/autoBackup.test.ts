@@ -16,7 +16,7 @@ import { ensureAutoBackupsForOrg } from './autoBackup.service';
 import { NATIVE_TARGET_NAME } from './backups.service';
 import { encodeScheduleLabel, parseScheduleLabel } from './dbBackup.service';
 import { provisionDb } from './manageddb.service';
-import { removeSchedule } from './backupSchedule.service';
+import { removeSchedule, scheduleNextRunAt } from './backupSchedule.service';
 import type { OrgContext } from '../context';
 
 const T0 = '2026-01-01T00:00:00Z';
@@ -301,6 +301,7 @@ function world(opts: {
     });
   const db = {
     backupTarget: { findMany: () => Promise.resolve(opts.targets ?? []) },
+    backupJob: { groupBy: () => Promise.resolve([]) },
     backupSchedule: {
       findMany: (a: { where: Record<string, unknown> }) =>
         Promise.resolve(schedules.filter((r) => matches(r, a.where))),
@@ -383,7 +384,10 @@ describe('ensureAutoBackupsForOrg', () => {
     const anchor = row.anchorAt as Date;
     expect(anchor.getUTCHours()).toBeGreaterThanOrEqual(2);
     expect(anchor.getUTCHours()).toBeLessThanOrEqual(4);
-    expect((row.nextRunAt as Date).getTime()).toBeGreaterThan(NOW.getTime());
+    // No stored nextRunAt: the first slot is derived from the anchor.
+    expect('nextRunAt' in row).toBe(false);
+    const next = scheduleNextRunAt({ ...(row as Record<string, unknown>), createdAt: NOW } as never, null)!;
+    expect(next.getTime()).toBeGreaterThan(NOW.getTime());
 
     const stamp = w.dispatches.find((d) => d.cmd === 'service.updateLabels')!;
     expect(stamp.payload.service).toBe('shop_main-primary');

@@ -43,7 +43,7 @@ import {
   MIRROR_KEY_NAME,
   MIRROR_TIMEOUT_MS,
   LIST_TIMEOUT_MS,
-  nextMirrorRun,
+  mirrorNextRunAt,
   normalizePrefix,
   offsiteRoot,
   offsiteTargetProblem,
@@ -76,10 +76,39 @@ interface MirrorRow {
   enabled: boolean;
   sourceAccessKeyRef: string | null;
   sourceSecretKeyRef: string | null;
-  grantedBucketIds: unknown;
-  lastRunAt: Date | null;
-  nextRunAt: Date | null;
   createdAt: Date;
+}
+
+// ── run state (derived or in memory, never stored on the config row) ─────────
+
+/**
+ * Garage bucket ids the mirror key has been granted on, per mirror. A cache
+ * only: Garage's allow is idempotent, so after a restart the first run simply
+ * re-grants. Reset whenever the key is re-minted.
+ */
+const grantedByMirror = new Map<string, Set<string>>();
+
+/**
+ * Mirrors re-enabled or re-pointed at a new destination since their last run:
+ * their first copy starts on the next tick instead of waiting for the slot.
+ * Process-local; a restart just falls back to the regular slot.
+ */
+const armedNow = new Set<string>();
+
+/** Newest store → off-site run (any trigger / outcome) — the "last run". */
+async function lastMirrorRunAt(db: DB, mirrorId: string): Promise<Date | null> {
+  const last = (await db.offsiteMirrorRun.findFirst({
+    where: { mirrorId, direction: 'mirror' },
+    orderBy: { startedAt: 'desc' },
+    select: { startedAt: true },
+  })) as { startedAt: Date } | null;
+  return last?.startedAt ?? null;
+}
+
+/** Derived next scheduled run; null = due on the next tick. */
+function nextRunOf(row: MirrorRow, lastRunAt: Date | null): Date | null {
+  if (armedNow.has(row.id)) return null;
+  return mirrorNextRunAt(row.everyMinutes, row.createdAt, lastRunAt);
 }
 
 interface TargetRow {
@@ -260,7 +289,7 @@ export async function getMirror(ctx: OrgContext): Promise<OffsiteMirrorView> {
   if (!row) {
     return { mirror: null, running: false, lastRun: null, lastSuccessAt: null, runs: [], destinations };
   }
-  const [runs, lastOk, running] = await Promise.all([
+  const [runs, lastOk, running, lastRunAt] = await Promise.all([
     ctx.db.offsiteMirrorRun.findMany({
       where: { mirrorId: row.id },
       orderBy: { startedAt: 'desc' },
@@ -272,7 +301,9 @@ export async function getMirror(ctx: OrgContext): Promise<OffsiteMirrorView> {
       select: { finishedAt: true, startedAt: true },
     }),
     isRunning(ctx.db, row),
+    lastMirrorRunAt(ctx.db, row.id),
   ]);
+  const nextRunAt = row.enabled ? (nextRunOf(row, lastRunAt) ?? new Date()) : null;
   const target = targets.find((t) => t.id === row.targetId);
   let root = '';
   try {
@@ -293,8 +324,8 @@ export async function getMirror(ctx: OrgContext): Promise<OffsiteMirrorView> {
       mode: asMode(row.mode),
       graceDays: row.graceDays,
       enabled: row.enabled,
-      lastRunAt: row.lastRunAt?.toISOString() ?? null,
-      nextRunAt: row.nextRunAt?.toISOString() ?? null,
+      lastRunAt: lastRunAt?.toISOString() ?? null,
+      nextRunAt: nextRunAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
     },
     running,
@@ -356,15 +387,7 @@ export async function saveMirror(ctx: OrgContext, input: SaveMirrorInput): Promi
   }
   const everyMinutes = input.everyMinutes ?? DEFAULT_EVERY_MINUTES;
   const enabled = input.enabled ?? true;
-  const now = new Date();
   const existing = await loadMirror(ctx.db, ctx.activeOrgId);
-  const nextRunAt = !enabled
-    ? null
-    : !existing || !existing.enabled || existing.targetId !== target.id
-      ? now // new/re-enabled/re-pointed: first copy starts on the next tick
-      : existing.everyMinutes !== everyMinutes || !existing.nextRunAt
-        ? nextMirrorRun(everyMinutes, existing.createdAt, now)
-        : existing.nextRunAt;
   const data = {
     targetId: target.id,
     allBuckets: input.allBuckets,
@@ -374,13 +397,18 @@ export async function saveMirror(ctx: OrgContext, input: SaveMirrorInput): Promi
     mode: input.mode ?? 'copy',
     graceDays: input.graceDays ?? DEFAULT_GRACE_DAYS,
     enabled,
-    nextRunAt,
   };
   await ctx.db.offsiteMirror.upsert({
     where: { orgId: ctx.activeOrgId },
     create: { orgId: ctx.activeOrgId, ...data },
     update: data,
   });
+  // A new mirror has never run, so it is due on the next tick anyway;
+  // re-enabled / re-pointed ones are armed to copy on the next tick too.
+  if (existing) {
+    if (enabled && (!existing.enabled || existing.targetId !== target.id)) armedNow.add(existing.id);
+    if (!enabled) armedNow.delete(existing.id);
+  }
   await writeAudit(ctx, {
     action: existing ? 'offsite.mirror.update' : 'offsite.mirror.create',
     targetType: 'backupTarget',
@@ -406,6 +434,8 @@ export async function removeMirror(ctx: OrgContext): Promise<{ removed: boolean 
     throw commandRejected('a mirror or restore is running — wait for it to finish');
   }
   await ctx.db.offsiteMirror.delete({ where: { id: row.id } });
+  armedNow.delete(row.id);
+  grantedByMirror.delete(row.id);
   await writeAudit(ctx, {
     action: 'offsite.mirror.remove',
     targetType: 'backupTarget',
@@ -432,11 +462,9 @@ async function ensureSourceKey(
     const keys = await listKeys(ctx);
     if (keys.state !== 'ready') throw commandRejected('object store unreachable — try again shortly');
     if (keys.keys.some((k) => k.id === accessKeyId)) {
-      return {
-        accessKeyId,
-        secretAccessKey: decryptSecret(row.sourceSecretKeyRef),
-        granted: new Set(strList(row.grantedBucketIds)),
-      };
+      let granted = grantedByMirror.get(row.id);
+      if (!granted) grantedByMirror.set(row.id, (granted = new Set()));
+      return { accessKeyId, secretAccessKey: decryptSecret(row.sourceSecretKeyRef), granted };
     }
   }
   const key = await createKey(ctx, MIRROR_KEY_NAME);
@@ -445,16 +473,17 @@ async function ensureSourceKey(
     data: {
       sourceAccessKeyRef: encryptSecret(key.accessKeyId),
       sourceSecretKeyRef: encryptSecret(key.secretAccessKey),
-      grantedBucketIds: [],
     },
   });
-  return { accessKeyId: key.accessKeyId, secretAccessKey: key.secretAccessKey, granted: new Set() };
+  const granted = new Set<string>();
+  grantedByMirror.set(row.id, granted);
+  return { accessKeyId: key.accessKeyId, secretAccessKey: key.secretAccessKey, granted };
 }
 
-/** Grant the mirror key read+write on each bucket it hasn't been granted yet. */
+/** Grant the mirror key read+write on each bucket it hasn't been granted yet
+ *  (per the in-memory cache — `key.granted` is that cache's live set). */
 async function ensureGrants(
   ctx: OrgContext,
-  row: MirrorRow,
   key: { accessKeyId: string; granted: Set<string> },
   bucketIds: string[],
 ): Promise<void> {
@@ -470,10 +499,6 @@ async function ensureGrants(
     });
     key.granted.add(bucketId);
   }
-  await ctx.db.offsiteMirror.update({
-    where: { id: row.id },
-    data: { grantedBucketIds: [...key.granted].sort() },
-  });
 }
 
 // ── run recording ────────────────────────────────────────────────────────────
@@ -570,12 +595,6 @@ function dispatchRun(
     }
     try {
       await finishRun(ctx.db, args.runId, summary);
-      if (args.direction === 'mirror') {
-        await ctx.db.offsiteMirror.update({
-          where: { id: args.mirror.id },
-          data: { lastRunAt: new Date() },
-        });
-      }
     } catch {
       // row gone (mirror removed) — nothing to record against
     }
@@ -639,7 +658,7 @@ export async function startMirrorRun(
       store: store.buckets.map((b) => ({ id: b.id, name: b.name, objects: b.objects })),
     });
     const key = await ensureSourceKey(ctx, mirror);
-    await ensureGrants(ctx, mirror, key, plan.buckets.map((b) => b.id));
+    await ensureGrants(ctx, key, plan.buckets.map((b) => b.id));
     const node = await resolveManagerNode(ctx);
     const run = await ctx.db.offsiteMirrorRun.create({
       data: {
@@ -673,7 +692,6 @@ export async function startMirrorRun(
         error: extraErrors.length ? 'none of the selected buckets exist any more' : null,
       };
       await finishRun(ctx.db, run.id, summary);
-      await ctx.db.offsiteMirror.update({ where: { id: mirror.id }, data: { lastRunAt: new Date() } });
       inflight.delete(mirror.orgId);
       return { runId: run.id, done: Promise.resolve(summary) };
     }
@@ -823,7 +841,6 @@ export async function restoreFromOffsite(
     const key = await ensureSourceKey(ctx, mirror);
     await ensureGrants(
       ctx,
-      mirror,
       key,
       buckets.map((b) => byName.get(b)!).filter(Boolean),
     );
@@ -885,27 +902,26 @@ export interface OffsiteMirrorDeps {
 
 /**
  * One scheduler tick: reap orphaned runs, then start every due mirror whose
- * org has a connected manager. `nextRunAt` advances BEFORE the run starts so a
- * slow or failing run never double-fires; a run that can't start is recorded
- * as a FAILED row so the card shows why.
+ * org has a connected manager. Due-ness is derived from run history (the slot
+ * after the newest mirror run); every fire writes a run row — RUNNING before
+ * the copy starts, or FAILED when it can't start (so the card shows why) — so a
+ * slow or failing run never double-fires.
  */
 export async function runDueMirrors(
   deps: OffsiteMirrorDeps,
   now: Date = new Date(),
 ): Promise<{ started: string[] }> {
   await reapStaleRuns(deps.db, now).catch(() => 0);
-  const due = (await deps.db.offsiteMirror.findMany({
-    where: { enabled: true, OR: [{ nextRunAt: null }, { nextRunAt: { lte: now } }] },
+  const enabled = (await deps.db.offsiteMirror.findMany({
+    where: { enabled: true },
   })) as unknown as MirrorRow[];
   const started: string[] = [];
-  for (const m of due) {
+  for (const m of enabled) {
     try {
       if (!deps.hub.managerNode(m.orgId)) continue; // cluster not warm — next tick
-      if (!isMirrorDue(m, now, await isRunning(deps.db, m))) continue;
-      await deps.db.offsiteMirror.update({
-        where: { id: m.id },
-        data: { nextRunAt: nextMirrorRun(m.everyMinutes, m.createdAt, now) },
-      });
+      const nextRunAt = nextRunOf(m, await lastMirrorRunAt(deps.db, m.id));
+      if (!isMirrorDue({ enabled: m.enabled, nextRunAt }, now, await isRunning(deps.db, m))) continue;
+      armedNow.delete(m.id);
       const ctx = systemContext(deps, m.orgId);
       try {
         const { runId } = await startMirrorRun(ctx, { trigger: 'schedule' });
@@ -918,6 +934,7 @@ export async function runDueMirrors(
             direction: 'mirror',
             trigger: 'schedule',
             status: 'RUNNING',
+            startedAt: now,
           },
         });
         await finishRun(deps.db, run.id, failedSummary(e), now);

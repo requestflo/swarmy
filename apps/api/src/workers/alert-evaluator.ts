@@ -1,6 +1,6 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { ensureDefaultRules, fireEvent, recordIncidentEvent, systemContext } from '@swarmy/trpc';
+import { ensureDefaultRules, fireEvent, latestStoreProbe, recordIncidentEvent, systemContext } from '@swarmy/trpc';
 import type { OrgContext } from '@swarmy/trpc';
 import { ALERT_SIGNAL_INFO, type AlertSignal } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
@@ -157,8 +157,27 @@ export function crashLoopConditions(
     }));
 }
 
+const BACKUP_UNIT_MS: Record<string, number> = { minutes: 60_000, hours: 3_600_000, days: 86_400_000 };
+
 /**
- * backup missed: an unpaused, non-opted-out schedule whose `nextRunAt` is more
+ * A backup schedule's next slot, derived (mirror of `@swarmy/trpc`
+ * `nextIntervalRun`): the first `anchor + k·interval` strictly after the last
+ * run, or after creation when it never ran. Null for a bad interval.
+ */
+export function derivedNextBackupRun(
+  s: { every: number; unit: string; createdAt: Date; anchorAt: Date | null },
+  lastRunAt: Date | null,
+): Date | null {
+  const step = s.every * (BACKUP_UNIT_MS[s.unit] ?? 0);
+  if (!(step > 0)) return null;
+  const anchor = (s.anchorAt ?? s.createdAt).getTime();
+  const from = (lastRunAt ?? s.createdAt).getTime();
+  if (from < anchor) return new Date(anchor);
+  return new Date(anchor + (Math.floor((from - anchor) / step) + 1) * step);
+}
+
+/**
+ * backup missed: an unpaused, non-opted-out schedule whose derived `nextRunAt` is more
  * than `graceMs` in the past (the scheduler never picked it up — controller
  * down, target unreachable, node gone).
  */
@@ -466,10 +485,32 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
   conditions.push(...queueDepthConditions(queueEntries, queueThreshold));
 
   // backup-failed — a schedule whose most recent finished job failed.
-  const schedules = await prisma.backupSchedule.findMany({
+  const scheduleRows = await prisma.backupSchedule.findMany({
     where: { orgId },
-    select: { id: true, volume: true, paused: true, optedOutAt: true, nextRunAt: true },
+    select: {
+      id: true,
+      volume: true,
+      paused: true,
+      optedOutAt: true,
+      every: true,
+      unit: true,
+      createdAt: true,
+      anchorAt: true,
+    },
   });
+  // No stored nextRunAt: derive it from the newest BackupJob (run history).
+  const lastRuns = scheduleRows.length
+    ? await prisma.backupJob.groupBy({
+        by: ['scheduleId'],
+        where: { orgId, scheduleId: { in: scheduleRows.map((s) => s.id) } },
+        _max: { startedAt: true },
+      })
+    : [];
+  const lastRunOf = new Map(lastRuns.map((r) => [r.scheduleId, r._max.startedAt]));
+  const schedules = scheduleRows.map((s) => ({
+    ...s,
+    nextRunAt: derivedNextBackupRun(s, lastRunOf.get(s.id) ?? null),
+  }));
   const failedVolumes = new Set<string>();
   for (const schedule of schedules) {
     if (schedule.optedOutAt) continue;
@@ -500,7 +541,8 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
   // store-unreachable + error-rate — observability store state / ClickHouse RED.
   const obsConfig = await prisma.observabilityConfig.findUnique({ where: { orgId } });
   if (obsConfig?.enabled) {
-    const state = await prisma.observabilityStoreState.findUnique({ where: { orgId } });
+    // The reconcile worker's latest live probe (in memory; null before its first tick).
+    const state = latestStoreProbe(orgId);
     if (state && !state.reachable) {
       conditions.push({
         signal: 'store-unreachable',

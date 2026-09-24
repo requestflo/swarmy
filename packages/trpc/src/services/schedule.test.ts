@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { intervalMs, isDue, nextRun } from './schedule';
+import { intervalMs, isDue, nextIntervalRun, nextRun } from './schedule';
 
 describe('backup schedule next-run calc', () => {
   it('computes interval ms per unit', () => {
@@ -51,5 +51,21 @@ describe('backup schedule next-run calc', () => {
     expect(isDue(new Date('2026-06-27T11:59:00.000Z'), now)).toBe(true);
     expect(isDue(new Date('2026-06-27T12:01:00.000Z'), now)).toBe(false);
     expect(isDue(null, now)).toBe(false);
+  });
+
+  it('derives the next run from the last run in history (no stored nextRunAt)', () => {
+    const daily = { every: 1, unit: 'days' } as const;
+    const created = new Date('2026-06-27T10:00:00.000Z');
+    // Never run, anchored at creation: first slot one interval later.
+    expect(nextIntervalRun(daily, created, created, null).toISOString()).toBe('2026-06-28T10:00:00.000Z');
+    // Staggered anchor (auto schedules): first anchored slot after creation.
+    const anchor = new Date('2026-06-27T03:17:00.000Z');
+    expect(nextIntervalRun(daily, anchor, created, null).toISOString()).toBe('2026-06-28T03:17:00.000Z');
+    // After a run, the slot after that run — due once it has passed.
+    const last = new Date('2026-06-28T03:17:05.000Z');
+    const next = nextIntervalRun(daily, anchor, created, last);
+    expect(next.toISOString()).toBe('2026-06-29T03:17:00.000Z');
+    expect(isDue(next, new Date('2026-06-29T03:18:00.000Z'))).toBe(true);
+    expect(isDue(next, new Date('2026-06-29T03:00:00.000Z'))).toBe(false);
   });
 });

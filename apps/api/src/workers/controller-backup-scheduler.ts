@@ -9,7 +9,8 @@ import { isBackupDue, runControllerBackup } from '@swarmy/trpc';
  *
  * Mirrors the volumes-DR `backup-scheduler`: once a minute, if the singleton
  * `ControllerBackupConfig` is enabled, has a target + passphrase, and is due,
- * run a controller-state backup and advance `nextRunAt`. Runs controller-side
+ * run a controller-state backup. Due-ness is derived from `ControllerSnapshot`
+ * history (the newest attempt + the cron), never a stored `nextRunAt`. Runs controller-side
  * (the bundle carries the controller's own secrets — never dispatched to an
  * agent). Default schedule when enabled: daily, keep 7d/4w/3m.
  */

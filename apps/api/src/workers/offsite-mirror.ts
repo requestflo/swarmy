@@ -2,7 +2,8 @@
  * Off-site mirror scheduler.
  *
  * Once a minute: reap orphaned runs and start every enabled `OffsiteMirror`
- * whose `nextRunAt` is due — a one-shot rclone copy of swarmy's Garage store
+ * that is due (the interval slot after its newest run, derived from run
+ * history — no stored `nextRunAt`) — a one-shot rclone copy of swarmy’s Garage store
  * (backups, edge certs, app buckets) into the org's off-site S3 destination.
  * All logic (due check, bucket plan, env-only rclone config, run recording)
  * lives in `@swarmy/trpc` `runDueMirrors`; this file only ticks. Runs are long

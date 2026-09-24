@@ -4,6 +4,7 @@ import {
   buildMirrorRunOnce,
   EXIT_MARKER,
   isMirrorDue,
+  mirrorNextRunAt,
   LIST_MARKER,
   MIRROR_TIMEOUT_MS,
   nextMirrorRun,
@@ -181,6 +182,11 @@ describe('schedule due logic', () => {
     expect(isMirrorDue({ enabled: true, nextRunAt: new Date('2026-09-01T06:01:00Z') }, now, false)).toBe(false);
     expect(isMirrorDue({ enabled: false, nextRunAt: null }, now, false)).toBe(false);
     expect(isMirrorDue({ enabled: true, nextRunAt: null }, now, true)).toBe(false);
+  });
+  test('next run is derived from the newest run (null = never run, due now)', () => {
+    const created = new Date('2026-09-01T00:00:00.000Z');
+    expect(mirrorNextRunAt(60, created, null)).toBeNull();
+    expect(mirrorNextRunAt(60, created, new Date('2026-09-01T05:20:00Z'))?.toISOString()).toBe('2026-09-01T06:00:00.000Z');
   });
 });
 

@@ -51,7 +51,8 @@ import {
   DB_WAL_SHIPPER_LABEL,
   runningTaskOf,
 } from './manageddb.service';
-import { cronNext, nextRun, parseCron } from './schedule';
+import { cronNext, parseCron } from './schedule';
+import { lastRunBySchedule, scheduleNextRunAt } from './backupSchedule.service';
 
 export const AUTO_SCHEDULE_AUDIT_ACTION = 'backup.schedule.auto';
 const STACK_LABEL = 'com.docker.stack.namespace';
@@ -70,8 +71,11 @@ interface ScheduleRow {
   auto: boolean;
   optedOutAt: Date | null;
   retentionDays: number | null;
-  nextRunAt: Date | null;
   paused: boolean;
+  every: number;
+  unit: string;
+  createdAt: Date;
+  anchorAt: Date | null;
 }
 
 function scheduleDb(ctx: OrgContext): {
@@ -257,7 +261,6 @@ export async function ensureAutoBackupsForOrg(
           auto: true,
           retentionDays: AUTO_BACKUP_RETENTION_DAYS,
           anchorAt: anchor,
-          nextRunAt: nextRun(DAILY, anchor, now),
         },
       });
     } catch {
@@ -391,6 +394,7 @@ export async function autoBackupCoverage(
           where: { orgId: ctx.activeOrgId, volume: { in: detected.map((d) => d.volume) } },
         })
       : [];
+  const lastRuns = await lastRunBySchedule(ctx.db, rows.map((r) => r.id));
   for (const d of detected) {
     const mine = rows.filter((r) => r.volume === d.volume);
     const live = mine.filter((r) => !r.optedOutAt);
@@ -405,7 +409,10 @@ export async function autoBackupCoverage(
       status: user ? 'user' : auto ? 'auto' : mine.length > 0 ? 'opted-out' : 'unscheduled',
       method: 'volume',
       retentionDays: current?.retentionDays ?? null,
-      nextRunAt: current && !current.paused ? (current.nextRunAt?.toISOString() ?? null) : null,
+      nextRunAt:
+        current && !current.paused
+          ? (scheduleNextRunAt(current, lastRuns.get(current.id) ?? null)?.toISOString() ?? null)
+          : null,
       lastRunAt: logical.get(`${d.stack}/${d.service}`)?.lastAt ?? null,
       logical: logical.get(`${d.stack}/${d.service}`) ?? null,
     });
