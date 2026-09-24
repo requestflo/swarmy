@@ -4,6 +4,7 @@ import {
   copyVolumePayload,
   engineUpgradeAvailable,
   getEngineUpgrade,
+  stageCopyImagePayload,
   startEngineUpgrade,
   GARAGE_META_VOLUME,
 } from './engine-upgrade.service';
@@ -35,7 +36,7 @@ const deps = {
 
 
 
-function world(opts: { copyFailsOn?: string } = {}) {
+function world(opts: { copyFailsOn?: string; stageFailsOn?: string } = {}) {
   let row: Record<string, unknown> = {
     id: 'sc1',
     orgId: 'org_1',
@@ -69,6 +70,10 @@ function world(opts: { copyFailsOn?: string } = {}) {
         dispatched.push({ node, cmd, payload });
         if (cmd === 'service.remove') storeTasks = 0;
         if (cmd === 'container.runOnce') {
+          if (!payload.binds) {
+            // Image staging (preflight): a member that can't pull fails it.
+            return opts.stageFailsOn === node ? { exitCode: 125, output: 'No such image' } : { exitCode: 0, output: '' };
+          }
           if (opts.copyFailsOn === node && payload.binds[0].startsWith(GARAGE_META_VOLUME + ':')) {
             return { exitCode: 1, output: 'disk full' };
           }
@@ -127,9 +132,16 @@ describe('engine upgrade — run', () => {
     expect(engineImage).toBe('dxflrs/garage:v2.4.1');
     expect(deployedImages).toEqual(['dxflrs/garage:v2.4.1']);
     // Order: remove the service BEFORE any copy (a live copy would be torn).
-    const order = w.dispatched.map((d) => d.cmd);
-    expect(order.indexOf('service.remove')).toBeLessThan(order.indexOf('container.runOnce'));
-    expect(w.dispatched.filter((d) => d.cmd === 'container.runOnce').map((d) => d.node)).toEqual(['n1', 'n2', 'n3']);
+    const kind = (d: { cmd: string; payload: any }) =>
+      d.cmd === 'container.runOnce' ? (d.payload.binds ? 'copy' : 'stage') : d.cmd;
+    const order = w.dispatched.map(kind);
+    // Stage the copy image on every member BEFORE the outage…
+    expect(w.dispatched.filter((d) => kind(d) === 'stage').map((d) => d.node)).toEqual(['n1', 'n2', 'n3']);
+    expect(order.lastIndexOf('stage')).toBeLessThan(order.indexOf('service.remove'));
+    // …and never pull mid-outage.
+    expect(w.dispatched.filter((d) => kind(d) === 'copy').every((d) => d.payload.pull === false)).toBe(true);
+    expect(order.indexOf('service.remove')).toBeLessThan(order.indexOf('copy'));
+    expect(w.dispatched.filter((d) => kind(d) === 'copy').map((d) => d.node)).toEqual(['n1', 'n2', 'n3']);
     // Preflight speaks v1 to the old engine, verify speaks v2 to the new one.
     expect(calls[0]).toBe('v1 GET /health');
     expect(calls.some((c) => c.startsWith('v2 GET /health'))).toBe(true);
@@ -147,6 +159,17 @@ describe('engine upgrade — run', () => {
     expect(engineImage).toBeNull();
   });
 
+  it('a member that cannot stage the copy image fails preflight — nothing is stopped', async () => {
+    const w = world({ stageFailsOn: 'n2' });
+    await startEngineUpgrade(w.ctx, deps);
+    const run = await settle(w);
+    expect(run.status).toBe('failed');
+    expect(run.error).toContain('n2');
+    expect(w.dispatched.some((d) => d.cmd === 'service.remove')).toBe(false);
+    expect(engineImage).toBeNull();
+    expect(stageCopyImagePayload().pull).toBe(true);
+  });
+
   it('a failed backup rolls back: restores only copied members, redeploys the OLD engine', async () => {
     const w = world({ copyFailsOn: 'n2' });
     await startEngineUpgrade(w.ctx, deps);
@@ -155,7 +178,7 @@ describe('engine upgrade — run', () => {
     expect(engineImage).toBeNull();
     expect(deployedImages).toEqual(['dxflrs/garage:v1.0.1']);
     const restores = w.dispatched.filter(
-      (d) => d.cmd === 'container.runOnce' && d.payload.binds[1] === `${GARAGE_META_VOLUME}:/dst`,
+      (d) => d.cmd === 'container.runOnce' && d.payload.binds?.[1] === `${GARAGE_META_VOLUME}:/dst`,
     );
     expect(restores.map((d) => d.node)).toEqual(['n1']);
   });

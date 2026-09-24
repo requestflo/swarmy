@@ -99,13 +99,29 @@ export function backupVolumeFor(runId: string): string {
 /** The one-shot that copies `from` → `to` (both volumes), replacing `to`'s contents. Pure. */
 export function copyVolumePayload(from: string, to: string) {
   return {
-    image: CURL_IMAGE, // alpine + busybox: `cp -a` — already on every node
+    image: CURL_IMAGE, // alpine + busybox: `cp -a` — staged on every member by preflight
     entrypoint: ['/bin/sh', '-c'],
     cmd: ['set -eu; rm -rf /dst/* /dst/.[!.]* 2>/dev/null || true; cp -a /src/. /dst/; echo copied $(du -s /dst | cut -f1)'],
     binds: [`${from}:/src:ro`, `${to}:/dst`],
     user: '0:0',
     pull: false,
     timeoutMs: 10 * 60_000,
+  };
+}
+
+/**
+ * The one-shot preflight runs on every member to stage the copy image BEFORE
+ * the outage: pull it, then a no-op run proves it is local. The admin-API
+ * one-shots only ever ran on one node, so the other members may never have
+ * pulled it — and the copy itself must not depend on a registry mid-outage. Pure.
+ */
+export function stageCopyImagePayload() {
+  return {
+    image: CURL_IMAGE,
+    entrypoint: ['/bin/sh', '-c'],
+    cmd: ['true'],
+    pull: true,
+    timeoutMs: 5 * 60_000,
   };
 }
 
@@ -266,6 +282,14 @@ async function preflight(ctx: OrgContext, run: EngineUpgradeRun, major: GarageMa
   const health = JSON.parse(await deps.admin(ctx, major, { method: 'GET', path: '/health' })) as { status?: string };
   if (health.status !== 'healthy') throw new Error(`the store reports "${health.status ?? 'unknown'}" — it must be healthy to upgrade`);
   run.objects = await objectCounts(ctx, major, deps);
+  for (const nodeId of run.members) {
+    const res = await ctx.hub
+      .dispatch<RunOnceResult>(nodeId, 'container.runOnce', stageCopyImagePayload(), { timeoutMs: 6 * 60_000 })
+      .catch((e: unknown) => ({ exitCode: -1, output: e instanceof Error ? e.message : String(e) }));
+    if (res.exitCode !== 0) {
+      throw new Error(`could not stage ${CURL_IMAGE} on ${nodeId}: ${(res.output ?? '').slice(-200)}`);
+    }
+  }
   note(run, `preflight ok: ${run.members.length} member(s), ${Object.keys(run.objects).length} bucket(s)`);
 }
 
