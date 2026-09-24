@@ -4,7 +4,6 @@ import { abacProcedure, abacProcedureAll, resolvePeerStack, resolveStack, resolv
 import {
   addServiceToStack,
   deployFromCompose,
-  getStack,
   listStacks,
   redeployStack,
   removeStack,
@@ -14,9 +13,6 @@ import { connectStacks, disconnectStacks } from '../services/stack-links.service
 
 export const stacksRouter = router({
   list: orgProcedure.query(({ ctx }) => listStacks(ctx)),
-
-  get: orgProcedure.input(z.object({ id: z.string() })).query(({ ctx, input }) => getStack(ctx, input.id)),
-
   deployFromCompose: abacProcedure('stack.deploy', resolveStackByName)
     .input(
       z.object({

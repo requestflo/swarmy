@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import { abacProcedure } from '../abac';
-import { createTunnel, deleteTunnel, getTunnel, listTunnels, syncTunnel } from '../services/tunnel.service';
+import { createTunnel, deleteTunnel, getTunnel, syncTunnel } from '../services/tunnel.service';
 
 /**
  * Tunnels router (ingress-strategy epic). Manages remotely-managed Cloudflare
@@ -9,8 +9,6 @@ import { createTunnel, deleteTunnel, getTunnel, listTunnels, syncTunnel } from '
  * + DNS) / delete. Secrets are write-only; the API token is never returned.
  */
 export const tunnelsRouter = router({
-  list: orgProcedure.query(({ ctx }) => listTunnels(ctx)),
-
   get: orgProcedure.query(({ ctx }) => getTunnel(ctx)),
 
   create: adminProcedure

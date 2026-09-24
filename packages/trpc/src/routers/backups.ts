@@ -6,7 +6,6 @@ import {
   backupVolume,
   ensureNativeTarget,
   getStackRetention,
-  listRemoteSnapshots,
   listSnapshots,
   listTargets,
   removeTarget,
@@ -97,11 +96,6 @@ export const backupsRouter = router({
         .optional(),
     )
     .query(({ ctx, input }) => listSnapshots(ctx, input)),
-
-  listRemoteSnapshots: orgProcedure
-    .input(z.object({ targetId: z.string(), volume: z.string().optional() }))
-    .query(({ ctx, input }) => listRemoteSnapshots(ctx, input)),
-
   restoreSnapshot: abacProcedure('data.restore')
     .input(
       z.object({

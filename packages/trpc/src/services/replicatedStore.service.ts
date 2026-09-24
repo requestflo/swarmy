@@ -251,13 +251,6 @@ export async function setDriver(
   return toView(row);
 }
 
-/** Preview the rendered deployment without dispatching (mirrors ingress previewConfig). */
-export async function previewDeployment(ctx: OrgContext) {
-  const row = await load(ctx);
-  if (!row) throw notFound('storage cluster', ctx.activeOrgId);
-  return renderGarageDeployment(renderInput(ctx, row));
-}
-
 /** One enrolled node as seen for default-membership selection. */
 export interface MemberCandidate {
   id: string;

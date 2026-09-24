@@ -11,7 +11,6 @@ import {
   componentOptions,
   createPage,
   listPages,
-  overview,
   publicStatus,
   removePage,
   setEnabled,
@@ -29,9 +28,6 @@ const StackScopeInput = z.object({ stack: z.string().min(1).max(255).optional() 
  * same snapshot for the settings surface and demo mode.
  */
 export const statusPagesRouter = router({
-  /** Aggregates for the page hero (pages / enabled / components / samples 24h). */
-  overview: orgProcedure.query(({ ctx }) => overview(ctx)),
-
   /** The org's status pages, newest first — optionally scoped to one stack. */
   list: orgProcedure
     .input(StackScopeInput)

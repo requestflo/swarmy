@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ACTIONS } from '@swarmy/abac';
-import { adminProcedure, orgProcedure, router } from '../trpc';
+import { orgProcedure, router } from '../trpc';
 import { abacProcedure } from '../abac';
 import {
   deletePolicy,
@@ -8,7 +8,6 @@ import {
   setPolicy,
   validatePolicy,
   simulatePolicy,
-  policySchema,
   whoCanPolicy,
 } from '../services/policies.service';
 
@@ -21,10 +20,6 @@ import {
 export const policiesRouter = router({
   /** The governed action catalogue, for the UI policy builder. */
   listActions: orgProcedure.query(() => [...ACTIONS]),
-
-  /** Action catalogue + the JSON policy-doc schema for the no-code builder. */
-  schema: orgProcedure.query(() => policySchema()),
-
   list: orgProcedure.query(({ ctx }) => listPolicies(ctx)),
 
   /** Compile-only validation (no save) for validate-on-type in the editor. */

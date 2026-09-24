@@ -12,7 +12,6 @@ import {
   type StatusPageComponent,
   type StatusPageRefInput,
   type StatusPageView,
-  type StatusPagesOverview,
   type UpdateStatusPageInput,
   type UptimeDayView,
 } from '@swarmy/core';
@@ -236,22 +235,6 @@ async function assertSlugFree(ctx: OrgContext, slug: string, exceptId?: string):
 }
 
 // ── Queries ───────────────────────────────────────────────────────────────────
-
-/** Aggregates for the Status pages hero. */
-export async function overview(ctx: OrgContext): Promise<StatusPagesOverview> {
-  const orgId = ctx.activeOrgId;
-  const dayAgo = new Date(Date.now() - DAY_MS);
-  const [pages, samples24h] = await Promise.all([
-    ctx.db.statusPage.findMany({ where: { orgId }, select: { enabled: true, componentsJson: true } }),
-    ctx.db.uptimeSample.count({ where: { orgId, at: { gte: dayAgo } } }),
-  ]);
-  return {
-    pages: pages.length,
-    enabled: pages.filter((p) => p.enabled).length,
-    components: pages.reduce((sum, p) => sum + parseComponents(p.componentsJson).length, 0),
-    samples24h,
-  };
-}
 
 /** The org's status pages, newest first — optionally scoped to one stack. */
 export async function listPages(ctx: OrgContext, stack?: string): Promise<StatusPageView[]> {

@@ -83,11 +83,6 @@ export async function getTunnel(ctx: OrgContext): Promise<TunnelView | null> {
   };
 }
 
-export async function listTunnels(ctx: OrgContext): Promise<TunnelView[]> {
-  const one = await getTunnel(ctx);
-  return one ? [one] : [];
-}
-
 /**
  * Create a remotely-managed Cloudflare tunnel: call the CF API to create the
  * tunnel (returns id + run token), persist both (token encrypted), then deploy

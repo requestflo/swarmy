@@ -1310,10 +1310,6 @@ export async function previewConfig(
   return previewConfigPkg({ ...config, driver: driver ?? config.driver, enabled: true });
 }
 
-export function listDrivers(): IngressDriverId[] {
-  return ['none', 'caddy', 'traefik', 'cloudflared', 'nginx', 'haproxy'];
-}
-
 /**
  * Render + dispatch one loaded config and RECORD the outcome, so failures reach
  * `runtime` (and the dashboard) instead of vanishing. Throws on failure.

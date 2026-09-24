@@ -390,8 +390,6 @@ export const ingress: DomainResolvers = {
   handlers: {
     'ingress.getConfig': (_i, s): IngressConfigView => toConfigView(getState(s)),
 
-    'ingress.listDrivers': (): IngressDriverId[] => ['none', 'caddy', 'traefik', 'cloudflared', 'nginx', 'haproxy'],
-
     'ingress.listDomains': (i, s): Array<DomainView & { serving: boolean; edgeState: EdgeState }> => {
       const stack = (i as { stack?: string } | undefined)?.stack;
       const st = getState(s);
@@ -632,11 +630,6 @@ export const ingress: DomainResolvers = {
       }
       st.updatedAt = nowIso();
       return toConfigView(st);
-    },
-
-    'ingress.tunnels.list': (_i, s): TunnelView[] => {
-      const v = toTunnelView(getState(s));
-      return v ? [v] : [];
     },
 
     'ingress.tunnels.get': (_i, s): TunnelView | null => toTunnelView(getState(s)),

@@ -451,18 +451,6 @@ export const apps: DomainResolvers = {
       );
     },
 
-    'apps.plans': (i, s) => {
-      const { repoId, environment, limit } = i as {
-        repoId: string;
-        environment?: string;
-        limit?: number;
-      };
-      const rows = state(s).plans.filter(
-        (p) => p.repoId === repoId && (!environment || p.environment === environment),
-      );
-      return clone(newest(rows).slice(0, limit ?? 25));
-    },
-
     'apps.plan': (i, s) => {
       const { planId } = i as { planId: string };
       const row = state(s).plans.find((p) => p.id === planId);

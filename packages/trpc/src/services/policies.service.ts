@@ -194,32 +194,3 @@ export async function whoCanPolicy(
   }
   return { action: args.action, resource, rows: await whoCan(ctx.db, ctx.activeOrgId, args.action, resource) };
 }
-
-/** The action catalogue + the JSON policy-doc schema, for the UI builder. */
-export function policySchema() {
-  return {
-    actions: [...ACTIONS],
-    actionCatalog: ACTION_CATALOG,
-    conditionOps: [...CONDITION_OPS],
-    attributes: [
-      { key: 'resource.env', label: 'Environment', hint: 'from the swarmy.env label; prod → production' },
-      { key: 'resource.type', label: 'Resource type', hint: 'node | service | stack' },
-      { key: 'resource.label.<key>', label: 'App / stack label', hint: 'any Docker label on the resource' },
-      { key: 'principal.groups', label: 'Groups', hint: 'member groups, SSO group claims, teams' },
-      { key: 'principal.<key>', label: 'Member attribute', hint: 'any key of the member attribute bag' },
-    ],
-    relations: ['owner', 'operator', 'viewer'],
-    clauses: [
-      { key: 'actions', label: 'Actions', type: 'string[]', hint: 'allowed actions, or ["*"]' },
-      { key: 'roles', label: 'Roles', type: 'string[]', hint: 'owner | admin | member' },
-      { key: 'resourceTypes', label: 'Resource types', type: 'string[]', hint: 'node | service | stack' },
-      { key: 'resourceLabels', label: 'Resource labels', type: 'object', hint: 'e.g. { "env": "staging" }' },
-      { key: 'attributes', label: 'Subject attributes', type: 'object', hint: 'e.g. { "team": "payments" }' },
-      { key: 'relations', label: 'ReBAC relations', type: 'string[]', hint: 'owner | operator | viewer' },
-      { key: 'ownerOnly', label: 'Owner only', type: 'boolean', hint: 'principal must own the resource' },
-      { key: 'groups', label: 'Groups', type: 'string[]', hint: 'member is in any of these groups' },
-      { key: 'members', label: 'People', type: 'string[]', hint: 'member ids' },
-      { key: 'conditions', label: 'Conditions', type: 'condition[]', hint: '{ attr, op, value }' },
-    ],
-  };
-}

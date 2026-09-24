@@ -93,7 +93,6 @@ const GATES: Array<[string, unknown, string]> = [
   ['search.destroy', {}, 'data.destroy'],
   ['search.restore', {}, 'data.restore'],
   ['vector.destroy', {}, 'data.destroy'],
-  ['volumes.deregisterCluster', {}, 'data.destroy'],
   ['buckets.deleteBucket', {}, 'data.destroy'],
   ['buckets.deleteKey', {}, 'data.destroy'],
   ['storage.disable', undefined, 'data.destroy'],

@@ -9,7 +9,6 @@ import { serviceMap } from '../services/observability.service';
 import { healthNarrative } from '../services/health-summary';
 import {
   enableForStack,
-  getConfig,
   getStatus,
   metricsSeries,
   metricsSummary,
@@ -21,8 +20,6 @@ import {
 } from '../services/observability.service';
 
 export const observabilityRouter = router({
-  getConfig: orgProcedure.query(({ ctx }) => getConfig(ctx)),
-
   status: orgProcedure.query(({ ctx }) => getStatus(ctx)),
 
   setEnabled: adminProcedure

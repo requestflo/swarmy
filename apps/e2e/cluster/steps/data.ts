@@ -43,11 +43,11 @@ export async function postgres(ctx: Ctx) {
 
     const t0 = Date.now();
     const b = await ctx.m<{ snapshotId: string; sizeBytes: number; engine: string }>(
-      'dbBackups.backup',
+      'dbBackups.run',
       { stack, cluster: 'pg', engine: 'pg_dump', targetId },
       10 * 60_000,
     );
-    assert(b.snapshotId, 'dbBackups.backup returned no snapshotId');
+    assert(b.snapshotId, 'dbBackups.run returned no snapshotId');
     log(`backup ${b.snapshotId} (${b.engine}, ${b.sizeBytes} bytes) in ${Math.round((Date.now() - t0) / 1000)}s`);
     const listed = await ctx.q<{ id: string }[]>('dbBackups.list', { targetId, stack, cluster: 'pg' });
     assert(listed.some((s) => b.snapshotId.startsWith(s.id) || s.id.startsWith(b.snapshotId)), 'snapshot missing from dbBackups.list');

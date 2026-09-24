@@ -34,7 +34,6 @@ import { loadControlPlane, snapshotControlPlane } from './controllerBackup.snaps
 import {
   createAndStoreBundle,
   defaultRunner,
-  listBundleSnapshots,
   restoreBundle,
   type ControllerManifest,
   type ControllerSecrets,
@@ -435,19 +434,6 @@ export async function listSnapshots(db: DB): Promise<ControllerSnapshotView[]> {
     take: 100,
   });
   return rows.map(snapshotView);
-}
-
-/**
- * Restore preview: list the live restic snapshots for the configured target and
- * return the catalog so the UI/CLI can pick one and validate before clobbering.
- */
-export async function listRemoteSnapshots(scope: CbScope): Promise<{ id: string; time: string }[]> {
-  const config = await getOrCreateConfig(scope);
-  if (!config.targetId) return [];
-  const target = await configTarget(scope, config);
-  if (!target) return [];
-  const snaps = await listBundleSnapshots(toResticRepo(target));
-  return snaps.map((s) => ({ id: s.id, time: s.time }));
 }
 
 // ── restore ────────────────────────────────────────────────────────────────────

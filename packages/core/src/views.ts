@@ -1558,14 +1558,6 @@ export interface StatusPageView {
   updatedAt: string;
 }
 
-/** Aggregates for the Status pages hero. */
-export interface StatusPagesOverview {
-  pages: number;
-  enabled: number;
-  components: number;
-  samples24h: number;
-}
-
 /** One day of aggregated uptime for a component (`pct` 0..100; null = no samples). */
 export interface UptimeDayView {
   /** UTC day, `YYYY-MM-DD`. */

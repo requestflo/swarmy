@@ -16,9 +16,7 @@ import {
 import { buildInventory, SWARMY_OVERLAY_NETWORK } from '@swarmy/core';
 import type {
   BackupVolumeResult,
-  ListSnapshotsResult,
   ResticRepo,
-  ResticSnapshotInfo,
   RestoreVolumeResult,
   RetentionOutcome,
 } from '@swarmy/core/protocol';
@@ -538,25 +536,6 @@ export async function listSnapshots(
     startedAt: r.startedAt.toISOString(),
     finishedAt: r.finishedAt ? r.finishedAt.toISOString() : null,
   }));
-}
-
-/** Live snapshot list straight from the restic repo (catalog truth). */
-export async function listRemoteSnapshots(
-  ctx: OrgContext,
-  input: { targetId: string; volume?: string },
-): Promise<ResticSnapshotInfo[]> {
-  const target = await loadTarget(ctx, input.targetId);
-  const node = await resolveManagerNode(ctx);
-  try {
-    const res = await ctx.hub.dispatch<ListSnapshotsResult>(node.id, 'backup.list', {
-      repo: toResticRepo(target),
-      tags: input.volume ? volumeTags(ctx.activeOrgId, input.volume) : [`org:${ctx.activeOrgId}`],
-      network: resticNetworkFor(target.endpoint),
-    });
-    return res.snapshots;
-  } catch (e) {
-    throw mapDispatchError(e);
-  }
 }
 
 export async function restoreSnapshot(

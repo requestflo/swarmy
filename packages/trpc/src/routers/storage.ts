@@ -1,7 +1,7 @@
 /**
  * Replicated object store router (epic: volumes-dr, P2 — Layer 3).
- * Mirrors `ingress.ts`: config get + setDriver + enable/disable + status +
- * previewDeployment for the swarmy-managed Garage S3 cluster.
+ * Mirrors `ingress.ts`: config get + setDriver + enable/disable + status
+ * for the swarmy-managed Garage S3 cluster.
  */
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
@@ -11,7 +11,6 @@ import {
   disable,
   enable,
   getConfig,
-  previewDeployment,
   setDriver,
   status,
 } from '../services/replicatedStore.service';
@@ -33,8 +32,6 @@ export const storageRouter = router({
 
   enable: adminProcedure.mutation(({ ctx }) => enable(ctx)),
   disable: abacProcedure('data.destroy').mutation(({ ctx }) => disable(ctx)),
-  previewDeployment: adminProcedure.query(({ ctx }) => previewDeployment(ctx)),
-
   /** Engine version the store runs, whether an upgrade is available, and the last/current run. */
   engineUpgrade: orgProcedure.query(({ ctx }) => getEngineUpgrade(ctx)),
   /** Start the in-place engine upgrade (Garage v1 → v2): brief pause, automatic rollback on failure. */

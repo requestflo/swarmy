@@ -260,20 +260,6 @@ export const webhookgw: DomainResolvers = {
       return toSummary(d);
     },
 
-    'inboundWebhooks.pruneOld': (_i, s): { removed: number } => {
-      const st = getState(s);
-      let removed = 0;
-      for (const ep of st.endpoints) {
-        const cutoff = Date.now() - ep.retentionDays * 24 * 3_600_000;
-        const before = st.deliveries.length;
-        st.deliveries = st.deliveries.filter(
-          (d) => d.endpointId !== ep.id || new Date(d.receivedAt).getTime() >= cutoff,
-        );
-        removed += before - st.deliveries.length;
-      }
-      return { removed };
-    },
-
     // ── outbound (existing webhooksOut router) ──
     'webhooksOut.list': (_i, s): OutboundEndpointView[] => getState(s).outbound,
 

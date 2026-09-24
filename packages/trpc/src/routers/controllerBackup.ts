@@ -3,7 +3,6 @@ import { adminProcedure, router } from '../trpc';
 import { abacProcedure } from '../abac';
 import {
   getConfig,
-  listRemoteSnapshots,
   listSnapshots,
   restoreControllerBackup,
   runControllerBackup,
@@ -63,7 +62,4 @@ export const controllerBackupRouter = router({
     .mutation(({ ctx, input }) => restoreControllerBackup(ctx, input)),
 
   listSnapshots: adminProcedure.query(({ ctx }) => listSnapshots(ctx.db)),
-
-  /** Live restic catalog for the configured target (restore picker). */
-  listRemoteSnapshots: adminProcedure.query(({ ctx }) => listRemoteSnapshots(ctx)),
 });

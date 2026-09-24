@@ -885,11 +885,6 @@ export const data: DomainResolvers = {
       return recordDbBackup(st, b.stack, b.cluster, engine);
     },
 
-    'dbBackups.backup': (i, s): { engine: DbBackupEngine; snapshotId: string; sizeBytes: string; databases: string[] } => {
-      const b = i as { stack: string; cluster: string; engine: DbBackupEngine };
-      return recordDbBackup(getState(s), b.stack, b.cluster, b.engine);
-    },
-
     'dbBackups.list': (i, s): DbBackupSnapshotView[] => {
       const f = (i as { stack?: string; cluster?: string } | null | undefined) ?? {};
       return getState(s)

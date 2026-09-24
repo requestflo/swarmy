@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { validatePolicy, simulatePolicy, policySchema, whoCanPolicy } from './policies.service';
+import { validatePolicy, simulatePolicy, whoCanPolicy } from './policies.service';
 import type { OrgContext } from '../context';
 
 describe('validatePolicy', () => {
@@ -17,15 +17,6 @@ describe('validatePolicy', () => {
   it('rejects an invalid relation', () => {
     const r = validatePolicy(JSON.stringify({ relations: ['superuser'] }));
     expect(r.valid).toBe(false);
-  });
-});
-
-describe('policySchema', () => {
-  it('exposes the action catalogue and clause list', () => {
-    const s = policySchema();
-    expect(s.actions).toContain('service.restart');
-    expect(s.relations).toEqual(['owner', 'operator', 'viewer']);
-    expect(s.clauses.some((c) => c.key === 'relations')).toBe(true);
   });
 });
 

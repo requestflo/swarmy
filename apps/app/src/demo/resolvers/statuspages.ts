@@ -8,7 +8,6 @@ import type {
   StatusPageComponent,
   StatusPageRefInput,
   StatusPageView,
-  StatusPagesOverview,
   UpdateStatusPageInput,
   UptimeDayView,
 } from '@swarmy/core';
@@ -155,16 +154,6 @@ function emptyDays(): UptimeDayView[] {
 
 export const statuspages: DomainResolvers = {
   handlers: {
-    'statusPages.overview': (_i, s): StatusPagesOverview => {
-      const st = getState(s);
-      const enabled = st.pages.filter((p) => p.enabled);
-      return {
-        pages: st.pages.length,
-        enabled: enabled.length,
-        components: st.pages.reduce((sum, p) => sum + p.components.length, 0),
-        samples24h: enabled.reduce((sum, p) => sum + p.components.length, 0) * 1440,
-      };
-    },
 
     'statusPages.list': (i, s): StatusPageView[] => {
       const { stack } = (i as { stack?: string } | undefined) ?? {};

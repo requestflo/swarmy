@@ -2,9 +2,8 @@ import { z } from 'zod';
 import { RunDbBackupInput, SetDbBackupScheduleInput } from '@swarmy/core';
 import { DbBackupEngine, DbRestoreMode } from '@swarmy/core/protocol';
 import { orgProcedure, router } from '../trpc';
-import { abacProcedure, resolveStackByName, resolveStackService } from '../abac';
+import { abacProcedure, resolveStackByName } from '../abac';
 import {
-  backupDb,
   dbBackupOverview,
   getDbBackupSchedule,
   listDbBackups,
@@ -38,20 +37,6 @@ export const dbBackupRouter = router({
 
   /** "Back up now" — omitted fields default from the cluster's schedule label. */
   run: orgProcedure.input(RunDbBackupInput).mutation(({ ctx, input }) => runDbBackup(ctx, input)),
-
-  backup: orgProcedure
-    .input(
-      z.object({
-        stack: z.string().min(1),
-        cluster: z.string().min(1),
-        engine: DbBackupEngine,
-        targetId: z.string().min(1),
-        database: z.string().optional(),
-        dataVolume: z.string().optional(),
-      }),
-    )
-    .mutation(({ ctx, input }) => backupDb(ctx, input)),
-
   /** Catalog of DB backups; destination defaults from the schedule / first target. */
   list: orgProcedure
     .input(

@@ -26,7 +26,6 @@ import { controllerBackupRouter } from './routers/controllerBackup';
 import { controllerStoreRouter } from './routers/controllerStore';
 import { storageRouter } from './routers/storage';
 import { platformRouter } from './routers/platform';
-import { volumesRouter } from './routers/volumes';
 import { decommissionRouter } from './routers/decommission';
 import { schedulesRouter } from './routers/schedules';
 import { ssoRouter } from './routers/sso';
@@ -101,7 +100,6 @@ export const appRouter = router({
   controllerStore: controllerStoreRouter,
   storage: storageRouter,
   platform: platformRouter,
-  volumes: volumesRouter,
   schedules: schedulesRouter,
   sso: ssoRouter,
   security: securityRouter,

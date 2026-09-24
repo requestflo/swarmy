@@ -9,7 +9,6 @@ import {
   getTerminalPolicy,
   setTerminalPolicy,
   createTerminalSession,
-  listTerminalSessions,
   getTerminalSession,
   activeNodeShellApproval,
   requestNodeShellApproval,
@@ -218,10 +217,6 @@ export const terminalRouter = router({
 
       return { sessionId, ticket };
     }),
-
-  /** Live + historical sessions (admins all; members own). */
-  list: orgProcedure.query(({ ctx }) => listTerminalSessions(ctx)),
-
   get: orgProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {

@@ -211,27 +211,9 @@ WHERE ${scope(orgId, projectId)} AND fingerprint = ${lit(fingerprint)} AND v != 
 GROUP BY k, v ORDER BY k, c DESC LIMIT 5 BY k`;
 }
 
-/** Issues that fired inside one trace (the trace view's "errors" link). */
-export function buildIssuesForTraceQuery(db: string, orgId: string, traceId: string): string {
-  return `SELECT project_id, stack, fingerprint, any(title) AS title, count() AS c, min(timestamp) AS first
-FROM ${ident(db)}.${EVENTS_TABLE} WHERE org_id = ${lit(orgId)} AND trace_id = ${lit(traceId.toLowerCase())}
-GROUP BY project_id, stack, fingerprint ORDER BY first LIMIT 50`;
-}
-
 /* ----------------------------------------------------------------------------
  * Releases + artifacts
  * ------------------------------------------------------------------------- */
-
-export function buildReleasesQuery(db: string, orgId: string, projectId: number, limit?: number): string {
-  const d = ident(db);
-  return `SELECT r.version AS version, r.commit_sha AS commit_sha, r.environment AS environment, r.source AS source,
-  r.swarmy_release_id AS swarmy_release_id, r.first_seen AS first_seen, r.deployed_at AS deployed_at,
-  n.new_issues AS new_issues, ev.events AS events
-FROM (SELECT * FROM ${d}.${RELEASES_TABLE} FINAL WHERE ${scope(orgId, projectId)}) AS r
-LEFT JOIN (SELECT first_release AS version, count() AS new_issues FROM ${d}.${ISSUES_TABLE} FINAL WHERE ${scope(orgId, projectId)} GROUP BY first_release) AS n ON n.version = r.version
-LEFT JOIN (SELECT release AS version, count() AS events FROM ${d}.${EVENTS_TABLE} WHERE ${scope(orgId, projectId)} GROUP BY release) AS ev ON ev.version = r.version
-ORDER BY greatest(r.deployed_at, r.first_seen) DESC LIMIT ${clampInt(limit, 25, 1, 200)}`;
-}
 
 /** One release row (for "the deploy that introduced this issue"). */
 export function buildReleaseQuery(db: string, orgId: string, projectId: number, version: string): string {

@@ -192,10 +192,6 @@ export async function getConfig(ctx: OrgContext): Promise<MeshConfigView> {
   };
 }
 
-export function listDrivers(): MeshDriverId[] {
-  return defaultRegistry.list() as MeshDriverId[];
-}
-
 export async function setDriver(ctx: OrgContext, driver: MeshDriverId): Promise<MeshConfigView> {
   await meshConfigRepo.update(ctx, ctx.activeOrgId, { driver: DRIVER_TO_ENUM[driver] });
   await writeAudit(ctx, {

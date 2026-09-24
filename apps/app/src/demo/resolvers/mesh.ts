@@ -137,8 +137,6 @@ export const mesh: DomainResolvers = {
   handlers: {
     'mesh.getConfig': (_i, s): MeshConfigView => toConfigView(getState(s)),
 
-    'mesh.listDrivers': (): MeshDriverId[] => ['none', 'netbird', 'headscale', 'tailscale', 'wireguard'],
-
     'mesh.listPeers': (_i, s): MeshPeerView[] => getState(s).peers,
 
     'mesh.setDriver': (i, s): MeshConfigView => {

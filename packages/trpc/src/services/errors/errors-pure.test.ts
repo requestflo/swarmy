@@ -125,8 +125,6 @@ describe('ClickHouse DDL + org scoping', () => {
     scoped(q.buildIssueEventsQuery('otel', ORG, 1, 'a'), 1);
     scoped(q.buildEventPayloadQuery('otel', ORG, 1, 'a', 'b'), 1);
     scoped(q.buildIssueTagsQuery('otel', ORG, 1, 'a'), 1);
-    scoped(q.buildIssuesForTraceQuery('otel', ORG, 'a'), 1);
-    scoped(q.buildReleasesQuery('otel', ORG, 1), 3);
     scoped(q.buildArtifactIndexQuery('otel', ORG, 1, 'r'), 1);
     scoped(q.buildArtifactContentQuery('otel', ORG, 1, 'r', 'n'), 1);
     scoped(q.buildArtifactsByDebugIdQuery('otel', ORG, 1, ['d']), 1);

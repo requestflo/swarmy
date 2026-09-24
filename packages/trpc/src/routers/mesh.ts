@@ -5,7 +5,6 @@ import {
   enrollNode,
   getConfig,
   grantDirectRoute,
-  listDrivers,
   listPeers,
   listRoutes,
   previewAccess,
@@ -29,7 +28,6 @@ import {
   grantPerson,
   listConnectedPeople,
   listPersonGrants,
-  reconcilePeopleAccess,
   revokePersonGrant,
   revokePersonPeer,
   setPeopleAccess,
@@ -41,9 +39,6 @@ const driverEnum = z.enum(['none', 'netbird', 'headscale', 'tailscale', 'wiregua
 
 export const meshRouter = router({
   getConfig: orgProcedure.query(({ ctx }) => getConfig(ctx)),
-
-  listDrivers: orgProcedure.query(() => listDrivers()),
-
   setDriver: adminProcedure
     .input(z.object({ driver: driverEnum }))
     .mutation(({ ctx, input }) => setDriver(ctx, input.driver)),
@@ -189,7 +184,5 @@ export const meshRouter = router({
     revoke: adminProcedure.input(z.object({ grantId: z.string() })).mutation(({ ctx, input }) => revokePersonGrant(ctx, input.grantId)),
     /** Disconnect one device now (it must sign in again). */
     revokeDevice: adminProcedure.input(z.object({ peerId: z.string() })).mutation(({ ctx, input }) => revokePersonPeer(ctx, input.peerId)),
-    /** Converge now (after changing rules). */
-    sync: adminProcedure.mutation(({ ctx }) => reconcilePeopleAccess(ctx)),
   }),
 });

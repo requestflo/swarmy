@@ -15,7 +15,6 @@ import {
   getConfig,
   getControllerImage,
   listDomains,
-  listDrivers,
   previewConfig,
   parseDomainId,
   removeDomain,
@@ -95,9 +94,6 @@ const routeInput = z.object({
 
 export const ingressRouter = router({
   getConfig: orgProcedure.query(({ ctx }) => getConfig(ctx)),
-
-  listDrivers: orgProcedure.query(() => listDrivers()),
-
   setDriver: adminProcedure
     .input(z.object({ driver: driverEnum }))
     .mutation(({ ctx, input }) => setDriver(ctx, input.driver)),

@@ -23,13 +23,11 @@ import {
   buildEventPayloadQuery,
   buildIssueDetailQuery,
   buildIssueEventsQuery,
-  buildIssuesForTraceQuery,
   buildIssuesListQuery,
   buildIssueStateQuery,
   buildIssueTagsQuery,
   buildIssueTrendQuery,
   buildReleaseQuery,
-  buildReleasesQuery,
   type EventListRow,
   type EventPayloadRow,
   type IssueListRow,
@@ -420,30 +418,6 @@ export async function issueDetail(
     tags: [...tags.entries()].map(([key, values]) => ({ key, values })),
     introducedIn,
   };
-}
-
-export async function listReleases(ctx: OrgContext, q: { stack: string; limit?: number }): Promise<{ status: ReadStatus; releases: ReleaseView[] }> {
-  const project = await getProject(ctx, q.stack);
-  if (!project) return { status: 'no_project', releases: [] };
-  const ch = await errorsStore(ctx).catch(() => null);
-  if (!ch) return { status: 'disabled', releases: [] };
-  const rows = await ch.query<ReleaseRow>(buildReleasesQuery(ch.database, ctx.activeOrgId, project.projectId, q.limit));
-  if (rows === null) return { status: 'unreachable', releases: [] };
-  return { status: 'ok', releases: rows.map(releaseView) };
-}
-
-/** Issues seen inside one trace (for the trace waterfall's "errors" strip). */
-export async function issuesForTrace(
-  ctx: OrgContext,
-  traceId: string,
-): Promise<{ status: ReadStatus; issues: { stack: string; fingerprint: string; title: string; count: number }[] }> {
-  const ch = await errorsStore(ctx).catch(() => null);
-  if (!ch) return { status: 'disabled', issues: [] };
-  const rows = await ch.query<{ stack: string; fingerprint: string; title: string; c: string | number }>(
-    buildIssuesForTraceQuery(ch.database, ctx.activeOrgId, traceId),
-  );
-  if (rows === null) return { status: 'unreachable', issues: [] };
-  return { status: 'ok', issues: rows.map((r) => ({ stack: r.stack, fingerprint: r.fingerprint, title: r.title, count: num(r.c) })) };
 }
 
 /* ----------------------------------------------------------------------------

@@ -225,11 +225,6 @@ function safeDecrypt(blob: string): string {
  * Config + lifecycle
  * ------------------------------------------------------------------------- */
 
-export async function getConfig(ctx: OrgContext): Promise<ObservabilityConfigView> {
-  const row = await ensureConfig(ctx);
-  return toView(ctx, row);
-}
-
 export async function getStatus(ctx: OrgContext): Promise<ObservabilityStatusView> {
   const row = await ensureConfig(ctx);
   const base = toView(ctx, row);

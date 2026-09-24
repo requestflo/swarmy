@@ -9,7 +9,6 @@ import {
 import { orgProcedure, router } from '../trpc';
 import {
   createEndpoint,
-  deleteOldDeliveries,
   getDelivery,
   listDeliveries,
   listEndpoints,
@@ -99,7 +98,4 @@ export const inboundWebhooksRouter = router({
   replay: orgProcedure
     .input(InboundDeliveryRefInput)
     .mutation(({ ctx, input }) => replayDelivery(ctx, input.id)),
-
-  /** Delete deliveries older than each endpoint's retentionDays (audited). */
-  pruneOld: orgProcedure.mutation(({ ctx }) => deleteOldDeliveries(ctx)),
 });

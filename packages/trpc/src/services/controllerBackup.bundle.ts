@@ -329,31 +329,6 @@ function parseBackupSummary(stdout: string): { snapshotId: string; sizeBytes?: n
   return { snapshotId: 'unknown' };
 }
 
-/** One restic snapshot as reported by `restic snapshots --json`. */
-export interface ResticSnapshotRow {
-  id: string;
-  time: string;
-  tags: string[];
-}
-
-export async function listBundleSnapshots(
-  repo: ResticRepo,
-  runner: ResticRunner = defaultRunner(),
-): Promise<ResticSnapshotRow[]> {
-  const res = await runRestic(
-    ['snapshots', '--json', '--tag', CONTROLLER_BACKUP_TAG],
-    repo,
-    runner,
-  );
-  if (res.code !== 0) return [];
-  try {
-    const rows = JSON.parse(res.stdout) as { id: string; short_id?: string; time: string; tags?: string[] }[];
-    return rows.map((r) => ({ id: r.short_id ?? r.id, time: r.time, tags: r.tags ?? [] }));
-  } catch {
-    return [];
-  }
-}
-
 /**
  * Restore + decrypt a controller-state bundle from a restic repo. Returns the
  * decoded contents (manifest + control.db snapshot + secrets) for the restore CLI/UI to act

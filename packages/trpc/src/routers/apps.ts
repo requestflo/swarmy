@@ -13,7 +13,6 @@ import {
   checkDriftNow,
   getPlan,
   listApps,
-  listPlans,
   promoteEnvironment,
   purgeAppData,
   replan,
@@ -25,17 +24,6 @@ const id = z.string().min(1).max(100);
 
 export const appsRouter = router({
   list: orgProcedure.query(({ ctx }) => listApps(ctx)),
-
-  plans: orgProcedure
-    .input(
-      z.object({
-        repoId: id,
-        environment: z.string().min(1).max(40).optional(),
-        limit: z.number().int().min(1).max(100).optional(),
-      }),
-    )
-    .query(({ ctx, input }) => listPlans(ctx, input)),
-
   plan: orgProcedure
     .input(z.object({ planId: id }))
     .query(({ ctx, input }) => getPlan(ctx, input.planId)),

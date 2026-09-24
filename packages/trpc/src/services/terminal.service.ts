@@ -285,19 +285,6 @@ export async function closeTerminalSession(
     .catch(() => undefined);
 }
 
-/** Live + historical sessions for the org. Members see only their own. */
-export async function listTerminalSessions(ctx: OrgContext): Promise<TerminalSessionRow[]> {
-  const isAdmin = ctx.membership.role === 'owner' || ctx.membership.role === 'admin';
-  return models(ctx.db).terminalSession.findMany({
-    where: {
-      orgId: ctx.activeOrgId,
-      ...(isAdmin ? {} : { actorId: ctx.user.id }),
-    },
-    orderBy: { startedAt: 'desc' },
-    take: 200,
-  });
-}
-
 export async function getTerminalSession(
   ctx: OrgContext,
   id: string,

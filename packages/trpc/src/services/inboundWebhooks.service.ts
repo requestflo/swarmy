@@ -605,27 +605,3 @@ export async function replayDelivery(ctx: OrgContext, id: string): Promise<Inbou
   });
   return toDeliveryView(updated, row.endpoint);
 }
-
-/** Delete deliveries older than each endpoint's `retentionDays` (audited). */
-export async function deleteOldDeliveries(ctx: OrgContext): Promise<{ removed: number }> {
-  const endpoints = await ctx.db.inboundEndpoint.findMany({
-    where: { orgId: ctx.activeOrgId },
-    select: { id: true, retentionDays: true },
-  });
-  let removed = 0;
-  for (const ep of endpoints) {
-    const cutoff = new Date(Date.now() - ep.retentionDays * 24 * 3_600_000);
-    const res = await ctx.db.inboundDelivery.deleteMany({
-      where: { endpointId: ep.id, receivedAt: { lt: cutoff } },
-    });
-    removed += res.count;
-  }
-  if (removed > 0) {
-    await writeAudit(ctx, {
-      action: 'inboundWebhooks.pruneOld',
-      targetType: 'inboundDelivery',
-      metadata: { removed },
-    });
-  }
-  return { removed };
-}

@@ -11,13 +11,10 @@ import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import {
   issueDetail,
-  issuesForTrace,
   listIssues,
-  listReleases,
   setIssueStatus,
   setStackEnabled,
   stackStatus,
-  uploadArtifacts,
 } from '../services/errors/errors.service';
 import { rotateKey, setRateLimit } from '../services/errors/projects';
 import { ISSUE_STATUSES } from '../services/errors/query';
@@ -59,24 +56,4 @@ export const errorsRouter = router({
   setIssueStatus: orgProcedure
     .input(z.object({ stack, fingerprint, status: z.enum(ISSUE_STATUSES) }))
     .mutation(({ ctx, input }) => setIssueStatus(ctx, input)),
-
-  releases: orgProcedure
-    .input(z.object({ stack, limit: z.number().int().min(1).max(200).optional() }))
-    .query(({ ctx, input }) => listReleases(ctx, input)),
-
-  /** Issues raised inside one trace — the trace view links back to them. */
-  forTrace: orgProcedure
-    .input(z.object({ traceId: z.string().regex(/^[0-9a-f]{32}$/i) }))
-    .query(({ ctx, input }) => issuesForTrace(ctx, input.traceId)),
-
-  /** Source maps / bundles for a release (small uploads; CLI + CI use the HTTP endpoint). */
-  uploadArtifacts: adminProcedure
-    .input(
-      z.object({
-        stack,
-        release: z.string().max(200),
-        files: z.array(z.object({ name: z.string().min(1).max(500), content: z.string() })).min(1).max(50),
-      }),
-    )
-    .mutation(({ ctx, input }) => uploadArtifacts(ctx, input)),
 });
