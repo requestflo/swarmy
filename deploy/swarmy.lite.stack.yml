@@ -1,4 +1,5 @@
-# swarmy control plane — LITE tier (embedded PGlite). One service, one volume.
+# swarmy control plane: one service, one volume. The controller's store is
+# embedded SQLite (control.db + telemetry.db in SWARMY_DATA_DIR on swarmy-data).
 #
 # Deployed by scripts/install-swarmy.sh on the bootstrap host via:
 #   docker stack deploy -c deploy/swarmy.lite.stack.yml swarmy
@@ -28,10 +29,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3021"
-      SWARMY_DB_DRIVER: pglite
       SWARMY_DATA_DIR: /var/lib/swarmy/data
       SWARMY_STATIC_DIR: /app/public
-      SWARMY_SELF_MIGRATE: "1"
       SWARMY_BOOTSTRAP: "1"
       CONTROLLER_PUBLIC_URL: ${SWARMY_PUBLIC_URL}
       BETTER_AUTH_URL: ${SWARMY_PUBLIC_URL}
@@ -84,7 +83,7 @@ services:
     networks:
       # PRIVATE control-plane overlay only. Never the shared `swarmy` network:
       # every routed/observed app joins that one, and an app there could reach
-      # (or alias-impersonate) the controller and its database.
+      # (or alias-impersonate) the controller.
       - swarmy-control
     deploy:
       # The control plane is platform plumbing, not a user app stack.
@@ -93,7 +92,7 @@ services:
       replicas: 1
       placement:
         constraints:
-          # Pin to the bootstrap host: the PGlite volume is node-local, so a floating
+          # Pin to the bootstrap host: the store's volume is node-local, so a floating
           # task on another node would mount an empty DB. node.hostname, not node.role.
           - node.hostname == ${SWARMY_NODE_HOSTNAME}
       update_config:
@@ -109,8 +108,7 @@ services:
       start_period: 30s
 
 networks:
-  # swarmy's PRIVATE control-plane overlay: the controller (+ its Postgres on
-  # the standard tier), ClickHouse, and the trusted bridges that must reach them
+  # swarmy's PRIVATE control-plane overlay: the controller, ClickHouse, and the trusted bridges that must reach them
   # (edge Caddy's dashboard vhost, cloudflared, the OTel collector, the node-#1
   # agent). User services never join it — swarmy's admission refuses it, and
   # compose→stack rejects it. External + literally named so docker stack

@@ -1,30 +1,9 @@
-# Local backing services for swarmy development.
-#   bun docker:up    -> start postgres
-#   bun docker:up --profile ingress  -> also start caddy + traefik for ingress testing
-#
-# Host port for Postgres defaults to 5678. If 5678 is taken locally (e.g. another
-# project's Postgres), set SWARMY_DB_PORT in your root .env to a free port and
-# point DATABASE_URL at the same port. Compose reads .env from the repo root.
+# Optional local services for swarmy development. The controller needs none:
+# its store is embedded SQLite (<repo>/.swarmy/data by default).
+#   bun docker:up --profile ingress  -> caddy + traefik for ingress testing
 name: swarmy
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: swarmy
-      POSTGRES_PASSWORD: swarmy
-      POSTGRES_DB: swarmy
-    ports:
-      - '${SWARMY_DB_PORT:-5678}:5432'
-    volumes:
-      - swarmy-pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U swarmy -d swarmy']
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   # Optional: a local Caddy to exercise the caddy ingress driver.
   #
   # Admin API: the mounted Caddyfile binds the admin endpoint with `admin :2019`
@@ -69,6 +48,5 @@ services:
       - ./traefik/dynamic:/etc/traefik/dynamic
 
 volumes:
-  swarmy-pgdata:
   swarmy-caddy-data:
   swarmy-caddy-config:

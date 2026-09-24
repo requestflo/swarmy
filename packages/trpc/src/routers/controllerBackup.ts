@@ -10,14 +10,10 @@ import {
   setConfig,
   setRestorePassphrase,
 } from '../services/controllerBackup.service';
-import {
-  migratePlan,
-  provisionManagedPostgres,
-} from '../services/controllerDb.service';
 import { generateRestorePassphrase } from '@swarmy/core/crypto';
 
 /**
- * Controller-state backup/restore + data-store upgrade — PLATFORM level. Scoped
+ * Controller-state backup/restore — PLATFORM level. Scoped
  * to `adminProcedure` (org admin/owner): this is the closest guard the current
  * auth model exposes. In a multi-tenant deployment, gate this further to a true
  * super-admin (see INTEGRATION note). The config and snapshots are singular /
@@ -70,15 +66,4 @@ export const controllerBackupRouter = router({
 
   /** Live restic catalog for the configured target (restore picker). */
   listRemoteSnapshots: adminProcedure.query(({ ctx }) => listRemoteSnapshots(ctx.db)),
-
-  // ── data-store upgrade (managed Postgres) ──
-  provisionManagedPostgres: adminProcedure.mutation(async ({ ctx }) => {
-    const result = await provisionManagedPostgres(ctx);
-    return {
-      serviceName: result.serviceName,
-      databaseUrl: result.databaseUrl,
-      image: result.image,
-      steps: migratePlan(result),
-    };
-  }),
 });

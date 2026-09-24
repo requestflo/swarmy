@@ -19,15 +19,9 @@ permissions:
 
 jobs:
   self-host:
-    name: self-host (${{ matrix.tier }}) install → online → deploy → reachable
+    name: self-host install → online → deploy → reachable
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        # lite = embedded PGlite; standard = Postgres service. They migrate
-        # through different executors, so each tier gets its own full run.
-        tier: [lite, standard]
     steps:
       - uses: actions/checkout@v4
 
@@ -70,12 +64,11 @@ jobs:
         run: |
           sudo bash scripts/install-swarmy.sh \
             --non-interactive \
-            ${{ matrix.tier == 'standard' && '--standard' || '' }} \
             --admin-email e2e@example.com \
             --image swarmy-controller:e2e \
             --agent-image swarmy-agent:e2e
 
-      # A no-flag re-run must keep the tier and settings (upgrade path).
+      # A no-flag re-run must keep the settings and the store (upgrade path).
       - name: Re-run installer (upgrade path)
         timeout-minutes: 8
         run: sudo bash scripts/install-swarmy.sh --non-interactive

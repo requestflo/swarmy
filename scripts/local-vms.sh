@@ -14,7 +14,7 @@
 #
 # PREREQUISITE: a controller running on this Mac, reachable on your LAN and
 # serving the agent binaries. From the repo root:
-#     bun run dev:up          # Postgres + schema + seed (one time / after resets)
+#     bun run dev:up          # swarm + schema + seed (one time / after resets)
 #     bun run build:agent-bin # compile the linux agent binaries (this script also does it)
 #     bun dev:app             # controller :3021 + dashboard :3023
 # The controller serves binaries automatically once they're built (it looks in

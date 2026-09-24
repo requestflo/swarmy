@@ -4,9 +4,9 @@
 # One-command local bring-up of a REAL swarmy controller + a local node.
 #
 # Ensures Docker is running, makes the host a single-node Docker Swarm (so the
-# laptop is a manager and the agent can `docker service` against it), starts
-# Postgres, generates + pushes the Prisma schema, and seeds a dev login user +
-# org + join token. It then prints the two foreground commands to run rather
+# laptop is a manager and the agent can `docker service` against it), generates
+# the Prisma clients, and seeds a dev login user + org + join token into the
+# embedded SQLite store (<repo>/.swarmy/data, migrated by the seed). It then prints the two foreground commands to run rather
 # than backgrounding the dev servers + agent unreliably from one script.
 #
 # Usage: bun run dev:up   (or: bash scripts/dev-up.sh)
@@ -78,42 +78,18 @@ else
   fi
 fi
 
-# ── 3. Postgres ─────────────────────────────────────────────────────────────
-say "Starting Postgres (docker compose)…"
-bun docker:up
-ok "Postgres container requested."
-
-say "Waiting for Postgres to become healthy…"
-db_port="$(grep -E '^SWARMY_DB_PORT=' .env | head -1 | cut -d= -f2 || true)"
-db_port="${db_port:-5678}"
-cid="$(docker compose --env-file .env -f docker/docker-compose.yml ps -q postgres || true)"
-healthy=0
-for _ in $(seq 1 60); do
-  if [[ -n "$cid" ]]; then
-    status="$(docker inspect -f '{{.State.Health.Status}}' "$cid" 2>/dev/null || echo '')"
-    if [[ "$status" == "healthy" ]]; then healthy=1; break; fi
-  fi
-  # Fallback probe in case the container has no healthcheck wired.
-  if docker exec "$cid" pg_isready -U swarmy -d swarmy >/dev/null 2>&1; then healthy=1; break; fi
-  sleep 1
-done
-[[ "$healthy" == "1" ]] || die "Postgres did not become healthy. Check 'bun docker:up' logs. (port $db_port — if taken, set SWARMY_DB_PORT)"
-ok "Postgres healthy on host port $db_port."
-
-# ── 4. Schema + Prisma client ───────────────────────────────────────────────
-say "Generating Prisma client…"
+# ── 3. Prisma clients ───────────────────────────────────────────────────────
+# No database server: the store is embedded SQLite. The seed below applies the
+# migrations (the same ensureSchema() the controller runs on boot).
+say "Generating Prisma clients…"
 bun db:generate
-ok "Prisma client generated."
+ok "Prisma clients generated."
 
-say "Pushing schema to the database…"
-bun db:push
-ok "Schema applied."
-
-# ── 5. Seed ─────────────────────────────────────────────────────────────────
+# ── 4. Seed ─────────────────────────────────────────────────────────────────
 say "Seeding dev user + org + join token…"
 bun run seed-dev
 
-# ── 6. Next steps ───────────────────────────────────────────────────────────
+# ── 5. Next steps ───────────────────────────────────────────────────────────
 cat <<'EOF'
 
 ────────────────────────────────────────────────────────────────────────────

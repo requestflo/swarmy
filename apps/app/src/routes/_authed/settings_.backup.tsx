@@ -2,7 +2,6 @@ import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { SectionHeader } from '@/components/section-header';
 import { BackupNowButton } from '@/components/controllerbackup/backup-now-button';
-import { DataStoreCard } from '@/components/controllerbackup/data-store-card';
 import { PassphraseCard } from '@/components/controllerbackup/passphrase-card';
 import { ScheduleCard } from '@/components/controllerbackup/schedule-card';
 import { SnapshotsList } from '@/components/controllerbackup/snapshots-list';
@@ -25,7 +24,6 @@ function ControllerBackupPage(): React.JSX.Element {
         actions={<BackupNowButton />}
       />
       <div className="grid gap-6">
-        <DataStoreCard />
         <PassphraseCard />
         <ScheduleCard />
         <SnapshotsList />

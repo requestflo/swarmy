@@ -101,7 +101,7 @@ interface ControllerBackupConfigView {
 interface ControllerManifest {
   swarmyVersion: string;
   schemaVersion: string;
-  dbDriver: 'pglite' | 'postgres';
+  dbDriver: 'sqlite';
   createdAt: string;
   orgCount: number;
   nodeCount: number;
@@ -763,7 +763,7 @@ export const data: DomainResolvers = {
         manifest: {
           swarmyVersion: '0.1.0',
           schemaVersion: '1',
-          dbDriver: 'postgres',
+          dbDriver: 'sqlite',
           createdAt: nowIso(),
           orgCount: 1,
           nodeCount: s.nodes.length,
@@ -780,30 +780,6 @@ export const data: DomainResolvers = {
     },
 
     'controllerBackup.listSnapshots': (_i, s): ControllerSnapshotView[] => getState(s).controller.snapshots,
-
-    'controllerBackup.provisionManagedPostgres': (): {
-      serviceName: string;
-      databaseUrl: string;
-      image: string;
-      steps: string[];
-    } => {
-      const serviceName = 'swarmy-postgres';
-      const image = 'postgres:16-alpine';
-      const databaseUrl = `postgresql://swarmy:demo-secret@${serviceName}:5432/swarmy`;
-      return {
-        serviceName,
-        databaseUrl,
-        image,
-        steps: [
-          `1. Managed Postgres is running as swarm service "${serviceName}" (${image}).`,
-          '2. Take a controller-state backup now (it produces a portable logical dump).',
-          `3. Set SWARMY_DB_DRIVER=postgres and DATABASE_URL=${databaseUrl}`,
-          '4. Run `bun db:migrate` (deploy) against the new DSN to create the schema.',
-          '5. Restore the just-taken bundle to load control-plane data into managed PG.',
-          '6. Restart the controller. Agents re-adopt automatically (hashed creds in DB).',
-        ],
-      };
-    },
 
     // ── storage (replicated object store) ────────────────────────────────────────
     'storage.getConfig': (_i, s): StorageClusterView => storageView(getState(s).storage),
@@ -1114,7 +1090,7 @@ export const data: DomainResolvers = {
           manifest: {
             swarmyVersion: '0.1.0',
             schemaVersion: '1',
-            dbDriver: 'postgres',
+            dbDriver: 'sqlite',
             createdAt: iso(9 * HOUR),
             orgCount: 1,
             nodeCount: 5,
@@ -1134,7 +1110,7 @@ export const data: DomainResolvers = {
           manifest: {
             swarmyVersion: '0.1.0',
             schemaVersion: '1',
-            dbDriver: 'postgres',
+            dbDriver: 'sqlite',
             createdAt: iso(33 * HOUR),
             orgCount: 1,
             nodeCount: 5,

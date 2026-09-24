@@ -20,7 +20,6 @@
 #   --non-interactive            never prompt; use flags/env/defaults
 #   --check                      preflight only — detect + report, mutate nothing
 #   --uninstall                  remove the swarmy stack, secrets, and node #1 agent
-#   --standard                   Postgres tier (default: lite/embedded PGlite)
 #   --admin-email <e>            SWARMY_ADMIN_EMAIL (a value without "@" is a username login)
 #   --admin-password <p>         SWARMY_ADMIN_PASSWORD   (generated if unset)
 #   --domain <host>              SWARMY_DOMAIN — the dashboard's https domain (point an A
@@ -74,7 +73,8 @@ hr()   { printf '%s\n' "${c_dim}────────────────
 # ── config (env defaults; flags override below) ─────────────────────────────
 NON_INTERACTIVE="${SWARMY_NON_INTERACTIVE:-0}"
 MODE="install"
-DB_TIER="${SWARMY_DB_TIER:-lite}"
+# The one control-plane stack (embedded SQLite store; no database service).
+STACK_FILE="swarmy.lite.stack.yml"
 ADMIN_EMAIL="${SWARMY_ADMIN_EMAIL:-}"
 ADMIN_PASSWORD="${SWARMY_ADMIN_PASSWORD:-}"
 DOMAIN="${SWARMY_DOMAIN:-}"
@@ -89,11 +89,10 @@ ALLOW_SIGNUP="${SWARMY_ALLOW_SIGNUP:-}"
 
 # Which settings the operator gave THIS run (flag or env). Anything not given
 # falls back to what the first install recorded in state.env — a re-run with
-# no flags must never silently switch tier, image, port or sign-up policy.
+# no flags must never silently switch image, port or sign-up policy.
 EXPLICIT=" "
-for v in DB_TIER ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS; do
+for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS; do
   case "$v" in
-    DB_TIER) [ -n "${SWARMY_DB_TIER:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
     ADMIN_EMAIL) [ -n "${SWARMY_ADMIN_EMAIL:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
     IMAGE) [ -n "${SWARMY_IMAGE:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
     AGENT_IMAGE) [ -n "${SWARMY_AGENT_IMAGE:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
@@ -110,7 +109,7 @@ while [ $# -gt 0 ]; do
     --non-interactive) NON_INTERACTIVE=1 ;;
     --check) MODE="check" ;;
     --uninstall) MODE="uninstall" ;;
-    --standard) DB_TIER="standard" EXPLICIT="${EXPLICIT}DB_TIER " ;;
+    --standard) die "--standard was removed: the controller always runs its embedded SQLite store (no Postgres service)." ;;
     --admin-email) ADMIN_EMAIL="${2:?}"; EXPLICIT="${EXPLICIT}ADMIN_EMAIL "; shift ;;
     --admin-password) ADMIN_PASSWORD="${2:?}"; shift ;;
     --domain) DOMAIN="${2:?}"; EXPLICIT="${EXPLICIT}DOMAIN "; shift ;;
@@ -146,18 +145,16 @@ marker_done() { state_load; local v; eval "v=\${MARK_$1:-}"; [ "$v" = "1" ]; }
 remember_settings() {
   state_load
   local v saved
-  for v in DB_TIER ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS; do
+  eval "saved=\${CFG_DB_TIER:-}"
+  if [ -n "$saved" ] && [ "$saved" != lite ]; then
+    die "this controller was installed with the '$saved' datastore tier (Postgres), which no longer exists. Take a fresh install; there is no migration path from a Postgres-era controller."
+  fi
+  for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS; do
     eval "saved=\${CFG_$v:-}"
     [ -n "$saved" ] || continue
-    if explicit "$v"; then
-      if [ "$v" = DB_TIER ] && [ "$DB_TIER" != "$saved" ]; then
-        die "this controller was installed with the '$saved' datastore tier; switching to '$DB_TIER' would start it on an EMPTY database. Re-run without changing the tier (migrate with a controller backup + restore instead)."
-      fi
-    else
-      eval "$v=\$saved"
-    fi
+    explicit "$v" || eval "$v=\$saved"
   done
-  for v in DB_TIER ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS; do
+  for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS; do
     eval "state_set CFG_$v \"\${$v}\""
   done
 }
@@ -468,10 +465,6 @@ wizard() {
     [ -n "$ADMIN_PASSWORD" ] || { ADMIN_PASSWORD="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)"; GENERATED_PW=1; }
   fi
 
-  if [ "$NON_INTERACTIVE" != 1 ] && [ "$DB_TIER" = lite ]; then
-    case "$(choose 'Datastore tier' lite lite standard)" in standard) DB_TIER=standard ;; esac
-  fi
-
   # HTTPS dashboard: a public-IP box gets one automatically (sslip.io default),
   # served by swarmy's own Caddy edge — no ingress question needed.
   local auto_domain; auto_domain="$(dashboard_domain "$NAT_VERDICT" "$PUBLIC_IP" "$DOMAIN" "$NO_HTTPS" "$INGRESS")"
@@ -527,7 +520,7 @@ wizard() {
   else
     PUBLIC_URL="${SWARMY_PUBLIC_URL:-$LOGIN_URL}"
   fi
-  ok "tier=${DB_TIER} ingress=${INGRESS} mesh=${MESH} login=${LOGIN_URL}${DASHBOARD_DOMAIN:+ https=https://$DASHBOARD_DOMAIN}${DOMAIN:+ domain=$DOMAIN}"
+  ok "ingress=${INGRESS} mesh=${MESH} login=${LOGIN_URL}${DASHBOARD_DOMAIN:+ https=https://$DASHBOARD_DOMAIN}${DOMAIN:+ domain=$DOMAIN}"
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -539,7 +532,6 @@ ensure_secrets() {  # persist-once into state.env (NEVER regenerate)
   state_load
   [ -n "${SWARMY_SECRET_KEY:-}" ]   || state_set SWARMY_SECRET_KEY "$(gen_secret)"
   [ -n "${BETTER_AUTH_SECRET:-}" ]  || state_set BETTER_AUTH_SECRET "$(gen_secret)"
-  [ -n "${POSTGRES_PASSWORD:-}" ]   || state_set POSTGRES_PASSWORD "$(gen_secret | tr -d '/+=')"
   state_set ADMIN_PASSWORD "$ADMIN_PASSWORD"
   if [ -z "${BOOTSTRAP_JOIN_TOKEN:-}" ]; then
     state_set BOOTSTRAP_JOIN_TOKEN "swt_$(openssl rand -hex 2)_$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"
@@ -636,7 +628,6 @@ ensure_docker_secrets() {
   # unconditionally — an empty token makes ensureMeshConfig() skip, same
   # opt-in-by-absence behavior as every other mesh env var.
   secret_put mesh_service_token    "${NB_SERVICE_TOKEN:-}"
-  [ "$DB_TIER" = standard ] && secret_put postgres_password "$POSTGRES_PASSWORD"
   ok "secrets present."
 }
 
@@ -644,12 +635,12 @@ ensure_docker_secrets() {
 # Phase 8 — deploy control plane
 # ════════════════════════════════════════════════════════════════════════════
 write_stack_file() {  # emit the chosen stack file to $STATE_DIR (self-contained curl|sh path)
-  local dst="$STATE_DIR/swarmy.${DB_TIER}.stack.yml" src
-  for src in "deploy/swarmy.${DB_TIER}.stack.yml" "$(dirname "$0")/../deploy/swarmy.${DB_TIER}.stack.yml"; do
+  local dst="$STATE_DIR/$STACK_FILE" src
+  for src in "deploy/$STACK_FILE" "$(dirname "$0")/../deploy/$STACK_FILE"; do
     if [ -f "$src" ]; then cp "$src" "$dst"; printf '%s' "$dst"; return; fi
   done
   # curl | bash: no checkout on disk — fetch the stack file for the same ref.
-  local url="${SWARMY_RAW_BASE}/deploy/swarmy.${DB_TIER}.stack.yml"
+  local url="${SWARMY_RAW_BASE}/deploy/$STACK_FILE"
   curl -fsSL "$url" -o "$dst" 2>/dev/null \
     || die "could not fetch the stack file from $url (set SWARMY_RAW_BASE or run from a checkout)."
   printf '%s' "$dst"
@@ -725,7 +716,7 @@ deploy_stack() {
     trusted_proxies="$(docker network inspect "$CONTROL_NET" -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null | xargs || true)"
     [ -z "$trusted_proxies" ] || trusted_proxies="127.0.0.0/8 ::1/128 $trusted_proxies"
   fi
-  say "Deploying the swarmy control plane (${DB_TIER})…"
+  say "Deploying the swarmy control plane…"
   SWARMY_IMAGE="$IMAGE" \
   SWARMY_PUBLIC_URL="$PUBLIC_URL" \
   SWARMY_DASHBOARD_DOMAIN="$DASHBOARD_DOMAIN" \
@@ -894,10 +885,10 @@ do_uninstall() {
   docker rm -f "$AGENT_CONTAINER" >/dev/null 2>&1 || true
   docker stack rm "$STACK_NAME" >/dev/null 2>&1 || true
   sleep 3
-  for s in swarmy_secret_key better_auth_secret admin_password bootstrap_join_token swarm_worker_token swarm_manager_token mesh_service_token postgres_password; do
+  for s in swarmy_secret_key better_auth_secret admin_password bootstrap_join_token swarm_worker_token swarm_manager_token mesh_service_token; do
     docker secret rm "$s" >/dev/null 2>&1 || true
   done
-  ok "removed. Data volumes (swarmy-data / swarmy-pgdata) and $STATE_FILE are preserved; delete them manually to wipe state."
+  ok "removed. The swarmy-data volume (the controller store) and $STATE_FILE are preserved; delete them manually to wipe state."
 }
 
 # ── main ────────────────────────────────────────────────────────────────────
