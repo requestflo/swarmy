@@ -254,12 +254,12 @@ describe('ACME DNS-01 + wildcards (end to end)', () => {
     expect(res.status).toBe(200);
 
     const txt = await udpQuery({ type: 'query', id: 7, flags: dnsPacket.RECURSION_DESIRED, questions: [{ type: 'TXT', name: '_acme-challenge.example.com' }] });
-    expect(txt.flags & dnsPacket.AUTHORITATIVE_ANSWER).toBeTruthy();
+    expect((txt.flags ?? 0) & dnsPacket.AUTHORITATIVE_ANSWER).toBeTruthy();
     const data = (txt.answers ?? []).map((a) => String((a as { data: Buffer[] }).data));
     expect(data).toEqual(['LoqXcYV8q5ONbJQxbmR7SCTNo3tiAXDfowyjxAjEuX0']);
 
     const wild = await udpQuery({ type: 'query', id: 8, flags: 0, questions: [{ type: 'A', name: 'shop.example.com' }] });
-    expect(wild.rcode).toBe('NOERROR');
+    expect((wild as unknown as { rcode: string }).rcode).toBe('NOERROR');
     expect((wild.answers ?? []).map((a) => [a.name, (a as { data: string }).data])).toEqual([['shop.example.com', '203.0.113.10']]);
   });
 });
