@@ -64,6 +64,7 @@ import { vectorStoreRouter } from './routers/vector';
 import { aiGatewayRouter } from './routers/ai';
 import { notificationsRouter } from './routers/notifications';
 import { studioRouter } from './routers/studio';
+import { emailRouter } from './routers/email';
 import { rumRouter } from './routers/rum';
 
 export const appRouter = router({
@@ -133,6 +134,7 @@ export const appRouter = router({
   ai: aiGatewayRouter,
   notifications: notificationsRouter,
   studio: studioRouter,
+  email: emailRouter,
 });
 
 export type AppRouter = typeof appRouter;

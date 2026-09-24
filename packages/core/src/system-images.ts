@@ -48,6 +48,7 @@ export type SystemImageKey =
   | 'otelCollector'
   | 'curl'
   | 'valkey'
+  | 'maddy'
   | 'dockerCli'
   | 'caddy'
   | 'caddySwarmy'
@@ -96,6 +97,9 @@ export const SYSTEM_IMAGES: readonly SystemImage[] = [
   { key: 'otelCollector', ref: 'otel/opentelemetry-collector-contrib:0.111.0', digest: 'sha256:a2a52e43c1a80aa94120ad78c2db68780eb90e6d11c8db5b3ce2f6a0cc6b5029' },
   { key: 'curl', ref: 'curlimages/curl:8.10.1', digest: 'sha256:d9b4541e214bcd85196d6e92e2753ac6d0ea699f0af5741f8c6cccbfcf00ef4b' },
   { key: 'valkey', ref: 'valkey/valkey:8', digest: 'sha256:640c5e62cea04b6d6f2084232651d0cc70362d31f4f805e7be94dbed6855e8f2' },
+  // Email service MTA (epic developer-platform §8): one Go binary with submission,
+  // DKIM, a retry queue and smarthost routing, ~20–30 MB RSS (fits 1 GB nodes).
+  { key: 'maddy', ref: 'foxcpp/maddy:0.9.5', digest: 'sha256:de42151adff6388edb5e4ee88f60334fa1ab85e309485193ecb1c2db20203315' },
   // Platform upgrades: `docker service update --image … --update-failure-action rollback`
   // one-shots (docker.sock bound) for the controller and system services.
   { key: 'dockerCli', ref: 'docker:27.5-cli', digest: 'sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c' },

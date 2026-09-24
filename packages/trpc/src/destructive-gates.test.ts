@@ -109,6 +109,13 @@ const GATES: Array<[string, unknown, string]> = [
   ['cicd.webhookInfo', { repoId: 'r1' }, 'secrets.read'],
   ['policies.set', { name: 'p', effect: 'permit', source: '{}' }, 'policy.write'],
   ['policies.whoCan', { action: 'service.read' }, 'member.write'],
+  // Email service: configuration + test send are owner/admin-only by default.
+  ['email.setEnabled', { enabled: true }, 'email.write'],
+  ['email.removeDomain', { id: 'd1' }, 'email.write'],
+  ['email.removeCredential', { id: 'c1' }, 'email.write'],
+  ['email.removeSuppression', { id: 's1' }, 'email.write'],
+  ['email.testSend', { from: 'a@b.co', to: 'c@d.co' }, 'email.send'],
+  ['email.revealCredential', { id: 'c1' }, 'secrets.read'],
   // Deploy / configure: member-permitted outside production (no live stack
   // here → env unknown → non-production).
   ['services.create', { name: 'web', image: 'nginx' }, 'service.deploy'],

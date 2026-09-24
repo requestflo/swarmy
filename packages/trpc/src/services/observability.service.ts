@@ -455,6 +455,16 @@ export async function metricsSummary(
  * Internals
  * ------------------------------------------------------------------------- */
 
+/**
+ * The org's ClickHouse store for OTHER swarmy features that keep history next
+ * to its telemetry (the email send log): the plaintext DSN + retention, or
+ * null while the suite is off. Server-side only — never return the DSN.
+ */
+export async function observabilityStore(ctx: OrgContext): Promise<{ dsn: string; retentionDays: number } | null> {
+  const dsn = await activeDsn(ctx);
+  return dsn ? { dsn, retentionDays: await retentionFor(ctx) } : null;
+}
+
 async function activeDsn(ctx: OrgContext): Promise<string | null> {
   const row = await observabilityConfigRepo.find(ctx, ctx.activeOrgId);
   if (!row || !row.enabled || !row.clickhouseDsn) return null;

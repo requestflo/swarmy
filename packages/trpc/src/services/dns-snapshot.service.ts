@@ -14,6 +14,7 @@ import type { OrgContext } from '../context';
 import { listRoutesForOrg } from './ingress-routes';
 import { publicIpFromLabels } from './node.service';
 import { challengeRecords } from './acme-challenges';
+import { emailRecordsForZone } from './email.service';
 import { bumpZoneSerial, dnsZoneRepo, zoneContentSig, type DnsZoneRow } from './geodns.repo';
 
 /**
@@ -153,6 +154,9 @@ export async function composeZone(
     // derived, ephemeral zone content, never stored (acme-challenges.ts).
     ...challengeRecords(ctx.activeOrgId, row.zone),
   ];
+  // Email sending domains in this zone: SPF / DKIM / DMARC (+ the MTA's HELO
+  // name) — derived from the email service's domains on every compose.
+  manualRecords.push(...(await emailRecordsForZone(ctx, row.zone, manualRecords)));
 
   const { snapshot, conflicts } = composeZoneSnapshot({
     zone: {

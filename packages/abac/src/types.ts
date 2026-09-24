@@ -88,6 +88,12 @@ export const ACTIONS = [
   // use every model by default; an org narrows it with a forbid rule.
   /** Call a model through the AI gateway. */
   'ai.use',
+  // Email service (epic developer-platform §8). Owner/admin-only in the seeded
+  // defaults (the `*` superuser permits); an org grants others explicitly.
+  /** Configure the email service: switch, sending domains, relays, credentials, templates, suppressions. */
+  'email.write',
+  /** Send a test email from the Email page. */
+  'email.send',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];

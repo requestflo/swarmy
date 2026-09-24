@@ -51,6 +51,8 @@ export const ACTION_CATALOG: ActionInfo[] = [
   { id: 'ai.use', label: 'use AI models', group: 'access' },
   { id: 'data.read', label: 'read database rows', group: 'access' },
   { id: 'data.write', label: 'edit database rows', group: 'operate' },
+  { id: 'email.write', label: 'configure email sending', group: 'configure' },
+  { id: 'email.send', label: 'send test emails', group: 'operate' },
   { id: 'member.write', label: 'manage members', group: 'governance' },
   { id: 'policy.write', label: 'edit policies', group: 'governance' },
   { id: 'authconfig.write', label: 'change sign-in settings', group: 'governance' },
