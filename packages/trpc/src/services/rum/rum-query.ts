@@ -264,7 +264,7 @@ export async function getReplay(ctx: OrgContext, input: { stack: string; session
       const sql = buildReplayLogsQuery(ctx.activeOrgId, traceIds, window);
       return sql ? rows<Record<string, unknown>>(client, sql).catch(() => []) : [];
     })(),
-    rows<Record<string, unknown>>(client, buildReplayErrorsQuery(ctx.activeOrgId, input.sessionId)).catch(() => []),
+    rows<Record<string, unknown>>(client, buildReplayErrorsQuery(ctx.activeOrgId, input.sessionId, traceIds)).catch(() => []),
   ]);
 
   // Viewing a replay is viewing personal data — audited.

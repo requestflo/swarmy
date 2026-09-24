@@ -274,10 +274,18 @@ ORDER BY Timestamp
 LIMIT 1000`;
 }
 
-/** Server-side errors (error-tracking slice) linked to this replay. */
-export function buildReplayErrorsQuery(orgId: string, sessionId: string): string {
-  return `SELECT * FROM ${ERROR_EVENTS_TABLE}
-WHERE org_id = ${lit(orgId)} AND replay_id = ${lit(sessionId)}
+/**
+ * Server-side errors (error-tracking slice, `swarmy_error_events`) for this
+ * replay: tagged with its replay id by the SDK hook, or raised inside one of
+ * the traces the browser started.
+ */
+export function buildReplayErrorsQuery(orgId: string, sessionId: string, traceIds: readonly string[] = []): string {
+  const ids = traceIds.filter((t) => TRACE_ID_RE.test(t)).slice(0, 500);
+  const byTrace = ids.length ? ` OR trace_id IN (${ids.map(lit).join(', ')})` : '';
+  return `SELECT event_id, fingerprint, stack, toUnixTimestamp64Milli(timestamp) AS ts_ms, level,
+  exc_type, exc_value, title, culprit, trace_id, replay_id, release
+FROM ${ERROR_EVENTS_TABLE}
+WHERE org_id = ${lit(orgId)} AND (replay_id = ${lit(sessionId)}${byTrace})
 ORDER BY timestamp
 LIMIT 200`;
 }
