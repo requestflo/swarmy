@@ -11,7 +11,11 @@ interface ServiceEnvCardProps {
   env: Record<string, string>;
 }
 
-/** The running env (secret-looking values masked) + bulk `.env` paste applied in one deploy. */
+/**
+ * The running PLAIN env (secret-looking values masked — they are still plain;
+ * the hint nudges to Secrets) + bulk `.env` paste applied in one deploy, where
+ * rows marked secret are stored as Docker secrets.
+ */
 export function ServiceEnvCard({ serviceId, env }: ServiceEnvCardProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
@@ -55,6 +59,12 @@ export function ServiceEnvCard({ serviceId, env }: ServiceEnvCardProps): React.J
         ) : (
           <p className="text-muted-foreground">Nothing set. This service runs clean.</p>
         )}
+        {entries.some(([k, v]) => looksSecret(k, v)) && (
+          <p className="text-status-warning mt-2 text-xs">
+            Some values look like secrets but are plain env (visible in the service spec). Paste them again marked
+            secret, or add them under Secrets.
+          </p>
+        )}
       </CardContent>
       <EnvPasteDialog
         open={open}
@@ -63,8 +73,12 @@ export function ServiceEnvCard({ serviceId, env }: ServiceEnvCardProps): React.J
         parseOptions={SERVICE_ENV_PARSE}
         applyLabel="Apply & deploy"
         pending={update.isPending}
-        onApply={(next) =>
-          update.mutate({ id: serviceId, env: Object.entries(next).map(([key, value]) => ({ key, value })) })
+        onApply={(next, secretKeys) =>
+          update.mutate({
+            id: serviceId,
+            // Keys marked secret become Docker secrets (write-only); the rest stay plain env.
+            env: Object.entries(next).map(([key, value]) => ({ key, value, ...(secretKeys.has(key) ? { secret: true } : {}) })),
+          })
         }
       />
     </Card>

@@ -23,8 +23,12 @@ interface EnvPasteDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   current: Record<string, string>;
-  /** Receives the full next env (current ⊕ paste). Called once. */
-  onApply: (next: Record<string, string>) => void;
+  /**
+   * Receives the full next env (current ⊕ paste) and the keys marked secret
+   * (seeded by `looksSecret`, flippable per row). Called once. Callers store
+   * secret keys as Docker secrets, not plain env.
+   */
+  onApply: (next: Record<string, string>, secretKeys: ReadonlySet<string>) => void;
   applyLabel?: string;
   pending?: boolean;
   parseOptions?: DotenvParseOptions;
@@ -48,7 +52,8 @@ function EnvPasteBody({ onOpenChange, current, onApply, applyLabel = 'Apply', pe
         <DialogTitle>Paste .env</DialogTitle>
         <DialogDescription>
           Comments, quotes, multi-line values and <span className="mono-data">export</span> are fine. Values that
-          look like secrets are masked here.
+          look like secrets are marked secret — they’re stored as encrypted Docker secrets, never shown again.
+          Click the eye to flip a row.
         </DialogDescription>
       </DialogHeader>
       <Textarea
@@ -80,7 +85,7 @@ function EnvPasteBody({ onOpenChange, current, onApply, applyLabel = 'Apply', pe
       <EnvDiffTable rows={st.diff.rows} masked={st.masked} onToggleMask={st.toggleMask} />
       <DialogFooter>
         <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-        <Button disabled={!st.changed || pending} onClick={() => onApply(st.diff.next)}>
+        <Button disabled={!st.changed || pending} onClick={() => onApply(st.diff.next, st.masked)}>
           <ClipboardPasteIcon className="size-4" /> {applyLabel}
         </Button>
       </DialogFooter>

@@ -8,6 +8,7 @@ import type {
   RotateSecretResult,
   SecretFamilyView,
   SecretsListView,
+  ServiceSecretVarView,
 } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 
@@ -201,6 +202,39 @@ export const secretsmgr: DomainResolvers = {
         currentVersion: current,
       };
     },
+
+    // ── Secret app variables on a service (write-only; reveal returns a fake) ──
+    'services.secretVars': (i, s): ServiceSecretVarView[] => {
+      const { id } = i as { id: string };
+      return appVars(s, id);
+    },
+    'services.setSecretVar': (i, s) => {
+      const b = i as { id: string; key: string; value?: string; delivery?: 'env' | 'file' };
+      const list = appVars(s, b.id);
+      const cur = list.find((v) => v.key === b.key);
+      const version = b.value ? (cur?.version ?? 0) + 1 : (cur?.version ?? 1);
+      const next: ServiceSecretVarView = {
+        key: b.key,
+        delivery: b.delivery ?? 'env',
+        version,
+        secretName: `demo_${b.key}_v${version}`,
+        updatedAt: b.value ? new Date().toISOString() : (cur?.updatedAt ?? new Date().toISOString()),
+        updatedBy: b.value ? s.user.name : (cur?.updatedBy ?? s.user.name),
+        pendingCleanup: b.value && cur ? 1 : (cur?.pendingCleanup ?? 0),
+      };
+      appVarsState(s)[b.id] = [...list.filter((v) => v.key !== b.key), next].sort((a, c) => a.key.localeCompare(c.key));
+      return { key: b.key, version, rotated: Boolean(b.value) };
+    },
+    'services.removeSecretVar': (i, s) => {
+      const b = i as { id: string; key: string };
+      appVarsState(s)[b.id] = appVars(s, b.id).filter((v) => v.key !== b.key);
+      return { key: b.key, removed: true };
+    },
+    'services.revealSecretVar': (i, s) => {
+      const b = i as { id: string; key: string };
+      const v = appVars(s, b.id).find((x) => x.key === b.key);
+      return { key: b.key, version: v?.version ?? 1, value: 'demo-not-a-real-secret' };
+    },
   },
 
   seed: (store) => {
@@ -261,3 +295,26 @@ export const secretsmgr: DomainResolvers = {
     store.extra.secretsmgr = state;
   },
 };
+
+/** Per-service secret vars for the demo (seeded lazily with one realistic var). */
+function appVarsState(s: DemoStore): Record<string, ServiceSecretVarView[]> {
+  const extra = s.extra as Record<string, unknown>;
+  extra.appSecretVars ??= {};
+  return extra.appSecretVars as Record<string, ServiceSecretVarView[]>;
+}
+
+function appVars(s: DemoStore, serviceId: string): ServiceSecretVarView[] {
+  const state = appVarsState(s);
+  state[serviceId] ??= [
+    {
+      key: 'DATABASE_PASSWORD',
+      delivery: 'env',
+      version: 2,
+      secretName: `demo_DATABASE_PASSWORD_v2`,
+      updatedAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+      updatedBy: s.user.name,
+      pendingCleanup: 0,
+    },
+  ];
+  return state[serviceId]!;
+}

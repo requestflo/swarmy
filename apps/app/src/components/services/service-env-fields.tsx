@@ -3,7 +3,7 @@ import type { UseFormReturn } from 'react-hook-form';
 import { useFieldArray } from 'react-hook-form';
 import type { z } from 'zod';
 import type { CreateServiceInput } from '@swarmy/core';
-import { ClipboardPasteIcon, PlusIcon, VariableIcon, XIcon } from 'lucide-react';
+import { ClipboardPasteIcon, LockIcon, LockOpenIcon, PlusIcon, VariableIcon, XIcon } from 'lucide-react';
 import { Button, EmptyState, Input } from '@swarmy/ui';
 import { ServiceFormSection } from '@/components/services/service-form-section';
 import { EnvPasteDialog, SERVICE_ENV_PARSE } from '@/components/env/env-paste-dialog';
@@ -18,13 +18,15 @@ interface ServiceEnvFieldsProps {
 export function ServiceEnvFields({ form }: ServiceEnvFieldsProps): React.JSX.Element {
   const env = useFieldArray({ control: form.control, name: 'env' });
   const [pasteOpen, setPasteOpen] = React.useState(false);
+  const watched = form.watch('env');
+  const secretAt = (i: number): boolean => Boolean(watched?.[i]?.secret);
   const current = (): Record<string, string> =>
     Object.fromEntries((form.getValues('env') ?? []).filter((e) => e.key).map((e) => [e.key, e.value]));
 
   return (
     <ServiceFormSection
       title="Environment"
-      caption="Config and secrets injected at runtime."
+      caption="Config injected at runtime. Locked rows are stored as encrypted Docker secrets."
       action={
         <span className="flex gap-2">
         <Button
@@ -53,8 +55,8 @@ export function ServiceEnvFields({ form }: ServiceEnvFieldsProps): React.JSX.Ele
         onOpenChange={setPasteOpen}
         current={pasteOpen ? current() : {}}
         parseOptions={SERVICE_ENV_PARSE}
-        onApply={(next) => {
-          env.replace(Object.entries(next).map(([key, value]) => ({ key, value })));
+        onApply={(next, secretKeys) => {
+          env.replace(Object.entries(next).map(([key, value]) => ({ key, value, secret: secretKeys.has(key) })));
           setPasteOpen(false);
         }}
       />
@@ -80,7 +82,23 @@ export function ServiceEnvFields({ form }: ServiceEnvFieldsProps): React.JSX.Ele
           <div key={f.id} className="flex items-center gap-2">
             <Input placeholder="KEY" className="font-mono" {...form.register(`env.${i}.key`)} />
             <span className="text-muted-foreground mono-label">=</span>
-            <Input placeholder="value" className="font-mono" {...form.register(`env.${i}.value`)} />
+            <Input
+              placeholder={secretAt(i) ? 'secret value' : 'value'}
+              type={secretAt(i) ? 'password' : 'text'}
+              autoComplete="off"
+              className="font-mono"
+              {...form.register(`env.${i}.value`)}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              title={secretAt(i) ? 'Secret — stored as a Docker secret, never shown again' : 'Mark as secret'}
+              className={secretAt(i) ? 'text-status-online shrink-0' : 'text-muted-foreground shrink-0'}
+              onClick={() => form.setValue(`env.${i}.secret`, !secretAt(i), { shouldDirty: true })}
+            >
+              {secretAt(i) ? <LockIcon className="size-4" /> : <LockOpenIcon className="size-4" />}
+            </Button>
             <Button
               type="button"
               variant="ghost"

@@ -50,7 +50,7 @@ export function EnvDiffTable({ rows, masked, onToggleMask, hideUnchanged = true 
                     type="button"
                     variant="ghost"
                     size="icon"
-                    title={masked.has(r.key) ? 'Secret — masked. Click to show.' : 'Mark as secret'}
+                    title={masked.has(r.key) ? 'Secret — saved as a Docker secret. Click to keep it plain.' : 'Mark as secret'}
                     onClick={() => onToggleMask(r.key)}
                   >
                     {masked.has(r.key) ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
