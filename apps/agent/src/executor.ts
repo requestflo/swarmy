@@ -356,6 +356,14 @@ export async function deployOrUpdate(
     (inspect.Spec?.TaskTemplate as { Networks?: Array<{ Target?: string; Aliases?: string[] }> } | undefined)
       ?.Networks,
   );
+  // Keep an operator-set log driver across lossy rebuilds; a service with none
+  // picks up swarmy's bounded json-file default (see DEFAULT_LOG_DRIVER).
+  carryLogDriver(
+    opts as Parameters<typeof carryLogDriver>[0],
+    spec,
+    (inspect.Spec?.TaskTemplate as { LogDriver?: { Name?: string; Options?: Record<string, string> } } | undefined)
+      ?.LogDriver,
+  );
   // …but never onto the platform overlays: a legacy alias there is dropped.
   dropAliasesOnTargets(
     opts as Parameters<typeof dropAliasesOnTargets>[0],
@@ -369,14 +377,6 @@ async function execShell(cmd: string[]): Promise<void> {
   if (!cmd.length) return;
   const proc = Bun.spawn(cmd, { stdout: 'ignore', stderr: 'ignore' });
   const code = await proc.exited;
-  // Keep an operator-set log driver across lossy rebuilds; a service with none
-  // picks up swarmy's bounded json-file default (see DEFAULT_LOG_DRIVER).
-  carryLogDriver(
-    opts as Parameters<typeof carryLogDriver>[0],
-    spec,
-    (inspect.Spec?.TaskTemplate as { LogDriver?: { Name?: string; Options?: Record<string, string> } } | undefined)
-      ?.LogDriver,
-  );
   if (code !== 0) throw new Error(`${cmd[0]} exited ${code}`);
 }
 
