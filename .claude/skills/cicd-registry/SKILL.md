@@ -82,6 +82,23 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
     /`ImageGcPolicy` are config + the encrypted cosign key. If you reach for a
     column that mirrors swarm state, stop.
 
+## git-apps invariants (swarmy.yaml → GitOps)
+
+11. **Credentials never enter a compose source.** The applier renders only
+    addressing bindings into env; every credential binding becomes an attach
+    call (`injectConnection`, cache/search/vector/bucket/secret attach) so the
+    Stack row and Release snapshot stay secret-free and attachment-carry keeps
+    the wiring across deploys.
+12. **Destructive plan steps never auto-apply.** `planApp` gates them
+    `confirm`; confirming re-plans the same commit and is ABAC-checked per step
+    by what it destroys (`data.destroy` / `service.remove`), audited.
+13. **The ledger is history, Docker is truth.** `AppPlan.ledgerJson` records
+    what swarmy applied; `readLiveApp` intersects it with the live inventory
+    and only touches services stamped `swarmy.app.stack=<stack>`.
+14. **GitHub installation tokens are minted per use** (memory cache ≤ 55 min),
+    never stored; an installation binds to an org only after the installing
+    user's own OAuth token proves they can see it. Fork PRs never build.
+
 ## Contracts between the layers
 
 - **Pull auth (hub decorator)**: every `service.deploy`/`image.pull` passes
@@ -142,6 +159,11 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 | Background sweeps (GC / preview TTL) | `apps/api/src/workers/{image-gc,preview-reconcile}.ts` |
 | Prisma models | `packages/db/prisma/schema/cicd.prisma` (`GitRepo`/`Build`/`RegistryConfig`/`ImageGcPolicy`/`ImageScan`) |
 | `/ci` workspace UI | `apps/app/src/routes/_authed/ci.tsx` |
+| git-apps: swarmy.yaml schema/parser/planner (pure) | `packages/app-config/src/*` (`plans/epic-git-apps.md`) |
+| git-apps: provider clients (GitHub App, GitLab, deploy keys, git.inspect program) | `packages/trpc/src/services/git-providers/*` |
+| git-apps: connections, JIT credentials, commit feedback | `services/git-{connections.service,credentials,feedback.service}.ts`, `routers/gitConnections.ts` |
+| git-apps: the GitOps loop (ledger, compose compiler, executor, planCommit/confirm/poll/drift) | `services/apps/{live,compile,apply}.ts`, `services/apps.service.ts`, `routers/apps.ts`, `apps/api/src/workers/app-reconcile.ts` |
+| git-apps: GitHub App webhook + OAuth callbacks | `apps/api/src/{webhooks,git-callback}.ts` |
 
 ## Adding a build/registry capability (the recipe)
 
