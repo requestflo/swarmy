@@ -21,6 +21,7 @@ import { Route as AuthedIngressRouteImport } from './routes/_authed/ingress'
 import { Route as AuthedIncidentsRouteImport } from './routes/_authed/incidents'
 import { Route as AuthedGovernanceRouteImport } from './routes/_authed/governance'
 import { Route as AuthedExposureRouteImport } from './routes/_authed/exposure'
+import { Route as AuthedEmailRouteImport } from './routes/_authed/email'
 import { Route as AuthedDeviceRouteImport } from './routes/_authed/device'
 import { Route as AuthedCostRouteImport } from './routes/_authed/cost'
 import { Route as AuthedCiRouteImport } from './routes/_authed/ci'
@@ -127,6 +128,11 @@ const AuthedGovernanceRoute = AuthedGovernanceRouteImport.update({
 const AuthedExposureRoute = AuthedExposureRouteImport.update({
   id: '/exposure',
   path: '/exposure',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedEmailRoute = AuthedEmailRouteImport.update({
+  id: '/email',
+  path: '/email',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedDeviceRoute = AuthedDeviceRouteImport.update({
@@ -399,6 +405,7 @@ export interface FileRoutesByFullPath {
   '/ci': typeof AuthedCiRoute
   '/cost': typeof AuthedCostRoute
   '/device': typeof AuthedDeviceRoute
+  '/email': typeof AuthedEmailRoute
   '/exposure': typeof AuthedExposureRoute
   '/governance': typeof AuthedGovernanceRoute
   '/incidents': typeof AuthedIncidentsRoute
@@ -459,6 +466,7 @@ export interface FileRoutesByTo {
   '/ci': typeof AuthedCiRoute
   '/cost': typeof AuthedCostRoute
   '/device': typeof AuthedDeviceRoute
+  '/email': typeof AuthedEmailRoute
   '/exposure': typeof AuthedExposureRoute
   '/governance': typeof AuthedGovernanceRoute
   '/incidents': typeof AuthedIncidentsRoute
@@ -521,6 +529,7 @@ export interface FileRoutesById {
   '/_authed/ci': typeof AuthedCiRoute
   '/_authed/cost': typeof AuthedCostRoute
   '/_authed/device': typeof AuthedDeviceRoute
+  '/_authed/email': typeof AuthedEmailRoute
   '/_authed/exposure': typeof AuthedExposureRoute
   '/_authed/governance': typeof AuthedGovernanceRoute
   '/_authed/incidents': typeof AuthedIncidentsRoute
@@ -585,6 +594,7 @@ export interface FileRouteTypes {
     | '/ci'
     | '/cost'
     | '/device'
+    | '/email'
     | '/exposure'
     | '/governance'
     | '/incidents'
@@ -645,6 +655,7 @@ export interface FileRouteTypes {
     | '/ci'
     | '/cost'
     | '/device'
+    | '/email'
     | '/exposure'
     | '/governance'
     | '/incidents'
@@ -706,6 +717,7 @@ export interface FileRouteTypes {
     | '/_authed/ci'
     | '/_authed/cost'
     | '/_authed/device'
+    | '/_authed/email'
     | '/_authed/exposure'
     | '/_authed/governance'
     | '/_authed/incidents'
@@ -847,6 +859,13 @@ declare module '@tanstack/react-router' {
       path: '/exposure'
       fullPath: '/exposure'
       preLoaderRoute: typeof AuthedExposureRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/email': {
+      id: '/_authed/email'
+      path: '/email'
+      fullPath: '/email'
+      preLoaderRoute: typeof AuthedEmailRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/device': {
@@ -1242,6 +1261,7 @@ interface AuthedRouteChildren {
   AuthedCiRoute: typeof AuthedCiRoute
   AuthedCostRoute: typeof AuthedCostRoute
   AuthedDeviceRoute: typeof AuthedDeviceRoute
+  AuthedEmailRoute: typeof AuthedEmailRoute
   AuthedExposureRoute: typeof AuthedExposureRoute
   AuthedGovernanceRoute: typeof AuthedGovernanceRoute
   AuthedIncidentsRoute: typeof AuthedIncidentsRoute
@@ -1284,6 +1304,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedCiRoute: AuthedCiRoute,
   AuthedCostRoute: AuthedCostRoute,
   AuthedDeviceRoute: AuthedDeviceRoute,
+  AuthedEmailRoute: AuthedEmailRoute,
   AuthedExposureRoute: AuthedExposureRoute,
   AuthedGovernanceRoute: AuthedGovernanceRoute,
   AuthedIncidentsRoute: AuthedIncidentsRoute,

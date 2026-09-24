@@ -35,6 +35,7 @@ import { blueprints } from './resolvers/blueprints';
 import { searchsvc } from './resolvers/searchsvc';
 import { vector } from './resolvers/vector';
 import { ai } from './resolvers/ai';
+import { email } from './resolvers/email';
 import { notify } from './resolvers/notify';
 import { security } from './resolvers/security';
 import { rum } from './resolvers/rum';
@@ -82,6 +83,7 @@ const MODULES: DomainResolvers[] = [
   searchsvc,
   vector,
   ai,
+  email,
   notify,
   security,
   studio,
