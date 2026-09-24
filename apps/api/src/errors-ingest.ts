@@ -20,6 +20,7 @@
  * Numeric project ids never collide with `/api/trpc`, `/api/v1`, `/api/auth`.
  */
 import { Hono, type Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
 import {
@@ -41,8 +42,29 @@ const CORS: Record<string, string> = {
   'Access-Control-Max-Age': '86400',
 };
 
-/** Compressed request cap (the decompressed cap is enforced by the parser). */
-const MAX_REQUEST_BYTES = MAX_DECOMPRESSED_BYTES;
+/**
+ * Compressed request cap (the decompressed cap is enforced by the parser).
+ * Enforced by `bodyLimit` BEFORE the body is read, so a chunked request with
+ * no Content-Length can't stream past it either.
+ */
+export const ERRORS_INGEST_MAX_BODY_BYTES = MAX_DECOMPRESSED_BYTES;
+const MAX_REQUEST_BYTES = ERRORS_INGEST_MAX_BODY_BYTES;
+/**
+ * Source-map upload cap for one request (several files, each ≤ MAX_ARTIFACT_BYTES).
+ * Checked by `bodyLimit` before the JSON/multipart body is parsed.
+ */
+export const ARTIFACT_UPLOAD_MAX_BODY_BYTES = 64 * 1024 * 1024;
+
+// Per-route (not `use('*')`): this app is mounted at `/`, so a wildcard
+// middleware would cap every controller route.
+const ingestLimit = bodyLimit({
+  maxSize: ERRORS_INGEST_MAX_BODY_BYTES,
+  onError: (c) => c.json({ detail: 'request too large' }, 413, CORS),
+});
+const uploadLimit = bodyLimit({
+  maxSize: ARTIFACT_UPLOAD_MAX_BODY_BYTES,
+  onError: (c) => c.json({ detail: 'upload too large' }, 413),
+});
 
 async function handle(c: Context, kind: 'envelope' | 'store'): Promise<Response> {
   const len = Number(c.req.header('content-length') ?? 0);
@@ -70,7 +92,7 @@ export const errorsIngestApp = new Hono();
 for (const kind of ['envelope', 'store'] as const) {
   for (const path of [`/api/:project{[0-9]+}/${kind}/`, `/api/:project{[0-9]+}/${kind}`]) {
     errorsIngestApp.options(path, (c) => c.body(null, 204, CORS));
-    errorsIngestApp.post(path, (c) => handle(c, kind));
+    errorsIngestApp.post(path, ingestLimit, (c) => handle(c, kind));
   }
 }
 
@@ -84,7 +106,10 @@ async function readFiles(c: Context): Promise<{ name: string; content: string }[
     const json = (await c.req.json().catch(() => null)) as { files?: { name?: unknown; content?: unknown }[] } | null;
     return (json?.files ?? [])
       .filter((f) => typeof f.name === 'string' && typeof f.content === 'string')
-      .map((f) => ({ name: f.name as string, content: f.content as string }));
+      .map((f) => {
+        if (Buffer.byteLength(f.content as string) > MAX_ARTIFACT_BYTES) throw new Error(`${f.name as string} is larger than 15 MB`);
+        return { name: f.name as string, content: f.content as string };
+      });
   }
   const form = await c.req.formData();
   const out: { name: string; content: string }[] = [];
@@ -99,7 +124,7 @@ async function readFiles(c: Context): Promise<{ name: string; content: string }[
   return out;
 }
 
-errorsIngestApp.post('/errors/v1/stacks/:stack/releases/:release/files', async (c) => {
+errorsIngestApp.post('/errors/v1/stacks/:stack/releases/:release/files', uploadLimit, async (c) => {
   const key = c.req.header('authorization') ?? '';
   const resolved = key
     ? await resolveOrgContextFromApiKey({ db: prisma, hub, auth: authRegistry.getAuth() }, key).catch(() => null)

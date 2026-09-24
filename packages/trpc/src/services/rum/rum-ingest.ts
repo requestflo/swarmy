@@ -62,11 +62,40 @@ function reply(status: number, body = ''): Response {
   return new Response(body, { status, headers: TEXT });
 }
 
+/**
+ * Read at most `max` bytes of the body, streaming — a chunked request (no
+ * Content-Length) is cancelled as soon as it passes the cap instead of being
+ * buffered whole. `null` = too large.
+ */
+export async function readCapped(req: Request, max: number): Promise<Uint8Array | null> {
+  if (!req.body) return new Uint8Array(0);
+  const reader = req.body.getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    parts.push(value);
+  }
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const p of parts) {
+    out.set(p, off);
+    off += p.byteLength;
+  }
+  return out;
+}
+
 async function readBody(req: Request, max: number): Promise<{ text: string } | { error: Response }> {
   const len = Number(req.headers.get('content-length') ?? '0');
   if (len > max) return { error: reply(413, 'too large') };
-  const buf = new Uint8Array(await req.arrayBuffer());
-  if (buf.byteLength > max) return { error: reply(413, 'too large') };
+  const buf = await readCapped(req, max);
+  if (!buf) return { error: reply(413, 'too large') };
   let bytes = buf;
   if ((req.headers.get('content-encoding') ?? '').toLowerCase() === 'gzip') {
     try {

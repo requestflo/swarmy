@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { defaultRumSettings, memoryBlobStore, replayChunkKey, verifyRumToken } from '@swarmy/rum';
 import { rumRouteFor } from './rum-settings.service';
 import { sweepReplayChunks } from './rum-retention';
+import { readCapped } from './rum-ingest';
 
 const SECRET = 's3cret';
 const base = { orgId: 'org_1', stack: 'shop', upstream: 'swarmy_controller:3021', secret: SECRET };
@@ -46,5 +47,26 @@ describe('replay chunk retention sweep', () => {
       'rum/org_1/shop/2026-09-20/bbbbbbbbbb/000000.json.gz',
       'rum/org_2/shop/2026-01-01/dddddddddd/000000.json.gz',
     ]);
+  });
+});
+
+describe('readCapped (RUM body reader)', () => {
+  const chunked = (chunks: number, size: number) => {
+    let n = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(ctrl) {
+        if (n++ >= chunks) return ctrl.close();
+        ctrl.enqueue(new Uint8Array(size));
+      },
+    });
+    return new Request('http://x/rum', { method: 'POST', body, duplex: 'half' } as RequestInit);
+  };
+
+  it('returns the body when under the cap', async () => {
+    expect((await readCapped(chunked(4, 1024), 8192))?.byteLength).toBe(4096);
+  });
+
+  it('refuses a chunked body past the cap (no Content-Length to trust)', async () => {
+    expect(await readCapped(chunked(100, 1024), 64 * 1024)).toBeNull();
   });
 });
