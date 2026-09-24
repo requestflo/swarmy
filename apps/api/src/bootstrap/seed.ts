@@ -229,7 +229,7 @@ function managedMeshFromEnv(): Record<string, unknown> | null {
     log('SWARMY_MESH_MODE=managed-by-swarmy but SWARMY_MESH_DOMAIN / SWARMY_MESH_CONTROL_FILE are unset — treating the mesh as external.');
     return null;
   }
-  let secrets: { authSecret?: string; encryptionKey?: string; ownerEmail?: string; ownerPassword?: string };
+  let secrets: { authSecret?: string; encryptionKey?: string; ownerEmail?: string; ownerPassword?: string; extraCaPem?: string };
   try {
     secrets = JSON.parse(readFileSync(file, 'utf8')) as typeof secrets;
   } catch (e) {
@@ -255,6 +255,7 @@ function managedMeshFromEnv(): Record<string, unknown> | null {
     encryptionKeyEnc: encryptSecret(secrets.encryptionKey),
     ...(secrets.ownerEmail ? { ownerEmail: secrets.ownerEmail } : {}),
     ...(secrets.ownerPassword ? { ownerPasswordEnc: encryptSecret(secrets.ownerPassword) } : {}),
+    ...(secrets.extraCaPem ? { extraCaPem: secrets.extraCaPem } : {}),
   };
 }
 

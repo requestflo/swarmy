@@ -42,7 +42,10 @@ const IMAGE_LABEL = 'swarmy.mesh.control.image';
 export const MESH_CONTROL_ENTRYPOINT = [
   'sh',
   '-c',
-  `while [ ! -s ${CONFIG_FILE} ]; do sleep 0.2; done; exec /go/bin/netbird-server --config ${CONFIG_FILE}`,
+  // An extra CA (written before the config) joins the system roots for this process only.
+  `while [ ! -s ${CONFIG_FILE} ]; do sleep 0.2; done; ` +
+    `if [ -s ${CONFIG_DIR}/extra-ca.pem ]; then cat /etc/ssl/certs/ca-certificates.crt ${CONFIG_DIR}/extra-ca.pem > ${CONFIG_DIR}/ca.pem; export SSL_CERT_FILE=${CONFIG_DIR}/ca.pem; fi; ` +
+    `exec /go/bin/netbird-server --config ${CONFIG_FILE}`,
 ];
 const LITESTREAM_ENTRYPOINT = [
   'sh',
@@ -116,6 +119,8 @@ async function saveLocal(spec: MeshControlSpec): Promise<void> {
   await writeFile(path.join(dir, 'config.yaml'), spec.configYaml, { mode: 0o600 });
   await writeFile(path.join(dir, 'image'), spec.image + '\n', { mode: 0o600 });
   await writeFile(path.join(dir, 'env.json'), JSON.stringify(spec.env ?? {}), { mode: 0o600 });
+  if (spec.caPem) await writeFile(path.join(dir, 'extra-ca.pem'), spec.caPem, { mode: 0o600 });
+  else await rm(path.join(dir, 'extra-ca.pem'), { force: true });
   if (spec.litestream) {
     await writeFile(path.join(dir, 'litestream.json'), JSON.stringify(spec.litestream), { mode: 0o600 });
   } else {
@@ -131,11 +136,13 @@ export async function loadLocalSpec(): Promise<MeshControlSpec | null> {
     const image = (await readFile(path.join(dir, 'image'), 'utf8')).trim();
     const envJson = await readFile(path.join(dir, 'env.json'), 'utf8').catch(() => '{}');
     const lsJson = await readFile(path.join(dir, 'litestream.json'), 'utf8').catch(() => '');
+    const caPem = await readFile(path.join(dir, 'extra-ca.pem'), 'utf8').catch(() => '');
     if (!configYaml || !image) return null;
     return {
       image,
       configYaml,
       env: JSON.parse(envJson) as Record<string, string>,
+      ...(caPem ? { caPem } : {}),
       litestream: lsJson ? (JSON.parse(lsJson) as MeshControlSpec['litestream']) : null,
     };
   } catch {
@@ -179,13 +186,11 @@ async function configHashInside(docker: DockerClient): Promise<string | null> {
 }
 
 async function healthy(docker: DockerClient): Promise<boolean> {
-  // The image has bash but no curl/wget; /dev/tcp does the GET.
-  const r = await execIn(docker, MESH_CONTROL_CONTAINER, [
-    'bash',
-    '-c',
-    'exec 3<>/dev/tcp/127.0.0.1/9000 && printf "GET /health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n" >&3 && head -n1 <&3',
-  ]).catch(() => null);
-  return !!r && r.code === 0 && / 200 /.test(r.stdout);
+  // Up = the management gRPC server accepts connections on its always-plain
+  // legacy port. The :9000 /health endpoint is the RELAY's TLS check and
+  // answers 503 on a plain-HTTP listener (seen live), so it can't be the signal.
+  const r = await execIn(docker, MESH_CONTROL_CONTAINER, ['bash', '-c', 'exec 3<>/dev/tcp/127.0.0.1/33073']).catch(() => null);
+  return !!r && r.code === 0;
 }
 
 async function ensureLitestream(docker: DockerClient, spec: MeshControlSpec): Promise<MeshControlStatus['litestream']> {
@@ -298,6 +303,7 @@ async function converge(docker: DockerClient, spec: MeshControlSpec): Promise<Me
       // The server doesn't re-read its config: restart, then hand it the new one.
       await d.getContainer(MESH_CONTROL_CONTAINER).restart({ t: 10 });
     }
+    if (spec.caPem) await writeInto(docker, MESH_CONTROL_CONTAINER, `${CONFIG_DIR}/extra-ca.pem`, spec.caPem);
     await writeInto(docker, MESH_CONTROL_CONTAINER, CONFIG_FILE, spec.configYaml);
   }
   const litestream = await ensureLitestream(docker, spec).catch((e: unknown) => ({

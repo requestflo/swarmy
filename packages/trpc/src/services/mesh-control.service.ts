@@ -67,6 +67,8 @@ export interface ManagedControlPlane {
   breakGlass?: boolean;
   litestream?: { accessKeyId: string; secretEnc: string; bucket: string; prefix: string; endpoint: string; region: string };
   trustedProxies?: string[];
+  /** PEM of a private CA NetBird must trust (swarmy's issuer behind it). */
+  extraCaPem?: string;
   /** Last time the bootstrap policy set was asserted (ms). */
   bootstrappedAt?: number;
 }
@@ -151,7 +153,13 @@ export function renderControlSpec(m: ManagedControlPlane): MeshControlSpec {
       };
     }
   }
-  return { image: m.image ?? NETBIRD_SERVER_IMAGE, configYaml, env: { ...MESH_CONTROL_ENV }, litestream };
+  return {
+    image: m.image ?? NETBIRD_SERVER_IMAGE,
+    configYaml,
+    env: { ...MESH_CONTROL_ENV },
+    ...(m.extraCaPem ? { caPem: m.extraCaPem } : {}),
+    litestream,
+  };
 }
 
 export function configHash(spec: MeshControlSpec): string {

@@ -18,6 +18,7 @@ import {
   toast,
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { SwarmyControlPlaneCard } from './swarmy-control-plane-card';
 
 type ControlPlaneMode = 'managed-by-swarmy' | 'external';
 
@@ -53,6 +54,9 @@ export function ControlPlaneCard({ driver }: { driver: string }): React.JSX.Elem
       onError: (e) => toast.error(e.message),
     }),
   );
+
+  // NetBird running inside swarmy: the live control-plane card, not a form.
+  if (config.data?.controlPlaneMode === 'managed-by-swarmy' && driver === 'netbird') return <SwarmyControlPlaneCard />;
 
   const isWireguard = driver === 'wireguard';
   const isTailscale = driver === 'tailscale';

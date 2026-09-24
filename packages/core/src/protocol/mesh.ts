@@ -265,6 +265,12 @@ export const MeshControlSpec = z.object({
   configYaml: z.string(),
   /** Non-secret env (NB_DISABLE_GEOLOCATION, GOMEMLIMIT). */
   env: z.record(z.string()).default({}),
+  /**
+   * Extra CA certificate(s), PEM, that NetBird trusts on top of the system
+   * roots — for a swarmy (the IdP issuer) behind a private CA. NetBird only
+   * accepts an https issuer, so a lab or an intranet needs this.
+   */
+  caPem: z.string().optional(),
   litestream: MeshControlLitestream.nullable().default(null),
 });
 export type MeshControlSpec = z.infer<typeof MeshControlSpec>;

@@ -14,6 +14,7 @@ import { EnrollNodeCard } from '@/components/networking/enroll-node-card';
 import { MeshPeersList } from '@/components/networking/mesh-peers-list';
 import { ControlPlaneCard } from '@/components/networking/control-plane-card';
 import { DirectConnectCard } from '@/components/networking/direct-connect-card';
+import { PeopleAccessCard } from '@/components/networking/people-access-card';
 import { MoveSwarmDialog, SwarmOnMeshCard } from '@/components/networking/swarm-on-mesh-card';
 
 export const Route = createFileRoute('/_authed/networking')({
@@ -116,6 +117,12 @@ function NetworkingPage(): React.JSX.Element {
       {!isNone && (
         <div className="mt-4">
           <ControlPlaneCard driver={driver} />
+        </div>
+      )}
+
+      {live && config.data?.controlPlaneMode === 'managed-by-swarmy' && (
+        <div className="mt-4">
+          <PeopleAccessCard />
         </div>
       )}
 

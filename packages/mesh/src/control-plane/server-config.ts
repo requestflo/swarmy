@@ -46,8 +46,13 @@ export interface MeshControlConfigInput {
 export const MESH_CONTROL_CONFIG_DIR = '/run/swarmy-mesh';
 export const MESH_CONTROL_CONFIG_PATH = `${MESH_CONTROL_CONFIG_DIR}/config.yaml`;
 export const MESH_CONTROL_DATA_DIR = '/var/lib/netbird';
-/** Health endpoint port (`/health`: 503 until ready, 200 after). */
+/**
+ * The relay's health endpoint (`/health`). It checks the relay's TLS listener,
+ * so it answers 503 whenever NetBird listens on plain HTTP (behind the edge, or
+ * in a lab). Liveness is a TCP connect to the always-plain legacy gRPC port.
+ */
 export const MESH_CONTROL_HEALTH_PORT = 9000;
+export const MESH_CONTROL_GRPC_LEGACY_PORT = 33073;
 /** Default listen port behind the edge / in lab mode. */
 export const MESH_CONTROL_HTTP_PORT = 8081;
 
