@@ -15,6 +15,7 @@
  */
 import { DockerClient, defaultContainerLogConfig } from '@swarmy/core/docker';
 import type { ApplyAccessRouterPayload, ApplyAccessRouterResult } from '@swarmy/core/protocol';
+import { putSecretFile } from './secret-file';
 
 const DEFAULT_IMAGE = 'netbirdio/netbird:0.79.0@sha256:9d8480d87b7f7c10d67b820eecf332ecca5c2756792d4bdfa532182b4fc3005f';
 const FORBIDDEN_NETWORKS = new Set(['swarmy-control', 'host', 'bridge', 'none', 'ingress']);
@@ -96,7 +97,8 @@ export async function applyAccessRouter(docker: DockerClient, p: ApplyAccessRout
     await d.getContainer(name).remove({ force: true }).catch(() => undefined);
     const env = ['NB_INTERFACE_NAME=wt0', `NB_HOSTNAME=${name}`];
     if (p.managementUrl) env.push(`NB_MANAGEMENT_URL=${p.managementUrl}`);
-    if (p.setupKey) env.push(`NB_SETUP_KEY=${p.setupKey}`);
+    // A 0600 file on the router's own volume, never `-e` (docker inspect keeps env).
+    if (p.setupKey) env.push('NB_SETUP_KEY_FILE=/var/lib/netbird/setup-key');
     try {
       const c = await d.createContainer({
         name,
@@ -114,6 +116,7 @@ export async function applyAccessRouter(docker: DockerClient, p: ApplyAccessRout
           Sysctls: { 'net.ipv4.ip_forward': '1' },
         },
       });
+      if (p.setupKey) await putSecretFile(c, '/var/lib/netbird', 'setup-key', `${p.setupKey}\n`);
       await c.start();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

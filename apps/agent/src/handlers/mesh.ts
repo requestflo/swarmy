@@ -33,6 +33,7 @@ import type {
   RenderedMesh,
 } from '@swarmy/core/protocol';
 import { sampleMeshControl } from './mesh-control';
+import { putSecretFile } from './secret-file';
 
 /** Default client images if the controller didn't pin one. */
 const DEFAULT_NETBIRD_IMAGE = 'netbirdio/netbird:0.79.0@sha256:9d8480d87b7f7c10d67b820eecf332ecca5c2756792d4bdfa532182b4fc3005f';
@@ -110,7 +111,9 @@ async function joinNetbird(docker: DockerClient, rendered: RenderedMesh): Promis
   await d.getContainer(NETBIRD_CONTAINER).remove({ force: true }).catch(() => undefined);
 
   const env: string[] = [];
-  if (client.setupKey) env.push(`NB_SETUP_KEY=${client.setupKey}`);
+  // The single-use key is a 0600 file on the client's own volume, read via
+  // NB_SETUP_KEY_FILE — never `-e`, which docker inspect would keep forever.
+  if (client.setupKey) env.push(`NB_SETUP_KEY_FILE=/var/lib/netbird/setup-key`);
   if (client.managementUrl) env.push(`NB_MANAGEMENT_URL=${client.managementUrl}`);
   if (client.interface) env.push(`NB_INTERFACE_NAME=${client.interface}`);
 
@@ -123,12 +126,14 @@ async function joinNetbird(docker: DockerClient, rendered: RenderedMesh): Promis
       RestartPolicy: { Name: 'unless-stopped' },
       LogConfig: defaultContainerLogConfig(),
       // Peer identity (WireGuard key + login) survives a container re-create,
-      // so the node keeps its mesh IP. Never holds the setup key (env only).
+      // so the node keeps its mesh IP. The spent one-off setup key sits next
+      // to it as a root-only 0600 file (never in the env / docker inspect).
       Binds: [`${NETBIRD_STATE_VOLUME}:/var/lib/netbird`],
       CapAdd: ['NET_ADMIN', 'SYS_ADMIN', 'SYS_RESOURCE'],
       Devices: [{ PathOnHost: '/dev/net/tun', PathInContainer: '/dev/net/tun', CgroupPermissions: 'rwm' }],
     },
   });
+  if (client.setupKey) await putSecretFile(container, '/var/lib/netbird', 'setup-key', `${client.setupKey}\n`);
   await container.start();
 
   if (client.advertiseRoutes.length) {
