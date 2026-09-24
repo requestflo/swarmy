@@ -350,9 +350,8 @@ export function realOps(
           }
           return {};
         case 'cache':
-          await provisionCache(
-            ctx,
-            ProvisionCacheInput.parse({
+          await provisionCache(ctx, {
+            ...ProvisionCacheInput.parse({
               stack,
               name: r.name,
               engine: r.engine,
@@ -360,7 +359,8 @@ export function realOps(
               memoryMb: r.memoryMb,
               replicas: r.replicas,
             }),
-          );
+            ...(r.purpose === 'queue' ? { purpose: 'queue' as const } : {}),
+          });
           return {};
         case 'search':
           await provisionSearch(ctx, {
@@ -411,6 +411,11 @@ export function realOps(
           );
         }
       } else if (r.type === 'cache' && before?.type === 'cache') {
+        if ((r.purpose ?? 'cache') !== (before.purpose ?? 'cache')) {
+          throw commandRejected(
+            `${r.name}: turning a ${before.purpose ?? 'cache'} into a ${r.purpose ?? 'cache'} changes its eviction policy — declare a new resource instead`,
+          );
+        }
         if (r.memoryMb !== before.memoryMb)
           await setCacheMemory(ctx, { stack, cluster: r.name, memoryMb: r.memoryMb });
         if (r.replicas !== before.replicas)
@@ -462,6 +467,10 @@ export function realOps(
           ...(a.dockerfile !== 'Dockerfile' ? { dockerfile: a.dockerfile } : {}),
           ...(a.target ? { target: a.target } : {}),
           ...(Object.keys(a.args).length ? { buildArgs: a.args } : {}),
+          // Zero-config builds: builder (absent = auto), Railpack overrides, build env.
+          ...(a.builder ? { builder: a.builder } : {}),
+          ...(a.railpack ? { railpack: a.railpack } : {}),
+          ...(a.env && Object.keys(a.env).length ? { env: a.env } : {}),
         },
       });
       if (!b.image || !b.image.includes('@sha256:'))
