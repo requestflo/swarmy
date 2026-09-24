@@ -17,6 +17,9 @@ How the docs fit together:
     calm ops console redesign (P0 landing; P1–P4 to come).
   - [`epic-git-apps.md`](./epic-git-apps.md) — git-connected apps
     (`swarmy.yaml` v1, provider auth, GitOps loop, builds).
+  - [`epic-docker-native-state.md`](./epic-docker-native-state.md) — no
+    database server: infra truth from Docker, small infra config in the swarm
+    (`swarm-kv`), the rest in embedded SQLite replicated to Garage (planned).
   - [`competitive-gaps-2026-09.md`](./competitive-gaps-2026-09.md) — the gap
     analysis vs Dokploy, Coolify and hosted PaaS behind the list below.
   - [`self-reliance.md`](./self-reliance.md) — audit of every runtime
