@@ -151,7 +151,16 @@ Four ideas, one story:
   (a `swarmy.db.backup.schedule` label with `"auto": true`), compose/blueprint
   databases a crash-consistent volume backup (an `auto` `BackupSchedule` row) —
   engines that replay a WAL/redo log recover from it, but it is not a
-  transaction-consistent dump. An existing user schedule is never overridden,
+  transaction-consistent dump. So compose MySQL/MariaDB/MongoDB/Redis/Valkey
+  also get a logical dump on the same schedule (`mysqldump
+  --single-transaction` / `mariadb-dump`, `mongodump --archive`, Redis
+  `BGSAVE` + the finished RDB) into the same restic repo, with one-click
+  restore — as a copy by default, in place behind a typed confirm and a
+  safety dump. The volume copy stays (belt and braces: `dr-reconcile` restores
+  volumes, and it covers a DB whose credentials swarmy can't resolve — the
+  Backups tab says "volume snapshot only" and why). Credentials are read the
+  way a human would, inside the running task (env, `_FILE` secrets, redis
+  `--requirepass`), and never leave the node. An existing user schedule is never overridden,
   and removing an auto schedule leaves an opt-out marker so it is never
   re-created. No controller backups until you set a passphrase; no drills run
   themselves.
@@ -166,7 +175,8 @@ Four ideas, one story:
 | Restore passphrase is lost | The controller-state bundle is unreadable — by design (zero-knowledge). swarmy cannot recover it; the setup flow gates on "I've stored it" for exactly this reason. |
 | Restore drill fails midway | The throwaway `drill-<ts>` cluster is destroyed regardless; the drill is recorded `failed` with the step that broke; nothing on the real cluster was touched (preconditions throw before anything is created). |
 | Failover drill on a half-healthy cluster | Refused up front (needs a running primary + ≥1 running replica); the promoted replica is force-restarted back through its entrypoint to rejoin even on error. |
-| DB backup of a live Postgres | For managed Postgres, logical engines dump a transactionally-consistent point-in-time; `snapshot-from-replica` takes it off a read replica for zero primary load. Only a compose DB swarmy doesn't own the credentials for gets the crash-consistent volume backup (its restore path is the stack's Backups tab). |
+| DB backup of a live Postgres | For managed Postgres, logical engines dump a transactionally-consistent point-in-time; `snapshot-from-replica` takes it off a read replica for zero primary load. A compose MySQL/MariaDB/Mongo/Redis/Valkey also gets a logical dump; only a compose DB whose credentials can't be resolved (e.g. a random root password and no app user), or a compose Postgres, is volume-only. |
+| Logical dump of a compose DB fails | Audited as a failed `appdb.backup`, shown on the stack's Databases card; the volume copy from the same schedule still ran. An in-place restore whose safety dump fails changes nothing. |
 
 ## Explicitly rejected
 
