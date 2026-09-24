@@ -1152,23 +1152,12 @@ async function maybePromote(
 
 // ── A1 scheduled-backup sweep (once per minute) ───────────────────────────────
 
-/**
- * A1's `runDueDbBackups` seam. It is not yet exported from the `@swarmy/trpc`
- * package root (spine gap — see the slice report's ORCHESTRATOR TODO), so it is
- * resolved dynamically: the sweep starts working the moment the export lands
- * and no-ops safely until then.
- */
+/** Fire every due managed-DB backup schedule (`dbBackup.service#runDueDbBackups`). */
 async function runDueBackupsSweep(now: Date): Promise<void> {
   const seams = await loadSeams();
   if (!seams) return;
-  const fn = (seams as unknown as Record<string, unknown>).runDueDbBackups;
-  if (typeof fn !== 'function') return;
   try {
-    await (fn as (now: Date, deps?: unknown) => Promise<void>)(now, {
-      db: prisma,
-      hub,
-      auth: authRegistry.getAuth(),
-    });
+    await seams.runDueDbBackups(now, { db: prisma, hub, auth: authRegistry.getAuth() });
   } catch {
     // best-effort: a failed sweep retries next minute.
   }

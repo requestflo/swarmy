@@ -14,37 +14,17 @@
  * connected swarm managers (`hub.managerNodes`).
  *
  * Placement policy lives in the pure `selectRestoreTarget` (unit-tested in
- * @swarmy/trpc); a small copy is inlined here since the worker cannot subpath-
- * import an internal trpc module.
+ * @swarmy/trpc reconcile-target.ts).
  */
 import { prisma } from '@swarmy/db';
 import { decryptSecret } from '@swarmy/core/crypto';
 import type { ResticRepo, RestoreVolumeResult } from '@swarmy/core/protocol';
-import { backupTargets, resticNetworkFor } from '@swarmy/trpc';
+import { backupTargets, resticNetworkFor, selectRestoreTarget, type ReconcileNode } from '@swarmy/trpc';
 import { hub } from '../gateway';
 
 const TICK_MS = 30_000;
 /** A node must be unreachable this long before we declare it dead and restore. */
 const GRACE_MS = 5 * 60_000;
-
-// ── placement (mirror of @swarmy/trpc reconcile-target.ts) ───────────────────
-interface ReconcileNode {
-  id: string;
-  role: 'MANAGER' | 'WORKER';
-  online: boolean;
-  assignedRestores: number;
-}
-function selectRestoreTarget(deadNodeId: string, nodes: ReconcileNode[]): string | null {
-  const candidates = nodes.filter((n) => n.online && n.id !== deadNodeId);
-  if (candidates.length === 0) return null;
-  candidates.sort((a, b) => {
-    const rr = (n: ReconcileNode) => (n.role === 'MANAGER' ? 0 : 1);
-    if (rr(a) !== rr(b)) return rr(a) - rr(b);
-    if (a.assignedRestores !== b.assignedRestores) return a.assignedRestores - b.assignedRestores;
-    return a.id < b.id ? -1 : 1;
-  });
-  return candidates[0]!.id;
-}
 
 interface TargetRow {
   id: string;
@@ -147,7 +127,7 @@ async function reconcileOrg(orgId: string): Promise<void> {
       });
       if (inFlight) continue;
 
-      const targetNodeId = selectRestoreTarget(deadNodeId, candidates);
+      const targetNodeId = selectRestoreTarget({ deadNodeId, nodes: candidates });
       if (!targetNodeId) continue;
       // Targets live in the org's swarm (swarm-kv).
       const target = (await backupTargets({ db: prisma, hub }, orgId).findFirst({

@@ -1,6 +1,6 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { fireEvent, systemContext } from '@swarmy/trpc';
+import { fireEvent, managedKindOf, parseExposureRules, readRoutes, systemContext } from '@swarmy/trpc';
 import { buildInventory } from '@swarmy/core';
 import { hub, store } from '../gateway';
 
@@ -20,62 +20,11 @@ import { hub, store } from '../gateway';
  * (the Exposure page says so). The first tick per org is a silent baseline so a
  * controller restart never floods "new surface" alerts.
  *
- * The classifier/rule helpers mirror the unit-tested canonical copies in
- * `@swarmy/trpc` exposure.service.ts — a worker cannot subpath-import an
- * internal trpc module (same constraint queue-reconcile documents).
+ * Managed-data detection and rule parsing are the canonical
+ * `exposure.service` helpers; route hosts come from `ingress-routes`.
  */
 
 const TICK_MS = 5 * 60_000;
-
-const INGRESS_ROUTES_LABEL = 'swarmy.ingress.routes';
-const MANAGED_PREFIXES: ReadonlyArray<[string, string]> = [
-  ['db', 'swarmy.db.'],
-  ['cache', 'swarmy.cache.'],
-  ['search', 'swarmy.search.'],
-  ['vector', 'swarmy.vector.'],
-];
-
-// ── Mirrors of the unit-tested pure helpers in exposure.service.ts ────────────
-
-function managedKindOf(labels: Record<string, string>): string | null {
-  for (const [kind, prefix] of MANAGED_PREFIXES) {
-    for (const key of Object.keys(labels)) if (key.startsWith(prefix)) return kind;
-  }
-  return null;
-}
-
-function routeHosts(labels: Record<string, string>): string[] {
-  const raw = labels[INGRESS_ROUTES_LABEL];
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((r) => (typeof r === 'object' && r !== null ? (r as { host?: unknown }).host : undefined))
-      .filter((h): h is string => typeof h === 'string' && h.length > 0);
-  } catch {
-    return [];
-  }
-}
-
-interface RulesFlags {
-  noPublicPortsOnManagedData: boolean;
-  noPublicUdp: boolean;
-  warnOnNewPublishedPorts: boolean;
-}
-
-function parseRules(rulesJson: unknown): RulesFlags {
-  const o = (typeof rulesJson === 'object' && rulesJson !== null ? rulesJson : {}) as Record<
-    string,
-    unknown
-  >;
-  const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
-  return {
-    noPublicPortsOnManagedData: bool(o.noPublicPortsOnManagedData, true),
-    noPublicUdp: bool(o.noPublicUdp, true),
-    warnOnNewPublishedPorts: bool(o.warnOnNewPublishedPorts, true),
-  };
-}
 
 // ── Per-org tick state (in-memory; baseline tick after restart is silent) ─────
 
@@ -101,7 +50,7 @@ function auditOrg(orgId: string): AuditedService[] {
       .map((p) => ({ published: p.published as number, protocol: p.protocol === 'udp' ? 'udp' : 'tcp' }));
     const surfaces = new Set<string>([
       ...publishedPorts.map((p) => `port:${p.published}/${p.protocol}`),
-      ...routeHosts(s.labels).map((h) => `domain:${h}`),
+      ...readRoutes(s.labels).map((r) => `domain:${r.host}`),
     ]);
     return {
       name: s.name,
@@ -126,7 +75,7 @@ async function tickOrg(orgId: string): Promise<void> {
     where: { orgId },
     select: { rulesJson: true },
   });
-  const rules = parseRules(cfg?.rulesJson ?? {});
+  const rules = parseExposureRules(cfg?.rulesJson ?? {}, false);
 
   // (1) New public surface vs the previous tick (skipped on the baseline tick).
   const prev = prevSurfaces.get(orgId);

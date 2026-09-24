@@ -13,7 +13,7 @@ import { writeAudit } from './audit.service';
  * org's OPEN incidents with their opening event and matches in code
  * (`matchOpenIncident`, pure + unit-tested). Open incidents per org are a
  * handful at worst, so the scan is cheap and avoids fragile title conventions.
- * ORCHESTRATOR TODO (optional hardening): add `Incident.groupKey String?` +
+ * TODO (optional hardening): add `Incident.groupKey String?` +
  * `@@index([orgId, status, groupKey])` to schema.prisma; this file then matches
  * on the column directly.
  *

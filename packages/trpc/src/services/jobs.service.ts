@@ -32,10 +32,7 @@ import { cronNext, cronNextN, describeCron, isJobDue, parseCron, type CronSpec }
  * both legitimately Postgres. Nothing about live swarm state is persisted; the
  * execution target is resolved from the live inventory at fire time.
  *
- * The job-scheduler worker (apps/api) mirrors the due rule + execution of this
- * canonical, unit-tested copy (a worker cannot subpath-import an internal trpc
- * module); `runDueScheduledJobs` is the seam the worker collapses to once it is
- * re-exported from the package root.
+ * The job-scheduler worker (apps/api) calls {@link runDueScheduledJobs} every 30s.
  */
 
 // ── pure: config validation + JSON codecs (unit-tested) ─────────────────────
@@ -680,7 +677,7 @@ async function executeAttempts(ctx: OrgContext, job: JobRow, firstRunId: string)
   }
 }
 
-// ── scheduler tick seam (mirrored by apps/api workers/job-scheduler.ts) ──────
+// ── scheduler tick (called by apps/api workers/job-scheduler.ts) ──────────────
 
 export interface RunDueJobsDeps {
   db: DB;
@@ -693,8 +690,7 @@ export interface RunDueJobsDeps {
  * after the last fire (newest first-attempt `JobRun`, or `createdAt` when never
  * run) has passed. The first `JobRun` row is written BEFORE executing so an
  * overlapping tick already sees the fire and never double-fires; execution
- * itself runs detached. Without `deps`
- * there is nothing to scan with, so it no-ops (spine-era call shape).
+ * itself runs detached.
  */
 export async function runDueScheduledJobs(now: Date, deps?: RunDueJobsDeps): Promise<void> {
   if (!deps) return;

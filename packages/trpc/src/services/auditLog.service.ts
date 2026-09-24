@@ -27,7 +27,7 @@ import { writeAudit } from './audit.service';
  *   or JSON, capped at {@link AUDIT_EXPORT_MAX_ROWS}; every export is itself
  *   audited. Also served over REST (`GET /api/v1/audit/export`).
  * - Retention: per-org setting persisted in `Organization.metadata` JSON
- *   (best-effort — see ORCHESTRATOR TODO for a dedicated column);
+ *   (best-effort; a dedicated column would be cleaner);
  *   `pruneAuditLogs(now)` is exported for the retention worker.
  */
 
@@ -373,8 +373,8 @@ export async function setRetention(
 
 /**
  * Range-delete audit rows older than each org's retention window. Exported for
- * the retention worker (see ORCHESTRATOR TODO — `apps/api/src/workers/retention.ts`
- * is owned by the spine and calls this on its hourly tick).
+ * the retention worker (`apps/api/src/workers/retention.ts`,
+ * which calls this on its hourly tick).
  */
 export async function pruneAuditLogs(
   now: Date,

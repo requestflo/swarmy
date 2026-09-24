@@ -293,6 +293,11 @@ export {
 export type { CacheClusterDecl } from './services/cache.service';
 export { sampleQueueClusters, type SampledCluster } from './services/queue-studio.service';
 export { runDueDbBackups } from './services/dbBackup.service';
+export { runDueScheduledJobs } from './services/jobs.service';
+export { managedKindOf, parseExposureRules } from './services/exposure.service';
+export { readRoutes } from './services/ingress-routes';
+export { selectRestoreTarget, type ReconcileNode } from './services/reconcile-target';
+export { pruneAuditLogs } from './services/auditLog.service';
 export { publicStatus, sampleUptimeTick } from './services/statusPages.service';
 export {
   list as listClusterVolumes,
