@@ -90,8 +90,8 @@ describe('parseDotenv — golden', () => {
 });
 
 describe('looksSecret', () => {
-  const secret = ['DB_PASSWORD', 'STRIPE_SECRET_KEY', 'API_KEY', 'GITHUB_TOKEN', 'JWT_SECRET', 'AWS_SECRET_ACCESS_KEY', 'SENTRY_DSN', 'SESSION_SALT', 'PRIVATE_KEY', 'OAUTH_CLIENT_SECRET', 'BASIC_AUTH'];
-  const plain = ['PORT', 'NODE_ENV', 'LOG_LEVEL', 'NEXT_PUBLIC_API_KEY', 'STRIPE_PUBLIC_KEY', 'VITE_KEY', 'AUTHOR', 'MONKEY_COUNT'];
+  const secret = ['DB_PASSWORD', 'STRIPE_SECRET_KEY', 'API_KEY', 'GITHUB_TOKEN', 'JWT_SECRET', 'AWS_SECRET_ACCESS_KEY', 'SENTRY_DSN', 'SESSION_SALT', 'PRIVATE_KEY', 'OAUTH_CLIENT_SECRET', 'BASIC_AUTH', 'REDIS_PASS', 'DB_PASS', 'SMTP_PASS', 'PASS', 'PASS_FILE', 'GPG_PASSPHRASE', 'SSH_KEY_PASSPHRASE'];
+  const plain = ['PORT', 'NODE_ENV', 'LOG_LEVEL', 'NEXT_PUBLIC_API_KEY', 'STRIPE_PUBLIC_KEY', 'VITE_KEY', 'AUTHOR', 'MONKEY_COUNT', 'BYPASS_CACHE', 'COMPASS_URL', 'PASSENGER_COUNT'];
   for (const k of secret) it(`${k} → secret`, () => expect(looksSecret(k)).toBe(true));
   for (const k of plain) it(`${k} → plain`, () => expect(looksSecret(k)).toBe(false));
   it('value shapes win over a harmless name', () => {

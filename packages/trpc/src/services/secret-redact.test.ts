@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { REDACTED, redactConfigText, redactEnvEntry, redactInspect } from './secret-redact';
+import { REDACTED, redactConfigText, redactEnvEntry, redactEnvRecord, redactInspect, restoreRedactedEnv } from './secret-redact';
 
 describe('secret redaction without secrets.read', () => {
   it('masks secret-looking env pairs and keeps the rest', () => {
@@ -41,5 +41,35 @@ describe('secret redaction without secrets.read', () => {
       'after=1',
     ]);
     expect(redactConfigText('plain: true').redacted).toBe(false);
+  });
+});
+
+describe('redactEnvRecord (services.get env for callers without secrets.read)', () => {
+  it('masks secret-looking values, *_PASS included, and keeps the rest', () => {
+    expect(
+      redactEnvRecord({ PORT: '3000', REDIS_PASS: 'hunter2', SMTP_PASS: 'x', DATABASE_URL: 'postgres://u:pw@db/app', NODE_ENV: 'production' }),
+    ).toEqual({ PORT: '3000', REDIS_PASS: REDACTED, SMTP_PASS: REDACTED, DATABASE_URL: REDACTED, NODE_ENV: 'production' });
+  });
+});
+
+describe('restoreRedactedEnv (never deploy the mask back)', () => {
+  it('swaps a masked plain value for the live one; leaves real edits and secrets alone', () => {
+    const live = { REDIS_PASS: 'hunter2', PORT: '3000' };
+    expect(
+      restoreRedactedEnv(
+        [
+          { key: 'REDIS_PASS', value: REDACTED },
+          { key: 'PORT', value: '4000' },
+          { key: 'NEW', value: REDACTED },
+          { key: 'TOKEN', value: REDACTED, secret: true },
+        ],
+        live,
+      ),
+    ).toEqual([
+      { key: 'REDIS_PASS', value: 'hunter2' },
+      { key: 'PORT', value: '4000' },
+      { key: 'NEW', value: REDACTED },
+      { key: 'TOKEN', value: REDACTED, secret: true },
+    ]);
   });
 });

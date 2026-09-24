@@ -22,6 +22,25 @@ export function redactEnvEntry(entry: string): string {
   return looksSecret(key, value) ? `${key}=${REDACTED}` : entry;
 }
 
+/** `{ KEY: value }` → a copy with secret-looking values masked (service detail env). */
+export function redactEnvRecord(env: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) out[k] = looksSecret(k, v) ? REDACTED : v;
+  return out;
+}
+
+/**
+ * The inverse for a write-back: a client that only saw the masked env (the
+ * env card's paste merges `current ⊕ paste`) sends `REDACTED` back for values
+ * it never had. Keep the live value instead of deploying the mask.
+ */
+export function restoreRedactedEnv<T extends { key: string; value: string; secret?: boolean }>(
+  entries: T[],
+  live: Record<string, string>,
+): T[] {
+  return entries.map((e) => (e.value === REDACTED && !e.secret && e.key in live ? { ...e, value: live[e.key]! } : e));
+}
+
 /**
  * Deep-copy a `docker service inspect` payload, masking every `Env` list
  * (ContainerSpec.Env, and any nested one) entry that looks secret.

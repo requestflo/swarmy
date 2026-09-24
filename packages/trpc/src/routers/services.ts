@@ -27,7 +27,7 @@ import {
   watchDeployStatus,
 } from '../services/deployment.service';
 import { resolveManagerNode } from '../services/dispatch.service';
-import { canReadSecrets, redactInspect } from '../services/secret-redact';
+import { canReadSecrets, redactEnvRecord, redactInspect, restoreRedactedEnv } from '../services/secret-redact';
 import {
   listSecretVars,
   removeSecretVar,
@@ -50,9 +50,13 @@ export const servicesRouter = router({
     )
     .query(({ ctx, input }) => listServices(ctx, input)),
 
-  get: orgProcedure.input(z.object({ id: z.string() })).query(({ ctx, input }) =>
-    getServiceDetail(ctx, input.id),
-  ),
+  // Secret-looking env values are masked unless the caller holds
+  // `secrets.read` on this service (the same filter as `inspect`).
+  get: orgProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
+    const detail = getServiceDetail(ctx, input.id);
+    const resource = await resolveService(ctx, { id: detail.id });
+    return (await canReadSecrets(ctx, resource)) ? detail : { ...detail, env: redactEnvRecord(detail.env) };
+  }),
 
   // Full raw `docker service inspect` for the details/debug view (on-demand
   // dispatch). Secret-looking env values are masked unless the caller holds
@@ -66,7 +70,13 @@ export const servicesRouter = router({
 
   create: abacProcedure('service.deploy', resolveNewService).input(CreateServiceInput).mutation(({ ctx, input }) => createService(ctx, input)),
 
-  update: abacProcedure('service.configure', resolveService).input(UpdateServiceInput).mutation(({ ctx, input }) => updateService(ctx, input)),
+  update: abacProcedure('service.configure', resolveService)
+    .input(UpdateServiceInput)
+    .mutation(({ ctx, input }) =>
+      // `get` masks secret-looking values for callers without `secrets.read`;
+      // never deploy that mask back over the real value.
+      updateService(ctx, input.env ? { ...input, env: restoreRedactedEnv(input.env, getServiceDetail(ctx, input.id).env) } : input),
+    ),
 
   // ── Secret app variables (Docker secrets; write-only) ──────────────────────
   /** Metadata only (key, delivery, version, set by/at) — never a value. */

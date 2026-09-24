@@ -135,7 +135,7 @@ export function parseDotenv(text: string, opts: DotenvParseOptions = {}): Dotenv
 // ── Secret heuristics ────────────────────────────────────────────────────────
 
 const SECRET_KEY =
-  /(SECRET|PASSW(OR)?D|PWD|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE|CREDENTIAL|(^|_)AUTH(_|$)|SALT|SIGNING|WEBHOOK|DSN|(^|_)KEY$|^PASS$)/i;
+  /(SECRET|PASSW(OR)?D|PWD|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE|CREDENTIAL|(^|_)AUTH(_|$)|SALT|SIGNING|WEBHOOK|DSN|(^|_)KEY$|(^|_)PASS(_|$)|PASSPHRASE)/i;
 const PUBLIC_KEY = /(^|_)PUBLIC(_|$)|^NEXT_PUBLIC_|^VITE_|^PUBLIC_/i;
 const SECRET_VALUE = [
   /^[a-z][a-z0-9+.-]*:\/\/[^/\s:@]*:[^/\s@]+@/i, // URL with an inline password
