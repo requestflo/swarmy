@@ -42,7 +42,7 @@ export function appSigningKey(): SigningKey {
   if (cached && cached.secret === secret) return cached;
   const seed = derive('jwt-ed25519-v1');
   const privateKey = createPrivateKey({ key: Buffer.concat([ED25519_PKCS8_PREFIX, seed]), format: 'der', type: 'pkcs8' });
-  const pub = createPublicKey(privateKey).export({ format: 'jwk' }) as { x: string };
+  const pub = createPublicKey(privateKey as unknown as Parameters<typeof createPublicKey>[0]).export({ format: 'jwk' }) as { x: string };
   const kid = createHash('sha256').update(pub.x).digest('base64url').slice(0, 16);
   cached = { secret, privateKey, jwk: { kty: 'OKP', crv: 'Ed25519', x: pub.x, kid, alg: 'EdDSA', use: 'sig' } };
   return cached;
@@ -137,4 +137,21 @@ export interface AppLoginCode {
   rd: string;
   nonce: string;
   exp: number;
+}
+
+/**
+ * A 60-second admin token for an app's own auth service (`auth:` in
+ * swarmy.yaml): the service verifies it against the controller JWKS and
+ * requires `aud = swarmy-app-auth:<stack>` + `scope = app-auth:admin`, so an
+ * identity JWT (aud = a host, no scope) can never pass as one.
+ */
+export function signAdminJwt(a: { iss: string; sub: string; stack: string; org: string }, nowMs = Date.now()): string {
+  const key = appSigningKey();
+  const iat = Math.floor(nowMs / 1000);
+  const header = b64u(JSON.stringify({ alg: 'EdDSA', typ: 'JWT', kid: key.jwk.kid }));
+  const payload = b64u(
+    JSON.stringify({ iss: a.iss, sub: a.sub, aud: `swarmy-app-auth:${a.stack}`, scope: 'app-auth:admin', org: a.org, iat, exp: iat + 60 }),
+  );
+  const sig = sign(null, Buffer.from(`${header}.${payload}`), key.privateKey);
+  return `${header}.${payload}.${b64u(sig)}`;
 }

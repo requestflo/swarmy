@@ -40,6 +40,8 @@ export default defineConfig({
       // the controller at :3021 (mirrors `/agent`). Without this the socket hits
       // the Vite dev origin and never reaches the API, so the shell never attaches.
       '/term': { target: 'ws://localhost:3021', ws: true },
+      // Protect my app: the post-sign-in hop (/app-login → /_app-auth/start).
+      '/_app-auth': { target: 'http://localhost:3021', changeOrigin: false },
     },
   },
 });
