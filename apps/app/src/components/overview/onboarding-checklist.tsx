@@ -17,16 +17,20 @@ interface OnboardingChecklistProps {
  * Five steps to a production-grade platform — the ink-block CTA strip. Node /
  * service / alert-channel state arrives via props (the Overview already runs
  * those queries); domain + backup state is fetched here so every tick reflects
- * reality instead of a hardcoded `false`.
+ * reality instead of a hardcoded `false`. Renders nothing once every step is
+ * done (a finished checklist is noise) and nothing until the fetched steps
+ * have settled (an unticked box would be a fake "not done").
  */
 export function OnboardingChecklist({
   hasNodes,
   hasServices = false,
   hasAlertChannel = false,
-}: OnboardingChecklistProps): React.JSX.Element {
+}: OnboardingChecklistProps): React.JSX.Element | null {
   const trpc = useTRPC();
   const ingress = useQuery({ ...trpc.ingress.getConfig.queryOptions(), enabled: hasNodes });
   const targets = useQuery({ ...trpc.backups.listTargets.queryOptions(), enabled: hasNodes });
+
+  if (hasNodes && (ingress.isPending || targets.isPending)) return null;
 
   const steps = [
     { done: hasNodes, label: 'Add your first node', to: '/nodes/new', icon: <ServerIcon className="size-4" /> },
@@ -35,6 +39,7 @@ export function OnboardingChecklist({
     { done: (targets.data?.length ?? 0) > 0, label: 'Set up backups', to: '/backups', icon: <DatabaseBackupIcon className="size-4" /> },
     { done: hasAlertChannel, label: 'Turn on alerts', to: '/alerts', icon: <BellIcon className="size-4" /> },
   ];
+  if (steps.every((s) => s.done)) return null;
   return (
     <div className="ink-block mt-4 rounded-2xl p-6">
       <h2 className="font-display text-ink-foreground text-lg font-bold">Get set up</h2>

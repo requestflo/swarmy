@@ -1,34 +1,19 @@
-import { useQuery } from '@tanstack/react-query';
-import { useTRPC } from '@/integrations/trpc';
 import type { BadgeKey } from '@/lib/destinations';
+import { useEstateSummary } from '@/lib/use-estate-summary';
 
 /**
- * Live attention counts for the sidenav badges. One cheap poll per signal;
- * every count fails safe to 0 so a missing/disabled backend never breaks the
- * shell. Keyed by {@link BadgeKey} so a nav item just names the signal it wants.
+ * Live attention counts for the sidenav badges, read from the one estate
+ * summary (so a badge never disagrees with the Overview). Every count fails
+ * safe to 0 while loading or when a backend is missing, so the shell itself
+ * never breaks. Keyed by {@link BadgeKey} so a nav item just names the signal.
  */
 export function useNavBadges(): Record<BadgeKey, number> {
-  const trpc = useTRPC();
-
-  const summary = useQuery({
-    ...trpc.system.dashboardSummary.queryOptions(),
-    refetchInterval: 10_000,
-  });
-  const alerts = useQuery({
-    ...trpc.alerts.overview.queryOptions(),
-    refetchInterval: 15_000,
-  });
-  const incidents = useQuery({
-    ...trpc.incidents.overview.queryOptions(),
-    refetchInterval: 15_000,
-  });
-
-  const nodes = summary.data?.nodes;
-  const nodesOffline = nodes ? Math.max(0, nodes.total - nodes.online) : 0;
-
+  const estate = useEstateSummary();
+  if (estate.status !== 'ready') return { nodesOffline: 0, alertsFiring: 0, incidentsOpen: 0 };
+  const { nodes, alerts, incidents } = estate.data;
   return {
-    nodesOffline,
-    alertsFiring: alerts.data?.firing ?? 0,
-    incidentsOpen: incidents.data?.open ?? 0,
+    nodesOffline: Math.max(0, nodes.total - nodes.online),
+    alertsFiring: alerts.firing,
+    incidentsOpen: incidents.open,
   };
 }

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { RocketIcon } from 'lucide-react';
 import { relTime } from '@/lib/format';
+import { CardSkeleton } from '@/components/states';
 
 function Stat({ n, label, tone }: { n: number; label: string; tone: string }): React.JSX.Element {
   return (
@@ -18,10 +19,19 @@ interface ReleasesCardProps {
   healthy: number;
   failed: number;
   lastDeployAt: string | null;
+  /** First fetch still in flight — draw a skeleton, not three zeros. */
+  loading?: boolean;
 }
 
 /** Deployment pulse for the whole estate — in flight / healthy / failed. */
-export function ReleasesCard({ deploying, healthy, failed, lastDeployAt }: ReleasesCardProps): React.JSX.Element {
+export function ReleasesCard({
+  deploying,
+  healthy,
+  failed,
+  lastDeployAt,
+  loading = false,
+}: ReleasesCardProps): React.JSX.Element {
+  if (loading) return <CardSkeleton lines={2} />;
   return (
     <div className="card-pop p-5">
       <div className="mb-3 flex items-center justify-between">

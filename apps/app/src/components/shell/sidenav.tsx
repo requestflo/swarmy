@@ -12,7 +12,9 @@ import {
   type Destination,
   type NavGroup,
 } from '@/lib/destinations';
+import { useEstateSummary } from '@/lib/use-estate-summary';
 import { useNavBadges } from '@/lib/use-nav-badges';
+import { TextSkeleton } from '@/components/states';
 import { CreateMenu } from './create-menu';
 import { UserMenu } from './user-menu';
 import { useCommandPalette } from './command-palette-provider';
@@ -149,28 +151,32 @@ function OrgName(): React.JSX.Element | null {
   );
 }
 
+/** "N/M nodes online" — the same estate summary the Overview KPIs read, so they agree. */
 function ClusterFooter(): React.JSX.Element {
-  const trpc = useTRPC();
-  const summary = useQuery({
-    ...trpc.system.dashboardSummary.queryOptions(),
-    refetchInterval: 5_000,
-  });
-  const online = summary.data?.nodes.online ?? 0;
-  const total = summary.data?.nodes.total ?? 0;
-  const allUp = total > 0 && online === total;
+  const estate = useEstateSummary();
+  const nodes = estate.status === 'ready' ? estate.data.nodes : null;
+  const allUp = !!nodes && nodes.total > 0 && nodes.online === nodes.total;
   return (
     <Link
       to="/nodes"
       className="text-ink-foreground/60 hover:text-ink-foreground flex items-center gap-2 px-3 py-1 text-xs transition-colors"
     >
       <span
-        className={cn('size-2 rounded-full', total > 0 && 'pulse-dot')}
-        style={{ background: `var(--status-${allUp ? 'online' : online > 0 ? 'warning' : 'idle'})` }}
+        className={cn('size-2 rounded-full', nodes && nodes.total > 0 && 'pulse-dot')}
+        style={{
+          background: `var(--status-${!nodes ? 'idle' : allUp ? 'online' : nodes.online > 0 ? 'warning' : 'idle'})`,
+        }}
       />
-      <span className="mono-data">
-        {online}/{total}
-      </span>
-      <span>{total === 1 ? 'node online' : 'nodes online'}</span>
+      {nodes ? (
+        <>
+          <span className="mono-data">
+            {nodes.online}/{nodes.total}
+          </span>
+          <span>{nodes.total === 1 ? 'node online' : 'nodes online'}</span>
+        </>
+      ) : (
+        <TextSkeleton className="w-24 bg-white/10" />
+      )}
     </Link>
   );
 }

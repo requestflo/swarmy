@@ -15,6 +15,7 @@ import {
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { ThemeMenuItems } from '@/components/theme-menu';
+import { TextSkeleton } from '@/components/states';
 
 /**
  * Avatar trigger + dropdown (profile, appearance, sign out). Shared by both
@@ -32,6 +33,12 @@ export function UserMenu({
   const navigate = useNavigate();
   const whoami = useQuery(trpc.org.whoami.queryOptions());
   const initial = (whoami.data?.name ?? whoami.data?.email ?? '?').slice(0, 1).toUpperCase();
+  // No fake "You" while the identity is still loading — a shimmer instead.
+  const displayName: React.ReactNode = whoami.data
+    ? (whoami.data.name ?? whoami.data.email ?? 'You')
+    : whoami.isError
+      ? 'You'
+      : <TextSkeleton className="w-20 bg-white/10" />;
 
   return (
     <DropdownMenu>
@@ -45,7 +52,7 @@ export function UserMenu({
             </Avatar>
             <span className="min-w-0 flex-1">
               <span className="text-ink-foreground block truncate text-sm font-medium">
-                {whoami.data?.name ?? 'You'}
+                {displayName}
               </span>
               <span className="text-ink-foreground/50 block truncate text-xs">{whoami.data?.email}</span>
             </span>
@@ -60,7 +67,7 @@ export function UserMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side={side} className="w-60">
         <DropdownMenuLabel className="flex flex-col">
-          <span className="truncate font-medium">{whoami.data?.name ?? 'You'}</span>
+          <span className="truncate font-medium">{displayName}</span>
           <span className="text-muted-foreground truncate text-xs font-normal">{whoami.data?.email}</span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />

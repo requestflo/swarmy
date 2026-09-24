@@ -1,6 +1,13 @@
 import * as React from 'react';
 
-/** Animated count-up for hero numbers. Respects prefers-reduced-motion. */
+/**
+ * Animated count-up for hero numbers. Respects prefers-reduced-motion.
+ *
+ * It animates only between two real values: the first render paints `value`
+ * as-is (no run-up from 0), and a refetch that returns the same number does
+ * nothing. Callers must not mount it with a placeholder (`data?.n ?? 0`) —
+ * draw a skeleton until the number exists, then mount this.
+ */
 export function CountUp({
   value,
   durationMs = 700,
@@ -13,25 +20,29 @@ export function CountUp({
   format?: (n: number) => string;
 }): React.JSX.Element {
   const [display, setDisplay] = React.useState(value);
-  const fromRef = React.useRef(value);
+  // What is on screen right now — the origin of the next animation, so an
+  // interrupted run continues from where it was rather than jumping.
+  const shownRef = React.useRef(value);
   const rafRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const from = fromRef.current;
-    if (reduce || from === value) {
+    const from = shownRef.current;
+    if (from === value) return;
+    const reduce =
+      typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) {
+      shownRef.current = value;
       setDisplay(value);
-      fromRef.current = value;
       return;
     }
     const start = performance.now();
-    const tick = (now: number) => {
+    const tick = (now: number): void => {
       const t = Math.min(1, (now - start) / durationMs);
       const eased = 1 - (1 - t) ** 3;
-      setDisplay(from + (value - from) * eased);
+      const next = t < 1 ? from + (value - from) * eased : value;
+      shownRef.current = next;
+      setDisplay(next);
       if (t < 1) rafRef.current = requestAnimationFrame(tick);
-      else fromRef.current = value;
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => {
