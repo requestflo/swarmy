@@ -8,13 +8,13 @@
  * digest. From then on the hub decorator deploys them from the cluster.
  *
  * Install-time default: on a self-host bootstrap (`SWARMY_BOOTSTRAP=1`) the
- * bootstrap org gets the built-in registry enabled when it has NO registry row
- * yet — an operator who disabled it keeps that choice.
+ * bootstrap org gets the built-in registry enabled when it has NO registry
+ * config yet — an operator who disabled it keeps that choice.
  * `SWARMY_BUILTIN_REGISTRY=0` opts out.
  */
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { ensureRegistryDeployed, mirrorSystemImagesAllOrgs, systemContext } from '@swarmy/trpc';
+import { ensureRegistryDeployed, mirrorSystemImagesAllOrgs, registryConfigs, systemContext } from '@swarmy/trpc';
 import { hub } from '../gateway';
 
 const MIRROR_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -26,9 +26,11 @@ async function enableBuiltinRegistryAtInstall(): Promise<void> {
   const slug = process.env.SWARMY_ORG_SLUG ?? 'swarmy';
   const org = await prisma.organization.findFirst({ where: { slug }, select: { id: true } });
   if (!org) return;
-  const row = await prisma.registryConfig.findUnique({ where: { orgId: org.id }, select: { orgId: true } });
-  if (row) return;
-  await prisma.registryConfig.create({ data: { orgId: org.id, enabled: true, host: 'localhost:5000' } });
+  // The registry config lives in the org's swarm (swarm-kv): this throws (and
+  // the caller retries) until a manager agent is connected.
+  const configs = registryConfigs({ db: prisma, hub }, org.id);
+  if (await configs.findFirst()) return;
+  await configs.create({ data: { enabled: true, host: 'localhost:5000' } });
   // eslint-disable-next-line no-console
   console.log('[system-image-mirror] built-in registry enabled for the bootstrap org.');
 }
@@ -40,7 +42,9 @@ export function startSystemImageMirror(): () => void {
     if (running) return;
     running = true;
     try {
-      await enableBuiltinRegistryAtInstall().catch(() => undefined);
+      await enableBuiltinRegistryAtInstall().catch(() => {
+        setTimeout(() => void enableBuiltinRegistryAtInstall().catch(() => undefined), 60_000).unref?.();
+      });
       const results = await mirrorSystemImagesAllOrgs(deps(), (d, orgId) => ensureRegistryDeployed(systemContext(d, orgId)));
       for (const r of results) {
         if (r.copied.length || r.failed.length) {

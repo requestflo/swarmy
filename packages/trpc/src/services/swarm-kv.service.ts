@@ -39,6 +39,7 @@ import {
   type KvExportDoc,
   type KvSealer,
 } from '@swarmy/core';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { decryptSecret, encryptSecret } from '@swarmy/core/crypto';
 import type {
   ConfigInspectResult,
@@ -69,6 +70,7 @@ export const KV_COLLECTIONS = [
   'image-gc', // ImageGcPolicy (id = orgId)
   'stack', // Stack compose source (id = stack id)
   'rum', // RUM replay-store credential, vault-sealed (id = orgId)
+  'canvas', // CanvasLayout positions (id = orgId)
 ] as const;
 export type KvCollection = (typeof KV_COLLECTIONS)[number];
 
@@ -78,7 +80,18 @@ export interface KvScope {
   db?: DB;
 }
 
-const vaultSealer: KvSealer = { seal: encryptSecret, open: decryptSecret };
+/**
+ * Vault sealer with gzip: compose sources and JSON compress 4-5×, which keeps
+ * swarmy's raft footprint well inside its budget. `z1.` marks the compressed
+ * form; a plain vault blob still opens.
+ */
+const vaultSealer: KvSealer = {
+  seal: (plain) => `z1.${encryptSecret(Buffer.from(gzipSync(Buffer.from(plain, 'utf8'))).toString('base64'))}`,
+  open: (sealed) =>
+    sealed.startsWith('z1.')
+      ? Buffer.from(gunzipSync(Buffer.from(decryptSecret(sealed.slice(3)), 'base64'))).toString('utf8')
+      : decryptSecret(sealed),
+};
 
 type DriverFactory = (orgId: string) => KvDriver;
 interface HubKv {

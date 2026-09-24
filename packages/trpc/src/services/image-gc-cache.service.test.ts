@@ -1,3 +1,4 @@
+import { seedKv } from './swarm-kv.service';
 import { describe, expect, it } from 'bun:test';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
@@ -27,8 +28,6 @@ function fakes(opts: { sizes: Record<string, number | null> }) {
     },
   } as unknown as AgentHub;
   const db = {
-    registryConfig: { findUnique: async () => ({ enabled: true, host: 'localhost:5000', credentialsEnc: null }) },
-    imageGcPolicy: { findUnique: async () => ({ cacheMaxAgeDays: 14, cacheMaxGb: 2 }) },
     build: {
       groupBy: async () => [
         { cacheRef: 'localhost:5000/a:buildcache-root-main', _max: { finishedAt: daysAgo(1.5) } },
@@ -42,6 +41,9 @@ function fakes(opts: { sizes: Record<string, number | null> }) {
       },
     },
   } as unknown as DB;
+  // Registry + GC policy live in the org's swarm (swarm-kv).
+  seedKv(hub, 'o1', 'registry', 'o1', { enabled: true, host: 'localhost:5000', credentialsEnc: null });
+  seedKv(hub, 'o1', 'image-gc', 'o1', { mode: 'ON_HEALTHCHECK', keepProd: true, days: null, cacheMaxAgeDays: 14, cacheMaxGb: 2 });
   return { deps: { db, hub, auth: {} as Auth }, scripts, cleared };
 }
 

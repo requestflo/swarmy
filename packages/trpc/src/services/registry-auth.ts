@@ -17,6 +17,8 @@
  * The password never leaves the controller except inside those agent command
  * payloads (JIT, over the authenticated WS) — never to a client.
  */
+import type { AgentHub } from '../hub/types';
+import { registryConfigs } from './apps.repo';
 import { createHash, randomBytes } from 'node:crypto';
 import { decryptSecret } from '@swarmy/core/crypto';
 import type { RegistryAuth, ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
@@ -159,7 +161,13 @@ function mayBeRegistryImage(images: string[]): boolean {
 export function createRegistryAuthDecorator(
   db: DB,
   liveInventory?: (orgId: string) => Parameters<typeof mirrorStateFrom>[0],
+  /** The hub the org registry config (swarm-kv) is read through. */
+  hub?: AgentHub,
 ): DispatchDecorator {
+  // Only image-bearing commands reach this read (never `config.*`, which the
+  // swarm-kv load itself dispatches), and it's served from the kv cache.
+  const registryRow = async (orgId: string) =>
+    hub ? await registryConfigs({ db, hub }, orgId).findFirst().catch(() => null) : null;
   const thirdParty = async (orgId: string) => {
     try {
       return await loadOrgRegistryCredentials(db, orgId);
@@ -176,7 +184,7 @@ export function createRegistryAuthDecorator(
       // The running release's digests (platform manifest) — the compiled BOM
       // until a platform upgrade has recorded one.
       const images = await effectiveImagesFor(db, orgId);
-      const row = await db.registryConfig.findUnique({ where: { orgId }, select: { enabled: true, host: true } });
+      const row = await registryRow(orgId);
       const mirrored = row?.enabled
         ? rewriteSystemImages(cmd, payload, canonicalRegistryHost(row.host), mirrorStateFrom(liveInventory(orgId)), images)
         : payload;
@@ -195,10 +203,7 @@ export function createRegistryAuthDecorator(
     if (!images.length) return payload;
     if ((payload as { registryAuth?: unknown } | null)?.registryAuth) return payload;
     if (mayBeRegistryImage(images)) {
-      const row = await db.registryConfig.findUnique({
-        where: { orgId },
-        select: { host: true, credentialsEnc: true },
-      });
+      const row = await registryRow(orgId);
       const creds = decodeRegistryCreds(row?.credentialsEnc);
       if (creds) {
         const out = attachRegistryAuth(cmd, payload, canonicalRegistryHost(row?.host), creds);

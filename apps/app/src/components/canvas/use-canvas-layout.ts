@@ -5,10 +5,30 @@ import { useTRPC } from '@/integrations/trpc';
 
 type Positions = Record<string, { x: number; y: number }>;
 
+const VIEWPORT_KEY = 'swarmy.canvas.viewport';
+
+function readViewport(): Viewport | null {
+  try {
+    const raw = window.localStorage.getItem(VIEWPORT_KEY);
+    return raw ? (JSON.parse(raw) as Viewport) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeViewport(v: Viewport): void {
+  try {
+    window.localStorage.setItem(VIEWPORT_KEY, JSON.stringify(v));
+  } catch {
+    // storage unavailable (private window) — the viewport is a convenience
+  }
+}
+
 /**
- * Load + persist the org's canvas layout (drag = visual only). Positions and the
- * last viewport are saved server-side (debounced) so the canvas reopens exactly
- * where the user left it, on any device.
+ * Load + persist the org's canvas layout (drag = visual only). Positions are
+ * saved server-side (debounced; they live in the org's swarm) so the canvas
+ * reopens as the user left it on any device. The viewport is a per-viewer
+ * preference kept in this browser — it changes on every pan/zoom.
  */
 export function useCanvasLayout() {
   const trpc = useTRPC();
@@ -16,18 +36,17 @@ export function useCanvasLayout() {
   const save = useMutation(trpc.canvas.save.mutationOptions());
 
   const positionsRef = React.useRef<Positions>({});
-  const viewportRef = React.useRef<Viewport | null>(null);
+  const [savedViewport] = React.useState<Viewport | null>(readViewport);
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   React.useEffect(() => {
     if (layout.data) {
       positionsRef.current = layout.data.positions ?? {};
-      viewportRef.current = layout.data.viewport ?? null;
     }
   }, [layout.data]);
 
   const flush = React.useCallback(() => {
-    save.mutate({ positions: positionsRef.current, viewport: viewportRef.current });
+    save.mutate({ positions: positionsRef.current });
   }, [save]);
 
   // Keep the latest flush reachable from the unmount-only cleanup below without
@@ -48,13 +67,7 @@ export function useCanvasLayout() {
     [queueSave],
   );
 
-  const setViewport = React.useCallback(
-    (v: Viewport) => {
-      viewportRef.current = v;
-      queueSave();
-    },
-    [queueSave],
-  );
+  const setViewport = React.useCallback((v: Viewport) => writeViewport(v), []);
 
   // On unmount, flush any pending (debounced) save so a drag-then-navigate within
   // the debounce window isn't lost.
@@ -71,7 +84,7 @@ export function useCanvasLayout() {
   return {
     isLoaded: layout.isSuccess,
     positions: layout.data?.positions ?? {},
-    savedViewport: layout.data?.viewport ?? null,
+    savedViewport,
     setPosition,
     setViewport,
   };

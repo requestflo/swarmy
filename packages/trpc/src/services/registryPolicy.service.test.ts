@@ -1,3 +1,4 @@
+import { peekKv } from './swarm-kv.service';
 import { describe, expect, it } from 'bun:test';
 import type { OrgContext } from '../context';
 import {
@@ -218,18 +219,10 @@ describe('enableSigning — cosign keygen runs as root on the root-owned scratch
 
   it('dispatches the cosign one-shot with user 0:0 and stores the key pair', async () => {
     const calls: Array<{ cmd: string; payload: Record<string, unknown> }> = [];
-    let stored: Record<string, unknown> | undefined;
     const ctx = {
       activeOrgId: 'org_1234567890abcdef',
       user: { id: 'u1' },
       db: {
-        registryConfig: {
-          upsert: async () => ({ orgId: 'org_1234567890abcdef', cosignPublicKey: null }),
-          update: async ({ data }: { data: Record<string, unknown> }) => {
-            stored = data;
-            return data;
-          },
-        },
         node: { findMany: async () => [{ id: 'n1' }] },
         auditLog: { create: async () => ({}) },
       },
@@ -259,6 +252,8 @@ describe('enableSigning — cosign keygen runs as root on the root-owned scratch
     // readback runs in busybox (root by default) against the same volume
     expect(calls[1]!.payload.binds).toEqual(calls[0]!.payload.binds);
     expect(res.enabled).toBe(true);
+    // The key pair lands in the org's registry config (swarm-kv).
+    const stored = peekKv<Record<string, unknown>>(ctx.hub, 'org_1234567890abcdef', 'registry', 'org_1234567890abcdef');
     expect(stored?.cosignPublicKey).toBeDefined();
   });
 });

@@ -10,6 +10,8 @@
  * Invoked per-org by the `image-gc` worker (apps/api/workers/image-gc.ts) and
  * on-demand. Each org runs under a SYSTEM `OrgContext`.
  */
+import { imageGcPolicies, registryConfigs } from './apps.repo';
+import { allOrgRows } from './backups.repo';
 import { buildInventory, isBuilderCapable } from '@swarmy/core';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
@@ -70,7 +72,7 @@ export async function runImageGcForOrg(
   opts: { dryRun?: boolean } = {},
 ): Promise<GcRunResult> {
   const { db, hub } = deps;
-  const policy = await db.imageGcPolicy.findUnique({ where: { orgId } });
+  const policy = await imageGcPolicies(deps, orgId).findFirst();
   // No policy row, or age-days with no window → nothing to do.
   if (!policy) return empty(orgId, opts.dryRun ?? false);
 
@@ -105,7 +107,7 @@ export async function runImageGcForOrg(
 
   // Dispatch a prune to every online builder-capable node in the org. The keep set is the pinned
   // digests (defence-in-depth: the agent ALSO refuses to delete a pinned digest).
-  const reg = await db.registryConfig.findUnique({ where: { orgId }, select: { host: true } });
+  const reg = await registryConfigs(deps, orgId).findFirst();
   // Scope to the canonical push host (a legacy `swarmy-registry:5000` row maps
   // to `localhost:5000`, where builds now push).
   const repoPrefix = reg ? `${canonicalRegistryHost(reg.host)}/` : undefined;
@@ -154,7 +156,7 @@ export async function runImageGcAllOrgs(deps: { db: DB; hub: AgentHub; auth: Aut
   // Registry auth converge rides the same tick: an enabled registry that is
   // still open (pre-auth install) or drifted from its stored login is closed.
   try {
-    const registries = await deps.db.registryConfig.findMany({ where: { enabled: true }, select: { orgId: true } });
+    const registries = await allOrgRows(deps, registryConfigs, { where: { enabled: true } });
     for (const r of registries) {
       await convergeRegistryAuth(systemContext(deps, r.orgId)).catch(() => undefined);
     }
@@ -164,14 +166,15 @@ export async function runImageGcAllOrgs(deps: { db: DB; hub: AgentHub; auth: Aut
   // Housekeeping for EVERY node, builder or not: dangling images pile up on
   // any node that redeploys, and a full disk takes the controller DB with it.
   await pruneDanglingEverywhere(deps).catch(() => undefined);
-  const policies = await deps.db.imageGcPolicy.findMany({ select: { orgId: true } });
+  // Policies live in each org's swarm (swarm-kv); unreachable orgs are skipped.
+  const policies = await allOrgRows(deps, imageGcPolicies);
   const out: GcRunResult[] = [];
   for (const p of policies) {
     out.push(await runImageGcForOrg(deps, p.orgId).catch(() => empty(p.orgId, false)));
   }
   // Registry build cache: every org with a registry, policy row or not (defaults apply).
   try {
-    const registries = await deps.db.registryConfig.findMany({ where: { enabled: true }, select: { orgId: true } });
+    const registries = await allOrgRows(deps, registryConfigs, { where: { enabled: true } });
     for (const r of registries) await runCacheGcForOrg(deps, r.orgId).catch(() => undefined);
   } catch {
     // Cache GC never breaks image GC.
@@ -211,12 +214,9 @@ export async function runCacheGcForOrg(
   const dryRun = opts.dryRun ?? false;
   const now = opts.now ?? new Date();
   const skip = (skipped: string): CacheGcResult => ({ orgId, refs: 0, totalBytes: 0, removed: [], deleted: [], dryRun, skipped });
-  const reg = await deps.db.registryConfig.findUnique({
-    where: { orgId },
-    select: { enabled: true, host: true, credentialsEnc: true },
-  });
+  const reg = await registryConfigs(deps, orgId).findFirst();
   if (!reg?.enabled) return skip('registry disabled');
-  const policy = await deps.db.imageGcPolicy.findUnique({ where: { orgId } });
+  const policy = await imageGcPolicies(deps, orgId).findFirst();
   const rows = await deps.db.build.groupBy({
     by: ['cacheRef'],
     where: { orgId, cacheRef: { not: null }, finishedAt: { gte: new Date(now.getTime() - CACHE_LOOKBACK_DAYS * 86_400_000) } },

@@ -1,3 +1,4 @@
+import { stacks } from './apps.repo';
 import {
   buildInventory,
   STACK_LABEL,
@@ -559,7 +560,7 @@ async function previewSpecsSource(
 ): Promise<{ specs: ServiceSpec[]; targetShort: string | null }> {
   const linked = repo.serviceId ? resolveLiveService(ctx, repo.serviceId) : undefined;
   if (linked && linked.stack !== UNGROUPED) {
-    const row = await ctx.db.stack.findFirst({
+    const row = await stacks(ctx, ctx.activeOrgId).findFirst({
       where: { orgId: ctx.activeOrgId, name: linked.stack },
       select: { composeSource: true },
     });

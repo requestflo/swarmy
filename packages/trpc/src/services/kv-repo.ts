@@ -236,7 +236,13 @@ function sortRows<R extends Record<string, unknown>>(rows: R[], orderBy: KvFindA
  */
 export function kvTable<D extends object>(
   collection: KvCollection,
-  opts: { dateFields?: readonly string[]; defaults?: () => Partial<D>; unique?: ReadonlyArray<readonly string[]> } = {},
+  opts: {
+    dateFields?: readonly string[];
+    defaults?: () => Partial<D>;
+    unique?: ReadonlyArray<readonly string[]>;
+    /** One row per org: its id IS the org id (RegistryConfig, ImageGcPolicy, …). */
+    singleton?: boolean;
+  } = {},
 ) {
   const coll = orgCollection<Record<string, unknown>>(collection, opts.defaults as never);
   const dates = new Set(opts.dateFields ?? []);
@@ -291,7 +297,7 @@ export function kvTable<D extends object>(
             throw err;
           }
         }
-        const id = typeof args.data.id === 'string' ? args.data.id : undefined;
+        const id = opts.singleton ? orgId : typeof args.data.id === 'string' ? args.data.id : undefined;
         return toRowDates(await coll.create(scope, orgId, data, id));
       },
       /** Update one row by id (or the first match); throws when missing, like Prisma. */
@@ -305,6 +311,22 @@ export function kvTable<D extends object>(
           throw err;
         }
         return toRowDates(row);
+      },
+      /** Prisma-style upsert keyed by `where` (compound unique keys are flattened). */
+      async upsert(args: {
+        where: Record<string, unknown>;
+        create: Partial<D> & Record<string, unknown>;
+        update: Partial<D> & Record<string, unknown>;
+        select?: unknown;
+      }): Promise<Row> {
+        const where: KvWhere = {};
+        for (const [k, v] of Object.entries(args.where)) {
+          if (v && typeof v === 'object' && !(v instanceof Date)) Object.assign(where, v as KvWhere);
+          else where[k] = v as WhereValue;
+        }
+        const existing = await api.findFirst({ where });
+        if (existing) return api.update({ where: { id: existing.id }, data: args.update });
+        return api.create({ data: args.create });
       },
       async updateMany(args: { where?: KvWhere; data: Partial<D> & Record<string, unknown> }): Promise<{ count: number }> {
         const rows = await api.findMany({ where: args.where });

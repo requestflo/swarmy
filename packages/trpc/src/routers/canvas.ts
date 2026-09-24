@@ -1,3 +1,4 @@
+import { canvasLayouts } from '../services/apps.repo';
 import { z } from 'zod';
 import { router, orgProcedure } from '../trpc';
 
@@ -16,10 +17,10 @@ const Viewport = z.object({ x: z.number(), y: z.number(), zoom: z.number() });
 export const canvasRouter = router({
   /** Saved node positions + viewport for the active org's canvas. */
   get: orgProcedure.query(async ({ ctx }) => {
-    const row = await ctx.db.canvasLayout.findUnique({ where: { orgId: ctx.activeOrgId } });
+    const row = await canvasLayouts(ctx, ctx.activeOrgId).findUnique({ where: { orgId: ctx.activeOrgId } });
     return {
-      positions: (row?.positions as Record<string, { x: number; y: number }> | undefined) ?? {},
-      viewport: (row?.viewport as { x: number; y: number; zoom: number } | null | undefined) ?? null,
+      positions: row?.positions ?? {},
+      viewport: null as { x: number; y: number; zoom: number } | null,
     };
   }),
 
@@ -27,14 +28,11 @@ export const canvasRouter = router({
   save: orgProcedure
     .input(z.object({ positions: z.record(z.string(), Position), viewport: Viewport.nullish() }))
     .mutation(async ({ ctx, input }) => {
-      await ctx.db.canvasLayout.upsert({
+      // Unchanged positions write nothing (swarm-kv skips identical content).
+      await canvasLayouts(ctx, ctx.activeOrgId).upsert({
         where: { orgId: ctx.activeOrgId },
-        create: {
-          orgId: ctx.activeOrgId,
-          positions: input.positions,
-          viewport: input.viewport ?? undefined,
-        },
-        update: { positions: input.positions, viewport: input.viewport ?? undefined },
+        create: { positions: input.positions },
+        update: { positions: input.positions },
       });
       return { ok: true as const };
     }),

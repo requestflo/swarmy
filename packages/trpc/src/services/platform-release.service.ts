@@ -16,6 +16,7 @@
  *
  * Every mutation is audited through `writeAudit`.
  */
+import { registryConfigs } from './apps.repo';
 import type { DB } from '@swarmy/db';
 import {
   DEFAULT_MAINTENANCE_WINDOW,
@@ -208,7 +209,7 @@ export function renderAdoptScript(items: readonly SystemImage[], registryHost: s
 }
 
 export async function adoptBundleImages(ctx: OrgContext, manifest: PlatformManifest): Promise<{ adopted: string[] }> {
-  const reg = await ctx.db.registryConfig.findUnique({ where: { orgId: ctx.activeOrgId }, select: { enabled: true, host: true, credentialsEnc: true } });
+  const reg = await registryConfigs(ctx, ctx.activeOrgId).findUnique({ where: { orgId: ctx.activeOrgId }, select: { enabled: true, host: true, credentialsEnc: true } });
   if (!reg?.enabled) return { adopted: [] };
   const manager = ctx.hub.managerNode(ctx.activeOrgId);
   if (!manager) return { adopted: [] };

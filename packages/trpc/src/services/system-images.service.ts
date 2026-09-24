@@ -21,6 +21,8 @@
  * Node dockerd uses the cache through `registry-mirrors` in daemon.json, which
  * the installers merge (`apps/api/src/install/docker-registry-mirror.ts`).
  */
+import { registryConfigs } from './apps.repo';
+import { allOrgRows } from './backups.repo';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import type { RunOnceResult, ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
@@ -221,10 +223,7 @@ export async function mirrorSystemImagesForOrg(
   imagesIn?: readonly SystemImage[],
 ): Promise<MirrorTickResult> {
   const images = imagesIn ?? (await effectiveImagesFor(deps.db, orgId));
-  const row = await deps.db.registryConfig.findUnique({
-    where: { orgId },
-    select: { enabled: true, host: true, credentialsEnc: true },
-  });
+  const row = await registryConfigs(deps, orgId).findFirst();
   if (!row?.enabled) return { orgId, copied: [], failed: [], skipped: 'registry disabled' };
   const manager = deps.hub.managerNode(orgId);
   if (!manager) return { orgId, copied: [], failed: [], skipped: 'no manager online' };
@@ -258,7 +257,7 @@ export async function mirrorSystemImagesForOrg(
 }
 
 export async function mirrorSystemImagesAllOrgs(deps: Deps, ensureRegistry?: EnsureRegistry): Promise<MirrorTickResult[]> {
-  const orgs = await deps.db.registryConfig.findMany({ where: { enabled: true }, select: { orgId: true } });
+  const orgs = await allOrgRows(deps, registryConfigs, { where: { enabled: true } });
   const out: MirrorTickResult[] = [];
   for (const { orgId } of orgs) {
     out.push(

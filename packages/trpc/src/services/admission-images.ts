@@ -1,3 +1,4 @@
+import { registryConfigs } from './apps.repo';
 import type { OrgContext } from '../context';
 import type { AdmissionIntent, Violation } from './admission.service';
 import {
@@ -163,7 +164,7 @@ export function decideImageAdmission(input: {
 
 export async function evaluate(ctx: OrgContext, intent: AdmissionIntent): Promise<Violation[]> {
   if (intent.kind !== 'stack.deploy' && intent.kind !== 'service.deploy') return [];
-  const cfg = await ctx.db.registryConfig.findUnique({ where: { orgId: ctx.activeOrgId } });
+  const cfg = await registryConfigs(ctx, ctx.activeOrgId).findUnique({ where: { orgId: ctx.activeOrgId } });
   if (!cfg || (!cfg.requireSignedImages && !cfg.blockCriticalCves)) return [];
 
   const host = canonicalRegistryHost(cfg.host);

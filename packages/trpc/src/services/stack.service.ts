@@ -1,3 +1,4 @@
+import { stacks } from './apps.repo';
 import { randomUUID } from 'node:crypto';
 import { parse as parseYaml } from 'yaml';
 import {
@@ -298,7 +299,7 @@ function mountsFromInspect(
 
 export async function listStacks(ctx: OrgContext): Promise<StackSummary[]> {
   // Config rows (name + flags). Live status is LEFT-JOINed from Docker truth.
-  const dbRows = await ctx.db.stack.findMany({
+  const dbRows = await stacks(ctx, ctx.activeOrgId).findMany({
     where: { orgId: ctx.activeOrgId },
     select: { id: true, name: true },
   });
@@ -330,7 +331,7 @@ export async function listStacks(ctx: OrgContext): Promise<StackSummary[]> {
 
 export async function getStack(ctx: OrgContext, id: string): Promise<StackDetail> {
   // composeSource is config (kept on the Stack row); membership/status is live.
-  const row = await ctx.db.stack.findFirst({
+  const row = await stacks(ctx, ctx.activeOrgId).findFirst({
     where: { id, orgId: ctx.activeOrgId },
     select: { id: true, name: true, composeSource: true },
   });
@@ -453,7 +454,7 @@ export async function deployFromCompose(
 
   // Persist only the stack CONFIG (name + composeSource); status/membership are
   // read back live from Docker. No Service/Deployment rows are written.
-  const stack = await ctx.db.stack.upsert({
+  const stack = await stacks(ctx, ctx.activeOrgId).upsert({
     where: { orgId_name: { orgId: ctx.activeOrgId, name: input.name } },
     create: {
       orgId: ctx.activeOrgId,
@@ -655,7 +656,7 @@ export async function redeployStack(
   // Label-only stacks (no DB config row, e.g. swarmy-system) use their name as
   // `id` in the stacks list — guard before the (would-be) notFound lookup too.
   guardNotSystemStack(ctx, input.id);
-  const stack = await ctx.db.stack.findFirst({
+  const stack = await stacks(ctx, ctx.activeOrgId).findFirst({
     where: { id: input.id, orgId: ctx.activeOrgId },
     select: { name: true, composeSource: true },
   });
@@ -675,7 +676,7 @@ export async function removeStack(
   // Label-only stacks (no DB config row, e.g. swarmy-system) use their name as
   // `id` in the stacks list — guard before the (would-be) notFound lookup too.
   guardNotSystemStack(ctx, id);
-  const stack = await ctx.db.stack.findFirst({
+  const stack = await stacks(ctx, ctx.activeOrgId).findFirst({
     where: { id, orgId: ctx.activeOrgId },
     select: { id: true, name: true },
   });
@@ -696,7 +697,7 @@ export async function removeStack(
       .dispatch(node.id, 'network.removeForStack', { stack: stack.name }, { timeoutMs: STACK_NETWORK_REMOVE_TIMEOUT_MS })
       .catch(() => undefined);
   }
-  await ctx.db.stack.delete({ where: { id } });
+  await stacks(ctx, ctx.activeOrgId).delete({ where: { id } });
   return { id, removed: true };
 }
 

@@ -6,6 +6,8 @@
  * themselves. A failed refresh is not an error anywhere: the next scan uses the
  * cached DB and flags it stale (admission warns, never blocks).
  */
+import { registryConfigs } from './apps.repo';
+import { allOrgRows } from './backups.repo';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import { hasBuilderLabel } from '@swarmy/core';
@@ -32,7 +34,7 @@ export function pickTrivyRefreshNodes(
 
 export async function refreshTrivyDbAllOrgs(deps: { db: DB; hub: AgentHub; auth: Auth }): Promise<TrivyRefreshResult[]> {
   // Only orgs that scan: the in-swarm registry is enabled (scans run on built images).
-  const orgs = await deps.db.registryConfig.findMany({ where: { enabled: true }, select: { orgId: true } });
+  const orgs = await allOrgRows(deps, registryConfigs, { where: { enabled: true } });
   const out: TrivyRefreshResult[] = [];
   const done = new Set<string>();
   for (const { orgId } of orgs) {

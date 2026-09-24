@@ -9,6 +9,7 @@
  * — runs through `container.runOnce` dispatched to an agent; the controller
  * never touches a registry or overlay network itself.
  */
+import { registryConfigs } from './apps.repo';
 import { decryptSecret, encryptSecret, randomToken } from '@swarmy/core/crypto';
 import type {
   ImageScanCveView,
@@ -216,7 +217,7 @@ interface PolicyRow {
 }
 
 async function ensurePolicyConfig(ctx: OrgContext): Promise<PolicyRow> {
-  return ctx.db.registryConfig.upsert({
+  return registryConfigs(ctx, ctx.activeOrgId).upsert({
     where: { orgId: ctx.activeOrgId },
     create: { orgId: ctx.activeOrgId, enabled: false, host: DEFAULT_REGISTRY_HOST },
     update: {},
@@ -266,7 +267,7 @@ export async function setPolicy(
   input: { requireSignedImages?: boolean; blockCriticalCves?: boolean },
 ): Promise<RegistryPolicyView> {
   await ensurePolicyConfig(ctx);
-  const row = await ctx.db.registryConfig.update({
+  const row = await registryConfigs(ctx, ctx.activeOrgId).update({
     where: { orgId: ctx.activeOrgId },
     data: {
       ...(input.requireSignedImages !== undefined
@@ -503,7 +504,7 @@ export async function enableSigning(ctx: OrgContext): Promise<SigningStatusView>
     if (read.exitCode !== 0) throw new Error(`cosign key readback exited ${read.exitCode}`);
     const { privateKey, publicKey } = splitKeygenOutput(read.output);
 
-    await ctx.db.registryConfig.update({
+    await registryConfigs(ctx, ctx.activeOrgId).update({
       where: { orgId: ctx.activeOrgId },
       data: {
         cosignPublicKey: publicKey,

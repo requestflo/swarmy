@@ -1,3 +1,5 @@
+import type { AgentHub } from '../hub/types';
+import { peekKv, seedKv } from './swarm-kv.service';
 import { describe, expect, it } from 'bun:test';
 process.env.SWARMY_SECRET_KEY ??= 'test-secret-key-for-registry-auth';
 import { decryptSecret, encryptSecret } from '@swarmy/core/crypto';
@@ -117,32 +119,27 @@ describe('deploy payload registry auth', () => {
   });
 
   it('hub decorator: looks up the org login and attaches only for org-registry images', async () => {
-    let lookups = 0;
-    const db = {
-      registryConfig: {
-        findUnique: async () => {
-          lookups++;
-          return { host: 'localhost:5000', credentialsEnc: encryptSecret(JSON.stringify(CREDS)) };
-        },
-      },
-    } as unknown as DB;
-    const decorate = createRegistryAuthDecorator(db);
+    // The org registry config lives in the org's swarm (swarm-kv).
+    const hub = {} as AgentHub;
+    seedKv(hub, 'org1', 'registry', 'org1', { enabled: true, host: 'localhost:5000', credentialsEnc: encryptSecret(JSON.stringify(CREDS)) });
+    const db = {} as unknown as DB;
+    const decorate = createRegistryAuthDecorator(db, undefined, hub);
     const org = (await decorate('org1', 'service.deploy', { spec: { name: 'web', image: ORG_IMG } })) as {
       registryAuth?: { password: string };
     };
     expect(org.registryAuth?.password).toBe(CREDS.password);
-    // Hub images (no registry host) never touch the DB.
+    // Hub images (no registry host) are never decorated.
     const pub = { spec: { name: 'db', image: 'postgres:17' } };
     expect(await decorate('org1', 'service.deploy', pub)).toBe(pub);
-    expect(lookups).toBe(1);
     const ghcr = { spec: { name: 'x', image: 'ghcr.io/acme/x:1' } };
     expect(await decorate('org1', 'service.deploy', ghcr)).toBe(ghcr);
   });
 
   it('hub decorator: no stored login → payload untouched', async () => {
-    const db = { registryConfig: { findUnique: async () => ({ host: null, credentialsEnc: null }) } } as unknown as DB;
+    const hub = {} as AgentHub;
+    seedKv(hub, 'org1', 'registry', 'org1', { enabled: true, host: null, credentialsEnc: null });
     const p = { spec: { name: 'web', image: ORG_IMG } };
-    expect(await createRegistryAuthDecorator(db)('org1', 'service.deploy', p)).toBe(p);
+    expect(await createRegistryAuthDecorator({} as DB, undefined, hub)('org1', 'service.deploy', p)).toBe(p);
   });
 });
 
@@ -167,17 +164,13 @@ function liveRegistry(labels: Record<string, string>, env: string[], secrets: st
 }
 
 function fakeCtx(init: { enabled: boolean; credentialsEnc: string | null; services?: SwarmServiceInfo[] }) {
-  const row = { enabled: init.enabled, host: 'localhost:5000', credentialsEnc: init.credentialsEnc, updatedAt: new Date() };
+  const initial = { enabled: init.enabled, host: 'localhost:5000', credentialsEnc: init.credentialsEnc };
   const dispatched: Array<{ cmd: string; payload: Record<string, unknown> }> = [];
   const audits: string[] = [];
   const ctx = {
     activeOrgId: 'org1',
     user: { id: 'u1' },
     db: {
-      registryConfig: {
-        upsert: async () => row,
-        update: async ({ data }: { data: Partial<typeof row> }) => Object.assign(row, data),
-      },
       auditLog: { create: async ({ data }: { data: { action: string } }) => audits.push(data.action) },
     },
     hub: {
@@ -192,6 +185,16 @@ function fakeCtx(init: { enabled: boolean; credentialsEnc: string | null; servic
       },
     },
   } as unknown as OrgContext;
+  // The registry config lives in the org's swarm (swarm-kv); `row` reads it back live.
+  seedKv(ctx.hub, 'org1', 'registry', 'org1', initial);
+  const row = {
+    get enabled() {
+      return peekKv<typeof initial>(ctx.hub, 'org1', 'registry', 'org1')!.enabled;
+    },
+    get credentialsEnc() {
+      return peekKv<typeof initial>(ctx.hub, 'org1', 'registry', 'org1')!.credentialsEnc;
+    },
+  };
   return { ctx, row, dispatched, audits };
 }
 

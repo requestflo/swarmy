@@ -1,3 +1,4 @@
+import { peekKv, seedKvRows } from './swarm-kv.service';
 import { describe, expect, it } from 'bun:test';
 import { linkNetworkName } from '@swarmy/core';
 import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
@@ -58,14 +59,7 @@ function fakeCtx(live: SwarmServiceInfo[] = []) {
         findUnique: async () => ({ rulesJson: ALL_OFF, productionSafetyMode: false }),
       },
       exposureConfig: { findUnique: async () => null },
-      registryConfig: { findUnique: async () => null },
       backupSchedule: { count: async () => 0 },
-      stack: {
-        upsert: async ({ create }: { create: { name: string } }) => ({
-          id: 'stack-1',
-          name: create.name,
-        }),
-      },
       auditLog: { create: async ({ data }: { data: unknown }) => data },
     },
     hub: {
@@ -262,18 +256,13 @@ describe('removeStack — cleans up the stack overlays', () => {
       svc({ name: 'other_web', labels: { 'com.docker.stack.namespace': 'other' } }),
     ];
     const { ctx, dispatched } = fakeCtx(live);
-    let deleted = false;
-    const db = (ctx as unknown as { db: Record<string, Record<string, unknown>> }).db;
-    db.stack!.findFirst = async () => ({ id: 'stack-1', name: 'site' });
-    db.stack!.delete = async () => {
-      deleted = true;
-      return {};
-    };
+    // The stack's compose source lives in the org's swarm (swarm-kv).
+    seedKvRows(ctx.hub, 'org1', 'stack', [{ id: 'stack-1', name: 'site', composeSource: APP }]);
     (ctx as unknown as { hub: Record<string, unknown> }).hub.onlineNodeIds = () => ['node1'];
 
     const res = await removeStack(ctx, 'stack-1');
     expect(res).toEqual({ id: 'stack-1', removed: true });
-    expect(deleted).toBe(true);
+    expect(peekKv(ctx.hub, 'org1', 'stack', 'stack-1')).toBeNull();
     expect(dispatched.map((d) => d.command)).toEqual(['service.remove', 'service.remove', 'network.removeForStack']);
     expect(dispatched.slice(0, 2).map((d) => d.payload.service)).toEqual(['site_web', 'site_db']);
     // Stack-scoped: the agent only removes networks labelled for THIS stack + swarmy.managed.

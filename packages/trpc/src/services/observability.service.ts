@@ -22,6 +22,7 @@
  * `ObservabilityConfig` lives in the org's swarm (swarm-kv `obs/<orgId>`, via
  * {@link observabilityConfigRepo}); the DSN is vault-encrypted inside it.
  */
+import { stacks } from './apps.repo';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import { randomBytes } from 'node:crypto';
 import { buildInventory, SWARMY_CONTROL_NETWORK, UNGROUPED, type InvService } from '@swarmy/core';
@@ -345,7 +346,7 @@ export async function enableForStack(
   ctx: OrgContext,
   input: { stackId: string; enabled: boolean },
 ): Promise<{ id: string; enabled: boolean }> {
-  const row = await ctx.db.stack.findFirst({
+  const row = await stacks(ctx, ctx.activeOrgId).findFirst({
     where: { id: input.stackId, orgId: ctx.activeOrgId },
     select: { id: true, name: true },
   });

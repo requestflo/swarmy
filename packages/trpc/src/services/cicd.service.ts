@@ -15,6 +15,7 @@
  * `Build`, `RegistryConfig`, `ImageGcPolicy`). Until `bun db:generate` runs, the
  * `ctx.db.gitRepo` etc. accessors will not typecheck.
  */
+import { imageGcPolicies, registryConfigs } from './apps.repo';
 import { randomUUID } from 'node:crypto';
 import { decryptSecret, encryptSecret, randomToken } from '@swarmy/core/crypto';
 import type { Auth } from '@swarmy/auth';
@@ -670,7 +671,7 @@ export async function setRegistryEnabled(
   const credsChanged = Boolean(creds) && (creds?.username !== existing?.username || creds?.password !== existing?.password);
   const credentialsEnc = creds && credsChanged ? encryptSecret(JSON.stringify(creds)) : row.credentialsEnc;
 
-  await ctx.db.registryConfig.update({
+  await registryConfigs(ctx, ctx.activeOrgId).update({
     where: { orgId: ctx.activeOrgId },
     data: { enabled: input.enabled, host, credentialsEnc },
   });
@@ -704,7 +705,7 @@ export async function rotateRegistryCredentials(ctx: OrgContext): Promise<Regist
   const row = await ensureRegistryConfig(ctx);
   if (!row.enabled) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Enable the registry first.' });
   const creds = generateRegistryCreds();
-  await ctx.db.registryConfig.update({
+  await registryConfigs(ctx, ctx.activeOrgId).update({
     where: { orgId: ctx.activeOrgId },
     data: { credentialsEnc: encryptSecret(JSON.stringify(creds)) },
   });
@@ -737,7 +738,7 @@ export async function convergeRegistryAuth(ctx: OrgContext): Promise<'noop' | 'c
   if (existing && registryAuthConverged(live, htpasswdSecretName(existing))) return 'noop';
   const creds = existing ?? generateRegistryCreds();
   if (!existing) {
-    await ctx.db.registryConfig.update({
+    await registryConfigs(ctx, ctx.activeOrgId).update({
       where: { orgId: ctx.activeOrgId },
       data: { credentialsEnc: encryptSecret(JSON.stringify(creds)) },
     });
@@ -768,7 +769,7 @@ export async function ensureRegistryDeployed(ctx: OrgContext): Promise<'noop' | 
   const existing = decodeRegistryCreds(row.credentialsEnc);
   const creds = existing ?? generateRegistryCreds();
   if (!existing) {
-    await ctx.db.registryConfig.update({
+    await registryConfigs(ctx, ctx.activeOrgId).update({
       where: { orgId: ctx.activeOrgId },
       data: { credentialsEnc: encryptSecret(JSON.stringify(creds)), host: canonicalRegistryHost(row.host) },
     });
@@ -852,7 +853,7 @@ function liveRegistryService(ctx: OrgContext) {
 // ── GC policy ────────────────────────────────────────────────────────────────
 
 export async function getGcPolicy(ctx: OrgContext): Promise<GcPolicyView> {
-  const row = await ctx.db.imageGcPolicy.upsert({
+  const row = await imageGcPolicies(ctx, ctx.activeOrgId).upsert({
     where: { orgId: ctx.activeOrgId },
     create: { orgId: ctx.activeOrgId },
     update: {},
@@ -871,7 +872,7 @@ export async function setGcPolicy(ctx: OrgContext, input: GcPolicyInput): Promis
     ...(input.cacheMaxAgeDays !== undefined ? { cacheMaxAgeDays: input.cacheMaxAgeDays } : {}),
     ...(input.cacheMaxGb !== undefined ? { cacheMaxGb: input.cacheMaxGb } : {}),
   };
-  await ctx.db.imageGcPolicy.upsert({
+  await imageGcPolicies(ctx, ctx.activeOrgId).upsert({
     where: { orgId: ctx.activeOrgId },
     create: {
       orgId: ctx.activeOrgId,
@@ -1064,7 +1065,7 @@ export function systemContext(deps: { db: DB; hub: AgentHub; auth: Auth }, orgId
 }
 
 async function ensureRegistryConfig(ctx: OrgContext): Promise<RegistryRow> {
-  return ctx.db.registryConfig.upsert({
+  return registryConfigs(ctx, ctx.activeOrgId).upsert({
     where: { orgId: ctx.activeOrgId },
     create: { orgId: ctx.activeOrgId, enabled: false, host: DEFAULT_REGISTRY_HOST },
     update: {},

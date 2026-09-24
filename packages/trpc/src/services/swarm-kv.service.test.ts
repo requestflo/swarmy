@@ -43,7 +43,7 @@ describe('swarm-kv via the hub', () => {
     expect(dispatched).toContain('mgr-1 config.create');
     const [cfg] = [...docker.configs.values()];
     const stored = Buffer.from(cfg!.dataB64, 'base64').toString();
-    expect(stored.startsWith('v1.')).toBe(true); // encryptSecret envelope
+    expect(stored.startsWith('z1.v1.')).toBe(true); // gzip + encryptSecret envelope
     expect(stored).not.toContain('CADDY');
     // A second controller (fresh cache) reads it back through the agent.
     const hub2 = { ...hub } as AgentHub;

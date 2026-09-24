@@ -1,3 +1,4 @@
+import { stacks } from './apps.repo';
 import { randomBytes } from 'node:crypto';
 import { bindEmailToService } from './email/bind';
 import {
@@ -451,7 +452,7 @@ export async function deployBlueprint(
   const stack = input.params.name;
 
   // Refuse to squat an existing stack (config row or live Docker namespace).
-  const existingRow = await ctx.db.stack.findFirst({
+  const existingRow = await stacks(ctx, ctx.activeOrgId).findFirst({
     where: { orgId: ctx.activeOrgId, name: stack },
     select: { id: true },
   });

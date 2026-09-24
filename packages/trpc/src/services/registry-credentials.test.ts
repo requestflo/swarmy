@@ -1,3 +1,5 @@
+import type { AgentHub } from '../hub/types';
+import { seedKv } from './swarm-kv.service';
 import { beforeEach, describe, expect, it } from 'bun:test';
 import { encryptSecret } from '@swarmy/core/crypto';
 import type { DB } from '@swarmy/db';
@@ -199,8 +201,10 @@ describe('testRegistryLogin', () => {
 
 function fakeDb(rows: { prefix: string; username: string; secret: string }[], registryConfig: unknown = null) {
   let credLookups = 0;
+  // The org registry config lives in the org's swarm (swarm-kv).
+  const hub = {} as AgentHub;
+  if (registryConfig) seedKv(hub, 'o1', 'registry', 'o1', { enabled: true, ...(registryConfig as object) });
   const db = {
-    registryConfig: { findUnique: async () => registryConfig },
     registryCredential: {
       findMany: async () => {
         credLookups++;
@@ -208,7 +212,7 @@ function fakeDb(rows: { prefix: string; username: string; secret: string }[], re
       },
     },
   } as unknown as DB;
-  return { db, lookups: () => credLookups };
+  return { db, hub, lookups: () => credLookups };
 }
 
 describe('registry-auth decorator × third-party credentials', () => {
@@ -239,11 +243,11 @@ describe('registry-auth decorator × third-party credentials', () => {
   });
 
   it('org-registry images keep the in-swarm login (third-party never consulted first)', async () => {
-    const { db } = fakeDb([{ prefix: 'localhost:5000', username: 'wrong', secret: 'x' }], {
+    const { db, hub } = fakeDb([{ prefix: 'localhost:5000', username: 'wrong', secret: 'x' }], {
       host: 'localhost:5000',
       credentialsEnc: encryptSecret(JSON.stringify({ username: 'swarmy', password: 'pw' })),
     });
-    const out = (await createRegistryAuthDecorator(db)('o1', 'service.deploy', {
+    const out = (await createRegistryAuthDecorator(db, undefined, hub)('o1', 'service.deploy', {
       spec: { name: 'w', image: 'localhost:5000/app@sha256:' + 'a'.repeat(64) },
     })) as { registryAuth?: { username: string } };
     expect(out.registryAuth?.username).toBe('swarmy');
@@ -274,7 +278,6 @@ describe('registry-auth decorator × third-party credentials', () => {
 
   it('a DB failure fails open (payload untouched)', async () => {
     const db = {
-      registryConfig: { findUnique: async () => null },
       registryCredential: { findMany: async () => { throw new Error('db down'); } },
     } as unknown as DB;
     const p = { spec: { name: 'x', image: 'ghcr.io/a/b' } };

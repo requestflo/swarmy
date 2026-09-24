@@ -1,3 +1,5 @@
+import { stacks } from './apps.repo';
+import { allOrgRows } from './backups.repo';
 import { buildInventory, STACK_LABEL, type MetricKind, type TimeseriesInput } from '@swarmy/core';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { DashboardSummary } from '@swarmy/core/views';
@@ -67,10 +69,8 @@ async function orgScopedServices(ctx: OrgContext): Promise<{
   const names = [...new Set(services.map((s) => s.labels?.[STACK_LABEL]).filter((n): n is string => !!n))];
   const owners = new Map<string, Set<string>>();
   if (names.length > 0) {
-    const rows = (await ctx.db.stack.findMany({
-      where: { name: { in: names } },
-      select: { name: true, orgId: true },
-    })) as Array<{ name: string; orgId: string }>;
+    // Stacks live in each org's swarm (swarm-kv): scan the reachable orgs.
+    const rows = (await allOrgRows(ctx, stacks, { where: { name: { in: names } } })) as Array<{ name: string; orgId: string }>;
     for (const r of rows) {
       const set = owners.get(r.name) ?? new Set<string>();
       set.add(r.orgId);

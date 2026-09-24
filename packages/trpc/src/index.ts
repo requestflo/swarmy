@@ -390,6 +390,7 @@ export {
   offsiteMirrors,
   controllerBackupConfigRepo,
 } from './services/backups.repo';
+export { stacks, registryConfigs, imageGcPolicies, canvasLayouts } from './services/apps.repo';
 
 // ── email service (epic developer-platform §8) ──
 export {

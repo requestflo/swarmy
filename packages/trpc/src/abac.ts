@@ -1,3 +1,4 @@
+import { stacks } from './services/apps.repo';
 import { TRPCError } from '@trpc/server';
 import {
   createEngine,
@@ -480,7 +481,7 @@ async function stackResource(
   name: string,
   composeSource?: string,
 ): Promise<ResourceInput> {
-  const row = await ctx.db.stack.findFirst({
+  const row = await stacks(ctx, ctx.activeOrgId).findFirst({
     where: { name, orgId: ctx.activeOrgId },
     select: { id: true },
   });
@@ -496,7 +497,7 @@ async function stackResource(
 export const resolveStack: ResolveResource = async (ctx, input) => {
   const id = (input as { id?: string })?.id;
   if (!id) return null;
-  const row = await ctx.db.stack.findFirst({
+  const row = await stacks(ctx, ctx.activeOrgId).findFirst({
     where: { id, orgId: ctx.activeOrgId },
     select: { id: true, orgId: true, name: true },
   });

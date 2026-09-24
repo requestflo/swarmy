@@ -1,3 +1,4 @@
+import { registryConfigs } from './apps.repo';
 import { backupSchedules } from './backups.repo';
 import {
   buildInventory,
@@ -346,7 +347,7 @@ export async function evaluate(ctx: OrgContext, intent: AdmissionIntent): Promis
   }
   let signingEnforced = false;
   if (rules.has('requireSignedImagesProd')) {
-    const reg = await ctx.db.registryConfig.findUnique({
+    const reg = await registryConfigs(ctx, ctx.activeOrgId).findUnique({
       where: { orgId: ctx.activeOrgId },
       select: { requireSignedImages: true },
     });
