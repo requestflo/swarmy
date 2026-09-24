@@ -133,7 +133,16 @@ describe('planApp', () => {
     expect(plan.status).toBe('needs-confirmation');
     expect(ids(plan)).toEqual(['3 auto service.deploy:web', '6 confirm resource.delete:search']);
     expect(plan.actions[1]?.reason).toBe('delete search "search" and all of its data');
-    const pgGone = planApp(desired(MINIMAL_EXAMPLE.replace('resources:\n  db: postgres\n', '').replace('    env:\n      DATABASE_URL: ${{ db.url }}\n', '')), applied(desired(MINIMAL_EXAMPLE)), { changedPaths: [] });
+    const pgGone = planApp(
+      desired(
+        MINIMAL_EXAMPLE.replace('resources:\n  db: postgres\n', '').replace(
+          '    env:\n      DATABASE_URL: ${{ db.url }}\n',
+          '',
+        ),
+      ),
+      applied(desired(MINIMAL_EXAMPLE)),
+      { changedPaths: [] },
+    );
     expect(pgGone.actions.find((a) => a.kind === 'resource.delete')?.reason).toBe(
       'remove postgres "db" — its data volume is kept until you delete it permanently',
     );

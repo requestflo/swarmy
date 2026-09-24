@@ -70,7 +70,10 @@ describe('environments', () => {
   });
 
   it('a PR against staging previews the staging definition with pr hosts', () => {
-    const d = toDesired(cfg(FULL_EXAMPLE), { environment: 'staging', preview: { pr: 9, baseDomain: 'p.example.com' } });
+    const d = toDesired(cfg(FULL_EXAMPLE), {
+      environment: 'staging',
+      preview: { pr: 9, baseDomain: 'p.example.com' },
+    });
     expect(d.stack).toBe('orders-pr9');
     expect(d.environment).toBe('preview');
     expect(d.services.find((s) => s.name === 'web')?.env.LOG_LEVEL).toBe('debug'); // staging's env

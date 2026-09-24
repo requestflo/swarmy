@@ -283,6 +283,20 @@ export const PreviewsSchema = z
     base_domain: hostname.optional(),
     /** isolated = each PR gets its own throwaway resources; shared = reuse prod's (read with care). */
     resources: z.enum(['isolated', 'shared']).optional(),
+    /** Also preview every push to a matching branch (`feature/*`, `release/**`) — not only PRs. */
+    branches: z.array(z.string().min(1).max(200)).optional(),
+    /**
+     * Previews with data: each preview's Postgres starts as a COPY of `from`'s
+     * latest backup (production or a named environment), optionally scrubbed
+     * by a SQL file in the repo. The copy is destroyed with the preview.
+     */
+    data: z
+      .object({
+        from: z.string().regex(/^[a-z][a-z0-9-]{0,19}$/, 'production or an environment name'),
+        scrub: relPath.refine((p) => p.endsWith('.sql'), 'a .sql file in the repo').optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 

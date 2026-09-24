@@ -345,6 +345,26 @@ export const SWARMY_YAML_JSON_SCHEMA = {
         ttl: { ...duration, default: '72h' },
         base_domain: { type: 'string' },
         resources: { enum: ['isolated', 'shared'], default: 'isolated' },
+        branches: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Also preview pushes to matching branches, e.g. feature/*',
+        },
+        data: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['from'],
+          description:
+            "Start each preview's Postgres as a copy of this environment's latest backup (destroyed with the preview)",
+          properties: {
+            from: { type: 'string', description: 'production or an environment name' },
+            scrub: {
+              type: 'string',
+              description:
+                'A .sql file in the repo run against the copy (mask emails, drop secrets…)',
+            },
+          },
+        },
       },
     },
     connect: {

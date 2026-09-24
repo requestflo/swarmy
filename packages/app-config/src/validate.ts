@@ -371,6 +371,64 @@ export function validateConfig(cfg: AppConfig): ConfigIssue[] {
     );
   }
 
+  // ── previews: branches + data ──
+  const pv = cfg.previews;
+  if (pv?.data) {
+    const from = pv.data.from;
+    if (from !== 'production' && !(cfg.environments ?? {})[from]) {
+      out.push(
+        issue(
+          'error',
+          'previews/data-from',
+          ['previews', 'data', 'from'],
+          `"${from}" is not production or an environment in this file`,
+        ),
+      );
+    }
+    if (!Object.values(resources).some((r) => resourceTypeOf(r) === 'postgres')) {
+      out.push(
+        issue(
+          'warning',
+          'previews/data-no-postgres',
+          ['previews', 'data'],
+          'previews.data copies Postgres — this app declares none',
+        ),
+      );
+    }
+    if (pv.resources === 'shared') {
+      out.push(
+        issue(
+          'error',
+          'previews/data-shared',
+          ['previews', 'data'],
+          'previews.data needs isolated preview resources (it copies INTO them)',
+        ),
+      );
+    }
+  }
+  (pv?.branches ?? []).forEach((b, i) => {
+    if (!/^[A-Za-z0-9*?._/-]+$/.test(b)) {
+      out.push(
+        issue(
+          'error',
+          'previews/branch-pattern',
+          ['previews', 'branches', i],
+          `"${b}" is not a branch pattern (letters, digits, / . _ - * ?)`,
+        ),
+      );
+    }
+  });
+  if (pv?.branches?.length && !pv.enabled) {
+    out.push(
+      issue(
+        'warning',
+        'previews/branches-off',
+        ['previews', 'branches'],
+        'previews.enabled is false — no branch previews will deploy',
+      ),
+    );
+  }
+
   // ── environments ──
   const envs = cfg.environments ?? {};
   const branches = new Map<string, string>();

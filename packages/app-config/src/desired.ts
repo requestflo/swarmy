@@ -18,6 +18,7 @@ import {
 } from './schema';
 import { parseDuration, parseRate, parseSizeMb } from './units';
 import { environmentStack, PRODUCTION, resolveEnvironment } from './environments';
+import { branchSlug } from './branches';
 import { defaultJobService, domainHost } from './validate';
 
 export const DEFAULT_PREVIEW_TTL_SECONDS = 72 * 3600;
@@ -134,7 +135,12 @@ export interface DesiredApp {
   stack: string;
   /** `production`, a named environment, or `preview`. */
   environment: string;
-  preview?: { pr: number };
+  preview?: { pr: number; branch?: string };
+  /**
+   * Previews with data: the preview's Postgres resources are restored from
+   * this stack's latest backup (then scrubbed) — a copy, destroyed with the preview.
+   */
+  previewData?: { fromStack: string; fromEnvironment: string; scrub?: string };
   /** Previews with `resources: shared` bind to the prod app's resources. */
   sharedResourcesFrom?: string;
   services: DesiredService[];
@@ -148,11 +154,14 @@ export interface DesiredApp {
     ttlSeconds: number;
     baseDomain?: string;
     resources: 'isolated' | 'shared';
+    branches: string[];
+    data?: { from: string; scrub?: string };
   };
 }
 
 export interface DesiredOptions {
-  preview?: { pr: number; baseDomain: string };
+  /** A PR preview (`pr`), or a branch preview (`branch` set; `pr` is its stable id). */
+  preview?: { pr: number; baseDomain: string; branch?: string };
   /** A named environment from `environments:` (default: production). */
   environment?: string;
 }
@@ -171,8 +180,13 @@ const withSig = <T extends object>(unit: T): T & { sig: string } => ({
   sig: signature(unit),
 });
 
-export function previewStack(app: string, pr: number): string {
-  return `${app}-pr${pr}`;
+export function previewStack(app: string, pr: number, branch?: string): string {
+  return branch ? `${app}-b-${branchSlug(branch)}` : `${app}-pr${pr}`;
+}
+
+/** The host label a preview's first routed service gets (`pr-42` / `feature-login`). */
+export function previewLabel(preview: { pr: number; branch?: string }): string {
+  return preview.branch ? branchSlug(preview.branch) : `pr-${preview.pr}`;
 }
 
 export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredApp {
@@ -180,7 +194,7 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
   const environment = opts.environment ?? PRODUCTION;
   const cfg = resolveEnvironment(input, environment);
   const stack = preview
-    ? previewStack(cfg.app, preview.pr)
+    ? previewStack(cfg.app, preview.pr, preview.branch)
     : environmentStack(cfg.app, environment);
   const previewsCfg = {
     enabled: cfg.previews?.enabled ?? false,
@@ -190,7 +204,16 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
         : DEFAULT_PREVIEW_TTL_SECONDS,
     baseDomain: cfg.previews?.base_domain,
     resources: cfg.previews?.resources ?? 'isolated',
-  } as const;
+    branches: [...(input.previews?.branches ?? [])],
+    ...(input.previews?.data
+      ? {
+          data: {
+            from: input.previews.data.from,
+            ...(input.previews.data.scrub ? { scrub: input.previews.data.scrub } : {}),
+          },
+        }
+      : {}),
+  };
   const shared = preview !== undefined && previewsCfg.resources === 'shared';
   const resourceNames = new Set(Object.keys(cfg.resources ?? {}));
   const serviceNames = new Set(Object.keys(cfg.services));
@@ -371,9 +394,10 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
     if (preview) {
       // One host per service: the first routed service gets pr-<N>.<base>.
       if (!domains.length) continue;
+      const label = previewLabel(preview);
       const host = firstPreviewHost
-        ? `pr-${preview.pr}.${preview.baseDomain}`
-        : `pr-${preview.pr}-${name}.${preview.baseDomain}`;
+        ? `${label}.${preview.baseDomain}`
+        : `${label}-${name}.${preview.baseDomain}`;
       firstPreviewHost = false;
       const d = domains[0];
       const protection =
@@ -434,7 +458,18 @@ export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredA
     app: cfg.app,
     stack,
     environment: preview ? 'preview' : environment,
-    ...(preview ? { preview: { pr: preview.pr } } : {}),
+    ...(preview
+      ? { preview: { pr: preview.pr, ...(preview.branch ? { branch: preview.branch } : {}) } }
+      : {}),
+    ...(preview && previewsCfg.data && !shared && resources.some((r) => r.type === 'postgres')
+      ? {
+          previewData: {
+            fromStack: environmentStack(input.app, previewsCfg.data.from),
+            fromEnvironment: previewsCfg.data.from,
+            ...(previewsCfg.data.scrub ? { scrub: previewsCfg.data.scrub } : {}),
+          },
+        }
+      : {}),
     ...(shared ? { sharedResourcesFrom: cfg.app } : {}),
     services,
     resources,

@@ -11,6 +11,7 @@ export * from './bindings';
 export * from './validate';
 export * from './hash';
 export * from './environments';
+export * from './branches';
 export * from './desired';
 export * from './plan';
 export * from './parse';
