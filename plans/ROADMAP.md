@@ -20,6 +20,9 @@ How the docs fit together:
   - [`epic-docker-native-state.md`](./epic-docker-native-state.md) — no
     database server: infra truth from Docker, small infra config in the swarm
     (`swarm-kv`), the rest in embedded SQLite replicated to Garage (planned).
+  - [`epic-self-hosted-mesh-and-fleets.md`](./epic-self-hosted-mesh-and-fleets.md)
+    — NetBird self-hosted inside swarmy (swarmy as its OIDC provider),
+    people on the mesh scoped per stack, and multi-cluster fleets.
   - [`competitive-gaps-2026-09.md`](./competitive-gaps-2026-09.md) — the gap
     analysis vs Dokploy, Coolify and hosted PaaS behind the list below.
   - [`self-reliance.md`](./self-reliance.md) — audit of every runtime
@@ -146,7 +149,7 @@ mode).
 ## Mesh
 
 - `managed-by-swarmy` is a mode value only — swarmy doesn't stand up its own
-  NetBird server yet.
+  NetBird server yet (designed in `epic-self-hosted-mesh-and-fleets.md`).
 - Direct-connect TTL: `expiresAt` is recorded but nothing sweeps expired routes.
 - MTU isn't managed (WireGuard under VXLAN can fragment/drop large packets).
 - The NetBird client image floats on `:latest` (covered by
