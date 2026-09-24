@@ -17,6 +17,7 @@
  * docker CLI one-shot (`docker swarm leave`) and removeNode. Nothing on the
  * server's disk is ever deleted.
  */
+import { backupTargets } from './backups.repo';
 import { MOVER_IMAGE, isValidVolumeName, repinSpec, PINNED_DATA_LABELS } from '@swarmy/core';
 import type { ContainerInfo, ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
@@ -177,7 +178,7 @@ export async function gatherDecommissionInput(ctx: Ctx, nodeId: string): Promise
     const t = (s.finishedAt ?? s.startedAt).getTime();
     if (!(lastBackupAt[s.volume]! >= t)) lastBackupAt[s.volume] = t;
   }
-  const backupsConfigured = (await ctx.db.backupTarget.count({ where: { orgId: ctx.activeOrgId, enabled: true } })) > 0;
+  const backupsConfigured = (await backupTargets(ctx, ctx.activeOrgId).count({ where: { orgId: ctx.activeOrgId, enabled: true } })) > 0;
   const store = await storageClusterRepo.find(ctx, ctx.activeOrgId).catch(() => null);
   return {
     targetNodeId: nodeId,
@@ -290,7 +291,7 @@ async function runStep(ctx: Ctx, run: DecomRun, step: DrainStep, deps: RunnerDep
   const say = (m: string) => log(run, m);
   switch (step.kind) {
     case 'safety-backup': {
-      const t = await ctx.db.backupTarget.findFirst({ where: { orgId: ctx.activeOrgId, enabled: true }, select: { id: true } });
+      const t = await backupTargets(ctx, ctx.activeOrgId).findFirst({ where: { orgId: ctx.activeOrgId, enabled: true }, select: { id: true } });
       if (!t) return { kind: 'done', note: 'No backup destination — skipped.' };
       for (const v of step.volumes ?? []) {
         say(`Backing up ${v}.`);
