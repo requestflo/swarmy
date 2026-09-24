@@ -1,12 +1,9 @@
 # Epic: Git-connected apps — `swarmy.yaml`, and a push is the deploy
 
-> Status: Phase 1 shipped (`packages/app-config`: schema, parser, validator,
-> pure planner, golden tests). Phase 2 shipped (connections + auth, see the
-> phase table). Phases 3–6 below are the build order.
-> Owner's brief: "connect their Git repo (GitHub or GitLab or whatever), choose
-> which repo, build the image from our own swarmy config. In it you can say: I
-> want a database, I want a cache, all the native stuff. If they change it,
-> swarmy reacts and does whatever it needs to fulfil the change."
+> Status: Phases 1–3 shipped: `packages/app-config`; connections + auth;
+> the GitOps apply loop with named environments, polling, drift, app
+> previews, the dashboard git-connect + Apps UI, and REST/Terraform parity.
+> Phases 4–6 below are what's left.
 
 ## The feeling
 
@@ -268,7 +265,7 @@ uses (env + secret file + private overlay attach), then `renderValue`.
 
 ### Defaults worth knowing
 
-`replicas: 1`; postgres 16 `primary-replica` + 1 replica + daily backups kept 7;
+`replicas: 1`; postgres 16 `single` + nightly backups kept 7 (owner decision);
 cache valkey single 256 MB; search meilisearch; vector qdrant unless `on:`;
 bucket internal; job timeout 10 m; preview TTL 72 h; preview services sleep
 after 30 m idle. `swarmy.yaml` itself never triggers a rebuild.
@@ -437,16 +434,88 @@ a1b2c3d`; Releases show the commit per release; a **Plan** drawer with
 - **Schema evolution**: `version: 1` is required; v2 ships a pure `migrateV1`
   and the check run suggests the upgraded file.
 
+## Owner decisions (2026-09-24)
+
+1. Postgres defaults to **single + nightly backups**; HA is opt-in (`ha:`).
+2. A push to a deploy branch **deploys immediately**, health-gated (120 s
+   window, auto-rollback); destructive steps always wait for approval; a
+   per-app **require approval** toggle holds every step.
+3. **One GitHub App per controller**, installations bound to orgs.
+4. **Named environments (staging) are v1**: `environments:` in swarmy.yaml,
+   each its own stack `<app>-<name>` tracking its branch.
+5. `${{ secrets.x }}` **parses with a warning**, but the applier refuses it
+   with a located error: swarmy never reads a secret's value back, so it can't
+   copy it into env. Use `secrets: [x]` and read `/run/secrets/x`.
+
+## Environments (v1)
+
+```yaml
+environments:
+  staging:
+    branch: staging
+    env: { LOG_LEVEL: debug } # over the app's env, under a service's
+    services:
+      web: { replicas: 1, size: nano, domains: [staging.orders.northwind.dev] }
+    resources:
+      db: { ha: single, replicas: 0, backups: false }
+    jobs: false # default true
+    connect: [] # production links never carry over
+```
+
+Rules: production domains never leak into another environment (a service's
+domains are dropped unless the environment gives its own); resource overrides
+can't change a type; the merged environment is validated as a whole app with
+located errors; `app.environment` is a binding field. A push to `staging`
+plans `orders-staging` from the **staging branch's** swarmy.yaml.
+Environment seeding from a production backup and "promote staging's digests
+to production" are Phase 6.
+
+## Credential bindings (how the applier wires them)
+
+Addressing fields render into the compose env; credentials never do — they
+become the same attach calls the Data tab makes, so the compose source (Stack
+row, Release snapshot) never holds a secret and every later deploy carries the
+wiring. Contract: a credential binding is the WHOLE value of its variable.
+
+| Binding                                           | Wired by                                                        | Variable name                                             |
+| ------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------- |
+| `db.url`                                          | `injectConnection`                                              | yours; `db.ro_url` must be `<X>_RO_URL` next to it        |
+| `cache.url`                                       | `attachCacheToService`                                          | yours; `password_file` is `<X>_PASSWORD_FILE`             |
+| `search.key_file`                                 | `attachSearchToService`                                         | fixed: `MEILI_MASTER_KEY_FILE` / `TYPESENSE_API_KEY_FILE` |
+| `vector.url`                                      | `attachVectorToService` (pgvector: `injectConnection` on `on:`) | yours                                                     |
+| `bucket.access_key_id` / `secret_access_key_file` | bucket attach                                                   | fixed: `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY_FILE`   |
+| `secrets: [x]`                                    | `attachSecretToService`                                         | mounted at `/run/secrets/x`                               |
+
+`db.password` / `cache.password` are refused (use the URL / the file).
+
+## What Phase 3 built
+
+- `services/apps/{live,compile,apply}.ts` (pure, tested): the per-environment
+  ledger ∩ Docker → LiveApp (only `swarmy.app.stack`-stamped services count;
+  unknown live resources are "review before swarmy takes it over"), the
+  compose compiler, and the phase-ordered executor (one compose deploy; held
+  services keep their last-applied spec; release commands run in the new
+  image before rollout — first deploy: 0 replicas → wire → release → scale).
+- `services/apps.service.ts`: `planCommit` (inspect → parse → environment →
+  plan → AppPlan → check run + sticky PR comment → apply), `confirmAppActions`
+  (re-plans the same commit against today's live state; ABAC per step by what
+  it destroys: `data.destroy` / `service.remove` / `stack.deploy`; audited),
+  `pollApp`, `detectDrift`, `teardownAppPreview` + TTL, `listApps`/`listPlans`.
+  Deploys run admission in automation mode (a just-built image is briefly
+  "unscanned"; warns pass, blocks refuse). Postgres deletes stop the cluster
+  and keep its volume.
+- `routers/apps.ts`; webhook routing (production + environment branches; PRs
+  → app previews; a commit without swarmy.yaml falls back to a plain build);
+  `workers/app-reconcile.ts` (poll every 2 min, drift every 10, preview TTL
+  every 30; `SWARMY_GIT_POLL=false`).
+- fireEvent: `deploy-failed` (resolved on success), `app-plan` (invalid /
+  blocked / needs you), `app-drift` (once per distinct drift).
+
 ## Open questions for the owner
 
-1. Default postgres HA for a git app: `primary-replica` (current product default,
-   2 containers) or `single` (cheaper hobby default)? Planner currently uses
-   `primary-replica`.
-2. Should a push to the prod branch apply immediately, or should prod require
-   a dashboard "Promote" (plan-then-apply) per app? Proposed: immediate, with a
-   per-app `require approval` toggle.
-3. One GitHub App per controller instance with org-bound installations (proposed),
-   or one app per swarmy org?
-4. Environments beyond prod + PR previews (a `staging` branch) — v1 or v1.1?
-5. Is `${{ secrets.x }}` in env acceptable (with a warning), or should v1 only
-   allow file mounts?
+1. A deleted Postgres keeps its volume (swarmy stops the cluster). Should a
+   confirmed delete also remove the volume after N days, or never?
+2. Previews for PRs targeting `staging`: preview the staging definition, or
+   always production's (current)?
+3. Should drift auto-revert for fields git owns once the owner opts in per
+   app, or stay report-only (current)?
