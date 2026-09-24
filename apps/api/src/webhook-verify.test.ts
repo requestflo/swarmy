@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  DeliveryDeduper,
   githubSignature,
+  isForkPullRequest,
   parseCommitSha,
   parsePushRef,
+  pushChangedPaths,
+  verifyGiteaSignature,
+  verifySwarmySignature,
   verifyWebhookSignature,
 } from './webhook-verify';
 
@@ -79,5 +84,47 @@ describe('payload parsing', () => {
   });
   it('returns null when no ref is present', () => {
     expect(parsePushRef('github', {})).toBeNull();
+  });
+});
+
+describe('git-apps webhook helpers', () => {
+  const secret = 'whsec_x';
+  const body = '{"ref":"refs/heads/main"}';
+
+  it('verifies Gitea (bare hex) and generic (sha256=) signatures, constant-time', async () => {
+    const { createHmac } = await import('node:crypto');
+    const hex = createHmac('sha256', secret).update(body).digest('hex');
+    expect(verifyGiteaSignature(secret, body, hex)).toBe(true);
+    expect(verifyGiteaSignature(secret, body, `sha256=${hex}`)).toBe(false);
+    expect(verifySwarmySignature(secret, body, `sha256=${hex}`)).toBe(true);
+    expect(verifySwarmySignature(secret, body, null)).toBe(false);
+    expect(verifySwarmySignature('', body, `sha256=${hex}`)).toBe(false);
+  });
+
+  it('detects fork PRs and fails closed on unknown shapes', () => {
+    const pr = (head: object | null, base: object) => ({ pull_request: { head: { repo: head }, base: { repo: base } } });
+    expect(isForkPullRequest('github', pr({ id: 1 }, { id: 1 }))).toBe(false);
+    expect(isForkPullRequest('github', pr({ id: 2 }, { id: 1 }))).toBe(true);
+    expect(isForkPullRequest('github', pr(null, { id: 1 }))).toBe(true);
+    expect(isForkPullRequest('gitlab', { object_attributes: { source_project_id: 5, target_project_id: 5 } })).toBe(false);
+    expect(isForkPullRequest('gitlab', { object_attributes: { source_project_id: 6, target_project_id: 5 } })).toBe(true);
+    expect(isForkPullRequest('gitlab', {})).toBe(true);
+  });
+
+  it('collects changed paths from a push, or says unknown', () => {
+    expect(
+      pushChangedPaths({ commits: [{ added: ['b.ts'], modified: ['a.ts'] }, { removed: ['c.ts'], modified: ['a.ts'] }] }),
+    ).toEqual(['a.ts', 'b.ts', 'c.ts']);
+    expect(pushChangedPaths({ commits: [] })).toBeUndefined();
+    expect(pushChangedPaths({ commits: [{ added: ['x'] }], forced: true })).toBeUndefined();
+    expect(pushChangedPaths({ commits: Array.from({ length: 20 }, () => ({ added: ['x'] })) })).toBeUndefined();
+  });
+
+  it('dedupes redelivered webhooks within the TTL', () => {
+    const d = new DeliveryDeduper(1000, 3);
+    expect(d.firstSeen('a', 0)).toBe(true);
+    expect(d.firstSeen('a', 10)).toBe(false);
+    expect(d.firstSeen('a', 2000)).toBe(true); // expired → fresh
+    expect(d.firstSeen(null)).toBe(true);
   });
 });

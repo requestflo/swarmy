@@ -58,3 +58,78 @@ export function parseCommitSha(_provider: WebhookProvider, body: unknown): strin
   const b = body as { after?: string; checkout_sha?: string };
   return b?.after ?? b?.checkout_sha ?? null;
 }
+
+// ── git-apps (Phase 2): Gitea / generic signatures, fork PRs, changed paths, dedupe ──
+
+/** Gitea/Forgejo `X-Gitea-Signature`: bare hex HMAC-SHA256 of the body. */
+export function verifyGiteaSignature(secret: string, rawBody: string, header: string | null | undefined): boolean {
+  if (!secret || !header) return false;
+  return safeEqual(header, createHmac('sha256', secret).update(rawBody).digest('hex'));
+}
+
+/** Generic git hosts: `X-Swarmy-Signature: sha256=<hex>` (GitHub's scheme, swarmy's header). */
+export function verifySwarmySignature(secret: string, rawBody: string, header: string | null | undefined): boolean {
+  if (!secret || !header) return false;
+  return safeEqual(header, githubSignature(secret, rawBody));
+}
+
+/**
+ * Is this PR/MR from a fork? Fork PRs run code from someone who is not a
+ * collaborator — swarmy never builds them automatically (fork protection).
+ * Unknown shape → treated as a fork (fail closed).
+ */
+export function isForkPullRequest(provider: 'github' | 'gitlab' | 'gitea', body: unknown): boolean {
+  const b = body as {
+    pull_request?: { head?: { repo?: { full_name?: string; id?: number } | null }; base?: { repo?: { full_name?: string; id?: number } } };
+    object_attributes?: { source_project_id?: number; target_project_id?: number };
+  };
+  if (provider === 'gitlab') {
+    const oa = b?.object_attributes;
+    if (!oa || oa.source_project_id === undefined || oa.target_project_id === undefined) return true;
+    return oa.source_project_id !== oa.target_project_id;
+  }
+  const head = b?.pull_request?.head?.repo;
+  const base = b?.pull_request?.base?.repo;
+  if (!head || !base) return true; // head repo deleted, or not a PR payload
+  return (head.id ?? head.full_name) !== (base.id ?? base.full_name);
+}
+
+/**
+ * Paths a push changed, from the payload's commit list (GitHub/Gitea:
+ * `commits[].added|modified|removed`). `undefined` = unknown (GitHub truncates
+ * the list at 20 commits; a force-push/new branch has no usable list) → the
+ * planner then rebuilds everything, which is always safe.
+ */
+export function pushChangedPaths(body: unknown): string[] | undefined {
+  const b = body as {
+    commits?: Array<{ added?: string[]; modified?: string[]; removed?: string[] }>;
+    created?: boolean;
+    forced?: boolean;
+  };
+  if (!Array.isArray(b?.commits) || b.commits.length === 0 || b.commits.length >= 20 || b.created || b.forced) {
+    return undefined;
+  }
+  const out = new Set<string>();
+  for (const c of b.commits) for (const p of [...(c.added ?? []), ...(c.modified ?? []), ...(c.removed ?? [])]) out.add(p);
+  return [...out].sort();
+}
+
+/** Bounded, TTL'd set of provider delivery ids — a redelivered webhook is acknowledged, not re-run. */
+export class DeliveryDeduper {
+  private seen = new Map<string, number>();
+  constructor(
+    private readonly ttlMs = 10 * 60 * 1000,
+    private readonly max = 5000,
+  ) {}
+  /** True the FIRST time an id is seen (within the TTL); false for a duplicate. */
+  firstSeen(id: string | null | undefined, now = Date.now()): boolean {
+    if (!id) return true; // providers without delivery ids can't be deduped
+    for (const [k, t] of this.seen) {
+      if (now - t < this.ttlMs && this.seen.size <= this.max) break;
+      this.seen.delete(k);
+    }
+    if (this.seen.has(id)) return false;
+    this.seen.set(id, now);
+    return true;
+  }
+}

@@ -23,6 +23,7 @@ import {
 } from './terminal';
 import { startWorkers } from './workers';
 import { webhooksApp } from './webhooks';
+import { gitCallbackApp } from './git-callback';
 import { inboundHooksApp } from './inbound-hooks';
 import { statusPublicApp } from './status-public';
 import { aiGatewayApp } from './ai-gateway';
@@ -209,6 +210,9 @@ app.route('/api/v1', restApp);
 
 // Git provider webhooks (push → build). Public, per-repo HMAC-verified.
 app.route('/webhooks', webhooksApp);
+
+// Git provider OAuth / GitHub App redirect targets (no session — signed state).
+app.route('/git', gitCallbackApp);
 
 // Inbound webhook gateway (B4): public third-party webhook receiver.
 app.route('/hooks', inboundHooksApp);

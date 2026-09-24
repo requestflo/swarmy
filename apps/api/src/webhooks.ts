@@ -1,32 +1,42 @@
 /**
- * Git webhook receiver (epic: git-cicd-registry, PHASE-2).
+ * Git webhook receivers (git-cicd-registry P2 + git-apps P2).
  *
- * `POST /webhooks/git/:repoId` — GitHub/GitLab push handler. The controller is
- * the only public surface in a swarmy install, so this is where a `git push`
- * becomes a build:
+ *   POST /webhooks/github          — the controller's GitHub App (one URL for
+ *                                    every installation; HMAC with the App's
+ *                                    webhook secret; routed by repository id)
+ *   POST /webhooks/git/:repoId     — per-repo hooks: GitLab (X-Gitlab-Token),
+ *                                    Gitea (X-Gitea-Signature), generic git
+ *                                    (X-Swarmy-Signature), legacy GitHub hooks
  *
- *   1. Look up the `GitRepo` by id (the per-repo URL pasted into the provider).
- *   2. Verify the provider signature against the repo's stored webhook secret
- *      (GitHub: HMAC-SHA256 `X-Hub-Signature-256`; GitLab: constant-time token
- *      compare of `X-Gitlab-Token`). The secret is decrypted JIT via the shared
- *      `@swarmy/core/crypto` vault — never logged, never returned.
- *   3. Filter to push events on the repo's watched branch.
- *   4. Trigger a build as a SYSTEM principal (audited `actorType: system`),
- *      which — if the repo has autodeploy + a linked service — redeploys it.
+ * The controller is the only public surface, so every payload is verified
+ * BEFORE it is parsed, deliveries are deduped, and nothing slow runs inside
+ * the request: builds and previews are kicked off and the provider gets a
+ * 202 in milliseconds (GitHub gives up after 10 s). Results flow back to the
+ * provider as check runs / commit statuses and one sticky PR comment.
  *
- * Signature verification is a pure, exported function so it is unit-tested in
- * isolation (see INTEGRATION test snippets). The route is registered in
- * apps/api/src/index.ts (snippet returned in INTEGRATION).
+ * Fork PRs never build automatically (fork protection): they run code from
+ * someone who is not a collaborator.
  */
 import { Hono } from 'hono';
 import { decryptSecret } from '@swarmy/core/crypto';
 import { prisma, type DB } from '@swarmy/db';
-import { triggerBuildForRepo, type AgentHub } from '@swarmy/trpc';
+import {
+  previewCommentBody,
+  triggerBuildForRepo,
+  upsertPrComment,
+  type AgentHub,
+} from '@swarmy/trpc';
 import { authRegistry, type Auth } from '@swarmy/auth';
 import { hub } from './gateway';
 import {
+  DeliveryDeduper,
+  githubSignature,
+  isForkPullRequest,
   parseCommitSha,
   parsePushRef,
+  safeEqual,
+  verifyGiteaSignature,
+  verifySwarmySignature,
   verifyWebhookSignature,
   type WebhookProvider,
 } from './webhook-verify';
@@ -34,17 +44,20 @@ import {
 export const webhooksApp = new Hono();
 
 // ── D4: PR preview environments ───────────────────────────────────────────────
-// PR / MR events on the SAME per-repo endpoint (same HMAC/token verification)
-// drive ephemeral preview stacks via `previews.service.handlePrEvent`.
-//
 // ORCHESTRATOR TODO (spine seam missing): add to packages/trpc/src/index.ts
 //   export { handlePrEventForRepo, parsePrWebhookEvent } from './services/previews.service';
-//   export type { PrEventResult, PrWebhookEvent } from './services/previews.service';
-// …then replace this dynamic seam (and its signature mirror below) with a
-// static root import. Until then the canonical implementation is loaded by
-// file URL — Bun resolves the workspace package by realpath, so module
-// identity (build-log bus, etc.) is SHARED with the '@swarmy/trpc' graph; a
-// static relative import is not an option (TS6059 outside this app's rootDir).
+// …then replace this dynamic seam with a static root import. Until then the
+// canonical implementation is loaded by file URL — Bun resolves the workspace
+// package by realpath, so module identity (build-log bus, etc.) is SHARED with
+// the '@swarmy/trpc' graph.
+
+type PrAction = 'opened' | 'synchronize' | 'closed';
+interface PrEvent {
+  action: PrAction;
+  prNumber: number;
+  branch: string;
+  commit: string | null;
+}
 
 /** Signature mirror of previews.service.ts exports — keep in sync (D4). */
 interface PreviewsSeam {
@@ -52,23 +65,26 @@ interface PreviewsSeam {
     provider: WebhookProvider,
     eventHeader: string | null | undefined,
     body: unknown,
-  ): { action: 'opened' | 'synchronize' | 'closed'; prNumber: number; branch: string; commit: string | null } | null;
+  ): PrEvent | null;
   handlePrEventForRepo(
     deps: { db: DB; hub: AgentHub; auth: Auth },
     input: {
       repoId: string;
       orgId: string;
-      action: 'opened' | 'synchronize' | 'closed';
+      action: PrAction;
       prNumber: number;
       branch: string;
       commit?: string | null;
     },
-  ): Promise<{ action: 'deployed' | 'torn-down' | 'skipped'; stack?: string; url?: string | null; reason?: string }>;
+  ): Promise<{
+    action: 'deployed' | 'torn-down' | 'skipped';
+    stack?: string;
+    url?: string | null;
+    reason?: string;
+  }>;
 }
 
 let previewsSeamPromise: Promise<PreviewsSeam> | null = null;
-
-/** Lazily load the previews service (memoized; see ORCHESTRATOR TODO above). */
 function previewsSeam(): Promise<PreviewsSeam> {
   previewsSeamPromise ??= import(
     new URL('../../../packages/trpc/src/services/previews.service.ts', import.meta.url).href
@@ -76,31 +92,223 @@ function previewsSeam(): Promise<PreviewsSeam> {
   return previewsSeamPromise;
 }
 
+const deliveries = new DeliveryDeduper();
+const deps = () => ({ db: prisma, hub, auth: authRegistry.getAuth() });
+
+const REPO_SELECT = {
+  id: true,
+  orgId: true,
+  url: true,
+  branch: true,
+  provider: true,
+  webhookSecretEnc: true,
+  connectionId: true,
+  fullName: true,
+  externalRepoId: true,
+} as const;
+type RepoHookRow = {
+  id: string;
+  orgId: string;
+  url: string;
+  branch: string;
+  provider: string;
+  connectionId: string | null;
+  fullName: string | null;
+  externalRepoId: string | null;
+};
+
+/** Fire-and-forget a build of `sha` for one repo binding (errors land in the build row + check run). */
+function kickBuild(repo: RepoHookRow, ref: string, sha: string | null): void {
+  void triggerBuildForRepo(deps(), { repoId: repo.id, orgId: repo.orgId, ref, commit: sha }).catch(
+    (e: unknown) => {
+      console.warn(
+        `[webhooks] build for ${repo.url}@${ref} failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    },
+  );
+}
+
+/** Fire-and-forget a preview for one repo binding, then keep the sticky PR comment current. */
+function kickPreview(repo: RepoHookRow, pr: PrEvent): void {
+  void (async () => {
+    const previews = await previewsSeam();
+    const res = await previews
+      .handlePrEventForRepo(deps(), { ...pr, repoId: repo.id, orgId: repo.orgId })
+      .catch((e: unknown) => ({
+        action: 'failed' as const,
+        reason: e instanceof Error ? e.message : String(e),
+        stack: undefined,
+        url: null,
+      }));
+    if (res.action === 'skipped') return;
+    const stack = res.stack ?? `pr${pr.prNumber}`;
+    await upsertPrComment(prisma, repo, {
+      pr: pr.prNumber,
+      key: `preview:${repo.id}`,
+      body: previewCommentBody({
+        stack,
+        url: res.url ?? null,
+        sha: pr.commit,
+        state:
+          res.action === 'deployed'
+            ? 'deployed'
+            : res.action === 'torn-down'
+              ? 'torn-down'
+              : 'failed',
+        reason: 'reason' in res ? res.reason : undefined,
+      }),
+    });
+  })().catch((e: unknown) => {
+    console.warn(
+      `[webhooks] preview for ${repo.url}#${pr.prNumber} failed: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  });
+}
+
+// ── GitHub App (one endpoint for every installation) ─────────────────────────
+
+webhooksApp.post('/github', async (c) => {
+  const rawBody = await c.req.text();
+  const signature = c.req.header('x-hub-signature-256');
+  if (!signature) return c.json({ error: 'missing signature' }, 401);
+
+  // One App per controller (per GitHub host) — try each registered App's secret.
+  const apps = await prisma.gitHubApp.findMany({ select: { id: true, webhookSecretEnc: true } });
+  const app = apps.find((a) =>
+    safeEqual(signature, githubSignature(decryptSecret(a.webhookSecretEnc), rawBody)),
+  );
+  if (!app) return c.json({ error: 'invalid signature' }, 401);
+
+  if (!deliveries.firstSeen(c.req.header('x-github-delivery')))
+    return c.json({ ok: true, ignored: 'duplicate' });
+  const event = c.req.header('x-github-event') ?? '';
+  if (event === 'ping') return c.json({ ok: true, ignored: 'ping' });
+
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(rawBody) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: 'malformed body' }, 400);
+  }
+  const installationId = String((body.installation as { id?: number } | undefined)?.id ?? '');
+
+  // Installation lifecycle: uninstall/suspend disables the org's connection.
+  if (event === 'installation' && installationId) {
+    const action = String(body.action ?? '');
+    const status =
+      action === 'deleted' || action === 'suspend'
+        ? 'suspended'
+        : action === 'unsuspend'
+          ? 'active'
+          : null;
+    if (status) {
+      await prisma.gitConnection.updateMany({
+        where: { githubAppId: app.id, installationId },
+        data: { status },
+      });
+    }
+    return c.json({ ok: true, installation: action });
+  }
+
+  const repoExternalId = String((body.repository as { id?: number } | undefined)?.id ?? '');
+  if (!repoExternalId || !installationId) return c.json({ ok: true, ignored: event || 'event' });
+  const repos: RepoHookRow[] = await prisma.gitRepo.findMany({
+    where: {
+      externalRepoId: repoExternalId,
+      connection: { is: { githubAppId: app.id, installationId, status: 'active' } },
+    },
+    select: REPO_SELECT,
+  });
+  if (!repos.length) return c.json({ ok: true, ignored: 'unlinked repo' });
+
+  if (event === 'push') {
+    const ref = parsePushRef('github', body);
+    const sha = parseCommitSha('github', body);
+    if (body.deleted === true || !ref) return c.json({ ok: true, ignored: 'branch deleted' });
+    const matched = repos.filter((r) => r.branch === ref);
+    for (const r of matched) kickBuild(r, ref, sha);
+    return c.json(
+      { ok: true, accepted: matched.map((r) => r.id), ref },
+      matched.length ? 202 : 200,
+    );
+  }
+
+  if (event === 'pull_request') {
+    const previews = await previewsSeam().catch(() => null);
+    const pr = previews?.parsePrWebhookEvent('github', event, body) ?? null;
+    if (!pr) return c.json({ ok: true, ignored: 'pr action' });
+    if (pr.action !== 'closed' && isForkPullRequest('github', body)) {
+      return c.json({
+        ok: true,
+        ignored: 'fork pull request (fork PRs never build automatically)',
+      });
+    }
+    const baseRef = String(
+      (body.pull_request as { base?: { ref?: string } } | undefined)?.base?.ref ?? '',
+    );
+    const matched = repos.filter((r) => !baseRef || r.branch === baseRef);
+    for (const r of matched) kickPreview(r, pr);
+    return c.json(
+      { ok: true, pr: pr.prNumber, accepted: matched.map((r) => r.id) },
+      matched.length ? 202 : 200,
+    );
+  }
+
+  return c.json({ ok: true, ignored: event || 'event' });
+});
+
+// ── Per-repo hooks (GitLab / Gitea / generic / legacy GitHub) ────────────────
+
+function providerOf(kind: string): 'github' | 'gitlab' | 'gitea' | 'generic' {
+  return kind === 'GITLAB'
+    ? 'gitlab'
+    : kind === 'GITEA'
+      ? 'gitea'
+      : kind === 'GENERIC'
+        ? 'generic'
+        : 'github';
+}
+
 webhooksApp.post('/git/:repoId', async (c) => {
   const repoId = c.req.param('repoId');
   const rawBody = await c.req.text();
 
-  const repo = await prisma.gitRepo.findUnique({
-    where: { id: repoId },
-    select: { id: true, orgId: true, branch: true, provider: true, webhookSecretEnc: true },
-  });
+  const repo = await prisma.gitRepo.findUnique({ where: { id: repoId }, select: REPO_SELECT });
   if (!repo) return c.json({ error: 'unknown repo' }, 404);
   if (!repo.webhookSecretEnc) return c.json({ error: 'webhook not configured' }, 400);
 
-  const provider: WebhookProvider = repo.provider === 'GITLAB' ? 'gitlab' : 'github';
+  const kind = providerOf(repo.provider);
   const secret = decryptSecret(repo.webhookSecretEnc);
-
-  const ok = verifyWebhookSignature({
-    provider,
-    secret,
-    rawBody,
-    githubSignature: c.req.header('x-hub-signature-256'),
-    gitlabToken: c.req.header('x-gitlab-token'),
-  });
+  const ok =
+    kind === 'gitea'
+      ? verifyGiteaSignature(secret, rawBody, c.req.header('x-gitea-signature'))
+      : kind === 'generic'
+        ? verifySwarmySignature(secret, rawBody, c.req.header('x-swarmy-signature')) ||
+          verifyWebhookSignature({
+            provider: 'github',
+            secret,
+            rawBody,
+            githubSignature: c.req.header('x-hub-signature-256'),
+          })
+        : verifyWebhookSignature({
+            provider: kind,
+            secret,
+            rawBody,
+            githubSignature: c.req.header('x-hub-signature-256'),
+            gitlabToken: c.req.header('x-gitlab-token'),
+          });
   if (!ok) return c.json({ error: 'invalid signature' }, 401);
 
-  // Only react to push events; ignore pings / other event types.
-  const event = c.req.header('x-github-event') ?? c.req.header('x-gitlab-event');
+  const delivery =
+    c.req.header('x-github-delivery') ??
+    c.req.header('x-gitea-delivery') ??
+    c.req.header('x-gitlab-event-uuid');
+  if (!deliveries.firstSeen(delivery)) return c.json({ ok: true, ignored: 'duplicate' });
+
+  const event =
+    c.req.header('x-github-event') ??
+    c.req.header('x-gitea-event') ??
+    c.req.header('x-gitlab-event');
   if (event && /ping/i.test(event)) return c.json({ ok: true, ignored: 'ping' });
 
   let body: unknown;
@@ -110,36 +318,32 @@ webhooksApp.post('/git/:repoId', async (c) => {
     return c.json({ error: 'malformed body' }, 400);
   }
 
-  // D4: PR preview environments — a verified pull-request / merge-request event
-  // (opened/synchronize → build the branch + deploy `pr<N>-<repo-short>`;
-  // closed → teardown) is handled here; anything else falls through to the
-  // existing push handling below.
+  // Payload dialect: Gitea/generic speak GitHub's push/PR shape.
+  const dialect: WebhookProvider = kind === 'gitlab' ? 'gitlab' : 'github';
+
+  // PR / MR → preview (same verification already applied).
   const previews = await previewsSeam().catch(() => null);
-  const prEvent = previews?.parsePrWebhookEvent(provider, event ?? null, body) ?? null;
-  if (previews && prEvent) {
-    const result = await previews
-      .handlePrEventForRepo(
-        { db: prisma, hub, auth: authRegistry.getAuth() },
-        { ...prEvent, repoId: repo.id, orgId: repo.orgId },
-      )
-      .catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }) as const);
-    if ('error' in result) return c.json({ error: result.error }, 502);
-    return c.json({ ok: true, pr: prEvent.prNumber, ...result });
+  const pr = previews?.parsePrWebhookEvent(dialect, event ?? null, body) ?? null;
+  if (previews && pr) {
+    if (
+      pr.action !== 'closed' &&
+      isForkPullRequest(kind === 'gitlab' ? 'gitlab' : kind === 'gitea' ? 'gitea' : 'github', body)
+    ) {
+      return c.json({
+        ok: true,
+        ignored: 'fork pull request (fork PRs never build automatically)',
+      });
+    }
+    kickPreview(repo, pr);
+    return c.json({ ok: true, pr: pr.prNumber, accepted: true }, 202);
   }
 
-  const ref = parsePushRef(provider, body);
+  const ref = parsePushRef(dialect, body);
   // Only build the watched branch (defensive — providers can be configured broadly).
   if (ref && repo.branch && ref !== repo.branch) {
     return c.json({ ok: true, ignored: 'branch', ref });
   }
-
-  const build = await triggerBuildForRepo(
-    { db: prisma, hub, auth: authRegistry.getAuth() },
-    { repoId: repo.id, orgId: repo.orgId, ref: ref ?? repo.branch, commit: parseCommitSha(provider, body) },
-  ).catch((e: unknown) => {
-    return { error: e instanceof Error ? e.message : String(e) } as const;
-  });
-
-  if ('error' in build) return c.json({ error: build.error }, 502);
-  return c.json({ ok: true, buildId: build.id, ref: ref ?? repo.branch });
+  const buildRef = ref ?? repo.branch;
+  kickBuild(repo, buildRef, parseCommitSha(dialect, body));
+  return c.json({ ok: true, accepted: true, ref: buildRef }, 202);
 });
