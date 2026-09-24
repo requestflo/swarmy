@@ -2010,22 +2010,7 @@ export interface ResilienceProblemView {
   resource: string | null;
 }
 
-export type ResilienceGrade = 'A' | 'B' | 'C' | 'D' | 'F';
-
-/** Score = 100 − Σ severity weights (crit 15, warn 7, info 2), floored at 0. */
-export interface ResilienceScoreView {
-  score: number;
-  grade: ResilienceGrade;
-  /** "Production readiness: NN%". */
-  headline: string;
-  counts: { crit: number; warn: number; info: number };
-  /** How many check families ran (problems or not). */
-  checksRun: number;
-  problems: ResilienceProblemView[];
-  generatedAt: string;
-}
-
-export type ResilienceDrillKind = 'restore' | 'failover' | 'backup-verify';
+export type ResilienceDrillKind = 'restore' | 'backup-verify';
 export type ResilienceDrillStatus = 'passed' | 'failed';
 
 /** One step of a drill run (shown in the run detail / history). */
@@ -2069,16 +2054,18 @@ export interface ResilienceDrillTargetView {
   stack: string;
   cluster: string;
   topology: string;
-  /** Primary running and (for failover) at least one replica running. */
+  /** Primary running. */
   healthy: boolean;
-  /** Running replica count (failover needs ≥1). */
+  /** Running replica count. */
   replicasRunning: number;
 }
 
 /** The whole Resilience page in one query. */
 export interface ResilienceOverviewView {
   ready: true;
-  score: ResilienceScoreView;
+  /** What isn't protected yet, worst first (empty = nothing to fix). */
+  problems: ResilienceProblemView[];
+  generatedAt: string;
   drills: ResilienceDrillCardView[];
   drillTargets: ResilienceDrillTargetView[];
 }

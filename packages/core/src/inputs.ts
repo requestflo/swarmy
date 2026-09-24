@@ -1030,15 +1030,6 @@ export const ResilienceRestoreDrillInput = z.object({
 });
 export type ResilienceRestoreDrillInput = z.infer<typeof ResilienceRestoreDrillInput>;
 
-/** Failover drill: promote a standby and verify — needs explicit acknowledgement. */
-export const ResilienceFailoverDrillInput = z.object({
-  stack: z.string().min(1).max(63),
-  cluster: z.string().min(1).max(63),
-  /** "I understand" — promotion briefly detaches a replica from the chain. */
-  acknowledge: z.literal(true),
-});
-export type ResilienceFailoverDrillInput = z.infer<typeof ResilienceFailoverDrillInput>;
-
 /** Backup-verify drill: `restic check` against a backup destination. */
 export const ResilienceBackupVerifyInput = z.object({
   /** Backup target id; defaults to the org's first enabled destination. */

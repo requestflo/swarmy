@@ -3,11 +3,9 @@ import type { ResilienceProblemView } from '@swarmy/core';
 import {
   buildDrillCards,
   buildResticCheckEnv,
-  gradeFor,
   isUserService,
   resticRepoUrl,
   runChecks,
-  scoreProblems,
   stackIsProduction,
   type ResilienceServiceSignal,
   type ResilienceSnapshot,
@@ -49,47 +47,6 @@ function healthySnapshot(over: Partial<ResilienceSnapshot> = {}): ResilienceSnap
 
 const byCheck = (problems: ResilienceProblemView[], check: string): ResilienceProblemView[] =>
   problems.filter((p) => p.check === check);
-
-describe('score math', () => {
-  it('weights crit 15 / warn 7 / info 2 and floors at 0', () => {
-    const p = (severity: 'crit' | 'warn' | 'info'): ResilienceProblemView => ({
-      id: `x-${Math.random()}`,
-      check: 'single-replica',
-      severity,
-      title: '',
-      detail: '',
-      fixHint: '',
-      fixPath: '/services',
-      fixLabel: '',
-      resource: null,
-    });
-    expect(scoreProblems([], new Date(NOW)).score).toBe(100);
-    expect(scoreProblems([p('crit')], new Date(NOW)).score).toBe(85);
-    expect(scoreProblems([p('warn'), p('warn'), p('info'), p('info')], new Date(NOW)).score).toBe(82);
-    const many = Array.from({ length: 8 }, () => p('crit'));
-    expect(scoreProblems(many, new Date(NOW)).score).toBe(0);
-  });
-
-  it('formats the headline and counts severities', () => {
-    const view = scoreProblems([], new Date(NOW));
-    expect(view.headline).toBe('Production readiness: 100%');
-    expect(view.counts).toEqual({ crit: 0, warn: 0, info: 0 });
-    expect(view.generatedAt).toBe(NOW);
-  });
-
-  it('maps scores to grades at the documented boundaries', () => {
-    expect(gradeFor(100)).toBe('A');
-    expect(gradeFor(90)).toBe('A');
-    expect(gradeFor(89)).toBe('B');
-    expect(gradeFor(80)).toBe('B');
-    expect(gradeFor(79)).toBe('C');
-    expect(gradeFor(65)).toBe('C');
-    expect(gradeFor(64)).toBe('D');
-    expect(gradeFor(50)).toBe('D');
-    expect(gradeFor(49)).toBe('F');
-    expect(gradeFor(0)).toBe('F');
-  });
-});
 
 describe('isUserService — which services count as user apps', () => {
   it('accepts a plain replicated app', () => {
@@ -442,16 +399,7 @@ describe('buildDrillCards — availability + RPO/RTO derivation', () => {
     );
     expect(cards.find((c) => c.kind === 'restore')!.available).toBe(false);
     expect(cards.find((c) => c.kind === 'backup-verify')!.available).toBe(false);
-    expect(cards.find((c) => c.kind === 'failover')!.available).toBe(false);
-
-    const withUnhealthy = buildDrillCards(
-      healthySnapshot(),
-      [{ ...target, replicasRunning: 0 }],
-      [],
-    );
-    expect(withUnhealthy.find((c) => c.kind === 'failover')!.available).toBe(false);
-    const withHealthy = buildDrillCards(healthySnapshot(), [target], []);
-    expect(withHealthy.find((c) => c.kind === 'failover')!.available).toBe(true);
+    expect(cards.map((c) => c.kind)).toEqual(['restore', 'backup-verify']);
   });
 });
 

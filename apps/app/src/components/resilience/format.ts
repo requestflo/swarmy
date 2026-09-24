@@ -32,14 +32,12 @@ export function formatDurationSec(sec: number): string {
 
 export const DRILL_TITLES: Record<ResilienceDrillKind, string> = {
   restore: 'Restore drill',
-  failover: 'Failover drill',
   'backup-verify': 'Backup verify',
 };
 
 export const DRILL_BLURBS: Record<ResilienceDrillKind, string> = {
   restore:
     'Clones your latest DB backup into a throwaway cluster, runs SELECT 1, then destroys the clone.',
-  failover: 'Promotes a standby, verifies it takes over, then rejoins it to the cluster.',
   'backup-verify': 'Runs restic check against your backup destination to prove the repo is intact.',
 };
 

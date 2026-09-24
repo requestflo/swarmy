@@ -15,7 +15,7 @@ import type { DemoStore, DomainResolvers } from '../types';
 // ── view mirrors (resilience.service.ts) ──────────────────────────────────────
 
 type Severity = 'crit' | 'warn' | 'info';
-type DrillKind = 'restore' | 'failover' | 'backup-verify';
+type DrillKind = 'restore' | 'backup-verify';
 
 interface ProblemView {
   id: string;
@@ -72,7 +72,6 @@ interface ResilienceState {
   targets: DrillTargetView[];
 }
 
-const WEIGHT: Record<Severity, number> = { crit: 15, warn: 7, info: 2 };
 const MIN = 60_000;
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -81,34 +80,6 @@ const iso = (agoMs: number): string => new Date(Date.now() - agoMs).toISOString(
 
 function getState(store: DemoStore): ResilienceState {
   return store.extra.resilience as ResilienceState;
-}
-
-function scoreView(st: ResilienceState): {
-  score: number;
-  grade: string;
-  headline: string;
-  counts: { crit: number; warn: number; info: number };
-  checksRun: number;
-  problems: ProblemView[];
-  generatedAt: string;
-} {
-  const counts = { crit: 0, warn: 0, info: 0 };
-  let penalty = 0;
-  for (const p of st.problems) {
-    counts[p.severity] += 1;
-    penalty += WEIGHT[p.severity];
-  }
-  const score = Math.max(0, 100 - penalty);
-  const grade = score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 65 ? 'C' : score >= 50 ? 'D' : 'F';
-  return {
-    score,
-    grade,
-    headline: `Production readiness: ${score}%`,
-    counts,
-    checksRun: 9,
-    problems: st.problems,
-    generatedAt: new Date().toISOString(),
-  };
 }
 
 function drillCards(st: ResilienceState): DrillCardView[] {
@@ -123,14 +94,6 @@ function drillCards(st: ResilienceState): DrillCardView[] {
       last: last('restore'),
       rpoSeconds: Math.max(0, Math.round((Date.now() - new Date(st.lastBackupAt).getTime()) / 1000)),
       rtoEstimateMs: lastPassedRestore?.durationMs ?? null,
-    },
-    {
-      kind: 'failover',
-      available: true,
-      unavailableReason: null,
-      last: last('failover'),
-      rpoSeconds: null,
-      rtoEstimateMs: null,
     },
     {
       kind: 'backup-verify',
@@ -153,16 +116,7 @@ function runDemoDrill(st: ResilienceState, kind: DrillKind, target: string | nul
           { name: 'Verify SELECT 1', status: 'passed', detail: null, durationMs: 900 },
           { name: 'Destroy the clone', status: 'passed', detail: null, durationMs: 3_400 },
         ]
-      : kind === 'failover'
-        ? [
-            { name: 'Confirm standby is replicating', status: 'passed', detail: null, durationMs: 800 },
-            { name: 'Promote the standby', status: 'passed', detail: null, durationMs: 4_100 },
-            { name: 'Verify it accepts writes', status: 'passed', detail: null, durationMs: 700 },
-            { name: 'Rejoin as replica', status: 'passed', detail: null, durationMs: 28_000 },
-          ]
-        : [
-            { name: 'restic check on "hetzner-s3"', status: 'passed', detail: 'exit 0', durationMs: 39_000 },
-          ];
+      : [{ name: 'restic check on "hetzner-s3"', status: 'passed', detail: 'exit 0', durationMs: 39_000 }];
   const durationMs = steps.reduce((sum, s) => sum + (s.durationMs ?? 0), 0);
   const result: DrillResultView = {
     kind,
@@ -173,9 +127,7 @@ function runDemoDrill(st: ResilienceState, kind: DrillKind, target: string | nul
     summary:
       kind === 'restore'
         ? `Restored a1b2c3d4 into drill-${Date.now().toString(36)}, verified SELECT 1, destroyed the clone.`
-        : kind === 'failover'
-          ? `Promoted a ${target} standby, verified it left recovery, rejoined it to the chain.`
-          : 'restic check on "hetzner-s3" passed — no errors were found.',
+        : 'restic check on "hetzner-s3" passed — no errors were found.',
     steps,
     error: null,
   };
@@ -207,7 +159,8 @@ export const resilience: DomainResolvers = {
       const scoped = stack ? { ...st, problems: st.problems.filter((p) => problemMatchesStack(p, stack)) } : st;
       return {
         ready: true as const,
-        score: scoreView(scoped),
+        problems: scoped.problems,
+        generatedAt: new Date().toISOString(),
         drills: drillCards(st),
         drillTargets: stack ? st.targets.filter((t) => t.stack === stack) : st.targets,
       };
@@ -227,16 +180,11 @@ export const resilience: DomainResolvers = {
       return runDemoDrill(getState(s), 'restore', `${b.stack}/${b.cluster}`);
     },
 
-    'resilience.runFailoverDrill': (i, s) => {
-      const b = i as { stack: string; cluster: string };
-      return runDemoDrill(getState(s), 'failover', `${b.stack}/${b.cluster}`);
-    },
-
     'resilience.runBackupVerify': (_i, s) => runDemoDrill(getState(s), 'backup-verify', 'hetzner-s3'),
   },
 
   seed: (store) => {
-    // The wishlist demo posture: 2 warns + 2 infos = −18 → score 82, grade B.
+    // The demo posture: 2 warns + 2 infos.
     const problems: ProblemView[] = [
       {
         id: 'single-replica',
@@ -311,21 +259,6 @@ export const resilience: DomainResolvers = {
           { name: 'Restore snapshot a1b2c3d4', status: 'passed', detail: '398163968 bytes restored', durationMs: 401_000 },
           { name: 'Verify SELECT 1', status: 'passed', detail: null, durationMs: 850 },
           { name: 'Destroy the clone', status: 'passed', detail: null, durationMs: 3_100 },
-        ],
-        error: null,
-      },
-      {
-        kind: 'failover',
-        status: 'passed',
-        at: iso(12 * DAY),
-        durationMs: 34_000,
-        target: 'storefront/main',
-        summary: 'Promoted a storefront/main standby, verified it left recovery, rejoined it to the chain.',
-        steps: [
-          { name: 'Confirm standby is replicating', status: 'passed', detail: null, durationMs: 700 },
-          { name: 'Promote the standby', status: 'passed', detail: null, durationMs: 3_900 },
-          { name: 'Verify it accepts writes', status: 'passed', detail: null, durationMs: 650 },
-          { name: 'Rejoin as replica', status: 'passed', detail: null, durationMs: 28_750 },
         ],
         error: null,
       },

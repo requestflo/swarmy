@@ -64,10 +64,7 @@ function OverviewPage(): React.JSX.Element {
               lastDeployAt={releases.data?.lastDeployAt ?? null}
               loading={releases.isPending}
             />
-            <ResilienceCard
-              score={resilience.data?.ready ? resilience.data.score.score : null}
-              headline={resilience.data?.ready ? resilience.data.score.headline : null}
-            />
+            <ResilienceCard unprotected={resilience.data?.ready ? resilience.data.problems.length : null} />
           </div>
 
           <OnboardingChecklist

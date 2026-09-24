@@ -13,9 +13,9 @@ out:
 1. They open a stack's **Backups** tab and see it in plain words: "storefront is
    **covered**. 42 snapshots in the catalog, encrypted and deduplicated." Last
    backup, next schedule, destination.
-2. They glance at the **Resilience** score — one number, "98, Grade A" — with the
-   weakening factors listed underneath ("checkout runs a single replica",
-   "controller backups are off") and a one-click fix on each.
+2. Underneath is **what isn't protected yet**, in plain words ("checkout runs a
+   single replica", "backups have no off-site copy") with a one-click fix on each
+   — no score, no grade.
 3. They hit **Run the restore drill**. swarmy clones the latest database backup
    into a throwaway cluster, runs `SELECT 1` against it, and destroys the clone —
    proving the backup is restorable, with an RPO and RTO to show for it. Every
@@ -50,7 +50,6 @@ encrypted + deduplicated snapshot in a BackupTarget          (Backblaze B2 / R2 
 SAFE DRILL proves it (container.runOnce, admin-only, audited)
          restore drill  → clone latest DB backup → throwaway `drill-<ts>` cluster
                           → SELECT 1 → destroy the clone   (RPO/RTO measured)
-         failover drill → pg_promote a standby → verify it left recovery → rejoin
          backup-verify  → `restic check` on the destination
 ```
 
@@ -74,12 +73,12 @@ Four ideas, one story:
   skill); the controller decrypts credentials just-in-time and dispatches. The one
   exception is the *controller's own* backup, which must never leave the
   controller and must work before any agent exists — so it runs controller-side.
-- **Resilience is a graded posture, not a checklist.** Pure checks over live
-  Docker-truth signals produce a 0–100 score (`100 − Σ weights`), a letter grade,
-  and a ranked list of weakening factors — each with a fix link. Turn a factor
-  green and the score moves.
+- **Resilience is a plain list, not a score.** Pure checks over live Docker-truth
+  signals produce a severity-ranked list of what isn't protected yet — each with
+  what could be lost and a fix link. Fix it and it leaves the list. (A 0–100
+  score and letter grade were removed in 2026-09: a number hid the why.)
 - **Drills are the product.** A backup you have never restored is untested. swarmy
-  makes restoring *safe to rehearse*: throwaway clusters, promote-and-rejoin,
+  makes restoring *safe to rehearse*: throwaway clusters,
   integrity checks — all confirmed in the UI, admin-only, and every outcome
   written to the audit log so "last tested" means something.
 
@@ -117,12 +116,11 @@ Four ideas, one story:
 
 ## Resilience & DR behaviour (what the promise commits us to)
 
-- **The score is honest and derived.** Checks over live signals: single-
+- **The list is honest and derived.** Checks over live signals: single-
   replica services, cache/DB with no standby, object-store replication factor,
-  backup recency (crit at >7 days or none), *restore never tested*, ingress on one
-  node, geo-DNS single-region on a multi-region estate, controller-backup recency.
-  Weights are crit 15 / warn 7 / info 2; the headline reads "Production readiness:
-  NN%". No score is a green checkmark you can't explain.
+  backup recency (crit at >7 days or none), no off-site copy, *restore never
+  tested*, ingress on one node, geo-DNS single-region on a multi-region estate,
+  controller-backup recency. Nothing is shown as "fine" that you can't explain.
 - **Backups are encrypted, deduplicated, and portable.** restic at source means
   the target — even another operator's node over the mesh — only ever sees
   ciphertext. A bucket full of restic is recoverable by hand; swarmy is a
@@ -194,9 +192,7 @@ Four ideas, one story:
   over-promising "HA".
 - **Drills are safe by construction and gated.** The restore drill only ever
   touches a throwaway `drill-<ts>` cluster and cleans it up on success *or*
-  failure; the failover drill refuses anything but a fully-healthy failover/
-  primary-replica cluster and always tries to rejoin the replica even if a step
-  fails; backup-verify is read-only. All are admin-only, confirmed in the UI, and
+  failure; backup-verify is read-only. All are admin-only, confirmed in the UI, and
   audited.
 - **Database backups are on by default; everything else is opt-in.** Once a
   destination exists, databases get a nightly backup with zero clicks
@@ -231,7 +227,6 @@ Four ideas, one story:
 | Controller (the brain) is lost entirely | Stand up a new controller, stop the controller and run the standalone `restore` entrypoint with the target coords + user-held passphrase; it puts the snapshot in place as `control.db` (the old file kept as `control.db.pre-restore-<ts>`), applies newer migrations, and the agents re-adopt via their hashed session secrets. Disaster recovery uses the CLI (the dashboard is down); in-place rollback uses the UI. |
 | Restore passphrase is lost | The controller-state bundle is unreadable — by design (zero-knowledge). swarmy cannot recover it; the setup flow gates on "I've stored it" for exactly this reason. |
 | Restore drill fails midway | The throwaway `drill-<ts>` cluster is destroyed regardless; the drill is recorded `failed` with the step that broke; nothing on the real cluster was touched (preconditions throw before anything is created). |
-| Failover drill on a half-healthy cluster | Refused up front (needs a running primary + ≥1 running replica); the promoted replica is force-restarted back through its entrypoint to rejoin even on error. |
 | DB backup of a live Postgres | For managed Postgres, logical engines dump a transactionally-consistent point-in-time; `snapshot-from-replica` takes it off a read replica for zero primary load. A compose MySQL/MariaDB/Postgres/Mongo/Redis/Valkey also gets a logical dump; only a compose DB whose credentials can't be resolved (e.g. a random root password and no app user) is volume-only. |
 | Logical dump of a compose DB fails | Audited as a failed `appdb.backup`, shown on the stack's Databases card; the volume copy from the same schedule still ran. An in-place restore whose safety dump fails changes nothing. |
 
@@ -297,7 +292,7 @@ backups.prisma` (targets, snapshots, controller backup, schedules, restore ops),
 (the controller brain bundle; `controllerBackup.snapshot.ts` takes and loads the
 `control.db` snapshot) with `apps/api/src/restore.ts` (the standalone
 disaster-restore entrypoint), `packages/trpc/src/services/resilience.service.ts`
-(the checks, the score, and the three drills), `autoBackup{,.service}.ts`
+(the checks and the two drills), `autoBackup{,.service}.ts`
 (default-on DB backups), the controller store (`apps/api/src/controller-store/*`:
 boot restore, lease, Litestream supervisor; the agent's
 `handlers/controller-service.ts`; `controllerStore.service.ts` for status /
@@ -305,5 +300,5 @@ replication / move), the workers
 `apps/api/src/workers/{backup-scheduler,dr-reconcile,controller-backup-scheduler}.ts`,
 and the UI: estate destinations at `apps/app/src/routes/_authed/backups.tsx`,
 controller backup at `settings_.backup.tsx`, and each stack's Backups tab
-(`stacks/$name.backups.tsx` → `components/backups/*` + the resilience score in
+(`stacks/$name.backups.tsx` → `components/backups/*` + the "what isn't protected yet" list in
 `components/resilience/*`).

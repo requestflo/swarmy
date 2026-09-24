@@ -1,6 +1,6 @@
 ---
 name: backups-dr
-description: Invariants, contracts, and file map for swarmy's backups, DR, and the resilience score — restic volume/DB backups, estate-wide BackupTargets, the controller self-backup bundle, restore-on-recovery, and the safe drills (restore/failover/backup-verify). Load before touching anything under backups.service, dbBackup.service, controllerBackup.*, resilience.service, apps/agent/src/handlers/backup.ts, backups.prisma, or the backup/dr/controller-backup workers. Product rationale lives in docs/product/resilience-and-dr.md.
+description: Invariants, contracts, and file map for swarmy's backups, DR, and the resilience checks — restic volume/DB backups, estate-wide BackupTargets, the controller self-backup bundle, restore-on-recovery, and the safe drills (restore/backup-verify). Load before touching anything under backups.service, dbBackup.service, controllerBackup.*, resilience.service, apps/agent/src/handlers/backup.ts, backups.prisma, or the backup/dr/controller-backup workers. Product rationale lives in docs/product/resilience-and-dr.md.
 ---
 
 # Backups & DR: restic sidecars, the controller brain, and safe drills
@@ -81,9 +81,7 @@ and where everything lives. Backups are dispatched to the agent as commands — 
    no "upgrade to managed Postgres" path.
 7. **Drills are safe-by-construction, admin-only, confirmed, audited.** The
    restore drill only ever touches a throwaway `drill-<ts>` cluster and cleans up
-   on success AND failure; the failover drill refuses anything but a fully-healthy
-   failover/primary-replica cluster and force-restarts the replica to rejoin even
-   on error; backup-verify (`restic check`) is read-only. All three are
+   on success AND failure; backup-verify (`restic check`) is read-only. Both are
    `adminProcedure`. Preconditions THROW (nothing touched → not a drill outcome);
    only post-mutation failures record a `failed` drill.
 8. **A drill outcome is one audit row, not a model.** Each run writes a single
@@ -91,12 +89,11 @@ and where everything lives. Backups are dispatched to the agent as commands — 
    `ResilienceDrillResultView`; "last tested" reads those rows back, plus a small
    in-memory `recentDrills` cache so a lost audit write never blanks the page.
    Don't add a `Drill` table.
-9. **The resilience score is a pure function of a snapshot.** `runChecks(snap)` →
-   problems, `scoreProblems` → `100 − Σ weight` (crit 15 / warn 7 / info 2,
-   floored at 0) → grade + "Production readiness: NN%". The classifiers never
-   touch `ctx` — gather live signals into `ResilienceSnapshot` first, then
-   classify. `CHECKS_RUN` must equal the number of checks. Every problem carries a
-   `fixPath`/`fixLabel`.
+9. **"What isn't protected yet" is a pure function of a snapshot.**
+   `runChecks(snap)` → severity-sorted problems, shown as a plain list (no score,
+   no grade — removed 2026-09). The classifiers never touch `ctx` — gather live
+   signals into `ResilienceSnapshot` first, then classify. Every problem carries
+   a `fixPath`/`fixLabel`.
 10. **DR restore-on-recovery is bounded and Docker-independent in its trigger.**
     `dr-reconcile` reads node liveness from the hub (not DB Node rows) and which
     volumes lived where from `Snapshot.hostNodeId` (the only Docker-independent
@@ -153,9 +150,7 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 - **Drill exec contract**: drills exec inside a running container via the `exec`
   command (`execInService` → `resolveExecTarget`) and dispatch `container.runOnce`
   for `restic check`; `psqlScript` runs psql against localhost in a managed PG
-  member (official image, `$POSTGRES_PASSWORD`). The failover drill rejoins the
-  promoted standby by redeploying it under a `drill:` `SWARMY_PG_REJOIN` epoch
-  (never a plain restart — the boot layer keeps a promoted writer a writer).
+  member (official image, `$POSTGRES_PASSWORD`).
 
 ## File map
 
@@ -175,13 +170,13 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | Lease/placement wire + agent handler (acquire/renew/release, configure, move) | `packages/core/src/protocol/controllerService.ts`, `apps/agent/src/handlers/controller-service.ts` |
 | Replication status / on-off / "Move controller to…" (ABAC `data.failover`) | `packages/trpc/src/services/controllerStore.service.ts` (+ `routers/controllerStore.ts`), UI `components/controllerbackup/{replication-card,replication-target-form,move-controller-dialog}.tsx` |
 | Failover e2e (Garage + Litestream crash/move/stale/fence; lease + move on a 2-manager dind Swarm) | `scripts/e2e/controller-store/run.sh` |
-| Resilience: checks (`CHECKS_RUN`), score math, 3 drills, drill history | `packages/trpc/src/services/resilience.service.ts` (+ `routers/resilience.ts`) |
+| Resilience: checks, 2 drills (restore, backup-verify), drill history | `packages/trpc/src/services/resilience.service.ts` (+ `routers/resilience.ts`) |
 | Default-on DB backups (nightly `pg_dump` for managed PG, crash-consistent volume backup for compose DBs, opt-out markers) | `packages/trpc/src/services/autoBackup{,.service}.ts` |
 | Compose-DB logical dumps + restore (MySQL/MariaDB/Postgres/Mongo/Redis/Valkey: credential recipe, `appdb.*` commands, scheduler hook, drill leg) | `packages/trpc/src/services/appDbBackup.service.ts` (router `routers/appDbBackup.ts` → `backups.appDb`), wire + pure scripts `packages/core/src/protocol/appDb{,Scripts}.ts`, agent `apps/agent/src/handlers/appdb.ts`, UI `components/backups/{appdb-dumps,restore-appdb-confirm}.tsx` |
 | Controller datastore (embedded SQLite: `control.db` + `telemetry.db`, bun:sqlite adapter, `ensureSchema`) | `packages/db/src/{client,bun-sqlite-adapter,ensure-schema}.ts` |
 | Workers: scheduled backups / restore-on-recovery / controller schedule | `apps/api/src/workers/{backup-scheduler,dr-reconcile,controller-backup-scheduler}.ts` |
 | UI: estate destinations, controller backup | `apps/app/src/routes/_authed/{backups,settings_.backup}.tsx`, `components/controllerbackup/*` |
-| UI: per-stack Backups tab (schedules, resilience score, drills) | `routes/_authed/stacks/$name.backups.tsx` → `components/backups/{stack-backups,stack-schedules-card,…}.tsx`, `components/resilience/*`; overview card `components/overview/resilience-card.tsx` |
+| UI: per-stack Backups tab (schedules, what isn't protected yet, drills) | `routes/_authed/stacks/$name.backups.tsx` → `components/backups/{stack-backups,stack-schedules-card,…}.tsx`, `components/resilience/*`; overview card `components/overview/resilience-card.tsx` |
 | Crypto: `encryptSecret`/`decryptSecret`, `generateRestorePassphrase` + fingerprint | `packages/core/src/crypto.ts` |
 
 ## Adding a check or a drill (the recipe)

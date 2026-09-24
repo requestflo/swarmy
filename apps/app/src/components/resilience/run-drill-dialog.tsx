@@ -19,7 +19,6 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Switch,
   toast,
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
@@ -28,8 +27,6 @@ import { DRILL_TITLES } from './format';
 const CONFIRM_COPY: Record<ResilienceDrillKind, string> = {
   restore:
     'This provisions a throwaway drill cluster, restores your latest backup into it, verifies SELECT 1, then destroys the clone. Your live cluster is never touched. Takes a few minutes.',
-  failover:
-    'This promotes a running standby so it briefly leads on its own, verifies it accepts writes, then force-restarts it to rejoin the cluster. Apps keep writing to the real primary throughout, but a replica leaves the chain for a minute.',
   'backup-verify':
     'This runs `restic check` against the backup destination in a one-shot container — read-only, safe to run any time.',
 };
@@ -49,12 +46,8 @@ export function RunDrillDialog({
   const trpc = useTRPC();
   const qc = useQueryClient();
   const [open, setOpen] = React.useState(false);
-  const [ack, setAck] = React.useState(false);
 
-  const failoverTargets = targets.filter(
-    (t) => (t.topology === 'failover' || t.topology === 'primary-replica') && t.replicasRunning >= 1,
-  );
-  const pickable = kind === 'failover' ? failoverTargets : targets;
+  const pickable = targets;
   const [target, setTarget] = React.useState<string>('');
   const selected = pickable.find((t) => `${t.stack}/${t.cluster}` === target) ?? pickable[0];
 
@@ -62,7 +55,6 @@ export function RunDrillDialog({
     if (status === 'passed') toast.success(summary);
     else toast.error(summary);
     setOpen(false);
-    setAck(false);
     void qc.invalidateQueries();
   };
   const opts = {
@@ -71,25 +63,19 @@ export function RunDrillDialog({
     onError: (e: { message: string }) => toast.error(e.message),
   };
   const restore = useMutation(trpc.resilience.runRestoreDrill.mutationOptions(opts));
-  const failover = useMutation(trpc.resilience.runFailoverDrill.mutationOptions(opts));
   const verify = useMutation(trpc.resilience.runBackupVerify.mutationOptions(opts));
-  const pending = restore.isPending || failover.isPending || verify.isPending;
+  const pending = restore.isPending || verify.isPending;
 
   const run = (): void => {
     if (kind === 'backup-verify') return void verify.mutate({});
     if (!selected) return;
-    const ref = { stack: selected.stack, cluster: selected.cluster };
-    if (kind === 'restore') restore.mutate(ref);
-    else failover.mutate({ ...ref, acknowledge: true });
+    restore.mutate({ stack: selected.stack, cluster: selected.cluster });
   };
 
   return (
     <AlertDialog
       open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setAck(false);
-      }}
+      onOpenChange={setOpen}
     >
       <AlertDialogTrigger asChild>
         <Button size="sm" variant="outline" disabled={disabled} title={disabledReason ?? undefined}>
@@ -123,22 +109,10 @@ export function RunDrillDialog({
           </div>
         ) : null}
 
-        {kind === 'failover' ? (
-          <div className="flex items-center justify-between gap-4 rounded-xl border px-4 py-3">
-            <div>
-              <Label className="text-sm font-medium">I understand a replica leaves the chain</Label>
-              <p className="text-muted-foreground text-xs">
-                The standby is promoted, verified, then restarted to re-sync from the primary.
-              </p>
-            </div>
-            <Switch checked={ack} onCheckedChange={setAck} />
-          </div>
-        ) : null}
-
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            disabled={pending || (kind === 'failover' && !ack) || (kind !== 'backup-verify' && !selected)}
+            disabled={pending || (kind !== 'backup-verify' && !selected)}
             onClick={(e) => {
               e.preventDefault();
               run();

@@ -69,7 +69,7 @@ go deep on one area each.
 ### Resilience & governance
 
 - [`resilience-and-dr.md`](./resilience-and-dr.md) — backups, controller
-  self-backup, the resilience score, and safe DR drills. _Skill: `backups-dr`._
+  self-backup, what isn't protected yet, and safe DR drills. _Skill: `backups-dr`._
 - [`governance-and-access.md`](./governance-and-access.md) — the org-scoped
   procedure chain, Cedar ABAC, guardrails, audit, cost, and identity.
   _Skills: `auth-abac`, `rest-api-surface`._

@@ -61,10 +61,10 @@ export function ProblemsList({
     <div className="card-pop">
       <div className="border-border border-b px-5 py-4">
         <h2 className="text-sm font-bold">
-          {problems.length} thing{problems.length === 1 ? '' : 's'} weakening your score
+          {problems.length} thing{problems.length === 1 ? ' isn’t' : 's aren’t'} protected yet
         </h2>
         <p className="text-muted-foreground mt-0.5 text-xs">
-          Fix these and the score climbs back toward 100.
+          Each one says what could be lost and how to fix it.
         </p>
       </div>
       <ul className="divide-border divide-y">

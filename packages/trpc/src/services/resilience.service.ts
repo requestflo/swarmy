@@ -1,11 +1,11 @@
 /**
- * Resilience (slice F2) — posture checks, readiness score, and safe drills.
+ * Resilience (slice F2) — "what isn't protected yet" checks and safe drills.
  *
  * The audit is a pure pass over a snapshot of live signals: Docker-truth labels
  * (`swarmy.db.*`, `swarmy.cache.*`, `swarmy.env`), the hub's node inventory,
  * the org's backup rows and the geo/ingress/controller-backup configs. Each
- * finding carries a severity and a fix link; score = 100 − Σ weights
- * (crit 15, warn 7, info 2, floored at 0) → grade + "Production readiness: NN%".
+ * finding carries a severity and a fix link, and the Backups page lists them in
+ * plain words (no score or grade).
  *
  * Drills are admin-only, confirmed in the UI, and audited. Outcomes are NOT a
  * new model: each run writes one `resilience.drill` audit row whose metadata IS
@@ -13,15 +13,12 @@
  * small in-memory cache so a lost audit write never blanks the page mid-session).
  *  - restore: clone the latest logical DB backup into a throwaway
  *    `drill-<ts>` cluster, verify `SELECT 1`, destroy the clone.
- *  - failover: promote a standby (`pg_promote()`), verify it left recovery,
- *    then force-restart the replica service so it rejoins the chain.
  *  - backup-verify: `restic check` on the backup destination via
  *    `container.runOnce` (mirrors the agent backup handler's env contract).
  */
 import { backupSchedules, backupTargets } from './backups.repo';
 import { resticNetworkFor } from './backups.service';
 import {
-  PG_ENV,
   buildInventory,
   type InvService,
   type ResilienceBackupVerifyInput,
@@ -31,12 +28,9 @@ import {
   type ResilienceDrillResultView,
   type ResilienceDrillStepView,
   type ResilienceDrillTargetView,
-  type ResilienceFailoverDrillInput,
-  type ResilienceGrade,
   type ResilienceOverviewView,
   type ResilienceProblemView,
   type ResilienceRestoreDrillInput,
-  type ResilienceScoreView,
   type ResilienceSeverity,
 } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
@@ -45,7 +39,6 @@ import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
-import { patchLiveService } from './service-patch';
 import {
   DB_BACKUP_LAST_RUN_LABEL,
   listDbBackups,
@@ -83,16 +76,9 @@ const MANAGED_DATA_PREFIXES = ['swarmy.db.', 'swarmy.cache.', 'swarmy.search.', 
 /** Every drill outcome persists as one audit row with this action. */
 export const DRILL_AUDIT_ACTION = 'resilience.drill';
 
-export const SEVERITY_WEIGHT: Record<ResilienceSeverity, number> = {
-  crit: 15,
-  warn: 7,
-  info: 2,
-};
-
 /** "No successful backup in N days" / "controller backup stale" threshold. */
 export const BACKUP_STALE_DAYS = 7;
 const DAY_MS = 86_400_000;
-const CHECKS_RUN = 13;
 
 // ── Pure snapshot shape (fixture-friendly — the classifiers never touch ctx) ──
 
@@ -472,38 +458,6 @@ export function runChecks(snap: ResilienceSnapshot): ResilienceProblemView[] {
   return out.sort((a, b) => order[a.severity] - order[b.severity] || a.id.localeCompare(b.id));
 }
 
-// ── Pure: score math ───────────────────────────────────────────────────────────
-
-export function gradeFor(score: number): ResilienceGrade {
-  if (score >= 90) return 'A';
-  if (score >= 80) return 'B';
-  if (score >= 65) return 'C';
-  if (score >= 50) return 'D';
-  return 'F';
-}
-
-export function scoreProblems(
-  problems: ResilienceProblemView[],
-  generatedAt: Date,
-): ResilienceScoreView {
-  const counts = { crit: 0, warn: 0, info: 0 };
-  let penalty = 0;
-  for (const p of problems) {
-    counts[p.severity] += 1;
-    penalty += SEVERITY_WEIGHT[p.severity];
-  }
-  const score = Math.max(0, 100 - penalty);
-  return {
-    score,
-    grade: gradeFor(score),
-    headline: `Production readiness: ${score}%`,
-    counts,
-    checksRun: CHECKS_RUN,
-    problems,
-    generatedAt: generatedAt.toISOString(),
-  };
-}
-
 // ── Pure: restic-check env (mirrors the agent backup handler's contract) ──────
 
 export interface ResticRepoEnvInput {
@@ -674,7 +628,7 @@ const recentDrills = new Map<string, ResilienceDrillResultView[]>();
 function parseDrillMetadata(meta: unknown): ResilienceDrillResultView | null {
   if (typeof meta !== 'object' || meta === null) return null;
   const m = meta as Partial<ResilienceDrillResultView>;
-  if (m.kind !== 'restore' && m.kind !== 'failover' && m.kind !== 'backup-verify') return null;
+  if (m.kind !== 'restore' && m.kind !== 'backup-verify') return null;
   if (m.status !== 'passed' && m.status !== 'failed') return null;
   if (typeof m.at !== 'string') return null;
   return {
@@ -778,12 +732,6 @@ export function buildDrillCards(
         Math.round((new Date(snap.now).getTime() - new Date(snap.backups.lastSuccessAt).getTime()) / 1000),
       )
     : null;
-  const failoverReady = targets.some(
-    (t) =>
-      (t.topology === 'failover' || t.topology === 'primary-replica') &&
-      t.healthy &&
-      t.replicasRunning >= 1,
-  );
 
   return [
     {
@@ -798,16 +746,6 @@ export function buildDrillCards(
       last: last('restore'),
       rpoSeconds,
       rtoEstimateMs: lastPassedRestore?.durationMs ?? null,
-    },
-    {
-      kind: 'failover',
-      available: failoverReady,
-      unavailableReason: failoverReady
-        ? null
-        : 'Needs a healthy failover or primary-replica cluster with a running replica.',
-      last: last('failover'),
-      rpoSeconds: null,
-      rtoEstimateMs: null,
     },
     {
       kind: 'backup-verify',
@@ -831,7 +769,8 @@ export async function overview(
   const history = await listDrillHistory(ctx, 20, stack);
   return {
     ready: true,
-    score: scoreProblems(problems, new Date(snap.now)),
+    problems,
+    generatedAt: new Date(snap.now).toISOString(),
     drills: buildDrillCards(snap, targets, history),
     drillTargets: targets,
   };
@@ -1028,99 +967,7 @@ export async function runRestoreDrill(
   }
 }
 
-// ── Drill 2: failover (promote a standby, verify, rejoin) ─────────────────────
-
-/**
- * Rejoin the drill-promoted standby: redeploy it (full live spec, via
- * `patchLiveService`) under a fresh `drill:` rejoin epoch. The managed boot
- * layer (@swarmy/core manageddb-pg) then sees writer data under a new epoch,
- * moves it aside to `pgdata.drill-<utc>` (keeping only the latest drill copy)
- * and re-clones from the primary. A plain restart would NOT do: the boot layer
- * keeps a promoted writer a writer (that is what protects a real failover).
- */
-async function rejoinDrillReplica(ctx: OrgContext, nodeId: string, replica: InvService): Promise<void> {
-  try {
-    await patchLiveService(
-      ctx,
-      replica,
-      { setEnv: { [PG_ENV.rejoin]: `drill:${new Date().toISOString()}` } },
-      { nodeId },
-    );
-  } catch (e) {
-    throw mapDispatchError(e);
-  }
-}
-
-export async function runFailoverDrill(
-  ctx: OrgContext,
-  input: ResilienceFailoverDrillInput,
-): Promise<ResilienceDrillResultView> {
-  const target = `${input.stack}/${input.cluster}`;
-  const services = liveServices(ctx);
-  const members = services.filter(
-    (s) => s.stack === input.stack && s.labels[DB_CLUSTER_LABEL] === input.cluster,
-  );
-  const primary = members.find(
-    (s) => s.labels[DB_ROLE_LABEL] === 'primary' && !s.labels[DB_MEMBER_LABEL],
-  );
-  if (!primary) throw notFound('db cluster', target);
-  const topology = primary.labels[DB_TOPOLOGY_LABEL] ?? DEFAULT_TOPOLOGY;
-  if (topology !== 'failover' && topology !== 'primary-replica') {
-    throw commandRejected(
-      `failover drills need a failover or primary-replica topology (cluster is "${topology}")`,
-    );
-  }
-  const replica = members.find((s) => s.labels[DB_ROLE_LABEL] === 'replica');
-  // Safety gate: only drill a fully healthy cluster.
-  if (primary.status !== 'running' || !replica || replica.replicas.running < 1) {
-    throw commandRejected(
-      'the cluster must be fully healthy (primary running + ≥1 running replica) to drill failover',
-    );
-  }
-
-  const startedAt = Date.now();
-  const rec = stepRecorder();
-  const node = await resolveManagerNode(ctx);
-
-  try {
-    await rec.run('Confirm standby is replicating', async () => {
-      const out = await execInService(ctx, replica.name, psqlScript('SELECT pg_is_in_recovery()'));
-      if (!out.includes('t')) throw commandRejected('the replica is not in recovery');
-    });
-
-    await rec.run('Promote the standby', async () => {
-      const out = await execInService(ctx, replica.name, psqlScript('SELECT pg_promote(true, 60)'));
-      if (!out.includes('t')) throw commandRejected(`pg_promote did not confirm: "${out.slice(0, 80)}"`);
-    });
-
-    await rec.run('Verify it accepts writes', async () => {
-      const out = await execInService(ctx, replica.name, psqlScript('SELECT pg_is_in_recovery()'));
-      if (!out.includes('f')) throw commandRejected('the promoted standby is still in recovery');
-    });
-
-    await rec.run('Rejoin as replica', async () => {
-      await rejoinDrillReplica(ctx, node.id, replica);
-    });
-
-    return await finishDrill(ctx, { kind: 'failover', target, startedAt }, rec, {
-      status: 'passed',
-      summary: `Promoted a ${target} standby, verified it left recovery, rejoined it to the chain.`,
-    });
-  } catch (e) {
-    // Best-effort: send the replica back through its entrypoint as a rejoining
-    // standby regardless (a new drill epoch ⇒ writer data is set aside, re-cloned).
-    await rejoinDrillReplica(ctx, node.id, replica).catch(() =>
-      ctx.hub.dispatch(node.id, 'service.restart', { service: replica.name, forceNewTask: true }).catch(() => undefined),
-    );
-    return await finishDrill(ctx, { kind: 'failover', target, startedAt }, rec, {
-      status: 'failed',
-      summary: `Failover drill against ${target} failed.`,
-      error: e instanceof Error ? e.message : String(e),
-    });
-  }
-}
-
-// ── Drill 3: backup-verify (restic check via container.runOnce) ───────────────
+// ── Drill 2: backup-verify (restic check via container.runOnce) ───────────────
 
 interface BackupTargetRow {
   id: string;
