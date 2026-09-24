@@ -13,7 +13,13 @@
 #     as AWS_SHARED_CREDENTIALS_FILE — never from the Caddyfile.
 #   - `cache` (per-route response caching)   — caddyserver/cache-handler
 #   - `maxmind_geolocation` (country rules)  — porech/caddy-maxmind-geolocation
-# This image is the stock Caddy plus all four, built with xcaddy.
+#   - `dns swarmy` (ACME DNS-01, wildcards)  — ./dnsprovider, swarmy's own
+#     module: the edge asks the controller to publish `_acme-challenge` TXT in
+#     swarmy-dns (the org's own nameservers) — no third-party DNS API. Token
+#     read from a Docker secret file, never the Caddyfile.
+#   - `dns cloudflare` (BYO DNS-01 token)    — caddy-dns/cloudflare, only for a
+#     wildcard in a zone swarmy DNS does not serve; token via {file.*}.
+# This image is the stock Caddy plus all six, built with xcaddy.
 #
 # Country rules also need a GeoIP country mmdb visible INSIDE the container:
 # mount one and point `extraConfig.geoipMmdbPath` at it. swarmy does not
@@ -36,7 +42,11 @@
 # in a tight loop on transient S3 errors (honours ctx + LockTimeout).
 FROM caddy:2.11.4-builder AS builder
 
+COPY dnsprovider /src/dnsprovider
+
 RUN xcaddy build \
+    --with github.com/requestflo/caddy-dns-swarmy=/src/dnsprovider \
+    --with github.com/caddy-dns/cloudflare@v0.2.4 \
     --with github.com/mholt/caddy-ratelimit@v0.1.0 \
     --with github.com/techknowlogick/certmagic-s3@9136b2abaf525cad77c3b30f60dc6b1ba9047b69 \
     --with github.com/caddyserver/cache-handler@v0.16.0 \
