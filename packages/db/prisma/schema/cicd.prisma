@@ -3,6 +3,8 @@
 enum GitProviderKind {
   GITHUB
   GITLAB
+  GITEA
+  GENERIC
 }
 
 enum BuildStatus {
@@ -33,15 +35,101 @@ model GitRepo {
   // { enable, baseDomain, ttlHours, teardownOnClose }. Preview stacks themselves
   // are Docker-truth (`swarmy.preview.*` stack labels) — this is repo INPUT config.
   previewsJson Json?
+  // ── git-apps (Phase 2): provider connection + app binding ──
+  // How swarmy authenticates to this repo (GitHub App installation / GitLab
+  // OAuth / generic). Null = legacy per-repo `tokenEnc` / public repo.
+  connectionId    String?
+  // Provider's stable repo id (GitHub repo id / GitLab project id).
+  externalRepoId  String?
+  // owner/name (GitHub) or group/…/name (GitLab) — for API feedback calls.
+  fullName        String?
+  // Path of the swarmy.yaml this binding applies (monorepo: many per repo).
+  configPath      String  @default("swarmy.yaml")
+  // The app (stack) name the swarmy.yaml declares — set on first plan.
+  appName         String?
+  // Last commit whose plan fully applied (changed-path base for the next push).
+  lastAppliedSha  String?
+  // Generic git over SSH: swarmy-generated ed25519 deploy key (private half
+  // vault-encrypted, never returned; public half shown to paste into the host).
+  deployKeyEnc    String? @db.Text
+  deployKeyPublic String?
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
 
-  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  builds Build[]
+  org        Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  connection GitConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  builds     Build[]
 
-  @@unique([orgId, url])
+  @@unique([orgId, url, branch, configPath])
   @@index([orgId])
+  @@index([connectionId])
+  @@index([externalRepoId])
   @@map("git_repo")
+}
+
+/// The controller's own GitHub App, registered in one click via the manifest
+/// flow (one per controller instance + GitHub host; no swarmy cloud). Every
+/// secret is vault-encrypted and never returned to a client. Installations of
+/// it are bound to swarmy orgs as `GitConnection` rows.
+model GitHubApp {
+  id               String   @id @default(cuid())
+  webBase          String   @default("https://github.com")
+  appId            Int
+  slug             String
+  name             String
+  htmlUrl          String
+  ownerLogin       String?
+  clientId         String
+  clientSecretEnc  String
+  privateKeyEnc    String   @db.Text
+  webhookSecretEnc String
+  // The org whose admin registered it (audit context only — not a scope).
+  createdByOrgId   String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  connections GitConnection[]
+
+  @@unique([webBase, appId])
+  @@map("github_app")
+}
+
+/// An org's authenticated link to a git provider: a GitHub App installation,
+/// a GitLab OAuth grant / access token, a Gitea token, or a generic PAT.
+/// Tokens are vault-encrypted; GitHub installation tokens are minted JIT and
+/// never stored.
+model GitConnection {
+  id              String          @id @default(cuid())
+  orgId           String
+  kind            GitProviderKind
+  displayName     String
+  // Provider web base (https://github.com, https://gitlab.example.com, …).
+  baseUrl         String
+  // GITHUB: the App + installation this connection is.
+  githubAppId     String?
+  installationId  String?
+  account         String?
+  // GITLAB/GITEA OAuth application (per org) + the grant's tokens.
+  clientId        String?
+  clientSecretEnc String?
+  accessTokenEnc  String?         @db.Text
+  refreshTokenEnc String?         @db.Text
+  tokenExpiresAt  DateTime?
+  // HTTPS username paired with a stored token (oauth2 for GitLab).
+  tokenUser       String?
+  // pending = waiting for the OAuth round-trip; active = usable.
+  status          String          @default("active")
+  createdById     String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  githubApp GitHubApp?   @relation(fields: [githubAppId], references: [id], onDelete: Cascade)
+  repos     GitRepo[]
+
+  @@unique([githubAppId, installationId])
+  @@index([orgId])
+  @@map("git_connection")
 }
 
 model Build {

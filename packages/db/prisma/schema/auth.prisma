@@ -123,6 +123,7 @@ model Organization {
   policies            Policy[]
   resourceGrants      ResourceGrant[]
   gitRepos            GitRepo[]
+  gitConnections      GitConnection[]
   builds              Build[]
   registryConfig      RegistryConfig?
   registryCredentials RegistryCredential[]
