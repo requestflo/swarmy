@@ -11,7 +11,7 @@ import { log, must, poll, q, run, secret } from './util';
 
 export const REPO_ROOT = resolve(import.meta.dir, '../../../..');
 
-export type Mesh = 'none' | 'self-hosted';
+export type Mesh = 'none' | 'swarmy';
 
 export interface ClusterConfig {
   prefix: string;
@@ -246,7 +246,7 @@ export class Cluster {
       '--admin-email', this.cfg.adminEmail,
       '--image', await this.image('controller', tag),
       '--agent-image', await this.image('agent', tag),
-      '--mesh', this.cfg.mesh === 'self-hosted' ? 'self-hosted' : 'none',
+      '--mesh', this.cfg.mesh,
       ...extraFlags,
     ];
     await this.mustSh(this.manager, 'umask 077; cat > /root/.swarmy-e2e.env', {

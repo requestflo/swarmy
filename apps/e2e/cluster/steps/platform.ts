@@ -72,25 +72,29 @@ export async function servers(ctx: Ctx) {
   const c = ctx.cluster;
   const workers = c.workers;
   if (!workers.length) throw new Skip('single-node cluster');
-  const tok = await ctx.m<{ token: string; id: string }>('nodes.generateJoinToken', {
-    ttlSeconds: 3600,
-    maxUses: workers.length,
-    label: `e2e-${ctx.runId}`,
-  });
-  secret(tok.token);
-
+  const mint = () =>
+    ctx.m<{ token: string; id: string; meshSetupKey?: string; meshManagementUrl?: string; meshDriver?: string }>('nodes.generateJoinToken', {
+      ttlSeconds: 3600,
+      maxUses: 1,
+      label: `e2e-${ctx.runId}`,
+    });
   if (c.cfg.mesh === 'none') {
-    // TODO(mesh): with the self-hosted mesh (plans/epic-self-hosted-mesh-and-fleets.md)
-    // node 3 joins over WireGuard from behind a simulated NAT (natSimulate below).
-    // With --mesh none there is no way for a NATed worker to carry swarm
-    // overlay traffic, so node 3 joins like node 2.
-    log('mesh=none: node 3 joins directly (NAT simulation needs --mesh self-hosted)');
+    // With --mesh none a NATed worker can't carry swarm overlay traffic, so
+    // node 3 joins like node 2. --mesh swarmy NATs it and joins over the mesh.
+    log('mesh=none: node 3 joins directly (NAT simulation needs --mesh swarmy)');
   }
-
   await Promise.all(
     workers.map(async (w) => {
       if (w.natted && c.cfg.mesh !== 'none') await natSimulate(ctx, w.index);
-      await c.mustSh(w, 'umask 077; cat > /root/.swarmy-join.env', { input: `SWARMY_JOIN_TOKEN=${q(tok.token)}\n` });
+      // Mesh on: tokens are single-use (one embedded setup key each).
+      const tok = await mint();
+      secret(tok.token);
+      secret(tok.meshSetupKey);
+      const env = [`SWARMY_JOIN_TOKEN=${q(tok.token)}`];
+      if (tok.meshSetupKey) {
+        env.push(`SWARMY_MESH_SETUP_KEY=${q(tok.meshSetupKey)}`, `SWARMY_MESH_MANAGEMENT_URL=${q(tok.meshManagementUrl ?? '')}`, `SWARMY_MESH_DRIVER=${q(tok.meshDriver ?? '')}`);
+      }
+      await c.mustSh(w, 'umask 077; cat > /root/.swarmy-join.env', { input: env.join('\n') + '\n' });
       // The same one-liner Infrastructure → Add a node hands out.
       // Container backend (dind): run the locally built agent image, not ghcr's.
       const agentImage = c.provider.agentBackend === 'docker' ? ` SWARMY_AGENT_IMAGE=${q(await c.image('agent', c.installedTag))}` : '';
@@ -219,15 +223,84 @@ export async function reschedule(ctx: Ctx) {
 
 // ── 9. controller move / restore (P3: SQLite + Litestream) ─────────────────
 export async function controllerMove(ctx: Ctx) {
-  const force = ctx.opts.enable.includes('controller-move');
-  const proc = 'controllerBackup.moveController';
-  if (!force && !(await ctx.session.hasProcedure(proc))) {
-    throw new Skip(`flagged off: needs P3 (SQLite + Litestream); ${proc} not in this build (--enable controller-move to force)`);
+  const c = ctx.cluster;
+  if (!(await ctx.session.hasProcedure('controllerStore.move'))) {
+    throw new Skip('flagged off: controllerStore.move (P3: SQLite + Litestream) not in this build');
   }
-  // TODO(P3): once the controller's SQLite state streams to Garage via
-  // Litestream: start a restore on node 2 (moveController → target node),
-  // kill node 1's controller, and assert login + API key + stacks survive.
-  throw new Skip('controller move scenario is a TODO until P3 lands (procedure shape unknown)');
+  const target = c.workers[0];
+  if (!target) throw new Skip('needs a second node to move to');
+  const targetHost = await ctx.hostnameOf(target);
+
+  // State that must come across: a stack and the harness's own API key.
+  const stack = `e2e-move-${ctx.runId}`;
+  await ctx.sdk.stacks.deploy({ name: stack, compose_source: 'services:\n  web:\n    image: nginx:1.27-alpine\n' });
+
+  // 1. The target must be a manager.
+  const nodes = (await ctx.sdk.nodes.list({ limit: 100 })).data;
+  const tnode = nodes.find((n) => n.hostname === targetHost);
+  assert(tnode, `no REST node for ${targetHost}`);
+  await ctx.m('swarm.promote', { id: tnode.id });
+  await poll(`${targetHost} is a swarm manager`, async () =>
+    (await ctx.docker(`node ls --format '{{.Hostname}} {{.ManagerStatus}}'`)).split('\n').some((l) => l.startsWith(`${targetHost} `) && /Reachable|Leader/.test(l)),
+  { timeoutMs: 3 * 60_000, intervalMs: 5000 });
+
+  // 2. Replicate the controller store to the built-in object store (Garage).
+  await ctx.m('storage.enable', undefined, 5 * 60_000).catch((e) => {
+    if (!/already/i.test((e as Error).message)) throw e;
+  });
+  await poll('object store up', async () => (await ctx.q<{ enabled: boolean; endpoint: string | null }>('storage.status'))?.enabled, {
+    timeoutMs: 8 * 60_000,
+    intervalMs: 10_000,
+  });
+  await poll('controllerStore.enableReplication accepted', async () => (await ctx.m('controllerStore.enableReplication', { target: { kind: 'garage' } }), true), {
+    timeoutMs: 8 * 60_000,
+    intervalMs: 10_000,
+  });
+  // enableReplication restarts the controller with Litestream on.
+  let st: any;
+  await poll(
+    'store replicating and caught up',
+    async () => {
+      try {
+        st = await ctx.q('controllerStore.status');
+      } catch {
+        await ctx.connect(ctx.password || undefined).catch(() => {});
+        return null;
+      }
+      return st?.mode === 'replicated' && st?.replicating && st?.lagSeconds === 0 ? st : null;
+    },
+    { timeoutMs: 10 * 60_000, intervalMs: 5000 },
+  );
+  log(`replicating to ${JSON.stringify(st.target)}; epoch ${st.epoch}; on ${st.hostname}`);
+  const mv = (st.managers ?? []).find((m: any) => m.hostname === targetHost);
+  assert(mv && !mv.blocked, `move target ${targetHost} not offered: ${JSON.stringify(st.managers)}`);
+
+  // 3. Move, then find the controller on the target node.
+  const t0 = Date.now();
+  const res = await ctx.m<{ from: string; to: string }>('controllerStore.move', { swarmNodeId: mv.swarmNodeId });
+  log(`move ${res.from} → ${res.to}`);
+  await poll(
+    `controller task running on ${targetHost}`,
+    async () => (await ctx.docker(`service ps swarmy_controller --filter desired-state=running --format '{{.Node}} {{.CurrentState}}'`)).includes(`${targetHost} Running`),
+    { timeoutMs: 10 * 60_000, intervalMs: 5000 },
+  );
+  // Host-mode publish: the API now answers on the target's address.
+  c.controllerUrl = `http://${await c.provider.hostEndpoint(target.name, 3021)}`;
+  await poll('controller healthy on the new node', () => c.controllerHealthy(), { timeoutMs: 5 * 60_000, intervalMs: 3000 });
+  const movedIn = Math.round((Date.now() - t0) / 1000);
+
+  // 4. Everything survived: login, the SAME API key, the stack, the nodes.
+  await ctx.connect(ctx.password || undefined);
+  const stacks = (await ctx.sdk.stacks.list({ limit: 200 })).data;
+  assert(stacks.some((x) => x.name === stack), `stack ${stack} missing after the move`);
+  await poll('all nodes online after the move', async () => (await ctx.sdk.nodes.list({ limit: 100 })).data.every((n) => n.status === 'online'), {
+    timeoutMs: 5 * 60_000,
+    intervalMs: 5000,
+  });
+  const after = await ctx.q('controllerStore.status');
+  assert(after?.hostname === targetHost, `controllerStore.status says ${after?.hostname}`);
+  await ctx.sdk.stacks.remove(stack).catch(() => {});
+  return `controller ${res.from} → ${res.to} in ${movedIn}s (epoch ${st.epoch} → ${after.epoch}); login, API key, stack, nodes intact`;
 }
 
 // ── 10. platform upgrade previous → current ────────────────────────────────

@@ -18,7 +18,7 @@
  *   --reuse                don't delete an existing cluster before install
  *   --source head|tree|REF build from `git archive HEAD` (default), the working tree, or a git ref
  *   --no-build             reuse images already built (skip docker build)
- *   --mesh none|self-hosted   TODO: self-hosted once the mesh epic lands
+ *   --mesh none|swarmy     swarmy = self-hosted mesh + node 3 behind a simulated NAT (experimental)
  *   --upgrade-from REF     with --enable upgrade: install REF first (default: the parent of --source)
  *   --nodes N  --cpus N  --mem GiB  --disk GiB   (default 3 × 1 CPU / 1 GiB / 25 GiB, a 1 GB droplet)
  *   --reduced              CI mode: skip the steps a runner can't do (see REDUCED)
@@ -57,8 +57,8 @@ const STEPS: StepDef[] = [
   { id: 'postgres', title: 'managed Postgres: rows → backup → restore as copy', fn: data.postgres },
   { id: 'mariadb-redis', title: 'MariaDB + Redis logical dump and restore', fn: data.mariadbRedis },
   { id: 'reschedule', title: 'kill a worker → tasks reschedule, node rejoins', fn: platform.reschedule },
-  { id: 'controller-move', title: 'controller move/restore (P3, flagged)', fn: platform.controllerMove },
-  { id: 'upgrade', title: 'platform upgrade previous → current (flagged)', fn: platform.upgrade },
+  { id: 'controller-move', title: 'controller move to another node (SQLite + Litestream)', fn: platform.controllerMove },
+  { id: 'upgrade', title: 'platform upgrade previous → current', fn: platform.upgrade },
   { id: 'teardown', title: 'teardown', fn: platform.teardown },
 ];
 
@@ -92,12 +92,10 @@ async function main() {
   const providerKind = (a.provider as string) || (process.platform === 'darwin' ? 'lima' : 'dind');
   const provider: Provider = providerKind === 'lima' ? new LimaProvider() : new DindProvider(Number(a['registry-port'] ?? 5055));
   const mesh = ((a.mesh as string) || 'none') as ClusterConfig['mesh'];
-  if (mesh !== 'none') {
-    // TODO(mesh): flip once the self-hosted NetBird control plane ships
-    // (plans/epic-self-hosted-mesh-and-fleets.md) and install-swarmy.sh takes
-    // `--mesh self-hosted`; servers() then NATs node 3 and joins it over wt0.
-    throw new Error(`--mesh ${mesh}: the self-hosted mesh isn't available yet; use --mesh none`);
-  }
+  if (mesh !== 'none' && mesh !== 'swarmy') throw new Error(`--mesh ${mesh}: use none or swarmy`);
+  // --mesh swarmy: the self-hosted NetBird control plane (install-swarmy.sh
+  // --mesh swarmy); servers() then NATs node 3 so it can only be reached over
+  // the mesh. Experimental until the mesh epic lands; the default stays none.
   const only = list(a.only);
   for (const id of [...only, ...list(a.skip), ...list(a.enable)]) {
     if (!STEPS.some((s) => s.id === id)) throw new Error(`unknown step "${id}" (valid: ${STEPS.map((s) => s.id).join(' ')})`);
