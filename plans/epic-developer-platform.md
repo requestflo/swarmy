@@ -93,6 +93,26 @@ Order of work: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10. Design 
 - Previews with data: fork the managed DB from the latest backup (reuses the
   restore-drill clone path).
 
+## 11. AI gateway, extended (LiteLLM-class, built on what exists)
+swarmy already ships an AI gateway (docs/product/ai-gateway.md, apps/api/src/ai-gateway.ts):
+provider keys in the vault, per-app revocable virtual keys, attach-to-app, RPM + $ budgets,
+exact-body cache, usage/cost and request logs. Extend it rather than deploy LiteLLM.
+LiteLLM is Python, uses ~500 MB+ of RAM (too heavy for 1 GB nodes), and gates key features
+behind an enterprise licence. Offer LiteLLM as a template for anyone who wants it.
+- Providers: add Gemini, Bedrock, Azure OpenAI, Mistral, Groq, OpenRouter, plus
+  **in-cluster models** (Ollama / vLLM templates auto-register as providers, reached over
+  the overlay, not the internet).
+- One OpenAI-compatible surface (`/ai/v1/chat/completions`, embeddings) that translates to
+  every provider, alongside the native Anthropic path.
+- Model catalogue + per-key/per-app **model allowlists**, aliases (`fast`, `smart`,
+  `embed`), fallbacks and load-balancing across providers, and retries.
+- `swarmy.yaml` `ai: { models: [smart, embed], budget: 5/day }`: binds `OPENAI_BASE_URL`,
+  `ANTHROPIC_BASE_URL` and the key (as a Docker secret) automatically.
+- ABAC `ai.use` on models; guardrails (PII redaction on logs, prompt-size caps).
+- Traces: OTel GenAI semantic conventions into ClickHouse, linked to the calling
+  request's trace. A playground in the dashboard to try any model with a key's limits.
+- Semantic cache (optional, via the existing vector service).
+
 ## Also queued elsewhere
 - Marketing site + docs on TanStack Start (apps/web today is Vite + React; docs from
   Markdown via a content package).
