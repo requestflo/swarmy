@@ -41,6 +41,13 @@ export function DomainDnsPanel({ host }: { host: string }): React.JSX.Element {
         </p>
       ))}
 
+      {d.guidance.wildcard ? (
+        <p className={d.guidance.wildcard.provider ? 'text-muted-foreground text-xs' : 'text-status-warning text-xs'}>
+          <span className="mono-label">Wildcard certificate · </span>
+          {d.guidance.wildcard.summary}
+        </p>
+      ) : null}
+
       {d.state === 'waiting_dns' || d.state === 'error' ? (
         <div className="space-y-2">
           <p className="text-muted-foreground text-xs">{d.guidance.summary}</p>

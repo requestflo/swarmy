@@ -11,6 +11,7 @@ import { TargetNodesCard } from '@/components/ingress/target-nodes-card';
 import { TopologyCard } from '@/components/ingress/topology-card';
 import { CloudflareTunnelCard } from '@/components/ingress/cloudflare-tunnel-card';
 import { ExternalAcmeNoticeCard } from '@/components/ingress/external-acme-notice-card';
+import { WildcardCertsCard } from '@/components/ingress/wildcard-certs-card';
 import { DomainsList } from '@/components/ingress/domains-list';
 import { GeoDnsSection } from '@/components/geo/geodns-section';
 import { DRIVER_LABELS, type IngressDriverId } from '@/components/ingress/driver-config';
@@ -119,6 +120,7 @@ function IngressPage(): React.JSX.Element {
             onDisable={() => setOnDemandTls.mutate({ enabled: false })}
             pending={setOnDemandTls.isPending}
           />
+          <WildcardCertsCard />
           <TopologyCard
             topology={config.data?.topology ?? 'controller'}
             certStorage={

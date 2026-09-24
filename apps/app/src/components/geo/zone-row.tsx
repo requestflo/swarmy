@@ -5,6 +5,7 @@ import { Badge, Button, Switch, cn, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { type DnsZoneView, zoneModeLabel } from './geo-types';
 import { ZoneSettingsRow } from './zone-settings-row';
+import { ZoneAutoAddressRow } from './zone-auto-address-row';
 
 interface ZoneRowProps {
   zone: DnsZoneView;
@@ -89,6 +90,7 @@ export function ZoneRow({ zone, selected, onSelect }: ZoneRowProps): React.JSX.E
       {selected ? (
         <div className="space-y-3 px-6 pb-4">
           <ZoneSettingsRow zone={zone} />
+          <ZoneAutoAddressRow zone={zone} />
           {conflicts.map((c) => (
             <p key={`${c.name}-${c.type}`} className="text-status-warning text-xs">
               <TriangleAlertIcon className="mr-1 inline size-3.5 align-[-2px]" />

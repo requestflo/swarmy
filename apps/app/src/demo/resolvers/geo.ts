@@ -52,6 +52,7 @@ interface DnsZoneView {
   advertisedNodeIds: string[];
   nameservers: Array<{ label: string; fqdn: string; ip: string; nodeId: string; online: boolean }>;
   provider: { zoneId?: string; tokenEnv?: string; region?: string };
+  autoAddresses: boolean;
   conflicts?: Array<{ name: string; type: string; reason: string }>;
 }
 
@@ -89,6 +90,7 @@ interface ZoneState {
   autoWww: boolean;
   advertisedNodeIds: string[];
   provider: { zoneId?: string; tokenEnv?: string; region?: string };
+  autoAddresses?: boolean;
 }
 
 /** The mutable demo world behind the Geo-DNS section. */
@@ -169,6 +171,7 @@ function toZoneView(store: DemoStore, z: ZoneState): DnsZoneView {
   const byId = new Map((store.nodes as DemoNode[]).map((n) => [n.id, n]));
   return {
     ...z,
+    autoAddresses: z.autoAddresses ?? false,
     nameservers: z.advertisedNodeIds.map((nodeId, i) => {
       const n = byId.get(nodeId);
       return {
@@ -285,6 +288,19 @@ export const geo: DomainResolvers = {
       if (!z) throw new Error(`zone not found: ${id}`);
       Object.assign(z, patch);
       z.serial += 1;
+      st.updatedAt = nowIso();
+      return toZoneView(s, z);
+    },
+
+    'geodns.setZoneAutoAddresses': (i, s): DnsZoneView => {
+      const { id, enabled } = i as { id: string; enabled: boolean };
+      const st = getState(s);
+      const z = st.zones.find((x) => x.id === id);
+      if (!z) throw new Error(`zone not found: ${id}`);
+      if (enabled && (z.mode !== 'swarmy-ns' || z.advertisedNodeIds.length < 2)) {
+        throw new Error(`${z.zone} is not delegated to swarmy yet — point its NS records at swarmy first.`);
+      }
+      for (const other of st.zones) other.autoAddresses = enabled && other.id === id;
       st.updatedAt = nowIso();
       return toZoneView(s, z);
     },

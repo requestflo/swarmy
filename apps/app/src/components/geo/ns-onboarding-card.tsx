@@ -57,6 +57,18 @@ export function NsOnboardingCard({ zone, nodes }: NsOnboardingCardProps): React.
                 Add these as <strong>custom nameservers with glue/host records</strong> at your
                 registrar (the IP is the glue). Delegation changes can take hours to propagate.
               </p>
+              {zone.zone.split('.').length > 2 ? (
+                <p className="text-muted-foreground mt-1 text-xs">
+                  A sub-zone like <span className="mono-data">{zone.zone}</span> is delegated from its parent&rsquo;s DNS
+                  instead: add an <span className="mono-data">NS</span> record for{' '}
+                  <span className="mono-data">{zone.zone.split('.')[0]}</span> per nameserver above, plus an{' '}
+                  <span className="mono-data">A</span> (glue) record for each <span className="mono-data">nsN</span> name.
+                </p>
+              ) : null}
+              <p className="text-muted-foreground mt-1 text-xs">
+                Once delegated, swarmy answers ACME DNS-01 challenges itself — wildcard certificates like{' '}
+                <span className="mono-data">*.{zone.zone}</span> need no DNS provider account or API token.
+              </p>
               <p className="text-muted-foreground mt-1 text-xs">
                 Self-managed nodes: free port 53 from systemd-resolved first —{' '}
                 <span className="mono-data">DNSStubListener=no</span> in{' '}

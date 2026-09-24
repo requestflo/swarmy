@@ -371,6 +371,21 @@ function demoVerify(s: DemoStore, host: string) {
   return demoDomainDetail(s, host);
 }
 
+/** Demo `ingress.dnsChallenge`: wildcards under the demo swarmy zone solve via swarmy DNS. */
+function demoDnsChallenge(s: DemoStore) {
+  const st = getState(s);
+  const byo = (st as unknown as { byoDns?: { provider: 'cloudflare'; setAt: string } | null }).byoDns ?? null;
+  const wild = st.domains.filter((d) => d.host.startsWith('*.')).map((d) => d.host);
+  return {
+    swarmyZones: ['northwind.dev'],
+    byo,
+    wildcards: [...new Set(wild)].map((host) => ({
+      host,
+      provider: host.endsWith('.northwind.dev') ? ('swarmy' as const) : byo ? ('cloudflare' as const) : null,
+    })),
+  };
+}
+
 export const ingress: DomainResolvers = {
   handlers: {
     'ingress.getConfig': (_i, s): IngressConfigView => toConfigView(getState(s)),
@@ -494,6 +509,15 @@ export const ingress: DomainResolvers = {
     },
 
     'ingress.domainStatus': (i, s) => demoDomainDetail(s, (i as { host: string }).host),
+
+    // Wildcard certificates (ACME DNS-01): demo wildcards resolve through swarmy DNS.
+    'ingress.dnsChallenge': (_i, s) => demoDnsChallenge(s),
+
+    'ingress.setDnsProvider': (i, s) => {
+      const st = getState(s) as unknown as { byoDns?: { provider: 'cloudflare'; setAt: string } | null };
+      st.byoDns = i ? { provider: 'cloudflare', setAt: nowIso() } : null;
+      return demoDnsChallenge(s);
+    },
 
     // Demo: the DNS "record" appears on the first check.
     'ingress.verifyDomain': (i, s) => demoVerify(s, (i as { host: string }).host),

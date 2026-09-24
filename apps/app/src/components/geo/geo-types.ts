@@ -33,6 +33,8 @@ export interface DnsZoneView {
   advertisedNodeIds: string[];
   nameservers: ZoneNameserver[];
   provider: { zoneId?: string; tokenEnv?: string; region?: string };
+  /** Hosts the org's automatic app addresses (`<service>-<stack>.<zone>`). */
+  autoAddresses: boolean;
   conflicts?: ZoneConflict[];
 }
 
