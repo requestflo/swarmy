@@ -8,20 +8,28 @@ description: Build a new swarmy feature end-to-end across the stack (db model �
 swarmy features cut vertically. Build in dependency order so types flow through.
 Each layer has an owning skill with the invariants — this one is the map.
 
-## 1. Data — Docker first, Postgres only if it must (`packages/db`)
+## 1. Data — Docker first, the embedded store only if it must (`packages/db`)
 - **First run `skill("docker-native-storage")`.** Anything describing how a
   service/stack/node should behave lives on the Docker object (label / config /
-  secret), not in a new Prisma model. Postgres is for swarmy's own identity,
-  access, audit, and queryable history.
+  secret), not in a new Prisma model. The controller's embedded SQLite store
+  (`control.db`) is for swarmy's own identity, access, audit, and queryable
+  history.
 - If it does belong in the DB: the schema is multi-file —
-  `packages/db/prisma/schema/<domain>.prisma`. Domain tables use `orgId` + an
-  `org` relation (NOT `organizationId` — that's Better-Auth-only). Use enums,
-  `Json`, `BigInt`, `@db.Timestamptz(3)` consistently with neighbours.
-- **Ship a migration.** Installs build their schema from
-  `packages/db/prisma/migrations/*` (never `db push`), and CI fails a schema
-  change with no migration. `bun db:generate`, then `bun db:migrate` (or write
-  the SQL with the `prisma migrate diff` command CI prints) into the next
-  numbered folder. `bun db:push` is for a throwaway local DB only.
+  `packages/db/prisma/schema/<domain>.prisma` (`provider = "sqlite"`). Domain
+  tables use `orgId` + an `org` relation (NOT `organizationId` — that's
+  Better-Auth-only). Hot time-series goes in `telemetry.db`
+  (`prisma/telemetry/schema.prisma`, no FKs into `control.db`).
+- **Keep types SQLite-portable.** `enum`, `Json`, `DateTime` and `BigInt` fields
+  are fine. No `@db.*` annotations. No scalar lists (`String[]`) — use `Json`.
+  Autoincrement ids are `Int @id @default(autoincrement())` (the rowid alias),
+  never `BigInt`. Raw SQL must be SQLite SQL (`strftime`, not `date_trunc`).
+- **Ship a migration.** `bun run db:migration <name>` (add `--telemetry` for
+  `telemetry.db`) writes the next folder under `packages/db/prisma/migrations/`
+  from the schema diff; never hand-write it. The controller applies it on boot
+  (`ensureSchema`). `bun run db:check` is the CI gate and fails on drift. There
+  is no `db:push`: `prisma db push` breaks on SQLite `Json` defaults.
+- Tests that need a DB use `createTestDb()` from `@swarmy/db` (a fresh migrated
+  temp-dir store; call `close()`).
 
 ## 2. Agent protocol (`packages/core/src/protocol`) — only if the agent acts
 - Follow the "Adding a command" recipe in `skill("agent-handlers")`: a Zod

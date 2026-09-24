@@ -20,8 +20,8 @@ keep running on plain `docker stack deploy`.
         └──────────────┘                │ gateway  │  ◀──────│  or container │
                                         └──────────┘         │  docker.sock  │
                                           ▲   ▲              └───────────────┘
-                                  Postgres│   │Better Auth      (one per node)
-                                  (or PGlite)
+                                    SQLite│   │Better Auth      (one per node)
+                                (embedded)
 ```
 
 The controller never touches a node's Docker socket. Each node runs an **agent**
@@ -55,7 +55,6 @@ in a checkout lists every flag and env var):
 |---|---|
 | `--non-interactive` | Never prompt; use flags / env / defaults |
 | `--admin-email <e>` / `--admin-password <p>` | The owner login (password is generated if unset) |
-| `--standard` | Run a Postgres service for the controller (default: embedded PGlite) |
 | `--allow-signup` | Open self-registration (default: invite-only) |
 | `--port <n>` | Dashboard/API port (default `3021`) |
 | `--image <ref>` / `--agent-image <ref>` | Controller / agent image (default `ghcr.io/requestflo/swarmy-{controller,agent}:latest`) |
@@ -139,7 +138,7 @@ vision and code is tracked in [`plans/ROADMAP.md`](./plans/ROADMAP.md).
 | Language | TypeScript (strict, bundler resolution) |
 | UI | React 19, Vite, TanStack Router, Tailwind CSS 4, Radix + shadcn |
 | API | tRPC v11 over Hono (Bun); REST via `@hono/zod-openapi` |
-| DB | Prisma 7 + Postgres, or embedded PGlite for lite mode |
+| DB | Prisma 7 + embedded SQLite (`bun:sqlite`; `control.db` + `telemetry.db`) |
 | Auth | Better Auth (organization plugin) + ABAC (`@swarmy/abac`) |
 | Validation | Zod |
 
@@ -155,7 +154,7 @@ apps/
   e2e      Playwright smoke tests
 packages/
   core     Shared types, Zod protocol, compose, dockerode wrapper
-  db       Prisma schema + client (Postgres / PGlite)
+  db       Prisma schema + client (embedded SQLite)
   auth     Better Auth server/client
   abac     Attribute-based access control (JSON / Cedar)
   ingress  Pluggable ingress drivers
@@ -173,15 +172,13 @@ terraform-provider-swarmy/
 ```bash
 bun install
 cp .env.example .env   # set BETTER_AUTH_SECRET (openssl rand -base64 32)
-bun docker:up          # Postgres on :5678 (or use SWARMY_DB_DRIVER=pglite for zero deps)
-bun db:generate        # generate Prisma client
-bun db:push            # create the schema
+bun db:generate        # generate the Prisma clients
 bun dev                # api (:3021) + app (:3023)
 ```
 
-> **Port 5678 already taken?** Set `SWARMY_DB_PORT` in `.env` to a free port
-> (e.g. `5679`) and change the port in `DATABASE_URL` to match. `bun docker:up`
-> and the Prisma helpers both read `.env`, so everything follows automatically.
+No database server. The controller's store is two SQLite files in
+`.swarmy/data/` (gitignored; `SWARMY_DATA_DIR` moves them), created and migrated
+on boot. Delete `.swarmy/data` to start from an empty database.
 
 Open http://localhost:3023, create an account, then mint a join token
 (**Nodes → Add a node**, or **Settings → Join tokens**). On each node:
@@ -210,8 +207,10 @@ online, re-run the same install one-liner (it repairs in place) or click
 | `bun dev:agent` | Run a local agent against the dev controller |
 | `bun build` | Build every workspace |
 | `bun typecheck` / `bun test` | Type-check / test the graph |
-| `bun db:push` / `bun db:migrate` / `bun db:studio` | Prisma helpers |
-| `bun docker:up` / `bun docker:down` | Local Postgres |
+| `bun db:migration <name>` | Write the next migration from the schema diff (`--telemetry` for `telemetry.db`) |
+| `bun db:check` | CI gate: migrations apply and match the schema |
+| `bun db:studio` | Prisma Studio on `control.db` |
+| `bun docker:up` / `bun docker:down` | Optional ingress test services only (Caddy + Traefik, `ingress` profile in `docker/docker-compose.yml`); the controller needs none |
 | `bun openapi:dump` / `bun gen:sdks` | Refresh OpenAPI + SDKs |
 | `bun build:agent-bin` | Compile linux-x64/arm64 agent binaries (CLI/TUI included) |
 

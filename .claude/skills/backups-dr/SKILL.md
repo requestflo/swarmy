@@ -57,18 +57,26 @@ and where everything lives. Backups are dispatched to the agent as commands — 
    names) the agent resolves in-task — no value crosses the WS; an in-place
    restore always takes a `reason:pre-restore` dump first.
 6. **The controller bundle is zero-knowledge and re-adopts the swarm.** The bundle
-   = control-plane dump + secrets (`SWARMY_SECRET_KEY`, `BETTER_AUTH_SECRET`) +
-   config + manifest, sealed with a USER-HELD restore passphrase (not the vault
+   = `manifest.json` (`dbDriver: 'sqlite'`) + `control.db` (a `VACUUM INTO` hot
+   snapshot of the controller's SQLite store) + `secrets.json` (`SWARMY_SECRET_KEY`,
+   `BETTER_AUTH_SECRET`), sealed with a USER-HELD restore passphrase (not the vault
    key). A restore works because agent reconnect creds are *hashed*
-   (`Node.sessionSecretHash`/`sessionVersion`) inside the dump — restoring the DB
+   (`Node.sessionSecretHash`/`sessionVersion`) inside the snapshot — restoring the DB
    lets agents dial back out and re-adopt. Never hot-swap `SWARMY_SECRET_KEY` in a
    running process; a key mismatch is a surfaced warning, not a silent overwrite.
-   The dump is data-only `INSERT`s — schema is recreated by migrate/`ensureSchema`
-   on restore — and skips `EXCLUDED_TABLES` (`metric_sample` is rebuildable
-   telemetry). The bundle is a passphrase-encrypted `bundle.swcb` inside restic,
-   so a by-hand restore needs swarmy's decrypt as well as restic. Lite (PGlite) →
-   managed Postgres is bundle → flip `SWARMY_DB_DRIVER`/`DATABASE_URL` → restore;
-   there is no separate migration path (`controllerDb.service.ts`).
+   `telemetry.db` (`MetricSample`) is never in the bundle. Two restore paths,
+   both in `controllerBackup.snapshot.ts`: disaster restore (`bun run restore`,
+   controller STOPPED) uses `installSnapshotFile()` — the snapshot becomes
+   `control.db`, the old file is kept as `control.db.pre-restore-<ts>` (its
+   `-wal`/`-shm` moved with it, Litestream's `.control.db-litestream` sidecar
+   removed), then `ensureSchema` applies newer migrations. In-place restore
+   (tRPC `controllerBackup.restore`) uses `loadControlPlane()` — ATTACH the
+   snapshot, FKs off, delete + refill every table present in both (columns
+   matched by name) in one transaction, `PRAGMA foreign_key_check` before
+   COMMIT. A Postgres-era bundle (`db.sql`) is refused. The bundle is a
+   passphrase-encrypted `bundle.swcb` inside restic, so a by-hand restore needs
+   swarmy's decrypt as well as restic. There is no Postgres controller tier and
+   no "upgrade to managed Postgres" path.
 7. **Drills are safe-by-construction, admin-only, confirmed, audited.** The
    restore drill only ever touches a throwaway `drill-<ts>` cluster and cleans up
    on success AND failure; the failover drill refuses anything but a fully-healthy
@@ -132,12 +140,12 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | Volume backups: targets CRUD, native Garage target, backup/restore/list | `packages/trpc/src/services/backups.service.ts` (+ `routers/backups.ts`) |
 | Volume backup schedules + restore-op history | `packages/trpc/src/services/backupSchedule.service.ts` |
 | DB backups: engines, `swarmy.db.backup.*` labels, schedule, PITR, restore | `packages/trpc/src/services/dbBackup.service.ts` (+ `routers/dbBackup.ts`) |
-| Controller brain: config, passphrase, bundle build/restore, re-adopt | `packages/trpc/src/services/controllerBackup.{service,bundle,dump}.ts` (+ `routers/controllerBackup.ts`) |
+| Controller brain: config, passphrase, bundle build/restore, re-adopt | `packages/trpc/src/services/controllerBackup.{service,bundle,snapshot}.ts` (+ `routers/controllerBackup.ts`) |
 | Standalone disaster-restore entrypoint (dashboard is down) | `apps/api/src/restore.ts` |
 | Resilience: checks (`CHECKS_RUN`), score math, 3 drills, drill history | `packages/trpc/src/services/resilience.service.ts` (+ `routers/resilience.ts`) |
 | Default-on DB backups (nightly `pg_dump` for managed PG, crash-consistent volume backup for compose DBs, opt-out markers) | `packages/trpc/src/services/autoBackup{,.service}.ts` |
 | Compose-DB logical dumps + restore (MySQL/MariaDB/Postgres/Mongo/Redis/Valkey: credential recipe, `appdb.*` commands, scheduler hook, drill leg) | `packages/trpc/src/services/appDbBackup.service.ts` (router `routers/appDbBackup.ts` → `backups.appDb`), wire + pure scripts `packages/core/src/protocol/appDb{,Scripts}.ts`, agent `apps/agent/src/handlers/appdb.ts`, UI `components/backups/{appdb-dumps,restore-appdb-confirm}.tsx` |
-| Controller datastore (lite PGlite ↔ managed `swarmy-postgres`) | `packages/trpc/src/services/controllerDb.service.ts` |
+| Controller datastore (embedded SQLite: `control.db` + `telemetry.db`, bun:sqlite adapter, `ensureSchema`) | `packages/db/src/{client,bun-sqlite-adapter,ensure-schema}.ts` |
 | Workers: scheduled backups / restore-on-recovery / controller schedule | `apps/api/src/workers/{backup-scheduler,dr-reconcile,controller-backup-scheduler}.ts` |
 | UI: estate destinations, controller backup | `apps/app/src/routes/_authed/{backups,settings_.backup}.tsx`, `components/controllerbackup/*` |
 | UI: per-stack Backups tab (schedules, resilience score, drills) | `routes/_authed/stacks/$name.backups.tsx` → `components/backups/{stack-backups,stack-schedules-card,…}.tsx`, `components/resilience/*`; overview card `components/overview/resilience-card.tsx` |
@@ -182,7 +190,8 @@ ends with `finishDrill(...)` (which `recordDrill`s the audit row); wire it as an
   the CLI; the stored copy is for in-place operational rollback only.
 - Verify: `bun --filter @swarmy/trpc typecheck` and the pure suites
   (`resilience.service.test.ts`, `dbBackup.service.test.ts`,
-  `controllerBackup.bundle.test.ts`, `controllerBackup.schedule.test.ts`). Agent
+  `controllerBackup.bundle.test.ts`, `controllerBackup.snapshot.test.ts`,
+  `controllerBackup.schedule.test.ts`). Agent
   side: `bun --filter @swarmy/agent typecheck`. Multi-node restore-on-recovery:
   `scripts/local-vms.sh` (see `skill("run-local")`) — back up a volume, kill the
   host agent, watch `dr-reconcile` restore it onto a survivor.

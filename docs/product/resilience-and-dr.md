@@ -127,12 +127,20 @@ Four ideas, one story:
   land in the same restic catalog; physical (`wal-g` / `pgbackrest`) push base
   backups + WAL for **point-in-time recovery**. Restore modes: clone-to-new-cluster,
   in-place, single-database, and pitr-to-a-timestamp.
+- **The controller's store is two embedded SQLite files.** `control.db` holds
+  every control-plane model; `telemetry.db` holds only `MetricSample` (no foreign
+  keys into `control.db`). Both live in `SWARMY_DATA_DIR`
+  (`/var/lib/swarmy/data` on the `swarmy-data` volume in prod). There is no
+  database service, port or password. The controller migrates both files on boot
+  (`ensureSchema`). P3 (in progress) adds Litestream replication of `control.db`
+  to Garage; until it lands, the bundle below is the controller's only off-box copy.
 - **The controller can back up its own brain.** A single encrypted bundle —
-  logical control-plane dump + the controller's secrets (`SWARMY_SECRET_KEY`,
-  `BETTER_AUTH_SECRET`) + config + a compatibility manifest — sealed with a
-  **user-held restore passphrase** (zero-knowledge; shown once, "write this down").
+  a `VACUUM INTO` hot snapshot of `control.db` + the controller's secrets
+  (`SWARMY_SECRET_KEY`, `BETTER_AUTH_SECRET`) + a compatibility manifest — sealed
+  with a **user-held restore passphrase** (zero-knowledge; shown once, "write this
+  down"). `telemetry.db` is never in the bundle, so metric history does not survive a restore.
   Because every agent's reconnect credential is a *hashed* session secret in that
-  dump, **a controller restored on a fresh box re-adopts the existing swarm** —
+  snapshot, **a controller restored on a fresh box re-adopts the existing swarm** —
   agents dial back out and reconnect, no re-enrollment.
 - **DR reconciliation is automatic but bounded.** When a node that hosted a
   volume's snapshots has been offline past a grace window (~5 min), the
@@ -172,7 +180,7 @@ Four ideas, one story:
 |---|---|
 | A backup target is down when a scheduled backup fires | The `Snapshot` row is marked `FAILED` with the error; the schedule's `nextRunAt` still advances; backup recency turns the Resilience score red until a good run lands. |
 | Node holding a `local` volume dies | Past the grace window, `dr-reconcile` restores the volume's latest snapshot (by `Snapshot.hostNodeId`) onto a healthy manager and writes a `RestoreOperation` — recovery to the last backup, not zero-RPO. |
-| Controller (the brain) is lost entirely | Stand up a new controller, run the standalone `restore` entrypoint with the target coords + user-held passphrase; it loads the dump and the agents re-adopt via their hashed session secrets. Disaster recovery uses the CLI (the dashboard is down); in-place rollback uses the UI. |
+| Controller (the brain) is lost entirely | Stand up a new controller, stop the controller and run the standalone `restore` entrypoint with the target coords + user-held passphrase; it puts the snapshot in place as `control.db` (the old file kept as `control.db.pre-restore-<ts>`), applies newer migrations, and the agents re-adopt via their hashed session secrets. Disaster recovery uses the CLI (the dashboard is down); in-place rollback uses the UI. |
 | Restore passphrase is lost | The controller-state bundle is unreadable — by design (zero-knowledge). swarmy cannot recover it; the setup flow gates on "I've stored it" for exactly this reason. |
 | Restore drill fails midway | The throwaway `drill-<ts>` cluster is destroyed regardless; the drill is recorded `failed` with the step that broke; nothing on the real cluster was touched (preconditions throw before anything is created). |
 | Failover drill on a half-healthy cluster | Refused up front (needs a running primary + ≥1 running replica); the promoted replica is force-restarted back through its entrypoint to rejoin even on error. |
@@ -191,11 +199,9 @@ Four ideas, one story:
   key and the backup colocated is not disaster recovery — it is one loss away from
   both. Zero-knowledge is the default; escrow is an opt-in for users who accept the
   weaker guarantee.
-- **SQLite/libSQL as the lite controller store.** The schema is Postgres-shaped
-  (enums, jsonb, BigInt ids, timestamptz) with many concurrent writers. Lite is
-  embedded Postgres (PGlite): one schema, one migration history, only the Prisma
-  adapter changes (`SWARMY_DB_DRIVER`). Lite → managed Postgres moves data by
-  controller bundle backup → restore, not a separate migration path.
+- **A Postgres service (or external Postgres) for the controller.** Removed with
+  the `--standard` tier and the "upgrade to managed Postgres" path. A database
+  service is one more thing to run, secure, back up and pin to a host.
 - **kopia / borg instead of restic.** kopia's repository server duplicates the
   scheduling and RBAC swarmy already has; borg has no native S3 backend. restic
   is one static binary, S3-first, and restorable by hand.
@@ -210,6 +216,27 @@ Four ideas, one story:
   live cluster; it clones. Safe-to-rehearse is the point — a drill you are afraid
   to run is not a drill.
 
+## Reversed decisions
+
+- **SQLite as the controller store (reversed 2026-09-24).** We once rejected
+  SQLite/libSQL because the schema was Postgres-shaped (enums, jsonb, BigInt ids,
+  timestamptz) with many concurrent writers, and ran embedded Postgres (PGlite)
+  instead. Checked against the code (`plans/epic-docker-native-state.md` §1),
+  those reasons did not hold:
+  - *Concurrent writers:* PGlite was already single-connection; its adapter ran
+    every transaction one at a time. SQLite in WAL mode (one writer, many
+    readers) is the same model or better.
+  - *Dialect:* Prisma's SQLite provider supports `Json`, `enum` and `BigInt`.
+    Two `String[]` columns became `Json`, the `@db.*` annotations were dropped,
+    and 5 raw-SQL call sites were ported.
+  - *What PGlite cost:* at least 128 MiB of WASM memory, an initdb peak near
+    1 GiB (worked around with an image-baked template), a 597-line in-repo
+    Prisma adapter, and only logical `INSERT` dumps. No continuous replication
+    meant the controller was pinned to one host.
+  - *What SQLite gives:* a few MB of memory, `VACUUM INTO` hot snapshots for the
+    bundle, and Litestream WAL shipping to Garage (P3, in progress), which is
+    what lets the controller move between managers.
+
 ## Implementation map
 
 The operational conventions and invariants live in the `backups-dr` skill
@@ -219,7 +246,8 @@ backups.prisma` (targets, snapshots, controller backup, schedules, restore ops),
 `apps/agent/src/handlers/backup.ts` (the restic + DB-engine sidecars),
 `packages/trpc/src/services/backups.service.ts` and `dbBackup.service.ts` (volume
 + DB backup/restore), `packages/trpc/src/services/controllerBackup.service.ts`
-(the controller brain bundle) with `apps/api/src/restore.ts` (the standalone
+(the controller brain bundle; `controllerBackup.snapshot.ts` takes and loads the
+`control.db` snapshot) with `apps/api/src/restore.ts` (the standalone
 disaster-restore entrypoint), `packages/trpc/src/services/resilience.service.ts`
 (the checks, the score, and the three drills), `autoBackup{,.service}.ts`
 (default-on DB backups), the workers

@@ -5,10 +5,13 @@
 ```bash
 bun install
 cp .env.example .env   # set BETTER_AUTH_SECRET (openssl rand -base64 32)
-bun docker:up          # Postgres on :5678 (reads .env; set SWARMY_DB_PORT if taken)
-bun db:generate && bun db:push
+bun db:generate        # Prisma clients; no database server to start
 bun dev                # controller (:3021) + dashboard (:3023)
 ```
+
+The controller's store is embedded SQLite in `.swarmy/data/`, migrated on boot.
+A schema change ships a migration: `bun db:migration <name>`, then
+`bun db:check` (the CI gate).
 
 `bun typecheck` and `bun build` run the whole graph through Turbo.
 

@@ -94,7 +94,7 @@ by a worker that resumes after the controller restarts (it will — it upgrades 
 
 1. **Preflight** — every node online, swarm quorum, disk headroom, target manifest
    verified, **controller self-backup** + **Garage metadata snapshot** taken.
-2. **Controller** — `service update --image controller@digest`, stop-first (PGlite
+2. **Controller** — `service update --image controller@digest`, stop-first (SQLite
    volume is node-pinned), Swarm `failure_action: rollback`; DB migrations run on boot
    (forward-only; the preflight backup is the downgrade path). The new controller
    resumes the run.

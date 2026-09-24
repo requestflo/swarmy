@@ -273,7 +273,7 @@ Least privilege, by network:
 | `<app>_<db>-net` & co (one per managed resource) | the resource + the app services attached to it | its service name, already in the injected `DATABASE_URL` / `REDIS_URL` / … |
 | `swarmy-link-<hash>` (one per connected app PAIR) | every app service of exactly two apps of one org | `<service>.<app>` (`api.billing:8080`) and `<app>_<service>` |
 | `swarmy` (shared platform) | edge Caddy, OTel collector, Garage, and the app services that are routed / observed / bucket-attached | `<app>_<service>` (the edge's upstream), `swarmy-garage:3900`, `swarmy-otel-collector:4317` — **no user aliases** |
-| `swarmy-control` (private) | controller, its Postgres, ClickHouse + the trusted bridges (edge, cloudflared, collector, node-#1 agent) | never reachable from an app |
+| `swarmy-control` (private) | controller (embedded store), ClickHouse + the trusted bridges (edge, cloudflared, collector, node-#1 agent) | never reachable from an app |
 
 - **Apps are isolated by default; connecting them is explicit.** "Connect
   apps" (`stacks.connect`, swarmy.yaml `connect: [billing]`) creates a private
@@ -309,7 +309,7 @@ Least privilege, by network:
 ## Explicitly rejected
 
 - **A `Domain` DB model mirroring routes.** Routes live on the service label;
-  duplicating them in Postgres drifts and forces two writes. The `ask` endpoint
+  duplicating them in the DB drifts and forces two writes. The `ask` endpoint
   and the audit both read live inventory. See `docker-native-storage`.
 - **Per-node independent certificates.** N Caddy instances each running their own
   ACME account is N× issuance and N× rate-limit pressure — and under geo-DNS the

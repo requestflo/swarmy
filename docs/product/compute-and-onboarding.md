@@ -169,10 +169,11 @@ Four ideas, one story:
 - **Bash, or config baked into the URL.** Bash excludes Alpine/busybox hosts,
   and a token in the URL leaks into logs. The pasted line stays one line: the
   token and a few optional env knobs, everything else resolved server-side.
-- **SQLite/libSQL for the lite tier.** It would fork the schema forever (no
-  native enums/jsonb, single writer). The lite controller runs PGlite: same
-  Postgres dialect, one schema, one migration history; only the Prisma driver
-  adapter differs from the standard (external/managed Postgres) tier.
+- **A database service for the controller.** The controller's store is
+  embedded SQLite (`control.db` + `telemetry.db` on the `swarmy-data` volume),
+  so an install runs no Postgres, port or DB password. The old `--standard`
+  Postgres tier and embedded PGlite were both removed; the reasons are in
+  `resilience-and-dr.md` → "Reversed decisions".
 
 ## Onboarding (the one part we hand-hold)
 

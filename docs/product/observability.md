@@ -91,7 +91,7 @@ Four ideas, one story:
   override the stack three-state (`true` forces on, `false` forces a noisy service
   dark). This replaces the old `Stack.telemetryEnabled` column — see the
   `docker-native-storage` skill.
-- **The telemetry data itself lives in ClickHouse, never Postgres.** Traces,
+- **The telemetry data itself lives in ClickHouse, never swarmy's DB.** Traces,
   spans, app metrics, and log lines are the collector's write path; swarmy's DB
   never mirrors them. Retention is a ClickHouse `TTL`, not a swarmy delete loop.
 - **What swarmy's DB owns is only its own control state + queryable history**:
@@ -103,7 +103,7 @@ Four ideas, one story:
   the raw signal firehose — ClickHouse's.
 - **Telemetry is its own data plane.** Spans/metrics/logs go app → collector →
   ClickHouse, never over the agent WebSocket; node/container resource history
-  stays in `MetricSample` (Postgres), so basic graphs need no ClickHouse.
+  stays in `MetricSample` (`telemetry.db`, the controller's SQLite), so basic graphs need no ClickHouse.
 - **Health is composed, never stored.** The plain-words narrative
   (`health-summary.ts`) is recomposed each read from live tasks, DB replica lag,
   queue depth, and RED metrics — it is a view, not a table.
@@ -154,7 +154,7 @@ Four ideas, one story:
 - **A second telemetry store, or a "traces-lite" no-ClickHouse mode.** One store,
   one collector, one schema. Multiple backends multiply the query surface and the
   ops burden for no user-visible win.
-- **Mirroring spans/metrics/logs into Postgres.** The DB owns swarmy's own control
+- **Mirroring spans/metrics/logs into swarmy's DB.** The DB owns swarmy's own control
   state and the history of what *fired*, never the raw signal firehose — that is
   ClickHouse's job, TTL'd and partitioned. A column that shadows trace volume is
   the write-amplification bug we designed away.

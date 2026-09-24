@@ -405,21 +405,28 @@ controller bundle restore, or not at all.
   members/layout/engineUpgrade are left to P4 slice 2, where the whole model
   moves to `swarm-kv`.
 
-### P2: SQLite engine swap (M, 1–1.5 weeks, gated by a 1-day spike)
-- Spike: Prisma 7 + `bun:sqlite` adapter (or `adapter-libsql`) passes
-  `packages/db` + `packages/auth` + `packages/trpc` tests. **If the spike fails,
-  stop here, stay on PGlite and skip P3's floating controller.** P0/P1/P4 still
-  land.
-- `datasource provider = "sqlite"`. Strip the `@db.*` annotations; `String[]` →
-  `Json`. Squash the 18 migrations into one SQLite baseline (pre-launch).
-  Retarget `ensureSchema`.
-- Port the 5 raw-SQL sites: uptime daily aggregate (`strftime('%Y-%m-%d', at)`,
-  `count(*) FILTER (…)` works in SQLite ≥ 3.30); `patchDomainChecks` goes away
-  in P1 (in memory); the dump moves to `VACUUM INTO`.
-- Better Auth `provider: 'sqlite'`. Split `MetricSample` into `telemetry.db`.
-- Delete `pglite-adapter.ts`, the PGlite template build and `SWARMY_PGLITE_*`.
-- Done when the full test suite passes, e2e install→ONLINE→deploy is green, and
-  a measured controller RSS on a 1 GB VPS is recorded in `footprint.md`.
+### P2: SQLite engine swap (M, 1–1.5 weeks, gated by a 1-day spike) — landed 2026-09-24
+- [x] Spike: Prisma 7 + an in-repo `bun:sqlite` driver adapter
+  (`packages/db/src/bun-sqlite-adapter.ts`, ported from
+  `@prisma/adapter-better-sqlite3`) passes the db/auth/trpc tests.
+- [x] `datasource provider = "sqlite"`. `@db.*` annotations stripped; `String[]` →
+  `Json`. The migrations squashed into one SQLite baseline `0000_init` per file
+  (pre-launch). `ensureSchema` retargeted; the controller runs it on boot for
+  both files. New migrations come from `bun run db:migration <name>`; CI runs
+  `db:check`.
+- [x] The 5 raw-SQL sites ported: uptime daily aggregate uses `strftime`;
+  `patchDomainChecks` keeps probe fields in memory and read-modify-writes the
+  gate fields in a transaction (no jsonb `||`); the dump became `VACUUM INTO`
+  (`controllerBackup.snapshot.ts`; `controllerBackup.dump.ts` deleted).
+- [x] Better Auth `provider: 'sqlite'`. `MetricSample` split into `telemetry.db`
+  (own schema, own client at `src/generated-telemetry`, no FKs into `control.db`).
+- [x] Deleted `pglite-adapter.ts`, the PGlite template build, `SWARMY_PGLITE_*`,
+  `SWARMY_DB_DRIVER`, the controller's `DATABASE_URL` and `SWARMY_SELF_MIGRATE`.
+  Dev (`docker:up`, `dev:up`) no longer starts Postgres.
+- [ ] Done-gate: full test suite and e2e install→ONLINE→deploy green on the
+  SQLite store (confirm in CI before closing P2).
+- [ ] Measured controller RSS on a 1 GB VPS recorded in `footprint.md` (TODO
+  line added there).
 
 ### P3: replicated, floating controller (M, 1 week)
 - Ship `litestream` in the controller image. The entrypoint does
@@ -494,12 +501,31 @@ the most.
 - `docker-native-storage` skill: add the `swarm-kv` home and the "no run state in
   raft" rule; the "Stays in the DB" list becomes "embedded store".
 - `backups-dr` skill + `docs/product/resilience-and-dr.md`: reverse the "SQLite
-  rejected" entry (with the evidence in §1), and cover the Litestream replica,
-  the lease fence and the floating controller.
+  rejected" entry (with the evidence in §1) — done with P2 — and cover the
+  Litestream replica, the lease fence and the floating controller (P3).
 - `docs/product/footprint.md`, the `run-local` skill (no Postgres in dev after
-  P2), `README.md`.
+  P2), `README.md` — done with P2, except the footprint RSS measurement.
 
 ## Decision (2026-09-24)
+
+> **Update (2026-09-24, later the same day): reversed.** The owner reversed this
+> decision and P2 (the SQLite switch) landed; see §5 P2. The `--standard` tier,
+> the managed-Postgres upgrade path and PGlite are all gone. P3 (Litestream
+> replication to Garage, the raft lease, a floating controller) is in progress.
+> What happened to the two spike findings below:
+>
+> - **Json defaults.** The schema keeps `Json @default("{}")`.
+>   `packages/db/scripts/migration.ts` generates each migration with
+>   `prisma migrate diff` and quotes the bare literal in the generated DDL
+>   (`DEFAULT '{}'`). The quoted form introspects back equal to the schema, so the
+>   diff stays clean. `dbgenerated("'{}'")` was rejected: it renders fine but shows
+>   as perpetual drift in `prisma migrate diff`. `prisma db push` is not used.
+> - **BigInt ids.** `BigInt @id @default(autoincrement())` renders
+>   `BIGINT PRIMARY KEY`, which is not the rowid alias. `AuditLog` and
+>   `MetricSample` ids became `Int @id @default(autoincrement())`
+>   (`INTEGER PRIMARY KEY`, the rowid alias).
+
+The original decision, kept for the record:
 
 The owner keeps **PGlite** as the controller engine. It is already embedded in the
 controller process, so swarmy runs no database service by default. This plan stays

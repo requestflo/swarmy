@@ -33,7 +33,7 @@ and a worker is what continuously drives Docker toward the labels.
 3. **Docker is the source of truth; read the hub, never the DB, for swarm
    state.** Desired state comes off `hub.liveInventory(orgId)` (service labels /
    specs) and mutations go out via `hub.dispatch(managerNode, cmd, payload)`.
-   Never read swarm inventory back from Postgres — it is stale the instant
+   Never read swarm inventory back from the DB — it is stale the instant
    Docker changes (`skill("docker-native-storage")`).
 4. **Org-scoped, and one org's failure never kills the tick.** Iterate the org
    set, wrap each org's body in try/catch (or `.catch(() => undefined)` on every

@@ -53,8 +53,8 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
    string routed through `lit()` (single-quote escape), every int `clampInt`'d.
    Users never touch raw ClickHouse; they get audited tRPC procedures.
 8. **Telemetry data lives in ClickHouse; the DB owns only control state + fired
-   history.** The DB holds `ObservabilityConfig` and the alerting spine — never
-   spans/metrics/logs. Run state is never stored: the store probe
+   history.** The controller store (`control.db`) holds `ObservabilityConfig` and the
+   alerting spine — never spans/metrics/logs. Run state is never stored: the store probe
    (`recordStoreProbe`/`latestStoreProbe`) and the last suite-deploy outcome
    live in memory in `observability.service.ts`; collector/store status is
    derived from live tasks. Retention is a ClickHouse `TTL`,

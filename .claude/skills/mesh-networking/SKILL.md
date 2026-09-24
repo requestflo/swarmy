@@ -154,7 +154,7 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
   place (recreate = disruptive): a swarm migrated onto the mesh keeps 1500 on
   old networks — `scripts/verify-networking.sh` (2 MB cross-node transfer)
   tells you if that bites.
-- The network wall (`network-policy.ts`): the controller + its Postgres +
+- The network wall (`network-policy.ts`): the controller (its store is embedded) +
   ClickHouse live only on the private `swarmy-control` overlay; user specs may
   never join it nor alias names on the shared `swarmy` overlay (admission
   refuses, not overridable; the agent strips such aliases as a floor).

@@ -14,7 +14,8 @@ Everything below assumes the repo root as the working directory.
 - **Docker** — Docker Desktop (macOS/Windows) or Docker Engine (Linux), running,
   with **Swarm mode** available (it's built in; `bun run dev:up` enables it).
 - **Bun** ≥ 1.3 — <https://bun.sh>
-- A free TCP port **5678** for Postgres (override with `SWARMY_DB_PORT` if taken).
+- No database server. The controller's store is embedded SQLite in
+  `.swarmy/data/` (gitignored; `SWARMY_DATA_DIR` moves it).
 
 ```bash
 bun install
@@ -42,9 +43,9 @@ This is idempotent and does, in order:
 2. `docker swarm init` if the host isn't already a swarm — makes **this laptop a
    single-node manager** so the agent can drive `docker service`. Re-runs are a
    no-op.
-3. `bun docker:up` — starts Postgres, then waits for it to report healthy.
-4. `bun db:generate` + `bun db:push` — Prisma client and schema.
-5. `bun run seed-dev` — creates (or reuses) a dev login user, an org, an owner
+3. `bun db:generate` — the Prisma clients.
+4. `bun run seed-dev` — applies the migrations to `.swarmy/data/control.db` and
+   `telemetry.db` (creating them if needed), then creates (or reuses) a dev login user, an org, an owner
    membership, and **one join token**. The raw token is written to
    `.swarmy-dev-token` (gitignored) and printed.
 
@@ -225,16 +226,17 @@ up any of the above. (Owned by `apps/app/src/demo`.)
   Mint a fresh one with `bun run mint-token` (always writes a new one, unlike
   `seed-dev` which keeps an existing usable token). `dev:vms` mints for you.
 - **Controller crashes on boot with Prisma `P2022` (column does not exist)** —
-  the DB schema drifted from the Prisma models (e.g. after pulling a migration).
-  Re-sync: `bun db:push`, then restart the controller.
+  the local DB drifted from the migrations (e.g. a migration was squashed or
+  edited in place). Stop the controller, `rm -rf .swarmy/data`, and re-run
+  `bun run dev:up`. New migrations apply on their own at boot.
 - **`dev:vms` says the controller isn't serving binaries** — build them
   (`bun run build:agent-bin`) and confirm `bun dev:app` is running; the VMs reach
   it at your Mac's LAN IP. The dashboard's own "Add a node" one-liner points at
   the dashboard origin (`localhost:3023`), which a VM can't reach — use `dev:vms`
   for local VMs, or set the controller's `CONTROLLER_PUBLIC_URL` to its LAN URL.
-- **`Bind for 0.0.0.0:5678 failed: port is already allocated`** — another
-  Postgres owns 5678. Set `SWARMY_DB_PORT` to a free port in `.env` **and** match
-  the port in `DATABASE_URL`, then re-run `bun run dev:up`.
+- **`database is locked` (`SQLITE_BUSY`)** — another process held the write
+  lock past the 5 s `busy_timeout`, e.g. an open `sqlite3` shell mid-transaction.
+  Close it.
 - **Socket permission denied (Linux)** — your user isn't in the `docker` group.
   Either `sudo usermod -aG docker $USER` (then re-login) or run the agent with a
   socket your user can read; override with `DOCKER_SOCKET=…` if it lives
@@ -250,10 +252,9 @@ up any of the above. (Owned by `apps/app/src/demo`.)
 ## Reset
 
 ```bash
-bun docker:down                                                   # stop Postgres (keep data)
-docker compose --env-file .env -f docker/docker-compose.yml down -v   # also wipe data
-rm -f .swarmy-dev-token                                           # forget the dev token
-docker swarm leave --force                                        # leave swarm mode (optional)
+rm -rf .swarmy/data            # wipe the controller DB (stop the controller first)
+rm -f .swarmy-dev-token        # forget the dev token
+docker swarm leave --force     # leave swarm mode (optional)
 ```
 
-After a data wipe, re-run `bun run dev:up` to recreate the schema and seed.
+After a data wipe, re-run `bun run dev:up` to recreate the files and seed.

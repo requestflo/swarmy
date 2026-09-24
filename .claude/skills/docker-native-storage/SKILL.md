@@ -1,11 +1,12 @@
 ---
 name: docker-native-storage
-description: Decide WHERE a piece of swarmy config/state lives — Docker labels (service/container), stack-level labels, Docker configs, Docker secrets, or Postgres. Use whenever adding a feature that needs to persist "how a service/stack/node should behave", or when you catch yourself reaching for a new Prisma model/column for swarm state. swarmy's rule: Docker is the source of truth; the DB is only swarmy's own identity, access control, audit, and queryable history.
+description: Decide WHERE a piece of swarmy config/state lives — Docker labels (service/container), stack-level labels, Docker configs, Docker secrets, or the controller's embedded SQLite store (control.db). Use whenever adding a feature that needs to persist "how a service/stack/node should behave", or when you catch yourself reaching for a new Prisma model/column for swarm state. swarmy's rule: Docker is the source of truth; the DB is only swarmy's own identity, access control, audit, and queryable history.
 ---
 
 # Docker-native storage: where does this belong?
 
-swarmy ripped container/swarm STATE out of Postgres (epic #6). The standing rule for
+swarmy ripped container/swarm STATE out of its database (epic #6; the store is now
+the embedded SQLite file `control.db`). The standing rule for
 any new config or state:
 
 > If it describes **how a service / stack / node should behave**, store it ON the
@@ -45,15 +46,16 @@ Before adding a Prisma model or column, run the decision below.
 
 5. **Network-scoped metadata** → **network label**.
 
-6. Otherwise → it may legitimately belong in Postgres (see below).
+6. Otherwise → it may legitimately belong in the embedded SQLite store
+   (`control.db`; see below).
 
-## Stays in the DB (do NOT move these to Docker)
+## Stays in the embedded store (do NOT move these to Docker)
 
 - **swarmy's own identity / auth**: sessions, API keys, OAuth client secrets, webhook
   signing secrets, the per-node reconnect credential (`Node.sessionSecretHash`).
 - **Access control + audit**: RBAC policies + ResourceGrants, the AuditLog — they need
   querying, history, and must not be world-readable.
-- **Queryable history / time-series**: MetricSample (wants a DB/TSDB), build history.
+- **Queryable history / time-series**: MetricSample (its own file, `telemetry.db`), build history.
 - **Durable queues**: webhook delivery outbox.
 - **Relational core**: Org / Member / Invitation.
 
@@ -76,7 +78,7 @@ wrong for secrets, audit, history, and anything you need to query across.
    (see `scale-to-zero`, `region-reconcile`, `manageddb-reconcile`). Registered in
    `workers/index.ts`.
 4. **Migrate off a model**: stop writing the DB row, point all readers at the inventory
-   labels, then drop the model from `schema.prisma` and `prisma db push`. Convert any
+   labels, then drop the model from `packages/db/prisma/schema` and `bun run db:migration <name>`. Convert any
    FK that referenced it to a plain string column. Verify: typecheck + the live read
    path returns from the hub.
 

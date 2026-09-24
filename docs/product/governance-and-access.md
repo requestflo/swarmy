@@ -121,7 +121,7 @@ Four ideas, one story:
   "Members of platform can deploy apps on apps where env is production." and a
   **who-can** simulator lists every member's decision and the deciding rule for
   an action on a real or hypothetical resource. Policies are stored behind a
-  `PolicyRepository` so they can move off Postgres without touching the gate.
+  `PolicyRepository` so they can move stores without touching the gate.
 - **Members deploy freely outside production.** The seeded defaults: owners and
   admins everything; members read everything and deploy, configure, scale and
   restart anything that is not production. A production deploy, every

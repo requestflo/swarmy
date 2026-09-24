@@ -33,7 +33,10 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
    `buildCaddyfile`, `composeToModels`, `JsonPolicyEngine.evaluate`,
    `answerQuery`) so the test imports the function and asserts on its return.
    Controller-service tests mock the context in-memory (`mockCtx`) — they don't
-   spin Postgres. If a change is only testable against a real socket/DB, the logic
+   open a database. When a test genuinely needs real SQL (the db package, a
+   snapshot/restore, a raw query), use `createTestDb()` from `@swarmy/db`: a fresh,
+   migrated SQLite store in a temp dir (`db` + `telemetry` clients; call
+   `close()` in `afterEach`). If a change is only testable against a real socket/DB, the logic
    is in the wrong place; move it into `packages/*` and test it there (same rule
    the DNS/ingress "render pure, apply at the edge" split enforces).
 5. **Every protocol message has a round-trip / discriminated-union parse test.**
@@ -71,23 +74,23 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
    (`apps/e2e/demo-smoke.ts` — serves the built dashboard in demo mode, proves it
    renders with NO API/DB), and the headline backend e2e (real install → ONLINE →
    deploy → reachable). Keep the no-backend tiers no-backend; don't make the
-   marketing smoke depend on Postgres.
+   marketing smoke depend on the controller.
 
 ## Contracts between the layers
 
 - **Turbo → workspaces**: `turbo run test` fans out to each workspace's `bun
   test` after `^build`. A package with no test file still passes (bun test exits 0
   on no matches) — absence is silent, so a required gate must be an actual file.
-- **CI → gates** (`.github/workflows/`): `ci.yml` `verify` job, against a real
-  `postgres:16` service, runs `prisma migrate deploy` then **fails if
-  `prisma/schema` differs from the migrations** (a model change must ship a
-  migration), proves the boot-time `ensureSchema` path on Postgres, then
+- **CI → gates** (`.github/workflows/`): `ci.yml` `verify` job runs
+  `db:check` — every migration applied through the boot-time `ensureSchema` to a
+  scratch SQLite file, then **fails if `prisma/schema` differs** (a model change
+  must ship a migration from `bun run db:migration <name>`) — then
   `typecheck` + `build`; `images-dryrun` builds both Dockerfiles without pushing;
   `commitlint` lints PR commits; `pr-title.yml` lints the PR title; `e2e.yml`
   runs the headline self-host e2e (below); `release.yml` runs semantic-release on
   `main`. **CI still runs no `bun run test` job** — the unit gates above only
-  protect you if you run them; when you add the job, give it the same Postgres
-  service block as `verify` for any DB-touching test.
+  protect you if you run them. No database service is needed for it: DB-touching
+  tests use `createTestDb()`.
 - **Test → source purity**: a test importing from `@swarmy/core`,
   `@swarmy/ingress`, `@swarmy/dns`, `@swarmy/abac`, `@swarmy/mesh` gets pure
   functions; a test in `packages/trpc/src/services` mocks `OrgContext`/the hub.
@@ -182,7 +185,7 @@ that runs the tasks (they `docker exec`/`kill` and read the host filesystem).
 - Golden assertions are literals, so an intended behaviour change means editing the
   expected value in the test in the same commit — there's no `--update-snapshots`.
   A diff that flips a golden without a matching source change is the tell.
-- The full headline e2e needs the controller + app + Postgres up (point Playwright
+- The full headline e2e needs the controller + app up (point Playwright
   `baseURL` at `:3023` per `playwright.config.ts`'s note) and a box to enroll — use
   the `scripts/local-vms.sh` Lima swarm (`skill("run-local")`), not the
   marketing `webServer`.

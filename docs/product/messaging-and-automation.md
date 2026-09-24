@@ -89,7 +89,7 @@ Four ideas, one story:
   *worker* service (`[{name, cacheCluster, convention, scalePerJobs, minWorkers,
   maxWorkers, retries, dlq}]`). The last depth sample is stamped into a
   `swarmy.queues.stats` label by `queue-reconcile` so the list renders without an
-  exec fan-out. No queue row in Postgres — see the `docker-native-storage` skill.
+  exec fan-out. No queue row in swarmy's DB — see the `docker-native-storage` skill.
 - **Queue contents live in the cache cluster, never swarmy.** Waiting/active/
   failed/delayed and the `<q>:dead` list are keys in the org's own Valkey/Redis
   primary. swarmy reads and mutates them by exec'ing the CLI inside that
@@ -97,7 +97,7 @@ Four ideas, one story:
   wire).
 - **Scheduled jobs, workflows and their runs are swarmy's DB** — `ScheduledJob`/
   `JobRun`, `WorkflowDef`/`WorkflowRun`/`WorkflowStepRun`. These are identity +
-  input + audited history, not swarm state, so Postgres is the right home.
+  input + audited history, not swarm state, so the controller's store (`control.db`) is the right home.
   `stackName` on each is the stack-scoped-IA home; `null` = org-wide/legacy.
 - **Inbound and outbound webhook plumbing is swarmy's DB** — `InboundEndpoint`/
   `InboundDelivery` and `WebhookEndpoint`/`WebhookDelivery`. Verify secrets and
@@ -154,7 +154,7 @@ Four ideas, one story:
 | Workflow step times out or errors | Retries per the step's budget with backoff; exhausted → step fails → run fails → `workflow-failed` event. The agent still kills the container at its `timeoutMs`. |
 | Run cancelled mid-step | The runner's next guarded write is a no-op (claim lost); the step is marked cancelled. Best-effort: the container is killed at its timeout. |
 | No online node to run a job/step | The attempt fails with "no online node"; a scheduled job records the failed `JobRun` and, with `alertOnFailure`, raises an alert. |
-| Controller restarts mid-run | State lives in Postgres (cursor, stateJson) + the cache; the next tick re-claims RUNNING runs and PENDING deliveries and continues. No work is lost, none double-commits (guarded writes). |
+| Controller restarts mid-run | State lives in `control.db` (cursor, stateJson) + the cache; the next tick re-claims RUNNING runs and PENDING deliveries and continues. No work is lost, none double-commits (guarded writes). |
 
 ## Explicitly rejected
 
@@ -162,7 +162,7 @@ Four ideas, one story:
   swarmy already provisions managed cache clusters; a queue is a convention over
   one, so there is nothing new to run, secure, or back up. See
   `docker-native-storage`.
-- **A queue table in Postgres.** Queue *definitions* are Docker labels and queue
+- **A queue table in swarmy's DB.** Queue *definitions* are Docker labels and queue
   *contents* are cache keys. A DB mirror would drift from both and duplicate the
   cache's job store. The DB holds only run history, which the cache does not.
 - **The controller opening a redis/AMQP port to a node.** All queue reads and

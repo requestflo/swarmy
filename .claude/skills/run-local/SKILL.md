@@ -1,16 +1,19 @@
 ---
 name: run-local
-description: Run swarmy locally — backing services (Postgres via docker compose) and the dev servers (controller API :3021 + dashboard :3023, or the marketing web app). Use when asked to start, run, boot, or see the app locally, verify a change in the browser, or stand up the local database. Covers env setup, the SWARMY_DB_PORT port-conflict knob, and troubleshooting.
+description: Run swarmy locally — the dev servers (controller API :3021 + dashboard :3023, or the marketing web app) over the controller's embedded SQLite store (no database server, no docker compose needed). Use when asked to start, run, boot, or see the app locally, verify a change in the browser, or reset the local database. Covers env setup, where the SQLite files live, migrations (db:migration / db:check), and troubleshooting.
 ---
 
 # Run swarmy locally
 
-The local stack is two layers: **backing services** (Postgres in Docker) and the
-**dev servers** (Bun/Vite via Turbo). Both read the repo-root `.env`.
+The controller needs **no backing services**. Its store is embedded SQLite
+(`bun:sqlite`, in-process): two files, `control.db` (every model) and
+`telemetry.db` (`MetricSample` only), in `SWARMY_DATA_DIR`. Unset, that is
+`<repo>/.swarmy/data` (gitignored). The controller creates the files and applies
+migrations on boot (`ensureSchema`). The dev servers (Bun/Vite via Turbo) read the
+repo-root `.env`.
 
 | Layer | Command | Ports |
 |---|---|---|
-| Postgres (Docker) | `bun docker:up` / `bun docker:down` | host `5678` → container `5432` |
 | Controller API + dashboard | `bun dev:app` | API `:3021`, app `:3023` |
 | Everything (api + app, Turbo) | `bun dev` | `:3021`, `:3023` |
 | Marketing site | `bun dev:web` | Vite default |
@@ -23,10 +26,11 @@ does not, so make sure those ports are free.
 ```bash
 bun install
 cp .env.example .env          # then set BETTER_AUTH_SECRET: openssl rand -base64 32
-bun docker:up                 # start Postgres (reads .env)
-bun db:generate               # generate the Prisma client
-bun db:push                   # create the schema in the running DB
+bun db:generate               # generate both Prisma clients (control + telemetry)
 ```
+
+No schema step: the controller (and `seed-dev`) migrates `.swarmy/data/*.db` on
+boot.
 
 `BETTER_AUTH_SECRET` ships as the placeholder `replace-me-…` — Better Auth needs a
 real secret or login/signup misbehaves. Generate one with `openssl rand -base64 32`.
@@ -34,7 +38,6 @@ real secret or login/signup misbehaves. Generate one with `openssl rand -base64 
 ## Day-to-day: start it
 
 ```bash
-bun docker:up                 # if Postgres isn't already running
 bun dev:app                   # API :3021 + dashboard :3023
 ```
 
@@ -53,12 +56,12 @@ To run the **genuine product loop** — a controller with a real agent attached 
 the laptop's Docker, so a node shows up ONLINE — use the one-command path:
 
 ```bash
-bun run dev:up        # Docker check + swarm init + Postgres + db push + seed
+bun run dev:up        # Docker check + swarm init + db:generate + seed
 ```
 
 `dev:up` is idempotent: it `docker swarm init`s the host (single-node manager, so
-the agent can `docker service`), starts Postgres, generates + pushes the schema,
-then `seed-dev`s a dev user + org + one join token. The raw token lands in
+the agent can `docker service`), generates the Prisma clients, then `seed-dev`s
+(which applies migrations to `.swarmy/data`) a dev user + org + one join token. The raw token lands in
 `.swarmy-dev-token` (gitignored). Then, in two terminals:
 
 ```bash
@@ -85,66 +88,79 @@ VMs (native arm64, QEMU + `hvf` on Apple Silicon) and enrolls each via
 interactive demo (no Docker/DB/agent needed). The flag is sticky in
 `localStorage` until the "Get swarmy" CTA clears it.
 
-## Port 5678 already taken
+## Where the data lives, and overrides
 
-Common when another project runs its own Postgres on 5678. Don't fight it — move
-swarmy's host port:
+| File | Holds | Override |
+|---|---|---|
+| `$SWARMY_DATA_DIR/control.db` | every control-plane model | `SWARMY_DB_PATH` |
+| `$SWARMY_DATA_DIR/telemetry.db` | `MetricSample` only | `SWARMY_TELEMETRY_DB_PATH` |
 
-1. In `.env`, set `SWARMY_DB_PORT` to a free port (e.g. `5679`).
-2. Change the port in `DATABASE_URL` to **match** (`…@localhost:5679/…`).
-3. `bun docker:up` (compose reads `SWARMY_DB_PORT`) and `bun db:push` (reads
-   `DATABASE_URL`) both follow automatically.
+`SWARMY_DATA_DIR` defaults to `<repo>/.swarmy/data` in dev and is
+`/var/lib/swarmy/data` in prod. The files run in WAL mode, so you also see
+`-wal`/`-shm` files beside them. A second process (a script, `bun run reset-2fa`,
+`sqlite3`) can open `control.db` while the controller runs.
 
-The container port stays 5432; only the host mapping changes.
+`bun db:studio` opens `control.db` through `packages/db/prisma.config.ts`
+(`SWARMY_DB_URL` overrides its `file:` URL).
 
-## How env reaches each tool (why the scripts look the way they do)
+## Schema changes
 
-Bun and Docker Compose each auto-load `.env` only from their own working
-directory, **not** the repo root when invoked through `bun --filter` /
-`-f docker/…`. So the root scripts pass it explicitly:
+- Edit `packages/db/prisma/schema/*.prisma`, then `bun run db:migration <name>`
+  (root) or `bun run --cwd packages/db db:migration <name>`. Add `--telemetry` for
+  `telemetry.db`. It writes the next migration folder from the schema diff.
+- `bun run db:check` is the CI gate: it applies every migration through
+  `ensureSchema` to a scratch file and fails on drift.
+- Restart the controller (or re-run `seed-dev`) to apply it locally.
+- There is no `db:push` / `db:migrate`. `prisma db push` can't be used: Prisma
+  renders `Json @default("{}")` unquoted in SQLite DDL; `scripts/migration.ts`
+  fixes that in the generated SQL.
 
-- `docker:up` / `docker:down` → `docker compose --env-file .env …`
-- `db:push` / `db:migrate` / `db:studio` → `bun --env-file=.env --filter …`
+## How env reaches each tool
 
-If you run a Prisma command by hand inside `packages/db`, pass the URL yourself:
-`DATABASE_URL=… bunx prisma db push`. Otherwise the CLI falls back to the
-hard-coded `localhost:5678` in `packages/db/prisma.config.ts` and silently hits the
-wrong database.
+Bun auto-loads `.env` only from its own working directory, so launch the dev
+servers from the repo root (`bun dev`, `bun dev:app`). `docker:up` / `docker:down`
+pass `--env-file .env` explicitly. With `SWARMY_DATA_DIR` unset, the controller,
+`seed-dev` and `db:studio` all resolve the same `<repo>/.swarmy/data`.
 
 ## Ingress drivers (optional)
 
-To exercise the caddy/traefik ingress drivers locally:
+`docker/docker-compose.yml` now holds only the optional `ingress` profile. To
+exercise the caddy/traefik ingress drivers locally:
 
 ```bash
-docker compose --env-file .env -f docker/docker-compose.yml --profile ingress up -d   # + caddy, traefik
+docker compose --env-file .env -f docker/docker-compose.yml --profile ingress up -d   # caddy + traefik
 ```
 
 (Bound to non-conflicting host ports — see `docker/docker-compose.yml`.)
 
 ## Stop / reset
 
+Stop the dev servers with Ctrl-C. To wipe the local database, stop the
+controller and delete the data dir:
+
 ```bash
-bun docker:down                       # stop Postgres (keeps data volume)
-docker compose --env-file .env -f docker/docker-compose.yml down -v   # also wipe data
+rm -rf .swarmy/data          # control.db, telemetry.db and their -wal/-shm
+bun run seed-dev             # optional: recreate + migrate + seed the dev login
 ```
 
-After wiping the volume, re-run `bun db:push` to recreate the schema.
+The next controller boot recreates and migrates empty files.
 
 ## VS Code
 
-`.vscode/tasks.json` (local, gitignored) auto-runs **swarmy: backing services** on
-folder open and offers **swarmy: dev (api + app)** as a one-click task. The first
+`.vscode/tasks.json` (local, gitignored) may still auto-run a **swarmy: backing services** task on folder open; it is no
+longer needed (nothing to start). It offers **swarmy: dev (api + app)** as a one-click task. The first
 time, VS Code prompts to allow automatic tasks (or run *Tasks: Manage Automatic
 Tasks → Allow*).
 
 ## Troubleshooting
 
-- **`P1000 Authentication failed … at localhost:5678`** — a Prisma command didn't
-  get `DATABASE_URL`; it fell back to 5678 and hit the wrong/locked DB. Run via the
-  root `bun db:*` scripts, or prefix `DATABASE_URL=…`.
-- **`DATABASE_URL is not set`** at API startup — the controller's `.env` isn't being
-  loaded; launch from repo root (`bun dev:app`).
-- **`Bind for 0.0.0.0:5678 failed: port is already allocated`** — see *Port 5678
-  already taken* above.
+- **`SQLITE_BUSY` / "database is locked"** — another process held the write lock
+  past `busy_timeout` (5 s). Usually a stuck script or an open `sqlite3` shell with
+  a write transaction; close it.
+- **Schema errors after pulling** (missing column/table) — restart the controller;
+  it applies new migrations on boot. If a migration was edited in place
+  (pre-launch squash), `rm -rf .swarmy/data` and re-seed.
+- **`db:check` fails** — the schema and the migrations disagree; run
+  `bun run db:migration <name>` and commit the new folder.
 - **Login/signup acts weird** — check `BETTER_AUTH_SECRET` is a real value, not the
   placeholder.

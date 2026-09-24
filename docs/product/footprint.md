@@ -1,13 +1,28 @@
-# Controller memory footprint (lite tier)
+# Controller memory footprint
 
 Swarmy should run on a 1 GB VPS. This note records where the controller's memory
 goes, what we changed, and what's left, so later work starts from measurements
 instead of guesses.
 
-## How it was measured
+## Current store: embedded SQLite
+
+The controller's store is now embedded SQLite (`bun:sqlite`, WAL) in two files,
+`control.db` and `telemetry.db`, opened once per process through the in-repo
+driver adapter (`packages/db/src/bun-sqlite-adapter.ts`). It replaced PGlite on
+2026-09-24. There is no WASM Postgres, no initdb and no template: SQLite costs a
+few MB, so the first-boot peak and the two-instance problem described below are
+gone.
+
+- TODO: controller RSS on a 1 GB VPS with SQLite: to be measured.
+
+Everything from "How it was measured" through "Tried and rejected" is
+**historical**: it was measured on the PGlite store. The JS findings (module
+graph, Prisma query compiler, `MIMALLOC_PURGE_DELAY=0`) still apply.
+
+## Historical (PGlite): how it was measured
 
 - The `swarmy-controller` image (bun 1.3.14, linux/arm64). Changed sources were
-  bind-mounted over `/app/packages/db/src`. Lite tier: `SWARMY_DB_DRIVER=pglite`,
+  bind-mounted over `/app/packages/db/src`. Embedded PGlite store,
   `SWARMY_BOOTSTRAP=1`, one org, no nodes attached, 35 s per run.
 - **cgroup** is `memory.current` / `memory.peak`, which is what the OOM killer
   counts. `anon` is the anonymous part of `memory.stat`. A `--preload` probe also
@@ -16,7 +31,7 @@ instead of guesses.
 - **First boot** starts with an empty data dir (initdb + migrations + seed).
   **Restart** reuses the same data dir.
 
-## Results
+## Historical (PGlite): results
 
 | Scenario | cgroup peak | cgroup steady | anon steady |
 |---|---|---|---|
@@ -28,7 +43,7 @@ instead of guesses.
 The first-boot peak was the 1 GB OOM. It is now about 2.5× lower, and a 1 GB
 droplet boots without needing swap.
 
-## Where the memory went
+## Historical (PGlite): where the memory went
 
 1. **PGlite's initdb (first boot only): about 0.9–1 GiB peak on its own.** On an
    empty data dir PGlite starts a nested in-memory WASM Postgres and the initdb
@@ -51,7 +66,10 @@ droplet boots without needing swap.
    39 MiB. PGlite's WASM memory is now only about 27 MiB resident out of a
    143 MiB mapping.
 
-## Changes
+## Historical (PGlite): changes
+
+The PGlite items below (`pglite-adapter.ts`, the template, `SWARMY_PGLITE_*`)
+were deleted with the SQLite switch. `MIMALLOC_PURGE_DELAY=0` stays.
 
 - `packages/db/src/pglite-adapter.ts`
   - `LITE_POSTGRES_SETTINGS`: `shared_buffers=16MB`, `maintenance_work_mem=16MB`
@@ -80,7 +98,7 @@ droplet boots without needing swap.
   to the OS immediately, which saves about 25–30 MiB steady and about 45–70 MiB
   of peak.
 
-## Tried and rejected
+## Historical (PGlite): tried and rejected
 
 | Option | Effect | Verdict |
 |---|---|---|
@@ -93,8 +111,8 @@ droplet boots without needing swap.
 
 ## What's left (to get under 250 MiB steady)
 
-- **Pre-bundle the controller** (`bun build --target bun --minify`, with PGlite
-  and Prisma as externals). In a prototype this cut about 25–40 MiB (anon
+- **Pre-bundle the controller** (`bun build --target bun --minify`, with Prisma
+  as an external). The prototype was measured on the PGlite store. In a prototype this cut about 25–40 MiB (anon
   303 → 263 MiB). It first needs the `import.meta.url`-relative paths fixed:
   `ensure-schema.ts` migrationsDir, the `webhooks.ts` and
   `preview-reconcile.ts` lazy imports, and `agent-release.service.ts` repoRoot.
