@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AttachVectorInput, EnablePgvectorInput, ProvisionVectorInput } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   attachVectorToService,
   destroyVector,
@@ -40,7 +41,7 @@ export const vectorStoreRouter = router({
   get: orgProcedure.input(instanceRef).query(({ ctx, input }) => getVectorInstance(ctx, input)),
 
   /** Remove the service + key secret. Blocked while apps are attached. */
-  destroy: orgProcedure
+  destroy: abacProcedure('data.destroy')
     .input(instanceRef.extend({ force: z.boolean().default(false) }))
     .mutation(({ ctx, input }) => destroyVector(ctx, input)),
 

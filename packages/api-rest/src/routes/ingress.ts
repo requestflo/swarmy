@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
 import { addDomain, listDomains, removeDomain } from '@swarmy/trpc';
 import type { TlsMode } from '@swarmy/core';
 import type { RestEnv } from '../middleware';
-import { requireScope } from '../middleware';
+import { requireAction, requireScope } from '../middleware';
 import { AddDomainBody, DomainDto, ProblemDto, RemovedDto, listEnvelope } from '../dto';
 import { domainToDto } from '../mappers';
 import { run } from '../respond';
@@ -76,7 +76,7 @@ export function registerIngressRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Ingress'],
       summary: 'Remove an ingress domain',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('ingress.write')] as const,
       request: { params: idParam },
       responses: {
         200: { content: { 'application/json': { schema: RemovedDto } }, description: 'Removed' },

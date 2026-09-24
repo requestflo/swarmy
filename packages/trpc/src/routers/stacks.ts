@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { orgProcedure, router } from '../trpc';
+import { abacProcedure, resolveStack } from '../abac';
 import {
   addServiceToStack,
   deployFromCompose,
@@ -53,7 +54,7 @@ export const stacksRouter = router({
     .input(z.object({ id: z.string(), composeSource: z.string().optional(), override: z.boolean().optional() }))
     .mutation(({ ctx, input }) => redeployStack(ctx, input)),
 
-  remove: orgProcedure
+  remove: abacProcedure('stack.remove', resolveStack)
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeStack(ctx, input.id)),
 });

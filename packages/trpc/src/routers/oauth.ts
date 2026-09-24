@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   createOAuthClient,
   listOAuthClients,
@@ -28,7 +29,7 @@ export const oauthRouter = router({
       createOAuthClient(ctx, { name: input.name, scopes: input.scopes as OAuthScope[] | undefined }),
     ),
 
-  revoke: adminProcedure
+  revoke: abacProcedure('token.revoke')
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => revokeOAuthClient(ctx, input.id)),
 });

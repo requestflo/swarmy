@@ -7,6 +7,7 @@ import {
   SecretFamilyRefInput,
 } from '@swarmy/core';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   attachSecretToService,
   createSecretFamily,
@@ -53,12 +54,12 @@ export const secretsMgrRouter = router({
     .mutation(({ ctx, input }) => detachSecretFromService(ctx, input)),
 
   /** Danger: remove every version. Refused while any service consumes it. */
-  deleteFamily: adminProcedure
+  deleteFamily: abacProcedure('secret.delete')
     .input(SecretFamilyRefInput)
     .mutation(({ ctx, input }) => deleteSecretFamily(ctx, input)),
 
   /** Remove old, consumer-free versions (the current one always stays). */
-  pruneVersions: adminProcedure
+  pruneVersions: abacProcedure('secret.delete')
     .input(SecretFamilyRefInput)
     .mutation(({ ctx, input }) => pruneSecretVersions(ctx, input)),
 });

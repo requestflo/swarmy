@@ -11,6 +11,7 @@ import {
   SetBucketWebsiteInput,
 } from '@swarmy/core';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   attachToService,
   createBucket,
@@ -85,7 +86,7 @@ export const objectStorageRouter = router({
     .mutation(({ ctx, input }) => createBucket(ctx, input)),
 
   /** Refused while the bucket still holds objects or is attached to a service. */
-  deleteBucket: adminProcedure
+  deleteBucket: abacProcedure('data.destroy')
     .input(DeleteBucketInput)
     .mutation(({ ctx, input }) => deleteBucket(ctx, input.bucketId)),
 
@@ -94,7 +95,7 @@ export const objectStorageRouter = router({
     .input(CreateBucketKeyInput)
     .mutation(({ ctx, input }) => createKey(ctx, input.name)),
 
-  deleteKey: adminProcedure
+  deleteKey: abacProcedure('data.destroy')
     .input(DeleteBucketKeyInput)
     .mutation(({ ctx, input }) => deleteKey(ctx, input.accessKeyId)),
 

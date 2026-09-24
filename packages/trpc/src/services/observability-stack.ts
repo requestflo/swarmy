@@ -20,7 +20,7 @@
  * `${file:/run/secrets/clickhouse-password}`. No plaintext env either.
  */
 import { createHash } from 'node:crypto';
-import { STACK_LABEL, SYSTEM_STACK, SYSTEM_STACK_LABEL } from '@swarmy/core';
+import { STACK_LABEL, SWARMY_CONTROL_NETWORK, SYSTEM_STACK, SYSTEM_STACK_LABEL } from '@swarmy/core';
 import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
 import {
   CLICKHOUSE_INIT_PATH,
@@ -223,6 +223,13 @@ export function clickhouseServiceSpec(opts: {
   initConfig: string;
   /** Docker SWARM node id to pin to (data volume is node-local). */
   pinSwarmNodeId?: string;
+  /**
+   * Migration bridge: the controller that reads the store is still only on
+   * the shared `swarmy` overlay (a controller image upgrade without the
+   * installer re-run). Keep the store reachable there until it moves, so
+   * observability reads never break; the next reconcile after the move drops it.
+   */
+  controllerOnSharedOnly?: boolean;
 }): ServiceSpec {
   return {
     name: CLICKHOUSE_SERVICE,
@@ -241,10 +248,9 @@ export function clickhouseServiceSpec(opts: {
       // Surfaced for the init DDL / TTL setup; harmless otherwise.
       SWARMY_RETENTION_DAYS: String(opts.retentionDays),
     },
-    ports: [
-      { target: CLICKHOUSE_HTTP_PORT, protocol: 'tcp', mode: 'ingress' },
-      { target: CLICKHOUSE_NATIVE_PORT, protocol: 'tcp', mode: 'ingress' },
-    ],
+    // NO published ports: an ingress-mode port (even with no fixed number)
+    // opens a routing-mesh port on EVERY node's public IP. The controller and
+    // the collector reach the store over swarmy-control only.
     mounts: [{ type: 'volume', source: CLICKHOUSE_DATA_VOLUME, target: '/var/lib/clickhouse' }],
     // Init DDL runs on first boot from the entrypoint dir.
     configs: [{ source: opts.initConfig, target: CLICKHOUSE_INIT_PATH, mode: 0o444 }],
@@ -252,7 +258,11 @@ export function clickhouseServiceSpec(opts: {
     ...(opts.pinSwarmNodeId
       ? { placement: { constraints: [`node.id==${opts.pinSwarmNodeId}`] } }
       : {}),
-    networks: [OTEL_OVERLAY_NETWORK],
+    // PRIVATE control network only: the store holds every org's telemetry and
+    // its password; apps (on `swarmy`) never need to reach it directly.
+    networks: opts.controllerOnSharedOnly
+      ? [SWARMY_CONTROL_NETWORK, OTEL_OVERLAY_NETWORK]
+      : [SWARMY_CONTROL_NETWORK],
   };
 }
 
@@ -273,14 +283,14 @@ export function collectorServiceSpec(opts: {
       // full DSN leaked the password into `docker service inspect`).
       CLICKHOUSE_ENDPOINT: `tcp://${CLICKHOUSE_SERVICE_HOST}:${CLICKHOUSE_NATIVE_PORT}`,
     },
-    ports: [
-      { target: OTLP_GRPC_PORT, protocol: 'tcp', mode: 'ingress' },
-      { target: OTLP_HTTP_PORT, protocol: 'tcp', mode: 'ingress' },
-    ],
+    // NO published ports: apps (and the edge) reach OTLP at
+    // `swarmy-otel-collector:4317` over `swarmy`. A routing-mesh publish let
+    // anyone on the internet push spans stamped with any `swarmy.org_id`.
     configs: [{ source: opts.config, target: COLLECTOR_CONFIG_PATH, mode: 0o444 }],
     // `${file:/run/secrets/clickhouse-password}` in the config resolves here.
     secrets: [passwordSecretRef(opts.passwordSecret)],
-    networks: [OTEL_OVERLAY_NETWORK],
+    // Receives on `swarmy` (apps, edge); writes ClickHouse on swarmy-control.
+    networks: [OTEL_OVERLAY_NETWORK, SWARMY_CONTROL_NETWORK],
   };
 }
 

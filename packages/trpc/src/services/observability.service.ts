@@ -20,12 +20,13 @@
  */
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import { randomBytes } from 'node:crypto';
-import { buildInventory, UNGROUPED, type InvService } from '@swarmy/core';
+import { buildInventory, SWARMY_CONTROL_NETWORK, UNGROUPED, type InvService } from '@swarmy/core';
 import { encryptSecret, decryptSecret } from '@swarmy/core/crypto';
 import type { OrgContext } from '../context';
 import { writeAudit } from './audit.service';
 import { mapDispatchError, notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
+import { ensureControlNetwork } from './platform-networks';
 import { OTEL_ENABLED_LABEL } from './otel-injection';
 import {
   collectorServiceSpec,
@@ -498,13 +499,16 @@ async function deployStore(ctx: OrgContext, dsnPlain: string): Promise<void> {
     await createConfigIdempotent(ctx, node.id, cfg);
   }
 
-  // 2. Deploy the store (pinned), then the collector.
+  // 2. Deploy the store (pinned), then the collector. The store lives on the
+  //    private control network (created here for pre-split installs).
+  await ensureControlNetwork(ctx, node.id);
   const specs: ServiceSpec[] = [
     clickhouseServiceSpec({
       passwordSecret: configs.clickhousePassword.name,
       retentionDays,
       initConfig: configs.clickhouseInit.name,
       pinSwarmNodeId: storePin(ctx, node.id),
+      controllerOnSharedOnly: controllerOnSharedOnly(ctx),
     }),
     collectorServiceSpec({ passwordSecret: configs.clickhousePassword.name, config: configs.collector.name }),
   ];
@@ -527,6 +531,17 @@ function desiredConfigs(dsn: ClickhouseDsn, retentionDays: number): Observabilit
 }
 
 /** Where ClickHouse is pinned: its existing pin label, else the dispatch manager. */
+/**
+ * True while the controller service runs but is not yet on `swarmy-control`
+ * (pre-split install whose stack file hasn't been re-deployed). Unknown
+ * (not in this org's inventory, e.g. a dev controller on the host) = false.
+ */
+function controllerOnSharedOnly(ctx: OrgContext): boolean {
+  const ctl = ctx.hub.liveInventory(ctx.activeOrgId).services.find((s) => s.name === 'swarmy_controller');
+  if (!ctl) return false;
+  return !ctl.networks.some((n) => n.name === SWARMY_CONTROL_NETWORK);
+}
+
 function storePin(ctx: OrgContext, managerNodeId: string): string | undefined {
   const live = ctx.hub
     .liveInventory(ctx.activeOrgId)

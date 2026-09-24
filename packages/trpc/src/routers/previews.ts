@@ -5,6 +5,7 @@ import {
   SetPreviewSettingsInput,
 } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   createManualPreview,
   destroyPreview,
@@ -39,7 +40,7 @@ export const previewsRouter = router({
     .mutation(({ ctx, input }) => createManualPreview(ctx, input)),
 
   /** Tear one preview down now — services, secrets, route (audited). */
-  destroy: orgProcedure
+  destroy: abacProcedure('stack.remove')
     .input(DestroyPreviewInput)
     .mutation(({ ctx, input }) => destroyPreview(ctx, input)),
 });

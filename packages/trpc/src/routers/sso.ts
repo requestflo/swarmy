@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { authRegistry } from '@swarmy/auth';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   deleteSsoProvider,
   listSsoProviders,
@@ -37,7 +38,7 @@ export const ssoRouter = router({
       return result;
     }),
 
-  delete: adminProcedure
+  delete: abacProcedure('authconfig.write')
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const result = await deleteSsoProvider(ctx, input.id);

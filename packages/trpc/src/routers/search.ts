@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AttachSearchInput, ProvisionSearchInput } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   attachSearchToService,
   backupSearch,
@@ -48,7 +49,7 @@ export const managedSearchRouter = router({
   get: orgProcedure.input(instanceRef).query(({ ctx, input }) => getSearchInstance(ctx, input)),
 
   /** Remove the service + the key secret. Blocked while apps are attached. */
-  destroy: orgProcedure
+  destroy: abacProcedure('data.destroy')
     .input(instanceRef.extend({ force: z.boolean().default(false) }))
     .mutation(({ ctx, input }) => destroySearch(ctx, input)),
 
@@ -71,7 +72,7 @@ export const managedSearchRouter = router({
     .mutation(({ ctx, input }) => backupSearch(ctx, input)),
 
   /** Stop engine → restore volume → start engine. */
-  restore: orgProcedure
+  restore: abacProcedure('data.restore')
     .input(
       instanceRef.extend({
         snapshotId: z.string().min(1),

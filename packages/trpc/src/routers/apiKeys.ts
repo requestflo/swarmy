@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   createApiKey,
   listApiKeys,
@@ -23,7 +24,7 @@ export const apiKeysRouter = router({
       createApiKey(ctx, { name: input.name, scopes: input.scopes as ApiKeyScope[] | undefined }),
     ),
 
-  revoke: adminProcedure
+  revoke: abacProcedure('token.revoke')
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => revokeApiKey(ctx, input.id)),
 });

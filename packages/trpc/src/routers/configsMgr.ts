@@ -10,6 +10,7 @@ import {
   NewConfigVersionInput,
 } from '@swarmy/core';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   applyConfigVersion,
   attachConfigToService,
@@ -74,12 +75,12 @@ export const configsMgrRouter = router({
     .mutation(({ ctx, input }) => detachConfigFromService(ctx, input)),
 
   /** Danger: remove every version. Refused while any service consumes it. */
-  deleteFamily: adminProcedure
+  deleteFamily: abacProcedure('secret.delete')
     .input(ConfigFamilyRefInput)
     .mutation(({ ctx, input }) => deleteConfigFamily(ctx, input)),
 
   /** Remove old, consumer-free versions (the current one always stays). */
-  pruneVersions: adminProcedure
+  pruneVersions: abacProcedure('secret.delete')
     .input(ConfigFamilyRefInput)
     .mutation(({ ctx, input }) => pruneConfigVersions(ctx, input)),
 });

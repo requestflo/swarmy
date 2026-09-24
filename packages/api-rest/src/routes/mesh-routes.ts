@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
 import { grantDirectRoute, listMeshRoutes, revokeDirectRoute } from '@swarmy/trpc';
 import type { RestEnv } from '../middleware';
-import { requireScope } from '../middleware';
+import { requireAction, requireScope } from '../middleware';
 import { ProblemDto, RemovedDto, listEnvelope } from '../dto';
 import { GrantMeshRouteBody, GrantMeshRouteDto, MeshRouteDto } from '../dto-extra';
 import { grantMeshRouteToDto, meshRouteToDto } from '../mappers-extra';
@@ -85,7 +85,7 @@ export function registerMeshRouteRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Mesh'],
       summary: 'Revoke a mesh route',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('token.revoke')] as const,
       request: { params: idParam },
       responses: {
         200: { content: { 'application/json': { schema: RemovedDto } }, description: 'Removed' },

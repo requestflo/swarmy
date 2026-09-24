@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CreateServiceInput, LogsInput, UpdateServiceInput } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
+import { abacProcedure, resolveService } from '../abac';
 import {
   createService,
   getServiceDetail,
@@ -49,15 +50,15 @@ export const servicesRouter = router({
 
   update: orgProcedure.input(UpdateServiceInput).mutation(({ ctx, input }) => updateService(ctx, input)),
 
-  scale: orgProcedure
+  scale: abacProcedure('service.scale', resolveService)
     .input(z.object({ id: z.string(), replicas: z.number().int().min(0).max(1000) }))
     .mutation(({ ctx, input }) => scaleService(ctx, input)),
 
-  restart: orgProcedure
+  restart: abacProcedure('service.restart', resolveService)
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => restartService(ctx, input.id)),
 
-  remove: orgProcedure
+  remove: abacProcedure('service.remove', resolveService)
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeService(ctx, input.id)),
 

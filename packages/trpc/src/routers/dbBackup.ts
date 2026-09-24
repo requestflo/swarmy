@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { RunDbBackupInput, SetDbBackupScheduleInput } from '@swarmy/core';
 import { DbBackupEngine, DbRestoreMode } from '@swarmy/core/protocol';
 import { orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   backupDb,
   dbBackupOverview,
@@ -62,7 +63,7 @@ export const dbBackupRouter = router({
     )
     .query(({ ctx, input }) => listDbBackups(ctx, input)),
 
-  restore: orgProcedure
+  restore: abacProcedure('data.restore')
     .input(
       z.object({
         stack: z.string().min(1),

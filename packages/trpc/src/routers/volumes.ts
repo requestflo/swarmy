@@ -3,6 +3,7 @@
  */
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import { deregister, list, register } from '../services/clusterVolume.service';
 
 const accessMode = z.enum(['single-writer', 'multi-writer', 'multi-reader']);
@@ -23,7 +24,7 @@ export const volumesRouter = router({
     )
     .mutation(({ ctx, input }) => register(ctx, input)),
 
-  deregisterCluster: adminProcedure
+  deregisterCluster: abacProcedure('data.destroy')
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => deregister(ctx, input.id)),
 });

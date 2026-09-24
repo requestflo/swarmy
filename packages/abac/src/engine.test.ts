@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import { JsonPolicyEngine, PolicyEngine } from './engine';
+import { defaultPolicyInputs } from './defaults';
 import type { AuthzRequest, PolicyInput, Principal, Resource } from './types';
+
+const DEFAULTS_AS_INPUTS: PolicyInput[] = defaultPolicyInputs().map((p) => ({ ...p, id: `default:${p.key}` }));
 
 function principal(over: Partial<Principal> = {}): Principal {
   return {
@@ -136,6 +139,56 @@ describe('PolicyEngine.withDefaults (behaviour preservation)', () => {
     expect(engine.evaluate({ principal: principal(), action: 'service.restart' }).decision).toBe(
       'permit',
     );
+  });
+
+  // Destructive-action sweep (owner decision 2026-09-24): the actions every
+  // destructive mutation is gated on. Owners/admins keep all of them (no
+  // lockout); members are refused all of them by default.
+  const DESTRUCTIVE = [
+    'service.remove',
+    'stack.remove',
+    'node.remove',
+    'token.revoke',
+    'member.write',
+    'policy.write',
+    'authconfig.write',
+    'data.destroy',
+    'data.restore',
+    'data.failover',
+    'backup.remove',
+    'secret.delete',
+    'dns.remove',
+    'ingress.remove',
+    'cicd.remove',
+  ] as const;
+
+  it('owner + admin keep every destructive action (no lockout)', () => {
+    for (const action of DESTRUCTIVE) {
+      for (const role of ['owner', 'admin'] as const) {
+        expect(engine.evaluate({ principal: principal({ roles: [role] }), action }).decision).toBe('permit');
+      }
+    }
+  });
+
+  it('a member is denied every destructive action by default', () => {
+    for (const action of DESTRUCTIVE) {
+      expect(engine.evaluate({ principal: principal(), action }).decision).toBe('deny');
+    }
+  });
+
+  it("a member keeps today's safe ops the sweep gated (drain, scale, restart, domain removal)", () => {
+    for (const action of ['node.drain', 'service.scale', 'service.restart', 'ingress.write'] as const) {
+      expect(engine.evaluate({ principal: principal(), action }).decision).toBe('permit');
+    }
+  });
+
+  it('an org can grant members a destructive action with one policy', () => {
+    const custom = new JsonPolicyEngine([
+      ...DEFAULTS_AS_INPUTS,
+      policy({ id: 'members-restore', priority: 60, source: JSON.stringify({ roles: ['member'], actions: ['data.restore'] }) }),
+    ]);
+    expect(custom.evaluate({ principal: principal(), action: 'data.restore' }).decision).toBe('permit');
+    expect(custom.evaluate({ principal: principal(), action: 'data.destroy' }).decision).toBe('deny');
   });
 
   it('PolicyEngine alias equals JsonPolicyEngine', () => {

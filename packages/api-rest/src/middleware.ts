@@ -1,7 +1,7 @@
 import type { Context, MiddlewareHandler } from 'hono';
-import type { OrgContext } from '@swarmy/trpc';
+import { authorize, type OrgContext, type ResolveResource } from '@swarmy/trpc';
 import type { ApiKeyScope, RestDeps } from './deps';
-import { PROBLEM_CONTENT_TYPE, problem } from './problem';
+import { PROBLEM_CONTENT_TYPE, problem, trpcErrorToProblem } from './problem';
 
 /** Hono context variables populated by {@link apiKeyAuth}. */
 export interface RestEnv {
@@ -45,6 +45,34 @@ export function requireScope(scope: ApiKeyScope): MiddlewareHandler<RestEnv> {
         403,
         { 'content-type': PROBLEM_CONTENT_TYPE },
       );
+    }
+    await next();
+  };
+}
+
+/**
+ * Fine-grained policy gate for a REST route — the REST twin of tRPC's
+ * `abacProcedure(action, resolver)`. Runs AFTER `requireScope` (scope is the
+ * key's coarse ceiling; this is the org's policy) and calls the SAME
+ * `authorize` step, so a key acting as its creator gets the identical decision
+ * and `authz.permit|deny:<action>` audit row a dashboard call would. Destructive
+ * routes (DELETE, drain, restore, …) carry this; `resolve` receives the path
+ * params so a resource-scoped policy (labels, ReBAC grants) applies.
+ */
+export function requireAction(
+  action: Parameters<typeof authorize>[1],
+  resolver?: ResolveResource,
+): MiddlewareHandler<RestEnv> {
+  return async (c, next) => {
+    const ctx = c.get('orgCtx');
+    try {
+      // Path params ARE the resolver input (`/services/{id}` → `{ id }`), the
+      // same shape the tRPC procedure's input carries.
+      const resourceInput = resolver ? await resolver(ctx, c.req.param()) : null;
+      await authorize(ctx, action, resourceInput);
+    } catch (e) {
+      const p = trpcErrorToProblem(e, c.req.path);
+      return c.json(p, p.status as 403, { 'content-type': PROBLEM_CONTENT_TYPE });
     }
     await next();
   };

@@ -32,6 +32,11 @@ rule itself lives in the linked doc.
 - **Caddy is the default edge for new workspaces** (other drivers stay
   selectable; a fresh org without a public IP/domain still works) —
   `docs/product/ingress-and-exposure.md` → "Ingress & exposure behaviour".
+- **Destructive actions sit behind the fine-grained policy check** —
+  `abacProcedure` on tRPC, `requireAction` on REST, one `authorize` step;
+  owners/admins keep everything, members keep drain/scale/restart/domain
+  removal — `docs/product/governance-and-access.md` → "Every destructive action
+  runs the policy gate".
 - **`.design/` deleted** — the skills and `redesign-dashboard-2026-09.md` are
   the design authority.
 
@@ -47,9 +52,10 @@ rule itself lives in the linked doc.
 
 ## Security & governance
 
-- Move destructive mutations behind `abacProcedure` — today it gates only the
-  terminal; `services.scale/restart/remove` are `orgProcedure` and `nodes.remove`
-  is `adminProcedure` (`skill("auth-abac")`).
+- Sweep the config-level deletes onto `abacProcedure` too (alert
+  channels/rules, notification templates, status pages, inbound/outbound
+  webhooks, jobs, workflows, backup schedules, AI-gateway keys) — still
+  role-gated after the destructive-action sweep (`skill("auth-abac")`).
 - SAML SSO rows are stored but skipped at build time (no SAML plugin in the
   Better Auth version in use).
 - Terminal `requireMfa` and `maxSessionMs` are stored and editable but not

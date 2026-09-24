@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   addRepo,
   getBuildLogPage,
@@ -37,7 +38,7 @@ export const cicdRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => addRepo(ctx, input)),
-  removeRepo: adminProcedure
+  removeRepo: abacProcedure('cicd.remove')
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeRepo(ctx, input.id)),
 

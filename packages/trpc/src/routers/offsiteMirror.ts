@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   getMirror,
   listOffsiteBuckets,
@@ -38,7 +39,7 @@ export const offsiteMirrorRouter = router({
     .mutation(({ ctx, input }) => saveMirror(ctx, input)),
 
   /** Stop mirroring. The off-site copy itself is never deleted. */
-  remove: adminProcedure.mutation(({ ctx }) => removeMirror(ctx)),
+  remove: abacProcedure('backup.remove').mutation(({ ctx }) => removeMirror(ctx)),
 
   /** Start a run now; returns once it is recorded (the copy runs in the background). */
   mirrorNow: adminProcedure.mutation(({ ctx }) => mirrorNow(ctx)),
@@ -47,7 +48,7 @@ export const offsiteMirrorRouter = router({
   offsiteBuckets: adminProcedure.query(({ ctx }) => listOffsiteBuckets(ctx)),
 
   /** Copy the off-site copy back into Garage. Confirm = the destination's name. */
-  restore: adminProcedure
+  restore: abacProcedure('data.restore')
     .input(
       z.object({
         confirm: z.string(),

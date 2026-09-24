@@ -1,3 +1,4 @@
+import { SWARMY_CONTROL_NETWORK } from '@swarmy/core';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { IngressConfig } from '../types';
 
@@ -33,7 +34,9 @@ export function buildConnectorServiceSpec(config: IngressConfig): ServiceSpec {
     // Token mode: no config file, no credentials file. `--no-autoupdate` keeps
     // the pinned image authoritative; metrics bind aids diagnostics.
     command: ['tunnel', '--no-autoupdate', '--metrics', '0.0.0.0:2000', 'run'],
-    networks: [network],
+    // The fronted-apps network + the PRIVATE control network (the tunnel's
+    // dashboard hostname dials `swarmy_controller:3021`, which lives only there).
+    networks: [...new Set([network, SWARMY_CONTROL_NETWORK])],
     restartPolicy: { condition: 'any' },
     labels: { 'swarmy.managed': 'ingress', 'swarmy.ingress.connector': 'cloudflared' },
   };

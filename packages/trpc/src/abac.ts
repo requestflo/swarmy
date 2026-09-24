@@ -155,34 +155,56 @@ export function abacProcedure(action: Action, resolveResource?: ResolveResource)
   }
   return orgProcedure.use(async (opts) => {
     const ctx = opts.ctx as unknown as OrgContext;
-    const resourceInput = resolveResource ? await resolveResource(ctx, opts.input) : null;
-    const result = await evaluateAccess(ctx, action, resourceInput);
+    // This middleware sits BEFORE the procedure's `.input()`, so tRPC hands it no
+    // parsed input — resolve from the raw input (resolvers read it defensively and
+    // re-check existence with an org-scoped lookup).
+    const input = resolveResource ? (opts.input ?? (await opts.getRawInput())) : undefined;
+    const resourceInput = resolveResource ? await resolveResource(ctx, input) : null;
+    const authz = await authorize(ctx, action, resourceInput);
+    return opts.next({ ctx: { authz } });
+  });
+}
 
-    if (result.decision === 'deny') {
-      await writeAudit(ctx, {
-        action: `authz.deny:${action}`,
-        targetType: result.resource?.type,
-        targetId: result.resource?.id,
-        metadata: { policyId: result.policyId, reasons: result.reasons },
-      });
-      throw new TRPCError({
-        code: 'FORBIDDEN',
-        message: `not permitted: ${action}`,
-        cause: { swarmyCode: 'POLICY_DENIED', policyId: result.policyId },
-      });
-    }
+/** What {@link authorize} returns on permit (also stamped on ctx by abacProcedure). */
+export interface AuthzGrant {
+  action: Action;
+  decision: 'permit';
+  policyId: string | null;
+}
 
+/**
+ * The enforcement step shared by BOTH front doors: evaluate the PARC request,
+ * audit the outcome (`authz.permit:<action>` / `authz.deny:<action>`), and throw
+ * `FORBIDDEN` with `swarmyCode: 'POLICY_DENIED'` on deny. `abacProcedure` wraps
+ * it for tRPC; the REST `requireAction` middleware calls it directly, so a
+ * dashboard call and an API-key call get the identical decision + audit row.
+ */
+export async function authorize(
+  ctx: OrgContext,
+  action: Action,
+  resourceInput: ResourceInput | null,
+): Promise<AuthzGrant> {
+  const result = await evaluateAccess(ctx, action, resourceInput);
+  if (result.decision === 'deny') {
     await writeAudit(ctx, {
-      action: `authz.permit:${action}`,
+      action: `authz.deny:${action}`,
       targetType: result.resource?.type,
       targetId: result.resource?.id,
-      metadata: { policyId: result.policyId },
+      metadata: { policyId: result.policyId, reasons: result.reasons },
     });
-
-    return opts.next({
-      ctx: { authz: { action, decision: result.decision, policyId: result.policyId } },
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: `not permitted: ${action}`,
+      cause: { swarmyCode: 'POLICY_DENIED', policyId: result.policyId },
     });
+  }
+  await writeAudit(ctx, {
+    action: `authz.permit:${action}`,
+    targetType: result.resource?.type,
+    targetId: result.resource?.id,
+    metadata: { policyId: result.policyId },
   });
+  return { action, decision: 'permit', policyId: result.policyId };
 }
 
 // ── Documented resource resolvers for the common domain rows ────────────────

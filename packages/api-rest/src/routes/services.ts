@@ -4,11 +4,12 @@ import {
   getServiceDetail,
   listServices,
   removeService,
+  resolveService,
   restartService,
   scaleService,
 } from '@swarmy/trpc';
 import type { RestEnv } from '../middleware';
-import { requireScope } from '../middleware';
+import { requireAction, requireScope } from '../middleware';
 import {
   CreateServiceBody,
   DeploymentRefDto,
@@ -116,7 +117,7 @@ export function registerServiceRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Services'],
       summary: 'Scale a service (async deploy)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('service.scale', resolveService)] as const,
       request: { params: idParam, body: jsonBody(ScaleBody) },
       responses: {
         202: { content: { 'application/json': { schema: DeploymentRefDto } }, description: 'Accepted' },
@@ -142,7 +143,7 @@ export function registerServiceRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Services'],
       summary: 'Restart a service (async deploy)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('service.restart', resolveService)] as const,
       request: { params: idParam },
       responses: {
         202: { content: { 'application/json': { schema: DeploymentRefDto } }, description: 'Accepted' },
@@ -159,7 +160,7 @@ export function registerServiceRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Services'],
       summary: 'Remove a service',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('service.remove', resolveService)] as const,
       request: { params: idParam },
       responses: {
         200: { content: { 'application/json': { schema: RemovedDto } }, description: 'Removed' },

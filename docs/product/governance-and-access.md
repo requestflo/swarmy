@@ -43,7 +43,7 @@ protectedProcedure   ① session + user or UNAUTHORIZED
 orgProcedure         ② activeOrgId set AND caller is a Member of it
    │                    → ctx.membership { role, orgId }; every query is where:{orgId}
    ▼
-adminProcedure       ③ coarse gate: role !== 'member'   (destructive/governance)
+adminProcedure       ③ coarse gate: role !== 'member'   (non-destructive governance)
    │
    └─ abacProcedure(action, resolveResource)   ④ fine gate: build P·A·R·C,
         │   evaluate org policies (forbid-wins, default-deny),
@@ -124,6 +124,37 @@ Four ideas, one story:
   are runtime-built from `AuthProviderConfig` and only appear on the sign-in page
   when enabled. API keys and OAuth clients are admin-minted, hashed at rest, and
   scoped — see the `rest-api-surface` skill.
+
+- **Every destructive action runs the policy gate — on both front doors.**
+  (Owner decision 2026-09-24.) Removing, destroying, restoring over, draining,
+  revoking or failing over is `abacProcedure(action, resolver)` in tRPC and
+  `requireAction(action, resolver)` on the REST route that calls the same
+  service; both call one `authorize` step, so a dashboard click and an API-key
+  call get the identical decision and the identical `authz.permit|deny:<action>`
+  audit row. The governed actions:
+
+  | Action | Covers |
+  |---|---|
+  | `service.remove` / `stack.remove` / `node.remove` | removing a service, a stack or preview env, a node |
+  | `service.scale` / `service.restart` / `node.drain` | scale (incl. to 0), restart, drain/cordon |
+  | `data.destroy` | managed cache/search/vector/queue teardown or drain, bucket/key delete, object store disable, cluster-volume deregister |
+  | `data.restore` | volume, DB, cache, search, controller and offsite-mirror restores (they overwrite live data) |
+  | `data.failover` | confirming a managed-DB failover that may lose the last writes (see `managed-data.md`) |
+  | `backup.remove` | removing a backup target or the offsite mirror |
+  | `secret.delete` | deleting or pruning a secret/config family |
+  | `dns.remove` / `ingress.remove` / `ingress.write` | geo-DNS zone/record removal; Cloudflare tunnel delete; domain removal |
+  | `token.revoke` / `member.write` / `policy.write` / `authconfig.write` / `cicd.remove` | API key / OAuth client / join token / direct-connect revoke; grants + invitations; policy, SSO and git-repo removal |
+
+  **Seeded defaults: owners and admins can do all of it (no lockout, even for an
+  org whose defaults were persisted before these actions existed — their `*`
+  permits cover them); members keep drain, scale, restart and domain removal and
+  are refused the rest.** That is a deliberate tightening for members on
+  service/stack/preview removal, managed-data destroy/restore and queue
+  remove/drain, which were member-callable before; an org re-grants any of them
+  with one policy. Over REST it also closes the gap where a member's API key
+  could remove a node. Not yet swept (config-level deletes, still
+  role-gated): alert channels/rules, notification templates, status pages,
+  inbound/outbound webhooks, jobs, workflows, backup schedules, AI-gateway keys.
 
 - **The web terminal is one policy gate and a dumb pipe.** tRPC `terminal.open`
   is the only gate (ABAC `terminal.open` + `TerminalPolicy` + optional four-eyes

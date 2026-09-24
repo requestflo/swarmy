@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ACTIONS } from '@swarmy/abac';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   deletePolicy,
   listPolicies,
@@ -55,7 +56,7 @@ export const policiesRouter = router({
     )
     .mutation(({ ctx, input }) => setPolicy(ctx, input)),
 
-  delete: adminProcedure
+  delete: abacProcedure('policy.write')
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => deletePolicy(ctx, input.id)),
 });

@@ -5,6 +5,7 @@
  */
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import { getEngineUpgrade, startEngineUpgrade } from '../services/engine-upgrade.service';
 import {
   disable,
@@ -31,7 +32,7 @@ export const storageRouter = router({
     .mutation(({ ctx, input }) => setDriver(ctx, input)),
 
   enable: adminProcedure.mutation(({ ctx }) => enable(ctx)),
-  disable: adminProcedure.mutation(({ ctx }) => disable(ctx)),
+  disable: abacProcedure('data.destroy').mutation(({ ctx }) => disable(ctx)),
   previewDeployment: adminProcedure.query(({ ctx }) => previewDeployment(ctx)),
 
   /** Engine version the store runs, whether an upgrade is available, and the last/current run. */

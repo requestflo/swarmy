@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AttachCacheInput, ProvisionCacheInput } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   attachCacheToService,
   backupCache,
@@ -60,7 +61,7 @@ export const managedCacheRouter = router({
     .mutation(({ ctx, input }) => setCacheMemory(ctx, input)),
 
   /** Remove every member + the password secret. Blocked while apps are attached. */
-  destroy: orgProcedure
+  destroy: abacProcedure('data.destroy')
     .input(clusterRef.extend({ force: z.boolean().default(false) }))
     .mutation(({ ctx, input }) => destroyCache(ctx, input)),
 
@@ -89,7 +90,7 @@ export const managedCacheRouter = router({
     .mutation(({ ctx, input }) => backupCache(ctx, input)),
 
   /** Stop primary → restore volume → start primary. */
-  restore: orgProcedure
+  restore: abacProcedure('data.restore')
     .input(
       clusterRef.extend({
         snapshotId: z.string().min(1),

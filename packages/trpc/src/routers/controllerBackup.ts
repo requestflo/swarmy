@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { adminProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   getConfig,
   listRemoteSnapshots,
@@ -55,7 +56,7 @@ export const controllerBackupRouter = router({
   runNow: adminProcedure.mutation(({ ctx }) => runControllerBackup(ctx)),
 
   /** Restore the control plane from an encrypted snapshot (passphrase-gated). */
-  restore: adminProcedure
+  restore: abacProcedure('data.restore')
     .input(
       z.object({
         snapshotId: z.string().optional(),

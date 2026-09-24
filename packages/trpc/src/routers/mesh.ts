@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   enrollNode,
   getConfig,
@@ -123,7 +124,7 @@ export const meshRouter = router({
       )
       .mutation(({ ctx, input }) => grantDirectRoute(ctx, input)),
 
-    revoke: adminProcedure
+    revoke: abacProcedure('token.revoke')
       .input(z.object({ routeId: z.string() }))
       .mutation(({ ctx, input }) => revokeDirectRoute(ctx, input.routeId)),
   }),

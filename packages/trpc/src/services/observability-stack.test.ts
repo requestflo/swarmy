@@ -215,3 +215,18 @@ describe('deriveSuiteServiceStatus — live tasks, not what was requested', () =
     expect(deriveSuiteServiceStatus({ enabled: true, now, deployFailed: true, requestedAt: now })).toBe('FAILED');
   });
 });
+
+describe('network placement — ClickHouse is control-plane only', () => {
+  const base = { passwordSecret: 's', retentionDays: 7, initConfig: 'i' };
+  it('store on swarmy-control ONLY, no published ports; collector bridges swarmy ↔ swarmy-control', () => {
+    const ch = clickhouseServiceSpec(base);
+    expect(ch.networks).toEqual(['swarmy-control']);
+    expect(ch.ports ?? []).toEqual([]);
+    const col = collectorServiceSpec({ passwordSecret: 's', config: 'c' });
+    expect(col.networks).toEqual(['swarmy', 'swarmy-control']);
+    expect(col.ports ?? []).toEqual([]);
+  });
+  it('keeps the store on swarmy only while the controller has not moved yet (migration bridge)', () => {
+    expect(clickhouseServiceSpec({ ...base, controllerOnSharedOnly: true }).networks).toEqual(['swarmy-control', 'swarmy']);
+  });
+});

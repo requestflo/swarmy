@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
-import { removeNode, setNodeAvailability, setNodeLabels } from '@swarmy/trpc';
+import { removeNode, resolveNode, setNodeAvailability, setNodeLabels } from '@swarmy/trpc';
 import type { RestEnv } from '../middleware';
-import { requireScope } from '../middleware';
+import { requireAction, requireScope } from '../middleware';
 import { ProblemDto, RemovedDto } from '../dto';
 import { NodeAvailabilityDto, NodeLabelsDto, SetNodeLabelsBody } from '../dto-extra';
 import { run } from '../respond';
@@ -28,7 +28,7 @@ export function registerNodeActionRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Nodes'],
       summary: 'Drain a node (cordon — stop scheduling, move tasks off)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('node.drain', resolveNode)] as const,
       request: { params: idParam },
       responses: {
         200: { content: { 'application/json': { schema: NodeAvailabilityDto } }, description: 'Draining' },
@@ -46,7 +46,7 @@ export function registerNodeActionRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Nodes'],
       summary: 'Cordon a node (alias of drain)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('node.drain', resolveNode)] as const,
       request: { params: idParam },
       responses: {
         200: { content: { 'application/json': { schema: NodeAvailabilityDto } }, description: 'Cordoned' },
@@ -98,7 +98,7 @@ export function registerNodeActionRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Nodes'],
       summary: 'Remove a node',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('node.remove', resolveNode)] as const,
       request: { params: idParam },
       responses: {
         200: { content: { 'application/json': { schema: RemovedDto } }, description: 'Removed' },

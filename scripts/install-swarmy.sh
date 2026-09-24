@@ -49,8 +49,12 @@ SWARMY_RAW_BASE="${SWARMY_RAW_BASE:-https://raw.githubusercontent.com/requestflo
 STACK_NAME="swarmy"
 STATE_DIR="/var/lib/swarmy/install"
 STATE_FILE="$STATE_DIR/state.env"
-OVERLAY_NET="swarmy"                           # shared platform overlay (external in the stack file)
-CONTROLLER_DNS="swarmy_controller:3021"        # service name on the overlay
+OVERLAY_NET="swarmy"                           # SHARED platform overlay: edge ↔ routed apps, collector, Garage
+CONTROL_NET="swarmy-control"                   # PRIVATE control plane: controller + its DB (external in the stack file)
+CONTROLLER_DNS="swarmy_controller:3021"        # service name on swarmy-control
+# Platform services that bridge both overlays (they must reach the controller /
+# ClickHouse on swarmy-control): moved onto it BEFORE the controller leaves `swarmy`.
+CONTROL_BRIDGES="swarmy-ingress-caddy swarmy-cloudflared swarmy-otel-collector swarmy-clickhouse"
 AGENT_CONTAINER="swarmy-agent"
 NETBIRD_CONTAINER="swarmy-netbird"
 NETBIRD_IMAGE="${SWARMY_NETBIRD_IMAGE:-netbirdio/netbird:latest}"
@@ -481,22 +485,75 @@ write_stack_file() {  # emit the chosen stack file to $STATE_DIR (self-contained
     || die "could not fetch the stack file from $url (set SWARMY_RAW_BASE or run from a checkout)."
   printf '%s' "$dst"
 }
-ensure_overlay() {  # the stack file references it as external — create it first
-  docker network inspect "$OVERLAY_NET" >/dev/null 2>&1 && return 0
-  docker network create --driver overlay --attachable --opt encrypted "$OVERLAY_NET" >/dev/null \
-    || die "could not create the $OVERLAY_NET overlay network."
+# Overlay MTU when the swarm data path rides the WireGuard mesh: VXLAN (50) +
+# IPsec ESP (≤60) must fit inside the tunnel MTU (NetBird wt0 = 1280 → 1170),
+# or large packets fragment/black-hole across nodes (TLS stalls, pings fine).
+# Mirrors overlayMtuFor() in packages/core/src/network-policy.ts.
+overlay_mtu() {
+  local link=""
+  [ -r "/sys/class/net/${NB_INTERFACE}/mtu" ] && link="$(cat "/sys/class/net/${NB_INTERFACE}/mtu" 2>/dev/null || true)"
+  if [ -z "$link" ] && [ "$MESH" != none ]; then link=1280; fi
+  [ -n "$link" ] && printf '%s' "$((link - 50 - 60))"
+}
+
+# create_overlay NAME — encrypted, attachable, MTU-sized for the mesh. Idempotent;
+# an EXISTING network's MTU can't change in place, so only warn about it.
+create_overlay() {
+  local name="$1" mtu have
+  mtu="$(overlay_mtu || true)"
+  if docker network inspect "$name" >/dev/null 2>&1; then
+    have="$(docker network inspect "$name" -f '{{index .Options "com.docker.network.driver.mtu"}}' 2>/dev/null || true)"
+    if [ -n "$mtu" ] && { [ -z "$have" ] || [ "$have" -gt "$mtu" ]; }; then
+      warn "overlay $name has MTU ${have:-1500 (default)} but the mesh needs ≤ $mtu — large cross-node packets may stall. Recreating it is disruptive; see docs (verify with scripts/verify-networking.sh)."
+    fi
+    return 0
+  fi
+  # shellcheck disable=SC2086
+  docker network create --driver overlay --attachable --opt encrypted \
+    ${mtu:+--opt com.docker.network.driver.mtu=$mtu} \
+    --label swarmy.managed=true --label "swarmy.role=$2" "$name" >/dev/null \
+    || die "could not create the $name overlay network."
+}
+
+ensure_overlay() {  # the stack file references swarmy-control as external — create both first
+  create_overlay "$OVERLAY_NET" platform
+  create_overlay "$CONTROL_NET" control
+}
+
+# Existing installs: every platform service that must reach the control plane
+# joins swarmy-control BEFORE the controller/Postgres leave `swarmy` (the stack
+# deploy below), so the dashboard vhost / telemetry never lose their upstream.
+# `--network-add` is a rolling update; Caddy blips once. Idempotent.
+migrate_control_bridges() {
+  local svc nets
+  # The node-#1 agent dials swarmy_controller:3021 — give it the control net first.
+  if docker ps --format '{{.Names}}' | grep -qx "$AGENT_CONTAINER" \
+    && ! docker inspect "$AGENT_CONTAINER" --format '{{json .NetworkSettings.Networks}}' | grep -q "\"$CONTROL_NET\""; then
+    docker network connect "$CONTROL_NET" "$AGENT_CONTAINER" >/dev/null 2>&1 \
+      && ok "node #1 agent connected to the $CONTROL_NET overlay."
+  fi
+  for svc in $CONTROL_BRIDGES; do
+    docker service inspect "$svc" >/dev/null 2>&1 || continue
+    nets="$(docker service inspect "$svc" -f '{{range .Spec.TaskTemplate.Networks}}{{.Target}} {{end}}' 2>/dev/null || true)"
+    case " $nets " in *" $(docker network inspect "$CONTROL_NET" -f '{{.Id}}') "*) continue ;; esac
+    say "Moving $svc onto the private $CONTROL_NET network…"
+    timeout 180 docker service update --quiet --network-add "$CONTROL_NET" "$svc" >/dev/null 2>&1 \
+      || warn "could not add $svc to $CONTROL_NET yet — the controller's reconcile will retry."
+  done
 }
 
 deploy_stack() {
   ensure_overlay
+  migrate_control_bridges
   state_load
   local f; f="$(write_stack_file)"
   local mesh_driver="" trusted_proxies=""
   [ "$MESH" = none ] || mesh_driver="netbird"
-  # Caddy reaches the controller over the swarmy overlay: trust that subnet's
+  # Caddy reaches the controller over swarmy-control: trust that subnet's
   # X-Forwarded-For so auth rate limits see real clients, not Caddy's address.
+  # (Never the shared `swarmy` subnet — any routed app could spoof XFF from it.)
   if [ -n "$DASHBOARD_DOMAIN" ]; then
-    trusted_proxies="$(docker network inspect "$OVERLAY_NET" -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null | xargs || true)"
+    trusted_proxies="$(docker network inspect "$CONTROL_NET" -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null | xargs || true)"
     [ -z "$trusted_proxies" ] || trusted_proxies="127.0.0.0/8 ::1/128 $trusted_proxies"
   fi
   say "Deploying the swarmy control plane (${DB_TIER})…"
@@ -543,20 +600,25 @@ enrol_node1() {
     fi
   fi
   if docker ps --format '{{.Names}}' | grep -qx "$AGENT_CONTAINER"; then
-    # Older installs attached the agent to the stack-prefixed `swarmy_swarmy`;
-    # move it onto the shared overlay the controller now lives on.
-    if ! docker inspect "$AGENT_CONTAINER" --format '{{json .NetworkSettings.Networks}}' | grep -q "\"$OVERLAY_NET\""; then
-      docker network connect "$OVERLAY_NET" "$AGENT_CONTAINER" >/dev/null 2>&1 || true
-      docker network disconnect "${STACK_NAME}_swarmy" "$AGENT_CONTAINER" >/dev/null 2>&1 || true
-      ok "node #1 agent moved onto the $OVERLAY_NET overlay."
-    fi
+    # The agent dials swarmy_controller:3021, which now lives ONLY on the
+    # private control network — connect it there (live, no restart). It stays
+    # on `swarmy` too (in-cluster names like swarmy-garage). Older installs
+    # attached it to the stack-prefixed `swarmy_swarmy`; drop that.
+    local net
+    for net in "$CONTROL_NET" "$OVERLAY_NET"; do
+      if ! docker inspect "$AGENT_CONTAINER" --format '{{json .NetworkSettings.Networks}}' | grep -q "\"$net\""; then
+        docker network connect "$net" "$AGENT_CONTAINER" >/dev/null 2>&1 || true
+        ok "node #1 agent connected to the $net overlay."
+      fi
+    done
+    docker network disconnect "${STACK_NAME}_swarmy" "$AGENT_CONTAINER" >/dev/null 2>&1 || true
     ok "node #1 agent already running."
     return
   fi
   say "Enrolling this host as node #1…"
   docker pull "$AGENT_IMAGE" >/dev/null 2>&1 || warn "could not pull $AGENT_IMAGE; using local copy if present."
   docker run -d --name "$AGENT_CONTAINER" --restart unless-stopped \
-    --network "$OVERLAY_NET" \
+    --network "$CONTROL_NET" \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v swarmy-agent:/var/lib/swarmy \
     -e AGENT_WS_URL="ws://${CONTROLLER_DNS}/agent/ws" \
@@ -565,6 +627,7 @@ enrol_node1() {
     -e SWARMY_ALLOW_MESH=true \
     "$AGENT_IMAGE" >/dev/null \
     || die "failed to start node #1 agent."
+  docker network connect "$OVERLAY_NET" "$AGENT_CONTAINER" >/dev/null 2>&1 || true
   ok "node #1 agent started (watch it turn ONLINE in the dashboard)."
 }
 

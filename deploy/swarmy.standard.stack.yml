@@ -21,7 +21,10 @@ services:
     volumes:
       - swarmy-pgdata:/var/lib/postgresql/data
     networks:
-      - swarmy
+      # PRIVATE control-plane overlay only. Never the shared `swarmy` network:
+      # every routed/observed app joins that one, and an app there could reach
+      # (or alias-impersonate) the controller and its database.
+      - swarmy-control
     deploy:
       # The control plane is platform plumbing, not a user app stack.
       labels:
@@ -59,7 +62,7 @@ services:
       # The direct host-mode origin (http://<ip>:<port>). Stays a trusted auth
       # origin next to the https URL so the pre-cert first login still works.
       SWARMY_DIRECT_URL: ${SWARMY_DIRECT_URL:-}
-      # The swarmy overlay subnet when Caddy fronts the dashboard, so the client IP
+      # The swarmy-control overlay subnet when Caddy fronts the dashboard, so the client IP
       # (auth rate limits, sessions) comes from X-Forwarded-For, not Caddy's address.
       SWARMY_TRUSTED_PROXIES: ${SWARMY_TRUSTED_PROXIES:-}
       ADMIN_EMAIL: ${SWARMY_ADMIN_EMAIL}
@@ -98,7 +101,10 @@ services:
         protocol: tcp
         mode: host
     networks:
-      - swarmy
+      # PRIVATE control-plane overlay only. Never the shared `swarmy` network:
+      # every routed/observed app joins that one, and an app there could reach
+      # (or alias-impersonate) the controller and its database.
+      - swarmy-control
     deploy:
       # The control plane is platform plumbing, not a user app stack.
       labels:
@@ -120,13 +126,19 @@ services:
       start_period: 30s
 
 networks:
-  # The ONE overlay every swarmy platform service shares (Caddy, registry,
-  # ClickHouse, collector…). External + literally named `swarmy` so docker stack
-  # doesn't prefix it to `swarmy_swarmy` — the controller must be on the same
-  # network as the services it creates. The installer creates it first.
-  swarmy:
+  # swarmy's PRIVATE control-plane overlay: the controller (+ its Postgres on
+  # the standard tier), ClickHouse, and the trusted bridges that must reach them
+  # (edge Caddy's dashboard vhost, cloudflared, the OTel collector, the node-#1
+  # agent). User services never join it — swarmy's admission refuses it, and
+  # compose→stack rejects it. External + literally named so docker stack
+  # doesn't prefix it. The installer creates it (encrypted; MTU sized for the
+  # mesh when the swarm rides one) before deploying this file.
+  #
+  # The shared `swarmy` overlay (edge ↔ routed apps, OTel collector, Garage)
+  # is deliberately NOT attached here.
+  swarmy-control:
     external: true
-    name: swarmy
+    name: swarmy-control
 
 volumes:
   swarmy-pgdata:

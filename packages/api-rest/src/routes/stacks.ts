@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
-import { deployFromCompose, getStack, listStacks, removeStack } from '@swarmy/trpc';
+import { deployFromCompose, getStack, listStacks, removeStack, resolveStack } from '@swarmy/trpc';
 import type { RestEnv } from '../middleware';
-import { requireScope } from '../middleware';
+import { requireAction, requireScope } from '../middleware';
 import {
   DeployStackBody,
   DeploymentRefDto,
@@ -93,7 +93,7 @@ export function registerStackRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Stacks'],
       summary: 'Remove a stack',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('stack.remove', resolveStack)] as const,
       request: { params: idParam },
       responses: {
         200: { content: { 'application/json': { schema: RemovedDto } }, description: 'Removed' },

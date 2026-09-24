@@ -9,7 +9,7 @@ import {
   upsertDnsRecord,
 } from '@swarmy/trpc';
 import type { RestEnv } from '../middleware';
-import { requireScope } from '../middleware';
+import { requireAction, requireScope } from '../middleware';
 import { ProblemDto, RemovedDto, listEnvelope } from '../dto';
 import { CreateDnsZoneBody, DnsRecordDto, DnsZoneDto, UpsertDnsRecordBody } from '../dto-extra';
 import { dnsRecordToDto, dnsZoneToDto } from '../mappers-extra';
@@ -76,7 +76,7 @@ export function registerDnsRecordRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['DNS'],
       summary: 'Remove a DNS zone',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('dns.remove')] as const,
       request: { params: idParam },
       responses: {
         200: { content: { 'application/json': { schema: RemovedDto } }, description: 'Removed' },
@@ -197,7 +197,7 @@ export function registerDnsRecordRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['DNS'],
       summary: 'Remove a manual record',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('dns.remove')] as const,
       request: { params: idParam },
       responses: {
         200: { content: { 'application/json': { schema: RemovedDto } }, description: 'Removed' },

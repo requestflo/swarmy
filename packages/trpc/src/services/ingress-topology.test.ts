@@ -220,9 +220,9 @@ describe('caddyEdgeSpec — edge-per-node golden', () => {
     expect(EDGE_PLACEMENT_CONSTRAINT).toBe('node.labels.swarmy.node.ingress == true');
   });
 
-  it('joins the swarmy overlay (dashboard vhost upstream) even on a custom org network', () => {
-    expect(spec.networks).toEqual(['swarmy']);
-    expect(caddyEdgeSpec({ network: 'edge', image: 'x' }).networks).toEqual(['edge', 'swarmy']);
+  it('joins swarmy (apps, Garage) + the PRIVATE swarmy-control (dashboard vhost upstream) on any org network', () => {
+    expect(spec.networks).toEqual(['swarmy', 'swarmy-control']);
+    expect(caddyEdgeSpec({ network: 'edge', image: 'x' }).networks).toEqual(['edge', 'swarmy', 'swarmy-control']);
   });
 
   it('has NO host bind mount — config is written inside the task — and keeps the cert volumes', () => {

@@ -107,18 +107,33 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   (`SWARMY_SECRET_KEY`), decrypted only in `loadAuthConfig`, never returned by
   any read (the UI shows "set"/"rotate"). SAML rows are stored but skipped at
   build time (no SAML plugin in this Better Auth version).
-- **Coverage today**: `abacProcedure` currently gates only the terminal
-  (`routers/terminal.ts`); destructive mutations like `services.scale/restart/
-  remove` are still `orgProcedure`, `nodes.remove` is `adminProcedure`. Moving
-  them behind policy is open work (`plans/ROADMAP.md`) — when you touch one, move
-  it to `abacProcedure` rather than adding another role check.
+- **Coverage today**: `abacProcedure` gates the terminal AND every destructive
+  mutation (owner decision 2026-09-24 — the action table is in
+  `docs/product/governance-and-access.md`): service/stack/node remove, scale,
+  restart, drain; `data.destroy|restore|failover`; `backup.remove`;
+  `secret.delete`; `dns.remove`; `ingress.remove|write`; `token.revoke`;
+  `member|policy|authconfig.write`; `cicd.remove`. The REST routes over the same
+  services carry `requireAction(action, resolver)` (`packages/api-rest/src/
+  middleware.ts`), which calls the SAME `authorize(ctx, action, resource)`
+  step — never re-implement evaluate+audit in a route. A NEW destructive
+  mutation goes on `abacProcedure` (and its REST route on `requireAction`) with
+  an owner/admin-only action — never `adminProcedure`/`orgProcedure`. Still
+  role-gated (config-level deletes, not yet swept): alerts, notifications,
+  status pages, webhooks, jobs, workflows, schedules, ai.
+- **`abacProcedure` sits BEFORE `.input()`**, so tRPC gives the middleware no
+  parsed input — it resolves the resource from `opts.getRawInput()`. Resolvers
+  must read input defensively (they already `typeof`-check and re-look-up the
+  row org-scoped). `destructive-gates.test.ts` proves a label policy reaches the
+  router gate.
 
 ## File map
 
 | Concern | Where |
 |---|---|
 | Procedure chain (`public→protected→org→admin`) | `packages/trpc/src/trpc.ts` |
-| `abacProcedure`, `evaluateAccess`, resolvers | `packages/trpc/src/abac.ts` |
+| `abacProcedure`, `authorize`, `evaluateAccess`, resolvers | `packages/trpc/src/abac.ts` |
+| REST policy gate (`requireAction`) | `packages/api-rest/src/middleware.ts` |
+| Destructive-gate CI units (router + REST wiring) | `packages/trpc/src/destructive-gates.test.ts`, `packages/api-rest/src/destructive-gates.test.ts` |
 | Request context (`OrgContext`, `activeOrgId`, hub) | `packages/trpc/src/context.ts`, `apiKeyContext.ts` |
 | Policy engine (`IPolicyEngine`, JSON default) | `packages/abac/src/engine.ts` |
 | Cedar adapter (optional, faithful fallback) | `packages/abac/src/cedar.ts`, `factory.ts` (`createEngine`) |
@@ -143,6 +158,12 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
    resolveService)` (define a resolver next to the router if the row isn't one of
    the shared three). Do NOT heavily edit other epics' routers — the swap is
    one line.
+   A new action must be owner/admin-only in the seeded defaults unless it is
+   genuinely safe: an org whose defaults were persisted as `Policy` rows before
+   the action existed only has the `*` superuser permits covering it, so a
+   member-permitted new action would silently behave differently in those orgs.
+   Add the procedure to `packages/trpc/src/destructive-gates.test.ts` (and REST
+   routes to `packages/api-rest/src/destructive-gates.test.ts`).
 3. **Let the seam audit authz**: `abacProcedure` already writes
    `authz.permit:*` / `authz.deny:*`. Add a domain `writeAudit` in the *service*
    for the business event (`guardrails.rule.set`), with `actorType:'system'` for
@@ -150,8 +171,9 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
 4. **If it deploys**, build an `AdmissionIntent`, call `evaluateAdmission`, refuse
    on `block` unless `override`, and audit the override. New rules go *inside* an
    evaluator, keeping the spine fan-out unchanged.
-5. **Verify**: `bun --filter @swarmy/abac test` (engine parity + policy units) and
-   `bun --filter @swarmy/trpc typecheck`. Policy behaviour is a CI gate; a new
+5. **Verify**: `bun --filter @swarmy/abac test` (engine parity + policy units),
+   `bun test src/destructive-gates.test.ts` in `packages/trpc` and
+   `packages/api-rest`, and `bun --filter @swarmy/trpc typecheck`. Policy behaviour is a CI gate; a new
    default policy or action must ship with a unit — see
    `skill("testing-conventions")`.
 

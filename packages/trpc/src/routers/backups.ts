@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   addTarget,
   backupVolume,
@@ -37,7 +38,7 @@ export const backupsRouter = router({
     )
     .mutation(({ ctx, input }) => addTarget(ctx, input)),
 
-  removeTarget: adminProcedure
+  removeTarget: abacProcedure('backup.remove')
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeTarget(ctx, input.id)),
 
@@ -95,7 +96,7 @@ export const backupsRouter = router({
     .input(z.object({ targetId: z.string(), volume: z.string().optional() }))
     .query(({ ctx, input }) => listRemoteSnapshots(ctx, input)),
 
-  restoreSnapshot: orgProcedure
+  restoreSnapshot: abacProcedure('data.restore')
     .input(
       z.object({
         snapshotId: z.string(),

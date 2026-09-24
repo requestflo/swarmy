@@ -16,7 +16,12 @@ interface DefaultPolicySpec {
  *
  *  - owner/admin may do everything (admin == "not a member" today);
  *  - member may read everything + take safe service actions (drain/scale/restart);
- *  - destructive + governance actions require admin/owner.
+ *  - destructive + governance actions require admin/owner — including every
+ *    destructive action added by the 2026-09-24 sweep (`data.*`,
+ *    `backup.remove`, `secret.delete`, `dns.remove`, `ingress.remove`,
+ *    `cicd.remove`, `service.remove`, `stack.remove`, `node.remove`), which no
+ *    member policy names on purpose. Members keep `node.drain`,
+ *    `service.scale|restart` and `ingress.write` (domain removal).
  *
  * Effects compose forbid-wins; among permits the highest priority wins for audit.
  */

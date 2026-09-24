@@ -1,4 +1,9 @@
-import { STACK_LABEL, SYSTEM_STACK, SYSTEM_STACK_LABEL } from '@swarmy/core';
+import {
+  STACK_LABEL,
+  SWARMY_CONTROL_NETWORK,
+  SYSTEM_STACK,
+  SYSTEM_STACK_LABEL,
+} from '@swarmy/core';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import {
   CADDY_ADMIN_PORT,
@@ -13,6 +18,7 @@ import type { CommandName } from '../hub/types';
 import { mapDispatchError } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { liveService } from './service.service';
+import { ensureControlNetwork } from './platform-networks';
 
 // `network.ensure` becomes a valid CommandName once the hub/types.ts integration
 // snippet lands; the cast keeps @swarmy/trpc green until then (see INTEGRATION).
@@ -248,9 +254,21 @@ export function caddyControllerSpec(
       { type: 'volume', source: DATA_VOLUME, target: '/data' },
       { type: 'volume', source: CONFIG_VOLUME, target: '/config' },
     ],
-    networks: [opts.network],
+    // The org's edge network (fronted apps) + the PRIVATE control network,
+    // where the dashboard vhost / scale-to-zero activator reach
+    // `swarmy_controller:3021` — the controller is on no network apps join.
+    networks: edgeNetworks(opts.network),
     placement: { constraints: [placementConstraint] },
   };
+}
+
+/**
+ * Networks every swarmy Caddy (both topologies) joins: the fronted-apps
+ * network, the shared `swarmy` overlay (Garage's `swarmy-garage:3900`), and
+ * the private `swarmy-control` overlay (the controller upstream). Pure.
+ */
+export function edgeNetworks(network: string): string[] {
+  return [...new Set([network, DEFAULT_NETWORK, SWARMY_CONTROL_NETWORK])];
 }
 
 export async function ensureCaddyController(
@@ -292,6 +310,7 @@ export async function ensureCaddyController(
   } catch (e) {
     throw mapDispatchError(e);
   }
+  await ensureControlNetwork(ctx, node.id);
 
   // Deploy/converge the controller service (create+update idempotent). The container
   // writes its own admin-enabling base config on boot (no host bind mount / root), then
@@ -365,8 +384,9 @@ export const EDGE_PLACEMENT_CONSTRAINT = `node.labels.${INGRESS_NODE_LABEL} == t
  * - Same data/config volumes as the controller (per-node named volumes) — the
  *   node that ran the controller keeps its certificates across the swap, and
  *   `--resume` restores the last applied config across task restarts.
- * - Joins the `swarmy` overlay (plus the org network): the dashboard vhost
- *   proxies to `swarmy_controller:3021` there, and every edge renders it.
+ * - Joins the org network + `swarmy` (fronted apps, Garage) + the private
+ *   `swarmy-control` overlay: the dashboard vhost proxies to
+ *   `swarmy_controller:3021` there, and every edge renders it.
  */
 export function caddyEdgeSpec(opts: {
   network: string;
@@ -427,8 +447,9 @@ export function caddyEdgeSpec(opts: {
     // Credentials for the shared `storage s3` cert store ride ONLY in this
     // mounted secret (AWS SDK default chain) — never in the Caddyfile.
     ...(certs ? { secrets: certs.secrets } : {}),
-    // `swarmy` is also the object store's overlay (`swarmy-garage:3900`).
-    networks: [...new Set([opts.network, DEFAULT_NETWORK])],
+    // `swarmy` is also the object store's overlay (`swarmy-garage:3900`);
+    // `swarmy-control` carries the dashboard vhost to the controller.
+    networks: edgeNetworks(opts.network),
     placement: { constraints: [EDGE_PLACEMENT_CONSTRAINT] },
     restartPolicy: { condition: 'any' },
   };
@@ -532,6 +553,7 @@ export async function ensureCaddyEdge(
   } catch (e) {
     throw mapDispatchError(e);
   }
+  await ensureControlNetwork(ctx, node.id);
 
   const migrated = await deployWithModeSwap(
     ctx,

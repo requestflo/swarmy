@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   applyNow,
   checkDomain,
@@ -80,7 +81,7 @@ export const geodnsRouter = router({
     )
     .mutation(({ ctx, input: { id, ...patch } }) => updateZone(ctx, id, patch)),
 
-  removeZone: adminProcedure
+  removeZone: abacProcedure('dns.remove')
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeZone(ctx, input.id)),
 
@@ -117,7 +118,7 @@ export const geodnsRouter = router({
     )
     .mutation(({ ctx, input }) => upsertRecord(ctx, input)),
 
-  removeRecord: adminProcedure
+  removeRecord: abacProcedure('dns.remove')
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeRecord(ctx, input.id)),
 

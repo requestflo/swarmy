@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   listMembers,
   setMemberAttributes,
@@ -46,7 +47,7 @@ export const membersRouter = router({
     )
     .mutation(({ ctx, input }) => createGrant(ctx, input)),
 
-  deleteGrant: adminProcedure
+  deleteGrant: abacProcedure('member.write')
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => deleteGrant(ctx, input.id)),
 
@@ -62,7 +63,7 @@ export const membersRouter = router({
     )
     .mutation(({ ctx, input }) => inviteMember(ctx, input)),
 
-  revokeInvitation: adminProcedure
+  revokeInvitation: abacProcedure('member.write')
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => revokeInvitation(ctx, input.id)),
 

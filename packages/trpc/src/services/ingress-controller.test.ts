@@ -65,6 +65,11 @@ const OPTS: ResolvedOptions = {
 describe('caddyControllerSpec — golden', () => {
   const spec = caddyControllerSpec(OPTS, `node.id==${SWARM_NODE_ID}`);
 
+  it('joins the fronted-apps network + swarmy + the PRIVATE swarmy-control (controller upstream)', () => {
+    expect(spec.networks).toEqual(['swarmy', 'swarmy-control']);
+    expect(caddyControllerSpec({ ...OPTS, network: 'edge' }, 'x').networks).toEqual(['edge', 'swarmy', 'swarmy-control']);
+  });
+
   it('carries the resolved placement constraint verbatim', () => {
     expect(spec.placement?.constraints).toEqual([`node.id==${SWARM_NODE_ID}`]);
   });

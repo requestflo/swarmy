@@ -157,6 +157,14 @@ const ACTIONS = [
   'authconfig.read',
   'authconfig.write',
   'terminal.open',
+  'data.destroy',
+  'data.restore',
+  'data.failover',
+  'backup.remove',
+  'secret.delete',
+  'dns.remove',
+  'ingress.remove',
+  'cicd.remove',
 ] as const;
 
 const SOCIAL_PROVIDERS = ['github', 'google'] as const;

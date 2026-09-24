@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import { createTunnel, deleteTunnel, getTunnel, listTunnels, syncTunnel } from '../services/tunnel.service';
 
 /**
@@ -28,5 +29,5 @@ export const tunnelsRouter = router({
     .input(z.object({ zoneId: z.string().optional() }).optional())
     .mutation(({ ctx, input }) => syncTunnel(ctx, { zoneId: input?.zoneId })),
 
-  delete: adminProcedure.mutation(({ ctx }) => deleteTunnel(ctx)),
+  delete: abacProcedure('ingress.remove').mutation(({ ctx }) => deleteTunnel(ctx)),
 });

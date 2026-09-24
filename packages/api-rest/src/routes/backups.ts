@@ -8,7 +8,7 @@ import {
   restoreSnapshot,
 } from '@swarmy/trpc';
 import type { RestEnv } from '../middleware';
-import { requireScope } from '../middleware';
+import { requireAction, requireScope } from '../middleware';
 import { ProblemDto, RemovedDto, listEnvelope } from '../dto';
 import {
   AddBackupTargetBody,
@@ -104,7 +104,7 @@ export function registerBackupRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Backups'],
       summary: 'Remove a backup target',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('backup.remove')] as const,
       request: { params: idParam },
       responses: {
         200: { content: { 'application/json': { schema: RemovedDto } }, description: 'Removed' },
@@ -184,7 +184,7 @@ export function registerBackupRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Backups'],
       summary: 'Restore a snapshot into a volume',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('write'), requireAction('data.restore')] as const,
       request: { body: jsonBody(RestoreSnapshotBody) },
       responses: {
         200: { content: { 'application/json': { schema: RestoreResultDto } }, description: 'Restored' },

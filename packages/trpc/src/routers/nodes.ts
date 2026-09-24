@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { NODE_PROFILE_VALUES } from '@swarmy/core';
 import { orgProcedure, adminProcedure, router } from '../trpc';
+import { abacProcedure, resolveNode } from '../abac';
 import { listRecoveryClaims, resolveRecoveryClaim } from '../services/recovery.service';
 import {
   getNode,
@@ -103,7 +104,7 @@ export const nodesRouter = router({
     .input(z.object({ id: z.string(), x: z.number(), y: z.number() }))
     .mutation(({ ctx, input }) => setNodeCanvasPosition(ctx, input)),
 
-  drain: orgProcedure
+  drain: abacProcedure('node.drain', resolveNode)
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => setNodeAvailability(ctx, input.id, 'drain')),
 
@@ -111,7 +112,7 @@ export const nodesRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => setNodeAvailability(ctx, input.id, 'active')),
 
-  remove: adminProcedure.input(z.object({ id: z.string() })).mutation(({ ctx, input }) =>
+  remove: abacProcedure('node.remove', resolveNode).input(z.object({ id: z.string() })).mutation(({ ctx, input }) =>
     removeNode(ctx, input.id),
   ),
 
@@ -142,7 +143,7 @@ export const nodesRouter = router({
 
   listJoinTokens: orgProcedure.query(({ ctx }) => listJoinTokens(ctx)),
 
-  revokeJoinToken: adminProcedure
+  revokeJoinToken: abacProcedure('token.revoke')
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => revokeJoinToken(ctx, input.id)),
 

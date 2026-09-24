@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TlsMode } from '@swarmy/core';
 import { RouteProtectionSchema } from '@swarmy/ingress';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import { tunnelsRouter } from './tunnels';
 import { ensureCaddyController } from '../services/ingress-controller';
 import {
@@ -113,7 +114,7 @@ export const ingressRouter = router({
     )
     .mutation(({ ctx, input }) => addDomain(ctx, input)),
 
-  removeDomain: orgProcedure
+  removeDomain: abacProcedure('ingress.write')
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeDomain(ctx, input.id)),
 

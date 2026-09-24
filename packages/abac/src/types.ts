@@ -36,6 +36,26 @@ export const ACTIONS = [
   // Web terminal / SSH proxy (epic #11). `terminal.open` governs opening an
   // interactive shell (container exec OR node shell) — the highest-risk action.
   'terminal.open',
+  // Destructive-action sweep (owner decision 2026-09-24). Every one of these is
+  // owner/admin-only in the seeded defaults (the `*` superuser permits cover
+  // them; no member policy names them), so an org — including one whose
+  // defaults were persisted before these existed — never locks its admins out.
+  /** Destroy managed data: DB/cache/search/vector/queue teardown, bucket/key delete, store disable. */
+  'data.destroy',
+  /** Restore over live data: volume/DB/cache/search snapshot restore, controller/mirror restore. */
+  'data.restore',
+  /** Confirm a managed-DB failover that may lose the last writes (the data-loss window). */
+  'data.failover',
+  /** Remove a backup target or the offsite mirror (loses recoverability, not data). */
+  'backup.remove',
+  /** Delete or prune a secret/config family (Docker secrets/configs). */
+  'secret.delete',
+  /** Remove a geo-DNS zone or record. */
+  'dns.remove',
+  /** Remove edge infrastructure beyond a route: the Cloudflare tunnel. */
+  'ingress.remove',
+  /** Remove a git repo / CI connection (and, later, a git app). */
+  'cicd.remove',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];

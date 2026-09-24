@@ -7,6 +7,7 @@ import {
   UpdateQueueInput,
 } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   attachQueue,
   dlqList,
@@ -48,7 +49,7 @@ export const queuesRouter = router({
   update: orgProcedure.input(UpdateQueueInput).mutation(({ ctx, input }) => updateQueue(ctx, input)),
 
   /** Remove a queue def (clears the labels when it was the last one). */
-  remove: orgProcedure.input(QueueRefInput).mutation(({ ctx, input }) => removeQueue(ctx, input)),
+  remove: abacProcedure('data.destroy').input(QueueRefInput).mutation(({ ctx, input }) => removeQueue(ctx, input)),
 
   /** Live depth sample from the cache primary (falls back to the label stamp). */
   stats: orgProcedure.input(QueueRefInput).query(({ ctx, input }) => queueStats(ctx, input)),
@@ -59,7 +60,7 @@ export const queuesRouter = router({
     .mutation(({ ctx, input }) => retryFailed(ctx, input)),
 
   /** Drain: delete waiting (+ delayed) jobs. */
-  drain: orgProcedure.input(QueueRefInput).mutation(({ ctx, input }) => drainQueue(ctx, input)),
+  drain: abacProcedure('data.destroy').input(QueueRefInput).mutation(({ ctx, input }) => drainQueue(ctx, input)),
 
   /** Browse the dead-letter list (`<q>:dead`). */
   dlqList: orgProcedure.input(QueueDlqListInput).query(({ ctx, input }) => dlqList(ctx, input)),

@@ -102,7 +102,7 @@ is defined below. To run the app under test locally, see `skill("run-local")`.
 | Turbo test pipeline (`^build` dep) | `turbo.json` |
 | Protocol round-trip / union parse (the pattern) | `packages/core/src/protocol/swarm.test.ts` (over `packages/core/src/protocol/*`) |
 | Compose two-way golden round-trip corpus | `packages/core/src/compose/round-trip.test.ts`, `to-spec.test.ts` |
-| ABAC / Cedar policy units | `packages/abac/src/{engine,cedar,build,grants}.test.ts`, `packages/trpc/src/abac.test.ts` |
+| ABAC / Cedar policy units | `packages/abac/src/{engine,cedar,build,grants}.test.ts`, `packages/trpc/src/abac.test.ts`, `packages/{trpc,api-rest}/src/destructive-gates.test.ts` (every destructive mutation is policy-gated) |
 | GC "never delete in-prod digest" | `packages/trpc/src/services/image-gc.test.ts` (`computeGcPlan`, `bareDigest`) |
 | Ingress/render golden (site-block ordering) | `packages/ingress/src/render/{caddyfile,cold,nginx}.test.ts` |
 | DNS core (steer/answer/wire/compose/signature) | `packages/dns/src/*.test.ts` |
