@@ -9,21 +9,27 @@ interface DefaultPolicySpec {
   doc: PolicyDoc;
 }
 
+/** Outside production: the env is anything but `production`, or unknown. */
+export const NON_PRODUCTION = { attr: 'resource.env', op: 'ne', value: 'production' } as const;
+
 /**
- * The seeded, behaviour-preserving policy set written for every org on create.
- * Reproduces today's `owner | admin | member` semantics exactly, so an org that
- * never opens the policy UI behaves precisely as it does today:
+ * The seeded default policy set (the attribute-based model, owner direction
+ * 2026-09-24 — "members: more attribute-based permissions"):
  *
- *  - owner/admin may do everything (admin == "not a member" today);
- *  - member may read everything + take safe service actions (drain/scale/restart);
- *  - destructive + governance actions require admin/owner — including every
- *    destructive action added by the 2026-09-24 sweep (`data.*`,
- *    `backup.remove`, `secret.delete`, `dns.remove`, `ingress.remove`,
- *    `cicd.remove`, `service.remove`, `stack.remove`, `node.remove`), which no
- *    member policy names on purpose. Members keep `node.drain`,
- *    `service.scale|restart` and `ingress.write` (domain removal).
+ *  - owner/admin may do everything;
+ *  - members read everything;
+ *  - members deploy, configure, scale and restart freely OUTSIDE production
+ *    (`resource.env ne production`: an unlabelled app, or an org-scoped call
+ *    with no resource, counts as non-production). Production is the
+ *    `swarmy.env=production` Docker label;
+ *  - a production deploy, every destructive action (`data.*`, `*.remove`,
+ *    `secret.delete`, …), `terminal.open`, `secrets.read` and `mesh.connect`
+ *    need an explicit grant: a policy naming the member's group / the member,
+ *    or a `ResourceGrant` operator/owner edge on that resource.
  *
  * Effects compose forbid-wins; among permits the highest priority wins for audit.
+ * Orgs whose defaults were persisted as `Policy` rows before this change keep
+ * those rows until an admin runs "Reset defaults".
  */
 export const DEFAULT_POLICY_SPECS: DefaultPolicySpec[] = [
   {
@@ -60,7 +66,7 @@ export const DEFAULT_POLICY_SPECS: DefaultPolicySpec[] = [
   },
   {
     key: 'member-safe-ops',
-    name: 'Members can run safe operations',
+    name: 'Members can deploy and operate outside production',
     effect: 'permit',
     priority: 40,
     doc: {
@@ -69,17 +75,19 @@ export const DEFAULT_POLICY_SPECS: DefaultPolicySpec[] = [
         'node.drain',
         'node.setLabels',
         'service.deploy',
+        'service.configure',
         'service.scale',
         'service.restart',
         'stack.deploy',
         'ingress.write',
       ],
+      conditions: [{ ...NON_PRODUCTION }],
     },
   },
   {
     // ReBAC: a member granted `operator` (or `owner`) on a specific resource may
-    // run safe ops on *that* resource even without org-wide member-safe-ops.
-    // Behaviour-neutral for orgs with no grants (no relation → no match).
+    // run safe ops on *that* resource — production included. The explicit-grant
+    // path for "this person may deploy the prod storefront".
     key: 'operator-resource-ops',
     name: 'Resource operators can operate their resources',
     effect: 'permit',
@@ -88,6 +96,7 @@ export const DEFAULT_POLICY_SPECS: DefaultPolicySpec[] = [
       relations: ['operator', 'owner'],
       actions: [
         'service.deploy',
+        'service.configure',
         'service.scale',
         'service.restart',
         'stack.deploy',

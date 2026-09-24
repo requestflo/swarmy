@@ -56,6 +56,16 @@ export const ACTIONS = [
   'ingress.remove',
   /** Remove a git repo / CI connection (and, later, a git app). */
   'cicd.remove',
+  // Attribute-based access (2026-09-24). Evaluated against the resource's
+  // attributes (env, labels, type) so "members deploy outside production" is one
+  // rule. `service.configure` is member-permitted outside production by the
+  // seeded defaults; the rest are owner/admin-only until an org grants them.
+  /** Change a running service's spec (env, ports, image, scale-to-zero). */
+  'service.configure',
+  /** Read secret material back out (unlock key, webhook secret). */
+  'secrets.read',
+  /** Join a stack's mesh network from a client (NetBird group sync). */
+  'mesh.connect',
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];
@@ -76,6 +86,11 @@ export interface Principal {
   roles: Role[];
   /** Team ids the principal belongs to (used to match team→resource grants). */
   teamIds?: string[];
+  /**
+   * Groups the principal belongs to: `Member.attributes.groups` (SSO group
+   * claims land here) ∪ `teamIds`. Matched by a policy's `groups` clause.
+   */
+  groups?: string[];
   /** Free-form subject attribute bag (team, employment type, …) from Member.attributes. */
   attributes: Record<string, unknown>;
 }
@@ -86,6 +101,11 @@ export interface Resource {
   id: string;
   orgId: string;
   labels: Record<string, unknown>;
+  /**
+   * Normalised environment (`production`, `staging`, …) derived from the
+   * `swarmy.env` label (or `swarmy.app.environment`); `null` when unset.
+   */
+  env?: string | null;
   /** Optional direct ownership edges (member/team ids) for ReBAC-style policies. */
   ownerMemberId?: string | null;
   ownerTeamId?: string | null;

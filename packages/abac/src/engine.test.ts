@@ -195,3 +195,97 @@ describe('PolicyEngine.withDefaults (behaviour preservation)', () => {
     expect(PolicyEngine).toBe(JsonPolicyEngine);
   });
 });
+
+describe('attribute-based defaults (members free outside production)', () => {
+  const engine = JsonPolicyEngine.withDefaults();
+  const prod = resource({ labels: { 'swarmy.env': 'production' } });
+  const staging = resource({ labels: { 'swarmy.env': 'staging' } });
+  const OPS = ['service.deploy', 'service.configure', 'service.scale', 'service.restart', 'stack.deploy'] as const;
+
+  it('members deploy / configure / scale / restart non-prod and unlabelled apps', () => {
+    for (const action of OPS) {
+      expect(engine.evaluate({ principal: principal(), action, resource: staging }).decision).toBe('permit');
+      expect(engine.evaluate({ principal: principal(), action, resource: resource() }).decision).toBe('permit');
+      // Collection-scope (new stack, no resource yet): unknown env = non-prod.
+      expect(engine.evaluate({ principal: principal(), action }).decision).toBe('permit');
+    }
+  });
+
+  it('members are refused the same ops on production (prod alias counts)', () => {
+    for (const action of OPS) {
+      expect(engine.evaluate({ principal: principal(), action, resource: prod }).decision).toBe('deny');
+      const alias = resource({ labels: { 'swarmy.env': 'prod' } });
+      expect(engine.evaluate({ principal: principal(), action, resource: alias }).decision).toBe('deny');
+    }
+  });
+
+  it('terminal, secrets.read and mesh.connect need an explicit grant, even outside prod', () => {
+    for (const action of ['terminal.open', 'secrets.read', 'mesh.connect'] as const) {
+      expect(engine.evaluate({ principal: principal(), action, resource: staging }).decision).toBe('deny');
+      expect(engine.evaluate({ principal: principal({ roles: ['admin'] }), action, resource: prod }).decision).toBe(
+        'permit',
+      );
+    }
+  });
+
+  it('a ResourceGrant operator may deploy that production app', () => {
+    const granted = resource({ labels: { 'swarmy.env': 'production' }, principalRelations: ['operator', 'viewer'] });
+    expect(engine.evaluate({ principal: principal(), action: 'service.deploy', resource: granted }).decision).toBe(
+      'permit',
+    );
+    expect(engine.evaluate({ principal: principal(), action: 'service.remove', resource: granted }).decision).toBe(
+      'deny',
+    );
+  });
+
+  it('a group policy grants prod deploy to members of that group only', () => {
+    const custom = new JsonPolicyEngine([
+      ...DEFAULTS_AS_INPUTS,
+      policy({
+        id: 'platform-prod',
+        priority: 60,
+        source: JSON.stringify({
+          groups: ['platform'],
+          actions: ['service.deploy', 'terminal.open'],
+          conditions: [{ attr: 'resource.env', op: 'eq', value: 'production' }],
+        }),
+      }),
+    ]);
+    const platform = principal({ attributes: { groups: ['platform'] } });
+    expect(custom.evaluate({ principal: platform, action: 'service.deploy', resource: prod }).policyId).toBe(
+      'platform-prod',
+    );
+    expect(custom.evaluate({ principal: platform, action: 'terminal.open', resource: prod }).decision).toBe('permit');
+    expect(custom.evaluate({ principal: platform, action: 'terminal.open', resource: staging }).decision).toBe('deny');
+    expect(custom.evaluate({ principal: principal(), action: 'service.deploy', resource: prod }).decision).toBe('deny');
+  });
+
+  it('a group forbid beats the member default outside prod', () => {
+    const custom = new JsonPolicyEngine([
+      ...DEFAULTS_AS_INPUTS,
+      policy({
+        id: 'no-contractors',
+        effect: 'forbid',
+        source: JSON.stringify({ groups: ['contractors'], actions: ['service.deploy'] }),
+      }),
+    ]);
+    const contractor = principal({ teamIds: ['contractors'] });
+    expect(custom.evaluate({ principal: contractor, action: 'service.deploy', resource: staging }).decision).toBe(
+      'deny',
+    );
+  });
+
+  it('a members clause names one person', () => {
+    const custom = new JsonPolicyEngine([
+      policy({ id: 'alice', source: JSON.stringify({ members: ['m-alice'], actions: ['secrets.read'] }) }),
+    ]);
+    expect(
+      custom.evaluate({ principal: principal({ memberId: 'm-alice' }), action: 'secrets.read' }).decision,
+    ).toBe('permit');
+    expect(custom.evaluate({ principal: principal(), action: 'secrets.read' }).decision).toBe('deny');
+  });
+
+  it('PolicyEngine alias still equals JsonPolicyEngine', () => {
+    expect(PolicyEngine).toBe(JsonPolicyEngine);
+  });
+});

@@ -1,6 +1,7 @@
 import type { AuthzRequest, Decision, PolicyInput } from './types';
 import { parsePolicyDoc, type PolicyDoc } from './policy';
 import { JsonPolicyEngine, type IPolicyEngine } from './engine';
+import { lookupAttr, principalGroups, type Condition } from './attrs';
 
 /**
  * Cedar engine path. We translate the same JSON-predicate policy documents into
@@ -75,11 +76,56 @@ export function policyDocToCedar(
     const list = doc.relations.map((r) => `"${esc(r)}"`).join(', ');
     conds.push(`context.hasResource && context.relations.containsAny([${list}])`);
   }
+  if (doc.groups && doc.groups.length && !doc.groups.includes('*')) {
+    conds.push(`context.groups.containsAny([${strList(doc.groups)}])`);
+  }
+  if (doc.members && doc.members.length) {
+    const list = strList(doc.members);
+    conds.push(`([${list}].contains(context.memberId) || [${list}].contains(context.userId))`);
+  }
+  for (const c of doc.conditions ?? []) conds.push(conditionToCedar(c));
 
   const annotation = `@id("${esc(id)}")\n`;
   const head = `${effect}(principal, action, resource)`;
   const body = conds.length ? ` when {\n  ${conds.join(' &&\n  ')}\n}` : '';
   return `${annotation}${head}${body};`;
+}
+
+function strList(xs: string[]): string {
+  return xs.map((x) => `"${esc(x)}"`).join(', ');
+}
+
+/**
+ * Conditions read `context.attrs`, a record of attribute path → set of strings
+ * pre-computed with the SAME `lookupAttr` the JSON engine uses (absent key =
+ * unset), so both engines agree on list-valued and missing attributes.
+ */
+function conditionToCedar(c: Condition): string {
+  const k = `"${esc(c.attr)}"`;
+  const has = `context.attrs has ${k}`;
+  const eq = (v: string) => `(${has} && context.attrs[${k}].contains("${esc(v)}"))`;
+  const any = (vs: string[]) => `(${has} && context.attrs[${k}].containsAny([${strList(vs)}]))`;
+  switch (c.op) {
+    case 'eq':
+      return eq(String(c.value));
+    case 'ne':
+      return `!${eq(String(c.value))}`;
+    case 'in':
+      return any(c.value as string[]);
+    case 'notIn':
+      return `!${any(c.value as string[])}`;
+    case 'exists':
+      return `(${has})`;
+    case 'notExists':
+      return `!(${has})`;
+  }
+}
+
+/** Every attribute path any policy's conditions reference. */
+function referencedAttrs(docs: PolicyDoc[]): string[] {
+  const out = new Set<string>();
+  for (const d of docs) for (const c of d.conditions ?? []) out.add(c.attr);
+  return [...out];
 }
 
 function cedarValue(v: unknown): string {
@@ -97,6 +143,7 @@ export class CedarPolicyEngine implements IPolicyEngine {
   private readonly policies: { id: string; effect: 'permit' | 'forbid'; doc: PolicyDoc; priority: number }[];
   private readonly cedar: CedarWasm;
   private readonly fallback: JsonPolicyEngine;
+  private readonly attrPaths: string[];
 
   constructor(policies: PolicyInput[], cedar: CedarWasm) {
     this.cedar = cedar;
@@ -109,6 +156,7 @@ export class CedarPolicyEngine implements IPolicyEngine {
         doc: parsePolicyDoc(p.source),
         priority: p.priority,
       }));
+    this.attrPaths = referencedAttrs(this.policies.map((p) => p.doc));
   }
 
   /** Render the whole policy set to a single Cedar source document. */
@@ -118,7 +166,7 @@ export class CedarPolicyEngine implements IPolicyEngine {
 
   evaluate(req: AuthzRequest): Decision {
     // Build the Cedar context record from the PARC request.
-    const ctx = buildCedarContext(req);
+    const ctx = buildCedarContext(req, this.attrPaths);
     try {
       const raw = this.cedar.isAuthorized({
         principal: `${PRINCIPAL_TYPE}::"${esc(req.principal.userId)}"`,
@@ -140,9 +188,18 @@ export class CedarPolicyEngine implements IPolicyEngine {
   }
 }
 
-function buildCedarContext(req: AuthzRequest): Record<string, unknown> {
+export function buildCedarContext(req: AuthzRequest, attrPaths: string[] = []): Record<string, unknown> {
   const r = req.resource;
+  const attrs: Record<string, string[]> = {};
+  for (const path of attrPaths) {
+    const values = lookupAttr(path, req.principal, r);
+    if (values.length) attrs[path] = values;
+  }
   return {
+    userId: req.principal.userId,
+    memberId: req.principal.memberId ?? '',
+    groups: principalGroups(req.principal),
+    attrs,
     action: req.action,
     roles: req.principal.roles,
     attributes: req.principal.attributes,

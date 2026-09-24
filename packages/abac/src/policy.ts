@@ -1,4 +1,14 @@
 import type { Action, AuthzRequest, Effect, Principal, Resource } from './types';
+import {
+  CONDITION_OPS,
+  conditionHolds,
+  isAttrPath,
+  lookupAttr,
+  normaliseEnv,
+  principalGroups,
+  type Condition,
+  type ConditionOp,
+} from './attrs';
 
 /**
  * A policy's `source` is a small JSON predicate document. This is the documented
@@ -15,6 +25,11 @@ import type { Action, AuthzRequest, Effect, Principal, Resource } from './types'
  *   - `ownerOnly`: principal must own the resource (member or team owner edge).
  *   - `relations`: principal must hold at least one of these ReBAC relations on
  *     the resource (resolved from `ResourceGrant` edges — owner/operator/viewer).
+ *   - `groups`: principal must be in at least one of these groups
+ *     (Member.attributes.groups — SSO group claims — ∪ team ids).
+ *   - `members`: principal must be one of these members (member or user id).
+ *   - `conditions`: every attribute predicate must hold (see attrs.ts):
+ *     `{ "attr": "resource.env", "op": "ne", "value": "production" }`.
  */
 export interface PolicyDoc {
   actions?: string[];
@@ -24,6 +39,9 @@ export interface PolicyDoc {
   attributes?: Record<string, unknown>;
   ownerOnly?: boolean;
   relations?: string[];
+  groups?: string[];
+  members?: string[];
+  conditions?: Condition[];
 }
 
 export interface ParsedPolicy {
@@ -88,7 +106,44 @@ export function parsePolicyDoc(source: string): PolicyDoc {
       }
     }
   }
+  doc.groups = strArray('groups');
+  doc.members = strArray('members');
+  if (obj.conditions !== undefined) doc.conditions = parseConditions(obj.conditions);
+  // Drop absent keys so a parsed doc round-trips to the same JSON.
+  for (const k of Object.keys(doc) as (keyof PolicyDoc)[]) if (doc[k] === undefined) delete doc[k];
   return doc;
+}
+
+function parseConditions(raw: unknown): Condition[] {
+  if (!Array.isArray(raw)) throw new PolicyParseError('"conditions" must be an array');
+  return raw.map((c, i): Condition => {
+    if (typeof c !== 'object' || c === null || Array.isArray(c)) {
+      throw new PolicyParseError(`conditions[${i}] must be an object`);
+    }
+    const { attr, op, value } = c as Record<string, unknown>;
+    if (typeof attr !== 'string' || !isAttrPath(attr)) {
+      throw new PolicyParseError(
+        `conditions[${i}].attr must be resource.env | resource.type | resource.id | resource.label.<key> | principal.<key>`,
+      );
+    }
+    if (typeof op !== 'string' || !(CONDITION_OPS as readonly string[]).includes(op)) {
+      throw new PolicyParseError(`conditions[${i}].op must be one of ${CONDITION_OPS.join(' | ')}`);
+    }
+    const norm = (v: string) => (attr === 'resource.env' ? (normaliseEnv(v) ?? v) : v);
+    if (op === 'eq' || op === 'ne') {
+      if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+        throw new PolicyParseError(`conditions[${i}].value must be a string for "${op}"`);
+      }
+      return { attr, op: op as ConditionOp, value: norm(String(value)) };
+    }
+    if (op === 'in' || op === 'notIn') {
+      if (!Array.isArray(value) || value.length === 0 || !value.every((x) => typeof x === 'string')) {
+        throw new PolicyParseError(`conditions[${i}].value must be a non-empty string array for "${op}"`);
+      }
+      return { attr, op: op as ConditionOp, value: (value as string[]).map(norm) };
+    }
+    return { attr, op: op as ConditionOp };
+  });
 }
 
 function listMatches(list: string[] | undefined, value: string): boolean {
@@ -152,6 +207,20 @@ export function policyMatches(policy: ParsedPolicy, req: AuthzRequest): boolean 
     if (!resource) return false;
     const held = resource.principalRelations ?? [];
     if (!doc.relations.some((r) => held.includes(r as never))) return false;
+  }
+
+  if (doc.groups && doc.groups.length > 0) {
+    const mine = principalGroups(principal);
+    if (!doc.groups.includes('*') && !doc.groups.some((g) => mine.includes(g))) return false;
+  }
+
+  if (doc.members && doc.members.length > 0) {
+    const ids = [principal.memberId, principal.userId].filter(Boolean) as string[];
+    if (!doc.members.some((m) => ids.includes(m))) return false;
+  }
+
+  for (const cond of doc.conditions ?? []) {
+    if (!conditionHolds(cond, lookupAttr(cond.attr, principal, resource))) return false;
   }
 
   return true;

@@ -20,7 +20,28 @@ export {
   type PrincipalInput,
   type ResourceInput,
 } from './build';
-export { DEFAULT_POLICY_SPECS, defaultPolicyInputs } from './defaults';
+export { DEFAULT_POLICY_SPECS, defaultPolicyInputs, NON_PRODUCTION } from './defaults';
+export {
+  ENV_LABEL,
+  APP_ENV_LABEL,
+  PRODUCTION,
+  CONDITION_OPS,
+  normaliseEnv,
+  resourceEnv,
+  principalGroups,
+  lookupAttr,
+  conditionHolds,
+  isAttrPath,
+  type Condition,
+  type ConditionOp,
+} from './attrs';
+export {
+  ACTION_CATALOG,
+  actionLabel,
+  describePolicy,
+  describeCondition,
+  type ActionInfo,
+} from './describe';
 export {
   ACTIONS,
   isAction,
