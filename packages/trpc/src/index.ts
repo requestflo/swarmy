@@ -37,11 +37,22 @@ export {
   addDomain,
   listDomains,
   removeDomain,
+  setDomainWww,
+  parseDomainId,
   reconcileColdIngress,
   reconcileIngressOrg,
   reapplyIngressForOrg,
 } from './services/ingress.service';
 export type { DomainView, IngressConfigView, IngressColdReconcileDeps } from './services/ingress.service';
+// Custom domains: DNS verification + certificate status (domain-verify worker, REST).
+export {
+  getDomainStatus,
+  reconcileDomainChecksOrg,
+  skipDomainVerification,
+  verifyDomainNow,
+} from './services/domain-verify.service';
+export type { DomainDetailView, DomainStatusView, DomainCheckReconcileResult } from './services/domain-verify.service';
+export { domainChecksOf } from './services/domain-checks.store';
 
 // Observability suite convergence (observability-reconcile worker).
 export { reconcileObservabilitySuite } from './services/observability.service';

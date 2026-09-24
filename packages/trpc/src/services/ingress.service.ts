@@ -3,6 +3,10 @@ import {
   CADDY_EDGE_SERVICE,
   defaultRegistry as defaultIngressRegistry,
   IngressConfigSchema,
+  companionHost,
+  expandWww,
+  isHostGated,
+  normalizeHostname,
   applyIngress as applyIngressPkg,
   previewConfig as previewConfigPkg,
   type ColdRoute,
@@ -11,6 +15,7 @@ import {
   type IngressConfig as OrgIngressConfig,
   type RouteProtection,
   type TunnelOptions,
+  type WwwMode,
 } from '@swarmy/ingress';
 import type { IngressStatus, RenderedConfig } from '@swarmy/core/protocol';
 import { createHash } from 'node:crypto';
@@ -56,6 +61,8 @@ import {
   purgeLegacyEdgeCerts,
   type EdgeCertStorageSettings,
 } from './ingress-certs';
+import { domainChecksOf } from './domain-checks.store';
+import { domainStatusMap, registerDomainHosts, type DomainStatusView } from './domain-verify.service';
 
 /** Service label that marks a Docker service as ingress-enabled (replaces the dropped column). */
 const INGRESS_ENABLED_LABEL = 'swarmy.ingress';
@@ -234,6 +241,44 @@ export interface DomainView {
   serving: boolean;
   /** The org edge's runtime state this route rides on (see `IngressConfigView.runtime`). */
   edgeState: EdgeRuntimeStatus['state'];
+  /** Apex ↔ www toggle on this route (null = only `host` is served). */
+  www: WwwMode | null;
+  /** The companion host the toggle adds (`www.<host>` / the bare apex), or null. */
+  companionHost: string | null;
+  /**
+   * Custom-domain lifecycle: waiting_dns → verified → issuing → active | error,
+   * with the reason in plain words. Null only while the status could not be read.
+   */
+  status: DomainStatusView | null;
+  /** The companion host's own status (it needs its own DNS record + certificate). */
+  companionStatus: DomainStatusView | null;
+}
+
+/**
+ * The DomainView id: `${serviceId}:${host}` for a root route, with the path
+ * appended (`${serviceId}:${host}/api`) for a path route so every route of a
+ * multi-path host has its own handle. Hosts never contain `/`, so it parses back.
+ */
+export function domainId(serviceId: string, host: string, path?: string | null): string {
+  return path && path !== '/' ? `${serviceId}:${host}${path}` : `${serviceId}:${host}`;
+}
+
+/** Inverse of {@link domainId}. `path` is null for a root route. */
+export function parseDomainId(id: string): { serviceId: string; host: string; path: string | null } {
+  const sep = id.indexOf(':');
+  const serviceId = sep >= 0 ? id.slice(0, sep) : id;
+  const rest = sep >= 0 ? id.slice(sep + 1) : '';
+  const slash = rest.indexOf('/');
+  return slash >= 0
+    ? { serviceId, host: rest.slice(0, slash), path: rest.slice(slash) }
+    : { serviceId, host: rest, path: null };
+}
+
+/** Same route identity the label writers use: host + path (root = no path). */
+function sameRoute(r: Route, host: string, path: string | null | undefined): boolean {
+  const p = r.path && r.path !== '/' ? r.path : null;
+  const q = path && path !== '/' ? path : null;
+  return r.host === host && p === q;
 }
 
 interface ConfigRow {
@@ -537,12 +582,7 @@ async function loadOrgConfig(
   // Geo-edge: services with materialised region siblings render region-ordered
   // multi-upstream proxies (same-region first, cross-region failover).
   const liveServices = ctx.hub.liveInventory(ctx.activeOrgId).services;
-  return {
-    driver: driverLower(row.driver),
-    enabled: row.enabled,
-    orgId: ctx.activeOrgId,
-    targetNodes: settings.targetNodes ?? [],
-    domains: serviceRoutes.map(({ serviceName, route }) => ({
+  const allDomains = serviceRoutes.map(({ serviceName, route }) => ({
       domain: route.host,
       pathPrefix: route.path ?? '/',
       service: serviceName,
@@ -556,7 +596,22 @@ async function loadOrgConfig(
       // Edge protections — carried on the route label, pure render input.
       protection: route.protection,
       regionUpstreams: regionUpstreamsFor(serviceName, route.port, liveServices),
-    })),
+    }));
+  // Apex ↔ www toggles expand into plain routes + redirect sites, then the DNS
+  // gate withholds every host whose DNS has not yet verifiably pointed at us —
+  // so the edge never asks Let's Encrypt for a name that cannot validate.
+  const wwwModes = new Map<string, WwwMode>();
+  for (const { route } of serviceRoutes) if (route.www && !wwwModes.has(route.host)) wwwModes.set(route.host, route.www);
+  const expanded = expandWww(allDomains, wwwModes);
+  const checks = domainChecksOf(persisted as unknown as Record<string, unknown>);
+  const served = (host: string) => !isHostGated(checks, normalizeHostname(host));
+  return {
+    driver: driverLower(row.driver),
+    enabled: row.enabled,
+    orgId: ctx.activeOrgId,
+    targetNodes: settings.targetNodes ?? [],
+    domains: expanded.routes.filter((d) => served(d.domain)),
+    hostRedirects: expanded.redirects.filter((r) => served(r.from) && served(r.to)),
     // Controller-upstream vhosts (status-page / webhook domains) — persisted rows
     // resolved at render time onto the controller upstream.
     controllerVhosts: await computeControllerVhosts(ctx, settings),
@@ -1047,26 +1102,34 @@ export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<Ing
 
 export async function listDomains(ctx: OrgContext, stack?: string): Promise<DomainView[]> {
   // Routes are Docker-truth: project each service's `swarmy.ingress.routes` label.
-  // The DomainView id is `${serviceId}:${host}` (the handle removeDomain parses back).
+  // The DomainView id is {@link domainId} (the handle removeDomain parses back).
   // `stack` scopes the list to services in that Docker stack (namespace label).
   const runtime = await edgeRuntimeStatus(ctx);
+  const statuses = await domainStatusMap(ctx).catch(() => new Map<string, DomainStatusView>());
   return listRoutesForOrg(ctx)
     .filter((r) => !stack || r.stack === stack)
-    .map(({ serviceId, serviceName, stack: svcStack, route }) => ({
-      id: `${serviceId}:${route.host}`,
-      host: route.host,
-      serviceId,
-      serviceName,
-      stack: svcStack,
-      targetPort: route.port,
-      tls: routeTlsToTlsMode(route.tls),
-      pathPrefix: route.path ?? null,
-      ingressDriver: (route.driver as IngressDriverId | undefined) ?? null,
-      protection: route.protection ?? null,
-      canaryPct: route.canary ? route.canary.weightPct : null,
-      serving: runtime.serving,
-      edgeState: runtime.state,
-    }));
+    .map(({ serviceId, serviceName, stack: svcStack, route }) => {
+      const companion = route.www ? companionHost(route.host) : null;
+      return {
+        id: domainId(serviceId, route.host, route.path),
+        host: route.host,
+        serviceId,
+        serviceName,
+        stack: svcStack,
+        targetPort: route.port,
+        tls: routeTlsToTlsMode(route.tls),
+        pathPrefix: route.path ?? null,
+        ingressDriver: (route.driver as IngressDriverId | undefined) ?? null,
+        protection: route.protection ?? null,
+        canaryPct: route.canary ? route.canary.weightPct : null,
+        serving: runtime.serving,
+        edgeState: runtime.state,
+        www: route.www ?? null,
+        companionHost: companion,
+        status: statuses.get(normalizeHostname(route.host)) ?? null,
+        companionStatus: companion ? statuses.get(companion) ?? null : null,
+      };
+    });
 }
 
 export async function addDomain(
@@ -1079,23 +1142,37 @@ export async function addDomain(
     pathPrefix?: string;
     /** Per-domain driver override; null/undefined inherits the org default. */
     ingressDriver?: IngressDriverId | null;
+    /** Apex ↔ www toggle (null/undefined = only `host`). */
+    www?: WwwMode | null;
   },
 ): Promise<DomainView> {
   // Resolve the target from live Docker inventory (no Service table). The route is
   // persisted on the service's `swarmy.ingress.routes` label — Docker is the truth.
   const service = resolveLiveService(ctx, input.serviceId);
   if (!service) throw notFound('service', input.serviceId);
-  if (input.host.trim().toLowerCase() === process.env[DASHBOARD_DOMAIN_ENV]?.trim().toLowerCase()) {
-    throw new Error(`domain ${input.host} is the swarmy dashboard's own address`);
+  const host = normalizeHostname(input.host);
+  if (!host) throw new TRPCError({ code: 'BAD_REQUEST', message: 'host is required' });
+  if (host === process.env[DASHBOARD_DOMAIN_ENV]?.trim().toLowerCase()) {
+    throw new Error(`domain ${host} is the swarmy dashboard's own address`);
   }
+  if (input.www && !companionHost(host)) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: `${host} has no www companion (wildcards and IPs can't pair)` });
+  }
+  const pathPrefix = input.pathPrefix && input.pathPrefix !== '/' ? input.pathPrefix : undefined;
 
-  // Read the service's current routes, drop any existing route for this host, then
-  // append the new one and write the whole array back as the label value.
-  const routes = readRoutes(service.labels).filter((r) => r.host !== input.host);
-  const route: Route = { host: input.host, port: input.targetPort, tls: tlsModeToRouteTls(input.tls) };
-  if (input.pathPrefix) route.path = input.pathPrefix;
+  // Read the service's current routes, replace the route with the same host+path
+  // (other paths on the same host are separate routes and stay), then write the
+  // whole array back as the label value.
+  const routes = readRoutes(service.labels).filter((r) => !sameRoute(r, host, pathPrefix));
+  const route: Route = { host, port: input.targetPort, tls: tlsModeToRouteTls(input.tls) };
+  if (pathPrefix) route.path = pathPrefix;
   if (input.ingressDriver) route.driver = input.ingressDriver;
+  if (input.www) route.www = input.www;
   routes.push(route);
+
+  // Register the host (and its companion) for DNS verification BEFORE the label
+  // lands, so the first render already withholds it until DNS points at us.
+  await registerDomainHosts(ctx, [route]);
 
   // The label IS the source of truth, so this dispatch must land (not best-effort).
   // `swarmy.ingress` is kept in sync so the service-summary ingress indicator stays lit.
@@ -1107,21 +1184,32 @@ export async function addDomain(
   });
 
   await reapply(ctx);
+  // Kick the first DNS check now (background): if DNS already points here the
+  // domain goes live in seconds instead of waiting for the worker's tick.
+  void import('./domain-verify.service')
+    .then((m) => m.verifyDomainNow(ctx, host))
+    .catch(() => undefined);
   const runtime = await edgeRuntimeStatus(ctx);
+  const statuses = await domainStatusMap(ctx).catch(() => new Map<string, DomainStatusView>());
+  const companion = input.www ? companionHost(host) : null;
   return {
-    id: `${service.id}:${input.host}`,
-    host: input.host,
+    id: domainId(service.id, host, pathPrefix),
+    host,
     serviceId: service.id,
     serviceName: service.name,
     stack: service.stack,
     targetPort: input.targetPort,
     tls: input.tls,
-    pathPrefix: input.pathPrefix ?? null,
+    pathPrefix: pathPrefix ?? null,
     ingressDriver: input.ingressDriver ?? null,
     protection: null,
     canaryPct: null,
     serving: runtime.serving,
     edgeState: runtime.state,
+    www: input.www ?? null,
+    companionHost: companion,
+    status: statuses.get(host) ?? null,
+    companionStatus: companion ? statuses.get(companion) ?? null : null,
   };
 }
 
@@ -1129,15 +1217,14 @@ export async function removeDomain(
   ctx: OrgContext,
   id: string,
 ): Promise<{ id: string; removed: true }> {
-  // The DomainView id is `${serviceId}:${host}`; split on the FIRST colon (service
-  // ids are colon-free, hosts may not be — keep everything after it as the host).
-  const sep = id.indexOf(':');
-  const serviceId = sep >= 0 ? id.slice(0, sep) : id;
-  const host = sep >= 0 ? id.slice(sep + 1) : '';
+  // See domainId: service ids are colon-free, hosts never contain '/'.
+  const { serviceId, host, path } = parseDomainId(id);
   const service = resolveLiveService(ctx, serviceId);
   if (!service) throw notFound('domain', id);
 
-  const remaining = readRoutes(service.labels).filter((r) => r.host !== host);
+  const current = readRoutes(service.labels);
+  const remaining = current.filter((r) => !sameRoute(r, host, path));
+  if (remaining.length === current.length) throw notFound('domain', id);
   const node = await resolveManagerNode(ctx);
   if (remaining.length === 0) {
     // Empty array → drop the label entirely (and the now-orphaned ingress flag).
@@ -1155,6 +1242,51 @@ export async function removeDomain(
   }
   await reapply(ctx);
   return { id, removed: true };
+}
+
+/**
+ * Set (or clear, `null`) the apex ↔ www toggle on one route. Every route of the
+ * same host on the service moves together (the toggle is per host). The new
+ * companion host is registered for DNS verification before the label lands.
+ */
+export async function setDomainWww(ctx: OrgContext, id: string, www: WwwMode | null): Promise<DomainView> {
+  const { serviceId, host, path } = parseDomainId(id);
+  const service = resolveLiveService(ctx, serviceId);
+  if (!service) throw notFound('domain', id);
+  const current = readRoutes(service.labels);
+  if (!current.some((r) => sameRoute(r, host, path))) throw notFound('domain', id);
+  if (www && !companionHost(host)) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: `${host} has no www companion (wildcards and IPs can't pair)` });
+  }
+  const next = current.map((r) => {
+    if (r.host !== host) return r;
+    const { www: _drop, ...rest } = r;
+    return www ? { ...rest, www } : rest;
+  });
+  if (www) await registerDomainHosts(ctx, next.filter((r) => r.host === host));
+  const node = await resolveManagerNode(ctx);
+  await ctx.hub.dispatch(node.id, 'service.updateLabels', {
+    service: service.name,
+    add: { [INGRESS_ROUTES_LABEL]: serializeRoutes(next) },
+    removeKeys: [],
+  });
+  await writeAudit(ctx, {
+    action: 'ingress.setDomainWww',
+    targetType: 'domain',
+    targetId: id,
+    metadata: { host, www },
+  });
+  await reapply(ctx);
+  if (www) {
+    void import('./domain-verify.service')
+      .then((m) => m.verifyDomainNow(ctx, host))
+      .catch(() => undefined);
+  }
+  // Re-read through the live view (the label write may not be in the snapshot yet).
+  const rows = await listDomains(ctx);
+  const row = rows.find((r) => r.id === id);
+  if (row) return { ...row, www, companionHost: www ? companionHost(host) : null };
+  throw notFound('domain', id);
 }
 
 export async function previewConfig(

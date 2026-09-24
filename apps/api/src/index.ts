@@ -29,7 +29,7 @@ import { aiGatewayApp } from './ai-gateway';
 import { oauthApp } from './oauth';
 import { versionInfo } from './version';
 import { licenseStatus } from './license';
-import { checkOnDemand } from './ingress-ask';
+import { checkOnDemand, makeIsGated } from './ingress-ask';
 
 const app = new Hono();
 
@@ -44,6 +44,8 @@ app.get('/ingress/ask', async (c) => {
     {
       listOrgIds: () => prisma.organization.findMany({ select: { id: true } }).then((rows) => rows.map((r) => r.id)),
       liveInventory: (orgId) => hub.liveInventory(orgId),
+      // Custom-domain DNS gate: routed-but-unverified hosts are denied too.
+      isGated: makeIsGated(prisma),
     },
     c.req.query('domain'),
   );

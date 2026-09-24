@@ -7,7 +7,7 @@
  * its writers remove the label entirely (see ingress.service `removeDomain`).
  */
 import { buildInventory } from '@swarmy/core';
-import { RouteProtectionSchema, type RouteProtection } from '@swarmy/ingress';
+import { RouteProtectionSchema, WWW_MODES, type RouteProtection, type WwwMode } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
 
 /** The one label that carries a service's ingress routes (JSON-string array). */
@@ -43,6 +43,12 @@ export interface Route {
   canary?: RouteCanary;
   /** Edge protections (rate limit, IP rules, body cap, bots, required headers). */
   protection?: RouteProtection;
+  /**
+   * Apex ↔ www pairing for this route's host (one toggle + a redirect choice):
+   * `redirect-www-to-apex` | `redirect-apex-to-www` | `serve-both`. Absent =
+   * only the host itself is served. Expanded controller-side (`expandWww`).
+   */
+  www?: WwwMode;
 }
 
 /** A route together with the live Docker service carrying it. */
@@ -76,6 +82,7 @@ function coerceRoute(value: unknown): Route | undefined {
   if (canary) route.canary = canary;
   const protection = coerceProtection(v.protection);
   if (protection) route.protection = protection;
+  if (typeof v.www === 'string' && (WWW_MODES as readonly string[]).includes(v.www)) route.www = v.www as WwwMode;
   return route;
 }
 

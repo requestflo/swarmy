@@ -11,6 +11,7 @@ import { startWebhookDispatch } from './webhook-dispatch';
 import { startScaleToZero } from './scale-to-zero';
 import { startRegionReconcile } from './region-reconcile';
 import { startIngressReconcile } from './ingress-reconcile';
+import { startDomainVerify } from './domain-verify';
 import { startManagedDbReconcile } from './manageddb-reconcile';
 import { startCacheReconcile } from './cache-reconcile';
 import { startSearchReconcile } from './search-reconcile';
@@ -42,6 +43,7 @@ export function startWorkers(): () => void {
     startScaleToZero(),
     startRegionReconcile(),
     startIngressReconcile(),
+    startDomainVerify(),
     startManagedDbReconcile(),
     startCacheReconcile(),
     startSearchReconcile(),

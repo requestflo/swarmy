@@ -75,13 +75,29 @@ export interface DomainCheckRecord {
 }
 
 export interface DomainChecks {
-  /** Set on the first worker pass: hosts routed BEFORE this feature are grandfathered. */
-  bootstrappedAt?: number;
   hosts: Record<string, DomainCheckRecord>;
+}
+
+/** Coerce the persisted `settings.domainChecks` blob (tolerant — a bad blob reads as empty). */
+export function domainChecksOf(settings: Record<string, unknown> | null | undefined): DomainChecks | undefined {
+  const raw = settings?.domainChecks;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as { hosts?: unknown };
+  const hosts: Record<string, DomainCheckRecord> = {};
+  if (r.hosts && typeof r.hosts === 'object') {
+    for (const [host, rec] of Object.entries(r.hosts as Record<string, unknown>)) {
+      if (rec && typeof rec === 'object' && typeof (rec as { addedAt?: unknown }).addedAt === 'number') {
+        hosts[host] = { ...(rec as DomainCheckRecord), host };
+      }
+    }
+  }
+  return { hosts };
 }
 
 /** How long a verified domain may lack a trusted certificate before it is `error`. */
 export const ISSUE_GRACE_MS = 10 * 60_000;
+/** A record younger than this is never pruned (its route label may still be landing). */
+export const PRUNE_GRACE_MS = 10 * 60_000;
 /** Expiring this soon with no renewal is surfaced as a warning. */
 export const EXPIRY_WARN_MS = 7 * 24 * 60 * 60_000;
 
@@ -90,10 +106,11 @@ export function isHostGated(checks: DomainChecks | undefined, rawHost: string): 
   if (!checks) return false;
   const host = normalizeHostname(rawHost);
   const rec = checks.hosts[host];
-  if (rec) return rec.gated && rec.verifiedAt === undefined;
-  // Unknown host after bootstrap (e.g. a compose deploy wrote the label
-  // directly): gated until the worker has looked at it.
-  return checks.bootstrappedAt !== undefined;
+  // Only hosts swarmy registered through its own write paths (add domain, set
+  // routes, www toggle) are gated. A host the worker merely DISCOVERS on a
+  // label (routed before this feature, or written by a compose deploy) is never
+  // withheld — un-rendering a domain that already works would be an outage.
+  return rec !== undefined && rec.gated && rec.verifiedAt === undefined;
 }
 
 /** A host's TLS posture, as far as the gate and state machine care. */
@@ -208,8 +225,6 @@ export interface DomainCheckPlan {
   create: DomainCheckRecord[];
   /** Records whose host is no longer routed. */
   prune: string[];
-  /** First ever pass: grandfather every current host. */
-  bootstrap: boolean;
 }
 
 /**
@@ -225,7 +240,6 @@ export function planDomainChecks(input: {
 }): DomainCheckPlan {
   const { now } = input;
   const max = input.max ?? 20;
-  const bootstrap = input.checks?.bootstrappedAt === undefined;
   const existing = input.checks?.hosts ?? {};
   const live = new Map<string, HostPosture>();
   for (const p of input.hosts) live.set(normalizeHostname(p.host), p);
@@ -236,7 +250,8 @@ export function planDomainChecks(input: {
     if (p.private) continue;
     const rec = existing[host];
     if (!rec) {
-      create.push(newDomainRecord(p, now, bootstrap));
+      // Discovered, not registered: observed but never gated (see isHostGated).
+      create.push(newDomainRecord(p, now, true));
       due.push({ host, at: 0 });
       continue;
     }
@@ -244,10 +259,13 @@ export function planDomainChecks(input: {
     if (at <= now) due.push({ host, at });
   }
   due.sort((a, b) => a.at - b.at || (a.host < b.host ? -1 : 1));
+  // A just-registered host may not be on the live labels yet (the label write
+  // is in flight) — never prune a young record, or it would come back as an
+  // ungated "discovered" one.
   const prune = Object.keys(existing)
-    .filter((h) => !live.has(h))
+    .filter((h) => !live.has(h) && now - (existing[h]!.addedAt ?? 0) > PRUNE_GRACE_MS)
     .sort();
-  return { check: due.slice(0, max).map((d) => d.host), create, prune, bootstrap };
+  return { check: due.slice(0, max).map((d) => d.host), create, prune };
 }
 
 /**

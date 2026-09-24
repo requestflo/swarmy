@@ -14,8 +14,14 @@
  * It MUST be fast (Caddy enforces a short timeout), so a tiny in-process positive
  * cache short-circuits repeat handshakes. Per-request checks are intentionally NOT
  * audited (they are high-volume); only config changes elsewhere are.
+ *
+ * Custom-domain DNS gate: a host that is routed but whose DNS has not yet been
+ * verified to point at a swarmy edge is DENIED too (`isGated`), so a freshly
+ * added domain never triggers an ACME order that cannot validate. A www
+ * companion added by a route's apex↔www toggle counts as a route host.
  */
 import type { ContainerInfo, SwarmServiceInfo } from '@swarmy/core/protocol';
+import { domainChecksOf, hostsWithCompanions, isHostGated, WWW_MODES, type WwwMode } from '@swarmy/ingress';
 
 /** The single Docker service label carrying a service's ingress routes (JSON array). */
 const INGRESS_ROUTES_LABEL = 'swarmy.ingress.routes';
@@ -47,6 +53,8 @@ export interface OnDemandDeps {
   listOrgIds(): Promise<string[]>;
   /** Live Docker inventory for one org — services carry the `swarmy.ingress.routes` label. */
   liveInventory(orgId: string): { services: SwarmServiceInfo[]; containers: ContainerInfo[] };
+  /** Is `host` still waiting for DNS verification in this org? (absent = never gated) */
+  isGated?(orgId: string, host: string): Promise<boolean>;
 }
 
 /** Normalized route hosts declared on a service's `swarmy.ingress.routes` label. */
@@ -60,14 +68,19 @@ function routeHostsOf(labels: Record<string, string>): string[] {
     return [];
   }
   if (!Array.isArray(parsed)) return [];
-  const hosts: string[] = [];
+  const entries: Array<{ host: string; www?: WwwMode }> = [];
   for (const entry of parsed) {
     if (entry && typeof entry === 'object') {
-      const host = (entry as { host?: unknown }).host;
-      if (typeof host === 'string' && host.length > 0) hosts.push(normalizeHost(host));
+      const { host, www } = entry as { host?: unknown; www?: unknown };
+      if (typeof host === 'string' && host.length > 0) {
+        entries.push({
+          host: normalizeHost(host),
+          www: typeof www === 'string' && (WWW_MODES as readonly string[]).includes(www) ? (www as WwwMode) : undefined,
+        });
+      }
     }
   }
-  return hosts;
+  return hostsWithCompanions(entries);
 }
 
 /**
@@ -93,12 +106,29 @@ export async function checkOnDemand(
     const { services } = deps.liveInventory(orgId);
     for (const svc of services) {
       if (routeHostsOf(svc.labels).includes(host)) {
+        if (deps.isGated && (await deps.isGated(orgId, host).catch(() => true))) {
+          return { status: 403, body: 'domain awaiting DNS verification' };
+        }
         cache.set(host, now + POSITIVE_TTL_MS);
         return { status: 200, body: 'ok' };
       }
     }
   }
   return { status: 403, body: 'unknown domain' };
+}
+
+/**
+ * The production `isGated` dep: reads the org's persisted domain checks
+ * (`IngressConfig.settings.domainChecks`) and applies the shared gate rule.
+ */
+export function makeIsGated(db: {
+  ingressConfig: { findUnique(args: { where: { orgId: string }; select: { settings: true } }): Promise<{ settings: unknown } | null> };
+}): (orgId: string, host: string) => Promise<boolean> {
+  return async (orgId, host) => {
+    const row = await db.ingressConfig.findUnique({ where: { orgId }, select: { settings: true } });
+    const settings = row?.settings && typeof row.settings === 'object' ? (row.settings as Record<string, unknown>) : {};
+    return isHostGated(domainChecksOf(settings), host);
+  };
 }
 
 /** Test seam: clear the positive cache between cases. */

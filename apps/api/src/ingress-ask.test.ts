@@ -70,3 +70,32 @@ describe('checkOnDemand', () => {
     expect(hits).toBe(1);
   });
 });
+
+describe('checkOnDemand — custom-domain DNS gate + www companions', () => {
+  beforeEach(() => _resetAskCache());
+
+  const deps = (routes: object[], gated: string[] = []): OnDemandDeps => ({
+    listOrgIds: async () => ['org_1'],
+    liveInventory: () => ({
+      services: [{ id: 'svc_1', name: 'web', labels: { 'swarmy.ingress.routes': JSON.stringify(routes) } } as never],
+      containers: [],
+    }),
+    isGated: async (_org, host) => gated.includes(host),
+  });
+
+  it('403 for a routed host still waiting for DNS verification', async () => {
+    const res = await checkOnDemand(deps([{ host: 'shop.acme.com', port: 80 }], ['shop.acme.com']), 'shop.acme.com');
+    expect(res).toEqual({ status: 403, body: 'domain awaiting DNS verification' });
+  });
+
+  it('200 once verified', async () => {
+    expect((await checkOnDemand(deps([{ host: 'shop.acme.com', port: 80 }]), 'shop.acme.com')).status).toBe(200);
+  });
+
+  it('a www toggle makes the companion a known host', async () => {
+    const d = deps([{ host: 'acme.com', port: 80, www: 'redirect-www-to-apex' }]);
+    expect((await checkOnDemand(d, 'www.acme.com')).status).toBe(200);
+    _resetAskCache();
+    expect((await checkOnDemand(deps([{ host: 'acme.com', port: 80 }]), 'www.acme.com')).status).toBe(403);
+  });
+});

@@ -241,12 +241,11 @@ describe('gate + state machine', () => {
     expect(newDomainRecord(posture('a.com'), NOW, true).gated).toBe(false);
   });
 
-  it('isHostGated: record wins; unknown hosts gated only after bootstrap', () => {
+  it('isHostGated: only registered, unverified records gate', () => {
     const rec = newDomainRecord(posture('a.com'), NOW);
     expect(isHostGated({ hosts: { 'a.com': rec } }, 'A.com')).toBe(true);
     expect(isHostGated({ hosts: { 'a.com': { ...rec, verifiedAt: NOW } } }, 'a.com')).toBe(false);
     expect(isHostGated({ hosts: {} }, 'b.com')).toBe(false);
-    expect(isHostGated({ bootstrappedAt: NOW, hosts: {} }, 'b.com')).toBe(true);
     expect(isHostGated(undefined, 'b.com')).toBe(false);
   });
 
@@ -304,9 +303,8 @@ describe('gate + state machine', () => {
 });
 
 describe('planDomainChecks', () => {
-  it('bootstrap grandfathers existing hosts and checks them', () => {
+  it('discovered hosts get ungated records and are checked; private skipped', () => {
     const plan = planDomainChecks({ hosts: [posture('b.com'), posture('a.com'), posture('nas.lan', { private: true })], checks: undefined, now: NOW });
-    expect(plan.bootstrap).toBe(true);
     expect(plan.create.map((r) => [r.host, r.gated])).toEqual([
       ['a.com', false],
       ['b.com', false],
@@ -314,19 +312,19 @@ describe('planDomainChecks', () => {
     expect(plan.check).toEqual(['a.com', 'b.com']);
   });
 
-  it('after bootstrap: new hosts gated, due hosts checked, gone hosts pruned', () => {
+  it('due hosts checked, not-due skipped, gone hosts pruned', () => {
     const plan = planDomainChecks({
       hosts: [posture('a.com'), posture('new.com')],
       checks: {
-        bootstrappedAt: NOW - 1,
         hosts: {
           'a.com': { host: 'a.com', addedAt: 0, gated: false, nextCheckAt: NOW + 5000 },
           'gone.com': { host: 'gone.com', addedAt: 0, gated: false },
+          'landing.com': { host: 'landing.com', addedAt: NOW - 5000, gated: true },
         },
       },
       now: NOW,
     });
-    expect(plan.create).toEqual([{ host: 'new.com', addedAt: NOW, gated: true }]);
+    expect(plan.create).toEqual([{ host: 'new.com', addedAt: NOW, gated: false }]);
     expect(plan.check).toEqual(['new.com']);
     expect(plan.prune).toEqual(['gone.com']);
   });
@@ -336,7 +334,6 @@ describe('planDomainChecks', () => {
     const plan = planDomainChecks({
       hosts,
       checks: {
-        bootstrappedAt: 1,
         hosts: {
           'a.com': { host: 'a.com', addedAt: 0, gated: false, nextCheckAt: NOW - 10 },
           'b.com': { host: 'b.com', addedAt: 0, gated: false, nextCheckAt: NOW - 1000 },
