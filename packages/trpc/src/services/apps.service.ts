@@ -418,7 +418,8 @@ export function realOps(
       return { image: b.image };
     },
     async deploy(composeSource) {
-      await deployFromCompose(ctx, { name: stack, composeSource });
+      // git is the decision: warns pass (recorded), only a `block` refuses.
+      await deployFromCompose(ctx, { name: stack, composeSource, admissionMode: 'automation' });
     },
     async attach(a: Attachment, ledger) {
       const app = await waitForService(ctx, svcName(a.service));

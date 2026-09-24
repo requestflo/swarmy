@@ -359,7 +359,13 @@ export interface DeployFromComposeResult {
 
 export async function deployFromCompose(
   ctx: OrgContext,
-  input: { name: string; composeSource: string; override?: boolean },
+  input: {
+    name: string;
+    composeSource: string;
+    override?: boolean;
+    /** `automation` (git-apps GitOps loop): warns pass, only a `block` refuses. */
+    admissionMode?: 'interactive' | 'automation';
+  },
 ): Promise<DeployFromComposeResult> {
   guardNotSystemStack(ctx, input.name);
   const services = parseComposeDoc(input.composeSource).services;
@@ -411,7 +417,7 @@ export async function deployFromCompose(
       specs,
       override: input.override,
     },
-    { targetType: 'stack', targetId: input.name },
+    { targetType: 'stack', targetId: input.name, ...(input.admissionMode ? { mode: input.admissionMode } : {}) },
   );
 
   const node = await resolveManagerNode(ctx);
