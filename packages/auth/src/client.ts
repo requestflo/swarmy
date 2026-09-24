@@ -3,6 +3,7 @@ import {
   organizationClient,
   magicLinkClient,
   genericOAuthClient,
+  twoFactorClient,
 } from 'better-auth/client/plugins';
 
 /**
@@ -12,6 +13,10 @@ import {
  * Plugins:
  *  - organizationClient: active-org switching + membership (existing).
  *  - magicLinkClient: `authClient.signIn.magicLink({ email })`.
+ *  - twoFactorClient: authenticator-app 2FA — `twoFactor.enable/verifyTotp/
+ *    verifyBackupCode/generateBackupCodes/disable`. A password sign-in by an
+ *    enrolled user answers `{ twoFactorRedirect: true }` instead of a session;
+ *    the login page then shows the code step (no full-page redirect).
  *  - genericOAuthClient: `authClient.signIn.oauth2({ providerId })` for enterprise
  *    SSO (OIDC) — the dashboard resolves `providerId` from the email domain.
  *
@@ -20,7 +25,7 @@ import {
  */
 export const authClient = createAuthClient({
   basePath: '/api/auth',
-  plugins: [organizationClient(), magicLinkClient(), genericOAuthClient()],
+  plugins: [organizationClient(), magicLinkClient(), genericOAuthClient(), twoFactorClient()],
 });
 
 export const { signIn, signUp, signOut, useSession, organization } = authClient;

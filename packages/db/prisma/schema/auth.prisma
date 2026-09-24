@@ -6,10 +6,13 @@ model User {
   email         String   @unique
   emailVerified Boolean  @default(false)
   image         String?
+  // Better Auth twoFactor plugin: true once an authenticator app is verified.
+  twoFactorEnabled Boolean @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   sessions    Session[]
+  twoFactors  TwoFactor[]
   accounts    Account[]
   members     Member[]
   joinTokens  JoinToken[]  @relation("JoinTokenCreator")
@@ -28,6 +31,11 @@ model Session {
   ipAddress            String?
   userAgent            String?
   activeOrganizationId String?
+  // swarmy MFA assurance (packages/auth/src/two-factor.ts): when this session
+  // last passed a second factor (sign-in challenge or step-up), and whether it
+  // still owes one (a magic-link sign-in by a 2FA-enrolled user).
+  mfaVerifiedAt        DateTime?
+  mfaPending           Boolean  @default(false)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -57,6 +65,23 @@ model Account {
   @@unique([providerId, accountId])
   @@index([userId])
   @@map("account")
+}
+
+// Better Auth twoFactor plugin table. `secret` and `backupCodes` are encrypted
+// with the auth secret by the plugin; never read or returned by swarmy code.
+model TwoFactor {
+  id                      String    @id
+  secret                  String    @db.Text
+  backupCodes             String    @db.Text
+  userId                  String
+  verified                Boolean   @default(true)
+  failedVerificationCount Int       @default(0)
+  lockedUntil             DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("two_factor")
 }
 
 model Verification {
@@ -100,6 +125,7 @@ model Organization {
   gitRepos            GitRepo[]
   builds              Build[]
   registryConfig      RegistryConfig?
+  registryCredentials RegistryCredential[]
   imageGcPolicy       ImageGcPolicy?
   geoDnsConfig        GeoDnsConfig?
   dnsZones            DnsZone[]
@@ -117,6 +143,7 @@ model Organization {
   tunnels             Tunnel[]
   terminalSessions    TerminalSession[]
   terminalPolicy      TerminalPolicy?
+  securityPolicy      OrgSecurityPolicy?
   terminalApprovals   TerminalApproval[]
   swarmConfig         SwarmConfig?
   idempotencyKeys     IdempotencyKey[]

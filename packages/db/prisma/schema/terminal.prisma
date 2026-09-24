@@ -9,6 +9,8 @@ model TerminalPolicy {
   recordContainerExec         Boolean  @default(true)
   idleTimeoutMs               Int      @default(300000)
   maxSessionMs                Int      @default(3600000)
+  // Step-up window: a second factor within this long satisfies requireMfa.
+  mfaMaxAgeMs                 Int      @default(900000)
   allowedRoles                Json     @default("[\"owner\",\"admin\"]")
   updatedAt                   DateTime @updatedAt
 

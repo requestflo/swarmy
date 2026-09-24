@@ -8,6 +8,13 @@ export {
 export type { SignupMode } from './signup-policy';
 export { auth, buildAuth, AuthRegistry, authRegistry, AUTH_RATE_LIMIT_RULES } from './server';
 export {
+  classifySessionPath,
+  MFA_VERIFY_PATHS,
+  nextStepUpCounters,
+  STEP_UP_LOCKOUT,
+  type SessionAssurance,
+} from './two-factor';
+export {
   CLIENT_IP_HEADER,
   DEFAULT_TRUSTED_PROXIES,
   parseTrustedProxies,

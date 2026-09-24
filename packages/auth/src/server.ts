@@ -16,6 +16,7 @@ import {
   ORG_CREATE_FORBIDDEN_MESSAGE,
 } from './signup-policy';
 import { authTrustedOrigins } from './origins';
+import { mfaAssurance, swarmyTwoFactor } from './two-factor';
 
 /**
  * Per-IP limits for the credential endpoints. Keyed on the IP the host resolved
@@ -34,6 +35,9 @@ export const AUTH_RATE_LIMIT_RULES = {
   '/forget-password/**': { window: 900, max: 3 },
   // Reset-token redemption (token brute force): 10 per 15 minutes per IP.
   '/reset-password/**': { window: 900, max: 10 },
+  // Second-factor codes. The plugin also caps /two-factor/* at 3 per 10s;
+  // this adds a per-minute ceiling so a slow grind is bounded too.
+  '/two-factor/**': { window: 60, max: 10 },
   // Credential changes on a live session.
   '/change-password': { window: 60, max: 5 },
   '/change-email': { window: 60, max: 5 },
@@ -234,6 +238,11 @@ export function buildAuth(
           },
         },
       }),
+      // Authenticator-app 2FA is always available (users opt in; orgs may
+      // require it). Static so `Auth` infers `user.twoFactorEnabled` and the
+      // `/two-factor/*` API. See two-factor.ts.
+      swarmyTwoFactor(),
+      mfaAssurance(db),
       ...optional,
     ],
   });
