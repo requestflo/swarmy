@@ -66,6 +66,7 @@ interface BuildLogLine {
 
 interface ImageSuggestion {
   name: string;
+  source: 'local' | 'hub';
   description: string;
   official: boolean;
   stars: number;
@@ -251,7 +252,7 @@ function build(
 
 // ── Static Docker Hub autocomplete data ───────────────────────────────────────
 
-const HUB_IMAGES: ImageSuggestion[] = [
+const HUB_IMAGES: ImageSuggestion[] = ([
   { name: 'nginx', description: 'Official build of Nginx.', official: true, stars: 19800 },
   { name: 'redis', description: 'Redis is an open source key-value store.', official: true, stars: 12700 },
   { name: 'postgres', description: 'The PostgreSQL object-relational database.', official: true, stars: 13500 },
@@ -262,7 +263,16 @@ const HUB_IMAGES: ImageSuggestion[] = [
   { name: 'prom/prometheus', description: 'The Prometheus monitoring system.', official: false, stars: 2600 },
   { name: 'caddy', description: 'Fast, multi-platform web server with automatic HTTPS.', official: true, stars: 1900 },
   { name: 'alpine', description: 'A minimal Docker image based on Alpine Linux.', official: true, stars: 11000 },
-];
+] as Omit<ImageSuggestion, 'source'>[]).map((img) => ({ ...img, source: 'hub' as const }));
+
+/** Images already in the built-in registry — the picker lists these first. */
+const LOCAL_IMAGES: ImageSuggestion[] = ['acme/web', 'acme/api', 'acme/worker'].map((repo) => ({
+  name: `${REGISTRY_HOST}/${repo}`,
+  source: 'local' as const,
+  description: 'Built-in registry',
+  official: false,
+  stars: 0,
+}));
 
 const TAGS_BY_IMAGE: Record<string, TagSuggestion[]> = {
   nginx: [
@@ -436,9 +446,11 @@ export const cicd: DomainResolvers = {
     'images.search': (i): ImageSuggestion[] => {
       const q = (i as { query: string }).query.trim().toLowerCase();
       if (q.length < 2) return [];
+      // Built-in registry first, Docker Hub second (as images.service).
+      const local = LOCAL_IMAGES.filter((img) => img.name.toLowerCase().includes(q));
       const matches = HUB_IMAGES.filter((img) => img.name.toLowerCase().includes(q));
-      const pool = matches.length > 0 ? matches : HUB_IMAGES;
-      return pool.slice(0, 10);
+      const hub = matches.length > 0 || local.length > 0 ? matches : HUB_IMAGES;
+      return [...local, ...hub].slice(0, 13);
     },
 
     'images.tags': (i): TagSuggestion[] => {

@@ -38,9 +38,10 @@ function splitImage(value: string): { name: string; tag: string } {
 }
 
 /**
- * Docker Hub image+tag autocomplete. Best-effort: if the proxy returns nothing
- * it stays a plain text input. Type a name -> name suggestions; once a name is
- * set, the tag field offers tag suggestions.
+ * Image+tag autocomplete: the built-in registry first, Docker Hub second (the
+ * Hub group is absent when Hub is unreachable). Best-effort: if the proxy
+ * returns nothing it stays a plain text input. Type a name -> name
+ * suggestions; once a name is set, the tag field offers tag suggestions.
  */
 export function ImagePicker({ value, onChange }: ImagePickerProps): React.JSX.Element {
   const trpc = useTRPC();
@@ -62,6 +63,12 @@ export function ImagePicker({ value, onChange }: ImagePickerProps): React.JSX.El
   const setTag = (next: string): void => onChange(next ? `${name}:${next}` : name);
 
   const suggestions = search.data ?? [];
+  const localSuggestions = suggestions.filter((s) => s.source === 'local');
+  const hubSuggestions = suggestions.filter((s) => s.source !== 'local');
+  const pick = (next: string): void => {
+    setName(next);
+    setNameOpen(false);
+  };
   const tagSuggestions = tags.data ?? [];
 
   return (
@@ -85,27 +92,35 @@ export function ImagePicker({ value, onChange }: ImagePickerProps): React.JSX.El
           <Command shouldFilter={false}>
             <CommandList>
               <CommandEmpty>No images.</CommandEmpty>
-              <CommandGroup>
-                {suggestions.map((s) => (
-                  <CommandItem
-                    key={s.name}
-                    value={s.name}
-                    onSelect={() => {
-                      setName(s.name);
-                      setNameOpen(false);
-                    }}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <span className="truncate">
-                      <span className="font-mono">{s.name}</span>
-                      {s.official && <span className="text-status-online mono-label ml-2">official</span>}
-                    </span>
-                    <span className="text-muted-foreground mono-label flex shrink-0 items-center gap-1">
-                      <StarIcon className="size-3" /> {s.stars}
-                    </span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
+              {localSuggestions.length > 0 && (
+                <CommandGroup heading="Built-in registry">
+                  {localSuggestions.map((s) => (
+                    <CommandItem key={s.name} value={s.name} onSelect={() => pick(s.name)}>
+                      <span className="truncate font-mono">{s.name}</span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              )}
+              {hubSuggestions.length > 0 && (
+                <CommandGroup heading="Docker Hub">
+                  {hubSuggestions.map((s) => (
+                    <CommandItem
+                      key={s.name}
+                      value={s.name}
+                      onSelect={() => pick(s.name)}
+                      className="flex items-center justify-between gap-2"
+                    >
+                      <span className="truncate">
+                        <span className="font-mono">{s.name}</span>
+                        {s.official && <span className="text-status-online mono-label ml-2">official</span>}
+                      </span>
+                      <span className="text-muted-foreground mono-label flex shrink-0 items-center gap-1">
+                        <StarIcon className="size-3" /> {s.stars}
+                      </span>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              )}
             </CommandList>
           </Command>
         </PopoverContent>
