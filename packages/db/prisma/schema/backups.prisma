@@ -1,44 +1,14 @@
-// Backups / DR: targets, snapshots, controller backup, replicated store (Garage), CSI volumes, schedules.
-
-enum BackupTargetKind {
-  S3
-  NODE
-}
+// Backups / DR history: volume snapshots, controller snapshots, backup jobs,
+// restores and off-site mirror runs. The config they belong to — targets,
+// schedules, the off-site mirror, the controller-backup settings — lives in
+// the org's swarm (swarm-kv, plans/epic-docker-native-state.md P4 slice 3), so
+// `targetId` / `scheduleId` / `mirrorId` here are plain strings.
 
 enum SnapshotStatus {
   RUNNING
   SUCCEEDED
   FAILED
   PRUNED
-}
-
-model BackupTarget {
-  id                String           @id @default(cuid())
-  orgId             String
-  name              String
-  kind              BackupTargetKind @default(S3)
-  endpoint          String?
-  bucket            String
-  prefix            String?
-  region            String?
-  // Encrypted via the vault (SWARMY_SECRET_KEY). Never returned to clients.
-  credentialRef     String?
-  secretKeyRef      String?
-  resticPasswordRef String
-  enabled           Boolean          @default(true)
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-
-  org                 Organization             @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  snapshots           Snapshot[]
-  schedules           BackupSchedule[]
-  controllerConfigs   ControllerBackupConfig[]
-  controllerSnapshots ControllerSnapshot[]     @relation("ControllerSnapshots")
-  offsiteMirrors      OffsiteMirror[]
-
-  @@unique([orgId, name])
-  @@index([orgId])
-  @@map("backup_target")
 }
 
 model Snapshot {
@@ -55,28 +25,11 @@ model Snapshot {
   finishedAt DateTime?
 
   org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  target BackupTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
 
   @@index([orgId, startedAt])
   @@index([volume, startedAt])
   @@index([targetId])
   @@map("snapshot")
-}
-
-model ControllerBackupConfig {
-  id                    String    @id @default("controller")
-  targetId              String?
-  enabled               Boolean   @default(false)
-  schedule              String    @default("0 3 * * *")
-  retention             Json      @default("{\"keepDaily\":7,\"keepWeekly\":4,\"keepMonthly\":3}")
-  restorePassphraseRef  String?
-  restorePassphraseHint String?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
-
-  target BackupTarget? @relation(fields: [targetId], references: [id], onDelete: SetNull)
-
-  @@map("controller_backup_config")
 }
 
 model ControllerSnapshot {
@@ -91,13 +44,10 @@ model ControllerSnapshot {
   finishedAt       DateTime?
   error            String?
 
-  target BackupTarget @relation("ControllerSnapshots", fields: [targetId], references: [id], onDelete: Cascade)
-
   @@index([startedAt])
   @@index([targetId])
   @@map("controller_snapshot")
 }
-
 
 enum BackupJobStatus {
   RUNNING
@@ -116,40 +66,6 @@ enum RestoreStatus {
 // (BucketAccess) live in the org's swarm (swarm-kv storage/<orgId> and
 // bucket-acl/<orgId>, plans/epic-docker-native-state.md P4 slice 2).
 
-model BackupSchedule {
-  id        String    @id @default(cuid())
-  orgId     String
-  targetId  String
-  volume    String
-  nodeId    String?
-  every     Int
-  unit      String
-  paused    Boolean   @default(false)
-  /// Created by swarmy's default-on DB backups (not a user) — the UI badges it
-  /// "Auto". A user editing/replacing it takes ownership.
-  auto          Boolean   @default(false)
-  /// Retention window (days) this schedule prunes to when the stack has no
-  /// `swarmy.backup.retentionDays` label (the stack label, when set, wins).
-  retentionDays Int?
-  /// Interval anchor (defaults to createdAt) — auto schedules stagger their
-  /// nightly slot within 02:00–04:59 UTC.
-  anchorAt      DateTime?
-  /// Opt-out tombstone: the user removed an auto schedule. Never runs, hidden
-  /// from lists, and stops the auto-backup loop re-creating it.
-  optedOutAt    DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  target BackupTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
-  jobs   BackupJob[]
-
-  @@index([orgId])
-  @@index([orgId, volume])
-  @@index([paused])
-  @@map("backup_schedule")
-}
-
 model BackupJob {
   id         String          @id @default(cuid())
   orgId      String
@@ -161,7 +77,6 @@ model BackupJob {
   finishedAt DateTime?
 
   org      Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  schedule BackupSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
 
   @@index([orgId])
   @@index([scheduleId, startedAt])
@@ -189,36 +104,6 @@ model RestoreOperation {
   @@map("restore_operation")
 }
 
-/// Off-site mirror of the org's Garage object store (every bucket or a chosen
-/// list) into an S3 `BackupTarget` — swarmy config, like the targets it points
-/// at. One per org. The mirror's own Garage key is controller-held, encrypted.
-model OffsiteMirror {
-  id                 String    @id @default(cuid())
-  orgId              String    @unique
-  targetId           String
-  /// true = mirror every bucket in the store; false = only `buckets`.
-  allBuckets         Boolean   @default(true)
-  buckets            Json      @default("[]")
-  /// Path under the destination bucket the mirror writes into.
-  prefix             String    @default("swarmy-mirror")
-  everyMinutes       Int       @default(60)
-  /// "copy" never deletes off-site; "sync" propagates deletes after graceDays.
-  mode               String    @default("copy")
-  graceDays          Int       @default(7)
-  enabled            Boolean   @default(true)
-  /// Encrypted (vault) Garage key the rclone one-shot reads the store with.
-  sourceAccessKeyRef String?
-  sourceSecretKeyRef String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-
-  org    Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  target BackupTarget       @relation(fields: [targetId], references: [id], onDelete: Cascade)
-  runs   OffsiteMirrorRun[]
-
-  @@map("offsite_mirror")
-}
-
 /// One mirror (store → off-site) or restore (off-site → store) run.
 model OffsiteMirrorRun {
   id            String          @id @default(cuid())
@@ -242,7 +127,6 @@ model OffsiteMirrorRun {
   finishedAt    DateTime?
 
   org    Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  mirror OffsiteMirror @relation(fields: [mirrorId], references: [id], onDelete: Cascade)
 
   @@index([orgId, startedAt])
   @@index([mirrorId, startedAt])

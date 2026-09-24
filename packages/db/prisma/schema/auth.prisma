@@ -117,7 +117,6 @@ model Organization {
   stacks        Stack[]
   auditLogs     AuditLog[]
 
-  backupTargets       BackupTarget[]
   snapshots           Snapshot[]
   ssoProviders        SsoProvider[]
   policies            Policy[]
@@ -130,10 +129,8 @@ model Organization {
   registryCredentials RegistryCredential[]
   imageGcPolicy       ImageGcPolicy?
   apiKeys             ApiKey[]
-  backupSchedules     BackupSchedule[]
   backupJobs          BackupJob[]
   restoreOperations   RestoreOperation[]
-  offsiteMirror       OffsiteMirror?
   offsiteMirrorRuns   OffsiteMirrorRun[]
   meshRoutes          MeshRoute[]
   terminalSessions    TerminalSession[]
