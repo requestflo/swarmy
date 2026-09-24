@@ -55,6 +55,8 @@ export interface DesiredService {
   serviceName: string;
   source: BuildSource | ImageSource;
   command?: string[];
+  /** Pre-deploy one-shot (migrations) run in the new image; failure aborts this deploy. */
+  release?: string[];
   port?: number;
   replicas: number;
   sleepAfterSeconds?: number;
@@ -323,6 +325,7 @@ export function toDesired(cfg: AppConfig, opts: DesiredOptions = {}): DesiredApp
         serviceName: `${stack}_${name}`,
         source,
         ...(s.command !== undefined ? { command: toCommand(s.command) } : {}),
+        ...(s.release !== undefined ? { release: toCommand(s.release) } : {}),
         ...(s.port !== undefined ? { port: s.port } : {}),
         replicas,
         ...(sleepAfterSeconds !== undefined ? { sleepAfterSeconds } : {}),

@@ -94,6 +94,11 @@ const service = {
     },
     image: { type: 'string', description: 'A prebuilt image (pin a tag or digest)' },
     command: command,
+    release: {
+      ...command,
+      description:
+        'Run once in the new image before it goes live (e.g. migrations); failure aborts the deploy',
+    },
     port: {
       type: 'integer',
       minimum: 1,

@@ -76,6 +76,8 @@ describe('toDesired', () => {
     });
     expect(web?.dependsOn).toEqual(['cache', 'db', 'invoices', 'search']);
     expect(worker?.command).toEqual(['node', 'dist/worker.js']);
+    expect(web?.release).toEqual(['sh', '-c', 'npm run migrate']);
+    expect(worker?.release).toBeUndefined();
     expect(admin?.sleepAfterSeconds).toBe(900);
     expect(admin?.dependsOn).toEqual(['web']);
     expect(admin?.volumes).toEqual([

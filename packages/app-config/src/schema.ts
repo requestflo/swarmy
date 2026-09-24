@@ -143,6 +143,8 @@ export const ServiceSchema = z
     build: BuildSchema.optional(),
     image: z.string().min(1).optional(),
     command: commandLine.optional(),
+    /** Pre-deploy one-shot in the NEW image (migrations); a non-zero exit aborts the release. */
+    release: commandLine.optional(),
     port: z.number().int().min(1).max(65535).optional(),
     replicas: z.number().int().min(0).max(100).optional(),
     /** Scale to zero after this much idle time; woken by the next request. */

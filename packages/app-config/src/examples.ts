@@ -31,6 +31,7 @@ services:
       dockerfile: Dockerfile
       args: { APP_VERSION: "2" }
       watch: [services/orders, packages/shared]
+    release: npm run migrate
     port: 3000
     replicas: 2
     size: small
