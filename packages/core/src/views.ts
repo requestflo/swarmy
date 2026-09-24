@@ -2521,6 +2521,7 @@ import type { InvServiceStatus as VectorServiceStatus } from './inventory';
 
 // Providers, catalogue, routes, allowlists, guardrails: the pure model layer.
 export * from './ai-gateway';
+export * from './ai-url-guard';
 import type { AiProviderKind, AiGuardrailSettings, AiRoute, AiModelKind } from './ai-gateway';
 
 /** One configured upstream provider. The API key itself is NEVER returned. */
