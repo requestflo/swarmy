@@ -73,6 +73,13 @@ Order of work: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10. Design 
   plausibly banner-free.
 
 ## 8. Email service (SES-like)
+> **Built (2026-09-24).** maddy 0.9.5 as the `swarmy-mail` system service (submission :587,
+> per-domain direct/smarthost routes, DKIM, DSNs to the controller's bounce hook);
+> `POST /email/v1/send` + `SwarmyEmail` SDK; derived per-app credentials; DKIM keys vaulted;
+> SPF/DKIM/DMARC derived into swarmy-dns zones, guided checks elsewhere; port-25 probe
+> (`probeSmtp`); DSN/ARF → suppressions + signed webhooks; send log in ClickHouse; swarmy.yaml
+> `email:`; Better Auth verification/reset/magic-link, invites and alerts use it; Email page.
+> Code: `packages/trpc/src/services/email/*`, `email.service.ts`, `apps/api/src/email.ts`.
 - Native outbound mail: an SMTP endpoint plus an HTTP send API (and SDK), per-app
   credentials, templates, a suppression list, bounce/complaint webhooks, and a log of
   sent mail in ClickHouse.
