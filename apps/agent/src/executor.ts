@@ -12,6 +12,7 @@ import { applyMesh, grantDirectRoute } from './handlers/mesh';
 import { applyIngressConnector } from './handlers/ingress-connector';
 import { buildImage } from './handlers/build';
 import { pruneImages } from './handlers/prune';
+import { runNodeHygiene } from './handlers/hygiene';
 import { applyStorageNode, provisionVolume, removeVolume } from './handlers/storage';
 import { applySwarmJoin, rotateSwarmTokens, setSwarmAutolock } from './handlers/swarm';
 import { updateAgent } from './handlers/update';
@@ -208,6 +209,22 @@ export async function handleCommand(
         return;
       }
       return run(conn, p.commandId, () => pruneImages(docker, p));
+    }
+    case 'nodeHygiene': {
+      const p = envlp.payload;
+      if (!env.ALLOW_HYGIENE) {
+        conn.send('commandResult', {
+          commandId: p.commandId,
+          status: 'rejected',
+          error: { code: 'E_HYGIENE_DISABLED', message: 'disk hygiene is disabled on this node (SWARMY_ALLOW_HYGIENE=false)' },
+        });
+        return;
+      }
+      return run(conn, p.commandId, async () => {
+        const result = await runNodeHygiene(docker, p);
+        if (!p.dryRun && result.containers.removed > 0) pushInventory(docker, conn);
+        return result;
+      });
     }
     case 'applyStorageNode': {
       const p = envlp.payload;

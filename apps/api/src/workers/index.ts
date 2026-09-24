@@ -1,6 +1,7 @@
 import { startMetricsSampler } from './metrics-sampler';
 import { startRetention } from './retention';
 import { startImageGc } from './image-gc';
+import { startNodeHygiene } from './node-hygiene';
 import { startControllerBackupScheduler } from './controller-backup-scheduler';
 import { startBackupScheduler } from './backup-scheduler';
 import { startOffsiteMirror } from './offsite-mirror';
@@ -33,6 +34,7 @@ export function startWorkers(): () => void {
     startMetricsSampler(),
     startRetention(),
     startImageGc(),
+    startNodeHygiene(),
     startControllerBackupScheduler(),
     startBackupScheduler(),
     startOffsiteMirror(),

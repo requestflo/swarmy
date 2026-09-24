@@ -1377,6 +1377,20 @@ export interface ChannelTestResult {
   detail: string;
 }
 
+// ── Node disk hygiene (launch-blocker #8) ─────────────────────────────────────
+
+/** One cleanup run on a node's activity (from the `node.hygiene` audit row). */
+export interface NodeHygieneRunView {
+  at: string;
+  ok: boolean;
+  /** true = the 6-hourly worker; false = someone clicked "Clean up now". */
+  automatic: boolean;
+  /** "Cleanup reclaimed 2.3 GB (14 images, 3 stopped containers, build cache 1.1 GB)". */
+  summary: string;
+  reclaimedBytes: number;
+  dryRun: boolean;
+}
+
 // ── Incidents (slice C4) — open/resolve lifecycle + event timeline ────────────
 
 export const INCIDENT_STATUSES = ['open', 'resolved'] as const;

@@ -38,6 +38,7 @@ export type CommandName =
   | 'volume.provision' // volumes-dr P3: create a local/CSI cluster volume
   | 'volume.remove'
   | 'image.prune'
+  | 'node.hygiene' // disk hygiene: prune stopped one-shots, unused images, build cache
   | 'mesh.grantDirectRoute'
   | 'swarm.join' // node-onboarding P2: init/join the org's Docker Swarm
   | 'swarm.autolock' // WS2 quorum recovery: toggle AutoLockManagers (returns the unlock key on enable)
@@ -88,6 +89,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'volume.provision': 'provisionVolume',
   'volume.remove': 'removeVolume',
   'image.prune': 'pruneImages',
+  'node.hygiene': 'nodeHygiene',
   'mesh.grantDirectRoute': 'grantDirectRoute',
   'swarm.join': 'swarmJoin',
   'swarm.autolock': 'swarmSetAutolock',

@@ -24,6 +24,7 @@ import {
   revokeJoinToken,
 } from '../services/token.service';
 import { setNodeCost } from '../services/cost.service';
+import { listNodeHygiene, runNodeHygieneNow } from '../services/node-hygiene.service';
 
 export const nodesRouter = router({
   list: orgProcedure.query(({ ctx }) => listNodes(ctx)),
@@ -115,6 +116,16 @@ export const nodesRouter = router({
   remove: abacProcedure('node.remove', resolveNode).input(z.object({ id: z.string() })).mutation(({ ctx, input }) =>
     removeNode(ctx, input.id),
   ),
+
+  /** Disk hygiene: effective settings (node labels) + recent cleanup runs for the node's activity. */
+  hygiene: orgProcedure
+    .input(z.object({ nodeId: z.string() }))
+    .query(({ ctx, input }) => listNodeHygiene(ctx, input.nodeId)),
+
+  /** "Clean up now": prune stopped one-shots, unused images (never an in-prod digest) and build cache. */
+  runHygiene: abacProcedure('data.destroy')
+    .input(z.object({ nodeId: z.string(), dryRun: z.boolean().optional() }))
+    .mutation(({ ctx, input }) => runNodeHygieneNow(ctx, input)),
 
   /** The agent release this controller can hand out (version + platforms), or null when no binaries are built. */
   agentRelease: orgProcedure.query(() => {

@@ -66,6 +66,9 @@ export const env = {
   TERM_MAX_OUTPUT_BYTES: Number(process.env.SWARMY_TERM_MAX_OUTPUT_BYTES ?? 64 * 1024 * 1024),
   // Mesh provisioning is on by default; a node can opt out (epic #6).
   ALLOW_MESH: (process.env.SWARMY_ALLOW_MESH ?? 'true') === 'true',
+  // Disk hygiene (periodic prune of stopped one-shots / unused images / build
+  // cache) is on by default; SWARMY_ALLOW_HYGIENE=false vetoes it on this node.
+  ALLOW_HYGIENE: (process.env.SWARMY_ALLOW_HYGIENE ?? 'true') !== 'false',
   // Builds/image-GC are a node CAPABILITY managed from the dashboard (the
   // `swarmy.node.builder` role label, asserted by the controller per command).
   // SWARMY_ALLOW_BUILD stays as an explicit local override: `true` forces

@@ -41,6 +41,27 @@ export const core: DomainResolvers = {
 
     'nodes.list': (_i, s): NodeSummary[] => s.nodes,
     'nodes.get': (i, s) => byId(s.nodes, (i as { id: string }).id) ?? null,
+    'nodes.hygiene': () => ({
+      settings: { enabled: true, imageMinAgeDays: 7, buildCacheKeepBytes: 5 * 1024 ** 3 },
+      runs: [
+        {
+          at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+          ok: true,
+          automatic: true,
+          summary: 'Cleanup reclaimed 2.3 GB (14 images, 3 stopped containers, build cache 1.1 GB)',
+          reclaimedBytes: 2.3 * 1024 ** 3,
+          dryRun: false,
+        },
+      ],
+    }),
+    'nodes.runHygiene': () => ({
+      at: new Date().toISOString(),
+      ok: true,
+      automatic: false,
+      summary: 'Cleanup reclaimed 412 MB (3 images, 1 stopped container, build cache 0 B)',
+      reclaimedBytes: 412 * 1024 ** 2,
+      dryRun: false,
+    }),
     'nodes.liveStatsLatest': (i, s) => {
       const n = byId(s.nodes, (i as { id?: string })?.id ?? '');
       if (!n?.live) return null;

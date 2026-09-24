@@ -20,6 +20,7 @@ export * from './swarmres';
 export * from './mesh';
 export * from './dns';
 export * from './terminal';
+export * from './hygiene';
 export * from './build';
 export * from './prune';
 export * from './storage';

@@ -269,6 +269,27 @@ export class DockerClient {
     return (res as { UnlockKey?: string } | null)?.UnlockKey ?? '';
   }
 
+  /**
+   * Trim the build cache down to `keepBytes` (`POST /build/prune`, least
+   * recently used first; `all` so unused tagged-build cache counts too).
+   * Sends both `keep-storage` (API < 1.48) and `reserved-space` (1.48+);
+   * the engine ignores the one it doesn't know. dockerode 4.x has no wrapper.
+   */
+  async pruneBuildCache(keepBytes: number): Promise<{ reclaimedBytes: number }> {
+    const res = await new Promise<unknown>((resolve, reject) => {
+      this.docker.modem.dial(
+        {
+          path: '/build/prune?',
+          method: 'POST',
+          options: { all: true, 'keep-storage': keepBytes, 'reserved-space': keepBytes },
+          statusCodes: { 200: true, 500: 'server error' },
+        },
+        (err: Error | null, data: unknown) => (err ? reject(err) : resolve(data)),
+      );
+    });
+    return { reclaimedBytes: Number((res as { SpaceReclaimed?: number } | null)?.SpaceReclaimed ?? 0) };
+  }
+
   /** Rotate the worker and/or manager join tokens; returns the post-rotation pair. */
   async swarmRotateTokens(
     roles: Array<'manager' | 'worker'>,
