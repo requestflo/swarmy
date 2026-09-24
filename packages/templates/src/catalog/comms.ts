@@ -110,7 +110,7 @@ services:
     ],
     notes: [
       'Anonymous access is set to deny-all, so every publish and subscribe needs a user or access token. Change NTFY_AUTH_DEFAULT_ACCESS if you want public topics.',
-      'NTFY_UPSTREAM_BASE_URL forwards a poll request (no message content) to ntfy.sh so iOS devices get instant notifications. Remove it if you do not use iOS.',
+      'This server talks to no third party. iOS instant notifications are opt-in: set NTFY_UPSTREAM_BASE_URL=https://ntfy.sh on the ntfy service to forward a poll request (no message content) to ntfy.sh, which relays it to Apple push.',
     ],
     yaml: `version: 1
 app: ntfy
@@ -127,7 +127,6 @@ services:
       NTFY_AUTH_DEFAULT_ACCESS: deny-all
       NTFY_ENABLE_LOGIN: "true"
       NTFY_ATTACHMENT_CACHE_DIR: /var/lib/ntfy/attachments
-      NTFY_UPSTREAM_BASE_URL: https://ntfy.sh
     volumes:
       data: /var/lib/ntfy
     healthcheck:

@@ -118,10 +118,11 @@ export function parseChannelConfig(json: string): ChannelConfigInput | null {
         ...(typeof raw.threadId === 'number' && raw.threadId > 0 ? { threadId: raw.threadId } : {}),
       };
     }
-    if (raw.kind === 'ntfy' && str(raw.topic)) {
+    // No server → not configured (never a silent public ntfy.sh fallback).
+    if (raw.kind === 'ntfy' && str(raw.topic) && str(raw.server)) {
       return {
         kind: 'ntfy',
-        server: str(raw.server) ? raw.server : 'https://ntfy.sh',
+        server: raw.server,
         topic: raw.topic,
         ...(str(raw.token) ? { token: raw.token } : {}),
       };

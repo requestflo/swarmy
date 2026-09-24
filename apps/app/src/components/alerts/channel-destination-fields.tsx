@@ -1,5 +1,6 @@
 import * as React from 'react';
 import type { ChannelConfigInput, NotificationChannelKindView } from '@swarmy/core';
+import { Link } from '@tanstack/react-router';
 import { Input, Label } from '@swarmy/ui';
 import { KIND_LABEL } from './channel-kind-picker';
 
@@ -54,10 +55,10 @@ export function channelConfigFrom(
       };
     }
     case 'ntfy':
-      return t(f.topic)
+      return t(f.server) && t(f.topic)
         ? {
             kind,
-            server: t(f.server) || 'https://ntfy.sh',
+            server: t(f.server),
             topic: t(f.topic),
             ...(t(f.token) ? { token: t(f.token) } : {}),
           }
@@ -74,7 +75,7 @@ interface FieldProps {
   onChange: (v: string) => void;
   placeholder?: string;
   secret?: boolean;
-  hint?: string;
+  hint?: React.ReactNode;
 }
 
 function Field({ id, label, value, onChange, placeholder, secret, hint }: FieldProps): React.JSX.Element {
@@ -152,8 +153,16 @@ export function ChannelDestinationFields({
             label="Server"
             value={fields.server}
             onChange={set('server')}
-            placeholder="https://ntfy.sh"
-            hint="Leave blank for ntfy.sh, or use your own server."
+            placeholder="https://ntfy.example.com"
+            hint={
+              <>
+                Your own ntfy server. No server yet?{' '}
+                <Link to="/blueprints" className="underline underline-offset-2">
+                  Deploy the ntfy template
+                </Link>
+                .
+              </>
+            }
           />
           <Field id="ch-topic" label="Topic" value={fields.topic} onChange={set('topic')} placeholder="swarmy-alerts" />
           <Field

@@ -31,14 +31,17 @@ const test: AlertNotification = { ...firing, kind: 'test', severity: 'info' };
 const TG_TOKEN = '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw';
 
 describe('channel inputs (zod)', () => {
-  it('accepts the new kinds and defaults ntfy to ntfy.sh', () => {
+  it('accepts the new kinds and requires an ntfy server (no ntfy.sh default)', () => {
     expect(ChannelConfigInput.parse({ kind: 'discord', url: 'https://discord.com/api/webhooks/1/x' })).toEqual({
       kind: 'discord',
       url: 'https://discord.com/api/webhooks/1/x',
     });
-    expect(ChannelConfigInput.parse({ kind: 'ntfy', topic: 'swarmy-alerts' })).toEqual({
+    expect(ChannelConfigInput.safeParse({ kind: 'ntfy', topic: 'swarmy-alerts' }).success).toBe(false);
+    expect(
+      ChannelConfigInput.parse({ kind: 'ntfy', server: 'https://ntfy.example.com', topic: 'swarmy-alerts' }),
+    ).toEqual({
       kind: 'ntfy',
-      server: 'https://ntfy.sh',
+      server: 'https://ntfy.example.com',
       topic: 'swarmy-alerts',
     });
     expect(ChannelConfigInput.safeParse({ kind: 'telegram', botToken: TG_TOKEN, chatId: '-100123' }).success).toBe(

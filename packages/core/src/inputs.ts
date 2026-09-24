@@ -677,10 +677,14 @@ export const ChannelConfigInput = z.discriminatedUnion('kind', [
     chatId: z.string().regex(/^-?\d+$|^@[A-Za-z0-9_]{4,}$/, 'expected a numeric chat id or @channel'),
     threadId: z.number().int().positive().optional(),
   }),
-  /** ntfy (self-hostable): server URL + topic, optional access token. */
+  /**
+   * ntfy (self-hostable): server URL + topic, optional access token. The server
+   * is REQUIRED — no silent public ntfy.sh default (plans/self-reliance.md); the
+   * UI points at the one-click ntfy template for a self-hosted server.
+   */
   z.object({
     kind: z.literal('ntfy'),
-    server: z.string().url().max(1024).default('https://ntfy.sh'),
+    server: z.string().url().max(1024),
     topic: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'topic: letters, digits, _ and - only'),
     token: z.string().min(1).max(256).optional(),
   }),
