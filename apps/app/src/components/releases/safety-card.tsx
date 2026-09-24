@@ -127,7 +127,7 @@ export function SafetyCard({ stackName }: { stackName: string }): React.JSX.Elem
             <Label className="text-sm font-medium">Strategy</Label>
             <p className="text-muted-foreground text-xs">{strategySummary(safety.data?.strategy ?? null)}</p>
           </div>
-          <Link to="/stacks" className="text-primary text-xs font-semibold hover:underline">
+          <Link to="/" className="text-primary text-xs font-semibold hover:underline">
             Configure on deploy →
           </Link>
         </div>

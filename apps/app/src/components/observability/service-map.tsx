@@ -59,7 +59,7 @@ export function ServiceMapPanel({ enabled, stack }: ServiceMapPanelProps): React
       action={
         stack ? undefined : (
           <Button asChild variant="outline" size="sm">
-            <Link to="/stacks">Open stacks</Link>
+            <Link to="/">Open stacks</Link>
           </Button>
         )
       }

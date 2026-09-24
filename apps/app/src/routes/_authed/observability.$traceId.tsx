@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeftIcon, ListTreeIcon } from 'lucide-react';
 import {
@@ -81,6 +81,7 @@ function buildWaterfall(spans: SpanRow[]): { rows: WaterfallRow[]; totalMs: numb
 function TraceDetailPage(): React.JSX.Element {
   const { traceId } = Route.useParams();
   const trpc = useTRPC();
+  const router = useRouter();
 
   const detail = useQuery(trpc.observability.traceDetail.queryOptions({ traceId }));
   const spans = (detail.data?.spans ?? []) as SpanRow[];
@@ -100,10 +101,8 @@ function TraceDetailPage(): React.JSX.Element {
         }
         description={root ? `${root.service_name} · ${root.span_name}` : traceId}
         actions={
-          <Button asChild variant="ghost">
-            <Link to="/observability">
-              <ArrowLeftIcon className="size-4" /> Back to traces
-            </Link>
+          <Button variant="ghost" onClick={() => router.history.back()}>
+            <ArrowLeftIcon className="size-4" /> Back to traces
           </Button>
         }
       />
