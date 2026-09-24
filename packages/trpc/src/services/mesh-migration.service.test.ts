@@ -74,7 +74,6 @@ function harness(opts: { meshWorkerIp?: string; startOnMesh?: boolean; failRejoi
         { id: 'nyc-a', hostname: 'nyc-a' },
       ],
     },
-    swarmConfig: { upsert: async () => ({}) },
     auditLog: { create: async ({ data }: { data: { action: string; metadata?: unknown } }) => void db.audits.push(data) },
   };
 

@@ -76,7 +76,12 @@ export {
 } from './services/auto-address.service';
 
 // Observability suite convergence (observability-reconcile worker).
-export { reconcileObservabilitySuite } from './services/observability.service';
+export {
+  reconcileObservabilitySuite,
+  recordStoreProbe,
+  latestStoreProbe,
+  type StoreProbe,
+} from './services/observability.service';
 // Garage store convergence (storage-reconcile worker).
 export { convergeStoreDeployment, garageCapacityGb } from './services/replicatedStore.service';
 
@@ -173,6 +178,7 @@ export { loadControlPlane } from './services/controllerBackup.dump';
 export {
   orchestrateSwarmMembership,
   planSwarmMembership,
+  primeSwarmJoinMaterial,
   swarmOrchestrationStatus,
   SWARM_COMMAND,
 } from './services/swarm.service';
@@ -181,7 +187,7 @@ export type {
   OrchestrateOutcome,
   SwarmHub,
   SwarmDb,
-  SwarmConfigRow,
+  SwarmJoinMaterial,
   SwarmPeer,
   SwarmOrchestrationEvent,
 } from './services/swarm.service';
@@ -287,6 +293,8 @@ export {
   revokeDirectRoute,
   mintSetupKeyForOrg,
 } from './services/mesh.service';
+export { meshPeers, reconcileMeshPeer } from './services/mesh-peers';
+export type { LiveMeshPeer } from './services/mesh-peers';
 export type { MintedSetupKey } from './services/mesh.service';
 export { submitRecoveryClaim, pollRecoveryClaim } from './services/recovery.service';
 

@@ -1,19 +1,21 @@
 import { describe, expect, it, beforeAll } from 'bun:test';
 
 beforeAll(() => {
-  // The vault encrypts the stored Docker join tokens; provide a key for tests.
+  // The vault encrypts the cached Docker join tokens; provide a key for tests.
   process.env.SWARMY_SECRET_KEY ??= 'test-secret-key-for-swarm-service';
 });
 
 import { decryptSecret, encryptSecret } from '@swarmy/core/crypto';
 import {
   MAX_DEFERS,
+  MAX_MANAGER_WAIT_DEFERS,
   orchestrateSwarmMembership,
   planAfterStoredJoinFailure,
   planSwarmMembership,
   swarmOrchestrationStatus,
-  type SwarmConfigRow,
   type SwarmDb,
+  type SwarmJoinMaterial,
+  type SwarmJoinStore,
   type SwarmHub,
 } from './swarm.service';
 
@@ -34,39 +36,49 @@ function makeHub(online: boolean, result: unknown): { hub: SwarmHub; calls: Disp
   return { hub, calls };
 }
 
-function makeDb(initial: SwarmConfigRow | null): {
-  db: SwarmDb;
-  rows: Map<string, SwarmConfigRow>;
+function makeStore(initial: SwarmJoinMaterial | null): {
+  joinStore: SwarmJoinStore;
+  rows: Map<string, SwarmJoinMaterial>;
 } {
-  const rows = new Map<string, SwarmConfigRow>();
+  const rows = new Map<string, SwarmJoinMaterial>();
   if (initial) rows.set(initial.orgId, initial);
-  const db: SwarmDb = {
-    swarmConfig: {
-      findUnique: async ({ where }) => rows.get(where.orgId) ?? null,
-      upsert: async ({ where, create, update }) => {
-        const existing = rows.get(where.orgId);
-        const next = existing ? { ...existing, ...update } : create;
-        rows.set(where.orgId, next);
-        return next;
+  const joinStore: SwarmJoinStore = {
+    get: (orgId) => rows.get(orgId) ?? null,
+    set: (orgId, row) => void rows.set(orgId, row),
+  };
+  return { joinStore, rows };
+}
+
+/** A db stub where the org already has `others` other enrolled nodes. */
+function makeDb(others: number): { db: SwarmDb; vaultDeletes: string[] } {
+  const vaultDeletes: string[] = [];
+  return {
+    vaultDeletes,
+    db: {
+      node: { count: async () => others },
+      vaultEntry: {
+        deleteMany: async ({ where }) => {
+          vaultDeletes.push(where.name);
+          return { count: 1 };
+        },
       },
     },
   };
-  return { db, rows };
 }
 
 describe('orchestrateSwarmMembership', () => {
   it('no-ops when the node is already in a swarm', async () => {
     const { hub, calls } = makeHub(true, {});
-    const { db } = makeDb(null);
-    const out = await orchestrateSwarmMembership({ db, hub, orgId: 'o1', nodeId: 'n1', alreadyInSwarm: true });
+    const { joinStore } = makeStore(null);
+    const out = await orchestrateSwarmMembership({ joinStore, hub, orgId: 'o1', nodeId: 'n1', alreadyInSwarm: true });
     expect(out.action).toBe('noop');
     expect(calls).toHaveLength(0);
   });
 
   it('no-ops when the node is offline', async () => {
     const { hub, calls } = makeHub(false, {});
-    const { db } = makeDb(null);
-    const out = await orchestrateSwarmMembership({ db, hub, orgId: 'o1', nodeId: 'n1' });
+    const { joinStore } = makeStore(null);
+    const out = await orchestrateSwarmMembership({ joinStore, hub, orgId: 'o1', nodeId: 'n1' });
     expect(out.action).toBe('noop');
     expect(calls).toHaveLength(0);
   });
@@ -78,9 +90,9 @@ describe('orchestrateSwarmMembership', () => {
       managerAddr: '10.0.0.2:2377',
       joinTokens: { worker: 'SWMTKN-worker', manager: 'SWMTKN-manager' },
     });
-    const { db, rows } = makeDb(null);
+    const { joinStore, rows } = makeStore(null);
 
-    const out = await orchestrateSwarmMembership({ db, hub, orgId: 'o1', nodeId: 'n1' });
+    const out = await orchestrateSwarmMembership({ joinStore, hub, orgId: 'o1', nodeId: 'n1' });
 
     expect(out).toEqual({ action: 'init', swarmNodeId: 'swarm-node-1' });
     expect(calls[0]?.payload.mode).toBe('init');
@@ -97,19 +109,18 @@ describe('orchestrateSwarmMembership', () => {
   });
 
   it('joins a later node as a worker using the stored worker token', async () => {
-    const seed: SwarmConfigRow = {
+    const seed: SwarmJoinMaterial = {
       orgId: 'o1',
       swarmId: 'swarm-node-1',
       managerNodeId: 'n1',
       managerAddr: '10.0.0.2:2377',
       workerJoinTokenEnc: encryptFixture('SWMTKN-worker'),
       managerJoinTokenEnc: encryptFixture('SWMTKN-manager'),
-      unlockKeyEnc: null,
     };
     const { hub, calls } = makeHub(true, { mode: 'join', swarmNodeId: 'swarm-node-2' });
-    const { db } = makeDb(seed);
+    const { joinStore } = makeStore(seed);
 
-    const out = await orchestrateSwarmMembership({ db, hub, orgId: 'o1', nodeId: 'n2' });
+    const out = await orchestrateSwarmMembership({ joinStore, hub, orgId: 'o1', nodeId: 'n2' });
 
     expect(out).toEqual({ action: 'join', role: 'worker', swarmNodeId: 'swarm-node-2' });
     const p = calls[0]!.payload;
@@ -120,20 +131,19 @@ describe('orchestrateSwarmMembership', () => {
   });
 
   it('joins as a manager when role-hinted, using the manager token', async () => {
-    const seed: SwarmConfigRow = {
+    const seed: SwarmJoinMaterial = {
       orgId: 'o1',
       swarmId: 'swarm-node-1',
       managerNodeId: 'n1',
       managerAddr: '10.0.0.2:2377',
       workerJoinTokenEnc: encryptFixture('SWMTKN-worker'),
       managerJoinTokenEnc: encryptFixture('SWMTKN-manager'),
-      unlockKeyEnc: null,
     };
     const { hub, calls } = makeHub(true, { mode: 'join', swarmNodeId: 'swarm-node-3' });
-    const { db } = makeDb(seed);
+    const { joinStore } = makeStore(seed);
 
     const out = await orchestrateSwarmMembership({
-      db,
+      joinStore,
       hub,
       orgId: 'o1',
       nodeId: 'n3',
@@ -144,15 +154,14 @@ describe('orchestrateSwarmMembership', () => {
     expect(calls[0]!.payload.joinToken).toBe('SWMTKN-manager');
   });
 
-  it('re-elects (init) when a swarm is recorded but has no join material and no manager is live', async () => {
-    const seed: SwarmConfigRow = {
+  it('re-elects (init) after waiting when a swarm is known but has no join material and no manager connects', async () => {
+    const seed: SwarmJoinMaterial = {
       orgId: 'o1',
       swarmId: 'swarm-node-1',
       managerNodeId: 'n1',
       managerAddr: null,
       workerJoinTokenEnc: null,
       managerJoinTokenEnc: null,
-      unlockKeyEnc: null,
     };
     const { hub, calls } = makeHub(true, {
       mode: 'init',
@@ -160,10 +169,13 @@ describe('orchestrateSwarmMembership', () => {
       managerAddr: '10.0.0.3:2377',
       joinTokens: { worker: 'W2', manager: 'M2' },
     });
-    const { db, rows } = makeDb(seed);
+    const { joinStore, rows } = makeStore(seed);
 
-    const out = await orchestrateSwarmMembership({ db, hub, orgId: 'o1', nodeId: 'n2' });
+    const { db, vaultDeletes } = makeDb(1);
+    const out = await orchestrateSwarmMembership({ db, joinStore, hub, orgId: 'o1', nodeId: 'n2', deferDelayMs: 1 });
     expect(out).toEqual({ action: 'init', swarmNodeId: 'swarm-node-2', reelected: true });
+    // The escrowed unlock key belonged to the old swarm.
+    expect(vaultDeletes).toEqual(['swarm.unlockKey']);
     expect(calls[0]!.payload.mode).toBe('init');
     expect(rows.get('o1')!.managerNodeId).toBe('n2');
     expect(swarmOrchestrationStatus('n2')?.state).toBe('reelected');
@@ -172,14 +184,13 @@ describe('orchestrateSwarmMembership', () => {
 
 // ── Pure decision logic ──────────────────────────────────────────────────────
 
-const FULL: SwarmConfigRow = {
+const FULL: SwarmJoinMaterial = {
   orgId: 'o1',
   swarmId: 'sw1',
   managerNodeId: 'mgr',
   managerAddr: '100.71.26.140:2377',
   workerJoinTokenEnc: 'enc-w',
   managerJoinTokenEnc: 'enc-m',
-  unlockKeyEnc: null,
 };
 const base = { alreadyInSwarm: false, online: true, role: 'worker' as const, defers: 0 };
 
@@ -241,7 +252,24 @@ describe('planSwarmMembership', () => {
     expect(planSwarmMembership({ ...base, cfg: null, peers, defers: MAX_DEFERS }).kind).toBe('init');
   });
 
-  it('stale row with no live manager tries the stored join first (manager agent may just be disconnected)', () => {
+  it('a known swarm (other enrolled nodes) with nothing cached waits for a manager, then re-elects', () => {
+    expect(planSwarmMembership({ ...base, cfg: null, knownSwarm: true, peers: [] }).kind).toBe('defer');
+    expect(
+      planSwarmMembership({ ...base, cfg: null, knownSwarm: true, peers: [], defers: MAX_MANAGER_WAIT_DEFERS }),
+    ).toMatchObject({ kind: 'init', reelect: true });
+  });
+
+  it('a known swarm with a live manager joins it at once', () => {
+    const plan = planSwarmMembership({
+      ...base,
+      cfg: null,
+      knownSwarm: true,
+      peers: [{ nodeId: 'm1', isManager: true, swarmState: 'active' }],
+    });
+    expect(plan).toEqual({ kind: 'join-live', role: 'worker', managerNodeId: 'm1' });
+  });
+
+  it('cached material with no live manager tries it first (manager agent may just be disconnected)', () => {
     const plan = planSwarmMembership({ ...base, cfg: FULL, peers: [] });
     expect(plan).toEqual({ kind: 'join-stored', role: 'worker', managerAddr: FULL.managerAddr!, tokenEnc: 'enc-w' });
   });
@@ -283,7 +311,7 @@ function scriptedHub(handler: (nodeId: string, payload: Record<string, unknown>)
 describe('orchestrateSwarmMembership — self-healing', () => {
   it('dead recorded manager: join times out → re-elect, clear stale row, pull in stranded peers', async () => {
     const seed = { ...FULL, workerJoinTokenEnc: encryptFixture('OLD-W'), managerJoinTokenEnc: encryptFixture('OLD-M') };
-    const { db, rows } = makeDb(seed);
+    const { joinStore, rows } = makeStore(seed);
     const { hub, calls } = scriptedHub((nodeId, p) => {
       if (p.mode === 'join' && p.managerAddr === FULL.managerAddr) throw new Error('context deadline exceeded');
       if (p.mode === 'init' && nodeId === 'new')
@@ -292,7 +320,7 @@ describe('orchestrateSwarmMembership — self-healing', () => {
     });
     const events: string[] = [];
     const out = await orchestrateSwarmMembership({
-      db,
+      joinStore,
       hub,
       orgId: 'o1',
       nodeId: 'new',
@@ -312,7 +340,7 @@ describe('orchestrateSwarmMembership — self-healing', () => {
   });
 
   it('live manager: refreshes tokens/addr from it (healing a stale row) and joins — never inits', async () => {
-    const { db, rows } = makeDb({ ...FULL, workerJoinTokenEnc: encryptFixture('STALE') });
+    const { joinStore, rows } = makeStore({ ...FULL, workerJoinTokenEnc: encryptFixture('STALE') });
     const { hub, calls } = scriptedHub((nodeId, p) => {
       if (nodeId === 'm1' && p.refreshOnly)
         return { mode: 'init', swarmNodeId: 'sw-m1', managerAddr: '100.71.224.116:2377', joinTokens: { worker: 'FRESH-W', manager: 'FRESH-M' } };
@@ -320,7 +348,7 @@ describe('orchestrateSwarmMembership — self-healing', () => {
       throw new Error(`unexpected ${JSON.stringify(p)}`);
     });
     const out = await orchestrateSwarmMembership({
-      db,
+      joinStore,
       hub,
       orgId: 'o1',
       nodeId: 'w2',
@@ -334,14 +362,14 @@ describe('orchestrateSwarmMembership — self-healing', () => {
   });
 
   it('surfaces a failed join via a live manager (no re-election beside a live manager)', async () => {
-    const { db } = makeDb(FULL);
+    const { joinStore } = makeStore(FULL);
     const { hub } = scriptedHub((nodeId, p) => {
       if (p.refreshOnly) return { mode: 'init', swarmNodeId: 's', managerAddr: '1.2.3.4:2377', joinTokens: { worker: 'W', manager: 'M' } };
       throw new Error('rpc error: connection refused');
     });
     await expect(
       orchestrateSwarmMembership({
-        db,
+        joinStore,
         hub,
         orgId: 'o1',
         nodeId: 'w3',
@@ -352,7 +380,7 @@ describe('orchestrateSwarmMembership — self-healing', () => {
   });
 
   it('waits for unreported peers, then joins the manager once it reports', async () => {
-    const { db } = makeDb(null);
+    const { joinStore } = makeStore(null);
     let reported = false;
     const { hub, calls } = scriptedHub((_n, p) =>
       p.refreshOnly
@@ -360,7 +388,7 @@ describe('orchestrateSwarmMembership — self-healing', () => {
         : { mode: 'join', swarmNodeId: 'sw-w4' },
     );
     const out = await orchestrateSwarmMembership({
-      db,
+      joinStore,
       hub,
       orgId: 'o1',
       nodeId: 'w4',
@@ -383,14 +411,14 @@ function encryptFixture(plain: string): string {
 
 describe('orchestrateSwarmMembership — mesh-first join (new node after mesh enable)', () => {
   it('joins advertising AND pinning the data path to the confirmed mesh IP', async () => {
-    const { db } = makeDb(FULL);
+    const { joinStore } = makeStore(FULL);
     const { hub, calls } = scriptedHub((nodeId, p) => {
       if (nodeId === 'm1' && p.refreshOnly)
         return { mode: 'init', swarmNodeId: 'sw-m1', managerAddr: '203.0.113.10:2377', joinTokens: { worker: 'W', manager: 'M' } };
       return { mode: 'join', swarmNodeId: 'sw-lima' };
     });
     await orchestrateSwarmMembership({
-      db,
+      joinStore,
       hub,
       orgId: 'o1',
       nodeId: 'lima',
@@ -407,14 +435,14 @@ describe('orchestrateSwarmMembership — mesh-first join (new node after mesh en
   });
 
   it('without a mesh IP, no data-path addr is sent (agent self-derives, unchanged)', async () => {
-    const { db } = makeDb(FULL);
+    const { joinStore } = makeStore(FULL);
     const { hub, calls } = scriptedHub((nodeId, p) =>
       nodeId === 'm1' && p.refreshOnly
         ? { mode: 'init', swarmNodeId: 'sw-m1', managerAddr: '203.0.113.10:2377', joinTokens: { worker: 'W', manager: 'M' } }
         : { mode: 'join', swarmNodeId: 'sw-x' },
     );
     await orchestrateSwarmMembership({
-      db,
+      joinStore,
       hub,
       orgId: 'o1',
       nodeId: 'x',

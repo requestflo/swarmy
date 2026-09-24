@@ -18,13 +18,11 @@
  *                                             same value to enrol node #1, we store only
  *                                             its hash (so no cross-language hashing risk)
  *   SWARM_ID, SWARM_MANAGER_ADDR,
- *   SWARM_WORKER_TOKEN, SWARM_MANAGER_TOKEN — captured from `docker swarm init`, persisted
- *                                             as SwarmConfig so a SECOND box JOINS this swarm
- *                                             instead of forming a rival. (orchestrateSwarmMembership
- *                                             short-circuits the SwarmConfig write for a manager
- *                                             that is already in a swarm — swarm.service.ts — so
- *                                             a directly-`docker swarm init`'d host never persists
- *                                             its join tokens. We persist them here.)
+ *   SWARM_WORKER_TOKEN, SWARM_MANAGER_TOKEN — captured from `docker swarm init`. Primed into the
+ *                                             in-memory join cache on every boot (never the DB:
+ *                                             swarm state is Docker truth) so a SECOND box JOINS
+ *                                             this swarm even before node #1's agent has dialled
+ *                                             in. Once it has, joins read fresh tokens from it.
  *   SWARMY_MESH_DRIVER, SWARMY_MESH_MANAGEMENT_URL,
  *   SWARMY_MESH_SERVICE_TOKEN                — from the installer's mesh wizard, when the operator
  *                                             opts into mesh. Skipped entirely when unset (mesh
@@ -36,9 +34,10 @@
  */
 import { randomUUID } from 'node:crypto';
 import { auth, usernamePlaceholderEmail } from '@swarmy/auth';
-import { encryptSecret, hashToken } from '@swarmy/core/crypto';
+import { hashToken } from '@swarmy/core/crypto';
 import { buildMeshConfigRow } from '@swarmy/core/mesh-bootstrap';
 import { prisma } from '@swarmy/db';
+import { primeSwarmJoinMaterial } from '@swarmy/trpc';
 
 const ORG_NAME = process.env.SWARMY_ORG_NAME ?? 'swarmy';
 const ORG_SLUG = process.env.SWARMY_ORG_SLUG ?? 'swarmy';
@@ -66,7 +65,7 @@ export async function maybeBootstrapSeed(): Promise<void> {
   const rawToken = process.env.SWARMY_BOOTSTRAP_JOIN_TOKEN;
   if (rawToken) await ensureJoinToken(orgId, userId, rawToken);
 
-  await ensureSwarmConfig(orgId);
+  primeSwarmJoin(orgId);
   await ensureMeshConfig(orgId);
   await ensureDashboardDomain(orgId);
 
@@ -146,23 +145,22 @@ async function ensureJoinToken(orgId: string, userId: string, raw: string): Prom
 }
 
 /**
- * Record the swarm's join tokens so additional nodes JOIN this swarm rather than
- * forming a rival one. Mirrors the row shape written by swarm.service.ts, encrypting
- * the Docker `SWMTKN-…` tokens with the vault key.
+ * Prime the in-memory swarm join cache with the installer's `docker swarm init`
+ * tokens so additional nodes JOIN this swarm rather than forming a rival one,
+ * even before node #1's agent reconnects. Nothing is written to the database.
  */
-async function ensureSwarmConfig(orgId: string): Promise<void> {
+function primeSwarmJoin(orgId: string): void {
   const worker = process.env.SWARM_WORKER_TOKEN;
   const manager = process.env.SWARM_MANAGER_TOKEN;
   if (!worker && !manager) return;
-  const row = {
+  primeSwarmJoinMaterial({
     orgId,
     swarmId: process.env.SWARM_ID || null,
     managerAddr: process.env.SWARM_MANAGER_ADDR || null,
-    workerJoinTokenEnc: worker ? encryptSecret(worker) : null,
-    managerJoinTokenEnc: manager ? encryptSecret(manager) : null,
-  };
-  await prisma.swarmConfig.upsert({ where: { orgId }, create: row, update: row });
-  log('persisted SwarmConfig (join tokens) so added nodes join this swarm.');
+    workerToken: worker || null,
+    managerToken: manager || null,
+  });
+  log('primed the swarm join cache so added nodes join this swarm.');
 }
 
 /**

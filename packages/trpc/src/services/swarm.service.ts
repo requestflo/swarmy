@@ -6,10 +6,13 @@
  * existing swarm — then dispatches the single `swarmJoin` command to the agent,
  * which runs `docker swarm init` / `docker swarm join` locally.
  *
- * Secrets discipline: Docker's own join tokens (`SWMTKN-…`) returned by `init`
- * are stored ENCRYPTED on a per-org `SwarmConfig` row (see the Prisma INTEGRATION
- * snippet) and decrypted just-in-time to hand to a joining node. They are never
- * returned to clients and never written in plaintext.
+ * Docker is the source of truth for the swarm (epic-docker-native-state P1):
+ * the swarm id, manager address and join tokens are read from a LIVE manager
+ * (a `refreshOnly` init: `docker info` + `swarm join-token -q`) whenever a node
+ * joins. Nothing is stored in the database. The last material a manager
+ * returned is cached in process memory ({@link SwarmJoinStore}), ENCRYPTED
+ * with the vault key, so a node can still join while the manager's agent is
+ * briefly disconnected. It is never returned to clients.
  *
  * Called from the gateway register path (see the INTEGRATION snippet wiring this
  * into `handleRegister`). Kept dependency-light (db + hub) so it works outside an
@@ -30,8 +33,11 @@ export interface SwarmHub {
   ): Promise<R>;
 }
 
-/** Persisted, encrypted swarm config for an org (the `SwarmConfig` model). */
-export interface SwarmConfigRow {
+/**
+ * The last join material a live manager returned for an org, cached in
+ * process memory (never the database). Tokens stay vault-encrypted even here.
+ */
+export interface SwarmJoinMaterial {
   orgId: string;
   swarmId: string | null;
   managerNodeId: string | null;
@@ -40,21 +46,61 @@ export interface SwarmConfigRow {
   workerJoinTokenEnc: string | null;
   /** Encrypted Docker manager join token (`SWMTKN-…`). */
   managerJoinTokenEnc: string | null;
-  /** Encrypted swarm autolock unlock key (`SWMKEY-…`), when the operator stores it here (WS2). */
-  unlockKeyEnc: string | null;
 }
 
-/** The minimal Prisma surface this service uses (keeps it model-agnostic + testable). */
+/** Where the cached join material lives (process memory by default; a stub in tests). */
+export interface SwarmJoinStore {
+  get(orgId: string): SwarmJoinMaterial | null;
+  set(orgId: string, row: SwarmJoinMaterial): void;
+}
+
+const joinMaterial = new Map<string, SwarmJoinMaterial>();
+
+/** The process-local join-material cache. */
+export const memorySwarmJoinStore: SwarmJoinStore = {
+  get: (orgId) => joinMaterial.get(orgId) ?? null,
+  set: (orgId, row) => void joinMaterial.set(orgId, row),
+};
+
+/**
+ * Prime the cache with join material known at boot (the installer passes node
+ * #1's tokens as env), so the second node can join even before node #1's
+ * agent has dialled back in. Plaintext tokens are encrypted here.
+ */
+export function primeSwarmJoinMaterial(input: {
+  orgId: string;
+  swarmId?: string | null;
+  managerAddr?: string | null;
+  workerToken?: string | null;
+  managerToken?: string | null;
+}): void {
+  memorySwarmJoinStore.set(input.orgId, {
+    orgId: input.orgId,
+    swarmId: input.swarmId ?? null,
+    managerNodeId: null,
+    managerAddr: input.managerAddr ?? null,
+    workerJoinTokenEnc: input.workerToken ? encryptSecret(input.workerToken) : null,
+    managerJoinTokenEnc: input.managerToken ? encryptSecret(input.managerToken) : null,
+  });
+}
+
+/**
+ * The minimal Prisma surface this service uses: whether the org already has
+ * other enrolled nodes (so a swarm exists somewhere, even if no manager is
+ * connected right now).
+ */
 export interface SwarmDb {
-  swarmConfig: {
-    findUnique(args: { where: { orgId: string } }): Promise<SwarmConfigRow | null>;
-    upsert(args: {
-      where: { orgId: string };
-      create: SwarmConfigRow;
-      update: Partial<SwarmConfigRow>;
-    }): Promise<SwarmConfigRow>;
+  node: {
+    count(args: { where: { orgId: string; id: { not: string } } }): Promise<number>;
+  };
+  /** The vault row holding the escrowed autolock unlock key (cleared on re-elect). */
+  vaultEntry?: {
+    deleteMany(args: { where: { orgId: string; name: string } }): Promise<unknown>;
   };
 }
+
+/** `VaultEntry.name` of the opt-in escrowed swarm autolock unlock key (`SWMKEY-…`). */
+export const SWARM_UNLOCK_KEY_ENTRY = 'swarm.unlockKey';
 
 /** Result of `swarmJoin` as it arrives in `commandResult.result`. */
 interface SwarmJoinResultLike {
@@ -66,7 +112,7 @@ interface SwarmJoinResultLike {
 
 /**
  * A CONNECTED org peer of the registering node, as the gateway sees it. The
- * orchestrator never trusts the `swarm_config` row alone: whether a manager is
+ * orchestrator never trusts cached join material alone: whether a manager is
  * actually alive is Docker/hub truth, read from here.
  */
 export interface SwarmPeer {
@@ -86,8 +132,11 @@ export interface SwarmOrchestrationEvent {
 }
 
 export interface OrchestrateArgs {
-  db: SwarmDb;
+  /** Absent ⇒ the org is treated as having no other enrolled nodes (tests). */
+  db?: SwarmDb;
   hub: SwarmHub;
+  /** Join-material cache (defaults to process memory). */
+  joinStore?: SwarmJoinStore;
   orgId: string;
   nodeId: string;
   /** The node's preferred role from its join token (worker by default). */
@@ -105,8 +154,8 @@ export interface OrchestrateArgs {
   meshIp?: string | null;
   /**
    * The org's OTHER connected nodes (live hub truth). Drives manager-liveness:
-   * a live manager always wins over the stored row (never `init` a second
-   * swarm next to it), and a stale row with no live manager is re-elected.
+   * a live manager always wins over cached material (never `init` a second
+   * swarm next to it), and cached material with no live manager is re-elected.
    * Absent ⇒ treated as "no peers" (legacy callers / tests).
    */
   peers?: () => SwarmPeer[];
@@ -132,6 +181,12 @@ const SWARM_DISPATCH_TIMEOUT_MS = 60_000;
 const SWARM_REFRESH_TIMEOUT_MS = 20_000;
 /** Max times we wait for connected-but-unreported peers before deciding. */
 export const MAX_DEFERS = 3;
+/**
+ * Max times we wait for a manager of a KNOWN swarm (the org has other enrolled
+ * nodes, but no manager agent is connected and nothing is cached, e.g. just
+ * after a controller restart) before re-electing. 12 × 5 s = one minute.
+ */
+export const MAX_MANAGER_WAIT_DEFERS = 12;
 
 // ── Pure decision logic (unit-tested) ────────────────────────────────────────
 
@@ -139,7 +194,10 @@ export interface SwarmPlanInput {
   alreadyInSwarm: boolean;
   online: boolean;
   role: 'manager' | 'worker';
-  cfg: SwarmConfigRow | null;
+  /** Join material a live manager last returned (process memory), if any. */
+  cfg: SwarmJoinMaterial | null;
+  /** The org has other enrolled nodes: a swarm exists, even if no manager is connected. */
+  knownSwarm?: boolean;
   peers: SwarmPeer[];
   /** How many times this registration has already deferred. */
   defers: number;
@@ -152,10 +210,10 @@ export type SwarmPlan =
   | { kind: 'defer'; reason: string }
   /** A live manager exists: pull FRESH join tokens + addr from it, then join. */
   | { kind: 'join-live'; role: 'manager' | 'worker'; managerNodeId: string }
-  /** No live manager visible, but the row has join material: try it; if the
-   *  join fails the stored manager is dead → re-elect (init here). */
+  /** No live manager visible, but cached join material exists: try it; if
+   *  the join fails the cached manager is dead → re-elect (init here). */
   | { kind: 'join-stored'; role: 'manager' | 'worker'; managerAddr: string; tokenEnc: string }
-  /** No usable swarm: init here. `reelect` = replacing a stale/dead row. */
+  /** No usable swarm: init here. `reelect` = replacing a dead swarm. */
   | { kind: 'init'; reelect: boolean; reason: string };
 
 /** Connected peers that are working swarm managers right now. */
@@ -169,9 +227,9 @@ export function liveManagers(peers: SwarmPeer[]): string[] {
  * Decide what to do with a freshly-registered node.
  *
  * Invariant: we NEVER `init` while any connected org node is a live manager —
- * that is exactly how a rejoining worker formed a standalone swarm. And we
- * never follow a `swarm_config` row blindly: a live manager's fresh tokens
- * beat the stored ones, and a row whose manager is gone is re-elected.
+ * that is exactly how a rejoining worker formed a standalone swarm. Cached
+ * material is only a fallback: a live manager's fresh tokens beat it, and a
+ * known swarm whose managers stay away past the wait is re-elected.
  */
 export function planSwarmMembership(input: SwarmPlanInput): SwarmPlan {
   const { cfg, peers, role } = input;
@@ -190,15 +248,18 @@ export function planSwarmMembership(input: SwarmPlanInput): SwarmPlan {
     return { kind: 'defer', reason: `${unsettled.length} connected node(s) have not reported swarm role yet` };
   }
 
-  if (cfg?.swarmId) {
-    const tokenEnc = role === 'manager' ? cfg.managerJoinTokenEnc : cfg.workerJoinTokenEnc;
-    if (tokenEnc && cfg.managerAddr) {
-      return { kind: 'join-stored', role, managerAddr: cfg.managerAddr, tokenEnc };
+  const tokenEnc = role === 'manager' ? cfg?.managerJoinTokenEnc : cfg?.workerJoinTokenEnc;
+  if (tokenEnc && cfg?.managerAddr) {
+    return { kind: 'join-stored', role, managerAddr: cfg.managerAddr, tokenEnc };
+  }
+  if (input.knownSwarm || cfg?.swarmId) {
+    if (input.defers < MAX_MANAGER_WAIT_DEFERS) {
+      return { kind: 'defer', reason: 'waiting for a swarm manager of this org to connect' };
     }
     return {
       kind: 'init',
       reelect: true,
-      reason: 'recorded swarm has no join material and no manager is online — starting a new swarm here',
+      reason: 'the org has a swarm but no manager connected in time — starting a new swarm here',
     };
   }
   return { kind: 'init', reelect: false, reason: 'first node in the org' };
@@ -267,17 +328,21 @@ const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(
  */
 export async function orchestrateSwarmMembership(args: OrchestrateArgs): Promise<OrchestrateOutcome> {
   const { db, hub, orgId, nodeId } = args;
+  const store = args.joinStore ?? memorySwarmJoinStore;
   const role: 'manager' | 'worker' = args.roleHint === 'manager' ? 'manager' : 'worker';
   const peers = () => (args.peers?.() ?? []).filter((p) => p.nodeId !== nodeId);
+  const knownSwarm = db
+    ? (await db.node.count({ where: { orgId, id: { not: nodeId } } }).catch(() => 0)) > 0
+    : false;
 
   let plan: SwarmPlan;
   for (let defers = 0; ; defers++) {
-    const cfg = await db.swarmConfig.findUnique({ where: { orgId } });
     plan = planSwarmMembership({
       alreadyInSwarm: Boolean(args.alreadyInSwarm),
       online: hub.isOnline(nodeId),
       role,
-      cfg,
+      cfg: store.get(orgId),
+      knownSwarm,
       peers: peers(),
       defers,
     });
@@ -292,8 +357,8 @@ export async function orchestrateSwarmMembership(args: OrchestrateArgs): Promise
     if (plan.kind === 'join-live') return await joinViaLiveManager(args, plan.managerNodeId, role);
     if (plan.kind === 'init') return await initHere(args, plan.reelect, plan.reason);
 
-    // join-stored: the row may be stale — a failure here means "manager dead".
-    setStatus(args, 'joining', `joining the recorded manager at ${plan.managerAddr}`);
+    // join-stored: the cache may be stale — a failure here means "manager dead".
+    setStatus(args, 'joining', `joining the last known manager at ${plan.managerAddr}`);
     try {
       const res = await dispatchJoin(args, role, decryptSecret(plan.tokenEnc), plan.managerAddr);
       setStatus(args, 'joined', `joined as ${role} via ${plan.managerAddr}`);
@@ -302,7 +367,7 @@ export async function orchestrateSwarmMembership(args: OrchestrateArgs): Promise
       if (!hub.isOnline(nodeId)) throw e;
       const next = planAfterStoredJoinFailure(role, peers());
       console.warn(
-        `[swarm] node ${nodeId}: join to recorded manager ${plan.managerAddr} failed (${errMsg(e)}) — ` +
+        `[swarm] node ${nodeId}: join to last known manager ${plan.managerAddr} failed (${errMsg(e)}) — ` +
           (next.kind === 'init' ? 're-electing' : 'retrying via a live manager'),
       );
       if (next.kind === 'join-live') return await joinViaLiveManager(args, next.managerNodeId, role);
@@ -342,7 +407,7 @@ async function dispatchJoin(
 /**
  * Pull the CURRENT join tokens + advertise addr from a live manager (a
  * `refreshOnly` init: read-only on an active swarm, refused by the agent
- * otherwise), store them — self-healing a stale row — and join.
+ * otherwise), cache them in memory and join.
  */
 async function joinViaLiveManager(
   args: OrchestrateArgs,
@@ -357,16 +422,17 @@ async function joinViaLiveManager(
 }
 
 /**
- * Read the CURRENT join token + manager address off a live manager and
- * re-store them (self-healing a stale row). Shared by onboarding joins and the
+ * Read the CURRENT join token + manager address off a live manager (Docker
+ * truth) and refresh the in-memory cache. Shared by onboarding joins and the
  * mesh migration's rejoin (`mesh-migration.service.ts`).
  */
 export async function fetchLiveJoinMaterial(
-  args: Pick<OrchestrateArgs, 'db' | 'hub' | 'orgId'>,
+  args: Pick<OrchestrateArgs, 'db' | 'hub' | 'orgId' | 'joinStore'>,
   managerNodeId: string,
   role: 'manager' | 'worker',
 ): Promise<{ token: string; managerAddr: string }> {
-  const { db, hub, orgId } = args;
+  const { hub, orgId } = args;
+  const store = args.joinStore ?? memorySwarmJoinStore;
   const fresh = await hub.dispatch<SwarmJoinResultLike>(
     managerNodeId,
     SWARM_COMMAND,
@@ -377,24 +443,20 @@ export async function fetchLiveJoinMaterial(
   if (!token || !fresh.managerAddr) {
     throw new Error(`live manager ${managerNodeId} returned no ${role} join token / address`);
   }
-  const update: Partial<SwarmConfigRow> = {
-    ...(fresh.swarmNodeId ? { swarmId: fresh.swarmNodeId } : {}),
+  store.set(orgId, {
+    orgId,
+    swarmId: fresh.swarmNodeId ?? store.get(orgId)?.swarmId ?? null,
     managerNodeId,
     managerAddr: fresh.managerAddr,
     workerJoinTokenEnc: fresh.joinTokens?.worker ? encryptSecret(fresh.joinTokens.worker) : null,
     managerJoinTokenEnc: fresh.joinTokens?.manager ? encryptSecret(fresh.joinTokens.manager) : null,
-  };
-  await db.swarmConfig.upsert({
-    where: { orgId },
-    create: { orgId, swarmId: null, unlockKeyEnc: null, ...update } as SwarmConfigRow,
-    update,
   });
   return { token, managerAddr: fresh.managerAddr };
 }
 
-/** `init` on this node, (over)write the org row, then pull in stranded peers. */
+/** `init` on this node, replace the cached material, then pull in stranded peers. */
 async function initHere(args: OrchestrateArgs, reelect: boolean, reason: string): Promise<OrchestrateOutcome> {
-  const { db, hub, orgId, nodeId, meshIp } = args;
+  const { hub, orgId, nodeId, meshIp } = args;
   const res = await hub.dispatch<SwarmJoinResultLike>(
     nodeId,
     SWARM_COMMAND,
@@ -402,18 +464,19 @@ async function initHere(args: OrchestrateArgs, reelect: boolean, reason: string)
     { timeoutMs: SWARM_DISPATCH_TIMEOUT_MS },
   );
   const tokens = res.joinTokens ?? { worker: '', manager: '' };
-  // Replacing the WHOLE row clears any stale manager addr / tokens; the unlock
-  // key belonged to the old swarm and is meaningless for the new one.
-  const row: SwarmConfigRow = {
+  // Replacing the WHOLE entry clears any stale manager addr / tokens.
+  (args.joinStore ?? memorySwarmJoinStore).set(orgId, {
     orgId,
     swarmId: res.swarmNodeId,
     managerNodeId: nodeId,
     managerAddr: res.managerAddr ?? null,
     workerJoinTokenEnc: tokens.worker ? encryptSecret(tokens.worker) : null,
     managerJoinTokenEnc: tokens.manager ? encryptSecret(tokens.manager) : null,
-    unlockKeyEnc: null,
-  };
-  await db.swarmConfig.upsert({ where: { orgId }, create: row, update: row });
+  });
+  // An escrowed unlock key belonged to the old swarm and can't unlock this one.
+  await args.db?.vaultEntry
+    ?.deleteMany({ where: { orgId, name: SWARM_UNLOCK_KEY_ENTRY } })
+    .catch(() => undefined);
   setStatus(args, reelect ? 'reelected' : 'initialised', reason);
 
   // Connected peers that are off-swarm (e.g. stranded behind the dead manager

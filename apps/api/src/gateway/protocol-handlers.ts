@@ -354,7 +354,7 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
   // node-onboarding P2: init or join the org's Docker Swarm (best-effort, async).
   // Surface failures (e.g. a missing SWARMY_SECRET_KEY blocking the token vault)
   // instead of swallowing them — a silent failure here leaves the swarm running
-  // but unrecorded (no swarm_config, node stuck WORKER).
+  // but the node never joins (stuck off-swarm).
   void orchestrateSwarmMembership({
     db: prisma as never,
     hub: deps.hub,
@@ -366,9 +366,10 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
     // LAN address so swarm control + data-plane traffic rides the mesh.
     // Absent/unconnected ⇒ undefined ⇒ agent's existing LAN self-derivation.
     meshIp: facts.meshConnected ? (facts.meshIp ?? null) : null,
-    // Manager liveness is hub truth, never the swarm_config row alone: a live
-    // manager's fresh tokens always win (no second swarm), and a row whose
-    // manager is gone gets re-elected instead of joined forever.
+    // Manager liveness is hub truth: a live manager's fresh tokens always win
+    // (no second swarm), and a known swarm whose managers stay away gets
+    // re-elected instead of waited on forever. `db` only answers "does the
+    // org have other enrolled nodes"; no swarm state is stored.
     peers: () =>
       deps.store
         .nodesForOrg(orgId)

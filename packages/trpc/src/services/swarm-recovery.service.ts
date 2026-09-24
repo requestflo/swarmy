@@ -3,9 +3,10 @@
  *
  * Everything here works on Docker truth: the manager census comes from the
  * hub's live node inventory, autolock/rotation run as agent commands on a
- * manager, and the ONLY thing persisted is swarmy's own secret material —
- * encrypted join tokens and (opt-in) the encrypted autolock unlock key on the
- * org's SwarmConfig row, next to the tokens the swarm service already stores.
+ * manager, and the ONLY thing persisted is the opt-in, vault-encrypted
+ * autolock unlock key (a `VaultEntry` row): it must exist exactly when the
+ * swarm is locked and can't be read. Join tokens are never stored; they are
+ * read live from a manager when a node joins.
  *
  * Secrets discipline: the unlock key is returned to a client exactly once —
  * either from `setAutolock(..., { storeKey: false })` (stored nowhere) or from
@@ -21,6 +22,7 @@ import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
+import { memorySwarmJoinStore, SWARM_UNLOCK_KEY_ENTRY } from './swarm.service';
 
 const RECOVERY_DISPATCH_TIMEOUT_MS = 30_000;
 
@@ -113,7 +115,7 @@ export interface SwarmHealthView {
   };
   workers: { total: number };
   autolock: {
-    /** True when an encrypted unlock key is stored on the org's SwarmConfig. */
+    /** True when an encrypted unlock key is escrowed in the org's vault (`VaultEntry`). */
     keyStored: boolean;
     /** Enrolled nodes currently reporting a `locked` local swarm state. */
     lockedNodes: number;
@@ -127,9 +129,9 @@ export async function swarmHealth(ctx: OrgContext): Promise<SwarmHealthView> {
   const { verdict, message } = quorumVerdict(census);
 
   const [cfg, enrolled] = await Promise.all([
-    ctx.db.swarmConfig.findUnique({
-      where: { orgId: ctx.activeOrgId },
-      select: { unlockKeyEnc: true },
+    ctx.db.vaultEntry.findUnique({
+      where: { orgId_name: { orgId: ctx.activeOrgId, name: SWARM_UNLOCK_KEY_ENTRY } },
+      select: { id: true },
     }),
     ctx.db.node.findMany({ where: { orgId: ctx.activeOrgId }, select: { id: true } }),
   ]);
@@ -144,7 +146,7 @@ export async function swarmHealth(ctx: OrgContext): Promise<SwarmHealthView> {
       message,
     },
     workers: { total: nodes.filter((n) => n.role === 'worker').length },
-    autolock: { keyStored: Boolean(cfg?.unlockKeyEnc), lockedNodes },
+    autolock: { keyStored: Boolean(cfg), lockedNodes },
     managerNodes: nodes
       .filter((n) => n.role === 'manager')
       .map((n) => ({ hostname: n.hostname, reachable: n.status === 'ready', leader: n.leader })),
@@ -155,7 +157,7 @@ export async function swarmHealth(ctx: OrgContext): Promise<SwarmHealthView> {
 
 export interface SetAutolockResult {
   enabled: boolean;
-  /** True when the (encrypted) unlock key is now stored on the SwarmConfig row. */
+  /** True when the (encrypted) unlock key is now escrowed in the org's vault. */
   keyStored: boolean;
   /** Present exactly once: enabling with `storeKey: false` — store it yourself. */
   unlockKey?: string;
@@ -185,11 +187,16 @@ export async function setAutolock(
   }
 
   const unlockKeyEnc = enabled && storeKey && res.unlockKey ? encryptSecret(res.unlockKey) : null;
-  await ctx.db.swarmConfig.upsert({
-    where: { orgId: ctx.activeOrgId },
-    create: { orgId: ctx.activeOrgId, unlockKeyEnc },
-    update: { unlockKeyEnc },
-  });
+  const where = { orgId_name: { orgId: ctx.activeOrgId, name: SWARM_UNLOCK_KEY_ENTRY } };
+  if (unlockKeyEnc) {
+    await ctx.db.vaultEntry.upsert({
+      where,
+      create: { orgId: ctx.activeOrgId, name: SWARM_UNLOCK_KEY_ENTRY, valueEnc: unlockKeyEnc },
+      update: { valueEnc: unlockKeyEnc },
+    });
+  } else {
+    await ctx.db.vaultEntry.deleteMany({ where: { orgId: ctx.activeOrgId, name: SWARM_UNLOCK_KEY_ENTRY } });
+  }
 
   await writeAudit(ctx, {
     action: 'swarm.autolock',
@@ -208,17 +215,17 @@ export async function setAutolock(
 
 /** Decrypt the stored unlock key (admin only — enforced by the router; audited). */
 export async function revealUnlockKey(ctx: OrgContext): Promise<{ unlockKey: string }> {
-  const cfg = await ctx.db.swarmConfig.findUnique({
-    where: { orgId: ctx.activeOrgId },
-    select: { unlockKeyEnc: true },
+  const cfg = await ctx.db.vaultEntry.findUnique({
+    where: { orgId_name: { orgId: ctx.activeOrgId, name: SWARM_UNLOCK_KEY_ENTRY } },
+    select: { valueEnc: true },
   });
-  if (!cfg?.unlockKeyEnc) throw notFound('stored unlock key');
+  if (!cfg) throw notFound('stored unlock key');
   await writeAudit(ctx, {
     action: 'swarm.unlockKey.reveal',
     targetType: 'swarm',
     targetId: ctx.activeOrgId,
   });
-  return { unlockKey: decryptSecret(cfg.unlockKeyEnc) };
+  return { unlockKey: decryptSecret(cfg.valueEnc) };
 }
 
 // ── Join-token rotation ───────────────────────────────────────────────────────
@@ -240,17 +247,16 @@ export async function rotateJoinTokens(
     throw mapDispatchError(e);
   }
 
-  // Re-encrypt + store the post-rotation tokens where the old ones live. The
-  // agent returns BOTH current tokens, so storing both self-heals any drift.
-  const data = {
-    workerJoinTokenEnc: res.joinTokens.worker ? encryptSecret(res.joinTokens.worker) : null,
-    managerJoinTokenEnc: res.joinTokens.manager ? encryptSecret(res.joinTokens.manager) : null,
-  };
-  await ctx.db.swarmConfig.upsert({
-    where: { orgId: ctx.activeOrgId },
-    create: { orgId: ctx.activeOrgId, ...data },
-    update: data,
-  });
+  // The new tokens live in Docker; refresh the in-memory join cache so the
+  // next join doesn't try a revoked token first.
+  const cached = memorySwarmJoinStore.get(ctx.activeOrgId);
+  if (cached) {
+    memorySwarmJoinStore.set(ctx.activeOrgId, {
+      ...cached,
+      workerJoinTokenEnc: res.joinTokens.worker ? encryptSecret(res.joinTokens.worker) : null,
+      managerJoinTokenEnc: res.joinTokens.manager ? encryptSecret(res.joinTokens.manager) : null,
+    });
+  }
 
   await writeAudit(ctx, {
     action: 'swarm.tokens.rotate',

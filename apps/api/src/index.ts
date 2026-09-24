@@ -324,8 +324,8 @@ authRegistry.configure({
 // Load stored auth-provider config so social/SSO providers are live without a restart.
 await authRegistry.rebuild();
 
-// Self-host first-boot: seed the owner org/user, the bootstrap join token, and the
-// SwarmConfig (so added nodes join this swarm). Gated on SWARMY_BOOTSTRAP=1 and
+// Self-host first-boot: seed the owner org/user and the bootstrap join token, and
+// prime the in-memory swarm join cache (so added nodes join this swarm). Gated on SWARMY_BOOTSTRAP=1 and
 // idempotent — inert in dev and harmless on every restart.
 await maybeBootstrapSeed();
 

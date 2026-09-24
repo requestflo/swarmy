@@ -14,8 +14,8 @@ import {
  * Swarm quorum monitoring + recovery (roadmap WS2). Everything here touches
  * the control plane itself — manager membership, autolock, join tokens — so
  * the WHOLE router is admin-only. Health is derived from the hub's live node
- * inventory; nothing about the swarm is stored beyond swarmy's own encrypted
- * secret material (tokens + opt-in unlock key on SwarmConfig).
+ * inventory; join tokens are read live from a manager, and the only thing
+ * stored is the opt-in, vault-encrypted unlock key (a `VaultEntry` row).
  */
 export const swarmRouter = router({
   /** Manager census, quorum verdict, autolock posture — derived, never stored. */
