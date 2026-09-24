@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import type { OrgContext } from '@swarmy/trpc';
+import { seedKv, useMemoryKv, type OrgContext } from '@swarmy/trpc';
 import { createRestApp } from './app';
 
 /**
@@ -18,8 +18,8 @@ function appFor(role: Role, audit: string[]) {
       member: { findFirst: async () => ({ id: 'mem1', role, organizationId: 'org1', attributes: {} }) },
       policy: { findMany: async () => [] },
       resourceGrant: { findMany: async () => [] },
-      node: { findFirst: async () => null },
-      stack: { findFirst: async () => null },
+      // Ids below resolve to real resources in org1: an unknown id is NOT_FOUND.
+      node: { findFirst: async ({ where }: { where: { id: string } }) => ({ id: where.id, orgId: 'org1' }) },
       auditLog: {
         create: async ({ data }: { data: { action: string } }) => {
           audit.push(data.action);
@@ -33,9 +33,21 @@ function appFor(role: Role, audit: string[]) {
     },
   );
   const hub = new Proxy(
-    { liveInventory: () => ({ services: [], containers: [] }), nodeInfoFor: () => undefined },
+    {
+      liveInventory: () => ({
+        services: [{
+          id: 'svc', name: 'svc', image: 'x', mode: 'replicated', replicas: 1, runningReplicas: 1, desiredReplicas: 1,
+          labels: { 'com.docker.stack.namespace': 'shop' }, networks: [], env: [], ports: [], createdAt: 0, updatedAt: 0,
+        }],
+        containers: [],
+      }),
+      nodeInfoFor: () => undefined,
+    },
     { get: (t, k: string) => (k in t ? (t as Record<string, unknown>)[k] : () => { throw new Error(`unmocked hub.${k}`); }) },
   );
+  // Stacks live in swarm-kv: seed the one the routes name.
+  useMemoryKv(hub as never);
+  seedKv(hub as never, 'org1', 'stack', 'st1', { name: 'shop', ingressDriver: null });
   const ctx = {
     db,
     hub,
@@ -61,7 +73,7 @@ const ROUTES: Array<[method: string, path: string, action: string, body?: unknow
   ['DELETE', '/api-keys/k2', 'token.revoke'],
   ['DELETE', '/mesh/routes/r1', 'token.revoke'],
   ['DELETE', '/registry-credentials/rc1', 'secret.delete'],
-  ['DELETE', '/ingress/domains/d1', 'ingress.write'],
+  ['DELETE', `/ingress/domains/${encodeURIComponent('svc:shop.example.com')}`, 'ingress.write'],
   ['DELETE', '/dns/zones/z1', 'dns.remove'],
   ['DELETE', '/dns/records/r1', 'dns.remove'],
   ['DELETE', '/volumes/v1', 'data.destroy'],

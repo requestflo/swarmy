@@ -22,6 +22,7 @@
     "@opentui/core-linux-x64": "^0.4.3",
     "@types/bun": "latest",
     "@types/dockerode": "^3.3.31",
+    "bullmq": "5.81.5",
     "typescript": "^5.5.4"
   }
 }

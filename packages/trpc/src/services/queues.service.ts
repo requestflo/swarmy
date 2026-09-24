@@ -23,6 +23,7 @@ import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { resolveExecTarget } from './live-resolve';
+import { studioAction, studioOverview } from './queue-studio.service';
 
 /**
  * Queues (slice B1) — queues over managed cache clusters, all Docker-truth.
@@ -619,6 +620,15 @@ export async function queueStats(
   const fallback = parseQueueStatsLabel(worker.labels[QUEUES_STATS_LABEL])[def.name] ?? null;
   const primary = findCachePrimary(services, worker.stack, def.cacheCluster);
   if (!primary) return fallback;
+  if (def.convention === 'bullmq') {
+    // BullMQ: the studio's counts (prioritized + paused-aware), same as the autoscaler.
+    try {
+      const s = await bullSample(ctx, worker, def);
+      return s ?? fallback;
+    } catch {
+      return fallback;
+    }
+  }
   try {
     const raw = await execOnPrimary(ctx, primary, depthCommand(engineOf(primary), def));
     const sample = parseDepthOutput(raw, def.convention);
@@ -628,7 +638,32 @@ export async function queueStats(
   }
 }
 
-/** Bounded retry batch: BullMQ failed zset → wait list (audited). */
+/** The cache ref a worker's queue def points at. */
+function bullRef(worker: InvService, def: QueueDef): { stack: string; cluster: string; prefix: string; queue: string } {
+  const ref = parseCacheClusterRef(def.cacheCluster, worker.stack);
+  return { stack: ref.stack, cluster: ref.cluster, prefix: 'bull', queue: def.name };
+}
+
+/** A BullMQ def's live depth, through the studio's overview op. */
+async function bullSample(ctx: OrgContext, worker: InvService, def: QueueDef): Promise<QueueDepthSample | null> {
+  const ref = bullRef(worker, def);
+  const ov = await studioOverview(ctx, ref);
+  const q = ov.queues.find((x) => x.name === def.name);
+  if (!q) return { wait: 0, active: 0, failed: 0, delayed: 0, ts: new Date().toISOString() };
+  return {
+    wait: q.backlog,
+    active: q.counts.active,
+    failed: q.counts.failed,
+    delayed: q.counts.delayed,
+    ts: new Date().toISOString(),
+  };
+}
+
+/**
+ * Bounded retry batch: BullMQ failed → wait (audited). Runs BullMQ's own
+ * moveJobsToWait (via the studio op) so markers and events stay right for live
+ * workers.
+ */
 export async function retryFailed(
   ctx: OrgContext,
   input: QueueBatchInput,
@@ -637,12 +672,12 @@ export async function retryFailed(
   if (def.convention !== 'bullmq') {
     throw commandRejected('retry-failed applies to BullMQ queues only');
   }
-  const raw = await execOnPrimary(
-    ctx,
-    primary,
-    retryFailedCommand(engineOf(primary), def, input.limit),
-  );
-  const [moved = 0, remaining = 0] = parseRedisIntegers(raw);
+  void primary;
+  const before = (await bullSample(ctx, worker, def))?.failed ?? 0;
+  const ref = bullRef(worker, def);
+  await studioAction(ctx, ref, { kind: 'retryAll', from: 'failed' });
+  const remaining = (await bullSample(ctx, worker, def))?.failed ?? 0;
+  const moved = Math.max(0, before - remaining);
   await writeAudit(ctx, {
     action: 'queues.retryFailed',
     targetType: 'queue',
@@ -655,8 +690,16 @@ export async function retryFailed(
 /** Drain the queue: delete waiting (+ delayed) jobs (audited). */
 export async function drainQueue(ctx: OrgContext, input: QueueRefInput): Promise<QueueDrainResult> {
   const { worker, def, primary } = resolveQueue(ctx, input);
-  const raw = await execOnPrimary(ctx, primary, drainCommand(engineOf(primary), def));
-  const [removed = 0] = parseRedisIntegers(raw);
+  let removed = 0;
+  if (def.convention === 'bullmq') {
+    // BullMQ's own drain (wait + paused + prioritized + delayed, job hashes too).
+    const before = await bullSample(ctx, worker, def);
+    await studioAction(ctx, bullRef(worker, def), { kind: 'drain', delayed: true });
+    removed = (before?.wait ?? 0) + (before?.delayed ?? 0);
+  } else {
+    const raw = await execOnPrimary(ctx, primary, drainCommand(engineOf(primary), def));
+    [removed = 0] = parseRedisIntegers(raw);
+  }
   await writeAudit(ctx, {
     action: 'queues.drain',
     targetType: 'queue',

@@ -33,7 +33,7 @@ describe('BOM', () => {
   });
   test('third-party images are digest-pinned; only swarmy builds (and wal-g) float', () => {
     const floating = SYSTEM_IMAGES.filter((i) => !i.digest).map((i) => i.key).sort();
-    expect(floating).toEqual(['agent', 'caddySwarmy', 'controller', 'dns', 'walg']);
+    expect(floating).toEqual(['agent', 'appAuth', 'caddySwarmy', 'controller', 'dns', 'walg']);
   });
   test('the registry and the copier are never rewritten to the mirror', () => {
     expect(systemImage('registry').noRewrite).toBe(true);

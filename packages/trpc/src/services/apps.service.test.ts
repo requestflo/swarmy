@@ -80,7 +80,15 @@ describe('purgeAppData (delete data permanently)', () => {
     ({
       activeOrgId: 'org',
       user: { id: 'u' },
+      membership: { id: 'm', role: 'owner', attributes: {} },
+      session: { id: 's' },
+      reqHeaders: new Headers(),
       db: {
+        // The data.destroy check now runs first: an owner passes it.
+        member: { findFirst: async () => ({ id: 'm', role: 'owner', organizationId: 'org', attributes: {} }) },
+        policy: { findMany: async () => [] },
+        resourceGrant: { findMany: async () => [] },
+        auditLog: { create: async () => ({}) },
         appPlan: {
           findFirst: async () => ({ desiredJson: desired, ledgerJson: ledger }),
           findMany: async () => [{ ledgerJson: ledger }],

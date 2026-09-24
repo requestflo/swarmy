@@ -69,6 +69,7 @@ import { Route as AuthedNodesNodeIdTerminalRouteImport } from './routes/_authed/
 import { Route as AuthedStacksNameReplaysIndexRouteImport } from './routes/_authed/stacks/$name.replays.index'
 import { Route as AuthedStacksNameErrorsIndexRouteImport } from './routes/_authed/stacks/$name.errors.index'
 import { Route as AuthedStacksNameReplaysSessionIdRouteImport } from './routes/_authed/stacks/$name.replays.$sessionId'
+import { Route as AuthedStacksNameQueuesClusterRouteImport } from './routes/_authed/stacks/$name.queues.$cluster'
 import { Route as AuthedStacksNameErrorsFingerprintRouteImport } from './routes/_authed/stacks/$name.errors.$fingerprint'
 
 const LoginRoute = LoginRouteImport.update({
@@ -385,6 +386,12 @@ const AuthedStacksNameReplaysSessionIdRoute =
     path: '/replays/$sessionId',
     getParentRoute: () => AuthedStacksNameRoute,
   } as any)
+const AuthedStacksNameQueuesClusterRoute =
+  AuthedStacksNameQueuesClusterRouteImport.update({
+    id: '/queues/$cluster',
+    path: '/queues/$cluster',
+    getParentRoute: () => AuthedStacksNameRoute,
+  } as any)
 const AuthedStacksNameErrorsFingerprintRoute =
   AuthedStacksNameErrorsFingerprintRouteImport.update({
     id: '/errors/$fingerprint',
@@ -450,6 +457,7 @@ export interface FileRoutesByFullPath {
   '/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/stacks/$name/': typeof AuthedStacksNameIndexRoute
   '/stacks/$name/errors/$fingerprint': typeof AuthedStacksNameErrorsFingerprintRoute
+  '/stacks/$name/queues/$cluster': typeof AuthedStacksNameQueuesClusterRoute
   '/stacks/$name/replays/$sessionId': typeof AuthedStacksNameReplaysSessionIdRoute
   '/stacks/$name/errors/': typeof AuthedStacksNameErrorsIndexRoute
   '/stacks/$name/replays/': typeof AuthedStacksNameReplaysIndexRoute
@@ -511,6 +519,7 @@ export interface FileRoutesByTo {
   '/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/stacks/$name': typeof AuthedStacksNameIndexRoute
   '/stacks/$name/errors/$fingerprint': typeof AuthedStacksNameErrorsFingerprintRoute
+  '/stacks/$name/queues/$cluster': typeof AuthedStacksNameQueuesClusterRoute
   '/stacks/$name/replays/$sessionId': typeof AuthedStacksNameReplaysSessionIdRoute
   '/stacks/$name/errors': typeof AuthedStacksNameErrorsIndexRoute
   '/stacks/$name/replays': typeof AuthedStacksNameReplaysIndexRoute
@@ -575,6 +584,7 @@ export interface FileRoutesById {
   '/_authed/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/_authed/stacks/$name/': typeof AuthedStacksNameIndexRoute
   '/_authed/stacks/$name/errors/$fingerprint': typeof AuthedStacksNameErrorsFingerprintRoute
+  '/_authed/stacks/$name/queues/$cluster': typeof AuthedStacksNameQueuesClusterRoute
   '/_authed/stacks/$name/replays/$sessionId': typeof AuthedStacksNameReplaysSessionIdRoute
   '/_authed/stacks/$name/errors/': typeof AuthedStacksNameErrorsIndexRoute
   '/_authed/stacks/$name/replays/': typeof AuthedStacksNameReplaysIndexRoute
@@ -639,6 +649,7 @@ export interface FileRouteTypes {
     | '/terminal/sessions/$id'
     | '/stacks/$name/'
     | '/stacks/$name/errors/$fingerprint'
+    | '/stacks/$name/queues/$cluster'
     | '/stacks/$name/replays/$sessionId'
     | '/stacks/$name/errors/'
     | '/stacks/$name/replays/'
@@ -700,6 +711,7 @@ export interface FileRouteTypes {
     | '/terminal/sessions/$id'
     | '/stacks/$name'
     | '/stacks/$name/errors/$fingerprint'
+    | '/stacks/$name/queues/$cluster'
     | '/stacks/$name/replays/$sessionId'
     | '/stacks/$name/errors'
     | '/stacks/$name/replays'
@@ -763,6 +775,7 @@ export interface FileRouteTypes {
     | '/_authed/terminal/sessions/$id'
     | '/_authed/stacks/$name/'
     | '/_authed/stacks/$name/errors/$fingerprint'
+    | '/_authed/stacks/$name/queues/$cluster'
     | '/_authed/stacks/$name/replays/$sessionId'
     | '/_authed/stacks/$name/errors/'
     | '/_authed/stacks/$name/replays/'
@@ -1197,6 +1210,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedStacksNameReplaysSessionIdRouteImport
       parentRoute: typeof AuthedStacksNameRoute
     }
+    '/_authed/stacks/$name/queues/$cluster': {
+      id: '/_authed/stacks/$name/queues/$cluster'
+      path: '/queues/$cluster'
+      fullPath: '/stacks/$name/queues/$cluster'
+      preLoaderRoute: typeof AuthedStacksNameQueuesClusterRouteImport
+      parentRoute: typeof AuthedStacksNameRoute
+    }
     '/_authed/stacks/$name/errors/$fingerprint': {
       id: '/_authed/stacks/$name/errors/$fingerprint'
       path: '/errors/$fingerprint'
@@ -1222,6 +1242,7 @@ interface AuthedStacksNameRouteChildren {
   AuthedStacksNameStudioRoute: typeof AuthedStacksNameStudioRoute
   AuthedStacksNameIndexRoute: typeof AuthedStacksNameIndexRoute
   AuthedStacksNameErrorsFingerprintRoute: typeof AuthedStacksNameErrorsFingerprintRoute
+  AuthedStacksNameQueuesClusterRoute: typeof AuthedStacksNameQueuesClusterRoute
   AuthedStacksNameReplaysSessionIdRoute: typeof AuthedStacksNameReplaysSessionIdRoute
   AuthedStacksNameErrorsIndexRoute: typeof AuthedStacksNameErrorsIndexRoute
   AuthedStacksNameReplaysIndexRoute: typeof AuthedStacksNameReplaysIndexRoute
@@ -1243,6 +1264,7 @@ const AuthedStacksNameRouteChildren: AuthedStacksNameRouteChildren = {
   AuthedStacksNameIndexRoute: AuthedStacksNameIndexRoute,
   AuthedStacksNameErrorsFingerprintRoute:
     AuthedStacksNameErrorsFingerprintRoute,
+  AuthedStacksNameQueuesClusterRoute: AuthedStacksNameQueuesClusterRoute,
   AuthedStacksNameReplaysSessionIdRoute: AuthedStacksNameReplaysSessionIdRoute,
   AuthedStacksNameErrorsIndexRoute: AuthedStacksNameErrorsIndexRoute,
   AuthedStacksNameReplaysIndexRoute: AuthedStacksNameReplaysIndexRoute,

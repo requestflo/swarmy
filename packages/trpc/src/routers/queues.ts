@@ -7,7 +7,26 @@ import {
   UpdateQueueInput,
 } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
-import { abacProcedure } from '../abac';
+import { abacProcedure, resolveStackByName } from '../abac';
+import {
+  StudioCleanInput,
+  StudioClusterInput,
+  StudioJobInput,
+  StudioJobsInput,
+  StudioPauseInput,
+  StudioQueueInput,
+  StudioRatesInput,
+  StudioRetryAllInput,
+  StudioRetryInput,
+} from '../services/queue-studio.core';
+import {
+  studioAction,
+  studioClusters,
+  studioJob,
+  studioJobs,
+  studioOverview,
+  studioRates,
+} from '../services/queue-studio.service';
 import {
   attachQueue,
   dlqList,
@@ -55,7 +74,7 @@ export const queuesRouter = router({
   stats: orgProcedure.input(QueueRefInput).query(({ ctx, input }) => queueStats(ctx, input)),
 
   /** Bounded retry batch: BullMQ failed → wait. */
-  retryFailed: orgProcedure
+  retryFailed: abacProcedure('data.write', resolveStackByName)
     .input(QueueBatchInput)
     .mutation(({ ctx, input }) => retryFailed(ctx, input)),
 
@@ -63,10 +82,77 @@ export const queuesRouter = router({
   drain: abacProcedure('data.destroy').input(QueueRefInput).mutation(({ ctx, input }) => drainQueue(ctx, input)),
 
   /** Browse the dead-letter list (`<q>:dead`). */
-  dlqList: orgProcedure.input(QueueDlqListInput).query(({ ctx, input }) => dlqList(ctx, input)),
+  dlqList: abacProcedure('data.read', resolveStackByName).input(QueueDlqListInput).query(({ ctx, input }) => dlqList(ctx, input)),
 
   /** Bounded requeue batch: dead → wait. */
-  dlqRequeue: orgProcedure
+  dlqRequeue: abacProcedure('data.write', resolveStackByName)
     .input(QueueBatchInput)
     .mutation(({ ctx, input }) => dlqRequeue(ctx, input)),
+
+  // ── Queue studio: any BullMQ queue on a managed cache, through the agent ──
+  // Reads can show job payloads, so they need `data.read` (members get it
+  // outside production). Writes need `data.write`, and removing jobs needs
+  // `data.destroy`. The stack is the ABAC resource, so production rules apply.
+
+  /** Managed cache clusters the studio can open (queue-purpose first). */
+  studioClusters: orgProcedure
+    .input(StackScopeInput)
+    .query(({ ctx, input }) => studioClusters(ctx, input?.stack)),
+
+  /** Discover queues by key pattern + counts by state + last rate point. */
+  studioOverview: abacProcedure('data.read', resolveStackByName)
+    .input(StudioClusterInput)
+    .query(({ ctx, input }) => studioOverview(ctx, input)),
+
+  /** One page of jobs in a state (payloads cut to 2 KB). */
+  studioJobs: abacProcedure('data.read', resolveStackByName)
+    .input(StudioJobsInput)
+    .query(({ ctx, input }) => studioJobs(ctx, input)),
+
+  /** One job in full: payload, progress, attempts, stacktrace, logs. */
+  studioJob: abacProcedure('data.read', resolveStackByName)
+    .input(StudioJobInput)
+    .query(({ ctx, input }) => studioJob(ctx, input)),
+
+  /** Throughput / failure-rate series from the observability store. */
+  studioRates: abacProcedure('data.read', resolveStackByName)
+    .input(StudioRatesInput)
+    .query(({ ctx, input }) => studioRates(ctx, input)),
+
+  /** Retry one failed/completed job (BullMQ Job.retry). */
+  studioRetry: abacProcedure('data.write', resolveStackByName)
+    .input(StudioRetryInput)
+    .mutation(({ ctx, input }) => studioAction(ctx, input, { kind: 'retry', id: input.id, from: input.from })),
+
+  /** Retry every failed/completed job (BullMQ Queue.retryJobs). */
+  studioRetryAll: abacProcedure('data.write', resolveStackByName)
+    .input(StudioRetryAllInput)
+    .mutation(({ ctx, input }) => studioAction(ctx, input, { kind: 'retryAll', from: input.from })),
+
+  /** Promote one delayed job to waiting now. */
+  studioPromote: abacProcedure('data.write', resolveStackByName)
+    .input(StudioJobInput)
+    .mutation(({ ctx, input }) => studioAction(ctx, input, { kind: 'promote', id: input.id })),
+
+  /** Promote every delayed job. */
+  studioPromoteAll: abacProcedure('data.write', resolveStackByName)
+    .input(StudioQueueInput)
+    .mutation(({ ctx, input }) => studioAction(ctx, input, { kind: 'promoteAll' })),
+
+  /** Pause or resume a queue (workers stop picking jobs; nothing is lost). */
+  studioPause: abacProcedure('data.write', resolveStackByName)
+    .input(StudioPauseInput)
+    .mutation(({ ctx, input }) => studioAction(ctx, input, { kind: 'pause', paused: input.paused })),
+
+  /** Remove one job (+ its children). Refused while a worker holds it. */
+  studioRemove: abacProcedure('data.destroy', resolveStackByName)
+    .input(StudioJobInput)
+    .mutation(({ ctx, input }) => studioAction(ctx, input, { kind: 'remove', id: input.id })),
+
+  /** Remove jobs in a state older than the grace period (BullMQ Queue.clean). */
+  studioClean: abacProcedure('data.destroy', resolveStackByName)
+    .input(StudioCleanInput)
+    .mutation(({ ctx, input }) =>
+      studioAction(ctx, input, { kind: 'clean', state: input.state, graceMs: input.graceMs, limit: input.limit }),
+    ),
 });

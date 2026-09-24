@@ -50,11 +50,15 @@ export type SystemImageKey =
   | 'valkey'
   | 'maddy'
   | 'dockerCli'
+  | 'netbirdServer'
+  | 'netbirdClient'
+  | 'litestream'
   | 'caddy'
   | 'caddySwarmy'
   | 'dns'
   | 'agent'
-  | 'controller';
+  | 'controller'
+  | 'appAuth';
 
 export interface SystemImage {
   key: SystemImageKey;
@@ -103,11 +107,20 @@ export const SYSTEM_IMAGES: readonly SystemImage[] = [
   // Platform upgrades: `docker service update --image … --update-failure-action rollback`
   // one-shots (docker.sock bound) for the controller and system services.
   { key: 'dockerCli', ref: 'docker:27.5-cli', digest: 'sha256:851f91d241214e7c6db86513b270d58776379aacc5eb9c4a87e5b47115e3065c' },
+  // Self-hosted mesh (plans/epic-self-hosted-mesh-and-fleets.md). Same refs +
+  // digests as packages/mesh/src/images.ts — bump both together; the control
+  // plane upgrades BEFORE the clients (NetBird's compatibility direction).
+  { key: 'netbirdServer', ref: 'netbirdio/netbird-server:0.79.0', digest: 'sha256:d1da0c0179c9e6f2ab7b48be54d06341b11037855a9426b9f2536aa79f13360b' },
+  { key: 'netbirdClient', ref: 'netbirdio/netbird:0.79.0', digest: 'sha256:9d8480d87b7f7c10d67b820eecf332ecca5c2756792d4bdfa532182b4fc3005f' },
+  // Litestream for the NetBird SQLite files (the controller bakes the same 0.5.17 into its image).
+  { key: 'litestream', ref: 'litestream/litestream:0.5.17', digest: 'sha256:4b02b9859a6b6b4087d8b8944e15f7e984bd7957cba322bbeee38b0e27b9656a' },
   { key: 'caddy', ref: 'caddy:2-alpine', digest: 'sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b' },
   { key: 'caddySwarmy', ref: 'ghcr.io/requestflo/caddy-swarmy:latest' },
   { key: 'dns', ref: 'ghcr.io/requestflo/swarmy-dns:latest' },
   { key: 'agent', ref: 'ghcr.io/requestflo/swarmy-agent:latest' },
   { key: 'controller', ref: 'ghcr.io/requestflo/swarmy-controller:latest' },
+  // Per-app Better Auth service for `auth:` in swarmy.yaml (docker/app-auth, dev-platform §2B).
+  { key: 'appAuth', ref: 'ghcr.io/requestflo/swarmy-app-auth:latest' },
 ];
 
 /** Repo namespace inside the built-in registry that holds the mirrored copies. */

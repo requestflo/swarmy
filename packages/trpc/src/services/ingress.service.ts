@@ -16,8 +16,10 @@ import {
   type RouteProtection,
   type TunnelOptions,
   type WwwMode,
+  appAuthVerifyPath,
 } from '@swarmy/ingress';
 import type { IngressStatus, RenderedConfig } from '@swarmy/core/protocol';
+import { meshControlVhosts } from './mesh-control.service';
 import { createHash } from 'node:crypto';
 import { TRPCError } from '@trpc/server';
 import { buildInventory, type TlsMode } from '@swarmy/core';
@@ -490,6 +492,8 @@ async function computeControllerVhosts(ctx: OrgContext, settings: IngressSetting
     listAiOutlets(ctx),
   ]);
   const out: ControllerVhost[] = [];
+  // Self-hosted mesh behind the edge (TLS handover): the mesh domain's vhost.
+  out.push(...(await meshControlVhosts(ctx)));
   const dashboard = dashboardDomainFor(settings);
   if (dashboard) {
     out.push({ domain: dashboard, upstream: dashboardUpstream(), targetPath: '/', kind: 'dashboard', tls: 'auto' });
@@ -596,6 +600,10 @@ async function loadOrgConfig(
       protection: route.protection,
       regionUpstreams: regionUpstreamsFor(serviceName, route.port, liveServices),
       rum: rumFor(stack, route.rum),
+      // Protect my app: forward-auth to the controller (the activator's dial target).
+      ...(route.access?.login
+        ? { auth: { upstream: activatorUpstream(), verifyPath: appAuthVerifyPath(ctx.activeOrgId) } }
+        : {}),
     }));
   // Apex ↔ www toggles expand into plain routes + redirect sites, then the DNS
   // gate withholds every host whose DNS has not yet verifiably pointed at us —

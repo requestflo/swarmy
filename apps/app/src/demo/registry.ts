@@ -14,6 +14,7 @@ import { infraextra } from './resolvers/infraextra';
 import { cache } from './resolvers/cache';
 import { buckets } from './resolvers/buckets';
 import { queues } from './resolvers/queues';
+import { appaccess } from './resolvers/appaccess';
 import { jobs } from './resolvers/jobs';
 import { workflows } from './resolvers/workflows';
 import { webhookgw } from './resolvers/webhookgw';
@@ -31,6 +32,8 @@ import { guardrails } from './resolvers/guardrails';
 import { auditlog } from './resolvers/auditlog';
 import { cost } from './resolvers/cost';
 import { resilience } from './resolvers/resilience';
+import { controllerstore } from './resolvers/controllerstore';
+import { platform } from './resolvers/platform';
 import { blueprints } from './resolvers/blueprints';
 import { searchsvc } from './resolvers/searchsvc';
 import { vector } from './resolvers/vector';
@@ -62,6 +65,7 @@ const MODULES: DomainResolvers[] = [
   cache,
   buckets,
   queues,
+  appaccess,
   jobs,
   workflows,
   webhookgw,
@@ -79,6 +83,8 @@ const MODULES: DomainResolvers[] = [
   auditlog,
   cost,
   resilience,
+  controllerstore,
+  platform,
   blueprints,
   searchsvc,
   vector,

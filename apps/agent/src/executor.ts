@@ -7,18 +7,22 @@ import { buildGateAllows, BUILDER_ENABLE_HINT, execGateAllows, EXEC_LOCAL_VETO_H
 import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots, backupDb, restoreDb } from './handlers/backup';
 import { appDbBackup, appDbRestore, appDbVerify } from './handlers/appdb';
+import { queueOp } from './handlers/queue-op';
 import { dbQuery } from './handlers/studio';
-import { probeSmtp } from './handlers/email';
 import { execCommand } from './handlers/exec';
 import { applyDns } from './handlers/dns';
 import { localReload } from './handlers/ingress-local';
 import { applyMesh, grantDirectRoute } from './handlers/mesh';
+import { applyMeshControl } from './handlers/mesh-control';
+import { applyAccessRouter } from './handlers/access-router';
 import { applyIngressConnector } from './handlers/ingress-connector';
 import { buildImage } from './handlers/build';
 import { pruneImages } from './handlers/prune';
 import { runNodeHygiene } from './handlers/hygiene';
 import { applyStorageNode, listVolumes, provisionVolume, removeVolume } from './handlers/storage';
 import { applySwarmJoin, rotateSwarmTokens, setSwarmAutolock } from './handlers/swarm';
+import { applyControllerService } from './handlers/controller-service';
+import { probeSmtp } from './handlers/email';
 import { updateAgent } from './handlers/update';
 import { prepareSecretEnv } from './handlers/secret-env';
 import {
@@ -47,6 +51,22 @@ export function buildDisabledMessage(what: string, override = env.BUILD_OVERRIDE
     return `${what} disabled on this agent: SWARMY_ALLOW_BUILD=false is set locally (remove it from /etc/swarmy/agent.env to let the Builder role decide)`;
   }
   return `${what} disabled on this agent: this node does not have the Builder role — ${BUILDER_ENABLE_HINT}`;
+}
+
+/**
+ * SWARMY_ALLOW_EXEC=false is a node-local promise that nothing execs into a
+ * container here. The studio, queue and app-DB commands all exec into a task
+ * (or its DB client), so they honour the same local veto as `execCommand`.
+ * Returns true (and answers the command) when vetoed.
+ */
+function execVetoed(conn: AgentConnection, commandId: string): boolean {
+  if (env.EXEC_OVERRIDE !== 'deny') return false;
+  conn.send('commandResult', {
+    commandId,
+    status: 'rejected',
+    error: { code: 'E_EXEC_DISABLED', message: `exec is ${EXEC_LOCAL_VETO_HINT}` },
+  });
+  return true;
 }
 
 export async function handleCommand(
@@ -156,6 +176,21 @@ export async function handleCommand(
       }
       return run(conn, p.commandId, () => grantDirectRoute(p));
     }
+    case 'applyMeshControl':
+    case 'applyAccessRouter': {
+      const p = envlp.payload;
+      if (!env.ALLOW_MESH) {
+        conn.send('commandResult', {
+          commandId: p.commandId,
+          status: 'rejected',
+          error: { code: 'E_MESH_DISABLED', message: 'mesh disabled on this agent' },
+        });
+        return;
+      }
+      return envlp.type === 'applyMeshControl'
+        ? run(conn, p.commandId, () => applyMeshControl(docker, envlp.payload))
+        : run(conn, p.commandId, () => applyAccessRouter(docker, envlp.payload));
+    }
     case 'backupVolume': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => backupVolume(docker, conn, p));
@@ -193,23 +228,29 @@ export async function handleCommand(
     }
     case 'appDbBackup': {
       const p = envlp.payload;
+      if (execVetoed(conn, p.commandId)) return;
       return run(conn, p.commandId, () => appDbBackup(docker, conn, p));
     }
     case 'appDbRestore': {
       const p = envlp.payload;
+      if (execVetoed(conn, p.commandId)) return;
       return run(conn, p.commandId, () => appDbRestore(docker, conn, p));
     }
     case 'appDbVerify': {
       const p = envlp.payload;
+      if (execVetoed(conn, p.commandId)) return;
       return run(conn, p.commandId, () => appDbVerify(docker, conn, p));
     }
-    case 'probeSmtp': {
+    case 'queueOp': {
+      // Bounded BullMQ EVAL; the handler enforces DEFAULT_COMMAND_TIMEOUTS.queueOp.
       const p = envlp.payload;
-      return run(conn, p.commandId, () => probeSmtp(p));
+      if (execVetoed(conn, p.commandId)) return;
+      return run(conn, p.commandId, () => queueOp(docker, p));
     }
     case 'dbQuery': {
       // Database studio: one bounded query via the DB task's own client (in-task creds).
       const p = envlp.payload;
+      if (execVetoed(conn, p.commandId)) return;
       return run(conn, p.commandId, () => dbQuery(docker, p));
     }
     case 'buildImage': {
@@ -281,6 +322,14 @@ export async function handleCommand(
     case 'swarmRotateTokens': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => rotateSwarmTokens(docker, p));
+    }
+    case 'probeSmtp': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => probeSmtp(p));
+    }
+    case 'controllerService': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => applyControllerService(docker, p));
     }
     case 'updateAgent': {
       // On success the handler schedules its own exit AFTER the result has had

@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { ACTIONS } from '@swarmy/abac';
 import { appRouter } from './root';
 import { authorize } from './abac';
+import { seedKv, useMemoryKv } from './services/swarm-kv.service';
 import type { OrgContext } from './context';
 
 /**
@@ -23,8 +24,14 @@ function ctxFor(role: Role, audit: string[]) {
       member: { findFirst: async () => ({ id: 'mem1', role, organizationId: 'org1', attributes: {} }) },
       policy: { findMany: async () => [] },
       resourceGrant: { findMany: async () => [] },
-      node: { findFirst: async () => null },
-      stack: { findFirst: async () => null },
+      // Ids in GATES resolve to real resources in org1: an unknown id is NOT_FOUND
+      // (abac.ts resolvers), never "no resource, authorize as the org".
+      node: { findFirst: async ({ where }: { where: { id: string } }) => ({ id: where.id, orgId: 'org1' }) },
+      stack: {
+        findFirst: async ({ where }: { where: { id?: string; name?: string } }) => ({
+          id: where.id ?? 'st1', orgId: 'org1', name: where.name ?? 'shop',
+        }),
+      },
       auditLog: {
         create: async ({ data }: { data: { action: string } }) => {
           audit.push(data.action);
@@ -42,9 +49,21 @@ function ctxFor(role: Role, audit: string[]) {
     },
   );
   const hub = new Proxy(
-    { liveInventory: () => ({ services: [], containers: [] }), nodeInfoFor: () => undefined },
+    {
+      liveInventory: () => ({
+        services: [{
+          id: 'svc', name: 'svc', image: 'x', mode: 'replicated', replicas: 1, runningReplicas: 1, desiredReplicas: 1,
+          labels: { 'com.docker.stack.namespace': 'shop' }, networks: [], env: [], ports: [], createdAt: 0, updatedAt: 0,
+        }],
+        containers: [],
+      }),
+      nodeInfoFor: () => undefined,
+    },
     { get: (t, k: string) => (k in t ? (t as Record<string, unknown>)[k] : () => { throw new Error(`unmocked hub.${k}`); }) },
   );
+  // Stacks live in swarm-kv: seed the one GATES names so it resolves in org1.
+  useMemoryKv(hub as never);
+  seedKv(hub as never, 'org1', 'stack', 'st1', { name: 'shop', ingressDriver: null });
   return {
     db,
     hub,
@@ -66,7 +85,7 @@ const GATES: Array<[string, unknown, string]> = [
   ['nodes.revokeJoinToken', { id: 't1' }, 'token.revoke'],
   ['stacks.remove', { id: 'st1' }, 'stack.remove'],
   ['previews.destroy', {}, 'stack.remove'],
-  ['ingress.removeDomain', { id: 'd1' }, 'ingress.write'],
+  ['ingress.removeDomain', { id: 'svc:shop.example.com' }, 'ingress.write'],
   ['ingress.tunnels.delete', undefined, 'ingress.remove'],
   ['cache.destroy', {}, 'data.destroy'],
   ['cache.restore', {}, 'data.restore'],

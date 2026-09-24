@@ -33,6 +33,7 @@ import { renderLoader, renderChecksumFile, sha256Hex } from './install/loader';
 import { renderInstaller, type RenderInstallerOptions } from './install/installer';
 import { agentWebSocketHandlers, hub, type AgentWsData } from './gateway';
 import { activatorApp } from './activator';
+import { appAuthApp, appJwksResponse } from './app-auth';
 import {
   authorizeTermUpgrade,
   terminalWebSocketHandlers,
@@ -40,6 +41,7 @@ import {
   type TermSocket,
 } from './terminal';
 import { startWorkers } from './workers';
+import { startControllerStore } from './controller-store';
 import { webhooksApp } from './webhooks';
 import { gitCallbackApp } from './git-callback';
 import { inboundHooksApp } from './inbound-hooks';
@@ -47,6 +49,7 @@ import { statusPublicApp } from './status-public';
 import { rumApp } from './rum';
 import { aiGatewayApp } from './ai-gateway';
 import { emailApp, mountEmail } from './email';
+import { errorsIngestApp } from './errors-ingest';
 import { oauthApp } from './oauth';
 import { versionInfo } from './version';
 import { licenseStatus } from './license';
@@ -273,6 +276,9 @@ app.route('/ai', aiGatewayApp);
 // Email service (developer-platform §8): the HTTP send API + forwarded reports.
 app.route('/email', emailApp);
 
+// Error tracking: Sentry SDK ingest (/api/<id>/envelope/, /store/) + source-map upload.
+app.route('/', errorsIngestApp);
+
 // OAuth2 client-credentials token endpoint (public-api-terraform P2). Public.
 app.route('/oauth', oauthApp);
 
@@ -282,6 +288,11 @@ app.route('/_wake', activatorApp);
 // Web analytics + session replay ingest: the edge maps /_swarmy/* on every
 // RUM-enabled app domain here (first-party to the browser). Public, capped.
 app.route('/_rum', rumApp);
+
+// Protect my app (identity-aware proxy): edge forward-auth + the app-domain
+// login round trip, and the JWKS apps verify X-Swarmy-Jwt against.
+app.route('/_app-auth', appAuthApp);
+app.get('/.well-known/swarmy-jwks.json', () => appJwksResponse());
 
 // ── Dashboard SPA (self-host single-image) ──────────────────────────────────
 // In production the controller image bundles the built dashboard and serves it
@@ -312,6 +323,7 @@ if (STATIC_DIR) {
       p.startsWith('/email/v1') ||
       p.startsWith('/oauth') ||
       p.startsWith('/_wake') ||
+      p.startsWith('/_app-auth') ||
       p.startsWith('/install') ||
       p === '/mcp' ||
       p.startsWith('/.well-known/oauth-protected-resource') ||
@@ -390,6 +402,10 @@ const cookiePrefix = process.env.SWARMY_AUTH_COOKIE_PREFIX ?? 'swarmy';
 const server = Bun.serve<WsData>({
   port: env.PORT,
   idleTimeout: 60,
+  // Hard ceiling for EVERY route (Bun's default is 128 MB): unauthenticated
+  // ingest/webhook bodies are read before auth. Per-mount bodyLimit()s are
+  // tighter; 32 MB leaves room for the largest (error envelopes, uploads).
+  maxRequestBodySize: 32 * 1024 * 1024,
   async fetch(req, srv) {
     const url = new URL(req.url);
     if (url.pathname === '/agent/ws') {
@@ -425,6 +441,8 @@ const server = Bun.serve<WsData>({
   },
 });
 
-startWorkers();
+// Workers start only once this controller holds the raft lease (single writer),
+// and Litestream replicates control.db while it does (controller-store/).
+startControllerStore(startWorkers);
 // eslint-disable-next-line no-console
 console.log(`swarmy controller listening on http://localhost:${server.port}`);

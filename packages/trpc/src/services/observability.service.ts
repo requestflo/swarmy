@@ -859,3 +859,57 @@ export async function redSnapshot(
   if (rows === null) return { enabled, collectorStatus, reachable: false, rows: [], windowMinutes };
   return { enabled, collectorStatus, reachable: true, rows, windowMinutes };
 }
+
+/* ----------------------------------------------------------------------------
+ * ── shared store access (error tracking, epic-developer-platform §6)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * The org's ClickHouse store, for sibling writers that own their OWN tables in
+ * the same database (error tracking's `swarmy_error_*`). Null when the suite
+ * is off. Same credentials, same fail-open semantics: `query` returns null on
+ * an unreachable store; `exec` / `insert` throw.
+ */
+export interface OrgClickhouse {
+  database: string;
+  retentionDays: number;
+  query<T>(sql: string): Promise<T[] | null>;
+  exec(sql: string): Promise<void>;
+  /** Insert rows as a JSONEachRow body (values never enter SQL text). */
+  insert(table: string, rows: object[]): Promise<void>;
+}
+
+export async function orgClickhouse(ctx: OrgContext): Promise<OrgClickhouse | null> {
+  const row = await observabilityConfigRepo.find(ctx, ctx.activeOrgId).catch(() => null);
+  if (!row || !row.enabled || !row.clickhouseDsn) return null;
+  const dsnPlain = safeDecrypt(row.clickhouseDsn);
+  let dsn: ClickhouseDsn;
+  try {
+    dsn = parseDsn(dsnPlain);
+  } catch {
+    return null;
+  }
+  return {
+    database: dsn.database,
+    retentionDays: row.retentionDays,
+    query: <T>(sql: string) => clickhouseJson<T>(dsnPlain, sql),
+    exec: (sql: string) => clickhouseExec(dsnPlain, sql),
+    insert: async (table: string, rows: object[]) => {
+      if (!rows.length) return;
+      if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(table)) throw new Error(`invalid table ${table}`);
+      const url = new URL(dsn.baseUrl);
+      url.searchParams.set('database', dsn.database);
+      url.searchParams.set('query', `INSERT INTO ${table} FORMAT JSONEachRow`);
+      url.searchParams.set('date_time_input_format', 'best_effort');
+      const res = await fetch(url.toString(), {
+        method: 'POST',
+        headers: { ...authHeader(dsn), 'Content-Type': 'application/x-ndjson' },
+        body: rows.map((r) => JSON.stringify(r)).join('\n'),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) {
+        throw new Error(`clickhouse insert failed (${res.status}): ${(await res.text().catch(() => '')).slice(0, 300)}`);
+      }
+    },
+  };
+}

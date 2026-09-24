@@ -207,9 +207,9 @@ describe('evaluateAccess terminal.open (highest-risk action)', () => {
 });
 
 describe('resource resolvers', () => {
-  it('resolveNode returns null for an unknown id', async () => {
+  it('resolveNode refuses an id that is not in this org (NOT_FOUND, never org-wide)', async () => {
     const ctx = mockCtx({ nodes: [] });
-    expect(await resolveNode(ctx, { id: 'nope' })).toBeNull();
+    await expect(resolveNode(ctx, { id: 'nope' })).rejects.toThrow('not found');
   });
 
   it('resolveNode maps labels', async () => {

@@ -22,7 +22,7 @@ import {
   PingMsg,
 } from './commands';
 import { ApplyIngressMsg, IngressNodeStatusMsg } from './ingress';
-import { ApplyMeshMsg, MeshStateMsg, GrantDirectRouteMsg } from './mesh';
+import { ApplyMeshMsg, MeshStateMsg, GrantDirectRouteMsg, ApplyMeshControlMsg, ApplyAccessRouterMsg } from './mesh';
 import { ApplyDnsMsg } from './dns';
 import { BuildImageMsg } from './build';
 import { PruneImagesMsg } from './prune';
@@ -31,7 +31,9 @@ import { ApplyStorageNodeMsg, ListVolumesMsg, ProvisionVolumeMsg, RemoveVolumeMs
 import { SwarmJoinMsg, SwarmRotateTokensMsg, SwarmSetAutolockMsg } from './swarm';
 import { BackupVolumeMsg, RestoreVolumeMsg, ListSnapshotsMsg } from './backup';
 import { DbBackupMsg, DbRestoreMsg } from './dbBackup';
+import { ControllerServiceMsg } from './controllerService';
 import { AppDbBackupMsg, AppDbRestoreMsg, AppDbVerifyMsg } from './appDb';
+import { QueueOpMsg } from './queueOp';
 import { DbQueryMsg } from './studio';
 import { ProbeSmtpMsg } from './email';
 import {
@@ -100,6 +102,8 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   ApplyIngressMsg,
   ApplyMeshMsg,
   GrantDirectRouteMsg,
+  ApplyMeshControlMsg,
+  ApplyAccessRouterMsg,
   ApplyDnsMsg,
   BuildImageMsg,
   PruneImagesMsg,
@@ -111,6 +115,8 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   SwarmJoinMsg,
   SwarmSetAutolockMsg,
   SwarmRotateTokensMsg,
+  ControllerServiceMsg,
+  ProbeSmtpMsg,
   BackupVolumeMsg,
   RestoreVolumeMsg,
   ListSnapshotsMsg,
@@ -119,8 +125,8 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   AppDbBackupMsg,
   AppDbRestoreMsg,
   AppDbVerifyMsg,
+  QueueOpMsg,
   DbQueryMsg,
-  ProbeSmtpMsg,
   SecretCreateMsg,
   SecretRemoveMsg,
   SecretListMsg,

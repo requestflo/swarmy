@@ -10,7 +10,7 @@
  * Secrets (RPC secret, admin token, S3 access keys) are encrypted at rest via
  * the vault and only decrypted in-memory when rendering a deployment.
  */
-import { NODE_STORAGE_LABEL } from '@swarmy/core';
+import { NODE_STORAGE_LABEL, SWARMY_CONTROL_NETWORK } from '@swarmy/core';
 import { randomBytes } from 'node:crypto';
 import { decryptSecret, encryptSecret, randomToken } from '@swarmy/core/crypto';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
@@ -461,6 +461,8 @@ export function storeNeedsConverge(
   if ((svc.mounts ?? []).some((m) => m.type === 'bind')) return true;
   if (!(svc.configs ?? []).some((n) => n.startsWith(`${GARAGE_CONFIG_PREFIX}-`))) return true;
   if (!(svc.networks ?? []).some((n) => n.name === GARAGE_NETWORK)) return true;
+  // The controller replicates control.db into Garage over the control overlay.
+  if (!(svc.networks ?? []).some((n) => n.name === SWARMY_CONTROL_NETWORK)) return true;
   if ((svc.ports ?? []).length > 0) return true;
   const secrets = svc.secrets ?? [];
   if (!secrets.some((n) => n.startsWith(`${GARAGE_RPC_SECRET_PREFIX}-`))) return true;

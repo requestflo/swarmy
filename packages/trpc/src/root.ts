@@ -6,11 +6,13 @@ import { stacksRouter } from './routers/stacks';
 import { deploymentsRouter } from './routers/deployments';
 import { metricsRouter } from './routers/metrics';
 import { ingressRouter } from './routers/ingress';
+import { appAccessRouter } from './routers/appAccess';
 import { systemRouter } from './routers/system';
 import { backupsRouter } from './routers/backups';
 import { offsiteMirrorRouter } from './routers/offsiteMirror';
 import { dbBackupRouter } from './routers/dbBackup';
 import { observabilityRouter } from './routers/observability';
+import { errorsRouter } from './routers/errors';
 import { meshRouter } from './routers/mesh';
 import { imagesRouter } from './routers/images';
 import { builderRouter } from './routers/builder';
@@ -24,8 +26,11 @@ import { geodnsRouter } from './routers/geodns';
 import { templatesRouter } from './routers/templates';
 import { apiKeysRouter } from './routers/apiKeys';
 import { controllerBackupRouter } from './routers/controllerBackup';
+import { controllerStoreRouter } from './routers/controllerStore';
 import { storageRouter } from './routers/storage';
+import { platformRouter } from './routers/platform';
 import { volumesRouter } from './routers/volumes';
+import { decommissionRouter } from './routers/decommission';
 import { schedulesRouter } from './routers/schedules';
 import { ssoRouter } from './routers/sso';
 import { securityRouter } from './routers/security';
@@ -73,17 +78,20 @@ export const appRouter = router({
   region: regionRouter,
   db: managedDbRouter,
   nodes: nodesRouter,
+  decommission: decommissionRouter,
   services: servicesRouter,
   stacks: stacksRouter,
   deployments: deploymentsRouter,
   metrics: metricsRouter,
   ingress: ingressRouter,
+  appAccess: appAccessRouter,
   system: systemRouter,
   backups: backupsRouter,
   offsiteMirror: offsiteMirrorRouter,
   dbBackups: dbBackupRouter,
   observability: observabilityRouter,
   rum: rumRouter,
+  errors: errorsRouter,
   mesh: meshRouter,
   images: imagesRouter,
   builder: builderRouter,
@@ -97,7 +105,9 @@ export const appRouter = router({
   templates: templatesRouter,
   apiKeys: apiKeysRouter,
   controllerBackup: controllerBackupRouter,
+  controllerStore: controllerStoreRouter,
   storage: storageRouter,
+  platform: platformRouter,
   volumes: volumesRouter,
   schedules: schedulesRouter,
   sso: ssoRouter,

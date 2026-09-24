@@ -401,7 +401,9 @@ export const resolveNode: ResolveResource = async (ctx, input) => {
     where: { id, orgId: ctx.activeOrgId },
     select: { id: true, orgId: true },
   });
-  if (!row) return null;
+  // An id that doesn't resolve in THIS org is not "no resource" (which would
+  // authorize against the org, i.e. as non-production) — it's not found.
+  if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: `node ${id} not found` });
   const labels = ctx.hub.nodeInfoFor(row.id)?.labels ?? {};
   return { type: 'node', id: row.id, orgId: row.orgId, labels };
 };
@@ -416,7 +418,7 @@ export const resolveService: ResolveResource = (ctx, input) => {
   if (!id) return null;
   const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
   const svc = buildInventory(services, containers).services.find((s) => s.id === id || s.name === id);
-  if (!svc) return null;
+  if (!svc) throw new TRPCError({ code: 'NOT_FOUND', message: `service ${id} not found` });
   return { type: 'service', id: svc.id, orgId: ctx.activeOrgId, labels: svc.labels };
 };
 
@@ -501,7 +503,7 @@ export const resolveStack: ResolveResource = async (ctx, input) => {
     where: { id, orgId: ctx.activeOrgId },
     select: { id: true, orgId: true, name: true },
   });
-  if (!row) return null;
+  if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: `stack ${id} not found` });
   const composeSource = (input as { composeSource?: unknown }).composeSource;
   const r = await stackResource(ctx, row.name, typeof composeSource === 'string' ? composeSource : undefined);
   return { ...r, id: row.id, orgId: row.orgId };

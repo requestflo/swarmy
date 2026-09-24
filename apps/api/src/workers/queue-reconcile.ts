@@ -1,16 +1,22 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { fireEvent, systemContext } from '@swarmy/trpc';
+import { fireEvent, sampleQueueClusters, systemContext } from '@swarmy/trpc';
 import type { ContainerInfo, SwarmServiceInfo } from '@swarmy/core/protocol';
 import { hub, store } from '../gateway';
 
 /**
  * Queue reconcile worker (slice B1).
  *
- * Every ~15s, per org, read the `swarmy.queues` JSON labels off WORKER services
- * in the live inventory, sample each queue's depths via one `redis-cli EVAL`
- * exec on the backing cache cluster's PRIMARY container (the password stays in
- * the container's mounted secret file), then:
+ * Every ~15s, per org:
+ *   0. run the queue-studio sampler (`sampleQueueClusters`): one `queue.op`
+ *      overview per queue-purpose cache (and per cache a BullMQ worker def
+ *      points at). It gives BullMQ counts by state, and the completed/failed
+ *      events since the last tick become throughput/failure rates, written to
+ *      the observability store. BullMQ defs scale off THESE counts (backlog =
+ *      wait + prioritized, 0 while paused), the same numbers the studio shows.
+ * Then read the `swarmy.queues` JSON labels off WORKER services. A raw-list
+ * def samples its depth via one `redis-cli EVAL` exec on the backing cache
+ * PRIMARY (the password stays in the container's mounted secret file), then:
  *   1. stamp the samples into the worker's `swarmy.queues.stats` label
  *      (cheap last-known stats for the dashboard list),
  *   2. scale the worker service to clamp(ceil(wait/scalePerJobs), min, max) —
@@ -252,9 +258,35 @@ async function reconcileOrg(orgId: string): Promise<void> {
 
   const { services } = hub.liveInventory(orgId);
   const workers = services.filter((s) => Boolean(s.labels[QUEUES_LABEL]));
-  if (workers.length === 0) return;
-
   const ctx = systemContext({ db: prisma, hub, auth: authRegistry.getAuth() }, orgId);
+
+  // (0) BullMQ counts + rates for every queue cache and every cache a BullMQ def uses.
+  const extras = new Map<string, { stack: string; cluster: string; queues: string[] }>();
+  for (const w of workers) {
+    for (const def of parseQueuesLabel(w.labels[QUEUES_LABEL])) {
+      if (def.convention !== 'bullmq') continue;
+      const ref = parseCacheRef(def.cacheCluster, w.labels[STACK_LABEL] ?? '');
+      const k = `${ref.stack}/${ref.cluster}`;
+      const e = extras.get(k) ?? { stack: ref.stack, cluster: ref.cluster, queues: [] };
+      e.queues.push(def.name);
+      extras.set(k, e);
+    }
+  }
+  const bullSampled = await sampleQueueClusters(ctx, [...extras.values()]).catch(() => []);
+  const bullCounts = new Map<string, Sample>();
+  const at = new Date().toISOString();
+  for (const c of bullSampled) {
+    for (const q of c.queues) {
+      bullCounts.set(`${c.stack}/${c.cluster}/${q.name}`, {
+        wait: q.isPaused ? 0 : q.counts.wait + q.counts.prioritized,
+        active: q.counts.active,
+        failed: q.counts.failed,
+        delayed: q.counts.delayed,
+        ts: at,
+      });
+    }
+  }
+  if (workers.length === 0) return;
 
   for (const worker of workers) {
     const defs = parseQueuesLabel(worker.labels[QUEUES_LABEL]);
@@ -267,7 +299,16 @@ async function reconcileOrg(orgId: string): Promise<void> {
 
     for (const def of defs) {
       const primary = findCachePrimary(services, workerStack, def.cacheCluster);
-      const sample = primary ? await sampleDepths(orgId, primary, def) : null;
+      const ref = parseCacheRef(def.cacheCluster, workerStack);
+      const sample =
+        def.convention === 'bullmq'
+          ? (bullCounts.get(`${ref.stack}/${ref.cluster}/${def.name}`) ??
+            (primary && extras.has(`${ref.stack}/${ref.cluster}`) && bullSampled.some((c) => c.stack === ref.stack && c.cluster === ref.cluster)
+              ? { wait: 0, active: 0, failed: 0, delayed: 0, ts: at } // queue has no keys yet
+              : null))
+          : primary
+            ? await sampleDepths(orgId, primary, def)
+            : null;
       if (!sample) {
         // Keep the last-known stamp so the dashboard doesn't blank out.
         const kept = prev[def.name];

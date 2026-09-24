@@ -1745,6 +1745,19 @@ export async function purgeAppData(
   if (input.confirm !== expected) {
     throw commandRejected(`type ${expected} to delete its data permanently`);
   }
+  // Policy first, so a denied caller learns nothing about the resource's state.
+  const decision = await evaluateAccess(ctx, 'data.destroy', {
+    type: 'managedResource',
+    id: expected,
+    orgId: ctx.activeOrgId,
+  });
+  if (decision.decision !== 'permit') {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: `You can't delete ${expected}'s data (data.destroy).`,
+      cause: { swarmyCode: 'POLICY_DENIED', policyId: decision.policyId },
+    });
+  }
   if (desired.resources.some((r) => r.name === input.resource)) {
     throw commandRejected(
       `${input.resource} is still declared in swarmy.yaml — remove it there first`,
@@ -1766,17 +1779,11 @@ export async function purgeAppData(
   ) {
     throw commandRejected(`${input.resource} is still running`);
   }
-  const decision = await evaluateAccess(ctx, 'data.destroy', {
-    type: 'managedResource',
-    id: expected,
-    orgId: ctx.activeOrgId,
-  });
-  if (decision.decision !== 'permit') {
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: `You can't delete ${expected}'s data (data.destroy).`,
-      cause: { swarmyCode: 'POLICY_DENIED', policyId: decision.policyId },
-    });
+  // Only data swarmy deliberately KEPT on removal is purgeable — never an
+  // arbitrary `<stack>_<name>-*-data` volume (e.g. a stopped UI-managed DB).
+  const kept = { ...(parseLedger(row.ledgerJson).kept ?? {}), ...(ledgerNow.kept ?? {}) };
+  if (!kept[input.resource]) {
+    throw commandRejected(`${input.resource} has no kept data to delete`);
   }
   const volumes = [
     primaryDataVolumeName(stack, input.resource),

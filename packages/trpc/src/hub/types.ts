@@ -37,7 +37,6 @@ export type CommandName =
   | 'appdb.backup' // compose MySQL/MariaDB/Mongo/Redis/Valkey logical dump → restic
   | 'appdb.restore'
   | 'appdb.verify' // backup-verify drill: dump → scratch container → sanity query
-  | 'db.query' // database studio: one bounded query via the DB task's own client (exec, in-task creds)
   | 'storage.apply' // volumes-dr P2: bring up a Garage member
   | 'volume.provision' // volumes-dr P3: create a local/CSI cluster volume
   | 'volume.remove'
@@ -45,9 +44,12 @@ export type CommandName =
   | 'image.prune'
   | 'node.hygiene' // disk hygiene: prune stopped one-shots, unused images, build cache
   | 'mesh.grantDirectRoute'
+  | 'mesh.control' // self-hosted NetBird control plane (swarmy-mesh-control, agent-supervised)
+  | 'mesh.accessRouter' // people access: a stack's routing peer (swarmy-access-<stackId>)
   | 'swarm.join' // node-onboarding P2: init/join the org's Docker Swarm
   | 'swarm.autolock' // WS2 quorum recovery: toggle AutoLockManagers (returns the unlock key on enable)
   | 'swarm.rotateTokens' // WS2 quorum recovery: rotate worker/manager join tokens
+  | 'controller.service' // resilience P3: the controller's raft lease + placement (its own service spec)
   | 'secret.create' // platform buildout: Docker secrets/configs as first-class resources
   | 'secret.remove'
   | 'secret.list'
@@ -57,6 +59,8 @@ export type CommandName =
   | 'config.inspect'
   | 'container.runOnce' // one-shot utility container → { exitCode, output }
   | 'email.probeSmtp' // email service: can the mail node reach MX hosts on :25? (no mail sent)
+  | 'queue.op' // managed queues: one bounded BullMQ EVAL on a cache member (queue studio)
+  | 'db.query' // database studio: one bounded query via the DB task's own client (exec, in-task creds)
   | 'agent.update'; // self-update: download + verify + swap the agent binary (or recreate its container)
 
 /**
@@ -94,7 +98,6 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'appdb.backup': 'appDbBackup',
   'appdb.restore': 'appDbRestore',
   'appdb.verify': 'appDbVerify',
-  'db.query': 'dbQuery',
   'storage.apply': 'applyStorageNode',
   'volume.provision': 'provisionVolume',
   'volume.remove': 'removeVolume',
@@ -102,9 +105,12 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'image.prune': 'pruneImages',
   'node.hygiene': 'nodeHygiene',
   'mesh.grantDirectRoute': 'grantDirectRoute',
+  'mesh.control': 'applyMeshControl',
+  'mesh.accessRouter': 'applyAccessRouter',
   'swarm.join': 'swarmJoin',
   'swarm.autolock': 'swarmSetAutolock',
   'swarm.rotateTokens': 'swarmRotateTokens',
+  'controller.service': 'controllerService',
   'secret.create': 'secretCreate',
   'secret.remove': 'secretRemove',
   'secret.list': 'secretList',
@@ -114,6 +120,8 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'config.inspect': 'configInspect',
   'container.runOnce': 'runOnce',
   'email.probeSmtp': 'probeSmtp',
+  'queue.op': 'queueOp',
+  'db.query': 'dbQuery',
   'agent.update': 'updateAgent',
 };
 

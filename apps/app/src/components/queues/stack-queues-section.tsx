@@ -5,6 +5,8 @@ import { Button, Card, CardContent, Collapsible, CollapsibleContent, Collapsible
 import { useTRPC } from '@/integrations/trpc';
 import { AttachQueueInline } from './attach-queue-inline';
 import { QueueRow } from './queue-row';
+import { AddQueueInline } from './studio/add-queue-inline';
+import { QueueClustersStrip } from './studio/queue-clusters-strip';
 
 /**
  * Queues section of the stack Messaging tab: this stack's queue defs (from
@@ -14,6 +16,7 @@ import { QueueRow } from './queue-row';
 export function StackQueuesSection({ stack }: { stack: string }): React.JSX.Element {
   const trpc = useTRPC();
   const [attaching, setAttaching] = React.useState(false);
+  const [adding, setAdding] = React.useState(false);
 
   const queues = useQuery({
     ...trpc.queues.list.queryOptions({ stack }),
@@ -38,9 +41,12 @@ export function StackQueuesSection({ stack }: { stack: string }): React.JSX.Elem
                   : 'depths, autoscale, dead letters'}
               </p>
             </div>
+            <Button className="shrink-0" onClick={() => setAdding((v) => !v)}>
+              <PlusIcon className="size-4" /> Add queue
+            </Button>
             <CollapsibleTrigger asChild>
               <Button variant="outline" className="shrink-0">
-                <PlusIcon className="size-4" /> Attach queue
+                Attach worker
               </Button>
             </CollapsibleTrigger>
           </div>
@@ -50,6 +56,12 @@ export function StackQueuesSection({ stack }: { stack: string }): React.JSX.Elem
             </div>
           </CollapsibleContent>
         </Collapsible>
+        {adding ? (
+          <div className="border-border bg-muted/20 rounded-lg border p-4">
+            <AddQueueInline stack={stack} onDone={() => setAdding(false)} />
+          </div>
+        ) : null}
+        <QueueClustersStrip stack={stack} />
 
         {queues.isLoading ? (
           <div className="space-y-2">
@@ -66,8 +78,8 @@ export function StackQueuesSection({ stack }: { stack: string }): React.JSX.Elem
         ) : rows.length === 0 ? (
           <EmptyState
             icon={<ListOrderedIcon />}
-            title={`No queues in ${stack} yet — attach one.`}
-            description="Point swarmy at a worker service and its cache cluster: it reads BullMQ (or raw list) depths, scales workers by backlog, and gives you retry, drain and a DLQ browser."
+            title={`No worker queues in ${stack} yet — add one.`}
+            description="Add a BullMQ-ready queue, then attach its worker service: swarmy reads the BullMQ counts, scales workers by backlog, and the studio gives you jobs, retry, promote, clean and pause."
             action={
               <Button variant="outline" onClick={() => setAttaching(true)}>
                 <PlusIcon className="size-4" /> Attach queue

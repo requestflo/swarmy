@@ -30,6 +30,7 @@ import { startAppReconcile } from './app-reconcile';
 import { startNotificationDispatch } from './notification-dispatch';
 import { startExposureAudit } from './exposure-audit';
 import { startMeshMigrationResumer } from './mesh-migration';
+import { startMeshPeopleReconcile } from './mesh-people-reconcile';
 import { startSystemImageMirror } from './system-image-mirror';
 import { startTrivyDbRefresh } from './trivy-db-refresh';
 import { startPlatformUpgradeWorker } from './platform-upgrade';
@@ -73,6 +74,7 @@ export function startWorkers(): () => void {
     startNotificationDispatch(),
     startExposureAudit(),
     startMeshMigrationResumer(),
+    startMeshPeopleReconcile(),
     startSystemImageMirror(),
     startTrivyDbRefresh(),
     startPlatformUpgradeWorker(),

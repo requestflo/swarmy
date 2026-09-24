@@ -90,6 +90,12 @@ RUN set -eu; mkdir -p /out; \
       "DB-IP \"IP to Country Lite\" (edition $(cat /out/EDITION)), CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)." > /out/NOTICE; \
   else echo "no DB-IP edition reachable ($months) - analytics countries will read Unknown"; fi
 
+# ── Stage 1d: Litestream for control.db replication (resilience P3) ─────────
+# controller-store/litestream.ts runs `litestream replicate` as a supervised
+# child while this controller holds the raft lease, and boot.ts runs
+# `litestream restore` before the DB opens. A static Go binary (multi-arch).
+FROM litestream/litestream:0.5.17 AS litestream
+
 # ── Stage 2: the controller runtime ─────────────────────────────────────────
 FROM oven/bun:1.3-alpine
 WORKDIR /app
@@ -99,6 +105,7 @@ RUN apk add --no-cache ca-certificates
 COPY --from=restic /usr/bin/restic /usr/local/bin/restic
 # GeoIP for web analytics countries (may be empty: see the geoip stage).
 COPY --from=geoip /out/ /usr/share/swarmy/geoip/
+COPY --from=litestream /usr/local/bin/litestream /usr/local/bin/litestream
 
 # Workspace manifests first for a cached install.
 COPY package.json bun.lock ./
@@ -135,6 +142,10 @@ ENV SWARMY_CLI_BIN_DIR=/app/cli-binaries
 # Bake the build commit so `GET /version` reports it.
 ARG SWARMY_COMMIT=dev
 ENV SWARMY_COMMIT=${SWARMY_COMMIT}
+# The platform release version (CI: X.Y.Z on a tag, <next patch>-edge.<run> on
+# main). Empty = package.json's. Platform upgrades compare it with the feed.
+ARG SWARMY_VERSION=
+ENV SWARMY_VERSION=${SWARMY_VERSION}
 
 ENV NODE_ENV=production PORT=3001
 # Return freed allocator pages to the OS immediately instead of after mimalloc's

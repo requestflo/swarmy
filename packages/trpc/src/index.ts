@@ -179,6 +179,8 @@ export type { RegistryProvider, RegistryTestResult, RegistryTestStatus } from '.
 // ── data-store P1: controller-state backup/restore seams ──
 export { isBackupDue, runControllerBackup } from './services/controllerBackup.service';
 export { restoreBundle } from './services/controllerBackup.bundle';
+export { setControllerStoreRuntime } from './services/controllerStore.service';
+export type { ControllerStoreRuntime, ControllerStoreRuntimeStatus } from './services/controllerStore.service';
 export { loadControlPlane, installSnapshotFile } from './services/controllerBackup.snapshot';
 
 // ── node-onboarding P2: swarm init/join orchestration (gateway register seam) ──
@@ -289,6 +291,7 @@ export {
   cacheSentinelSpec,
 } from './services/cache.service';
 export type { CacheClusterDecl } from './services/cache.service';
+export { sampleQueueClusters, type SampledCluster } from './services/queue-studio.service';
 export { runDueDbBackups } from './services/dbBackup.service';
 export {
   list as listClusterVolumes,
@@ -353,6 +356,8 @@ export type { AdmissionIntent, Violation } from './services/admission.service';
 export { summarizeStack, summarizeService } from './services/health-summary';
 export type { HealthSummary } from './services/health-summary';
 export { fireEvent } from './services/alerts-fire';
+// Error tracking (Sentry-compatible ingest, artifacts, spike sweep).
+export * from './services/errors';
 export { ensureDefaultRules } from './services/alerts.service';
 export { runNodeHygieneAllOrgs } from './services/node-hygiene.service';
 export type { FireEventInput } from './services/alerts-fire';
@@ -360,6 +365,8 @@ export { recordIncidentEvent } from './services/incidents-record';
 export { sendNotification } from './services/notifications-send';
 export { garageMajorOf, toGarageRequest, LEGACY_GARAGE_IMAGE, type GarageMajor } from './services/garage-admin';
 export { resumeEngineUpgrade, readEngineUpgradeRun } from './services/engine-upgrade.service';
+export { resumePlatformUpgrades, startPlatformUpgrade } from './services/platform-upgrade.service';
+export { platformTick } from './services/platform-tick';
 
 // ── swarm-kv: class-(b) infra config stored in the swarm (plans/epic-docker-native-state.md P4) ──
 export {
@@ -380,6 +387,9 @@ export {
 export { reachableOrgIds } from './services/kv-repo';
 export { ingressConfigRepo, ingressEnabledOrgIds } from './services/ingress-config.repo';
 export { meshConfigRepo } from './services/mesh-config.repo';
+export { reconcileMeshControl, getControlPlaneCard, managedOf, renderControlSpec } from './services/mesh-control.service';
+export type { ManagedControlPlane } from './services/mesh-control.service';
+export { reconcilePeopleAccess, computePeopleIntent, liveStacks } from './services/mesh-people.service';
 export { observabilityConfigRepo } from './services/observability-config.repo';
 export { geoDnsConfigRepo, dnsZoneRepo } from './services/geodns.repo';
 export { storageClusterRepo, bucketAccessRepo } from './services/storage-cluster.repo';
@@ -391,6 +401,10 @@ export {
   controllerBackupConfigRepo,
 } from './services/backups.repo';
 export { stacks, registryConfigs, imageGcPolicies, canvasLayouts } from './services/apps.repo';
+
+// Protect my app (identity-aware proxy) + end-user auth users (dev-platform §2).
+export * from './services/app-access.service';
+export { appJwks, signAppJwt } from './services/app-access-tokens';
 
 // ── email service (epic developer-platform §8) ──
 export {
