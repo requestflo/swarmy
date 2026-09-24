@@ -11,7 +11,11 @@ import { PlanDrawer } from './plan-drawer';
 export function AppsCard(): React.JSX.Element {
   const trpc = useTRPC();
   const apps = useQuery({ ...trpc.apps.list.queryOptions(), refetchInterval: 10_000 });
-  const [open, setOpen] = React.useState<{ planId: string; configPath: string } | null>(null);
+  const [open, setOpen] = React.useState<{
+    planId: string;
+    configPath: string;
+    promotedFrom?: string;
+  } | null>(null);
 
   return (
     <Card className="card-pop mb-6 overflow-hidden border-0">
@@ -50,7 +54,9 @@ export function AppsCard(): React.JSX.Element {
               <AppRow
                 key={a.repoId}
                 app={a}
-                onOpenPlan={(planId, configPath) => setOpen({ planId, configPath })}
+                onOpenPlan={(planId, configPath, promotedFrom) =>
+                  setOpen({ planId, configPath, promotedFrom })
+                }
               />
             ))}
           </div>
@@ -59,6 +65,7 @@ export function AppsCard(): React.JSX.Element {
       <PlanDrawer
         planId={open?.planId ?? null}
         configPath={open?.configPath}
+        promotedFrom={open?.promotedFrom}
         onClose={() => setOpen(null)}
       />
     </Card>

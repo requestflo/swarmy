@@ -1,21 +1,25 @@
 import * as React from 'react';
-import type { GitApp } from './gitops-types';
+import { canPromote, type GitApp } from './gitops-types';
 import { AppDeployButton } from './app-deploy-button';
 import { AppDriftBadge } from './app-drift-badge';
 import { AppEnvChip } from './app-env-chip';
+import { AppKeptVolumes } from './app-kept-volumes';
 import { AppNeedsYou } from './app-needs-you';
+import { AppPreviewDataNotes } from './app-preview-data-notes';
 import { AppPreviewsChip } from './app-previews-chip';
 import { AppSource } from './app-source';
 import { AppSwitches } from './app-switches';
+import { PromoteDialog } from './promote-dialog';
 
 interface AppRowProps {
   app: GitApp;
-  onOpenPlan: (planId: string, configPath: string) => void;
+  /** Open a plan; `promotedFrom` when it came from a promote. */
+  onOpenPlan: (planId: string, configPath: string, promotedFrom?: string) => void;
 }
 
 /** One app from Git: its source, the environment strip (production · staging · previews), and its knobs. */
 export function AppRow({ app, onOpenPlan }: AppRowProps): React.JSX.Element {
-  const open = (planId: string): void => onOpenPlan(planId, app.configPath);
+  const open = (planId: string, from?: string): void => onOpenPlan(planId, app.configPath, from);
   return (
     <div className="space-y-3 px-6 py-5">
       <div className="flex flex-wrap items-start gap-3">
@@ -32,10 +36,15 @@ export function AppRow({ app, onOpenPlan }: AppRowProps): React.JSX.Element {
       <AppNeedsYou environments={app.environments} onOpen={open} />
       <div className="flex flex-wrap gap-2">
         {app.environments.map((e) => (
-          <AppEnvChip key={e.environment} env={e} onOpen={open} />
+          <div key={e.environment} className="flex min-w-44 flex-1 flex-col gap-2">
+            <AppEnvChip env={e} onOpen={open} />
+            {canPromote(e) ? <PromoteDialog repoId={app.repoId} env={e} onPlan={open} /> : null}
+          </div>
         ))}
         <AppPreviewsChip previews={app.previews} onOpen={open} />
       </div>
+      <AppPreviewDataNotes previews={app.previews} />
+      <AppKeptVolumes repoId={app.repoId} environments={app.environments} />
     </div>
   );
 }

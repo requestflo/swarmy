@@ -21,7 +21,7 @@ interface PurgeDataDialogProps {
   stack: string;
   resource: string;
   /** The data is gone — the caller stops offering this. */
-  onPurged: () => void;
+  onPurged?: () => void;
 }
 
 /** Delete a removed Postgres's kept volume for good — only after typing `<stack>/<resource>`. */
@@ -44,7 +44,7 @@ export function PurgeDataDialog({
           `Deleted ${r.resource}'s data from ${r.nodes} server${r.nodes === 1 ? '' : 's'}.`,
         );
         setOpen(false);
-        onPurged();
+        onPurged?.();
         void qc.invalidateQueries({ queryKey: trpc.apps.pathKey() });
       },
       // FORBIDDEN / "still declared" / "still running" come back in plain words.

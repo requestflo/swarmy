@@ -60,3 +60,9 @@ export function destroysWhat(a: {
       return a.reason;
   }
 }
+
+/** `ghcr.io/x/web@sha256:abcd1234…` → `sha256:abcd1234…`. */
+export function shortDigest(ref: string): string {
+  const d = ref.includes('@') ? ref.slice(ref.indexOf('@') + 1) : ref;
+  return d.startsWith('sha256:') ? `${d.slice(0, 19)}…` : d;
+}

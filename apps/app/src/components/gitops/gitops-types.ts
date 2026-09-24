@@ -64,9 +64,15 @@ export interface AppEnvironment {
   branch: string;
   stack: string;
   latest: AppPlan | null;
+  /** Removed Postgres clusters whose data is still on disk — the only source for "Delete data permanently". */
+  keptVolumes: Array<{ resource: string; volumes: string[] }>;
 }
 
 export interface AppPreview {
+  /** A branch preview's branch (absent for PR previews). */
+  branch?: string;
+  /** Previews with data: a copy of `from`'s latest backup, optionally scrubbed; destroyed with the preview. */
+  data?: { from: string; scrub?: string };
   pr: number;
   stack: string;
   sha: string;
@@ -112,21 +118,7 @@ export function heldActions(plan: AppPlan): PlanActionView[] {
   );
 }
 
-/** Removed Postgres resources on this plan whose volume can now be deleted for good. */
-export function purgeablePostgres(plan: AppPlan): string[] {
-  if (plan.prNumber) return [];
-  return (plan.plan?.actions ?? [])
-    .filter(
-      (a) =>
-        a.kind === 'resource.delete' &&
-        a.resourceType === 'postgres' &&
-        a.name &&
-        plan.outcomes[a.id]?.status === 'done',
-    )
-    .map((a) => a.name as string);
-}
-
-/** The git app (and its environment or PR preview) that owns a stack, if any. */
+/** The git app (and its environment or preview) that owns a stack, if any. */
 export type StackAppMatch =
   | { app: GitApp; kind: 'env'; env: AppEnvironment }
   | { app: GitApp; kind: 'preview'; preview: AppPreview };
@@ -139,4 +131,23 @@ export function findStackApp(apps: GitApp[], stack: string): StackAppMatch | nul
     if (preview) return { app, kind: 'preview', preview };
   }
   return null;
+}
+
+/** "PR #142" or "branch feature/login". */
+export const previewLabel = (p: AppPreview): string =>
+  p.branch ? `branch ${p.branch}` : `PR #${p.pr}`;
+
+/** The persistent data note for a preview that carries a copy of real data. */
+export function previewDataNote(p: AppPreview): string | null {
+  if (!p.data) return null;
+  const scrub = p.data.scrub ? `, scrubbed by ${p.data.scrub}` : '';
+  return `Data: a copy of ${p.data.from}’s latest backup${scrub} — destroyed with this preview`;
+}
+
+/** A named environment (not production, not a preview) with something applied can be promoted. */
+export function canPromote(env: AppEnvironment): boolean {
+  return (
+    env.environment !== 'production' &&
+    (env.latest?.status === 'applied' || env.latest?.status === 'needs-confirmation')
+  );
 }

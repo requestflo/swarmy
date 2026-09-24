@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { StatusBadge } from '@swarmy/ui';
-import type { AppPreview } from './gitops-types';
+import { previewLabel, type AppPreview } from './gitops-types';
 import { planStatus } from './plan-status';
 
 interface AppPreviewsChipProps {
@@ -8,7 +8,7 @@ interface AppPreviewsChipProps {
   onOpen: (planId: string) => void;
 }
 
-/** The previews slot of the strip: how many PRs have a live preview, and the newest one's state. */
+/** The previews slot of the strip: how many PRs and branches have a live preview, and the newest one's state. */
 export function AppPreviewsChip({
   previews,
   onOpen,
@@ -25,7 +25,7 @@ export function AppPreviewsChip({
         <span className="font-medium">
           {previews.length} preview{previews.length === 1 ? '' : 's'}
         </span>
-        <span className="text-muted-foreground mono-label">#{newest.pr}</span>
+        <span className="text-muted-foreground mono-label">{previewLabel(newest)}</span>
       </span>
       <StatusBadge {...planStatus(newest.status)} />
     </button>

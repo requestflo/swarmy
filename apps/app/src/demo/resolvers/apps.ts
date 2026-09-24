@@ -9,7 +9,8 @@ import type { DemoStore, DomainResolvers } from '../types';
  * Seed: `storefront` (matches the demo stack, so its Releases tab shows the
  * From Git panel) with production applied — including a removed Postgres
  * `analytics` whose volume can be purged — staging holding
- * `resource.delete:search` for a confirm, and a PR preview; and `payments`
+ * `resource.delete:search` for a confirm, a PR preview, and a branch preview
+ * (feature/login) with a scrubbed copy of production's data; and `payments`
  * (a monorepo path, Fix drift on) whose latest production plan is an invalid
  * swarmy.yaml.
  *
@@ -33,6 +34,9 @@ interface Action {
 }
 
 interface PlanRow {
+  /** Branch previews: the branch, and a data copy when previews.data is on. */
+  previewBranch?: string;
+  previewData?: { from: string; scrub?: string };
   id: string;
   repoId: string;
   environment: string;
@@ -68,7 +72,7 @@ interface AppRow {
   requireApproval: boolean;
   enforceDrift: boolean;
   /** Postgres removed from swarmy.yaml whose volume is still on disk (purgeData). */
-  keptVolumes: string[];
+  keptVolumes: Record<string, Array<{ resource: string; volumes: string[] }>>;
   /** Extra environment branches (staging, …) → environment name. */
   envBranches: Record<string, string>;
   drift: Record<string, number>;
@@ -165,7 +169,18 @@ function buildSeed(): AppsState {
         appName: 'storefront',
         requireApproval: false,
         enforceDrift: false,
-        keptVolumes: ['analytics'],
+        keptVolumes: {
+          production: [
+            {
+              resource: 'analytics',
+              volumes: [
+                'storefront_analytics-data',
+                'storefront_analytics-replica',
+                'storefront_analytics-wal',
+              ],
+            },
+          ],
+        },
         envBranches: { staging: 'staging' },
         drift: { production: 1 },
         driftCheckedAt: iso(6 * MIN),
@@ -179,7 +194,7 @@ function buildSeed(): AppsState {
         appName: 'payments',
         requireApproval: true,
         enforceDrift: true,
-        keptVolumes: [],
+        keptVolumes: {},
         envBranches: {},
         drift: {},
         driftCheckedAt: iso(4 * MIN),
@@ -270,6 +285,44 @@ function buildSeed(): AppsState {
         createdAt: iso(50 * MIN),
         appliedAt: iso(47 * MIN),
       }),
+      {
+        ...plan({
+          id: 'plan-storefront-branch-login',
+          repoId: 'app-storefront',
+          environment: 'preview',
+          stack: 'br-feature-login-storefront',
+          sha: hex(40),
+          trigger: 'push',
+          prNumber: 90412,
+          status: 'applied',
+          actions: [
+            STOREFRONT_ROLLOUT[0] as Action,
+            {
+              id: 'resource.create:db',
+              kind: 'resource.create',
+              phase: 1,
+              gate: 'auto',
+              reason:
+                'create postgres "db" — a COPY of production\'s latest backup, scrubbed by db/scrub.sql; destroyed with the preview',
+              name: 'db',
+              resourceType: 'postgres',
+            },
+            STOREFRONT_ROLLOUT[1] as Action,
+          ],
+          issues: [],
+          outcomes: {
+            'build:web': { status: 'done' },
+            'resource.create:db': { status: 'done', message: 'restored 2.1 GB, scrub ran clean' },
+            'service.deploy:web': { status: 'done' },
+          },
+          error: null,
+          confirmedIds: [],
+          createdAt: iso(30 * MIN),
+          appliedAt: iso(24 * MIN),
+        }),
+        previewBranch: 'feature/login',
+        previewData: { from: 'production', scrub: 'db/scrub.sql' },
+      },
       plan({
         id: 'plan-payments-prod',
         repoId: 'app-payments',
@@ -364,11 +417,15 @@ export const apps: DomainResolvers = {
           enforceDrift: a.enforceDrift,
           previews: newest(st.plans.filter((p) => p.repoId === a.repoId && p.prNumber)).map(
             (p) => ({
+              ...(p.previewBranch ? { branch: p.previewBranch } : {}),
+              ...(p.previewData ? { data: p.previewData } : {}),
               pr: p.prNumber as number,
               stack: p.stack,
               sha: p.sha,
               status: p.status,
-              url: `https://pr-${p.prNumber}.preview.northwind.dev`,
+              url: p.previewBranch
+                ? `https://${p.previewBranch.replace(/\//g, '-')}.preview.northwind.dev`
+                : `https://pr-${p.prNumber}.preview.northwind.dev`,
               updatedAt: p.appliedAt ?? p.createdAt,
               planId: p.id,
             }),
@@ -380,12 +437,14 @@ export const apps: DomainResolvers = {
               branch: a.branch,
               stack: a.appName,
               latest: latestFor(st, a.repoId, 'production'),
+              keptVolumes: a.keptVolumes['production'] ?? [],
             },
             ...Object.entries(a.envBranches).map(([env, branch]) => ({
               environment: env,
               branch,
               stack: `${a.appName}-${env}`,
               latest: latestFor(st, a.repoId, env),
+              keptVolumes: a.keptVolumes[env] ?? [],
             })),
           ],
         })),
@@ -485,9 +544,9 @@ export const apps: DomainResolvers = {
     'apps.drift': (i, s) => {
       const { repoId } = i as { repoId: string };
       const app = state(s).apps.find((a) => a.repoId === repoId);
-      if (!app) return [];
+      if (!app) return { checkedAt: new Date().toISOString(), environments: [] };
       app.driftCheckedAt = new Date().toISOString();
-      return driftEnvs(app);
+      return { checkedAt: app.driftCheckedAt, environments: driftEnvs(app) };
     },
 
     'apps.setEnforceDrift': (i, s) => {
@@ -513,10 +572,65 @@ export const apps: DomainResolvers = {
       if (!app || !row) throw new Error('That app environment is gone.');
       const expected = `${row.stack}/${resource}`;
       if (confirm !== expected) throw new Error(`type ${expected} to delete its data permanently`);
-      if (!app.keptVolumes.includes(resource))
-        throw new Error(`${resource} has no kept data to delete`);
-      app.keptVolumes = app.keptVolumes.filter((v) => v !== resource);
-      return { stack: row.stack, resource, volumes: [`${row.stack}_${resource}-data`], nodes: 2 };
+      const kept = (app.keptVolumes[environment] ?? []).find((k) => k.resource === resource);
+      if (!kept) throw new Error(`${resource} has no kept data to delete`);
+      app.keptVolumes[environment] = (app.keptVolumes[environment] ?? []).filter((k) => k !== kept);
+      return { stack: row.stack, resource, volumes: kept.volumes, nodes: 2 };
+    },
+
+    'apps.promote': (i, s) => {
+      const { repoId, from } = i as { repoId: string; from: string };
+      const st = state(s);
+      const app = st.apps.find((a) => a.repoId === repoId);
+      if (!app) throw new Error('That app is gone.');
+      if (from === 'production')
+        throw new Error('promote FROM a named environment (e.g. staging) to production');
+      const src = latestFor(st, repoId, from);
+      if (!src || !['applied', 'needs-confirmation'].includes(src.status))
+        throw new Error(`${from} has nothing applied to promote yet`);
+      const services = (src.plan?.actions ?? []).filter(
+        (a) => a.kind === 'service.deploy' && a.name,
+      );
+      const images = Object.fromEntries(
+        services.map((a) => [
+          a.name as string,
+          `ghcr.io/northwind/${app.appName}-${a.name}@sha256:${hex(64)}`,
+        ]),
+      );
+      const actions: Action[] = services.map((a) => ({
+        id: `service.deploy:${a.name}`,
+        kind: 'service.deploy',
+        phase: 4,
+        gate: 'auto',
+        reason: `Roll out ${a.name} with ${from}'s image (no rebuild)`,
+        name: a.name,
+      }));
+      const next = plan({
+        id: `plan-${Math.random().toString(36).slice(2, 10)}`,
+        repoId,
+        environment: 'production',
+        stack: app.appName,
+        sha: src.sha,
+        trigger: 'promote',
+        prNumber: null,
+        status: 'applied',
+        actions,
+        issues: [],
+        outcomes: Object.fromEntries(actions.map((a) => [a.id, { status: 'done' as const }])),
+        error: null,
+        confirmedIds: [],
+        createdAt: new Date().toISOString(),
+        appliedAt: new Date().toISOString(),
+      });
+      st.plans.push(next);
+      return {
+        planId: next.id,
+        status: next.status,
+        environment: 'production',
+        stack: next.stack,
+        plan: clone(next),
+        images,
+      };
     },
   },
 };

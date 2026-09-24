@@ -9,6 +9,8 @@ import { envLabel, sha7 } from './plan-status';
 interface PlanDrawerProps {
   planId: string | null;
   configPath?: string;
+  /** Source environment when this plan came from a promote (the plan row doesn't carry it). */
+  promotedFrom?: string;
   onClose: () => void;
 }
 
@@ -22,7 +24,12 @@ const TRIGGER: Record<string, string> = {
 };
 
 /** One plan, step by step: what runs on its own, what waits for you, what's blocked. */
-export function PlanDrawer({ planId, configPath, onClose }: PlanDrawerProps): React.JSX.Element {
+export function PlanDrawer({
+  planId,
+  configPath,
+  promotedFrom,
+  onClose,
+}: PlanDrawerProps): React.JSX.Element {
   const trpc = useTRPC();
   const plan = useQuery({
     ...trpc.apps.plan.queryOptions({ planId: planId ?? '' }),
@@ -39,8 +46,10 @@ export function PlanDrawer({ planId, configPath, onClose }: PlanDrawerProps): Re
           <SheetDescription>
             {p ? (
               <span className="mono-data">
-                {sha7(p.sha)} · from {TRIGGER[p.trigger] ?? p.trigger}
-                {p.prNumber ? ` #${p.prNumber}` : ''}
+                {sha7(p.sha)} ·{' '}
+                {p.trigger === 'promote'
+                  ? `Promoted from ${promotedFrom ? envLabel(promotedFrom).toLowerCase() : 'another environment'}`
+                  : `from ${TRIGGER[p.trigger] ?? p.trigger}${p.prNumber && p.trigger === 'pr' ? ` #${p.prNumber}` : ''}`}
               </span>
             ) : null}
           </SheetDescription>

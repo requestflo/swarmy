@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCwIcon } from 'lucide-react';
 import { Badge, Button, cn } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
@@ -22,17 +22,26 @@ const ago = (iso: string): string => {
 /** "Drifted · N" when live no longer matches the last applied commit, plus an explicit "Check now". */
 export function AppDriftBadge({ repoId, drift, stack }: AppDriftBadgeProps): React.JSX.Element {
   const trpc = useTRPC();
+  const qc = useQueryClient();
   // Only runs when asked — the badge reads the worker's cached result.
   const check = useQuery({
     ...trpc.apps.drift.queryOptions({ repoId }),
     enabled: false,
     retry: false,
   });
-  const envs: DriftEnv[] = (check.data ?? drift?.environments ?? []).filter(
+  // Whichever check is newer: the worker's cached one or a "Check now" from here.
+  const latest: AppDrift | null =
+    check.data && (!drift || check.data.checkedAt >= drift.checkedAt) ? check.data : drift;
+  const envs: DriftEnv[] = (latest?.environments ?? []).filter(
     (d) => d.changes > 0 && (!stack || d.stack === stack),
   );
   const total = envs.reduce((n, d) => n + d.changes, 0);
-  const checked = check.dataUpdatedAt ? 'just now' : drift ? ago(drift.checkedAt) : null;
+  const checked = latest ? ago(latest.checkedAt) : null;
+  const checkNow = async (): Promise<void> => {
+    await check.refetch();
+    // The check also refreshed the cached AppView.drift.
+    void qc.invalidateQueries({ queryKey: trpc.apps.list.queryKey() });
+  };
 
   return (
     <span className="inline-flex items-center gap-1">
@@ -57,7 +66,7 @@ export function AppDriftBadge({ repoId, drift, stack }: AppDriftBadgeProps): Rea
         className="text-muted-foreground h-6 px-2 text-xs font-normal"
         title={checked ? `Checked ${checked}` : 'Never checked'}
         disabled={check.isFetching}
-        onClick={() => void check.refetch()}
+        onClick={() => void checkNow()}
       >
         <RefreshCwIcon className={cn('size-3', check.isFetching && 'animate-spin')} /> Check now
       </Button>
