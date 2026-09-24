@@ -24,6 +24,8 @@ import {
 import { useTRPC } from '@/integrations/trpc';
 import { enabledTone, type SsoProviderEntry } from './access-shared';
 import { SsoProviderFields } from './sso-provider-fields';
+import { SsoProvisioningFields } from './sso-provisioning-fields';
+import { useSsoProvisioning } from './use-sso-provisioning';
 
 interface SsoProviderRowProps {
   provider: SsoProviderEntry;
@@ -40,6 +42,7 @@ export function SsoProviderRow({ provider: p, expanded, onToggle }: SsoProviderR
   const [discoveryUrl, setDiscoveryUrl] = React.useState((p.metadata?.discoveryUrl as string) ?? '');
   const [clientId, setClientId] = React.useState(p.clientId ?? '');
   const [clientSecret, setClientSecret] = React.useState('');
+  const provisioning = useSsoProvisioning(p);
 
   const upsert = useMutation(
     trpc.sso.upsert.mutationOptions({
@@ -100,6 +103,7 @@ export function SsoProviderRow({ provider: p, expanded, onToggle }: SsoProviderR
                 onClientSecretChange={setClientSecret}
               />
             </div>
+            {p.protocol === 'oidc' && <SsoProvisioningFields value={provisioning.value} onChange={provisioning.set} />}
             <div className="grid gap-1.5">
               <Label className="mono-label">Callback URL (paste into IdP)</Label>
               <div className="flex items-center gap-2">
@@ -113,7 +117,8 @@ export function SsoProviderRow({ provider: p, expanded, onToggle }: SsoProviderR
               <Button
                 size="sm"
                 disabled={upsert.isPending}
-                onClick={() =>
+                onClick={() => {
+                  const patch = provisioning.toPatch();
                   upsert.mutate({
                     id: p.id,
                     providerId: p.providerId,
@@ -122,9 +127,11 @@ export function SsoProviderRow({ provider: p, expanded, onToggle }: SsoProviderR
                     issuer: issuer || null,
                     clientId: clientId || null,
                     clientSecret: clientSecret || undefined,
-                    metadata: discoveryUrl ? { discoveryUrl } : {},
-                  })
-                }
+                    // Merge: keep endpoints/scopes the form doesn't show.
+                    metadata: { ...p.metadata, ...patch.metadata, ...(discoveryUrl ? { discoveryUrl } : {}) },
+                    mapping: patch.mapping,
+                  });
+                }}
               >
                 {upsert.isPending ? 'Saving…' : 'Save changes'}
               </Button>

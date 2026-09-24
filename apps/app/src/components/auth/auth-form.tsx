@@ -9,16 +9,21 @@ interface AuthFormProps {
   onSubmit: (fields: AuthFields) => Promise<void>;
 }
 
-/** Email + password form for both sign-in and sign-up (sign-up adds a name). */
+/**
+ * Password sign-in / sign-up. Email is optional on swarmy: sign-in takes a
+ * username or an email; sign-up asks for a username and an optional email.
+ */
 export function AuthForm({ mode, busy, onSubmit }: AuthFormProps): React.JSX.Element {
   const [name, setName] = React.useState('');
+  const [login, setLogin] = React.useState('');
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
+  const signup = mode === 'signup';
 
   async function submit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
     try {
-      await onSubmit({ name, email, password });
+      await onSubmit({ name, login: login.trim(), email: email.trim(), password });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'authentication failed');
     }
@@ -26,21 +31,39 @@ export function AuthForm({ mode, busy, onSubmit }: AuthFormProps): React.JSX.Ele
 
   return (
     <form onSubmit={submit} className="grid gap-4">
-      {mode === 'signup' && (
+      {signup && (
         <div className="grid gap-2">
           <Label htmlFor="name" className="mono-label">Name</Label>
           <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
         </div>
       )}
       <div className="grid gap-2">
-        <Label htmlFor="email" className="mono-label">Email</Label>
-        <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <Label htmlFor="login" className="mono-label">{signup ? 'Username' : 'Username or email'}</Label>
+        <Input
+          id="login"
+          autoComplete="username"
+          autoCapitalize="none"
+          value={login}
+          onChange={(e) => setLogin(e.target.value)}
+          pattern={signup ? '[A-Za-z0-9_.]{2,40}' : undefined}
+          title={signup ? '2–40 letters, digits, dots or underscores' : undefined}
+          required
+        />
       </div>
+      {signup && (
+        <div className="grid gap-2">
+          <Label htmlFor="email" className="mono-label">
+            Email <span className="text-muted-foreground font-normal normal-case">(optional)</span>
+          </Label>
+          <Input id="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </div>
+      )}
       <div className="grid gap-2">
         <Label htmlFor="password" className="mono-label">Password</Label>
         <Input
           id="password"
           type="password"
+          autoComplete={signup ? 'new-password' : 'current-password'}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required

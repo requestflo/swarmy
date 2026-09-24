@@ -25,9 +25,9 @@ export function PendingInvitations(): React.JSX.Element | null {
       onSuccess: async (res) => {
         try {
           await navigator.clipboard.writeText(res.link);
-          toast.success(`Fresh link for ${res.email} copied — expires ${absTime(res.expiresAt)}`);
+          toast.success(`Fresh link${res.email ? ` for ${res.email}` : ''} copied — expires ${absTime(res.expiresAt)}`);
         } catch {
-          toast.success(`Fresh link ready for ${res.email} — copy it from the list`);
+          toast.success(`Fresh link${res.email ? ` for ${res.email}` : ''} ready — copy it from the list`);
         }
         void qc.invalidateQueries();
       },
@@ -55,7 +55,7 @@ export function PendingInvitations(): React.JSX.Element | null {
                 className="hover:bg-accent/50 flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-4 transition-colors"
               >
                 <div className="min-w-[12rem] flex-1">
-                  <p className="truncate font-medium">{inv.email}</p>
+                  <p className="truncate font-medium">{inv.email ?? 'Invite link (no email)'}</p>
                   <p className="text-muted-foreground text-xs">
                     Invited {relTime(inv.createdAt)}
                     {inv.invitedBy?.name ? ` by ${inv.invitedBy.name}` : ''} ·{' '}

@@ -37,3 +37,6 @@ export const authClient = createAuthClient({
 });
 
 export const { signIn, signUp, signOut, useSession, organization } = authClient;
+
+// Pure identity helpers the dashboard needs (no server code).
+export { usernamePlaceholderEmail, isPlaceholderEmail, displayEmail, INVITE_COOKIE } from './identity';

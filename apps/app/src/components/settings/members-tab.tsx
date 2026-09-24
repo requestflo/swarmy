@@ -53,7 +53,7 @@ export function MembersTab(): React.JSX.Element {
               >
                 <div className="min-w-[12rem] flex-1">
                   <p className="truncate font-medium">{m.user.name}</p>
-                  <p className="text-muted-foreground truncate text-sm">{m.user.email}</p>
+                  <p className="text-muted-foreground truncate text-sm">{m.user.email ?? (m.user.username ? `@${m.user.username}` : 'no email')}</p>
                 </div>
                 <Badge variant="muted">{m.role}</Badge>
                 <p className="mono-data text-muted-foreground ml-auto text-xs">{relTime(m.joinedAt)}</p>

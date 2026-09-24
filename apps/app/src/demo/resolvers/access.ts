@@ -88,6 +88,8 @@ interface ProviderListEntry {
   clientId: string | null;
   hasSecret: boolean;
   scopes: string[];
+  settings: Record<string, string>;
+  label: string;
   callbackUrl: string;
 }
 
@@ -121,7 +123,8 @@ interface PolicyView {
 /** The free-form bag this module owns under `store.extra.access`. */
 interface InvitationView {
   id: string;
-  email: string;
+  email: string | null;
+  kind: 'link' | 'email';
   role: 'owner' | 'admin' | 'member';
   status: 'pending' | 'expired';
   expiresAt: string;
@@ -144,7 +147,8 @@ interface AccessState {
 // ── Constants mirrored from the services ──────────────────────────────────────
 
 
-const SOCIAL_PROVIDERS = ['github', 'google'] as const;
+const SOCIAL_PROVIDERS = ['microsoft', 'google', 'github', 'gitlab'] as const;
+const SOCIAL_LABELS: Record<string, string> = { microsoft: 'Microsoft', google: 'Google', github: 'GitHub', gitlab: 'GitLab' };
 const AUTH_METHODS = ['passkey', 'magic_link'] as const;
 
 /** Demo controller origin used for callback/login URLs in the UI. */
@@ -224,6 +228,7 @@ function seedInvitations(store: DemoStore): InvitationView[] {
     {
       id: 'inv-demo-1',
       email: 'priya@northwind.dev',
+      kind: 'email',
       role: 'member',
       status: 'pending',
       expiresAt: new Date(now + 40 * HOUR).toISOString(),
@@ -234,6 +239,7 @@ function seedInvitations(store: DemoStore): InvitationView[] {
     {
       id: 'inv-demo-0',
       email: 'sam@northwind.dev',
+      kind: 'email',
       role: 'admin',
       status: 'expired',
       expiresAt: iso(2 * DAY),
@@ -244,11 +250,12 @@ function seedInvitations(store: DemoStore): InvitationView[] {
   ];
 }
 
-function mintInvitation(store: DemoStore, email: string, role: InvitationView['role']): InvitationView {
+function mintInvitation(store: DemoStore, email: string | null, role: InvitationView['role']): InvitationView {
   const id = `inv-${rid()}`;
   const view: InvitationView = {
     id,
     email,
+    kind: email ? 'email' : 'link',
     role,
     status: 'pending',
     expiresAt: new Date(Date.now() + 48 * HOUR).toISOString(),
@@ -393,10 +400,12 @@ function seedOAuthClients(): OAuthClientView[] {
 
 function seedProviders(): ProviderListEntry[] {
   const social: ProviderListEntry[] = SOCIAL_PROVIDERS.map((type) => {
-    const configured = type === 'github';
+    const configured = type === 'github' || type === 'microsoft';
     return {
       type,
       kind: 'social',
+      label: SOCIAL_LABELS[type] ?? type,
+      settings: (type === 'microsoft' ? { tenantId: 'northwind.onmicrosoft.com' } : {}) as Record<string, string>,
       enabled: configured,
       clientId: configured ? `Iv1.${hex(16)}` : null,
       hasSecret: configured,
@@ -408,9 +417,11 @@ function seedProviders(): ProviderListEntry[] {
     type,
     kind: 'method',
     enabled: type === 'passkey',
+    label: type === 'passkey' ? 'Passkeys' : 'Magic link',
     clientId: null,
     hasSecret: false,
     scopes: [],
+    settings: {},
     callbackUrl: '',
   }));
   return [...social, ...methods];
@@ -631,8 +642,9 @@ export const access: DomainResolvers = {
     'members.listInvitations': (_i, store): InvitationView[] => state(store).invitations,
 
     'members.invite': (input, store): InvitationView => {
-      const { email, role } = input as { email: string; role: InvitationView['role'] };
-      const normalized = email.trim().toLowerCase();
+      const { email, role } = input as { email?: string | null; role: InvitationView['role'] };
+      const normalized = (email ?? '').trim().toLowerCase();
+      if (!normalized) return mintInvitation(store, null, role);
       const s = state(store);
       if (s.members.some((m) => m.user.email?.toLowerCase() === normalized)) {
         throw new Error(`${normalized} is already a member of this org`);
@@ -736,7 +748,24 @@ export const access: DomainResolvers = {
 
     // ── authConfig (sign-in providers) ─────────────────────────────────────────
     'authConfig.listProviders': (_i, store): ProviderListEntry[] => state(store).providers,
-    'authConfig.publicConfig': (): { signupMode: 'open' | 'invite-only' } => ({ signupMode: 'open' }),
+    'authConfig.publicConfig': (_i, store) => ({
+      signupMode: 'open' as const,
+      signIn: [
+        ...state(store).sso.filter((p) => p.enabled && p.protocol === 'oidc').map((p) => ({
+          kind: 'sso' as const,
+          id: p.providerId,
+          label: typeof p.metadata.displayName === 'string' ? p.metadata.displayName : p.providerId,
+        })),
+        ...state(store).providers
+          .filter((p) => p.kind === 'social' && p.enabled && p.hasSecret)
+          .map((p) => ({ kind: 'social' as const, id: p.type, label: p.label })),
+      ],
+    }),
+    'authConfig.invitePreview': (input, store) => {
+      const inv = state(store).invitations.find((i) => i.id === (input as { id: string }).id);
+      return inv ? { orgName: store.org.name, role: inv.role, email: inv.email, expired: inv.status === 'expired' } : null;
+    },
+    'authConfig.acceptInvite': (_i, store) => ({ orgId: store.org.id }),
 
     'authConfig.setProvider': (input, store): ProviderListEntry => {
       const args = input as {
@@ -745,6 +774,7 @@ export const access: DomainResolvers = {
         clientId?: string;
         clientSecret?: string;
         scopes?: string[];
+        settings?: Record<string, string>;
       };
       const s = state(store);
       const p = s.providers.find((x) => x.type === args.type);
@@ -754,6 +784,7 @@ export const access: DomainResolvers = {
       if (social && args.clientId !== undefined) p.clientId = args.clientId;
       if (social && args.clientSecret) p.hasSecret = true;
       if (social && args.scopes !== undefined) p.scopes = args.scopes;
+      if (social && args.settings) p.settings = Object.fromEntries(Object.entries(args.settings).filter(([, v]) => v));
       return p;
     },
 

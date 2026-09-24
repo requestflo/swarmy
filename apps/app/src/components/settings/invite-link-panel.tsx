@@ -4,7 +4,8 @@ import { Alert, AlertDescription, AlertTitle, CopyButton } from '@swarmy/ui';
 import { absTime } from '@/lib/format';
 
 export interface IssuedInvite {
-  email: string;
+  /** null for a link-only invite. */
+  email: string | null;
   role: string;
   link: string;
   expiresAt: string | Date;
@@ -18,11 +19,13 @@ export function InviteLinkPanel({ invite }: { invite: IssuedInvite }): React.JSX
   return (
     <Alert className="ink-block border-0">
       <LinkIcon className="size-4" />
-      <AlertTitle className="font-bold">Send this link to {invite.email}.</AlertTitle>
+      <AlertTitle className="font-bold">
+        {invite.email ? `Send this link to ${invite.email}.` : 'Send this link to the person you are inviting.'}
+      </AlertTitle>
       <AlertDescription className="text-ink-foreground/70">
         <p className="text-xs">
           It works once and expires <span className="mono-data">{absTime(invite.expiresAt)}</span>. They open it,
-          create their account (or sign in), and land in this org as{' '}
+          sign in with SSO, a social account or a new username, and land in this org as{' '}
           <span className="font-semibold">{invite.role}</span>.
         </p>
         <div className="mt-3 flex flex-wrap items-center gap-2">

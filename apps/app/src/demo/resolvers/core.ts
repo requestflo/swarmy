@@ -19,7 +19,7 @@ const demoAutolock = { keyStored: false };
 export const core: DomainResolvers = {
   handlers: {
     'org.currentOrg': (_i, s) => ({ id: s.org.id, name: s.org.name, slug: s.org.slug, role: s.org.role }),
-    'org.whoami': (_i, s) => ({ id: s.user.id, name: s.user.name, email: s.user.email }),
+    'org.whoami': (_i, s) => ({ id: s.user.id, name: s.user.name, email: s.user.email, username: null }),
 
     'system.dashboardSummary': (_i, s) => {
       const online = s.nodes.filter((n) => n.status === 'online').length;

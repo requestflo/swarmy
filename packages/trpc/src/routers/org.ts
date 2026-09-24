@@ -1,10 +1,13 @@
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
+import { displayEmail } from '@swarmy/auth';
 import { protectedProcedure, publicProcedure, router } from '../trpc';
 
 export interface WhoAmI {
   userId: string;
-  email: string;
+  /** null when the account has no email (username / IdP without one). */
+  email: string | null;
+  username: string | null;
   name: string | null;
   image: string | null;
   activeOrgId: string | null;
@@ -22,7 +25,8 @@ export const orgRouter = router({
     if (!ctx.user) return null;
     return {
       userId: ctx.user.id,
-      email: ctx.user.email,
+      email: displayEmail(ctx.user.email),
+      username: (ctx.user as { username?: string | null }).username ?? null,
       name: ctx.user.name ?? null,
       image: ctx.user.image ?? null,
       activeOrgId: ctx.activeOrgId,
@@ -61,12 +65,12 @@ export const orgRouter = router({
     if (!ctx.activeOrgId) return [];
     const members = await ctx.db.member.findMany({
       where: { organizationId: ctx.activeOrgId },
-      include: { user: { select: { id: true, name: true, email: true, image: true } } },
+      include: { user: { select: { id: true, name: true, email: true, image: true, username: true } } },
     });
     return members.map((m) => ({
       id: m.id,
       role: m.role,
-      user: m.user,
+      user: { ...m.user, email: displayEmail(m.user.email) },
       joinedAt: m.createdAt.toISOString(),
     }));
   }),

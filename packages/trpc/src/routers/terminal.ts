@@ -3,7 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { router, orgProcedure, adminProcedure } from '../trpc';
 import { notFound } from '../errors';
 import { writeAudit } from '../services/audit.service';
-import { abacProcedure, type ResolveResource } from '../abac';
+import { abacProcedure, resolveService, type ResolveResource } from '../abac';
 import type { OrgContext } from '../context';
 import {
   getTerminalPolicy,
@@ -47,20 +47,15 @@ import { resolveExecTarget, resolveLiveService } from '../services/live-resolve'
  * land on, else the org's manager); node labels still load from the DB so attribute
  * policies keep working.
  */
-const resolveServiceNode: ResolveResource = async (ctx, input) => {
+/**
+ * Container exec is governed on the SERVICE (its Docker labels, so its
+ * environment): "members of sre can open terminals on staging apps" is a
+ * plain policy. Node shells stay governed on the node.
+ */
+const resolveExecService: ResolveResource = (ctx, input) => {
   const serviceId = (input as { serviceId?: string })?.serviceId;
   if (!serviceId) return null;
-  const exec = resolveExecTarget(ctx, serviceId);
-  const nodeId = exec?.nodeId ?? ctx.hub.managerNode(ctx.activeOrgId);
-  if (!nodeId) return null;
-  // Node identity stays in the DB; swarm labels are Docker truth (hub).
-  const node = await ctx.db.node.findFirst({
-    where: { id: nodeId, orgId: ctx.activeOrgId },
-    select: { id: true, orgId: true },
-  });
-  if (!node) return null;
-  const labels = ctx.hub.nodeInfoFor(node.id)?.labels ?? {};
-  return { type: 'node', id: node.id, orgId: node.orgId, labels };
+  return resolveService(ctx, { id: serviceId });
 };
 
 /** Resolve a Node from `{ nodeId }` for node-shell. */
@@ -105,7 +100,7 @@ function tryKillSession(ctx: OrgContext, sessionId: string): void {
 
 export const terminalRouter = router({
   /** Container exec: open a shell in the service's container. ABAC-gated. */
-  open: abacProcedure('terminal.open', resolveServiceNode)
+  open: abacProcedure('terminal.open', resolveExecService)
     .input(z.object({ serviceId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const policy = await getTerminalPolicy(ctx.db, ctx.activeOrgId);

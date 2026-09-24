@@ -1,20 +1,7 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { GithubIcon, KeyRoundIcon, MailIcon, ShieldCheckIcon, ShieldIcon } from 'lucide-react';
-import {
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CopyButton,
-  EmptyState,
-  Input,
-  Label,
-  StatusBadge,
-  Switch,
-  toast,
-} from '@swarmy/ui';
+import { KeyRoundIcon, MailIcon, ShieldIcon } from 'lucide-react';
+import { Button, Card, CardContent, CardHeader, CardTitle, EmptyState, StatusBadge, Switch, toast } from '@swarmy/ui';
 import { authClient } from '@swarmy/auth/client';
 import { useTRPC } from '@/integrations/trpc';
 import {
@@ -22,8 +9,13 @@ import {
   enabledTone,
   type ProviderEntry,
 } from '@/components/access/access-shared';
+import { SocialProviderCard } from './social-provider-card';
 
-/** Sign-in tab: social providers (OAuth) + passwordless methods. */
+/**
+ * Sign-in tab: social providers (Microsoft, Google, GitHub, GitLab) + passwordless
+ * methods. Generic OIDC (Keycloak, Authentik, Zitadel…) lives on the SSO tab.
+ * Username + password is always on.
+ */
 export function ProvidersTab(): React.JSX.Element {
   const trpc = useTRPC();
   const providers = useQuery(trpc.authConfig.listProviders.queryOptions());
@@ -44,7 +36,7 @@ export function ProvidersTab(): React.JSX.Element {
     <div className="grid gap-6">
       <div className="grid gap-4 sm:grid-cols-2">
         {social.map((p) => (
-          <ProviderCard key={p.type} provider={p as ProviderEntry} />
+          <SocialProviderCard key={p.type} provider={p as ProviderEntry} />
         ))}
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -53,90 +45,6 @@ export function ProvidersTab(): React.JSX.Element {
         ))}
       </div>
     </div>
-  );
-}
-
-function ProviderCard({ provider }: { provider: ProviderEntry }): React.JSX.Element {
-  const trpc = useTRPC();
-  const qc = useQueryClient();
-  const [clientId, setClientId] = React.useState(provider.clientId ?? '');
-  const [clientSecret, setClientSecret] = React.useState('');
-
-  const save = useMutation(
-    trpc.authConfig.setProvider.mutationOptions({
-      onSuccess: () => {
-        setClientSecret('');
-        toast.success(`${PROVIDER_LABELS[provider.type] ?? provider.type} updated`);
-        void qc.invalidateQueries();
-      },
-      onError: (e) => toast.error(e.message),
-    }),
-  );
-
-  return (
-    <Card className="card-pop border-0">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <div className="flex items-center gap-2.5">
-          {provider.type === 'github' ? (
-            <GithubIcon className="size-5" />
-          ) : (
-            <ShieldCheckIcon className="size-5" />
-          )}
-          <CardTitle className="text-base">
-            {PROVIDER_LABELS[provider.type] ?? provider.type}
-          </CardTitle>
-          <StatusBadge
-            tone={enabledTone(provider.enabled)}
-            label={provider.enabled ? 'on' : 'off'}
-          />
-        </div>
-        <Switch
-          checked={provider.enabled}
-          onCheckedChange={(enabled) => save.mutate({ type: provider.type, enabled })}
-          disabled={save.isPending}
-        />
-      </CardHeader>
-      <CardContent className="grid gap-4 text-sm">
-        <div className="grid gap-1.5">
-          <Label className="mono-label">Callback URL</Label>
-          <div className="flex items-center gap-2">
-            <code className="bg-muted mono-data flex-1 overflow-x-auto rounded-lg px-3 py-2 text-xs">
-              {provider.callbackUrl}
-            </code>
-            <CopyButton value={provider.callbackUrl} label="Copy" />
-          </div>
-        </div>
-        <div className="grid gap-1.5">
-          <Label className="mono-label">Client ID</Label>
-          <Input value={clientId} onChange={(e) => setClientId(e.target.value)} />
-        </div>
-        <div className="grid gap-1.5">
-          <Label className="mono-label">
-            Client secret{' '}
-            {provider.hasSecret && <span className="text-status-online">• set</span>}
-          </Label>
-          <Input
-            type="password"
-            value={clientSecret}
-            placeholder={provider.hasSecret ? '•••••••• (leave blank to keep)' : 'paste secret'}
-            onChange={(e) => setClientSecret(e.target.value)}
-          />
-        </div>
-        <Button
-          className="w-fit"
-          onClick={() =>
-            save.mutate({
-              type: provider.type,
-              clientId,
-              clientSecret: clientSecret || undefined,
-            })
-          }
-          disabled={save.isPending}
-        >
-          Save
-        </Button>
-      </CardContent>
-    </Card>
   );
 }
 

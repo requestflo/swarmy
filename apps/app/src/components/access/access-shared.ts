@@ -2,7 +2,9 @@ import type { StatusTone } from '@swarmy/ui';
 
 /** Human labels for the built-in sign-in providers/methods. */
 export const PROVIDER_LABELS: Record<string, string> = {
+  microsoft: 'Microsoft',
   github: 'GitHub',
+  gitlab: 'GitLab',
   google: 'Google',
   passkey: 'Passkeys',
   magic_link: 'Magic link',
@@ -15,6 +17,7 @@ export interface ProviderEntry {
   clientId: string | null;
   hasSecret: boolean;
   scopes: string[];
+  settings?: Record<string, string>;
   callbackUrl: string;
 }
 
@@ -36,7 +39,7 @@ export interface SsoProviderEntry {
 export interface MemberEntry {
   id: string;
   role: string;
-  user: { id: string; name: string | null; email: string | null };
+  user: { id: string; name: string | null; email: string | null; username?: string | null };
   attributes: Record<string, unknown>;
 }
 

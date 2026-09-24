@@ -46,7 +46,7 @@ export function InviteMemberDialog({ callerRole }: { callerRole: InviteRole }): 
     trpc.members.invite.mutationOptions({
       onSuccess: (res) => {
         setIssued({ email: res.email, role: res.role, link: res.link, expiresAt: res.expiresAt });
-        toast.success(`Invite link ready for ${res.email}`);
+        toast.success(res.email ? `Invite link ready for ${res.email}` : 'Invite link ready');
         void qc.invalidateQueries();
       },
       onError: (e) => toast.error(e.message),
@@ -63,10 +63,10 @@ export function InviteMemberDialog({ callerRole }: { callerRole: InviteRole }): 
   function submit(e: React.FormEvent): void {
     e.preventDefault();
     const trimmed = email.trim();
-    if (!trimmed) return setEmailError('Email is required.');
-    if (!EMAIL_RE.test(trimmed)) return setEmailError('That does not look like an email address.');
+    // Email is optional: without one the link alone admits whoever opens it.
+    if (trimmed && !EMAIL_RE.test(trimmed)) return setEmailError('That does not look like an email address.');
     setEmailError(null);
-    invite.mutate({ email: trimmed, role });
+    invite.mutate({ email: trimmed || null, role });
   }
 
   return (
@@ -106,7 +106,7 @@ export function InviteMemberDialog({ callerRole }: { callerRole: InviteRole }): 
           <form onSubmit={submit} className="grid gap-4" noValidate>
             <div className="grid gap-1.5">
               <Label htmlFor="invite-email" className="mono-label">
-                Email
+                Email <span className="text-muted-foreground font-normal normal-case">(optional)</span>
               </Label>
               <Input
                 id="invite-email"
@@ -120,6 +120,9 @@ export function InviteMemberDialog({ callerRole }: { callerRole: InviteRole }): 
                 }}
                 placeholder="teammate@example.com"
               />
+              <p className="text-muted-foreground text-xs">
+                Leave blank for a plain link. They can join with SSO, a social account or a username.
+              </p>
               {emailError && <p className="text-status-offline text-xs font-medium">{emailError}</p>}
             </div>
             <div className="grid gap-1.5">

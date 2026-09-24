@@ -3,10 +3,15 @@ import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
 import { Card, CardContent, toast } from '@swarmy/ui';
 import { AuthForm } from '@/components/auth/auth-form';
+import { InviteBanner } from '@/components/auth/invite-banner';
+import { setInviteCookie } from '@/components/auth/invite-cookie';
 import { InviteOnlyNotice } from '@/components/auth/invite-only-notice';
+import { OrDivider, SignInOptions } from '@/components/auth/sign-in-options';
+import { isOAuthAuthorizeFlow, resumeAuthorize, useOAuthResume } from '@/components/auth/use-oauth-resume';
 import { LoginTwoFactorStep } from '@/components/auth/login-two-factor-step';
 import { type AuthFields, type AuthMode, useAuthSubmit } from '@/components/auth/use-auth-submit';
 import { Wordmark } from '@/components/wordmark';
+import { useSession } from '@swarmy/auth/client';
 import { useTRPC } from '@/integrations/trpc';
 
 interface LoginSearch {
@@ -40,6 +45,15 @@ function LoginPage(): React.JSX.Element {
   const config = useQuery(trpc.authConfig.publicConfig.queryOptions());
   // Until the mode is known, assume invite-only so the sign-up link never flashes.
   const signupOpen = invite !== undefined || config.data?.signupMode === 'open';
+  const session = useSession();
+  useOAuthResume(Boolean(session.data));
+  // Park the invite so an SSO/social round-trip (which leaves the page) still redeems it.
+  React.useEffect(() => {
+    if (invite) setInviteCookie(invite);
+  }, [invite]);
+  // SSO/social come back to the page they started from; the server hook has
+  // already redeemed any invite by then.
+  const callbackURL = returnTo ?? (isOAuthAuthorizeFlow() ? `/login${window.location.search}` : '/');
 
   async function land(): Promise<void> {
     if (returnTo) router.history.push(returnTo);
@@ -48,7 +62,9 @@ function LoginPage(): React.JSX.Element {
 
   async function onSubmit(fields: AuthFields): Promise<void> {
     try {
-      if ((await submit(mode, fields)) === 'two-factor') {
+      const result = await submit(mode, fields);
+      if (result === 'redirect') return;
+      if (result === 'two-factor') {
         setChallenge(true);
         return;
       }
@@ -76,7 +92,7 @@ function LoginPage(): React.JSX.Element {
           </h1>
           <p className="text-muted-foreground mt-3 text-sm">
             {mode === 'signin'
-              ? 'Sign in to your swarmy controller.'
+              ? 'Sign in with your organisation account, or a username.'
               : invite
                 ? 'Create your account to join the team that invited you.'
                 : 'Set up your account and first team. Anyone can just deploy.'}
@@ -85,9 +101,17 @@ function LoginPage(): React.JSX.Element {
 
         <Card className="card-pop border-0">
           <CardContent className="pt-6">
+            {invite && !challenge && <InviteBanner inviteId={invite} />}
+            {!challenge && (config.data?.signIn.length ?? 0) > 0 && (
+              <>
+                <SignInOptions options={config.data?.signIn ?? []} callbackURL={callbackURL} />
+                <OrDivider />
+              </>
+            )}
             {challenge ? (
               <LoginTwoFactorStep
                 onVerified={async () => {
+                  if (isOAuthAuthorizeFlow()) return resumeAuthorize();
                   await finish('signin');
                   await land();
                 }}
