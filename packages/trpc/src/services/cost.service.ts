@@ -14,6 +14,7 @@ import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { overview as bucketsOverview } from './buckets.service';
+import { count as countClusterVolumes } from './clusterVolume.service';
 
 /**
  * Cost & capacity (slice F1) — what the estate costs and where it's wasted.
@@ -495,11 +496,12 @@ export async function setNodeCost(
 // ── Storage + recommendations queries ─────────────────────────────────────────
 
 /** Garage usage (via the A4 buckets service — it already degrades gracefully
- *  when the store is disabled/unreachable) + registered cluster-volume count. */
+ *  when the store is disabled/unreachable) + the live cluster-volume count
+ *  (read from a manager, 0 when none answers). */
 export async function storage(ctx: OrgContext): Promise<CostStorageView> {
   const [garage, volumeCount] = await Promise.all([
     bucketsOverview(ctx).catch(() => null),
-    ctx.db.clusterVolume.count({ where: { orgId: ctx.activeOrgId } }).catch(() => 0),
+    countClusterVolumes(ctx),
   ]);
   const buckets = garage?.buckets ?? [];
   return {

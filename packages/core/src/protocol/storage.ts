@@ -160,3 +160,39 @@ export const ProvisionVolumeResult = z.object({
   created: z.boolean(),
 });
 export type ProvisionVolumeResult = z.infer<typeof ProvisionVolumeResult>;
+
+// ── listVolumes (derive cluster volumes from Docker, never a table) ──────────
+
+/**
+ * List volumes on the node (`docker volume ls`, with `cluster: true` only the
+ * Swarm CSI cluster volumes — a manager-only view). Docker is the source of
+ * truth for which cluster volumes exist; swarmy stores none of them.
+ */
+export const ListVolumesPayload = z.object({ ...cmd, cluster: z.boolean().default(false) });
+export type ListVolumesPayload = z.infer<typeof ListVolumesPayload>;
+export const ListVolumesMsg = z.object({
+  type: z.literal('listVolumes'),
+  payload: ListVolumesPayload,
+});
+export type ListVolumesMsg = z.infer<typeof ListVolumesMsg>;
+
+export const VolumeInfo = z.object({
+  name: z.string(),
+  driver: z.string(),
+  /** Set for Swarm CSI cluster volumes. */
+  cluster: z
+    .object({
+      id: z.string().optional(),
+      accessMode: VolumeAccessMode.optional(),
+      /** Docker's cluster-volume availability/publish state, lower-cased. */
+      state: z.string().optional(),
+      capacityBytes: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
+  labels: z.record(z.string()).default({}),
+  createdAt: z.string().optional(),
+});
+export type VolumeInfo = z.infer<typeof VolumeInfo>;
+
+export const ListVolumesResult = z.object({ volumes: z.array(VolumeInfo) });
+export type ListVolumesResult = z.infer<typeof ListVolumesResult>;

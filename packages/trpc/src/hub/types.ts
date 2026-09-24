@@ -40,6 +40,7 @@ export type CommandName =
   | 'storage.apply' // volumes-dr P2: bring up a Garage member
   | 'volume.provision' // volumes-dr P3: create a local/CSI cluster volume
   | 'volume.remove'
+  | 'volume.list' // derive volumes (e.g. CSI cluster volumes) from Docker, never a table
   | 'image.prune'
   | 'node.hygiene' // disk hygiene: prune stopped one-shots, unused images, build cache
   | 'mesh.grantDirectRoute'
@@ -94,6 +95,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'storage.apply': 'applyStorageNode',
   'volume.provision': 'provisionVolume',
   'volume.remove': 'removeVolume',
+  'volume.list': 'listVolumes',
   'image.prune': 'pruneImages',
   'node.hygiene': 'nodeHygiene',
   'mesh.grantDirectRoute': 'grantDirectRoute',

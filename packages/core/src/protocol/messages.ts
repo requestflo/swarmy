@@ -27,7 +27,7 @@ import { ApplyDnsMsg } from './dns';
 import { BuildImageMsg } from './build';
 import { PruneImagesMsg } from './prune';
 import { NodeHygieneMsg } from './hygiene';
-import { ApplyStorageNodeMsg, ProvisionVolumeMsg, RemoveVolumeMsg } from './storage';
+import { ApplyStorageNodeMsg, ListVolumesMsg, ProvisionVolumeMsg, RemoveVolumeMsg } from './storage';
 import { SwarmJoinMsg, SwarmRotateTokensMsg, SwarmSetAutolockMsg } from './swarm';
 import { BackupVolumeMsg, RestoreVolumeMsg, ListSnapshotsMsg } from './backup';
 import { DbBackupMsg, DbRestoreMsg } from './dbBackup';
@@ -105,6 +105,7 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   ApplyStorageNodeMsg,
   ProvisionVolumeMsg,
   RemoveVolumeMsg,
+  ListVolumesMsg,
   SwarmJoinMsg,
   SwarmSetAutolockMsg,
   SwarmRotateTokensMsg,

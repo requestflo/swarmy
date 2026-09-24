@@ -278,3 +278,65 @@ export async function removeVolume(
   await docker.docker.getVolume(p.name).remove({ force: true } as unknown as undefined).catch(() => undefined);
   return { name: p.name, removed: true };
 }
+
+/** Docker's volume-list entry, narrowed to what `listVolumes` reads. */
+interface DockerVolumeLike {
+  Name: string;
+  Driver: string;
+  Labels?: Record<string, string> | null;
+  CreatedAt?: string;
+  ClusterVolume?: {
+    ID?: string;
+    Spec?: {
+      AccessMode?: { Scope?: string; Sharing?: string };
+      CapacityRange?: { RequiredBytes?: number };
+    };
+    PublishStatus?: Array<{ State?: string }>;
+    Info?: { CapacityBytes?: number };
+  };
+}
+
+function accessModeOf(m?: { Scope?: string; Sharing?: string }): VolumeAccessMode | undefined {
+  if (!m) return undefined;
+  if (m.Scope === 'multi') return m.Sharing === 'readonly' ? 'multi-reader' : 'multi-writer';
+  return 'single-writer';
+}
+
+/**
+ * List volumes (`docker volume ls`). With `cluster: true` only Swarm CSI
+ * cluster volumes (`docker volume ls --cluster`, manager-only). The controller
+ * derives its cluster-volume view from this; it stores none of it.
+ */
+export async function listVolumes(
+  docker: DockerClient,
+  p: { cluster?: boolean },
+): Promise<{ volumes: Array<Record<string, unknown>> }> {
+  // On a manager (API >= 1.42) cluster volumes come back in the same list,
+  // carrying a `ClusterVolume` object; there is no server-side filter for it.
+  const res = (await docker.docker.listVolumes()) as { Volumes?: DockerVolumeLike[] | null };
+  const all = res.Volumes ?? [];
+  const picked = p.cluster ? all.filter((v) => v.ClusterVolume) : all;
+  return {
+    volumes: picked.map((v) => {
+      const cv = v.ClusterVolume;
+      return {
+        name: v.Name,
+        driver: v.Driver,
+        labels: v.Labels ?? {},
+        ...(v.CreatedAt ? { createdAt: v.CreatedAt } : {}),
+        ...(cv
+          ? {
+              cluster: {
+                ...(cv.ID ? { id: cv.ID } : {}),
+                ...(accessModeOf(cv.Spec?.AccessMode) ? { accessMode: accessModeOf(cv.Spec?.AccessMode) } : {}),
+                ...(cv.PublishStatus?.[0]?.State ? { state: cv.PublishStatus[0].State.toLowerCase() } : {}),
+                ...((cv.Info?.CapacityBytes ?? cv.Spec?.CapacityRange?.RequiredBytes)
+                  ? { capacityBytes: cv.Info?.CapacityBytes ?? cv.Spec?.CapacityRange?.RequiredBytes }
+                  : {}),
+              },
+            }
+          : {}),
+      };
+    }),
+  };
+}

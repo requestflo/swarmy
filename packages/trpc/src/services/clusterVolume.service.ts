@@ -6,9 +6,12 @@
  * then republishes the volume when a service reschedules, giving live failover.
  * restic backups still layer on top (availability ≠ recoverability).
  *
- * One `ClusterVolume` row per org/name. `provisionVolume`/`removeVolume` ride
- * the existing command/result plumbing.
+ * Docker is the source of truth (epic-docker-native-state P1): the list is
+ * `docker volume ls` on a manager (`volume.list`, cluster volumes only), never
+ * a table. A volume's id in this API is its name (unique per swarm).
+ * `provisionVolume`/`removeVolume` ride the existing command/result plumbing.
  */
+import type { ListVolumesResult, VolumeInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
@@ -16,7 +19,7 @@ import { requireOnlineNode, resolveManagerNode } from './dispatch.service';
 
 export type VolumeAccessMode = 'single-writer' | 'multi-writer' | 'multi-reader';
 
-/** Structural copies of the new core protocol/storage shapes (see INTEGRATION). */
+/** Structural copies of the core protocol/storage shapes. */
 interface VolumeSpec {
   name: string;
   mode: 'local' | 'cluster';
@@ -32,76 +35,66 @@ interface ProvisionVolumeResult {
 }
 
 export interface ClusterVolumeView {
+  /** The volume name (cluster volume names are unique per swarm). */
   id: string;
   name: string;
   csiDriver: string;
   accessMode: VolumeAccessMode;
   capacityBytes: string | null;
+  /** Docker's publish state, upper-cased (e.g. READY, PENDING_PUBLISH); READY when unreported. */
   status: string;
   serviceId: string | null;
   createdAt: string;
 }
 
-interface VolumeRow {
-  id: string;
-  orgId: string;
-  name: string;
-  csiDriver: string;
-  accessMode: string;
-  capacityBytes: bigint | null;
-  options: unknown;
-  status: string;
-  serviceId: string | null;
-  createdAt: Date;
-}
+/** A listing is a local read on the manager: fail fast (an older agent never answers). */
+const LIST_TIMEOUT_MS = 10_000;
 
-// `clusterVolume` is added to the Prisma schema as part of this epic (see
-// INTEGRATION). Loose handle keeps typecheck green before client regen.
-function db(ctx: OrgContext): {
-  findMany(args: unknown): Promise<VolumeRow[]>;
-  findFirst(args: unknown): Promise<VolumeRow | null>;
-  create(args: unknown): Promise<VolumeRow>;
-  update(args: unknown): Promise<VolumeRow>;
-  delete(args: unknown): Promise<VolumeRow>;
-} {
-  return (ctx.db as unknown as { clusterVolume: ReturnType<typeof db> }).clusterVolume;
-}
-
-function toView(row: VolumeRow): ClusterVolumeView {
+function toView(v: VolumeInfo): ClusterVolumeView {
   return {
-    id: row.id,
-    name: row.name,
-    csiDriver: row.csiDriver,
-    accessMode: row.accessMode as VolumeAccessMode,
-    capacityBytes: row.capacityBytes != null ? row.capacityBytes.toString() : null,
-    status: row.status,
-    serviceId: row.serviceId,
-    createdAt: row.createdAt.toISOString(),
+    id: v.name,
+    name: v.name,
+    csiDriver: v.driver,
+    accessMode: v.cluster?.accessMode ?? 'single-writer',
+    capacityBytes: v.cluster?.capacityBytes != null ? String(v.cluster.capacityBytes) : null,
+    status: (v.cluster?.state ?? 'ready').toUpperCase().replace(/[^A-Z]+/g, '_'),
+    serviceId: null,
+    createdAt: v.createdAt ?? '',
   };
 }
 
-function toSpec(row: VolumeRow): VolumeSpec {
-  return {
-    name: row.name,
-    mode: 'cluster',
-    csiDriver: row.csiDriver,
-    accessMode: row.accessMode as VolumeAccessMode,
-    capacityBytes: row.capacityBytes != null ? Number(row.capacityBytes) : undefined,
-    options: (row.options ?? {}) as Record<string, string>,
-  };
-}
-
-/** Mount entry to splice into a ServiceSpec for a registered cluster volume. */
+/** Mount entry to splice into a ServiceSpec for a cluster volume. */
 export function clusterMount(name: string, target: string, readOnly = false) {
   return { type: 'volume' as const, source: name, target, readOnly };
 }
 
+/** Live cluster volumes, read from a manager. Throws when no manager answers. */
+async function liveClusterVolumes(ctx: OrgContext): Promise<VolumeInfo[]> {
+  const node = await resolveManagerNode(ctx);
+  try {
+    const res = await ctx.hub.dispatch<ListVolumesResult>(
+      node.id,
+      'volume.list',
+      { cluster: true },
+      { timeoutMs: LIST_TIMEOUT_MS },
+    );
+    return (res.volumes ?? []).filter((v) => v.cluster);
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
+}
+
 export async function list(ctx: OrgContext): Promise<ClusterVolumeView[]> {
-  const rows = await db(ctx).findMany({
-    where: { orgId: ctx.activeOrgId },
-    orderBy: { createdAt: 'desc' },
-  });
-  return rows.map(toView);
+  const vols = await liveClusterVolumes(ctx);
+  return vols.map(toView).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** How many cluster volumes exist (0 when no manager answers). */
+export async function count(ctx: OrgContext): Promise<number> {
+  return liveClusterVolumes(ctx).then(
+    (v) => v.length,
+    () => 0,
+  );
 }
 
 export interface RegisterInput {
@@ -110,60 +103,64 @@ export interface RegisterInput {
   accessMode?: VolumeAccessMode;
   capacityBytes?: number;
   options?: Record<string, string>;
-  /** Optionally bind to a service (recorded for the deploy path). */
+  /** Accepted for API compatibility; the binding lives in the service's mount spec. */
   serviceId?: string;
 }
 
 /**
- * Register + provision a cluster volume. Cluster volumes work only with Swarm
- * services and require the CSI plugin on the manager nodes — we dispatch the
- * create to a manager.
+ * Provision a cluster volume. Cluster volumes work only with Swarm services
+ * and require the CSI plugin on the manager nodes — we dispatch the create to
+ * a manager. Nothing is recorded: the next list reads it back from Docker.
  */
 export async function register(ctx: OrgContext, input: RegisterInput): Promise<ClusterVolumeView> {
   if (!input.csiDriver.trim()) throw commandRejected('a CSI driver is required for cluster volumes');
-  const row = await db(ctx).create({
-    data: {
-      orgId: ctx.activeOrgId,
-      name: input.name,
-      csiDriver: input.csiDriver,
-      accessMode: input.accessMode ?? 'single-writer',
-      capacityBytes: input.capacityBytes != null ? BigInt(input.capacityBytes) : null,
-      options: input.options ?? {},
-      status: 'PROVISIONING',
-      serviceId: input.serviceId ?? null,
-    },
-  });
-
+  const accessMode = input.accessMode ?? 'single-writer';
+  const spec: VolumeSpec = {
+    name: input.name,
+    mode: 'cluster',
+    csiDriver: input.csiDriver,
+    accessMode,
+    capacityBytes: input.capacityBytes,
+    options: input.options ?? {},
+  };
   try {
     const node = await resolveManagerNode(ctx);
-    await ctx.hub.dispatch<ProvisionVolumeResult>(node.id, 'volume.provision', {
-      spec: toSpec(row),
-    });
-    const updated = await db(ctx).update({ where: { id: row.id }, data: { status: 'READY' } });
-    await writeAudit(ctx, {
-      action: 'volume.cluster.register',
-      targetType: 'clusterVolume',
-      targetId: row.id,
-      metadata: { name: input.name, csiDriver: input.csiDriver },
-    });
-    return toView(updated);
+    await ctx.hub.dispatch<ProvisionVolumeResult>(node.id, 'volume.provision', { spec });
   } catch (e) {
-    await db(ctx).update({ where: { id: row.id }, data: { status: 'FAILED' } });
     throw mapDispatchError(e);
   }
+  await writeAudit(ctx, {
+    action: 'volume.cluster.register',
+    targetType: 'clusterVolume',
+    targetId: input.name,
+    metadata: { name: input.name, csiDriver: input.csiDriver },
+  });
+  const live = await liveClusterVolumes(ctx).catch(() => [] as VolumeInfo[]);
+  const found = live.find((v) => v.name === input.name);
+  return found
+    ? toView(found)
+    : {
+        id: input.name,
+        name: input.name,
+        csiDriver: input.csiDriver,
+        accessMode,
+        capacityBytes: input.capacityBytes != null ? String(input.capacityBytes) : null,
+        status: 'PROVISIONING',
+        serviceId: null,
+        createdAt: new Date().toISOString(),
+      };
 }
 
 export async function deregister(ctx: OrgContext, id: string): Promise<{ id: string; removed: true }> {
-  const row = await db(ctx).findFirst({ where: { id, orgId: ctx.activeOrgId } });
-  if (!row) throw notFound('cluster volume', id);
-  const node = await resolveManagerNode(ctx).catch(() => null);
-  if (node) {
-    await requireOnlineNode(ctx, node.id).catch(() => null);
-    await ctx.hub
-      .dispatch(node.id, 'volume.remove', { name: row.name, cluster: true })
-      .catch(() => undefined);
+  const live = await liveClusterVolumes(ctx);
+  if (!live.some((v) => v.name === id)) throw notFound('cluster volume', id);
+  const node = await resolveManagerNode(ctx);
+  await requireOnlineNode(ctx, node.id);
+  try {
+    await ctx.hub.dispatch(node.id, 'volume.remove', { name: id, cluster: true });
+  } catch (e) {
+    throw mapDispatchError(e);
   }
-  await db(ctx).delete({ where: { id } });
   await writeAudit(ctx, {
     action: 'volume.cluster.deregister',
     targetType: 'clusterVolume',
