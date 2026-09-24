@@ -25,6 +25,7 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
 import {
+  observabilityConfigRepo,
   fireEvent,
   reapplyIngressForOrg,
   recordIncidentEvent,
@@ -64,18 +65,7 @@ interface RedRow {
 
 /** Per-OTel-service error rate over entry spans, or null when the store is off/unreachable. */
 async function orgErrorRates(orgId: string): Promise<Map<string, number> | null> {
-  // Cast mirrors `obsDb` in observability.service — the delegate exists once
-  // the spine's prisma client is generated.
-  const delegate = (
-    prisma as unknown as {
-      observabilityConfig: {
-        findUnique(args: {
-          where: { orgId: string };
-        }): Promise<{ enabled: boolean; clickhouseDsn: string | null } | null>;
-      };
-    }
-  ).observabilityConfig;
-  const row = await delegate.findUnique({ where: { orgId } }).catch(() => null);
+  const row = await observabilityConfigRepo.find({ db: prisma, hub }, orgId).catch(() => null);
   if (!row?.enabled || !row.clickhouseDsn) return null;
   let dsnPlain: string;
   try {

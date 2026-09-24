@@ -13,7 +13,7 @@
 // hosts that are not due, zero agent commands.
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { reconcileAutoAddressesForOrg, reconcileDomainChecksOrg } from '@swarmy/trpc';
+import { ingressEnabledOrgIds, reconcileAutoAddressesForOrg, reconcileDomainChecksOrg } from '@swarmy/trpc';
 import { hub } from '../gateway';
 
 const TICK_MS = 30_000;
@@ -25,10 +25,10 @@ export function startDomainVerify(): () => void {
     running = true;
     try {
       const deps = { db: prisma, hub, auth: authRegistry.getAuth() };
-      const orgs = await prisma.ingressConfig
-        .findMany({ where: { enabled: true }, select: { orgId: true } })
-        .catch(() => [] as { orgId: string }[]);
-      for (const { orgId } of orgs) {
+      // Ingress config lives in each org's swarm (swarm-kv): orgs whose manager
+      // isn't connected are skipped this tick.
+      const orgs = await ingressEnabledOrgIds({ db: prisma, hub }).catch(() => [] as string[]);
+      for (const orgId of orgs) {
         // One org's failure (DB blip, resolver outage) never stalls the rest.
         // Auto addresses first: a service's first deploy gets its sslip.io route
         // stamped (ingress-reconcile renders it); the checks then report its cert.

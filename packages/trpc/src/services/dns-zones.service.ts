@@ -10,11 +10,8 @@ import {
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
-import {
-  composeZone,
-  collectGeoEndpoints,
-  dnsDb,
-} from './dns-snapshot.service';
+import { composeZone, collectGeoEndpoints } from './dns-snapshot.service';
+import { dnsZoneRepo } from './geodns.repo';
 import { publicIpFromLabels } from './node.service';
 
 /**
@@ -107,10 +104,7 @@ function toView(
 }
 
 export async function listZones(ctx: OrgContext): Promise<DnsZoneView[]> {
-  const rows = await dnsDb(ctx).dnsZone.findMany({
-    where: { orgId: ctx.activeOrgId },
-    orderBy: { zone: 'asc' },
-  });
+  const rows = await dnsZoneRepo.list(ctx, ctx.activeOrgId);
   const views: DnsZoneView[] = [];
   for (const row of rows) {
     // Conflicts are compose-time knowledge; cheap enough per zone for the UI.
@@ -127,9 +121,7 @@ export async function createZone(
   const zone = input.zone.toLowerCase().replace(/\.+$/, '');
   if (!ZONE_RE.test(zone)) throw new Error(`invalid zone name: ${input.zone}`);
   const mode = input.mode && MODES.has(input.mode) ? input.mode : 'swarmy-ns';
-  const row = await dnsDb(ctx).dnsZone.create({
-    data: { orgId: ctx.activeOrgId, zone, mode },
-  });
+  const row = await dnsZoneRepo.create(ctx, ctx.activeOrgId, { zone, mode });
   await writeAudit(ctx, {
     action: 'dns.zone.create',
     targetType: 'dnsZone',
@@ -151,9 +143,7 @@ export async function updateZone(
     provider?: { zoneId?: string; tokenEnv?: string; region?: string };
   },
 ): Promise<DnsZoneView> {
-  const row = await dnsDb(ctx).dnsZone.findFirst({
-    where: { id, orgId: ctx.activeOrgId },
-  });
+  const row = await dnsZoneRepo.find(ctx, ctx.activeOrgId, id);
   if (!row) throw notFound('dnsZone', id);
   if (patch.mode && !MODES.has(patch.mode)) throw new Error(`invalid mode: ${patch.mode}`);
   if (patch.ttl !== undefined && (patch.ttl < 10 || patch.ttl > 120)) {
@@ -170,17 +160,15 @@ export async function updateZone(
           providerRegion: patch.provider.region,
         };
 
-  const updated = await dnsDb(ctx).dnsZone.update({
-    where: { id },
-    data: {
-      ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
-      ...(patch.mode !== undefined ? { mode: patch.mode } : {}),
-      ...(patch.ttl !== undefined ? { ttl: patch.ttl } : {}),
-      ...(patch.apexToEdge !== undefined ? { apexToEdge: patch.apexToEdge } : {}),
-      ...(patch.autoWww !== undefined ? { autoWww: patch.autoWww } : {}),
-      ...(settings !== undefined ? { settings } : {}),
-    },
+  const updated = await dnsZoneRepo.update(ctx, ctx.activeOrgId, id, {
+    ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+    ...(patch.mode !== undefined ? { mode: patch.mode } : {}),
+    ...(patch.ttl !== undefined ? { ttl: patch.ttl } : {}),
+    ...(patch.apexToEdge !== undefined ? { apexToEdge: patch.apexToEdge } : {}),
+    ...(patch.autoWww !== undefined ? { autoWww: patch.autoWww } : {}),
+    ...(settings !== undefined ? { settings } : {}),
   });
+  if (!updated) throw notFound('dnsZone', id);
   await writeAudit(ctx, {
     action: 'dns.zone.update',
     targetType: 'dnsZone',
@@ -191,9 +179,9 @@ export async function updateZone(
 }
 
 export async function removeZone(ctx: OrgContext, id: string): Promise<{ id: string }> {
-  const row = await dnsDb(ctx).dnsZone.findFirst({ where: { id, orgId: ctx.activeOrgId } });
+  const row = await dnsZoneRepo.find(ctx, ctx.activeOrgId, id);
   if (!row) throw notFound('dnsZone', id);
-  await dnsDb(ctx).dnsZone.delete({ where: { id } });
+  await dnsZoneRepo.remove(ctx, ctx.activeOrgId, id);
   await writeAudit(ctx, {
     action: 'dns.zone.remove',
     targetType: 'dnsZone',
@@ -213,7 +201,7 @@ export async function setAdvertisedNs(
   id: string,
   nodeIds: string[],
 ): Promise<DnsZoneView> {
-  const row = await dnsDb(ctx).dnsZone.findFirst({ where: { id, orgId: ctx.activeOrgId } });
+  const row = await dnsZoneRepo.find(ctx, ctx.activeOrgId, id);
   if (!row) throw notFound('dnsZone', id);
   if (nodeIds.length < 2 || nodeIds.length > 4) {
     throw new Error('pin between 2 and 4 nameserver nodes (registrars require ≥2)');
@@ -229,10 +217,8 @@ export async function setAdvertisedNs(
     }
   }
 
-  const updated = await dnsDb(ctx).dnsZone.update({
-    where: { id },
-    data: { advertisedNodeIds: nodeIds },
-  });
+  const updated = await dnsZoneRepo.update(ctx, ctx.activeOrgId, id, { advertisedNodeIds: nodeIds });
+  if (!updated) throw notFound('dnsZone', id);
   await writeAudit(ctx, {
     action: 'dns.zone.setAdvertisedNs',
     targetType: 'dnsZone',
@@ -282,7 +268,7 @@ async function querySoaSerial(ip: string, zone: string): Promise<number | null> 
 }
 
 export async function checkDelegation(ctx: OrgContext, id: string): Promise<DelegationCheck> {
-  const row = await dnsDb(ctx).dnsZone.findFirst({ where: { id, orgId: ctx.activeOrgId } });
+  const row = await dnsZoneRepo.find(ctx, ctx.activeOrgId, id);
   if (!row) throw notFound('dnsZone', id);
   const view = toView(ctx, row);
 
@@ -322,7 +308,7 @@ export async function checkDelegation(ctx: OrgContext, id: string): Promise<Dele
  * The domain-verify worker re-hosts existing auto addresses onto it.
  */
 export async function setZoneAutoAddresses(ctx: OrgContext, id: string, enabled: boolean): Promise<DnsZoneView> {
-  const row = await dnsDb(ctx).dnsZone.findFirst({ where: { id, orgId: ctx.activeOrgId } });
+  const row = await dnsZoneRepo.find(ctx, ctx.activeOrgId, id);
   if (!row) throw notFound('dnsZone', id);
   const base = typeof row.settings === 'object' && row.settings !== null ? (row.settings as Record<string, unknown>) : {};
   if (enabled) {
@@ -337,18 +323,18 @@ export async function setZoneAutoAddresses(ctx: OrgContext, id: string, enabled:
       );
     }
     // One auto-address zone per org: clear the flag elsewhere.
-    for (const other of await dnsDb(ctx).dnsZone.findMany({ where: { orgId: ctx.activeOrgId } })) {
+    for (const other of await dnsZoneRepo.list(ctx, ctx.activeOrgId)) {
       if (other.id !== id && isAutoAddressZone(other.settings)) {
         const { autoAddresses: _drop, ...rest } = other.settings as Record<string, unknown>;
-        await dnsDb(ctx).dnsZone.update({ where: { id: other.id }, data: { settings: rest } });
+        await dnsZoneRepo.update(ctx, ctx.activeOrgId, other.id, { settings: rest });
       }
     }
   }
   const { autoAddresses: _old, ...rest } = base;
-  const updated = await dnsDb(ctx).dnsZone.update({
-    where: { id },
-    data: { settings: enabled ? { ...rest, autoAddresses: true } : rest },
+  const updated = await dnsZoneRepo.update(ctx, ctx.activeOrgId, id, {
+    settings: enabled ? { ...rest, autoAddresses: true } : rest,
   });
+  if (!updated) throw notFound('dnsZone', id);
   await writeAudit(ctx, {
     action: 'dns.setZoneAutoAddresses',
     targetType: 'dnsZone',
@@ -379,7 +365,7 @@ export async function previewResolution(
   id: string,
   input: { host: string; region?: string },
 ): Promise<ResolutionPreview> {
-  const row = await dnsDb(ctx).dnsZone.findFirst({ where: { id, orgId: ctx.activeOrgId } });
+  const row = await dnsZoneRepo.find(ctx, ctx.activeOrgId, id);
   if (!row) throw notFound('dnsZone', id);
   const { snapshot } = await composeZone(ctx, row);
 

@@ -1,6 +1,6 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { ensureDefaultRules, fireEvent, latestStoreProbe, recordIncidentEvent, systemContext } from '@swarmy/trpc';
+import { ensureDefaultRules, fireEvent, latestStoreProbe, observabilityConfigRepo, recordIncidentEvent, systemContext } from '@swarmy/trpc';
 import type { OrgContext } from '@swarmy/trpc';
 import { ALERT_SIGNAL_INFO, type AlertSignal } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
@@ -539,7 +539,7 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
   );
 
   // store-unreachable + error-rate — observability store state / ClickHouse RED.
-  const obsConfig = await prisma.observabilityConfig.findUnique({ where: { orgId } });
+  const obsConfig = await observabilityConfigRepo.find({ db: prisma, hub }, orgId).catch(() => null);
   if (obsConfig?.enabled) {
     // The reconcile worker's latest live probe (in memory; null before its first tick).
     const state = latestStoreProbe(orgId);

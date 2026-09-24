@@ -21,6 +21,7 @@ import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { readRoutes } from './ingress-routes';
 import { liveService } from './service.service';
+import { ingressConfigRepo } from './ingress-config.repo';
 
 /**
  * Exposure (slice E3) — the public/private/managed audit of every service.
@@ -359,10 +360,7 @@ export function auditExposure(
 
 /** The org's ingress driver id (lowercased), for the tunnel drift check. */
 async function orgIngressDriver(ctx: OrgContext): Promise<string | null> {
-  const row = await ctx.db.ingressConfig.findUnique({
-    where: { orgId: ctx.activeOrgId },
-    select: { driver: true },
-  });
+  const row = await ingressConfigRepo.get(ctx, ctx.activeOrgId).catch(() => null);
   return row ? String(row.driver).toLowerCase() : null;
 }
 

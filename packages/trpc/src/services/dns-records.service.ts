@@ -2,7 +2,7 @@ import { DnsRecordType } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
-import { dnsDb } from './dns-snapshot.service';
+import { dnsZoneRepo } from './geodns.repo';
 
 /**
  * Manual static records — the non-web zone content swarmy must answer once it
@@ -24,14 +24,9 @@ export interface DnsRecordView {
 const NAME_RE = /^(@|\*|(\*\.)?[a-z0-9_]([a-z0-9_.-]{0,61}[a-z0-9_])?)$/i;
 
 export async function listRecords(ctx: OrgContext, zoneId: string): Promise<DnsRecordView[]> {
-  const zone = await dnsDb(ctx).dnsZone.findFirst({
-    where: { id: zoneId, orgId: ctx.activeOrgId },
-  });
+  const zone = await dnsZoneRepo.find(ctx, ctx.activeOrgId, zoneId);
   if (!zone) throw notFound('dnsZone', zoneId);
-  const rows = await dnsDb(ctx).dnsRecord.findMany({
-    where: { zoneId },
-    orderBy: [{ name: 'asc' }, { type: 'asc' }],
-  });
+  const rows = await dnsZoneRepo.listRecords(ctx, ctx.activeOrgId, zoneId);
   return rows.map((r) => ({
     id: r.id,
     zoneId: r.zoneId,
@@ -54,9 +49,7 @@ export async function upsertRecord(
     priority?: number;
   },
 ): Promise<DnsRecordView> {
-  const zone = await dnsDb(ctx).dnsZone.findFirst({
-    where: { id: input.zoneId, orgId: ctx.activeOrgId },
-  });
+  const zone = await dnsZoneRepo.find(ctx, ctx.activeOrgId, input.zoneId);
   if (!zone) throw notFound('dnsZone', input.zoneId);
 
   const type = DnsRecordType.parse(input.type.toUpperCase());
@@ -68,27 +61,14 @@ export async function upsertRecord(
     throw new Error(`${type} records need a priority`);
   }
 
-  const row = await dnsDb(ctx).dnsRecord.upsert({
-    where: {
-      orgId_zoneId_name_type_value: {
-        orgId: ctx.activeOrgId,
-        zoneId: input.zoneId,
-        name,
-        type,
-        value,
-      },
-    },
-    create: {
-      orgId: ctx.activeOrgId,
-      zoneId: input.zoneId,
-      name,
-      type,
-      value,
-      ttl: input.ttl ?? null,
-      priority: input.priority ?? null,
-    },
-    update: { ttl: input.ttl ?? null, priority: input.priority ?? null },
+  const row = await dnsZoneRepo.upsertRecord(ctx, ctx.activeOrgId, input.zoneId, {
+    name,
+    type,
+    value,
+    ttl: input.ttl ?? null,
+    priority: input.priority ?? null,
   });
+  if (!row) throw notFound('dnsZone', input.zoneId);
   await writeAudit(ctx, {
     action: 'dns.record.upsert',
     targetType: 'dnsRecord',
@@ -110,11 +90,9 @@ export async function removeRecord(
   ctx: OrgContext,
   id: string,
 ): Promise<{ id: string; removed: true }> {
-  const row = await dnsDb(ctx).dnsRecord.findFirst({
-    where: { id, orgId: ctx.activeOrgId },
-  });
+  const row = await dnsZoneRepo.findRecord(ctx, ctx.activeOrgId, id);
   if (!row) throw notFound('dnsRecord', id);
-  await dnsDb(ctx).dnsRecord.delete({ where: { id } });
+  await dnsZoneRepo.removeRecord(ctx, ctx.activeOrgId, id);
   await writeAudit(ctx, {
     action: 'dns.record.remove',
     targetType: 'dnsRecord',

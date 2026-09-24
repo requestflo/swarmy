@@ -14,6 +14,7 @@ import type { OrgContext } from '../context';
 import { listRoutesForOrg } from './ingress-routes';
 import { publicIpFromLabels } from './node.service';
 import { challengeRecords } from './acme-challenges';
+import { bumpZoneSerial, dnsZoneRepo, zoneContentSig, type DnsZoneRow } from './geodns.repo';
 
 /**
  * Snapshot composition — gathers the DERIVED inputs (invariant #5,
@@ -25,8 +26,8 @@ import { challengeRecords } from './acme-challenges';
  * - manual records: the repurposed DnsRecord rows
  *
  * SOA serials bump ONLY when a zone's composed content signature changes
- * (persisted on DnsZone), so pushes are idempotent and delegation checks
- * comparing serials mean something.
+ * (tracked in memory — run state never goes to raft; see geodns.repo), so
+ * pushes are idempotent and delegation checks comparing serials mean something.
  */
 
 export interface IngressHost {
@@ -36,48 +37,7 @@ export interface IngressHost {
   stack?: string;
 }
 
-interface DnsZoneRow {
-  id: string;
-  orgId: string;
-  zone: string;
-  mode: string;
-  enabled: boolean;
-  ttl: number;
-  serial: number;
-  apexToEdge: boolean;
-  autoWww: boolean;
-  advertisedNodeIds: unknown;
-  settings: unknown;
-}
-
-interface DnsRecordRow {
-  id: string;
-  zoneId: string;
-  name: string;
-  type: string;
-  value: string;
-  ttl: number | null;
-  priority: number | null;
-}
-
-/** Narrow typed accessor for the new delegates (schema is source of truth). */
-export function dnsDb(ctx: OrgContext): {
-  dnsZone: {
-    findMany(args: object): Promise<DnsZoneRow[]>;
-    findFirst(args: object): Promise<DnsZoneRow | null>;
-    create(args: object): Promise<DnsZoneRow>;
-    update(args: object): Promise<DnsZoneRow>;
-    delete(args: object): Promise<DnsZoneRow>;
-  };
-  dnsRecord: {
-    findMany(args: object): Promise<DnsRecordRow[]>;
-    findFirst(args: object): Promise<DnsRecordRow | null>;
-    upsert(args: object): Promise<DnsRecordRow>;
-    delete(args: object): Promise<DnsRecordRow>;
-  };
-} {
-  return ctx.db as never;
-}
+export type { DnsZoneRow, DnsRecordRow } from './geodns.repo';
 
 /**
  * Every hostname ingress will answer for — the single source both the ingress
@@ -180,7 +140,7 @@ export async function composeZone(
   );
 
   const manualRecords = [
-    ...(await dnsDb(ctx).dnsRecord.findMany({ where: { zoneId: row.id } })).map(
+    ...(await dnsZoneRepo.listRecords(ctx, ctx.activeOrgId, row.id)).map(
       (r): StaticDnsRecord => ({
         name: r.name,
         type: r.type as StaticDnsRecord['type'],
@@ -210,26 +170,17 @@ export async function composeZone(
   return { row, snapshot, conflicts };
 }
 
-/** Stored content signature (zone.settings.contentSig) for serial management. */
-const sigOf = (settings: unknown): string | undefined =>
-  settings && typeof settings === 'object'
-    ? ((settings as Record<string, unknown>).contentSig as string | undefined)
-    : undefined;
-
 /**
  * Build the org's full push bundle. For each enabled swarmy-ns zone: compose,
- * compare the content signature with the persisted one, and bump the SOA
- * serial (persisting the new signature) when content changed. Bundle version =
- * epoch ms — monotonic across controller restarts.
+ * compare the content signature with the last one this process saw, and bump
+ * the SOA serial when content changed. Bundle version = epoch ms — monotonic
+ * across controller restarts.
  */
 export async function buildDnsSnapshotBundle(ctx: OrgContext): Promise<{
   bundle: DnsSnapshotBundle;
   conflicts: Record<string, ComposeConflict[]>;
 }> {
-  const rows = await dnsDb(ctx).dnsZone.findMany({
-    where: { orgId: ctx.activeOrgId, enabled: true, mode: 'swarmy-ns' },
-    orderBy: { zone: 'asc' },
-  });
+  const rows = await dnsZoneRepo.list(ctx, ctx.activeOrgId, { enabled: true, mode: 'swarmy-ns' });
   const hosts = await listAllIngressHosts(ctx);
   const endpoints = collectGeoEndpoints(ctx);
 
@@ -239,17 +190,8 @@ export async function buildDnsSnapshotBundle(ctx: OrgContext): Promise<{
     const composed = await composeZone(ctx, row, { hosts, endpoints });
     let snapshot = composed.snapshot;
     const signature = zoneSignature(snapshot);
-    if (sigOf(row.settings) !== signature) {
-      const serial = row.serial + 1;
-      const settings = {
-        ...(typeof row.settings === 'object' && row.settings !== null ? row.settings : {}),
-        contentSig: signature,
-      };
-      await dnsDb(ctx).dnsZone.update({
-        where: { id: row.id },
-        data: { serial, settings },
-      });
-      snapshot = { ...snapshot, serial };
+    if (zoneContentSig(row.id) !== signature) {
+      snapshot = { ...snapshot, serial: bumpZoneSerial(row.id, signature) };
     }
     zones.push(snapshot);
     if (composed.conflicts.length > 0) conflicts[row.zone] = composed.conflicts;

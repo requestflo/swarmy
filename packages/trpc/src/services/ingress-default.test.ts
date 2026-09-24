@@ -3,6 +3,8 @@ import { IngressConfigSchema, buildCaddyfile } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
 import { DEFAULT_INGRESS, orgDashboardDomain } from './ingress.service';
 import { deriveEdgeRuntime } from './ingress-controller';
+import { ingressConfigRepo } from './ingress-config.repo';
+import { useMemoryKv } from './swarm-kv.service';
 
 /**
  * Owner decision (2026-09-24): Caddy is the default edge for new workspaces.
@@ -14,23 +16,16 @@ describe('new-org ingress default is Caddy, enabled', () => {
     expect(DEFAULT_INGRESS).toEqual({ driver: 'CADDY', enabled: true });
   });
 
-  test('the first read creates the row with the Caddy default and never updates an existing one', async () => {
-    const calls: Array<{ create: Record<string, unknown>; update: Record<string, unknown> }> = [];
-    const ctx = {
-      activeOrgId: 'org_new',
-      db: {
-        ingressConfig: {
-          upsert: async (args: { create: Record<string, unknown>; update: Record<string, unknown> }) => {
-            calls.push(args);
-            return { driver: 'CADDY', enabled: true, settings: {}, updatedAt: new Date() };
-          },
-        },
-      },
-    } as unknown as OrgContext;
+  test('a first read sees the Caddy default without writing; a stored choice is kept', async () => {
+    const hub = {} as OrgContext['hub'];
+    const drivers = useMemoryKv(hub);
+    const ctx = { activeOrgId: 'org_new', hub, db: {} } as unknown as OrgContext;
+    expect(await orgDashboardDomain(ctx)).toBeUndefined();
+    expect((await ingressConfigRepo.get(ctx, 'org_new')).driver).toBe('CADDY');
+    expect(drivers.get('org_new')?.configs.size ?? 0).toBe(0); // reads never grow raft
+    await ingressConfigRepo.update(ctx, 'org_new', { driver: 'NONE', enabled: false });
     await orgDashboardDomain(ctx);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.create).toEqual({ orgId: 'org_new', driver: 'CADDY', enabled: true });
-    expect(calls[0]!.update).toEqual({});
+    expect(await ingressConfigRepo.get(ctx, 'org_new')).toMatchObject({ driver: 'NONE', enabled: false });
   });
 
   test('a fresh org with no domain and no public IP still renders a valid Caddyfile', () => {

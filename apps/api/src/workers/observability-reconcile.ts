@@ -17,12 +17,12 @@
  * Retention itself is TTL-driven inside ClickHouse (see `renderClickhouseInitSql`),
  * so this worker never deletes telemetry.
  *
- * `ObservabilityConfig` is reached through a narrow typed view (`obsDb`).
+ * `ObservabilityConfig` is read from each org's swarm-kv document.
  */
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
 import { decryptSecret } from '@swarmy/core/crypto';
-import { reconcileObservabilitySuite, recordStoreProbe, systemContext } from '@swarmy/trpc';
+import { observabilityConfigRepo, reconcileObservabilitySuite, recordStoreProbe, systemContext } from '@swarmy/trpc';
 import { hub } from '../gateway';
 
 const TICK_MS = 60_000;
@@ -31,19 +31,6 @@ interface ObsConfigRow {
   orgId: string;
   enabled: boolean;
   clickhouseDsn: string | null;
-}
-
-interface ObsDb {
-  observabilityConfig: {
-    findMany(args: {
-      where: { enabled: true };
-      select: { orgId: true; enabled: true; clickhouseDsn: true };
-    }): Promise<ObsConfigRow[]>;
-  };
-}
-
-function obsDb(): ObsDb {
-  return prisma as unknown as ObsDb;
 }
 
 interface ClickhouseDsn {
@@ -113,12 +100,10 @@ async function reconcileOrg(cfg: ObsConfigRow): Promise<void> {
 }
 
 async function tick(): Promise<void> {
-  const configs = await obsDb()
-    .observabilityConfig.findMany({
-      where: { enabled: true },
-      select: { orgId: true, enabled: true, clickhouseDsn: true },
-    })
-    .catch(() => [] as ObsConfigRow[]);
+  // Config lives in each org's swarm (swarm-kv): unreachable orgs are skipped.
+  const configs = (await observabilityConfigRepo.listAll({ db: prisma, hub }).catch(() => [] as ObsConfigRow[])).filter(
+    (c) => c.enabled,
+  );
   for (const cfg of configs) {
     const ctx = systemContext({ db: prisma, hub, auth: authRegistry.getAuth() }, cfg.orgId);
     await reconcileObservabilitySuite(ctx).catch(() => undefined);

@@ -33,10 +33,11 @@
  */
 import { randomUUID } from 'node:crypto';
 import { auth, usernamePlaceholderEmail } from '@swarmy/auth';
-import { hashToken } from '@swarmy/core/crypto';
+import { decryptSecret, hashToken } from '@swarmy/core/crypto';
 import { buildMeshConfigRow } from '@swarmy/core/mesh-bootstrap';
 import { prisma } from '@swarmy/db';
-import { primeSwarmJoinMaterial } from '@swarmy/trpc';
+import { ingressConfigRepo, meshConfigRepo, primeSwarmJoinMaterial } from '@swarmy/trpc';
+import { hub } from '../gateway';
 
 const ORG_NAME = process.env.SWARMY_ORG_NAME ?? 'swarmy';
 const ORG_SLUG = process.env.SWARMY_ORG_SLUG ?? 'swarmy';
@@ -179,8 +180,52 @@ async function ensureMeshConfig(orgId: string): Promise<void> {
   });
   if (!row) return;
 
-  await prisma.meshConfig.upsert({ where: { orgId }, create: row, update: row });
-  log(`persisted MeshConfig (${row.driver}) — mesh enabled for this org.`);
+  whenSwarmReady(`mesh bootstrap (${row.driver})`, async () => {
+    const cur = await meshConfigRepo.find({ hub, db: prisma }, orgId);
+    const curToken = (cur?.controlPlane as { serviceTokenEnc?: string } | undefined)?.serviceTokenEnc;
+    const same =
+      cur &&
+      cur.driver === row.driver &&
+      cur.enabled &&
+      cur.managementUrl === row.managementUrl &&
+      curToken !== undefined &&
+      safeDecrypt(curToken) === process.env.SWARMY_MESH_SERVICE_TOKEN;
+    if (same) return; // re-sealing the same token each boot would only churn raft
+    await meshConfigRepo.update({ hub, db: prisma }, orgId, {
+      driver: row.driver,
+      enabled: true,
+      managementUrl: row.managementUrl,
+      controlPlane: row.controlPlane as Record<string, unknown>,
+    });
+    log(`persisted MeshConfig (${row.driver}) — mesh enabled for this org.`);
+  });
+}
+
+function safeDecrypt(blob: string): string | null {
+  try {
+    return decryptSecret(blob);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Boot-time config that lives in the org's swarm (swarm-kv) can only be
+ * written once a manager agent has dialled in. Retry until then (logged, not
+ * silent); the writes are idempotent re-assertions of env.
+ */
+function whenSwarmReady(what: string, fn: () => Promise<void>, everyMs = 5_000): void {
+  let warned = false;
+  const attempt = (): void => {
+    fn().catch((e: unknown) => {
+      if (!warned) {
+        log(`${what}: waiting for a manager agent (${e instanceof Error ? e.message : String(e)})`);
+        warned = true;
+      }
+      setTimeout(attempt, everyMs).unref?.();
+    });
+  };
+  attempt();
 }
 
 /**
@@ -188,21 +233,22 @@ async function ensureMeshConfig(orgId: string): Promise<void> {
  * settings (`settings.dashboardDomain`), so that org's Caddy edge renders a
  * `dashboard` controller vhost for it (ingress.service computeControllerVhosts).
  * Re-asserted on EVERY boot from env, so an org ingress settings edit can never
- * lose it; env unset (installer `--no-https`) clears it. Creates the ingress row
- * with the service default (Caddy, enabled) when the org has none yet — the
- * same default `ensureConfig` would write; an existing driver choice is kept.
+ * lose it; env unset (installer `--no-https`) clears it. The org's ingress
+ * document (swarm-kv) starts from the service default (Caddy, enabled) when it
+ * has none yet; an existing driver choice is kept.
  */
 async function ensureDashboardDomain(orgId: string): Promise<void> {
   const domain = process.env.SWARMY_DASHBOARD_DOMAIN?.trim().toLowerCase() || null;
-  const row = await prisma.ingressConfig.findUnique({ where: { orgId }, select: { settings: true } });
-  const settings = { ...((row?.settings as Record<string, unknown> | null) ?? {}) };
-  if ((settings.dashboardDomain ?? null) === domain) return;
-  if (domain) settings.dashboardDomain = domain;
-  else delete settings.dashboardDomain;
-  await prisma.ingressConfig.upsert({
-    where: { orgId },
-    create: { orgId, driver: 'CADDY', enabled: true, settings: settings as object },
-    update: { settings: settings as object },
+  whenSwarmReady('dashboard domain', async () => {
+    let changed = false;
+    await ingressConfigRepo.update({ hub, db: prisma }, orgId, (cur) => {
+      const settings = { ...cur.settings };
+      if ((settings.dashboardDomain ?? null) === domain) return undefined;
+      if (domain) settings.dashboardDomain = domain;
+      else delete settings.dashboardDomain;
+      changed = true;
+      return { settings };
+    });
+    if (changed) log(domain ? `dashboard domain ${domain} bound to the org edge.` : 'dashboard domain cleared.');
   });
-  log(domain ? `dashboard domain ${domain} bound to the org edge.` : 'dashboard domain cleared.');
 }

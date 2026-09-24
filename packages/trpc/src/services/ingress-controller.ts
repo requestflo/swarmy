@@ -19,6 +19,7 @@ import { mapDispatchError } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { liveService } from './service.service';
 import { ensureControlNetwork } from './platform-networks';
+import { observabilityConfigRepo } from './observability-config.repo';
 
 // `network.ensure` becomes a valid CommandName once the hub/types.ts integration
 // snippet lands; the cast keeps @swarmy/trpc green until then (see INTEGRATION).
@@ -289,14 +290,11 @@ export async function ensureCaddyController(
   options: EnsureControllerOptions = {},
 ): Promise<EnsureControllerResult> {
   // Observability on ⇒ the controller runs with OTLP exporter env so Caddy's
-  // tracing directive can ship edge spans. Direct DB read (no coupling to the
-  // observability module); caller may override via options.otelOrgId.
+  // tracing directive can ship edge spans. Direct swarm-kv read (no coupling to
+  // the observability module); caller may override via options.otelOrgId.
   let otelOrgId = options.otelOrgId;
   if (otelOrgId === undefined) {
-    const obs = await ctx.db.observabilityConfig.findUnique({
-      where: { orgId: ctx.activeOrgId },
-      select: { enabled: true },
-    });
+    const obs = await observabilityConfigRepo.find(ctx, ctx.activeOrgId).catch(() => null);
     if (obs?.enabled) otelOrgId = ctx.activeOrgId;
   }
   const opts: ResolvedOptions = {
@@ -554,10 +552,7 @@ export async function ensureCaddyEdge(
 ): Promise<EnsureEdgeResult> {
   let otelOrgId = options.otelOrgId;
   if (otelOrgId === undefined) {
-    const obs = await ctx.db.observabilityConfig.findUnique({
-      where: { orgId: ctx.activeOrgId },
-      select: { enabled: true },
-    });
+    const obs = await observabilityConfigRepo.find(ctx, ctx.activeOrgId).catch(() => null);
     if (obs?.enabled) otelOrgId = ctx.activeOrgId;
   }
   const network = options.network ?? DEFAULT_NETWORK;

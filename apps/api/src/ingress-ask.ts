@@ -119,16 +119,13 @@ export async function checkOnDemand(
 
 /**
  * The production `isGated` dep: reads the org's persisted domain checks
- * (`IngressConfig.settings.domainChecks`) and applies the shared gate rule.
+ * (`settings.domainChecks` on the org's swarm-kv ingress document, via
+ * `readSettings`) and applies the shared gate rule.
  */
-export function makeIsGated(db: {
-  ingressConfig: { findUnique(args: { where: { orgId: string }; select: { settings: true } }): Promise<{ settings: unknown } | null> };
-}): (orgId: string, host: string) => Promise<boolean> {
-  return async (orgId, host) => {
-    const row = await db.ingressConfig.findUnique({ where: { orgId }, select: { settings: true } });
-    const settings = row?.settings && typeof row.settings === 'object' ? (row.settings as Record<string, unknown>) : {};
-    return isHostGated(domainChecksOf(settings), host);
-  };
+export function makeIsGated(
+  readSettings: (orgId: string) => Promise<Record<string, unknown>>,
+): (orgId: string, host: string) => Promise<boolean> {
+  return async (orgId, host) => isHostGated(domainChecksOf(await readSettings(orgId)), host);
 }
 
 /** Test seam: clear the positive cache between cases. */

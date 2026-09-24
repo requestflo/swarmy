@@ -13,6 +13,7 @@ import {
 } from './acme-dns.service';
 import { _resetChallenges, challengeRecords, CHALLENGE_TTL_MS, stageChallenge } from './acme-challenges';
 import { caddyEdgeSpec } from './ingress-controller';
+import { seedKv, useMemoryKv } from './swarm-kv.service';
 
 beforeAll(() => {
   process.env.SWARMY_SECRET_KEY ??= 'test-secret-key-for-acme-dns';
@@ -41,14 +42,15 @@ function svc(routes: object[]): SwarmServiceInfo {
 }
 
 function ctxWith(routes: object[], zones: string[] = ['acme.com']): OrgContext {
-  return {
+  const ctx = {
     activeOrgId: 'org_1',
-    db: {
-      dnsZone: { findMany: async () => zones.map((zone) => ({ zone })) },
-      auditLog: { create: async () => ({}) },
-    },
+    db: { auditLog: { create: async () => ({}) } },
     hub: { liveInventory: () => ({ services: [svc(routes)], containers: [] }) },
   } as unknown as OrgContext;
+  // Zones live in the org's swarm (swarm-kv).
+  useMemoryKv(ctx.hub);
+  zones.forEach((zone, i) => seedKv(ctx.hub, 'org_1', 'dns-zone', `z${i}`, { zone, enabled: true, mode: 'swarmy-ns', records: [] }));
+  return ctx;
 }
 
 const okPush = async () => ({ pushed: ['n1', 'n2'], failed: [] });

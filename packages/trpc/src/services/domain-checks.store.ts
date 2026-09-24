@@ -11,7 +11,8 @@
  * pruned.
  *
  * The split:
- *  - **Persisted** in `IngressConfig.settings.domainChecks.hosts[host]`: the
+ *  - **Persisted** in the org's swarm-kv ingress document,
+ *    `settings.domainChecks.hosts[host]`: the
  *    gate itself — `host`, `addedAt`, `gated`, `verifiedAt`,
  *    `verifiedManually`. These change at human speed (a domain is added,
  *    verified once, or skipped by an operator), and losing them would re-gate
@@ -21,20 +22,16 @@
  *    rewritten every check; after a controller restart `nextCheckAt` is
  *    unset, so every host is re-probed on the first tick.
  *
- * A patch writes the database only when a persisted field actually changes,
- * as one read-modify-write inside a transaction scoped to `domainChecks`.
+ * A patch writes only when a persisted field actually changes, as one
+ * compare-and-swap of the ingress document scoped to `domainChecks`.
  */
 import { domainChecksOf, type DomainCheckRecord, type DomainChecks } from '@swarmy/ingress';
 import type { OrgContext } from '../context';
+import { ingressConfigRepo, ingressSettingsOf } from './ingress-config.repo';
 
 /** The raw settings JSON of the org's ingress config ({} when no row). */
 export async function readIngressSettingsRaw(ctx: OrgContext): Promise<Record<string, unknown>> {
-  const row = await ctx.db.ingressConfig.findUnique({
-    where: { orgId: ctx.activeOrgId },
-    select: { settings: true },
-  });
-  const s = row?.settings;
-  return s && typeof s === 'object' && !Array.isArray(s) ? (s as Record<string, unknown>) : {};
+  return ingressSettingsOf(await ingressConfigRepo.find(ctx, ctx.activeOrgId));
 }
 
 export { domainChecksOf };
@@ -110,9 +107,7 @@ const sameGate = (a: GateRecord | undefined, b: GateRecord): boolean =>
 
 /**
  * Apply per-host upserts/removals: probe fields go to memory, gate fields to
- * `settings.domainChecks` — written only when one of them changed. Requires
- * the config row to exist (every org with routes has one — `ensureConfig`
- * runs on the first ingress read); a missing row is a no-op for the gate.
+ * `settings.domainChecks` — written only when one of them changed.
  */
 export async function patchDomainChecks(ctx: OrgContext, patch: DomainChecksPatch): Promise<void> {
   const upserts = patch.upserts ?? [];
@@ -123,16 +118,10 @@ export async function patchDomainChecks(ctx: OrgContext, patch: DomainChecksPatc
   for (const r of upserts) mem.set(r.host, probeOf(r));
   for (const h of remove) mem.delete(h);
 
-  await ctx.db.$transaction(async (tx) => {
-    const row = await tx.ingressConfig.findUnique({
-      where: { orgId: ctx.activeOrgId },
-      select: { settings: true },
-    });
-    if (!row) return;
-    const settings =
-      row.settings && typeof row.settings === 'object' && !Array.isArray(row.settings)
-        ? (row.settings as Record<string, unknown>)
-        : {};
+  // One compare-and-swap on the org's ingress document (swarm-kv); a lost race
+  // re-runs this merge on the fresh settings.
+  await ingressConfigRepo.update(ctx, ctx.activeOrgId, (cur) => {
+    const settings = ingressSettingsOf(cur);
     const current = domainChecksOf(settings)?.hosts ?? {};
     const next: Record<string, GateRecord> = {};
     for (const [host, rec] of Object.entries(current)) next[host] = gateOf(rec);
@@ -152,10 +141,7 @@ export async function patchDomainChecks(ctx: OrgContext, patch: DomainChecksPatc
     }
     // A stored blob that still carries probe fields is rewritten gate-only.
     const hadProbeFields = Object.values(current).some((rec) => Object.keys(probeOf(rec)).length > 0);
-    if (!changed && !hadProbeFields) return;
-    await tx.ingressConfig.update({
-      where: { orgId: ctx.activeOrgId },
-      data: { settings: { ...settings, domainChecks: { hosts: next } } as never },
-    });
+    if (!changed && !hadProbeFields) return undefined;
+    return { settings: { ...settings, domainChecks: { hosts: next } } };
   });
 }

@@ -42,9 +42,10 @@ import type { DB } from '@swarmy/db';
 import { mapDispatchError } from '../errors';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
-import { dnsDb } from './dns-snapshot.service';
+import { dnsZoneRepo } from './geodns.repo';
 import { listRoutesForOrg } from './ingress-routes';
 import { removeChallenge, stageChallenge } from './acme-challenges';
+import { ingressConfigRepo, ingressSettingsOf } from './ingress-config.repo';
 
 /** Non-secret DNS-01 coordinates persisted on `IngressConfig.settings.acmeDns`. */
 export interface AcmeDnsSettings {
@@ -148,9 +149,7 @@ export async function ensureAcmeDnsSecret(ctx: OrgContext): Promise<string> {
 
 /** Apexes of the org's enabled swarmy-ns zones (the ones swarmy-dns answers for). */
 export async function swarmyZones(ctx: OrgContext): Promise<string[]> {
-  const rows = await dnsDb(ctx)
-    .dnsZone.findMany({ where: { orgId: ctx.activeOrgId, enabled: true, mode: 'swarmy-ns' }, orderBy: { zone: 'asc' } })
-    .catch(() => []);
+  const rows = await dnsZoneRepo.list(ctx, ctx.activeOrgId, { enabled: true, mode: 'swarmy-ns' }).catch(() => []);
   return rows.map((r) => r.zone);
 }
 
@@ -266,8 +265,8 @@ export interface DnsChallengeView {
 }
 
 export async function getDnsChallengeView(ctx: OrgContext): Promise<DnsChallengeView> {
-  const row = await ctx.db.ingressConfig.findUnique({ where: { orgId: ctx.activeOrgId }, select: { settings: true } });
-  const acme = readAcmeDnsSettings(row?.settings);
+  const row = await ingressConfigRepo.get(ctx, ctx.activeOrgId);
+  const acme = readAcmeDnsSettings(row.settings);
   const zones = await swarmyZones(ctx);
   const hosts = listRoutesForOrg(ctx).map((r) => r.route.host.toLowerCase());
   const plan = planDnsChallenges({ hosts, swarmyZones: zones, byoProvider: acme.byo?.provider ?? null });
@@ -290,10 +289,8 @@ export async function setByoDnsProvider(
   ctx: OrgContext,
   input: { provider: ByoDnsProvider; apiToken: string } | null,
 ): Promise<DnsChallengeView> {
-  const row = await ctx.db.ingressConfig.findUnique({ where: { orgId: ctx.activeOrgId }, select: { settings: true } });
-  if (!row) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'ingress is not configured yet' });
-  const settings = (row.settings && typeof row.settings === 'object' ? row.settings : {}) as Record<string, unknown>;
-  const acme = readAcmeDnsSettings(settings);
+  const row = await ingressConfigRepo.get(ctx, ctx.activeOrgId);
+  const acme = readAcmeDnsSettings(ingressSettingsOf(row));
   let byo: AcmeDnsSettings['byo'];
   if (input) {
     const token = input.apiToken.trim();
@@ -315,10 +312,9 @@ export async function setByoDnsProvider(
   }
   const next: AcmeDnsSettings = { ...acme, byo };
   if (!byo) delete next.byo;
-  await ctx.db.ingressConfig.update({
-    where: { orgId: ctx.activeOrgId },
-    data: { settings: { ...settings, acmeDns: next } as object },
-  });
+  await ingressConfigRepo.update(ctx, ctx.activeOrgId, (cur) => ({
+    settings: { ...ingressSettingsOf(cur), acmeDns: next },
+  }));
   await writeAudit(ctx, {
     action: input ? 'ingress.setDnsProvider' : 'ingress.clearDnsProvider',
     targetType: 'ingressConfig',
@@ -330,14 +326,11 @@ export async function setByoDnsProvider(
 
 /** Persist the swarmy token secret name (settings merge, called by the edge converge). */
 export async function recordAcmeDnsSecret(ctx: OrgContext, secretName: string): Promise<void> {
-  const row = await ctx.db.ingressConfig.findUnique({ where: { orgId: ctx.activeOrgId }, select: { settings: true } });
-  if (!row) return;
-  const settings = (row.settings && typeof row.settings === 'object' ? row.settings : {}) as Record<string, unknown>;
-  const acme = readAcmeDnsSettings(settings);
-  if (acme.swarmySecret === secretName) return;
-  await ctx.db.ingressConfig.update({
-    where: { orgId: ctx.activeOrgId },
-    data: { settings: { ...settings, acmeDns: { ...acme, swarmySecret: secretName } } as object },
+  await ingressConfigRepo.update(ctx, ctx.activeOrgId, (cur) => {
+    const settings = ingressSettingsOf(cur);
+    const acme = readAcmeDnsSettings(settings);
+    if (acme.swarmySecret === secretName) return undefined; // unchanged: no raft write
+    return { settings: { ...settings, acmeDns: { ...acme, swarmySecret: secretName } } };
   });
 }
 

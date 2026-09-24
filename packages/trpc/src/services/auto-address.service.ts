@@ -28,10 +28,11 @@ import type { DB } from '@swarmy/db';
 import { systemContext } from './cicd.service';
 import { writeAudit } from './audit.service';
 import { expectedTarget, kickDomainChecks, registerDomainHosts } from './domain-verify.service';
-import { dnsDb } from './dns-snapshot.service';
+import { dnsZoneRepo } from './geodns.repo';
 import { isAutoAddressZone } from './dns-zones.service';
 import { readIngressSettingsRaw } from './domain-checks.store';
 import { INGRESS_ROUTES_LABEL, listRoutesForOrg, readRoutes, serializeRoutes, type Route } from './ingress-routes';
+import { ingressConfigRepo } from './ingress-config.repo';
 
 const INGRESS_ENABLED_LABEL = 'swarmy.ingress';
 
@@ -40,9 +41,7 @@ const INGRESS_ENABLED_LABEL = 'swarmy.ingress';
  * `geodns.setZoneAutoAddresses` (which required live delegation), or null.
  */
 export async function autoAddressZone(ctx: OrgContext): Promise<string | null> {
-  const rows = await dnsDb(ctx)
-    .dnsZone.findMany({ where: { orgId: ctx.activeOrgId, enabled: true, mode: 'swarmy-ns' }, orderBy: { zone: 'asc' } })
-    .catch(() => []);
+  const rows = await dnsZoneRepo.list(ctx, ctx.activeOrgId, { enabled: true, mode: 'swarmy-ns' }).catch(() => []);
   return rows.find((r) => isAutoAddressZone(r.settings))?.zone ?? null;
 }
 
@@ -98,11 +97,8 @@ const STAMP_SETTLE_MS = 60_000;
  * state (every stamped service carries the marker label).
  */
 export async function reconcileAutoAddressesOrg(ctx: OrgContext, now = Date.now()): Promise<AutoAddressAction[]> {
-  const row = await ctx.db.ingressConfig.findUnique({
-    where: { orgId: ctx.activeOrgId },
-    select: { driver: true, enabled: true },
-  });
-  if (!row || !row.enabled || row.driver !== 'CADDY') return [];
+  const row = await ingressConfigRepo.get(ctx, ctx.activeOrgId);
+  if (!row.enabled || row.driver !== 'CADDY') return [];
   const manager = ctx.hub.managerNode(ctx.activeOrgId);
   if (!manager) return [];
   const base = await autoAddressBase(ctx);

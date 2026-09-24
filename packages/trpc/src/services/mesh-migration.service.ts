@@ -39,6 +39,8 @@ import {
 import { applyServicePatch, liveServiceSpec } from './service-patch';
 import { fetchLiveJoinMaterial, SWARM_COMMAND } from './swarm.service';
 import { MESH_CONNECTED, meshPeers } from './mesh-peers';
+import { meshConfigRepo } from './mesh-config.repo';
+import { listOperationRuns, readOperationRun, saveOperationRun } from './operation-runs';
 
 // ── Persisted run state (MeshConfig.settings.swarmMigration) ────────────────
 
@@ -81,7 +83,6 @@ export interface MigrationRun {
   nodes: NodeMoveState[];
 }
 
-const SETTINGS_KEY = 'swarmMigration';
 
 // ── Seams (tests swap sleep/timeouts/enroll) ─────────────────────────────────
 
@@ -115,30 +116,23 @@ const CONNECTED = MESH_CONNECTED;
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const now = (): string => new Date().toISOString();
 
-async function readSettings(ctx: OrgContext): Promise<Record<string, unknown>> {
-  const row = await ctx.db.meshConfig.findUnique({ where: { orgId: ctx.activeOrgId } });
-  return ((row?.settings as Record<string, unknown> | null) ?? {}) as Record<string, unknown>;
-}
-
+/**
+ * The run is RUN STATE (per-node step progress, rewritten every step), so it
+ * lives in the controller store (`OperationRun`, kind "mesh.migration"), never
+ * in the swarm-kv mesh document — no run state in raft (epic-docker-native-state).
+ */
 export async function readRun(ctx: OrgContext): Promise<MigrationRun | null> {
-  const s = await readSettings(ctx);
-  return (s[SETTINGS_KEY] as MigrationRun | undefined) ?? null;
+  return readOperationRun<MigrationRun>(ctx.db, ctx.activeOrgId, 'mesh.migration');
 }
 
 async function saveRun(ctx: OrgContext, run: MigrationRun): Promise<void> {
-  const settings = await readSettings(ctx);
   // A cancel landed while the runner held this run in memory: keep it.
-  const persisted = settings[SETTINGS_KEY] as MigrationRun | undefined;
+  const persisted = await readRun(ctx);
   if (persisted?.id === run.id && persisted.status === 'canceled' && run.status === 'running') {
     run.status = 'canceled';
   }
   run.updatedAt = now();
-  const next = { ...settings, [SETTINGS_KEY]: run } as object;
-  await ctx.db.meshConfig.upsert({
-    where: { orgId: ctx.activeOrgId },
-    create: { orgId: ctx.activeOrgId, driver: 'NONE', enabled: false, settings: next },
-    update: { settings: next },
-  });
+  await saveOperationRun(ctx.db, ctx.activeOrgId, 'mesh.migration', run);
 }
 
 // ── Live inputs → planner ────────────────────────────────────────────────────
@@ -180,7 +174,7 @@ export interface SwarmMeshStatus {
 
 /** Live per-node picture + the persisted run (drives the "Swarm on mesh" card). */
 export async function swarmMeshStatus(ctx: OrgContext, direction?: MigrationDirection): Promise<SwarmMeshStatus> {
-  const row = await ctx.db.meshConfig.findUnique({ where: { orgId: ctx.activeOrgId } });
+  const row = await meshConfigRepo.get(ctx, ctx.activeOrgId);
   const run = await readRun(ctx);
   const dir = direction ?? (run?.status === 'running' || run?.status === 'failed' ? run.direction : 'onto-mesh');
   return {
@@ -207,7 +201,7 @@ export async function startMigration(
   input: { direction: MigrationDirection; acknowledgeWarnings?: boolean; disableWhenDone?: boolean },
   seams?: Partial<MigrationSeams>,
 ): Promise<MigrationRun> {
-  const row = await ctx.db.meshConfig.findUnique({ where: { orgId: ctx.activeOrgId } });
+  const row = await meshConfigRepo.get(ctx, ctx.activeOrgId);
   if (input.direction === 'onto-mesh' && (!row?.enabled || row.driver === 'NONE')) {
     throw commandRejected('Turn the mesh on (and add the control-plane token) before moving the swarm onto it.');
   }
@@ -307,7 +301,7 @@ export async function cancelMigration(ctx: OrgContext): Promise<MigrationRun> {
 }
 
 async function finishDisable(ctx: OrgContext): Promise<void> {
-  await ctx.db.meshConfig.update({ where: { orgId: ctx.activeOrgId }, data: { enabled: false } });
+  await meshConfigRepo.update(ctx, ctx.activeOrgId, { enabled: false });
   await writeAudit(ctx, {
     action: 'mesh.setEnabled',
     targetType: 'meshConfig',
@@ -600,12 +594,8 @@ async function undrainIfStillOld(ctx: OrgContext, node: NodeMoveState): Promise<
 
 /** Resume every org whose run is `running` but has no in-process runner. */
 export async function resumeRunningMigrations(makeCtx: (orgId: string) => OrgContext, db: OrgContext['db']): Promise<void> {
-  const rows = (await db.meshConfig.findMany({ select: { orgId: true, settings: true } })) as {
-    orgId: string;
-    settings: unknown;
-  }[];
-  for (const r of rows) {
-    const run = (r.settings as Record<string, unknown> | null)?.[SETTINGS_KEY] as MigrationRun | undefined;
+  for (const r of await listOperationRuns<MigrationRun | null>(db, 'mesh.migration')) {
+    const run = r.run;
     if (run?.status !== 'running' || inFlight.has(r.orgId)) continue;
     kick(makeCtx(r.orgId));
   }

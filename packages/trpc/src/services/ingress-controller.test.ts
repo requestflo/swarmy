@@ -10,6 +10,7 @@ import {
   type ResolvedOptions,
 } from './ingress-controller';
 import { edgeRuntimeStatus, reconcileIngressOrg } from './ingress.service';
+import { seedKv, useMemoryKv } from './swarm-kv.service';
 
 // Real-shaped ids from the readiness sweep: swarmy's DB cuid vs Docker's swarm node id.
 const ENROLLMENT_ID = 'cmrfodzd9001i4vsb0pafd656';
@@ -116,8 +117,6 @@ function fakeCtx(opts: {
   };
   const nodeIds = Object.keys(opts.containers ?? { m1: [] });
   const db = {
-    observabilityConfig: { findUnique: async () => null },
-    ingressConfig: { upsert: async () => row },
     node: { findMany: async () => nodeIds.map((id) => ({ id })) },
     statusPage: { findMany: async () => [] },
     inboundEndpoint: { findMany: async () => [] },
@@ -138,6 +137,9 @@ function fakeCtx(opts: {
     },
   };
   const ctx = { db, hub, activeOrgId: 'org_1' } as unknown as OrgContext;
+  // The org's ingress config lives in its swarm (swarm-kv).
+  useMemoryKv(ctx.hub);
+  seedKv(ctx.hub, 'org_1', 'ingress', 'org_1', { driver: row.driver, enabled: row.enabled, settings: row.settings });
   return { ctx, sent, deps: { db, hub, auth: {} } as never };
 }
 

@@ -30,6 +30,7 @@ import { notFound } from '../errors';
 import { requireOnlineNode } from './dispatch.service';
 import { resolveExecTarget, resolveLiveService } from './live-resolve';
 import { meshPeers, type LiveMeshPeer } from './mesh-peers';
+import { meshConfigRepo } from './mesh-config.repo';
 
 function badRequest(message: string): TRPCError {
   return new TRPCError({ code: 'BAD_REQUEST', message });
@@ -37,7 +38,7 @@ function badRequest(message: string): TRPCError {
 
 /** Controller driver ids ⇄ Prisma `MeshDriver` enum. */
 export type MeshDriverId = 'netbird' | 'headscale' | 'tailscale' | 'wireguard' | 'none';
-type MeshDriverEnum = 'NETBIRD' | 'HEADSCALE' | 'TAILSCALE' | 'WIREGUARD' | 'NONE';
+import type { MeshDriverEnum } from './mesh-config.repo';
 const DRIVER_TO_ENUM: Record<MeshDriverId, MeshDriverEnum> = {
   netbird: 'NETBIRD',
   headscale: 'HEADSCALE',
@@ -96,12 +97,9 @@ function readControlPlane(row: ConfigRow): ControlPlaneSettings {
   return (row.controlPlane as ControlPlaneSettings | null) ?? {};
 }
 
+/** The org's mesh config (swarm-kv; defaults to driver NONE, disabled — a read never writes). */
 async function ensureConfig(ctx: OrgContext): Promise<ConfigRow> {
-  return ctx.db.meshConfig.upsert({
-    where: { orgId: ctx.activeOrgId },
-    create: { orgId: ctx.activeOrgId, driver: 'NONE', enabled: false },
-    update: {},
-  });
+  return meshConfigRepo.get(ctx, ctx.activeOrgId);
 }
 
 /** Build the render-time {@link OrgMeshConfig}, resolving the service token JIT. */
@@ -199,11 +197,7 @@ export function listDrivers(): MeshDriverId[] {
 }
 
 export async function setDriver(ctx: OrgContext, driver: MeshDriverId): Promise<MeshConfigView> {
-  await ensureConfig(ctx);
-  await ctx.db.meshConfig.update({
-    where: { orgId: ctx.activeOrgId },
-    data: { driver: DRIVER_TO_ENUM[driver] },
-  });
+  await meshConfigRepo.update(ctx, ctx.activeOrgId, { driver: DRIVER_TO_ENUM[driver] });
   await writeAudit(ctx, {
     action: 'mesh.setDriver',
     targetType: 'meshConfig',
@@ -219,10 +213,7 @@ export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<Mes
   // enabling with no driver chosen means "give me the recommended mesh", not
   // "enable nothing". An explicitly-chosen driver is never overridden.
   const defaultedDriver = enabled && row.driver === 'NONE' ? DRIVER_TO_ENUM.netbird : undefined;
-  await ctx.db.meshConfig.update({
-    where: { orgId: ctx.activeOrgId },
-    data: { enabled, ...(defaultedDriver ? { driver: defaultedDriver } : {}) },
-  });
+  await meshConfigRepo.update(ctx, ctx.activeOrgId, { enabled, ...(defaultedDriver ? { driver: defaultedDriver } : {}) });
   await writeAudit(ctx, {
     action: 'mesh.setEnabled',
     targetType: 'meshConfig',
@@ -248,12 +239,9 @@ export async function setControlPlane(
         serviceTokenEnc: input.serviceToken ? encryptSecret(input.serviceToken) : prev.serviceTokenEnc,
       }
     : null;
-  await ctx.db.meshConfig.update({
-    where: { orgId: ctx.activeOrgId },
-    data: {
-      controlPlane: (next ?? {}) as object,
-      managementUrl: input?.managementUrl ?? (input ? row.managementUrl : null),
-    },
+  await meshConfigRepo.update(ctx, ctx.activeOrgId, {
+    controlPlane: (next ?? {}) as Record<string, unknown>,
+    managementUrl: input?.managementUrl ?? (input ? row.managementUrl : null),
   });
   await writeAudit(ctx, {
     action: input ? 'mesh.setControlPlane' : 'mesh.clearControlPlane',

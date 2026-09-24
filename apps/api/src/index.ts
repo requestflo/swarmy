@@ -19,7 +19,7 @@ import {
   resolveDbPaths,
   TELEMETRY_MIGRATIONS_DIR,
 } from '@swarmy/db';
-import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim, writeAudit, acmeDnsRequest } from '@swarmy/trpc';
+import { resolveOrgContextFromApiKey, agentRelease, agentBinaryPath, submitRecoveryClaim, pollRecoveryClaim, writeAudit, acmeDnsRequest, ingressConfigRepo } from '@swarmy/trpc';
 import { createRestApp } from '@swarmy/api-rest';
 import { env } from './env';
 import { maybeBootstrapSeed } from './bootstrap/seed';
@@ -61,7 +61,7 @@ app.get('/ingress/ask', async (c) => {
       listOrgIds: () => prisma.organization.findMany({ select: { id: true } }).then((rows) => rows.map((r) => r.id)),
       liveInventory: (orgId) => hub.liveInventory(orgId),
       // Custom-domain DNS gate: routed-but-unverified hosts are denied too.
-      isGated: makeIsGated(prisma),
+      isGated: makeIsGated(async (orgId) => (await ingressConfigRepo.get({ db: prisma, hub }, orgId)).settings),
     },
     c.req.query('domain'),
   );

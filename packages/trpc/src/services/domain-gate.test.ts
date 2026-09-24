@@ -3,6 +3,9 @@ import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { parseDomainId, domainId, previewConfig } from './ingress.service';
 import { hostPostures, hostsIntroducedByDeploy, registerDeployRoutes, toStatusView } from './domain-verify.service';
+import { peekKv, seedKv, useMemoryKv } from './swarm-kv.service';
+
+const useKv = (hub: object) => useMemoryKv(hub as OrgContext['hub']);
 
 /**
  * The custom-domain DNS gate end to end through the controller's config
@@ -31,10 +34,7 @@ function svc(labels: Record<string, string>): SwarmServiceInfo {
 }
 
 function ctxWith(routes: object[], domainChecks: unknown): OrgContext {
-  const row = { driver: 'CADDY', enabled: true, settings: { domainChecks }, updatedAt: new Date(0) };
   const db = {
-    observabilityConfig: { findUnique: async () => null },
-    ingressConfig: { upsert: async () => row, findUnique: async () => row },
     node: { findMany: async () => [] },
     statusPage: { findMany: async () => [] },
     inboundEndpoint: { findMany: async () => [] },
@@ -49,6 +49,8 @@ function ctxWith(routes: object[], domainChecks: unknown): OrgContext {
     liveInventory: () => ({ services: [svc({ 'swarmy.ingress.routes': JSON.stringify(routes) })], containers: [] }),
     latestContainers: () => [],
   };
+  useKv(hub);
+  seedKv(hub as never, 'org_1', 'ingress', 'org_1', { driver: 'CADDY', enabled: true, settings: { domainChecks } });
   return { db, hub, activeOrgId: 'org_1' } as unknown as OrgContext;
 }
 
@@ -158,32 +160,24 @@ describe('deploy-path domain gate', () => {
   });
 
   it('a compose deploy declaring a new host writes a GATED record before the spec lands', async () => {
-    const writes: string[] = [];
-    const row = { driver: 'CADDY', enabled: true, settings: { domainChecks: { hosts: {} } } };
-    const db = {
-      ingressConfig: {
-        findUnique: async () => row,
-        update: async (args: { data: { settings: { domainChecks: { hosts: unknown } } } }) => {
-          writes.push(JSON.stringify(args.data.settings.domainChecks.hosts));
-          return row;
-        },
-      },
-      $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(db),
+    const hub = {
+      liveInventory: () => ({ services: [svc(lbl([{ host: 'live.acme.com', port: 80, tls: 'auto' }]))], containers: [] }),
     };
-    const ctx = {
-      activeOrgId: 'org_1',
-      db,
-      hub: {
-        liveInventory: () => ({ services: [svc(lbl([{ host: 'live.acme.com', port: 80, tls: 'auto' }]))], containers: [] }),
-      },
-    } as unknown as OrgContext;
+    const drivers = useKv(hub);
+    seedKv(hub as never, 'org_1', 'ingress', 'org_1', { driver: 'CADDY', enabled: true, settings: { domainChecks: { hosts: {} } } });
+    const ctx = { activeOrgId: 'org_1', db: {}, hub } as unknown as OrgContext;
     const hosts = await registerDeployRoutes(ctx, [
       { labels: lbl([{ host: 'shop.acme.com', port: 80, tls: 'auto' }, { host: 'live.acme.com', port: 80, tls: 'auto' }]) },
       { labels: { foo: 'bar' } },
     ]);
     expect(hosts).toEqual(['shop.acme.com']);
-    expect(writes).toHaveLength(1);
-    const upserts = JSON.parse(writes[0]!) as Record<string, { gated: boolean }>;
+    expect(drivers.get('org_1')!.calls.filter((c) => c.startsWith('create'))).toHaveLength(1);
+    const upserts = peekKv<{ settings: { domainChecks: { hosts: Record<string, { gated: boolean }> } } }>(
+      hub as never,
+      'org_1',
+      'ingress',
+      'org_1',
+    )!.settings.domainChecks.hosts;
     expect(Object.keys(upserts)).toEqual(['shop.acme.com']);
     expect(upserts['shop.acme.com']!.gated).toBe(true);
   });

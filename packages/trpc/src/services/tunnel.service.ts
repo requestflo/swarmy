@@ -22,6 +22,7 @@ import {
 } from './cloudflare.client';
 import { applyNow, loadOrgConfigForTunnels, setTunnel } from './ingress.service';
 import { listRoutesForOrg } from './ingress-routes';
+import { ingressConfigRepo } from './ingress-config.repo';
 
 export interface TunnelView {
   provider: 'cloudflare';
@@ -51,8 +52,8 @@ function clientFor(
 
 /** Read the persisted tunnel block (encrypted refs intact). */
 async function readTunnel(ctx: OrgContext) {
-  const row = await ctx.db.ingressConfig.findUnique({ where: { orgId: ctx.activeOrgId } });
-  const settings = (row?.settings as { tunnel?: TunnelSettings } | null) ?? {};
+  const row = await ingressConfigRepo.get(ctx, ctx.activeOrgId);
+  const settings = row.settings as { tunnel?: TunnelSettings };
   return settings.tunnel;
 }
 

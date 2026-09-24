@@ -6,6 +6,7 @@ import { OVERLAY_ENCRYPTED_OPTION, overlayDriverOptions, SWARMY_CONTROL_NETWORK 
 import type { OrgContext } from '../context';
 import type { CommandName } from '../hub/types';
 import { mapDispatchError } from '../errors';
+import { meshConfigRepo } from './mesh-config.repo';
 
 const NETWORK_ENSURE = 'network.ensure' as CommandName;
 
@@ -42,10 +43,7 @@ export async function overlayOptionsFor(
 ): Promise<Record<string, string> | undefined> {
   let mesh: { driver: string; enabled: boolean } | null = null;
   try {
-    mesh = await ctx.db.meshConfig.findUnique({
-      where: { orgId: ctx.activeOrgId },
-      select: { driver: true, enabled: true },
-    });
+    mesh = await meshConfigRepo.get(ctx, ctx.activeOrgId);
   } catch {
     mesh = null;
   }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { autoAddressBase, reconcileAutoAddressesOrg } from './auto-address.service';
+import { seedKv, useMemoryKv } from './swarm-kv.service';
 
 /**
  * Automatic app addresses on the org's OWN zone (swarmy-dns) with the
@@ -29,21 +30,10 @@ function svc(labels: Record<string, string>, published = true): SwarmServiceInfo
 function ctxWith(opts: { zones?: Array<{ zone: string; settings?: object }>; labels?: Record<string, string> }) {
   const dispatched: Array<{ cmd: string; payload: { add?: Record<string, string> } }> = [];
   const gated: string[] = [];
-  const row = { driver: 'CADDY', enabled: true, settings: { domainChecks: { hosts: {} } } };
   const ctx = {
     activeOrgId: 'org_1',
     db: {
-      ingressConfig: {
-        findUnique: async () => row,
-        update: async (args: { data: { settings: { domainChecks: { hosts: Record<string, unknown> } } } }) => {
-          gated.push(...Object.keys(args.data.settings.domainChecks.hosts));
-          return row;
-        },
-      },
       node: { findMany: async () => [{ id: 'n1' }] },
-      dnsZone: {
-        findMany: async () => (opts.zones ?? []).map((z) => ({ ...z, enabled: true, mode: 'swarmy-ns' })),
-      },
       auditLog: { create: async () => ({}) },
       $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(ctx.db),
     },
@@ -60,6 +50,23 @@ function ctxWith(opts: { zones?: Array<{ zone: string; settings?: object }>; lab
       },
     },
   } as unknown as OrgContext;
+  // Ingress + zones live in the org's swarm (swarm-kv).
+  const drivers = useMemoryKv(ctx.hub);
+  seedKv(ctx.hub, 'org_1', 'ingress', 'org_1', { driver: 'CADDY', enabled: true, settings: { domainChecks: { hosts: {} } } });
+  (opts.zones ?? []).forEach((z, i) =>
+    seedKv(ctx.hub, 'org_1', 'dns-zone', `z${i}`, { ...z, enabled: true, mode: 'swarmy-ns', records: [] }),
+  );
+  // Every ingress write records the gate's hosts (as the old DB fake did).
+  const d = drivers.get('org_1')!;
+  const create = d.create.bind(d);
+  d.create = async (name, dataB64, labels) => {
+    await create(name, dataB64, labels);
+    if (!name.startsWith('swarmy-kv.ingress.')) return;
+    const doc = JSON.parse(Buffer.from(dataB64, 'base64').toString()) as {
+      settings: { domainChecks?: { hosts?: Record<string, unknown> } };
+    };
+    gated.push(...Object.keys(doc.settings.domainChecks?.hosts ?? {}));
+  };
   return { ctx, dispatched, gated };
 }
 

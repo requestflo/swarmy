@@ -19,8 +19,8 @@
  *    lives in memory too ({@link recordStoreProbe}). After a controller restart
  *    the next tick re-derives all of it.
  *
- * `ObservabilityConfig` is reached through {@link obsDb}, a narrow typed view of
- * the delegate this service uses.
+ * `ObservabilityConfig` lives in the org's swarm (swarm-kv `obs/<orgId>`, via
+ * {@link observabilityConfigRepo}); the DSN is vault-encrypted inside it.
  */
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import { randomBytes } from 'node:crypto';
@@ -28,6 +28,7 @@ import { buildInventory, SWARMY_CONTROL_NETWORK, UNGROUPED, type InvService } fr
 import { encryptSecret, decryptSecret } from '@swarmy/core/crypto';
 import type { OrgContext } from '../context';
 import { writeAudit } from './audit.service';
+import { observabilityConfigRepo, type ObservabilityConfigRow } from './observability-config.repo';
 import { mapDispatchError, notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { ensureControlNetwork } from './platform-networks';
@@ -93,42 +94,13 @@ export interface ObservabilityStatusView extends ObservabilityConfigView {
  * Narrow DB view of the new models (removed once the client is regenerated).
  * ------------------------------------------------------------------------- */
 
-interface ObsConfigRow {
-  id: string;
-  orgId: string;
-  enabled: boolean;
-  clickhouseDsn: string | null;
-  retentionDays: number;
-  updatedAt: Date;
-}
-
-interface ObsConfigDelegate {
-  findUnique(args: { where: { orgId: string } }): Promise<ObsConfigRow | null>;
-  upsert(args: {
-    where: { orgId: string };
-    create: Partial<ObsConfigRow> & { orgId: string };
-    update: Partial<ObsConfigRow>;
-  }): Promise<ObsConfigRow>;
-  update(args: { where: { orgId: string }; data: Partial<ObsConfigRow> }): Promise<ObsConfigRow>;
-}
-
-function obsDb(ctx: OrgContext): ObsConfigDelegate {
-  // `observabilityConfig` exists after the integrator adds the model + migrates.
-  return (ctx.db as unknown as { observabilityConfig: ObsConfigDelegate }).observabilityConfig;
-}
+type ObsConfigRow = ObservabilityConfigRow;
 
 const DEFAULT_RETENTION_DAYS = 7;
 
+/** The org's observability config (swarm-kv; defaults: off, 7-day retention — a read never writes). */
 async function ensureConfig(ctx: OrgContext): Promise<ObsConfigRow> {
-  return obsDb(ctx).upsert({
-    where: { orgId: ctx.activeOrgId },
-    create: {
-      orgId: ctx.activeOrgId,
-      enabled: false,
-      retentionDays: DEFAULT_RETENTION_DAYS,
-    },
-    update: {},
-  });
+  return observabilityConfigRepo.get(ctx, ctx.activeOrgId);
 }
 
 /** A ClickHouse DSN, e.g. `http://default:pw@swarmy-clickhouse:8123/otel`. */
@@ -284,10 +256,7 @@ export async function setEnabled(
 
   if (!enabled) {
     await teardownStore(ctx).catch(() => undefined);
-    const row = await obsDb(ctx).update({
-      where: { orgId: ctx.activeOrgId },
-      data: { enabled: false },
-    });
+    const row = await observabilityConfigRepo.update(ctx, ctx.activeOrgId, { enabled: false });
     suiteRuns.delete(ctx.activeOrgId);
     await writeAudit(ctx, { action: 'observability.disable', targetType: 'org', targetId: ctx.activeOrgId });
     return toView(ctx, row);
@@ -298,12 +267,9 @@ export async function setEnabled(
     ? safeDecrypt(existing.clickhouseDsn)
     : managedDsn(randomPassword());
 
-  await obsDb(ctx).update({
-    where: { orgId: ctx.activeOrgId },
-    data: {
-      enabled: true,
-      clickhouseDsn: encryptSecret(dsnPlain),
-    },
+  await observabilityConfigRepo.update(ctx, ctx.activeOrgId, {
+    enabled: true,
+    clickhouseDsn: encryptSecret(dsnPlain),
   });
 
   try {
@@ -329,10 +295,7 @@ export async function setRetention(
   retentionDays: number,
 ): Promise<ObservabilityConfigView> {
   await ensureConfig(ctx);
-  const row = await obsDb(ctx).update({
-    where: { orgId: ctx.activeOrgId },
-    data: { retentionDays },
-  });
+  const row = await observabilityConfigRepo.update(ctx, ctx.activeOrgId, { retentionDays });
   await writeAudit(ctx, {
     action: 'observability.setRetention',
     targetType: 'org',
@@ -493,7 +456,7 @@ export async function metricsSummary(
  * ------------------------------------------------------------------------- */
 
 async function activeDsn(ctx: OrgContext): Promise<string | null> {
-  const row = await obsDb(ctx).findUnique({ where: { orgId: ctx.activeOrgId } });
+  const row = await observabilityConfigRepo.find(ctx, ctx.activeOrgId);
   if (!row || !row.enabled || !row.clickhouseDsn) return null;
   return safeDecrypt(row.clickhouseDsn);
 }
@@ -654,7 +617,7 @@ const CONVERGE_COOLDOWN_MS = 5 * 60_000;
 const lastConvergeAt = new Map<string, number>();
 
 export async function reconcileObservabilitySuite(ctx: OrgContext): Promise<boolean> {
-  const row = await obsDb(ctx).findUnique({ where: { orgId: ctx.activeOrgId } });
+  const row = await observabilityConfigRepo.find(ctx, ctx.activeOrgId);
   if (!row?.enabled || !row.clickhouseDsn) return false;
   const managerId = ctx.hub.managerNode(ctx.activeOrgId);
   if (!managerId) return false;
@@ -708,7 +671,7 @@ async function teardownStore(ctx: OrgContext): Promise<void> {
 }
 
 async function retentionFor(ctx: OrgContext): Promise<number> {
-  const row = await obsDb(ctx).findUnique({ where: { orgId: ctx.activeOrgId } });
+  const row = await observabilityConfigRepo.find(ctx, ctx.activeOrgId);
   return row?.retentionDays ?? DEFAULT_RETENTION_DAYS;
 }
 
@@ -872,9 +835,7 @@ export async function redSnapshot(
   ctx: OrgContext,
   windowMinutes: number = MAP_DEFAULT_WINDOW_MINUTES,
 ): Promise<RedSnapshot> {
-  const row = await obsDb(ctx)
-    .findUnique({ where: { orgId: ctx.activeOrgId } })
-    .catch(() => null);
+  const row = await observabilityConfigRepo.find(ctx, ctx.activeOrgId).catch(() => null);
   const enabled = Boolean(row?.enabled);
   const collectorStatus: CollectorStatus = row ? liveSuiteStatus(ctx, row).collector : 'OFFLINE';
   if (!row || !enabled || !row.clickhouseDsn) {

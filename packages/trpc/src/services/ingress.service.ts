@@ -62,6 +62,8 @@ import {
   type EdgeCertStorageSettings,
 } from './ingress-certs';
 import { domainChecksOf } from './domain-checks.store';
+import { ingressConfigRepo, type IngressDriverEnum } from './ingress-config.repo';
+import { observabilityConfigRepo } from './observability-config.repo';
 import { meshPeers } from './mesh-peers';
 import { domainStatusMap, registerDomainHosts, type DomainStatusView } from './domain-verify.service';
 import { edgeAcmeDnsSecrets, orgDnsChallenge, readAcmeDnsSettings, requiredAcmeDnsSecrets } from './acme-dns.service';
@@ -152,13 +154,6 @@ function computeColdRoutes(ctx: OrgContext): Map<string, ColdRoute> {
 export type IngressDriverId = 'caddy' | 'traefik' | 'none' | 'cloudflared' | 'nginx' | 'haproxy';
 
 /** Map a controller driver id ⇄ Prisma `IngressDriver` enum value. */
-type IngressDriverEnum =
-  | 'CADDY'
-  | 'TRAEFIK'
-  | 'NONE'
-  | 'CLOUDFLARE_TUNNEL'
-  | 'NGINX'
-  | 'HAPROXY';
 const DRIVER_TO_ENUM: Record<IngressDriverId, IngressDriverEnum> = {
   caddy: 'CADDY',
   traefik: 'TRAEFIK',
@@ -367,7 +362,7 @@ interface IngressSettings {
   };
 }
 
-function readSettings(row: ConfigRow): IngressSettings {
+function readSettings(row: Pick<ConfigRow, 'settings'>): IngressSettings {
   return (row.settings as IngressSettings | null) ?? {};
 }
 
@@ -395,12 +390,9 @@ function resolveTunnel(s: IngressSettings): TunnelOptions | undefined {
  */
 export const DEFAULT_INGRESS = { driver: 'CADDY', enabled: true } as const;
 
+/** The org's ingress config (swarm-kv; defaults to {@link DEFAULT_INGRESS} — a read never writes). */
 async function ensureConfig(ctx: OrgContext): Promise<ConfigRow> {
-  return ctx.db.ingressConfig.upsert({
-    where: { orgId: ctx.activeOrgId },
-    create: { orgId: ctx.activeOrgId, ...DEFAULT_INGRESS },
-    update: {},
-  });
+  return ingressConfigRepo.get(ctx, ctx.activeOrgId);
 }
 
 /**
@@ -581,10 +573,7 @@ async function loadOrgConfig(
   else if (typeof extraConfig.applyVia !== 'string') extraConfig.applyVia = 'exec';
   // Observability on ⇒ render the `tracing` directive so the edge emits a span
   // per request (the controller carries the matching OTLP exporter env).
-  const obs = await ctx.db.observabilityConfig.findUnique({
-    where: { orgId: ctx.activeOrgId },
-    select: { enabled: true },
-  });
+  const obs = await observabilityConfigRepo.find(ctx, ctx.activeOrgId).catch(() => null);
   const tracing = obs?.enabled === true;
   // Geo-edge: services with materialised region siblings render region-ordered
   // multi-upstream proxies (same-region first, cross-region failover).
@@ -1006,13 +995,7 @@ export async function setDriver(
   ctx: OrgContext,
   driver: IngressDriverId,
 ): Promise<IngressConfigView> {
-  await ensureConfig(ctx);
-  await ctx.db.ingressConfig.update({
-    where: { orgId: ctx.activeOrgId },
-    // NGINX/HAPROXY are valid only after the IngressDriver enum migration lands
-    // (see INTEGRATION); cast keeps the build green until then.
-    data: { driver: DRIVER_TO_ENUM[driver] as never },
-  });
+  await ingressConfigRepo.update(ctx, ctx.activeOrgId, { driver: DRIVER_TO_ENUM[driver] });
   await writeAudit(ctx, {
     action: 'ingress.setDriver',
     targetType: 'ingressConfig',
@@ -1030,12 +1013,9 @@ async function patchSettings(
   ctx: OrgContext,
   patch: (s: IngressSettings) => IngressSettings,
 ): Promise<void> {
-  const row = await ensureConfig(ctx);
-  const next = patch(readSettings(row));
-  await ctx.db.ingressConfig.update({
-    where: { orgId: ctx.activeOrgId },
-    data: { settings: next as object },
-  });
+  await ingressConfigRepo.update(ctx, ctx.activeOrgId, (cur) => ({
+    settings: patch(readSettings(cur)) as Record<string, unknown>,
+  }));
 }
 
 /** Toggle on-demand TLS + record the controller `ask` endpoint. */
@@ -1114,8 +1094,7 @@ export async function setTunnel(
 }
 
 export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<IngressConfigView> {
-  await ensureConfig(ctx);
-  await ctx.db.ingressConfig.update({ where: { orgId: ctx.activeOrgId }, data: { enabled } });
+  await ingressConfigRepo.update(ctx, ctx.activeOrgId, { enabled });
   if ((await convergeEdge(ctx)) === null) await reapply(ctx);
   return getConfig(ctx);
 }

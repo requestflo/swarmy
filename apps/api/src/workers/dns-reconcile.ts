@@ -13,7 +13,7 @@
  * invariant #6).
  */
 import { prisma } from '@swarmy/db';
-import { reconcileDnsOrg } from '@swarmy/trpc';
+import { geoDnsEnabledOrgIds, reconcileDnsOrg } from '@swarmy/trpc';
 import { hub } from '../gateway';
 
 const TICK_MS = 15_000;
@@ -32,11 +32,10 @@ export function startDnsReconcile(): () => void {
     running = true;
     tick += 1;
     try {
-      const orgs = await prisma.geoDnsConfig.findMany({
-        where: { enabled: true },
-        select: { orgId: true },
-      });
-      for (const { orgId } of orgs) {
+      // Geo-DNS config lives in each org's swarm (swarm-kv); orgs whose manager
+      // isn't connected are skipped — nothing could be pushed to them anyway.
+      const orgs = await geoDnsEnabledOrgIds({ db: prisma, hub });
+      for (const orgId of orgs) {
         try {
           const orgAcked = acked.get(orgId) ?? new Map<string, string>();
           acked.set(orgId, orgAcked);

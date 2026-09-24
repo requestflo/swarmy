@@ -1,12 +1,14 @@
 import { resolve4 } from 'node:dns/promises';
 import { REGION_COORDS, regionCoord } from '@swarmy/dns';
+import type { DB } from '@swarmy/db';
 import type { OrgContext } from '../context';
+import type { AgentHub } from '../hub/types';
 import { notFound } from '../errors';
 import { writeAudit } from './audit.service';
 import { dispatchNodeLabels } from './node.service';
+import { dnsZoneRepo, geoDnsConfigRepo, type GeoDnsConfigRow } from './geodns.repo';
 import {
   composeZone,
-  dnsDb,
   listAllIngressHosts,
   collectGeoEndpoints,
 } from './dns-snapshot.service';
@@ -53,32 +55,14 @@ export interface GeoDnsConfigView {
   runtime: DnsRuntimeStatus;
 }
 
-interface GeoDnsConfigRow {
-  orgId: string;
-  enabled: boolean;
-  settings?: unknown;
-  updatedAt: Date;
-}
-
-function cfgDb(ctx: OrgContext): {
-  upsert(args: object): Promise<GeoDnsConfigRow>;
-  update(args: object): Promise<GeoDnsConfigRow>;
-} {
-  return (ctx.db as never as { geoDnsConfig: never }).geoDnsConfig;
-}
-
 async function ensureConfig(ctx: OrgContext): Promise<GeoDnsConfigRow> {
-  return cfgDb(ctx).upsert({
-    where: { orgId: ctx.activeOrgId },
-    create: { orgId: ctx.activeOrgId, enabled: false },
-    update: {},
-  });
+  return geoDnsConfigRepo.get(ctx, ctx.activeOrgId);
 }
 
 export async function getConfig(ctx: OrgContext): Promise<GeoDnsConfigView> {
   const cfg = await ensureConfig(ctx);
   const settings = parseDnsOrgSettings(cfg.settings);
-  const zones = await dnsDb(ctx).dnsZone.findMany({ where: { orgId: ctx.activeOrgId } });
+  const zones = await dnsZoneRepo.list(ctx, ctx.activeOrgId);
   return {
     enabled: cfg.enabled,
     geoipSource: settings.geoipSource,
@@ -137,10 +121,7 @@ export async function setConfig(
 ): Promise<GeoDnsConfigView> {
   const cfg = await ensureConfig(ctx);
   const settings = { ...parseDnsOrgSettings(cfg.settings), ...input };
-  await cfgDb(ctx).update({
-    where: { orgId: ctx.activeOrgId },
-    data: { settings: settings as never },
-  });
+  await geoDnsConfigRepo.update(ctx, ctx.activeOrgId, { settings: settings as Record<string, unknown> });
   // Geoip source changes alter the service spec — reconverge when running.
   if (cfg.enabled) await ensureDnsService(ctx, settings).catch(() => undefined);
   await writeAudit(ctx, {
@@ -158,7 +139,7 @@ export async function setConfig(
  */
 export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<GeoDnsConfigView> {
   const cfg = await ensureConfig(ctx);
-  await cfgDb(ctx).update({ where: { orgId: ctx.activeOrgId }, data: { enabled } });
+  await geoDnsConfigRepo.update(ctx, ctx.activeOrgId, { enabled });
   if (enabled) {
     await ensureDnsService(ctx, parseDnsOrgSettings(cfg.settings));
     await composeAndPushDns(ctx).catch(() => undefined);
@@ -301,10 +282,7 @@ export interface DnsViewRow {
  * and the endpoint set behind it. `stack` scopes to one stack's hosts.
  */
 export async function listDnsView(ctx: OrgContext, stack?: string): Promise<DnsViewRow[]> {
-  const zones = await dnsDb(ctx).dnsZone.findMany({
-    where: { orgId: ctx.activeOrgId, mode: 'swarmy-ns' },
-    orderBy: { zone: 'asc' },
-  });
+  const zones = await dnsZoneRepo.list(ctx, ctx.activeOrgId, { mode: 'swarmy-ns' });
   const hosts = await listAllIngressHosts(ctx);
   const endpoints = collectGeoEndpoints(ctx);
 
@@ -420,9 +398,7 @@ export function resolveProviderToken(provider: string, tokenEnv?: string): strin
  * mechanisms). Best-effort per zone.
  */
 export async function syncProviderZones(ctx: OrgContext): Promise<ProviderSyncResult[]> {
-  const zones = await dnsDb(ctx).dnsZone.findMany({
-    where: { orgId: ctx.activeOrgId, enabled: true, mode: { in: ['cloudflare', 'route53'] } },
-  });
+  const zones = await dnsZoneRepo.list(ctx, ctx.activeOrgId, { enabled: true, mode: ['cloudflare', 'route53'] });
   const results: ProviderSyncResult[] = [];
   for (const zone of zones) {
     if (!isSyncProvider(zone.mode)) continue;
@@ -491,6 +467,11 @@ export interface DnsReconcileDeps {
  * in @swarmy/dns, shared with the server; nothing is inlined (the v1 drift
  * bug this rework kills).
  */
+/** Orgs with geo-DNS switched on whose swarm can be reached now (dns-reconcile's work list). */
+export async function geoDnsEnabledOrgIds(scope: { db: DB; hub: AgentHub }): Promise<string[]> {
+  return (await geoDnsConfigRepo.listAll(scope)).filter((c) => c.enabled).map((c) => c.orgId);
+}
+
 export async function reconcileDnsOrg(
   deps: DnsReconcileDeps,
 ): Promise<{ push: PushResult; providerSynced: number }> {

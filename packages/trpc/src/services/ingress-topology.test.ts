@@ -10,6 +10,7 @@ import {
 } from './ingress-controller';
 import { getConfig, reconcileIngressOrg, setTopology } from './ingress.service';
 import { OBJECT_STORAGE_REQUIRED_MESSAGE, buildLegacyPurgeRunOnce, certStorageFor } from './ingress-certs';
+import { peekKv, seedKv, useMemoryKv } from './swarm-kv.service';
 
 process.env.SWARMY_SECRET_KEY ??= 'a'.repeat(64);
 
@@ -81,6 +82,8 @@ function node(over: Partial<SwarmNodeInfo> = {}): SwarmNodeInfo {
  * the way Docker would — including REFUSING an in-place mode change.
  */
 function world(opts: {
+  /** The org the test drives (its swarm-kv ingress doc is seeded from `settings`). */
+  orgId?: string;
   services?: SwarmServiceInfo[];
   settings?: Record<string, unknown>;
   nodes?: SwarmNodeInfo[];
@@ -124,19 +127,9 @@ function world(opts: {
   };
   const services = [...(opts.services ?? [])];
   const truthMode = new Map(services.map((s) => [s.name, s.mode]));
-  const row = { driver: 'CADDY', enabled: true, settings: { ...(opts.settings ?? {}) } as any, updatedAt: new Date(0) };
   const updates: unknown[] = [];
   const containers = opts.containers ?? { m1: [] };
   const db = {
-    observabilityConfig: { findUnique: async () => null },
-    ingressConfig: {
-      upsert: async () => row,
-      update: async (a: { data: { settings: unknown } }) => {
-        updates.push(a.data.settings);
-        row.settings = a.data.settings;
-        return row;
-      },
-    },
     node: { findMany: async () => Object.keys(containers).map((id) => ({ id })) },
     statusPage: { findMany: async () => [] },
     inboundEndpoint: { findMany: async () => [] },
@@ -206,6 +199,16 @@ function world(opts: {
     },
   };
   const ctx = { db, hub, activeOrgId: 'org_topo', user: { id: 'u1' } } as unknown as OrgContext;
+  // The org's ingress config lives in its swarm (swarm-kv); `row` reads it back live.
+  const kvHub = hub as unknown as OrgContext['hub'];
+  useMemoryKv(kvHub);
+  const orgId = opts.orgId ?? 'org_topo';
+  seedKv(kvHub, orgId, 'ingress', orgId, { driver: 'CADDY', enabled: true, settings: { ...(opts.settings ?? {}) } });
+  const row = {
+    get settings(): any {
+      return peekKv<{ settings: Record<string, unknown> }>(kvHub, orgId, 'ingress', orgId)?.settings ?? {};
+    },
+  };
   return { ctx, sent, row, updates, services, garage, secrets, deps: { db, hub, auth: {} } as never };
 }
 
@@ -482,6 +485,7 @@ describe('reconcileIngressOrg — shared certificate store', () => {
     const first = world({ services: [svc({ mode: 'replicated' })] });
     await setTopology(first.ctx, 'edge-per-node');
     const w = world({
+      orgId: 'org_certs_render',
       services: [app, svc({ mode: 'global' })],
       settings: first.row.settings,
       secrets: [...first.secrets],
@@ -506,6 +510,7 @@ describe('reconcileIngressOrg — shared certificate store', () => {
 
   it('adopts an org already on edge-per-node without a store (zero setup), then redeploys the edge', async () => {
     const w = world({
+      orgId: 'org_certs_adopt',
       services: [app, svc({ mode: 'global' })],
       settings: { topology: 'edge-per-node' },
       containers: { lon: [edgeTask('c-lon')] },
@@ -522,6 +527,7 @@ describe('reconcileIngressOrg — shared certificate store', () => {
     await setTopology(first.ctx, 'edge-per-node');
     const { encSecretName: _e, ...legacyStore } = first.row.settings.certStorage;
     const w = world({
+      orgId: 'org_reissue',
       services: [app, svc({ mode: 'global' })],
       settings: { ...first.row.settings, certStorage: { ...legacyStore, prefix: 'caddy/org_1' } },
       secrets: [...first.secrets].filter((n: string) => !n.startsWith('swarmy-edge-certs-enc-')),
@@ -561,6 +567,7 @@ describe('reconcileIngressOrg — shared certificate store', () => {
 
   it('waits quietly (no Garage call, no error) while object storage is off', async () => {
     const w = world({
+      orgId: 'org_certs_off',
       services: [app, svc({ mode: 'global' })],
       settings: { topology: 'edge-per-node' },
       containers: { lon: [edgeTask('c-lon')] },
@@ -613,7 +620,8 @@ describe('reconcileIngressOrg — edge-per-node', () => {
   });
 
   it('converges a live mode that disagrees with the persisted topology', async () => {
-    const w = world({ services: [app, svc({ mode: 'replicated' })], settings: { topology: 'edge-per-node' } });
+    const w = world({
+      orgId: 'org_topo_drift', services: [app, svc({ mode: 'replicated' })], settings: { topology: 'edge-per-node' } });
     const res = await reconcileIngressOrg(w.deps, 'org_topo_drift');
     expect(res.signature).toBeNull();
     expect(cmds(w.sent)).toEqual(['service.remove', 'service.deploy']);
@@ -622,6 +630,7 @@ describe('reconcileIngressOrg — edge-per-node', () => {
 
   it('exec-delivers the config into EVERY node running an edge task — no host files', async () => {
     const w = world({
+      orgId: 'org_topo_fanout',
       services: [app, svc({ mode: 'global' })],
       settings: { topology: 'edge-per-node' },
       containers: { lon: [edgeTask('c-lon')], nyc: [edgeTask('c-nyc')], worker: [] },

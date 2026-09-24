@@ -3,6 +3,8 @@ import type { ContainerInfo, SwarmNodeInfo } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import { meshPeers } from './mesh-peers';
 import { readRun, resumeMigration, runMeshMigration, startMigration, type MigrationSeams } from './mesh-migration.service';
+import { meshConfigRepo } from './mesh-config.repo';
+import { seedKv, useMemoryKv } from './swarm-kv.service';
 
 beforeAll(() => {
   process.env.SWARMY_SECRET_KEY ??= 'test-secret-key-for-mesh-migration';
@@ -57,16 +59,16 @@ function harness(opts: { meshWorkerIp?: string; startOnMesh?: boolean; failRejoi
   meshPeers.upsert(ORG, 'lon-a', { driver: 'netbird', status: 'CONNECTED', meshIp: '100.92.0.10' });
   meshPeers.upsert(ORG, 'nyc-a', { driver: 'netbird', status: 'ENROLLING', meshIp: null });
   const db = {
-    settings: {} as Record<string, unknown>,
-    meshConfigRow: { orgId: ORG, driver: 'NETBIRD', enabled: true, settings: {} as unknown },
+    /** The persisted run (controller store, `OperationRun` kind "mesh.migration"). */
+    runRow: null as { orgId: string; kind: string; run: unknown } | null,
     audits: [] as { action: string; metadata?: unknown }[],
   };
   const prisma = {
-    meshConfig: {
-      findUnique: async () => db.meshConfigRow,
-      findMany: async () => [db.meshConfigRow],
-      update: async ({ data }: { data: Record<string, unknown> }) => Object.assign(db.meshConfigRow, data),
-      upsert: async ({ update }: { update: Record<string, unknown> }) => Object.assign(db.meshConfigRow, update),
+    operationRun: {
+      findUnique: async () => db.runRow,
+      findMany: async () => (db.runRow ? [db.runRow] : []),
+      upsert: async ({ create, update }: { create: { orgId: string; kind: string; run: unknown }; update: { run: unknown } }) =>
+        (db.runRow = db.runRow ? { ...db.runRow, ...update } : create),
     },
     node: {
       findMany: async () => [
@@ -144,6 +146,9 @@ function harness(opts: { meshWorkerIp?: string; startOnMesh?: boolean; failRejoi
   };
 
   const ctx = { db: prisma, hub, activeOrgId: ORG, user: { id: 'u1' } } as unknown as OrgContext;
+  // The org's mesh config lives in its swarm (swarm-kv): NetBird, enabled.
+  useMemoryKv(hub as unknown as OrgContext['hub']);
+  seedKv(hub as unknown as OrgContext['hub'], ORG, 'mesh', ORG, { driver: 'NETBIRD', enabled: true, managementUrl: null, controlPlane: {}, settings: {} });
   const seams: Partial<MigrationSeams> = {
     sleep: async () => undefined,
     pollMs: 0,
@@ -211,7 +216,7 @@ describe('mesh migration runner — onto the mesh', () => {
 
   it('refuses onto-mesh while the mesh is off', async () => {
     const h = harness();
-    h.db.meshConfigRow.enabled = false;
+    await meshConfigRepo.update(h.ctx, ORG, { enabled: false });
     await expect(startMigration(h.ctx, { direction: 'onto-mesh', acknowledgeWarnings: true }, h.seams)).rejects.toThrow(
       'Turn the mesh on',
     );
@@ -257,7 +262,7 @@ describe('mesh migration runner — reverse (off the mesh)', () => {
     expect(back[0]!.labels['swarmy.node.ingress']).toBe('true');
     expect(h.services[0]!.labels['swarmy.db.node']).toBe(back[0]!.swarmNodeId);
     // No enroll off-mesh; the mesh is switched off once done.
-    expect(h.db.meshConfigRow.enabled).toBe(false);
+    expect((await meshConfigRepo.get(h.ctx, ORG)).enabled).toBe(false);
     expect(h.db.audits.map((a) => a.action)).toContain('mesh.migration.nodeRestored');
   });
 });

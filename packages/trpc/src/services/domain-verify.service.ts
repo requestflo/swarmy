@@ -61,8 +61,9 @@ import { fireEvent } from './alerts-fire';
 import { listRoutesForOrg, readRoutes, type Route } from './ingress-routes';
 import { ingressTaskNodes } from './ingress-controller';
 import { publicIpFromLabels } from './node.service';
-import { dnsDb } from './dns-snapshot.service';
+import { dnsZoneRepo } from './geodns.repo';
 import { patchDomainChecks, readDomainChecks, readIngressSettingsRaw } from './domain-checks.store';
+import { ingressConfigRepo } from './ingress-config.repo';
 
 // ───────────────────────────────────────────── postures ──
 
@@ -105,7 +106,7 @@ export function hostPostures(
 }
 
 async function orgDriver(ctx: OrgContext): Promise<string | undefined> {
-  const row = await ctx.db.ingressConfig.findUnique({ where: { orgId: ctx.activeOrgId }, select: { driver: true } });
+  const row = await ingressConfigRepo.get(ctx, ctx.activeOrgId).catch(() => null);
   return row?.driver;
 }
 
@@ -221,9 +222,7 @@ async function zoneFor(
   ctx: OrgContext,
   host: string,
 ): Promise<{ zone: string; nameservers: Array<{ fqdn: string; ip: string }> } | null> {
-  const rows = await dnsDb(ctx)
-    .dnsZone.findMany({ where: { orgId: ctx.activeOrgId, enabled: true } })
-    .catch(() => []);
+  const rows = await dnsZoneRepo.list(ctx, ctx.activeOrgId, { enabled: true }).catch(() => []);
   const h = normalizeHostname(host).replace(/^\*\./, '');
   const match = rows
     .filter((z) => z.mode === 'swarmy-ns' && (h === z.zone || h.endsWith(`.${z.zone}`)))
