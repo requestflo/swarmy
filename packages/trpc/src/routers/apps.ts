@@ -81,6 +81,6 @@ export const appsRouter = router({
 
   /** Promote an environment's running digests (staging) to production — no rebuild, same gates. */
   promote: adminProcedure
-    .input(z.object({ repoId: id, from: z.string().min(1).max(40) }))
+    .input(z.object({ repoId: id, from: z.string().min(1).max(40), dryRun: z.boolean().optional() }))
     .mutation(({ ctx, input }) => promoteEnvironment(ctx, input)),
 });

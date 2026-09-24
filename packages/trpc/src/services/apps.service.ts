@@ -1399,8 +1399,15 @@ export async function setRequireApproval(
  */
 export async function promoteEnvironment(
   ctx: OrgContext,
-  input: { repoId: string; from: string },
-): Promise<PlanCommitResult & { plan: AppPlanView | null; images: Record<string, string> }> {
+  input: { repoId: string; from: string; dryRun?: boolean },
+): Promise<
+  PlanCommitResult & {
+    plan: AppPlanView | null;
+    images: Record<string, string>;
+    /** dryRun: what WOULD happen (nothing recorded, nothing applied). */
+    preview?: { actions: Plan['actions']; counts: Plan['counts']; status: Plan['status']; markdown: string };
+  }
+> {
   if (input.from === PRODUCTION)
     throw commandRejected('promote FROM a named environment (e.g. staging) to production');
   const repo = await ctx.db.gitRepo.findFirst({
@@ -1460,6 +1467,18 @@ export async function promoteEnvironment(
       changedPaths: [],
       requireApproval: repo.requireApproval,
     });
+    if (input.dryRun) {
+      // The confirm dialog: exact digests + the plan, before anything is recorded or applied.
+      return {
+        planId: null,
+        status: plan.status,
+        environment: PRODUCTION,
+        stack: promoted.stack,
+        plan: null,
+        images,
+        preview: { actions: plan.actions, counts: plan.counts, status: plan.status, markdown: planToMarkdown(plan) },
+      };
+    }
     const row = await ctx.db.appPlan.upsert({
       where: {
         repoId_environment_sha_trigger_prNumber: {
