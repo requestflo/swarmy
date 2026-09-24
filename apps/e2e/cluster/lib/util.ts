@@ -124,6 +124,9 @@ export async function must(argv: string[], opts: ExecOpts = {}, what?: string): 
   return r.stdout;
 }
 
+/** Thrown inside a poll() callback to stop polling immediately. */
+export class Fatal extends Error {}
+
 // ── polling ───────────────────────────────────────────────────────────────
 /**
  * Retry `fn` until it returns a truthy value (returned) or `timeoutMs` passes
@@ -142,6 +145,7 @@ export async function poll<T>(
       if (v) return v;
       last = 'condition not met';
     } catch (e) {
+      if (e instanceof Fatal) throw e;
       last = (e as Error).message;
     }
     if (Date.now() >= deadline) {

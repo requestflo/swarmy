@@ -19,9 +19,8 @@
  *   --source head|tree     build from `git archive HEAD` (default) or the working tree
  *   --no-build             reuse images already built (skip docker build)
  *   --mesh none|self-hosted   TODO: self-hosted once the mesh epic lands
- *   --tier lite|standard   controller datastore tier (default lite)
  *   --upgrade-from REF     with --enable upgrade: install REF first (default HEAD~1)
- *   --nodes N  --cpus N  --mem GiB  --disk GiB   (default 3 × 1 CPU / 1 GiB / 12 GiB)
+ *   --nodes N  --cpus N  --mem GiB  --disk GiB   (default 3 × 1 CPU / 1 GiB / 25 GiB, a 1 GB droplet)
  *   --reduced              CI mode: skip the steps a runner can't do (see REDUCED)
  *   --report-dir DIR       report.json, junit.xml, summary.txt, diagnostics/
  *
@@ -119,7 +118,7 @@ async function main() {
   const cfg: ClusterConfig = {
     prefix: (a.prefix as string) || 'swarmy-e2e',
     nodeCount: Number(a.nodes ?? 3),
-    spec: { cpus: Number(a.cpus ?? 1), memGiB: Number(a.mem ?? 1), diskGiB: Number(a.disk ?? 12) },
+    spec: { cpus: Number(a.cpus ?? 1), memGiB: Number(a.mem ?? 1), diskGiB: Number(a.disk ?? 25) },
     source: (a.source as 'head' | 'tree') || 'head',
     workDir,
     registryPort: Number(a['registry-port'] ?? 5055),
@@ -128,7 +127,6 @@ async function main() {
     adminEmail: 'e2e@example.com',
     tag: 'e2e',
     noBuild: !!a['no-build'],
-    tier: ((a.tier as string) || 'lite') as ClusterConfig['tier'],
     upgradeFrom: (a['upgrade-from'] as string) || 'HEAD~1',
   };
 
@@ -139,7 +137,6 @@ async function main() {
     nodes: String(cfg.nodeCount),
     size: `${cfg.spec.cpus}cpu/${cfg.spec.memGiB}GiB`,
     mesh,
-    tier: cfg.tier,
     source: cfg.source,
   });
 

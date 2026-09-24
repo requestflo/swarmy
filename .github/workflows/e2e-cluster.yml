@@ -24,12 +24,6 @@ on:
         description: 'Comma-separated step ids to run (blank = all)'
         required: false
         default: ''
-      tier:
-        description: 'Controller datastore tier'
-        required: false
-        default: lite
-        type: choice
-        options: [lite, standard]
   schedule:
     - cron: '17 3 * * *' # nightly, 03:17 UTC
 
@@ -59,7 +53,7 @@ jobs:
         env:
           SWARMY_E2E_WORKDIR: ${{ runner.temp }}/swarmy-e2e
         run: |
-          args=(--provider dind --reduced --source tree --tier "${{ inputs.tier || 'lite' }}" --report-dir e2e-cluster-report)
+          args=(--provider dind --reduced --source tree --report-dir e2e-cluster-report)
           if [ -n "${{ inputs.only }}" ]; then args+=(--only "${{ inputs.only }}"); fi
           bash scripts/e2e-cluster.sh "${args[@]}"
 

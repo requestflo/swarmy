@@ -27,7 +27,6 @@ export interface ClusterConfig {
   tag: string;
   /** Skip image builds and reuse the tags already in the local engine. */
   noBuild: boolean;
-  tier: 'lite' | 'standard';
   /** Git ref the upgrade scenario installs first ("the previous build"). */
   upgradeFrom: string;
 }
@@ -38,12 +37,16 @@ export interface ClusterNode {
   role: 'manager' | 'worker';
   /** node3: joins through the mesh behind a simulated NAT (when a mesh exists). */
   natted: boolean;
+  /** Host-facing address (API, edge). */
   ip: string;
+  /** Node-to-node address (swarm advertise, agent → controller). */
+  fabricIp: string;
 }
 
 export class Cluster {
   nodes: ClusterNode[] = [];
   controllerUrl = '';
+  controllerOrigin = '';
   commit = '';
   srcDir = '';
   /** What the file server hands out (the installer + stack files of the build being installed). */
@@ -64,6 +67,7 @@ export class Cluster {
         role: i === 1 ? 'manager' : 'worker',
         natted: i === 3,
         ip: '',
+        fabricIp: '',
       });
     }
   }
@@ -119,7 +123,9 @@ export class Cluster {
   }
 
   /** Build controller + agent images from the snapshot and push to the local registry. */
-  async buildImages(tag = this.cfg.tag, srcDir = this.srcDir, commit = this.commit) {
+  /** → the pushed manifest digests (sha256:…) per image. */
+  async buildImages(tag = this.cfg.tag, srcDir = this.srcDir, commit = this.commit): Promise<{ controller: string; agent: string }> {
+    const digests = { controller: '', agent: '' };
     const local = `127.0.0.1:${this.cfg.registryPort}`;
     for (const [kind, file] of [
       ['controller', 'apps/api/Dockerfile'],
@@ -137,7 +143,10 @@ export class Cluster {
         log(`built ${kind} in ${Math.round((Date.now() - t0) / 1000)}s`);
       }
       await must(['docker', 'push', '-q', ref], { timeoutMs: 15 * 60_000 }, `docker push ${ref}`);
+      const rd = await must(['docker', 'image', 'inspect', '-f', '{{range .RepoDigests}}{{println .}}{{end}}', ref]);
+      digests[kind] = rd.split('\n').find((l) => l.startsWith(`${local}/swarmy-${kind}@`))?.split('@')[1] ?? '';
     }
+    return digests;
   }
 
   // ── file server (the one-liner's script + stack files) ───────────────────
@@ -179,6 +188,7 @@ export class Cluster {
         if (await this.provider.exists(n.name)) throw new Error(`${n.name} already exists — run without --reuse to recreate, or teardown first`);
         log(`launching ${n.name} (${this.cfg.spec.cpus} CPU / ${this.cfg.spec.memGiB} GiB / ${this.cfg.spec.diskGiB} GiB)`);
         await this.provider.create(n.name, this.cfg.spec);
+        await this.provider.prepare(n.name);
       }),
     );
     await this.refreshIps();
@@ -194,9 +204,15 @@ export class Cluster {
 
   async refreshIps() {
     for (const n of this.nodes) {
-      if (await this.provider.running(n.name).catch(() => false)) n.ip = await this.provider.ip(n.name);
+      if (await this.provider.running(n.name).catch(() => false)) {
+        n.ip = await this.provider.ip(n.name);
+        n.fabricIp = await this.provider.fabricIp(n.name);
+      }
     }
     this.controllerUrl = `http://${this.manager.ip}:3021`;
+    // What the installer baked as the public/auth origin (LOGIN_URL = the
+    // manager's default-route IP) and what workers dial.
+    this.controllerOrigin = `http://${this.manager.fabricIp}:3021`;
   }
 
   async sh(node: ClusterNode, script: string, opts: { input?: string; timeoutMs?: number; stream?: boolean } = {}) {
@@ -231,7 +247,6 @@ export class Cluster {
       '--image', await this.image('controller', tag),
       '--agent-image', await this.image('agent', tag),
       '--mesh', this.cfg.mesh === 'self-hosted' ? 'self-hosted' : 'none',
-      ...(this.cfg.tier === 'standard' ? ['--standard'] : []),
       ...extraFlags,
     ];
     await this.mustSh(this.manager, 'umask 077; cat > /root/.swarmy-e2e.env', {

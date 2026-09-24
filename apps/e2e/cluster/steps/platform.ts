@@ -5,7 +5,9 @@
 import { randomBytes } from 'node:crypto';
 import type { Ctx } from '../context';
 import { Skip } from '../lib/report';
-import { assert, log, poll, q, secret, sleep } from '../lib/util';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { assert, Fatal, log, must, poll, q, secret } from '../lib/util';
 
 // ── 1. install ─────────────────────────────────────────────────────────────
 export async function install(ctx: Ctx) {
@@ -89,7 +91,7 @@ export async function servers(ctx: Ctx) {
       // The same one-liner Infrastructure → Add a node hands out.
       // Container backend (dind): run the locally built agent image, not ghcr's.
       const agentImage = c.provider.agentBackend === 'docker' ? ` SWARMY_AGENT_IMAGE=${q(await c.image('agent', c.installedTag))}` : '';
-      const oneLiner = `set -a; . /root/.swarmy-join.env; set +a; SWARMY_BACKEND=${c.provider.agentBackend} SWARMY_NODE_LABELS=e2e,${w.name}${agentImage}; export SWARMY_BACKEND SWARMY_NODE_LABELS SWARMY_AGENT_IMAGE; curl -fsSL ${q(`${c.controllerUrl}/install/loader.sh`)} | sh -s -- --controller ${q(c.controllerUrl)}`;
+      const oneLiner = `set -a; . /root/.swarmy-join.env; set +a; SWARMY_BACKEND=${c.provider.agentBackend} SWARMY_NODE_LABELS=e2e,${w.name}${agentImage}; export SWARMY_BACKEND SWARMY_NODE_LABELS SWARMY_AGENT_IMAGE; curl -fsSL ${q(`${c.controllerOrigin}/install/loader.sh`)} | sh -s -- --controller ${q(c.controllerOrigin)}`;
       // Fresh box: the agent installer brings Docker itself (get.docker.com).
       const r = await c.sh(w, oneLiner, { timeoutMs: 10 * 60_000, stream: true });
       if (r.code !== 0) throw new Error(`${w.name}: agent one-liner exited ${r.code}`);
@@ -125,9 +127,9 @@ export async function servers(ctx: Ctx) {
  */
 async function natSimulate(ctx: Ctx, index: number) {
   const n = ctx.node(index);
-  const peers = ctx.cluster.nodes.filter((x) => x !== n).map((x) => x.ip);
+  const peers = ctx.cluster.nodes.filter((x) => x !== n).map((x) => x.fabricIp);
   const rules = peers
-    .map((ip) => `iptables -I INPUT -i lima0 -s ${ip} -m conntrack --ctstate NEW -j DROP`)
+    .map((ip) => `iptables -I INPUT -s ${ip} -m conntrack --ctstate NEW -j DROP`)
     .join('; ');
   await ctx.cluster.mustSh(n, `${rules}`, {}, `${n.name}: NAT simulation`);
   log(`${n.name}: inbound NEW from ${peers.join(',')} dropped (simulated NAT)`);
@@ -227,37 +229,35 @@ export async function controllerMove(ctx: Ctx) {
 
 // ── 10. platform upgrade previous → current ────────────────────────────────
 export async function upgrade(ctx: Ctx) {
-  const proc = 'system.upgradePlatform';
-  const hasButton = await ctx.session.hasProcedure(proc);
-  if (!upgradeEnabled(ctx)) {
-    throw new Skip(
-      `flagged off: no upgrade button in this build (${proc}${hasButton ? ' exists — pass --enable upgrade' : ' absent'}); ` +
-        '--enable upgrade installs --upgrade-from first and rolls forward via the installer re-run (docs/UPGRADING.md)',
-    );
-  }
   const c = ctx.cluster;
-  // State created on the previous build must survive the upgrade.
+  const hasButton = await ctx.session.hasProcedure('platform.start');
+  const forced = upgradeEnabled(ctx);
+  if (!hasButton && !forced) {
+    throw new Skip('flagged off: no upgrade button (platform.start) in this build; --enable upgrade re-runs the installer instead (docs/UPGRADING.md)');
+  }
+  // State created on the installed build must survive the upgrade.
   const stack = `e2e-upg-${ctx.runId}`;
   await ctx.sdk.stacks.deploy({ name: stack, compose_source: 'services:\n  web:\n    image: nginx:1.27-alpine\n' });
   await poll(`${stack}_web running`, () => ctx.task(`${stack}_web`), { timeoutMs: 4 * 60_000, intervalMs: 5000 });
   const beforeNodes = (await ctx.sdk.nodes.list({ limit: 100 })).data.length;
   const beforeVersion = await (await fetch(`${c.controllerUrl}/version`)).text().catch(() => '?');
 
-  await c.buildImages(c.cfg.tag);
+  // "Next" = the current source under a new tag (a distinct digest).
+  const nextTag = `${c.cfg.tag}-next-${ctx.runId}`;
+  const digests = await c.buildImages(nextTag);
   c.serveRoot = c.srcDir;
+  let how: string;
   if (hasButton) {
-    // TODO(upgrades epic): confirm the input shape once the button ships.
-    await ctx.m(proc, { image: await c.image('controller', c.cfg.tag), agentImage: await c.image('agent', c.cfg.tag) }, 10 * 60_000);
+    how = await upgradeViaButton(ctx, nextTag, digests);
   } else {
-    // docs/UPGRADING.md: re-run the one-liner with the same flags + new images.
-    await c.install(ctx.password || (await c.adminPasswordFromNode()), [], c.cfg.tag);
+    await c.install(ctx.password || (await c.adminPasswordFromNode()), [], nextTag);
+    how = 'installer re-run';
+    await poll('controller healthy after upgrade', () => c.controllerHealthy(), { timeoutMs: 10 * 60_000, intervalMs: 5000 });
   }
-  c.installedTag = c.cfg.tag;
-  await poll(
-    'controller reports the new build',
-    async () => (await c.controllerHealthy()) && (await (await fetch(`${c.controllerUrl}/version`)).text()).includes(c.commit.replace(/-dirty$/, '')),
-    { timeoutMs: 10 * 60_000, intervalMs: 5000 },
-  );
+  c.installedTag = nextTag;
+  const img = await ctx.docker(`service inspect swarmy_controller --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}'`);
+  assert(img.includes(digests.controller) || img.includes(nextTag), `swarmy_controller still on ${img.trim()}`);
+
   await ctx.connect(ctx.password || undefined);
   const after = (await ctx.sdk.nodes.list({ limit: 100 })).data;
   assert(after.length === beforeNodes, `node count changed across upgrade: ${beforeNodes} → ${after.length}`);
@@ -265,10 +265,79 @@ export async function upgrade(ctx: Ctx) {
     timeoutMs: 5 * 60_000,
     intervalMs: 5000,
   });
-  const svc = (await ctx.sdk.services.list({ limit: 200 })).data.find((s) => s.name === `${stack}_web`);
+  const svc = (await ctx.sdk.services.list({ limit: 200 })).data.find((x) => x.name === `${stack}_web`);
   assert(svc && svc.replicas.running >= 1, `${stack}_web lost across the upgrade`);
   await ctx.sdk.stacks.remove(stack).catch(() => {});
-  return `${beforeVersion.slice(0, 40)} → ${c.commit}: login, API key, ${after.length} nodes and a stack survived`;
+  return `${how}: ${beforeVersion.slice(0, 60)} → ${nextTag}; login, API key, ${after.length} nodes and a stack survived`;
+}
+
+/**
+ * The Settings → Platform button: sign a manifest for the next images with a
+ * throwaway key, make the controller trust it, import, start, poll to done.
+ */
+async function upgradeViaButton(ctx: Ctx, nextTag: string, digests: { controller: string; agent: string }) {
+  const c = ctx.cluster;
+  const dir = join(c.cfg.workDir, `release-${ctx.runId}`);
+  mkdirSync(dir, { recursive: true });
+  const key = join(dir, 'k.pem');
+  await must(['openssl', 'genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', key]);
+  const pub = await must(['openssl', 'pkey', '-in', key, '-pubout']);
+  const version = `0.0.1-e2e.${Date.now()}`;
+  const reg = await c.registryHost();
+  const out = join(dir, 'platform.json');
+  await must(
+    [
+      'bun', join(c.srcDir, 'scripts/platform-manifest.ts'),
+      '--version', version, '--channel', 'stable', '--commit', c.commit.replace(/-dirty$/, ''),
+      '--digest', `controller=${digests.controller}`, '--digest', `agent=${digests.agent}`,
+      '--image', `controller=${reg}/swarmy-controller`, '--image', `agent=${reg}/swarmy-agent`,
+      '--sign-key', key, '--out', out,
+    ],
+    { cwd: c.srcDir },
+    'platform-manifest.ts',
+  );
+  // Trust the throwaway key (the stack file doesn't pass it through yet).
+  await c.mustSh(c.manager, 'umask 077; cat > /root/.swarmy-release.pub', { input: pub });
+  await c.mustSh(
+    c.manager,
+    `docker service update --quiet --detach=false --env-add SWARMY_RELEASE_PUBKEY="$(cat /root/.swarmy-release.pub)" swarmy_controller >/dev/null`,
+    { timeoutMs: 10 * 60_000 },
+    'trust release key',
+  );
+  await poll('controller healthy with the release key', () => c.controllerHealthy(), { timeoutMs: 5 * 60_000, intervalMs: 3000 });
+  await ctx.connect(ctx.password || undefined);
+
+  const manifest = readFileSync(out, 'utf8');
+  const signature = readFileSync(`${out}.sig`, 'utf8');
+  await ctx.m('platform.importRelease', { manifest, signature });
+  const started = await ctx.m<{ id?: string; run?: { id: string } }>('platform.start', { version, skipBackup: true });
+  log(`platform.start → ${JSON.stringify(started).slice(0, 200)}`);
+
+  let lastSteps = '';
+  const final = await poll(
+    'platform upgrade run finished',
+    async () => {
+      let st: any;
+      try {
+        st = await ctx.q('platform.status');
+      } catch {
+        // The controller restarts mid-run: reconnect and keep polling.
+        await ctx.connect(ctx.password || undefined).catch(() => {});
+        return null;
+      }
+      const run = st?.run;
+      const steps = (run?.steps ?? []).map((x: any) => `${x.key}=${x.status}`).join(' ');
+      if (steps !== lastSteps) log(`run ${run?.status}: ${(lastSteps = steps)}`);
+      if (run?.status === 'failed' || run?.status === 'cancelled') {
+        const bad = (run.steps ?? []).find((x: any) => x.status === 'failed');
+        throw new Fatal(`upgrade run ${run.status}: ${run.error ?? ''} ${bad ? `(${bad.key}: ${bad.error ?? bad.detail ?? ''})` : ''}`);
+      }
+      return run?.status === 'done' ? st : null;
+    },
+    { timeoutMs: 20 * 60_000, intervalMs: 5000 },
+  );
+  assert(final.release?.current?.version === version, `current release is ${final.release?.current?.version}, want ${version}`);
+  return `platform.start (${version})`;
 }
 
 // ── 11. teardown ───────────────────────────────────────────────────────────

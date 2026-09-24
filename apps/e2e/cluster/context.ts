@@ -41,7 +41,7 @@ export class Ctx {
     await this.cluster.refreshIps();
     await poll('controller /health', () => this.cluster.controllerHealthy(), { timeoutMs: 180_000, intervalMs: 3000 });
     this.password = secret(password ?? (await this.cluster.adminPasswordFromNode()));
-    this.session = new Session(this.url);
+    this.session = new Session(this.url, this.cluster.controllerOrigin);
     await poll('admin sign-in', async () => (await this.session.signIn(this.cluster.cfg.adminEmail, this.password), true), {
       timeoutMs: 120_000,
       intervalMs: 4000,
