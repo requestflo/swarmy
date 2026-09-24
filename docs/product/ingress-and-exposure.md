@@ -179,6 +179,38 @@ Four ideas, one story:
   the *next deploy* through admission (warn-severity is overridable; block is
   not). swarmy never removes a live port by itself. The fix is always yours.
 
+## Service-to-service networking (inside the swarm)
+
+The flip side of exposure is who can reach a service from INSIDE the cluster.
+Least privilege, by network:
+
+| Network | Who is on it | What resolves |
+|---|---|---|
+| `<app>_default` (one per app) | every service of that app | short compose names: `db:5432`, `api:8080`, `tasks.api` |
+| `<app>_<db>-net` & co (one per managed resource) | the resource + the app services attached to it | its service name, already in the injected `DATABASE_URL` / `REDIS_URL` / … |
+| `swarmy-link-<hash>` (one per connected app PAIR) | every app service of exactly two apps of one org | `<service>.<app>` (`api.billing:8080`) and `<app>_<service>` |
+| `swarmy` (shared platform) | edge Caddy, OTel collector, Garage, and the app services that are routed / observed / bucket-attached | `<app>_<service>` (the edge's upstream), `swarmy-garage:3900`, `swarmy-otel-collector:4317` — **no user aliases** |
+| `swarmy-control` (private) | controller, its Postgres, ClickHouse + the trusted bridges (edge, cloudflared, collector, node-#1 agent) | never reachable from an app |
+
+- **Apps are isolated by default; connecting them is explicit.** "Connect
+  apps" (`stacks.connect`, swarmy.yaml `connect: [billing]`) creates a private
+  overlay for exactly that pair — never a flat network — and never shares the
+  apps' managed databases.
+- **The control plane is on no network an app can join.** Admission refuses
+  a spec naming `swarmy-control` or aliasing any name on `swarmy`, with no
+  override: an app aliasing `postgres` or `swarmy_controller` there could
+  impersonate the platform to the dual-homed edge/collector.
+- **The API tells you what to type.** `stacks.endpoints` lists each service's
+  and managed resource's internal names and who can use them — the UI's
+  "reach this at `db:5432` from inside storefront".
+- **Over the mesh, overlays fit the tunnel.** New overlays get an MTU sized for
+  WireGuard (1230, 1170 encrypted) so large packets don't stall across nodes.
+- **Known residual:** services on the shared `swarmy` network (routed,
+  observed, bucket-attached) can reach each other's VIPs by full name. The fix
+  is per-org edge networks, which needs a per-org (or merged-render) Caddy
+  first — the edge is one swarm-wide service today.
+- Proof on a live swarm: `scripts/verify-networking.sh`.
+
 ## Failure modes (designed, not accidental)
 
 | Failure | Behaviour |

@@ -141,9 +141,19 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
   it is privileged for a reason — never widen its caps casually. Its image
   (`NETBIRD_CLIENT_IMAGE`, and the installer's) is currently `:latest`, not
   pinned — pinning it is part of `plans/epic-platform-upgrades.md`.
-- MTU is not managed yet. WireGuard (~1420) under VXLAN (+50B) can fragment or
-  silently drop packets; lower the overlay / `docker_gwbridge` MTU on
-  mesh-attached nodes if large packets stall.
+- Overlay MTU is mesh-aware (`overlayMtuFor` in `packages/core/src/network-policy.ts`):
+  NetBird/Tailscale `wt0` 1280 − VXLAN 50 = 1230 (1170 encrypted); raw
+  WireGuard 1420 → 1370. The installer creates `swarmy`/`swarmy-control` with
+  it, stack overlays get it from `overlayOptionsFor(ctx)` when the org mesh is
+  on, and the agent's `ensureNetwork` makes every new overlay without an MTU
+  inherit the platform overlay's. An EXISTING overlay's MTU can't change in
+  place (recreate = disruptive): a swarm migrated onto the mesh keeps 1500 on
+  old networks — `scripts/verify-networking.sh` (2 MB cross-node transfer)
+  tells you if that bites.
+- The network wall (`network-policy.ts`): the controller + its Postgres +
+  ClickHouse live only on the private `swarmy-control` overlay; user specs may
+  never join it nor alias names on the shared `swarmy` overlay (admission
+  refuses, not overridable; the agent strips such aliases as a floor).
 - `meshState` in the gateway currently writes coarse `ONLINE`/`OFFLINE`, while
   `reconcilePeerState` models the fuller `ENROLLING`/`ENROLLED`/`CONNECTED`/
   `DEGRADED`/`FAILED` domain — prefer the pure mapping when unifying them.
