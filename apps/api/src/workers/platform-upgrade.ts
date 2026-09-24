@@ -13,7 +13,10 @@
  */
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { platformTick, systemContext } from '@swarmy/trpc';
+// Namespace import: until the integration pass exports `platformTick` from
+// @swarmy/trpc's index, a named import would fail module linking and take the
+// whole controller down; this way the worker just stays idle.
+import * as trpc from '@swarmy/trpc';
 import { hub } from '../gateway';
 
 const TICK_MS = 30_000;
@@ -25,6 +28,11 @@ export function startPlatformUpgradeWorker(): () => void {
   let running = false;
   let lastAuto = 0;
   let lastFeed = 0;
+  const { platformTick, systemContext } = trpc;
+  if (typeof platformTick !== 'function') {
+    console.warn('[platform-upgrade] platformTick not exported by @swarmy/trpc — worker idle');
+    return () => undefined;
+  }
   const ctxFor = (orgId: string) => systemContext({ db: prisma, hub, auth: authRegistry.getAuth() }, orgId);
   const tick = async () => {
     if (running) return;
