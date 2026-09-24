@@ -141,10 +141,21 @@ Four ideas, one story:
 - **Guardrails defer, they don't duplicate.** `requireSignedImagesProd` emits
   nothing when the registry policy already enforces cosign signatures — the image
   evaluator does the real verify. One check, one owner.
-- **Identity is pluggable and off by default.** Email+password and the
-  `organization` plugin are always on; social/OIDC SSO, magic-link, and passkeys
-  are runtime-built from `AuthProviderConfig` and only appear on the sign-in page
-  when enabled. API keys and OAuth clients are admin-minted, hashed at rest, and
+- **Sign-in comes from your identity provider; email is optional.** (Owner
+  decision 2026-09-24.) The login page leads with SSO/social buttons: any OIDC
+  IdP (Keycloak, Authentik, Zitadel, Entra ID… via the org SSO rows, so a
+  swarmy never depends on an external cloud to sign in), then Microsoft,
+  Google, GitHub, GitLab (self-hosted URL supported). Username + password is
+  always on; email is never required — an account without one carries a
+  reserved `*.swarmy.invalid` placeholder that is never mailed or shown.
+  Invites are copyable links, optionally naming an email; the link is the
+  credential for any sign-in method. An org SSO provider auto-provisions its
+  directory's people (switchable) and maps their group claim into
+  `Member.attributes.ssoGroups`, which access policies match as groups.
+  Two-factor is each person's choice; nothing enforces it unless an admin
+  turns on the opt-in switches (docs/ACCOUNT-SECURITY.md). swarmy is itself an
+  OIDC provider for in-cluster apps (NetBird), issuing `groups` claims.
+  API keys and OAuth clients are admin-minted, hashed at rest, and
   scoped — see the `rest-api-surface` skill.
 
 - **Every destructive action runs the policy gate — on both front doors.**

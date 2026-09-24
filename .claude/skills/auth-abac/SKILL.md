@@ -127,6 +127,19 @@ see `skill("add-feature-slice")`; this skill owns the authz/audit third of it.
   (`SWARMY_SECRET_KEY`), decrypted only in `loadAuthConfig`, never returned by
   any read (the UI shows "set"/"rotate"). SAML rows are stored but skipped at
   build time (no SAML plugin in this Better Auth version).
+- **Email is optional; SSO is first.** Social: microsoft/google/github/gitlab
+  (`AuthProviderConfig.settings`: Entra `tenantId`, GitLab `issuer`). Generic
+  OIDC = org `SsoProvider` rows via genericOAuth (PKCE). The `username` plugin
+  is static; accounts without email carry `*.swarmy.invalid` placeholders —
+  check `isPlaceholderEmail`/`displayEmail` (`packages/auth/src/identity.ts`)
+  before mailing, showing or matching on an address. Sign-up admission
+  (`signup-policy.ts`) also accepts an invite-link cookie (`swarmy_invite`)
+  and org-SSO auto-provision; `provisioning.ts` redeems invites on any
+  sign-in, JIT-adds SSO members and writes `attributes.ssoGroups` (audited via
+  the host-injected `authRegistry.configure({ audit })` → `writeAudit`).
+  2FA is opt-in everywhere: social/SSO sessions are exempt, terminal step-up
+  defaults off. swarmy is also an OIDC provider (`oidc-provider.ts`,
+  `oidc-clients.ts` → `ensureNetbirdOidcClient`).
 - **Coverage today**: `abacProcedure` gates the terminal AND every destructive
   mutation (owner decision 2026-09-24 — the action table is in
   `docs/product/governance-and-access.md`): service/stack/node remove, scale,
