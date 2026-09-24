@@ -30,6 +30,8 @@ import { resolveManagerNode } from './dispatch.service';
 import { writeAudit } from './audit.service';
 import { fireEvent } from './alerts-fire';
 import { buildLogBus } from './build-log-bus';
+import { controllerPublicUrl, repoCredentials } from './git-credentials';
+import { SHA_RE, reportCommitStatus } from './git-feedback.service';
 import { liveService } from './service.service';
 import { promoteSpecFrom } from './releases.service';
 import { DEFAULT_REGISTRY_HOST, canonicalRegistryHost, isOrgRegistryImage, onImageBuilt } from './registryPolicy.service'; // D3 hook
@@ -237,15 +239,32 @@ interface RepoRow {
   tokenEnc: string | null;
   autodeploy: boolean;
   serviceId: string | null;
+  // git-apps: provider connection + deploy key (JIT credentials, feedback).
+  connectionId: string | null;
+  deployKeyEnc: string | null;
+  fullName: string | null;
+  externalRepoId: string | null;
+}
+
+/** Build inputs a swarmy.yaml can set (context subdir, Dockerfile, target, args). */
+export interface BuildInputs {
+  subdir?: string;
+  dockerfile?: string;
+  target?: string;
+  buildArgs?: Record<string, string>;
 }
 
 /** Shared build core used by both the UI trigger and the webhook/poll trigger. */
 async function runBuild(
   ctx: OrgContext,
   repo: RepoRow,
-  opts: { ref?: string; commit?: string; triggeredBy?: 'user' | 'system' },
+  opts: { ref?: string; commit?: string; triggeredBy?: 'user' | 'system'; build?: BuildInputs },
 ): Promise<BuildView> {
   const node = await resolveBuilderNode(ctx);
+  // git-apps: build the exact commit the webhook named (never "the branch tip
+  // now"), with JIT credentials from the repo's provider connection.
+  const sha = opts.commit && SHA_RE.test(opts.commit) ? opts.commit : undefined;
+  const gitCreds = await repoCredentials(ctx.db, repo);
   // Close an open (pre-auth) registry before pushing to it — best-effort.
   await convergeRegistryAuth(ctx).catch(() => undefined);
   const reg = await ensureRegistryConfig(ctx);
@@ -253,7 +272,7 @@ async function runBuild(
   const ref = opts.ref ?? repo.branch;
   const commandId = randomUUID();
   const imageName = repoImageName(repo.url);
-  const imageRef = `${host}/${imageName}:${ref.replace(/[^\w.-]/g, '-')}`;
+  const imageRef = `${host}/${imageName}:${sha ? sha.slice(0, 12) : ref.replace(/[^\w.-]/g, '-')}`;
 
   const build = await ctx.db.build.create({
     data: {
@@ -268,6 +287,17 @@ async function runBuild(
   });
 
   const credsEnc = decodeRegistryCreds(reg.credentialsEnc);
+  const feedback = (state: 'running' | 'success' | 'failure', description: string) =>
+    sha
+      ? void reportCommitStatus(ctx.db, repo, {
+          sha,
+          state,
+          context: 'swarmy / build',
+          description,
+          targetUrl: `${controllerPublicUrl()}/ci?build=${build.id}`,
+        }).catch(() => undefined)
+      : undefined;
+  feedback('running', `Building ${imageName} on a swarmy builder`);
 
   try {
     const result = await ctx.hub.dispatch<{ digest: string; imageRefs: string[] }>(
@@ -278,9 +308,14 @@ async function runBuild(
         source: {
           url: repo.url,
           ref,
-          token: repo.tokenEnc ? decryptSecret(repo.tokenEnc) : undefined,
+          ...(sha ? { sha } : {}),
+          ...gitCreds,
+          ...(opts.build?.subdir ? { subdir: opts.build.subdir } : {}),
+          ...(opts.build?.dockerfile ? { dockerfile: opts.build.dockerfile } : {}),
         },
         imageRefs: [imageRef],
+        ...(opts.build?.buildArgs && Object.keys(opts.build.buildArgs).length ? { buildArgs: opts.build.buildArgs } : {}),
+        ...(opts.build?.target ? { target: opts.build.target } : {}),
         pushPolicy: 'always',
         // resolveBuilderNode only returns builder-capable nodes — assert it so
         // the agent's gate (buildGateAllows) lets the build through.
@@ -306,6 +341,7 @@ async function runBuild(
       message: `Build of ${imageName}@${ref} succeeded`,
       status: 'resolved',
     }).catch(() => undefined);
+    feedback('success', `Built ${imageName}@${result?.digest?.slice(7, 19) ?? ref}`);
 
     // D3 hook: registry policy on build success — trivy CVE scan + cosign sign
     // of the freshly pushed image, on the node that built it. Fire-and-forget:
@@ -341,6 +377,7 @@ async function runBuild(
       resource: `repo:${imageName}`,
       message: `Build of ${imageName}@${ref} failed: ${e instanceof Error ? e.message.slice(0, 300) : String(e).slice(0, 300)}${tail ? `\n${tail}` : ''}`,
     }).catch(() => undefined);
+    feedback('failure', `Build failed: ${(e instanceof Error ? e.message : String(e)).split('\n')[0]?.slice(0, 120) ?? ''}`);
     throw buildFailureError(e, buildLogBus.snapshot(commandId).lines);
   }
 }
@@ -900,7 +937,7 @@ export function pickBuilderNode(
 }
 
 /** Resolve the org's builder node (live Docker labels + agent facts), or fail with how to enable one. */
-async function resolveBuilderNode(ctx: OrgContext): Promise<{ id: string }> {
+export async function resolveBuilderNode(ctx: OrgContext): Promise<{ id: string }> {
   // Membership/identity comes from the DB (enrollment node id); the builder role
   // label is Docker truth, read live from the hub via the hostname bridge.
   const nodes = await ctx.db.node.findMany({

@@ -77,6 +77,14 @@ export {
   bareDigest,
 } from './services/cicd.service';
 export type { GcCandidate, GcPlan, GcPlanInput, BuildLogLine } from './services/cicd.service';
+// ── git-apps P2: provider connections, JIT credentials, feedback ──
+export {
+  completeGithubManifest,
+  completeGithubSetup,
+  completeGitlabOAuth,
+} from './services/git-connections.service';
+export { controllerPublicUrl, repoCredentials } from './services/git-credentials';
+export { previewCommentBody, reportCommitStatus, upsertPrComment } from './services/git-feedback.service';
 export {
   runImageGcForOrg,
   runImageGcAllOrgs,
