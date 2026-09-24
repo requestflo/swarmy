@@ -1,6 +1,7 @@
 # AI gateway — "one gateway: provider keys stay server-side, apps get revocable virtual keys"
 
-**Status: canonical product design (2026-07). No dedicated skill — the how lives
+**Status: canonical product design (2026-07; extended 2026-09 to the
+LiteLLM-class gateway — plans/epic-developer-platform.md §11). No dedicated skill — the how lives
 in code; pairs with the `docker-native-storage`, `agent-handlers`, and
 `add-feature-slice` skills for the storage split, the attach dispatch, and the
 feature shape.**
@@ -67,6 +68,69 @@ Three ideas, one story:
   secret**, and redeploys the service with `AI_GATEWAY_URL` +
   `AI_GATEWAY_KEY_FILE`. The key lives in Docker on the app's side; re-attaching
   rotates it and retires the old one.
+
+## The LiteLLM-class gateway (2026-09)
+
+swarmy's gateway does what people deploy LiteLLM for, in the controller
+process, without its RAM bill or enterprise licence:
+
+- **Eleven providers.** Anthropic, OpenAI, Azure OpenAI (deployments +
+  api-version), Google Gemini, AWS Bedrock (Converse, SigV4 or a Bedrock API
+  key), Mistral, Groq, OpenRouter, any OpenAI-compatible base URL, and
+  **in-cluster models**: an Ollama or vLLM service (the templates, matched by
+  image or a `swarmy.ai.provider` label) registers itself from the live
+  inventory — nothing is stored — and is reached by service name, not the
+  internet. In-cluster calls cost nothing on the meter.
+- **One OpenAI-compatible surface.** `/ai/v1/chat/completions` and
+  `/ai/v1/embeddings` translate to every provider — requests, responses,
+  streaming SSE chunks and tool calls. `/ai/v1/messages` stays native
+  Anthropic (a passthrough to Anthropic, translated both ways for any other
+  target). `GET /ai/v1/models` lists what a key may call. Stock SDK auth works:
+  `Authorization: Bearer`, `x-api-key`, `api-key`.
+- **Models.** A catalogue with a static price table (cost is still an
+  estimate). Aliases `fast`, `smart`, `embed` resolve to every configured
+  provider in preference order, so a fallback chain exists with zero config; an
+  org route replaces an alias or adds a name, as an ordered **fallback** or a
+  weighted **balance**. Each target gets retries with exponential backoff
+  (`retry-after` wins); a busy/down target falls through to the next, a
+  misconfigured one (401/403/404) is skipped at once, a client error (400) stops
+  the chain. A target that keeps failing is cooled for 30s.
+- **Allowlists.** A key carries a model allowlist (aliases, ids,
+  `provider/model`, `provider/*`); an app (stack) can carry one too, and both
+  must allow the call. Minting a key for a model checks the minter's `ai.use`.
+- **Policy.** ABAC `ai.use` on the model (resource type `aiModel`, labels
+  `swarmy.ai.provider`, `swarmy.ai.alias`, `swarmy.ai.cost` free|paid) for the
+  member who minted the calling key and for whoever runs the playground.
+  Members may use every model by default; an org narrows it with a forbid rule
+  ("members use free models only"). Keys with no minter (older keys) are
+  governed by their allowlists alone.
+- **Guardrails.** A prompt-size cap (org-wide and per key; the tighter wins,
+  `413`), and PII redaction on the request log (emails, phones, Luhn-valid
+  cards, IBANs, SSNs, IPs, API keys, JWTs) — on by default.
+- **Traces.** OTel GenAI semantic conventions (`gen_ai.operation.name`,
+  `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.usage.*`, …): a
+  SERVER span per request as a child of the caller's `traceparent`, a CLIENT
+  span per upstream attempt, exported as OTLP/HTTP JSON when
+  `SWARMY_AI_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_ENDPOINT` is set, with
+  `swarmy.org_id` / `swarmy.stack` resource attributes for the org-scoped
+  trace views. Prompts never go on spans.
+- **Playground.** The AI page runs a model under a chosen key's limits,
+  server-side and in-process (no key in the browser), metered and traced like
+  any call, showing which provider answered and how many attempts it took.
+- **`swarmy.yaml`.** `ai: { models: [smart, embed], budget: 5/day }` binds
+  every service (or `services: [...]`): `OPENAI_BASE_URL` (`…/ai/v1`),
+  `ANTHROPIC_BASE_URL` (`…/ai`) and `AI_GATEWAY_URL` in env, and the service's
+  own key as the secret variables `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` —
+  Docker secrets exported by the app-secrets env shim, carried across every
+  redeploy. The budget is shared by the app's keys. Changing the allowlist
+  updates the key in place; it only rotates if its secret is gone.
+- **LiteLLM itself** is a template for anyone who wants its UI.
+
+**Known gap — in-cluster reachability.** The controller lives only on
+`swarmy-control`, which user services may never join. Discovery registers the
+engine at `http://<service>:<port>`; until the installer attaches the
+controller to a shared AI overlay the operator can override the base URL (for
+example a node-local published port). Tracked in the plan.
 
 ## Roles and where truth lives
 
@@ -157,12 +221,18 @@ Three ideas, one story:
 ## Implementation map
 
 There is no dedicated skill for this unit — the code is the how, and it reuses
-patterns documented elsewhere. Control plane (providers, keys, usage, logs,
-settings, attach, stack grants, outlets):
-`packages/trpc/src/services/ai.service.ts` +
-`packages/trpc/src/routers/ai.ts`. Data plane (the proxy, auth, routing, limits,
-metering, cache): `apps/api/src/ai-gateway.ts`, mounted at `/ai` in
-`apps/api/src/index.ts`. Persistence: `packages/db/prisma/schema/ai.prisma`
+patterns documented elsewhere. Pure model layer (providers, catalogue +
+prices, aliases/routes, allowlists, in-cluster discovery, config and key-policy
+codecs, PII redaction): `packages/core/src/ai-gateway.ts`. Control plane
+(providers, routes, keys, usage, logs, settings, playground, attach, the
+`swarmy.yaml` binding, stack grants, outlets):
+`packages/trpc/src/services/ai.service.ts` + `packages/trpc/src/routers/ai.ts`;
+the `ai:` schema is `packages/app-config/src/ai.ts`. Data plane (the pipeline,
+auth, limits, metering, cache): `apps/api/src/ai-gateway.ts`, mounted at `/ai`
+in `apps/api/src/index.ts`; translation per provider in `apps/api/src/ai/`
+(`adapters.ts`, `anthropic.ts`, `gemini.ts`, `bedrock.ts`, `sigv4.ts`,
+`framing.ts`), fallbacks/retries in `router.ts`, GenAI traces in `trace.ts`.
+ABAC `ai.use` lives in `packages/abac`. Persistence: `packages/db/prisma/schema/ai.prisma`
 (`AiProviderConfig` / `AiVirtualKey` / `AiUsage` / `AiRequestLog`); wire
 types/inputs in `packages/core/src/views.ts` + `packages/core/src/inputs.ts`.
 UI: `apps/app/src/routes/_authed/ai.tsx` → `apps/app/src/components/ai/*`

@@ -97,6 +97,10 @@ Order of work: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10. Design 
   restore-drill clone path).
 
 ## 11. AI gateway, extended (LiteLLM-class, built on what exists)
+> Status: built (2026-09-24) except the semantic cache. Open: the controller
+> cannot yet reach in-cluster engines by service name (it is only on
+> swarmy-control) — the installer needs to attach it to a shared AI overlay.
+> See docs/product/ai-gateway.md.
 swarmy already ships an AI gateway (docs/product/ai-gateway.md, apps/api/src/ai-gateway.ts):
 provider keys in the vault, per-app revocable virtual keys, attach-to-app, RPM + $ budgets,
 exact-body cache, usage/cost and request logs. Extend it rather than deploy LiteLLM.
