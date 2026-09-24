@@ -20,10 +20,10 @@ function svc(labels: Record<string, string>, published = true): SwarmServiceInfo
     labels: { 'com.docker.stack.namespace': 'shop', ...labels },
     networks: [],
     env: [],
-    ports: published ? [{ target: 3000, published: 3000, protocol: 'tcp', mode: 'ingress' }] : [],
+    ports: published ? [{ target: 3000, published: 3000, protocol: 'tcp' as const }] : [],
     secrets: [],
     configs: [],
-  } as SwarmServiceInfo;
+  } as unknown as SwarmServiceInfo;
 }
 
 function ctxWith(opts: { zones?: Array<{ zone: string; settings?: object }>; labels?: Record<string, string> }) {
