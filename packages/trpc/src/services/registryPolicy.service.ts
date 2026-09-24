@@ -24,6 +24,7 @@ import type { OrgContext } from '../context';
 import { mapDispatchError, notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { writeAudit } from './audit.service';
+import { scanUsedStaleDb, trivyScanRunOnce } from './trivy-db';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -362,24 +363,27 @@ async function runScan(
       'container.runOnce',
       {
         image: TRIVY_IMAGE,
-        cmd: [
-          'image',
-          '--format',
-          'json',
-          '--scanners',
-          'vuln',
-          '--timeout',
-          '8m',
-          '--quiet',
-          // The in-swarm registry:2 speaks plain HTTP.
-          '--insecure',
+        // Shared node-local DB cache (B6): skip the ~60 MB download when the DB
+        // is fresh, fall back to a stale DB (flagged) when the update fails.
+        ...trivyScanRunOnce(
           hostReachableRef(imageRef),
-        ],
-        // Reuse the registry auth builds push with (trivy reads TRIVY_USERNAME/PASSWORD).
-        env: creds ? { TRIVY_USERNAME: creds.username, TRIVY_PASSWORD: creds.password } : undefined,
+          [
+            '--format',
+            'json',
+            '--scanners',
+            'vuln',
+            '--timeout',
+            '8m',
+            '--quiet',
+            // The in-swarm registry:2 speaks plain HTTP.
+            '--insecure',
+          ],
+          // Reuse the registry auth builds push with (trivy reads TRIVY_USERNAME/PASSWORD).
+          creds ? { TRIVY_USERNAME: creds.username, TRIVY_PASSWORD: creds.password } : {},
+        ),
         // Host network: reach the registry at `localhost:5000` via the routing
-      // mesh, exactly as the node's dockerd does.
-      networks: ['host'],
+        // mesh, exactly as the node's dockerd does.
+        networks: ['host'],
         timeoutMs: SCAN_TIMEOUT_MS,
       },
       { timeoutMs: SCAN_TIMEOUT_MS + 30_000 },
@@ -398,7 +402,11 @@ async function runScan(
         highCount: parsed.highCount,
         mediumCount: parsed.mediumCount,
         lowCount: parsed.lowCount,
-        reportJson: { cves: parsed.cves, totalCves: parsed.totalCves } as object,
+        reportJson: {
+          cves: parsed.cves,
+          totalCves: parsed.totalCves,
+          ...(scanUsedStaleDb(res.output) ? { dbStale: true } : {}),
+        } as object,
         status: 'PASSED',
       },
     });

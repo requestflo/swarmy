@@ -98,6 +98,26 @@ describe('decideImageAdmission — blockCriticalCves', () => {
     });
     expect(v[0]).toMatchObject({ rule: 'images/unscanned', severity: 'warn' });
   });
+
+  it('a scan against a stale Trivy DB only warns — never blocks on staleness (B6)', () => {
+    const v = decideImageAdmission({
+      policy,
+      images: [img(`${HOST}/app@sha256:a`)],
+      scanFor: (): ScanFact => ({ status: 'passed', criticalCount: 0, dbStale: true }),
+      signatureFor: () => null,
+    });
+    expect(v).toEqual([expect.objectContaining({ rule: 'images/scan-db-stale', severity: 'warn' })]);
+  });
+
+  it('criticals a stale DB found still block (they are real)', () => {
+    const v = decideImageAdmission({
+      policy,
+      images: [img(`${HOST}/app@sha256:a`)],
+      scanFor: (): ScanFact => ({ status: 'passed', criticalCount: 1, dbStale: true }),
+      signatureFor: () => null,
+    });
+    expect(v.map((x) => `${x.rule}:${x.severity}`)).toEqual(['images/critical-cves:block', 'images/scan-db-stale:warn']);
+  });
 });
 
 describe('decideImageAdmission — requireSignedImages', () => {

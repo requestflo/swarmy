@@ -30,6 +30,7 @@ import { startNotificationDispatch } from './notification-dispatch';
 import { startExposureAudit } from './exposure-audit';
 import { startMeshMigrationResumer } from './mesh-migration';
 import { startSystemImageMirror } from './system-image-mirror';
+import { startTrivyDbRefresh } from './trivy-db-refresh';
 
 export function startWorkers(): () => void {
   const stops = [
@@ -65,6 +66,7 @@ export function startWorkers(): () => void {
     startExposureAudit(),
     startMeshMigrationResumer(),
     startSystemImageMirror(),
+    startTrivyDbRefresh(),
   ];
   return () => stops.forEach((s) => s());
 }

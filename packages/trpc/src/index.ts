@@ -145,6 +145,7 @@ export type { GcRunResult } from './services/image-gc.service';
 export { mirrorSystemImagesAllOrgs } from './services/system-images.service';
 export type { MirrorTickResult } from './services/system-images.service';
 export { ensureRegistryDeployed } from './services/cicd.service';
+export { refreshTrivyDbAllOrgs } from './services/trivy-db.service';
 // In-swarm registry auth: the hub dispatch decorator attaching pull creds to
 // org-registry deploys (wired onto AgentHubImpl in apps/api).
 export { createRegistryAuthDecorator } from './services/registry-auth';

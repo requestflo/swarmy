@@ -70,6 +70,8 @@ export interface CandidateImage {
 export interface ScanFact {
   status: 'passed' | 'failed' | 'error';
   criticalCount: number;
+  /** The scan ran against an out-of-date Trivy DB (refresh failed) — warn, never block (B6). */
+  dbStale?: boolean;
 }
 
 /** Digest from a pinned ref (`…@sha256:x` → `sha256:x`), else null. */
@@ -128,6 +130,16 @@ export function decideImageAdmission(input: {
           resource: image.service,
         });
       }
+      if (scan?.dbStale && scan.status !== 'error') {
+        // A stale DB can only MISS CVEs, never invent them: criticals it found
+        // still block above, but staleness itself is only ever a warning.
+        violations.push({
+          rule: 'images/scan-db-stale',
+          severity: 'warn',
+          message: `${image.image} was scanned against an out-of-date vulnerability DB (the daily refresh could not reach it) — newer CVEs may be missing.`,
+          resource: image.service,
+        });
+      }
     }
     if (input.policy.requireSignedImages) {
       const signed = input.signatureFor(image);
@@ -168,12 +180,16 @@ export async function evaluate(ctx: OrgContext, intent: AdmissionIntent): Promis
         ...(img.digest ? { digest: img.digest } : { imageRef: img.image }),
       },
       orderBy: { scannedAt: 'desc' },
-      select: { status: true, criticalCount: true },
+      select: { status: true, criticalCount: true, reportJson: true },
     });
     scans.set(
       img.image,
       row
-        ? { status: row.status.toLowerCase() as ScanFact['status'], criticalCount: row.criticalCount }
+        ? {
+            status: row.status.toLowerCase() as ScanFact['status'],
+            criticalCount: row.criticalCount,
+            dbStale: (row.reportJson as { dbStale?: boolean } | null)?.dbStale === true,
+          }
         : null,
     );
   }
