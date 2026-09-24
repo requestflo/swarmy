@@ -5,6 +5,7 @@ import { ArrowRightIcon, HardDriveIcon } from 'lucide-react';
 import { Button, Card, CardContent, EmptyState } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { StackResilienceSection } from '@/components/resilience/stack-resilience-section';
+import { ErrorState } from '@/components/states';
 import { StackDbCoverageCard } from './stack-db-coverage-card';
 import { StackDrHero } from './stack-dr-hero';
 import { StackSchedulesCard } from './stack-schedules-card';
@@ -64,12 +65,24 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
     targetOptions[0]?.name ||
     null;
 
-  if (targets.isLoading) {
+  // The hero is a claim about coverage — draw nothing until every input has
+  // settled, so "no backups yet" can never flash over a covered stack.
+  if (targets.isPending || schedules.isPending || snapshots.isPending) {
     return (
       <div className="grid gap-6">
         <div className="card-pop shimmer-line h-32" />
         <div className="card-pop shimmer-line h-48" />
       </div>
+    );
+  }
+  if (targets.isError) {
+    return (
+      <ErrorState
+        title="Couldn’t load backup destinations."
+        error={targets.error}
+        retry={() => void targets.refetch()}
+        retrying={targets.isFetching}
+      />
     );
   }
 
@@ -105,6 +118,7 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
         nextRunAt={nextRunAt}
         targetName={targetName}
         snapshotCount={snapshotRows.length}
+        activeScheduleCount={scheduleRows.filter((s) => !s.paused).length}
       />
 
       <Card className="card-pop border-0">
