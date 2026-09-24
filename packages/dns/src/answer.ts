@@ -207,8 +207,47 @@ export function answerQuery(
     degraded: opts.degraded ?? false,
   });
 
-  const view = viewName(zone, qname);
-  if (!view.exists) return respond([], { rcode: 'NXDOMAIN' });
+  let view = viewName(zone, qname);
+  if (!view.exists) {
+    // RFC 4592 wildcard synthesis: a name that does not exist is answered by
+    // `*.<closest encloser>` when that wildcard owns records. Wildcard routes
+    // (`*.acme.com` → the edge) and the DNS-01 `swarmy-dns-check` probe rely on it.
+    const wildcard = wildcardFor(zone, qname);
+    if (!wildcard) return respond([], { rcode: 'NXDOMAIN' });
+    view = wildcard.view;
+    const synthesized = answerExisting(zone, qname, question, client, view, respond);
+    return { ...synthesized, answers: synthesized.answers.map((a) => (lower(a.name) === wildcard.owner ? { ...a, name: qname } : a)) };
+  }
+  return answerExisting(zone, qname, question, client, view, respond);
+}
+
+/** The wildcard view answering a non-existent `qname`, if one applies. */
+function wildcardFor(zone: DnsZoneSnapshot, qname: string): { owner: string; view: NameView } | undefined {
+  // Closest encloser: the nearest ancestor that exists (records or an empty
+  // non-terminal); only `*.<that>` may answer — never a wildcard further up.
+  let name = qname;
+  while (name !== zone.zone && name.includes('.')) {
+    name = name.slice(name.indexOf('.') + 1);
+    if (name !== zone.zone && !name.endsWith(`.${zone.zone}`)) return undefined;
+    if (!viewName(zone, name).exists) continue;
+    const owner = `*.${name}`;
+    const view = viewName(zone, owner);
+    return view.geo || view.statics.length > 0 ? { owner, view } : undefined;
+  }
+  return undefined;
+}
+
+function answerExisting(
+  zone: DnsZoneSnapshot,
+  qname: string,
+  question: Question,
+  client: ClientLocation,
+  view: NameView,
+  respond: (
+    answers: Answer[],
+    opts?: Partial<Pick<DnsAnswer, 'rcode' | 'authorities' | 'additionals' | 'steered' | 'degraded'>>,
+  ) => DnsAnswer,
+): DnsAnswer {
 
   const qtype = question.type?.toUpperCase() ?? 'A';
 

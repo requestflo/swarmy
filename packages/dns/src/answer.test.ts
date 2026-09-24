@@ -199,3 +199,56 @@ describe('answerQuery — ANY (RFC 8482)', () => {
     expect(res.answers[0]).toMatchObject({ type: 'HINFO', data: { cpu: 'RFC8482' } });
   });
 });
+
+describe('wildcards (RFC 4592)', () => {
+  const wz = () =>
+    zone({
+      geoRecords: [
+        {
+          host: '*.example.com',
+          maxAnswers: 1,
+          endpoints: [{ nodeId: 'node-uk', region: 'eu-west', ip: UK_IP, healthy: true }],
+          source: 'route',
+        },
+        {
+          host: 'app.example.com',
+          maxAnswers: 1,
+          endpoints: [{ nodeId: 'node-za', region: 'af', ip: ZA_IP, healthy: true }],
+        },
+      ],
+      staticRecords: [{ name: '_acme-challenge', type: 'TXT', value: 'tok-1' }],
+    });
+
+  it('synthesizes an A for a non-existent name, owner = the query name', () => {
+    const r = answerQuery([wz()], q('Shop.example.com', 'A'), nowhere);
+    expect(r.rcode).toBe('NOERROR');
+    expect(r.answers.map((a) => [a.name, data(a)])).toEqual([['shop.example.com', UK_IP]]);
+  });
+
+  it('an existing name wins over the wildcard', () => {
+    const r = answerQuery([wz()], q('app.example.com', 'A'), nowhere);
+    expect(r.answers.map(data)).toEqual([ZA_IP]);
+  });
+
+  it('the DNS-01 TXT is answered at its own name (not the wildcard)', () => {
+    const r = answerQuery([wz()], q('_acme-challenge.example.com', 'TXT'), nowhere);
+    expect(r.answers.map(data)).toEqual(['tok-1']);
+  });
+
+  it('only the closest encloser’s wildcard applies', () => {
+    // `x.app.example.com`: closest encloser is app.example.com (exists) — no `*.app` → NXDOMAIN.
+    expect(answerQuery([wz()], q('x.app.example.com', 'A'), nowhere).rcode).toBe('NXDOMAIN');
+    // deeper non-existent names under a non-existent parent do match `*.example.com`.
+    expect(answerQuery([wz()], q('a.b.example.com', 'A'), nowhere).answers.map(data)).toEqual([UK_IP]);
+  });
+
+  it('wildcard-owned name with another type → NODATA', () => {
+    const r = answerQuery([wz()], q('shop.example.com', 'MX'), nowhere);
+    expect(r.rcode).toBe('NOERROR');
+    expect(r.answers).toEqual([]);
+  });
+
+  it('no wildcard → NXDOMAIN as before', () => {
+    expect(answerQuery([zone()], q('nope.example.com', 'A'), nowhere).rcode).toBe('NXDOMAIN');
+  });
+});
