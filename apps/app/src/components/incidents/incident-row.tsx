@@ -4,7 +4,7 @@ import { ChevronRightIcon } from 'lucide-react';
 import type { IncidentView } from '@swarmy/core';
 import { IncidentStatusChip, SeverityChip, formatDuration, relativeTime } from './incident-status';
 import { StackChip } from './stack-chip';
-import { stackFromIncidentTitle, useServiceStackMap } from './use-service-stack-map';
+import { stackFromIncidentTitle, useServiceStackMap } from '@/components/alerts/use-service-stack-map';
 
 /** One incident as a flat hairline row — the whole row links to the timeline. */
 export function IncidentRow({ incident }: { incident: IncidentView }): React.JSX.Element {

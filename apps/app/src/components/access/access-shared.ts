@@ -56,8 +56,3 @@ export interface GrantEntry {
 export function enabledTone(enabled: boolean): StatusTone {
   return enabled ? 'online' : 'neutral';
 }
-
-/** Policy permit/forbid → tone. */
-export function effectTone(effect: string): StatusTone {
-  return effect === 'permit' ? 'online' : 'offline';
-}

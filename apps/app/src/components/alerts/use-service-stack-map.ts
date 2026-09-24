@@ -5,8 +5,8 @@ import { useTRPC } from '@/integrations/trpc';
 
 /**
  * Docker service name → stack name, derived client-side from the live
- * inventory. Powers stack chips on alert rows that only carry a bare
- * `service:<name>` resource string — no backend stack-scoping needed.
+ * inventory. Powers stack chips on alert rows (`service:<name>` resources)
+ * and incident rows (titles naming a service) — no backend stack-scoping.
  */
 export function useServiceStackMap(): Map<string, string> {
   const trpc = useTRPC();
@@ -27,4 +27,20 @@ export function useServiceStackMap(): Map<string, string> {
 export function stackForResource(resource: string, map: Map<string, string>): string | null {
   if (!resource.startsWith('service:')) return null;
   return map.get(resource.slice('service:'.length)) ?? null;
+}
+
+/**
+ * Derive a stack from an incident title, mirroring the two title shapes
+ * `incidentTitleForGroup` produces that carry enough context: a deploy-gate
+ * groupKey (`release:<stack>`) names the stack directly, and a service alert
+ * groupKey (`alert:service:<name>`) needs the same name→stack lookup as
+ * alert events. Other shapes (db cluster, node, queue…) have no derivable
+ * stack — this returns null and the row simply omits the chip.
+ */
+export function stackFromIncidentTitle(title: string, serviceStackMap: Map<string, string>): string | null {
+  const deploy = /^Failed deploy on (.+)$/.exec(title);
+  if (deploy?.[1]) return deploy[1];
+  const service = /^Service (.+) disruption$/.exec(title);
+  if (service?.[1]) return serviceStackMap.get(service[1]) ?? null;
+  return null;
 }

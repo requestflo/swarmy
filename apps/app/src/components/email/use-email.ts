@@ -10,7 +10,6 @@ export function useEmailOverview() {
 
 export type EmailOverviewData = NonNullable<ReturnType<typeof useEmailOverview>['data']>;
 export type EmailDomainData = EmailOverviewData['domains'][number];
-export type EmailCredentialData = EmailOverviewData['credentials'][number];
 export type EmailRecordData = EmailDomainData['records'][number];
 
 interface MaybePolicyError {

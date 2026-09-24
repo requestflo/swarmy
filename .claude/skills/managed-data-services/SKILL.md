@@ -135,7 +135,7 @@ state belongs see `skill("docker-native-storage")`.
 | Input schemas + engine/topology enums | `packages/core/src/inputs.ts`, `packages/core/src/views.ts` |
 | StorageCluster model | `packages/db/prisma/schema/backups.prisma` |
 | Cluster volumes (live `volume.list`, no table) | `packages/trpc/src/services/clusterVolume.service.ts` |
-| Data surfaces | per stack: `apps/app/src/routes/_authed/stacks/$name.data.tsx` → `components/stacks/managed-db-panel.tsx`, `components/{cache,searchsvc,vector,pitr-ha}/*`; buckets: `routes/_authed/data_.buckets.tsx` |
+| Data surfaces | per stack: `apps/app/src/routes/_authed/stacks/$name.data.tsx` → `components/stacks/managed-db-panel.tsx`, `components/{cache,searchsvc,vector}/*`; buckets: `routes/_authed/data_.buckets.tsx` |
 | Postgres boot layer (entrypoint script, env contract, `applyPgBoot`) | `packages/core/src/manageddb-pg.ts` (+ `.test.ts`) |
 | HA templates (`postgres-ha` streaming + manual promotion, `redis-ha` Valkey Sentinel; no gallery UI yet) | `packages/trpc/src/services/templates.ts`, `routers/templates.ts` |
 

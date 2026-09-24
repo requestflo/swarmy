@@ -10,11 +10,6 @@ export function bytes(n: number | null | undefined): string {
   return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-export function bps(n: number | null | undefined): string {
-  if (n == null) return '—';
-  return `${bytes(n)}/s`;
-}
-
 export function pct(n: number | null | undefined): string {
   if (n == null) return '—';
   return `${n.toFixed(n >= 100 ? 0 : 1)}%`;

@@ -10,10 +10,8 @@ export type StudioBrowseView = inferOutput<Studio['browse']>;
 export type StudioRunView = inferOutput<Studio['execute']>;
 export type StudioInsightsView = inferOutput<Studio['insights']>;
 export type StudioHistoryRow = inferOutput<Studio['history']>[number];
-export type StudioSavedView = inferOutput<Studio['saved']['list']>[number];
 export type StudioKeyRow = inferOutput<Studio['keys']>['keys'][number];
 export type StudioEdit = inferInput<Studio['prepareEdit']>['edit'];
-export type StudioPrepared = inferOutput<Studio['prepareEdit']>;
 export type StudioFilter = NonNullable<inferInput<Studio['browse']>['filters']>[number];
 
 export type StudioTab = 'data' | 'console' | 'saved' | 'insights';

@@ -137,8 +137,8 @@ becomes a tab, never a new sidenav row.
   padded; content gets `pb-28` so the bar never covers it. (Plan §E target:
   Overview · Apps · `+` · Servers · Activity.)
 
-**Breakpoint rule:** the layout swap happens at **`lg` (1024px)**. For JS-driven
-swaps use `useBelowLg()` from `apps/app/src/lib/use-below-lg.ts`.
+**Breakpoint rule:** the layout swap happens at **`lg` (1024px)**. Do it in CSS
+(`lg:` variants); nothing in the app needs a JS breakpoint hook today.
 
 **No top nav bar. No hamburger menus.** Desktop is the sidenav; mobile is the
 always-visible tab bar.

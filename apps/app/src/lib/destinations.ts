@@ -100,9 +100,6 @@ export const PRIMARY: Destination[] = [
   },
 ];
 
-/** The two primary planes — kept for the ⌘K palette + plane-aware surfaces. */
-export const PLANES: Destination[] = PRIMARY.filter((d) => d.to === '/' || d.to === '/nodes');
-
 /** Every grouped destination. Order within a group is display order. */
 export const SECTIONS: Destination[] = [
   // ── Deploy ──────────────────────────────────────────────────────────────
@@ -206,11 +203,4 @@ export const CREATE_KIND_LABEL: Record<CommandAction['kind'], string> = {
   data: 'Data services',
   ops: 'Operations',
   infra: 'Infrastructure',
-};
-
-/** The status tone a badge count renders with. */
-export const BADGE_TONE: Record<BadgeKey, string> = {
-  nodesOffline: 'offline',
-  alertsFiring: 'warning',
-  incidentsOpen: 'offline',
 };

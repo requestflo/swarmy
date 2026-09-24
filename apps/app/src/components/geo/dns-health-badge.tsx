@@ -23,23 +23,6 @@ const STYLES: Record<DnsHealth, { dot: string; text: string; label: string }> = 
   unknown: { dot: 'bg-status-idle', text: 'text-status-idle', label: 'no record' },
 };
 
-/** Shape of a `geodns.checkDomain` probe (mirrors the tRPC `DomainCheck` view). */
-export interface DnsCheck {
-  resolves: boolean;
-  reachable: boolean;
-  served: boolean;
-  expectedIps: string[];
-  gotIp: string;
-}
-
-/** Derive a green/amber/red health from a `geodns.checkDomain` probe. */
-export function dnsHealthFromCheck(c: DnsCheck): DnsHealth {
-  if (!c.resolves) return 'down';
-  if (!c.reachable) return 'degraded';
-  if (!c.served) return 'degraded';
-  return 'healthy';
-}
-
 /** Health for one host from the derived DNS view rows (cheap, shared-cache friendly). */
 function dnsHealthFromView(
   rows: Array<{ host: string; endpoints: Array<{ ip: string; healthy: boolean }>; healthyCount: number }>,
