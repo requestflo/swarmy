@@ -89,3 +89,43 @@ describe('install-swarmy.sh secret handling', () => {
     expect(script).toContain('with_public_umask ensure_docker_registry_mirror');
   });
 });
+
+describe('install-swarmy.sh --mesh swarmy helpers', () => {
+  it('mesh_domain: explicit wins, then mesh.<dashboard>, then mesh-<ip>.sslip.io', () => {
+    expect(sh('mesh_domain Mesh.Example.com swarmy.example.com 1.2.3.4').out).toBe('mesh.example.com');
+    expect(sh('mesh_domain "" swarmy.46-101-22-121.sslip.io 46.101.22.121').out).toBe('mesh.swarmy.46-101-22-121.sslip.io');
+    expect(sh('mesh_domain "" "" 192.168.64.5').out).toBe('mesh-192-168-64-5.sslip.io');
+    expect(sh('mesh_domain "" "" ""').code).not.toBe(0);
+  });
+
+  it('mesh_tls_mode: edge behind Caddy, letsencrypt on a bare public box, none on a LAN', () => {
+    expect(sh('mesh_tls_mode "" caddy swarmy.example.com bound').out).toBe('edge');
+    expect(sh('mesh_tls_mode "" none "" bound').out).toBe('letsencrypt');
+    expect(sh('mesh_tls_mode "" none "" nat').out).toBe('none');
+    expect(sh('mesh_tls_mode letsencrypt caddy swarmy.example.com bound').out).toBe('letsencrypt');
+  });
+
+  it('mesh_public_url follows the TLS mode', () => {
+    expect(sh('mesh_public_url mesh.x none').out).toBe('http://mesh.x:8081');
+    expect(sh('mesh_public_url mesh.x edge').out).toBe('https://mesh.x');
+  });
+
+  it('mesh_addr_pool is stable per seed, 10.200–249 and never 10.0', () => {
+    const a = sh('mesh_addr_pool mesh.example.com').out;
+    expect(a).toMatch(/^10\.2[0-4]\d\.0\.0\/16$/);
+    expect(sh('mesh_addr_pool mesh.example.com').out).toBe(a);
+  });
+
+  it('mesh_control_config is JSON the combined server reads, with no default-policy key', () => {
+    const r = sh('mesh_control_config mesh.x none :8081 relay-secret-0123456789 MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=');
+    const doc = JSON.parse(r.out.split('\n').slice(1).join('\n'));
+    expect(doc.server.exposedAddress).toBe('http://mesh.x:8081');
+    expect(doc.server.auth.issuer).toBe('http://mesh.x:8081/oauth2');
+    expect(doc.server.listenAddress).toBe(':8081');
+    expect(doc.server.store.engine).toBe('sqlite');
+    expect('disableDefaultPolicy' in doc.server).toBe(false);
+    const le = JSON.parse(sh('mesh_control_config mesh.x letsencrypt :443 s k').out.split('\n').slice(1).join('\n'));
+    expect(le.server.tls.letsencrypt.domains).toEqual(['mesh.x']);
+    expect(le.server.exposedAddress).toBe('https://mesh.x:443');
+  });
+});
