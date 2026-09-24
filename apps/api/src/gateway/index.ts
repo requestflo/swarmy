@@ -9,9 +9,10 @@ import { registry, store } from './instances';
 export { registry, store };
 /** The single AgentHub instance shared by the WS gateway and tRPC context. */
 export const hub = new AgentHubImpl(store, registry);
-// Every service.deploy / image.pull of an org-registry image carries the
-// registry's auto-generated pull creds (the registry enforces htpasswd auth).
-hub.setDispatchDecorator(createRegistryAuthDecorator(prisma));
+// Every service.deploy / image.pull / runOnce of an org-registry image carries the
+// registry's auto-generated pull creds (the registry enforces htpasswd auth), and
+// swarmy's system images are swapped for their mirrored digest copies (B3/B4).
+hub.setDispatchDecorator(createRegistryAuthDecorator(prisma, (orgId) => hub.liveInventory(orgId)));
 
 // Forward build `logChunk`s into the shared bus so the live build-log viewer can
 // subscribe by build id (epic: git-cicd-registry, PHASE-2).

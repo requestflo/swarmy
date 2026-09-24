@@ -365,6 +365,84 @@ ensure_docker_log_opts() {
 }
 # <<< swarmy docker-log-opts
 
+# >>> swarmy docker-registry-mirror (keep in sync: apps/api/src/install/docker-registry-mirror.ts)
+SWARMY_REGISTRY_MIRROR="${SWARMY_REGISTRY_MIRROR-http://localhost:5001}"
+
+# merge_registry_mirror FILE → prints the merged daemon.json on stdout.
+# exit 0 = changed (stdout is the new file) · 3 = already configured, leave it
+# · 2 = cannot merge safely (no python3/jq, or unparseable JSON).
+merge_registry_mirror() {
+  mrm_file="$1"
+  if [ ! -s "$mrm_file" ] || ! grep -q '[^[:space:]]' "$mrm_file"; then
+    printf '{"registry-mirrors": ["%s"]}\n' "$SWARMY_REGISTRY_MIRROR"
+    return 0
+  fi
+  if grep -q '"registry-mirrors"' "$mrm_file"; then
+    return 3
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$mrm_file" "$SWARMY_REGISTRY_MIRROR" <<'SWARMY_PY_EOF' || return 2
+import json, sys
+with open(sys.argv[1]) as f:
+    cfg = json.load(f)
+if not isinstance(cfg, dict):
+    sys.exit(2)
+cfg["registry-mirrors"] = [sys.argv[2]]
+print(json.dumps(cfg, indent=2))
+SWARMY_PY_EOF
+    return 0
+  fi
+  if command -v jq >/dev/null 2>&1; then
+    jq --arg m "$SWARMY_REGISTRY_MIRROR" \
+      'if type == "object" then . + {"registry-mirrors": [$m]} else error("not an object") end' \
+      "$mrm_file" 2>/dev/null || return 2
+    return 0
+  fi
+  return 2
+}
+
+# ensure_docker_registry_mirror — apply merge_registry_mirror to /etc/docker/daemon.json safely.
+ensure_docker_registry_mirror() {
+  case "$SWARMY_REGISTRY_MIRROR" in ''|off|none) return 0 ;; esac
+  edrm_file="${SWARMY_DAEMON_JSON:-/etc/docker/daemon.json}"
+  edrm_tmp="$(mktemp)"
+  edrm_rc=0
+  merge_registry_mirror "$edrm_file" > "$edrm_tmp" || edrm_rc=$?
+  if [ "$edrm_rc" -eq 3 ]; then
+    rm -f "$edrm_tmp"
+    ok "Docker registry mirror already set in $edrm_file — leaving it."
+    return 0
+  elif [ "$edrm_rc" -ne 0 ]; then
+    rm -f "$edrm_tmp"
+    warn "Could not merge the registry mirror into $edrm_file (needs python3 or jq). Docker Hub pulls go direct."
+    return 0
+  fi
+  if command -v dockerd >/dev/null 2>&1 && dockerd --validate --config-file "$edrm_tmp" >/dev/null 2>&1; then
+    :
+  elif command -v dockerd >/dev/null 2>&1 && dockerd --help 2>&1 | grep -q -- '--validate'; then
+    rm -f "$edrm_tmp"
+    warn "Merged daemon.json failed dockerd --validate — left $edrm_file untouched."
+    return 0
+  fi
+  mkdir -p "$(dirname "$edrm_file")"
+  [ -f "$edrm_file" ] && cp -p "$edrm_file" "$edrm_file.swarmy-bak"
+  cat "$edrm_tmp" > "$edrm_file"
+  rm -f "$edrm_tmp"
+  if [ -z "$(docker ps -q 2>/dev/null)" ] && command -v systemctl >/dev/null 2>&1; then
+    if systemctl restart docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+      ok "Docker Hub pulls go through the swarm's pull-through cache ($SWARMY_REGISTRY_MIRROR)."
+    else
+      warn "Docker did not come back with the new daemon.json — restoring the previous one."
+      if [ -f "$edrm_file.swarmy-bak" ]; then cp -p "$edrm_file.swarmy-bak" "$edrm_file"; else rm -f "$edrm_file"; fi
+      systemctl restart docker >/dev/null 2>&1 || true
+    fi
+  else
+    ok "Registry mirror written to $edrm_file — applies after the next Docker restart."
+  fi
+  return 0
+}
+# <<< swarmy docker-registry-mirror
+
 # ════════════════════════════════════════════════════════════════════════════
 # Phase 4 — interactive wizard (collect config)
 # ════════════════════════════════════════════════════════════════════════════
@@ -836,6 +914,7 @@ main() {
   ensure_swap
   marker_done docker   || { ensure_docker;      marker_set docker; }
   ensure_docker_log_opts   # idempotent: leaves an operator's log config alone
+  ensure_docker_registry_mirror   # idempotent: Docker Hub via the swarm's pull-through cache
   remember_settings
   wizard
   ensure_secrets

@@ -141,6 +141,10 @@ export {
   computePinnedDigests,
 } from './services/image-gc.service';
 export type { GcRunResult } from './services/image-gc.service';
+// Self-reliance B3/B4/B6: system-image mirror + Hub pull-through cache, Trivy DB cache refresh.
+export { mirrorSystemImagesAllOrgs } from './services/system-images.service';
+export type { MirrorTickResult } from './services/system-images.service';
+export { ensureRegistryDeployed } from './services/cicd.service';
 // In-swarm registry auth: the hub dispatch decorator attaching pull creds to
 // org-registry deploys (wired onto AgentHubImpl in apps/api).
 export { createRegistryAuthDecorator } from './services/registry-auth';

@@ -25,6 +25,7 @@ import type { CommandName, DispatchDecorator } from '../hub/types';
 import { canonicalRegistryHost, isOrgRegistryImage } from './registryPolicy.service';
 import { buildPullAuths, matchCredential, toRegistryAuth, type ResolvedCredential } from './registry-credentials';
 import { loadOrgRegistryCredentials } from './registry-credentials.service';
+import { mirrorStateFrom, rewriteSystemImages } from './system-images.service';
 
 export const REGISTRY_SERVICE_NAME = 'swarmy-registry';
 export const REGISTRY_IMAGE = 'registry:2';
@@ -78,12 +79,13 @@ export function htpasswdSecretName(creds: RegistryCreds): string {
 }
 
 /** The registry:2 swarm service spec, with htpasswd auth enforced. */
-export function registryServiceSpec(secretName: string): ServiceSpec {
+export function registryServiceSpec(secretName: string, extraLabels: Record<string, string> = {}): ServiceSpec {
   return {
     name: REGISTRY_SERVICE_NAME,
     image: REGISTRY_IMAGE,
     mode: { replicated: { replicas: 1 } },
-    labels: { [REGISTRY_MANAGED_LABEL]: 'true', [REGISTRY_AUTH_LABEL]: secretName },
+    // extraLabels carries the system-image mirror index (`swarmy.mirror.*`) across a redeploy.
+    labels: { ...extraLabels, [REGISTRY_MANAGED_LABEL]: 'true', [REGISTRY_AUTH_LABEL]: secretName },
     env: {
       REGISTRY_AUTH: 'htpasswd',
       REGISTRY_AUTH_HTPASSWD_REALM: REGISTRY_AUTH_REALM,
@@ -105,11 +107,13 @@ export function registryAuthConverged(live: SwarmServiceInfo, secretName: string
   );
 }
 
+const MIRROR_CMDS = new Set<CommandName>(['service.deploy', 'container.runOnce', 'image.build']);
+
 /** Images a dispatch will make a node pull (only the commands that pull). */
 export function dispatchImages(cmd: CommandName, payload: unknown): string[] {
   const p = payload as { spec?: { image?: unknown }; image?: unknown } | null | undefined;
   if (cmd === 'service.deploy') return typeof p?.spec?.image === 'string' ? [p.spec.image] : [];
-  if (cmd === 'image.pull') return typeof p?.image === 'string' ? [p.image] : [];
+  if (cmd === 'image.pull' || cmd === 'container.runOnce') return typeof p?.image === 'string' ? [p.image] : [];
   return [];
 }
 
@@ -148,7 +152,10 @@ function mayBeRegistryImage(images: string[]): boolean {
  * Builds get every third-party login as `pullAuths` (private `FROM` bases).
  * Fails open to the undecorated payload (the registry itself still enforces auth).
  */
-export function createRegistryAuthDecorator(db: DB): DispatchDecorator {
+export function createRegistryAuthDecorator(
+  db: DB,
+  liveInventory?: (orgId: string) => Parameters<typeof mirrorStateFrom>[0],
+): DispatchDecorator {
   const thirdParty = async (orgId: string) => {
     try {
       return await loadOrgRegistryCredentials(db, orgId);
@@ -156,7 +163,21 @@ export function createRegistryAuthDecorator(db: DB): DispatchDecorator {
       return [];
     }
   };
-  return async (orgId, cmd, payload) => {
+  // System-image mirror (B3/B4): swap an exact upstream system ref for its
+  // mirrored digest ref BEFORE auth is attached (so the mirror pull gets the
+  // in-swarm registry login). Never throws — a miss is the upstream ref.
+  const mirror = async (orgId: string, cmd: CommandName, payload: unknown): Promise<unknown> => {
+    if (!liveInventory || !MIRROR_CMDS.has(cmd)) return payload;
+    try {
+      const row = await db.registryConfig.findUnique({ where: { orgId }, select: { enabled: true, host: true } });
+      if (!row?.enabled) return payload;
+      return rewriteSystemImages(cmd, payload, canonicalRegistryHost(row.host), mirrorStateFrom(liveInventory(orgId)));
+    } catch {
+      return payload;
+    }
+  };
+  return async (orgId, cmd, rawPayload) => {
+    const payload = await mirror(orgId, cmd, rawPayload);
     if (cmd === 'image.build') {
       const creds = await thirdParty(orgId);
       return attachBuildPullAuths(payload, buildPullAuths(creds));

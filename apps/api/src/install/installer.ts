@@ -25,6 +25,7 @@ import {
   DEFAULT_STATE_DIR,
 } from './systemd';
 import { DOCKER_LOG_OPTS_SH, DOCKER_RUN_LOG_FLAGS } from './docker-log-opts';
+import { DOCKER_REGISTRY_MIRROR_SH } from './docker-registry-mirror';
 
 export interface RenderInstallerOptions {
   controllerUrl: string;
@@ -241,6 +242,9 @@ docker info >/dev/null 2>&1 || die "Docker is installed but not running (need ro
 
 # --- log rotation (daemon.json log-opts + journald cap; merges, never clobbers)
 ${DOCKER_LOG_OPTS_SH}ensure_docker_log_opts
+
+# --- Docker Hub pulls via the swarm's pull-through cache (daemon.json registry-mirrors; merges, never clobbers)
+${DOCKER_REGISTRY_MIRROR_SH}ensure_docker_registry_mirror
 
 write_env() {
   mkdir -p "$(dirname "$ENV_FILE")"

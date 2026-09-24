@@ -15,6 +15,7 @@
  */
 import { z } from 'zod';
 import { CommandId, Timestamp } from './primitives';
+import { RegistryAuth } from './commands';
 
 /** Reusable command preamble (every controller→agent command carries these). */
 const cmd = { commandId: CommandId, timeoutMs: z.number().int().positive().optional() };
@@ -128,6 +129,16 @@ export const RunOncePayload = z.object({
     .optional(),
   /** Pull the image first (best-effort). Defaults to true. */
   pull: z.boolean().default(true),
+  /**
+   * Pull login for `image` (attached by the controller hub decorator for
+   * in-swarm registry / third-party images). Additive — older agents ignore it.
+   */
+  registryAuth: RegistryAuth.optional(),
+  /**
+   * Upstream ref to run instead when `image` (a mirrored system-image copy in
+   * the in-swarm registry) can't be pulled and isn't on the node. Additive.
+   */
+  fallbackImage: z.string().optional(),
 });
 export const RunOnceMsg = z.object({
   type: z.literal('runOnce'),

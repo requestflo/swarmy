@@ -21,6 +21,7 @@ import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import { BUILDER_ENABLE_HINT, UNGROUPED, isBuilderCapable, type BuildOverride } from '@swarmy/core';
 import type { LogLine } from '@swarmy/core/views';
+import { mirrorLabelsOf } from '@swarmy/core/system-images';
 import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
 import { TRPCError } from '@trpc/server';
@@ -660,6 +661,35 @@ export async function convergeRegistryAuth(ctx: OrgContext): Promise<'noop' | 'c
 }
 
 /**
+ * Make sure an ENABLED registry is actually deployed (self-reliance B3: the
+ * system-image mirror worker enables it for the bootstrap org at install and
+ * calls this before every copy). Mints + stores a login when none exists. A
+ * registry the hub already sees is left to {@link convergeRegistryAuth}.
+ */
+export async function ensureRegistryDeployed(ctx: OrgContext): Promise<'noop' | 'deployed' | 'skipped'> {
+  const row = await ensureRegistryConfig(ctx);
+  if (!row.enabled) return 'skipped';
+  if (liveRegistryService(ctx)) return 'noop';
+  const existing = decodeRegistryCreds(row.credentialsEnc);
+  const creds = existing ?? generateRegistryCreds();
+  if (!existing) {
+    await ctx.db.registryConfig.update({
+      where: { orgId: ctx.activeOrgId },
+      data: { credentialsEnc: encryptSecret(JSON.stringify(creds)), host: canonicalRegistryHost(row.host) },
+    });
+  }
+  await deployAuthedRegistry(ctx, creds);
+  await writeAudit(ctx, {
+    action: 'cicd.registry.enable',
+    targetType: 'registryConfig',
+    targetId: ctx.activeOrgId,
+    actorType: ctx.user ? 'user' : 'system',
+    metadata: { login: existing ? 'existing' : 'auto-generated', reason: 'ensure-deployed' },
+  });
+  return 'deployed';
+}
+
+/**
  * Deliver the htpasswd as a content-addressed Docker secret, deploy the
  * registry with auth enforced, then best-effort remove superseded htpasswd
  * secrets (no longer referenced once the service spec moved on).
@@ -678,7 +708,12 @@ async function deployAuthedRegistry(ctx: OrgContext, creds: RegistryCreds): Prom
     // Same name ⇒ same login (content-addressed): an existing secret is fine.
     if (!/already exists|conflict/i.test(e instanceof Error ? e.message : String(e))) throw e;
   }
-  await ctx.hub.dispatch(node.id, 'service.deploy', { spec: registryServiceSpec(secretName), pullPolicy: 'missing' });
+  // Carry the system-image mirror index (`swarmy.mirror.*` labels) across the redeploy.
+  const mirrorLabels = mirrorLabelsOf(liveRegistryService(ctx)?.labels ?? {});
+  await ctx.hub.dispatch(node.id, 'service.deploy', {
+    spec: registryServiceSpec(secretName, mirrorLabels),
+    pullPolicy: 'missing',
+  });
   try {
     const listed = await ctx.hub.dispatch<{ secrets?: Array<{ name: string }> }>(node.id, 'secret.list', {});
     for (const s of listed?.secrets ?? []) {

@@ -35,6 +35,10 @@
     "./mesh-bootstrap": {
       "types": "./src/mesh-bootstrap.ts",
       "import": "./src/mesh-bootstrap.ts"
+    },
+    "./system-images": {
+      "types": "./src/system-images.ts",
+      "import": "./src/system-images.ts"
     }
   },
   "scripts": {

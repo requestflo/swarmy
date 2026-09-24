@@ -23,6 +23,7 @@
 import type { DockerClient } from '@swarmy/core/docker';
 import type { BuildImagePayload, BuildImageResult } from '@swarmy/core/protocol';
 import type { AgentConnection } from '../connection';
+import { authForImage, pullWithFallback } from './pull-fallback';
 
 const DEFAULT_BUILDER_IMAGE = 'moby/buildkit:rootless';
 const CONTAINER_PREFIX = 'swarmy-build-';
@@ -199,12 +200,18 @@ export async function buildImage(
   conn: AgentConnection,
   p: BuildImagePayload,
 ): Promise<BuildImageResult> {
-  const image = p.builderImage ?? DEFAULT_BUILDER_IMAGE;
   const d = docker.docker;
   const name = `${CONTAINER_PREFIX}${p.commandId.slice(0, 8)}`;
   const primaryRef = p.imageRefs[0] ?? '';
 
-  await docker.pullImage(image).catch(() => undefined);
+  // The controller may point `builderImage` at the mirrored BuildKit copy in the
+  // in-swarm registry (pulled with the push login); upstream is the fallback.
+  const image = p.builderImage
+    ? await pullWithFallback(docker, p.builderImage, DEFAULT_BUILDER_IMAGE, authForImage(p.builderImage, p.registryAuth))
+    : await docker
+        .pullImage(DEFAULT_BUILDER_IMAGE)
+        .catch(() => undefined)
+        .then(() => DEFAULT_BUILDER_IMAGE);
   await d.getContainer(name).remove({ force: true }).catch(() => undefined);
 
   // Secrets that must not sit in the program text (argv) ride the container env.

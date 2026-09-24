@@ -31,6 +31,7 @@ import type {
   SecretRemoveResult,
 } from '@swarmy/core/protocol';
 import { RUN_ONCE_OUTPUT_TAIL_BYTES } from '@swarmy/core/protocol';
+import { presentOrFallback, pullWithFallback } from './pull-fallback';
 
 // ── secrets ──────────────────────────────────────────────────────────────────
 
@@ -95,7 +96,10 @@ export async function configInspect(
 export async function runOnce(docker: DockerClient, p: RunOncePayload): Promise<RunOnceResult> {
   const d = docker.docker;
   const started = Date.now();
-  if (p.pull) await docker.pullImage(p.image).catch(() => undefined);
+  // A mirrored system image falls back to its upstream ref when the in-swarm registry can't serve it.
+  const image = p.pull
+    ? await pullWithFallback(docker, p.image, p.fallbackImage, p.registryAuth)
+    : await presentOrFallback(docker, p.image, p.fallbackImage);
 
   let output = '';
   const append = (s: string) => {
@@ -107,7 +111,7 @@ export async function runOnce(docker: DockerClient, p: RunOncePayload): Promise<
 
   const env = p.env ? Object.entries(p.env).map(([k, v]) => `${k}=${v}`) : undefined;
   const container = await d.createContainer({
-    Image: p.image,
+    Image: image,
     Cmd: p.cmd,
     ...(p.entrypoint ? { Entrypoint: p.entrypoint } : {}),
     ...(p.user ? { User: p.user } : {}),

@@ -29,6 +29,7 @@ import { startAppReconcile } from './app-reconcile';
 import { startNotificationDispatch } from './notification-dispatch';
 import { startExposureAudit } from './exposure-audit';
 import { startMeshMigrationResumer } from './mesh-migration';
+import { startSystemImageMirror } from './system-image-mirror';
 
 export function startWorkers(): () => void {
   const stops = [
@@ -63,6 +64,7 @@ export function startWorkers(): () => void {
     startNotificationDispatch(),
     startExposureAudit(),
     startMeshMigrationResumer(),
+    startSystemImageMirror(),
   ];
   return () => stops.forEach((s) => s());
 }
