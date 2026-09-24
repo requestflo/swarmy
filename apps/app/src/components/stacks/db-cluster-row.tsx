@@ -6,6 +6,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { CountUp } from '@/components/count-up';
 import { DbClusterRowDetail } from './db-cluster-row-detail';
 import { DbStorageWarning, type DbStorageView } from './db-storage-warning';
+import { DbFailoverConfirm, type DbPendingFailoverView } from './db-failover-confirm';
 
 export type ClusterStatus = 'running' | 'degraded' | 'deploying' | 'failing' | 'idle' | 'stopped' | 'absent';
 
@@ -18,6 +19,8 @@ export interface DbClusterRowView {
   replicas: { desired: number; running: number };
   /** Where the primary's data lives (`unmounted` = legacy anonymous volume). */
   storage?: DbStorageView;
+  /** A failover swarmy HELD because it could lose writes (admin confirms). */
+  pendingFailover?: DbPendingFailoverView;
 }
 
 function toneFor(status: ClusterStatus): StatusTone {
@@ -113,6 +116,9 @@ export function DbClusterRow({
         </div>
       </div>
 
+      {c.pendingFailover ? (
+        <DbFailoverConfirm stack={stack} cluster={c.name} pending={c.pendingFailover} />
+      ) : null}
       {c.storage ? <DbStorageWarning stack={stack} cluster={c.name} storage={c.storage} /> : null}
 
       <DbClusterRowDetail stack={stack} cluster={c.name} />

@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { orgProcedure, router } from '../trpc';
+import { abacProcedure } from '../abac';
 import {
   DB_TOPOLOGIES,
+  confirmFailover,
   getDbTopology,
   injectConnection,
   migrateStorage,
@@ -101,6 +103,23 @@ export const managedDbRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => setTopology(ctx, input)),
+
+  /**
+   * Confirm a HELD failover (no replica provably caught up). The caller names
+   * the replica and the data-loss window they accept; the reconcile promotes
+   * only while the window stays within it. Destructive (may lose the last
+   * writes) → the `data.failover` policy gate, owner/admin by default.
+   */
+  confirmFailover: abacProcedure('data.failover')
+    .input(
+      z.object({
+        stack: stackName,
+        cluster: clusterName,
+        target: z.string().min(1).max(200),
+        acceptBehindBytes: z.union([z.number().int().min(0), z.literal('unknown')]),
+      }),
+    )
+    .mutation(({ ctx, input }) => confirmFailover(ctx, input)),
 
   /** Geo: pin the single writer to a node-label region (`swarmy.region==<region>`). */
   setWriteRegion: orgProcedure

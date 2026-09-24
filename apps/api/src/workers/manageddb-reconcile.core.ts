@@ -11,7 +11,7 @@ import { WAL_ARCHIVE_MOUNT } from '@swarmy/core/protocol';
 
 /**
  * Pure helpers for the manageddb-reconcile worker (slice A2 pitr-ha): failover
- * due-ness + promotion choice, Postgres LSN math, replica-lag parsing and
+ * due-ness, Postgres LSN math, replica-lag parsing and
  * change-gated label stamping, the wal-shipper env/script renders and the
  * once-per-minute backup-sweep gate.
  *
@@ -31,25 +31,8 @@ export function promotionDue(unhealthyTicks: number, graceTicks: number = PROMOT
   return unhealthyTicks > graceTicks;
 }
 
-export interface PromotionCandidate {
-  service: string;
-  /** Running task count — 0 disqualifies (nothing to exec `pg_ctl promote` in). */
-  running: number;
-  /** Replay lag in seconds; null = unmeasured (sorts last). */
-  lagSeconds: number | null;
-  /** LSN byte distance behind the last-known primary LSN; tie-breaker. */
-  lsnDiffBytes?: number | null;
-}
-
-/** Pick the promotion target: lowest lag → lowest LSN diff → stable name order. */
-export function choosePromotionTarget(candidates: PromotionCandidate[]): string | null {
-  const running = candidates.filter((c) => c.running > 0);
-  if (running.length === 0) return null;
-  const lag = (c: PromotionCandidate): number => c.lagSeconds ?? Number.POSITIVE_INFINITY;
-  const diff = (c: PromotionCandidate): number => c.lsnDiffBytes ?? Number.POSITIVE_INFINITY;
-  running.sort((a, b) => lag(a) - lag(b) || diff(a) - diff(b) || a.service.localeCompare(b.service));
-  return running[0]!.service;
-}
+// The promotion CHOICE (and whether it may happen unattended) lives in
+// @swarmy/core `decideFailover` — the failover-safety rule.
 
 /** Parse a Postgres LSN (`16/B374D848`) into an absolute byte position. */
 export function parseLsn(lsn: string): number | null {

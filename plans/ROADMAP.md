@@ -29,6 +29,11 @@ into `docs/product/` and the skills. They remain in git history
 Decided and done — kept here one release so the calls are easy to find; the
 rule itself lives in the linked doc.
 
+- **No silent data loss on DB failover** — a replica is auto-promoted only
+  when provably caught up (replay LSN ≥ the primary's last flushed LSN);
+  otherwise swarmy holds, alerts, and an admin confirms the shown data-loss
+  window. Applies to `primary-replica`, `failover` and `geo` —
+  `docs/product/managed-data.md` → "Failover never silently loses data".
 - **Caddy is the default edge for new workspaces** (other drivers stay
   selectable; a fresh org without a public IP/domain still works) —
   `docs/product/ingress-and-exposure.md` → "Ingress & exposure behaviour".
@@ -83,9 +88,9 @@ rule itself lives in the linked doc.
   `postgres` image.
 - Managed-DB placement ignores the `swarmy.node.database` role label
   (`manageddb-reconcile.ts` places by region only).
-- **Decide:** the `geo` topology is auto-promoted like the others, although
-  cross-region async replication can lose the last writes. Keep it (documented
-  in `managed-data.md`) or gate it behind a confirmation?
+- Live-verify the held-failover path on a real geo cluster (kill the primary
+  mid-write; confirm the Data-tab window, then promote) and persist the LSN
+  watermark across controller restarts (today a restart ⇒ unknown ⇒ hold).
 - HA templates (`postgres-ha`, `redis-ha`) exist server-side with no gallery UI.
 - Garage presigned URLs sign the in-swarm endpoint; add a public S3 endpoint
   setting.

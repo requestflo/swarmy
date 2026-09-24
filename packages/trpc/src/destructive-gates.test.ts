@@ -98,6 +98,7 @@ const GATES: Array<[string, unknown, string]> = [
   ['policies.delete', { id: 'p1' }, 'policy.write'],
   ['sso.delete', { id: 'sso1' }, 'authconfig.write'],
   ['cicd.removeRepo', { id: 'r1' }, 'cicd.remove'],
+  ['db.confirmFailover', {}, 'data.failover'],
 ];
 
 /** Member-allowed today (orgProcedure before the sweep) — must stay allowed. */

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
   PROMOTION_GRACE_TICKS,
-  choosePromotionTarget,
   formatLagSeconds,
   lagLabelUpdates,
   lsnDiffBytes,
@@ -18,7 +17,8 @@ import {
 } from './manageddb-reconcile.core';
 
 /**
- * Pure A2 pitr-ha helpers: promotion due-ness/choice, LSN math, lag parsing and
+ * Pure A2 pitr-ha helpers: promotion due-ness (the promotion CHOICE is the
+ * failover-safety rule in @swarmy/core manageddb-failover.test.ts), LSN math, lag parsing and
  * stamping, the wal-creds env render and the once-per-minute backup gate. No
  * network, no DB — mirrors the geodns-provider test style.
  */
@@ -33,56 +33,6 @@ describe('promotionDue — grace window (strictly more than N unhealthy ticks)',
   it('honours a custom grace', () => {
     expect(promotionDue(5, 5)).toBe(false);
     expect(promotionDue(6, 5)).toBe(true);
-  });
-});
-
-describe('choosePromotionTarget — lowest-lag running replica', () => {
-  it('picks the lowest lag among running candidates', () => {
-    expect(
-      choosePromotionTarget([
-        { service: 'a', running: 1, lagSeconds: 4.2 },
-        { service: 'b', running: 1, lagSeconds: 0.3 },
-        { service: 'c', running: 1, lagSeconds: 12 },
-      ]),
-    ).toBe('b');
-  });
-
-  it('disqualifies members with no running task', () => {
-    expect(
-      choosePromotionTarget([
-        { service: 'a', running: 0, lagSeconds: 0 },
-        { service: 'b', running: 2, lagSeconds: 9 },
-      ]),
-    ).toBe('b');
-  });
-
-  it('unmeasured lag sorts last (a measured replica always wins)', () => {
-    expect(
-      choosePromotionTarget([
-        { service: 'a', running: 1, lagSeconds: null },
-        { service: 'b', running: 1, lagSeconds: 30 },
-      ]),
-    ).toBe('b');
-  });
-
-  it('ties break on LSN diff, then stable name order', () => {
-    expect(
-      choosePromotionTarget([
-        { service: 'b', running: 1, lagSeconds: 1, lsnDiffBytes: 2048 },
-        { service: 'a', running: 1, lagSeconds: 1, lsnDiffBytes: 128 },
-      ]),
-    ).toBe('a');
-    expect(
-      choosePromotionTarget([
-        { service: 'b', running: 1, lagSeconds: 1 },
-        { service: 'a', running: 1, lagSeconds: 1 },
-      ]),
-    ).toBe('a');
-  });
-
-  it('returns null when nothing is promotable', () => {
-    expect(choosePromotionTarget([])).toBeNull();
-    expect(choosePromotionTarget([{ service: 'a', running: 0, lagSeconds: 1 }])).toBeNull();
   });
 });
 

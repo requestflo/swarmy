@@ -62,7 +62,21 @@ state belongs see `skill("docker-native-storage")`.
 9. **DB-role services must stay warm.** Managed data members carry
    `swarmy.scaleToZero.exempt` so the idle sleeper never scales a primary/replica
    to zero. A new member type keeps the exemption.
-10. **Cluster volumes register against an EXISTING CSI driver.** swarmy ships no
+10. **Failover never silently loses data.** The worker auto-promotes a replica
+    ONLY when `decideFailover` (`@swarmy/core` `manageddb-failover.ts`) says it
+    is provably caught up — replay LSN ≥ the primary's last flushed LSN sampled
+    on the last healthy tick. Anything else HOLDS: stamp
+    `swarmy.db.failover.pending` (target + bytes/seconds behind + reason),
+    fire `db-failover-confirm` + a `db.failover.pending` incident, audit
+    `db.failover.held`, and wait for `db.confirmFailover`
+    (`abacProcedure('data.failover')`) to stamp `swarmy.db.failover.confirm`;
+    the worker re-checks that the accepted window still covers the gap. The
+    rule applies to `primary-replica`, `failover` and `geo`; `single` and
+    `active-active` never promote. Never add a promotion path that skips
+    `decideFailover`, and never use seconds-lag as proof. The watermark maps are
+    module-level (a controller restart ⇒ unknown ⇒ hold) — that is the safe
+    default, not a bug.
+11. **Cluster volumes register against an EXISTING CSI driver.** swarmy ships no
     storage driver. `register`/`removeVolume` ride `volume.provision`/
     `volume.remove` agent commands with `cluster:true`; restic backups
     (the `backups-dr` domain) layer on top — availability ≠ recoverability.
@@ -94,6 +108,7 @@ state belongs see `skill("docker-native-storage")`.
 |---|---|
 | Postgres: topologies, primary/replica names, injectConnection, region replicas | `packages/trpc/src/services/manageddb.service.ts` (router `routers/manageddb.ts`) |
 | Postgres reconcile (failover/lag/PITR) + pure core | `apps/api/src/workers/manageddb-reconcile.ts`, `…-reconcile.core.ts` |
+| Failover safety rule (`decideFailover`) + pending/confirm label codecs | `packages/core/src/manageddb-failover.ts` (+ `.test.ts`); confirm = `manageddb.service.ts#confirmFailover`; UI `components/stacks/db-failover-confirm.tsx` |
 | Cache: `swarmy.cache.*`, sentinel, maxmemory+headroom, password secret | `packages/trpc/src/services/cache.service.ts`, `apps/api/src/workers/cache-reconcile.ts` |
 | Search: Meilisearch/Typesense, master-key secret, attach env | `packages/trpc/src/services/search.service.ts`, `apps/api/src/workers/search-reconcile.ts` |
 | Vector: Qdrant instance + in-place pgvector enable | `packages/trpc/src/services/vector.service.ts`, `apps/api/src/workers/vector-reconcile.ts` |
@@ -126,7 +141,8 @@ state belongs see `skill("docker-native-storage")`.
    (`skill("hot-signal-design")`).
 6. **Verify:** `bun --filter @swarmy/trpc typecheck` and the service tests
    (`{cache,search,vector,buckets,manageddb}.service.test.ts`,
-   `garage-render.test.ts`, `manageddb-reconcile.test.ts`).
+   `garage-render.test.ts`, `manageddb-reconcile.test.ts`,
+   `manageddb-failover.test.ts` in core + trpc).
 
 ## Operational gotchas
 

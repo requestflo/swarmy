@@ -2,6 +2,11 @@ import { randomBytes } from 'node:crypto';
 import {
   BITNAMI_PG_ROOT,
   DB_DATA_VOLUME_LABEL,
+  DB_FAILOVER_CONFIRM_LABEL,
+  DB_FAILOVER_PENDING_LABEL,
+  encodeFailoverConfirmation,
+  parsePendingFailover,
+  type PendingFailover,
   BASEBACKUP_OK_MARKER,
   applyDbStorage,
   buildInventory,
@@ -666,6 +671,14 @@ export interface DbClusterView {
   /** active-active: declared number of writable primaries. */
   primaries?: number;
   /**
+   * A failover the reconcile HELD because no replica is provably caught up
+   * (`swarmy.db.failover.pending`): the target it would promote and the
+   * data-loss window (bytes / seconds behind the primary's last flushed LSN).
+   * Present ⇒ the dashboard shows the window and an admin confirms via
+   * {@link confirmFailover}. See @swarmy/core `decideFailover`.
+   */
+  pendingFailover?: PendingFailover;
+  /**
    * Where the primary's data lives. `unmounted` = the legacy data-loss layout
    * (anonymous volume) — the dashboard warns and offers Migrate storage.
    */
@@ -740,6 +753,10 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
     const primaryLive = primary ? liveSwarmService(ctx, primary.name) : undefined;
     const storage = primaryLive ? dbStorageState(primaryLive) : undefined;
 
+    const pendingFailover = members
+      .map((s) => parsePendingFailover(s.labels[DB_FAILOVER_PENDING_LABEL]))
+      .find((p): p is PendingFailover => p !== null);
+
     const measuredLags = memberViews
       .map((m) => m.lagSeconds)
       .filter((v): v is number => v !== undefined);
@@ -770,6 +787,7 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
         ? { primaries: primariesDeclared }
         : {}),
       ...(storage ? { storage } : {}),
+      ...(pendingFailover ? { pendingFailover } : {}),
     });
   }
 
@@ -808,6 +826,77 @@ export async function setReplicas(
     throw mapDispatchError(e);
   }
   return { cluster: input.cluster, replicas };
+}
+
+/**
+ * Confirm a failover the reconcile HELD because promoting could lose the last
+ * writes (no replica provably caught up — see @swarmy/core `decideFailover`).
+ * The admin names the replica to promote and the data-loss window they saw
+ * (`acceptBehindBytes`, or `'unknown'` when it couldn't be measured). This only
+ * stamps `swarmy.db.failover.confirm` on the member holding the pending
+ * failover; the manageddb-reconcile worker promotes on its next tick, and ONLY
+ * if the window is still within what was accepted (a growing gap voids the
+ * confirmation). Gated by `abacProcedure('data.failover')`; audited here as
+ * the business event.
+ */
+export async function confirmFailover(
+  ctx: OrgContext,
+  input: { stack: string; cluster: string; target: string; acceptBehindBytes: number | 'unknown' },
+): Promise<{ cluster: string; target: string; acceptBehindBytes: number | 'unknown' }> {
+  const { members } = findCluster(ctx, input.stack, input.cluster);
+  if (members.length === 0) throw notFound('db cluster', input.cluster);
+  const holder = members.find((s) => parsePendingFailover(s.labels[DB_FAILOVER_PENDING_LABEL]));
+  const pending = holder ? parsePendingFailover(holder.labels[DB_FAILOVER_PENDING_LABEL]) : null;
+  if (!holder || !pending) {
+    throw commandRejected(`${input.cluster} has no failover waiting for confirmation`);
+  }
+  const target = members.find((s) => s.name === input.target);
+  if (!target || target.labels[DB_ROLE_LABEL] !== 'replica') {
+    throw commandRejected(`${input.target} is not a replica of ${input.cluster}`);
+  }
+  // Confirming the held target: the accepted window must cover what swarmy showed.
+  if (input.target === pending.target) {
+    const covers =
+      input.acceptBehindBytes === 'unknown' ||
+      (pending.behindBytes !== null && input.acceptBehindBytes >= pending.behindBytes);
+    if (!covers) {
+      throw commandRejected(
+        `the data-loss window is now ${pending.behindBytes === null ? 'unknown' : `${pending.behindBytes} bytes`} — review it again before confirming`,
+      );
+    }
+  }
+  const node = await resolveManagerNode(ctx);
+  const at = new Date().toISOString();
+  try {
+    await ctx.hub.dispatch(node.id, 'service.updateLabels', {
+      service: holder.name,
+      add: {
+        [DB_FAILOVER_CONFIRM_LABEL]: encodeFailoverConfirmation({
+          target: input.target,
+          acceptBehindBytes: input.acceptBehindBytes,
+          by: ctx.user.id,
+          at,
+        }),
+      },
+      removeKeys: [],
+    });
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
+  await writeAudit(ctx, {
+    action: 'db.failover.confirm',
+    targetType: 'dbCluster',
+    targetId: `${input.stack}/${input.cluster}`,
+    metadata: {
+      target: input.target,
+      acceptBehindBytes: input.acceptBehindBytes,
+      pendingTarget: pending.target,
+      pendingBehindBytes: pending.behindBytes,
+      pendingBehindSeconds: pending.behindSeconds,
+      reason: pending.reason,
+    },
+  });
+  return { cluster: input.cluster, target: input.target, acceptBehindBytes: input.acceptBehindBytes };
 }
 
 /**

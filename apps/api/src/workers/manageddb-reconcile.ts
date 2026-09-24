@@ -3,10 +3,19 @@ import { authRegistry } from '@swarmy/auth';
 import type { OrgContext } from '@swarmy/trpc';
 import {
   DB_DATA_VOLUME_LABEL,
+  DB_FAILOVER_CONFIRM_LABEL,
+  DB_FAILOVER_PENDING_LABEL,
   DB_PIN_NODE_LABEL,
   STACK_LABEL,
   applyDbStorage,
   choosePinNode,
+  decideFailover,
+  encodePendingFailover,
+  parseFailoverConfirmation,
+  parsePendingFailover,
+  pendingFailoverChanged,
+  type FailoverCandidate,
+  type PrimaryWatermark,
   dbStorageLabels,
   dbStorageState,
   extraPrimaryDataVolumeName,
@@ -26,7 +35,6 @@ import type { ContainerInfo, ServiceSpec, SwarmServiceInfo } from '@swarmy/core/
 import { hub, store } from '../gateway';
 import {
   PROMOTION_GRACE_TICKS,
-  choosePromotionTarget,
   lagLabelUpdates,
   lsnDiffBytes,
   minuteDue,
@@ -38,7 +46,6 @@ import {
   promotionDue,
   renderWalCredsEnv,
   shipperScript,
-  type PromotionCandidate,
 } from './manageddb-reconcile.core';
 
 /**
@@ -88,8 +95,14 @@ import {
  *   changed) and `swarmy.db.leader` — surfaced in DbClusterView/db-cluster-panel.
  *
  *   Failover promotion — a primary observed unhealthy for more than
- *   `PROMOTION_GRACE_TICKS` consecutive ticks (module-level map, no DB) gets the
- *   lowest-lag running replica promoted: exec `pg_ctl promote` (bitnami paths),
+ *   `PROMOTION_GRACE_TICKS` consecutive ticks (module-level map, no DB) goes
+ *   through `decideFailover` (@swarmy/core manageddb-failover): a replica is
+ *   auto-promoted ONLY when its replay LSN reached the primary's last known
+ *   flushed LSN (the watermark sampled on the last healthy tick). Otherwise the
+ *   worker stamps the data-loss window as `swarmy.db.failover.pending`, raises a
+ *   critical alert + incident, and waits for an admin confirmation
+ *   (`swarmy.db.failover.confirm`, written by `manageddb.confirmFailover`).
+ *   Promotion itself: exec `pg_ctl promote` (bitnami paths),
  *   verify `pg_is_in_recovery()=f`, flip `swarmy.db.role` labels (labels-only —
  *   the promoted task keeps its promoted in-memory state), repoint every other
  *   replica's `POSTGRESQL_MASTER_HOST` (redeploy specs), then
@@ -386,7 +399,8 @@ interface Contract {
 
 const LAG_SQL =
   "SELECT COALESCE(EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp())),0)::text || '|' || COALESCE(pg_last_wal_replay_lsn()::text,'')";
-const PRIMARY_LSN_SQL = 'SELECT pg_current_wal_lsn()::text';
+/** The primary's last FLUSHED position — the failover watermark (see decideFailover). */
+const PRIMARY_LSN_SQL = 'SELECT pg_current_wal_flush_lsn()::text';
 const IN_RECOVERY_SQL = 'SELECT pg_is_in_recovery()';
 
 function psql(sql: string): string {
@@ -449,6 +463,14 @@ function replicaMembers(c: Cluster): SwarmServiceInfo[] {
 interface MemberLag {
   lagSeconds: number;
   lsnDiffBytes: number | null;
+  /** The replica's replay LSN this tick — the failover caught-up proof. */
+  replayLsn: string | null;
+}
+
+/** One tick's lag picture + the primary's flushed-LSN sample (null = not taken). */
+interface ClusterLag {
+  members: Record<string, MemberLag>;
+  primaryLsn: string | null;
 }
 
 /**
@@ -460,10 +482,10 @@ async function measureClusterLag(
   orgId: string,
   node: string,
   c: Cluster,
-): Promise<Record<string, MemberLag>> {
+): Promise<ClusterLag> {
   const measured: Record<string, MemberLag> = {};
   const replicas = replicaMembers(c).filter((s) => (s.desiredReplicas ?? 0) > 0);
-  if (replicas.length === 0) return measured;
+  if (replicas.length === 0) return { members: measured, primaryLsn: null };
 
   const primary = c.primary;
   const primaryHealthy = Boolean(primary && (primary.runningReplicas ?? 0) > 0);
@@ -482,6 +504,7 @@ async function measureClusterLag(
       lagSeconds: sample.lagSeconds,
       lsnDiffBytes:
         primaryLsn && sample.replayLsn ? lsnDiffBytes(primaryLsn, sample.replayLsn) : null,
+      replayLsn: sample.replayLsn,
     };
   }
 
@@ -501,7 +524,7 @@ async function measureClusterLag(
         .catch(() => undefined);
     }
   }
-  return measured;
+  return { members: measured, primaryLsn };
 }
 
 // ── A2 PITR / WAL-archiving convergence ──────────────────────────────────────
@@ -778,6 +801,12 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
 /** `${orgId}/${stack}/${cluster}` → consecutive ticks the primary was unhealthy.
  *  Module-level on purpose (grace window state; never persisted). */
 const unhealthyTicks = new Map<string, number>();
+/** `${orgId}/${stack}/${cluster}` → the primary's last flushed-LSN sample while healthy. */
+const watermarks = new Map<string, PrimaryWatermark>();
+/** `${orgId}/${stack}/${cluster}` → epoch ms the primary was last observed healthy. */
+const lastHealthyAt = new Map<string, number>();
+/** Clusters whose "failover needs confirmation" alert fired this episode. */
+const confirmAlerted = new Set<string>();
 
 /** Spec repointing a replica-role service at the promoted writer. */
 function repointSpec(s: SwarmServiceInfo, promoted: string, net: string): ServiceSpec {
@@ -789,6 +818,9 @@ function repointSpec(s: SwarmServiceInfo, promoted: string, net: string): Servic
     [DB_ROLE_LABEL]: 'replica',
     [DB_LEADER_LABEL]: promoted,
   };
+  // The failover wait/confirm handshake is over once a writer is promoted.
+  delete labels[DB_FAILOVER_PENDING_LABEL];
+  delete labels[DB_FAILOVER_CONFIRM_LABEL];
   // A demoted ex-primary loses its PITR marker — its archive bits drop with the
   // redeploy (live truth carries no mounts/configs) and the new writer re-earns
   // them from the PITR convergence.
@@ -831,9 +863,11 @@ async function promoteInPlace(orgId: string, svc: SwarmServiceInfo): Promise<boo
 }
 
 /**
- * Watch the primary's health; after the grace window promote the lowest-lag
- * running replica, flip role labels, repoint the remaining replicas and record
- * the incident/alert/audit trail.
+ * Watch the primary's health; after the grace window run the failover-safety
+ * decision (`decideFailover`): promote a provably caught-up replica, or stamp
+ * the data-loss window and wait for an admin confirmation. On promotion flip
+ * role labels, repoint the remaining replicas and record the
+ * incident/alert/audit trail.
  */
 async function maybePromote(
   contract: Contract,
@@ -841,22 +875,57 @@ async function maybePromote(
   node: string,
   c: Cluster,
   topology: DbTopology,
-  measured: Record<string, MemberLag>,
+  lag: ClusterLag,
 ): Promise<void> {
   const { ctx, seams } = contract;
+  const measured = lag.members;
   const key = `${orgId}/${c.stack}/${c.cluster}`;
   const resource = `db:${c.stack}/${c.cluster}`;
   const groupKey = `db:${c.stack}/${c.cluster}`;
+  const now = Date.now();
+
+  const primary = c.primary;
+  const healthy = Boolean(primary && (primary.runningReplicas ?? 0) > 0);
+
+  // Any member may carry the wait/confirm handshake (the anchor is the primary,
+  // or the chosen target when the primary service itself is gone).
+  const handshakeHolders = [primary, ...replicaMembers(c)].filter(
+    (s): s is SwarmServiceInfo =>
+      Boolean(s) &&
+      (s!.labels[DB_FAILOVER_PENDING_LABEL] !== undefined || s!.labels[DB_FAILOVER_CONFIRM_LABEL] !== undefined),
+  );
+  const clearHandshake = async () => {
+    for (const s of handshakeHolders) {
+      await hub
+        .dispatch(node, 'service.updateLabels', {
+          service: s.name,
+          add: {},
+          removeKeys: [DB_FAILOVER_PENDING_LABEL, DB_FAILOVER_CONFIRM_LABEL],
+        })
+        .catch(() => undefined);
+    }
+  };
 
   // single has nothing to promote; active-active already has other writers.
   if (topology === 'single' || topology === 'active-active') {
     unhealthyTicks.delete(key);
+    if (handshakeHolders.length > 0) await clearHandshake();
     return;
   }
 
-  const primary = c.primary;
-  const healthy = Boolean(primary && (primary.runningReplicas ?? 0) > 0);
   if (healthy) {
+    lastHealthyAt.set(key, now);
+    if (lag.primaryLsn) watermarks.set(key, { lsn: lag.primaryLsn, sampledAt: now });
+    if (handshakeHolders.length > 0) await clearHandshake();
+    if (confirmAlerted.delete(key)) {
+      await seams.fireEvent(ctx, {
+        signal: 'db-failover-confirm',
+        severity: 'info',
+        resource,
+        message: `Primary ${primary!.name} recovered — the pending failover was stood down, no data lost`,
+        status: 'resolved',
+      }).catch(() => undefined);
+    }
     if (unhealthyTicks.delete(key)) {
       await seams.fireEvent(ctx, {
         signal: 'db-degraded',
@@ -894,16 +963,83 @@ async function maybePromote(
   }
   if (!promotionDue(ticks)) return;
 
-  const candidates: PromotionCandidate[] = replicaMembers(c).map((s) => ({
+  const confirmRaw = handshakeHolders
+    .map((s) => s.labels[DB_FAILOVER_CONFIRM_LABEL])
+    .find((v): v is string => Boolean(v));
+  const confirmation = parseFailoverConfirmation(confirmRaw);
+  const candidates: FailoverCandidate[] = replicaMembers(c).map((s) => ({
     service: s.name,
     running: s.runningReplicas ?? 0,
+    replayLsn: measured[s.name]?.replayLsn ?? null,
     lagSeconds: measured[s.name]?.lagSeconds ?? null,
-    lsnDiffBytes: measured[s.name]?.lsnDiffBytes ?? null,
   }));
-  const targetName = choosePromotionTarget(candidates);
-  const target = replicaMembers(c).find((s) => s.name === targetName);
-  if (!target) return; // nothing running to promote — keep counting, retry next tick
+  const decision = decideFailover({
+    topology,
+    candidates,
+    watermark: watermarks.get(key) ?? null,
+    lastHealthyAt: lastHealthyAt.get(key) ?? null,
+    confirmation,
+  });
+  if (decision.kind === 'never' || decision.kind === 'wait') return; // keep counting, retry next tick
 
+  if (decision.kind === 'confirm') {
+    // Not provably caught up: never promote silently. Stamp the window, alert once.
+    const anchor = primary ?? replicaMembers(c).find((s) => s.name === decision.target);
+    const prevRaw = handshakeHolders
+      .map((s) => s.labels[DB_FAILOVER_PENDING_LABEL])
+      .find((v): v is string => Boolean(v));
+    const prev = parsePendingFailover(prevRaw);
+    const next = {
+      target: decision.target,
+      behindBytes: decision.behindBytes,
+      behindSeconds: decision.behindSeconds,
+      reason: decision.reason,
+      since: prev?.since || new Date(now).toISOString(),
+    };
+    if (anchor && pendingFailoverChanged(prev, next)) {
+      await hub
+        .dispatch(node, 'service.updateLabels', {
+          service: anchor.name,
+          add: { [DB_FAILOVER_PENDING_LABEL]: encodePendingFailover(next) },
+          removeKeys: [],
+        })
+        .catch(() => undefined);
+    }
+    if (!confirmAlerted.has(key)) {
+      confirmAlerted.add(key);
+      const window =
+        decision.behindBytes === null
+          ? 'an unknown amount of data'
+          : `${decision.behindBytes} bytes${decision.behindSeconds !== null ? ` (~${decision.behindSeconds}s)` : ''}`;
+      const message =
+        `${c.cluster}: failover is waiting for an admin — promoting ${decision.target} could lose ${window} ` +
+        `of the last writes (${decision.reason}). Confirm it on the stack's Data tab, or bring the primary back.`;
+      await seams.fireEvent(ctx, {
+        signal: 'db-failover-confirm',
+        severity: 'critical',
+        resource,
+        message,
+      }).catch(() => undefined);
+      await seams.recordIncidentEvent(ctx, {
+        groupKey,
+        kind: 'db.failover.pending',
+        message,
+        severity: 'critical',
+        meta: { target: decision.target, behindBytes: decision.behindBytes, behindSeconds: decision.behindSeconds, cluster: c.cluster, stack: c.stack },
+      }).catch(() => undefined);
+      await seams.writeAudit(ctx, {
+        action: 'db.failover.held',
+        actorType: 'system',
+        targetType: 'dbCluster',
+        targetId: `${c.stack}/${c.cluster}`,
+        metadata: { target: decision.target, behindBytes: decision.behindBytes, behindSeconds: decision.behindSeconds, reason: decision.reason },
+      }).catch(() => undefined);
+    }
+    return;
+  }
+
+  const target = replicaMembers(c).find((s) => s.name === decision.target);
+  if (!target) return;
   const promoted = await promoteInPlace(orgId, target);
   if (!promoted) return; // exec failed/gated — retry next tick
 
@@ -934,9 +1070,17 @@ async function maybePromote(
   }
 
   unhealthyTicks.delete(key);
+  watermarks.delete(key);
+  lastHealthyAt.delete(key);
+  confirmAlerted.delete(key);
+  // The ex-primary was redeployed without the handshake labels; clear any other holder.
+  await clearHandshake();
 
-  const lag = measured[target.name]?.lagSeconds;
-  const lagNote = lag !== undefined ? ` (replica lag ${lag}s)` : '';
+  const lagSecs = measured[target.name]?.lagSeconds;
+  const lagNote =
+    (decision.confirmed
+      ? ` — admin-confirmed, accepted window ${decision.behindBytes === null ? 'unknown' : `${decision.behindBytes} bytes`}`
+      : ' — provably caught up (0 bytes behind)') + (lagSecs !== undefined ? ` (replica lag ${lagSecs}s)` : '');
   await seams.recordIncidentEvent(ctx, {
     groupKey,
     kind: 'db.failover',
@@ -957,7 +1101,7 @@ async function maybePromote(
     signal: 'db-failover',
     severity: 'critical',
     resource,
-    message: `Automatic failover: ${target.name} promoted to primary of ${c.cluster}${lagNote}`,
+    message: `${decision.confirmed ? 'Confirmed' : 'Automatic'} failover: ${target.name} promoted to primary of ${c.cluster}${lagNote}`,
   }).catch(() => undefined);
   await seams.writeAudit(ctx, {
     action: 'db.failover.promote',
@@ -969,7 +1113,10 @@ async function maybePromote(
       demoted: primary?.name ?? null,
       repointed,
       unhealthyTicks: ticks,
-      lagSeconds: lag ?? null,
+      lagSeconds: lagSecs ?? null,
+      behindBytes: decision.behindBytes,
+      confirmed: decision.confirmed,
+      ...(decision.confirmed && confirmation?.by ? { confirmedBy: confirmation.by } : {}),
     },
   }).catch(() => undefined);
 }
@@ -1267,7 +1414,7 @@ async function reconcileOrg(orgId: string): Promise<void> {
 
     // (6) A2 — replication-lag telemetry (`swarmy.db.lag.<member>` stamps).
     const measured = await measureClusterLag(orgId, node, c).catch(
-      () => ({}) as Record<string, MemberLag>,
+      (): ClusterLag => ({ members: {}, primaryLsn: null }),
     );
 
     // (7) A2 — grace-windowed automatic failover promotion.

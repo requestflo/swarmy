@@ -135,13 +135,45 @@ Four ideas, one story:
   not recoverability. The backup/restore/drill story lives in the `backups-dr`
   domain.
 
-- **Automatic promotion.** A primary unhealthy for `PROMOTION_GRACE_TICKS` (2,
-  ~30 s) is replaced by the lowest-lag running replica (`pg_ctl promote`); role
-  labels flip, the other replicas are repointed, and an incident, event and audit
-  row are recorded (`manageddb-reconcile`). `single` and `active-active` are
-  never promoted. Note: `geo` is auto-promoted too, although cross-region async
-  replication can lose the last writes — an accepted RPO, stated here so it
-  is a decision rather than a surprise.
+- **Failover never silently loses data.** (Owner decision 2026-09-24:
+  databases must be the most solid thing swarmy runs.) A primary unhealthy for
+  more than `PROMOTION_GRACE_TICKS` (2, ~30 s) is failed over by
+  `manageddb-reconcile`, but a replica is promoted **automatically only when it
+  is provably caught up**: its replay LSN (`pg_last_wal_replay_lsn()`) has
+  reached the primary's last known flushed LSN (`pg_current_wal_flush_lsn()`,
+  sampled on every healthy tick; the watermark must come from the last tick the
+  primary was seen healthy). Seconds-of-lag is never proof — only the LSN is.
+  In every other case — the best replica is even one byte behind, the watermark
+  is unknown (the controller restarted during the outage) or stale (the probe
+  missed the last healthy tick), or no replica reported its position — swarmy
+  **holds** the failover: it raises a critical alert + incident
+  (`db-failover-confirm`, `db.failover.pending`), audits `db.failover.held`,
+  stamps the data-loss window on the cluster (`swarmy.db.failover.pending`:
+  target, bytes and seconds behind, reason), and waits. The stack's Data tab
+  shows the window in plain words; an owner/admin (`data.failover` policy) may
+  confirm (`db.confirmFailover` → `swarmy.db.failover.confirm`, audited
+  `db.failover.confirm`), naming the replica and the window they accept. The
+  worker promotes on its next tick only if that replica's window is still within
+  what was accepted — a gap that grew voids the confirmation. If the primary
+  comes back first, the hold is cleared and nothing is lost. On promotion role
+  labels flip, the other members (the ex-primary included) are repointed at the
+  new writer, and the incident/event/audit rows say whether it was automatic
+  (0 bytes behind) or confirmed (and which window). The decision is pure
+  (`decideFailover` in `@swarmy/core` `manageddb-failover.ts`, unit-tested).
+
+  | Topology | What happens when the primary dies |
+  |---|---|
+  | `single` | Never promoted — there is no replica. Restore from backup. |
+  | `primary-replica` | Gated: auto-promote a provably caught-up replica, otherwise hold for confirmation. Same-region streaming is usually caught up, so this rarely asks. |
+  | `failover` | Same gate. The etcd member is the election substrate for a future Patroni-style engine; today the reconcile worker is the promoter. |
+  | `geo` | Same gate. Cross-region replicas trail more often, so a geo failover asks for confirmation more often — by design. |
+  | `active-active` | Never promoted — the other primaries are already writable. |
+
+  Residual window, stated honestly: the watermark is the last flushed position
+  swarmy *observed* (one probe per ~15 s). A commit flushed on the primary after
+  that probe and never streamed to any replica is invisible to every
+  asynchronous scheme; only synchronous replication closes it (not offered in
+  the base slice).
 - **HA templates.** `postgres-ha` (repmgr) and `redis-ha` (Sentinel, quorum
   ⌊n/2⌋+1) render one pinned member per `swarmy.region` plus a portable compose
   file (`services/templates.ts`, `routers/templates.ts`). With fewer than 3
@@ -156,6 +188,7 @@ Four ideas, one story:
 | Controller down while apps run | Clusters and apps keep talking — topology is on Docker, wiring is on the app's service env. Reconcile resumes converging when the controller returns. |
 | Declared replicas ≠ live tasks | The per-domain reconcile worker converges each tick (scales members, applies memory, re-stamps `swarmy.*.stats`); a transient scheduling gap self-heals. |
 | Credential lost (shown once) | Not recoverable by design — rotate the secret / re-provision. swarmy never stored the plaintext, so there is nothing to leak or hand back. |
+| Primary dies and no replica is provably caught up | Failover is held, not taken: critical alert + incident with the data-loss window (bytes / seconds behind); an owner/admin confirms on the Data tab or brings the primary back. Never a silent promotion that drops the last writes. |
 | App attached, DB not yet healthy | The app holds a valid `DATABASE_URL`; swarm DNS resolves the primary once its task is up. No wiring rewrite is needed when the DB comes healthy. |
 | Managed cluster gets a published port | Surfaced as an exposure violation and alerted; swarmy never removes the port itself (v1) — the operator fixes it. Private-by-design is enforced by advice, not force. |
 | Bucket delete with objects/attachments | Refused. Delete is blocked while the bucket holds objects or is attached to a service — no silent data loss. |
