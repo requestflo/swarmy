@@ -39,7 +39,7 @@ export function TwoFactorCard(): React.JSX.Element {
         <p className="text-muted-foreground text-sm">
           {enrolled
             ? 'Signing in with a password asks for a code from your authenticator app. Opening a terminal may ask again.'
-            : 'Add a code from an authenticator app to every sign-in. Needed to open terminals when your workspace requires recent MFA.'}
+            : 'Optional. Add a code from an authenticator app to your password sign-ins. Not needed if you sign in with SSO or a social account.'}
         </p>
         <div className="flex flex-wrap gap-2">
           {enrolled ? (

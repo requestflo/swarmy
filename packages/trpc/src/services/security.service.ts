@@ -339,13 +339,20 @@ export async function assertTerminalStepUp(
   target: { kind: 'container' | 'nodeShell'; targetType: string; targetId: string },
 ): Promise<void> {
   if (!policy.requireMfa) return;
+  const enrolled = ctx.user.twoFactorEnabled === true;
   const { mfaVerifiedAt } = await sessionMfa(ctx.db, ctx.session.id);
+  // Only pay for the policy/account lookups when the IdP exemption could apply.
+  const idpOwnsMfa =
+    !enrolled &&
+    (await getSecurityPolicy(ctx.db, ctx.activeOrgId)).trustIdpMfa &&
+    (await isSsoOnly(ctx.db, ctx.user.id));
   const decision = stepUpDecision({
     requireMfa: policy.requireMfa,
     mfaMaxAgeMs: policy.mfaMaxAgeMs,
-    enrolled: ctx.user.twoFactorEnabled === true,
+    enrolled,
     mfaVerifiedAt,
     now: new Date(),
+    idpOwnsMfa,
   });
   if (decision.ok) return;
   await writeAudit(ctx, {

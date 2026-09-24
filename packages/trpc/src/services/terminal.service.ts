@@ -139,7 +139,9 @@ export interface TerminalApprovalRow {
 export const DEFAULT_TERMINAL_POLICY: Omit<TerminalPolicyRow, 'orgId'> = {
   containerExecEnabled: true,
   nodeShellEnabled: false,
-  requireMfa: true,
+  // 2FA is optional per user (owner decision 2026-09-24): no step-up unless an
+  // admin turns it on.
+  requireMfa: false,
   requireApprovalForNodeShell: true,
   recordContainerExec: true,
   idleTimeoutMs: 300_000,

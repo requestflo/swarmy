@@ -12,11 +12,11 @@ describe('classifySessionPath', () => {
   });
   it('marks sign-ins that skip the plugin challenge as pending', () => {
     expect(classifySessionPath('/magic-link/verify')).toBe('pending');
-    expect(classifySessionPath('/callback/:id')).toBe('pending');
-    expect(classifySessionPath('/sign-in/social')).toBe('pending');
   });
-  it('exempts org SSO (the IdP owns MFA)', () => {
+  it('exempts social and org SSO sign-ins (the IdP owns MFA)', () => {
     expect(classifySessionPath('/oauth2/callback/:providerId')).toBe('exempt');
+    expect(classifySessionPath('/callback/:id')).toBe('exempt');
+    expect(classifySessionPath('/sign-in/social')).toBe('exempt');
   });
   it('leaves password sign-in (plugin-challenged) and rotations alone', () => {
     expect(classifySessionPath('/sign-in/email')).toBe('none');

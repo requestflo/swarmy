@@ -131,6 +131,24 @@ describe('assertTerminalStepUp', () => {
     const { ctx: c } = ctx({ session: { mfaVerifiedAt: null, mfaPending: false } }, { enrolled: false });
     expect(await swarmyCode(assertTerminalStepUp(c, policy, target))).toBe('MFA_ENROLMENT_REQUIRED');
   });
+
+  it('never walls an SSO/social-only user when the org trusts IdP MFA (the default)', async () => {
+    const { ctx: c } = ctx({ hasPassword: false, policy: null }, { enrolled: false });
+    expect(await swarmyCode(assertTerminalStepUp(c, policy, target))).toBeUndefined();
+    const distrust = { require2fa: 'off', graceDays: 7, enforcedSince: null, trustIdpMfa: false };
+    const { ctx: c2 } = ctx({ hasPassword: false, policy: distrust }, { enrolled: false });
+    expect(await swarmyCode(assertTerminalStepUp(c2, policy, target))).toBe('MFA_ENROLMENT_REQUIRED');
+  });
+});
+
+describe('2FA is optional by default', () => {
+  it('ships no org requirement and no terminal step-up', async () => {
+    const { DEFAULT_SECURITY_POLICY } = await import('./mfa-policy');
+    const { DEFAULT_TERMINAL_POLICY } = await import('./terminal.service');
+    expect(DEFAULT_SECURITY_POLICY.require2fa).toBe('off');
+    expect(DEFAULT_SECURITY_POLICY.trustIdpMfa).toBe(true);
+    expect(DEFAULT_TERMINAL_POLICY.requireMfa).toBe(false);
+  });
 });
 
 describe('resetMemberTwoFactor', () => {

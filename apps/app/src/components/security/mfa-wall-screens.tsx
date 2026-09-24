@@ -32,7 +32,7 @@ function WallFrame({ title, body, children }: { title: string; body: string; chi
   );
 }
 
-/** A magic-link / social session of a 2FA user: owes a code before anything loads. */
+/** A magic-link session of a 2FA user: owes a code before anything loads (social and SSO sign-ins never do). */
 export function MfaChallengeScreen(): React.JSX.Element {
   const qc = useQueryClient();
   return (

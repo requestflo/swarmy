@@ -101,7 +101,9 @@ export type StepUpDecision =
  * May this session open a shell now? With `requireMfa`, the session must have
  * passed a second factor (sign-in challenge, in-session TOTP/backup code, or a
  * passkey) within `mfaMaxAgeMs`. A user with no second factor cannot step up at
- * all — they are told to enrol, never silently let through.
+ * all — they are told to enrol, never silently let through — unless they sign
+ * in only through an identity provider the org trusts for MFA (`idpOwnsMfa`):
+ * people without a password (and often without email) are never walled.
  */
 export function stepUpDecision(input: {
   requireMfa: boolean;
@@ -109,8 +111,11 @@ export function stepUpDecision(input: {
   enrolled: boolean;
   mfaVerifiedAt: Date | null;
   now: Date;
+  /** SSO/social-only account and the org trusts IdP MFA. */
+  idpOwnsMfa?: boolean;
 }): StepUpDecision {
   if (!input.requireMfa) return { ok: true };
+  if (!input.enrolled && input.idpOwnsMfa) return { ok: true };
   if (!input.enrolled) {
     return {
       ok: false,

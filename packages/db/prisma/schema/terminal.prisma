@@ -4,7 +4,7 @@ model TerminalPolicy {
   orgId                       String   @id
   containerExecEnabled        Boolean  @default(true)
   nodeShellEnabled            Boolean  @default(false)
-  requireMfa                  Boolean  @default(true)
+  requireMfa                  Boolean  @default(false)
   requireApprovalForNodeShell Boolean  @default(true)
   recordContainerExec         Boolean  @default(true)
   idleTimeoutMs               Int      @default(300000)

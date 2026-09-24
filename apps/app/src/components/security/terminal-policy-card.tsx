@@ -78,7 +78,8 @@ export function TerminalPolicyCard(): React.JSX.Element {
               <span>
                 Require recent MFA to open a shell
                 <span className="text-muted-foreground block">
-                  Container exec and host shells ask for an authenticator code unless one was entered recently.
+                  Off by default. When on, container exec and host shells ask password accounts with an authenticator
+                  for a code unless one was entered recently. SSO and social sign-ins are never asked.
                 </span>
               </span>
             </label>

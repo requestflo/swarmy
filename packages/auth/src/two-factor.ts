@@ -15,11 +15,12 @@ import type { DB } from '@swarmy/db';
  *  2. `mfaAssurance`, swarmy's own after-hook that records on the `session` row
  *     WHEN it last passed a second factor (`mfaVerifiedAt`) and whether it still
  *     OWES one (`mfaPending`). The plugin only challenges password sign-ins; a
- *     2FA-enrolled user who arrives by magic link or a social login would
- *     otherwise skip the second factor, so those sessions are marked pending and
+ *     2FA-enrolled user who arrives by magic link would otherwise skip the
+ *     second factor they opted into, so those sessions are marked pending and
  *     `orgProcedure` refuses them (`MFA_CHALLENGE_REQUIRED`) until the user
- *     verifies a code in-session. Org SSO (`/oauth2/callback/*`) is exempt: the
- *     IdP owns MFA for federated logins. The same `mfaVerifiedAt` is the step-up
+ *     verifies a code in-session. Social and org SSO sign-ins (`/callback/*`,
+ *     `/oauth2/callback/*`) are exempt: the IdP owns MFA for federated logins.
+ *     2FA is optional per user; nothing here is an org requirement. The same `mfaVerifiedAt` is the step-up
  *     clock the terminal checks (`TerminalPolicy.requireMfa` + `mfaMaxAgeMs`).
  */
 
@@ -39,7 +40,7 @@ export const MFA_VERIFY_PATHS = [
  *  - `verified`: the request itself proved a second factor.
  *  - `pending`: a sign-in path that bypasses the plugin's challenge. The session
  *    owes a code if the user is enrolled.
- *  - `exempt`: org SSO. The IdP enforces MFA; swarmy does not double-challenge.
+ *  - `exempt`: social or org SSO. The IdP enforces MFA; swarmy does not double-challenge.
  *  - `none`: anything else (password sign-in, which the plugin challenged or a
  *    trusted device skipped; session rotation on credential changes).
  */
@@ -49,9 +50,11 @@ export function classifySessionPath(path: string | undefined): SessionAssurance 
   if (!path) return 'none';
   if ((MFA_VERIFY_PATHS as readonly string[]).includes(path)) return 'verified';
   if (path.startsWith('/oauth2/callback/')) return 'exempt';
+  // Social sign-in (GitHub/Google/Microsoft/GitLab/OIDC) is exempt like org
+  // SSO: the identity provider owns MFA, and swarmy never adds a wall on top.
+  if (path.startsWith('/callback/')) return 'exempt';
+  if (path === '/sign-in/social') return 'exempt';
   if (path.startsWith('/magic-link/verify')) return 'pending';
-  if (path.startsWith('/callback/')) return 'pending';
-  if (path === '/sign-in/social') return 'pending';
   return 'none';
 }
 

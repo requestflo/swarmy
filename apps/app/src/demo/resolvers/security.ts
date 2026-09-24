@@ -59,12 +59,12 @@ export const security: DomainResolvers = {
   seed: (store) => {
     store.extra.security = {
       enrolled: true,
-      policy: { require2fa: 'admins', graceDays: 7, enforcedSince: new Date(Date.now() - 3 * DAY), trustIdpMfa: true },
+      policy: { require2fa: 'off', graceDays: 7, enforcedSince: null, trustIdpMfa: true },
       terminal: {
         orgId: store.org.id,
         containerExecEnabled: true,
         nodeShellEnabled: true,
-        requireMfa: true,
+        requireMfa: false,
         requireApprovalForNodeShell: true,
         recordContainerExec: true,
         idleTimeoutMs: 300_000,
