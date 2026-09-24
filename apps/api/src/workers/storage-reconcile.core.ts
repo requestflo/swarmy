@@ -157,6 +157,17 @@ export function needsRpcBootstrap(memberCount: number, health: { connectedNodes:
   return !health || health.connectedNodes < memberCount;
 }
 
+/**
+ * While an engine upgrade runs the reconcile stands down — except for the RPC
+ * bootstrap once the new engine is deployed: its `verify` step waits for every
+ * member to connect, and members only find each other (new task IPs after the
+ * redeploy) through that bootstrap. Pure.
+ */
+export function bootstrapDuringEngineUpgrade(engineUpgrade: unknown): boolean {
+  const u = engineUpgrade as { status?: string; step?: string } | null | undefined;
+  return u?.status === 'running' && u.step === 'verify';
+}
+
 /** One-shot curl script — mirror of buckets.service.ts `buildAdminScript`. */
 export function buildAdminScript(): string {
   return [

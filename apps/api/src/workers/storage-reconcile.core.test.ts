@@ -7,6 +7,7 @@ import {
   garageSelfPath,
   selfNodeId,
   needsRpcBootstrap,
+  bootstrapDuringEngineUpgrade,
   parseTaskProbe,
   planConnects,
   TASK_MARKER,
@@ -337,6 +338,15 @@ describe('multi-member RPC bootstrap', () => {
       { ip: '10.0.1.9', peers: ['aaaa@10.0.1.5:3901'] },
     ]);
     expect(planConnects([{ ip: '10.0.1.5', garageNodeId: 'aaaa' }])).toEqual([]);
+  });
+
+  it('mid engine-upgrade, bootstraps only once the new engine is deployed (verify)', () => {
+    expect(bootstrapDuringEngineUpgrade({ status: 'running', step: 'verify' })).toBe(true);
+    for (const step of ['preflight', 'stop', 'backup', 'deploy', 'rollback']) {
+      expect(bootstrapDuringEngineUpgrade({ status: 'running', step })).toBe(false);
+    }
+    expect(bootstrapDuringEngineUpgrade({ status: 'done', step: 'verify' })).toBe(false);
+    expect(bootstrapDuringEngineUpgrade(null)).toBe(false);
   });
 
   it('bootstraps only for >1 member with fewer connected than members', () => {

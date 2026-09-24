@@ -23,7 +23,9 @@
  * Every step is idempotent and the run is persisted on
  * `StorageCluster.engineUpgrade`, so a controller restart resumes it (see
  * `resumeEngineUpgrades`). While a run is `running`, the storage reconcile
- * stands down — it must not "heal" a store that was stopped on purpose.
+ * stands down — it must not "heal" a store that was stopped on purpose — except
+ * that during `verify` it still runs the RPC bootstrap, the only way members on
+ * new task IPs find each other (apps/api storage-reconcile).
  *
  * This is the first registered platform migration (plans/epic-platform-upgrades.md);
  * the platform upgrade run will invoke it as one step.

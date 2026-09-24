@@ -16,6 +16,7 @@ import { hub } from '../gateway';
 import {
   adminRunOncePayload,
   backoffTicks,
+  bootstrapDuringEngineUpgrade,
   buildAdminScript,
   buildStats,
   buildTaskProbeScript,
@@ -200,6 +201,19 @@ async function bootstrapRpcMesh(target: string, adminToken: string, major: Garag
   }
 }
 
+/** Only the RPC bootstrap, for a store mid engine-upgrade (see `bootstrapDuringEngineUpgrade`). */
+async function bootstrapOnly(row: ClusterRow): Promise<void> {
+  const memberIds = Array.isArray(row.memberNodeIds) ? (row.memberNodeIds as string[]) : [];
+  const target = hub.managerNode(row.orgId);
+  if (!target || !row.adminTokenRef) return;
+  const major = garageMajorOf(row.engineImage);
+  const adminToken = decryptSecret(row.adminTokenRef);
+  const health = await garageAdmin(target, adminToken, major, { method: 'GET', path: '/health' })
+    .then((b) => parseGarageHealth(parseJson(b)))
+    .catch(() => null);
+  if (needsRpcBootstrap(memberIds.length, health)) await bootstrapRpcMesh(target, adminToken, major);
+}
+
 async function reconcileOrg(row: ClusterRow, tick: number): Promise<void> {
   const orgId = row.orgId;
   const state = stateFor(orgId);
@@ -352,6 +366,7 @@ export function startStorageReconcile(): () => void {
           await resumeEngineUpgrade(
             systemContext({ db: prisma, hub, auth: authRegistry.getAuth() }, row.orgId),
           ).catch(() => undefined);
+          if (bootstrapDuringEngineUpgrade(row.engineUpgrade)) await bootstrapOnly(row).catch(() => undefined);
           continue;
         }
         // Heal legacy host-bind / unpinned store specs before probing layout.
