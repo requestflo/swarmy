@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import { abacProcedure } from '../abac';
@@ -62,7 +63,13 @@ export const membersRouter = router({
         role: z.enum(['owner', 'admin', 'member']),
       }),
     )
-    .mutation(({ ctx, input }) => inviteMember(ctx, input)),
+    .mutation(({ ctx, input }) => {
+      // Only an owner may mint another owner; admins invite admins/members.
+      if (input.role === 'owner' && ctx.membership.role !== 'owner') {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'only an owner can invite an owner' });
+      }
+      return inviteMember(ctx, input);
+    }),
 
   revokeInvitation: abacProcedure('member.write')
     .input(z.object({ id: z.string() }))
@@ -70,5 +77,17 @@ export const membersRouter = router({
 
   regenerateInvitation: adminProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(({ ctx, input }) => regenerateInvitation(ctx, input.id)),
+    .mutation(async ({ ctx, input }) => {
+      // Regenerating mints a fresh link at the SAME role — owner-only for owner invites.
+      if (ctx.membership.role !== 'owner') {
+        const inv = await ctx.db.invitation.findFirst({
+          where: { id: input.id, organizationId: ctx.activeOrgId },
+          select: { role: true },
+        });
+        if (inv?.role === 'owner') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'only an owner can reissue an owner invite' });
+        }
+      }
+      return regenerateInvitation(ctx, input.id);
+    }),
 });
