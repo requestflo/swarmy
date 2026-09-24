@@ -4,6 +4,7 @@ import { inventory } from './resolvers/inventory';
 import { ingress } from './resolvers/ingress';
 import { cicd } from './resolvers/cicd';
 import { gitconnections } from './resolvers/gitconnections';
+import { apps } from './resolvers/apps';
 import { mesh } from './resolvers/mesh';
 import { observability } from './resolvers/observability';
 import { geo } from './resolvers/geo';
@@ -48,6 +49,7 @@ const MODULES: DomainResolvers[] = [
   ingress,
   cicd,
   gitconnections,
+  apps,
   mesh,
   observability,
   geo,

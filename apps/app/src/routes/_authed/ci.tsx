@@ -20,6 +20,8 @@ import { PreviewsSection } from '@/components/ci/previews-section';
 import { GitConnectionsCard } from '@/components/ci/git-connections-card';
 import { GitNewAppCard } from '@/components/ci/git-new-app-card';
 import { GitResultBanner, parseGitResultSearch } from '@/components/ci/git-result-banner';
+// git-apps P3: apps from swarmy.yaml, environments, plans
+import { AppsCard } from '@/components/gitops/apps-card';
 
 export const Route = createFileRoute('/_authed/ci')({
   validateSearch: parseGitResultSearch,
@@ -79,6 +81,7 @@ function CiPage(): React.JSX.Element {
           onClose={() => setNewApp(false)}
         />
       ) : null}
+      <AppsCard />
       <GitConnectionsCard />
 
       <div className="grid gap-4 lg:grid-cols-2">
