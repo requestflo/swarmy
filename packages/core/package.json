@@ -47,6 +47,14 @@
     "./system-images": {
       "types": "./src/system-images.ts",
       "import": "./src/system-images.ts"
+    },
+    "./platform-manifest": {
+      "types": "./src/platform-manifest.ts",
+      "import": "./src/platform-manifest.ts"
+    },
+    "./platform-verify": {
+      "types": "./src/platform-verify.ts",
+      "import": "./src/platform-verify.ts"
     }
   },
   "scripts": {
