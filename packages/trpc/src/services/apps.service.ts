@@ -1055,6 +1055,33 @@ export async function teardownAppPreview(
   return { stack: desired.stack };
 }
 
+/** Tear down app previews older than their swarmy.yaml `previews.ttl` (counted from the last push). */
+export async function teardownExpiredAppPreviews(
+  ctx: OrgContext,
+  now = new Date(),
+): Promise<string[]> {
+  const rows = await ctx.db.appPlan.findMany({
+    where: { orgId: ctx.activeOrgId, environment: 'preview', status: { not: 'superseded' } },
+    orderBy: { updatedAt: 'desc' },
+  });
+  const latest = new Map<string, (typeof rows)[number]>();
+  for (const r of rows) {
+    const k = `${r.repoId}:${r.prNumber}`;
+    if (!latest.has(k)) latest.set(k, r);
+  }
+  const torn: string[] = [];
+  for (const r of latest.values()) {
+    const desired = r.desiredJson as unknown as DesiredApp;
+    const ttl = desired?.previews?.ttlSeconds ?? 0;
+    if (!ttl || now.getTime() - r.updatedAt.getTime() < ttl * 1000) continue;
+    const res = await teardownAppPreview(ctx, { repoId: r.repoId, prNumber: r.prNumber }).catch(
+      () => ({ stack: null }),
+    );
+    if (res.stack) torn.push(res.stack);
+  }
+  return torn;
+}
+
 // ── reads + settings ─────────────────────────────────────────────────────────
 
 export async function listApps(ctx: OrgContext): Promise<AppView[]> {

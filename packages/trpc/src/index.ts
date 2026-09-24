@@ -118,6 +118,7 @@ export {
   replan,
   setRequireApproval,
   teardownAppPreviewForRepo,
+  teardownExpiredAppPreviews,
 } from './services/apps.service';
 export type { AppPlanView, AppView, PlanCommitInput, PlanCommitResult } from './services/apps.service';
 export {

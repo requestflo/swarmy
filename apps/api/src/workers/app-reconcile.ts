@@ -1,6 +1,12 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
-import { detectDrift, listAppBindingIds, pollApp, systemContext } from '@swarmy/trpc';
+import {
+  detectDrift,
+  listAppBindingIds,
+  pollApp,
+  systemContext,
+  teardownExpiredAppPreviews,
+} from '@swarmy/trpc';
 import { hub, store } from '../gateway';
 
 /**
@@ -17,11 +23,14 @@ import { hub, store } from '../gateway';
  * once per distinct drift (never silently reverted: git owns the file, a
  * human decides).
  *
+ * Every 30 min: app PREVIEW TTL — tear down PR previews past `previews.ttl`.
+ *
  * `SWARMY_GIT_POLL=false` turns polling off (webhooks only); drift stays on.
  */
 
 const TICK_MS = 2 * 60 * 1000;
 const DRIFT_EVERY_TICKS = 5;
+const PREVIEW_TTL_EVERY_TICKS = 15;
 const BOOT_DELAY_MS = 60_000;
 
 let tick = 0;
@@ -37,6 +46,8 @@ async function sweep(): Promise<void> {
     const deps = { db: prisma, hub, auth: authRegistry.getAuth() };
     for (const orgId of new Set(store.nodeOrg.values())) {
       const ctx = systemContext(deps, orgId);
+      if (tick % PREVIEW_TTL_EVERY_TICKS === 1)
+        await teardownExpiredAppPreviews(ctx).catch(() => undefined);
       for (const repoId of await listAppBindingIds(prisma, orgId).catch(() => [])) {
         if (poll)
           await pollApp(ctx, repoId).catch((e: unknown) =>
