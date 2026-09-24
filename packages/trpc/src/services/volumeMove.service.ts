@@ -112,7 +112,7 @@ export interface MoveResult {
   pausedSeconds: number;
 }
 
-type Ctx = Pick<OrgContext, 'hub' | 'activeOrgId' | 'db' | 'user'>;
+type Ctx = OrgContext;
 
 function hostnameOf(ctx: Ctx, nodeId: string): string {
   return ctx.hub.nodeInfoFor(nodeId)?.hostname ?? nodeId;

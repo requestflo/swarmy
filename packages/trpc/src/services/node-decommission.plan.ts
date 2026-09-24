@@ -15,8 +15,7 @@
  *   Postgres primary   → promote a caught-up standby on another node
  *                        (existing replica, or a temporary one added first).
  *   Postgres replica   → floats; re-clones from the primary elsewhere.
- *   Cache primary      → Valkey/Redis coordinated FAILOVER to a replica
- *                        (existing, or a temporary one added first).
+ *   Cache primary      → two-pass copy (the cache saves to disk on stop).
  *   Search / vector /  → two-pass rsync: a live pass, then a short stop and a
  *   plain volumes        final pass, checksum verify, start on the target.
  *   CSI volumes        → the volume follows the task (detach/attach).
@@ -140,8 +139,6 @@ export type DrainStepKind =
   | 'db-switchover'
   | 'db-standby-switchover'
   | 'db-failover'
-  | 'cache-switchover'
-  | 'cache-replica-switchover'
   | 'volume-copy'
   | 'volume-follow'
   | 'volume-restore'
@@ -537,35 +534,11 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
       stateless.push(s.name);
       continue;
     }
-    if (replicas > 0) {
-      dataSteps.push({
-        id: `cache-switchover:${s.name}`,
-        kind: 'cache-switchover',
-        subject: s.name,
-        title: `Hand the ${cluster} cache to its copy on another server.`,
-        detail: 'FAILOVER TO <replica> (Valkey/Redis ≥ 6.2: pauses clients until the replica has the full offset, then swaps roles), then re-pin swarmy.cache.node.',
-        downtime: 'seconds',
-        verify: 'INFO replication: role:master on the new node, master_repl_offset matches.',
-        rollback: 'FAILOVER back; the old data volume is untouched.',
-      });
-    } else {
-      const d = picker.pick();
-      if (!d) {
-        noDestination(cluster);
-        continue;
-      }
-      dataSteps.push({
-        id: `cache-replica-switchover:${s.name}`,
-        kind: 'cache-replica-switchover',
-        subject: s.name,
-        destination: dest(d),
-        title: `Copy the ${cluster} cache to ${d.hostname}, then switch over.`,
-        detail: 'Starts a temporary replica on the destination (REPLICAOF), waits for master_link_status:up and a matching offset, then FAILOVER and drops the temporary replica.',
-        downtime: 'seconds',
-        verify: 'DBSIZE matches; replica offset = primary offset before the swap.',
-        rollback: 'Remove the temporary replica; the primary never stopped.',
-      });
-    }
+    // Online primaries fall through to the volume path: a runtime FAILOVER
+    // would be undone by the declared spec (replicas boot with REPLICAOF the
+    // primary service), so the primary's volume is copied with the cache
+    // stopped for the final pass — it saves to disk on stop.
+    handled.delete(s.name);
   }
 
   // ── Garage member ────────────────────────────────────────────────────────
@@ -717,7 +690,7 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
     }
     if (bytes !== undefined) bytesToMove += bytes;
     else unknownSizes += known.filter((b) => b === undefined).length;
-    const kind = svc?.labels[SEARCH_PIN] ? 'search index' : svc?.labels[VECTOR_PIN] ? 'vector store' : isDb ? 'database files' : 'data';
+    const kind = svc?.labels[CACHE_PIN] ? 'cache' : svc?.labels[SEARCH_PIN] ? 'search index' : svc?.labels[VECTOR_PIN] ? 'vector store' : isDb ? 'database files' : 'data';
     volumeSteps.push({
       id: `volume-copy:${svcName}`,
       kind: 'volume-copy',
@@ -844,7 +817,7 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
           kind: 'safety-backup',
           volumes: [...needsBackup].sort(),
           title: `Back up ${needsBackup.size} volume${needsBackup.size === 1 ? '' : 's'} first, in case anything goes wrong.`,
-          detail: 'restic backup of each volume without a successful snapshot in the last 24 hours (crash-consistent; managed databases take a logical dump).',
+          detail: 'restic backup of each volume without a successful snapshot in the last 24 hours, taken on this server (crash-consistent; the nightly logical dumps of managed databases are kept as they are).',
           downtime: 'none',
           verify: 'Each Snapshot row SUCCEEDED with a restic id.',
           rollback: 'Nothing to undo.',

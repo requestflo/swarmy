@@ -9,7 +9,7 @@
  */
 import type { DB } from '@swarmy/db';
 
-export type OperationKind = 'mesh.migration' | 'storage.engineUpgrade';
+export type OperationKind = 'mesh.migration' | 'storage.engineUpgrade' | 'node.decommission';
 
 type RunsDb = Pick<DB, 'operationRun'>;
 

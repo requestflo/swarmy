@@ -225,12 +225,26 @@ describe('planDecommission — caches', () => {
       'swarmy.cache.replicas': replicas,
       'swarmy.cache.node': 'sw-b',
     });
-  it('with a replica → FAILOVER; without → temporary replica first', () => {
-    const a = planDecommission(input({ services: [cache('1')], containers: [task('shop_cache-primary', ['c'])] }));
-    expect(kinds(a)).toContain('cache-switchover');
-    const b = planDecommission(input({ services: [cache('0')], containers: [task('shop_cache-primary', ['c'])] }));
-    expect(kinds(b)).toContain('cache-replica-switchover');
-    expect(b.steps.find((s) => s.kind === 'cache-replica-switchover')!.destination).toBeDefined();
+  it('an online primary moves by a stopped copy (with or without a replica); replicas float', () => {
+    for (const r of ['0', '1']) {
+      const p = planDecommission(
+        input({
+          services: [cache(r), svc('shop_cache-replica', { 'swarmy.cache.cluster': 'cache', 'swarmy.cache.role': 'replica' })],
+          containers: [task('shop_cache-primary', ['shop_cache-data']), task('shop_cache-replica')],
+        }),
+      );
+      const copy = p.steps.find((s) => s.kind === 'volume-copy')!;
+      expect(copy.subject).toBe('shop_cache-primary');
+      expect(copy.title).toContain('cache');
+      expect(copy.destination).toBeDefined();
+      expect(p.steps.find((s) => s.kind === 'drain')!.detail).toContain('shop_cache-replica');
+    }
+  });
+  it('offline: warns and lets it restart elsewhere', () => {
+    const p = planDecommission(
+      input({ nodes: [node('a', { role: 'manager' }), node('b', { status: 'down' }, { online: false })], services: [cache('0')] }),
+    );
+    expect(p.warnings.some((w) => w.includes('restarts empty'))).toBe(true);
   });
 });
 
