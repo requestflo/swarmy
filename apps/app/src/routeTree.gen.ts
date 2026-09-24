@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as AppLoginRouteImport } from './routes/app-login'
 import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
 import { Route as SSlugRouteImport } from './routes/s.$slug'
@@ -20,6 +21,7 @@ import { Route as AuthedIngressRouteImport } from './routes/_authed/ingress'
 import { Route as AuthedIncidentsRouteImport } from './routes/_authed/incidents'
 import { Route as AuthedGovernanceRouteImport } from './routes/_authed/governance'
 import { Route as AuthedExposureRouteImport } from './routes/_authed/exposure'
+import { Route as AuthedDeviceRouteImport } from './routes/_authed/device'
 import { Route as AuthedCostRouteImport } from './routes/_authed/cost'
 import { Route as AuthedCiRouteImport } from './routes/_authed/ci'
 import { Route as AuthedBlueprintsRouteImport } from './routes/_authed/blueprints'
@@ -57,12 +59,20 @@ import { Route as AuthedStacksNameMessagingRouteImport } from './routes/_authed/
 import { Route as AuthedStacksNameDataRouteImport } from './routes/_authed/stacks/$name.data'
 import { Route as AuthedStacksNameConfigRouteImport } from './routes/_authed/stacks/$name.config'
 import { Route as AuthedStacksNameBackupsRouteImport } from './routes/_authed/stacks/$name.backups'
+import { Route as AuthedStacksNameAccessRouteImport } from './routes/_authed/stacks/$name.access'
 import { Route as AuthedServicesServiceIdTerminalRouteImport } from './routes/_authed/services/$serviceId_.terminal'
 import { Route as AuthedNodesNodeIdTerminalRouteImport } from './routes/_authed/nodes/$nodeId_.terminal'
+import { Route as AuthedStacksNameErrorsIndexRouteImport } from './routes/_authed/stacks/$name.errors.index'
+import { Route as AuthedStacksNameErrorsFingerprintRouteImport } from './routes/_authed/stacks/$name.errors.$fingerprint'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppLoginRoute = AppLoginRouteImport.update({
+  id: '/app-login',
+  path: '/app-login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthedRoute = AuthedRouteImport.update({
@@ -112,6 +122,11 @@ const AuthedGovernanceRoute = AuthedGovernanceRouteImport.update({
 const AuthedExposureRoute = AuthedExposureRouteImport.update({
   id: '/exposure',
   path: '/exposure',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedDeviceRoute = AuthedDeviceRouteImport.update({
+  id: '/device',
+  path: '/device',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedCostRoute = AuthedCostRouteImport.update({
@@ -307,6 +322,11 @@ const AuthedStacksNameBackupsRoute = AuthedStacksNameBackupsRouteImport.update({
   path: '/backups',
   getParentRoute: () => AuthedStacksNameRoute,
 } as any)
+const AuthedStacksNameAccessRoute = AuthedStacksNameAccessRouteImport.update({
+  id: '/access',
+  path: '/access',
+  getParentRoute: () => AuthedStacksNameRoute,
+} as any)
 const AuthedServicesServiceIdTerminalRoute =
   AuthedServicesServiceIdTerminalRouteImport.update({
     id: '/services/$serviceId_/terminal',
@@ -319,9 +339,22 @@ const AuthedNodesNodeIdTerminalRoute =
     path: '/nodes/$nodeId/terminal',
     getParentRoute: () => AuthedRoute,
   } as any)
+const AuthedStacksNameErrorsIndexRoute =
+  AuthedStacksNameErrorsIndexRouteImport.update({
+    id: '/errors/',
+    path: '/errors/',
+    getParentRoute: () => AuthedStacksNameRoute,
+  } as any)
+const AuthedStacksNameErrorsFingerprintRoute =
+  AuthedStacksNameErrorsFingerprintRouteImport.update({
+    id: '/errors/$fingerprint',
+    path: '/errors/$fingerprint',
+    getParentRoute: () => AuthedStacksNameRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthedIndexRoute
+  '/app-login': typeof AppLoginRoute
   '/login': typeof LoginRoute
   '/$': typeof AuthedSplatRoute
   '/ai': typeof AuthedAiRoute
@@ -331,6 +364,7 @@ export interface FileRoutesByFullPath {
   '/blueprints': typeof AuthedBlueprintsRoute
   '/ci': typeof AuthedCiRoute
   '/cost': typeof AuthedCostRoute
+  '/device': typeof AuthedDeviceRoute
   '/exposure': typeof AuthedExposureRoute
   '/governance': typeof AuthedGovernanceRoute
   '/incidents': typeof AuthedIncidentsRoute
@@ -360,6 +394,7 @@ export interface FileRoutesByFullPath {
   '/services/': typeof AuthedServicesIndexRoute
   '/nodes/$nodeId/terminal': typeof AuthedNodesNodeIdTerminalRoute
   '/services/$serviceId/terminal': typeof AuthedServicesServiceIdTerminalRoute
+  '/stacks/$name/access': typeof AuthedStacksNameAccessRoute
   '/stacks/$name/backups': typeof AuthedStacksNameBackupsRoute
   '/stacks/$name/config': typeof AuthedStacksNameConfigRoute
   '/stacks/$name/data': typeof AuthedStacksNameDataRoute
@@ -370,8 +405,11 @@ export interface FileRoutesByFullPath {
   '/stacks/$name/settings': typeof AuthedStacksNameSettingsRoute
   '/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/stacks/$name/': typeof AuthedStacksNameIndexRoute
+  '/stacks/$name/errors/$fingerprint': typeof AuthedStacksNameErrorsFingerprintRoute
+  '/stacks/$name/errors/': typeof AuthedStacksNameErrorsIndexRoute
 }
 export interface FileRoutesByTo {
+  '/app-login': typeof AppLoginRoute
   '/login': typeof LoginRoute
   '/$': typeof AuthedSplatRoute
   '/ai': typeof AuthedAiRoute
@@ -381,6 +419,7 @@ export interface FileRoutesByTo {
   '/blueprints': typeof AuthedBlueprintsRoute
   '/ci': typeof AuthedCiRoute
   '/cost': typeof AuthedCostRoute
+  '/device': typeof AuthedDeviceRoute
   '/exposure': typeof AuthedExposureRoute
   '/governance': typeof AuthedGovernanceRoute
   '/incidents': typeof AuthedIncidentsRoute
@@ -410,6 +449,7 @@ export interface FileRoutesByTo {
   '/services': typeof AuthedServicesIndexRoute
   '/nodes/$nodeId/terminal': typeof AuthedNodesNodeIdTerminalRoute
   '/services/$serviceId/terminal': typeof AuthedServicesServiceIdTerminalRoute
+  '/stacks/$name/access': typeof AuthedStacksNameAccessRoute
   '/stacks/$name/backups': typeof AuthedStacksNameBackupsRoute
   '/stacks/$name/config': typeof AuthedStacksNameConfigRoute
   '/stacks/$name/data': typeof AuthedStacksNameDataRoute
@@ -420,10 +460,13 @@ export interface FileRoutesByTo {
   '/stacks/$name/settings': typeof AuthedStacksNameSettingsRoute
   '/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/stacks/$name': typeof AuthedStacksNameIndexRoute
+  '/stacks/$name/errors/$fingerprint': typeof AuthedStacksNameErrorsFingerprintRoute
+  '/stacks/$name/errors': typeof AuthedStacksNameErrorsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_authed': typeof AuthedRouteWithChildren
+  '/app-login': typeof AppLoginRoute
   '/login': typeof LoginRoute
   '/_authed/$': typeof AuthedSplatRoute
   '/_authed/ai': typeof AuthedAiRoute
@@ -433,6 +476,7 @@ export interface FileRoutesById {
   '/_authed/blueprints': typeof AuthedBlueprintsRoute
   '/_authed/ci': typeof AuthedCiRoute
   '/_authed/cost': typeof AuthedCostRoute
+  '/_authed/device': typeof AuthedDeviceRoute
   '/_authed/exposure': typeof AuthedExposureRoute
   '/_authed/governance': typeof AuthedGovernanceRoute
   '/_authed/incidents': typeof AuthedIncidentsRoute
@@ -463,6 +507,7 @@ export interface FileRoutesById {
   '/_authed/services/': typeof AuthedServicesIndexRoute
   '/_authed/nodes/$nodeId_/terminal': typeof AuthedNodesNodeIdTerminalRoute
   '/_authed/services/$serviceId_/terminal': typeof AuthedServicesServiceIdTerminalRoute
+  '/_authed/stacks/$name/access': typeof AuthedStacksNameAccessRoute
   '/_authed/stacks/$name/backups': typeof AuthedStacksNameBackupsRoute
   '/_authed/stacks/$name/config': typeof AuthedStacksNameConfigRoute
   '/_authed/stacks/$name/data': typeof AuthedStacksNameDataRoute
@@ -473,11 +518,14 @@ export interface FileRoutesById {
   '/_authed/stacks/$name/settings': typeof AuthedStacksNameSettingsRoute
   '/_authed/terminal/sessions/$id': typeof AuthedTerminalSessionsIdRoute
   '/_authed/stacks/$name/': typeof AuthedStacksNameIndexRoute
+  '/_authed/stacks/$name/errors/$fingerprint': typeof AuthedStacksNameErrorsFingerprintRoute
+  '/_authed/stacks/$name/errors/': typeof AuthedStacksNameErrorsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/app-login'
     | '/login'
     | '/$'
     | '/ai'
@@ -487,6 +535,7 @@ export interface FileRouteTypes {
     | '/blueprints'
     | '/ci'
     | '/cost'
+    | '/device'
     | '/exposure'
     | '/governance'
     | '/incidents'
@@ -516,6 +565,7 @@ export interface FileRouteTypes {
     | '/services/'
     | '/nodes/$nodeId/terminal'
     | '/services/$serviceId/terminal'
+    | '/stacks/$name/access'
     | '/stacks/$name/backups'
     | '/stacks/$name/config'
     | '/stacks/$name/data'
@@ -526,8 +576,11 @@ export interface FileRouteTypes {
     | '/stacks/$name/settings'
     | '/terminal/sessions/$id'
     | '/stacks/$name/'
+    | '/stacks/$name/errors/$fingerprint'
+    | '/stacks/$name/errors/'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/app-login'
     | '/login'
     | '/$'
     | '/ai'
@@ -537,6 +590,7 @@ export interface FileRouteTypes {
     | '/blueprints'
     | '/ci'
     | '/cost'
+    | '/device'
     | '/exposure'
     | '/governance'
     | '/incidents'
@@ -566,6 +620,7 @@ export interface FileRouteTypes {
     | '/services'
     | '/nodes/$nodeId/terminal'
     | '/services/$serviceId/terminal'
+    | '/stacks/$name/access'
     | '/stacks/$name/backups'
     | '/stacks/$name/config'
     | '/stacks/$name/data'
@@ -576,9 +631,12 @@ export interface FileRouteTypes {
     | '/stacks/$name/settings'
     | '/terminal/sessions/$id'
     | '/stacks/$name'
+    | '/stacks/$name/errors/$fingerprint'
+    | '/stacks/$name/errors'
   id:
     | '__root__'
     | '/_authed'
+    | '/app-login'
     | '/login'
     | '/_authed/$'
     | '/_authed/ai'
@@ -588,6 +646,7 @@ export interface FileRouteTypes {
     | '/_authed/blueprints'
     | '/_authed/ci'
     | '/_authed/cost'
+    | '/_authed/device'
     | '/_authed/exposure'
     | '/_authed/governance'
     | '/_authed/incidents'
@@ -618,6 +677,7 @@ export interface FileRouteTypes {
     | '/_authed/services/'
     | '/_authed/nodes/$nodeId_/terminal'
     | '/_authed/services/$serviceId_/terminal'
+    | '/_authed/stacks/$name/access'
     | '/_authed/stacks/$name/backups'
     | '/_authed/stacks/$name/config'
     | '/_authed/stacks/$name/data'
@@ -628,10 +688,13 @@ export interface FileRouteTypes {
     | '/_authed/stacks/$name/settings'
     | '/_authed/terminal/sessions/$id'
     | '/_authed/stacks/$name/'
+    | '/_authed/stacks/$name/errors/$fingerprint'
+    | '/_authed/stacks/$name/errors/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AuthedRoute: typeof AuthedRouteWithChildren
+  AppLoginRoute: typeof AppLoginRoute
   LoginRoute: typeof LoginRoute
   SSlugRoute: typeof SSlugRoute
 }
@@ -643,6 +706,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/app-login': {
+      id: '/app-login'
+      path: '/app-login'
+      fullPath: '/app-login'
+      preLoaderRoute: typeof AppLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authed': {
@@ -713,6 +783,13 @@ declare module '@tanstack/react-router' {
       path: '/exposure'
       fullPath: '/exposure'
       preLoaderRoute: typeof AuthedExposureRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/device': {
+      id: '/_authed/device'
+      path: '/device'
+      fullPath: '/device'
+      preLoaderRoute: typeof AuthedDeviceRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/cost': {
@@ -974,6 +1051,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedStacksNameBackupsRouteImport
       parentRoute: typeof AuthedStacksNameRoute
     }
+    '/_authed/stacks/$name/access': {
+      id: '/_authed/stacks/$name/access'
+      path: '/access'
+      fullPath: '/stacks/$name/access'
+      preLoaderRoute: typeof AuthedStacksNameAccessRouteImport
+      parentRoute: typeof AuthedStacksNameRoute
+    }
     '/_authed/services/$serviceId_/terminal': {
       id: '/_authed/services/$serviceId_/terminal'
       path: '/services/$serviceId/terminal'
@@ -988,10 +1072,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedNodesNodeIdTerminalRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/stacks/$name/errors/': {
+      id: '/_authed/stacks/$name/errors/'
+      path: '/errors'
+      fullPath: '/stacks/$name/errors/'
+      preLoaderRoute: typeof AuthedStacksNameErrorsIndexRouteImport
+      parentRoute: typeof AuthedStacksNameRoute
+    }
+    '/_authed/stacks/$name/errors/$fingerprint': {
+      id: '/_authed/stacks/$name/errors/$fingerprint'
+      path: '/errors/$fingerprint'
+      fullPath: '/stacks/$name/errors/$fingerprint'
+      preLoaderRoute: typeof AuthedStacksNameErrorsFingerprintRouteImport
+      parentRoute: typeof AuthedStacksNameRoute
+    }
   }
 }
 
 interface AuthedStacksNameRouteChildren {
+  AuthedStacksNameAccessRoute: typeof AuthedStacksNameAccessRoute
   AuthedStacksNameBackupsRoute: typeof AuthedStacksNameBackupsRoute
   AuthedStacksNameConfigRoute: typeof AuthedStacksNameConfigRoute
   AuthedStacksNameDataRoute: typeof AuthedStacksNameDataRoute
@@ -1001,9 +1100,12 @@ interface AuthedStacksNameRouteChildren {
   AuthedStacksNameReleasesRoute: typeof AuthedStacksNameReleasesRoute
   AuthedStacksNameSettingsRoute: typeof AuthedStacksNameSettingsRoute
   AuthedStacksNameIndexRoute: typeof AuthedStacksNameIndexRoute
+  AuthedStacksNameErrorsFingerprintRoute: typeof AuthedStacksNameErrorsFingerprintRoute
+  AuthedStacksNameErrorsIndexRoute: typeof AuthedStacksNameErrorsIndexRoute
 }
 
 const AuthedStacksNameRouteChildren: AuthedStacksNameRouteChildren = {
+  AuthedStacksNameAccessRoute: AuthedStacksNameAccessRoute,
   AuthedStacksNameBackupsRoute: AuthedStacksNameBackupsRoute,
   AuthedStacksNameConfigRoute: AuthedStacksNameConfigRoute,
   AuthedStacksNameDataRoute: AuthedStacksNameDataRoute,
@@ -1013,6 +1115,9 @@ const AuthedStacksNameRouteChildren: AuthedStacksNameRouteChildren = {
   AuthedStacksNameReleasesRoute: AuthedStacksNameReleasesRoute,
   AuthedStacksNameSettingsRoute: AuthedStacksNameSettingsRoute,
   AuthedStacksNameIndexRoute: AuthedStacksNameIndexRoute,
+  AuthedStacksNameErrorsFingerprintRoute:
+    AuthedStacksNameErrorsFingerprintRoute,
+  AuthedStacksNameErrorsIndexRoute: AuthedStacksNameErrorsIndexRoute,
 }
 
 const AuthedStacksNameRouteWithChildren =
@@ -1027,6 +1132,7 @@ interface AuthedRouteChildren {
   AuthedBlueprintsRoute: typeof AuthedBlueprintsRoute
   AuthedCiRoute: typeof AuthedCiRoute
   AuthedCostRoute: typeof AuthedCostRoute
+  AuthedDeviceRoute: typeof AuthedDeviceRoute
   AuthedExposureRoute: typeof AuthedExposureRoute
   AuthedGovernanceRoute: typeof AuthedGovernanceRoute
   AuthedIncidentsRoute: typeof AuthedIncidentsRoute
@@ -1068,6 +1174,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedBlueprintsRoute: AuthedBlueprintsRoute,
   AuthedCiRoute: AuthedCiRoute,
   AuthedCostRoute: AuthedCostRoute,
+  AuthedDeviceRoute: AuthedDeviceRoute,
   AuthedExposureRoute: AuthedExposureRoute,
   AuthedGovernanceRoute: AuthedGovernanceRoute,
   AuthedIncidentsRoute: AuthedIncidentsRoute,
@@ -1105,6 +1212,7 @@ const AuthedRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   AuthedRoute: AuthedRouteWithChildren,
+  AppLoginRoute: AppLoginRoute,
   LoginRoute: LoginRoute,
   SSlugRoute: SSlugRoute,
 }
