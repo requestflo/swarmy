@@ -73,6 +73,42 @@ describe('renderBuildProgram', () => {
   });
 });
 
+describe('git-apps source options', () => {
+  const SHA = 'c'.repeat(40);
+
+  it('builds an exact sha instead of the branch tip', () => {
+    const prog = renderBuildProgram(
+      payload({ source: { url: 'https://github.com/o/r', ref: 'main', sha: SHA } }),
+    );
+    expect(prog).toContain(
+      `git -C "$W" init -q && git -C "$W" remote add origin 'https://github.com/o/r' && git -C "$W" fetch -q --depth 1 origin '${SHA}' && git -C "$W" checkout -q FETCH_HEAD`,
+    );
+    expect(prog).not.toContain('git clone');
+  });
+
+  it('uses the provider token username (GitLab oauth2)', () => {
+    const prog = renderBuildProgram(
+      payload({
+        source: { url: 'https://gitlab.com/o/r', ref: 'main', token: 'glt', tokenUser: 'oauth2' },
+      }),
+    );
+    expect(prog).toContain('https://oauth2:glt@gitlab.com/o/r');
+  });
+
+  it('keeps a deploy key out of the program text — it rides the container env', () => {
+    const key = '-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----';
+    const prog = renderBuildProgram(
+      payload({ source: { url: 'git@github.com:o/r.git', ref: 'main', sshKey: key } }),
+    );
+    expect(prog).not.toContain('abc');
+    expect(prog).toContain('"$SWARMY_SSH_KEY" > "$HOME/.ssh/id"');
+    expect(prog).toContain('GIT_SSH_COMMAND=');
+    const o = builderContainerOptions('n', 'img', prog, { SWARMY_SSH_KEY: key });
+    expect(o.Env).toEqual([`SWARMY_SSH_KEY=${key}`]);
+    expect(builderContainerOptions('n', 'img', 'true')).not.toHaveProperty('Env');
+  });
+});
+
 describe('digest extraction', () => {
   it('shell sed pattern tolerates the space BuildKit writes after the colon', async () => {
     const sed = `s/.*"containerimage.digest": *"\\([^"]*\\)".*/\\1/p`;

@@ -32,12 +32,12 @@ const ERROR_TAIL_LINES = 15;
 const MAX_TAIL_CHARS = 64 * 1024;
 
 /** Resolve the auth header git fetch uses, without baking it into a layer. */
-function authedGitUrl(url: string, token?: string): string {
+function authedGitUrl(url: string, token?: string, user = 'x-access-token'): string {
   if (!token) return url;
   try {
     const u = new URL(url);
-    // x-access-token works for GitHub PATs; GitLab accepts oauth2:<token>.
-    u.username = 'x-access-token';
+    // x-access-token works for GitHub PATs/App tokens; GitLab wants oauth2:<token>.
+    u.username = user;
     u.password = token;
     return u.toString();
   } catch {
@@ -76,7 +76,7 @@ export function renderDockerConfig(p: BuildImagePayload, primaryRef: string): st
 export function renderBuildProgram(p: BuildImagePayload): string {
   const dockerfile = p.source.dockerfile ?? 'Dockerfile';
   const subdir = p.source.subdir ?? '.';
-  const cloneUrl = authedGitUrl(p.source.url, p.source.token);
+  const cloneUrl = authedGitUrl(p.source.url, p.source.token, p.source.tokenUser);
   const buildArgFlags = Object.entries(p.buildArgs ?? {})
     .map(([k, v]) => `--opt build-arg:${k}=${shq(v)}`)
     .join(' ');
@@ -101,7 +101,16 @@ export function renderBuildProgram(p: BuildImagePayload): string {
     'W="$HOME/workspace"',
     'export DOCKER_CONFIG="$HOME/.docker"',
     'rm -rf "$W" && mkdir -p "$W"',
-    `git clone --depth 1 --branch ${shq(p.source.ref)} ${shq(cloneUrl)} "$W"`,
+    // Deploy key (ssh URLs): from the container env, written under $HOME only.
+    ...(p.source.sshKey
+      ? [
+          'mkdir -p "$HOME/.ssh" && printf \'%s\\n\' "$SWARMY_SSH_KEY" > "$HOME/.ssh/id" && chmod 600 "$HOME/.ssh/id" && export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/id -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts"',
+        ]
+      : []),
+    // Exact sha (git-apps): fetch that commit, never "whatever the branch is now".
+    p.source.sha
+      ? `git -C "$W" init -q && git -C "$W" remote add origin ${shq(cloneUrl)} && git -C "$W" fetch -q --depth 1 origin ${shq(p.source.sha)} && git -C "$W" checkout -q FETCH_HEAD`
+      : `git clone --depth 1 --branch ${shq(p.source.ref)} ${shq(cloneUrl)} "$W"`,
     dockerConfig
       ? `mkdir -p "$DOCKER_CONFIG" && printf %s ${shq(dockerConfig)} > "$DOCKER_CONFIG/config.json"`
       : ':',
@@ -155,10 +164,16 @@ export function tailLines(output: string, n = ERROR_TAIL_LINES): string[] {
  * Host networking so buildctl reaches the registry at `localhost:5000` via the
  * swarm routing mesh — exactly the address every node's dockerd pulls from.
  */
-export function builderContainerOptions(name: string, image: string, program: string) {
+export function builderContainerOptions(
+  name: string,
+  image: string,
+  program: string,
+  env: Record<string, string> = {},
+) {
   return {
     name,
     Image: image,
+    ...(Object.keys(env).length ? { Env: Object.entries(env).map(([k, v]) => `${k}=${v}`) } : {}),
     // Override the image ENTRYPOINT (`rootlesskit buildkitd`): the program starts
     // its own rootlesskit, and a nested one is refused a user namespace.
     Entrypoint: ['sh', '-c'],
@@ -192,13 +207,16 @@ export async function buildImage(
   await docker.pullImage(image).catch(() => undefined);
   await d.getContainer(name).remove({ force: true }).catch(() => undefined);
 
-  const container = await d.createContainer(builderContainerOptions(name, image, renderBuildProgram(p)));
+  // Secrets that must not sit in the program text (argv) ride the container env.
+  const buildEnv: Record<string, string> = p.source.sshKey ? { SWARMY_SSH_KEY: p.source.sshKey } : {};
+  const container = await d.createContainer(builderContainerOptions(name, image, renderBuildProgram(p), buildEnv));
 
   let seq = 0;
   let tail = '';
   const secrets = [p.source.token, p.registryAuth?.password, ...(p.pullAuths ?? []).map((a) => a.password)].filter(
     (x): x is string => Boolean(x),
   );
+  if (p.source.sshKey) secrets.push(p.source.sshKey);
   const emit = (stream: 'stdout' | 'stderr', raw: string) => {
     // Never echo the git token / registry password into logs or error text.
     const text = redact(raw, secrets);

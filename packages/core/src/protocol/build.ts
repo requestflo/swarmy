@@ -36,6 +36,19 @@ export const GitBuildSource = z.object({
   subdir: z.string().optional(),
   /** Dockerfile path relative to the context (default: `Dockerfile`). */
   dockerfile: z.string().optional(),
+  /**
+   * Exact commit to build (git-apps). When set, the builder fetches this sha
+   * (depth 1) and checks it out instead of cloning the tip of `ref`, so a
+   * webhook for commit A never builds a later commit B. Additive.
+   */
+  sha: z
+    .string()
+    .regex(/^[0-9a-f]{40,64}$/)
+    .optional(),
+  /** HTTPS username paired with `token` (`x-access-token` GitHub, `oauth2` GitLab). */
+  tokenUser: z.string().optional(),
+  /** OpenSSH private deploy key for ssh:// / scp-style URLs (resolved, never layered). */
+  sshKey: z.string().optional(),
 });
 export type GitBuildSource = z.infer<typeof GitBuildSource>;
 
