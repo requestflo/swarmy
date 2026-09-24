@@ -439,6 +439,31 @@ export const SWARMY_YAML_JSON_SCHEMA = {
       items: { type: 'string' },
       description: 'Other apps this app may reach privately',
     },
+    ai: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['models'],
+      description:
+        'Call models through the swarmy AI gateway: OPENAI_BASE_URL / ANTHROPIC_BASE_URL plus a per-service key (a Docker secret) are bound automatically',
+      properties: {
+        models: {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'string' },
+          description: 'Allowlist: aliases (fast, smart, embed), model ids, provider/model or provider/*',
+        },
+        budget: {
+          type: ['string', 'number'],
+          description: 'Daily spend cap in USD shared by the app, e.g. 5/day',
+        },
+        rpm: { type: 'integer', minimum: 1, description: 'Requests per minute per service key' },
+        services: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Services to bind (default: all)',
+        },
+      },
+    },
     errors: {
       type: 'boolean',
       description:

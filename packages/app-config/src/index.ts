@@ -16,5 +16,6 @@ export * from './branches';
 export * from './desired';
 export * from './plan';
 export * from './parse';
+export * from './ai';
 export { SWARMY_YAML_JSON_SCHEMA } from './json-schema';
 export { MINIMAL_EXAMPLE, FULL_EXAMPLE } from './examples';

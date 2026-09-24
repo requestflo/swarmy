@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { CACHE_ENGINES, CACHE_TOPOLOGIES, SEARCH_ENGINES } from '@swarmy/core/views';
 import { isCron, parseDuration, parseRate, parseSizeMb } from './units';
 import { AuthSchema } from './auth';
+import { AiSchema } from './ai';
 
 /**
  * Managed-Postgres HA topologies. Mirrors `DB_TOPOLOGIES` in
@@ -437,6 +438,8 @@ export const AppConfigSchema = z
     connect: z.array(z.string().regex(/^[a-z][a-z0-9-]{0,39}$/, 'an app name')).optional(),
     /** Error tracking: bind SENTRY_DSN (+ SENTRY_RELEASE/ENVIRONMENT) into every service. */
     errors: z.boolean().optional(),
+    /** AI gateway: OPENAI_BASE_URL / ANTHROPIC_BASE_URL + a per-service key (Docker secret) (ai.ts). */
+    ai: AiSchema.optional(),
     /** Named environments beside production, each its own stack `<app>-<name>` tracking a branch. */
     environments: z
       .record(
