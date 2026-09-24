@@ -73,7 +73,7 @@ export function ServicePulseRow({ service, containers, deploy, onJump }: Service
         )}
       </Tile>
 
-      <Tile label="Last ship" onClick={() => onJump('ship')}>
+      <Tile label="Last deploy" onClick={() => onJump('scale')}>
         {deploy ? (
           <>
             <p className={cn('font-display text-lg font-bold capitalize', shipping && 'text-status-progress')}>
@@ -87,7 +87,7 @@ export function ServicePulseRow({ service, containers, deploy, onJump }: Service
         ) : (
           <>
             <p className="text-muted-foreground text-lg font-semibold">Nothing yet</p>
-            <p className="text-muted-foreground mt-1 text-xs">Link a repo to ship on push.</p>
+            <p className="text-muted-foreground mt-1 text-xs">Deploy from git with a swarmy.yaml app.</p>
           </>
         )}
       </Tile>

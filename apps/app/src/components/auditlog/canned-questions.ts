@@ -28,12 +28,11 @@ export const CANNED_QUESTIONS: CannedQuestion[] = [
   {
     key: 'deploys',
     label: 'Who deployed?',
-    hint: 'Stack/service deploys, CI autodeploys, rollbacks',
+    hint: 'Stack/service deploys, git-app plans, rollbacks',
     actions: [
       'stack.deploy',
       'service.builder.deploy',
       'service.deploy',
-      'cicd.autodeploy',
       'release.',
     ],
   },

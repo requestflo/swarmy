@@ -353,30 +353,6 @@ export const cicd: DomainResolvers = {
     // ── Repos ──
     'cicd.listRepos': (_i, s): GitRepoView[] => state(s).repos,
 
-    'cicd.addRepo': (i, s): GitRepoView => {
-      const b = i as {
-        provider: GitProvider;
-        url: string;
-        branch?: string;
-        token?: string;
-        autodeploy?: boolean;
-        serviceId?: string | null;
-      };
-      const st = state(s);
-      const repo: GitRepoView = {
-        id: rid('repo'),
-        provider: b.provider,
-        url: b.url,
-        branch: b.branch ?? 'main',
-        autodeploy: b.autodeploy ?? false,
-        serviceId: b.serviceId ?? null,
-        hasToken: Boolean(b.token),
-        createdAt: new Date().toISOString(),
-      };
-      st.repos.unshift(repo);
-      return repo;
-    },
-
     'cicd.removeRepo': (i, s): { id: string; removed: true } => {
       const { id } = i as { id: string };
       const st = state(s);

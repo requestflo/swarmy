@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { GitBranchPlusIcon, PlusIcon } from 'lucide-react';
+import { GitBranchPlusIcon } from 'lucide-react';
 import { Button } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { SectionHeader } from '@/components/section-header';
@@ -9,12 +9,10 @@ import { CountUp } from '@/components/count-up';
 import { RegistryCard } from '@/components/ci/registry-card';
 import { RegistryCredentialsCard } from '@/components/ci/registry-credentials-card';
 import { GcPolicyCard } from '@/components/ci/gc-policy-card';
-import { ReposList } from '@/components/ci/repos-list';
 import { BuildsList } from '@/components/ci/builds-list';
 // D3: registry policy (image scanning / signing / admission)
 import { ScanPolicyCard } from '@/components/ci/scan-policy-card';
 import { ScanList } from '@/components/ci/scan-list';
-// D4: PR preview environments
 // git-apps P5: provider connections + New app from Git
 import { GitConnectionsCard } from '@/components/ci/git-connections-card';
 import { GitNewAppCard } from '@/components/ci/git-new-app-card';
@@ -35,9 +33,7 @@ function CiPage(): React.JSX.Element {
   const registry = useQuery(trpc.cicd.getRegistryConfig.queryOptions());
   const gc = useQuery(trpc.cicd.getGcPolicy.queryOptions());
 
-  const invalidate = React.useCallback(() => qc.invalidateQueries(), [qc]);
   const repoCount = repos.data?.length ?? 0;
-  const [createOpen, setCreateOpen] = React.useState(false);
   // `false` = closed; otherwise open, optionally on a just-connected provider.
   const [newApp, setNewApp] = React.useState<false | { connectionId?: string }>(false);
 
@@ -56,12 +52,9 @@ function CiPage(): React.JSX.Element {
             </>
           )
         }
-        description="Link a repo, build on your nodes, push to a registry that lives inside the swarm. No external CI."
+        description="Connect a repo with a swarmy.yaml, build on your nodes, push to a registry that lives inside the swarm. No external CI."
         actions={
           <>
-            <Button variant="outline" onClick={() => setCreateOpen((o) => !o)}>
-              <PlusIcon className="size-4" /> Link a repo
-            </Button>
             <Button
               variant={newApp ? 'outline' : 'default'}
               onClick={() => setNewApp((o) => (o ? false : {}))}
@@ -94,19 +87,10 @@ function CiPage(): React.JSX.Element {
         <ScanPolicyCard />
       </div>
 
-      <ReposList
-        repos={repos.data ?? []}
-        onChanged={invalidate}
-        createOpen={createOpen}
-        onCreateOpenChange={setCreateOpen}
-      />
-
       <BuildsList builds={builds.data ?? []} />
 
       {/* D3: CVE scans of built images */}
       <ScanList />
-
-      {/* D4: PR preview environments */}
     </div>
   );
 }

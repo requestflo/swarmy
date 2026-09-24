@@ -1,12 +1,11 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
+import { getRegistryCache, setRegistryCacheCredentials } from '../services/system-images.service';
 import { abacProcedure } from '../abac';
 import {
-  addRepo,
   getBuildLogPage,
   getGcPolicy,
   getRegistryConfig,
-  getWebhookInfo,
   listBuilds,
   listRepos,
   removeRepo,
@@ -18,26 +17,9 @@ import {
 } from '../services/cicd.service';
 import { runCacheGcForOrg, runImageGcForOrg } from '../services/image-gc.service';
 
-const CONTROLLER_PUBLIC_URL =
-  process.env.CONTROLLER_PUBLIC_URL ?? process.env.BETTER_AUTH_URL ?? 'http://localhost:3021';
-
-const providerEnum = z.enum(['github', 'gitlab']);
-
 export const cicdRouter = router({
   // ── Repos ──
   listRepos: orgProcedure.query(({ ctx }) => listRepos(ctx)),
-  addRepo: adminProcedure
-    .input(
-      z.object({
-        provider: providerEnum,
-        url: z.string().min(1),
-        branch: z.string().optional(),
-        token: z.string().optional(),
-        autodeploy: z.boolean().optional(),
-        serviceId: z.string().nullable().optional(),
-      }),
-    )
-    .mutation(({ ctx, input }) => addRepo(ctx, input)),
   removeRepo: abacProcedure('cicd.remove')
     .input(z.object({ id: z.string() }))
     .mutation(({ ctx, input }) => removeRepo(ctx, input.id)),
@@ -49,12 +31,6 @@ export const cicdRouter = router({
   triggerBuild: adminProcedure
     .input(z.object({ repoId: z.string(), ref: z.string().optional() }))
     .mutation(({ ctx, input }) => triggerBuild(ctx, input)),
-
-  // Webhook URL + secret to paste into the provider (GitHub/GitLab).
-  webhookInfo: abacProcedure('secrets.read')
-    .input(z.object({ repoId: z.string() }))
-    .query(({ ctx, input }) => getWebhookInfo(ctx, input.repoId, CONTROLLER_PUBLIC_URL)),
-
   // ── Build logs (live viewer) ──
   buildLogPage: orgProcedure
     .input(z.object({ buildId: z.string() }))
@@ -73,6 +49,16 @@ export const cicdRouter = router({
     .mutation(({ ctx, input }) => setRegistryEnabled(ctx, input)),
   /** Mint a new auto-generated login; re-stamps pull creds on registry-backed services. */
   rotateRegistryCredentials: adminProcedure.mutation(({ ctx }) => rotateRegistryCredentials(ctx)),
+  /** The Docker Hub pull-through cache's login (username only — never the password). */
+  getRegistryCache: orgProcedure.query(({ ctx }) => getRegistryCache(ctx)),
+  /** Log the cache in to Docker Hub (lifts the anonymous rate limit); `null` clears it. */
+  setRegistryCacheCredentials: adminProcedure
+    .input(
+      z.object({
+        login: z.object({ username: z.string().min(1).max(255), password: z.string().min(1).max(4096) }).nullable(),
+      }),
+    )
+    .mutation(({ ctx, input }) => setRegistryCacheCredentials(ctx, input.login)),
 
   // ── GC policy ──
   getGcPolicy: orgProcedure.query(({ ctx }) => getGcPolicy(ctx)),

@@ -31,7 +31,7 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
    repo code.
 3. **Deploy by DIGEST, never a floating tag.** Every build resolves to
    `host/name@sha256:…` (parsed from BuildKit's `containerimage.digest`);
-   autodeploy and the "in prod" pinning both depend on this. A `:latest` deploy
+   git-app deploys and the "in prod" pinning both depend on this. A `:latest` deploy
    breaks rollback and GC — reject it.
 4. **GC never prunes an in-prod digest.** The pinned set is computed LIVE from
    the hub inventory (`computePinnedDigests`: every running service's resolved
@@ -153,8 +153,9 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
   `build-log-bus.ts`, which `subscribeBuildLog`/`getBuildLogPage` replay + tail.
   Reuses the exact `streamLogs` plumbing — do not invent a second log path.
 - **Build → deploy bridge**: on `SUCCEEDED`, `image` becomes `host/name@digest`;
-  `autodeployBuilt` redeploys the linked service via `service.deploy` pinned to
-  that digest. `Build.image` (digest form) is what GC candidates read.
+  the git-app plan (`apps.service`) deploys that digest. `Build.image` (digest
+  form) is what GC candidates read. (The old "link a repo to one service +
+  autodeploy" path was removed in 2026-09 — every repo is a git app.)
 - **GC**: `image-gc` worker (`runImageGcAllOrgs`) + `cicd.runGc` (dryRun) →
   `computePinnedDigests` → `computeGcPlan` → dispatch `image.prune`
   ({ keepDigests: plan.pinned, repoPrefix, strategy, untilDays?, dryRun }) to
@@ -230,8 +231,8 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
   reuse the live pinned set and add a grace window for in-flight builds/deploys.
 - Single-replica registry is a data-loss SPOT — treat it as cache-rebuildable
   (rebuild from git); document S3 storage for HA.
-- The webhook secret is decrypted and surfaced exactly once (`getWebhookInfo`)
-  so the operator can paste it into the provider — never log it elsewhere.
+- Per-repo webhook secrets are minted and registered with the provider by the
+  connection flow (`git-connections.service`) — never log them.
 - Verify: `bun --filter @swarmy/trpc typecheck` and the pure-core tests
   (`image-gc.test.ts`, `admission-images.test.ts`,
   `prune.test.ts`, `registryPolicy.service.test.ts`) plus the protocol

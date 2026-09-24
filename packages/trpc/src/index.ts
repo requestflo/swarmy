@@ -93,7 +93,6 @@ export { convergeStoreDeployment, garageCapacityGb } from './services/replicated
 export { buildLogBus } from './services/build-log-bus';
 export {
   triggerBuildForRepo,
-  autodeployBuilt,
   systemContext,
   computeGcPlan,
   bareDigest,

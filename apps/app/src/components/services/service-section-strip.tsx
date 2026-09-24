@@ -4,7 +4,6 @@ import {
   BracesIcon,
   GaugeIcon,
   GlobeIcon,
-  RocketIcon,
   TriangleAlertIcon,
 } from 'lucide-react';
 import { cn } from '@swarmy/ui';
@@ -14,7 +13,6 @@ export const SERVICE_TABS = [
   { id: 'inside', label: 'Inside', icon: BoxesIcon },
   { id: 'traffic', label: 'Traffic', icon: GlobeIcon },
   { id: 'scale', label: 'Scale', icon: GaugeIcon },
-  { id: 'ship', label: 'Ship', icon: RocketIcon },
   { id: 'config', label: 'Config', icon: BracesIcon },
   { id: 'danger', label: 'Danger', icon: TriangleAlertIcon },
 ] as const;

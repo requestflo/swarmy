@@ -1,7 +1,5 @@
 import * as React from 'react';
 import type { InvContainer, ServiceDetail } from '@swarmy/core';
-import { Card, CardContent } from '@swarmy/ui';
-import { ServiceCicdPanel } from './service-cicd-panel';
 import { ServiceConfigPanel } from './service-config-panel';
 import { ServiceDangerSection } from './service-danger-section';
 import { ServiceInsidePanel } from './service-inside-panel';
@@ -26,14 +24,6 @@ export function ServiceSections({ tab, service, containers, asleep, onJump }: Se
       return <ServiceTrafficPanel service={service} />;
     case 'scale':
       return <ServiceScalePanel service={service} asleep={asleep} />;
-    case 'ship':
-      return (
-        <Card className="card-pop mt-6 border-0 lg:max-w-2xl">
-          <CardContent className="p-6">
-            <ServiceCicdPanel serviceId={service.id} serviceName={service.name} />
-          </CardContent>
-        </Card>
-      );
     case 'config':
       return <ServiceConfigPanel service={service} />;
     case 'danger':

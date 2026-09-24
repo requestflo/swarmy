@@ -123,7 +123,6 @@ const GATES: Array<[string, unknown, string]> = [
   ['registryCredentials.remove', { id: 'rc1' }, 'secret.delete'],
   ['db.confirmFailover', {}, 'data.failover'],
   ['swarm.revealUnlockKey', undefined, 'secrets.read'],
-  ['cicd.webhookInfo', { repoId: 'r1' }, 'secrets.read'],
   ['policies.set', { name: 'p', effect: 'permit', source: '{}' }, 'policy.write'],
   ['policies.whoCan', { action: 'service.read' }, 'member.write'],
   // Email service: configuration + test send are owner/admin-only by default.

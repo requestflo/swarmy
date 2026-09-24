@@ -8,20 +8,20 @@ skill for the how.**
 Someone who has a swarm and a git repo should never leave swarmy to ship. No
 GitHub Actions runner to configure, no Docker Hub account, no `docker push`, no
 copying an image tag back into a deploy field. The `/ci` workspace opens on a
-coral **"4 repos wired."** and the promise underneath it: *"Link a repo, build on
-your nodes, push to a registry that lives inside the swarm. No external CI."*
+coral **"4 repos wired."** and the promise underneath it: *"Connect a repo with a
+swarmy.yaml, build on your nodes, push to a registry that lives inside the swarm.
+No external CI."*
 
 1. They flip on the **in-swarm registry** — one toggle stands up a single
    `registry:2` service on the `swarmy` overlay. *"Every node pulls over the
    network — never public."* No credentials to a third party, no public
    surface.
-2. They **link a repo** (GitHub or GitLab, a branch, an optional token), and
-   choose *build by hand* or *autodeploy on build*. swarmy hands back a webhook
-   URL to paste into the provider.
+2. They **connect a repo** through the New app wizard (GitHub App, GitLab OAuth
+   or a generic SSH URL). The repo's swarmy.yaml describes the app; a compose-only
+   repo gets a converted starter to commit.
 3. They push. The webhook fires, a **BuildKit build runs on their own node**,
-   the image is pushed to the in-swarm registry, and — if the repo is linked to
-   a service — the service **redeploys to the freshly-built digest**, no tag
-   typed anywhere.
+   the image is pushed to the in-swarm registry, and the app's plan **deploys the
+   freshly-built digest**, no tag typed anywhere.
 4. Every successful build is **CVE-scanned by Trivy automatically**; with
    signing on, images are **cosign-signed** and the org can refuse to deploy
    anything unsigned or critical. *"Only deploy signed images — valid cosign
@@ -39,7 +39,7 @@ longer-running agent command that streams logs and returns a digest.
 ## How it works (git push → running service)
 
 ```
-git push / open PR                                dashboard: /ci "Link a repo"
+git push / open PR                                dashboard: /ci "New app from Git"
    │  POST /webhooks/git/<repoId>   (controller = the only public surface)
    │     verify HMAC (GitHub X-Hub-Signature-256 / GitLab X-Gitlab-Token)
    ▼
@@ -56,8 +56,8 @@ in-swarm registry  localhost:5000  (single registry:2, port 5000 on the routing 
    │  ④ digest parsed from containerimage.digest → Build row SUCCEEDED
    │  ⑤ Trivy scan + cosign sign (fire-and-forget); admission gates future deploys
    ▼
-autodeploy: service.deploy pinned to host/name@sha256:…   → service is live
-   │  PR path instead → deploy pr<N>-<repo-short> stack + pr-<N>.<domain> route
+git-app plan applies: services pinned to host/name@sha256:…   → the app is live
+   │  PR path instead → the swarmy.yaml preview environment
    ▼
 image GC worker pins every in-prod digest; prunes the rest on your nodes
 ```
@@ -80,7 +80,7 @@ Four ideas, one story:
   firewalled from outside the swarm. Images live in a standard OCI registry any
   tool can pull from — no lock-in.
 - **Deploy by digest, never by tag.** Every build resolves to
-  `host/name@sha256:…`, and autodeploy pins that digest. This is what makes GC's
+  `host/name@sha256:…`, and deploys pin that digest. This is what makes GC's
   "in prod" reasoning and rollback correct — a floating tag would break both.
 - **The controller is the only public door.** Webhooks land on the controller
   (HMAC-verified per repo); the build, the push, and the pull all happen inside
@@ -150,9 +150,6 @@ Four ideas, one story:
   `requireSignedImages`, an unsigned image is **blocked** (`images/unsigned`) and
   a signature that cannot be verified **fails closed**. Third-party public images
   are out of scope; verification is memoized per digest for 10 minutes.
-- **Autodeploy is per-repo and opt-in.** A `SUCCEEDED` build whose repo is linked
-  to a service and has `autodeploy` on redeploys that service to the new digest;
-  otherwise builds pile up as history for a human to promote.
 - **A compose repo gets a swarmy.yaml for free.** When the New app wizard finds
   a compose file and no swarmy.yaml, it shows a converted starter
   (`@swarmy/app-config` `composeToAppConfig`): postgres/redis/meilisearch/qdrant/

@@ -17,10 +17,10 @@
  */
 import { imageGcPolicies, registryConfigs } from './apps.repo';
 import { randomUUID } from 'node:crypto';
-import { decryptSecret, encryptSecret, randomToken } from '@swarmy/core/crypto';
+import { encryptSecret } from '@swarmy/core/crypto';
 import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
-import { BUILDER_ENABLE_HINT, UNGROUPED, isBuilderCapable, type BuildOverride } from '@swarmy/core';
+import { BUILDER_ENABLE_HINT, isBuilderCapable, type BuildOverride } from '@swarmy/core';
 import type { LogLine } from '@swarmy/core/views';
 import { mirrorLabelsOf } from '@swarmy/core/system-images';
 import type { RailpackBuildInfo } from '@swarmy/core/protocol';
@@ -29,14 +29,12 @@ import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
 import { TRPCError } from '@trpc/server';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
-import { enforceAdmission } from './admission-gate';
 import { resolveManagerNode } from './dispatch.service';
 import { writeAudit } from './audit.service';
 import { fireEvent } from './alerts-fire';
 import { buildLogBus } from './build-log-bus';
 import { controllerPublicUrl, repoCredentials } from './git-credentials';
 import { SHA_RE, reportCommitStatus } from './git-feedback.service';
-import { liveService } from './service.service';
 import { promoteSpecFrom } from './releases.service';
 import { DEFAULT_REGISTRY_HOST, canonicalRegistryHost, isOrgRegistryImage, onImageBuilt } from './registryPolicy.service'; // D3 hook
 
@@ -144,70 +142,12 @@ export async function getRepo(ctx: OrgContext, id: string): Promise<GitRepoView>
   return toRepoView(row);
 }
 
-export async function addRepo(
-  ctx: OrgContext,
-  input: {
-    provider: GitProvider;
-    url: string;
-    branch?: string;
-    token?: string;
-    autodeploy?: boolean;
-    serviceId?: string | null;
-  },
-): Promise<GitRepoView> {
-  // Mint a per-repo webhook secret up front so the provider receiver can verify
-  // the HMAC immediately; surfaced (decrypted) once via `getWebhookInfo`.
-  const webhookSecret = randomToken('whsec');
-  const row = await ctx.db.gitRepo.create({
-    data: {
-      orgId: ctx.activeOrgId,
-      provider: input.provider === 'gitlab' ? 'GITLAB' : 'GITHUB',
-      url: input.url,
-      branch: input.branch ?? 'main',
-      tokenEnc: input.token ? encryptSecret(input.token) : null,
-      webhookSecretEnc: encryptSecret(webhookSecret),
-      autodeploy: input.autodeploy ?? false,
-      serviceId: input.serviceId ?? null,
-    },
-  });
-  await writeAudit(ctx, {
-    action: 'cicd.addRepo',
-    targetType: 'gitRepo',
-    targetId: row.id,
-    metadata: { provider: input.provider, url: input.url },
-  });
-  return toRepoView(row);
-}
-
 export async function removeRepo(ctx: OrgContext, id: string): Promise<{ id: string; removed: true }> {
   const row = await ctx.db.gitRepo.findFirst({ where: { id, orgId: ctx.activeOrgId }, select: { id: true } });
   if (!row) throw notFound('repo', id);
   await ctx.db.gitRepo.delete({ where: { id } });
   await writeAudit(ctx, { action: 'cicd.removeRepo', targetType: 'gitRepo', targetId: id });
   return { id, removed: true };
-}
-
-/**
- * Webhook URL + secret to paste into the provider. The secret is returned in
- * plaintext (decrypted from the vault) — this is the one place it leaves the
- * controller, so the operator can configure GitHub/GitLab.
- */
-export async function getWebhookInfo(
-  ctx: OrgContext,
-  repoId: string,
-  publicUrl: string,
-): Promise<{ url: string; secret: string; provider: GitProvider }> {
-  const repo = await ctx.db.gitRepo.findFirst({
-    where: { id: repoId, orgId: ctx.activeOrgId },
-    select: { id: true, provider: true, webhookSecretEnc: true },
-  });
-  if (!repo) throw notFound('repo', repoId);
-  const base = publicUrl.replace(/\/+$/, '');
-  return {
-    url: `${base}/webhooks/git/${repo.id}`,
-    secret: repo.webhookSecretEnc ? decryptSecret(repo.webhookSecretEnc) : '',
-    provider: repo.provider === 'GITLAB' ? 'gitlab' : 'github',
-  };
 }
 
 // ── Builds ───────────────────────────────────────────────────────────────────
@@ -471,12 +411,6 @@ async function runBuild(
       nodeId: node.id,
     }).catch(() => undefined);
 
-    // Autodeploy: a SUCCEEDED build whose repo is linked to a service + opted in
-    // redeploys that service to the freshly-built digest (reusing the deploy path).
-    if (repo.autodeploy && repo.serviceId && result?.digest) {
-      await autodeployBuilt(ctx, repo.serviceId, digested);
-    }
-
     return toBuildView(finished, repo.url);
   } catch (e) {
     buildLogBus.finish(commandId);
@@ -525,71 +459,6 @@ export function buildFailureError(e: unknown, lines: Array<{ message: string }>)
   if (tail.length === 0) return mapped;
   // Keep the code + `cause.swarmyCode` the errorFormatter surfaces.
   return new TRPCError({ code: mapped.code, message: `${mapped.message}\n${tail.join('\n')}`, cause: mapped.cause });
-}
-
-/**
- * Autodeploy: update a service's image to the freshly-built digest and redeploy
- * via the existing `service.deploy` dispatch. Pins the service to the digest (not
- * a floating tag) so GC's "in prod" reasoning and rollback stay correct.
- */
-export async function autodeployBuilt(ctx: OrgContext, serviceId: string, image: string): Promise<void> {
-  // `serviceId` is the linked Docker service id (or name) — resolve it from live
-  // inventory rather than a DB row. Docker is the source of truth for placement
-  // and replica count; the redeploy pins the freshly-built digest.
-  const service = liveService(ctx, serviceId);
-  if (!service) return;
-  const spec = { name: service.name, image, mode: { replicated: { replicas: service.replicas.desired } } };
-  // Autodeploy is an unattended service deploy: it runs the same admission
-  // spine, and a `block` violation skips the redeploy (nobody is there to
-  // override). The build itself still succeeds; the refusal is audited.
-  try {
-    await enforceAdmission(
-      ctx,
-      {
-        kind: 'service.deploy',
-        orgId: ctx.activeOrgId,
-        stackName: service.stack === UNGROUPED ? undefined : service.stack,
-        specs: [{ ...spec, labels: service.labels }],
-      },
-      { targetType: 'service', targetId: service.id, mode: 'automation' },
-    );
-  } catch (e) {
-    await writeAudit(ctx, {
-      action: 'cicd.autodeploy.blocked',
-      targetType: 'service',
-      targetId: service.id,
-      actorType: ctx.user ? 'user' : 'system',
-      metadata: { image, reason: e instanceof Error ? e.message : String(e) },
-    });
-    return;
-  }
-  // Rebuild the full spec from the live inspect and swap only the image: a bare
-  // `{name, image, replicas}` deploy would strip the service's env, ports,
-  // mounts, networks, secrets and labels.
-  const node = await resolveManagerNode(ctx);
-  try {
-    const raw = await ctx.hub.dispatch<{ inspect?: unknown }>(node.id, 'service.inspect', {
-      service: service.name,
-    });
-    const full = promoteSpecFrom(raw?.inspect, image, service.networks.map((n) => n.name));
-    if (!full) throw new Error(`could not read the live spec of "${service.name}"`);
-    await ctx.hub.dispatch(node.id, 'service.deploy', { spec: full, pullPolicy: 'always' });
-  } catch (e) {
-    await writeAudit(ctx, {
-      action: 'cicd.autodeploy.failed',
-      targetType: 'service',
-      targetId: service.id,
-      actorType: ctx.user ? 'user' : 'system',
-      metadata: { image, reason: e instanceof Error ? e.message : String(e) },
-    });
-    return;
-  }
-  await writeAudit(ctx, {
-    action: 'cicd.autodeploy',
-    targetType: 'service',
-    targetId: service.id,
-    metadata: { image },
-  });
 }
 
 function toBuildView(
