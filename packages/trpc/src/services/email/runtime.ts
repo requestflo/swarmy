@@ -311,8 +311,11 @@ export async function orgForInboundToken(db: DB, token: string): Promise<string 
 export interface SystemMail {
   to: string;
   subject: string;
-  text: string;
+  text?: string;
   html?: string;
+  /** A saved email template (Email → Templates) rendered with `variables`. */
+  template?: string;
+  variables?: Record<string, unknown>;
   /** Prefer this org (else the first org with email on — one org per controller). */
   orgId?: string;
 }
@@ -340,6 +343,7 @@ export async function sendSystemEmail(db: DB, mail: SystemMail): Promise<{ sent:
       subject: mail.subject,
       text: mail.text,
       html: mail.html,
+      ...(mail.template ? { template: mail.template, variables: mail.variables ?? {} } : {}),
       source: 'api',
     });
     return { sent: res.accepted.length > 0, messageId: res.messageId, ...(res.accepted.length ? {} : { reason: 'suppressed' }) };

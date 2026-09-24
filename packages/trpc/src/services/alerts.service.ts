@@ -29,7 +29,7 @@ import {
   renderNotificationText,
   type AlertNotification,
 } from './alerts-channels';
-import { sendNotification } from './notifications-send';
+import { sendSystemEmail } from './email/runtime';
 import { signPayload } from './webhooks-out.service';
 
 export {
@@ -215,16 +215,15 @@ export async function deliverToChannel(
   if (!config) return { ok: false, detail: 'channel destination is not configured' };
 
   if (config.kind === 'email') {
-    try {
-      await sendNotification(ctx, {
-        to: config.to,
-        subject: renderNotificationSubject(n),
-        bodyText: renderNotificationText(n),
-      });
-      return { ok: true, detail: `queued email to ${config.to}` };
-    } catch (e) {
-      return { ok: false, detail: e instanceof Error ? e.message : String(e) };
-    }
+    const r = await sendSystemEmail(ctx.db, {
+      orgId: ctx.activeOrgId,
+      to: config.to,
+      subject: renderNotificationSubject(n),
+      text: renderNotificationText(n),
+    });
+    return r.sent
+      ? { ok: true, detail: `sent email to ${config.to}` }
+      : { ok: false, detail: `email not sent: ${r.reason ?? 'unknown'} — turn on Email and verify a domain` };
   }
   const push = buildChannelRequest(config, n);
   if (push) return sendChannelRequest(push);

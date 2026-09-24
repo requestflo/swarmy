@@ -59,7 +59,6 @@ import { blueprintsRouter } from './routers/blueprints';
 import { managedSearchRouter } from './routers/search';
 import { vectorStoreRouter } from './routers/vector';
 import { aiGatewayRouter } from './routers/ai';
-import { notificationsRouter } from './routers/notifications';
 import { studioRouter } from './routers/studio';
 import { emailRouter } from './routers/email';
 import { rumRouter } from './routers/rum';
@@ -126,7 +125,6 @@ export const appRouter = router({
   search: managedSearchRouter,
   vector: vectorStoreRouter,
   ai: aiGatewayRouter,
-  notifications: notificationsRouter,
   studio: studioRouter,
   email: emailRouter,
 });

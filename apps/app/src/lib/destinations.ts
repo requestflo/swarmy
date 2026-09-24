@@ -110,7 +110,7 @@ export const SECTIONS: Destination[] = [
   { to: '/ingress', label: 'Edge & ingress', icon: NetworkIcon, group: 'Platform', blurb: 'The edge fleet: driver, TLS, tunnel', keywords: 'caddy driver tls https ha storage tunnel cloudflare edge controller — per-stack domains live in each stack' },
   { to: '/networking', label: 'Mesh', icon: GlobeIcon, group: 'Platform', blurb: 'WireGuard overlay & peers', keywords: 'mesh wireguard overlay peers routes acl netbird zero trust' },
   { to: '/data/buckets', label: 'Object storage', icon: ArchiveIcon, group: 'Platform', blurb: 'S3 buckets on your nodes', keywords: 's3 object storage garage buckets keys minio' },
-  { to: '/email', label: 'Email', icon: MailIcon, group: 'Platform', blurb: 'Send mail from your domains', keywords: 'email smtp mail dkim spf dmarc mta send api bounces suppressions templates relay smarthost ses postfix maddy' },
+  { to: '/email', label: 'Email', icon: MailIcon, group: 'Platform', blurb: 'Send mail from your domains', keywords: 'email smtp mail dkim spf dmarc mta send api bounces suppressions templates relay smarthost ses postmark resend mailgun postfix maddy notifications' },
   { to: '/ai', label: 'AI gateway', icon: SparklesIcon, group: 'Platform', blurb: 'Providers, keys & metering', keywords: 'llm anthropic openai openrouter models virtual keys usage tokens embeddings gateway' },
   { to: '/backups', label: 'Backup destinations', icon: DatabaseBackupIcon, group: 'Platform', blurb: 'Where backups go — incl. your own buckets', keywords: 'targets restic s3 destinations snapshots volumes restore dr' },
   { to: '/settings/platform', label: 'Platform & upgrades', icon: ArrowUpCircleIcon, group: 'Platform', blurb: 'swarmy version, channel & one-button upgrade', keywords: 'upgrade version release channel stable edge patch maintenance window update controller agents' },
@@ -130,7 +130,6 @@ export const SECTIONS: Destination[] = [
   // ── Settings ────────────────────────────────────────────────────────────
   { to: '/settings', label: 'General', icon: SettingsIcon, group: 'Settings', blurb: 'Org profile & preferences', keywords: 'settings org profile general preferences' },
   { to: '/settings/api-keys', label: 'API keys', icon: KeyRoundIcon, group: 'Settings', blurb: 'Tokens for the API & Terraform', keywords: 'tokens swk oauth terraform api keys' },
-  { to: '/settings/notifications', label: 'Notifications', icon: MailIcon, group: 'Settings', blurb: 'Email / SMTP delivery', keywords: 'email smtp resend postmark mailgun templates delivery' },
 ];
 
 export const ALL_DESTINATIONS: Destination[] = [...PRIMARY, ...SECTIONS];

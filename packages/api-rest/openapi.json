@@ -5676,8 +5676,8 @@
         "tags": [
           "Notifications"
         ],
-        "summary": "Send an email via the org’s configured provider",
-        "description": "Queues the message on the org’s notification outbox; the dispatch worker delivers it (with retries) via the provider configured in Settings → Notifications.",
+        "summary": "Send an email through the org’s Email service",
+        "description": "Hands the message to the org’s Email service (direct delivery or the domain’s relay, as set on the Email page). Needs Email turned on with a verified domain.",
         "security": [
           {
             "bearerApiKey": []
@@ -5694,7 +5694,7 @@
         },
         "responses": {
           "202": {
-            "description": "Queued for delivery",
+            "description": "Accepted for delivery",
             "content": {
               "application/json": {
                 "schema": {
