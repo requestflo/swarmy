@@ -32,6 +32,7 @@ import { SwarmJoinMsg, SwarmRotateTokensMsg, SwarmSetAutolockMsg } from './swarm
 import { BackupVolumeMsg, RestoreVolumeMsg, ListSnapshotsMsg } from './backup';
 import { DbBackupMsg, DbRestoreMsg } from './dbBackup';
 import { AppDbBackupMsg, AppDbRestoreMsg, AppDbVerifyMsg } from './appDb';
+import { DbQueryMsg } from './studio';
 import {
   SecretCreateMsg,
   SecretRemoveMsg,
@@ -117,6 +118,7 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   AppDbBackupMsg,
   AppDbRestoreMsg,
   AppDbVerifyMsg,
+  DbQueryMsg,
   SecretCreateMsg,
   SecretRemoveMsg,
   SecretListMsg,

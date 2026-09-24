@@ -37,6 +37,7 @@ export type CommandName =
   | 'appdb.backup' // compose MySQL/MariaDB/Mongo/Redis/Valkey logical dump → restic
   | 'appdb.restore'
   | 'appdb.verify' // backup-verify drill: dump → scratch container → sanity query
+  | 'db.query' // database studio: one bounded query via the DB task's own client (exec, in-task creds)
   | 'storage.apply' // volumes-dr P2: bring up a Garage member
   | 'volume.provision' // volumes-dr P3: create a local/CSI cluster volume
   | 'volume.remove'
@@ -92,6 +93,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'appdb.backup': 'appDbBackup',
   'appdb.restore': 'appDbRestore',
   'appdb.verify': 'appDbVerify',
+  'db.query': 'dbQuery',
   'storage.apply': 'applyStorageNode',
   'volume.provision': 'provisionVolume',
   'volume.remove': 'removeVolume',

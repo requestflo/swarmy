@@ -76,5 +76,8 @@ export const DEFAULT_COMMAND_TIMEOUTS: Record<string, number> = {
   appDbBackup: 4 * 3_600_000,
   appDbRestore: 4 * 3_600_000,
   appDbVerify: 2 * 3_600_000,
+  // Database studio: one bounded query (statement timeout default 15s, max 120s,
+  // plus the in-task kill margin). Callers pass statement timeout + 15s.
+  dbQuery: 60_000,
   ping: 5_000,
 };

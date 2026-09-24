@@ -7,6 +7,7 @@ import { buildGateAllows, BUILDER_ENABLE_HINT, execGateAllows, EXEC_LOCAL_VETO_H
 import { env } from './env';
 import { backupVolume, restoreVolume, listSnapshots, backupDb, restoreDb } from './handlers/backup';
 import { appDbBackup, appDbRestore, appDbVerify } from './handlers/appdb';
+import { dbQuery } from './handlers/studio';
 import { execCommand } from './handlers/exec';
 import { applyDns } from './handlers/dns';
 import { localReload } from './handlers/ingress-local';
@@ -200,6 +201,11 @@ export async function handleCommand(
     case 'appDbVerify': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => appDbVerify(docker, conn, p));
+    }
+    case 'dbQuery': {
+      // Database studio: one bounded query via the DB task's own client (in-task creds).
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => dbQuery(docker, p));
     }
     case 'buildImage': {
       const p = envlp.payload;

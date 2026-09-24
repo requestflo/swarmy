@@ -306,6 +306,25 @@ export function probeScript(creds: AppDbCreds): string {
   ].join('\n');
 }
 
+/**
+ * The same resolution as {@link probeScript}, but ASSIGNING the values to
+ * shell variables in-task instead of printing them — for clients that run in
+ * the task itself (the database studio), so the values never leave the
+ * container at all. Sets SWARMY_DB_USER / _PASSWORD / _NAME / _AUTHDB / _PORT.
+ */
+export function credAssignScript(creds: AppDbCreds): string {
+  const assign = (key: string, sources: AppDbCredSource[]) =>
+    ["v=''", ...sources.map(sourceLine), `${key}=$v`].join('\n');
+  return [
+    assign('SWARMY_DB_USER', creds.user),
+    assign('SWARMY_DB_PASSWORD', creds.password),
+    assign('SWARMY_DB_NAME', creds.database),
+    assign('SWARMY_DB_AUTHDB', creds.authDb),
+    `SWARMY_DB_PORT=${creds.port}`,
+    'unset v',
+  ].join('\n');
+}
+
 const PROBE_KEYS = new Set([
   'SWARMY_DB_USER',
   'SWARMY_DB_PASSWORD',

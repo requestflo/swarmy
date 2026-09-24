@@ -16,6 +16,14 @@
       "types": "./src/compose/index.ts",
       "import": "./src/compose/index.ts"
     },
+    "./studio": {
+      "types": "./src/studio/index.ts",
+      "import": "./src/studio/index.ts"
+    },
+    "./studio/scripts": {
+      "types": "./src/studio/scripts.ts",
+      "import": "./src/studio/scripts.ts"
+    },
     "./inputs": {
       "types": "./src/inputs.ts",
       "import": "./src/inputs.ts"
