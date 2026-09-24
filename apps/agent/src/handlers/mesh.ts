@@ -35,7 +35,7 @@ import type {
 import { sampleMeshControl } from './mesh-control';
 
 /** Default client images if the controller didn't pin one. */
-const DEFAULT_NETBIRD_IMAGE = 'netbirdio/netbird:latest';
+const DEFAULT_NETBIRD_IMAGE = 'netbirdio/netbird:0.79.0@sha256:9d8480d87b7f7c10d67b820eecf332ecca5c2756792d4bdfa532182b4fc3005f';
 const DEFAULT_TAILSCALE_IMAGE = 'tailscale/tailscale:latest';
 /** Stable names so re-applies reconcile the same container, never duplicate. */
 const NETBIRD_CONTAINER = 'swarmy-netbird';

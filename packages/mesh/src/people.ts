@@ -369,6 +369,49 @@ export interface NbUserFacts {
   /** `local` for the break-glass owner, else the connector id. */
   idpId?: string;
   role?: string;
+  /** The IdP subject (swarmy user id) decoded from the Dex user id, when known. */
+  subject?: string;
+}
+
+/**
+ * NetBird's embedded Dex names a user `base64(proto{1: sub, 2: connectorId})`
+ * (seen live: the break-glass owner is `CiQ…EgVsb2NhbA` = sub + "local"). For
+ * people who sign in through swarmy, `sub` IS the swarmy user id — a sturdier
+ * match than email (username-only accounts carry no email claim). Pure.
+ */
+export function dexSubject(nbUserId: string): { sub: string; connector: string } | null {
+  let buf: Uint8Array;
+  try {
+    buf = Uint8Array.from(atob(nbUserId.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+  const fields: Record<number, string> = {};
+  let i = 0;
+  const dec = new TextDecoder('utf-8', { fatal: true });
+  while (i < buf.length) {
+    const tag = buf[i++]!;
+    const field = tag >> 3;
+    if ((tag & 7) !== 2 || field < 1 || field > 2) return null;
+    let len = 0;
+    let shift = 0;
+    for (;;) {
+      if (i >= buf.length) return null;
+      const b = buf[i++]!;
+      len |= (b & 0x7f) << shift;
+      if (!(b & 0x80)) break;
+      shift += 7;
+      if (shift > 28) return null;
+    }
+    if (i + len > buf.length) return null;
+    try {
+      fields[field] = dec.decode(buf.subarray(i, i + len));
+    } catch {
+      return null;
+    }
+    i += len;
+  }
+  return fields[1] && fields[2] ? { sub: fields[1], connector: fields[2] } : null;
 }
 
 /** A swarmy member and the swarmy groups they should be in. */
@@ -391,8 +434,8 @@ export interface UserSyncAction {
 }
 
 /**
- * Decide what each NetBird person should look like. Matches on email
- * (lowercase). Service users and the local break-glass owner are never touched.
+ * Decide what each NetBird person should look like. Matches on the Dex
+ * subject (the swarmy user id, see {@link dexSubject}), else email (lowercase). Service users and the local break-glass owner are never touched.
  * A person with no matching swarmy member is blocked and loses their peers;
  * a matching member gets exactly their swarmy groups (others preserved) and is
  * unblocked. Only users that need a change are returned. Pure.
@@ -400,12 +443,17 @@ export interface UserSyncAction {
 export function planUserSync(args: { cluster: string; users: NbUserFacts[]; people: PersonAccess[] }): UserSyncAction[] {
   const prefix = swarmyPrefix(args.cluster);
   const byEmail = new Map<string, PersonAccess>();
-  for (const p of args.people) if (p.email) byEmail.set(p.email.toLowerCase(), p);
+  const byId = new Map<string, PersonAccess>();
+  for (const p of args.people) {
+    byId.set(p.userId, p);
+    if (p.email) byEmail.set(p.email.toLowerCase(), p);
+  }
   const out: UserSyncAction[] = [];
   const users = [...args.users].sort((a, b) => (a.id < b.id ? -1 : 1));
   for (const u of users) {
     if (u.isServiceUser || u.idpId === 'local' || u.role === 'owner') continue;
-    const person = u.email ? byEmail.get(u.email.toLowerCase()) : undefined;
+    const sub = u.subject ?? dexSubject(u.id)?.sub;
+    const person = (sub ? byId.get(sub) : undefined) ?? (u.email ? byEmail.get(u.email.toLowerCase()) : undefined);
     const kept = u.autoGroups.filter((g) => !g.startsWith(prefix));
     const current = [...u.autoGroups].sort();
     if (!person) {

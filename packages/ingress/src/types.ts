@@ -343,9 +343,13 @@ export const ControllerVhostSchema = z.object({
    * What this vhost fronts. `dashboard` is the controller's own UI/API (the
    * self-host installer's https login domain): `targetPath` is `/` and the
    * renderer proxies it verbatim (no rewrite — /api, /agent/ws, /install all
-   * pass through). The other kinds drive labeling/diagnostics only.
+   * pass through). `mesh-control` is the self-hosted NetBird control plane
+   * (plans/epic-self-hosted-mesh-and-fleets.md §2.3 step 8): gRPC goes h2c to
+   * `upstream`, everything else (REST, the embedded IdP, the relay's
+   * WebSocket) proxies plainly, all with day-long stream timeouts. The other
+   * kinds drive labeling/diagnostics only.
    */
-  kind: z.enum(['status-page', 'webhook', 'ai-gateway', 'dashboard']),
+  kind: z.enum(['status-page', 'webhook', 'ai-gateway', 'dashboard', 'mesh-control']),
   tls: z.enum(['auto', 'off']).default('auto'),
 });
 export type ControllerVhost = z.infer<typeof ControllerVhostSchema>;

@@ -3,6 +3,7 @@ import {
   accessGroup,
   buildPeopleAccessPlan,
   declaredPorts,
+  dexSubject,
   grantGroup,
   isSwarmyManaged,
   planUserSync,
@@ -211,6 +212,36 @@ describe('declaredPorts', () => {
     expect(declaredPorts({ image: 'pgvector/pgvector:pg16' })).toEqual([{ port: 5432, proto: 'tcp' }]);
     expect(declaredPorts({ image: 'valkey/valkey:8' })).toEqual([{ port: 6379, proto: 'tcp' }]);
     expect(declaredPorts({ image: 'ghcr.io/acme/web:1' })).toEqual([]);
+  });
+});
+
+describe('dexSubject', () => {
+  test('decodes the live break-glass owner id seen in the spike', () => {
+    expect(dexSubject('CiRmMzUyZDZjZS0yZGQ1LTQ4MjMtYjcxOS01MjMwMGU4OGRhZDMSBWxvY2Fs')).toEqual({
+      sub: 'f352d6ce-2dd5-4823-b719-52300e88dad3',
+      connector: 'local',
+    });
+  });
+  test('round-trips a connector user and rejects non-Dex ids', () => {
+    const enc = (sub: string, conn: string) => {
+      const b = new TextEncoder();
+      const s = b.encode(sub);
+      const c = b.encode(conn);
+      return btoa(String.fromCharCode(0x0a, s.length, ...s, 0x12, c.length, ...c));
+    };
+    expect(dexSubject(enc('usr_abc', 'daqmctca1vds739t9im0'))).toEqual({ sub: 'usr_abc', connector: 'daqmctca1vds739t9im0' });
+    expect(dexSubject('487982e9-a016-4d3f-b054-71b2a68dfd73')).toBeNull();
+    expect(dexSubject('')).toBeNull();
+  });
+  test('planUserSync matches on the subject before email', () => {
+    const b = new TextEncoder().encode('swarmy-user-1');
+    const id = btoa(String.fromCharCode(0x0a, b.length, ...b, 0x12, 3, ...new TextEncoder().encode('cid')));
+    const out = planUserSync({
+      cluster: 'lon',
+      users: [{ id, email: '', isServiceUser: false, isBlocked: false, autoGroups: [] }],
+      people: [{ userId: 'swarmy-user-1', email: null, groups: ['swarmy:lon:access:s1'] }],
+    });
+    expect(out).toEqual([{ nbUserId: id, email: '', autoGroups: ['swarmy:lon:access:s1'], block: false, deletePeers: false, swarmyUserId: 'swarmy-user-1' }]);
   });
 });
 

@@ -262,6 +262,29 @@ function buildControllerVhost(v: ControllerVhost): string[] {
       '}',
     ];
   }
+  if (v.kind === 'mesh-control') {
+    // NetBird's own Caddy recipe (verified in the M0 spike): gRPC needs h2c to
+    // the backend; relay/signal streams live for hours, so no reload may cut
+    // them early and no idle timeout may either.
+    return [
+      `${address} {`,
+      `  # swarmy ${v.kind} vhost`,
+      '  @grpc header Content-Type application/grpc*',
+      `  reverse_proxy @grpc h2c://${v.upstream} {`,
+      '    flush_interval -1',
+      `    stream_close_delay ${DASHBOARD_STREAM_CLOSE_DELAY}`,
+      '    transport http {',
+      '      read_timeout 24h',
+      '      write_timeout 24h',
+      '    }',
+      '  }',
+      `  reverse_proxy ${v.upstream} {`,
+      '    flush_interval -1',
+      `    stream_close_delay ${DASHBOARD_STREAM_CLOSE_DELAY}`,
+      '  }',
+      '}',
+    ];
+  }
   if (v.kind === 'status-page') {
     return [
       `${address} {`,

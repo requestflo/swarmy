@@ -859,6 +859,38 @@ describe('caddy controller vhosts — status pages / webhooks / AI gateway domai
     );
   });
 
+  it('GOLDEN: the mesh-control vhost sends gRPC h2c and keeps streams open for a day', () => {
+    const out = buildCaddyfile(
+      IngressConfigSchema.parse({
+        driver: 'caddy',
+        orgId: 'org_1',
+        domains: [],
+        controllerVhosts: [{ domain: 'mesh.xyz.com', upstream: '172.17.0.1:8081', targetPath: '/', kind: 'mesh-control' }],
+      }),
+    );
+    expect(out).toBe(
+      [
+        'mesh.xyz.com {',
+        '  # swarmy mesh-control vhost',
+        '  @grpc header Content-Type application/grpc*',
+        '  reverse_proxy @grpc h2c://172.17.0.1:8081 {',
+        '    flush_interval -1',
+        '    stream_close_delay 1h',
+        '    transport http {',
+        '      read_timeout 24h',
+        '      write_timeout 24h',
+        '    }',
+        '  }',
+        '  reverse_proxy 172.17.0.1:8081 {',
+        '    flush_interval -1',
+        '    stream_close_delay 1h',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+  });
+
   it('a webhook vhost with tls off serves plain http', () => {
     const out = buildCaddyfile(
       IngressConfigSchema.parse({

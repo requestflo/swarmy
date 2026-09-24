@@ -25,3 +25,4 @@ export * from './control-plane/server-config';
 export * from './control-plane/litestream';
 export * from './control-plane/netbird-admin';
 export * from './control-plane/people-sync';
+export * from './images';

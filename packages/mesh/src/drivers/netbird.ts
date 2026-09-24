@@ -9,8 +9,10 @@ import type {
 } from '../types';
 import { buildNetbirdPolicyPlan, type MeshAccessIntent } from '../acl';
 
-/** Default NetBird client image. Pin a digest in production. */
-export const NETBIRD_CLIENT_IMAGE = 'netbirdio/netbird:latest';
+import { NETBIRD_CLIENT_IMAGE_PINNED } from '../images';
+
+/** Default NetBird client image: pinned (tag + digest), see ../images.ts. */
+export const NETBIRD_CLIENT_IMAGE = NETBIRD_CLIENT_IMAGE_PINNED;
 /** Default WireGuard interface the NetBird client creates. */
 export const NETBIRD_INTERFACE = 'wt0';
 

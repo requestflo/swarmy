@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { MeshEnrollment } from '@swarmy/core/protocol';
 import type { DriverControlPlane, MeshConfig } from '../types';
 import { NetbirdDriver } from './netbird';
+import { NETBIRD_CLIENT_IMAGE_PINNED } from '../images';
 import { HeadscaleDriver } from './headscale';
 import { TailscaleDriver } from './tailscale';
 import { WireguardDriver } from './wireguard';
@@ -49,7 +50,7 @@ describe('NetbirdDriver render', () => {
     expect(rendered.client?.kind).toBe('netbird');
     expect(rendered.client?.setupKey).toBe('KEY-123');
     expect(rendered.client?.advertiseRoutes).toEqual(['10.0.0.0/24']);
-    expect(rendered.client?.image).toBe('netbirdio/netbird:latest');
+    expect(rendered.client?.image).toBe(NETBIRD_CLIENT_IMAGE_PINNED);
   });
 });
 
