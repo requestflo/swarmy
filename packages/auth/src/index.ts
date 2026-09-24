@@ -37,6 +37,17 @@ export {
 } from './oidc-clients';
 export { oidcIssuer, buildIdentityClaims, memberGroups, OIDC_SCOPES } from './oidc-provider';
 export {
+  SWARMY_API_SCOPES,
+  swarmyApiAudiences,
+  createApiTokenVerifier,
+  ensureMcpOidcClient,
+  MCP_OIDC_CLIENT,
+  MCP_OIDC_CLIENT_ID,
+  MCP_CALLBACK_PORT,
+  type SwarmyApiScope,
+  type VerifiedApiToken,
+} from './api-tokens';
+export {
   authTrustedOrigins,
   directHttpHost,
   adaptDirectHttpRequest,

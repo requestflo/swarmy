@@ -39,6 +39,24 @@ export const OIDC_MODEL_NAMES = {
 export const OIDC_SCOPES = ['openid', 'profile', 'email', 'offline_access', 'groups'] as const;
 
 /**
+ * Scopes for swarmy's OWN APIs (the MCP endpoint and REST `/api/v1`): look,
+ * or change (implies look). Only clients registered with them (the MCP
+ * client, see api-tokens.ts) may ask for them.
+ */
+export const SWARMY_API_SCOPES = ['swarmy:read', 'swarmy:write'] as const;
+export type SwarmyApiScope = (typeof SWARMY_API_SCOPES)[number];
+
+/** The public URLs of swarmy's APIs — valid `resource`/`aud` values. Deduped, order-stable. */
+export function swarmyApiAudiences(env: Record<string, string | undefined> = process.env): string[] {
+  const bases = [env.CONTROLLER_PUBLIC_URL, env.BETTER_AUTH_URL ?? 'http://localhost:3021']
+    .filter((b): b is string => !!b)
+    .map((b) => b.replace(/\/+$/, ''));
+  const out: string[] = [];
+  for (const b of bases) out.push(`${b}/mcp`, `${b}/api/v1`);
+  return [...new Set(out)];
+}
+
+/**
  * Paths to switch off on the Better Auth instance when the provider is on: the
  * jwt plugin's `/token` mints a JWT for any session, which the provider would
  * otherwise accept as an access token.
@@ -166,7 +184,7 @@ export function swarmyOidcProvider(db: DB, env: Record<string, string | undefine
         oauthRefreshToken: { modelName: OIDC_MODEL_NAMES.oauthRefreshToken },
         oauthConsent: { modelName: OIDC_MODEL_NAMES.oauthConsent },
       },
-      scopes: [...OIDC_SCOPES],
+      scopes: [...OIDC_SCOPES, ...SWARMY_API_SCOPES],
       // The dashboard login page. The provider appends the signed authorize
       // query; the dashboard's auth client (oauthProviderClient) sends it back
       // with the sign-in, and the provider resumes the flow.
@@ -174,7 +192,9 @@ export function swarmyOidcProvider(db: DB, env: Record<string, string | undefine
       // Only swarmy-registered first-party clients exist and all skip consent.
       // A page is still required by the plugin; it is never reached for them.
       consentPage: '/login/consent',
-      ...(extraAudiences.length ? { validAudiences: [oidcIssuer(env), ...extraAudiences] } : {}),
+      // The issuer (the provider's default), swarmy's own APIs (MCP + REST,
+      // requested via the RFC 8707 `resource` parameter), and any extras.
+      validAudiences: [...new Set([oidcIssuer(env), ...swarmyApiAudiences(env), ...extraAudiences])],
       // Clients are registered by swarmy code (oidc-clients.ts), never over HTTP.
       allowDynamicClientRegistration: false,
       allowUnauthenticatedClientRegistration: false,

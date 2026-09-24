@@ -12,11 +12,12 @@ import type { DB } from '@swarmy/db';
 import type { OrgContext } from './context';
 import type { AgentHub } from './hub/types';
 
-export type ApiKeyScope = 'read' | 'write';
+export type ApiKeyScope = 'read' | 'write' | 'secrets.read';
 
 export interface ResolvedApiKeyContext {
   ctx: OrgContext;
-  apiKey: { id: string; scopes: ApiKeyScope[] };
+  /** `kind` says which credential it was; OAuth tokens carry `oauth:<client_id>` as id. */
+  apiKey: { id: string; scopes: ApiKeyScope[]; kind?: 'api_key' | 'oauth' };
 }
 
 export interface ResolveApiKeyDeps {
@@ -82,22 +83,92 @@ export async function resolveOrgContextFromApiKey(
     .update({ where: { id: row.id }, data: { lastUsedAt: new Date() } })
     .catch(() => undefined);
 
-  // Build the same OrgContext shape orgProcedure produces. We do not have a
-  // Better Auth session for a key, so session/user carry a synthetic principal
-  // sufficient for the services layer (which reads ctx.user.id for audit/triggers).
-  const ctx = {
+  const ctx = principalContext(deps, row.orgId, creator, member);
+  return { ctx, apiKey: { id: row.id, scopes: (row.scopes as ApiKeyScope[]) ?? ['read'], kind: 'api_key' } };
+}
+
+/**
+ * Build the same OrgContext shape orgProcedure produces. We do not have a
+ * Better Auth session for a key or token, so session/user carry a synthetic
+ * principal sufficient for the services layer (which reads ctx.user.id for
+ * audit/triggers).
+ */
+function principalContext(
+  deps: ResolveApiKeyDeps,
+  orgId: string,
+  user: { id: string; email: string; name: string | null },
+  member: { role: string; organizationId: string },
+): OrgContext {
+  return {
     db: deps.db,
     hub: deps.hub,
     auth: deps.auth,
-    session: { userId: creator.id, activeOrganizationId: row.orgId } as OrgContext['session'],
-    user: { id: creator.id, email: creator.email, name: creator.name } as OrgContext['user'],
-    activeOrgId: row.orgId,
+    session: { userId: user.id, activeOrganizationId: orgId } as OrgContext['session'],
+    user: { id: user.id, email: user.email, name: user.name } as OrgContext['user'],
+    activeOrgId: orgId,
     reqHeaders: new Headers(),
     membership: {
       role: member.role as 'owner' | 'admin' | 'member',
       orgId: member.organizationId,
     },
   } as OrgContext;
-
-  return { ctx, apiKey: { id: row.id, scopes: (row.scopes as ApiKeyScope[]) ?? ['read'] } };
 }
+
+/** A verified swarmy-issued OAuth access token (see `createApiTokenVerifier` in @swarmy/auth). */
+export interface VerifiedBearerToken {
+  userId: string;
+  scopes: string[];
+  orgId: string | null;
+  clientId: string | null;
+}
+
+export interface ResolveBearerDeps extends ResolveApiKeyDeps {
+  /** Verifies a JWT access token issued by swarmy's OIDC provider for swarmy's APIs; null = invalid. */
+  verifyAccessToken?: (token: string) => Promise<VerifiedBearerToken | null>;
+}
+
+/** OAuth scope → API scope: `swarmy:write` implies read; anything else grants nothing here. */
+export function apiScopesFromOAuth(scopes: readonly string[]): ApiKeyScope[] {
+  if (scopes.includes('swarmy:write')) return ['read', 'write'];
+  if (scopes.includes('swarmy:read')) return ['read'];
+  return [];
+}
+
+/**
+ * The bearer seam for every non-browser front door (REST `/api/v1`, MCP
+ * `/mcp`): an `swk_…` API key, or an OAuth access token swarmy issued for
+ * its own APIs. Either way the principal is the CURRENT membership of the
+ * user behind it (never a frozen snapshot) and the same OrgContext shape.
+ */
+export async function resolveOrgContextFromBearer(
+  deps: ResolveBearerDeps,
+  presented: string,
+): Promise<ResolvedApiKeyContext | null> {
+  const token = normalizeKey(presented);
+  if (!token) return null;
+  if (token.startsWith('swk_')) return resolveOrgContextFromApiKey(deps, token);
+  if (!deps.verifyAccessToken || token.split('.').length !== 3) return null;
+
+  const claims = await deps.verifyAccessToken(token).catch(() => null);
+  if (!claims) return null;
+  const scopes = apiScopesFromOAuth(claims.scopes);
+  if (!scopes.length) return null;
+
+  // The org the token was issued in; else the user's earliest org (what the
+  // provider puts in the claim, and what a fresh session activates).
+  const member = await deps.db.member.findFirst({
+    where: { userId: claims.userId, ...(claims.orgId ? { organizationId: claims.orgId } : {}) },
+    orderBy: { createdAt: 'asc' },
+    select: { role: true, organizationId: true },
+  });
+  if (!member) return null;
+  const user = await deps.db.user.findUnique({
+    where: { id: claims.userId },
+    select: { id: true, email: true, name: true },
+  });
+  if (!user) return null;
+
+  const ctx = principalContext(deps, member.organizationId, user, member);
+  return { ctx, apiKey: { id: `oauth:${claims.clientId ?? 'client'}`, scopes, kind: 'oauth' } };
+}
+

@@ -23,6 +23,8 @@ export interface EnsureOidcClientInput {
   /** First-party clients skip the consent screen (swarmy has none). Default true. */
   skipConsent?: boolean;
   postLogoutRedirectUris?: string[];
+  /** Scopes the client may request (default: the OIDC identity scopes). */
+  scopes?: readonly string[];
 }
 
 export interface OidcClientInfo {
@@ -76,7 +78,7 @@ export function oidcClientRow(input: EnsureOidcClientInput) {
     grantTypes: ['authorization_code', 'refresh_token'],
     responseTypes: ['code'],
     requirePKCE: isPublic ? true : null,
-    scopes: [...OIDC_SCOPES],
+    scopes: [...(input.scopes ?? OIDC_SCOPES)],
     skipConsent: input.skipConsent ?? true,
     disabled: false,
   };

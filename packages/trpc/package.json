@@ -7,6 +7,10 @@
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
+    },
+    "./devx": {
+      "types": "./src/devx.ts",
+      "import": "./src/devx.ts"
     }
   },
   "scripts": {

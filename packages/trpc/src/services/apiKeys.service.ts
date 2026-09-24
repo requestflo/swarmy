@@ -14,7 +14,7 @@ import { writeAudit } from './audit.service';
 /** Wire prefix for swarmy API keys — greppable in logs / leak scanners. */
 export const API_KEY_PREFIX = 'swk';
 
-export type ApiKeyScope = 'read' | 'write';
+export type ApiKeyScope = 'read' | 'write' | 'secrets.read';
 
 export interface ApiKeyView {
   id: string;
