@@ -84,6 +84,16 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 
 ## Contracts between the layers
 
+- **Pull auth (hub decorator)**: every `service.deploy`/`image.pull` passes
+  `createRegistryAuthDecorator`: explicit `registryAuth` wins → org in-swarm
+  registry login (org-registry images) → org `RegistryCredential` whose
+  `host[/path]` prefix is the LONGEST match (`matchCredential`; Docker Hub
+  shorthands resolve to `docker.io/library/...`). `image.build` gets every login
+  as `pullAuths` (private `FROM` bases), merged into the one-shot docker config
+  by `renderDockerConfig`. Creds are cached per org for 15s and invalidated on
+  write. Never attach them at a call site. Use `resolveRegistryAuthFor` only when
+  the call doesn't go through the hub.
+
 - **Controller → agent build**: `ctx.hub.dispatch(nodeId, 'image.build',
   { commandId, source:{url,ref,token?}, imageRefs, pushPolicy:'always',
   registryAuth? }, { timeoutMs: 1_800_000 })`. Result `{ digest, imageRefs }`.
@@ -122,6 +132,7 @@ of a feature slice is `skill("agent-handlers")`; the full-slice shape is
 | Image admission decision (pure + evaluator) | `packages/trpc/src/services/admission-images.ts` |
 | PR preview lifecycle (labels, specs, teardown, webhook parse) | `packages/trpc/src/services/previews.service.ts` |
 | Build-log fan-out bus | `packages/trpc/src/services/build-log-bus.ts` |
+| Third-party registry creds (match/test pure core; CRUD + JIT resolver; hub decorator) | `packages/trpc/src/services/registry-credentials{,.service}.ts`, `registry-auth.ts` (`createRegistryAuthDecorator`), router `registryCredentials`, REST `routes/registry-credentials.ts` |
 | tRPC surface | `packages/trpc/src/routers/{cicd,registryPolicy,previews}.ts` |
 | Agent: BuildKit build / image prune / TLS hint | `apps/agent/src/handlers/{build,prune,registry-tls}.ts` |
 | Build gate (`env.BUILD_OVERRIDE` + `buildGateAllows`) + executor cases | `apps/agent/src/{env,executor}.ts`, `packages/core/src/types.ts` |
