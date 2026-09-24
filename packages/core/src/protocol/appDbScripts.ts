@@ -367,6 +367,28 @@ export function parseScriptOutputs(stdout: string): Record<string, string[]> {
 
 const D = APPDB_DUMP_MOUNT;
 
+/**
+ * Database names that may reach a dump/load command line or SQL. A server can
+ * hold a database named `postgresql://evil/x` (pg_dump would CONNECT there and
+ * send PGPASSWORD), `--host=evil` (a mysqldump option), or `x'; DROP …` —
+ * so every name, whether listed from the server, taken from SWARMY_DB_NAME, or
+ * read back from a snapshot's databases.txt, goes through `safe_names` first.
+ * Same grammar as the studio's database picker, minus a leading `-`/`.`.
+ */
+export const APPDB_SAFE_DB_NAME_ERE = '^[A-Za-z0-9_$][A-Za-z0-9_.$-]*$';
+
+/** Shell: filter stdin to safe names (one per line); report the rest on stderr. */
+const SAFE_NAMES_FN = [
+  `SWARMY_NAME_RE='${APPDB_SAFE_DB_NAME_ERE}'`,
+  'safe_names() {',
+  '  while IFS= read -r x || [ -n "$x" ]; do',
+  '    [ -n "$x" ] || continue',
+  '    if printf \'%s\\n\' "$x" | grep -Eq "$SWARMY_NAME_RE"; then printf \'%s\\n\' "$x"',
+  '    else printf \'swarmy: skipping a database with an unsafe name (%s)\\n\' "$x" >&2; fi',
+  '  done',
+  '}',
+];
+
 const SQL_PRELUDE = [
   'set -eu',
   'umask 077',
@@ -381,6 +403,7 @@ const SQL_PRELUDE = [
     "printf 'password=\"%s\"\\n' \"$(esc \"${SWARMY_DB_PASSWORD:-}\")\"; " +
     "echo 'host=127.0.0.1'; printf 'port=%s\\n' \"${SWARMY_DB_PORT:-3306}\"; } > \"$CNF\"",
   'my() { "$CLI" --defaults-extra-file="$CNF" "$@"; }',
+  ...SAFE_NAMES_FN,
 ];
 
 const SQL_WAIT = [
@@ -401,6 +424,7 @@ function sqlDump(scope: AppDbCreds['scope']): string {
     "  ALL=$(my -N -B -e 'SHOW DATABASES')",
     `  DBS=$(printf '%s\\n' "$ALL" | grep -Ev '${SQL_SYSTEM_DBS}' || true)`,
     'fi',
+    `DBS=$(printf '%s\\n' "$DBS" | safe_names)`,
     `: > ${D}/databases.txt`,
     `for d in $DBS; do echo "$d" >> ${D}/databases.txt; done`,
     `OPTS="--single-transaction --routines --triggers --no-tablespaces --hex-blob --add-drop-database${scope === 'root' ? ' --events' : ''}"`,
@@ -408,6 +432,8 @@ function sqlDump(scope: AppDbCreds['scope']): string {
     'if [ -z "$DBS" ]; then',
     `  echo '-- swarmy: no user databases to dump' > ${D}/dump.sql`,
     'else',
+    // Every name passed safe_names (no leading `-`, no spaces/globs), so the
+    // unquoted word-split list can't become an option.
     `  "$DUMP" --defaults-extra-file="$CNF" $OPTS --databases $DBS > ${D}/dump.sql`,
     `  tail -c 512 ${D}/dump.sql | grep -q 'Dump completed' || { echo "swarmy: dump ended early (no 'Dump completed' trailer)" >&2; exit 4; }`,
     'fi',
@@ -433,16 +459,16 @@ function sqlLoad(wait: boolean): string[] {
     `[ -f ${D}/dump.sql ] || { echo "swarmy: the snapshot holds no dump.sql" >&2; exit 4; }`,
     'if [ "${SWARMY_MODE:-copy}" = copy ]; then',
     `  ${SQL_RENAME_SED} ${D}/dump.sql | my`,
-    `  for d in $(cat ${D}/databases.txt 2>/dev/null); do echo "SWARMY_OUT db=\${d}_$SWARMY_SUFFIX"; done`,
+    `  for d in $(safe_names < ${D}/databases.txt 2>/dev/null || true); do echo "SWARMY_OUT db=\${d}_$SWARMY_SUFFIX"; done`,
     'else',
     `  my < ${D}/dump.sql`,
-    `  for d in $(cat ${D}/databases.txt 2>/dev/null); do echo "SWARMY_OUT db=$d"; done`,
+    `  for d in $(safe_names < ${D}/databases.txt 2>/dev/null || true); do echo "SWARMY_OUT db=$d"; done`,
     'fi',
   ];
 }
 
 const SQL_SANITY = [
-  `for d in $(cat ${D}/databases.txt 2>/dev/null); do`,
+  `for d in $(safe_names < ${D}/databases.txt 2>/dev/null || true); do`,
   '  my -e "USE \\`$d\\`" >/dev/null || { echo "swarmy: database $d is missing after the restore" >&2; exit 6; }',
   'done',
   "N=$(my -N -B -e \"SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA NOT IN ('mysql','sys','information_schema','performance_schema')\")",
@@ -458,6 +484,7 @@ const MONGO_PRELUDE = [
   'CFG=/dev/shm/swarmy-mongo.yaml',
   'LOG=/dev/shm/swarmy-mongo.log; [ -w /dev/shm ] || LOG=/tmp/swarmy-mongo.log',
   "trap 'rm -f \"$CFG\" \"$LOG\"' EXIT",
+  ...SAFE_NAMES_FN,
   'set -- --host=127.0.0.1 "--port=${SWARMY_DB_PORT:-27017}"',
   'if [ -n "${SWARMY_DB_USER:-}" ]; then',
   '  set -- "$@" "--username=$SWARMY_DB_USER" "--authenticationDatabase=${SWARMY_DB_AUTHDB:-admin}"',
@@ -490,7 +517,7 @@ const MONGO_DUMP = [
   "sed -n 's/.*writing [`]\\{0,1\\}\\([^.`]*\\)\\..*/\\1/p' \"$LOG\" | grep -Ev '^(admin|config|local)$' | sort -u > " +
     `${D}/databases.txt || true`,
   'echo "SWARMY_OUT tool=mongodump"',
-  `for d in $(cat ${D}/databases.txt); do echo "SWARMY_OUT db=$d"; done`,
+  `for d in $(safe_names < ${D}/databases.txt); do echo "SWARMY_OUT db=$d"; done`,
 ].join('\n');
 
 function mongoLoad(wait: boolean): string[] {
@@ -502,10 +529,10 @@ function mongoLoad(wait: boolean): string[] {
     'if [ "${SWARMY_MODE:-copy}" = copy ]; then',
     "  set -- \"$@\" '--nsFrom=$db$.$coll$' \"--nsTo=\\$db\\$_${SWARMY_SUFFIX}.\\$coll\\$\"",
     '  "$RESTORE" "$@"',
-    `  for d in $(cat ${D}/databases.txt 2>/dev/null); do echo "SWARMY_OUT db=\${d}_$SWARMY_SUFFIX"; done`,
+    `  for d in $(safe_names < ${D}/databases.txt 2>/dev/null || true); do echo "SWARMY_OUT db=\${d}_$SWARMY_SUFFIX"; done`,
     'else',
     '  "$RESTORE" "$@" --drop',
-    `  for d in $(cat ${D}/databases.txt 2>/dev/null); do echo "SWARMY_OUT db=$d"; done`,
+    `  for d in $(safe_names < ${D}/databases.txt 2>/dev/null || true); do echo "SWARMY_OUT db=$d"; done`,
     'fi',
   ];
 }
@@ -603,6 +630,7 @@ const PG_PRELUDE = [
   'export PGHOST=127.0.0.1 PGPORT="${SWARMY_DB_PORT:-5432}" PGUSER="${SWARMY_DB_USER:-postgres}" PGPASSWORD="${SWARMY_DB_PASSWORD:-}"',
   // Connect to the app database in user scope (the user may not reach `postgres`).
   'export PGDATABASE="${SWARMY_DB_NAME:-postgres}"',
+  ...SAFE_NAMES_FN,
 ];
 
 const PG_WAIT = [
@@ -618,9 +646,12 @@ const PG_DUMP = [
   'if [ -n "${SWARMY_DB_NAME:-}" ]; then DBS="$SWARMY_DB_NAME"; else',
   "  DBS=$(psql -Atqc \"SELECT datname FROM pg_database WHERE NOT datistemplate AND datallowconn ORDER BY 1\")",
   'fi',
+  `DBS=$(printf '%s\\n' "$DBS" | safe_names)`,
   `: > ${D}/databases.txt`,
   'for d in $DBS; do',
-  `  pg_dump -Fc -d "$d" -f "${D}/db-$d.pgc"`,
+  // PGDATABASE, not `-d`: libpq expands a `-d` value containing `=` or a URI
+  // prefix into a connection string (another host, receiving PGPASSWORD).
+  `  PGDATABASE="$d" pg_dump -Fc -f "${D}/db-$d.pgc"`,
   `  echo "$d" >> ${D}/databases.txt`,
   '  echo "SWARMY_OUT db=$d"',
   'done',
@@ -636,15 +667,17 @@ function pgLoad(wait: boolean): string[] {
   return [
     ...(wait ? PG_WAIT : []),
     `[ -s ${D}/databases.txt ] || { echo "swarmy: the snapshot lists no databases" >&2; exit 4; }`,
-    `for d in $(cat ${D}/databases.txt); do`,
+    `for d in $(safe_names < ${D}/databases.txt); do`,
     '  if [ "${SWARMY_MODE:-copy}" = copy ]; then n="${d}_$SWARMY_SUFFIX"; else n="$d"; fi',
-    "  if ! psql -Atqc \"SELECT 1 FROM pg_database WHERE datname = '$n'\" | grep -q 1; then",
-    '    psql -qc "CREATE DATABASE \\"$n\\""',
+    // psql variables (`:'n'` literal, `:"n"` identifier) quote the name — it is
+    // never spliced into SQL text. `-c` skips variable interpolation, so feed stdin.
+    "  if ! printf '%s\\n' \"SELECT 1 FROM pg_database WHERE datname = :'n'\" | psql -v n=\"$n\" -Atq | grep -q 1; then",
+    "    printf '%s\\n' 'CREATE DATABASE :\"n\"' | psql -v n=\"$n\" -q",
     '  fi',
     '  if [ "${SWARMY_MODE:-copy}" = copy ]; then',
-    `    pg_restore --no-owner --no-acl -d "$n" "${D}/db-$d.pgc"`,
+    `    PGDATABASE="$n" pg_restore --no-owner --no-acl -d "$n" "${D}/db-$d.pgc"`,
     '  else',
-    `    pg_restore --clean --if-exists --no-owner -d "$n" "${D}/db-$d.pgc"`,
+    `    PGDATABASE="$n" pg_restore --clean --if-exists --no-owner -d "$n" "${D}/db-$d.pgc"`,
     '  fi',
     '  echo "SWARMY_OUT db=$n"',
     'done',
@@ -653,8 +686,8 @@ function pgLoad(wait: boolean): string[] {
 
 const PG_SANITY = [
   'N=0',
-  `for d in $(cat ${D}/databases.txt); do`,
-  "  c=$(psql -Atq -d \"$d\" -c \"SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema')\")",
+  `for d in $(safe_names < ${D}/databases.txt); do`,
+  "  c=$(PGDATABASE=\"$d\" psql -Atq -c \"SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema')\")",
   '  N=$((N + c))',
   'done',
   'echo "SWARMY_OUT objects=$N"',

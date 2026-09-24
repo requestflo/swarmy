@@ -299,10 +299,12 @@ describe('dump script goldens (the flags that make a dump consistent)', () => {
   });
 
   it('postgres: one custom-format pg_dump per database; copy restores into <db>_<suffix>', () => {
-    expect(dumpScript('postgres', 'root')).toContain('pg_dump -Fc -d "$d" -f "/swarmy-dump/db-$d.pgc"');
+    expect(dumpScript('postgres', 'root')).toContain('PGDATABASE="$d" pg_dump -Fc -f "/swarmy-dump/db-$d.pgc"');
     const load = loadScript('postgres');
     expect(load).toContain('if [ "${SWARMY_MODE:-copy}" = copy ]; then n="${d}_$SWARMY_SUFFIX"; else n="$d"; fi');
     expect(load).toContain('pg_restore --clean --if-exists --no-owner -d "$n"');
+    expect(load).toContain(`psql -v n="$n"`);
+    expect(load).not.toContain("datname = '$n'");
   });
 
   it('mongo: an archive of every database, password via --config on tmpfs', () => {
@@ -366,5 +368,84 @@ describe('redisArgHints (redis rewrites its proc title, so read the configured a
       conf: '/usr/local/etc/redis/redis.conf',
     });
     expect(redisArgHints(['redis-server'])).toEqual({});
+  });
+});
+
+// Invariant: a database NAME is data, never syntax. Names come from the live
+// server (anyone with CREATE DATABASE picks them) or a snapshot's
+// databases.txt; each must pass safe_names before touching argv/SQL/libpq.
+describe('hostile database names (scripts executed under /bin/sh with stub tools)', () => {
+  const EVIL = ['postgresql://evil.example/x', '--host=evil', "x'; DROP DATABASE app; --", 'a b', 'host=evil dbname=x'];
+
+  function sandbox(stubs: Record<string, string>): { dir: string; bin: string; run: (script: string, env?: Record<string, string>) => ReturnType<typeof sh> } {
+    const dir = mkdtempSync(join(tmpdir(), 'swarmy-appdb-'));
+    const bin = join(dir, 'bin');
+    spawnSync('mkdir', ['-p', bin, join(dir, 'shm')]);
+    for (const [name, body] of Object.entries(stubs)) {
+      writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    }
+    const run = (script: string, env: Record<string, string> = {}) =>
+      sh(script.replaceAll('/swarmy-dump', dir).replaceAll('/dev/shm', join(dir, 'shm')), {
+        PATH: `${bin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
+        LOG_DIR: dir,
+        ...env,
+      });
+    return { dir, bin, run };
+  }
+
+  it('postgres dump: only safe names reach pg_dump, via PGDATABASE (never -d)', () => {
+    const { dir, run } = sandbox({
+      psql: `printf '%s\\n' app ${EVIL.map((e) => shq(e)).join(' ')}`,
+      pg_dump: 'printf "PGDATABASE=%s ARGS=%s\\n" "$PGDATABASE" "$*" >> "$LOG_DIR/pg_dump.log"',
+    });
+    const r = run(dumpScript('postgres', 'root'));
+    expect(r.code).toBe(0);
+    const log = readFileSync(join(dir, 'pg_dump.log'), 'utf8');
+    expect(log.trim().split('\n')).toEqual([`PGDATABASE=app ARGS=-Fc -f ${dir}/db-app.pgc`]);
+    expect(readFileSync(join(dir, 'databases.txt'), 'utf8')).toBe('app\n');
+    expect(r.err).toContain('skipping a database with an unsafe name');
+    for (const e of EVIL) expect(log).not.toContain(e);
+  });
+
+  it('postgres load: names are psql variables, never SQL text; hostile snapshot entries skipped', () => {
+    const { dir, run } = sandbox({
+      psql: 'printf "ARGS=%s STDIN=%s\\n" "$*" "$(cat)" >> "$LOG_DIR/psql.log"',
+      pg_restore: 'printf "ARGS=%s\\n" "$*" >> "$LOG_DIR/pg_restore.log"',
+    });
+    writeFileSync(join(dir, 'databases.txt'), ['app', ...EVIL].join('\n') + '\n');
+    const r = run(loadScript('postgres'), { SWARMY_MODE: 'copy', SWARMY_SUFFIX: 'copy1' });
+    expect(r.code).toBe(0);
+    const psql = readFileSync(join(dir, 'psql.log'), 'utf8');
+    expect(psql).toContain("ARGS=-v n=app_copy1 -Atq STDIN=SELECT 1 FROM pg_database WHERE datname = :'n'");
+    expect(psql).toContain('ARGS=-v n=app_copy1 -q STDIN=CREATE DATABASE :"n"');
+    const restore = readFileSync(join(dir, 'pg_restore.log'), 'utf8');
+    expect(restore.trim()).toBe(`ARGS=--no-owner --no-acl -d app_copy1 ${dir}/db-app.pgc`);
+    for (const e of EVIL) {
+      expect(psql).not.toContain(e);
+      expect(restore).not.toContain(e);
+    }
+  });
+
+  it('mysql dump: a database named --host=evil never becomes a mysqldump option', () => {
+    const { dir, run } = sandbox({
+      mariadb: `case "$*" in *SHOW*) printf '%s\\n' app mysql ${EVIL.map((e) => shq(e)).join(' ')};; esac`,
+      'mariadb-dump': 'case "$*" in *--help*) exit 0;; esac; printf "ARGS=%s\\n" "$*" >> "$LOG_DIR/dump.log"; echo "-- Dump completed"',
+    });
+    const r = run(dumpScript('mysql', 'root'), { SWARMY_DB_PASSWORD: 'pw' });
+    expect(r.code).toBe(0);
+    const log = readFileSync(join(dir, 'dump.log'), 'utf8');
+    expect(log.trim().endsWith('--databases app')).toBe(true);
+    for (const e of EVIL) expect(log).not.toContain(e);
+    expect(readFileSync(join(dir, 'databases.txt'), 'utf8')).toBe('app\n');
+  });
+
+  it('a hostile SWARMY_DB_NAME is refused too', () => {
+    const { dir, run } = sandbox({
+      psql: 'exit 0',
+      pg_dump: 'printf "%s\\n" "$PGDATABASE" >> "$LOG_DIR/pg_dump.log"',
+    });
+    const r = run(dumpScript('postgres', 'user'), { SWARMY_DB_NAME: 'postgresql://evil/x' });
+    expect(r.code).toBe(0);
+    expect(() => readFileSync(join(dir, 'pg_dump.log'), 'utf8')).toThrow();
   });
 });
