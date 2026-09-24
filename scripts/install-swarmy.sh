@@ -47,6 +47,12 @@
 #   --allow-signup               SWARMY_ALLOW_SIGNUP=true — open self-registration.
 #                                Default (unset): invite-only — only the seeded owner
 #                                and people an admin invites can create accounts.
+#   --release-pubkey <file|pem>  SWARMY_RELEASE_PUBKEY — the key platform-upgrade manifests
+#                                must be signed with (forks / self-builders). A PEM file
+#                                path or the PEM itself; empty = the built-in release key.
+#   --platform-feed-url <url>    SWARMY_PLATFORM_FEED_URL — the platform release feed base
+#                                (serves <channel>/platform.json[.sig]; an air-gapped
+#                                mirror). Empty = the GitHub releases feed.
 # Cloudflare (when --ingress cloudflare): CF_API_TOKEN, CF_ACCOUNT_ID, CF_ZONE_ID
 # NetBird (when --mesh netbird-*):        NB_SERVICE_TOKEN, NB_MANAGEMENT_URL
 # (--mesh swarmy needs neither: this script starts NetBird and mints the token.)
@@ -119,13 +125,17 @@ IMAGE="${SWARMY_IMAGE:-$DEFAULT_IMAGE}"
 AGENT_IMAGE="${SWARMY_AGENT_IMAGE:-$DEFAULT_AGENT_IMAGE}"
 PUBLISH_PORT="${SWARMY_PUBLISH_PORT:-3021}"
 ALLOW_SIGNUP="${SWARMY_ALLOW_SIGNUP:-}"
+RELEASE_PUBKEY="${SWARMY_RELEASE_PUBKEY:-}"
+PLATFORM_FEED_URL="${SWARMY_PLATFORM_FEED_URL:-}"
 
 # Which settings the operator gave THIS run (flag or env). Anything not given
 # falls back to what the first install recorded in state.env — a re-run with
 # no flags must never silently switch image, port or sign-up policy.
 EXPLICIT=" "
-for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS; do
+for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS RELEASE_PUBKEY PLATFORM_FEED_URL; do
   case "$v" in
+    RELEASE_PUBKEY) [ -n "${SWARMY_RELEASE_PUBKEY:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
+    PLATFORM_FEED_URL) [ -n "${SWARMY_PLATFORM_FEED_URL:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
     ADMIN_EMAIL) [ -n "${SWARMY_ADMIN_EMAIL:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
     IMAGE) [ -n "${SWARMY_IMAGE:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
     AGENT_IMAGE) [ -n "${SWARMY_AGENT_IMAGE:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
@@ -158,6 +168,8 @@ while [ $# -gt 0 ]; do
     --agent-image) AGENT_IMAGE="${2:?}"; EXPLICIT="${EXPLICIT}AGENT_IMAGE "; shift ;;
     --port) PUBLISH_PORT="${2:?}"; EXPLICIT="${EXPLICIT}PUBLISH_PORT "; shift ;;
     --allow-signup) ALLOW_SIGNUP="true" EXPLICIT="${EXPLICIT}ALLOW_SIGNUP " ;;
+    --release-pubkey) RELEASE_PUBKEY="${2:?}"; EXPLICIT="${EXPLICIT}RELEASE_PUBKEY "; shift ;;
+    --platform-feed-url) PLATFORM_FEED_URL="${2:?}"; EXPLICIT="${EXPLICIT}PLATFORM_FEED_URL "; shift ;;
     -h|--help) grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (try --help)" ;;
   esac
@@ -165,6 +177,27 @@ while [ $# -gt 0 ]; do
 done
 
 case "$MESH" in self-hosted|managed) MESH=swarmy ;; esac
+
+# ── platform-upgrade trust (pure — unit-tested by sourcing this file) ────────
+# release_pubkey_value FILE|PEM → the PEM text (a readable file is read, so the
+# key survives the file going away), or fails when it isn't a PEM public key.
+release_pubkey_value() {
+  local v="$1" pem="$1"
+  [ -n "$v" ] || return 0
+  if [ -f "$v" ]; then pem="$(cat "$v")" || return 1; fi
+  case "$pem" in *"-----BEGIN PUBLIC KEY-----"*"-----END PUBLIC KEY-----"*) printf '%s' "$pem" ;; *) return 1 ;; esac
+}
+# platform_feed_url_ok URL → succeeds for an empty value or an http(s) URL base.
+platform_feed_url_ok() {
+  [ -z "$1" ] && return 0
+  printf '%s' "$1" | grep -qE '^https?://[^[:space:]/]+[^[:space:]]*$'
+}
+if [ -n "$RELEASE_PUBKEY" ]; then
+  RELEASE_PUBKEY="$(release_pubkey_value "$RELEASE_PUBKEY")" \
+    || die "--release-pubkey / SWARMY_RELEASE_PUBKEY must be a PEM public key or a readable file holding one (-----BEGIN PUBLIC KEY-----)."
+fi
+platform_feed_url_ok "$PLATFORM_FEED_URL" \
+  || die "--platform-feed-url / SWARMY_PLATFORM_FEED_URL must be an http(s):// URL (the base serving <channel>/platform.json)."
 
 # ── state helpers ───────────────────────────────────────────────────────────
 # shellcheck source=/dev/null
@@ -201,12 +234,12 @@ remember_settings() {
   if [ -n "$saved" ] && [ "$saved" != lite ]; then
     die "this controller was installed with the '$saved' datastore tier (Postgres), which no longer exists. Take a fresh install; there is no migration path from a Postgres-era controller."
   fi
-  for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS; do
+  for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS RELEASE_PUBKEY PLATFORM_FEED_URL; do
     eval "saved=\${CFG_$v:-}"
     [ -n "$saved" ] || continue
     explicit "$v" || eval "$v=\$saved"
   done
-  for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS; do
+  for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS RELEASE_PUBKEY PLATFORM_FEED_URL; do
     eval "state_set CFG_$v \"\${$v}\""
   done
 }
@@ -1094,6 +1127,8 @@ deploy_stack() {
   SWARMY_MANAGER_ADDR="$SWARM_MANAGER_ADDR" \
   SWARMY_PUBLISH_PORT="$PUBLISH_PORT" \
   SWARMY_ALLOW_SIGNUP="$ALLOW_SIGNUP" \
+  SWARMY_RELEASE_PUBKEY="$RELEASE_PUBKEY" \
+  SWARMY_PLATFORM_FEED_URL="$PLATFORM_FEED_URL" \
   SWARMY_NODE_HOSTNAME="$NODE_HOSTNAME" \
   SWARMY_CONTROLLER_PLACEMENT="$placement" \
   SWARMY_CONTROL_STORE_SECRET="$store_secret" \

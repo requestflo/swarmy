@@ -49,6 +49,11 @@ services:
       ADMIN_USERNAME: ${SWARMY_ADMIN_USERNAME:-}
       # Registration: unset/empty = invite-only (production default); "true" = open sign-up.
       SWARMY_ALLOW_SIGNUP: ${SWARMY_ALLOW_SIGNUP:-}
+      # Platform upgrades (installer --release-pubkey / --platform-feed-url). Empty =
+      # the built-in release key and the GitHub releases feed. The key is the PEM
+      # itself (multi-line is fine: the stack loader interpolates after YAML parsing).
+      SWARMY_RELEASE_PUBKEY: ${SWARMY_RELEASE_PUBKEY:-}
+      SWARMY_PLATFORM_FEED_URL: ${SWARMY_PLATFORM_FEED_URL:-}
       # Non-secret swarm identity; the join tokens themselves arrive as secrets below.
       SWARM_ID: ${SWARMY_SWARM_ID}
       SWARM_MANAGER_ADDR: ${SWARMY_MANAGER_ADDR}
