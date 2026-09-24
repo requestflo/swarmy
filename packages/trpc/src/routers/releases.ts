@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import {
   CanaryRefInput,
@@ -8,7 +9,8 @@ import {
   SetDeploySafetyInput,
   StartCanaryInput,
 } from '@swarmy/core';
-import { orgProcedure, router } from '../trpc';
+import { adminProcedure, orgProcedure, router } from '../trpc';
+import { abacProcedure, resolveStackByName, type ResolveResource } from '../abac';
 import {
   abortCanary,
   canaryStatus,
@@ -21,6 +23,22 @@ import {
   setSafety,
   startCanary,
 } from '../services/releases.service';
+
+/**
+ * A rollback redeploys a past release's compose onto its stack: gate it as a
+ * deploy of that stack (live labels + the release's compose). Unknown release
+ * ⇒ NOT_FOUND, never an org-scoped (non-production) decision.
+ */
+const resolveReleaseStack: ResolveResource = async (ctx, input) => {
+  const releaseId = (input as { releaseId?: unknown } | null)?.releaseId;
+  if (typeof releaseId !== 'string' || !releaseId) return null;
+  const row = await ctx.db.release.findFirst({
+    where: { id: releaseId, orgId: ctx.activeOrgId },
+    select: { stackName: true, composeSource: true },
+  });
+  if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: `release ${releaseId} not found` });
+  return resolveStackByName(ctx, { stack: row.stackName, composeSource: row.composeSource });
+};
 
 /**
  * Releases & deploy safety (slice D1) — release history, health-gated deploys,
@@ -41,7 +59,7 @@ export const releasesRouter = router({
     .query(({ ctx, input }) => getRelease(ctx, input.id)),
 
   /** Redeploy a past release's compose as a new release (audited). */
-  rollback: orgProcedure
+  rollback: abacProcedure('stack.deploy', resolveReleaseStack)
     .input(RollbackReleaseInput)
     .mutation(({ ctx, input }) => rollbackTo(ctx, input)),
 
@@ -51,7 +69,7 @@ export const releasesRouter = router({
     .query(({ ctx, input }) => getSafety(ctx, input.stackName)),
 
   /** Write (or clear) the `swarmy.deploy.safety` stack label (audited). */
-  setSafety: orgProcedure
+  setSafety: adminProcedure
     .input(SetDeploySafetyInput)
     .mutation(({ ctx, input }) => setSafety(ctx, input)),
 
@@ -63,12 +81,12 @@ export const releasesRouter = router({
     .query(({ ctx, input }) => canaryStatus(ctx, input)),
 
   /** Deploy `<svc>--canary` + shift trafficPct of its routes to it (audited). */
-  startCanary: orgProcedure
+  startCanary: abacProcedure('stack.deploy', resolveStackByName)
     .input(StartCanaryInput)
     .mutation(({ ctx, input }) => startCanary(ctx, input)),
 
   /** Swap the stable service onto the canary image + retire the canary (audited). */
-  promote: orgProcedure
+  promote: abacProcedure('stack.deploy', resolveStackByName)
     .input(CanaryRefInput)
     .mutation(({ ctx, input }) => promoteCanary(ctx, input)),
 

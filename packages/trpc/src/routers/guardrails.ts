@@ -4,7 +4,7 @@ import {
   SetGuardrailSafetyModeInput,
   SetStackEnvInput,
 } from '@swarmy/core';
-import { orgProcedure, router } from '../trpc';
+import { adminProcedure, orgProcedure, router } from '../trpc';
 import {
   getConfig,
   listStackEnvs,
@@ -25,18 +25,18 @@ export const guardrailsRouter = router({
   config: orgProcedure.query(({ ctx }) => getConfig(ctx)),
 
   /** Flip production safety mode: every rule blocks on production stacks (audited). */
-  setSafetyMode: orgProcedure
+  setSafetyMode: adminProcedure
     .input(SetGuardrailSafetyModeInput)
     .mutation(({ ctx, input }) => setSafetyMode(ctx, input)),
 
   /** Update one rule's enabled/severity/params (partial; audited). */
-  setRule: orgProcedure.input(SetGuardrailRuleInput).mutation(({ ctx, input }) => setRule(ctx, input)),
+  setRule: adminProcedure.input(SetGuardrailRuleInput).mutation(({ ctx, input }) => setRule(ctx, input)),
 
   /** Every live stack + its environment marking (poll for live data). */
   stackEnvs: orgProcedure.query(({ ctx }) => listStackEnvs(ctx)),
 
   /** Mark/unmark a stack as production — writes the `swarmy.env` label (audited). */
-  setStackEnv: orgProcedure
+  setStackEnv: adminProcedure
     .input(SetStackEnvInput)
     .mutation(({ ctx, input }) => setStackEnv(ctx, input)),
 

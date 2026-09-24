@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { EXPOSE_MODES, SetExposureRulesInput } from '@swarmy/core';
-import { orgProcedure, router } from '../trpc';
+import { adminProcedure, orgProcedure, router } from '../trpc';
 import {
   getRules,
   listViolations,
@@ -29,12 +29,12 @@ export const exposureRouter = router({
   rules: orgProcedure.query(({ ctx }) => getRules(ctx)),
 
   /** Update rule toggles / "Block violating deploys" (partial; audited). */
-  setRules: orgProcedure
+  setRules: adminProcedure
     .input(SetRulesWithIntentInput)
     .mutation(({ ctx, input }) => setRules(ctx, input)),
 
   /** Declare (or clear, with `mode: null`) a service's exposure intent. */
-  setMode: orgProcedure
+  setMode: adminProcedure
     .input(z.object({ id: z.string().min(1), mode: z.enum(EXPOSE_MODES).nullable() }))
     .mutation(({ ctx, input }) => setExposeMode(ctx, input)),
 
