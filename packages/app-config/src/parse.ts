@@ -5,8 +5,7 @@
  * identical line numbers.
  */
 import { LineCounter, isNode, parseDocument } from 'yaml';
-import type { ZodIssue } from 'zod';
-import { hasErrors, type ConfigIssue } from './issues';
+import { hasErrors, zodToIssues, type ConfigIssue } from './issues';
 import { AppConfigSchema, type AppConfig } from './schema';
 import { validateConfig } from './validate';
 
@@ -89,37 +88,6 @@ export function parseAppConfig(text: string): ParseResult {
   const issues = [...yamlIssues, ...semantic];
   return hasErrors(issues) ? { issues } : { config: parsed.data, issues };
 }
-
-/** Flatten a Zod issue; for unions, report the most specific branch's issues. */
-function zodToIssues(i: ZodIssue): ConfigIssue[] {
-  if (i.code === 'invalid_union' && i.unionErrors.length) {
-    // Prefer the branch that got furthest (deepest path) — e.g. the object form of `build`.
-    const branches = i.unionErrors.map((e) => e.issues);
-    const best = branches.reduce((a, b) => (depth(b) > depth(a) ? b : a));
-    if (depth(best) > i.path.length) return best.flatMap(zodToIssues);
-  }
-  if (i.code === 'invalid_union_discriminator') {
-    return [
-      {
-        severity: 'error',
-        code: 'schema/invalid',
-        message: `type must be one of ${i.options.join(', ')}`,
-        path: i.path,
-      },
-    ];
-  }
-  const message =
-    i.code === 'unrecognized_keys'
-      ? `unknown key${i.keys.length > 1 ? 's' : ''} ${i.keys.map((k) => `"${k}"`).join(', ')}`
-      : i.message;
-  const path =
-    i.code === 'unrecognized_keys' && i.keys.length === 1
-      ? [...i.path, i.keys[0] as string]
-      : i.path;
-  return [{ severity: 'error', code: 'schema/invalid', message, path }];
-}
-
-const depth = (issues: ZodIssue[]): number => Math.max(0, ...issues.map((x) => x.path.length));
 
 function dedupe(issues: ConfigIssue[]): ConfigIssue[] {
   const seen = new Set<string>();

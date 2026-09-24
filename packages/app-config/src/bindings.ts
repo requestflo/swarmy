@@ -28,7 +28,7 @@ export const RESOURCE_BINDING_FIELDS: Record<ResourceType, readonly string[]> = 
   bucket: ['endpoint', 'bucket', 'region', 'access_key_id', 'secret_access_key_file'],
 };
 export const SERVICE_BINDING_FIELDS = ['url', 'host', 'port'] as const;
-export const APP_BINDING_FIELDS = ['name', 'url', 'domain'] as const;
+export const APP_BINDING_FIELDS = ['name', 'url', 'domain', 'environment'] as const;
 
 /** Names a resource/service can't take because they are binding namespaces. */
 export const RESERVED_NAMES = ['app', 'apps', 'services', 'secrets', 'preview'] as const;

@@ -69,6 +69,13 @@ describe('planApp', () => {
     });
   });
 
+  it('require-approval holds every change, not just destructive ones', () => {
+    const d = desired(MINIMAL_EXAMPLE);
+    const plan = planApp(d, emptyLive(d.stack), { requireApproval: true });
+    expect(plan.status).toBe('needs-confirmation');
+    expect(plan.counts).toEqual({ auto: 0, confirm: 4, blocked: 0 });
+  });
+
   it('is a noop when live matches and nothing under watch paths changed', () => {
     const d = desired(FULL_EXAMPLE);
     const plan = planApp(d, applied(d), { changedPaths: ['README.md', 'docs/x.md'] });

@@ -133,6 +133,11 @@ export interface PlanOptions {
    * Omitted = unknown = build everything built from source.
    */
   changedPaths?: string[];
+  /**
+   * The app's "require approval" toggle: every change waits for a human in the
+   * dashboard (not only the destructive ones). Blocked stays blocked.
+   */
+  requireApproval?: boolean;
 }
 
 export function planApp(desired: DesiredApp, live: LiveApp, opts: PlanOptions = {}): Plan {
@@ -402,6 +407,7 @@ export function planApp(desired: DesiredApp, live: LiveApp, opts: PlanOptions = 
   }
 
   actions.sort((a, b) => a.phase - b.phase || kindRank(a.kind) - kindRank(b.kind));
+  if (opts.requireApproval) for (const a of actions) if (a.gate === 'auto') a.gate = 'confirm';
   const counts: Record<Gate, number> = { auto: 0, confirm: 0, blocked: 0 };
   for (const a of actions) counts[a.gate] += 1;
   const status: PlanStatus = counts.blocked

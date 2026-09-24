@@ -100,4 +100,20 @@ previews:
   ttl: 48h
 
 connect: [billing]
+
+environments:
+  staging:
+    branch: staging
+    env: { LOG_LEVEL: debug }
+    services:
+      web:
+        replicas: 1
+        size: nano
+        domains: [staging.orders.northwind.dev]
+      admin:
+        sleep_after: 5m
+    resources:
+      db: { ha: single, replicas: 0, backups: false }
+      cache: { memory: 128mb }
+    jobs: false
 `;

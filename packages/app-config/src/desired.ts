@@ -17,11 +17,14 @@ import {
   type PostgresHa,
 } from './schema';
 import { parseDuration, parseRate, parseSizeMb } from './units';
+import { environmentStack, PRODUCTION, resolveEnvironment } from './environments';
 import { defaultJobService, domainHost } from './validate';
 
 export const DEFAULT_PREVIEW_TTL_SECONDS = 72 * 3600;
 export const DEFAULT_JOB_TIMEOUT_SECONDS = 600;
 export const PREVIEW_SLEEP_AFTER_SECONDS = 30 * 60;
+/** Owner decision (2026-09): a git app's Postgres is a single primary with nightly backups unless it asks for HA. */
+export const DEFAULT_POSTGRES_HA: PostgresHa = 'single';
 
 export interface BuildSource {
   kind: 'build';
@@ -129,6 +132,8 @@ export interface DesiredJob {
 export interface DesiredApp {
   app: string;
   stack: string;
+  /** `production`, a named environment, or `preview`. */
+  environment: string;
   preview?: { pr: number };
   /** Previews with `resources: shared` bind to the prod app's resources. */
   sharedResourcesFrom?: string;
@@ -148,6 +153,8 @@ export interface DesiredApp {
 
 export interface DesiredOptions {
   preview?: { pr: number; baseDomain: string };
+  /** A named environment from `environments:` (default: production). */
+  environment?: string;
 }
 
 const toCommand = (c: string | string[] | undefined): string[] | undefined =>
@@ -168,9 +175,13 @@ export function previewStack(app: string, pr: number): string {
   return `${app}-pr${pr}`;
 }
 
-export function toDesired(cfg: AppConfig, opts: DesiredOptions = {}): DesiredApp {
+export function toDesired(input: AppConfig, opts: DesiredOptions = {}): DesiredApp {
   const preview = opts.preview;
-  const stack = preview ? previewStack(cfg.app, preview.pr) : cfg.app;
+  const environment = opts.environment ?? PRODUCTION;
+  const cfg = resolveEnvironment(input, environment);
+  const stack = preview
+    ? previewStack(cfg.app, preview.pr)
+    : environmentStack(cfg.app, environment);
   const previewsCfg = {
     enabled: cfg.previews?.enabled ?? false,
     ttlSeconds:
@@ -192,7 +203,7 @@ export function toDesired(cfg: AppConfig, opts: DesiredOptions = {}): DesiredApp
           const r = typeof raw === 'string' ? ({ type: raw } as Exclude<typeof raw, string>) : raw;
           switch (r.type) {
             case 'postgres': {
-              let ha: PostgresHa = r.ha ?? 'primary-replica';
+              let ha: PostgresHa = r.ha ?? DEFAULT_POSTGRES_HA;
               let replicas = ha === 'single' ? 0 : (r.replicas ?? 1);
               let backups: { schedule: string; keep: number } | null =
                 r.backups === false
@@ -420,6 +431,7 @@ export function toDesired(cfg: AppConfig, opts: DesiredOptions = {}): DesiredApp
   return {
     app: cfg.app,
     stack,
+    environment: preview ? 'preview' : environment,
     ...(preview ? { preview: { pr: preview.pr } } : {}),
     ...(shared ? { sharedResourcesFrom: cfg.app } : {}),
     services,

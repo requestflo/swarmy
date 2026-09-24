@@ -12,8 +12,9 @@ import {
   SERVICE_BINDING_FIELDS,
   extractBindings,
 } from './bindings';
-import { issue, type ConfigIssue } from './issues';
-import type { AppConfig, ResourceType } from './schema';
+import { issue, zodToIssues, type ConfigIssue } from './issues';
+import { AppConfigSchema, RESERVED_ENV_NAMES, type AppConfig, type ResourceType } from './schema';
+import { resolveEnvironment } from './environments';
 
 type ResourceOut = NonNullable<AppConfig['resources']>[string];
 
@@ -365,6 +366,104 @@ export function validateConfig(cfg: AppConfig): ConfigIssue[] {
         'previews will read and write your production data',
       ),
     );
+  }
+
+  // ── environments ──
+  const envs = cfg.environments ?? {};
+  const branches = new Map<string, string>();
+  const allHosts = new Map<string, string>(); // host+path → where
+  for (const [svc, s] of Object.entries(services)) {
+    for (const d of s.domains ?? []) {
+      const { host, path } = domainHost(d);
+      allHosts.set(`${host}${path}`, `production ${svc}`);
+    }
+  }
+  for (const [envName, e] of Object.entries(envs)) {
+    const base = ['environments', envName];
+    if ((RESERVED_ENV_NAMES as readonly string[]).includes(envName)) {
+      out.push(
+        issue(
+          'error',
+          'env/reserved',
+          base,
+          `"${envName}" is reserved — production is the file itself`,
+        ),
+      );
+      continue;
+    }
+    const dupe = branches.get(e.branch);
+    if (dupe) {
+      out.push(
+        issue(
+          'error',
+          'env/branch-taken',
+          [...base, 'branch'],
+          `branch ${e.branch} already deploys environment "${dupe}"`,
+        ),
+      );
+    }
+    branches.set(e.branch, envName);
+    for (const n of Object.keys(e.services ?? {})) {
+      if (!services[n])
+        out.push(
+          issue(
+            'error',
+            'env/unknown-service',
+            [...base, 'services', n],
+            `no service named "${n}"`,
+          ),
+        );
+    }
+    for (const n of Object.keys(e.resources ?? {})) {
+      if (!resources[n])
+        out.push(
+          issue(
+            'error',
+            'env/unknown-resource',
+            [...base, 'resources', n],
+            `no resource named "${n}"`,
+          ),
+        );
+    }
+    for (const [svc, o] of Object.entries(e.services ?? {})) {
+      (o.domains ?? []).forEach((d, i) => {
+        const { host, path } = domainHost(d);
+        const key = `${host}${path}`;
+        const prev = allHosts.get(key);
+        if (prev) {
+          out.push(
+            issue(
+              'error',
+              'env/domain-taken',
+              [...base, 'services', svc, 'domains', i],
+              `${key} is already routed to ${prev}`,
+            ),
+          );
+        } else {
+          allHosts.set(key, `${envName} ${svc}`);
+        }
+      });
+    }
+    if (
+      out.some(
+        (i) => i.severity === 'error' && i.path[0] === 'environments' && i.path[1] === envName,
+      )
+    )
+      continue;
+    // The merged environment must itself be a valid app (e.g. an `ha:` its resource type allows).
+    const merged = AppConfigSchema.safeParse(resolveEnvironment(cfg, envName));
+    if (!merged.success) {
+      for (const zi of merged.error.issues.flatMap(zodToIssues)) {
+        const p = zi.path[0] === 'resources' || zi.path[0] === 'services' ? zi.path : [];
+        out.push(issue('error', 'env/invalid', [...base, ...p], `${envName}: ${zi.message}`));
+      }
+      continue;
+    }
+    for (const i of validateConfig({ ...merged.data, environments: undefined })) {
+      // Errors only (prod warnings would repeat per environment); cross-env domains are checked above.
+      if (i.severity !== 'error' || i.code === 'domain/duplicate') continue;
+      out.push({ ...i, path: [...base, ...i.path], message: `${envName}: ${i.message}` });
+    }
   }
 
   return out;

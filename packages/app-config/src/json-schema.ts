@@ -197,7 +197,7 @@ const resource = {
       properties: {
         type: { const: 'postgres' },
         version: { enum: [...POSTGRES_VERSIONS], default: 16 },
-        ha: { enum: [...POSTGRES_HA], default: 'primary-replica' },
+        ha: { enum: [...POSTGRES_HA], default: 'single' },
         replicas: { type: 'integer', minimum: 0, maximum: 20 },
         regions: {
           type: 'object',
@@ -267,6 +267,57 @@ const job = {
   },
 } as const;
 
+const serviceOverride = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'What this environment changes about the service. domains REPLACE production domains.',
+  properties: {
+    replicas: service.properties.replicas,
+    sleep_after: service.properties.sleep_after,
+    size: service.properties.size,
+    cpu: service.properties.cpu,
+    memory: service.properties.memory,
+    env,
+    domains: service.properties.domains,
+    regions: service.properties.regions,
+    command: service.properties.command,
+  },
+} as const;
+
+const resourceOverride = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'What this environment changes about the resource (never its type)',
+  properties: {
+    version: { enum: [...POSTGRES_VERSIONS] },
+    ha: { type: 'string' },
+    replicas: { type: 'integer', minimum: 0, maximum: 20 },
+    memory: size,
+    backups,
+    access: { enum: [...BUCKET_ACCESS] },
+    quota: size,
+  },
+} as const;
+
+const environment = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['branch'],
+  properties: {
+    branch: { type: 'string', description: 'A push to this branch deploys this environment' },
+    env: { ...env, description: 'Env overrides for every service here' },
+    services: { type: 'object', propertyNames: name, additionalProperties: serviceOverride },
+    resources: { type: 'object', propertyNames: name, additionalProperties: resourceOverride },
+    jobs: { type: 'boolean', default: true, description: "Run the app's cron jobs here" },
+    connect: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Apps this environment links to',
+    },
+  },
+} as const;
+
 export const SWARMY_YAML_JSON_SCHEMA = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   $id: 'https://swarmy.dev/schema/swarmy.v1.json',
@@ -300,6 +351,16 @@ export const SWARMY_YAML_JSON_SCHEMA = {
       type: 'array',
       items: { type: 'string' },
       description: 'Other apps this app may reach privately',
+    },
+    environments: {
+      type: 'object',
+      description:
+        'Named environments (e.g. staging): each is its own stack <app>-<name> tracking a branch',
+      propertyNames: {
+        pattern: '^[a-z][a-z0-9-]{0,19}$',
+        not: { enum: ['production', 'prod', 'preview'] },
+      },
+      additionalProperties: environment,
     },
   },
 } as const;

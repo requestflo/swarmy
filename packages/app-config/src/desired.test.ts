@@ -19,6 +19,7 @@ describe('toDesired', () => {
     expect(strip(toDesired(cfg(MINIMAL_EXAMPLE)))).toEqual({
       app: 'blog',
       stack: 'blog',
+      environment: 'production',
       services: [
         {
           name: 'web',
@@ -39,8 +40,8 @@ describe('toDesired', () => {
           name: 'db',
           type: 'postgres',
           version: 16,
-          ha: 'primary-replica',
-          replicas: 1,
+          ha: 'single',
+          replicas: 0,
           database: 'db',
           backups: { schedule: 'daily', keep: 7 },
         },

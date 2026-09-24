@@ -286,6 +286,63 @@ export const PreviewsSchema = z
   })
   .strict();
 
+// ── named environments (staging, …) ──────────────────────────────────────────
+
+/** What an environment may change about a service. Domains REPLACE (prod hostnames never leak into staging). */
+export const ServiceOverrideSchema = z
+  .object({
+    replicas: z.number().int().min(0).max(100),
+    sleep_after: duration,
+    size: z.enum(Object.keys(SIZE_PRESETS) as [SizePreset, ...SizePreset[]]),
+    cpu: z.number().positive().max(64),
+    memory: size,
+    env: envMap,
+    domains: z.array(DomainSchema),
+    regions: z.array(z.string().min(1)).nonempty(),
+    command: commandLine,
+  })
+  .partial()
+  .strict();
+
+/** What an environment may change about a resource (never its type). */
+export const ResourceOverrideSchema = z
+  .object({
+    version: z
+      .number()
+      .int()
+      .refine(
+        (v) => (POSTGRES_VERSIONS as readonly number[]).includes(v),
+        `one of ${POSTGRES_VERSIONS.join(', ')}`,
+      ),
+    ha: z.string().min(1),
+    replicas: z.number().int().min(0).max(20),
+    memory: size,
+    backups,
+    access: z.enum(BUCKET_ACCESS),
+    quota: size,
+  })
+  .partial()
+  .strict();
+
+export const ENV_NAME_RE = /^[a-z][a-z0-9-]{0,19}$/;
+export const RESERVED_ENV_NAMES = ['production', 'prod', 'preview'] as const;
+
+export const EnvironmentSchema = z
+  .object({
+    /** The branch this environment tracks (a push there deploys it). */
+    branch: z.string().min(1).max(200),
+    /** Shared env overrides for every service in this environment. */
+    env: envMap.optional(),
+    services: z.record(unitName, ServiceOverrideSchema).optional(),
+    resources: z.record(unitName, ResourceOverrideSchema).optional(),
+    /** Run the app's cron jobs here too (default true). */
+    jobs: z.boolean().optional(),
+    /** Apps this environment links to (default: none — prod links don't carry over). */
+    connect: z.array(z.string().regex(/^[a-z][a-z0-9-]{0,39}$/, 'an app name')).optional(),
+  })
+  .strict();
+export type EnvironmentInput = z.input<typeof EnvironmentSchema>;
+
 export const AppConfigSchema = z
   .object({
     version: z.literal(1, { errorMap: () => ({ message: 'version must be 1' }) }),
@@ -300,6 +357,13 @@ export const AppConfigSchema = z
     previews: PreviewsSchema.optional(),
     /** Other apps (stacks) in this org whose services this app may reach — one private overlay per pair. */
     connect: z.array(z.string().regex(/^[a-z][a-z0-9-]{0,39}$/, 'an app name')).optional(),
+    /** Named environments beside production, each its own stack `<app>-<name>` tracking a branch. */
+    environments: z
+      .record(
+        z.string().regex(ENV_NAME_RE, 'lowercase letters, digits and - only; max 20'),
+        EnvironmentSchema,
+      )
+      .optional(),
   })
   .strict();
 

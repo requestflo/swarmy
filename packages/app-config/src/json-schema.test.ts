@@ -5,6 +5,9 @@ import {
   AppConfigSchema,
   BucketSchema,
   CacheSchema,
+  EnvironmentSchema,
+  ResourceOverrideSchema,
+  ServiceOverrideSchema,
   HealthcheckSchema,
   JobSchema,
   PostgresSchema,
@@ -35,6 +38,15 @@ describe('JSON Schema ↔ Zod drift guard', () => {
     expect(jkeys(service.properties.healthcheck)).toEqual(zkeys(HealthcheckSchema));
     expect(jkeys(service.properties.domains.items.anyOf[1].properties.protect)).toEqual(
       zkeys(ProtectSchema),
+    );
+  });
+
+  it('environments agree', () => {
+    const e = S.properties.environments.additionalProperties;
+    expect(jkeys(e)).toEqual(zkeys(EnvironmentSchema));
+    expect(jkeys(e.properties.services.additionalProperties)).toEqual(zkeys(ServiceOverrideSchema));
+    expect(jkeys(e.properties.resources.additionalProperties)).toEqual(
+      zkeys(ResourceOverrideSchema),
     );
   });
 
