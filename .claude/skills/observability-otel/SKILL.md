@@ -84,6 +84,16 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
     `SENTRY_*` injection follows the same never-overwrite / identity-when-off
     rules as `injectOtel`. Grouping hashes are pinned by goldens in
     `errors/grouping.test.ts` — changing them splits every install's issues.
+13. **RUM (web analytics + session replay) never changes the app.** The edge
+    injects the same-origin tag (`swarmy_rum` Caddy module,
+    `docker/caddy-swarmy/rum`); settings are the `swarmy.rum` service label
+    (+ a route's own `rum: on|off`), never a DB column. The ingest trusts only
+    the controller-signed app token (org, app, mode, replay rate, retention) —
+    a privacy-mode token can never store ids or replays; the user id comes only
+    from the verified app-auth cookie. `swarmy_rum_*` tables carry a per-row
+    `retention_days` TTL; replay chunks live in Garage under day prefixes and
+    the hourly `rum-retention` worker deletes expired days. Viewing a replay
+    and every GDPR delete are audited.
 
 ## Contracts between the layers
 
@@ -130,6 +140,9 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
 | Alert eval + uptime sampling worker | `apps/api/src/workers/alert-evaluator.ts` |
 | Prisma: config/store-state + alerts/incidents/status | `packages/db/prisma/schema/{observability,alerts}.prisma` |
 | Error tracking: envelope parse, grouping, source maps, ingest, issue/release/artifact reads | `packages/trpc/src/services/errors/*`, `routers/errors.ts`; ingest HTTP `apps/api/src/errors-ingest.ts`; spike worker `apps/api/src/workers/errors-alerts.ts`; UI `apps/app/src/components/errors/*` |
+| RUM: browser bundles, token, ingest parsing, ClickHouse DDL/reads, Garage SigV4 client, GeoIP | `packages/rum/src/*` (client in `src/client/`, built on demand by `src/build.ts`) |
+| RUM: edge render + injector module | `packages/ingress/src/rum.ts` (+ hooks in `render/caddyfile.ts`), `docker/caddy-swarmy/rum/*.go` (goldens in `testdata/`) |
+| RUM: controller (settings label, public `/_rum` ingest, reads, GDPR, retention) | `packages/trpc/src/services/rum/*`, `routers/rum.ts`, `apps/api/src/rum.ts`, `apps/api/src/workers/rum-retention.ts` |
 | Trace UI: waterfall/map/metrics/logs panels | `apps/app/src/components/observability/*` |
 | Per-stack Observability tab + trace detail route | `apps/app/src/routes/_authed/stacks/$name.observability.tsx` (→ `components/observability/stack-observability-tab.tsx`), `routes/_authed/observability.$traceId.tsx` |
 | Alerts/incidents routes, status pages, public page | `routes/_authed/{alerts,incidents,incidents_.$incidentId}.tsx`; status pages are per stack (`components/statuspages/stack-status-pages.tsx`); public `routes/s.$slug.tsx` |

@@ -168,6 +168,52 @@ the build) and `SENTRY_ENVIRONMENT`. It never overwrites values the app already 
   `error-regression` fire at ingest, and `error-spike` fires from a one-minute
   sweep (last 10 minutes against the previous day).
 
+## Web analytics and session replay (RUM)
+
+Turn it on per app (or per route) and the edge does the rest. swarmy's Caddy
+build adds `<script src="/_swarmy/rum.js">` before `</head>` on HTML documents.
+It asks the upstream for an uncompressed body, re-gzips for the browser, and
+skips non-HTML, non-200, `no-transform`, ranged, oversized, br/zstd and
+head-less pages. Every HTML response says what happened: `Swarmy-Rum: injected`
+or `skipped; reason=…`. `/_swarmy/*` on the app's own domain maps to the
+controller, so the browser only ever talks to its own origin, with no
+third-party cookie. The app is never modified or redeployed.
+
+- **CSP.** A page policy is extended only by what the tag needs. The tag reuses
+  the page's nonce, or gets a new nonce when the policy already relies on
+  hashes or `'strict-dynamic'`. Otherwise `'self'` is added, because a nonce
+  would switch off the page's `'unsafe-inline'`. A policy of `'none'` or a
+  `<meta>` CSP skips injection and reports it. `csp: skip` leaves every CSP
+  page alone.
+- **Privacy mode (default).** Pageviews, referrer host, UTM, country (swarmy's
+  own GeoIP; the IP is dropped), device class and engaged time. No cookies,
+  nothing stored on the device, no ids. Visitors are counted with a
+  daily-rotating salted hash.
+- **Identified mode (opt-in).** After consent (`window.swarmyConsent(true)` or
+  `{ replay: true }`, or an IAB TCF v2 CMP; or `none` for internal tools),
+  swarmy keeps a session id in sessionStorage. Same-origin fetch/XHR carry
+  `Swarmy-Session` plus a `traceparent` the browser starts, so the edge span
+  (`swarmy.session_id`) and the app's own spans share the replay's trace ids.
+  The page navigation links through `Server-Timing: traceparent`. The user id
+  comes from the app-auth session cookie, never from the browser.
+- **Replay.** A sampled share of identified sessions loads the rrweb recorder
+  (MIT, pinned). Every input is masked, and so is text marked `data-private`,
+  `data-sensitive`, `data-swarmy-mask` or `.swarmy-mask`. Blocked selectors and
+  iframes are drawn as grey boxes, and all text can be masked too. Chunks go to
+  Garage (`swarmy-rum-replays`, one prefix per UTC day), with the index in
+  ClickHouse. The player syncs the recording with its requests (server spans),
+  logs and errors (the error-tracking events with the same `replay_id` or trace).
+- **Retention and GDPR.** Each app picks its retention. It is stamped on every
+  row as a ClickHouse TTL, and the hourly worker deletes expired replay days.
+  Admins can erase one session, or everything for a user id. Viewing a replay
+  and every erase are audited.
+- **The legal line, in the UI too.** Self-hosting keeps data away from Google
+  but not your duties. ePrivacy covers anything stored on or read from a
+  visitor's device, and GDPR covers personal data. Identified analytics and
+  replays are personal data: they need a legal basis or consent, which is what
+  the consent hook is for. Only cookieless aggregate analytics is plausibly
+  banner-free.
+
 ## Failure modes (designed, not accidental)
 
 | Failure | Behaviour |
