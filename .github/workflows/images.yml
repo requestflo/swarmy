@@ -76,6 +76,11 @@ jobs:
             image: ghcr.io/${{ github.repository_owner }}/caddy-swarmy
             dockerfile: docker/caddy-swarmy/Dockerfile
             context: docker/caddy-swarmy
+          # The per-app Better Auth service for `auth:` in swarmy.yaml (dev-platform §2B).
+          - name: app-auth
+            image: ghcr.io/${{ github.repository_owner }}/swarmy-app-auth
+            dockerfile: docker/app-auth/Dockerfile
+            context: docker/app-auth
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3

@@ -1,0 +1,21 @@
+{
+  "name": "swarmy-app-auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The per-app Better Auth service swarmy deploys for `auth:` in swarmy.yaml.",
+  "scripts": {
+    "start": "bun src/server.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-auth": "1.6.22",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.5.4"
+  }
+}
