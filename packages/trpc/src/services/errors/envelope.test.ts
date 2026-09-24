@@ -7,11 +7,13 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import * as zlib from 'node:zlib';
 import { deflateSync, gzipSync } from 'node:zlib';
 import {
   decodeBody,
   EnvelopeError,
   itemJson,
+  MAX_DECOMPRESSED_BYTES,
   parseAuthHeader,
   parseDsnKey,
   parseEnvelope,
@@ -91,6 +93,43 @@ describe('parseEnvelope — @sentry/node 11 payloads', () => {
     expect(() => parseEnvelope(enc('{}\n{"type":"event","length":99}\n{}'))).toThrow(EnvelopeError);
     expect(() => decodeBody(enc('nope'), 'gzip')).toThrow(EnvelopeError);
     expect(() => decodeBody(enc('nope'), 'compress')).toThrow(EnvelopeError);
+  });
+});
+
+describe('decodeBody — decompression bombs are bounded for every codec', () => {
+  // 64 MiB of zeros: a few KB compressed, 3x the 20 MiB cap decoded.
+  const zeros = new Uint8Array(64 * 1024 * 1024);
+  const zstdCompress = (b: Uint8Array) =>
+    new Uint8Array((zlib as unknown as { zstdCompressSync: (x: Uint8Array) => Uint8Array }).zstdCompressSync(b));
+  const bombs: [string, Uint8Array][] = [
+    ['zstd', zstdCompress(zeros)],
+    ['gzip', new Uint8Array(gzipSync(zeros))],
+    ['deflate', new Uint8Array(deflateSync(zeros))],
+    ['br', new Uint8Array(zlib.brotliCompressSync(zeros))],
+  ];
+
+  for (const [codec, bomb] of bombs) {
+    test(`${codec} bomb → "body too large" without inflating it`, () => {
+      expect(bomb.length).toBeLessThan(1024 * 1024);
+      const before = process.memoryUsage().rss;
+      expect(() => decodeBody(bomb, codec)).toThrow('body too large');
+      // The decoder stops at the bound; it never materialises 64 MiB.
+      expect(process.memoryUsage().rss - before).toBeLessThan(48 * 1024 * 1024);
+    });
+  }
+
+  test('ratio cap: >100x expansion past the 1 MiB floor is refused even under the absolute cap', () => {
+    const tenMiB = new Uint8Array(10 * 1024 * 1024); // < MAX_DECOMPRESSED_BYTES, but ~1000x
+    expect(10 * 1024 * 1024).toBeLessThan(MAX_DECOMPRESSED_BYTES);
+    expect(() => decodeBody(zstdCompress(tenMiB), 'zstd')).toThrow('body too large');
+    expect(() => decodeBody(new Uint8Array(gzipSync(tenMiB)), 'gzip')).toThrow('body too large');
+  });
+
+  test('real payloads round-trip through bounded zstd', () => {
+    const raw = enc('{"event_id":"x"}\n{"type":"event"}\n{"a":1}\n');
+    expect(parseEnvelope(decodeBody(zstdCompress(raw), 'zstd')).items).toHaveLength(1);
+    // Small repetitive bodies stay under the 1 MiB floor and pass.
+    expect(decodeBody(zstdCompress(new Uint8Array(512 * 1024)), 'zstd').length).toBe(512 * 1024);
   });
 });
 

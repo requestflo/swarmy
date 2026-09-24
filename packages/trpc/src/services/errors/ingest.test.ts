@@ -6,6 +6,7 @@
  */
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import * as zlib from 'node:zlib';
 import { hashToken } from '@swarmy/core/crypto';
 import { ingest } from './ingest';
 import { invalidateProjectCache, resetRateLimits } from './projects';
@@ -168,5 +169,37 @@ describe('ingest', () => {
     expect(limited.status).toBe(429);
     expect(limited.headers?.['Retry-After']).toMatch(/^\d+$/);
     expect(limited.headers?.['X-Sentry-Rate-Limits']).toMatch(/^\d+::key$/);
+  });
+
+  test('a wrong request-carried key is refused BEFORE the body is decoded', async () => {
+    const bad = new URLSearchParams('sentry_key=ffffffffffffffffffffffffffffffff');
+    // Undecodable gzip would be 400 if it were decoded first; auth answers 403.
+    const res = await ingest(deps, { projectId: '42', kind: 'envelope', body: new TextEncoder().encode('nope'), contentEncoding: 'gzip', query: bad });
+    expect(res.status).toBe(403);
+    const hdr = await ingest(deps, {
+      projectId: '42',
+      kind: 'envelope',
+      body: new TextEncoder().encode('nope'),
+      contentEncoding: 'zstd',
+      authHeader: 'Sentry sentry_key=ffffffffffffffffffffffffffffffff, sentry_version=7',
+    });
+    expect(hdr.status).toBe(403);
+    const unknown = await ingest(deps, { projectId: '7', kind: 'envelope', body: new TextEncoder().encode('nope'), contentEncoding: 'gzip', query });
+    expect(unknown.status).toBe(403);
+  });
+
+  test('an authenticated zstd bomb is 413, not an OOM', async () => {
+    const zstd = (zlib as unknown as { zstdCompressSync: (x: Uint8Array) => Uint8Array }).zstdCompressSync;
+    const bomb = new Uint8Array(zstd(new Uint8Array(64 * 1024 * 1024)));
+    const res = await ingest(deps, { projectId: '42', kind: 'envelope', body: bomb, contentEncoding: 'zstd', query });
+    expect(res.status).toBe(413);
+  });
+
+  test('envelope-header DSN (tunnel) still authenticates after a bounded decode', async () => {
+    const body = new TextEncoder().encode(`{"event_id":"abc","dsn":"https://${KEY}@x.test/42"}\n{"type":"session"}\n{}\n`);
+    expect((await ingest(deps, { projectId: '42', kind: 'envelope', body })).status).toBe(200);
+    const wrong = new TextEncoder().encode(`{"dsn":"https://${KEY}@x.test/43"}\n`);
+    expect((await ingest(deps, { projectId: '42', kind: 'envelope', body: wrong })).status).toBe(403);
+    expect((await ingest(deps, { projectId: '42', kind: 'envelope', body: new TextEncoder().encode('{}\n') })).status).toBe(401);
   });
 });

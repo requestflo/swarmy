@@ -15,12 +15,21 @@
  * Headers are single-line JSON. `length` counts BYTES (not UTF-16 units), so
  * everything here works on the raw `Uint8Array`.
  */
+import * as zlib from 'node:zlib';
 import { brotliDecompressSync, gunzipSync, inflateRawSync, inflateSync } from 'node:zlib';
 
 /** Hard cap on a decompressed body (Sentry's own envelope ceiling is 200 MiB; ours is smaller). */
 export const MAX_DECOMPRESSED_BYTES = 20 * 1024 * 1024;
 /** Sentry's per-event item cap. Larger event payloads are dropped, not truncated. */
 export const MAX_EVENT_ITEM_BYTES = 1024 * 1024;
+/**
+ * Decompression-bomb guard: a decoded layer may not exceed this multiple of
+ * its compressed input (real JSON envelopes compress 5-20x). Bodies whose
+ * decoded size stays under {@link RATIO_FLOOR_BYTES} are exempt, so tiny
+ * highly-repetitive payloads still pass.
+ */
+export const MAX_DECOMPRESSION_RATIO = 100;
+export const RATIO_FLOOR_BYTES = 1024 * 1024;
 
 export class EnvelopeError extends Error {
   constructor(message: string) {
@@ -112,7 +121,10 @@ export function itemJson(item: EnvelopeItem): Record<string, unknown> | null {
  * Undo `Content-Encoding`. SDKs use gzip (Node/Python over 32 KiB), deflate
  * (older Python/Ruby), br and zstd (Relay-style tunnels). A body that starts
  * with the gzip magic is gunzipped even without the header (some proxies strip
- * it). Output is capped at {@link MAX_DECOMPRESSED_BYTES}.
+ * it). Every codec (zstd included) is decoded with a hard output bound —
+ * the decoder stops allocating at the bound instead of inflating a bomb and
+ * checking afterwards: min({@link MAX_DECOMPRESSED_BYTES},
+ * max({@link RATIO_FLOOR_BYTES}, input × {@link MAX_DECOMPRESSION_RATIO})).
  */
 export function decodeBody(raw: Uint8Array, contentEncoding?: string | null): Uint8Array {
   const encodings = (contentEncoding ?? '')
@@ -121,36 +133,54 @@ export function decodeBody(raw: Uint8Array, contentEncoding?: string | null): Ui
     .map((s) => s.trim())
     .filter((s) => s && s !== 'identity');
   let out: Uint8Array = raw;
-  const opts = { maxOutputLength: MAX_DECOMPRESSED_BYTES };
+  const bound = (input: Uint8Array) => ({
+    maxOutputLength: Math.min(MAX_DECOMPRESSED_BYTES, Math.max(RATIO_FLOOR_BYTES, input.length * MAX_DECOMPRESSION_RATIO)),
+  });
   try {
     // Encodings apply in order, so they are undone in reverse.
     for (const enc of encodings.reverse()) {
+      const opts = bound(out);
       if (enc === 'gzip' || enc === 'x-gzip') out = gunzipSync(out, opts);
       else if (enc === 'deflate') {
         try {
           out = inflateSync(out, opts);
-        } catch {
+        } catch (e) {
+          if (isTooLarge(e)) throw e;
           out = inflateRawSync(out, opts); // some clients send raw deflate
         }
       } else if (enc === 'br') out = brotliDecompressSync(out, opts);
-      else if (enc === 'zstd') out = zstdDecompress(out);
+      else if (enc === 'zstd') out = zstdDecompress(out, opts);
       else throw new EnvelopeError(`unsupported content-encoding ${enc}`);
     }
     if (!encodings.length && out.length > 2 && out[0] === 0x1f && out[1] === 0x8b) {
-      out = gunzipSync(out, opts);
+      out = gunzipSync(out, bound(out));
     }
   } catch (e) {
     if (e instanceof EnvelopeError) throw e;
+    if (isTooLarge(e)) throw new EnvelopeError('body too large');
     throw new EnvelopeError('body could not be decompressed');
   }
   if (out.length > MAX_DECOMPRESSED_BYTES) throw new EnvelopeError('body too large');
   return out;
 }
 
-function zstdDecompress(buf: Uint8Array): Uint8Array {
-  const z = (globalThis as { Bun?: { zstdDecompressSync?: (b: Uint8Array) => Uint8Array } }).Bun;
-  if (!z?.zstdDecompressSync) throw new EnvelopeError('zstd is not supported by this controller');
-  return z.zstdDecompressSync(buf);
+/** node:zlib raises ERR_BUFFER_TOO_LARGE (RangeError) when `maxOutputLength` is hit. */
+function isTooLarge(e: unknown): boolean {
+  const code = (e as { code?: unknown } | null)?.code;
+  return code === 'ERR_BUFFER_TOO_LARGE' || e instanceof RangeError;
+}
+
+type ZstdSync = (b: Uint8Array, o: { maxOutputLength: number }) => Uint8Array;
+
+/**
+ * Bounded zstd: node:zlib's `zstdDecompressSync` honours `maxOutputLength`
+ * (Bun ≥ 1.3 / Node ≥ 22.15). `Bun.zstdDecompressSync` has no bound, so it is
+ * never used — without a bounded decoder zstd is refused.
+ */
+function zstdDecompress(buf: Uint8Array, opts: { maxOutputLength: number }): Uint8Array {
+  const fn = (zlib as unknown as { zstdDecompressSync?: ZstdSync }).zstdDecompressSync;
+  if (typeof fn !== 'function') throw new EnvelopeError('unsupported content-encoding zstd');
+  return fn(buf, opts);
 }
 
 /**

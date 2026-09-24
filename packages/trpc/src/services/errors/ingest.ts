@@ -3,7 +3,8 @@
  * `/store/`). The HTTP shell lives in apps/api/src/errors-ingest.ts; this is
  * everything behind it:
  *
- *   decode (gzip/deflate/br/zstd) → parse → authenticate the DSN key →
+ *   authenticate the request-carried key (header/query) → decode
+ *   (gzip/deflate/br/zstd, bounded) → parse → authenticate an envelope-DSN key →
  *   rate-limit (per project, 429 + X-Sentry-Rate-Limits) → normalise →
  *   symbolicate JS frames with uploaded source maps → group → issue state
  *   (new / regression) → insert events + issue rows into ClickHouse →
@@ -75,6 +76,17 @@ export async function ingest(deps: IngestDeps, req: IngestRequest): Promise<Inge
   if (!/^\d{1,10}$/.test(req.projectId)) return fail(400, 'invalid project id');
   const projectId = Number(req.projectId);
 
+  // Authenticate BEFORE touching the body whenever the key is on the request
+  // itself (X-Sentry-Auth / ?sentry_key=): an unauthenticated caller never
+  // gets the decoder. Only tunnels that carry the DSN inside the envelope
+  // header fall back to decode-then-auth (the decoder is bounded either way).
+  let project: IngestProject | null = null;
+  const early = resolveAuth({ authHeader: req.authHeader, query: req.query });
+  if (early.publicKey) {
+    project = await lookupIngestProject(deps.db, projectId);
+    if (!project || !keyMatches(project, early.publicKey)) return fail(403, 'unknown project or key');
+  }
+
   let events: Record<string, unknown>[] = [];
   let envelopeHeader: Record<string, unknown> | undefined;
   let firstId = '';
@@ -93,16 +105,21 @@ export async function ingest(deps: IngestDeps, req: IngestRequest): Promise<Inge
       }
     }
   } catch (e) {
-    if (e instanceof EnvelopeError) return fail(e.message === 'body too large' ? 413 : 400, e.message);
+    if (e instanceof EnvelopeError) {
+      const status = e.message === 'body too large' ? 413 : e.message.startsWith('unsupported content-encoding') ? 415 : 400;
+      return fail(status, e.message);
+    }
     return fail(400, 'invalid body');
   }
   firstId = String(envelopeHeader?.event_id ?? events[0]?.event_id ?? '');
 
-  const auth = resolveAuth({ authHeader: req.authHeader, query: req.query, envelopeHeader });
-  if (!auth.publicKey) return fail(401, 'missing sentry_key');
-  if (auth.dsnProjectId && auth.dsnProjectId !== req.projectId) return fail(403, 'DSN project mismatch');
-  const project = await lookupIngestProject(deps.db, projectId);
-  if (!project || !keyMatches(project, auth.publicKey)) return fail(403, 'unknown project or key');
+  if (!project) {
+    const auth = resolveAuth({ authHeader: req.authHeader, query: req.query, envelopeHeader });
+    if (!auth.publicKey) return fail(401, 'missing sentry_key');
+    if (auth.dsnProjectId && auth.dsnProjectId !== req.projectId) return fail(403, 'DSN project mismatch');
+    project = await lookupIngestProject(deps.db, projectId);
+    if (!project || !keyMatches(project, auth.publicKey)) return fail(403, 'unknown project or key');
+  }
 
   if (!events.length) return { status: 200, body: firstId ? { id: firstId } : {} };
 
