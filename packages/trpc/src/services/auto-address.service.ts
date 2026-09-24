@@ -27,17 +27,37 @@ import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import { systemContext } from './cicd.service';
 import { writeAudit } from './audit.service';
-import { expectedTarget } from './domain-verify.service';
+import { expectedTarget, kickDomainChecks, registerDomainHosts } from './domain-verify.service';
+import { dnsDb } from './dns-snapshot.service';
+import { isAutoAddressZone } from './dns-zones.service';
 import { readIngressSettingsRaw } from './domain-checks.store';
 import { INGRESS_ROUTES_LABEL, listRoutesForOrg, readRoutes, serializeRoutes, type Route } from './ingress-routes';
 
 const INGRESS_ENABLED_LABEL = 'swarmy.ingress';
 
-/** The sslip.io base this org's apps get addresses under, or null (no edge IP yet). */
+/**
+ * The org's automatic-address zone: a swarmy-ns zone flagged with
+ * `geodns.setZoneAutoAddresses` (which required live delegation), or null.
+ */
+export async function autoAddressZone(ctx: OrgContext): Promise<string | null> {
+  const rows = await dnsDb(ctx)
+    .dnsZone.findMany({ where: { orgId: ctx.activeOrgId, enabled: true, mode: 'swarmy-ns' }, orderBy: { zone: 'asc' } })
+    .catch(() => []);
+  return rows.find((r) => isAutoAddressZone(r.settings))?.zone ?? null;
+}
+
+/**
+ * The base this org's apps get addresses under: the org's OWN zone served by
+ * swarmy-dns when one is delegated and flagged (`<label>.<zone>` — no third
+ * party in the path), else the sslip.io fallback `<label>.<edge-ip>.sslip.io`.
+ * Null when neither can be formed (no edge IP yet, or behind a tunnel).
+ */
 export async function autoAddressBase(ctx: OrgContext): Promise<string | null> {
   const settings = await readIngressSettingsRaw(ctx);
   const expected = await expectedTarget(ctx);
   if (expected.tunnelCname) return null; // behind a tunnel there is no public edge IP to embed
+  const zone = await autoAddressZone(ctx);
+  if (zone) return zone;
   return sslipBaseFor({
     dashboardDomain: typeof settings.dashboardDomain === 'string' ? settings.dashboardDomain : null,
     edgeIps: expected.ips,
@@ -87,6 +107,11 @@ export async function reconcileAutoAddressesOrg(ctx: OrgContext, now = Date.now(
   if (!manager) return [];
   const base = await autoAddressBase(ctx);
   if (!base) return [];
+  // sslip.io names embed the edge IP (correct by construction — observed, never
+  // gated). A name in the org's own zone resolves only once swarmy-dns has the
+  // derived record: register it through the DNS gate so Caddy orders its
+  // certificate after the name verifiably points at the edge, not before.
+  const ownZone = !/\.(sslip|nip)\.io$/.test(base);
 
   const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
   const inv = buildInventory(services, containers).services;
@@ -127,7 +152,9 @@ export async function reconcileAutoAddressesOrg(ctx: OrgContext, now = Date.now(
             current.map((r) => (r.host === a.previousHost ? { ...r, host: a.host } : r)),
           );
     try {
+      if (ownZone) await registerDomainHosts(ctx, [{ host: a.host, tls: 'auto' }]);
       await ctx.hub.dispatch(manager, 'service.updateLabels', { service: svc.name, add, removeKeys: [] });
+      if (ownZone) kickDomainChecks(ctx, [a.host]);
       recentlyStamped.set(a.serviceId, now);
       await writeAudit(ctx, {
         action: a.kind === 'add' ? 'ingress.autoAddress' : 'ingress.autoAddressRehost',

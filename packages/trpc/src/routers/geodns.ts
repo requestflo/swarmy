@@ -13,6 +13,7 @@ import {
 } from '../services/geodns.service';
 import {
   checkDelegation,
+  setZoneAutoAddresses,
   createZone,
   listZones,
   previewResolution,
@@ -91,6 +92,14 @@ export const geodnsRouter = router({
     .mutation(({ ctx, input }) => setAdvertisedNs(ctx, input.id, input.nodeIds)),
 
   /** Live delegation check: public NS lookup + direct SOA query per glue IP. */
+  /**
+   * Host the org's automatic app addresses on this zone (`<service>-<stack>.<zone>`,
+   * served by swarmy-dns) instead of sslip.io. Enabling requires live delegation.
+   */
+  setZoneAutoAddresses: adminProcedure
+    .input(z.object({ id: z.string(), enabled: z.boolean() }))
+    .mutation(({ ctx, input }) => setZoneAutoAddresses(ctx, input.id, input.enabled)),
+
   checkDelegation: orgProcedure
     .input(z.object({ id: z.string() }))
     .query(({ ctx, input }) => checkDelegation(ctx, input.id)),

@@ -2,7 +2,11 @@
  * Automatic app addresses — pure.
  *
  * Every public HTTP service gets a working HTTPS address the moment it
- * deploys, before anyone owns a domain: `<service>-<stack>.<edge-ip>.sslip.io`
+ * deploys, before anyone owns a domain. Preferred: `<service>-<stack>.<zone>`
+ * in the org's OWN zone served by swarmy-dns (flagged with
+ * `geodns.setZoneAutoAddresses`, which requires live NS delegation) — no third
+ * party in the path. Fallback when no zone is delegated:
+ * `<service>-<stack>.<edge-ip>.sslip.io`
  * (sslip.io answers any `<anything>.<a-b-c-d>.sslip.io` with `a.b.c.d`, so the
  * name points at the edge by construction — no DNS step, instantly verified).
  * Public IPs get a real Let's Encrypt certificate (sslip.io is on the Public

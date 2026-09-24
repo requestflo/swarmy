@@ -42,7 +42,14 @@ export interface DnsZoneView {
   nameservers: Array<{ label: string; fqdn: string; ip: string; nodeId: string; online: boolean }>;
   /** Provider-sync references (cloudflare/route53 modes). */
   provider: { zoneId?: string; tokenEnv?: string; region?: string };
+  /** This zone hosts the org's automatic app addresses (`<service>-<stack>.<zone>`). */
+  autoAddresses: boolean;
   conflicts?: ComposeConflict[];
+}
+
+/** Does a zone row's settings flag it as the automatic-address zone? Pure. */
+export function isAutoAddressZone(settings: unknown): boolean {
+  return Boolean(settings && typeof settings === 'object' && (settings as Record<string, unknown>).autoAddresses === true);
 }
 
 const asStringArray = (v: unknown): string[] =>
@@ -94,6 +101,7 @@ function toView(
       online: ctx.hub.isOnline(nodeId),
     })),
     provider: providerOf(row.settings),
+    autoAddresses: isAutoAddressZone(row.settings),
     conflicts,
   };
 }
@@ -299,6 +307,55 @@ export async function checkDelegation(ctx: OrgContext, id: string): Promise<Dele
   );
 
   return { zone: row.zone, publicNs, delegated, nameservers };
+}
+
+// ───────────────────────────────────────────── automatic app addresses ──
+
+/**
+ * Make this zone (or stop it being) the home of the org's automatic app
+ * addresses: every public app then gets `<service>-<stack>.<zone>` served by
+ * swarmy-dns instead of `<…>.<edge-ip>.sslip.io` — no third-party DNS in the
+ * path. Enabling requires the zone to be LIVE on swarmy's nameservers
+ * (swarmy-ns, enabled, and publicly delegated right now), so addresses never
+ * move onto a name the internet can't resolve; the flag is then sticky config
+ * (a later DNS blip never flips every app back to sslip.io). One zone per org.
+ * The domain-verify worker re-hosts existing auto addresses onto it.
+ */
+export async function setZoneAutoAddresses(ctx: OrgContext, id: string, enabled: boolean): Promise<DnsZoneView> {
+  const row = await dnsDb(ctx).dnsZone.findFirst({ where: { id, orgId: ctx.activeOrgId } });
+  if (!row) throw notFound('dnsZone', id);
+  const base = typeof row.settings === 'object' && row.settings !== null ? (row.settings as Record<string, unknown>) : {};
+  if (enabled) {
+    if (row.mode !== 'swarmy-ns' || !row.enabled) {
+      throw new Error(`${row.zone} must be enabled and served by swarmy's nameservers first`);
+    }
+    const delegation = await checkDelegation(ctx, id);
+    if (!delegation.delegated) {
+      throw new Error(
+        `${row.zone} is not delegated to swarmy yet (public NS: ${delegation.publicNs.join(', ') || 'none'}). ` +
+          `Point its NS records at ${delegation.nameservers.map((n) => n.fqdn).join(', ') || 'the advertised nameservers'} first.`,
+      );
+    }
+    // One auto-address zone per org: clear the flag elsewhere.
+    for (const other of await dnsDb(ctx).dnsZone.findMany({ where: { orgId: ctx.activeOrgId } })) {
+      if (other.id !== id && isAutoAddressZone(other.settings)) {
+        const { autoAddresses: _drop, ...rest } = other.settings as Record<string, unknown>;
+        await dnsDb(ctx).dnsZone.update({ where: { id: other.id }, data: { settings: rest } });
+      }
+    }
+  }
+  const { autoAddresses: _old, ...rest } = base;
+  const updated = await dnsDb(ctx).dnsZone.update({
+    where: { id },
+    data: { settings: enabled ? { ...rest, autoAddresses: true } : rest },
+  });
+  await writeAudit(ctx, {
+    action: 'dns.setZoneAutoAddresses',
+    targetType: 'dnsZone',
+    targetId: id,
+    metadata: { zone: row.zone, enabled },
+  });
+  return toView(ctx, updated);
 }
 
 // ───────────────────────────────────────────── resolution preview ──
