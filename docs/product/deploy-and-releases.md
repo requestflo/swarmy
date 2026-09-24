@@ -125,6 +125,26 @@ Four ideas, one story:
   labels stamped by `ingress.addDomain`, and a lossy rebuild (env/image/network
   patch) keeps the live network aliases (the agent carries them when a spec
   doesn't state `networkAliases`).
+- **Variable interpolation = compose semantics, from the stack's variables.**
+  Before translation, every string value in the compose file is interpolated
+  exactly as `docker compose` / `docker stack deploy` do (`interpolateCompose`
+  in `@swarmy/core/compose`): `$VAR`, `${VAR}`, `${VAR:-default}` (unset or
+  empty), `${VAR-default}` (unset), `${VAR:?message}` / `${VAR?message}`
+  (refuse the deploy with the message and the value's path),
+  `${VAR:+alt}` / `${VAR+alt}`, nesting in defaults, and `$$` for a literal
+  `$` (`sh -c 'echo $$HOME'`). Keys are never interpolated. An unset variable
+  with no default becomes `""` with an `unset-variable` warning in the deploy
+  result; bad syntax (`$1`, an unclosed `${`) is a 400. **Where the values come
+  from:** the stack's variables — a `.env` block in the bulk `.env` editor's
+  format (`parseDotenv`), sent as `envSource` on `stacks.deployFromCompose` /
+  `stacks.redeploy` and stored with the stack's compose source. That is the
+  `.env` half of what `docker stack deploy` reads; the shell-env half has no
+  swarmy equivalent on purpose — the controller's own process environment is
+  never consulted (it holds the controller's secrets). Omitting `envSource`
+  reuses the stored variables, so redeploys, rollbacks and GitOps pushes keep
+  them; `''` clears them. `.env` values are literal (a `$` inside one is not
+  re-interpolated). Interpolated values land in the plain service spec, so
+  secrets belong in secret variables, not stack variables.
 - **Migrating stacks deployed before namespacing.** Older compose deploys named
   services by the bare compose key (`web`) with volumes silently dropped. On the
   next deploy of that stack, each bare-named service carrying

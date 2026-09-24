@@ -8,12 +8,15 @@ import {
   STACK_LABEL,
   SWARMY_OVERLAY_NETWORK,
   UNGROUPED,
+  parseDotenv,
   type InvService,
 } from '@swarmy/core';
 import {
   composeToModels,
   composeToStack,
+  ComposeInterpolationError,
   ComposeStackError,
+  interpolateCompose,
   modelToServiceSpec,
   type ComposeFile,
   type StackPlan,
@@ -96,6 +99,8 @@ export interface StackSummary {
 
 export interface StackDetail extends StackSummary {
   composeSource: string;
+  /** The stack's variables (`.env` text) compose `${VAR}` interpolation reads; '' = none. */
+  envSource: string;
   services: { id: string; name: string; image: string }[];
   createdAt: string;
 }
@@ -123,20 +128,62 @@ function parseComposeDoc(source: string): ComposeFile {
 }
 
 /**
+ * A stack's `.env` text (the bulk `.env` editor's format) → the variables
+ * compose interpolation reads. Parse problems become warnings, never a throw.
+ */
+export function stackVariables(envSource: string | null | undefined): {
+  vars: Record<string, string>;
+  warnings: TranslationWarning[];
+} {
+  if (!envSource?.trim()) return { vars: {}, warnings: [] };
+  const parsed = parseDotenv(envSource);
+  return {
+    vars: Object.fromEntries(parsed.entries.map((e) => [e.key, e.value])),
+    warnings: parsed.warnings.map((w) => ({
+      level: 'warn' as const,
+      path: `.env:${w.line}`,
+      code: 'dotenv',
+      message: w.message,
+    })),
+  };
+}
+
+/**
+ * `docker stack deploy` interpolation: `${VAR}`, `${VAR:-d}`, `${VAR-d}`,
+ * `${VAR:?e}`, `$VAR`, `$$` → `$`, over the parsed compose object, from the
+ * stack's variables only (never the controller's env). A missing required
+ * variable / bad syntax is a 400 naming the value's path.
+ */
+function interpolateDoc(
+  doc: ComposeFile,
+  vars: Record<string, string>,
+): { doc: ComposeFile; warnings: TranslationWarning[] } {
+  try {
+    return interpolateCompose(doc, vars);
+  } catch (e) {
+    if (e instanceof ComposeInterpolationError) throw commandRejected(`compose interpolation: ${e.message}`);
+    throw e;
+  }
+}
+
+/**
  * Compose YAML → SHORT-named specs through the canonical `@swarmy/core/compose`
  * translator (volumes, healthcheck, labels, secrets, configs, resources,
  * placement, restart — everything the builder round-trips). Used by callers
  * that apply their OWN naming (PR previews → `<previewStack>_<short>`). The
  * stack deploy path uses {@link planComposeStack}, which namespaces too.
  */
-export function composeShortSpecs(source: string): {
+export function composeShortSpecs(
+  source: string,
+  vars: Record<string, string> = {},
+): {
   specs: ServiceSpec[];
   warnings: TranslationWarning[];
 } {
-  const doc = parseComposeDoc(source);
+  const { doc, warnings: interp } = interpolateDoc(parseComposeDoc(source), vars);
   try {
     const { models, warnings } = composeToModels(doc);
-    return { specs: models.map((m) => modelToServiceSpec(m) as ServiceSpec), warnings };
+    return { specs: models.map((m) => modelToServiceSpec(m) as ServiceSpec), warnings: [...interp, ...warnings] };
   } catch (e) {
     throw commandRejected(`invalid compose file: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -147,10 +194,12 @@ export function planComposeStack(
   source: string,
   stack: string,
   legacyVolumes?: Record<string, Record<string, string>>,
+  vars: Record<string, string> = {},
 ): StackPlan {
-  const doc = parseComposeDoc(source);
+  const { doc, warnings } = interpolateDoc(parseComposeDoc(source), vars);
   try {
-    return composeToStack(doc, stack, { legacyVolumes });
+    const plan = composeToStack(doc, stack, { legacyVolumes });
+    return warnings.length ? { ...plan, warnings: [...warnings, ...plan.warnings] } : plan;
   } catch (e) {
     if (e instanceof ComposeStackError) throw commandRejected(e.message);
     throw e;
@@ -333,7 +382,7 @@ export async function getStack(ctx: OrgContext, id: string): Promise<StackDetail
   // composeSource is config (kept on the Stack row); membership/status is live.
   const row = await stacks(ctx, ctx.activeOrgId).findFirst({
     where: { id, orgId: ctx.activeOrgId },
-    select: { id: true, name: true, composeSource: true },
+    select: { id: true, name: true, composeSource: true, envSource: true },
   });
   if (!row) throw notFound('stack', id);
   const svcs = liveStackServices(ctx, row.name);
@@ -345,6 +394,7 @@ export async function getStack(ctx: OrgContext, id: string): Promise<StackDetail
     status: stackStatus(svcs),
     updatedAt: now,
     composeSource: row.composeSource,
+    envSource: row.envSource ?? '',
     services: svcs.map((s) => ({ id: s.id, name: s.name, image: s.image })),
     createdAt: now,
   };
@@ -367,12 +417,28 @@ export async function deployFromCompose(
   input: {
     name: string;
     composeSource: string;
+    /**
+     * The stack's variables as `.env` text, for `${VAR}` interpolation. Given
+     * → stored with the stack (`''` clears them); omitted → the stored ones
+     * are reused, so redeploys, rollbacks and GitOps pushes keep them.
+     */
+    envSource?: string;
     override?: boolean;
     /** `automation` (git-apps GitOps loop): warns pass, only a `block` refuses. */
     admissionMode?: 'interactive' | 'automation';
   },
 ): Promise<DeployFromComposeResult> {
   guardNotSystemStack(ctx, input.name);
+  const envSource =
+    input.envSource ??
+    (
+      await stacks(ctx, ctx.activeOrgId).findFirst({
+        where: { orgId: ctx.activeOrgId, name: input.name },
+        select: { envSource: true },
+      })
+    )?.envSource ??
+    null;
+  const variables = stackVariables(envSource);
   const services = parseComposeDoc(input.composeSource).services;
   const shorts = services && typeof services === 'object' ? Object.keys(services) : [];
 
@@ -392,7 +458,7 @@ export async function deployFromCompose(
     }
   }
 
-  const plan = planComposeStack(input.composeSource, input.name, migration.legacyVolumes);
+  const plan = planComposeStack(input.composeSource, input.name, migration.legacyVolumes, variables.vars);
   const liveByName = new Map(liveRaw.map((s) => [s.name, s]));
   // "Connect apps" pairings are stack-level Docker truth (`swarmy.links` on
   // its services): every (re)deployed or newly added service keeps them.
@@ -460,8 +526,12 @@ export async function deployFromCompose(
       orgId: ctx.activeOrgId,
       name: input.name,
       composeSource: input.composeSource,
+      envSource: envSource || null,
     },
-    update: { composeSource: input.composeSource },
+    update: {
+      composeSource: input.composeSource,
+      ...(input.envSource !== undefined ? { envSource: input.envSource || null } : {}),
+    },
     select: { id: true, name: true },
   });
 
@@ -554,7 +624,7 @@ export async function deployFromCompose(
     deploymentId,
     releaseId: release?.id ?? null,
     services: finalSpecs.map((s) => s.name),
-    warnings: plan.warnings,
+    warnings: [...variables.warnings, ...plan.warnings],
     migrated,
   };
 }
@@ -651,7 +721,7 @@ export async function addServiceToStack(
 
 export async function redeployStack(
   ctx: OrgContext,
-  input: { id: string; composeSource?: string; override?: boolean },
+  input: { id: string; composeSource?: string; envSource?: string; override?: boolean },
 ): Promise<DeployFromComposeResult> {
   // Label-only stacks (no DB config row, e.g. swarmy-system) use their name as
   // `id` in the stacks list — guard before the (would-be) notFound lookup too.
@@ -665,6 +735,7 @@ export async function redeployStack(
   return deployFromCompose(ctx, {
     name: stack.name,
     composeSource: input.composeSource ?? stack.composeSource,
+    envSource: input.envSource,
     override: input.override,
   });
 }

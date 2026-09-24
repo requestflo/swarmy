@@ -18,6 +18,8 @@ export const stacksRouter = router({
       z.object({
         name: z.string().regex(/^[a-z0-9][a-z0-9_.-]*$/),
         composeSource: z.string().min(1).max(256_000),
+        /** Stack variables as `.env` text for `${VAR}` interpolation; omitted = keep the stored ones. */
+        envSource: z.string().max(64_000).optional(),
         /** Override admission-policy violations (audited; block-level needs admin). */
         override: z.boolean().optional(),
       }),
@@ -49,7 +51,14 @@ export const stacksRouter = router({
     .mutation(({ ctx, input }) => addServiceToStack(ctx, input)),
 
   redeploy: abacProcedure('stack.deploy', resolveStack)
-    .input(z.object({ id: z.string(), composeSource: z.string().optional(), override: z.boolean().optional() }))
+    .input(
+      z.object({
+        id: z.string(),
+        composeSource: z.string().optional(),
+        envSource: z.string().max(64_000).optional(),
+        override: z.boolean().optional(),
+      }),
+    )
     .mutation(({ ctx, input }) => redeployStack(ctx, input)),
 
   remove: abacProcedure('stack.remove', resolveStack)

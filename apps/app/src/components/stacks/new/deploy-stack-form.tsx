@@ -24,6 +24,7 @@ export function DeployStackForm(): React.JSX.Element {
   const navigate = useNavigate();
   const [name, setName] = React.useState('');
   const [compose, setCompose] = React.useState('');
+  const [envSource, setEnvSource] = React.useState('');
   const check = useComposeCheck(compose);
 
   const deploy = useMutation(
@@ -93,6 +94,24 @@ export function DeployStackForm(): React.JSX.Element {
           </p>
         </div>
         <ComposeFeedback check={check} />
+        <div className="grid gap-1.5">
+          <Label htmlFor="stack-env" className="mono-label">
+            Variables (.env)
+          </Label>
+          <Textarea
+            id="stack-env"
+            className="min-h-24 font-mono text-xs"
+            value={envSource}
+            onChange={(e) => setEnvSource(e.target.value)}
+            placeholder={'TAG=1.4.2\nPUBLIC_URL=https://shop.example.com'}
+            spellCheck={false}
+          />
+          <p className="text-muted-foreground text-xs">
+            Fills <code>{'${VAR}'}</code>, <code>{'${VAR:-default}'}</code> and friends in the compose file, like
+            the <code>.env</code> next to <code>docker stack deploy</code>. Use <code>$$</code> for a literal{' '}
+            <code>$</code>. Keep secrets in secret variables instead.
+          </p>
+        </div>
       </section>
       <div className="flex flex-wrap items-center justify-end gap-3 pt-1">
         <Button
@@ -107,7 +126,7 @@ export function DeployStackForm(): React.JSX.Element {
           type="button"
           className="rounded-full font-bold shadow-[0_8px_24px_-8px_var(--primary)] transition-transform hover:scale-[1.03]"
           disabled={!ready || deploy.isPending}
-          onClick={() => deploy.mutate({ name, composeSource: compose })}
+          onClick={() => deploy.mutate({ name, composeSource: compose, ...(envSource.trim() ? { envSource } : {}) })}
         >
           {deploy.isPending ? (
             <Loader2Icon className="size-4 animate-spin" />

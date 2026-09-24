@@ -47,6 +47,13 @@ export {
 } from './warnings';
 export { validateModel } from './validate';
 export {
+  interpolateCompose,
+  interpolateString,
+  ComposeInterpolationError,
+  type ComposeVariables,
+  type InterpolateResult,
+} from './interpolate';
+export {
   composeToStack,
   ComposeStackError,
   STACK_NAMESPACE_LABEL,

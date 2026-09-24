@@ -14,8 +14,17 @@ export interface StackDoc {
   composeSource: string;
   /** IngressDriver enum value, or null. */
   ingressDriver: string | null;
+  /**
+   * The stack's variables as `.env` text (the bulk `.env` editor's format) —
+   * the values compose `${VAR}` interpolation reads, like the `.env` next to a
+   * `docker stack deploy`. Null = none. See `interpolateCompose`.
+   */
+  envSource?: string | null;
 }
-export const stacks = kvTable<StackDoc>('stack', { defaults: () => ({ ingressDriver: null }), unique: [['name']] });
+export const stacks = kvTable<StackDoc>('stack', {
+  defaults: () => ({ ingressDriver: null, envSource: null }),
+  unique: [['name']],
+});
 
 export interface RegistryConfigDoc {
   enabled: boolean;
