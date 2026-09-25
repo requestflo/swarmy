@@ -112,7 +112,7 @@ export function DbRestoreDialog({
             </Select>
             {meta && <p className="text-muted-foreground text-sm">{meta.blurb}</p>}
             {mode === 'pitr' && !isPhysical(engine) && (
-              <p className="text-status-warning text-sm">
+              <p className="text-tone-warn text-sm">
                 Point-in-time needs a wal-g / pgBackRest backup — this one is {engineLabel(engine)}.
               </p>
             )}

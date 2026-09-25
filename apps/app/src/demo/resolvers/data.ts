@@ -498,6 +498,25 @@ export const data: DomainResolvers = {
           .sort((a, b) => String(a.name).localeCompare(String(b.name))),
       };
     },
+    // The Data tab's "if a server fails" choice: flip the topology label / the
+    // declared replica count, converged instantly (the real reconcile takes a tick).
+    'db.setTopology': (i, s) => {
+      const { stack, cluster, topology } = i as { stack: string; cluster: string; topology: DbTopoState['topology'] };
+      const t = getState(s).dbTopologies.find((x) => x.stack === stack && x.cluster === cluster);
+      if (t) t.topology = topology;
+      return { cluster, topology };
+    },
+    'db.setReplicas': (i, s) => {
+      const { stack, cluster, replicas } = i as { stack: string; cluster: string; replicas: number };
+      const t = getState(s).dbTopologies.find((x) => x.stack === stack && x.cluster === cluster);
+      if (t) {
+        const reps = t.members.filter((m) => m.role === 'replica');
+        if (replicas === 0) t.members = t.members.filter((m) => m.role !== 'replica');
+        else if (reps[0]) Object.assign(reps[0], { desired: replicas, running: replicas, status: 'running', lagSeconds: 0.4 });
+        else t.members.push({ service: `${stack}_${cluster}-replica`, role: 'replica', status: 'running', desired: replicas, running: replicas, lagSeconds: 0.4 });
+      }
+      return { cluster, replicas };
+    },
 
     // ── backups ──────────────────────────────────────────────────────────────
     'backups.listTargets': (_i, s): BackupTargetView[] => getState(s).targets,

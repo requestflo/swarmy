@@ -44,7 +44,7 @@ export function DbBackupCronField({ cron, onCron }: DbBackupCronFieldProps): Rea
       <div className="grid gap-1.5">
         <Label className="mono-label">Cadence</Label>
         <Select value={selected} onValueChange={onSelect}>
-          <SelectTrigger className="w-56">
+          <SelectTrigger className="w-56" aria-label="Backup cadence">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

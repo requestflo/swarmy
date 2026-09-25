@@ -46,7 +46,7 @@ export function DestroySearchDialog({
   return (
     <AlertDialog onOpenChange={(o) => { if (!o) setConfirm(''); }}>
       <AlertDialogTrigger asChild>
-        <Button variant="outline" className="border-status-offline/40 text-status-offline">
+        <Button variant="outline" className="border-status-offline/40 text-tone-bad">
           <Trash2Icon className="size-4" /> Destroy instance
         </Button>
       </AlertDialogTrigger>

@@ -108,6 +108,7 @@ export function DbDeclareClusterForm({
             />
           </div>
           <Button
+            variant="outline"
             onClick={() => provision.mutate({ stack, name: trimmed, engine: 'postgres', replicas })}
             disabled={provision.isPending || !trimmed || duplicate}
           >

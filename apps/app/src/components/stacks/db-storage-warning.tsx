@@ -57,7 +57,7 @@ export function DbStorageWarning({
   const unmounted = storage.state === 'unmounted';
 
   return (
-    <div className="border-status-offline/40 bg-status-offline/10 text-status-offline mt-4 flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3 text-sm">
+    <div className="border-status-offline/40 bg-status-offline/10 text-tone-bad flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3 text-sm">
       <div className="flex min-w-0 flex-1 items-start gap-2">
         <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
         <span>{storage.message}</span>

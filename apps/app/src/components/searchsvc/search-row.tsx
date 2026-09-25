@@ -1,14 +1,15 @@
 import * as React from 'react';
+import { CalmBadge } from '@/components/stack-data/calm-badge';
 import { ChevronDownIcon, SearchIcon } from 'lucide-react';
 import type { SearchInstanceView } from '@swarmy/core';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-  StatusBadge,
   type StatusTone,
   cn,
 } from '@swarmy/ui';
+import { CalmRow } from '@/components/calm';
 import { bytes } from '@/lib/format';
 import { SearchRowDetail } from './search-row-detail';
 
@@ -70,7 +71,7 @@ export function SearchRow({ view }: { view: SearchInstanceView }): React.JSX.Ele
               <p className="mono-data text-sm">{view.attachments.length}</p>
             </div>
           </div>
-          <StatusBadge tone={tone} label={label} className="shrink-0" />
+          <CalmBadge tone={tone} label={label} className="shrink-0" />
           <ChevronDownIcon
             className={cn('text-muted-foreground size-4 shrink-0 transition-transform', open && 'rotate-180')}
           />
@@ -80,5 +81,24 @@ export function SearchRow({ view }: { view: SearchInstanceView }): React.JSX.Ele
         <SearchRowDetail view={view} onDestroyed={() => setOpen(false)} />
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+const CALM_TONE = { online: 'ok', warning: 'warn', offline: 'bad', progress: 'info', neutral: 'idle' } as const;
+
+/** The Summary-depth row for a search instance: how much it knows, who uses it. */
+export function SearchSummaryRow({ view }: { view: SearchInstanceView }): React.JSX.Element {
+  const { tone, label } = instanceTone(view);
+  const docs = view.stats ? `${view.stats.docs.toLocaleString()} documents in ${view.stats.indexes} ${view.stats.indexes === 1 ? 'index' : 'indexes'}` : 'Counting documents';
+  const size = engineSize(view);
+  const who = view.attachments.length ? `Used by ${view.attachments.map((a) => a.service.split('_').pop()).join(', ')}.` : 'No app uses it yet.';
+  return (
+    <CalmRow
+      tone={CALM_TONE[tone]}
+      name={view.name}
+      sub={view.engine}
+      say={`${docs}${size !== '—' ? `, ${size}` : ''}. ${who}`}
+      word={tone === 'online' ? 'Online' : label}
+    />
   );
 }

@@ -43,7 +43,7 @@ export function DestroyVectorDialog({
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="outline" className="border-status-offline/40 text-status-offline">
+        <Button variant="outline" className="border-status-offline/40 text-tone-bad">
           <Trash2Icon className="size-4" /> Destroy store
         </Button>
       </AlertDialogTrigger>

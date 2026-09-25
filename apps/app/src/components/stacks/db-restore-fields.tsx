@@ -91,7 +91,7 @@ export function DbRestoreFields({
       )}
 
       {mode === 'in-place' && (
-        <div className="border-status-offline/40 bg-status-offline/10 text-status-offline flex items-start gap-2 rounded-lg border p-3 text-sm">
+        <div className="border-status-offline/40 bg-status-offline/10 text-tone-bad flex items-start gap-2 rounded-lg border p-3 text-sm">
           <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
           <span>This overwrites the live primary on {cluster}. Connections drop during recovery.</span>
         </div>

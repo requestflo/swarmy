@@ -1,34 +1,24 @@
 import * as React from 'react';
-import { ChevronDownIcon, SlidersHorizontalIcon } from 'lucide-react';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger, cn } from '@swarmy/ui';
+import type { DbTopologyMode } from '@swarmy/core';
 import { DbBackupPanel } from './db-backup-panel';
 import { DbTopologySelector } from './db-topology-selector';
 
 interface DbClusterRowDetailProps {
   stack: string;
   cluster: string;
+  topology?: DbTopologyMode;
 }
 
 /**
- * The deeper cluster controls — topology and backups — folded into the Data
- * tab's cluster row. Lazy: nothing mounts (or fetches) until expanded.
+ * The deeper cluster controls — every topology (incl. geo / active-active)
+ * and the backup engine, schedule and restores. Rendered at Controls depth
+ * (it replaces the old "Topology & backups ▸" disclosure).
  */
-export function DbClusterRowDetail({ stack, cluster }: DbClusterRowDetailProps): React.JSX.Element {
-  const [open, setOpen] = React.useState(false);
+export function DbClusterRowDetail({ stack, cluster, topology }: DbClusterRowDetailProps): React.JSX.Element {
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="mt-4">
-      <CollapsibleTrigger className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-sm font-semibold transition-colors">
-        <SlidersHorizontalIcon className="size-4" /> Topology & backups
-        <ChevronDownIcon className={cn('size-4 transition-transform', open && 'rotate-180')} />
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        {open ? (
-          <div className="mt-4 grid items-start gap-4 xl:grid-cols-2">
-            <DbTopologySelector stack={stack} cluster={cluster} />
-            <DbBackupPanel stack={stack} cluster={cluster} />
-          </div>
-        ) : null}
-      </CollapsibleContent>
-    </Collapsible>
+    <div className="grid min-w-0 items-start gap-4 2xl:grid-cols-2 [&>*]:min-w-0">
+      <DbTopologySelector stack={stack} cluster={cluster} current={topology ? { topology } : undefined} />
+      <DbBackupPanel stack={stack} cluster={cluster} />
+    </div>
   );
 }

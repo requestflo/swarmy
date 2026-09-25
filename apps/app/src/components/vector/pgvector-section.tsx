@@ -1,6 +1,7 @@
 import * as React from 'react';
+import { CalmBadge } from '@/components/stack-data/calm-badge';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Badge, Button, StatusBadge, toast } from '@swarmy/ui';
+import { Badge, Button, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 
 /**
@@ -61,7 +62,7 @@ export function PgvectorSection({ stack }: { stack?: string }): React.JSX.Elemen
                   </p>
                   <p className="text-muted-foreground text-xs">{c.primaryService}</p>
                 </div>
-                <StatusBadge
+                <CalmBadge
                   tone={c.status === 'running' ? 'online' : c.status === 'deploying' ? 'progress' : 'offline'}
                   label={c.status}
                 />

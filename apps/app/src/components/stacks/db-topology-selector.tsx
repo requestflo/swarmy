@@ -3,8 +3,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { GitBranchIcon, NetworkIcon } from 'lucide-react';
 import {
   Button,
-  Card,
-  CardContent,
   Select,
   SelectContent,
   SelectItem,
@@ -97,8 +95,7 @@ export function DbTopologySelector({
   };
 
   return (
-    <Card className="card-pop border-0">
-      <CardContent className="space-y-5 p-6">
+    <div className="border-border min-w-0 space-y-5 rounded-xl border p-4">
         <div className="flex items-center gap-3">
           <span className="bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg">
             <NetworkIcon className="size-5" />
@@ -113,7 +110,7 @@ export function DbTopologySelector({
 
         <div className="grid gap-1.5">
           <Select value={mode} onValueChange={(v) => setMode(v as DbTopologyMode)}>
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="w-full" aria-label="Topology">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -132,7 +129,7 @@ export function DbTopologySelector({
         </div>
 
         {failoverBlocked ? (
-          <p role="alert" className="border-status-offline/40 bg-status-offline/10 text-status-offline rounded-lg border px-3 py-2 text-sm">
+          <p role="alert" className="border-status-offline/40 bg-status-offline/10 text-tone-bad rounded-lg border px-3 py-2 text-sm">
             {failoverBlocked}
           </p>
         ) : failoverSurvives ? (
@@ -149,7 +146,7 @@ export function DbTopologySelector({
         )}
 
         <div className="flex items-center gap-3">
-          <Button onClick={onApply} disabled={apply.isPending || unchanged || !!failoverBlocked}>
+          <Button variant="outline" onClick={onApply} disabled={apply.isPending || unchanged || !!failoverBlocked}>
             <NetworkIcon className="size-4" /> Apply topology
           </Button>
           {current?.topology && (
@@ -158,7 +155,6 @@ export function DbTopologySelector({
             </span>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
   );
 }

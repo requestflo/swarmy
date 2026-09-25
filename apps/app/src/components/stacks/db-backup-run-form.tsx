@@ -63,7 +63,7 @@ export function DbBackupRunForm({
         <div className="grid gap-1.5">
           <Label className="mono-label">Engine</Label>
           <Select value={engine} onValueChange={(v) => onEngine(v as DbBackupEngine)}>
-            <SelectTrigger className="w-56">
+            <SelectTrigger className="w-56" aria-label="Backup engine">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -78,7 +78,7 @@ export function DbBackupRunForm({
         <div className="grid gap-1.5">
           <Label className="mono-label">Destination</Label>
           <Select value={targetId} onValueChange={onTargetId}>
-            <SelectTrigger className="w-56">
+            <SelectTrigger className="w-56" aria-label="Backup destination">
               <SelectValue placeholder={targets.length ? 'Pick a destination' : 'No destinations yet'} />
             </SelectTrigger>
             <SelectContent>
@@ -105,6 +105,7 @@ export function DbBackupRunForm({
           </div>
         )}
         <Button
+          variant="outline"
           onClick={submit}
           disabled={run.isPending || targets.length === 0 || (physical && !dataVolume.trim())}
         >

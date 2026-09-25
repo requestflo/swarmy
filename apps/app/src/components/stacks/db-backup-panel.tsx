@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { DatabaseBackupIcon } from 'lucide-react';
-import { Button, Card, CardContent } from '@swarmy/ui';
+import { Button } from '@swarmy/ui';
 import type { DbBackupEngine } from '@swarmy/core/protocol';
 import { useTRPC } from '@/integrations/trpc';
 import { DbBackupLastRun } from './db-backup-last-run';
@@ -43,8 +43,7 @@ export function DbBackupPanel({
   });
 
   return (
-    <Card className="card-pop border-0">
-      <CardContent className="space-y-5 p-6">
+    <div className="border-border min-w-0 space-y-5 rounded-xl border p-4">
         <div className="flex items-center gap-3">
           <span className="bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg">
             <DatabaseBackupIcon className="size-5" />
@@ -93,7 +92,7 @@ export function DbBackupPanel({
             </div>
           ) : backups.isError ? (
             <div className="flex items-center gap-3 py-2">
-              <p className="text-status-offline text-sm">{backups.error.message}</p>
+              <p className="text-tone-bad text-sm">{backups.error.message}</p>
               <Button variant="outline" size="sm" className="rounded-full" onClick={() => void backups.refetch()}>
                 Retry
               </Button>
@@ -107,7 +106,6 @@ export function DbBackupPanel({
             />
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
   );
 }

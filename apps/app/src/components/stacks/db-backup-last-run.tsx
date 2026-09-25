@@ -1,6 +1,6 @@
 import * as React from 'react';
+import { CalmBadge } from '@/components/stack-data/calm-badge';
 import { useQuery } from '@tanstack/react-query';
-import { StatusBadge } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { SnapshotFailureReason } from '@/components/backups/snapshot-failure-reason';
 import { relativeTime } from './db-backup-format';
@@ -33,10 +33,10 @@ export function DbBackupLastRun({
     <div className="border-border border-t pt-4">
       <p className="mono-label text-muted-foreground mb-1">Last run</p>
       <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge tone={failed ? 'offline' : 'online'} label={run.lastStatus} />
+        <CalmBadge tone={failed ? 'offline' : 'online'} label={run.lastStatus} />
         <span className="text-muted-foreground mono-label">{relativeTime(run.lastBackupAt)}</span>
       </div>
-      {failed ? <SnapshotFailureReason error={run.lastError} /> : null}
+      {failed ? <div className="min-w-0 overflow-hidden break-words"><SnapshotFailureReason error={run.lastError} /></div> : null}
     </div>
   );
 }

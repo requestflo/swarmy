@@ -1,7 +1,8 @@
 import * as React from 'react';
+import { CalmBadge } from '@/components/stack-data/calm-badge';
 import { ServerIcon } from 'lucide-react';
 import type { CacheMemberView } from '@swarmy/core';
-import { StatusBadge, type StatusTone } from '@swarmy/ui';
+import { type StatusTone } from '@swarmy/ui';
 
 function memberTone(status: CacheMemberView['status']): StatusTone {
   if (status === 'running') return 'online';
@@ -38,7 +39,7 @@ export function CacheMembersList({ members }: { members: CacheMemberView[] }): R
               {m.running}
               <span className="text-muted-foreground"> / {m.desired}</span>
             </span>
-            <StatusBadge tone={memberTone(m.status)} label={m.status} />
+            <CalmBadge tone={memberTone(m.status)} label={m.status} />
           </div>
         </div>
       ))}
