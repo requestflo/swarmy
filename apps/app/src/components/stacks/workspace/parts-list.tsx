@@ -20,7 +20,6 @@ export function PartsList({ services, onOpen }: { services: InvService[]; onOpen
             tech={`×${s.replicas.running}/${s.replicas.desired} · ${shortImage(s.image)}`}
             word={STATUS_WORD[tone]}
             onClick={() => onOpen(s.id)}
-            className="max-sm:[&>span:nth-child(2)]:w-auto max-sm:[&>span:nth-child(2)]:min-w-0 max-sm:[&>span:nth-child(2)]:flex-1"
           />
         );
       })}
