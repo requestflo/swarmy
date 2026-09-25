@@ -15,6 +15,8 @@ import {
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { ThemeMenuItems } from '@/components/theme-menu';
+import { DepthSegments } from '@/components/calm/depth-dial';
+import { useDepthDefault } from '@/components/calm/depth';
 import { TextSkeleton } from '@/components/states';
 
 /**
@@ -71,6 +73,8 @@ export function UserMenu({
           <span className="text-muted-foreground truncate text-xs font-normal">{whoami.data?.email}</span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DepthDefaultItem />
+        <DropdownMenuSeparator />
         <ThemeMenuItems />
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -84,5 +88,16 @@ export function UserMenu({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** "Show me" inside the user menu — the phone's way to set the default depth. */
+function DepthDefaultItem(): React.JSX.Element {
+  const { value, set } = useDepthDefault();
+  return (
+    <div className="flex flex-col gap-1.5 px-2 py-1.5 lg:hidden">
+      <span className="text-muted-foreground text-xs font-medium">Show me</span>
+      <DepthSegments value={value} onChange={set} label="How much detail to show by default" size="sm" />
+    </div>
   );
 }

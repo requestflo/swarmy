@@ -9,6 +9,127 @@ body,
   height: 100%;
 }
 
+/* ── Calm Layers tokens (app-only; the marketing site keeps @swarmy/ui's) ──
+   `--nav` is navy in both themes (the brand's statement surface), `--code`
+   is the Code-depth panel, and `--tone-*` are the status colours made safe
+   as TEXT: each clears 4.5:1 on the page and on a card in its theme (the
+   `--status-*` fills are for dots and washes, and fail as light-mode text).
+   Light coral is a touch deeper so white-on-coral buttons clear 4.5:1. */
+:root {
+  --primary: oklch(0.58 0.2 29.5);
+  --ring: oklch(0.58 0.2 29.5);
+  --nav: oklch(0.23 0.05 264);
+  --nav-foreground: oklch(0.98 0.005 70);
+  --nav-muted: oklch(0.8 0.02 264);
+  --nav-hover: oklch(1 0 0 / 7%);
+  --nav-active: oklch(1 0 0 / 13%);
+  --nav-line: oklch(1 0 0 / 10%);
+  --code: oklch(0.22 0.035 264);
+  --code-foreground: oklch(0.93 0.01 264);
+  --surface-2: oklch(0.965 0.007 80);
+  --tone-ok: oklch(0.52 0.14 156);
+  --tone-warn: oklch(0.55 0.13 70);
+  --tone-bad: oklch(0.54 0.2 18);
+  --tone-info: oklch(0.5 0.13 245);
+  --tone-mesh: oklch(0.5 0.16 292);
+  --tone-idle: oklch(0.5 0.025 264);
+}
+.dark {
+  --nav: oklch(0.14 0.03 264);
+  --nav-foreground: oklch(0.97 0.005 70);
+  --nav-muted: oklch(0.78 0.02 264);
+  --nav-hover: oklch(1 0 0 / 5%);
+  --nav-active: oklch(1 0 0 / 10%);
+  --nav-line: oklch(1 0 0 / 8%);
+  --code: oklch(0.13 0.028 264);
+  --code-foreground: oklch(0.92 0.01 264);
+  --surface-2: oklch(0.235 0.036 264);
+  --tone-ok: oklch(0.78 0.16 156);
+  --tone-warn: oklch(0.84 0.15 78);
+  --tone-bad: oklch(0.72 0.19 15);
+  --tone-info: oklch(0.76 0.12 238);
+  --tone-mesh: oklch(0.74 0.14 292);
+  --tone-idle: oklch(0.74 0.02 264);
+}
+@theme inline {
+  --color-nav: var(--nav);
+  --color-nav-foreground: var(--nav-foreground);
+  --color-nav-muted: var(--nav-muted);
+  --color-code: var(--code);
+  --color-code-foreground: var(--code-foreground);
+  --color-surface-2: var(--surface-2);
+  --color-tone-ok: var(--tone-ok);
+  --color-tone-warn: var(--tone-warn);
+  --color-tone-bad: var(--tone-bad);
+  --color-tone-info: var(--tone-info);
+  --color-tone-mesh: var(--tone-mesh);
+  --color-tone-idle: var(--tone-idle);
+}
+
+/* The sentence headline. `<em>` is the quieter second clause ("storefront is
+   online. <em>38 people are shopping.</em>"), never italic and never coral —
+   coral belongs to the one action. */
+.say {
+  font-family: var(--font-display);
+  font-weight: 720;
+  letter-spacing: -0.025em;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+.say em {
+  font-style: normal;
+  color: var(--muted-foreground);
+}
+.lede {
+  color: var(--muted-foreground);
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+.calm-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+}
+.dark .calm-card {
+  background: color-mix(in oklab, var(--card) 92%, var(--background));
+}
+.calm-next {
+  border: 1px solid color-mix(in oklab, var(--primary) 45%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--primary) 8%, var(--card)),
+    color-mix(in oklab, var(--primary) 2%, var(--card))
+  );
+  border-radius: 1rem;
+}
+.calm-crumb {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.calm-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.calm-code {
+  background: var(--code);
+  color: var(--code-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.65;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  tab-size: 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot::after {
+    animation: none;
+  }
+}
+
 /* ── React Flow chrome → Hot Signal (token-driven, dark-mode aware) ──
    React Flow paints its Controls + MiniMap from `--xy-*` variables with
    light defaults (#fff buttons, a pale mask), so we set every one of them

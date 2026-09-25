@@ -17,11 +17,14 @@ import { Route as SSlugRouteImport } from './routes/s.$slug'
 import { Route as AuthedSettingsRouteImport } from './routes/_authed/settings'
 import { Route as AuthedOverviewRouteImport } from './routes/_authed/overview'
 import { Route as AuthedNetworkingRouteImport } from './routes/_authed/networking'
+import { Route as AuthedNetworkRouteImport } from './routes/_authed/network'
 import { Route as AuthedIngressRouteImport } from './routes/_authed/ingress'
 import { Route as AuthedIncidentsRouteImport } from './routes/_authed/incidents'
 import { Route as AuthedGovernanceRouteImport } from './routes/_authed/governance'
 import { Route as AuthedEmailRouteImport } from './routes/_authed/email'
 import { Route as AuthedDeviceRouteImport } from './routes/_authed/device'
+import { Route as AuthedDeployRouteImport } from './routes/_authed/deploy'
+import { Route as AuthedDataRouteImport } from './routes/_authed/data'
 import { Route as AuthedCostRouteImport } from './routes/_authed/cost'
 import { Route as AuthedCiRouteImport } from './routes/_authed/ci'
 import { Route as AuthedBlueprintsRouteImport } from './routes/_authed/blueprints'
@@ -29,6 +32,7 @@ import { Route as AuthedBackupsRouteImport } from './routes/_authed/backups'
 import { Route as AuthedAuditRouteImport } from './routes/_authed/audit'
 import { Route as AuthedAlertsRouteImport } from './routes/_authed/alerts'
 import { Route as AuthedAiRouteImport } from './routes/_authed/ai'
+import { Route as AuthedActivityRouteImport } from './routes/_authed/activity'
 import { Route as AuthedSplatRouteImport } from './routes/_authed/$'
 import { Route as AuthedNodesIndexRouteImport } from './routes/_authed/nodes/index'
 import { Route as AuthedStacksNewRouteImport } from './routes/_authed/stacks/new'
@@ -105,6 +109,11 @@ const AuthedNetworkingRoute = AuthedNetworkingRouteImport.update({
   path: '/networking',
   getParentRoute: () => AuthedRoute,
 } as any)
+const AuthedNetworkRoute = AuthedNetworkRouteImport.update({
+  id: '/network',
+  path: '/network',
+  getParentRoute: () => AuthedRoute,
+} as any)
 const AuthedIngressRoute = AuthedIngressRouteImport.update({
   id: '/ingress',
   path: '/ingress',
@@ -128,6 +137,16 @@ const AuthedEmailRoute = AuthedEmailRouteImport.update({
 const AuthedDeviceRoute = AuthedDeviceRouteImport.update({
   id: '/device',
   path: '/device',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedDeployRoute = AuthedDeployRouteImport.update({
+  id: '/deploy',
+  path: '/deploy',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedDataRoute = AuthedDataRouteImport.update({
+  id: '/data',
+  path: '/data',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedCostRoute = AuthedCostRouteImport.update({
@@ -163,6 +182,11 @@ const AuthedAlertsRoute = AuthedAlertsRouteImport.update({
 const AuthedAiRoute = AuthedAiRouteImport.update({
   id: '/ai',
   path: '/ai',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedActivityRoute = AuthedActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedSplatRoute = AuthedSplatRouteImport.update({
@@ -367,6 +391,7 @@ export interface FileRoutesByFullPath {
   '/app-login': typeof AppLoginRoute
   '/login': typeof LoginRoute
   '/$': typeof AuthedSplatRoute
+  '/activity': typeof AuthedActivityRoute
   '/ai': typeof AuthedAiRoute
   '/alerts': typeof AuthedAlertsRoute
   '/audit': typeof AuthedAuditRoute
@@ -374,11 +399,14 @@ export interface FileRoutesByFullPath {
   '/blueprints': typeof AuthedBlueprintsRoute
   '/ci': typeof AuthedCiRoute
   '/cost': typeof AuthedCostRoute
+  '/data': typeof AuthedDataRoute
+  '/deploy': typeof AuthedDeployRoute
   '/device': typeof AuthedDeviceRoute
   '/email': typeof AuthedEmailRoute
   '/governance': typeof AuthedGovernanceRoute
   '/incidents': typeof AuthedIncidentsRoute
   '/ingress': typeof AuthedIngressRoute
+  '/network': typeof AuthedNetworkRoute
   '/networking': typeof AuthedNetworkingRoute
   '/overview': typeof AuthedOverviewRoute
   '/settings': typeof AuthedSettingsRoute
@@ -423,6 +451,7 @@ export interface FileRoutesByTo {
   '/app-login': typeof AppLoginRoute
   '/login': typeof LoginRoute
   '/$': typeof AuthedSplatRoute
+  '/activity': typeof AuthedActivityRoute
   '/ai': typeof AuthedAiRoute
   '/alerts': typeof AuthedAlertsRoute
   '/audit': typeof AuthedAuditRoute
@@ -430,11 +459,14 @@ export interface FileRoutesByTo {
   '/blueprints': typeof AuthedBlueprintsRoute
   '/ci': typeof AuthedCiRoute
   '/cost': typeof AuthedCostRoute
+  '/data': typeof AuthedDataRoute
+  '/deploy': typeof AuthedDeployRoute
   '/device': typeof AuthedDeviceRoute
   '/email': typeof AuthedEmailRoute
   '/governance': typeof AuthedGovernanceRoute
   '/incidents': typeof AuthedIncidentsRoute
   '/ingress': typeof AuthedIngressRoute
+  '/network': typeof AuthedNetworkRoute
   '/networking': typeof AuthedNetworkingRoute
   '/overview': typeof AuthedOverviewRoute
   '/settings': typeof AuthedSettingsRoute
@@ -481,6 +513,7 @@ export interface FileRoutesById {
   '/app-login': typeof AppLoginRoute
   '/login': typeof LoginRoute
   '/_authed/$': typeof AuthedSplatRoute
+  '/_authed/activity': typeof AuthedActivityRoute
   '/_authed/ai': typeof AuthedAiRoute
   '/_authed/alerts': typeof AuthedAlertsRoute
   '/_authed/audit': typeof AuthedAuditRoute
@@ -488,11 +521,14 @@ export interface FileRoutesById {
   '/_authed/blueprints': typeof AuthedBlueprintsRoute
   '/_authed/ci': typeof AuthedCiRoute
   '/_authed/cost': typeof AuthedCostRoute
+  '/_authed/data': typeof AuthedDataRoute
+  '/_authed/deploy': typeof AuthedDeployRoute
   '/_authed/device': typeof AuthedDeviceRoute
   '/_authed/email': typeof AuthedEmailRoute
   '/_authed/governance': typeof AuthedGovernanceRoute
   '/_authed/incidents': typeof AuthedIncidentsRoute
   '/_authed/ingress': typeof AuthedIngressRoute
+  '/_authed/network': typeof AuthedNetworkRoute
   '/_authed/networking': typeof AuthedNetworkingRoute
   '/_authed/overview': typeof AuthedOverviewRoute
   '/_authed/settings': typeof AuthedSettingsRoute
@@ -541,6 +577,7 @@ export interface FileRouteTypes {
     | '/app-login'
     | '/login'
     | '/$'
+    | '/activity'
     | '/ai'
     | '/alerts'
     | '/audit'
@@ -548,11 +585,14 @@ export interface FileRouteTypes {
     | '/blueprints'
     | '/ci'
     | '/cost'
+    | '/data'
+    | '/deploy'
     | '/device'
     | '/email'
     | '/governance'
     | '/incidents'
     | '/ingress'
+    | '/network'
     | '/networking'
     | '/overview'
     | '/settings'
@@ -597,6 +637,7 @@ export interface FileRouteTypes {
     | '/app-login'
     | '/login'
     | '/$'
+    | '/activity'
     | '/ai'
     | '/alerts'
     | '/audit'
@@ -604,11 +645,14 @@ export interface FileRouteTypes {
     | '/blueprints'
     | '/ci'
     | '/cost'
+    | '/data'
+    | '/deploy'
     | '/device'
     | '/email'
     | '/governance'
     | '/incidents'
     | '/ingress'
+    | '/network'
     | '/networking'
     | '/overview'
     | '/settings'
@@ -654,6 +698,7 @@ export interface FileRouteTypes {
     | '/app-login'
     | '/login'
     | '/_authed/$'
+    | '/_authed/activity'
     | '/_authed/ai'
     | '/_authed/alerts'
     | '/_authed/audit'
@@ -661,11 +706,14 @@ export interface FileRouteTypes {
     | '/_authed/blueprints'
     | '/_authed/ci'
     | '/_authed/cost'
+    | '/_authed/data'
+    | '/_authed/deploy'
     | '/_authed/device'
     | '/_authed/email'
     | '/_authed/governance'
     | '/_authed/incidents'
     | '/_authed/ingress'
+    | '/_authed/network'
     | '/_authed/networking'
     | '/_authed/overview'
     | '/_authed/settings'
@@ -773,6 +821,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedNetworkingRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/network': {
+      id: '/_authed/network'
+      path: '/network'
+      fullPath: '/network'
+      preLoaderRoute: typeof AuthedNetworkRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/_authed/ingress': {
       id: '/_authed/ingress'
       path: '/ingress'
@@ -806,6 +861,20 @@ declare module '@tanstack/react-router' {
       path: '/device'
       fullPath: '/device'
       preLoaderRoute: typeof AuthedDeviceRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/deploy': {
+      id: '/_authed/deploy'
+      path: '/deploy'
+      fullPath: '/deploy'
+      preLoaderRoute: typeof AuthedDeployRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/data': {
+      id: '/_authed/data'
+      path: '/data'
+      fullPath: '/data'
+      preLoaderRoute: typeof AuthedDataRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/cost': {
@@ -855,6 +924,13 @@ declare module '@tanstack/react-router' {
       path: '/ai'
       fullPath: '/ai'
       preLoaderRoute: typeof AuthedAiRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/activity': {
+      id: '/_authed/activity'
+      path: '/activity'
+      fullPath: '/activity'
+      preLoaderRoute: typeof AuthedActivityRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/$': {
@@ -1160,6 +1236,7 @@ const AuthedStacksNameRouteWithChildren =
 
 interface AuthedRouteChildren {
   AuthedSplatRoute: typeof AuthedSplatRoute
+  AuthedActivityRoute: typeof AuthedActivityRoute
   AuthedAiRoute: typeof AuthedAiRoute
   AuthedAlertsRoute: typeof AuthedAlertsRoute
   AuthedAuditRoute: typeof AuthedAuditRoute
@@ -1167,11 +1244,14 @@ interface AuthedRouteChildren {
   AuthedBlueprintsRoute: typeof AuthedBlueprintsRoute
   AuthedCiRoute: typeof AuthedCiRoute
   AuthedCostRoute: typeof AuthedCostRoute
+  AuthedDataRoute: typeof AuthedDataRoute
+  AuthedDeployRoute: typeof AuthedDeployRoute
   AuthedDeviceRoute: typeof AuthedDeviceRoute
   AuthedEmailRoute: typeof AuthedEmailRoute
   AuthedGovernanceRoute: typeof AuthedGovernanceRoute
   AuthedIncidentsRoute: typeof AuthedIncidentsRoute
   AuthedIngressRoute: typeof AuthedIngressRoute
+  AuthedNetworkRoute: typeof AuthedNetworkRoute
   AuthedNetworkingRoute: typeof AuthedNetworkingRoute
   AuthedOverviewRoute: typeof AuthedOverviewRoute
   AuthedSettingsRoute: typeof AuthedSettingsRoute
@@ -1197,6 +1277,7 @@ interface AuthedRouteChildren {
 
 const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedSplatRoute: AuthedSplatRoute,
+  AuthedActivityRoute: AuthedActivityRoute,
   AuthedAiRoute: AuthedAiRoute,
   AuthedAlertsRoute: AuthedAlertsRoute,
   AuthedAuditRoute: AuthedAuditRoute,
@@ -1204,11 +1285,14 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedBlueprintsRoute: AuthedBlueprintsRoute,
   AuthedCiRoute: AuthedCiRoute,
   AuthedCostRoute: AuthedCostRoute,
+  AuthedDataRoute: AuthedDataRoute,
+  AuthedDeployRoute: AuthedDeployRoute,
   AuthedDeviceRoute: AuthedDeviceRoute,
   AuthedEmailRoute: AuthedEmailRoute,
   AuthedGovernanceRoute: AuthedGovernanceRoute,
   AuthedIncidentsRoute: AuthedIncidentsRoute,
   AuthedIngressRoute: AuthedIngressRoute,
+  AuthedNetworkRoute: AuthedNetworkRoute,
   AuthedNetworkingRoute: AuthedNetworkingRoute,
   AuthedOverviewRoute: AuthedOverviewRoute,
   AuthedSettingsRoute: AuthedSettingsRoute,

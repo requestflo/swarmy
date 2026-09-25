@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Link, useLocation } from '@tanstack/react-router';
-import { BoxesIcon, LayoutGridIcon, PlusIcon, SearchIcon, ServerIcon } from 'lucide-react';
+import { BellIcon, BoxesIcon, HomeIcon, LayoutGridIcon, PlusIcon, SearchIcon, ServerIcon } from 'lucide-react';
 import {
   Sheet,
   SheetClose,
@@ -18,20 +18,24 @@ import {
   NAV_GROUP_ORDER,
   QUICK_ACTIONS,
   CREATE_KIND_LABEL,
+  navRowForPathname,
   type CommandAction,
 } from '@/lib/destinations';
 import { useNavBadges } from '@/lib/use-nav-badges';
 
-/** Compact mobile header: wordmark + search + avatar. No hamburger. */
+/** Compact mobile header: wordmark, search, every page, avatar. No hamburger. */
 export function MobileHeader(): React.JSX.Element {
   const { toggle } = useCommandPalette();
   return (
     <header className="bg-background/85 sticky top-0 z-30 flex h-14 items-center justify-between border-b px-4 backdrop-blur lg:hidden">
-      <Wordmark />
-      <div className="flex items-center gap-3">
-        <button onClick={toggle} aria-label="Search" className="text-muted-foreground">
+      <Link to="/overview" aria-label="swarmy home" className="flex min-h-11 items-center">
+        <Wordmark />
+      </Link>
+      <div className="flex items-center gap-1">
+        <button type="button" onClick={toggle} aria-label="Ask or jump" className="text-muted-foreground flex size-11 items-center justify-center rounded-full">
           <SearchIcon className="size-5" />
         </button>
+        <AllPagesSheet />
         <UserMenu side="bottom" />
       </div>
     </header>
@@ -39,39 +43,39 @@ export function MobileHeader(): React.JSX.Element {
 }
 
 const TABS = [
-  { to: '/', label: 'Apps', icon: BoxesIcon, match: (p: string) => p === '/' || p.startsWith('/services') || p.startsWith('/stacks') },
-  { to: '/nodes', label: 'Infra', icon: ServerIcon, match: (p: string) => p.startsWith('/nodes') },
+  { to: '/overview', label: 'Overview', icon: HomeIcon, match: (p: string) => p === '/overview' },
+  { to: '/', label: 'Apps', icon: BoxesIcon, match: (p: string) => navRowForPathname(p) === 'Apps' },
+] as const;
+const TABS_RIGHT = [
+  { to: '/nodes', label: 'Servers', icon: ServerIcon, match: (p: string) => navRowForPathname(p) === 'Servers' },
+  { to: '/activity', label: 'Activity', icon: BellIcon, match: (p: string) => navRowForPathname(p) === 'Activity' },
 ] as const;
 
 /**
- * Bottom tab bar: the two planes flanking a centre coral Create FAB (a sheet of
- * every "new thing"), plus a "More" tab that opens the full grouped navigation
- * so every one of the 40 destinations is reachable on mobile too.
+ * Bottom tab bar: Overview · Apps · the coral + (a sheet of every "new
+ * thing") · Servers · Activity. Every other page is one tap away in the
+ * header's "All pages" sheet.
  */
 export function MobileTabBar(): React.JSX.Element {
   const { pathname } = useLocation();
+  const badges = useNavBadges();
   return (
-    <nav className="bg-background/90 fixed inset-x-0 bottom-0 z-30 flex items-end justify-around border-t px-2 pb-[env(safe-area-inset-bottom)] pt-2 backdrop-blur lg:hidden">
+    <nav aria-label="Main" className="bg-background/90 fixed inset-x-0 bottom-0 z-30 flex items-end justify-around border-t px-2 pb-[env(safe-area-inset-bottom)] pt-1.5 backdrop-blur lg:hidden">
       {TABS.map((t) => (
         <Tab key={t.to} to={t.to} label={t.label} icon={t.icon} active={t.match(pathname)} />
       ))}
       <CreateFab />
-      <SearchTab />
-      <MoreTab />
+      {TABS_RIGHT.map((t) => (
+        <Tab
+          key={t.to}
+          to={t.to}
+          label={t.label}
+          icon={t.icon}
+          active={t.match(pathname)}
+          count={t.to === '/activity' ? badges.alertsFiring + badges.incidentsOpen : badges.nodesOffline}
+        />
+      ))}
     </nav>
-  );
-}
-
-function SearchTab(): React.JSX.Element {
-  const { toggle } = useCommandPalette();
-  return (
-    <button
-      onClick={toggle}
-      className="text-muted-foreground flex flex-1 flex-col items-center gap-1 py-1 text-[10px] font-medium"
-    >
-      <SearchIcon className="size-5" />
-      Search
-    </button>
   );
 }
 
@@ -83,7 +87,7 @@ function CreateFab(): React.JSX.Element {
       <button
         onClick={() => setOpen(true)}
         className="bg-primary text-primary-foreground ring-background -mt-6 flex size-14 items-center justify-center rounded-full shadow-[0_8px_24px_-6px_var(--primary)] ring-4"
-        aria-label="Create"
+        aria-label="Create: deploy an app, add a server…"
       >
         <PlusIcon className="size-6" />
       </button>
@@ -119,22 +123,23 @@ function CreateFab(): React.JSX.Element {
   );
 }
 
-function MoreTab(): React.JSX.Element {
+function AllPagesSheet(): React.JSX.Element {
   const [open, setOpen] = React.useState(false);
   const { pathname } = useLocation();
   const badges = useNavBadges();
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <button
+        type="button"
         onClick={() => setOpen(true)}
-        className="text-muted-foreground flex flex-1 flex-col items-center gap-1 py-1 text-[10px] font-medium"
+        aria-label="All pages"
+        className="text-muted-foreground flex size-11 items-center justify-center rounded-full"
       >
         <LayoutGridIcon className="size-5" />
-        More
       </button>
       <SheetContent side="right" className="w-[86%] max-w-sm overflow-y-auto p-0">
         <SheetHeader className="pb-2">
-          <SheetTitle>Navigate</SheetTitle>
+          <SheetTitle>All pages</SheetTitle>
         </SheetHeader>
         <div className="space-y-5 px-4 pb-10">
           <div className="space-y-0.5">
@@ -199,22 +204,29 @@ function Tab({
   label,
   icon: Icon,
   active,
+  count = 0,
 }: {
   to: string;
   label: string;
   icon: typeof BoxesIcon;
   active: boolean;
+  count?: number;
 }): React.JSX.Element {
   return (
-    <Link to={to} className="flex-1">
+    <Link to={to} aria-current={active ? 'page' : undefined} className="flex min-h-12 flex-1">
       <span
         className={cn(
-          'flex flex-col items-center gap-1 py-1 text-[10px] font-medium transition-colors',
-          active ? 'text-primary' : 'text-muted-foreground',
+          'relative flex w-full flex-col items-center justify-center gap-1 py-1 text-[11px] font-medium transition-colors',
+          active ? 'text-foreground font-semibold' : 'text-muted-foreground',
         )}
       >
-        <Icon className="size-5" />
+        <Icon aria-hidden className="size-5" />
         {label}
+        {count > 0 ? (
+          <span className="bg-status-warning text-ink absolute top-0 right-[calc(50%-20px)] flex h-4 min-w-4 items-center justify-center rounded-full px-1 font-mono text-[10px] font-bold">
+            {count}
+          </span>
+        ) : null}
       </span>
     </Link>
   );

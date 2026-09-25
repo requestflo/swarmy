@@ -1,81 +1,68 @@
 import * as React from 'react';
-import { Link, useLocation } from '@tanstack/react-router';
-import { cn } from '@swarmy/ui';
-import { SECTIONS, NAV_GROUPS, type NavGroup } from '@/lib/destinations';
+import { useLocation } from '@tanstack/react-router';
+import { SECTIONS, NAV_GROUPS, PRIMARY, groupForPathname, type DestinationGroup } from '@/lib/destinations';
 import { useNavBadges } from '@/lib/use-nav-badges';
+import { CalmTabs, CalmTopBar, SayHeader, type Crumb } from '@/components/calm';
 
 /**
- * Page header for every surface inside a nav section (Deploy / Platform /
- * Operations / Governance / Settings). Drop-in for `PageHeader`, with the
- * section supplying the eyebrow and a tab row across the section's sibling
- * surfaces — the in-page half of the flat 8-destination sidenav. The page
- * keeps its own data-driven headline; the tabs carry live attention badges
- * so a firing alert is visible from anywhere in the section.
+ * The header for every page inside a nav row (Network, Data, Activity,
+ * Settings, the Deploy flow). Calm Layers anatomy: the top bar (mono
+ * breadcrumb + this page's depth switch), the sentence headline, one action,
+ * then the row's pages as tabs. The row comes from the pathname; the old
+ * `section` prop is accepted for compatibility and ignored.
+ *
+ * It renders full-bleed (the top bar spans the content area), so pages put it
+ * first, outside their padded container — `SectionHeader` pulls itself out of
+ * a `px-6 xl:px-10` container with negative margins when it's inside one.
  */
 export function SectionHeader({
-  section,
   title,
   description,
   actions,
+  eyebrow,
 }: {
-  section: NavGroup['group'];
+  /** @deprecated the row is derived from the pathname. */
+  section?: string;
   title: React.ReactNode;
-  description?: string;
+  description?: React.ReactNode;
   actions?: React.ReactNode;
+  eyebrow?: React.ReactNode;
 }): React.JSX.Element {
-  const label = NAV_GROUPS.find((g) => g.group === section)?.label ?? section;
+  const { pathname } = useLocation();
+  const group = groupForPathname(pathname);
+  const badges = useNavBadges();
+  const tabs = group
+    ? SECTIONS.filter((s) => s.group === group).map((s) => ({
+        to: s.to,
+        label: s.label,
+        exact: s.exact,
+        count: s.badge ? badges[s.badge] : 0,
+      }))
+    : [];
+  const crumbs = crumbsFor(group, pathname);
   return (
-    <div className="mb-8">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
-          <span className="eyebrow">{label}</span>
-          <h1 className="headline mt-3 text-[2.2rem] sm:text-5xl">{title}</h1>
-          {description ? (
-            <p className="text-muted-foreground mt-2 max-w-xl text-sm sm:text-base">
-              {description}
-            </p>
-          ) : null}
-        </div>
-        {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+    <div className="-mx-6 -mt-8 mb-7 xl:-mx-10">
+      <CalmTopBar crumbs={crumbs} />
+      <div className="flex flex-col gap-5 px-6 pt-7 xl:px-10">
+        <SayHeader eyebrow={eyebrow} title={title} lede={description} actions={actions} />
+        {tabs.length > 1 ? <CalmTabs tabs={tabs} label={`${rowLabel(group)} pages`} /> : null}
       </div>
-      <SectionTabs section={section} />
     </div>
   );
 }
 
-function SectionTabs({ section }: { section: NavGroup['group'] }): React.JSX.Element {
-  const { pathname } = useLocation();
-  const badges = useNavBadges();
-  const tabs = SECTIONS.filter((s) => s.group === section);
-  // Most-specific prefix match wins, so /settings stays quiet on /settings/api-keys.
-  const activeTo = tabs
-    .filter((t) => pathname === t.to || pathname.startsWith(`${t.to}/`))
-    .sort((a, b) => b.to.length - a.to.length)[0]?.to;
-  return (
-    <nav className="border-border mt-6 flex gap-1 overflow-x-auto border-b">
-      {tabs.map((t) => {
-        const active = t.to === activeTo;
-        const count = t.badge ? badges[t.badge] : 0;
-        return (
-          <Link
-            key={t.to}
-            to={t.to}
-            className={cn(
-              '-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-semibold whitespace-nowrap transition-colors',
-              active
-                ? 'border-primary text-foreground'
-                : 'text-muted-foreground hover:text-foreground border-transparent',
-            )}
-          >
-            {t.label}
-            {count > 0 && (
-              <span className="bg-primary text-primary-foreground flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-bold">
-                {count}
-              </span>
-            )}
-          </Link>
-        );
-      })}
-    </nav>
-  );
+function rowLabel(group: DestinationGroup | null): string {
+  if (group === 'Deploy') return 'Deploy an app';
+  return NAV_GROUPS.find((g) => g.group === group)?.label ?? 'swarmy';
+}
+
+/** Row / page crumbs from the destinations table. */
+export function crumbsFor(group: DestinationGroup | null, pathname: string): Crumb[] {
+  const row = group === 'Deploy' ? { to: '/deploy', label: 'Deploy an app' } : PRIMARY.find((p) => p.group === group);
+  const page = SECTIONS.filter((s) => s.group === group && (s.exact ? pathname === s.to : pathname === s.to || pathname.startsWith(`${s.to}/`)))
+    .sort((a, b) => b.to.length - a.to.length)[0];
+  const out: Crumb[] = [];
+  if (row) out.push({ label: row.label, to: page && page.to !== row.to ? row.to : undefined });
+  if (page && (!row || page.to !== row.to)) out.push({ label: page.label });
+  return out.length ? out : [{ label: 'swarmy' }];
 }

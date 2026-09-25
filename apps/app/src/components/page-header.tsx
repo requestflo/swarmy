@@ -1,8 +1,13 @@
 import * as React from 'react';
+import { useLocation } from '@tanstack/react-router';
+import { groupForPathname } from '@/lib/destinations';
+import { CalmTopBar, SayHeader } from '@/components/calm';
+import { crumbsFor } from './section-header';
 
 /**
- * Hot Signal page header: eyebrow wayfinding pill + bold display headline.
- * `title` may contain <em> for coral emphasis (pass a ReactNode).
+ * A page header outside a tabbed row (server detail, new service, terminals).
+ * Calm Layers anatomy: top bar with breadcrumb + depth switch, then the
+ * sentence headline. `eyebrow` becomes the last crumb context.
  */
 export function PageHeader({
   eyebrow,
@@ -12,19 +17,18 @@ export function PageHeader({
 }: {
   eyebrow: string;
   title: React.ReactNode;
-  description?: string;
+  description?: React.ReactNode;
   actions?: React.ReactNode;
 }): React.JSX.Element {
+  const { pathname } = useLocation();
+  const crumbs = crumbsFor(groupForPathname(pathname), pathname);
+  if (crumbs[crumbs.length - 1]?.label !== eyebrow) crumbs.push({ label: eyebrow });
   return (
-    <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-      <div className="min-w-0">
-        <span className="eyebrow">{eyebrow}</span>
-        <h1 className="headline mt-3 text-[2.2rem] sm:text-5xl">{title}</h1>
-        {description ? (
-          <p className="text-muted-foreground mt-2 max-w-xl text-sm sm:text-base">{description}</p>
-        ) : null}
+    <div className="-mx-6 -mt-8 mb-7 xl:-mx-10">
+      <CalmTopBar crumbs={crumbs} />
+      <div className="px-6 pt-7 xl:px-10">
+        <SayHeader title={title} lede={description} actions={actions} />
       </div>
-      {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
     </div>
   );
 }
