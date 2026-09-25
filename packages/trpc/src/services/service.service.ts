@@ -17,6 +17,9 @@ import { writeAudit } from './audit.service';
 import { pinToNodeConstraint, resolveManagerNode } from './dispatch.service';
 import { patchLiveService } from './service-patch';
 import { prepareStackServiceSpec } from './stack.service';
+import { INGRESS_ROUTES_LABEL, serializeRoutes, type Route } from './ingress-routes';
+import { kickDomainChecks, registerDeployRoutes } from './domain-verify.service';
+import { applyNow, getConfig } from './ingress.service';
 import {
   listAppSecretVersions,
   materializeSecretVars,
@@ -177,6 +180,27 @@ export function getServiceDetail(ctx: OrgContext, id: string): ServiceDetail {
   };
 }
 
+/**
+ * The image form's ingress fragment → the service's route set. PURE — exported
+ * for tests. Null when no domain was given (the auto-address worker gives a
+ * routed-less web service its sslip address). The target port defaults to the
+ * service's first TCP port; with none, the route can't be formed and the
+ * deploy is refused instead of silently dropping the domain.
+ */
+export function routesFromIngressInput(
+  ingress: CreateServiceInput['ingress'],
+  ports: CreateServiceInput['ports'],
+): Route[] | null {
+  const host = ingress?.domain?.trim().toLowerCase();
+  if (!ingress || !host) return null;
+  const port = ingress.targetPort ?? ports.find((p) => (p.protocol ?? 'tcp') === 'tcp')?.target;
+  if (!port) throw commandRejected(`domain ${host} needs a target port: set one, or add a TCP port to the service`);
+  const path = ingress.pathPrefix?.trim();
+  // The form's 'custom' (bring your own cert) is the route label's 'manual'.
+  const tls: Route['tls'] = ingress.tls === 'custom' ? 'manual' : (ingress.tls ?? 'auto');
+  return [{ host, port, tls, ...(path && path !== '/' ? { path } : {}) }];
+}
+
 export async function createService(
   ctx: OrgContext,
   input: CreateServiceInput,
@@ -197,6 +221,15 @@ export async function createService(
   });
   // Deploying INTO an app: same stack augmentation as the compose path.
   if (input.project) spec = await prepareStackServiceSpec(ctx, input.project, spec);
+  // A domain from the image form becomes the service's route (Docker truth: the
+  // routes label on the spec, same as a compose deploy), not a dropped field.
+  const routes = routesFromIngressInput(input.ingress, input.ports);
+  if (routes) {
+    spec = {
+      ...spec,
+      labels: { ...(spec.labels ?? {}), [INGRESS_ROUTES_LABEL]: serializeRoutes(routes), 'swarmy.ingress': 'true' },
+    };
+  }
 
   // Secret vars → Docker secrets (`<name>_<KEY>_v1`), mounted by name. The
   // admission gate + the deploy below only ever see the secret NAMES.
@@ -226,10 +259,20 @@ export async function createService(
     { targetType: 'service', targetId: input.name },
   );
 
+  // The domain gate: a new host enters DNS verification BEFORE the route lands,
+  // so the edge never orders a certificate for a name not pointing at us.
+  const gatedHosts = routes ? await registerDeployRoutes(ctx, [spec]) : [];
   try {
     await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
   } catch (e) {
     throw mapDispatchError(e);
+  }
+  if (routes) {
+    kickDomainChecks(ctx, gatedHosts);
+    // Re-render the edge now (best-effort; the ingress reconcile also picks it up
+    // and attaches the service to the edge network).
+    const cfg = await getConfig(ctx).catch(() => null);
+    if (cfg?.enabled && cfg.driver !== 'none') await applyNow(ctx).catch(() => undefined);
   }
   // Swarm state lives in Docker now (no DB row). Resolve the live service id; the
   // name is a stable fallback until inventory catches up. deploymentId is non-persisted.
@@ -245,6 +288,7 @@ export async function createService(
       replicas: input.replicas,
       override: input.override === true,
       ...(secretKeys.length ? { secretVars: secretKeys } : {}),
+      ...(routes ? { domains: routes.map((r) => r.host) } : {}),
     },
   });
   // Outbound webhook: fan a `service.deployed` event out to subscribed endpoints.
