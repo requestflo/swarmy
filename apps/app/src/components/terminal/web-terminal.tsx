@@ -2,6 +2,8 @@ import * as React from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+import { isDemo } from '@/demo/is-demo';
+import { DemoUnavailable } from '@/demo/demo-unavailable';
 
 type Phase = 'connecting' | 'open' | 'disabled' | 'closed' | 'error';
 
@@ -28,7 +30,19 @@ const b64decode = (s: string): Uint8Array =>
  * We hand-roll the attach binding (rather than addon-attach) to control framing,
  * base64 + resize.
  */
-export function WebTerminal({ wsUrl, onPhase, className }: WebTerminalProps): React.JSX.Element {
+export function WebTerminal(props: WebTerminalProps): React.JSX.Element {
+  // The public demo has no controller, so no /term/ws to attach to.
+  if (isDemo()) {
+    return (
+      <DemoUnavailable title="This is a demo">
+        A live shell needs a real swarmy controller and your own servers.
+      </DemoUnavailable>
+    );
+  }
+  return <LiveTerminal {...props} />;
+}
+
+function LiveTerminal({ wsUrl, onPhase, className }: WebTerminalProps): React.JSX.Element {
   const hostRef = React.useRef<HTMLDivElement | null>(null);
 
   // Keep onPhase in a ref so the socket effect depends ONLY on wsUrl. The caller

@@ -1,3 +1,5 @@
+// Demo mode: refuse controller-bound requests before any client exists.
+import '@/demo/network-guard';
 import { StrictMode } from 'react';
 import ReactDOM from 'react-dom/client';
 import { RouterProvider } from '@tanstack/react-router';

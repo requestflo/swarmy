@@ -12,6 +12,8 @@ import { isOAuthAuthorizeFlow, resumeAuthorize, useOAuthResume } from '@/compone
 import { LoginTwoFactorStep } from '@/components/auth/login-two-factor-step';
 import { type AuthFields, type AuthMode, useAuthSubmit } from '@/components/auth/use-auth-submit';
 import { Wordmark } from '@/components/wordmark';
+import { DemoAuthPage } from '@/demo/demo-unavailable';
+import { DEMO_BUILD } from '@/demo/site';
 import { useSession } from '@swarmy/auth/client';
 import { useTRPC } from '@/integrations/trpc';
 
@@ -31,7 +33,8 @@ export const Route = createFileRoute('/login')({
     if (typeof i === 'string' && /^[\w-]{1,128}$/.test(i)) out.invite = i;
     return out;
   },
-  component: LoginPage,
+  // The hosted demo has no accounts: a notice replaces the sign-in screen.
+  component: DEMO_BUILD ? DemoAuthPage : LoginPage,
 });
 
 function LoginPage(): React.JSX.Element {

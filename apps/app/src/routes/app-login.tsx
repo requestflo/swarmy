@@ -2,6 +2,8 @@ import * as React from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useSession } from '@swarmy/auth/client';
 import { Wordmark } from '@/components/wordmark';
+import { DemoAuthPage } from '@/demo/demo-unavailable';
+import { DEMO_BUILD } from '@/demo/site';
 
 interface AppLoginSearch {
   rd?: string;
@@ -17,7 +19,8 @@ interface AppLoginSearch {
 export const Route = createFileRoute('/app-login')({
   validateSearch: (search: Record<string, unknown>): AppLoginSearch =>
     typeof search.rd === 'string' && /^https?:\/\//.test(search.rd) ? { rd: search.rd } : {},
-  component: AppLoginPage,
+  // The hosted demo has no accounts: a notice replaces the sign-in screen.
+  component: DEMO_BUILD ? DemoAuthPage : AppLoginPage,
 });
 
 function hostOf(rd: string | undefined): string | null {
