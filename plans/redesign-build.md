@@ -1,6 +1,6 @@
 # Redesign build — the 68 boards, in Calm Layers
 
-Status: **in build** (branch `claude/swarmy-platform-roadmap-4f6qfm`).
+Status: **S0–S5 built, S6 verified** (branch `claude/swarmy-platform-roadmap-4f6qfm`, 2026-09-25).
 Owner decision (2026-09-25): build the 68-board "swarmy dashboard redesign"
 canvas with the **Calm Layers** structure. Same screens, same navy/coral look;
 every screen reads at three depths.
@@ -135,10 +135,34 @@ the services builder/list, the resilience score.
 Each slice: `bun --filter @swarmy/app typecheck`, the app's `bun test`, demo
 mode renders with no console errors, a pathspec commit.
 
-## 6. Deferred (tracked here)
+## 6. Verification (S6)
+
+- Demo mode, 51 routes × Summary/Controls/Code, dark: axe WCAG 2.2 AA clean on
+  every route, no console errors, one coral action (0 where nothing needs doing).
+  Light (Summary): clean. 390px: clean; touch targets ≥ 44px on touch screens.
+- `bun --filter @swarmy/app typecheck`, `@swarmy/web`, `@swarmy/ui` typecheck;
+  `apps/app` bun test (52); `build:demo` + `apps/e2e/demo-smoke.ts` pass.
+- Harness: scratchpad `rd/audit.ts` (axe + coral count + touch targets) and
+  `rd/shots.ts`.
+
+## 7. Deferred (tracked here)
 
 - Route moves in plan §B.2 (`/ingress` → `/network/edge`, etc.). URLs stay; the
   nav and tabs present the new IA. Move with redirects in a later release.
-- A server-side user preference for depth (localStorage today).
-- ⌘K plain intents ("undo analytics") — palette restyle only for now.
-- `hot-signal-design` skill rewrite (P1) — done alongside S0 for the rules in §1.
+- A server-side user preference for depth (localStorage per user today).
+- ⌘K plain intents ("undo analytics", the Command board's preview pane) — the
+  palette is restyled with apps/servers and depth commands only.
+- Boards not built for lack of a data source: TimeTravel, Connections
+  (app ↔ app), RClusters (multi-cluster), MeshConfig access-rule list, backup
+  drill steps, per-copy CPU/memory on Scaling, the AppScaling sleep chart.
+- RSignIn two-column layout needs `routes/login.tsx` / `app-login.tsx` (demo
+  hooks live there); the sign-in pieces in `components/auth/*` are restyled.
+- Code views without a public API (alerts, incidents, cost, policies,
+  guardrails, platform) are read-only JSON/labels; they gain REST when it exists.
+- Glossary leaks from other packages at Summary: `@swarmy/abac` describePolicy
+  says stacks/nodes/mesh; some server alert messages say replicas.
+- Per-app swarmy.yaml from git: the app Code view shows the live spec as
+  compose (read-only); there is no stack-spec query yet.
+- Files over the 150-line limit carried over: `errors/issue-detail.tsx`,
+  `errors/issues-list.tsx`, `errors/errors-setup-card.tsx`,
+  `queues/studio/queue-detail.tsx`.
