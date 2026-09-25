@@ -67,7 +67,7 @@ export const CANVAS_Y_LABEL = 'swarmy.canvas.y';
 
 // Flat layout geometry — services flow across the full canvas, no group frame.
 const SERVICE_W = 248;
-const SERVICE_H = 178;
+const SERVICE_H = 128;
 const COL_GAP = 40;
 const ROW_GAP = 40;
 const PER_ROW = 4;
@@ -209,6 +209,8 @@ function edgeFor(e: InvEdge): CanvasEdge {
 export function buildGraph(
   inv: Inventory,
   live: Positions = {},
+  /** Unplaced-card layout: `flow` follows the links (one app); `apps` gives each app a column (the estate map). */
+  layout: 'flow' | 'apps' = 'flow',
 ): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
   // Group regional siblings by their logical parent app name.
   const siblingsByParent = new Map<string, InvService[]>();
@@ -359,14 +361,14 @@ export function buildGraph(
   // Free top-level services grid to the right of the frame column so a frame and a
   // standalone card never collide; with no frames this is the original flat grid.
   const flatX = groupsColWidth > 0 ? groupsColWidth + COL_GAP * 2 : 0;
-  const serviceNodes: ServiceFlowNode[] = inv.services
-    .filter((s) => !grouped.has(s.id))
-    .map((service, i) => ({
-      id: service.id,
-      type: 'service',
-      position: live[service.id] ?? labelPosition(service) ?? serviceFallback(i, flatX),
-      data: { service, tone: STATUS_TONE[service.status] },
-    }));
+  const free = inv.services.filter((s) => !grouped.has(s.id));
+  const flow = layout === 'apps' ? appColumns(free, inv, flatX) : flowFallback(free, inv.edges, flatX);
+  const serviceNodes: ServiceFlowNode[] = free.map((service, i) => ({
+    id: service.id,
+    type: 'service',
+    position: live[service.id] ?? labelPosition(service) ?? flow.get(service.id) ?? serviceFallback(i, flatX),
+    data: { service, tone: STATUS_TONE[service.status] },
+  }));
 
   // Frames must precede their nested cards in the array (React Flow parent rule);
   // both region (`project`) and db-cluster frames lead, then all nested cards.
@@ -375,4 +377,54 @@ export function buildGraph(
   const ids = new Set(inv.services.map((s) => s.id));
   const edges = inv.edges.filter((e) => ids.has(e.from) && ids.has(e.to)).map(edgeFor);
   return { nodes, edges };
+}
+
+/**
+ * Left-to-right flow for unplaced cards when the services are linked: a card's
+ * column is its depth along the inferred links (visitors' side left, data
+ * right), rows stack within a column and columns centre on each other. With
+ * no links at all this returns nothing and the plain grid applies.
+ */
+function flowFallback(services: InvService[], edges: InvEdge[], xOffset: number): Map<string, { x: number; y: number }> {
+  const ids = new Set(services.map((s) => s.id));
+  const links = edges.filter((e) => ids.has(e.from) && ids.has(e.to) && e.from !== e.to);
+  const out = new Map<string, { x: number; y: number }>();
+  if (links.length === 0) return out;
+  const rank = new Map<string, number>(services.map((s) => [s.id, 0]));
+  // Longest-path ranks; the pass limit keeps a cycle from looping forever.
+  for (let pass = 0; pass < services.length; pass++) {
+    let moved = false;
+    for (const e of links) {
+      const next = (rank.get(e.from) ?? 0) + 1;
+      if (next > (rank.get(e.to) ?? 0) && next < services.length) {
+        rank.set(e.to, next);
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+  const cols = new Map<number, string[]>();
+  for (const s of services) cols.set(rank.get(s.id) ?? 0, [...(cols.get(rank.get(s.id) ?? 0) ?? []), s.id]);
+  const tallest = Math.max(...[...cols.values()].map((c) => c.length));
+  for (const [col, list] of cols) {
+    const offset = ((tallest - list.length) * (SERVICE_H + ROW_GAP)) / 2;
+    list.forEach((id, row) => {
+      out.set(id, { x: xOffset + col * (SERVICE_W + COL_GAP * 2), y: offset + row * (SERVICE_H + ROW_GAP) });
+    });
+  }
+  return out;
+}
+
+/** The estate map: one column per app (in inventory order), its parts stacked beneath. */
+function appColumns(services: InvService[], inv: Inventory, xOffset: number): Map<string, { x: number; y: number }> {
+  const out = new Map<string, { x: number; y: number }>();
+  const free = new Set(services.map((s) => s.id));
+  let col = 0;
+  for (const p of inv.projects) {
+    const ids = p.serviceIds.filter((id) => free.has(id));
+    if (!ids.length) continue;
+    ids.forEach((id, row) => out.set(id, { x: xOffset + col * (SERVICE_W + COL_GAP * 2), y: row * (SERVICE_H + ROW_GAP) }));
+    col++;
+  }
+  return out;
 }

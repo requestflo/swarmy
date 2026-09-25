@@ -20,7 +20,7 @@ import { buildGraph, type CanvasNode, type ServiceNodeData } from './build-graph
 import { filterInventory } from './filter-inventory';
 import { useCanvasLayout } from './use-canvas-layout';
 import { CanvasToolbar } from './canvas-toolbar';
-import { CanvasBreadcrumb } from './canvas-breadcrumb';
+import { useDepth } from '@/components/calm';
 import { ErrorState } from '@/components/states';
 
 const NODE_TYPES = { service: ServiceNode, project: ProjectGroupNode, dbCluster: DbClusterNode };
@@ -28,12 +28,15 @@ const NODE_TYPES = { service: ServiceNode, project: ProjectGroupNode, dbCluster:
 interface ServiceCanvasProps {
   /** Stack name to scope the canvas to, or null for the flat cross-swarm view. */
   stackFilter: string | null;
-  onBack: () => void;
   /**
    * Tap a service card → transport into it. Receives the tap's screen
    * position so the overlay can zoom out of the node itself.
    */
   onOpenService: (id: string, origin: { x: number; y: number }) => void;
+  /** Scale the canvas chrome down (the app page's "How it is built" frame). */
+  embedded?: boolean;
+  /** The part whose sheet is open (URL state) — drawn selected. */
+  selectedId?: string;
 }
 
 /**
@@ -47,13 +50,14 @@ interface ServiceCanvasProps {
  * viewport fit. Mounted under a keyed ReactFlowProvider so switching scope
  * re-fits cleanly.
  */
-export function ServiceCanvas({ stackFilter, onBack, onOpenService }: ServiceCanvasProps): React.JSX.Element {
+export function ServiceCanvas({ stackFilter, onOpenService, embedded, selectedId }: ServiceCanvasProps): React.JSX.Element {
   const trpc = useTRPC();
   const navigate = useNavigate();
   const inventory = useQuery({ ...trpc.inventory.get.queryOptions(), refetchInterval: 4_000 });
   const { savedViewport, setViewport } = useCanvasLayout();
   // Canvas position is Docker-truth: persisted as swarmy.canvas.x/y labels on the service.
   const setCanvasPos = useMutation(trpc.services.setCanvasPos.mutationOptions());
+  const controls = useDepth().atLeast('controls');
 
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<CanvasNode>([]);
   // Ids dragged this session keep their live position over a refetch, so a 4s poll
@@ -66,8 +70,8 @@ export function ServiceCanvas({ stackFilter, onBack, onOpenService }: ServiceCan
   );
 
   const graph = React.useMemo(
-    () => (scoped ? buildGraph(scoped) : { nodes: [], edges: [] }),
-    [scoped],
+    () => (scoped ? buildGraph(scoped, {}, stackFilter === null ? 'apps' : 'flow') : { nodes: [], edges: [] }),
+    [scoped, stackFilter],
   );
 
   React.useEffect(() => {
@@ -122,7 +126,7 @@ export function ServiceCanvas({ stackFilter, onBack, onOpenService }: ServiceCan
   return (
     <div className="relative h-full min-h-0 w-full min-w-0">
       <ReactFlow
-        nodes={flowNodes}
+        nodes={selectedId === undefined ? flowNodes : flowNodes.map((n) => (n.selected === (n.id === selectedId) ? n : { ...n, selected: n.id === selectedId }))}
         edges={graph.edges}
         nodeTypes={NODE_TYPES}
         onNodesChange={onNodesChange}
@@ -137,7 +141,7 @@ export function ServiceCanvas({ stackFilter, onBack, onOpenService }: ServiceCan
         onMoveEnd={(_e, vp: Viewport) => isAll && setViewport(vp)}
         defaultViewport={isAll ? (savedViewport ?? undefined) : undefined}
         fitView={!isAll || !savedViewport}
-        fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
+        fitViewOptions={{ padding: 0.2, maxZoom: 1, minZoom: embedded ? 0.6 : undefined }}
         minZoom={0.2}
         maxZoom={1.6}
         nodesConnectable={false}
@@ -145,21 +149,21 @@ export function ServiceCanvas({ stackFilter, onBack, onOpenService }: ServiceCan
         className="!bg-transparent"
       >
         <Background variant={BackgroundVariant.Dots} gap={28} size={1.5} color="var(--border)" />
-        <Controls showInteractive={false} className="!shadow-lg" />
-        <MiniMap
-          pannable
-          zoomable
-          nodeColor={(n) =>
-            n.type === 'project'
-              ? 'var(--border)'
-              : `var(--status-${(n.data as ServiceNodeData)?.tone ?? 'idle'})`
-          }
-          nodeStrokeWidth={2}
-          className="!rounded-xl"
-        />
-        {/* Inside a stack the workspace's StackHeader is the breadcrumb; only the
-            flat all-services view needs its own way back to the stack grid. */}
-        {isAll ? <CanvasBreadcrumb stack={null} onBack={onBack} /> : null}
+        {/* Quiet chrome: zoom + minimap only from Controls up (Harbour: less on screen). */}
+        {controls ? <Controls showInteractive={false} className="!shadow-none" /> : null}
+        {controls && !embedded ? (
+          <MiniMap
+            pannable
+            zoomable
+            nodeColor={(n) =>
+              n.type === 'project'
+                ? 'var(--border)'
+                : `var(--status-${(n.data as ServiceNodeData)?.tone ?? 'idle'})`
+            }
+            nodeStrokeWidth={2}
+            className="!rounded-xl max-lg:!hidden"
+          />
+        ) : null}
         <CanvasToolbar count={scoped?.services.length ?? 0} stack={stackFilter} />
       </ReactFlow>
     </div>

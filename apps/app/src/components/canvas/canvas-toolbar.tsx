@@ -1,45 +1,46 @@
 import * as React from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import { useReactFlow, Panel } from '@xyflow/react';
-import { MaximizeIcon, RocketIcon } from 'lucide-react';
+import { MaximizeIcon } from 'lucide-react';
 import { Button } from '@swarmy/ui';
+import { Depth } from '@/components/calm';
 import { AddAppDialog } from '@/components/stacks/add-app-dialog';
 import { OtelStackToggle } from '@/components/stacks/otel-stack-toggle';
 
-/** Floating canvas chrome: wayfinding + service count + fit-view + the one coral CTA. */
+/**
+ * Quiet canvas chrome: the part count and fit-view at every depth; inside an
+ * app, the telemetry switch and "Add a part" from Controls up. No coral here:
+ * the page owns its one next action.
+ */
 export function CanvasToolbar({
   count,
   stack,
 }: {
   count: number;
-  /** Stack the canvas is scoped to (drill-in), or null for the flat all-services view. */
+  /** App the canvas is scoped to, or null for the estate map. */
   stack?: string | null;
 }): React.JSX.Element {
-  const navigate = useNavigate();
   const { fitView } = useReactFlow();
-
   return (
-    <Panel position="top-right" className="!m-4">
-      <div className="flex items-center gap-2">
-        <span className="card-pop mono-data text-muted-foreground rounded-full px-3 py-2 text-xs">
-          {count} {count === 1 ? 'service' : 'services'}
+    <Panel position="top-right" className="!m-3">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <span className="bg-card border-border text-muted-foreground rounded-full border px-3 py-1.5 font-mono text-[11.5px]">
+          {count} {count === 1 ? 'part' : 'parts'}
         </span>
         <Button
           variant="outline"
           size="icon"
-          className="rounded-full"
-          onClick={() => fitView({ duration: 400 })}
+          className="size-8 rounded-full pointer-coarse:size-11"
+          onClick={() => fitView({ duration: 300 })}
           aria-label="Fit to view"
         >
           <MaximizeIcon className="size-4" />
         </Button>
-        {/* Drilled into a stack → per-stack telemetry opt-in (Docker-label backed). */}
-        {stack ? <OtelStackToggle stack={stack} /> : null}
-        {/* Drilled into a stack → contextual deploy: add a single app straight into it. */}
-        {stack ? <AddAppDialog stack={stack} /> : null}
-        <Button className="gap-2" onClick={() => navigate({ to: '/services/new' })}>
-          <RocketIcon className="size-4" /> Deploy
-        </Button>
+        {stack ? (
+          <Depth at="controls">
+            <OtelStackToggle stack={stack} />
+            <AddAppDialog stack={stack} label="Add a part" className="h-8 rounded-full pointer-coarse:h-11" />
+          </Depth>
+        ) : null}
       </div>
     </Panel>
   );

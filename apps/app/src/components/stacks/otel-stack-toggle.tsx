@@ -38,9 +38,9 @@ export function OtelStackToggle({ stack }: { stack: string }): React.JSX.Element
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className="card-pop flex items-center gap-2 rounded-full px-3 py-2">
+        <div className="bg-card border-border flex h-8 items-center gap-2 rounded-full border px-3 pointer-coarse:h-11">
           <ActivityIcon className="text-muted-foreground size-4" aria-hidden />
-          <span className="mono-label text-muted-foreground text-xs">OTel</span>
+          <span className="text-muted-foreground font-mono text-[11.5px]">Telemetry</span>
           <Switch
             checked={enabled}
             disabled={busy}
