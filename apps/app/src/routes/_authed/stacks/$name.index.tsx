@@ -1,52 +1,58 @@
 import * as React from 'react';
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
-import { ReactFlowProvider } from '@xyflow/react';
-import { ServiceCanvas } from '@/components/canvas/service-canvas';
+import { createFileRoute } from '@tanstack/react-router';
 import { ServiceOverlay } from '@/components/services/service-overlay';
+import { AppOverviewTab } from '@/components/stacks/workspace/app-overview-tab';
 
 interface StackOverviewSearch {
+  /** Selected part: its bottom sheet shows on the canvas. */
+  part?: string;
   /** Open service overlay — in the URL so it deep-links and Back closes it. */
   service?: string;
 }
 
-/** Overview tab: the live service canvas, scoped to this stack. */
+const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
+
+/** The app's Overview tab: how it is built (the live canvas), facts and the next thing worth doing. */
 export const Route = createFileRoute('/_authed/stacks/$name/')({
-  validateSearch: (search: Record<string, unknown>): StackOverviewSearch =>
-    typeof search.service === 'string' && search.service ? { service: search.service } : {},
+  validateSearch: (search: Record<string, unknown>): StackOverviewSearch => {
+    const out: StackOverviewSearch = {};
+    const part = str(search.part);
+    const service = str(search.service);
+    if (part) out.part = part;
+    if (service) out.service = service;
+    return out;
+  },
   component: StackOverviewTab,
 });
 
 function StackOverviewTab(): React.JSX.Element {
   const { name } = Route.useParams();
-  const { service } = Route.useSearch();
-  const navigate = useNavigate();
-  const routeNavigate = Route.useNavigate();
-  // Tap position, kept out of the URL — a deep link just zooms from center.
+  const { part, service } = Route.useSearch();
+  const navigate = Route.useNavigate();
   const originRef = React.useRef<{ x: number; y: number } | null>(null);
 
   return (
-    <div className="h-full w-full">
-      <ReactFlowProvider key={name}>
-        <ServiceCanvas
-          stackFilter={name}
-          onBack={() => navigate({ to: '/' })}
-          onOpenService={(id, origin) => {
-            originRef.current = origin;
-            void routeNavigate({ search: { service: id }, resetScroll: false });
-          }}
-        />
-      </ReactFlowProvider>
+    <>
+      <AppOverviewTab
+        stack={name}
+        part={part}
+        onSelect={(id) => void navigate({ search: id ? { part: id } : {}, replace: true, resetScroll: false })}
+        onOpen={(id, origin) => {
+          originRef.current = origin;
+          void navigate({ search: { part, service: id }, resetScroll: false });
+        }}
+      />
       {service ? (
         <ServiceOverlay
           serviceId={service}
           origin={originRef.current}
-          onClose={() => void routeNavigate({ search: {}, resetScroll: false })}
+          onClose={() => void navigate({ search: part ? { part } : {}, resetScroll: false })}
           onSwitch={(id) => {
             originRef.current = null;
-            void routeNavigate({ search: { service: id }, replace: true, resetScroll: false });
+            void navigate({ search: { part, service: id }, replace: true, resetScroll: false });
           }}
         />
       ) : null}
-    </div>
+    </>
   );
 }

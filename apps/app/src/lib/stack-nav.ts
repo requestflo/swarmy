@@ -16,8 +16,10 @@ import {
 } from 'lucide-react';
 
 /**
- * The stack workspace tab registry — the in-stack counterpart of
- * `lib/destinations.ts`. Every stack-scoped surface hangs off `/stacks/$name`
+ * The app workspace tab registry — the in-stack counterpart of
+ * `lib/destinations.ts`. Calm Layers labels and order (Overview · Logs ·
+ * Domains · Data · Variables & secrets · Releases · Access …); the routes
+ * keep their URLs. Every stack-scoped surface hangs off `/stacks/$name`
  * as a child route; the workspace tab strip and the ⌘K palette read this.
  */
 
@@ -61,10 +63,26 @@ export const STACK_TABS: StackTab[] = [
     to: '/stacks/$name',
     label: 'Overview',
     icon: LayoutDashboardIcon,
-    blurb: 'The live service canvas',
+    blurb: 'How the app is built, live',
     keywords: 'canvas graph services health',
     exact: true,
     systemSafe: true,
+  },
+  {
+    to: '/stacks/$name/observability',
+    label: 'Logs',
+    icon: ActivityIcon,
+    blurb: 'Logs, metrics, traces & status page',
+    keywords: 'observability logs metrics traces otel telemetry service map health status page uptime',
+    systemSafe: true,
+  },
+  {
+    to: '/stacks/$name/network',
+    label: 'Domains',
+    icon: NetworkIcon,
+    blurb: 'Domains, protections & geo DNS',
+    keywords: 'network ingress domains routes tls https rate limit protection ip allow deny geo dns',
+    systemSafe: false,
   },
   {
     to: '/stacks/$name/data',
@@ -75,20 +93,44 @@ export const STACK_TABS: StackTab[] = [
     systemSafe: false,
   },
   {
-    to: '/stacks/$name/messaging',
-    label: 'Messaging',
-    icon: WorkflowIcon,
-    blurb: 'Queues, webhooks & jobs',
-    keywords: 'bullmq queues workers webhooks endpoints deliveries cron scheduled jobs',
+    to: '/stacks/$name/config',
+    label: 'Variables & secrets',
+    icon: LockKeyholeIcon,
+    blurb: 'Secrets & configs',
+    keywords: 'config variables env secrets rotation configs env files versions',
     systemSafe: false,
   },
   {
-    to: '/stacks/$name/observability',
-    label: 'Observability',
-    icon: ActivityIcon,
-    blurb: 'Logs, metrics, traces & status page',
-    keywords: 'logs metrics traces otel telemetry service map health status page uptime',
-    systemSafe: true,
+    to: '/stacks/$name/releases',
+    label: 'Releases',
+    icon: RocketIcon,
+    blurb: 'History, canary & rollback',
+    keywords: 'deploys history rollback canary blue green health gates strategy',
+    systemSafe: false,
+  },
+  {
+    to: '/stacks/$name/access',
+    label: 'Access',
+    icon: ShieldCheckIcon,
+    blurb: 'Who can reach this app: login, people, laptops',
+    keywords: 'login sso protect private identity proxy forward auth users sign in auth better-auth laptop mesh netbird connect people',
+    systemSafe: false,
+  },
+  {
+    to: '/stacks/$name/backups',
+    label: 'Backups',
+    icon: DatabaseBackupIcon,
+    blurb: 'DR setup & resilience',
+    keywords: 'backups snapshots restore disaster recovery schedules off-site second destination resilience drills unprotected',
+    systemSafe: false,
+  },
+  {
+    to: '/stacks/$name/messaging',
+    label: 'Jobs & queues',
+    icon: WorkflowIcon,
+    blurb: 'Queues, webhooks & jobs',
+    keywords: 'messaging bullmq queues workers webhooks endpoints deliveries cron scheduled jobs',
+    systemSafe: false,
   },
   {
     to: '/stacks/$name/errors',
@@ -112,46 +154,6 @@ export const STACK_TABS: StackTab[] = [
     icon: ClapperboardIcon,
     blurb: 'Session replays of real visits',
     keywords: 'session replay recordings rrweb rum user sessions',
-    systemSafe: false,
-  },
-  {
-    to: '/stacks/$name/network',
-    label: 'Network',
-    icon: NetworkIcon,
-    blurb: 'Domains, protections & geo DNS',
-    keywords: 'ingress domains routes tls https rate limit protection ip allow deny geo dns',
-    systemSafe: false,
-  },
-  {
-    to: '/stacks/$name/access',
-    label: 'Access',
-    icon: ShieldCheckIcon,
-    blurb: 'Who can reach this app: login, people, laptops',
-    keywords: 'login sso protect private identity proxy forward auth users sign in auth better-auth laptop mesh netbird connect people',
-    systemSafe: false,
-  },
-  {
-    to: '/stacks/$name/config',
-    label: 'Config',
-    icon: LockKeyholeIcon,
-    blurb: 'Secrets & configs',
-    keywords: 'secrets rotation configs env files versions',
-    systemSafe: false,
-  },
-  {
-    to: '/stacks/$name/backups',
-    label: 'Backups',
-    icon: DatabaseBackupIcon,
-    blurb: 'DR setup & resilience',
-    keywords: 'backups snapshots restore disaster recovery schedules off-site second destination resilience drills unprotected',
-    systemSafe: false,
-  },
-  {
-    to: '/stacks/$name/releases',
-    label: 'Releases',
-    icon: RocketIcon,
-    blurb: 'History, canary & rollback',
-    keywords: 'deploys history rollback canary blue green health gates strategy',
     systemSafe: false,
   },
   {

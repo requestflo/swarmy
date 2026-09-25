@@ -1,93 +1,69 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
-import { ArrowLeftIcon, ShieldIcon } from 'lucide-react';
-import { isSystemStack } from '@swarmy/core';
-import type { StackStat } from '@/components/canvas/stack-aggregates';
+import { ArrowUpRightIcon } from 'lucide-react';
+import { Button } from '@swarmy/ui';
+import { Say, SayHeader, type Tone } from '@/components/calm';
+import { plural } from '@/components/apps/app-words';
+import type { AppItem } from '@/components/apps/use-apps';
 import { TextSkeleton } from '@/components/states';
 import { StackTabStrip } from './stack-tab-strip';
 
-interface TonePhrase {
-  word: string;
-  sentence: string;
-}
-
-const IDLE_PHRASE: TonePhrase = { word: 'idle', sentence: 'Sitting' };
-
-const TONE_WORD: Record<string, TonePhrase> = {
-  online: { word: 'green', sentence: 'All' },
-  progress: { word: 'converging', sentence: 'Still' },
-  warning: { word: 'you', sentence: 'Needs' },
-  offline: { word: 'down', sentence: 'Something is' },
-  idle: IDLE_PHRASE,
+const CLAUSE: Record<Tone, { text: string; tone: Tone | null }> = {
+  ok: { text: 'is online.', tone: null },
+  warn: { text: 'needs you.', tone: 'warn' },
+  bad: { text: 'is down.', tone: 'bad' },
+  info: { text: 'is deploying.', tone: 'info' },
+  idle: { text: 'is idle.', tone: null },
+  mesh: { text: 'is private.', tone: null },
 };
 
-interface StackHeaderProps {
-  stack: string;
-  /** Live aggregate for this stack; undefined while the inventory is loading. */
-  stat: StackStat | undefined;
+/** "storefront is online. 10 copies across 4 parts." — from the live stats. */
+function Title({ app }: { app: AppItem }): React.JSX.Element {
+  const c = CLAUSE[app.words.tone];
+  const second =
+    app.words.tone === 'ok'
+      ? `${plural(app.stat.running, 'copy', 'copies')} across ${plural(app.stat.serviceCount, 'part')}.`
+      : app.words.say.replace(/^Deploying\. /, '');
+  return (
+    <>
+      {app.name} {c.tone ? <Say tone={c.tone}>{c.text}</Say> : c.text} <em>{second}</em>
+    </>
+  );
 }
 
 /**
- * The one header every stack workspace tab shares: `← Stacks` breadcrumb,
- * eyebrow, the stack name with its health as a statement, live counts, then
- * the tab strip. Identical on every tab — including the Overview canvas — so
- * nothing jumps when you switch. Counts shimmer until the inventory lands.
+ * The one header every app tab shares: eyebrow (App · address), the sentence
+ * headline and two quiet actions, then the tab strip. Identical on every tab,
+ * so nothing jumps when you switch. The sentence waits for the inventory.
  */
-export function StackHeader({ stack, stat }: StackHeaderProps): React.JSX.Element {
-  const isSystem = isSystemStack(stack);
-  const tone = stat?.tone ?? 'idle';
-  const phrase = TONE_WORD[tone] ?? IDLE_PHRASE;
-
+export function StackHeader({ stack, app }: { stack: string; app: AppItem | undefined }): React.JSX.Element {
+  const system = app?.stat.system ?? false;
+  const host = app?.host ?? null;
   return (
-    <header>
-      <Link
-        to="/"
-        className="text-muted-foreground hover:text-foreground mb-3 inline-flex w-fit items-center gap-1.5 text-sm font-medium transition-colors"
-      >
-        <ArrowLeftIcon className="size-3.5" /> Stacks
-      </Link>
-
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
-          {isSystem ? (
-            <div className="border-border text-muted-foreground mb-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold tracking-wide uppercase">
-              <ShieldIcon className="size-3.5" /> System · managed by swarmy
-            </div>
-          ) : (
-            <div className="eyebrow mb-2">Stack</div>
-          )}
-          <h1 className="headline text-2xl leading-[1.05] sm:text-3xl">
-            {stack}
-            {stat && (
-              <span className="text-muted-foreground/80 font-display ml-3 text-[0.55em] font-semibold">
-                {phrase.sentence} <em>{phrase.word}</em>.
-              </span>
-            )}
-          </h1>
-        </div>
-        <div className="mono-data text-muted-foreground flex items-center gap-4 pb-1 text-sm">
-          {stat ? (
+    <header className="flex flex-col gap-5">
+      <SayHeader
+        eyebrow={system ? 'Platform · managed by swarmy' : host ? `App · ${host}` : 'App'}
+        size="md"
+        title={app ? <Title app={app} /> : <TextSkeleton className="h-8 w-80 max-w-full" />}
+        actions={
+          system ? undefined : (
             <>
-              <span className="flex items-center gap-2">
-                <span
-                  className="size-2 rounded-full"
-                  style={{ background: `var(--status-${tone})` }}
-                />
-                {stat.serviceCount} service{stat.serviceCount === 1 ? '' : 's'}
-              </span>
-              <span>
-                {stat.running}/{stat.desired} replicas
-              </span>
+              {host ? (
+                <Button asChild variant="outline">
+                  <a href={`https://${host}`} target="_blank" rel="noreferrer">
+                    Open the site <ArrowUpRightIcon aria-hidden className="size-4" />
+                  </a>
+                </Button>
+              ) : null}
+              <Button asChild variant="outline">
+                <Link to="/stacks/$name/releases" params={{ name: stack }}>
+                  Deploy a change
+                </Link>
+              </Button>
             </>
-          ) : (
-            <>
-              <TextSkeleton className="w-20" />
-              <TextSkeleton className="w-16" />
-            </>
-          )}
-        </div>
-      </div>
-
+          )
+        }
+      />
       <StackTabStrip stack={stack} />
     </header>
   );

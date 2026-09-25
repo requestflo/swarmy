@@ -3,9 +3,9 @@ import { createFileRoute, Outlet } from '@tanstack/react-router';
 import { StackWorkspaceLayout } from '@/components/stacks/workspace/stack-workspace-layout';
 
 /**
- * The stack workspace — a stack is a real URL and the primary unit you
- * operate. Child routes are the workspace tabs (Overview canvas, Data,
- * Messaging, Observability, Network, Config, Backups, Releases, Settings).
+ * The app workspace — an app (a Docker stack) is a real URL and the unit you
+ * operate. Child routes are its tabs (Overview · Logs · Domains · Data ·
+ * Variables & secrets · Releases · Access · …, see lib/stack-nav.ts).
  */
 export const Route = createFileRoute('/_authed/stacks/$name')({
   component: StackWorkspacePage,
