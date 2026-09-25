@@ -34,6 +34,15 @@ function controller(mode: { echo: boolean; blackholeAfterFirst?: boolean }) {
   return { server, opens: () => opens, url: `ws://127.0.0.1:${server.port}/agent/ws` };
 }
 
+/** Poll until `cond` holds (or fail after `ms`): no fixed sleeps racing the scheduler. */
+async function waitFor(cond: () => boolean, ms: number): Promise<void> {
+  const until = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > until) throw new Error(`condition not met within ${ms} ms`);
+    await Bun.sleep(20);
+  }
+}
+
 let stopAll: Array<() => void> = [];
 afterEach(() => {
   for (const s of stopAll) s();
@@ -47,8 +56,10 @@ function agent(url: string, extra: Partial<ConstructorParameters<typeof AgentCon
     onRegisterAck: () => undefined,
     onCommand: () => undefined,
     backoff: FAST,
-    idleMs: 150,
-    watchdogMs: 25,
+    // Budgets wide enough that scheduler jitter on a loaded CI box can't flip
+    // a result: a healthy link beats every 40 ms against a 1 s idle budget.
+    idleMs: 1_000,
+    watchdogMs: 50,
     ...extra,
   });
   conn.start();
@@ -67,7 +78,7 @@ describe('agent dead-link detection', () => {
     const c = controller({ echo: true, blackholeAfterFirst: true });
     stopAll.push(() => c.server.stop(true));
     agent(c.url);
-    await Bun.sleep(600);
+    await waitFor(() => c.opens() >= 2, 5_000);
     expect(c.opens()).toBeGreaterThanOrEqual(2); // the agent gave up on the silent socket and came back
   });
 
@@ -77,7 +88,7 @@ describe('agent dead-link detection', () => {
     const conn = agent(c.url);
     const beat = setInterval(() => conn.send('heartbeat', { seq: 1, uptimeSec: 1, inflightCommands: 0 }), 40);
     stopAll.push(() => clearInterval(beat));
-    await Bun.sleep(500);
+    await Bun.sleep(2_500); // 2.5x the idle budget
     expect(c.opens()).toBe(1);
     expect(conn.connected).toBe(true);
   });
@@ -86,16 +97,17 @@ describe('agent dead-link detection', () => {
     const c = controller({ echo: false });
     stopAll.push(() => c.server.stop(true));
     agent(c.url);
-    await Bun.sleep(500);
+    await Bun.sleep(2_500);
     expect(c.opens()).toBe(1);
   });
 
   it('a link down past strandedMs reports once (the daemon then exits a container agent)', async () => {
     const stranded: number[] = [];
-    agent('ws://127.0.0.1:1/agent/ws', { strandedMs: 200, onStranded: (ms) => stranded.push(ms) });
-    await Bun.sleep(500);
+    agent('ws://127.0.0.1:1/agent/ws', { strandedMs: 300, onStranded: (ms) => stranded.push(ms) });
+    await waitFor(() => stranded.length > 0, 5_000);
+    await Bun.sleep(500); // and it reports only once per outage
     expect(stranded).toHaveLength(1);
-    expect(stranded[0]!).toBeGreaterThan(200);
+    expect(stranded[0]!).toBeGreaterThan(300);
   });
 
   it('only a container agent exits when stranded (overridable)', () => {
