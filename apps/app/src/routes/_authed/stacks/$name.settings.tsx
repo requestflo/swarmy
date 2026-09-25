@@ -1,13 +1,13 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { StackSettingsTab } from '@/components/ai/stack-settings/stack-settings-tab';
+import { SettingsTab } from '@/components/app-tabs/scaling/settings-tab';
 
-/** Settings tab: environment, AI-gateway access & outlet, add-service, danger zone. */
+/** Settings tab: copies and where they run; from Controls, environment, AI gateway, add-service, danger zone. */
 export const Route = createFileRoute('/_authed/stacks/$name/settings')({
-  component: SettingsTab,
+  component: SettingsTabRoute,
 });
 
-function SettingsTab(): React.JSX.Element {
+function SettingsTabRoute(): React.JSX.Element {
   const { name } = Route.useParams();
-  return <StackSettingsTab stack={name} />;
+  return <SettingsTab stack={name} />;
 }
