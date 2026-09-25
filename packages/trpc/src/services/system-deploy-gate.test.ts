@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'bun:test';
+import type { ServiceSpec } from '@swarmy/core/protocol';
 import { SPEC_SIGNATURE_LABEL, deploySignature, gateSystemDeploy, isSystemOwned } from './system-service-deploy';
 
 /** The no-op-update guard for every system-service converge. */
-const collector = { name: 'swarmy-otel-collector', image: 'otel/opentelemetry-collector-contrib@sha256:aa', labels: { 'swarmy.system': 'true' } };
+const collector: ServiceSpec = { name: 'swarmy-otel-collector', image: 'otel/opentelemetry-collector-contrib@sha256:aa', labels: { 'swarmy.system': 'true' } };
 
 describe('gateSystemDeploy', () => {
   it('system-owned: platform label, swarmy-* names, managed-data labels; never user apps', () => {
