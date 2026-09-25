@@ -87,6 +87,13 @@ function nextMeshIp(st: MeshState): string {
   return `100.92.0.${10 + st.peers.length}`;
 }
 
+/** Demo people on the private network (mirror of `ConnectedPersonView`). */
+const DEMO_PEOPLE = [
+  { peerId: 'pp-calum', netbirdUserId: 'nb-calum', email: 'pilot@swarmy.dev', name: 'Demo Pilot', device: 'Pilot’s MacBook Pro', os: 'macOS 15', version: '0.36.5', meshIp: '100.92.4.31', connected: true, lastSeen: isoAgo(20_000), loginExpired: false, groups: ['swarmy:c1:access:storefront', 'swarmy:c1:access:data'], stacks: ['storefront', 'data'] },
+  { peerId: 'pp-priya', netbirdUserId: 'nb-priya', email: 'priya@northwind.dev', name: 'Priya', device: 'Priya’s ThinkPad', os: 'Ubuntu 24.04', version: '0.36.5', meshIp: '100.92.4.32', connected: true, lastSeen: isoAgo(45_000), loginExpired: false, groups: ['swarmy:c1:access:storefront'], stacks: ['storefront'] },
+  { peerId: 'pp-sam', netbirdUserId: 'nb-sam', email: 'sam@northwind.dev', name: 'Sam', device: 'Sam’s iPhone', os: 'iOS 18', version: '0.36.5', meshIp: '100.92.4.33', connected: false, lastSeen: isoAgo(2 * 60 * MIN), loginExpired: false, groups: ['swarmy:c1:access:platform'], stacks: ['platform'] },
+];
+
 export const mesh: DomainResolvers = {
   handlers: {
     'mesh.getConfig': (_i, s): MeshConfigView => toConfigView(getState(s)),
@@ -154,6 +161,19 @@ export const mesh: DomainResolvers = {
       return peer;
     },
 
+    // People access: the managed control plane, two laptops online, a phone asleep.
+    'mesh.people.card': () => ({
+      managed: true,
+      settings: { enabled: true, loginExpiryHours: 8 },
+      online: DEMO_PEOPLE.filter((p) => p.connected).length,
+      devices: DEMO_PEOPLE.length,
+      identity: 'People sign in through swarmy (and any SSO it is set up with). NetBird never sees a password.',
+      plan: null,
+    }),
+    'mesh.people.connected': (i) => {
+      const stack = (i as { stack?: string } | undefined)?.stack;
+      return stack ? DEMO_PEOPLE.filter((p) => p.stacks.includes(stack)) : DEMO_PEOPLE;
+    },
   },
 
   seed: (store) => {

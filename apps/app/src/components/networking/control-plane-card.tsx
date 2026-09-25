@@ -78,7 +78,7 @@ export function ControlPlaneCard({ driver }: { driver: string }): React.JSX.Elem
                 <div className="grid gap-1.5">
                   <Label className="mono-label">Mode</Label>
                   <Select value={mode} onValueChange={(v) => setMode(v as ControlPlaneMode)}>
-                    <SelectTrigger>
+                    <SelectTrigger aria-label="Control plane">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

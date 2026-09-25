@@ -61,7 +61,7 @@ export function EnrollNodeCard({
             <Label className="mono-label">Node</Label>
             <div className="flex gap-2">
               <Select value={enrollNodeId} onValueChange={onEnrollNodeIdChange}>
-                <SelectTrigger>
+                <SelectTrigger aria-label="Server to add">
                   <SelectValue placeholder="Select a node" />
                 </SelectTrigger>
                 <SelectContent>

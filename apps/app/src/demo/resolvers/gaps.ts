@@ -56,15 +56,7 @@ export const gaps: DomainResolvers = {
       tls: null,
       warnings: [],
     }),
-    'mesh.people.card': (): Out['mesh']['people']['card'] => ({
-      managed: false,
-      settings: { enabled: false, loginExpiryHours: 12 },
-      online: 0,
-      devices: 0,
-      identity: 'swarmy',
-      plan: null,
-    }),
-    'mesh.people.connected': (): Out['mesh']['people']['connected'] => [],
+    // mesh.people.card / mesh.people.connected live in mesh.ts (two laptops online).
     'mesh.people.grants': (): Out['mesh']['people']['grants'] => [],
     'mesh.people.connectInfo': (): Out['mesh']['people']['connectInfo'] => ({
       available: false,

@@ -117,7 +117,7 @@ export function SwarmyControlPlaneCard(): React.JSX.Element {
           </Button>
           <div className="flex items-center gap-2">
             <Select value={moveTo} onValueChange={setMoveTo}>
-              <SelectTrigger className="w-52">
+              <SelectTrigger className="w-52" aria-label="Move to another manager">
                 <SelectValue placeholder="Move to another manager" />
               </SelectTrigger>
               <SelectContent>

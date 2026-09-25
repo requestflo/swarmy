@@ -60,7 +60,7 @@ export function MeshDriverCard({
         <div className="grid gap-1.5">
           <Label className="mono-label">Mesh driver</Label>
           <Select value={driver} onValueChange={(v) => onDriverChange(v as MeshDriverId)}>
-            <SelectTrigger>
+            <SelectTrigger aria-label="Private network driver">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

@@ -245,7 +245,7 @@ export function ConnectFromLaptop({ stack }: { stack: string }): React.JSX.Eleme
               ))}
               <div className="flex flex-wrap items-center gap-2 px-6 py-3">
                 <Select value={who} onValueChange={setWho}>
-                  <SelectTrigger className="w-48">
+                  <SelectTrigger className="w-48" aria-label="Person">
                     <SelectValue placeholder="Person" />
                   </SelectTrigger>
                   <SelectContent>
@@ -257,7 +257,7 @@ export function ConnectFromLaptop({ stack }: { stack: string }): React.JSX.Eleme
                   </SelectContent>
                 </Select>
                 <Select value={ttl} onValueChange={setTtl}>
-                  <SelectTrigger className="w-32">
+                  <SelectTrigger className="w-32" aria-label="How long">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
