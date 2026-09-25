@@ -203,7 +203,7 @@ Four ideas, one story:
   touches a throwaway `drill-<ts>` cluster and cleans it up on success *or*
   failure; backup-verify is read-only. All are admin-only, confirmed in the UI, and
   audited.
-- **Database backups are on by default; everything else is opt-in.** Once a
+- **Database backups are on by default** (and, since 2026-09, every named volume — below). Once a
   destination exists, databases get a nightly backup with zero clicks
   (`autoBackup.ts`, 7-day retention): managed Postgres a logical `pg_dump`
   (a `swarmy.db.backup.schedule` label with `"auto": true`), compose/blueprint
@@ -223,6 +223,21 @@ Four ideas, one story:
   and removing an auto schedule leaves an opt-out marker so it is never
   re-created. No controller backups until you set a passphrase; no drills run
   themselves.
+- **Every named volume is backed up nightly by default too** (owner decision,
+  2026-09; `detectBackupVolumes` in `autoBackup.ts`): the same `auto`
+  `BackupSchedule` row, crash-consistent, keep 7, to the native Garage store
+  when it exists — and, when an external S3 destination also exists, "also
+  copied to" it (the two-destination feature), so the nightly copy leaves the
+  swarm. Skipped: bind mounts, swarmy plumbing, managed data members (their
+  own domain backs them up) and volumes that exist once per node (global or
+  multi-replica services). Opt out per app with the `swarmy.backup.auto=off`
+  label, per volume with `swarmy.backup.auto.exclude=<name>,…` (both stamped on
+  the app's services — also settable in compose `deploy.labels`, or from the
+  stack's Backups tab), or by removing the auto schedule. The sweep retires an
+  opted-out auto schedule (snapshots are kept) and never touches a user's own.
+- **A new managed Postgres gets a standby by default** once the swarm has 2+
+  ready servers: one streaming replica, anti-affine to the primary, about
+  100 MB of RAM (`defaultStandbyReplicas`). `replicas: 0` opts out.
 
 ## Failure modes (designed, not accidental)
 

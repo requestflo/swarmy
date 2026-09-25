@@ -5,6 +5,10 @@ import {
   AUTO_NATIVE_TARGET_NAME,
   DB_BACKUP_AUTO_LABEL,
   chooseAutoBackupTarget,
+  chooseAutoSecondaryTarget,
+  detectBackupVolumes,
+  nextExcludeLabel,
+  volumeAutoOptOut,
   detectDbEngine,
   detectDbServices,
   planManagedAutoSchedule,
@@ -13,7 +17,7 @@ import {
   staggeredCron,
   staggeredSlot,
 } from './autoBackup';
-import { ensureAutoBackupsForOrg } from './autoBackup.service';
+import { autoBackupCoverage, ensureAutoBackupsForOrg, setAutoVolumeBackup } from './autoBackup.service';
 import { NATIVE_TARGET_NAME } from './backups.service';
 import { encodeScheduleLabel, parseScheduleLabel } from './dbBackup.service';
 import { provisionDb } from './manageddb.service';
@@ -314,6 +318,8 @@ function world(opts: {
   services: SwarmServiceInfo[];
   targets?: Array<{ id: string; name: string; kind: string; enabled: boolean; createdAt: Date }>;
   schedules?: Array<Record<string, unknown>>;
+  /** Running task containers on node1 (so a volume's host node resolves). */
+  containers?: Array<{ id: string; serviceId: string; state: string }>;
 }): World {
   const dispatches: World['dispatches'] = [];
   const audits: World['audits'] = [];
@@ -338,10 +344,10 @@ function world(opts: {
     managerNode: () => 'node1',
     isOnline: () => true,
     onlineNodeIds: () => ['node1'],
-    latestContainers: () => [],
+    latestContainers: () => opts.containers ?? [],
     nodeInventory: () => [],
     swarmNodeIdFor: () => 'swarm-node-1',
-    liveInventory: () => ({ services: opts.services, containers: [] }),
+    liveInventory: () => ({ services: opts.services, containers: opts.containers ?? [] }),
     dispatch: (_n: string, cmd: string, payload: Record<string, unknown>) => {
       dispatches.push({ cmd, payload });
       return Promise.resolve({});
@@ -384,7 +390,7 @@ describe('ensureAutoBackupsForOrg', () => {
   it('schedules the compose DB volume + the managed cluster, audited as backup.schedule.auto', async () => {
     const w = world({ services: [wpDb, managedPrimary], targets: [target] });
     const res = await ensureAutoBackupsForOrg(w.ctx, NOW);
-    expect(res).toEqual({ destination: 'tgt', managedStamped: 1, volumeSchedulesCreated: 1 });
+    expect(res).toEqual({ destination: 'tgt', managedStamped: 1, volumeSchedulesCreated: 1, volumeSchedulesRetired: 0 });
 
     const row = w.schedules[0]!;
     expect(row).toMatchObject({
@@ -434,7 +440,7 @@ describe('ensureAutoBackupsForOrg', () => {
   it('no destination: creates nothing, does not throw', async () => {
     const w = world({ services: [wpDb, managedPrimary], targets: [] });
     const res = await ensureAutoBackupsForOrg(w.ctx, NOW);
-    expect(res).toEqual({ destination: null, managedStamped: 0, volumeSchedulesCreated: 0 });
+    expect(res).toEqual({ destination: null, managedStamped: 0, volumeSchedulesCreated: 0, volumeSchedulesRetired: 0 });
     expect(w.dispatches).toHaveLength(0);
     expect(w.schedules).toHaveLength(0);
     expect(w.audits).toHaveLength(0);
@@ -532,5 +538,175 @@ describe('provisionDb — default-on backup schedule', () => {
     };
     expect(spec2.labels['swarmy.db.backup.schedule']).toBeUndefined();
     expect(w2.audits.filter((a) => a.action === 'backup.schedule.auto')).toHaveLength(0);
+  });
+});
+
+// ── every named volume (plans/epic-volume-mobility.md §5.2) ──────────────────
+
+const blogWeb = svc({
+  name: 'blog_web',
+  image: 'ghost:5',
+  labels: { 'com.docker.stack.namespace': 'blog' },
+  mounts: [
+    { type: 'volume', source: 'blog_content', target: '/var/lib/ghost/content' },
+    { type: 'volume', source: 'blog_cache', target: '/cache' },
+    { type: 'bind', source: '/srv/blog', target: '/srv' },
+  ],
+});
+const blogTask = { id: 'c-blog', serviceId: 'blog_web', state: 'running' };
+const native = { id: 'nat', name: NATIVE_TARGET_NAME, kind: 'S3', enabled: true, createdAt: new Date(T0) };
+const offsite = { id: 'off', name: 'offsite', kind: 'S3', enabled: true, createdAt: new Date('2026-02-01T00:00:00Z') };
+
+describe('detectBackupVolumes (pure)', () => {
+  it('every named volume of an app, DBs first; binds, plumbing, managed members and per-node volumes are skipped', () => {
+    const scaled = svc({ name: 'blog_worker', image: 'x', desiredReplicas: 3, labels: { 'com.docker.stack.namespace': 'blog' }, mounts: [{ type: 'volume', source: 'blog_tmp', target: '/t' }] });
+    const global = svc({ name: 'blog_agent', image: 'x', mode: 'global', labels: { 'com.docker.stack.namespace': 'blog' }, mounts: [{ type: 'volume', source: 'blog_g', target: '/g' }] });
+    const cache = svc({ name: 'blog_c-primary', image: 'valkey/valkey:8', labels: { 'com.docker.stack.namespace': 'blog', 'swarmy.cache.cluster': 'c' }, mounts: [{ type: 'volume', source: 'blog_c-data', target: '/data' }] });
+    const sys = svc({ name: 'swarmy-garage', image: 'garage', labels: { 'com.docker.stack.namespace': 'swarmy-system' }, mounts: [{ type: 'volume', source: 'garage-data', target: '/d' }] });
+    const got = detectBackupVolumes([blogWeb, wpDb, scaled, global, cache, sys]);
+    expect(got.map((v) => [v.volume, v.engine])).toEqual([
+      ['wp_db-data', 'mariadb'],
+      ['blog_cache', null],
+      ['blog_content', null],
+    ]);
+  });
+
+  it('opt-out labels: the whole app, or one volume by short or full name', () => {
+    const v = { stack: 'blog', service: 'blog_web', volume: 'blog_cache', engine: null };
+    expect(volumeAutoOptOut(v, [{ labels: {} }])).toBeNull();
+    expect(volumeAutoOptOut(v, [{ labels: {} }, { labels: { 'swarmy.backup.auto': 'OFF' } }])).toBe('app');
+    expect(volumeAutoOptOut(v, [{ labels: { 'swarmy.backup.auto.exclude': 'uploads, cache' } }])).toBe('volume');
+    expect(volumeAutoOptOut(v, [{ labels: { 'swarmy.backup.auto.exclude': 'blog_cache' } }])).toBe('volume');
+    expect(volumeAutoOptOut(v, [{ labels: { 'swarmy.backup.auto.exclude': 'blog_cachex' } }])).toBeNull();
+  });
+
+  it('nextExcludeLabel adds/removes one volume and drops an empty label', () => {
+    expect(nextExcludeLabel(undefined, 'blog_cache', 'blog', true)).toBe('cache');
+    expect(nextExcludeLabel('uploads', 'blog_cache', 'blog', true)).toBe('cache,uploads');
+    expect(nextExcludeLabel('cache,uploads', 'blog_cache', 'blog', false)).toBe('uploads');
+    expect(nextExcludeLabel('blog_cache', 'blog_cache', 'blog', false)).toBeNull();
+  });
+
+  it('secondary: an off-box S3 copy only when the primary is the native Garage store', () => {
+    const node = { id: 'n', name: 'disk', kind: 'NODE', enabled: true, createdAt: new Date(T0) };
+    expect(chooseAutoSecondaryTarget([native, offsite, node], native)?.id).toBe('off');
+    expect(chooseAutoSecondaryTarget([native, node], native)).toBeNull();
+    expect(chooseAutoSecondaryTarget([offsite], offsite)).toBeNull();
+    expect(chooseAutoSecondaryTarget([native, { ...offsite, enabled: false }], native)).toBeNull();
+  });
+});
+
+describe('ensureAutoBackupsForOrg — every named volume', () => {
+  it('schedules each named volume nightly to native Garage, also copied off-box, audited', async () => {
+    const w = world({ services: [blogWeb], targets: [native, offsite], containers: [blogTask] });
+    const res = await ensureAutoBackupsForOrg(w.ctx, NOW);
+    expect(res.volumeSchedulesCreated).toBe(2);
+    const rows = w.schedules.sort((a, b) => String(a.volume).localeCompare(String(b.volume)));
+    expect(rows.map((r) => [r.volume, r.targetId, r.secondaryTargetId, r.nodeId, r.auto])).toEqual([
+      ['blog_cache', 'nat', 'off', 'node1', true],
+      ['blog_content', 'nat', 'off', 'node1', true],
+    ]);
+    expect(w.audits.filter((a) => a.action === 'backup.schedule.auto')).toHaveLength(2);
+    // Steady state: a second sweep writes nothing.
+    expect((await ensureAutoBackupsForOrg(w.ctx, NOW)).volumeSchedulesCreated).toBe(0);
+  });
+
+  it('a plain volume with no running task waits (never backs up a manager\'s empty copy)', async () => {
+    const w = world({ services: [blogWeb], targets: [native] });
+    expect((await ensureAutoBackupsForOrg(w.ctx, NOW)).volumeSchedulesCreated).toBe(0);
+  });
+
+  it('back-fills the off-box copy on an auto row made before the S3 target existed', async () => {
+    const w = world({
+      services: [blogWeb],
+      targets: [native, offsite],
+      containers: [blogTask],
+      schedules: [
+        { id: 's1', orgId: 'org1', targetId: 'nat', secondaryTargetId: null, volume: 'blog_content', nodeId: 'node1', every: 1, unit: 'days', paused: false, auto: true, retentionDays: 7, createdAt: new Date(T0), anchorAt: null, optedOutAt: null },
+        { id: 's2', orgId: 'org1', targetId: 'nat', secondaryTargetId: null, volume: 'blog_cache', nodeId: 'node1', every: 1, unit: 'days', paused: false, auto: false, retentionDays: 7, createdAt: new Date(T0), anchorAt: null, optedOutAt: null },
+      ],
+    });
+    await ensureAutoBackupsForOrg(w.ctx, NOW);
+    const byId = new Map(w.schedules.map((r) => [r.id, r]));
+    expect(byId.get('s1')!.secondaryTargetId).toBe('off');
+    expect(byId.get('s2')!.secondaryTargetId).toBeNull(); // a user schedule is theirs
+  });
+
+  it('app opt-out label retires the auto rows (user rows kept); a tombstone still opts one volume out', async () => {
+    const off = svc({ ...blogWeb, labels: { ...blogWeb.labels, 'swarmy.backup.auto': 'off' } });
+    const w = world({
+      services: [off],
+      targets: [native],
+      containers: [blogTask],
+      schedules: [
+        { id: 'a1', orgId: 'org1', targetId: 'nat', volume: 'blog_content', nodeId: 'node1', every: 1, unit: 'days', paused: false, auto: true, retentionDays: 7, createdAt: new Date(T0), anchorAt: null, optedOutAt: null },
+        { id: 'u1', orgId: 'org1', targetId: 'nat', volume: 'blog_cache', nodeId: 'node1', every: 1, unit: 'days', paused: false, auto: false, retentionDays: 7, createdAt: new Date(T0), anchorAt: null, optedOutAt: null },
+      ],
+    });
+    const res = await ensureAutoBackupsForOrg(w.ctx, NOW);
+    expect(res).toMatchObject({ volumeSchedulesCreated: 0, volumeSchedulesRetired: 1 });
+    expect(w.schedules.map((r) => r.id)).toEqual(['u1']);
+
+    const t = world({
+      services: [blogWeb],
+      targets: [native],
+      containers: [blogTask],
+      schedules: [
+        { id: 't1', orgId: 'org1', targetId: 'nat', volume: 'blog_cache', nodeId: 'node1', every: 1, unit: 'days', paused: true, auto: true, retentionDays: 7, createdAt: new Date(T0), anchorAt: null, optedOutAt: new Date(T0) },
+      ],
+    });
+    await ensureAutoBackupsForOrg(t.ctx, NOW);
+    expect(t.schedules.filter((r) => r.volume === 'blog_cache')).toHaveLength(1); // only the tombstone
+    expect(t.schedules.filter((r) => r.volume === 'blog_content')).toHaveLength(1);
+  });
+
+  it('coverage lists plain volumes with their opt-out state', async () => {
+    const ex = svc({ ...blogWeb, labels: { ...blogWeb.labels, 'swarmy.backup.auto.exclude': 'cache' } });
+    const w = world({ services: [ex], targets: [native, offsite], containers: [blogTask] });
+    await ensureAutoBackupsForOrg(w.ctx, NOW);
+    const cov = await autoBackupCoverage(w.ctx, 'blog');
+    expect(cov.appOptedOut).toBe(false);
+    expect(cov.volumes.map((v) => [v.volume, v.status, v.optOut, v.secondaryTargetId])).toEqual([
+      ['blog_cache', 'opted-out', 'volume', null],
+      ['blog_content', 'auto', null, 'off'],
+    ]);
+  });
+});
+
+describe('setAutoVolumeBackup', () => {
+  it('app off/on stamps and removes swarmy.backup.auto on every stack service, audited', async () => {
+    const w = world({ services: [blogWeb], targets: [native] });
+    await setAutoVolumeBackup(w.ctx, { stack: 'blog', enabled: false });
+    expect(w.dispatches.at(-1)).toEqual({
+      cmd: 'service.updateLabels',
+      payload: { service: 'blog_web', add: { 'swarmy.backup.auto': 'off' }, removeKeys: [] },
+    });
+    expect(w.audits.at(-1)).toMatchObject({ action: 'backup.auto.set', targetId: 'blog' });
+
+    const on = world({ services: [svc({ ...blogWeb, labels: { ...blogWeb.labels, 'swarmy.backup.auto': 'off' } })], targets: [native] });
+    await setAutoVolumeBackup(on.ctx, { stack: 'blog', enabled: true });
+    expect(on.dispatches.at(-1)!.payload).toEqual({ service: 'blog_web', add: {}, removeKeys: ['swarmy.backup.auto'] });
+  });
+
+  it('one volume: edits the exclude label; turning it back on clears its tombstone', async () => {
+    const w = world({
+      services: [svc({ ...blogWeb, labels: { ...blogWeb.labels, 'swarmy.backup.auto.exclude': 'cache' } })],
+      targets: [native],
+      schedules: [
+        { id: 't1', orgId: 'org1', targetId: 'nat', volume: 'blog_cache', nodeId: 'node1', every: 1, unit: 'days', paused: true, auto: true, retentionDays: 7, createdAt: new Date(T0), anchorAt: null, optedOutAt: new Date(T0) },
+      ],
+    });
+    await setAutoVolumeBackup(w.ctx, { stack: 'blog', volume: 'blog_cache', enabled: true });
+    expect(w.dispatches.at(-1)!.payload).toEqual({ service: 'blog_web', add: {}, removeKeys: ['swarmy.backup.auto.exclude'] });
+    expect(w.schedules).toHaveLength(0);
+
+    const x = world({ services: [blogWeb], targets: [native] });
+    await setAutoVolumeBackup(x.ctx, { stack: 'blog', volume: 'blog_content', enabled: false });
+    expect(x.dispatches.at(-1)!.payload).toEqual({ service: 'blog_web', add: { 'swarmy.backup.auto.exclude': 'content' }, removeKeys: [] });
+  });
+
+  it('unknown stack → not found', async () => {
+    const w = world({ services: [], targets: [native] });
+    await expect(setAutoVolumeBackup(w.ctx, { stack: 'nope', enabled: false })).rejects.toThrow();
   });
 });

@@ -269,3 +269,119 @@ export function planManagedAutoSchedule(input: {
   if (!input.target) return { action: 'none', reason: 'no-destination' };
   return { action: 'stamp', targetId: input.target.id, cron, repoint: false };
 }
+
+// ── every named volume (plans/epic-volume-mobility.md §5.2) ─────────────────
+//
+// Owner decision: EVERY named volume of an app gets the nightly crash-
+// consistent restic copy by default, not only database volumes. Same auto
+// `BackupSchedule` row as the compose-DB path above (one per volume), with an
+// opt-out that is Docker truth on the app's services:
+//
+//   swarmy.backup.auto=off                   the whole app (stack) is out
+//   swarmy.backup.auto.exclude=uploads,cache these volumes are out (compose
+//                                            short name or full `<stack>_x`)
+//
+// plus the existing per-volume tombstone (removing an auto schedule).
+
+/** `off` on any service of a stack opts the whole app out of default volume backups. */
+export const VOLUME_BACKUP_AUTO_LABEL = 'swarmy.backup.auto';
+/** Comma-separated volumes (short compose name or full name) left out of default backups. */
+export const VOLUME_BACKUP_EXCLUDE_LABEL = 'swarmy.backup.auto.exclude';
+
+export interface DetectedVolume {
+  stack: string;
+  service: string;
+  volume: string;
+  /** Set when the volume is a detected database's data volume. */
+  engine: DetectedDbEngine | null;
+}
+
+function isPlumbing(s: SwarmServiceInfo): boolean {
+  const stack = s.labels[STACK_LABEL];
+  return !stack || stack === 'swarmy-system' || s.name.startsWith('swarmy-') || s.labels['swarmy.system'] === 'true';
+}
+
+function isManagedMember(s: SwarmServiceInfo): boolean {
+  return Object.keys(s.labels).some((k) => MANAGED_PREFIXES.some((p) => k.startsWith(p)));
+}
+
+/**
+ * Every named volume worth a default backup, databases first (so their row
+ * carries the engine). Skips swarmy plumbing, managed data members (their own
+ * domain backs them up — except the queue primary, a DB here), and services
+ * whose volume exists once PER NODE (global mode or more than one replica):
+ * a single schedule would copy one arbitrary node's copy and call it covered.
+ */
+export function detectBackupVolumes(services: SwarmServiceInfo[]): DetectedVolume[] {
+  const out: DetectedVolume[] = detectDbServices(services).map((d) => ({
+    stack: d.stack,
+    service: d.service,
+    volume: d.volume,
+    engine: d.engine,
+  }));
+  const seen = new Set(out.map((d) => d.volume));
+  const rest: DetectedVolume[] = [];
+  for (const s of services) {
+    if (isPlumbing(s)) continue;
+    if (!isQueuePrimary(s) && isManagedMember(s)) continue;
+    if (s.mode === 'global' || (s.desiredReplicas ?? 1) > 1) continue;
+    for (const m of s.mounts ?? []) {
+      if (!isNamedVolume(m) || seen.has(m.source)) continue;
+      seen.add(m.source);
+      rest.push({ stack: s.labels[STACK_LABEL]!, service: s.name, volume: m.source, engine: null });
+    }
+  }
+  return [...out, ...rest.sort((a, b) => a.volume.localeCompare(b.volume))];
+}
+
+function shortVolumeName(volume: string, stack: string): string {
+  return volume.startsWith(`${stack}_`) ? volume.slice(stack.length + 1) : volume;
+}
+
+/**
+ * Why default backups skip this volume, or null. `stackServices` = the live
+ * services of the volume's stack (the opt-out labels are stamped on all of
+ * them, like `swarmy.backup.retentionDays`; any one saying so counts).
+ */
+export function volumeAutoOptOut(
+  volume: DetectedVolume,
+  stackServices: ReadonlyArray<{ labels: Record<string, string> }>,
+): 'app' | 'volume' | null {
+  if (stackServices.some((s) => s.labels[VOLUME_BACKUP_AUTO_LABEL]?.trim().toLowerCase() === DB_BACKUP_AUTO_OFF)) {
+    return 'app';
+  }
+  const short = shortVolumeName(volume.volume, volume.stack);
+  const excluded = stackServices.some((s) =>
+    (s.labels[VOLUME_BACKUP_EXCLUDE_LABEL] ?? '')
+      .split(',')
+      .map((v) => v.trim())
+      .some((v) => v && (v === volume.volume || v === short)),
+  );
+  return excluded ? 'volume' : null;
+}
+
+/** Pure: the exclude label's value after adding/removing one volume (null = drop the label). */
+export function nextExcludeLabel(current: string | undefined, volume: string, stack: string, exclude: boolean): string | null {
+  const short = shortVolumeName(volume, stack);
+  const list = (current ?? '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter((v) => v && v !== short && v !== volume);
+  if (exclude) list.push(short);
+  return list.length > 0 ? [...new Set(list)].sort().join(',') : null;
+}
+
+/**
+ * The "also copy to" destination for an auto schedule (the two-destination
+ * feature): when the primary is the native in-cluster Garage store, the oldest
+ * enabled external S3 target, so the nightly copy also leaves the swarm.
+ * Null when the primary is already off-box or no other target exists.
+ */
+export function chooseAutoSecondaryTarget<T extends AutoTargetCandidate>(targets: T[], primary: T | null): T | null {
+  if (!primary || primary.name !== AUTO_NATIVE_TARGET_NAME) return null;
+  return (
+    targets
+      .filter((t) => t.enabled && t.id !== primary.id && t.name !== AUTO_NATIVE_TARGET_NAME && String(t.kind).toLowerCase() === 's3')
+      .sort((a, b) => stamp(a.createdAt) - stamp(b.createdAt))[0] ?? null
+  );
+}

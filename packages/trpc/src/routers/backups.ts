@@ -12,7 +12,7 @@ import {
   restoreSnapshot,
   setStackRetention,
 } from '../services/backups.service';
-import { autoBackupCoverage } from '../services/autoBackup.service';
+import { autoBackupCoverage, setAutoVolumeBackup } from '../services/autoBackup.service';
 import { appDbBackupRouter } from './appDbBackup';
 
 const retentionDays = z.number().int().min(1).max(3650);
@@ -83,6 +83,16 @@ export const backupsRouter = router({
   autoCoverage: orgProcedure
     .input(z.object({ stack: z.string().min(1) }))
     .query(({ ctx, input }) => autoBackupCoverage(ctx, input.stack)),
+
+  /**
+   * Default nightly volume backups on/off for a whole app (no `volume`) or one
+   * of its volumes — the `swarmy.backup.auto` / `swarmy.backup.auto.exclude`
+   * labels; the backup sweep retires or re-creates the auto schedules.
+   * Turning protection off is an admin decision.
+   */
+  setAutoVolumeBackup: adminProcedure
+    .input(z.object({ stack: z.string().min(1), volume: z.string().min(1).optional(), enabled: z.boolean() }))
+    .mutation(({ ctx, input }) => setAutoVolumeBackup(ctx, input)),
 
   listSnapshots: orgProcedure
     .input(

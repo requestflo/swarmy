@@ -7,6 +7,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { StackResilienceSection } from '@/components/resilience/stack-resilience-section';
 import { ErrorState } from '@/components/states';
 import { StackDbCoverageCard } from './stack-db-coverage-card';
+import { StackVolumeCoverageCard } from './stack-volume-coverage-card';
 import { StackDrHero } from './stack-dr-hero';
 import { StackSchedulesCard } from './stack-schedules-card';
 import { StackSnapshotsCard } from './stack-snapshots-card';
@@ -137,6 +138,13 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
 
       {coverage.data && (
         <StackDbCoverageCard stack={stack} coverage={coverage.data} onChangeVolume={changeVolume} />
+      )}
+      {coverage.data?.volumes && (
+        <StackVolumeCoverageCard
+          stack={stack}
+          volumes={coverage.data.volumes}
+          appOptedOut={coverage.data.appOptedOut ?? false}
+        />
       )}
       <StackSchedulesCard
         stack={stack}
