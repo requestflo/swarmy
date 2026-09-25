@@ -27,7 +27,7 @@ import type {
   PlanAction,
   ResourceType,
 } from '@swarmy/app-config';
-import { attachmentKey, compileServices, type Attachment } from './compile';
+import { attachmentKey, attachmentLive, compileServices, type Attachment } from './compile';
 import { ledgerAfter, type AppLedger } from './live';
 
 export interface AppOps {
@@ -54,6 +54,8 @@ export interface AppOps {
   removeService(name: string): Promise<void>;
   /** The image a live app service runs now (for services this plan does not rebuild). */
   liveImage(service: string): string | undefined;
+  /** The live env (`KEY=value`) of an app service, if it is in the inventory. */
+  liveEnv?(service: string): string[] | undefined;
 }
 
 export type ActionOutcome = { status: 'done' | 'held' | 'failed' | 'skipped'; message?: string };
@@ -176,13 +178,16 @@ export async function applyPlan(input: {
       // Wire credentials the compose must never carry (once per service/resource/var).
       for (const att of compiled.attachments) {
         const key = attachmentKey(att);
-        if (ledger.attached[att.service]?.includes(key)) continue;
+        // The ledger says attached, but only live proves it: re-attach when the
+        // service's env shows it's gone (QA-055).
+        const inLedger = ledger.attached[att.service]?.includes(key);
+        if (inLedger && attachmentLive(att, ops.liveEnv?.(att.service)) !== false) continue;
         await ops.attach(att, ledger);
         ledger = {
           ...ledger,
           attached: {
             ...ledger.attached,
-            [att.service]: [...(ledger.attached[att.service] ?? []), key],
+            [att.service]: [...new Set([...(ledger.attached[att.service] ?? []), key])],
           },
         };
       }

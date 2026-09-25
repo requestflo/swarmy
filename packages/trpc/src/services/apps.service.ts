@@ -634,6 +634,9 @@ export function realOps(
     liveImage(service) {
       return liveServices(ctx).find((x) => x.name === svcName(service))?.image;
     },
+    liveEnv(service) {
+      return liveServices(ctx).find((x) => x.name === svcName(service))?.env;
+    },
   };
 }
 

@@ -56,6 +56,14 @@ jobs:
   nightly: { schedule: "0 3 * * *", run: npm run nightly }
 `;
 
+/** The live route label a service carries once the ledger's routes were set on it (live = truth). */
+function routeLabelsFor(ledger: { routes: Record<string, { service: string; host: string; path: string }> }, service: string) {
+  const routes = Object.values(ledger.routes)
+    .filter((r) => r.service === service)
+    .map((r) => ({ host: r.host, port: 80, tls: 'auto', ...(r.path && r.path !== '/' ? { path: r.path } : {}) }));
+  return routes.length ? { 'swarmy.ingress.routes': JSON.stringify(routes) } : {};
+}
+
 describe('compileServices', () => {
   it('renders addressing into compose, credentials into attachments', () => {
     const d = desired(APP);
@@ -297,6 +305,7 @@ describe('applyPlan', () => {
               'swarmy.app.service': s.name,
               [APP_SIG_LABEL]: s.sig,
               ...(s.source.kind === 'build' ? { 'swarmy.app.build': s.source.key } : {}),
+              ...routeLabelsFor(res.ledger, s.name),
             },
           }),
         )
@@ -331,6 +340,7 @@ describe('applyPlan', () => {
               'swarmy.app.service': s.name,
               [APP_SIG_LABEL]: s.sig,
               ...(s.source.kind === 'build' ? { 'swarmy.app.build': s.source.key } : {}),
+              ...routeLabelsFor(first.ledger, s.name),
             },
           }),
         )
@@ -383,6 +393,7 @@ describe('applyPlan', () => {
               'swarmy.app.service': s.name,
               [APP_SIG_LABEL]: s.sig,
               'swarmy.app.build': s.source.kind === 'build' ? s.source.key : '',
+              ...routeLabelsFor(ledger, s.name),
             },
           }),
         )
@@ -505,5 +516,66 @@ describe('untilClusterLive (QA-029)', () => {
     expect(v).toBe('ok');
     expect(n).toBe(3);
     await expect(untilClusterLive(async () => { throw Object.assign(new Error('nope'), { code: 'FORBIDDEN' }); }, 1_000, 1)).rejects.toThrow('nope');
+  });
+});
+
+describe('live, not the ledger, proves routes and bindings (QA-055)', () => {
+  const setup = async () => {
+    const d = desired(APP);
+    const first = await applyPlan({
+      plan: planApp(d, readLiveApp({ stack: 'shop', services: [], ledger: emptyLedger(), jobNames: new Set(), desiredResources: [] })),
+      desired: d,
+      ledger: emptyLedger(),
+      ops: fakeOps().ops,
+    });
+    // The redeploy after an interrupted apply lost the route label and the env.
+    const live = (withRoutes: boolean) =>
+      readLiveApp({
+        stack: 'shop',
+        services: d.services
+          .map(
+            (s): LiveServiceLike => ({
+              name: s.serviceName,
+              image: 'old',
+              labels: {
+                [APP_STACK_LABEL]: 'shop',
+                'swarmy.app.service': s.name,
+                [APP_SIG_LABEL]: s.sig,
+                ...(s.source.kind === 'build' ? { 'swarmy.app.build': s.source.key } : {}),
+                ...(withRoutes ? routeLabelsFor(first.ledger, s.name) : {}),
+              },
+            }),
+          )
+          .concat([
+            { name: 'shop_db-primary', image: 'pg', labels: {} },
+            { name: 'shop_cache-cache', image: 'valkey', labels: {} },
+          ]),
+        ledger: first.ledger,
+        jobNames: new Set(['nightly']),
+        desiredResources: d.resources,
+      });
+    return { d, first, live };
+  };
+
+  it('a route in the ledger but not on the live service is planned again', async () => {
+    const { d, live } = await setup();
+    expect(planApp(d, live(false), { changedPaths: [] }).actions.map((a) => a.id)).toContain('route.add:shop.example.com');
+    expect(planApp(d, live(true), { changedPaths: [] }).actions.map((a) => a.id)).not.toContain('route.add:shop.example.com');
+  });
+
+  it('an attachment in the ledger but missing from the live env is attached again', async () => {
+    const { d, first, live } = await setup();
+    const plan = planApp(d, live(true), { changedPaths: ['src/index.ts'] });
+    const lost = fakeOps({ liveImage: () => 'old', liveEnv: (s) => (s === 'web' ? ['PUBLIC_URL=https://shop.example.com'] : []) });
+    await applyPlan({ plan, desired: d, ledger: first.ledger, ops: lost.ops });
+    expect(lost.calls).toContain('attach db:DATABASE_URL');
+    expect(lost.calls).toContain('attach cache:REDIS_URL');
+    // Present in the live env → not repeated.
+    const kept = fakeOps({
+      liveImage: () => 'old',
+      liveEnv: (s) => (s === 'web' ? ['DATABASE_URL=postgres://x', 'REDIS_URL=redis://y'] : []),
+    });
+    await applyPlan({ plan, desired: d, ledger: first.ledger, ops: kept.ops });
+    expect(kept.calls.some((c) => c.startsWith('attach db') || c.startsWith('attach cache'))).toBe(false);
   });
 });

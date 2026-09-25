@@ -91,6 +91,27 @@ export function attachmentKey(a: Attachment): string {
   }
 }
 
+/**
+ * PURE — does the LIVE service prove this attachment is (or isn't) in place?
+ * `true`/`false` when its env shows it; `undefined` when the attachment
+ * leaves nothing checkable here (secrets, buckets, ai, email). The ledger alone
+ * isn't proof: a redeploy that lost the carried env (the controller restarted
+ * mid-apply, or the inventory was cold) left a service with no DATABASE_URL
+ * while the ledger said "attached" forever (QA-055).
+ */
+export function attachmentLive(a: Attachment, liveEnv: readonly string[] | undefined): boolean | undefined {
+  if (!liveEnv) return undefined;
+  const has = (name: string) => liveEnv.some((kv) => kv === name || kv.startsWith(`${name}=`));
+  switch (a.kind) {
+    case 'db':
+    case 'cache':
+    case 'vector':
+      return has(a.envVar);
+    default:
+      return undefined;
+  }
+}
+
 /** Org-global bucket name for an app resource. */
 export function appBucketName(stack: string, resource: string): string {
   return `${stack}-${resource}`.toLowerCase().slice(0, 63).replace(/-+$/, '');

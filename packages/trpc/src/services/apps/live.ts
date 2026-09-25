@@ -23,6 +23,7 @@ import type {
   ResourceType,
 } from '@swarmy/app-config';
 import { primaryDataVolumeName, replicaDataVolumeName } from '@swarmy/core';
+import { readRoutes } from '../ingress-routes';
 import { primaryServiceName, walArchiveVolumeName } from '../manageddb.service';
 import { cachePrimaryName } from '../cache.service';
 import { searchServiceName } from '../search.service';
@@ -153,17 +154,30 @@ export function readLiveApp(input: {
     stack,
     services: services.sort((a, b) => (a.name < b.name ? -1 : 1)),
     resources,
-    routes: Object.values(ledger.routes).map((r) => ({
-      host: r.host,
-      path: r.path,
-      service: r.service,
-      sig: r.sig,
-    })),
+    // A ledger route counts as live only if the target service's live route
+    // label still serves it: a redeploy that lost the label (controller
+    // restart mid-apply, cold inventory) left a preview with no route while the
+    // ledger said "applied" (QA-055). Missing → the planner re-adds it.
+    routes: Object.values(ledger.routes)
+      .filter((r) => routeIsLive(byName.get(`${stack}_${r.service}`), r.host, r.path))
+      .map((r) => ({
+        host: r.host,
+        path: r.path,
+        service: r.service,
+        sig: r.sig,
+      })),
     jobs: Object.entries(ledger.jobs)
       .filter(([name]) => input.jobNames.has(name))
       .map(([name, j]) => ({ name, sig: j.sig })),
     connect: [...ledger.connect],
   };
+}
+
+/** PURE — does the live service's `swarmy.ingress.routes` label serve host+path? */
+export function routeIsLive(svc: LiveServiceLike | undefined, host: string, path: string): boolean {
+  if (!svc) return false;
+  const want = (path || '/') === '/' ? '' : path;
+  return readRoutes(svc.labels).some((r) => r.host.toLowerCase() === host.toLowerCase() && (r.path ?? '') === want);
 }
 
 /** Fold one successful action into the ledger (pure; returns a new ledger). */
