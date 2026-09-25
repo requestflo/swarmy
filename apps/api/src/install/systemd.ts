@@ -42,6 +42,9 @@ After=network-online.target docker.service
 Wants=network-online.target
 StartLimitIntervalSec=60
 StartLimitBurst=5
+# Capture a doctor snapshot at crash time (last-failure.json) for post-mortems.
+# A [Unit] key: under [Service] systemd ignores it ("Unknown key name", QA-064).
+OnFailure=${SNAPSHOT_UNIT_NAME}
 
 [Service]
 Type=simple
@@ -53,8 +56,6 @@ ExecStart=${binaryPath} daemon
 # (and the swarm watchdog exits cleanly too) — systemd must bring it back up.
 Restart=always
 RestartSec=5
-# Capture a doctor snapshot at crash time (last-failure.json) for post-mortems.
-OnFailure=${SNAPSHOT_UNIT_NAME}
 # Persist the agent's session credential across restarts/reboots.
 StateDirectory=swarmy
 RuntimeDirectory=swarmy

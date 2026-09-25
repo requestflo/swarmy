@@ -15,6 +15,9 @@ After=network-online.target docker.service
 Wants=network-online.target
 StartLimitIntervalSec=60
 StartLimitBurst=5
+# Capture a doctor snapshot at crash time (last-failure.json) for post-mortems.
+# A [Unit] key: under [Service] systemd ignores it ("Unknown key name", QA-064).
+OnFailure=swarmy-doctor-snapshot.service
 
 [Service]
 Type=simple
@@ -26,8 +29,6 @@ ExecStart=/usr/local/bin/swarmy-agent daemon
 # (and the swarm watchdog exits cleanly too) — systemd must bring it back up.
 Restart=always
 RestartSec=5
-# Capture a doctor snapshot at crash time (last-failure.json) for post-mortems.
-OnFailure=swarmy-doctor-snapshot.service
 # Persist the agent's session credential across restarts/reboots.
 StateDirectory=swarmy
 RuntimeDirectory=swarmy
@@ -41,6 +42,22 @@ WantedBy=multi-user.target
 `;
 
 describe('renderSystemdUnit (golden)', () => {
+  it('every key sits in the section systemd reads it from (QA-064)', () => {
+    const unit = renderSystemdUnit({ binaryPath: DEFAULT_BINARY_PATH, envFilePath: DEFAULT_ENV_FILE });
+    const sectionOf = (key: string) => {
+      let section = '';
+      for (const line of unit.split('\n')) {
+        const m = /^\[(\w+)\]$/.exec(line);
+        if (m) section = m[1]!;
+        else if (line.startsWith(`${key}=`)) return section;
+      }
+      return null;
+    };
+    // [Unit]-only keys; systemd logs "Unknown key name … in section 'Service', ignoring" otherwise.
+    for (const k of ['OnFailure', 'After', 'Wants', 'StartLimitIntervalSec', 'StartLimitBurst']) expect(sectionOf(k)).toBe('Unit');
+    for (const k of ['ExecStart', 'Restart', 'StateDirectory']) expect(sectionOf(k)).toBe('Service');
+  });
+
   it('matches the golden unit with defaults', () => {
     const unit = renderSystemdUnit({ binaryPath: DEFAULT_BINARY_PATH, envFilePath: DEFAULT_ENV_FILE });
     expect(unit).toBe(GOLDEN_UNIT);
