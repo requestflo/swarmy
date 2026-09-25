@@ -112,7 +112,7 @@ export function ImagePicker({ value, onChange }: ImagePickerProps): React.JSX.El
                     >
                       <span className="truncate">
                         <span className="font-mono">{s.name}</span>
-                        {s.official && <span className="text-status-online mono-label ml-2">official</span>}
+                        {s.official && <span className="text-tone-ok mono-label ml-2">official</span>}
                       </span>
                       <span className="text-muted-foreground mono-label flex shrink-0 items-center gap-1">
                         <StarIcon className="size-3" /> {s.stars}

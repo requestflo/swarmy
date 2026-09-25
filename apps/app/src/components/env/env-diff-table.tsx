@@ -12,9 +12,9 @@ interface EnvDiffTableProps {
 }
 
 const KIND_STYLE: Record<EnvDiffRow['kind'], { sign: string; className: string }> = {
-  added: { sign: '+', className: 'text-status-online' },
-  changed: { sign: '~', className: 'text-status-warning' },
-  removed: { sign: '−', className: 'text-status-offline' },
+  added: { sign: '+', className: 'text-tone-ok' },
+  changed: { sign: '~', className: 'text-tone-warn' },
+  removed: { sign: '−', className: 'text-tone-bad' },
   unchanged: { sign: ' ', className: 'text-muted-foreground' },
 };
 

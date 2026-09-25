@@ -30,10 +30,10 @@ interface ServiceContainersListProps {
 /** The actual containers behind this service — flat hairline rows, live from inventory. */
 export function ServiceContainersList({ containers, onScaleUp }: ServiceContainersListProps): React.JSX.Element {
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card border-0 shadow-none">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          <BoxesIcon className="text-primary size-4" /> Containers
+          <BoxesIcon aria-hidden className="text-muted-foreground size-4" /> Containers
           <span className="mono-data text-muted-foreground">{containers?.length ?? '…'}</span>
         </CardTitle>
       </CardHeader>
@@ -49,7 +49,7 @@ export function ServiceContainersList({ containers, onScaleUp }: ServiceContaine
           return (
             <div
               key={c.id}
-              className="hover:bg-accent/60 -mx-2 flex items-center justify-between gap-4 rounded-xl px-4 py-3 transition-colors"
+              className="hover:bg-foreground/[0.025] flex items-center justify-between gap-4 rounded-lg px-2 py-3 transition-colors"
             >
               <div className="min-w-0">
                 <p className="truncate font-medium">{c.name}</p>

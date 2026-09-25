@@ -39,11 +39,11 @@ export function ServiceSecretVarRow({ v, revealed, pending, onSave, onRemove, on
             <PencilIcon className="size-4" />
           </Button>
           {confirm ? (
-            <Button variant="outline" size="sm" className="border-status-offline text-status-offline rounded-full" disabled={pending} onClick={onRemove}>
+            <Button variant="outline" size="sm" className="border-status-offline text-tone-bad rounded-full" disabled={pending} onClick={onRemove}>
               Remove {v.key}?
             </Button>
           ) : (
-            <Button variant="ghost" size="icon" title="Remove" className="hover:text-status-offline" onClick={() => setConfirm(true)}>
+            <Button variant="ghost" size="icon" title="Remove" className="hover:text-tone-bad" onClick={() => setConfirm(true)}>
               <Trash2Icon className="size-4" />
             </Button>
           )}

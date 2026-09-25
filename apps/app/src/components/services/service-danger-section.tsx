@@ -25,7 +25,7 @@ export function ServiceDangerSection({ serviceId, serviceName }: ServiceDangerSe
   );
 
   return (
-    <Card className="card-pop border-status-offline/20 mt-6 max-w-xl border">
+    <Card className="calm-card border-status-offline/30 mt-6 max-w-xl border shadow-none">
       <CardHeader>
         <CardTitle className="text-base">Remove this service</CardTitle>
       </CardHeader>

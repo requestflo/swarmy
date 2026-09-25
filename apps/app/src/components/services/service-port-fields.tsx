@@ -74,7 +74,7 @@ export function ServicePortFields({ form }: ServicePortFieldsProps): React.JSX.E
               type="button"
               variant="ghost"
               size="icon"
-              className="text-muted-foreground hover:text-status-offline shrink-0"
+              className="text-muted-foreground hover:text-tone-bad shrink-0"
               onClick={() => ports.remove(i)}
             >
               <XIcon className="size-4" />

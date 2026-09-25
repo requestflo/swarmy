@@ -35,7 +35,7 @@ export function ServiceDefinitionSection({ serviceId }: ServiceDefinitionSection
         <div className="bg-muted/30 border-border mx-3 mb-3 max-h-72 overflow-auto rounded-lg border p-3">
           {inspect.isLoading && <p className="text-muted-foreground text-sm">Loading inspect…</p>}
           {inspect.isError && (
-            <p className="text-status-offline text-sm">Failed to inspect: {inspect.error.message}</p>
+            <p className="text-tone-bad text-sm">Failed to inspect: {inspect.error.message}</p>
           )}
           {!inspect.isLoading && !inspect.isError && (
             <pre className="mono-data text-xs break-all whitespace-pre-wrap">{json}</pre>

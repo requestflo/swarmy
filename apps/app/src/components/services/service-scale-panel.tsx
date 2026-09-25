@@ -44,8 +44,8 @@ export function ServiceScalePanel({ service, asleep }: ServiceScalePanelProps): 
   );
 
   return (
-    <div className="mt-6 grid items-start gap-4 lg:grid-cols-2">
-      <Card className="card-pop border-0">
+    <div className="mt-6 grid grid-cols-1 items-start gap-4 lg:grid-cols-2 [&>*]:min-w-0">
+      <Card className="calm-card border-0 shadow-none">
         <CardHeader>
           <CardTitle className="text-base">Replicas</CardTitle>
         </CardHeader>

@@ -15,6 +15,7 @@ import {
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { PageHeader } from '@/components/page-header';
+import { Say } from '@/components/calm';
 
 export const Route = createFileRoute('/_authed/observability/$traceId')({
   component: TraceDetailPage,
@@ -88,18 +89,25 @@ function TraceDetailPage(): React.JSX.Element {
   const { rows, totalMs } = React.useMemo(() => buildWaterfall(spans), [spans]);
 
   const root = rows[0]?.span;
+  const failedSpans = spans.filter((sp) => /ERROR/i.test(sp.status_code)).length;
   const status = detail.data?.status;
 
   return (
     <div className="mx-auto w-full max-w-[1400px] px-6 pt-8 lg:pb-20 xl:px-10">
       <PageHeader
-        eyebrow="Mission Control · Trace"
+        eyebrow="Trace"
         title={
-          <>
-            Span <em>waterfall</em>.
-          </>
+          root ? (
+            <>
+              {root.service_name} took {totalMs < 10 ? totalMs.toFixed(1) : Math.round(totalMs)} ms{' '}
+              <em>across {rows.length} step{rows.length === 1 ? '' : 's'}.</em>{' '}
+              {failedSpans > 0 ? <Say tone="bad">{failedSpans} failed.</Say> : null}
+            </>
+          ) : (
+            <>One request, <em>step by step.</em></>
+          )
         }
-        description={root ? `${root.service_name} · ${root.span_name}` : traceId}
+        description={root ? `${root.span_name} · trace ${traceId.slice(0, 16)}` : traceId}
         actions={
           <Button variant="ghost" onClick={() => router.history.back()}>
             <ArrowLeftIcon className="size-4" /> Back to traces

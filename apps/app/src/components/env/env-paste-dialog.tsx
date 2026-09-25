@@ -66,7 +66,7 @@ function EnvPasteBody({ onOpenChange, current, onApply, applyLabel = 'Apply', pe
         onChange={(e) => st.setText(e.target.value)}
       />
       {st.warnings.length > 0 && (
-        <ul className="text-status-warning grid gap-0.5 text-xs">
+        <ul className="text-tone-warn grid gap-0.5 text-xs">
           {st.warnings.map((w, i) => (
             <li key={i}>Line {w.line}: {w.message}</li>
           ))}
@@ -74,8 +74,8 @@ function EnvPasteBody({ onOpenChange, current, onApply, applyLabel = 'Apply', pe
       )}
       <div className="flex items-center justify-between gap-3">
         <p className="text-muted-foreground text-xs">
-          <span className="text-status-online">+{added}</span> · <span className="text-status-warning">~{changed}</span> ·{' '}
-          <span className="text-status-offline">−{removed}</span>
+          <span className="text-tone-ok">+{added}</span> · <span className="text-tone-warn">~{changed}</span> ·{' '}
+          <span className="text-tone-bad">−{removed}</span>
         </p>
         <div className="flex items-center gap-2">
           <Label htmlFor="env-replace" className="text-xs">Remove keys not in the paste</Label>

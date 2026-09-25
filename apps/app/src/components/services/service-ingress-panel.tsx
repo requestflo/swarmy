@@ -94,7 +94,7 @@ export function ServiceIngressPanel({ serviceId, serviceName }: ServiceIngressPa
     <section className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <p className="flex items-center gap-1.5 text-sm font-semibold">
-          <GlobeIcon className="text-status-progress size-4" /> Ingress routes
+          <GlobeIcon className="text-tone-info size-4" /> Ingress routes
           {rows.length > 0 && <Badge variant="muted">{rows.length}</Badge>}
         </p>
         {enabled && (

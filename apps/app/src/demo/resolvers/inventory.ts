@@ -134,7 +134,34 @@ const OTEL = (name: string): Record<string, string> => ({
   OTEL_SERVICE_NAME: `storefront-${name}`,
 });
 
+const LOG_LINES = [
+  'GET /health 200 2ms',
+  'GET /api/cart 200 18ms',
+  'POST /api/checkout 201 142ms',
+  'worker: processed image-resize job 8812 in 311ms',
+  'GET /api/products?page=2 200 24ms',
+  'cache hit ratio 0.94 (last 60s)',
+];
+
 export const inventory: DomainResolvers = {
+  // A believable live tail for any service page (services.logs).
+  subscriptions: {
+    'services.logs': (_i, _s, emit) => {
+      let seq = 0;
+      const push = (): void => {
+        const i = seq % LOG_LINES.length;
+        const stderr = seq % 11 === 7;
+        emit({
+          seq: seq++,
+          stream: stderr ? 'stderr' : 'stdout',
+          message: `${new Date().toISOString()} ${stderr ? 'WARN upstream slow: payments 1.2s' : LOG_LINES[i]}`,
+        });
+      };
+      for (let k = 0; k < 12; k++) push();
+      const t = setInterval(push, 1_500);
+      return () => clearInterval(t);
+    },
+  },
   seed: (store) => {
     for (const sv of store.services) {
       const extra = STOREFRONT_ENV[sv.id];

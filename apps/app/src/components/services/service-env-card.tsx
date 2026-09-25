@@ -35,7 +35,7 @@ export function ServiceEnvCard({ serviceId, env }: ServiceEnvCardProps): React.J
   );
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card border-0 shadow-none">
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-2 text-base">
           Environment
@@ -60,7 +60,7 @@ export function ServiceEnvCard({ serviceId, env }: ServiceEnvCardProps): React.J
           <p className="text-muted-foreground">Nothing set. This service runs clean.</p>
         )}
         {entries.some(([k, v]) => looksSecret(k, v)) && (
-          <p className="text-status-warning mt-2 text-xs">
+          <p className="text-tone-warn mt-2 text-xs">
             Some values look like secrets but are plain env (visible in the service spec). Paste them again marked
             secret, or add them under Secrets.
           </p>

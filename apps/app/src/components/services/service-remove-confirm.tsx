@@ -24,7 +24,7 @@ export function ServiceRemoveConfirm({ name, pending, onConfirm }: ServiceRemove
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="outline" className="border-status-offline/40 text-status-offline w-full">
+        <Button variant="outline" className="border-status-offline/40 text-tone-bad w-full">
           <Trash2Icon className="size-4" /> Remove
         </Button>
       </AlertDialogTrigger>

@@ -13,13 +13,13 @@ interface ServiceTrafficPanelProps {
 export function ServiceTrafficPanel({ service }: ServiceTrafficPanelProps): React.JSX.Element {
   return (
     <div className="mt-6 grid items-start gap-4 lg:grid-cols-2">
-      <Card className="card-pop border-0">
+      <Card className="calm-card border-0 shadow-none">
         <CardContent className="p-6">
           <ServiceIngressPanel serviceId={service.id} serviceName={service.name} />
         </CardContent>
       </Card>
 
-      <Card className="card-pop border-0">
+      <Card className="calm-card border-0 shadow-none">
         <CardHeader>
           <CardTitle className="text-base">Exposure & ports</CardTitle>
         </CardHeader>

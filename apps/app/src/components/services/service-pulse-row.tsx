@@ -76,7 +76,7 @@ export function ServicePulseRow({ service, containers, deploy, onJump }: Service
       <Tile label="Last deploy" onClick={() => onJump('scale')}>
         {deploy ? (
           <>
-            <p className={cn('font-display text-lg font-bold capitalize', shipping && 'text-status-progress')}>
+            <p className={cn('font-display text-lg font-bold capitalize', shipping && 'text-tone-info')}>
               {shipping ? <span className="pulse-dot mr-2 inline-block align-middle" /> : null}
               {deploy.phase}
             </p>
@@ -108,7 +108,7 @@ function Tile({
     <button
       type="button"
       onClick={onClick}
-      className="card-pop card-pop-hover cursor-pointer rounded-2xl p-4 text-left lg:p-5"
+      className="calm-card hover:bg-foreground/[0.02] cursor-pointer p-4 text-left lg:p-5"
     >
       <p className="mono-label text-muted-foreground">{label}</p>
       <div className="mt-2 min-w-0">{children}</div>

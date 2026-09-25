@@ -6,7 +6,9 @@ import { Button, EmptyState } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { ServiceDeployBanner } from './service-deploy-banner';
 import { ServiceFlowStrip } from './service-flow-strip';
+import { Depth } from '@/components/calm';
 import { ServiceHero } from './service-hero';
+import { ServiceNext } from './service-next';
 import { ServicePulseRow } from './service-pulse-row';
 import { ServiceSections } from './service-sections';
 import { ServiceSectionStrip, type ServiceTab } from './service-section-strip';
@@ -46,7 +48,7 @@ export function ServicePageBody({
   const s = svc.data;
   if (!s) {
     return svc.isLoading ? (
-      <div className="grid gap-4 pt-10">
+      <div aria-hidden className="grid gap-4 pt-4">
         <div className="shimmer-line h-10 w-1/3" />
         <div className="shimmer-line h-6 w-1/2" />
         <div className="shimmer-line h-32 w-full" />
@@ -57,7 +59,7 @@ export function ServicePageBody({
         title="That service isn't here"
         description="It may have been removed, or the link is stale."
         action={
-          <Button asChild className="font-bold">
+          <Button asChild variant="outline">
             <Link to="/">Back to apps</Link>
           </Button>
         }
@@ -71,9 +73,12 @@ export function ServicePageBody({
   return (
     <>
       <ServiceHero service={s} deploying={deploying} asleep={asleep} compact={compact} />
-      <ServicePulseRow service={s} containers={containers} deploy={deploy.data ?? undefined} onJump={onTabChange} />
+      <ServiceNext service={s} />
+      <Depth at="controls">
+        <ServicePulseRow service={s} containers={containers} deploy={deploy.data ?? undefined} onJump={onTabChange} />
+      </Depth>
       <ServiceFlowStrip serviceId={s.id} onSelect={onSelectService} />
-      {deploying && deploy.data ? (
+      {deploying && deploy.data && s.status !== 'degraded' && s.status !== 'failed' ? (
         <div className="mt-6">
           <ServiceDeployBanner deploy={deploy.data} desired={s.replicas.desired} />
         </div>

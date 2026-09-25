@@ -62,7 +62,7 @@ export function RegionPlanEditor({ serviceId }: { serviceId: string }): React.JS
     <div className="border-border rounded-xl border p-3">
       <div className="flex items-center justify-between gap-3">
         <p className="flex items-center gap-1.5 text-sm font-semibold">
-          <GlobeIcon className="text-status-progress size-4" /> Multi-region
+          <GlobeIcon className="text-tone-info size-4" /> Multi-region
         </p>
         <span className="mono-data text-muted-foreground text-xs tabular-nums">
           {runningTotal}/{data.desiredTotal} up

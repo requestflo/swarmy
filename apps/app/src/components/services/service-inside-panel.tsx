@@ -16,7 +16,7 @@ interface ServiceInsidePanelProps {
  */
 export function ServiceInsidePanel({ serviceId, containers, onJump }: ServiceInsidePanelProps): React.JSX.Element {
   return (
-    <div className="mt-6 grid items-start gap-4 lg:grid-cols-2">
+    <div className="mt-6 grid grid-cols-1 items-start gap-4 lg:grid-cols-2 [&>*]:min-w-0">
       <ServiceContainersList containers={containers} onScaleUp={() => onJump('scale')} />
       <ServiceLogsPanel serviceId={serviceId} />
     </div>

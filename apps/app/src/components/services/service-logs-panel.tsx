@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { TerminalIcon } from 'lucide-react';
 import { useSubscription } from '@trpc/tanstack-react-query';
-import { Button, Card, CardContent, cn } from '@swarmy/ui';
+import { Button, cn } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 
 interface ServiceLogsPanelProps {
@@ -46,11 +46,10 @@ export function ServiceLogsPanel({ serviceId, className }: ServiceLogsPanelProps
   };
 
   return (
-    <Card className={cn('card-pop border-0', className)}>
-      <CardContent className="p-6">
+    <section aria-label="Live logs" className={cn('calm-card px-5 py-4', className)}>
         <div className="mb-3 flex items-center justify-between">
-          <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">Live logs</p>
-          <Button asChild variant="outline" size="sm" className="rounded-full">
+          <h2 className="font-display text-[16.5px] font-bold tracking-[-0.01em]">Live logs</h2>
+          <Button asChild variant="outline" size="sm" className="pointer-coarse:min-h-11">
             <Link to="/services/$serviceId/terminal" params={{ serviceId }}>
               <TerminalIcon className="size-4" /> Terminal
             </Link>
@@ -59,22 +58,23 @@ export function ServiceLogsPanel({ serviceId, className }: ServiceLogsPanelProps
         <div
           ref={boxRef}
           onScroll={onScroll}
-          className="bg-foreground/95 text-background h-[60vh] overflow-auto rounded-xl p-4 font-mono text-xs leading-relaxed"
+          tabIndex={0}
+          aria-label="Log output"
+          className="calm-code h-[60vh] overflow-auto px-4 py-3 text-xs leading-relaxed"
         >
           {lines.length === 0 ? (
-            <p className="text-background/50">Waiting for log output…</p>
+            <p className="opacity-70">Waiting for log output…</p>
           ) : (
             lines.map((l, i) => (
               <pre
                 key={`${l.stream}-${l.seq}-${i}`}
-                className={l.stream === 'stderr' ? 'text-status-offline whitespace-pre-wrap' : 'whitespace-pre-wrap'}
+                className={l.stream === 'stderr' ? 'whitespace-pre-wrap text-[#ff9b9b]' : 'whitespace-pre-wrap'}
               >
                 {l.message}
               </pre>
             ))
           )}
         </div>
-      </CardContent>
-    </Card>
+    </section>
   );
 }

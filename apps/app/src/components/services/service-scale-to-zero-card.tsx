@@ -29,7 +29,7 @@ export function ServiceScaleToZeroCard({
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="flex items-center gap-1.5 text-sm font-semibold">
-            <MoonIcon className="text-status-progress size-4" /> Scale to zero
+            <MoonIcon className="text-tone-info size-4" /> Scale to zero
           </p>
           <p className="text-muted-foreground text-xs">
             Sleeps after {idleSeconds}s idle · wakes on the next request

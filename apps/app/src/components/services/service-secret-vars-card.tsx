@@ -21,11 +21,11 @@ export function ServiceSecretVarsCard({ serviceId }: ServiceSecretVarsCardProps)
   const pending = s.set.isPending || s.remove.isPending;
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card border-0 shadow-none">
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-2 text-base">
           <span className="flex items-center gap-2">
-            <ShieldCheckIcon className="text-status-online size-4" /> Secrets
+            <ShieldCheckIcon className="text-tone-ok size-4" /> Secrets
           </span>
           {!adding && (
             <Button variant="outline" size="sm" className="rounded-full font-bold" onClick={() => setAdding(true)}>

@@ -79,15 +79,25 @@ function ServiceTerminalPage(): React.JSX.Element {
   return (
     <div className="mx-auto flex w-full max-w-[1600px] flex-col px-6 pt-8 lg:pb-20 xl:px-10">
       <PageHeader
-        eyebrow="Terminal"
+        eyebrow={svc.data?.stackId ? `Terminal · ${svc.data.stackId}` : 'Terminal'}
         title={
-          <>
-            Shell into <em>{svc.data?.name ?? 'this service'}</em>.
-          </>
+          phase === 'open' ? (
+            <>
+              You&apos;re inside {svc.data?.name ?? 'this service'}. <em>Type exit to leave.</em>
+            </>
+          ) : (
+            <>
+              A shell inside {svc.data?.name ?? 'this service'}. <em>Nothing is exposed.</em>
+            </>
+          )
         }
-        description="An interactive shell inside a running container — over the agent's outbound link, nothing exposed."
+        description="It runs in one of its running copies, over swarmy's own outbound link. Every session is recorded in the audit log."
         actions={
-          <Button onClick={start} disabled={open.isPending || phase === 'connecting'}>
+          <Button
+            variant={phase === 'open' ? 'outline' : 'default'}
+            onClick={start}
+            disabled={open.isPending || phase === 'connecting'}
+          >
             <TerminalIcon className="size-4" />
             {phase === 'open' || phase === 'connecting' ? 'Reconnect' : 'Open shell'}
           </Button>

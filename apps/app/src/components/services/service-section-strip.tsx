@@ -12,9 +12,9 @@ import { cn } from '@swarmy/ui';
 export const SERVICE_TABS = [
   { id: 'inside', label: 'Inside', icon: BoxesIcon },
   { id: 'traffic', label: 'Traffic', icon: GlobeIcon },
-  { id: 'scale', label: 'Scale', icon: GaugeIcon },
-  { id: 'config', label: 'Config', icon: BracesIcon },
-  { id: 'danger', label: 'Danger', icon: TriangleAlertIcon },
+  { id: 'scale', label: 'Copies', icon: GaugeIcon },
+  { id: 'config', label: 'Settings', icon: BracesIcon },
+  { id: 'danger', label: 'Remove', icon: TriangleAlertIcon },
 ] as const;
 
 export type ServiceTab = (typeof SERVICE_TABS)[number]['id'];
@@ -24,7 +24,7 @@ export function isServiceTab(value: unknown): value is ServiceTab {
 }
 
 const BASE =
-  'flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors';
+  'flex min-h-11 shrink-0 items-center gap-1.5 border-b-2 px-3 text-sm font-semibold whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50';
 
 interface ServiceSectionStripProps {
   tab: ServiceTab;
@@ -37,20 +37,19 @@ interface ServiceSectionStripProps {
  */
 export function ServiceSectionStrip({ tab, onTabChange }: ServiceSectionStripProps): React.JSX.Element {
   return (
-    <nav className="scrollbar-none -mx-1 mt-8 flex gap-1 overflow-x-auto border-b pb-3 pl-1">
+    <nav aria-label="Service sections" className="scrollbar-none border-border mt-8 flex gap-1 overflow-x-auto border-b">
       {SERVICE_TABS.map((t) => (
         <button
           key={t.id}
           type="button"
+          aria-current={t.id === tab ? 'page' : undefined}
           onClick={() => onTabChange(t.id)}
           className={cn(
             BASE,
-            t.id === tab
-              ? 'bg-ink text-ink-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground hover:bg-accent',
+            t.id === tab ? 'border-primary text-foreground' : 'text-muted-foreground hover:text-foreground border-transparent',
           )}
         >
-          <t.icon className="size-4" />
+          <t.icon aria-hidden className="size-4" />
           {t.label}
         </button>
       ))}

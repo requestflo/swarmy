@@ -1,50 +1,52 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeftIcon, RotateCwIcon, TerminalIcon, ZapIcon } from 'lucide-react';
+import { RotateCwIcon, TerminalIcon, ZapIcon } from 'lucide-react';
 import type { ServiceDetail } from '@swarmy/core';
-import { Button, cn, toast } from '@swarmy/ui';
+import { Button, toast } from '@swarmy/ui';
+import { Say, SayHeader, Tech } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 
 interface ServiceHeroProps {
   service: ServiceDetail;
   deploying: boolean;
   asleep: boolean;
-  /** Overlay mode: the canvas sits right behind, so no breadcrumb + tighter type. */
+  /** Overlay mode: the canvas sits right behind, so a tighter header. */
   compact?: boolean;
 }
 
-/** The status statement — the page tells you how the service is doing, in words. */
-function statusPhrase(s: ServiceDetail, deploying: boolean, asleep: boolean): React.ReactNode {
-  if (asleep) return <>is <em>asleep</em>.</>;
-  if (deploying || s.status === 'deploying') return <>is <em>converging</em>.</>;
+const copies = (n: number): string => `${n} cop${n === 1 ? 'y' : 'ies'}`;
+
+/** The status as a sentence: "checkout is running 1 of 2 copies." */
+function statusSentence(s: ServiceDetail, deploying: boolean, asleep: boolean): React.ReactNode {
+  const { running, desired } = s.replicas;
+  if (asleep) return <>{s.name} is asleep. <em>It wakes on the next visit.</em></>;
+  if (s.status === 'degraded') return <>{s.name} is <Say tone="warn">running {running} of {copies(desired)}.</Say></>;
+  if (deploying || s.status === 'deploying' || s.status === 'pending')
+    return <>{s.name} is <Say tone="info">rolling out</Say>, <em>{running} of {copies(desired)} ready.</em></>;
   switch (s.status) {
     case 'running':
-      return <>is <em>live</em>.</>;
-    case 'degraded':
-      return <>needs <em>you</em>.</>;
+      return <>{s.name} is online, <em>running {copies(running)}.</em></>;
     case 'failed':
-      return <>is <em>down</em>.</>;
+      return <>{s.name} is <Say tone="bad">down.</Say> <em>No copy is running.</em></>;
     case 'removing':
-      return <>is <em>winding down</em>.</>;
-    case 'stopped':
-      return <>is <em>stopped</em>.</>;
+      return <>{s.name} is <em>being removed.</em></>;
     default:
-      return <>is <em>pending</em>.</>;
+      return <>{s.name} is stopped. <em>It has no copies.</em></>;
   }
 }
 
 /**
- * Hero for the service page: breadcrumb back to the stack, a headline that
- * speaks the status, the image in mono, and the two quiet actions. The one
- * coral CTA is contextual — "Wake it" only when the service is asleep.
+ * The service's sentence header (board ServiceSheet): what it is doing, the
+ * image it runs, and two quiet actions. The coral one is contextual: "Wake it"
+ * only when it sleeps (a short service gets its coral in the next-action card).
  */
 export function ServiceHero({ service, deploying, asleep, compact }: ServiceHeroProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const restart = useMutation(
     trpc.services.restart.mutationOptions({
-      onSuccess: () => toast.success('Restart queued'),
+      onSuccess: () => toast.success('Restarting, one copy at a time'),
       onError: (e) => toast.error(e.message),
     }),
   );
@@ -59,61 +61,40 @@ export function ServiceHero({ service, deploying, asleep, compact }: ServiceHero
   );
 
   return (
-    <div>
-      {compact ? null : service.stackId ? (
-        <Link
-          to="/stacks/$name"
-          params={{ name: service.stackId }}
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm font-medium transition-colors"
-        >
-          <ArrowLeftIcon className="size-4" /> {service.stackId}
-        </Link>
-      ) : (
-        <Link
-          to="/"
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm font-medium transition-colors"
-        >
-          <ArrowLeftIcon className="size-4" /> Apps
-        </Link>
-      )}
-
-      <div className={cn('flex flex-wrap items-end justify-between gap-4', compact ? '' : 'mt-3')}>
-        <div className="min-w-0">
-          <span className="eyebrow">Service{service.stackId ? ` · ${service.stackId}` : ''}</span>
-          <h1 className={cn('headline mt-3 break-words', compact ? 'text-2xl sm:text-3xl' : 'text-[2rem] sm:text-4xl')}>
-            {service.name} {statusPhrase(service, deploying, asleep)}
-          </h1>
-          <p className="mono-data text-muted-foreground mt-2 break-all text-sm">{service.image}</p>
+    <SayHeader
+      size={compact ? 'md' : 'lg'}
+      eyebrow={`Service${service.stackId ? ` · ${service.stackId}` : ''}`}
+      title={statusSentence(service, deploying, asleep)}
+      lede={
+        <>
+          <span className="font-mono text-[13px] break-all">{service.image}</span>
           {service.lastError && (service.status === 'failed' || service.status === 'degraded') ? (
-            <p
-              className="bg-status-offline/12 text-status-offline mono-data mt-3 inline-block max-w-full rounded-xl px-3 py-1.5 text-xs break-words"
-              title={service.lastErrorAt ? `Last task error at ${service.lastErrorAt}` : undefined}
-            >
-              Last task error: {service.lastError}
-            </p>
+            <span className="text-tone-bad mt-1 block text-[13.5px] break-words">Last error: {service.lastError}</span>
           ) : null}
-        </div>
-        <div className="flex items-center gap-2">
+          <span className="mt-1 block">
+            <Tech>
+              {service.swarmServiceId ?? service.id} · {service.networks.join(', ') || 'no networks'}
+            </Tech>
+          </span>
+        </>
+      }
+      actions={
+        <>
           {asleep ? (
-            <Button className="font-bold" disabled={wake.isPending} onClick={() => wake.mutate({ id: service.id })}>
+            <Button disabled={wake.isPending} onClick={() => wake.mutate({ id: service.id })}>
               <ZapIcon className="size-4" /> Wake it
             </Button>
           ) : null}
-          <Button
-            variant="outline"
-            className="rounded-full font-bold"
-            disabled={restart.isPending}
-            onClick={() => restart.mutate({ id: service.id })}
-          >
+          <Button variant="outline" className="pointer-coarse:min-h-11" disabled={restart.isPending} onClick={() => restart.mutate({ id: service.id })}>
             <RotateCwIcon className="size-4" /> Restart
           </Button>
-          <Button asChild variant="outline" className="rounded-full font-bold">
+          <Button asChild variant="outline" className="pointer-coarse:min-h-11">
             <Link to="/services/$serviceId/terminal" params={{ serviceId: service.id }}>
               <TerminalIcon className="size-4" /> Terminal
             </Link>
           </Button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    />
   );
 }

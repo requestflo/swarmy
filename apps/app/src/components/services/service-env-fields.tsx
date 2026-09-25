@@ -94,7 +94,7 @@ export function ServiceEnvFields({ form }: ServiceEnvFieldsProps): React.JSX.Ele
               variant="ghost"
               size="icon"
               title={secretAt(i) ? 'Secret — stored as a Docker secret, never shown again' : 'Mark as secret'}
-              className={secretAt(i) ? 'text-status-online shrink-0' : 'text-muted-foreground shrink-0'}
+              className={secretAt(i) ? 'text-tone-ok shrink-0' : 'text-muted-foreground shrink-0'}
               onClick={() => form.setValue(`env.${i}.secret`, !secretAt(i), { shouldDirty: true })}
             >
               {secretAt(i) ? <LockIcon className="size-4" /> : <LockOpenIcon className="size-4" />}
@@ -103,7 +103,7 @@ export function ServiceEnvFields({ form }: ServiceEnvFieldsProps): React.JSX.Ele
               type="button"
               variant="ghost"
               size="icon"
-              className="text-muted-foreground hover:text-status-offline shrink-0"
+              className="text-muted-foreground hover:text-tone-bad shrink-0"
               onClick={() => env.remove(i)}
             >
               <XIcon className="size-4" />
