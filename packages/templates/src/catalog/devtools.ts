@@ -357,7 +357,8 @@ services:
         worker.on('failed', (job, err) => console.log('job', job && job.id, 'failed:', err.message));
         process.on('SIGTERM', async () => { await worker.close(); process.exit(0); });
     healthcheck:
-      command: ["sh", "-c", "test -f /tmp/alive && test $(( $(date +%s) - $(stat -c %Y /tmp/alive) )) -lt 30"]
+      # No "$" (compose interpolation) and no "%s" (template placeholders): check the heartbeat in node (QA-047).
+      command: ["node", "-e", "process.exit(Date.now() - require('fs').statSync('/tmp/alive').mtimeMs < 30000 ? 0 : 1)"]
       interval: 30s
       timeout: 5s
       start_period: 90s
