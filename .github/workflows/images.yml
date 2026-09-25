@@ -78,6 +78,7 @@ jobs:
             context: docker/caddy-swarmy
           # The per-app Better Auth service for `auth:` in swarmy.yaml (dev-platform §2B).
           - name: app-auth
+            bom: appAuth
             image: ghcr.io/${{ github.repository_owner }}/swarmy-app-auth
             dockerfile: docker/app-auth/Dockerfile
             context: docker/app-auth
