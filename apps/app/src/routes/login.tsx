@@ -58,7 +58,11 @@ function LoginPage(): React.JSX.Element {
     returnTo ?? (isOAuthAuthorizeFlow() || invite ? `/login${window.location.search}` : '/');
 
   async function land(): Promise<void> {
-    if (returnTo) router.history.push(returnTo);
+    // /app-login reads useSession on mount; a client-side push can still see the
+    // pre-sign-in (null) session and bounce straight back here. A full load
+    // starts with the new cookie.
+    if (returnTo?.startsWith('/app-login')) window.location.assign(returnTo);
+    else if (returnTo) router.history.push(returnTo);
     else await navigate({ to: '/' });
   }
   // The form path accepts the invite itself; this covers SSO/social returns.
