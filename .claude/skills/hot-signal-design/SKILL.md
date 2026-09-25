@@ -1,211 +1,159 @@
 ---
 name: hot-signal-design
-description: Hot Signal — the swarmy apps/app design system. Principles, tokens, typography, shell (desktop navy sidenav + mobile tab bar), responsive rules, and the utility classes every apps/app surface must use. Load before touching anything in apps/app. Its nav, hero-headline and vocabulary rules are superseded by plans/redesign-dashboard-2026-09.md (marked inline) until redesign P1 rewrites them.
+description: Hot Signal, Calm Layers edition — the swarmy apps/app design system. Every screen reads at three depths (Summary · Controls · Code); sentence headlines; one coral action; the seven-row navy sidenav + mobile tab bar; tokens, type, the components/calm primitives and the glossary. Load before touching anything in apps/app.
 ---
 
 ## When to use me
 
-Load this skill before touching **anything in `apps/app`** (swarmy's dashboard) —
-new screens, components, copy, or layout. This is the source of truth for the
-product experience. `apps/web` is the marketing site and mirrors the same Hot
-Signal tokens so login is zero-surprise — see `skill("design-reference")` for the
-shared `@swarmy/ui` primitives.
+Load before touching **anything in `apps/app`** (swarmy's dashboard): new
+screens, components, copy or layout. `apps/web` (marketing) shares the Hot
+Signal tokens through `@swarmy/ui` — see `skill("design-reference")`.
 
-> **Redesign in flight — read `plans/redesign-dashboard-2026-09.md` first.** The
-> approved direction ("a calm ops console for novices and experts") supersedes
-> three rules below, each marked **⚠ Superseded**: the hero headline on every
-> page, the 8-row sectioned nav, and the stack/node vocabulary. Tokens, type,
-> colour, dark mode, width strategy and the Do/Don't list still hold. Phase P1 of
-> that plan rewrites this skill; until then, new work follows the plan where the
-> two disagree, and existing surfaces aren't churned just to match it.
+The build plan and the route → board map live in `plans/redesign-build.md`.
+The boards (68-board canvas + the Calm Layers R-boards) are the visual source.
 
-## The direction — non-negotiable
+## The direction
 
-swarmy's dashboard is, always:
+> **A calm ops console. Plain words first, expert power one switch away.**
 
-> **Simple. Cool. Ultra premium. Bold. Easy to use — always.**
+- **Calm** — the screen says what's true in a sentence and offers the one thing
+  worth doing. Everything healthy stays quiet.
+- **Bold where it's earned** — Bricolage display type, navy statement nav,
+  coral on the one action. Never timid, never loud for its own sake.
+- **Honest** — never a fake zero; unknown is a skeleton. Code views show only
+  real REST paths, real CLI commands and real swarmy.yaml keys.
+- **Easy for novices, fast for experts** — the same page serves both through
+  depth, not through two products.
 
-- **Simple** — one obvious thing to do per screen. A handful of flat
-  destinations (the redesign's target is seven — plan §B.1). No settings sprawl,
-  no admin-panel chrome, no feature you have to explain. "Anyone can just deploy."
-- **Cool & next-gen** — feels like a modern consumer app (Monzo / Linear energy),
-  not a SaaS dashboard. Big confident type, colour used loudly but purposefully,
-  moments of delight (count-ups on metrics, spring reveals, a live "It's online.").
-- **Ultra premium** — generous whitespace, soft layered shadows, rounded-2xl
-  cards, careful microcopy. Nothing cramped, nothing default-looking.
-- **Bold** — chunky display headlines, the coral accent front and centre, navy ink
-  blocks as statement surfaces. If a screen feels timid, it's wrong.
-- **Easy to use — always** — the right info at the right time. The user always
-  knows where they are (eyebrow + active nav), what matters now (hero statement /
-  the big number), what to do next (one hot CTA), what's healthy (everything else
-  stays quiet). No manual required.
+## Calm Layers: three depths (non-negotiable)
 
-## Typography
-
-| Role | Font | Usage |
+| Depth | Shows | Rule |
 |---|---|---|
-| Headlines | **Bricolage Grotesque** (`font-display`, ~750) | `.headline` class. Tight tracking, line-height 1.02. |
-| Body / UI | **Instrument Sans** (`font-sans`) | Default body font. |
-| Data | **Geist Mono** (`font-mono`) | Counts, CPU%, bytes, image tags, node ids, timestamps (`.mono-label`, `.mono-data`). |
+| **Summary** | A sentence headline, a lede with the numbers, the one next action | No glossary words (see Voice) |
+| **Controls** | The forms and knobs, technical detail inline as mono `Tech` lines | Replaces every `Advanced ▸` and `Raw` toggle |
+| **Code** | `CodeView`: the exact swarmy.yaml / CLI / REST, with where it lives ("opens a PR" / "dashboard setting") | Only real commands and paths |
 
-- `<em>` inside a `.headline` renders as **hot coral, never italic** — the
-  signature emphasis: "3 nodes need <em>you</em>." / "Everything's <em>green</em>."
-- Serif and italics are banned. Numbers are heroes — lead with them in mono.
+- **Depth adds detail; it never rearranges the page.** Summary content stays
+  where it is at Controls and Code. The Code view goes at the top of the aside.
+- **Per-person default.** The sidenav "Show me" dial (phone: the user menu)
+  sets it; the top-bar switch changes this page only and resets on navigation;
+  a `Section switchable` can go its own way. Stored per user in localStorage
+  (`swarmy-depth:<userId>`). First run asks (the RWelcome card on Overview).
+- **No screen ships without its Summary sentence and its Code view.**
 
-## Colour tokens (defined in `@swarmy/ui/src/styles.css`, consumed by both apps)
+## Page anatomy
 
-- `--primary` — hot coral `oklch(0.6534 0.2126 29.5)`. CTAs, emphasis, the live
-  accent, the "y" wordmark dot, focus rings.
-- `--ink` / `--ink-foreground` — deep navy statement surface (`.ink-block`):
-  the sidenav, hero stat blocks, the install-node panel, bold empty states.
-- `--status-*` — swarmy's cluster vocabulary, used via Tailwind color names
-  (`text-status-online`, `bg-status-online/12`), never raw palette colors:
-  - `online` (green) — node/service running & healthy.
-  - `progress` (blue) — deploying / pulling / converging / pending action.
-  - `warning` (amber) — degraded, draining, needs a human.
-  - `offline` (crimson) — offline / failed / rejected.
-  - `idle` (neutral) — pending enrolment, stopped, unknown.
-- Background is warm off-white (light) / deep navy (dark); cards are pure white /
-  elevated navy with `--border` hairlines.
-- Semantics: coral = "act now / brand", green = "healthy/live", amber = "attention",
-  crimson = "down", blue = "in flight", navy = "the product speaking".
+1. **Top bar** (`CalmTopBar`, 52px): mono breadcrumb (`Apps / storefront`),
+   quiet page actions, the depth switch.
+2. **Sentence header** (`SayHeader`): optional mono eyebrow, the sentence
+   (`<Say tone="warn">` on the clause that matters; `<em>` = the quieter second
+   clause, muted, never italic, never coral), a lede with the numbers.
+3. **Next action** (`NextAction`): what happened, why the fix is safe, the one
+   coral button, the tech line at Controls. At most one per screen.
+4. **Sections** (`Section`): quiet cards with an h2, a count, a mono "→" link.
+   Lists are `CalmRow`s (dot · name/host · sentence · tech · status word) inside
+   one section — never per-row cards.
+5. **Aside** (400px on xl): facts, `AlreadyOn` lines ("Backups · 14 of 14 at
+   03:00" — each a link to *change*), "Worth doing next", and the `CodeView`
+   at Code depth.
 
-## Utility classes (reuse, don't reinvent)
+Pages outside a tabbed row use `CalmPage`. Pages in a tabbed row (Network,
+Data, Activity, Settings, the Deploy flow) use `SectionHeader`, which renders
+the top bar, the sentence header and the row's tabs. App workspace tabs
+render inside the one app header (`components/stacks/workspace/*`) and start
+with a `SayHeader size="md"`.
 
-| Class | Purpose |
-|---|---|
-| `.headline` | Display headlines (Bricolage, bold, tight). `<em>` = coral. |
-| `.eyebrow` | Pill page-marker at the top of every screen — wayfinding ("Overview", "New service"). |
-| `.card-pop` / `.card-pop-hover` | Standard white/elevated rounded-2xl card with layered shadow / hover lift. |
-| `.ink-block` | Navy filled statement surface. |
-| `.mesh` | Soft coral/teal radial wash behind page heroes. |
-| `.mono-label` / `.mono-data` | Mono uppercase micro-labels / tabular data values. |
-| `.pulse-dot` | Live indicator (a node streaming, a deploy converging). |
-| `.shimmer-line` | Loading/awaiting-first-sample skeleton. |
+## Components (`apps/app/src/components/calm/`)
 
-Buttons: pill (`rounded-full`), `font-bold`; primary = coral with
-`shadow-[0_8px_24px_-8px_var(--primary)]` + `hover:scale-[1.03]`. Destructive =
-outline crimson. One coral CTA per screen.
-
-## Dark mode
-
-First-class, not an afterthought.
-
-- The user setting lives in the **user dropdown** (sidenav footer on desktop,
-  avatar menu on mobile): Appearance → Light / Dark / System, via
-  `apps/app/src/components/theme-menu.tsx`, using next-themes (`attribute="class"`,
-  storage key `swarmy-app-theme`).
-- Dark tokens live in the `.dark` block of `@swarmy/ui/src/styles.css`: deep navy
-  background, elevated navy cards, brightened coral/status colours.
-- **`--ink` in dark is an *elevated* navy, not an inversion** — the statement
-  surface reads as lift, `--ink-foreground` stays light. Anything that must pop
-  against ink in both modes uses `bg-ink-foreground text-ink` (e.g. the sidenav
-  active pill), never `bg-card`/`bg-white`.
-- Hard-coded oklch in a utility (mesh, shadows) gets a `.dark` override beside it.
-  Token-driven styles need nothing. Test every surface in both themes.
+`DepthProvider` · `useDepth()` / `useDepthDefault()` / `usePageDepth()` ·
+`<Depth at="controls|code">` · `DepthDial` / `PageDepthSwitch` /
+`DepthSegments` · `CalmPage` / `CalmTopBar` · `SayHeader` / `Say` ·
+`NextAction` · `Section` / `SectionLink` · `CalmRow` / `RowList` · `AlreadyOn` ·
+`Tech` · `CodeView` (+ `curl`, `restExchange`, `toYaml` in `code.ts`) ·
+`CalmTabs` · `StatusWord`. Tones: `ok · warn · bad · info · mesh · idle`
+(`TONE_TEXT` for words, `TONE_DOT` for dots). Reuse these; don't fork them.
 
 ## Shell & navigation
 
-**Desktop (`lg` ≥ 1024px)** — fixed left **navy sidenav** (`w-64`, `.ink-block`),
-`apps/app/src/components/shell/sidenav.tsx`:
-1. Wordmark (white "swarm" + coral "y").
-2. Coral "Create" pill + ⌘K search.
-3. Nav (**⚠ Superseded** by plan §B.1 — seven rows Overview / Apps / Servers /
-   Network / Data / Activity / Settings, Deploy becomes a verb on Create/⌘K;
-   still flat, still never accordions). Today's code: **8 flat destinations** — the 3
-   anchors (Overview / Stacks / Infrastructure) then one row per section
-   (Deploy / Platform / Operations / Governance / Settings, from `NAV_GROUPS`
-   in `lib/destinations.ts`). Active item is a **white pill with navy text**
-   (`bg-ink-foreground text-ink`); attention badges are coral counts rolled up
-   onto the row they belong to (nodes offline on Infrastructure, alerts +
-   incidents on Operations).
-4. A quiet status footer: "N/M nodes online" with a `.pulse-dot`.
-5. User row + theme menu + sign-out at the bottom.
+**Desktop (`lg` ≥ 1024px)** — fixed navy sidenav (`w-60`, `bg-nav`),
+`components/shell/sidenav.tsx`: wordmark + workspace, coral **Deploy an app**,
+**Ask or jump… ⌘K**, seven flat rows — **Overview · Apps · Servers · Network ·
+Data │ Activity · Settings** — the servers-online footer, the "Show me" dial,
+the user row. A row's pages are in-page tabs (`SECTIONS` by group in
+`lib/destinations.ts`), never more nav rows. Active row: `--nav-active`
+wash + semibold. Badges: amber mono counts rolled up onto their row.
 
-**Section surfaces** — a section's children (e.g. Governance → Guardrails /
-Exposure / Access & roles / Audit log / Cost) are **in-page tabs, not nav
-rows**: every page in a section renders `SectionHeader`
-(`apps/app/src/components/section-header.tsx`) instead of `PageHeader` — the
-section supplies the eyebrow and a coral-underline tab row with live badges;
-the page keeps its own data-driven headline. A new feature in a section
-becomes a tab, never a new sidenav row.
+**Mobile (< 1024px)** — header: wordmark, search, **All pages** sheet, avatar.
+Tab bar: **Overview · Apps · coral + · Servers · Activity**. No hamburger.
 
-**Mobile (< 1024px)** — `apps/app/src/components/shell/mobile-chrome.tsx`:
-- `MobileHeader` — compact sticky header: wordmark + avatar only.
-- `MobileTabBar` — fixed bottom tab bar: Apps, Infra, **centre coral `+` FAB**
-  (the Create sheet), More (opens the full grouped navigation). Safe-area
-  padded; content gets `pb-28` so the bar never covers it. (Plan §E target:
-  Overview · Apps · `+` · Servers · Activity.)
+Deploy is a verb (the coral nav button, ⌘K, `/deploy`), not a row. URLs are
+stable: the IA regroups routes, it doesn't move them.
 
-**Breakpoint rule:** the layout swap happens at **`lg` (1024px)**. Do it in CSS
-(`lg:` variants); nothing in the app needs a JS breakpoint hook today.
+## Colour & tokens
 
-**No top nav bar. No hamburger menus.** Desktop is the sidenav; mobile is the
-always-visible tab bar.
+Shared (`@swarmy/ui/src/styles.css`): `--primary` coral, `--ink` navy,
+`--status-*` fills, `--background/--card/--border/--muted-foreground`.
+App-only (`apps/app/src/styles/globals.css`):
 
-## Page anatomy (every screen)
+- `--nav*` — the navy sidenav in both themes.
+- `--code` — the Code panel (`.calm-code`).
+- `--tone-ok/warn/bad/info/mesh/idle` → `text-tone-*`: status colours that
+  clear **4.5:1 as text** on page and card in both themes. Use these for
+  coloured words; `--status-*` (`bg-status-*`) are for dots and washes only.
+- Light `--primary` is deepened (`oklch(0.58 0.2 29.5)`) so white-on-coral
+  clears 4.5:1.
 
-1. `.eyebrow` page marker (wayfinding).
-2. `.headline` hero — a statement with the key number, coral `<em>` on the word
-   that matters. Optionally over a `.mesh` wash. **⚠ Superseded** (plan §E): the
-   hero is retired everywhere but Overview; other pages get a compact header —
-   `h1` = the page name at `text-2xl/3xl`, an inline status chip, one coral CTA.
-   Don't add a new hero to a non-Overview page.
-3. One coral CTA (if the screen has a primary action).
-4. The data: `.card-pop` surfaces; KPI rows as big mono numbers with `count-up`;
-   live series in hand-tuned charts (coral line, never stock chart-library
-   chrome); lists are **flat rows in one card** divided by hairlines (hover wash,
-   selection = soft `bg-accent` + 3px coral left rail) — never per-row cards.
-5. Status always via `--status-*` tokens + `StatusBadge`.
-6. Every empty state sells the next action ("No nodes yet — add one." with the CTA),
-   never "No data available".
-7. **Never a fake zero.** While a query is pending render a skeleton from
-   `apps/app/src/components/states/*` (`PageSkeleton`, `CardSkeleton`,
-   `ErrorState`); a number is shown only once it has settled. A metric shown in
-   two places comes from one hook (e.g. `lib/use-estate-summary.ts`), so the
-   sidenav footer and a KPI card can never disagree.
+Coral = the one action. Green healthy, amber needs you, crimson down, blue in
+flight, violet private network. No raw Tailwind palette colours.
 
-## Width strategy
+## Typography
 
-Width goes to data, focus goes to input.
-- The shell `<main>` is full-width; each page owns its container. Data surfaces:
-  `mx-auto w-full max-w-[1600px] px-6 xl:px-10` + `lg:pb-20`.
-- Master-detail surfaces (node detail, service logs) follow the email-client
-  pattern: full-height columns that scroll independently, pinned action footer.
-- Focus surfaces stay narrow: the new-service form (`max-w-3xl`), auth forms.
-- Grids absorb width at `xl` (`sm:grid-cols-2 xl:grid-cols-4` for KPIs, rails widen).
+Bricolage Grotesque (`font-display`, `.say` 720 weight, tight tracking) for
+sentences and section titles; Instrument Sans for UI; Geist Mono for
+numbers, crumbs, eyebrows, tech lines and code. No serif, no italics.
 
-## Responsive
+## Voice & glossary
 
-- Page hero: `text-[2.4rem] sm:text-5xl/[4.2rem]`.
-- KPI blocks: 2-across on phone, 4-across `lg`; shrink the number, hide sub-captions on mobile (`hidden sm:block`).
-- Any horizontal flex row that can overflow gets `flex-wrap`.
+Talk like a calm, sharp colleague: "Three apps are calm. analytics is slow."
+"Put back v41 — your data isn't touched and it takes about 40 seconds."
 
-## Voice & microcopy
+| At Summary say | Only at Controls/Code |
+|---|---|
+| app · server · address · front door | stack · node · route/ingress · driver |
+| copies · standby copy · switch-over | replicas · replica · failover/promote |
+| private network | mesh IP, overlay, WireGuard |
+| saved / backed up · put back vN | snapshot, restic, PITR · rollback |
 
-**Words** (**⚠ Superseded** by plan §B.3, applied in UI copy only — routes and
-API names don't change): App (not stack) · Service · Server (not node) ·
-Domain (not route/ingress) · Edge · Mesh.
+CTAs: "Deploy an app", "Add a server", "Add a domain", "Put back v41".
 
-Talk like a sharp SRE colleague, not a system: "All green, Calum.", "3 nodes
-offline — take a look.", "Quiet so far. Add a node.", "It's live." Short.
-Confident. Human. Lead with numbers.
+## Accessibility
+
+Real `<button>`/`<Link>`, labels on icon buttons, `aria-pressed` on depth
+switches, `aria-current` on active nav/tabs. 4.5:1 text contrast. 44px touch
+targets on touch devices (`pointer-coarse:min-h-11`, `min-h-11`). Works at
+390px. Motion only on the thing that needs you; respect reduced motion.
+
+## States
+
+Pending → `PageSkeleton` / `CardSkeleton` (`components/states/*`); a number
+shows only once settled. A metric shown twice comes from one hook
+(`lib/use-estate-summary.ts`). Empty states sell the next action.
 
 ## Do / Don't
 
-- ✅ One coral CTA per screen; everything else navy/neutral.
-- ✅ Eyebrow on every page; active nav always visible.
-- ✅ Count-up numbers (`apps/app/src/components/count-up.tsx`), spring entrances `ease: [0.22, 1, 0.36, 1]`, 0.3–0.5s.
-- ❌ No serif, no italics, no muted minimalism.
-- ❌ No top nav bar — desktop sidenav, mobile tab bar. No hamburger menus.
-- ❌ No raw Tailwind palette colours; tokens only.
+- ✅ One coral action per screen (the nav's Deploy an app is the shell's).
+- ✅ Sentence first, knobs at Controls, text form at Code.
+- ✅ Quiet surfaces (`calm-card`): hairline borders, little shadow, little motion.
+- ❌ No hero headlines, no `Advanced ▸`, no `Raw` toggle, no Form/compose split.
+- ❌ No glossary words at Summary. No invented CLI commands or REST paths.
+- ❌ No top nav bar, no hamburger. No raw palette colours.
 
 ## File map
 
-- Tokens & utilities: `@swarmy/ui/src/styles.css` (shared by both apps).
-- App globals + fonts + `@source`: `apps/app/src/styles/globals.css`.
-- Shell: `apps/app/src/components/shell/{app-shell,sidenav,mobile-chrome}.tsx`, `components/theme-menu.tsx`.
-- Primitives: `apps/app/src/components/{count-up,page-header,section-header,charts}.tsx`, `components/states/*`; `StatusBadge` from `@swarmy/ui`.
-- Nav model: `apps/app/src/lib/destinations.ts` (`NAV_GROUPS`, destinations, Create menu), stack tabs in `lib/stack-nav.ts`.
-- Data: components use `const trpc = useTRPC()` + `useQuery(trpc.x.queryOptions())` (see `skill("react-components")`).
-- Auth: `apps/app/src/...` imports `@swarmy/auth/client` — never the package root in browser code.
+- Tokens: `@swarmy/ui/src/styles.css`, `apps/app/src/styles/globals.css`.
+- Calm primitives: `apps/app/src/components/calm/*`.
+- Shell: `components/shell/{app-shell,sidenav,mobile-chrome,user-menu,command-palette}.tsx`.
+- Headers: `components/section-header.tsx`, `components/page-header.tsx`.
+- Nav model: `lib/destinations.ts`; app tabs: `lib/stack-nav.ts`.
+- Data: `useTRPC()` + `useQuery(trpc.x.queryOptions())` (`skill("react-components")`);
+  every new query needs a demo resolver (`src/demo/resolvers/*`).
