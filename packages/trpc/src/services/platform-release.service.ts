@@ -22,6 +22,7 @@ import {
   DEFAULT_MAINTENANCE_WINDOW,
   MaintenanceWindow,
   builtInManifest,
+  channelOfVersion,
   compareVersions,
   describeWindow,
   inMaintenanceWindow,
@@ -91,9 +92,25 @@ function windowOf(raw: unknown): MaintenanceWindow {
   return r.success ? r.data : DEFAULT_MAINTENANCE_WINDOW;
 }
 
+/**
+ * Stored channel values. The column defaults to `stable`, which every row got
+ * whether or not anyone chose it, so an Edge install showed "Stable channel"
+ * and polled `stable/platform.json` (404). The default now means "follow the
+ * installed build" (Edge builds → edge); an explicit choice is stored as
+ * `edge` or {@link CHOSEN_STABLE}.
+ */
+export const CHOSEN_STABLE = 'stable:chosen';
+
+/** PURE — the effective channel for a stored value on a build `version`. */
+export function effectiveChannel(stored: string | null | undefined, version: string): PlatformChannel {
+  if (stored === 'edge') return 'edge';
+  if (stored === CHOSEN_STABLE) return 'stable';
+  return channelOfVersion(version);
+}
+
 export function policyOf(row: NonNullable<ConfigRow>): PlatformPolicy {
   return {
-    channel: row.channel === 'edge' ? 'edge' : 'stable',
+    channel: effectiveChannel(row.channel, controllerBuild().version),
     feedUrl: row.feedUrl ?? null,
     autoApplyPatches: row.autoApplyPatches,
     window: windowOf(row.window),
@@ -251,7 +268,7 @@ export async function setPolicy(
   const row = await ctx.db.platformConfig.update({
     where: { orgId: ctx.activeOrgId },
     data: {
-      ...(input.channel ? { channel: input.channel } : {}),
+      ...(input.channel ? { channel: input.channel === 'stable' ? CHOSEN_STABLE : 'edge' } : {}),
       ...(input.feedUrl !== undefined ? { feedUrl: input.feedUrl?.trim() || null } : {}),
       ...(input.autoApplyPatches !== undefined ? { autoApplyPatches: input.autoApplyPatches } : {}),
       ...(input.window ? { window: input.window as object } : {}),

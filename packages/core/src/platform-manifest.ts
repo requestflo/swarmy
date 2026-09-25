@@ -162,6 +162,11 @@ export function buildPlatformManifest(input: BuildManifestInput): PlatformManife
   });
 }
 
+/** The channel a build belongs to: `<x.y.z>-edge.<n>` builds are Edge, the rest Stable. */
+export function channelOfVersion(version: string): PlatformChannel {
+  return /-edge\b/.test(version) ? 'edge' : 'stable';
+}
+
 /**
  * The manifest a controller implies when no release was ever applied: its own
  * compiled BOM (own builds unresolved) at its build version. The "from" side
@@ -170,7 +175,7 @@ export function buildPlatformManifest(input: BuildManifestInput): PlatformManife
 export function builtInManifest(version: string, commit: string, bom: readonly SystemImage[] = SYSTEM_IMAGES): PlatformManifest {
   return buildPlatformManifest({
     version: SEMVER.test(version) ? version : '0.0.0',
-    channel: /-edge\b/.test(version) ? 'edge' : 'stable',
+    channel: channelOfVersion(version),
     commit,
     publishedAt: new Date(0).toISOString(),
     bom,
