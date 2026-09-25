@@ -35,6 +35,7 @@ import { DockerClient, defaultContainerLogConfig } from '@swarmy/core/docker';
 import type { ApplyMeshControlPayload, MeshControlSpec, MeshControlStatus } from '@swarmy/core/protocol';
 import { env } from '../env';
 import { enforceMeshFirewall } from './mesh-firewall';
+import { MESH_FRONT_CONTAINER, ensureMeshFront } from './mesh-front';
 import { agentPackaging } from './update';
 
 /** Stable names: re-applies reconcile one container, the installer uses the same. */
@@ -395,6 +396,7 @@ export async function applyMeshControl(docker: DockerClient, p: ApplyMeshControl
     await docker.docker.getContainer(MESH_CONTROL_CONTAINER).remove({ force: true }).catch(() => undefined);
     // …and the persisted copy a reboot would seed an old control plane from.
     await docker.docker.getVolume(MESH_CONTROL_CONF_VOLUME).remove().catch(() => undefined);
+    await ensureMeshFront(docker, null, logFront);
     await forgetLocal();
     return { running: false, healthy: false, waitingForConfig: false };
   }
@@ -410,6 +412,7 @@ export async function applyMeshControl(docker: DockerClient, p: ApplyMeshControl
 }
 
 let supervising = false;
+const logFront = (m: string) => console.log(`[swarmy-agent] ${m}`);
 let lastFirewallAt = 0;
 const MESH_FIREWALL_EVERY_MS = 5 * 60_000;
 /**
@@ -422,8 +425,14 @@ export async function superviseMeshControl(docker: DockerClient): Promise<MeshCo
   supervising = true;
   try {
     const spec = await loadLocalSpec();
-    if (!spec) return null;
+    if (!spec) {
+      // A front left from a control plane that moved away.
+      if (await inspectOrNull(docker, MESH_FRONT_CONTAINER)) await ensureMeshFront(docker, null, logFront);
+      return null;
+    }
     const st = await converge(docker, spec);
+    // QA-066 (f): this node's mesh client must reach signal without the swarm edge.
+    await ensureMeshFront(docker, spec.configYaml, logFront);
     // QA-014: metrics / legacy gRPC / health never answer off-host.
     if (Date.now() - lastFirewallAt > MESH_FIREWALL_EVERY_MS) {
       lastFirewallAt = Date.now();
