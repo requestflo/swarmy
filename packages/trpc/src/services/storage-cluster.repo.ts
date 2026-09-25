@@ -8,7 +8,7 @@
  *    operator's desired set and changes at human speed; a layout entry is
  *    written once per member (its capacity and, when first observed, its
  *    Garage node id), never per tick.
- *  - `bucket-acl/<orgId>`: every bucket's reachability (INTERNAL/MESH/PUBLIC)
+ *  - `bkt-acl/<orgId>`: every bucket's reachability (INTERNAL/MESH/PUBLIC)
  *    in one document; Garage bucket ids are 64 hex chars, too long for a
  *    config name of their own.
  *
@@ -73,7 +73,7 @@ export interface BucketAccessRow {
   mode: string;
 }
 
-const acl = orgSingleton<BucketAclDoc>('bucket-acl', () => ({ buckets: {} }));
+const acl = orgSingleton<BucketAclDoc>('bkt-acl', () => ({ buckets: {} }));
 
 export const bucketAccessRepo = {
   async list(scope: KvScope, orgId: string): Promise<BucketAccessRow[]> {

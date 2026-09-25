@@ -107,3 +107,16 @@ describe('swarm-kv via the hub', () => {
     expect(`swarmy-kv.bkp-target.${id}.v999999`.length).toBeLessThanOrEqual(64);
   });
 });
+
+describe('collection names fit a Docker config name with a UUID org id', () => {
+  // Org ids are 36-char UUIDs; `bucket-acl` overflowed the 64-char cap (QA-016).
+  const ORG_KEYED = ['ingress', 'mesh', 'geodns', 'obs', 'storage', 'bkt-acl', 'registry', 'image-gc', 'rum'] as const;
+  test('every org-keyed collection accepts a UUID id', async () => {
+    const { assertKvKey } = await import('@swarmy/core');
+    const { KV_COLLECTIONS } = await import('./swarm-kv.service');
+    for (const c of ORG_KEYED) {
+      expect(KV_COLLECTIONS as readonly string[]).toContain(c);
+      expect(() => assertKvKey(c, 'f24f77d9-9f5d-45bd-8942-8870bc3255f5')).not.toThrow();
+    }
+  });
+});

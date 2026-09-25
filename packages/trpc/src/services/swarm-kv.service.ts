@@ -50,9 +50,10 @@ import { TRPCError } from '@trpc/server';
 import type { AgentHub } from '../hub/types';
 
 /**
- * Every collection swarm-kv may hold — the raft-bloat lint (plan §6). Names are
- * ≤ 12 chars so `swarmy-kv.<collection>.<32-char id>.v<seq>` fits Docker's
- * 64-char config-name cap.
+ * Every collection swarm-kv may hold — the raft-bloat lint (plan §6).
+ * `swarmy-kv.<collection>.<id>.v<seq>` must fit Docker's 64-char config-name
+ * cap: a collection keyed by orgId (a 36-char UUID) gets ≤ 9 chars, one keyed
+ * by a cuid (25 chars) ≤ 20.
  */
 export const KV_COLLECTIONS = [
   'ingress', // IngressConfig (id = orgId)
@@ -61,7 +62,7 @@ export const KV_COLLECTIONS = [
   'dns-zone', // DnsZone + its DnsRecords (id = zone id)
   'obs', // ObservabilityConfig (id = orgId)
   'storage', // StorageCluster (id = orgId)
-  'bucket-acl', // BucketAccess, every bucket of the org (id = orgId)
+  'bkt-acl', // BucketAccess, every bucket of the org (id = orgId)
   'bkp-target', // BackupTarget (id = target id)
   'bkp-sched', // BackupSchedule (id = schedule id)
   'ctl-backup', // ControllerBackupConfig (id = "controller")

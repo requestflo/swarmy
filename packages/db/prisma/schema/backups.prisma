@@ -64,7 +64,7 @@ enum RestoreStatus {
 
 // The replicated object store (StorageCluster) and per-bucket reachability
 // (BucketAccess) live in the org's swarm (swarm-kv storage/<orgId> and
-// bucket-acl/<orgId>, plans/epic-docker-native-state.md P4 slice 2).
+// bkt-acl/<orgId>, plans/epic-docker-native-state.md P4 slice 2).
 
 model BackupJob {
   id         String          @id @default(cuid())
