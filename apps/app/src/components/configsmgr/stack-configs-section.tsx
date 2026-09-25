@@ -1,108 +1,66 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { FileCogIcon, PlusIcon } from 'lucide-react';
-import { Button, EmptyState } from '@swarmy/ui';
+import { PlusIcon } from 'lucide-react';
+import { Button } from '@swarmy/ui';
+import { Depth, Section } from '@/components/calm';
+import { RowsSkeleton } from '@/components/app-tabs/tab-body';
+import { ErrorState } from '@/components/states';
 import { useTRPC } from '@/integrations/trpc';
 import { ConfigRow } from './config-row';
 import { CreateConfigCard } from './create-config-card';
 import { OrphansCard } from './orphans-card';
 
-interface StackConfigsSectionProps {
-  stack: string;
-}
-
 /**
- * Configs scoped to this stack — one flat list, everything inline: create is
- * an expanding card, detail (content, diffs, versions) is a row-expand, and
- * apply/rollback/delete confirm via AlertDialog with live restart previews.
+ * The app's config files (versioned Docker configs) as one quiet section:
+ * readable, diffable, applied with a restart preview. Row-expand holds the
+ * content, versions and apply / put back.
  */
-export function StackConfigsSection({ stack }: StackConfigsSectionProps): React.JSX.Element {
+export function StackConfigsSection({ stack }: { stack: string }): React.JSX.Element {
   const trpc = useTRPC();
   const [createOpen, setCreateOpen] = React.useState(false);
   const [expanded, setExpanded] = React.useState<string | null>(null);
-
-  const configs = useQuery({
-    ...trpc.configs.list.queryOptions({ stack }),
-    refetchInterval: 5_000,
-  });
+  const configs = useQuery({ ...trpc.configs.list.queryOptions({ stack }), refetchInterval: 5_000 });
   const families = configs.data?.families ?? [];
-  const stale = families.reduce((n, f) => n + f.staleConsumers, 0);
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="mono-label text-muted-foreground">Configs</p>
-          <h2 className="headline text-2xl">
-            {families.length === 0 ? (
-              <>
-                Configs, <em>versioned</em>.
-              </>
-            ) : stale > 0 ? (
-              <>
-                {stale} service{stale === 1 ? '' : 's'} on <em>old</em> configs.
-              </>
-            ) : (
-              <>
-                {families.length} config{families.length === 1 ? '' : 's'} — all <em>current</em>.
-              </>
-            )}
-          </h2>
-        </div>
-        <Button variant="outline" onClick={() => setCreateOpen((o) => !o)}>
-          <PlusIcon className="size-4" /> New config
-        </Button>
-      </div>
-
-      <CreateConfigCard stack={stack} open={createOpen} onOpenChange={setCreateOpen} />
-
-      {configs.isLoading ? (
-        <div className="card-pop space-y-3 p-5">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="shimmer-line h-12 rounded-lg" />
-          ))}
-        </div>
-      ) : configs.isError ? (
-        <div className="card-pop p-2">
-          <EmptyState
-            icon={<FileCogIcon />}
-            title="Couldn't load configs"
-            description={configs.error.message}
-            action={
-              <Button variant="outline" onClick={() => void configs.refetch()}>
-                Retry
-              </Button>
-            }
-          />
-        </div>
-      ) : families.length === 0 ? (
-        <div className="card-pop p-2">
-          <EmptyState
-            icon={<FileCogIcon />}
-            title="No configs in this stack yet — create one."
-            description="Versioned Docker configs you can read, diff and roll back — mounted at a stable path, applied with a restart preview."
-            action={
-              <Button variant="outline" onClick={() => setCreateOpen(true)}>
-                <PlusIcon className="size-4" /> New config
-              </Button>
-            }
-          />
-        </div>
-      ) : (
-        <div className="card-pop divide-border divide-y overflow-hidden">
-          {families.map((f) => (
-            <ConfigRow
-              key={f.family}
-              family={f}
-              stack={stack}
-              expanded={expanded === f.family}
-              onToggle={() => setExpanded((e) => (e === f.family ? null : f.family))}
-            />
-          ))}
-        </div>
-      )}
-
-      <OrphansCard orphans={configs.data?.orphans ?? []} />
-    </section>
+    <>
+      <Section
+        title="Config files"
+        count={configs.data ? families.length : undefined}
+        hint="readable, versioned"
+        flush
+        action={
+          <Button variant="outline" size="sm" className="pointer-coarse:min-h-11" onClick={() => setCreateOpen((o) => !o)}>
+            <PlusIcon className="size-3.5" /> Add a file
+          </Button>
+        }
+      >
+        <CreateConfigCard stack={stack} open={createOpen} onOpenChange={setCreateOpen} />
+        {configs.isPending ? (
+          <RowsSkeleton rows={2} />
+        ) : configs.isError ? (
+          <ErrorState title="Couldn't load config files" error={configs.error} retry={() => void configs.refetch()} />
+        ) : families.length === 0 ? (
+          <p className="text-muted-foreground py-3 text-[13.5px]">
+            No config files yet. Add one and swarmy mounts it at a fixed path, with every version kept.
+          </p>
+        ) : (
+          <ul aria-label="Config files" className="flex flex-col">
+            {families.map((f) => (
+              <ConfigRow
+                key={f.family}
+                family={f}
+                stack={stack}
+                expanded={expanded === f.family}
+                onToggle={() => setExpanded((e) => (e === f.family ? null : f.family))}
+              />
+            ))}
+          </ul>
+        )}
+      </Section>
+      <Depth at="controls">
+        <OrphansCard orphans={configs.data?.orphans ?? []} />
+      </Depth>
+    </>
   );
 }

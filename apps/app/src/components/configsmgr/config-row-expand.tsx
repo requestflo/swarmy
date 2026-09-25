@@ -25,7 +25,7 @@ export function ConfigRowExpand({ family, stack }: ConfigRowExpandProps): React.
   const [inspecting, setInspecting] = React.useState<number | undefined>(undefined);
 
   return (
-    <div className="border-border space-y-5 border-t px-5 py-4">
+    <div className="border-border space-y-5 border-t px-1 pt-3 pb-4">
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"

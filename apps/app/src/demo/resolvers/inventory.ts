@@ -113,7 +113,34 @@ function buildDemoInventory(store: DemoStore): Inventory {
   return { projects, services, edges };
 }
 
+/**
+ * storefront's services run with a believable env (bindings, a plain URL, one
+ * password left as a plain variable) so the Variables & secrets tab has
+ * something to say. Seeded once into the store, so `services.get` agrees.
+ */
+const STOREFRONT_ENV: Record<string, Record<string, string>> = {
+  'svc-web': { PUBLIC_URL: 'https://shop.northwind.dev', API_URL: 'http://api:8080', SHOP_CURRENCY: 'GBP' },
+  'svc-api': {
+    DATABASE_RO_URL: '${{ db.ro_url }}',
+    REDIS_URL: '${{ cache.url }}',
+    S3_BUCKET: '${{ storefront-media.bucket }}',
+    SHOP_CURRENCY: 'GBP',
+  },
+  'svc-checkout': { DATABASE_RO_URL: '${{ db.ro_url }}', CHECKOUT_TIMEOUT_MS: '8000', PAYPAL_CLIENT_SECRET: 'pp_live_8f2a91c4d0e7b3' },
+  'svc-cdn': { ORIGIN_URL: 'http://web:3000' },
+};
+const OTEL = (name: string): Record<string, string> => ({
+  OTEL_EXPORTER_OTLP_ENDPOINT: 'http://swarmy-otel-collector:4317',
+  OTEL_SERVICE_NAME: `storefront-${name}`,
+});
+
 export const inventory: DomainResolvers = {
+  seed: (store) => {
+    for (const sv of store.services) {
+      const extra = STOREFRONT_ENV[sv.id];
+      if (extra) sv.env = { ...sv.env, ...extra, ...OTEL(sv.name) };
+    }
+  },
   handlers: {
     'inventory.get': (_i, s) => buildDemoInventory(s),
   },

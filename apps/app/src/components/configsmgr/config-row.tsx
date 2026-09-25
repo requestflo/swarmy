@@ -1,22 +1,16 @@
 import * as React from 'react';
-import { ChevronDownIcon } from 'lucide-react';
+import { ChevronDownIcon, FileCogIcon } from 'lucide-react';
 import type { ConfigFamilyView } from '@swarmy/core';
-import {
-  Collapsible,
-  CollapsibleContent,
-  StatusBadge,
-  cn,
-  type StatusTone,
-} from '@swarmy/ui';
+import { Collapsible, CollapsibleContent, cn } from '@swarmy/ui';
+import { StatusWord, Tech, type Tone } from '@/components/calm';
 import { relTime } from '@/lib/format';
-import { ConsumerChips } from '@/components/secretsmgr/consumer-chips';
 import { ConfigRowExpand } from './config-row-expand';
 
-/** Row tone: stale consumers need an apply nudge; unattached is just quiet. */
-export function configTone(f: ConfigFamilyView): { tone: StatusTone; label: string } {
-  if (f.staleConsumers > 0) return { tone: 'warning', label: `${f.staleConsumers} stale` };
-  if (f.usedByCount === 0) return { tone: 'neutral', label: 'unattached' };
-  return { tone: 'online', label: 'in sync' };
+/** Row tone: a service on an old version needs an apply nudge; unattached is just quiet. */
+export function configTone(f: ConfigFamilyView): { tone: Tone; label: string } {
+  if (f.staleConsumers > 0) return { tone: 'warn', label: `${f.staleConsumers} on an old one` };
+  if (f.usedByCount === 0) return { tone: 'idle', label: 'Not used' };
+  return { tone: 'ok', label: 'In use' };
 }
 
 interface ConfigRowProps {
@@ -26,49 +20,44 @@ interface ConfigRowProps {
   onToggle: () => void;
 }
 
-/** One flat family row; clicking expands content, versions and consumers inline. */
+/** One config file: where it mounts and who reads it; expands for content, versions and apply. */
 export function ConfigRow({ family, stack, expanded, onToggle }: ConfigRowProps): React.JSX.Element {
   const tone = configTone(family);
+  const id = React.useId();
+  const names = family.consumers.map((c) => c.serviceName);
   return (
-    <div className={cn(expanded && 'bg-accent/40 shadow-[inset_3px_0_0_var(--primary)]')}>
+    <li className={cn('border-border border-b last:border-b-0', expanded && 'bg-foreground/[0.02]')}>
       <button
         type="button"
         onClick={onToggle}
-        className="hover:bg-accent/50 grid w-full grid-cols-[1fr_auto] items-center gap-3 px-5 py-3.5 text-left transition-colors lg:grid-cols-[1.6fr_1.4fr_7rem_6.5rem_1.5rem]"
+        aria-expanded={expanded}
+        aria-controls={id}
+        className="hover:bg-foreground/[0.025] focus-visible:ring-ring/50 flex min-h-14 w-full items-center gap-3 rounded-sm px-1 py-2.5 text-left outline-none focus-visible:ring-2"
       >
-        <span className="min-w-0">
-          <span className="mono-data block truncate text-sm font-semibold">{family.family}</span>
-          <span className="text-muted-foreground block truncate text-xs">
-            {family.versions.length} version{family.versions.length === 1 ? '' : 's'} · mounts at{' '}
-            {family.mountPath}
+        <span aria-hidden className="bg-foreground/[0.05] text-muted-foreground grid size-8 shrink-0 place-items-center rounded-lg">
+          <FileCogIcon className="size-3.5" />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="truncate font-mono text-[13px] font-semibold">{family.family}</span>
+          <span className="text-muted-foreground truncate text-[12.5px]">
+            {names.length ? `Read by ${names.join(', ')}` : 'Not handed to any service yet'} · changed{' '}
+            {relTime(family.lastUpdatedAt)}
           </span>
+          <Tech>
+            v{family.currentVersion} of {family.versions.length} · mounts at {family.mountPath}
+          </Tech>
         </span>
-        <span className="hidden min-w-0 lg:block">
-          <ConsumerChips consumers={family.consumers} />
-        </span>
-        <span className="mono-data text-muted-foreground hidden text-right text-xs lg:block">
-          {relTime(family.lastUpdatedAt)}
-        </span>
-        <span className="hidden justify-end lg:flex">
-          <StatusBadge tone={tone.tone} label={tone.label} />
-        </span>
-        <span className="flex items-center justify-end gap-3">
-          <span className="lg:hidden">
-            <StatusBadge tone={tone.tone} label={tone.label} />
-          </span>
-          <ChevronDownIcon
-            className={cn(
-              'text-muted-foreground size-4 shrink-0 transition-transform',
-              expanded && 'rotate-180',
-            )}
-          />
-        </span>
+        <StatusWord tone={tone.tone} word={tone.label} className="shrink-0" />
+        <ChevronDownIcon
+          aria-hidden
+          className={cn('text-muted-foreground size-4 shrink-0 transition-transform', expanded && 'rotate-180')}
+        />
       </button>
       <Collapsible open={expanded}>
-        <CollapsibleContent>
+        <CollapsibleContent id={id}>
           <ConfigRowExpand family={family} stack={stack} />
         </CollapsibleContent>
       </Collapsible>
-    </div>
+    </li>
   );
 }

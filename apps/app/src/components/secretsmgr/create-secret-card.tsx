@@ -66,7 +66,7 @@ export function CreateSecretCard({
   return (
     <Collapsible open={open} onOpenChange={onOpenChange}>
       <CollapsibleContent>
-        <div className="card-pop space-y-4 p-5">
+        <div className="border-border mb-2 space-y-4 rounded-xl border p-4">
           <div>
             <p className="text-sm font-bold">New secret</p>
             <p className="text-muted-foreground text-xs">
