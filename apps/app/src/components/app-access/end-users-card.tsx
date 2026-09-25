@@ -29,7 +29,7 @@ export function EndUsersCard({ stack, auth }: EndUsersCardProps): React.JSX.Elem
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="headline text-xl">
+        <h2 className="say text-xl">
           App <em>users</em>
         </h2>
         <p className="text-muted-foreground mono-label mt-1">
@@ -38,7 +38,7 @@ export function EndUsersCard({ stack, auth }: EndUsersCardProps): React.JSX.Elem
       </div>
 
       {auth.providerSetup.length ? (
-        <div className="card-pop divide-border divide-y overflow-hidden">
+        <div className="calm-card shadow-none divide-border divide-y overflow-hidden">
           {auth.providerSetup.map((p) => (
             <div key={p.provider} className="flex flex-wrap items-center gap-x-6 gap-y-1 px-5 py-3 text-sm">
               <KeyRoundIcon className="text-muted-foreground size-4" />
@@ -51,7 +51,7 @@ export function EndUsersCard({ stack, auth }: EndUsersCardProps): React.JSX.Elem
       ) : null}
 
       {!auth.running ? (
-        <div className="card-pop p-2">
+        <div className="calm-card shadow-none p-2">
           <EmptyState icon={<KeyRoundIcon />} title="The auth service isn't running yet" description="It starts with the app's next deploy." />
         </div>
       ) : users.isPending ? (
@@ -59,11 +59,11 @@ export function EndUsersCard({ stack, auth }: EndUsersCardProps): React.JSX.Elem
       ) : users.isError ? (
         <ErrorState title="Couldn't reach the app's auth service." error={users.error} retry={() => void users.refetch()} />
       ) : users.data.users.length === 0 ? (
-        <div className="card-pop p-2">
+        <div className="calm-card shadow-none p-2">
           <EmptyState icon={<KeyRoundIcon />} title="No one has signed up yet" description="Send people to /auth/login on the app's domain." />
         </div>
       ) : (
-        <div className="card-pop divide-border divide-y overflow-hidden">
+        <div className="calm-card shadow-none divide-border divide-y overflow-hidden">
           {users.data.users.map((u) => (
             <div key={u.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
               <span className="min-w-0">

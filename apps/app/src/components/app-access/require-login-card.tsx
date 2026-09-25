@@ -30,7 +30,7 @@ export function RequireLoginCard({ stack, routes }: RequireLoginCardProps): Reac
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="headline text-xl">
+          <h2 className="say text-xl">
             Require <em>login</em>
           </h2>
           <p className="text-muted-foreground mt-1 max-w-2xl text-sm">
@@ -49,7 +49,7 @@ export function RequireLoginCard({ stack, routes }: RequireLoginCardProps): Reac
         </label>
       </div>
 
-      <div className="card-pop divide-border divide-y overflow-hidden">
+      <div className="calm-card shadow-none divide-border divide-y overflow-hidden">
         {routes.map((r) => (
           <div key={r.id} className={cn('flex flex-wrap items-center justify-between gap-3 px-5 py-3', r.requireLogin && 'bg-accent/40')}>
             <div className="flex min-w-0 items-center gap-3">

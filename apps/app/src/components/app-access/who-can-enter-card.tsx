@@ -38,7 +38,7 @@ export function WhoCanEnterCard({ stack, view }: WhoCanEnterCardProps): React.JS
   return (
     <section className="space-y-4">
       <div>
-        <h2 className="headline text-xl">
+        <h2 className="say text-xl">
           Who can <em>enter</em>
         </h2>
         <p className="text-muted-foreground mono-label mt-1">
@@ -46,7 +46,7 @@ export function WhoCanEnterCard({ stack, view }: WhoCanEnterCardProps): React.JS
         </p>
       </div>
 
-      <div className="card-pop space-y-5 p-5">
+      <div className="calm-card shadow-none space-y-5 p-5">
         <label className="flex items-center justify-between gap-4">
           <span>
             <span className="font-semibold">Everyone in this organisation</span>
@@ -66,7 +66,7 @@ export function WhoCanEnterCard({ stack, view }: WhoCanEnterCardProps): React.JS
               Discard
             </Button>
           ) : null}
-          <Button disabled={!dirty || save.isPending} onClick={() => save.mutate({ stack, ...draft })}>
+          <Button variant="outline" disabled={!dirty || save.isPending} onClick={() => save.mutate({ stack, ...draft })}>
             <UsersIcon className="size-4" /> Save access
           </Button>
         </div>

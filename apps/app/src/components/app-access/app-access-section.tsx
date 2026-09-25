@@ -28,7 +28,7 @@ export function AppAccessSection({ stack }: { stack: string }): React.JSX.Elemen
   return (
     <div className="space-y-10">
       {appRoutes.length === 0 ? (
-        <div className="card-pop p-2">
+        <div className="calm-card shadow-none p-2">
           <EmptyState
             icon={<ShieldCheckIcon />}
             title="Give this app a domain first"
