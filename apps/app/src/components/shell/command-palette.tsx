@@ -13,12 +13,17 @@ import {
 import { NODE_STATUS_TONE, SERVICE_STATUS_TONE } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { useGo } from '@/lib/use-go';
+import { computeStackStats } from '@/components/canvas/stack-aggregates';
 import { useCommandPalette } from './command-palette-provider';
 import { PRIMARY, SECTIONS, QUICK_ACTIONS, NAV_GROUP_ORDER } from '@/lib/destinations';
+import { DEPTHS, DEPTH_LABEL, usePageDepth, useDepthDefault } from '@/components/calm/depth';
 
 const SECTION_ORDER = NAV_GROUP_ORDER;
 
-/** The ⌘K palette — primary navigator: planes, sections, quick actions, live entities. */
+/**
+ * ⌘K — "Ask or jump": actions, the seven rows and their pages, live apps /
+ * services / servers, and the depth for this page or by default.
+ */
 export function CommandPalette(): React.JSX.Element {
   const { open, setOpen } = useCommandPalette();
   const navigate = useNavigate();
@@ -26,6 +31,13 @@ export function CommandPalette(): React.JSX.Element {
   const trpc = useTRPC();
   const services = useQuery({ ...trpc.services.list.queryOptions(), enabled: open });
   const nodes = useQuery({ ...trpc.nodes.list.queryOptions(), enabled: open });
+  const page = usePageDepth();
+  const def = useDepthDefault();
+  const inventory = useQuery({ ...trpc.inventory.get.queryOptions(), enabled: open });
+  const stacks = React.useMemo(
+    () => (inventory.data ? computeStackStats(inventory.data).map((s) => s.name) : []),
+    [inventory.data],
+  );
 
   const close = () => setOpen(false);
   const goTo = (to: string) => {
@@ -35,9 +47,9 @@ export function CommandPalette(): React.JSX.Element {
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Search services, nodes, or jump to anything…" />
+      <CommandInput placeholder="Ask or jump… an app, a server, a page, or “deploy”" />
       <CommandList>
-        <CommandEmpty>No matches — try a service or node name.</CommandEmpty>
+        <CommandEmpty>Nothing matches. Try an app or server name.</CommandEmpty>
 
         <CommandGroup heading="Actions">
           {QUICK_ACTIONS.map((a) => (
@@ -70,6 +82,23 @@ export function CommandPalette(): React.JSX.Element {
           </CommandGroup>
         ))}
 
+        {stacks.length > 0 && (
+          <CommandGroup heading="Apps">
+            {stacks.slice(0, 8).map((name) => (
+              <CommandItem
+                key={name}
+                value={`app ${name}`}
+                onSelect={() => {
+                  close();
+                  void navigate({ to: '/stacks/$name', params: { name } });
+                }}
+              >
+                {name}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
         {(services.data?.length ?? 0) > 0 && (
           <CommandGroup heading="Services">
             {services.data?.slice(0, 8).map((svc) => (
@@ -93,11 +122,11 @@ export function CommandPalette(): React.JSX.Element {
         )}
 
         {(nodes.data?.length ?? 0) > 0 && (
-          <CommandGroup heading="Nodes">
+          <CommandGroup heading="Servers">
             {nodes.data?.slice(0, 8).map((node) => (
               <CommandItem
                 key={node.id}
-                value={`node ${node.name} ${node.hostname}`}
+                value={`server node ${node.name} ${node.hostname}`}
                 onSelect={() => {
                   close();
                   void navigate({ to: '/nodes/$nodeId', params: { nodeId: node.id } });
@@ -113,6 +142,21 @@ export function CommandPalette(): React.JSX.Element {
             ))}
           </CommandGroup>
         )}
+        <CommandSeparator />
+        <CommandGroup heading="Show me">
+          {DEPTHS.map((d) => (
+            <CommandItem key={`page-${d}`} value={`show ${d} depth this page detail`} onSelect={() => { page.setDepth(d); close(); }}>
+              {DEPTH_LABEL[d]} on this page
+              {page.depth === d ? <span className="text-muted-foreground ml-auto text-xs">now</span> : null}
+            </CommandItem>
+          ))}
+          {DEPTHS.map((d) => (
+            <CommandItem key={`default-${d}`} value={`default ${d} depth always`} onSelect={() => { def.set(d); close(); }}>
+              {DEPTH_LABEL[d]} by default
+              {def.value === d ? <span className="text-muted-foreground ml-auto text-xs">your default</span> : null}
+            </CommandItem>
+          ))}
+        </CommandGroup>
       </CommandList>
     </CommandDialog>
   );
