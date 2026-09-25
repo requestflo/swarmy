@@ -161,6 +161,12 @@ export interface OrchestrateArgs {
    * Absent ⇒ treated as "no peers" (legacy callers / tests).
    */
   peers?: () => SwarmPeer[];
+  /**
+   * For a node already in a swarm: `foreignSwarmDetail` for it now (QA-065) —
+   * a non-null answer is recorded as a `failed` status with the fix instead of
+   * a silent no-op. Absent ⇒ not checked.
+   */
+  foreignSwarm?: () => string | null;
   /** Observer for state transitions (audit/log). Must not throw. */
   onEvent?: (e: SwarmOrchestrationEvent) => void;
   /** Test seam: delay between deferred re-plans (default 5s). */
@@ -286,6 +292,34 @@ export function planAfterStoredJoinFailure(
   };
 }
 
+// ── A node stuck in someone else's swarm (QA-065) ────────────────────────────
+
+/** Leaving is safe on a worker (no quorum to lose); the agent's watchdog sees it, restarts, and joins. */
+export const FOREIGN_SWARM_FIX = 'sudo docker swarm leave';
+export const FOREIGN_SWARM_DETAIL =
+  "couldn't join the cluster: this node is still a worker in another Docker swarm (an old or torn-down cluster), " +
+  "and this cluster's managers don't list it. swarmy never makes a node leave a swarm on its own.";
+
+/**
+ * PURE — is this node a member of a swarm that is NOT the org's? The agent says
+ * it is in a swarm, the org has a live manager, yet no manager of the org lists
+ * it in `docker node ls` (which keeps even down members). Before this the node
+ * showed ONLINE and silently never joined: the planner no-ops on "already in a
+ * swarm". Managers are out of scope: a manager lists itself.
+ */
+export function foreignSwarmDetail(i: {
+  /** Local swarm state says member (active / pending / error). */
+  inSwarm: boolean;
+  isManager: boolean | undefined;
+  /** Connected managers of the org, other than this node. */
+  otherLiveManagers: number;
+  /** Some manager of the org lists this node (by hostname). */
+  listedByOrgSwarm: boolean;
+}): string | null {
+  if (!i.inSwarm || i.isManager === true || i.otherLiveManagers === 0 || i.listedByOrgSwarm) return null;
+  return FOREIGN_SWARM_DETAIL;
+}
+
 // ── Orchestration status (surfaced on the node detail) ───────────────────────
 
 export type SwarmOrchestrationState =
@@ -299,6 +333,8 @@ export type SwarmOrchestrationState =
 export interface SwarmOrchestrationStatus {
   state: SwarmOrchestrationState;
   detail: string;
+  /** The one command that fixes it, when there is one (shown on the node page). */
+  fix?: string;
   at: string;
 }
 
@@ -309,8 +345,8 @@ export function swarmOrchestrationStatus(nodeId: string): SwarmOrchestrationStat
   return statusByNode.get(nodeId) ?? null;
 }
 
-function setStatus(args: OrchestrateArgs, state: SwarmOrchestrationState, detail: string): void {
-  statusByNode.set(args.nodeId, { state, detail, at: new Date().toISOString() });
+function setStatus(args: OrchestrateArgs, state: SwarmOrchestrationState, detail: string, fix?: string): void {
+  statusByNode.set(args.nodeId, { state, detail, ...(fix ? { fix } : {}), at: new Date().toISOString() });
   try {
     args.onEvent?.({ orgId: args.orgId, nodeId: args.nodeId, state, detail });
   } catch {
@@ -366,7 +402,14 @@ async function orchestrateOnce(args: OrchestrateArgs): Promise<OrchestrateOutcom
     await new Promise((r) => setTimeout(r, args.deferDelayMs ?? 5_000));
   }
 
-  if (plan.kind === 'noop') return { action: 'noop', reason: plan.reason };
+  if (plan.kind === 'noop') {
+    const foreign = args.alreadyInSwarm ? args.foreignSwarm?.() : null;
+    if (foreign) {
+      setStatus(args, 'failed', foreign, FOREIGN_SWARM_FIX);
+      return { action: 'noop', reason: foreign };
+    }
+    return { action: 'noop', reason: plan.reason };
+  }
 
   try {
     if (plan.kind === 'join-live') return await joinViaLiveManager(args, plan.managerNodeId, role);

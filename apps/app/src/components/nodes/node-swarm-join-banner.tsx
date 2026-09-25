@@ -6,6 +6,7 @@ import { Card, CardContent, cn } from '@swarmy/ui';
  * Why a registered node isn't in the swarm (yet): the controller retries a
  * failed `swarm.join` with backoff, then gives up with "couldn't join the
  * cluster: <reason>". Hidden once the node is in the swarm or nothing failed.
+ * With a `fix` (a node stuck in another swarm, QA-065) it shows that one line.
  */
 export function NodeSwarmJoinBanner({ node }: { node: NodeDetail | undefined }): React.JSX.Element | null {
   const o = node?.swarmOrchestration;
@@ -19,7 +20,12 @@ export function NodeSwarmJoinBanner({ node }: { node: NodeDetail | undefined }):
           {gaveUp ? "This node couldn't join the cluster" : retrying ? 'Joining the cluster…' : 'Joining the cluster failed'}
         </p>
         <p className="text-muted-foreground mono-data break-words text-xs">{o.detail}</p>
-        {gaveUp && (
+        {o.fix ? (
+          <p className="text-xs">
+            On the node, run <code className="mono-data rounded bg-background/60 px-1 py-0.5">{o.fix}</code>. Its agent
+            restarts and joins this cluster.
+          </p>
+        ) : gaveUp && (
           <p className="text-muted-foreground text-xs">
             Check that the node can reach a manager on the mesh (TCP 2377, UDP 4789/7946), then restart its agent or run
             Repair — the controller tries again from the start.

@@ -188,6 +188,7 @@ export {
   planSwarmMembership,
   primeSwarmJoinMaterial,
   swarmOrchestrationStatus,
+  foreignSwarmDetail,
   retryPendingSwarmJoins,
   SWARM_COMMAND,
 } from './services/swarm.service';
@@ -210,6 +211,7 @@ export {
   stampReportedPublicIp,
   stampProfileLabels,
   stampDefaultBuilderRole,
+  foreignSwarmOf,
 } from './services/node.service';
 // WS7 private-mesh profile: the register path auto-enrolls the node into the mesh.
 export { enrollNode as enrollMeshNode } from './services/mesh.service';

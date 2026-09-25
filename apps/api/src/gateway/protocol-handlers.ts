@@ -12,6 +12,7 @@ import type { LogLine } from '@swarmy/core/views';
 import { prisma } from '@swarmy/db';
 import {
   enrollMeshNode,
+  foreignSwarmOf,
   orchestrateSwarmMembership,
   reconcileMeshPeer,
   stampDefaultBuilderRole,
@@ -395,6 +396,12 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
           isManager: deps.store.managers.get(id),
           swarmState: deps.store.swarmStates.get(id),
         })),
+    // QA-065: "already in a swarm" is only fine when it is THIS org's swarm.
+    foreignSwarm: () =>
+      foreignSwarmOf(deps.hub, orgId, nodeId, {
+        inSwarm: facts.swarmRole !== 'none',
+        isManager: facts.swarmRole === 'manager',
+      }),
     onEvent: (e) => {
       if (e.state !== 'reelected' && e.state !== 'failed') return;
       console.warn(`[swarm] node ${e.nodeId}: ${e.state} — ${e.detail}`);

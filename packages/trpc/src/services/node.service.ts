@@ -23,7 +23,7 @@ import { TRPCError } from '@trpc/server';
 import { writeAudit } from './audit.service';
 import { agentRelease, platformForArch } from './agent-release.service';
 import { requireOnlineNode } from './dispatch.service';
-import { swarmOrchestrationStatus } from './swarm.service';
+import { FOREIGN_SWARM_DETAIL, FOREIGN_SWARM_FIX, foreignSwarmDetail, swarmOrchestrationStatus } from './swarm.service';
 
 /**
  * Node is now an enrollment/auth record (identity only): `{ id, orgId, name,
@@ -115,6 +115,27 @@ export function statusOf(
   return 'offline';
 }
 
+/**
+ * Is this node stuck in someone else's swarm (QA-065)? Live hub truth; `self`
+ * overrides the node's own membership (at register, before its first
+ * serviceState, the gateway knows it only from the register facts).
+ */
+export function foreignSwarmOf(
+  hub: Pick<AgentHub, 'managerNodes' | 'nodeInfoFor' | 'swarmStateFor' | 'isOnline'>,
+  orgId: string,
+  nodeId: string,
+  self?: { inSwarm: boolean; isManager: boolean },
+): string | null {
+  const managers = hub.managerNodes(orgId);
+  const state = hub.swarmStateFor(nodeId);
+  return foreignSwarmDetail({
+    inSwarm: self?.inSwarm ?? (hub.isOnline(nodeId) && (state === 'active' || state === 'pending' || state === 'error')),
+    isManager: self?.isManager ?? managers.includes(nodeId),
+    otherLiveManagers: managers.filter((m) => m !== nodeId).length,
+    listedByOrgSwarm: hub.nodeInfoFor(nodeId) !== undefined,
+  });
+}
+
 function toSummary(ctx: OrgContext, n: NodeRow): NodeSummary {
   const online = ctx.hub.isOnline(n.id);
   const info = ctx.hub.nodeInfoFor(n.id);
@@ -145,7 +166,10 @@ function toSummary(ctx: OrgContext, n: NodeRow): NodeSummary {
     shellOverride: ctx.hub.agentBuildFor?.(n.id)?.shellOverride ?? null,
     region: roles.region,
     publicIp: publicIpFromLabels(info?.labels),
-    status: statusOf(info, online, lastSeen != null, ctx.hub.swarmStateFor(n.id)),
+    // In a swarm, but not this org's: it can never run anything — never "online" (QA-065).
+    status: foreignSwarmOf(ctx.hub, ctx.activeOrgId, n.id)
+      ? 'degraded'
+      : statusOf(info, online, lastSeen != null, ctx.hub.swarmStateFor(n.id)),
     engineVersion: info?.engineVersion ?? null,
     os: info?.os ?? null,
     arch: info?.arch ?? null,
@@ -171,6 +195,16 @@ export async function listNodes(ctx: OrgContext): Promise<NodeSummary[]> {
   return rows.map((r) => toSummary(ctx, r));
 }
 
+/** The stored orchestration outcome, with the foreign-swarm verdict taken live (it clears once fixed). */
+function orchestrationView(ctx: OrgContext, id: string): NodeDetail['swarmOrchestration'] {
+  const foreign = foreignSwarmOf(ctx.hub, ctx.activeOrgId, id);
+  const stored = swarmOrchestrationStatus(id);
+  if (foreign) {
+    return stored?.detail === foreign ? stored : { state: 'failed', detail: foreign, fix: FOREIGN_SWARM_FIX, at: new Date().toISOString() };
+  }
+  return stored?.detail === FOREIGN_SWARM_DETAIL ? null : stored;
+}
+
 export async function getNode(ctx: OrgContext, id: string): Promise<NodeDetail> {
   const row = (await ctx.db.node.findFirst({
     where: { id, orgId: ctx.activeOrgId },
@@ -185,7 +219,7 @@ export async function getNode(ctx: OrgContext, id: string): Promise<NodeDetail> 
     labels: info?.labels ?? {},
     joinedAt: row.createdAt.toISOString(),
     // Why this node is (or isn't) in the swarm — waiting/joined/re-elected/failed.
-    swarmOrchestration: swarmOrchestrationStatus(id),
+    swarmOrchestration: orchestrationView(ctx, id),
   };
 }
 

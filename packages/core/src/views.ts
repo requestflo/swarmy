@@ -84,6 +84,8 @@ export interface NodeDetail extends NodeSummary {
   swarmOrchestration?: {
     state: 'waiting' | 'joining' | 'joined' | 'initialised' | 'reelected' | 'failed';
     detail: string;
+    /** The one command that fixes it, when there is one (e.g. leave a foreign swarm). */
+    fix?: string;
     at: string;
   } | null;
 }
