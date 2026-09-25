@@ -175,7 +175,7 @@ and where everything lives. Backups are dispatched to the agent as commands — 
 | Compose-DB logical dumps + restore (MySQL/MariaDB/Postgres/Mongo/Redis/Valkey: credential recipe, `appdb.*` commands, scheduler hook, drill leg) | `packages/trpc/src/services/appDbBackup.service.ts` (router `routers/appDbBackup.ts` → `backups.appDb`), wire + pure scripts `packages/core/src/protocol/appDb{,Scripts}.ts`, agent `apps/agent/src/handlers/appdb.ts`, UI `components/backups/{appdb-dumps,restore-appdb-confirm}.tsx` |
 | Controller datastore (embedded SQLite: `control.db` + `telemetry.db`, bun:sqlite adapter, `ensureSchema`) | `packages/db/src/{client,bun-sqlite-adapter,ensure-schema}.ts` |
 | Workers: scheduled backups / restore-on-recovery / controller schedule | `apps/api/src/workers/{backup-scheduler,dr-reconcile,controller-backup-scheduler}.ts` |
-| UI: estate destinations, controller backup | `apps/app/src/routes/_authed/{backups,settings_.backup}.tsx`, `components/controllerbackup/*` |
+| UI: one Backups page — destinations + "swarmy itself" (controller replica + bundle) | `apps/app/src/routes/_authed/backups.tsx`, `components/controllerbackup/*` |
 | UI: per-stack Backups tab (schedules, what isn't protected yet, drills) | `routes/_authed/stacks/$name.backups.tsx` → `components/backups/{stack-backups,stack-schedules-card,…}.tsx`, `components/resilience/*`; overview card `components/overview/resilience-card.tsx` |
 | Crypto: `encryptSecret`/`decryptSecret`, `generateRestorePassphrase` + fingerprint | `packages/core/src/crypto.ts` |
 

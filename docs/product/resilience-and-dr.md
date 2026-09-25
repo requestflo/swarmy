@@ -299,6 +299,6 @@ boot restore, lease, Litestream supervisor; the agent's
 replication / move), the workers
 `apps/api/src/workers/{backup-scheduler,dr-reconcile,controller-backup-scheduler}.ts`,
 and the UI: estate destinations at `apps/app/src/routes/_authed/backups.tsx`,
-controller backup at `settings_.backup.tsx`, and each stack's Backups tab
+the "swarmy itself" section on that same page (controller replica + bundle), and each stack's Backups tab
 (`stacks/$name.backups.tsx` → `components/backups/*` + the "what isn't protected yet" list in
 `components/resilience/*`).

@@ -112,9 +112,8 @@ export const SECTIONS: Destination[] = [
   { to: '/data/buckets', label: 'Object storage', icon: ArchiveIcon, group: 'Platform', blurb: 'S3 buckets on your nodes', keywords: 's3 object storage garage buckets keys minio' },
   { to: '/email', label: 'Email', icon: MailIcon, group: 'Platform', blurb: 'Send mail from your domains', keywords: 'email smtp mail dkim spf dmarc mta send api bounces suppressions templates relay smarthost ses postmark resend mailgun postfix maddy notifications' },
   { to: '/ai', label: 'AI gateway', icon: SparklesIcon, group: 'Platform', blurb: 'Providers, keys & metering', keywords: 'llm anthropic openai openrouter models virtual keys usage tokens embeddings gateway' },
-  { to: '/backups', label: 'Backup destinations', icon: DatabaseBackupIcon, group: 'Platform', blurb: 'Where backups go — incl. your own buckets', keywords: 'targets restic s3 destinations snapshots volumes restore dr' },
+  { to: '/backups', label: 'Backups', icon: DatabaseBackupIcon, group: 'Platform', blurb: 'Where backups go, and swarmy’s own backup', keywords: 'targets restic s3 destinations snapshots volumes restore dr off-site controller control plane bundle dump restore passphrase replica' },
   { to: '/settings/platform', label: 'Platform & upgrades', icon: ArrowUpCircleIcon, group: 'Platform', blurb: 'swarmy version, channel & one-button upgrade', keywords: 'upgrade version release channel stable edge patch maintenance window update controller agents' },
-  { to: '/settings/backup', label: 'Controller backup', icon: ShieldIcon, group: 'Platform', blurb: 'Back up swarmy itself', keywords: 'control plane bundle dump restore passphrase' },
 
   // ── Operations (cross-stack rollup; full controls live per-stack) ───────
   { to: '/alerts', label: 'Alerts', icon: BellIcon, group: 'Operations', blurb: 'Everything firing, estate-wide', keywords: 'rules channels notifications firing resolved slack email teams thresholds', badge: 'alertsFiring' },

@@ -35,7 +35,6 @@ import { Route as AuthedNodesIndexRouteImport } from './routes/_authed/nodes/ind
 import { Route as AuthedStacksNewRouteImport } from './routes/_authed/stacks/new'
 import { Route as AuthedStacksNameRouteImport } from './routes/_authed/stacks/$name'
 import { Route as AuthedSettingsPlatformRouteImport } from './routes/_authed/settings_.platform'
-import { Route as AuthedSettingsBackupRouteImport } from './routes/_authed/settings_.backup'
 import { Route as AuthedSettingsApiKeysRouteImport } from './routes/_authed/settings_.api-keys'
 import { Route as AuthedSettingsAccessRouteImport } from './routes/_authed/settings_.access'
 import { Route as AuthedServicesNewRouteImport } from './routes/_authed/services/new'
@@ -195,11 +194,6 @@ const AuthedStacksNameRoute = AuthedStacksNameRouteImport.update({
 const AuthedSettingsPlatformRoute = AuthedSettingsPlatformRouteImport.update({
   id: '/settings_/platform',
   path: '/settings/platform',
-  getParentRoute: () => AuthedRoute,
-} as any)
-const AuthedSettingsBackupRoute = AuthedSettingsBackupRouteImport.update({
-  id: '/settings_/backup',
-  path: '/settings/backup',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedSettingsApiKeysRoute = AuthedSettingsApiKeysRouteImport.update({
@@ -406,7 +400,6 @@ export interface FileRoutesByFullPath {
   '/services/new': typeof AuthedServicesNewRoute
   '/settings/access': typeof AuthedSettingsAccessRoute
   '/settings/api-keys': typeof AuthedSettingsApiKeysRoute
-  '/settings/backup': typeof AuthedSettingsBackupRoute
   '/settings/platform': typeof AuthedSettingsPlatformRoute
   '/stacks/$name': typeof AuthedStacksNameRouteWithChildren
   '/stacks/new': typeof AuthedStacksNewRoute
@@ -465,7 +458,6 @@ export interface FileRoutesByTo {
   '/services/new': typeof AuthedServicesNewRoute
   '/settings/access': typeof AuthedSettingsAccessRoute
   '/settings/api-keys': typeof AuthedSettingsApiKeysRoute
-  '/settings/backup': typeof AuthedSettingsBackupRoute
   '/settings/platform': typeof AuthedSettingsPlatformRoute
   '/stacks/new': typeof AuthedStacksNewRoute
   '/nodes': typeof AuthedNodesIndexRoute
@@ -525,7 +517,6 @@ export interface FileRoutesById {
   '/_authed/services/new': typeof AuthedServicesNewRoute
   '/_authed/settings_/access': typeof AuthedSettingsAccessRoute
   '/_authed/settings_/api-keys': typeof AuthedSettingsApiKeysRoute
-  '/_authed/settings_/backup': typeof AuthedSettingsBackupRoute
   '/_authed/settings_/platform': typeof AuthedSettingsPlatformRoute
   '/_authed/stacks/$name': typeof AuthedStacksNameRouteWithChildren
   '/_authed/stacks/new': typeof AuthedStacksNewRoute
@@ -586,7 +577,6 @@ export interface FileRouteTypes {
     | '/services/new'
     | '/settings/access'
     | '/settings/api-keys'
-    | '/settings/backup'
     | '/settings/platform'
     | '/stacks/$name'
     | '/stacks/new'
@@ -645,7 +635,6 @@ export interface FileRouteTypes {
     | '/services/new'
     | '/settings/access'
     | '/settings/api-keys'
-    | '/settings/backup'
     | '/settings/platform'
     | '/stacks/new'
     | '/nodes'
@@ -704,7 +693,6 @@ export interface FileRouteTypes {
     | '/_authed/services/new'
     | '/_authed/settings_/access'
     | '/_authed/settings_/api-keys'
-    | '/_authed/settings_/backup'
     | '/_authed/settings_/platform'
     | '/_authed/stacks/$name'
     | '/_authed/stacks/new'
@@ -921,13 +909,6 @@ declare module '@tanstack/react-router' {
       path: '/settings/platform'
       fullPath: '/settings/platform'
       preLoaderRoute: typeof AuthedSettingsPlatformRouteImport
-      parentRoute: typeof AuthedRoute
-    }
-    '/_authed/settings_/backup': {
-      id: '/_authed/settings_/backup'
-      path: '/settings/backup'
-      fullPath: '/settings/backup'
-      preLoaderRoute: typeof AuthedSettingsBackupRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/settings_/api-keys': {
@@ -1225,7 +1206,6 @@ interface AuthedRouteChildren {
   AuthedServicesNewRoute: typeof AuthedServicesNewRoute
   AuthedSettingsAccessRoute: typeof AuthedSettingsAccessRoute
   AuthedSettingsApiKeysRoute: typeof AuthedSettingsApiKeysRoute
-  AuthedSettingsBackupRoute: typeof AuthedSettingsBackupRoute
   AuthedSettingsPlatformRoute: typeof AuthedSettingsPlatformRoute
   AuthedStacksNameRoute: typeof AuthedStacksNameRouteWithChildren
   AuthedStacksNewRoute: typeof AuthedStacksNewRoute
@@ -1264,7 +1244,6 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedServicesNewRoute: AuthedServicesNewRoute,
   AuthedSettingsAccessRoute: AuthedSettingsAccessRoute,
   AuthedSettingsApiKeysRoute: AuthedSettingsApiKeysRoute,
-  AuthedSettingsBackupRoute: AuthedSettingsBackupRoute,
   AuthedSettingsPlatformRoute: AuthedSettingsPlatformRoute,
   AuthedStacksNameRoute: AuthedStacksNameRouteWithChildren,
   AuthedStacksNewRoute: AuthedStacksNewRoute,
