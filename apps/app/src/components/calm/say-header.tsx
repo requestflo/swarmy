@@ -3,6 +3,17 @@ import { cn } from '@swarmy/ui';
 import { TONE_TEXT, type Tone } from './tone';
 
 /**
+ * Inside a page that already has its headline (an app's tabs sit under the
+ * app's own sentence), a `SayHeader` steps down to a lede: an h2 at body
+ * weight, so each page reads as one headline and the tab's sentence under it.
+ */
+const UnderHeadline = React.createContext(false);
+
+export function UnderPageHeadline({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return <UnderHeadline.Provider value>{children}</UnderHeadline.Provider>;
+}
+
+/**
  * The sentence headline — what the screen *is*, said plainly, with the clause
  * that matters in its status tone: "Three apps are calm. <Say tone="warn">
  * analytics is slow.</Say>". `<em>` renders as the quieter second clause.
@@ -23,6 +34,19 @@ export function SayHeader({
   size?: 'lg' | 'md';
   className?: string;
 }): React.JSX.Element {
+  const under = React.useContext(UnderHeadline);
+  if (under) {
+    return (
+      <div className={cn('flex flex-wrap items-end justify-between gap-x-6 gap-y-3', className)}>
+        <div className="flex min-w-0 max-w-4xl flex-col gap-1.5">
+          {eyebrow ? <span className="calm-eyebrow">{eyebrow}</span> : null}
+          <h2 className="say-lede text-[17px] sm:text-[18px]">{title}</h2>
+          {lede ? <p className="lede max-w-3xl text-[14px]">{lede}</p> : null}
+        </div>
+        {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+      </div>
+    );
+  }
   return (
     <div className={cn('flex flex-wrap items-end justify-between gap-x-6 gap-y-4', className)}>
       <div className="flex min-w-0 max-w-4xl flex-col gap-2">

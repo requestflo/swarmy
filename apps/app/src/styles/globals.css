@@ -85,6 +85,16 @@ body,
   font-style: normal;
   color: var(--muted-foreground);
 }
+.say-lede {
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  text-wrap: pretty;
+}
+.say-lede em {
+  font-style: normal;
+  color: var(--muted-foreground);
+}
 .lede {
   color: var(--muted-foreground);
   line-height: 1.55;
