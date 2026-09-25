@@ -54,7 +54,7 @@ import {
 } from './ingress-routes';
 import { regionUpstreamsFor } from './ingress-regions';
 import { rumRouteResolver } from './rum/rum-settings.service';
-import { attachRoutedServicesToEdge } from './ingress-network';
+import { attachRoutedServicesToEdge, servicesMissingEdge } from './ingress-network';
 import { publicIpFromLabels } from './node.service';
 import { objectStoreState } from './buckets.service';
 import { objectStorageEdgeFor } from './bucket-access.service';
@@ -1599,6 +1599,12 @@ async function adoptEdgeCertStorage(ctx: OrgContext): Promise<string | null> {
   return convergeEdge(ctx);
 }
 
+/** Routed services (sorted) not on the edge overlay — part of the reconcile signature. */
+function routedServicesMissingEdge(ctx: OrgContext): string[] {
+  const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+  return servicesMissingEdge(buildInventory(services, containers).services).sort();
+}
+
 /**
  * Ingress reconcile (one org, one tick) — the safety net that makes routes
  * actually get served without a human pressing "apply":
@@ -1699,8 +1705,13 @@ export async function reconcileIngressOrg(
   }
 
   const tasks = swarmyRunsCaddy ? await ingressTasks(ctx) : [];
+  // A routed service can lose the edge overlay after its routes were applied
+  // (a stack redeploy rebuilt from compose, a blueprint's later steps). The
+  // routes don't change, so without this the signature never moves and Caddy
+  // 502s on "no such host" forever. applyAndRecord re-attaches them.
+  const missingEdge = swarmyRunsCaddy ? routedServicesMissingEdge(ctx) : [];
   const signature = createHash('sha256')
-    .update(JSON.stringify({ config, tasks }))
+    .update(JSON.stringify({ config, tasks, missingEdge }))
     .digest('hex');
   if (signature === lastSignature) return { signature, skipped: true, applied: false };
 
