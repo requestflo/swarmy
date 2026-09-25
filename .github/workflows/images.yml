@@ -169,6 +169,56 @@ jobs:
           name: digest-${{ matrix.name }}
           path: digest-${{ matrix.name }}.txt
 
+  # The public "Live demo": the dashboard in demo mode (fake data, no backend) as
+  # static files behind Caddy. Not part of platform.json: swarmy.dev hosts it
+  # from apps/app/demo.swarmy.yaml, so this job gates the build, smoke-tests
+  # every route in Chromium, and publishes the image plus the static bundle.
+  demo:
+    name: demo image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: Build the static demo
+        run: bun --filter @swarmy/app build:demo
+      - name: Smoke-test every route (banner shown, no controller requests)
+        run: |
+          (cd apps/e2e && bunx playwright install --with-deps chromium)
+          bun apps/e2e/demo-smoke.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swarmy-demo-static
+          path: apps/app/dist/demo
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/swarmy-demo
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/app/demo.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=demo
+          cache-to: type=gha,mode=max,scope=demo
+
   # The release manifest (BOM): GENERATED from packages/core/src/system-images.ts
   # + the digests built above, signed with the swarmy release key (cosign key
   # pair, no transparency log — controllers verify it offline), and published

@@ -9,7 +9,8 @@
 # replaces the root .dockerignore for this build, to keep the context small.
 
 # ── Stage 1: build the static demo ──────────────────────────────────────────
-FROM oven/bun:1.3.14-alpine AS build
+# The output is plain static files, so build once on the build host's arch.
+FROM --platform=$BUILDPLATFORM oven/bun:1.3.14-alpine AS build
 WORKDIR /app
 COPY package.json bun.lock tsconfig.base.json ./
 # bun checks the whole lockfile graph, so every workspace manifest must be
