@@ -344,8 +344,9 @@ export async function removeTarget(
 
 // ── native Garage DR target ─────────────────────────────────────────────────
 
-/** Name of the org's managed backup destination on the replicated store. */
-export const NATIVE_TARGET_NAME = 'swarmy-object-storage';
+/** Name of the org's managed backup destination (lives in backups.repo, re-exported). */
+export { NATIVE_TARGET_NAME } from './backups.repo';
+import { NATIVE_TARGET_NAME } from './backups.repo';
 /** Dedicated Garage bucket the native destination writes into. */
 export const NATIVE_BUCKET = 'swarmy-backups';
 

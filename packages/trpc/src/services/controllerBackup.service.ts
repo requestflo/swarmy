@@ -26,6 +26,7 @@ import { exportKvForBundle, importKvFromBundle, stashPendingKv, type KvBundleSec
 import { writeAudit } from './audit.service';
 import {
   backupTargets,
+  NATIVE_TARGET_NAME,
   controllerBackupConfigRepo,
   type ControllerBackupConfigDoc,
   type ControllerBackupConfigRow as ControllerBackupConfigDocRow,
@@ -230,6 +231,26 @@ async function configTarget(scope: CbScope, config: ControllerBackupConfigRow, f
   return (await backupTargets(scope, orgId).findFirst({ where: { id: config.targetId } })) as unknown as BackupTargetRow | null;
 }
 
+/**
+ * The target controller backups use: the configured one, else the org's native
+ * Garage destination when it exists. The Upgrade preflight's first backup failed
+ * with "no backup target configured" on clusters that had the native target and
+ * had simply never opened the controller-backup settings (QA-021). Adopting it
+ * is persisted, so the settings page then shows it too.
+ */
+export async function resolveControllerTarget(
+  ctx: AuditCtx,
+  config: ControllerBackupConfigRow,
+): Promise<{ config: ControllerBackupConfigRow; target: BackupTargetRow | null }> {
+  if (config.targetId) return { config, target: await configTarget(ctx, config) };
+  const native = (await backupTargets(ctx, ctx.activeOrgId).findFirst({
+    where: { orgId: ctx.activeOrgId, name: NATIVE_TARGET_NAME },
+  })) as unknown as BackupTargetRow | null;
+  if (!native) return { config, target: null };
+  const saved = await saveConfig(ctx, config, { targetId: native.id });
+  return { config: saved, target: native };
+}
+
 /** A backup target was removed: controller backups stop pointing at it (the old FK SetNull). */
 export async function clearControllerBackupTarget(ctx: AuditCtx, targetId: string): Promise<void> {
   const current = await controllerBackupConfigRepo.find(ctx, ctx.activeOrgId).catch(() => null);
@@ -369,14 +390,15 @@ export async function runControllerBackup(
   ctx: AuditCtx,
   opts: { runner?: ResticRunner } = {},
 ): Promise<RunBackupResult> {
-  const config = await getOrCreateConfig(ctx);
+  const resolved = await resolveControllerTarget(ctx, await getOrCreateConfig(ctx));
+  const config = resolved.config;
   if (!config.targetId) {
     throw new Error('no backup target configured for controller backups');
   }
   if (!config.restorePassphraseRef) {
     throw new Error('no restore passphrase set — capture one before backing up');
   }
-  const target = await configTarget(ctx, config);
+  const target = resolved.target;
   if (!target) throw notFound('backup target', config.targetId);
   if (isNodeKind(target.kind)) throw commandRejected(NODE_TARGET_REFUSAL);
   const passphrase = decryptSecret(config.restorePassphraseRef);
@@ -465,11 +487,12 @@ export async function restoreControllerBackup(
   ctx: AuditCtx,
   input: { snapshotId?: string; passphrase?: string; loadData?: boolean } = {},
 ): Promise<RestoreControllerResult> {
-  const config = await getOrCreateConfig(ctx);
+  const resolved = await resolveControllerTarget(ctx, await getOrCreateConfig(ctx));
+  const config = resolved.config;
   if (!config.targetId) {
     throw new Error('no backup target configured for controller backups');
   }
-  const target = await configTarget(ctx, config);
+  const target = resolved.target;
   if (!target) throw notFound('backup target', config.targetId);
 
   const passphrase =

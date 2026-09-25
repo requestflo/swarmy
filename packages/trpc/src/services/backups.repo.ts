@@ -35,6 +35,9 @@ export interface BackupTargetDoc {
 }
 export type BackupTargetRow = KvRow<BackupTargetDoc>;
 
+/** Name of the org's managed backup destination on the replicated store (native Garage). */
+export const NATIVE_TARGET_NAME = 'swarmy-object-storage';
+
 export const backupTargets = kvTable<BackupTargetDoc>('bkp-target', {
   defaults: () => ({ kind: 'S3', enabled: true, endpoint: null, prefix: null, region: null, credentialRef: null, secretKeyRef: null }),
   unique: [['name']],
