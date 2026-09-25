@@ -268,3 +268,12 @@ body,
 .text-status-offline { color: var(--tone-bad); }
 .text-status-progress { color: var(--tone-info); }
 .text-status-idle { color: var(--tone-idle); }
+
+/* Harbour polish: the coral action is loud by colour alone — no glow, no
+   hover grow (less motion). */
+[data-slot='button'].bg-primary {
+  box-shadow: none;
+}
+[data-slot='button'].bg-primary:hover {
+  scale: none;
+}
