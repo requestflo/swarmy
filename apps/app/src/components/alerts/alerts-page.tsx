@@ -38,7 +38,7 @@ export function AlertsPage(): React.JSX.Element {
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
       <SectionHeader
-        section="Operations"
+        section="Activity"
         title={title}
         description="swarmy watches nodes, services, databases, backups, disks, queues and error rates — and tells you before your users do. Pick where the messages land, tune the rules if you like."
       />

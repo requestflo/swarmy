@@ -43,7 +43,7 @@ export type DestinationGroup =
   | 'Primary'
   | 'Deploy'
   | 'Platform'
-  | 'Operations'
+  | 'Activity'
   | 'Governance'
   | 'Settings';
 
@@ -115,9 +115,9 @@ export const SECTIONS: Destination[] = [
   { to: '/backups', label: 'Backups', icon: DatabaseBackupIcon, group: 'Platform', blurb: 'Where backups go, and swarmy’s own backup', keywords: 'targets restic s3 destinations snapshots volumes restore dr off-site controller control plane bundle dump restore passphrase replica' },
   { to: '/settings/platform', label: 'Platform & upgrades', icon: ArrowUpCircleIcon, group: 'Platform', blurb: 'swarmy version, channel & one-button upgrade', keywords: 'upgrade version release channel stable edge patch maintenance window update controller agents' },
 
-  // ── Operations (cross-stack rollup; full controls live per-stack) ───────
-  { to: '/alerts', label: 'Alerts', icon: BellIcon, group: 'Operations', blurb: 'Everything firing, estate-wide', keywords: 'rules channels notifications firing resolved slack email teams thresholds', badge: 'alertsFiring' },
-  { to: '/incidents', label: 'Incidents', icon: SirenIcon, group: 'Operations', blurb: 'Open incidents across all stacks', keywords: 'outage timeline postmortem resolved downtime', badge: 'incidentsOpen' },
+  // ── Activity: alerts + incidents, one page with two tabs (cross-stack rollup) ─
+  { to: '/alerts', label: 'Alerts', icon: BellIcon, group: 'Activity', blurb: 'Everything firing, estate-wide', keywords: 'rules channels notifications firing resolved slack email teams thresholds', badge: 'alertsFiring' },
+  { to: '/incidents', label: 'Incidents', icon: SirenIcon, group: 'Activity', blurb: 'Open incidents across all stacks', keywords: 'outage timeline postmortem resolved downtime', badge: 'incidentsOpen' },
 
   // ── Governance ──────────────────────────────────────────────────────────
   { to: '/governance', label: 'Guardrails', icon: ShieldCheckIcon, group: 'Governance', blurb: 'Production safety rules', keywords: 'governance policies production safety rules blocked overrides opa admission' },
@@ -137,7 +137,7 @@ export const ALL_DESTINATIONS: Destination[] = [...PRIMARY, ...SECTIONS];
 export const NAV_GROUP_ORDER: DestinationGroup[] = [
   'Deploy',
   'Platform',
-  'Operations',
+  'Activity',
   'Governance',
   'Settings',
 ];
@@ -162,7 +162,7 @@ export interface NavGroup {
 export const NAV_GROUPS: NavGroup[] = [
   { group: 'Deploy', label: 'Deploy', icon: RocketIcon, to: '/blueprints', badges: [] },
   { group: 'Platform', label: 'Platform', icon: BlocksIcon, to: '/ingress', badges: [] },
-  { group: 'Operations', label: 'Operations', icon: ActivityIcon, to: '/alerts', badges: ['alertsFiring', 'incidentsOpen'] },
+  { group: 'Activity', label: 'Activity', icon: ActivityIcon, to: '/alerts', badges: ['alertsFiring', 'incidentsOpen'] },
   { group: 'Governance', label: 'Governance', icon: ShieldCheckIcon, to: '/governance', badges: [] },
   { group: 'Settings', label: 'Settings', icon: SettingsIcon, to: '/settings', badges: [] },
 ];

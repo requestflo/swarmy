@@ -56,7 +56,7 @@ export function IncidentsPage(): React.JSX.Element {
   return (
     <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
       <SectionHeader
-        section="Operations"
+        section="Activity"
         title={hero}
         description="When something breaks, the whole story lands here — what fired, what swarmy did, when it resolved."
       />
