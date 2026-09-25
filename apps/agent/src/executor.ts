@@ -51,6 +51,7 @@ import {
   handleTermResize,
   handleTermClose,
 } from './handlers/terminal';
+import { createLogDemuxer } from './log-demux';
 
 const activeLogStreams = new Map<string, () => void>();
 
@@ -603,15 +604,12 @@ async function handleStreamLogs(
       stream = (await svc.logs(logOpts)) as unknown as NodeJS.ReadableStream;
     }
     let seq = 0;
-    stream.on('data', (chunk: Buffer) => {
-      conn.send('logChunk', {
-        commandId: p.commandId,
-        stream: 'stdout',
-        seq: seq++,
-        data: chunk.toString('utf8'),
-        eof: false,
-      });
+    // Non-TTY services send Docker's 8-byte frame headers; strip them (and keep
+    // stderr as stderr) instead of shipping them into every log line.
+    const demux = createLogDemuxer((name, data) => {
+      conn.send('logChunk', { commandId: p.commandId, stream: name, seq: seq++, data, eof: false });
     });
+    stream.on('data', (chunk: Buffer) => demux(chunk));
     stream.on('end', () => {
       conn.send('logChunk', { commandId: p.commandId, stream: 'stdout', seq: seq++, data: '', eof: true });
     });
