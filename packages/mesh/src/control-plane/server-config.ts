@@ -53,6 +53,15 @@ export const MESH_CONTROL_DATA_DIR = '/var/lib/netbird';
  */
 export const MESH_CONTROL_HEALTH_PORT = 9000;
 export const MESH_CONTROL_GRPC_LEGACY_PORT = 33073;
+/** Prometheus metrics: always binds every interface (`:<port>`), no host option. */
+export const MESH_CONTROL_METRICS_PORT = 9090;
+/**
+ * Ports the combined server opens that nobody outside the host needs (QA-014):
+ * metrics, the legacy gRPC port and health. The agent (and the installer)
+ * drop them on the host's INPUT chain except from loopback, Docker bridges
+ * and the mesh itself.
+ */
+export const MESH_CONTROL_PRIVATE_PORTS = [MESH_CONTROL_HEALTH_PORT, MESH_CONTROL_METRICS_PORT, MESH_CONTROL_GRPC_LEGACY_PORT] as const;
 /** Default listen port behind the edge / in lab mode. */
 export const MESH_CONTROL_HTTP_PORT = 8081;
 
@@ -119,7 +128,9 @@ export function renderMeshControlConfig(input: MeshControlConfigInput): string {
     exposedAddress,
     stunPorts: [input.stunPort ?? 3478],
     metricsPort: 9090,
-    healthcheckAddress: `:${MESH_CONTROL_HEALTH_PORT}`,
+    // Loopback only (QA-014). The combined server honours the host here, unlike
+    // listenAddress/metricsPort; those are firewalled (MESH_CONTROL_PRIVATE_PORTS).
+    healthcheckAddress: `127.0.0.1:${MESH_CONTROL_HEALTH_PORT}`,
     logLevel: input.logLevel ?? 'info',
     logFile: 'console',
     authSecret: input.authSecret,

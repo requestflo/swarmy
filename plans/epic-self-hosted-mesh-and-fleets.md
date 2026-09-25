@@ -966,3 +966,27 @@ What now happens instead, as planned in §2.3 step 8:
 
 Letsencrypt mode (a public box without Caddy) and `none` mode have no
 `bootstrapTls`, so they don't go through a handover.
+
+Verified in the lab e2e (2026-09-25; every step passes):
+
+- NetBird booted plain. Node #1 joined and connected (management + signal)
+  before any edge existed.
+- The mesh vhost went live after install. The controller handed over in
+  about 16 s and NetBird restarted with the edge config. Node #1 (joined
+  before the handover) reconnected.
+- Node #2 joined with the bootstrap URL that the join line printed. It pings
+  node #1 over wt0.
+- One more finding: Dex bakes `<issuer>/callback` into a connector when the
+  connector is created. So the swarmy connector waits until NetBird **runs**
+  the final config (config hash = final render, and healthy), not just until
+  the handover is decided.
+
+**QA-014.** `healthcheckAddress` is now `127.0.0.1:9000` (NetBird honours the
+host here). Metrics (`:9090`) and legacy gRPC (`:33073`) always bind every
+interface, so the installer and the agent (`mesh-firewall.ts`, every 5 min)
+converge an INPUT-chain jump to `SWARMY-MESH-CTL`:
+
+- RETURN for loopback, Docker bridges and wt0;
+- DROP 9000, 9090 and 33073 from anywhere else.
+
+In the e2e, all three are unreachable from the Mac, and `:8081` still answers.

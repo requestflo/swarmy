@@ -159,6 +159,25 @@ async function runInSidecar(docker: DockerClient, script: string): Promise<{ exi
   }
 }
 
+/**
+ * Run a firewall script (one that prints `swarmy-registry-firewall: <status>`)
+ * natively or in the host-network sidecar. Shared with mesh-firewall.ts.
+ * Never throws.
+ */
+export async function runFirewallScript(
+  docker: DockerClient,
+  script: string,
+  inContainer: boolean,
+): Promise<{ status: RegistryFirewallStatus; detail?: string }> {
+  try {
+    const r = inContainer ? await runInSidecar(docker, script) : await runNative(script);
+    const status = parseFirewallOutput(r.output, r.exitCode);
+    return status === 'failed' ? { status, detail: r.output.trim().slice(-400) } : { status };
+  } catch (e) {
+    return { status: 'failed', detail: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /** Converge the floor on this node. Never throws. */
 export async function enforceRegistryFirewall(
   docker: DockerClient,

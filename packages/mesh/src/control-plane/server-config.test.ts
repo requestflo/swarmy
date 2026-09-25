@@ -36,7 +36,7 @@ describe('renderMeshControlConfig (golden)', () => {
     "disableAnonymousMetrics": true,
     "disableGeoliteUpdate": true,
     "exposedAddress": "https://mesh.example.com:443",
-    "healthcheckAddress": ":9000",
+    "healthcheckAddress": "127.0.0.1:9000",
     "listenAddress": "172.18.0.1:8081",
     "logFile": "console",
     "logLevel": "info",

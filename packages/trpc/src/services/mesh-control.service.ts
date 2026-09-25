@@ -370,9 +370,15 @@ export async function reconcileMeshControl(ctx: OrgContext, opts: { force?: bool
     }
   }
   const handedOver = !m.bootstrapTls || Boolean(m.handedOverAt);
+  // Dex bakes `<issuer>/callback` into a connector when it is CREATED, so the
+  // connector must wait until NetBird RUNS the final config (the restart in
+  // step 5), not just until the handover was decided (seen in the e2e: a
+  // connector made in the same tick kept the bootstrap http:// callback).
+  const liveNow = meshControlLive.get(ctx.activeOrgId);
+  const runsFinal = !m.bootstrapTls || (handedOver && liveNow?.status.configHash === configHash(renderControlSpec(m)) && Boolean(liveNow?.status.healthy));
 
   // 2. Swarmy as the connector (after the handover: the callback is the final URL).
-  if (api && !m.connector && handedOver) {
+  if (api && !m.connector && handedOver && runsFinal) {
     try {
       const callback = meshControlOidcCallback(m.meshDomain, m.tls);
       let client = await ensureOidcClient(ctx.db as never, {

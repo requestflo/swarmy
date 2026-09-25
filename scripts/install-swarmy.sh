@@ -357,7 +357,7 @@ mesh_control_config() {
     "disableAnonymousMetrics": true,
     "disableGeoliteUpdate": true,
     "exposedAddress": "${exposed}",
-    "healthcheckAddress": ":9000",
+    "healthcheckAddress": "127.0.0.1:9000",
     "listenAddress": "${listen}",
     "logFile": "console",
     "logLevel": "info",
@@ -865,6 +865,39 @@ mesh_wait_handover() {
   return 1
 }
 
+# >>> swarmy mesh-control firewall (keep in sync: apps/agent/src/handlers/mesh-firewall.ts)
+# QA-014: netbird-server opens metrics (:9090) and the legacy gRPC port (:33073)
+# on every interface, with no option to bind them. Drop those (and :9000) on
+# INPUT except from loopback, Docker bridges and the mesh. The agent re-asserts it.
+mesh_control_firewall() {
+  local C=SWARMY-MESH-CTL ipt r found=0
+  local rules="-i lo -j RETURN
+-i docker0 -j RETURN
+-i docker_gwbridge -j RETURN
+-i br-+ -j RETURN
+-i wt0 -j RETURN
+-p tcp -m multiport --dports 9000,9090,33073 -j DROP"
+  for ipt in iptables-legacy iptables-nft iptables; do
+    command -v "$ipt" >/dev/null 2>&1 || continue
+    "$ipt" -w -t filter -S INPUT >/dev/null 2>&1 || continue
+    "$ipt" -w -t filter -S DOCKER-USER >/dev/null 2>&1 || continue
+    found=1
+    "$ipt" -w -N "$C" >/dev/null 2>&1 || true
+    "$ipt" -w -F "$C"
+    while IFS= read -r r; do
+      [ -n "$r" ] || continue
+      # shellcheck disable=SC2086
+      "$ipt" -w -A "$C" $r
+    done <<SWARMY_FW_EOF
+$rules
+SWARMY_FW_EOF
+    "$ipt" -w -C INPUT -j "$C" >/dev/null 2>&1 || "$ipt" -w -I INPUT 1 -j "$C"
+  done
+  [ "$found" = 1 ] || warn "no iptables with Docker's chains — the mesh control plane's metrics port (9090) stays reachable; firewall it."
+  return 0
+}
+# <<< swarmy mesh-control firewall
+
 mesh_control_healthy() {
   docker exec "$MESH_CONTROL_CONTAINER" bash -c 'exec 3<>/dev/tcp/127.0.0.1/33073' 2>/dev/null
 }
@@ -930,6 +963,7 @@ ensure_mesh_control() {
   if [ -n "${MESH_EXTRA_CA:-}" ] && [ -s "$MESH_EXTRA_CA" ]; then
     docker run --rm -i -v swarmy-agent:/s --entrypoint sh "$MESH_CONTROL_IMAGE" -c 'umask 077; cat > /s/mesh-control/extra-ca.pem' < "$MESH_EXTRA_CA" || true
   fi
+  mesh_control_firewall
   for i in $(seq 1 90); do mesh_control_healthy && break; sleep 1; done
   mesh_control_healthy || die "the mesh control plane did not become healthy (docker logs ${MESH_CONTROL_CONTAINER})."
   if [ "$MESH_TLS" = letsencrypt ]; then

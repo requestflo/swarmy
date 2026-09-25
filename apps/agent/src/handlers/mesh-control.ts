@@ -27,6 +27,8 @@ import path from 'node:path';
 import { DockerClient, defaultContainerLogConfig } from '@swarmy/core/docker';
 import type { ApplyMeshControlPayload, MeshControlSpec, MeshControlStatus } from '@swarmy/core/protocol';
 import { env } from '../env';
+import { enforceMeshFirewall } from './mesh-firewall';
+import { agentPackaging } from './update';
 
 /** Stable names: re-applies reconcile one container, the installer uses the same. */
 export const MESH_CONTROL_CONTAINER = 'swarmy-mesh-control';
@@ -354,6 +356,8 @@ export async function applyMeshControl(docker: DockerClient, p: ApplyMeshControl
 }
 
 let supervising = false;
+let lastFirewallAt = 0;
+const MESH_FIREWALL_EVERY_MS = 5 * 60_000;
 /**
  * The 10 s supervisor (daemon.ts), independent of the controller connection:
  * if this node holds a control-plane spec, keep the container running and its
@@ -365,7 +369,14 @@ export async function superviseMeshControl(docker: DockerClient): Promise<MeshCo
   try {
     const spec = await loadLocalSpec();
     if (!spec) return null;
-    return await converge(docker, spec);
+    const st = await converge(docker, spec);
+    // QA-014: metrics / legacy gRPC / health never answer off-host.
+    if (Date.now() - lastFirewallAt > MESH_FIREWALL_EVERY_MS) {
+      lastFirewallAt = Date.now();
+      const fw = await enforceMeshFirewall(docker, agentPackaging());
+      if (fw.status === 'failed') console.warn(`[swarmy-agent] mesh control-plane firewall failed: ${fw.detail ?? ''}`);
+    }
+    return st;
   } catch (e) {
     return { running: false, healthy: false, waitingForConfig: false, error: e instanceof Error ? e.message : String(e) };
   } finally {
