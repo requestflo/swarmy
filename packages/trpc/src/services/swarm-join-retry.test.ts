@@ -47,7 +47,7 @@ describe('swarm.join retry (a slow first path must not strand a node)', () => {
   it('backoff schedule is bounded', () => {
     expect(nextSwarmJoinAttemptAt(1, 0)).toBe(SWARM_JOIN_BACKOFF_MS[0]);
     expect(nextSwarmJoinAttemptAt(2, 1000)).toBe(1000 + SWARM_JOIN_BACKOFF_MS[1]);
-    expect(nextSwarmJoinAttemptAt(SWARM_JOIN_MAX_ATTEMPTS - 1, 0)).toBe(SWARM_JOIN_BACKOFF_MS.at(-1));
+    expect(nextSwarmJoinAttemptAt(SWARM_JOIN_MAX_ATTEMPTS - 1, 0)).toBe(SWARM_JOIN_BACKOFF_MS.at(-1)!);
     expect(nextSwarmJoinAttemptAt(SWARM_JOIN_MAX_ATTEMPTS, 0)).toBeNull();
   });
 
