@@ -58,7 +58,7 @@ export function ServiceCoreFields({ form }: ServiceCoreFieldsProps): React.JSX.E
         name="replicas"
         render={({ field }) => (
           <FormItem>
-            <FormLabel className="mono-label">Replicas</FormLabel>
+            <FormLabel className="mono-label">Copies</FormLabel>
             <FormControl>
               <Input
                 type="number"

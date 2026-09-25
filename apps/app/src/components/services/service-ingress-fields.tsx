@@ -11,7 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
   Switch,
-  cn,
 } from '@swarmy/ui';
 import { ServiceFormSection } from '@/components/services/service-form-section';
 
@@ -27,13 +26,13 @@ export function ServiceIngressFields({ form }: ServiceIngressFieldsProps): React
   const tls = form.watch('ingress.tls') ?? 'auto';
 
   return (
-    <ServiceFormSection title="Ingress" caption="Reach it from the public internet.">
+    <ServiceFormSection title="Address" caption="Let people reach it from the internet.">
       <div className="bg-accent/50 flex items-center justify-between rounded-xl px-4 py-3">
         <div className="min-w-0">
           <Label htmlFor="ingress-enabled" className="text-sm font-semibold">
-            Expose via ingress
+            Give it a public address
           </Label>
-          <p className="text-muted-foreground text-xs">Route a domain to this service with TLS.</p>
+          <p className="text-muted-foreground text-xs">Point a domain at this service. HTTPS is set up for you.</p>
         </div>
         <Switch
           id="ingress-enabled"
@@ -42,15 +41,12 @@ export function ServiceIngressFields({ form }: ServiceIngressFieldsProps): React
         />
       </div>
 
-      <div
-        className={cn(
-          'grid gap-3 sm:grid-cols-[1fr_auto_auto]',
-          !ingressEnabled && 'pointer-events-none opacity-40',
-        )}
-      >
+      {ingressEnabled ? (
+      <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
         <div className="grid gap-1.5">
-          <Label className="mono-label">Domain</Label>
+          <Label htmlFor="ingress-domain" className="mono-label">Domain</Label>
           <Input
+            id="ingress-domain"
             placeholder="app.example.com"
             className="font-mono"
             disabled={!ingressEnabled}
@@ -58,8 +54,9 @@ export function ServiceIngressFields({ form }: ServiceIngressFieldsProps): React
           />
         </div>
         <div className="grid gap-1.5">
-          <Label className="mono-label">Target port</Label>
+          <Label htmlFor="ingress-port" className="mono-label">Port inside the app</Label>
           <Input
+            id="ingress-port"
             type="number"
             placeholder="8080"
             className="mono-data sm:w-32"
@@ -70,13 +67,13 @@ export function ServiceIngressFields({ form }: ServiceIngressFieldsProps): React
           />
         </div>
         <div className="grid gap-1.5">
-          <Label className="mono-label">TLS</Label>
+          <Label htmlFor="ingress-tls" className="mono-label">HTTPS</Label>
           <Select
             value={tls}
             disabled={!ingressEnabled}
             onValueChange={(v) => form.setValue('ingress.tls', v as TlsMode)}
           >
-            <SelectTrigger className="sm:w-32">
+            <SelectTrigger id="ingress-tls" className="sm:w-32">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -87,6 +84,7 @@ export function ServiceIngressFields({ form }: ServiceIngressFieldsProps): React
           </Select>
         </div>
       </div>
+      ) : null}
     </ServiceFormSection>
   );
 }

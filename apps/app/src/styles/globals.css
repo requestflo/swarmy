@@ -126,6 +126,9 @@ body,
   border-radius: 0.75rem;
   border: 1px solid var(--border);
   tab-size: 2;
+  /* Geist Mono joins `--` and `->`; code must read exactly as it's copied. */
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0, 'calt' 0;
 }
 @media (prefers-reduced-motion: reduce) {
   .pulse-dot::after {
