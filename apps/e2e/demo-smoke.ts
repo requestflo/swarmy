@@ -103,6 +103,11 @@ async function follow(from: string, href: RegExp): Promise<string | null> {
 const routes: Array<[string, RegExp?]> = [
   ['/', /storefront/i],
   ['/overview'],
+  // The Calm Layers shell's top-level destinations.
+  ['/deploy'],
+  ['/network'],
+  ['/data'],
+  ['/activity'],
   ['/nodes'],
   ['/nodes/new'],
   ['/nodes/n-mgr-1', /mgr-1/],

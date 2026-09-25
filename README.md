@@ -219,11 +219,10 @@ docker build -f apps/app/demo.Dockerfile -t swarmy/demo .   # Caddy image, :8080
 swarmy hosts it itself from [`apps/app/demo.swarmy.yaml`](./apps/app/demo.swarmy.yaml),
 the same way the marketing site deploys from `apps/web/swarmy.yaml`.
 
-**The demo's address is one value: `DEMO_URL`.** It is currently the
-placeholder `https://demo.swarmy.dev`. When the real domain is known, set it in
-two places: `DEMO_URL` under `args` in `apps/web/swarmy.yaml` (the site's
-"Live demo" link and `VITE_APP_URL`), and `domains` in
-`apps/app/demo.swarmy.yaml`. The same default is in `apps/web/Dockerfile` and
+**The demo's address is one value: `DEMO_URL`.** It is currently
+`https://demo.ayebox.com`. To move it, change it in two places: `DEMO_URL`
+under `args` in `apps/web/swarmy.yaml` (the site's "Live demo" link and
+`VITE_APP_URL`), and `domains` in `apps/app/demo.swarmy.yaml`. The same default is in `apps/web/Dockerfile` and
 `apps/web/src/lib/site.ts`.
 
 ## Scripts

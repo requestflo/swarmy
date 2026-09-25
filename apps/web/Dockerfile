@@ -41,9 +41,9 @@ COPY packages/app-config packages/app-config
 COPY apps/web apps/web
 # Baked into the prerendered HTML (canonical URLs, dashboard/demo links).
 # DEMO_URL is the one setting for the "Live demo" link and the dashboard link
-# (VITE_APP_URL). https://demo.swarmy.dev is a placeholder for the real domain.
+# (VITE_APP_URL). For now the demo lives at https://demo.ayebox.com.
 ARG VITE_SITE_URL=https://swarmy.dev
-ARG DEMO_URL=https://demo.swarmy.dev
+ARG DEMO_URL=https://demo.ayebox.com
 ENV VITE_SITE_URL=${VITE_SITE_URL} VITE_DEMO_URL=${DEMO_URL} VITE_APP_URL=${DEMO_URL}
 RUN cd apps/web && bun run build
 

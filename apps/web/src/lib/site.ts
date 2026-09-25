@@ -12,11 +12,10 @@ export const SITE_URL: string = (import.meta.env.VITE_SITE_URL ?? 'https://swarm
 /**
  * The public "Live demo": the dashboard built in demo mode (apps/app/demo.Dockerfile),
  * fake data and no backend. ONE value per deploy, DEMO_URL (the Dockerfile passes it
- * in as VITE_DEMO_URL). https://demo.swarmy.dev is a placeholder until the real
- * domain is set. For local dev, point it at the dev dashboard's demo mode:
+ * in as VITE_DEMO_URL). It lives at https://demo.ayebox.com for now. For local dev, point it at the dev dashboard's demo mode:
  * VITE_DEMO_URL='http://localhost:3023/?demo=1'.
  */
-export const DEMO_URL: string = import.meta.env.VITE_DEMO_URL || 'https://demo.swarmy.dev';
+export const DEMO_URL: string = import.meta.env.VITE_DEMO_URL || 'https://demo.ayebox.com';
 
 /** Where "the dashboard" links go. Defaults to the live demo (VITE_APP_URL overrides). */
 export const APP_URL: string = import.meta.env.VITE_APP_URL || DEMO_URL;

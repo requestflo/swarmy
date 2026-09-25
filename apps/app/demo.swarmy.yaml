@@ -5,7 +5,7 @@
 # `apps/app/demo.swarmy.yaml`. Every push to main rebuilds and redeploys it.
 # Paths are relative to the repo root (the build context), not this file.
 #
-# DEMO DOMAIN: demo.swarmy.dev is a placeholder. Set the real one here and as
+# DEMO DOMAIN: demo.ayebox.com for now. To move it, change it here and
 # DEMO_URL in apps/web/swarmy.yaml (see README "Live demo").
 version: 1
 app: swarmy-demo
@@ -24,4 +24,4 @@ services:
     size: nano
     healthcheck: { path: /, interval: 30s }
     domains:
-      - demo.swarmy.dev
+      - demo.ayebox.com

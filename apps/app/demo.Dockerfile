@@ -1,4 +1,4 @@
-# demo.swarmy.dev: the public "Live demo". This is the dashboard built in demo
+# demo.ayebox.com: the public "Live demo". This is the dashboard built in demo
 # mode (VITE_SWARMY_DEMO=1). It runs on in-memory fake data with no controller,
 # no database and no sign-in, and is served as static files by Caddy. Build from
 # the repo root:
