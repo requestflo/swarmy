@@ -9,6 +9,7 @@
  *     --digest controller=sha256:… --digest agent=sha256:… \
  *     --digest dns=sha256:… --digest caddySwarmy=sha256:… \
  *     [--image controller=10.0.0.5:5000/swarmy-controller]   # fork / e2e local registry
+ *     [--agent-binaries agent-binaries/manifest.json]          # sha256 per platform (H17)
  *     [--min-upgrade-from 1.0.0] [--notes-from-git v1.1.0..HEAD] [--notes notes.json]
  *     [--sign-key release.pem [--sign-pass …]]                # PEM signing (self-builders, e2e)
  *     --out platform.json
@@ -82,6 +83,22 @@ const notes: PlatformNote[] = [
   ...(one['notes-from-git'] ? notesFromGit(one['notes-from-git']) : []),
 ];
 
+/**
+ * The controller image's `/app/agent-binaries/manifest.json` (written by
+ * scripts/build-agent-binaries.ts): the node installer checks each agent
+ * binary it downloads against these, from the signed manifest (H17).
+ */
+function agentBinaries(file: string | undefined): Record<string, string> | undefined {
+  if (!file) return undefined;
+  const raw = JSON.parse(readFileSync(file, 'utf8')) as { platforms?: Record<string, { sha256?: string }> };
+  const out: Record<string, string> = {};
+  for (const [platform, meta] of Object.entries(raw.platforms ?? {})) {
+    if (meta?.sha256) out[platform] = meta.sha256;
+  }
+  if (Object.keys(out).length === 0) throw new Error(`--agent-binaries ${file} lists no platforms`);
+  return out;
+}
+
 const manifest = buildPlatformManifest({
   version: one.version.replace(/^v/, ''),
   channel,
@@ -90,6 +107,7 @@ const manifest = buildPlatformManifest({
   minUpgradeFrom: one['min-upgrade-from'],
   digests: kv(many.digest) as Partial<Record<SystemImageKey, string>>,
   images: kv(many.image) as Partial<Record<SystemImageKey, string>>,
+  agentBinaries: agentBinaries(one['agent-binaries']),
   migrations: PLATFORM_MIGRATIONS,
   notes,
 });
@@ -113,5 +131,6 @@ const missing = Object.entries(manifest.components)
   .map(([k]) => k);
 console.log(
   `platform.json ${manifest.version} (${channel}) → ${out}: ${Object.keys(manifest.components).length} components` +
-    (missing.length ? `; unresolved: ${missing.join(', ')}` : ''),
+    (missing.length ? `; unresolved: ${missing.join(', ')}` : '') +
+    (manifest.agentBinaries ? `; agent binaries: ${Object.keys(manifest.agentBinaries).join(', ')}` : '; no agent binaries'),
 );

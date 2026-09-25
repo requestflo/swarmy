@@ -73,6 +73,19 @@ describe('buildPlatformManifest (generated from the BOM, never a second list)', 
     expect(() => parsePlatformManifest('{"schema":2}')).toThrow(/invalid platform manifest/);
   });
 
+  test('agentBinaries (H17): carried when CI passes them, absent otherwise — so older manifests keep their signed bytes', () => {
+    const sha = 'e'.repeat(64);
+    const m = buildPlatformManifest({
+      version: '1.2.0', channel: 'stable', commit: 'abc', bom: BOM, publishedAt: '2026-09-25T00:00:00.000Z', agentBinaries: { 'linux-x64': sha.toUpperCase() },
+    });
+    expect(m.agentBinaries).toEqual({ 'linux-x64': { sha256: sha } });
+    expect(canonicalManifestJson(m)).toContain(`"agentBinaries":{"linux-x64":{"sha256":"${sha}"}}`);
+    const plain = buildPlatformManifest({ version: '1.2.0', channel: 'stable', commit: 'abc', bom: BOM, publishedAt: '2026-09-25T00:00:00.000Z' });
+    expect('agentBinaries' in plain).toBe(false);
+    expect(canonicalManifestJson(parsePlatformManifest(canonicalManifestJson(plain)))).toBe(canonicalManifestJson(plain));
+    expect(() => parsePlatformManifest({ ...m, agentBinaries: { 'linux-x64': { sha256: 'nope' } } })).toThrow(/agentBinaries/);
+  });
+
   test('canonical JSON sorts keys at every depth and drops undefined', () => {
     expect(canonicalJson({ b: 1, a: { d: [2, { z: 1, y: undefined, x: 0 }], c: 'q' } })).toBe('{"a":{"c":"q","d":[2,{"x":0,"z":1}]},"b":1}');
   });

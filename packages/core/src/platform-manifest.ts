@@ -52,6 +52,12 @@ export const PlatformNote = z.object({
 });
 export type PlatformNote = z.infer<typeof PlatformNote>;
 
+/** One compiled agent host binary of the release (`linux-x64`, `linux-arm64`). */
+export const PlatformAgentBinary = z.object({
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export type PlatformAgentBinary = z.infer<typeof PlatformAgentBinary>;
+
 export const PlatformManifest = z.object({
   schema: z.literal(PLATFORM_MANIFEST_SCHEMA),
   version: z.string().regex(SEMVER, 'version must be semver'),
@@ -61,6 +67,13 @@ export const PlatformManifest = z.object({
   /** Oldest running version that may upgrade straight to this release. */
   minUpgradeFrom: z.string().regex(SEMVER).default('0.0.0'),
   components: z.record(PlatformComponent),
+  /**
+   * sha256 of each agent host binary the release's controller image serves at
+   * `/install/bin/<platform>` — what the node installer checks a download
+   * against (security review H17). Optional and never defaulted: a manifest
+   * without it keeps its canonical bytes (and so its signature).
+   */
+  agentBinaries: z.record(z.string().regex(/^[a-z0-9]+-[a-z0-9]+$/), PlatformAgentBinary).optional(),
   migrations: z.array(PlatformMigration).default([]),
   notes: z.array(PlatformNote).default([]),
 });
@@ -121,6 +134,8 @@ export interface BuildManifestInput {
   tag?: string;
   /** Per-key repo override (a fork/self-builder pushing elsewhere, or the e2e's local registry). */
   images?: Partial<Record<SystemImageKey, string>>;
+  /** Per-platform agent binary sha256 (from the controller image's `/app/agent-binaries/manifest.json`). */
+  agentBinaries?: Record<string, string>;
   migrations?: PlatformMigration[];
   notes?: PlatformNote[];
   bom?: readonly SystemImage[];
@@ -157,6 +172,13 @@ export function buildPlatformManifest(input: BuildManifestInput): PlatformManife
     publishedAt: input.publishedAt ?? new Date().toISOString(),
     minUpgradeFrom: input.minUpgradeFrom ?? '0.0.0',
     components,
+    ...(input.agentBinaries && Object.keys(input.agentBinaries).length > 0
+      ? {
+          agentBinaries: Object.fromEntries(
+            Object.entries(input.agentBinaries).map(([platform, sha256]) => [platform, { sha256: sha256.toLowerCase() }]),
+          ),
+        }
+      : {}),
     migrations: input.migrations ?? [],
     notes: input.notes ?? [],
   });

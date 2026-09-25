@@ -182,6 +182,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Read the controller image back: its agent binaries' sha256 go into the manifest.
+      packages: read
     env:
       VERSION: ${{ needs.version.outputs.version }}
       CHANNEL: ${{ needs.version.outputs.channel }}
@@ -198,6 +200,25 @@ jobs:
         with:
           pattern: digest-*
           merge-multiple: true
+      # H17: the node installer checks each agent binary it downloads against
+      # the signed manifest, so record the sha256 of the binaries the controller
+      # image serves at /install/bin/<platform> (the exact built bytes).
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Read the agent binaries' checksums from the controller image
+        env:
+          CONTROLLER_IMAGE: ghcr.io/${{ github.repository_owner }}/swarmy-controller
+        run: |
+          set -euo pipefail
+          digest="$(sed -n 's/^controller=//p' digest-controller.txt)"
+          [ -n "$digest" ] || { echo "::error::no controller digest"; exit 1; }
+          cid="$(docker create --platform linux/amd64 "${CONTROLLER_IMAGE}@${digest}")"
+          docker cp "$cid:/app/agent-binaries/manifest.json" agent-binaries.json
+          docker rm "$cid" >/dev/null
+          cat agent-binaries.json
       - name: Generate platform.json
         run: |
           set -euo pipefail
@@ -207,7 +228,7 @@ jobs:
           [ -n "$PREVIOUS" ] && git rev-parse -q --verify "$PREVIOUS" >/dev/null && range="${PREVIOUS}..${GITHUB_SHA}"
           tag="$VERSION"; [ "$CHANNEL" = edge ] && tag="sha-${GITHUB_SHA::7}"
           bun scripts/platform-manifest.ts --version "$VERSION" --channel "$CHANNEL" \
-            --commit "$GITHUB_SHA" --tag "$tag" "${digests[@]}" \
+            --commit "$GITHUB_SHA" --tag "$tag" "${digests[@]}" --agent-binaries agent-binaries.json \
             ${range:+--notes-from-git "$range"} --out platform.json
       - uses: sigstore/cosign-installer@v3
       - name: Sign with the swarmy release key
