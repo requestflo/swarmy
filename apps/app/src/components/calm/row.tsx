@@ -39,9 +39,10 @@ export function CalmRow({
   const body = (
     <>
       <span aria-hidden className={cn('size-2 shrink-0 rounded-full', TONE_DOT[tone])} />
-      <span className="flex w-40 shrink-0 flex-col gap-0.5 sm:w-48">
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5 sm:w-48 sm:flex-none sm:shrink-0">
         <span className="truncate text-[14.5px] font-semibold">{name}</span>
         {sub ? <span className="text-muted-foreground truncate font-mono text-[11px]">{sub}</span> : null}
+        {say ? <span className="text-muted-foreground text-[13px] leading-snug sm:hidden">{say}</span> : null}
       </span>
       <span className="text-muted-foreground hidden min-w-0 flex-1 text-[13px] sm:block">{say}</span>
       {tech ? (

@@ -25,7 +25,7 @@ export function CalmTopBar({
           <React.Fragment key={`${c.label}-${i}`}>
             {i > 0 ? <span aria-hidden className="px-1.5 opacity-60">/</span> : null}
             {c.to ? (
-              <Link to={c.to} params={c.params as never} className="hover:text-foreground">
+              <Link to={c.to} params={c.params as never} className="hover:text-foreground inline-flex items-center pointer-coarse:min-h-11">
                 {c.label}
               </Link>
             ) : (
