@@ -11,7 +11,7 @@ import {
   CardContent,
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
+import { CalmTopBar, SayHeader } from '@/components/calm';
 import { WebTerminal } from '@/components/terminal/web-terminal';
 import { StepUpDialog } from '@/components/security/step-up-dialog';
 import { useStepUp } from '@/components/security/use-step-up';
@@ -96,21 +96,27 @@ function NodeTerminalPage(): React.JSX.Element {
 
   return (
     <div className="mx-auto flex w-full max-w-[1600px] flex-col px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Node shell"
-        title={
-          <>
-            Shell into <em>{node.data?.name ?? 'this node'}</em>.
-          </>
-        }
-        description="A host shell on the node itself — the highest-risk access. Gated, approved, and recorded."
-        actions={
-          <Button onClick={start} disabled={open.isPending || phase === 'connecting'}>
-            <TerminalIcon className="size-4" />
-            {phase === 'open' || phase === 'connecting' ? 'Reconnect' : 'Open node shell'}
-          </Button>
-        }
-      />
+      <div className="-mx-6 -mt-8 mb-7 xl:-mx-10">
+        <CalmTopBar
+          crumbs={[
+            { label: 'Servers', to: '/nodes' },
+            { label: node.data?.name ?? 'Server', to: '/nodes/$nodeId', params: { nodeId } },
+            { label: 'Shell' },
+          ]}
+        />
+        <div className="px-6 pt-7 xl:px-10">
+          <SayHeader
+            title={<>A shell on {node.data?.name ?? 'this server'}.</>}
+            lede="Root on the server itself, for when nothing else will do. Approved, recorded and audited."
+            actions={
+              <Button onClick={start} disabled={open.isPending || phase === 'connecting'} className="pointer-coarse:min-h-11">
+                <TerminalIcon className="size-4" />
+                {phase === 'open' || phase === 'connecting' ? 'Reconnect' : 'Open the shell'}
+              </Button>
+            }
+          />
+        </div>
+      </div>
 
       <Alert className="card-pop mb-6 border-0">
         <ShieldAlertIcon className="size-4" />
@@ -127,7 +133,7 @@ function NodeTerminalPage(): React.JSX.Element {
             <span>
               {detail && !detail.startsWith('E_')
                 ? detail
-                : 'Host shell is off for this node. An admin turns it on in Nodes → this node → Controls → Host shell (and node shell must be enabled in Security → Terminal).'}
+                : 'Host shell is off for this server. An admin turns it on in Servers → this server → Controls → Host shell (and node shell must be enabled in Security → Terminal).'}
             </span>
             {needsApproval && (
               <Button
@@ -165,7 +171,7 @@ function NodeTerminalPage(): React.JSX.Element {
             </div>
           ) : (
             <div className="text-muted-foreground p-16 text-center text-sm">
-              Press <span className="font-semibold">Open node shell</span> for break-glass host access.
+              Press <span className="font-semibold">Open the shell</span> for break-glass access to the server.
             </div>
           )}
         </CardContent>
