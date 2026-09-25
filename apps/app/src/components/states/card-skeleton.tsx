@@ -7,10 +7,10 @@ interface CardSkeletonProps {
   className?: string;
 }
 
-/** One `card-pop` surface, shimmering — the placeholder for any card still loading. */
+/** One `calm-card` surface, shimmering — the placeholder for any card still loading. */
 export function CardSkeleton({ lines = 2, className }: CardSkeletonProps): React.JSX.Element {
   return (
-    <div className={cn('card-pop p-5', className)} aria-hidden>
+    <div className={cn('calm-card p-5', className)} aria-hidden>
       <div className="flex items-center justify-between">
         <div className="shimmer-line h-4 w-28 rounded" />
         <div className="shimmer-line size-4 rounded-full" />

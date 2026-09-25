@@ -32,11 +32,11 @@ export function ErrorState({
     <div
       role="alert"
       className={cn(
-        'card-pop border-status-offline/30 flex flex-col items-center gap-3 border py-12 text-center',
+        'calm-card border-status-offline/30 flex flex-col items-center gap-3 py-10 text-center',
         className,
       )}
     >
-      <TriangleAlertIcon className="text-status-offline size-6" />
+      <TriangleAlertIcon className="text-tone-bad size-6" />
       <div className="space-y-1 px-6">
         <p className="font-medium">{title}</p>
         {detail ? <p className="text-muted-foreground mx-auto max-w-md text-sm">{detail}</p> : null}
@@ -44,7 +44,7 @@ export function ErrorState({
       {retry ? (
         <Button
           variant="outline"
-          className="rounded-full font-bold"
+          className="pointer-coarse:min-h-11"
           onClick={retry}
           disabled={retrying}
         >

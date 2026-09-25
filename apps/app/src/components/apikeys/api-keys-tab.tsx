@@ -1,54 +1,17 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRoundIcon, PlusIcon } from 'lucide-react';
-import {
-  Button,
-  Card,
-  CardContent,
-  EmptyState,
-  Input,
-  Label,
-  StatusBadge,
-  Switch,
-  cn,
-  toast,
-} from '@swarmy/ui';
+import { Button, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { CountUp } from '@/components/count-up';
+import { Depth, RowList, Section } from '@/components/calm';
+import { LineRow } from '@/components/rowpage/line-row';
+import { CardSkeleton } from '@/components/states';
 import { relTime } from '@/lib/format';
-import { IssuedSecretPanel } from './issued-secret-panel';
 
-function curlExample(prefix: string): string {
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  return `curl -H "Authorization: Bearer ${prefix}…" ${origin}/api/v1/services`;
-}
-
-function keyTone(status: string): React.ComponentProps<typeof StatusBadge>['tone'] {
-  return status === 'active' ? 'online' : 'neutral';
-}
-
-/** Mint + manage org-scoped `swk_` API keys. */
+/** Every org API key: what it may do, when it was last used; revoke from Controls. */
 export function ApiKeysTab(): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const keys = useQuery(trpc.apiKeys.list.queryOptions());
-
-  const [name, setName] = React.useState('');
-  const [nameError, setNameError] = React.useState<string | null>(null);
-  const [canWrite, setCanWrite] = React.useState(false);
-  const [issued, setIssued] = React.useState<string | null>(null);
-
-  const create = useMutation(
-    trpc.apiKeys.create.mutationOptions({
-      onSuccess: (res) => {
-        setIssued(res.key);
-        setName('');
-        setCanWrite(false);
-        void qc.invalidateQueries();
-      },
-      onError: (e) => toast.error(e.message),
-    }),
-  );
   const revoke = useMutation(
     trpc.apiKeys.revoke.mutationOptions({
       onSuccess: () => {
@@ -58,136 +21,37 @@ export function ApiKeysTab(): React.JSX.Element {
       onError: (e) => toast.error(e.message),
     }),
   );
-
+  if (keys.isLoading) return <CardSkeleton lines={3} />;
   const rows = keys.data ?? [];
   const active = rows.filter((k) => k.status === 'active').length;
-
-  const submit = (): void => {
-    if (!name.trim()) {
-      setNameError('Name the key so you can tell it apart later — e.g. ci-terraform.');
-      return;
-    }
-    setNameError(null);
-    create.mutate({ name: name.trim(), scopes: canWrite ? ['read', 'write'] : ['read'] });
-  };
-
   return (
-    <div className="grid gap-6">
-      <Card className="card-pop border-0">
-        <CardContent className="grid gap-4 p-5">
-          <div>
-            <h2 className="font-display text-lg font-semibold">New API key</h2>
-            <p className="text-muted-foreground mt-1 text-sm">
-              Keys carry the permissions of their creator and are scoped to this org. The secret is
-              shown <strong className="text-foreground">once</strong> — stash it in a secret manager
-              or CI variable.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="grid min-w-[14rem] flex-1 gap-1.5">
-              <Label htmlFor="key-name" className="mono-label">
-                Name
-              </Label>
-              <Input
-                id="key-name"
-                value={name}
-                aria-invalid={!!nameError}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  if (nameError) setNameError(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') submit();
-                }}
-                placeholder="ci-terraform"
-              />
-              {nameError ? <p className="text-status-offline text-xs">{nameError}</p> : null}
-            </div>
-            <div className="flex items-center gap-2 pb-2.5">
-              <Switch id="key-write" checked={canWrite} onCheckedChange={setCanWrite} />
-              <Label htmlFor="key-write" className="mono-label">
-                Allow writes
-              </Label>
-            </div>
-            <Button onClick={submit} disabled={create.isPending}>
-              <PlusIcon className="size-4" /> Create key
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {issued && (
-        <IssuedSecretPanel
-          title="Copy it now — this key won't be shown again."
-          lines={[
-            { label: 'API key', value: issued },
-            { label: 'Use it from anywhere', value: curlExample(issued) },
-          ]}
-        />
-      )}
-
-      <Card className={cn('card-pop border-0', rows.length > 0 && 'p-0')}>
+    <Section id="keys" title="API keys" count={`${active} active`} flush>
+      <RowList label="API keys">
         {rows.length === 0 ? (
-          <EmptyState
-            className="border-0 py-14"
-            icon={<KeyRoundIcon />}
-            title="No API keys yet"
-            description="Mint one above to automate swarmy from curl, an SDK, or the Terraform provider."
-          />
+          <p className="text-muted-foreground py-4 text-sm">None yet. A key lets curl, the SDKs, Terraform or CI reach swarmy as you.</p>
         ) : (
-          <>
-            <div className="flex items-center justify-between gap-4 px-5 py-4">
-              <span className="mono-label">
-                <CountUp value={rows.length} /> keys
-              </span>
-              <span className="text-muted-foreground mono-label">{active} active</span>
-            </div>
-            <div className="divide-border divide-y border-t">
-              {rows.map((k) => (
-                <div
-                  key={k.id}
-                  className={cn(
-                    'hover:bg-accent/50 flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-4 transition-colors',
-                    k.status === 'active' && 'bg-accent/40 border-l-[3px] border-l-primary pl-[17px]',
-                  )}
-                >
-                  <div className="min-w-[10rem] flex-1">
-                    <p className="truncate font-medium">{k.name}</p>
-                    <p className="mono-data text-muted-foreground text-xs">swk_{k.prefix}…</p>
-                  </div>
-                  <div className="hidden md:block">
-                    <p className="mono-label">Scopes</p>
-                    <p className="mono-data text-sm">{k.scopes.join(', ')}</p>
-                  </div>
-                  <div className="hidden sm:block">
-                    <p className="mono-label">Last used</p>
-                    <p className="mono-data text-muted-foreground text-sm">
-                      {k.lastUsedAt ? relTime(k.lastUsedAt) : '—'}
-                    </p>
-                  </div>
-                  <div className="hidden sm:block">
-                    <p className="mono-label">Created</p>
-                    <p className="mono-data text-muted-foreground text-sm">{relTime(k.createdAt)}</p>
-                  </div>
-                  <StatusBadge tone={keyTone(k.status)} label={k.status} />
-                  <div className="ml-auto">
-                    {k.status === 'active' && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={revoke.isPending}
-                        onClick={() => revoke.mutate({ id: k.id })}
-                      >
-                        Revoke
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
+          rows.map((k) => (
+            <LineRow
+              key={k.id}
+              tone={k.status === 'active' ? 'ok' : 'idle'}
+              name={k.name}
+              sub={`swk_${k.prefix}…`}
+              say={`${k.scopes.includes('write') ? 'Reads and changes things' : 'Reads only'} · last used ${k.lastUsedAt ? relTime(k.lastUsedAt) : 'never'}`}
+              tech={`scopes ${k.scopes.join(',')} · made ${relTime(k.createdAt)}`}
+              word={k.status === 'active' ? 'Active' : 'Revoked'}
+              trailing={
+                k.status === 'active' ? (
+                  <Depth at="controls">
+                    <Button variant="ghost" size="sm" className="pointer-coarse:min-h-11" disabled={revoke.isPending} onClick={() => revoke.mutate({ id: k.id })}>
+                      Revoke
+                    </Button>
+                  </Depth>
+                ) : null
+              }
+            />
+          ))
         )}
-      </Card>
-    </div>
+      </RowList>
+    </Section>
   );
 }

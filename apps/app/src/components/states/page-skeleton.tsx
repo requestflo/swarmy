@@ -78,7 +78,7 @@ export function SkeletonBody({ variant }: { variant: PageSkeletonVariant }): Rea
       );
     default:
       return (
-        <div className="card-pop divide-border divide-y overflow-hidden">
+        <div className="calm-card divide-border divide-y overflow-hidden">
           {[0, 1, 2, 3, 4].map((i) => (
             <div key={i} className="flex h-14 items-center gap-4 px-5">
               <div className="shimmer-line size-2 rounded-full" />

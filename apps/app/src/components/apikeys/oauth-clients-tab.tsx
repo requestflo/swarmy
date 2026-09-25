@@ -9,10 +9,10 @@ import {
   Input,
   Label,
   StatusBadge,
-  Switch,
   cn,
   toast,
 } from '@swarmy/ui';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 import { useTRPC } from '@/integrations/trpc';
 import { CountUp } from '@/components/count-up';
 import { relTime } from '@/lib/format';
@@ -65,7 +65,7 @@ export function OauthClientsTab(): React.JSX.Element {
 
   return (
     <div className="grid gap-6">
-      <Card className="card-pop border-0">
+      <Card className="border-0 bg-transparent shadow-none">
         <CardContent className="grid gap-4 p-5">
           <div>
             <h2 className="font-display text-lg font-semibold">New OAuth client</h2>
@@ -89,12 +89,12 @@ export function OauthClientsTab(): React.JSX.Element {
               />
             </div>
             <div className="flex items-center gap-2 pb-2.5">
-              <Switch id="client-write" checked={canWrite} onCheckedChange={setCanWrite} />
+              <QuietSwitch id="client-write" checked={canWrite} onCheckedChange={setCanWrite} />
               <Label htmlFor="client-write" className="mono-label">
                 Allow writes
               </Label>
             </div>
-            <Button
+            <Button variant="outline"
               onClick={() =>
                 create.mutate({ name, scopes: canWrite ? ['read', 'write'] : ['read'] })
               }
@@ -117,7 +117,7 @@ export function OauthClientsTab(): React.JSX.Element {
         />
       )}
 
-      <Card className={cn('card-pop border-0', rows.length > 0 && 'p-0')}>
+      <Card className={cn('border-0 bg-transparent shadow-none', rows.length > 0 && 'p-0')}>
         {rows.length === 0 ? (
           <EmptyState
             className="border-0 py-14"
@@ -139,7 +139,7 @@ export function OauthClientsTab(): React.JSX.Element {
                   key={c.id}
                   className={cn(
                     'hover:bg-accent/50 flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-4 transition-colors',
-                    c.status === 'active' && 'bg-accent/40 border-l-[3px] border-l-primary pl-[17px]',
+                    c.status === 'active' && '',
                   )}
                 >
                   <div className="min-w-[10rem] flex-1">
