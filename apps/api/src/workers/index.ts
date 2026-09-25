@@ -26,6 +26,7 @@ import { startDeploySafety } from './deploy-safety';
 import { startAppReconcile } from './app-reconcile';
 import { startExposureAudit } from './exposure-audit';
 import { startMeshPeopleReconcile } from './mesh-people-reconcile';
+import { startSwarmJoinRetry } from './swarm-join-retry';
 import { startSystemImageMirror } from './system-image-mirror';
 import { startTrivyDbRefresh } from './trivy-db-refresh';
 import { startPlatformUpgradeWorker } from './platform-upgrade';
@@ -65,6 +66,7 @@ export function startWorkers(): () => void {
     startAppReconcile(),
     startExposureAudit(),
     startMeshPeopleReconcile(),
+    startSwarmJoinRetry(),
     startSystemImageMirror(),
     startTrivyDbRefresh(),
     startPlatformUpgradeWorker(),

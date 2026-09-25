@@ -10,6 +10,7 @@ import { NodeDetailsPanel } from '@/components/nodes/node-details-panel';
 import { NodeContainersPanel } from '@/components/nodes/node-containers-panel';
 import { NodeControlsPanel } from '@/components/nodes/node-controls-panel';
 import { NodeRepairCard } from '@/components/nodes/node-repair-card';
+import { NodeSwarmJoinBanner } from '@/components/nodes/node-swarm-join-banner';
 import { NodeHygienePanel } from '@/components/nodes/node-hygiene-panel';
 import { NodeOldCopiesCard } from '@/components/nodes/node-old-copies-card';
 import { NodeRetirePanel } from '@/components/nodes/node-retire-panel';
@@ -67,6 +68,7 @@ function NodeDetailPage(): React.JSX.Element {
       />
 
       <NodeRepairCard node={n} />
+      <NodeSwarmJoinBanner node={n} />
 
       {/* minmax(0,…) tracks: a plain `fr` track has a min-content floor, so a wide
           chart or a long mono value would push the page into a horizontal scroll. */}

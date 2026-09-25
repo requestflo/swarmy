@@ -188,6 +188,7 @@ export {
   planSwarmMembership,
   primeSwarmJoinMaterial,
   swarmOrchestrationStatus,
+  retryPendingSwarmJoins,
   SWARM_COMMAND,
 } from './services/swarm.service';
 export type {

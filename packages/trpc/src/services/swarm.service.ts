@@ -25,6 +25,8 @@ import type { CommandName } from '../hub/types';
 /** Hub surface this service needs (subset of AgentHub). */
 export interface SwarmHub {
   isOnline(nodeId: string): boolean;
+  /** Live local swarm membership (agent-reported); lets the retry loop see a join that landed. */
+  swarmStateFor?(nodeId: string): string | undefined;
   dispatch<R = unknown>(
     nodeId: string,
     cmd: CommandName,
@@ -163,6 +165,8 @@ export interface OrchestrateArgs {
   onEvent?: (e: SwarmOrchestrationEvent) => void;
   /** Test seam: delay between deferred re-plans (default 5s). */
   deferDelayMs?: number;
+  /** Internal: which attempt this is (1 = on register; >1 = the retry loop). */
+  attempt?: number;
 }
 
 export type OrchestrateOutcome =
@@ -327,6 +331,17 @@ const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(
  *  - org has no usable swarm              → `init` this node (becomes manager)
  */
 export async function orchestrateSwarmMembership(args: OrchestrateArgs): Promise<OrchestrateOutcome> {
+  try {
+    const out = await orchestrateOnce(args);
+    joinRetries.delete(args.nodeId);
+    return out;
+  } catch (e) {
+    scheduleSwarmJoinRetry(args, e);
+    throw e;
+  }
+}
+
+async function orchestrateOnce(args: OrchestrateArgs): Promise<OrchestrateOutcome> {
   const { db, hub, orgId, nodeId } = args;
   const store = args.joinStore ?? memorySwarmJoinStore;
   const role: 'manager' | 'worker' = args.roleHint === 'manager' ? 'manager' : 'worker';
@@ -377,6 +392,100 @@ export async function orchestrateSwarmMembership(args: OrchestrateArgs): Promise
     setStatus(args, 'failed', errMsg(e));
     throw e;
   }
+}
+
+// ── Retry: a registered node that isn't in the swarm yet ──────────────────────
+//
+// Registration dispatches `swarm.join` once. A fresh peer whose first path to
+// the manager is slow (a relayed mesh link still settling, a manager busy
+// electing) times out, and before this nothing retried until the agent
+// restarted. Failed memberships are now re-planned + re-sent by a reconcile
+// tick (workers/swarm-join-retry.ts) with backoff, until the node joins or
+// SWARM_JOIN_MAX_ATTEMPTS fail — then the node shows
+// "couldn't join the cluster: <reason>". A re-register starts over.
+
+/** Waits before retry 2, 3, … (after attempt 1 on register). */
+export const SWARM_JOIN_BACKOFF_MS = [15_000, 30_000, 60_000, 120_000, 240_000] as const;
+export const SWARM_JOIN_MAX_ATTEMPTS = SWARM_JOIN_BACKOFF_MS.length + 1;
+
+interface JoinRetry {
+  args: OrchestrateArgs;
+  /** Attempts made so far. */
+  attempts: number;
+  nextAt: number;
+  lastError: string;
+  inFlight: boolean;
+}
+const joinRetries = new Map<string, JoinRetry>();
+
+/** Pure: when the next attempt runs after `attempts` failed ones, or null when exhausted. */
+export function nextSwarmJoinAttemptAt(attempts: number, failedAt: number): number | null {
+  if (attempts >= SWARM_JOIN_MAX_ATTEMPTS) return null;
+  const wait = SWARM_JOIN_BACKOFF_MS[Math.min(attempts - 1, SWARM_JOIN_BACKOFF_MS.length - 1)]!;
+  return failedAt + wait;
+}
+
+function scheduleSwarmJoinRetry(args: OrchestrateArgs, e: unknown, now = Date.now()): void {
+  const attempts = args.attempt ?? 1;
+  const reason = errMsg(e);
+  const nextAt = nextSwarmJoinAttemptAt(attempts, now);
+  if (nextAt === null) {
+    joinRetries.delete(args.nodeId);
+    setStatus(args, 'failed', `couldn't join the cluster: ${reason} (gave up after ${attempts} attempts; restart the agent or re-run its install line to try again)`);
+    return;
+  }
+  const { attempt: _a, ...base } = args;
+  joinRetries.set(args.nodeId, { args: base, attempts, nextAt, lastError: reason, inFlight: false });
+  setStatus(
+    args,
+    'failed',
+    `join attempt ${attempts}/${SWARM_JOIN_MAX_ATTEMPTS} failed: ${reason} — retrying in ${Math.round((nextAt - now) / 1000)}s`,
+  );
+}
+
+/** Nodes waiting for a join retry (test seam + diagnostics). */
+export function pendingSwarmJoins(): { nodeId: string; attempts: number; nextAt: number; lastError: string }[] {
+  return [...joinRetries.entries()].map(([nodeId, r]) => ({ nodeId, attempts: r.attempts, nextAt: r.nextAt, lastError: r.lastError }));
+}
+
+/** Test seam. */
+export function clearSwarmJoinRetries(): void {
+  joinRetries.clear();
+}
+
+/**
+ * One reconcile tick: re-run membership for every due node. A node that joined
+ * by other means (or reports an active swarm) is cleared; an offline node
+ * waits (its re-register starts over anyway). Never throws.
+ */
+export async function retryPendingSwarmJoins(now = Date.now()): Promise<{ retried: string[]; joined: string[]; skipped: string[] }> {
+  const out = { retried: [] as string[], joined: [] as string[], skipped: [] as string[] };
+  for (const [nodeId, r] of [...joinRetries.entries()]) {
+    const hub = r.args.hub;
+    if (hub.swarmStateFor?.(nodeId) === 'active') {
+      joinRetries.delete(nodeId);
+      setStatus(r.args, 'joined', 'in the swarm');
+      out.joined.push(nodeId);
+      continue;
+    }
+    if (r.inFlight || now < r.nextAt || !hub.isOnline(nodeId)) {
+      out.skipped.push(nodeId);
+      continue;
+    }
+    r.inFlight = true;
+    out.retried.push(nodeId);
+    setStatus(r.args, 'joining', `retrying the swarm join (attempt ${r.attempts + 1}/${SWARM_JOIN_MAX_ATTEMPTS}; last error: ${r.lastError})`);
+    try {
+      await orchestrateSwarmMembership({ ...r.args, alreadyInSwarm: false, attempt: r.attempts + 1 });
+      out.joined.push(nodeId);
+    } catch {
+      // scheduleSwarmJoinRetry already recorded the next attempt (or gave up).
+    } finally {
+      const cur = joinRetries.get(nodeId);
+      if (cur) cur.inFlight = false;
+    }
+  }
+  return out;
 }
 
 async function dispatchJoin(
