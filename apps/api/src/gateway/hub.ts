@@ -20,6 +20,7 @@ import type {
 } from '@swarmy/core/views';
 import {
   COMMAND_PROTOCOL_TYPE,
+  gateSystemDeploy,
   type AgentHub,
   type CommandName,
   type DispatchDecorator,
@@ -161,6 +162,17 @@ export class AgentHubImpl implements AgentHub {
     if (this.decorate && orgId) {
       // Fail open: a decorator error must never block the command itself.
       payload = await this.decorate(orgId, cmd, payload).catch(() => payload);
+    }
+    if (cmd === 'service.deploy' && orgId) {
+      // Every system-service converge (DNS, edge, collector, Garage, registry,
+      // cache, mail, mesh control, app-auth, managed data…) is re-sent on each
+      // tick and boot. Dispatch only a real change to the desired spec: a
+      // no-op update still restarted every task (QA-049).
+      const p = payload as Parameters<typeof gateSystemDeploy>[0];
+      const live = p?.spec ? this.store.liveServicesForOrg(orgId).find((s) => s.name === p.spec.name) : undefined;
+      const gate = p?.spec ? gateSystemDeploy(p, live) : { payload: p, skip: false };
+      if (gate.skip && live) return { serviceId: live.id, created: false, unchanged: true } as R;
+      payload = gate.payload;
     }
     const commandId = pickCommandId(payload, (id) => this.pending.has(id));
     const type = COMMAND_PROTOCOL_TYPE[cmd];

@@ -388,6 +388,7 @@ export type { ManagedControlPlane } from './services/mesh-control.service';
 export { reconcilePeopleAccess, computePeopleIntent, liveStacks } from './services/mesh-people.service';
 export { reconcileIntegrationsNetwork, integrationTargets, planIntegrations } from './services/integrations-network';
 export { reconcileOrphanedWork } from './services/build-orphans.service';
+export { gateSystemDeploy, isSystemOwned, SPEC_SIGNATURE_LABEL } from './services/system-service-deploy';
 export { observabilityConfigRepo } from './services/observability-config.repo';
 export { geoDnsConfigRepo, dnsZoneRepo } from './services/geodns.repo';
 export { storageClusterRepo, bucketAccessRepo } from './services/storage-cluster.repo';
