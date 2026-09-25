@@ -731,6 +731,19 @@ export interface PlanCommitInput {
    * not opt it into `previews.branches`.
    */
   manualPreview?: boolean;
+  /**
+   * Re-plan a commit whose plan FAILED (the plan row for this sha/trigger is
+   * otherwise "already handled"). The failed row is reset to the fresh plan
+   * and audited as `app.plan.retry`; plans in any other state are untouched.
+   */
+  retry?: boolean;
+  /** Retry only: the environment the failed plan ran in. */
+  environment?: string;
+}
+
+/** PURE — may this existing plan row be reset by a retry? Only a failed or partly applied one. */
+export function retryablePlanStatus(status: string): boolean {
+  return status === 'failed' || status === 'partial';
 }
 
 export interface PlanCommitResult {
@@ -896,7 +909,9 @@ export async function planCommit(
     previewBase =
       environmentForBranch(cfg, input.baseRef ?? repo.branch, repo.branch) ?? PRODUCTION;
   } else {
-    const env = environmentForBranch(cfg, input.ref, repo.branch);
+    // A retry names the environment its failed plan ran in (the ref alone
+    // would re-derive it from the production branch).
+    const env = input.environment ?? environmentForBranch(cfg, input.ref, repo.branch);
     if (!env)
       return {
         planId: null,
@@ -939,6 +954,31 @@ export async function planCommit(
       },
       data: { status: 'superseded' },
     });
+    if (input.retry) {
+      const failed = await ctx.db.appPlan.findFirst({
+        where: { repoId: repo.id, environment, sha, trigger: input.trigger, prNumber },
+      });
+      if (failed && retryablePlanStatus(failed.status)) {
+        await ctx.db.appPlan.update({
+          where: { id: failed.id },
+          data: {
+            status: plan.status === 'noop' ? 'applied' : plan.status === 'blocked' ? 'blocked' : 'planned',
+            planJson: plan as never,
+            desiredJson: desired as never,
+            issuesJson: parsed.issues as never,
+            ledgerJson: ledger as never,
+            resultsJson: null as never,
+            error: null,
+          },
+        });
+        await writeAudit(ctx, {
+          action: 'app.plan.retry',
+          targetType: 'appPlan',
+          targetId: failed.id,
+          metadata: { sha, environment, previousStatus: failed.status, previousError: failed.error ?? null },
+        });
+      }
+    }
     const row = await ctx.db.appPlan.upsert({
       where: {
         repoId_environment_sha_trigger_prNumber: {
@@ -1598,9 +1638,37 @@ export function replan(ctx: OrgContext, input: { repoId: string; branch?: string
       repoId: repo.id,
       ref: input.branch ?? repo.branch,
       trigger: 'manual',
+      // "Deploy" on a commit whose manual plan failed re-runs it.
+      retry: true,
     });
     return { ...res, plan: res.planId ? await getPlan(ctx, res.planId) : null };
   })();
+}
+
+/** "Retry" on a failed plan: re-plan the SAME commit (same trigger), then apply what may run. */
+export async function retryPlan(ctx: OrgContext, input: { planId: string }) {
+  const row = await ctx.db.appPlan.findFirst({ where: { id: input.planId, orgId: ctx.activeOrgId } });
+  if (!row) throw notFound('plan', input.planId);
+  if (!retryablePlanStatus(row.status)) {
+    throw commandRejected(`this plan is ${row.status} — only a failed plan can be retried`);
+  }
+  if (!['push', 'pr', 'manual', 'poll'].includes(row.trigger)) {
+    throw commandRejected(`a ${row.trigger} plan can't be retried here — run the ${row.trigger} again`);
+  }
+  const repo = await ctx.db.gitRepo.findFirst({ where: { id: row.repoId, orgId: ctx.activeOrgId } });
+  if (!repo) throw notFound('repo', row.repoId);
+  const desired = row.desiredJson as unknown as DesiredApp | null;
+  const previewBranch = row.environment === 'preview' ? desired?.preview?.branch : undefined;
+  const res = await planCommit(ctx, {
+    repoId: repo.id,
+    ref: previewBranch ?? repo.branch,
+    sha: row.sha,
+    trigger: row.trigger as AppTrigger,
+    ...(row.prNumber ? { prNumber: row.prNumber } : {}),
+    ...(row.environment !== 'preview' ? { environment: row.environment } : {}),
+    retry: true,
+  });
+  return { ...res, plan: res.planId ? await getPlan(ctx, res.planId) : null };
 }
 
 /**

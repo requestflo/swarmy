@@ -16,6 +16,7 @@ import {
   promoteEnvironment,
   purgeAppData,
   replan,
+  retryPlan,
   setEnforceDrift,
   setRequireApproval,
 } from '../services/apps.service';
@@ -36,6 +37,11 @@ export const appsRouter = router({
   setRequireApproval: adminProcedure
     .input(z.object({ repoId: id, requireApproval: z.boolean() }))
     .mutation(({ ctx, input }) => setRequireApproval(ctx, input)),
+
+  /** Re-run a FAILED plan: re-plans the same commit and applies it (audited `app.plan.retry`). */
+  retryPlan: adminProcedure
+    .input(z.object({ planId: id }))
+    .mutation(({ ctx, input }) => retryPlan(ctx, input)),
 
   /** Plan + apply the head of a branch now (production branch by default). */
   deploy: adminProcedure

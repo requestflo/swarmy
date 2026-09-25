@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@swarmy/ui';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Button, Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { ErrorState, TextSkeleton } from '@/components/states';
 import { PlanBody } from './plan-body';
@@ -37,6 +37,18 @@ export function PlanDrawer({
     refetchInterval: (q) => (q.state.data?.status === 'applying' ? 2000 : false),
   });
   const p = plan.data;
+  const qc = useQueryClient();
+  // A failed plan re-runs for the SAME commit (audited app.plan.retry).
+  const retry = useMutation(
+    trpc.apps.retryPlan.mutationOptions({
+      onSuccess: () => {
+        toast.success('Retrying this commit');
+        void qc.invalidateQueries();
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+  const canRetry = p?.status === 'failed' || p?.status === 'partial';
 
   return (
     <Sheet open={Boolean(planId)} onOpenChange={(o) => (o ? undefined : onClose())}>
@@ -54,6 +66,13 @@ export function PlanDrawer({
             ) : null}
           </SheetDescription>
         </SheetHeader>
+        {canRetry && planId ? (
+          <div className="px-4">
+            <Button size="sm" disabled={retry.isPending} onClick={() => retry.mutate({ planId })}>
+              Retry this commit
+            </Button>
+          </div>
+        ) : null}
         {plan.isPending ? (
           <div className="space-y-3 px-4">
             <TextSkeleton className="h-4 w-1/2" />
