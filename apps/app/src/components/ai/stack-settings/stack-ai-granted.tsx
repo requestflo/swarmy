@@ -73,7 +73,7 @@ export function StackAiGranted({
       <div className="mt-4 flex justify-end">
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <Button variant="destructive" size="sm" disabled={revoke.isPending}>
+            <Button variant="outline" size="sm" className="text-tone-bad" disabled={revoke.isPending}>
               Revoke access
             </Button>
           </AlertDialogTrigger>

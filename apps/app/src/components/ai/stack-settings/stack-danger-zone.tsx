@@ -59,7 +59,7 @@ export function StackDangerZone({ stack }: StackDangerZoneProps): React.JSX.Elem
 
         <AlertDialog onOpenChange={(open) => !open && setConfirm('')}>
           <AlertDialogTrigger asChild>
-            <Button variant="destructive" disabled={!id || remove.isPending}>
+            <Button variant="outline" className="text-tone-bad" disabled={!id || remove.isPending}>
               {remove.isPending ? 'Removing…' : 'Remove stack'}
             </Button>
           </AlertDialogTrigger>

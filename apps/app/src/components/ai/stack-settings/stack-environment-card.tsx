@@ -63,6 +63,7 @@ export function StackEnvironmentCard({ stack }: StackEnvironmentCardProps): Reac
               </p>
             </div>
             <Switch
+              aria-label="Production environment"
               checked={production}
               disabled={setEnv.isPending || !row}
               onCheckedChange={(v) => setEnv.mutate({ stack, production: v })}
