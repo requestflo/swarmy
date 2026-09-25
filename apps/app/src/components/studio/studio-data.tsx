@@ -51,7 +51,7 @@ export function StudioData({ scope, table }: { scope: StudioScope; table: Studio
   const doc = typeof sel === 'number' ? ((q.data?.documents?.[sel] as Record<string, unknown> | undefined) ?? null) : null;
 
   return (
-    <div className="bg-card card-pop flex min-h-[28rem] flex-1 flex-col overflow-hidden border-0 lg:flex-row">
+    <div className="bg-card calm-card shadow-none flex min-h-[28rem] flex-1 flex-col overflow-hidden border-0 lg:flex-row">
       <div className="flex min-w-0 flex-1 flex-col">
         {mongo ? (
           <StudioMongoFilter value={mongoFilter} onApply={(v) => { setPage(0); setMongoFilter(v); }} sortLine={sortLine} />

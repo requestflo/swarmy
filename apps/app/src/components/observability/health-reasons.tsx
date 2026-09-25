@@ -1,136 +1,59 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { HeartPulseIcon } from 'lucide-react';
-import {
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  EmptyState,
-  Skeleton,
-  StatusBadge,
-  type StatusTone,
-} from '@swarmy/ui';
-import type { HealthEntryView, HealthStatusView } from '@swarmy/core';
+import { Button } from '@swarmy/ui';
+import type { HealthStatusView } from '@swarmy/core';
+import { Section, StatusWord, Tech, type Tone } from '@/components/calm';
+import { CardSkeleton } from '@/components/states';
 import { useTRPC } from '@/integrations/trpc';
 
-const TONE: Record<HealthStatusView, StatusTone> = {
-  healthy: 'online',
-  degraded: 'warning',
-  down: 'offline',
-  unknown: 'neutral',
-};
-
-const LABEL: Record<HealthStatusView, string> = {
-  healthy: 'All green',
-  degraded: 'Needs attention',
-  down: 'Down',
-  unknown: 'No signals yet',
-};
-
-/** Status token CSS var per health status (dynamic classes don't survive JIT). */
-const DOT: Record<HealthStatusView, string> = {
-  healthy: 'var(--status-online)',
-  degraded: 'var(--status-warning)',
-  down: 'var(--status-offline)',
-  unknown: 'var(--status-idle)',
-};
-
-function StackChip({ entry }: { entry: HealthEntryView }): React.JSX.Element {
-  return (
-    <span
-      title={entry.reasons.join('\n') || 'healthy'}
-      className="bg-accent/60 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
-    >
-      <span className="size-1.5 rounded-full" style={{ background: DOT[entry.status] }} />
-      {entry.name}
-    </span>
-  );
-}
-
-interface HealthReasonsPanelProps {
-  /** Scope the narrative to one stack; omit for the whole estate. */
-  stack?: string;
-}
+const TONE: Record<HealthStatusView, Tone> = { healthy: 'ok', degraded: 'warn', down: 'bad', unknown: 'idle' };
+const WORD: Record<HealthStatusView, string> = { healthy: 'Healthy', degraded: 'Needs a look', down: 'Down', unknown: 'No signals yet' };
 
 /**
- * The health narrative: one status + the ordered human reasons behind it
- * ("p95 latency 1.8s (target <1.5s)", "database replica lag 12s", …), plus a
- * per-stack chip row so you can see WHERE the trouble is at a glance.
+ * The health narrative in plain words: one status and the ordered reasons
+ * behind it ("p95 latency 1.8s (target <1.5s)", "database replica lag 12s"),
+ * composed on read from live tasks, replica lag, queue depth and RED rows.
  */
-export function HealthReasonsPanel({ stack }: HealthReasonsPanelProps): React.JSX.Element {
+export function HealthReasonsPanel({ stack }: { stack?: string }): React.JSX.Element {
   const trpc = useTRPC();
-  const health = useQuery({
-    ...trpc.observability.health.queryOptions({ stack }),
-    refetchInterval: 10_000,
-  });
-
+  const health = useQuery({ ...trpc.observability.health.queryOptions({ stack }), refetchInterval: 10_000 });
   const status: HealthStatusView = health.data?.status ?? 'unknown';
   const reasons = health.data?.reasons ?? [];
   const entries = health.data?.entries ?? [];
 
   return (
-    <Card className="card-pop mb-4 border-0">
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between gap-3 text-base">
-          <span className="flex items-center gap-2">
-            <HeartPulseIcon className="size-4" /> Health
-          </span>
-          {health.data ? <StatusBadge tone={TONE[status]} label={LABEL[status]} /> : null}
-        </CardTitle>
-        <CardDescription>
-          Why anything is degraded, in plain words — composed from live tasks, replica lag, queue
-          depth and RED metrics.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {health.isLoading ? (
-          <div className="space-y-2">
-            <Skeleton className="h-5 w-2/3 rounded-lg" />
-            <Skeleton className="h-5 w-1/2 rounded-lg" />
-          </div>
-        ) : health.isError ? (
-          <EmptyState
-            icon={<HeartPulseIcon />}
-            title="Couldn't read health"
-            description={health.error.message}
-            action={
-              <Button variant="outline" size="sm" onClick={() => void health.refetch()}>
-                Retry
-              </Button>
-            }
-          />
-        ) : reasons.length === 0 ? (
-          <p className="text-sm font-medium">
-            {status === 'unknown'
-              ? 'Quiet so far — deploy something and health lands here.'
-              : 'Everything is running at its desired scale. Nothing needs you.'}
-          </p>
-        ) : (
-          <ul className="space-y-1.5">
-            {reasons.map((reason) => (
-              <li key={reason} className="flex items-start gap-2 text-sm">
-                <span
-                  className="mt-1.5 size-1.5 shrink-0 rounded-full"
-                  style={{
-                    background: reason.startsWith('telemetry') ? 'var(--status-idle)' : DOT[status],
-                  }}
-                />
-                <span className="min-w-0 break-words">{reason}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {entries.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5">
-            {entries.map((e) => (
-              <StackChip key={`${e.kind}:${e.name}`} entry={e} />
-            ))}
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
+    <Section title="What swarmy is watching" action={health.data ? <StatusWord tone={TONE[status]} word={WORD[status]} /> : null}>
+      {health.isPending ? (
+        <CardSkeleton lines={2} className="border-0 p-0 shadow-none" />
+      ) : health.isError ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-tone-bad text-sm">Couldn’t read health: {health.error.message}</p>
+          <Button variant="outline" size="sm" onClick={() => void health.refetch()}>
+            Retry
+          </Button>
+        </div>
+      ) : reasons.length === 0 ? (
+        <p className="text-[14px]">
+          {status === 'unknown' ? 'Quiet so far. Deploy something and health lands here.' : 'Every service is running at the size you asked for. Nothing needs you.'}
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {reasons.map((reason) => (
+            <li key={reason} className="flex items-start gap-2 text-[14px]">
+              <StatusWord tone={reason.startsWith('telemetry') ? 'idle' : TONE[status]} word="" className="mt-1.5" />
+              <span className="min-w-0 break-words">{reason}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {entries.length > 0 ? (
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {entries.map((e) => (
+            <StatusWord key={`${e.kind}:${e.name}`} tone={TONE[e.status]} word={e.name} />
+          ))}
+        </div>
+      ) : null}
+      <Tech>composed on read · live tasks + replica lag + queue depth + RED (p95 &lt; 1.5 s, error rate &lt; 5 %) · collector reachability</Tech>
+    </Section>
   );
 }

@@ -31,7 +31,7 @@ export function StudioSaved({ scope, onEdit }: { scope: StudioScope; onEdit: (st
         {rows.map((q) => {
           const v = verdictFor(scope.target.engine, q.statement);
           return (
-            <li key={q.id} className={cn('card-pop flex items-center gap-2 border-0 px-3 py-2.5', ran === q.id && 'ring-primary/50 ring-1')}>
+            <li key={q.id} className={cn('calm-card shadow-none flex items-center gap-2 border-0 px-3 py-2.5', ran === q.id && 'ring-primary/50 ring-1')}>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">{q.name}</p>
                 <p className="text-muted-foreground truncate font-mono text-[11px]">{q.statement}</p>

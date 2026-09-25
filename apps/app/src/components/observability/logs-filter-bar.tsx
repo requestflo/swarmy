@@ -65,7 +65,7 @@ export function LogsFilterBar({
           onChange({ ...filters, serviceName: v === ALL_SERVICES ? undefined : v })
         }
       >
-        <SelectTrigger className="h-8 w-[150px] rounded-full text-xs font-medium">
+        <SelectTrigger aria-label="Service" className="h-8 w-[150px] rounded-full text-xs font-medium">
           <SelectValue placeholder="All services" />
         </SelectTrigger>
         <SelectContent>

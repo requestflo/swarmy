@@ -29,7 +29,7 @@ export function ServiceMapNode({ data }: NodeProps<ServiceMapFlowNode>): React.J
   return (
     <div
       className={cn(
-        'card-pop w-[220px] rounded-2xl px-4 py-3',
+        'calm-card shadow-none w-[220px] rounded-2xl px-4 py-3',
         n.degraded && 'ring-status-warning bg-status-warning/10 ring-2',
       )}
     >
@@ -46,10 +46,10 @@ export function ServiceMapNode({ data }: NodeProps<ServiceMapFlowNode>): React.J
       </div>
       <div className="text-muted-foreground mt-2 flex items-center justify-between gap-2 text-[0.7rem]">
         <span className="mono-data tabular-nums">{n.callsPerMin}/min</span>
-        <span className={cn('mono-data tabular-nums', n.errorRate > 0.05 && 'text-status-warning font-semibold')}>
+        <span className={cn('mono-data tabular-nums', n.errorRate > 0.05 && 'text-tone-warn font-semibold')}>
           {(n.errorRate * 100).toFixed(1)}% err
         </span>
-        <span className={cn('mono-data tabular-nums', n.p95Ms > 1500 && 'text-status-warning font-semibold')}>
+        <span className={cn('mono-data tabular-nums', n.p95Ms > 1500 && 'text-tone-warn font-semibold')}>
           p95 {Math.round(n.p95Ms)}ms
         </span>
       </div>

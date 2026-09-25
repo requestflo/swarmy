@@ -34,7 +34,7 @@ export function MetricsPanel({ enabled, stack }: MetricsPanelProps): React.JSX.E
   const max = points.reduce((m, p) => Math.max(m, p.value), 0) || 1;
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card shadow-none">
       <CardHeader>
         <CardTitle className="flex items-center justify-between text-base">
           <span className="flex items-center gap-2">

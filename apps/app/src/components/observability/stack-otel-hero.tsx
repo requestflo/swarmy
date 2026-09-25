@@ -68,7 +68,7 @@ export function StackOtelHero({
         {storeReachable ? 'reachable' : suiteEnabled ? 'pending' : 'off'}
       </Kpi>
 
-      <Card className="card-pop flex flex-col justify-between gap-3 border-0 p-5">
+      <Card className="calm-card shadow-none flex flex-col justify-between gap-3 border-0 p-5">
         {suiteEnabled ? (
           <>
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -90,6 +90,7 @@ export function StackOtelHero({
             </p>
             <Button
               size="sm"
+              variant="outline"
               disabled={statusLoading || setEnabled.isPending}
               onClick={() => setEnabled.mutate({ enabled: true })}
             >
@@ -158,7 +159,7 @@ interface KpiProps {
 
 function Kpi({ label, children, tone, toneLabel }: KpiProps): React.JSX.Element {
   return (
-    <Card className="card-pop flex flex-col gap-2 border-0 p-5">
+    <Card className="calm-card shadow-none flex flex-col gap-2 border-0 p-5">
       <p className="mono-label">{label}</p>
       <p className={cn('mono-data text-2xl font-bold capitalize tabular-nums')}>{children}</p>
       {tone && toneLabel ? <StatusBadge tone={tone} label={toneLabel} className="capitalize" /> : null}

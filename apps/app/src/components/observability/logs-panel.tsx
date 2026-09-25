@@ -32,7 +32,7 @@ export function LogsPanel({ enabled, stack }: LogsPanelProps): React.JSX.Element
   const feed = useLogsFeed(filters, live, enabled, stack);
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card shadow-none">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <ScrollTextIcon className="size-4" /> Logs

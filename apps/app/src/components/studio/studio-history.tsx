@@ -17,7 +17,7 @@ export function StudioHistory({ scope, onPick, refreshKey }: { scope: StudioScop
   const rows = q.data ?? [];
   if (rows.length === 0) return null;
   return (
-    <div className="card-pop overflow-hidden border-0">
+    <div className="calm-card shadow-none overflow-hidden border-0">
       <div className="border-border flex items-center gap-2 border-b px-3 py-2">
         <HistoryIcon className="text-muted-foreground size-3.5" />
         <span className="mono-label text-muted-foreground">History · yours, from the audit log</span>

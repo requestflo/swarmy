@@ -11,7 +11,7 @@ interface MetricSelectProps {
 export function MetricSelect({ value, onChange }: MetricSelectProps): React.JSX.Element {
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="h-8 w-[170px] rounded-full text-xs font-medium">
+      <SelectTrigger aria-label="Metric" className="h-8 w-[170px] rounded-full text-xs font-medium">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

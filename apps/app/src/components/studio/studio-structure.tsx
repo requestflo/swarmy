@@ -14,7 +14,7 @@ export function StudioStructure({ scope, table }: { scope: StudioScope; table: S
   const t = mongo ? (coll.data ?? table) : table;
   return (
     <div className="grid gap-4 xl:grid-cols-[1fr_24rem]">
-      <div className="card-pop overflow-hidden border-0">
+      <div className="calm-card shadow-none overflow-hidden border-0">
         <div className="bg-muted grid grid-cols-[1.2fr_1fr_5rem_1fr] gap-3 px-3 py-2 text-xs font-semibold">
           <span>{mongo ? 'field' : 'column'}</span><span>type</span><span>null</span><span>default</span>
         </div>
@@ -28,7 +28,7 @@ export function StudioStructure({ scope, table }: { scope: StudioScope; table: S
         ))}
         {mongo && 'sampled' in t ? <p className="text-muted-foreground border-border border-t px-3 py-2 text-xs">Inferred from {String((t as { sampled: number }).sampled)} sampled documents.</p> : null}
       </div>
-      <div className="card-pop overflow-hidden border-0">
+      <div className="calm-card shadow-none overflow-hidden border-0">
         <div className="bg-muted px-3 py-2 text-xs font-semibold">Indexes</div>
         {t.indexes.length === 0 ? <p className="text-muted-foreground px-3 py-3 text-xs">No indexes.</p> : null}
         {t.indexes.map((i) => (

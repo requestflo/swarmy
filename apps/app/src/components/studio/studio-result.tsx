@@ -18,7 +18,7 @@ export function StudioResult({ result, name }: { result: StudioRunView; name: st
     result.truncated ? 'cut at the row / size limit' : null,
   ].filter(Boolean);
   return (
-    <div className="card-pop flex min-h-0 flex-col overflow-hidden border-0">
+    <div className="calm-card shadow-none flex min-h-0 flex-col overflow-hidden border-0">
       <div className="border-border flex flex-wrap items-center gap-2 border-b px-3 py-2">
         <span className="text-muted-foreground font-mono text-xs">{meta.join(' · ')}</span>
         <div className="flex-1" />

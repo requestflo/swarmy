@@ -21,7 +21,7 @@ interface ServiceMetricsPanelProps {
   stack?: string;
 }
 
-/** Per-service average + peak — flat rows in one card-pop with proportion bars. */
+/** Per-service average + peak — flat rows in one calm-card shadow-none with proportion bars. */
 export function ServiceMetricsPanel({ enabled, stack }: ServiceMetricsPanelProps): React.JSX.Element {
   const trpc = useTRPC();
   const [metric, setMetric] = React.useState<string>(METRIC_PRESETS[0].value);
@@ -35,7 +35,7 @@ export function ServiceMetricsPanel({ enabled, stack }: ServiceMetricsPanelProps
   const peak = rows.reduce((m, r) => Math.max(m, r.avg_value), 0) || 1;
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card shadow-none">
       <CardHeader>
         <CardTitle className="flex items-center justify-between text-base">
           <span className="flex items-center gap-2">
@@ -83,6 +83,7 @@ export function ServiceMetricsPanel({ enabled, stack }: ServiceMetricsPanelProps
                 <div className="min-w-0">
                   <p className="mono-data truncate text-sm font-medium">{r.service_name}</p>
                   <Progress
+                    aria-label={`${r.service_name} relative to the busiest service`}
                     className="mt-1.5 h-1.5"
                     value={Math.max(2, (r.avg_value / peak) * 100)}
                   />

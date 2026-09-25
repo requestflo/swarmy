@@ -34,7 +34,7 @@ export function StudioKeys({ scope }: { scope: StudioScope }): React.JSX.Element
   }, [pattern, scope.dbIndex, scope.target.name]);
 
   return (
-    <div className="card-pop flex min-h-[28rem] flex-1 flex-col overflow-hidden border-0 lg:flex-row">
+    <div className="calm-card shadow-none flex min-h-[28rem] flex-1 flex-col overflow-hidden border-0 lg:flex-row">
       <div className="flex min-w-0 flex-1 flex-col">
         <form className="border-border flex items-center gap-2 border-b px-3 py-2" onSubmit={(e) => { e.preventDefault(); setPattern(draft.trim() || '*'); }}>
           <SearchIcon className="text-muted-foreground size-3.5" />

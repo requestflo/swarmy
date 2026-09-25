@@ -21,7 +21,7 @@ interface TracesPanelProps {
   stack?: string;
 }
 
-/** Jaeger-lite list of last-hour root spans — flat rows in one card-pop. */
+/** Jaeger-lite list of last-hour root spans — flat rows in one calm-card shadow-none. */
 export function TracesPanel({ enabled, stack }: TracesPanelProps): React.JSX.Element {
   const trpc = useTRPC();
   const [errorsOnly, setErrorsOnly] = React.useState(false);
@@ -34,7 +34,7 @@ export function TracesPanel({ enabled, stack }: TracesPanelProps): React.JSX.Ele
   const rows = traces.data?.traces ?? [];
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card shadow-none">
       <CardHeader>
         <CardTitle className="flex items-center justify-between text-base">
           <span className="flex items-center gap-2">

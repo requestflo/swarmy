@@ -67,7 +67,7 @@ export function ServiceMapPanel({ enabled, stack }: ServiceMapPanelProps): React
   );
 
   return (
-    <Card className="card-pop mb-4 border-0">
+    <Card className="calm-card shadow-none mb-4 border-0">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <WaypointsIcon className="size-4" /> Service map

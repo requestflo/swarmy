@@ -25,7 +25,7 @@ export function StudioInsights({ scope, onOpen }: { scope: StudioScope; onOpen: 
   return (
     <div className="space-y-4">
       {d.unavailable ? (
-        <div className="card-pop flex gap-3 border-0 p-4">
+        <div className="calm-card shadow-none flex gap-3 border-0 p-4">
           <LightbulbIcon className="text-status-warning mt-0.5 size-5 shrink-0" />
           <div className="space-y-1 text-sm">
             <p className="font-semibold">No slow-query source: {d.unavailable.reason}.</p>
@@ -36,7 +36,7 @@ export function StudioInsights({ scope, onOpen }: { scope: StudioScope; onOpen: 
         <p className="text-muted-foreground text-sm">{d.source ? SOURCE[d.source] : null}</p>
       )}
       {d.slow.length > 0 ? (
-        <div className="card-pop overflow-hidden border-0">
+        <div className="calm-card shadow-none overflow-hidden border-0">
           <div className="bg-muted grid grid-cols-[1fr_5rem_5rem_5rem] gap-3 px-3 py-2 text-xs font-semibold">
             <span>statement</span>
             <span>mean</span>
@@ -62,7 +62,7 @@ export function StudioInsights({ scope, onOpen }: { scope: StudioScope; onOpen: 
         <p className="text-muted-foreground text-sm">Nothing slow recorded yet.</p>
       ) : null}
       {d.active.length > 0 ? (
-        <div className="card-pop overflow-hidden border-0">
+        <div className="calm-card shadow-none overflow-hidden border-0">
           <div className="border-border flex items-center gap-2 border-b px-3 py-2">
             <GaugeIcon className="text-muted-foreground size-3.5" />
             <span className="mono-label text-muted-foreground">Running now</span>
