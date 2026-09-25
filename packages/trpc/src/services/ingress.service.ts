@@ -41,7 +41,7 @@ import {
   type EdgeApplyRecord,
   type EdgeRuntimeStatus,
 } from './ingress-controller';
-import { commandRejected, notFound } from '../errors';
+import { badRequest, commandRejected, notFound } from '../errors';
 import { resolveManagerNode } from './dispatch.service';
 import { resolveLiveService } from './live-resolve';
 import { listOutlets as listAiOutlets } from './ai.service';
@@ -1047,8 +1047,10 @@ export async function setOnDemandTls(
 /**
  * Configure (or clear) the Cloudflare tunnel. The pasted CF API token and the
  * run token / credentials JSON are encrypted at rest; only coords are in clear.
- * (Tunnel *creation* via the CF API happens controller-side — see INTEGRATION —
- * which then calls this with the resulting tunnelId + tokens.)
+ * The user creates the tunnel in Cloudflare (Zero Trust → Networks → Tunnels)
+ * and pastes its token; the tunnel id is read from the token itself. Public
+ * hostnames are added on the Cloudflare side (the ingress preview lists the
+ * hostname → service rules to add).
  */
 export async function setTunnel(
   ctx: OrgContext,
@@ -1066,6 +1068,10 @@ export async function setTunnel(
       }
     | null,
 ): Promise<IngressConfigView> {
+  const tokenId = input?.runToken ? tunnelIdFromToken(input.runToken) : null;
+  if (input?.runToken && !tokenId) {
+    throw badRequest('That doesn’t look like a Cloudflare tunnel token — copy it from the tunnel’s install command.');
+  }
   await patchSettings(ctx, (s) => ({
     ...s,
     tunnel: input
@@ -1073,7 +1079,7 @@ export async function setTunnel(
           ...s.tunnel,
           provider: 'cloudflare',
           accountId: input.accountId ?? s.tunnel?.accountId,
-          tunnelId: input.tunnelId ?? s.tunnel?.tunnelId,
+          tunnelId: tokenId ?? input.tunnelId ?? s.tunnel?.tunnelId,
           tunnelName: input.tunnelName ?? s.tunnel?.tunnelName ?? 'swarmy',
           image: input.image ?? s.tunnel?.image,
           replicas: input.replicas ?? s.tunnel?.replicas,
@@ -1090,10 +1096,23 @@ export async function setTunnel(
     action: input ? 'ingress.setTunnel' : 'ingress.clearTunnel',
     targetType: 'ingressConfig',
     targetId: ctx.activeOrgId,
-    metadata: { tunnelId: input?.tunnelId ?? null },
+    metadata: { tunnelId: tokenId ?? input?.tunnelId ?? null },
   });
   await reapply(ctx);
   return getConfig(ctx);
+}
+
+/**
+ * A Cloudflare tunnel run token is base64 JSON `{ a: accountTag, t: tunnelId,
+ * s: secret }`. Returns the tunnel id, or null when it isn't one.
+ */
+export function tunnelIdFromToken(token: string): string | null {
+  try {
+    const json = JSON.parse(Buffer.from(token.trim(), 'base64').toString('utf8')) as { t?: unknown };
+    return typeof json.t === 'string' && /^[0-9a-f-]{32,36}$/i.test(json.t) ? json.t : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function setEnabled(ctx: OrgContext, enabled: boolean): Promise<IngressConfigView> {

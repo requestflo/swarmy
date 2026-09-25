@@ -85,7 +85,6 @@ const GATES: Array<[string, unknown, string]> = [
   ['nodes.revokeJoinToken', { id: 't1' }, 'token.revoke'],
   ['stacks.remove', { id: 'st1' }, 'stack.remove'],
   ['ingress.removeDomain', { id: 'svc:shop.example.com' }, 'ingress.write'],
-  ['ingress.tunnels.delete', undefined, 'ingress.remove'],
   ['cache.destroy', {}, 'data.destroy'],
   ['cache.restore', {}, 'data.restore'],
   ['backups.appDb.restore', {}, 'data.restore'],

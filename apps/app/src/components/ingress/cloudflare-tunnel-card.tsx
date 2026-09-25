@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   Card,
@@ -9,142 +8,71 @@ import {
   CardTitle,
   Input,
   Label,
-  toast,
 } from '@swarmy/ui';
-import { useTRPC } from '@/integrations/trpc';
 
 interface CloudflareTunnelCardProps {
   configured: boolean;
-  onSave: (v: { tunnelName: string; tunnelId?: string; apiToken?: string }) => void;
+  onSave: (v: { runToken: string; tunnelName?: string }) => void;
   onClear: () => void;
   pending: boolean;
 }
 
-/** Cloudflare Tunnel connector — create via API or wire up a manual tunnel. */
+/**
+ * Cloudflare Tunnel: paste the tunnel's token. swarmy runs the connector as a
+ * swarm service; public hostnames are added on the Cloudflare side (the preview
+ * above lists the hostname → service rules to add).
+ */
 export function CloudflareTunnelCard({
   configured,
   onSave,
   onClear,
   pending,
 }: CloudflareTunnelCardProps): React.JSX.Element {
-  const trpc = useTRPC();
-  const qc = useQueryClient();
-  const tunnel = useQuery(trpc.ingress.tunnels.get.queryOptions());
+  const [token, setToken] = React.useState('');
   const [tunnelName, setTunnelName] = React.useState('swarmy');
-  const [tunnelId, setTunnelId] = React.useState('');
-  const [accountId, setAccountId] = React.useState('');
-  const [apiToken, setApiToken] = React.useState('');
-
-  const createTunnel = useMutation(
-    trpc.ingress.tunnels.create.mutationOptions({
-      onSuccess: () => {
-        toast.success('Tunnel created via Cloudflare API + connector deployed');
-        qc.invalidateQueries();
-      },
-      onError: (e) => toast.error(e.message),
-    }),
-  );
-  const syncTunnel = useMutation(
-    trpc.ingress.tunnels.sync.mutationOptions({
-      onSuccess: (r) => {
-        toast.success(`Pushed ${r.rules} ingress rule(s) to Cloudflare`);
-        qc.invalidateQueries();
-      },
-      onError: (e) => toast.error(e.message),
-    }),
-  );
-  const deleteTunnel = useMutation(
-    trpc.ingress.tunnels.delete.mutationOptions({
-      onSuccess: () => {
-        toast.success('Tunnel deleted');
-        qc.invalidateQueries();
-      },
-      onError: (e) => toast.error(e.message),
-    }),
-  );
-
-  const connected = configured || !!tunnel.data?.connected;
 
   return (
     <Card className="card-pop mt-6 border-0">
       <CardHeader>
         <CardTitle className="text-base">Cloudflare Tunnel</CardTitle>
         <CardDescription>
-          Expose services with no public IP and no open ports. Paste a scoped Cloudflare API token —
-          it is encrypted at rest and never returned. With an account id we create the tunnel for
-          you and deploy the connector as a swarm service.
+          Expose services with no public IP and no open ports. In Cloudflare Zero Trust → Networks →
+          Tunnels, create a tunnel and copy its token; swarmy runs the connector for you. Add each
+          public hostname to the tunnel in Cloudflare, pointing at the service shown in the preview.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
-        {connected ? (
-          <div className="grid gap-3">
-            <div className="bg-accent/40 flex items-center justify-between rounded-xl px-4 py-3">
-              <div>
-                <Label className="font-medium">{tunnel.data?.tunnelName ?? 'Tunnel'} configured</Label>
-                <p className="text-muted-foreground text-xs">
-                  {tunnel.data?.tunnelId
-                    ? `id ${tunnel.data.tunnelId.slice(0, 12)}… · connector runs as a swarm service`
-                    : 'Connector runs as a swarm service.'}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => syncTunnel.mutate({})}
-                  disabled={syncTunnel.isPending || !tunnel.data?.tunnelId}
-                >
-                  Sync routes
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => (tunnel.data?.tunnelId ? deleteTunnel.mutate() : onClear())}
-                  disabled={pending || deleteTunnel.isPending}
-                >
-                  Disconnect
-                </Button>
-              </div>
+        {configured ? (
+          <div className="bg-accent/40 flex items-center justify-between rounded-xl px-4 py-3">
+            <div>
+              <Label className="font-medium">Tunnel connected</Label>
+              <p className="text-muted-foreground text-xs">The connector runs as a swarm service.</p>
             </div>
+            <Button variant="outline" size="sm" onClick={onClear} disabled={pending}>
+              Disconnect
+            </Button>
           </div>
         ) : (
           <>
             <div className="grid gap-1.5">
-              <Label className="mono-label">Tunnel name</Label>
-              <Input value={tunnelName} onChange={(e) => setTunnelName(e.target.value)} />
-            </div>
-            <div className="grid gap-1.5">
-              <Label className="mono-label">Cloudflare account id (creates the tunnel via API)</Label>
-              <Input value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder="account id" />
-            </div>
-            <div className="grid gap-1.5">
-              <Label className="mono-label">Tunnel ID (optional — manual mode)</Label>
-              <Input value={tunnelId} onChange={(e) => setTunnelId(e.target.value)} placeholder="uuid" />
-            </div>
-            <div className="grid gap-1.5">
-              <Label className="mono-label">Cloudflare API token</Label>
+              <Label className="mono-label">Tunnel token</Label>
               <Input
                 type="password"
-                value={apiToken}
-                onChange={(e) => setApiToken(e.target.value)}
-                placeholder="Account: Tunnel Edit · Zone: DNS Edit"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="eyJhIjoi…"
               />
             </div>
-            {accountId ? (
-              <Button
-                onClick={() => createTunnel.mutate({ name: tunnelName, accountId, apiToken })}
-                disabled={createTunnel.isPending || !apiToken || !accountId}
-              >
-                Create tunnel via API
-              </Button>
-            ) : (
-              <Button
-                onClick={() => onSave({ tunnelName, tunnelId: tunnelId || undefined, apiToken: apiToken || undefined })}
-                disabled={pending || !apiToken}
-              >
-                Save tunnel (manual)
-              </Button>
-            )}
+            <div className="grid gap-1.5">
+              <Label className="mono-label">Name (for your reference)</Label>
+              <Input value={tunnelName} onChange={(e) => setTunnelName(e.target.value)} />
+            </div>
+            <Button
+              onClick={() => onSave({ runToken: token.trim(), tunnelName: tunnelName.trim() || undefined })}
+              disabled={pending || token.trim().length < 20}
+            >
+              Connect tunnel
+            </Button>
           </>
         )}
       </CardContent>

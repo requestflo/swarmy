@@ -159,13 +159,13 @@ Four ideas, one story:
   execs `caddy reload` there (task found by the `com.docker.swarm.service.name`
   label); admin port 2019 is never published. The controller never reaches a
   node's socket.
-- **Cloudflare Tunnel is remotely-managed (token) by default.** The controller
-  creates the tunnel (`config_src: cloudflare`) and always pushes the *complete*
-  ingress array ending in `http_status:404` — declarative, no diffing. More
-  connector replicas on the same token is tunnel HA. The user's API token is
-  scoped to Account:Cloudflare Tunnel Edit + Zone:DNS Edit, never the global
-  key. The CNAME is upserted when the zone is on Cloudflare, otherwise shown for
-  the user to add. The locally-managed credentials-file mode is a fallback only.
+- **Cloudflare Tunnel: paste the tunnel token.** The user creates a tunnel in
+  Cloudflare Zero Trust and pastes its token; swarmy reads the tunnel id from it
+  and runs `cloudflared tunnel run` as a swarm service (token via a Docker
+  secret, never argv). Public hostnames are added on the Cloudflare side; the
+  ingress preview lists the hostname → service rules to add. More connector
+  replicas on the same token is tunnel HA. (Creating tunnels and pushing routes
+  through the Cloudflare API was removed in 2026-09 — owner decision.)
   Cloudflare's ToS limits large non-HTML content through its proxy — a tunnel is
   not a media host.
 - **Exposure audits every service into one of four verdicts, precedence-ordered:**
@@ -342,9 +342,9 @@ render helpers `packages/ingress/src/render/*`; wire types (RenderedConfig,
 connector, HaStorage, TunnelOptions, DomainRoute, RouteProtection)
 `packages/core/src/protocol/ingress.ts` and `packages/ingress/src/types.ts`;
 controller services `packages/trpc/src/services/{ingress.service,ingress-controller,
-ingress-routes,ingress-routes-api,ingress-regions,tunnel.service}.ts` with the
+ingress-routes,ingress-routes-api,ingress-regions}.ts` with the
 route label constant in `ingress-routes.ts` (`INGRESS_ROUTES_LABEL`); routers
-`packages/trpc/src/routers/{ingress,tunnels,exposure}.ts`; the exposure audit +
+`packages/trpc/src/routers/{ingress,exposure}.ts`; the exposure audit +
 admission `packages/trpc/src/services/{exposure.service,admission-exposure}.ts`;
 config in swarm-kv via `services/ingress-config.repo.ts` (`IngressConfig`, incl.
 the tunnel block) and the `governance.prisma` row (`ExposureConfig`); the public on-demand-TLS gate

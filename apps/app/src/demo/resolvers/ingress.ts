@@ -6,7 +6,7 @@ import type { EdgeState } from '@/components/ingress/edge-runtime';
 /**
  * Ingress demo resolvers — the Networking surface (driver chooser + rendered-config
  * preview, domains list, Caddy HA, on-demand TLS, Cloudflare tunnel card). Covers
- * the `ingress` router and the nested `ingress.tunnels` router.
+ * the `ingress` router.
  *
  * State lives in `store.extra.ingress`; mutations flip booleans / push rows so the
  * page reflects changes after it invalidates and re-reads. Secrets are never stored
@@ -160,17 +160,6 @@ function demoRuntime(st: IngressState): DemoRuntime {
   };
 }
 
-/** Mirror of the controller's `TunnelView` (tunnel.service.ts). */
-interface TunnelView {
-  provider: 'cloudflare';
-  tunnelId: string | null;
-  tunnelName: string;
-  accountId: string | null;
-  connected: boolean;
-  replicas: number;
-  domainCount: number;
-}
-
 /** The demo ingress world: org config, domain rows, and the Cloudflare tunnel. */
 interface IngressState {
   driver: IngressDriverId;
@@ -231,20 +220,6 @@ function toConfigView(st: IngressState): IngressConfigView {
     topology: st.topology ?? 'controller',
     updatedAt: st.updatedAt,
     runtime: demoRuntime(st),
-  };
-}
-
-function toTunnelView(st: IngressState): TunnelView | null {
-  const t = st.tunnel;
-  if (!t) return null;
-  return {
-    provider: 'cloudflare',
-    tunnelId: t.tunnelId,
-    tunnelName: t.tunnelName,
-    accountId: t.accountId,
-    connected: t.connected,
-    replicas: t.replicas,
-    domainCount: st.domains.length,
   };
 }
 
@@ -551,69 +526,23 @@ export const ingress: DomainResolvers = {
     },
 
     'ingress.setTunnel': (i, s): IngressConfigView => {
-      const input = i as {
-        accountId?: string;
-        tunnelId?: string;
-        tunnelName?: string;
-        replicas?: number;
-        apiToken?: string;
-        runToken?: string;
-      } | null;
+      const input = i as { runToken: string; tunnelName?: string; replicas?: number } | null;
       const st = getState(s);
       if (input == null) {
         st.tunnel = null;
       } else {
         const prev = st.tunnel;
         st.tunnel = {
-          tunnelId: input.tunnelId ?? prev?.tunnelId ?? null,
+          tunnelId: prev?.tunnelId ?? rid('cf').replace('cf-', ''),
           tunnelName: input.tunnelName ?? prev?.tunnelName ?? 'swarmy',
-          accountId: input.accountId ?? prev?.accountId ?? null,
-          // A manual save with an apiToken is "configured" but only "connected"
-          // once a run token is on file (mirrors the real view's `connected`).
-          connected: Boolean(input.runToken) || prev?.connected || false,
+          accountId: null,
+          connected: true,
           configured: true,
           replicas: input.replicas ?? prev?.replicas ?? 1,
         };
       }
       st.updatedAt = nowIso();
       return toConfigView(st);
-    },
-
-    'ingress.tunnels.get': (_i, s): TunnelView | null => toTunnelView(getState(s)),
-
-    'ingress.tunnels.create': (i, s): TunnelView => {
-      const b = i as { name: string; accountId: string; apiToken: string; replicas?: number };
-      const st = getState(s);
-      st.tunnel = {
-        tunnelId: rid('cf').replace('cf-', ''),
-        tunnelName: b.name || 'swarmy',
-        accountId: b.accountId,
-        connected: true,
-        configured: true,
-        replicas: b.replicas ?? 1,
-      };
-      // Creating a tunnel implies the cloudflared driver is the live ingress path.
-      st.driver = 'cloudflared';
-      st.updatedAt = nowIso();
-      const view = toTunnelView(st);
-      if (!view) throw new Error('tunnel creation did not persist');
-      return view;
-    },
-
-    'ingress.tunnels.sync': (i, s): { synced: true; rules: number } => {
-      const opts = i as { zoneId?: string } | undefined;
-      const st = getState(s);
-      if (!st.tunnel?.tunnelId) throw new Error('no tunnel to sync');
-      void opts;
-      st.updatedAt = nowIso();
-      return { synced: true, rules: st.domains.length };
-    },
-
-    'ingress.tunnels.delete': (_i, s): { deleted: true } => {
-      const st = getState(s);
-      st.tunnel = null;
-      st.updatedAt = nowIso();
-      return { deleted: true };
     },
   },
 

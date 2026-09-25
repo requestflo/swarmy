@@ -29,8 +29,8 @@ that generic intent — drivers never touch a node directly.
      (or `adminApi`).
    - label-based proxies → `serviceLabels: [{ service, labels, removeLabelKeys }]`.
    - tunnels → a `connector` block (`render/connector.ts`
-     `buildConnectorServiceSpec`, secrets passed by reference); provider API
-     calls happen controller-side (see `tunnel.service.ts`, `cloudflare.client.ts`).
+     `buildConnectorServiceSpec`, secrets passed by reference); swarmy makes
+     no provider API calls (Cloudflare tunnels are pasted tokens).
    `apply` should `dispatch.resolveTargetNodes(...)` then `dispatch.sendToNode(...)`
    for each, exactly like `CaddyDriver.apply`.
 

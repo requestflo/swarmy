@@ -20,9 +20,9 @@ import { IngressApplyError } from '../errors';
  * `config.yml` (ingress rules) + a credentials file, applied on the target
  * node(s); a `reloadCommand` restarts the connector to pick up the new config.
  *
- * The Cloudflare *API* calls (create tunnel, push configurations, DNS routes)
- * are controller-side (see tunnel.service / cloudflare.client in INTEGRATION) —
- * this driver stays pure and only produces the on-node connector config.
+ * swarmy makes no Cloudflare API calls: the user pastes the tunnel token and
+ * adds public hostnames in Cloudflare. This driver stays pure and only produces
+ * the connector config.
  */
 export class CloudflaredDriver implements IngressDriver {
   readonly name = 'cloudflared';

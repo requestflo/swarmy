@@ -8,7 +8,6 @@ import { companionHost, normalizeHostname } from '@swarmy/ingress';
 import { PRODUCTION, resourceEnv } from '@swarmy/abac';
 import { abacProcedure, resolveService, type ResolveResource } from '../abac';
 import { listRoutesForOrg } from '../services/ingress-routes';
-import { tunnelsRouter } from './tunnels';
 import { ensureCaddyController } from '../services/ingress-controller';
 import {
   addDomain,
@@ -190,20 +189,17 @@ export const ingressRouter = router({
     .input(z.object({ enabled: z.boolean(), askUrl: z.string().url().optional() }))
     .mutation(({ ctx, input }) => setOnDemandTls(ctx, input)),
 
-  /** Configure the Cloudflare tunnel (secrets encrypted at rest). `null` clears it. */
+  /**
+   * Connect a Cloudflare tunnel by pasting its token (encrypted at rest; the
+   * tunnel id is read from it). `null` disconnects.
+   */
   setTunnel: adminProcedure
     .input(
       z
         .object({
-          accountId: z.string().optional(),
-          tunnelId: z.string().optional(),
-          tunnelName: z.string().optional(),
-          image: z.string().optional(),
-          replicas: z.number().int().min(1).optional(),
-          metricsAddr: z.string().optional(),
-          apiToken: z.string().optional(),
-          runToken: z.string().optional(),
-          credentialsJson: z.string().optional(),
+          runToken: z.string().min(20).max(4096),
+          tunnelName: z.string().max(100).optional(),
+          replicas: z.number().int().min(1).max(10).optional(),
         })
         .nullable(),
     )
@@ -260,6 +256,4 @@ export const ingressRouter = router({
     )
     .mutation(({ ctx, input }) => setByoDnsProvider(ctx, input)),
 
-  /** Cloudflare tunnels (created through the Cloudflare API). */
-  tunnels: tunnelsRouter,
 });
