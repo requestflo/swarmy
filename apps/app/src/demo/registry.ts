@@ -41,6 +41,7 @@ import { email } from './resolvers/email';
 import { security } from './resolvers/security';
 import { rum } from './resolvers/rum';
 import { studio } from './resolvers/studio';
+import { gaps } from './resolvers/gaps';
 
 /**
  * Assembles every per-domain resolver module into flat lookup tables for the demo
@@ -90,6 +91,7 @@ const MODULES: DomainResolvers[] = [
   security,
   studio,
   rum,
+  gaps,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(
