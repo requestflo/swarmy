@@ -66,7 +66,14 @@ export const PROCESS_STARTED_AT = Date.now();
 // ── config row ───────────────────────────────────────────────────────────────
 
 export interface AvailableRelease {
+  /** Parsed for display and planning only — never what the signature is checked against. */
   manifest: PlatformManifest | null;
+  /**
+   * The manifest EXACTLY as fetched / imported — the bytes the release key
+   * signed. Every later verification (Start, each run resume) checks these,
+   * never a re-serialised parse (QA-070). Absent on rows stored before it.
+   */
+  raw?: string;
   signature: string;
   verified: boolean;
   reason?: string;
@@ -150,12 +157,22 @@ export function verifyRelease(raw: string | object, signature: string): Availabl
   const r = verifyPlatformManifest(raw, signature, releasePublicKey());
   return {
     manifest: r.manifest ?? null,
+    ...(typeof raw === 'string' ? { raw } : {}),
     signature,
     verified: r.ok,
     ...(r.ok ? {} : { reason: r.reason }),
     source: 'feed',
     fetchedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * The bytes to verify for a stored release: the raw signed manifest when it was
+ * kept, else (rows from before QA-070) the stored object's canonical form.
+ */
+export function signedBytesOf(a: { raw?: unknown; manifest?: unknown } | null | undefined): string | object | null {
+  if (typeof a?.raw === 'string' && a.raw) return a.raw;
+  return a?.manifest && typeof a.manifest === 'object' ? a.manifest : typeof a?.manifest === 'string' ? a.manifest : null;
 }
 
 /** Fetch + verify the channel's newest release; store it. Returns what was stored. */

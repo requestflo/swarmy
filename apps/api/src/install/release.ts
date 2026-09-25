@@ -25,11 +25,13 @@ import { verifyPlatformManifest } from '@swarmy/core/platform-verify';
 
 export interface StoredRelease {
   manifest?: unknown;
+  /** The manifest exactly as signed (QA-070); served verbatim when present. */
+  raw?: unknown;
   signature?: unknown;
 }
 
 export interface ServedRelease {
-  /** Canonical manifest JSON — the signed bytes. */
+  /** The signed manifest bytes (the stored raw copy, else the canonical JSON). */
   body: string;
   signature: string;
   manifest: PlatformManifest;
@@ -55,15 +57,16 @@ export function releaseForBuild(
 ): ServedRelease | null {
   for (const s of stored) {
     if (!s?.manifest || typeof s.signature !== 'string' || !s.signature.trim()) continue;
+    const raw = typeof s.raw === 'string' && s.raw ? s.raw : null;
     let m: PlatformManifest;
     try {
-      m = parsePlatformManifest(s.manifest);
+      m = parsePlatformManifest(raw ?? s.manifest);
     } catch {
       continue;
     }
     if (!sameBuild(m, build)) continue;
-    if (publicKeyPem && !verifyPlatformManifest(m, s.signature, publicKeyPem).ok) continue;
-    return { body: canonicalManifestJson(m), signature: s.signature.trim(), manifest: m };
+    if (publicKeyPem && !verifyPlatformManifest(raw ?? m, s.signature, publicKeyPem).ok) continue;
+    return { body: raw ?? canonicalManifestJson(m), signature: s.signature.trim(), manifest: m };
   }
   return null;
 }

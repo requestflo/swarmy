@@ -54,6 +54,7 @@ import {
   currentManifestOf,
   getConfigRow,
   getReleaseView,
+  signedBytesOf,
   verifyRelease,
   type PlatformReleaseView,
 } from './platform-release.service';
@@ -262,7 +263,8 @@ export function buildHandlers(ctx: OrgContext, row: RunRow, deps: PlatformUpgrad
       if (d.unhealthyBefore.length) c.note(`already unhealthy before the upgrade (Verify won't fail on these): ${d.unhealthyBefore.join(', ')}`);
     }
     unhealthyBefore = d.unhealthyBefore;
-    const rel = verifyRelease(target, row.signature);
+    // Re-verify the stored signed bytes (the raw string; legacy rows hold the object).
+    const rel = verifyRelease(typeof row.manifest === 'string' ? row.manifest : target, row.signature);
     if (!rel.verified) throw new Error(`unverified release: ${rel.reason}`);
     const block = upgradeBlockReason(row.fromVersion, target);
     if (block) throw new Error(block);
@@ -635,9 +637,11 @@ export async function startPlatformUpgrade(
   deps: PlatformUpgradeDeps = defaultDeps,
 ): Promise<PlatformRunView> {
   const cfg = await getConfigRow(ctx.db, ctx.activeOrgId);
-  const available = cfg.available as { manifest?: unknown; signature?: string } | null;
-  if (!available?.manifest) throw commandRejected('no release is available — check for updates first');
-  const rel = verifyRelease(available.manifest as object, available.signature ?? '');
+  const available = cfg.available as { manifest?: unknown; raw?: unknown; signature?: string } | null;
+  const signed = signedBytesOf(available);
+  if (!available || !signed) throw commandRejected('no release is available — check for updates first');
+  // Verify the exact bytes that were signed, never a re-serialised parse (QA-070).
+  const rel = verifyRelease(signed, available.signature ?? '');
   if (!rel.verified || !rel.manifest) throw commandRejected(`unverified release: ${rel.reason ?? 'signature check failed'} — Upgrade is disabled`);
   const target = rel.manifest;
   if (input.version && input.version !== target.version) {
@@ -659,7 +663,9 @@ export async function startPlatformUpgrade(
       toVersion: target.version,
       trigger: input.trigger ?? 'manual',
       actorId: ctx.user?.id ?? null,
-      manifest: target as object,
+      // The raw signed manifest (a JSON string) when we have it, so every resume
+      // re-verifies the signed bytes; readers go through parsePlatformManifest.
+      manifest: typeof signed === 'string' ? signed : (target as object),
       signature: available.signature ?? '',
       fromManifest: current as object,
       steps: state.steps as unknown as object,

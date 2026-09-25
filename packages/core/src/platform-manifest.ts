@@ -33,7 +33,7 @@ export const PlatformComponent = z.object({
   tag: z.string().optional(),
   /** Multi-arch index digest. Absent = unresolved (never deployed by a run). */
   digest: z.string().regex(DIGEST).optional(),
-});
+}).passthrough();
 export type PlatformComponent = z.infer<typeof PlatformComponent>;
 
 export const PlatformMigration = z.object({
@@ -43,21 +43,27 @@ export const PlatformMigration = z.object({
   note: z.string(),
   /** Pauses service (e.g. object storage for ~1–2 min). */
   pause: z.boolean().optional(),
-});
+}).passthrough();
 export type PlatformMigration = z.infer<typeof PlatformMigration>;
 
 export const PlatformNote = z.object({
   kind: z.enum(['new', 'better', 'fix', 'security', 'breaking']),
   text: z.string().min(1),
-});
+}).passthrough();
 export type PlatformNote = z.infer<typeof PlatformNote>;
 
 /** One compiled agent host binary of the release (`linux-x64`, `linux-arm64`). */
 export const PlatformAgentBinary = z.object({
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
-});
+}).passthrough();
 export type PlatformAgentBinary = z.infer<typeof PlatformAgentBinary>;
 
+/**
+ * Every manifest object is `.passthrough()`: a field a newer release adds must
+ * survive a parse on an older controller. Verification never depends on the
+ * parse (it checks the raw signed bytes — QA-070), but a manifest stored or
+ * re-canonicalised after parsing must still carry every field it was signed with.
+ */
 export const PlatformManifest = z.object({
   schema: z.literal(PLATFORM_MANIFEST_SCHEMA),
   version: z.string().regex(SEMVER, 'version must be semver'),
@@ -76,7 +82,7 @@ export const PlatformManifest = z.object({
   agentBinaries: z.record(z.string().regex(/^[a-z0-9]+-[a-z0-9]+$/), PlatformAgentBinary).optional(),
   migrations: z.array(PlatformMigration).default([]),
   notes: z.array(PlatformNote).default([]),
-});
+}).passthrough();
 export type PlatformManifest = z.infer<typeof PlatformManifest>;
 
 /** Parse + validate an untrusted manifest (feed, bundle, DB). Throws with a plain reason. */

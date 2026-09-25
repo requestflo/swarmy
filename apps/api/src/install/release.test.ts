@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, sign } from 'node:crypto';
 import { buildPlatformManifest, canonicalManifestJson } from '@swarmy/core/platform-manifest';
 import { signPlatformManifest } from '@swarmy/core/platform-verify';
 import { releaseForBuild } from './release';
@@ -36,5 +36,12 @@ describe('releaseForBuild (the signed manifest served to node installers)', () =
     expect(releaseForBuild([forged], { version: '1.2.0', commit: 'abc1234' }, PUB)).toBeNull();
     // Without a key the controller cannot vouch; it still serves, and the node's own key decides.
     expect(releaseForBuild([forged], { version: '1.2.0', commit: 'abc1234' }, null)).not.toBeNull();
+  });
+
+  it('serves the stored raw signed bytes verbatim (a field this build does not know survives, QA-070)', () => {
+    const raw = `${JSON.stringify({ ...mine, futureField: 1 }, null, 2)}\n`;
+    const signature = sign('sha256', Buffer.from(raw), kp.privateKey).toString('base64');
+    const r = releaseForBuild([{ manifest: mine, raw, signature }], { version: '1.2.0', commit: 'abc1234' }, PUB);
+    expect(r?.body).toBe(raw);
   });
 });
