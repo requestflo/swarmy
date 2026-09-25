@@ -10,7 +10,11 @@ process.env.SWARMY_SECRET_KEY ??= 'k'.repeat(64);
 // reveal can be permitted or denied deterministically.
 const authorizeCalls: { action: string; resource: unknown }[] = [];
 let denyReveal = false;
+// Keep the real module's other exports (evaluateAccess, …): modules in the
+// service graph import them at load, and a partial mock fails the whole file.
+const realAbac = await import('../abac');
 mock.module('../abac', () => ({
+  ...realAbac,
   authorize: async (_ctx: unknown, action: string, resource: unknown) => {
     authorizeCalls.push({ action, resource });
     if (denyReveal) throw new Error('not permitted: secrets.read');
