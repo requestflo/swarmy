@@ -462,6 +462,7 @@ describe('setTopology — shared certificates in swarmy object storage', () => {
     expect(spec.secrets).toBeUndefined();
     const applied = w.sent.find((s) => s.cmd === 'applyIngress');
     const caddyfile = applied?.payload.rendered.localReload?.file?.contents ?? '';
+    expect(caddyfile).not.toContain('storage swarmy');
     expect(caddyfile).not.toContain('storage s3');
     const view = await getConfig(w.ctx);
     expect(view.certStorage.mode).toBe('local');
@@ -477,7 +478,7 @@ describe('reconcileIngressOrg — shared certificate store', () => {
     },
   });
 
-  it('renders the storage s3 block with NO secret material into every edge', async () => {
+  it('renders storage swarmy (node-local first, s3 replica) with NO secret material into every edge', async () => {
     const first = world({ services: [svc({ mode: 'replicated' })] });
     await setTopology(first.ctx, 'edge-per-node');
     const w = world({
@@ -493,7 +494,7 @@ describe('reconcileIngressOrg — shared certificate store', () => {
     expect(applies).toHaveLength(2);
     for (const a of applies) {
       const caddyfile = a.payload.rendered.localReload.file.contents as string;
-      expect(caddyfile).toContain('storage s3 {');
+      expect(caddyfile).toContain('storage swarmy {\n    replica s3 {');
       expect(caddyfile).toContain('endpoint http://swarmy-garage:3900');
       expect(caddyfile).toContain('bucket swarmy-edge-certs');
       expect(caddyfile).toContain('region garage');

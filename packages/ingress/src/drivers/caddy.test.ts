@@ -216,7 +216,7 @@ describe('caddy render/apply — edge-per-node via in-task exec on EVERY edge no
   });
 });
 
-describe('caddy shared certificate storage (storage s3)', () => {
+describe('caddy edge certificate storage (storage swarmy, replica s3)', () => {
   const certStorage = {
     kind: 's3' as const,
     endpoint: 'http://swarmy-garage:3900',
@@ -232,18 +232,21 @@ describe('caddy shared certificate storage (storage s3)', () => {
       globalOptions: { certStorage, extraConfig },
     });
 
-  it('renders a global storage s3 block with coordinates only — no credential directives', () => {
+  it('renders storage swarmy with the s3 replica, coordinates only — no credential directives', () => {
     const body = driver.render(config({ applyVia: 'local', controllerImage: SWARMY_IMAGE })).localReload!.file!
       .contents;
-    const block = body.slice(body.indexOf('storage s3 {'), body.indexOf('}', body.indexOf('storage s3 {')) + 1);
+    const start = body.indexOf('  storage swarmy {');
+    const block = body.slice(start, body.indexOf('\n  }\n', start) + 4);
     expect(block).toBe(
       [
-        'storage s3 {',
-        '    endpoint http://swarmy-garage:3900',
-        '    bucket swarmy-edge-certs',
-        '    region garage',
-        '    prefix caddy/org_1',
-        '    use_path_style true',
+        '  storage swarmy {',
+        '    replica s3 {',
+        '      endpoint http://swarmy-garage:3900',
+        '      bucket swarmy-edge-certs',
+        '      region garage',
+        '      prefix caddy/org_1',
+        '      use_path_style true',
+        '    }',
         '  }',
       ].join('\n'),
     );
@@ -264,7 +267,9 @@ describe('caddy shared certificate storage (storage s3)', () => {
         }),
       )
       .localReload!.file!.contents;
-    expect(body).toContain('    prefix caddy-enc/org_1\n    import /run/secrets/swarmy-edge-certs-enc\n    use_path_style true');
+    expect(body).toContain(
+      '      prefix caddy-enc/org_1\n      import /run/secrets/swarmy-edge-certs-enc\n      use_path_style true',
+    );
     expect(body).not.toMatch(/encryption_key/);
   });
 

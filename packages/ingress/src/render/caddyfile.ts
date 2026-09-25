@@ -77,22 +77,28 @@ export function buildCaddyfile(config: IngressConfig): string {
     if (typeof extra.onDemandAsk === 'string') global.push(`    ask ${extra.onDemandAsk}`);
     global.push('  }');
   }
-  // Shared cert storage (techknowlogick/certmagic-s3): every edge points at the
-  // same bucket → one ACME account + cert pool + challenge store, so whichever
-  // edge geo-DNS steers the CA's vantage points to can answer the challenge.
-  // NO credentials are rendered — the module takes them from the AWS SDK default
-  // chain (AWS_SHARED_CREDENTIALS_FILE → a Docker secret on the Caddy service).
+  // Edge cert storage (`storage swarmy`, docker/caddy-swarmy/certstore): the
+  // node's own volume is the store every TLS read is served from, and the
+  // shared bucket (techknowlogick/certmagic-s3, nested as the replica) is a
+  // background mirror — so a reboot never waits on Garage (or the mesh Garage
+  // is reached over) to serve the mesh or dashboard vhosts (QA-066). Through
+  // the replica every edge still shares one ACME account + cert pool +
+  // challenge store, so whichever edge geo-DNS steers the CA to can answer.
+  // NO credentials are rendered — the module takes them from the AWS SDK
+  // default chain (AWS_SHARED_CREDENTIALS_FILE → a Docker secret on the edge).
   const certs = config.globalOptions.certStorage;
   if (certs) {
-    global.push('  storage s3 {');
-    global.push(`    endpoint ${certs.endpoint}`);
-    global.push(`    bucket ${certs.bucket}`);
-    global.push(`    region ${certs.region}`);
-    global.push(`    prefix ${certs.prefix}`);
+    global.push('  storage swarmy {');
+    global.push('    replica s3 {');
+    global.push(`      endpoint ${certs.endpoint}`);
+    global.push(`      bucket ${certs.bucket}`);
+    global.push(`      region ${certs.region}`);
+    global.push(`      prefix ${certs.prefix}`);
     // Sealed at rest: the key comes from a Docker secret file, never this text.
-    if (certs.encryptionKeyFile) global.push(`    import ${certs.encryptionKeyFile}`);
+    if (certs.encryptionKeyFile) global.push(`      import ${certs.encryptionKeyFile}`);
     // Garage (and most self-hosted S3) serve path-style only.
-    global.push('    use_path_style true');
+    global.push('      use_path_style true');
+    global.push('    }');
     global.push('  }');
   }
   if (global.length) {

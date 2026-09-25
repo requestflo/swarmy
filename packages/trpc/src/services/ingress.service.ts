@@ -1572,7 +1572,7 @@ const lastCertStoreAt = new Map<string, number>();
 /**
  * Provision the shared cert store for a live edge-per-node org, persist its
  * coordinates, and redeploy the edge with the credentials secret mounted. The
- * next tick's render then carries the `storage s3` block. Returns an error
+ * next tick's render then carries the `storage swarmy` block. Returns an error
  * message (recorded on `runtime`) or null.
  */
 async function adoptEdgeCertStorage(ctx: OrgContext): Promise<string | null> {

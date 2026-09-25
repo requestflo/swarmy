@@ -245,12 +245,15 @@ export const DomainRouteSchema = z.object({
 export type DomainRoute = z.infer<typeof DomainRouteSchema>;
 
 /**
- * Caddy shared certificate storage in S3-compatible object storage
- * (techknowlogick/certmagic-s3, compiled into docker/caddy-swarmy). When present,
- * the Caddy renderer emits a global `storage s3 { … }` block so every edge
- * shares ONE ACME account + cert pool + challenge store — what makes
- * edge-per-node issuance work under geo-DNS. swarmy points it at its own
- * replicated Garage store (bucket `swarmy-edge-certs`).
+ * The edge's shared certificate replica in S3-compatible object storage.
+ * When present, the Caddy renderer emits a global `storage swarmy { replica
+ * s3 { … } }` block (docker/caddy-swarmy/certstore wrapping
+ * techknowlogick/certmagic-s3): every edge serves certificates from its OWN
+ * volume and mirrors them through the replica, so the edges share ONE ACME
+ * account + cert pool + challenge store — what makes edge-per-node issuance
+ * work under geo-DNS — without any boot path waiting on the replica (QA-066).
+ * swarmy points it at its own replicated Garage store (bucket
+ * `swarmy-edge-certs`).
  *
  * Carries NO credentials, by construction: the module resolves them through the
  * AWS SDK default chain, which swarmy satisfies with a Docker secret mounted as

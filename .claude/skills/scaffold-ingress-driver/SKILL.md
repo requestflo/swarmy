@@ -64,7 +64,8 @@ that generic intent — drivers never touch a node directly.
   driver never becomes the default, and an existing org's choice is never rewritten.
 - If the driver needs a process in the swarm (e.g. its own container), document
   the placement and where it keeps shared state. Shared certs today live in
-  swarmy object storage (bucket `swarmy-edge-certs`, certmagic-s3) — see
+  each edge's own volume, replicated through swarmy object storage (bucket
+  `swarmy-edge-certs`; `storage swarmy` wrapping certmagic-s3) — see
   `skill("geo-edge-routing")`; never render a credential into a config file.
 - Tunnel drivers prefer the `connector` block over files + `reloadCommand`; the
   credentials-file path in `cloudflared.ts` is the fallback mode only.

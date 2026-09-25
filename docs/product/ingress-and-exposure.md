@@ -77,6 +77,10 @@ Four ideas, one story:
   HTTPS site. Edge-per-node shares one ACME account + one cert pool across every
   Caddy via swarmy's own object storage (Garage bucket `swarmy-edge-certs`), so
   N ingress nodes cost 1× issuance, not N×, and any edge can answer any challenge.
+  The bucket is a *replica*, never a dependency: each edge serves from its own
+  volume first (`storage swarmy`) and syncs with Garage in the background, so
+  no boot path waits on Garage — or on the mesh Garage is reached over — to
+  serve TLS (QA-066).
 - **No public IP is still reachable.** The cloudflared connector dials out to
   Cloudflare and Cloudflare terminates TLS; swarmy provisions the tunnel over the
   Cloudflare API controller-side and runs the connector with its run token as a
@@ -297,7 +301,8 @@ Least privilege, by network:
 | Failure | Behaviour |
 |---|---|
 | Ingress node dies (edge-per-node) | Its certs are in the shared object-storage pool; a surviving edge already serves them and geo-DNS sheds the dead node. No re-issuance, no rate-limit hit. |
-| Object storage (cert store) blips | Served certs stay in memory — the request path is unaffected. Only *new* issuance/renewal pauses until the store returns. It is deliberately off the hot path. |
+| Object storage (cert replica) blips | Served certs come from the edge's own volume — the request path is unaffected, and so is a restart. Writes land locally and sync when Garage is back; a host with no local cert yet is issued via ACME directly. |
+| The mesh-control / controller node reboots (Garage has no quorum until the mesh is back) | Its edge loads the mesh and dashboard certificates from its own volume, NetBird clients reconnect through it, the mesh comes up, Garage regains quorum, the sync resumes. No manual step (QA-066 — previously a permanent deadlock). |
 | Custom domain not yet registered points at the swarm | `/ingress/ask` returns 403 → Caddy declines to issue. No ACME spend on domains that aren't yours. |
 | Custom domain added before its DNS record exists | Withheld from the render and denied by `/ingress/ask` until public DNS points at an edge; the row says exactly which record to create. No failed ACME orders, no rate-limit burn. |
 | Cloudflare Tunnel: connector or CF blips | Connector dials out and reconnects; no inbound port to fail. Routing rules are declarative server-side, re-pushed idempotently on the next sync. |
@@ -325,6 +330,10 @@ Least privilege, by network:
   (Caddy) keeps the cert story singular.
 - **Putting the cert store on the request path.** It holds certs, challenge
   tokens and issuance locks only; served certs are cached in each Caddy.
+- **Garage as the only cert store.** It made TLS on the mesh-control node
+  depend on Garage quorum, which depends on the mesh, which depends on that
+  TLS — a reboot deadlocked forever (QA-066). Node-local first, Garage as a
+  background replica; a lost sync costs at worst a duplicate issuance.
 - **A dedicated Redis for certs.** A new data service to run, pin and back up;
   the replicated object store already exists and replicates across regions.
 

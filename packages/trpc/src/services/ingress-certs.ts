@@ -8,9 +8,19 @@
  * CertMagic store fixes that: any edge can answer any challenge, there is one
  * ACME account, and a cert is issued once for the whole fleet.
  *
- * Where: swarmy's OWN replicated object store (Garage) — no new data service,
- * certificates replicate across nodes/regions with the store. Caddy speaks to it through `storage s3`
- * (techknowlogick/certmagic-s3, compiled into docker/caddy-swarmy).
+ * Where: node-local FIRST, swarmy's own Garage store as the replica. Each edge
+ * serves from its own data volume through `storage swarmy`
+ * (docker/caddy-swarmy/certstore), which mirrors every write to — and fills
+ * local misses from — the replica, `storage s3` (techknowlogick/certmagic-s3)
+ * nested inside it, plus a background newer-wins sync both ways.
+ *
+ * Why not Garage as THE store (QA-066): rebooting the node that runs the mesh
+ * control plane deadlocked forever. NetBird clients reach management/signal/
+ * relay through that node's edge (`mesh.<domain>:443`), the edge had no
+ * certificates until Garage answered, and Garage had no quorum until the mesh
+ * was up. The rule since: no boot path may depend on Garage (or anything
+ * reached over the mesh) to serve TLS. With the replica down the edge serves
+ * what it has, issues what it lacks via ACME directly, and syncs later.
  *
  * Credentials never touch the Caddyfile: a bucket-scoped Garage key is minted,
  * written as an AWS shared-credentials INI into a Docker secret, and mounted on
@@ -25,13 +35,18 @@
  * Encrypted at rest: certificates and the ACME account key are sealed
  * client-side (the module's NaCl secretbox `encryption_key`) before they reach
  * Garage, so the store never holds a usable
- * private key. The key is its own Docker secret, pulled into the `storage s3`
+ * private key. The key is its own Docker secret, pulled into the `replica s3`
  * block with a Caddyfile `import` — never in the DB, an env var or the rendered
  * Caddyfile. (Each edge's own Caddy autosave, on that node's config volume,
  * does carry the adapted config including the key: the same trust boundary as
  * the edge process, which holds the decrypted certificates anyway.) It lives
  * only in the swarm; lose it and the edges simply issue fresh certificates
  * (they are reproducible), so no copy is kept elsewhere.
+ *
+ * The node-local copy is NOT sealed: plain 0600 files in 0700 directories on
+ * the edge's per-node Docker volume (root-only under /var/lib/docker/volumes),
+ * exactly like Caddy's default file storage. Sealing them would add nothing —
+ * that node's autosave already holds the key on the same disk.
  */
 import { randomBytes } from 'node:crypto';
 import type { CertStorage } from '@swarmy/ingress';
@@ -54,7 +69,7 @@ export const EDGE_CERTS_SECRET_TARGET = 'swarmy-edge-certs-s3';
 export const EDGE_CERTS_CREDENTIALS_FILE = `/run/secrets/${EDGE_CERTS_SECRET_TARGET}`;
 /** The encryption-key snippet's file name under /run/secrets/ in every edge task. */
 export const EDGE_CERTS_ENC_TARGET = 'swarmy-edge-certs-enc';
-/** What the rendered `storage s3` block imports. */
+/** What the rendered `replica s3` block imports. */
 export const EDGE_CERTS_ENC_FILE = `/run/secrets/${EDGE_CERTS_ENC_TARGET}`;
 
 export const OBJECT_STORAGE_REQUIRED_MESSAGE =

@@ -104,9 +104,20 @@ invariants that must survive every change, and where everything lives.
   `swarmy-edge-certs`, bucket-scoped key via `buckets.service`
   `provisionSystemBucketKey`, AWS shared-credentials INI in a Docker secret
   mounted on the edge as `AWS_SHARED_CREDENTIALS_FILE`) → the renderer emits a
-  credential-free `storage s3` block (techknowlogick/certmagic-s3 in
-  docker/caddy-swarmy). NEVER render a credential into the Caddyfile — it lands
-  in the admin-API JSON and Caddy's autosave. `setTopology` refuses
+  credential-free `storage swarmy { replica s3 { … } }` block. Garage is a
+  REPLICA, never a boot dependency (QA-066: the mesh-control node's edge had
+  no certs until Garage answered, Garage needed the mesh, the mesh needed that
+  edge → reboot deadlocked forever). `storage swarmy`
+  (docker/caddy-swarmy/certstore, Go, unit-tested in the image build) serves
+  every read from the node's data volume, fills local misses from the replica
+  (5 s timeout + 30 s circuit breaker; a dead replica reads as "not found" so
+  certmagic goes to ACME), writes local-then-replica, takes the replica lock
+  only while it answers (else the local lock alone), and runs a newer-wins
+  sync both ways every 5 min (30 s while work is pending). The local copy is
+  plain 0600 files on the root-only volume; the replica copy stays NaCl-sealed
+  (certmagic-s3 `encryption_key`). Never make a TLS boot path wait on Garage
+  or anything reached over the mesh. NEVER render a credential into the
+  Caddyfile — it lands in the admin-API JSON and Caddy's autosave. `setTopology` refuses
   edge-per-node while object storage is off; ingress-reconcile adopts orgs
   already on edge-per-node. The controller topology keeps local file storage.
 

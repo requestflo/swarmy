@@ -3,14 +3,20 @@
 # The stock caddy:2-alpine cannot express swarmy's protection layer — these
 # capabilities are compiled-in plugins, not config:
 #   - `rate_limit` (per-route rate limits)   — mholt/caddy-ratelimit
-#   - `storage s3` (shared cert storage)     — techknowlogick/certmagic-s3,
-#     REQUIRED for the edge-per-node topology (geo-edge): every per-node Caddy
-#     shares ONE cert pool + ACME challenge store in swarmy's own replicated
-#     object storage (Garage bucket `swarmy-edge-certs`), so HTTP-01/TLS-ALPN
-#     challenges validate on whichever edge geo-DNS steers the CA to. Chosen
-#     over ss098/certmagic-s3, whose Lock() is a no-op (unsafe with N edges).
-#     Credentials come from the AWS SDK default chain — a Docker secret mounted
-#     as AWS_SHARED_CREDENTIALS_FILE — never from the Caddyfile.
+#   - `storage swarmy` (edge cert storage)   — ./certstore, swarmy's own
+#     module: certificates are served from the node's own volume FIRST and
+#     mirrored in the background to a replica, so no boot path waits on the
+#     replica to serve TLS (QA-066: a rebooted mesh-control node deadlocked
+#     when its edge's only cert store was Garage, reached over the mesh).
+#   - `storage s3` (the replica)             — techknowlogick/certmagic-s3,
+#     nested as `storage swarmy { replica s3 { … } }` for the edge-per-node
+#     topology (geo-edge): the edges share ONE cert pool + ACME challenge
+#     store through swarmy's replicated object storage (Garage bucket
+#     `swarmy-edge-certs`), so HTTP-01/TLS-ALPN challenges validate on
+#     whichever edge geo-DNS steers the CA to. Chosen over ss098/certmagic-s3,
+#     whose Lock() is a no-op (unsafe with N edges). Credentials come from the
+#     AWS SDK default chain — a Docker secret mounted as
+#     AWS_SHARED_CREDENTIALS_FILE — never from the Caddyfile.
 #   - `cache` (per-route response caching)   — caddyserver/cache-handler
 #   - `maxmind_geolocation` (country rules)  — porech/caddy-maxmind-geolocation
 #   - `dns swarmy` (ACME DNS-01, wildcards)  — ./dnsprovider, swarmy's own
@@ -23,7 +29,7 @@
 #     the same-origin `<script src="/_swarmy/rum.js">` before `</head>` on HTML
 #     documents (identity upstream, gzip re-encode, CSP-aware, skips and says
 #     why via a `Swarmy-Rum` header). The app itself is never changed.
-# This image is the stock Caddy plus all seven, built with xcaddy.
+# This image is the stock Caddy plus all eight, built with xcaddy.
 #
 # Country rules also need a GeoIP country mmdb visible INSIDE the container:
 # mount one and point `extraConfig.geoipMmdbPath` at it. swarmy does not
@@ -48,8 +54,13 @@ FROM caddy:2.11.4-builder AS builder
 
 COPY dnsprovider /src/dnsprovider
 COPY rum /src/rum
+COPY certstore /src/certstore
+
+# The cert store's unit tests gate the image: it sits on every edge's TLS path.
+RUN cd /src/certstore && go test ./...
 
 RUN xcaddy build \
+    --with github.com/requestflo/caddy-swarmy-certstore=/src/certstore \
     --with github.com/requestflo/caddy-dns-swarmy=/src/dnsprovider \
     --with github.com/requestflo/caddy-swarmy-rum=/src/rum \
     --with github.com/caddy-dns/cloudflare@v0.2.4 \

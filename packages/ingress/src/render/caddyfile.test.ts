@@ -891,6 +891,75 @@ describe('caddy controller vhosts — status pages / webhooks / AI gateway domai
     );
   });
 
+  it('GOLDEN (QA-066): an edge with the shared cert store renders `storage swarmy` — node-local first, Garage as the replica — above the mesh + dashboard vhosts', () => {
+    const out = buildCaddyfile(
+      IngressConfigSchema.parse({
+        driver: 'caddy',
+        orgId: 'org_1',
+        domains: [],
+        globalOptions: {
+          email: 'ops@xyz.com',
+          certStorage: {
+            kind: 's3',
+            endpoint: 'http://swarmy-garage:3900',
+            bucket: 'swarmy-edge-certs',
+            region: 'garage',
+            prefix: 'caddy-enc/org_1',
+            encryptionKeyFile: '/run/secrets/swarmy-edge-certs-enc',
+          },
+        },
+        controllerVhosts: [
+          { domain: 'swarmy.xyz.com', upstream: 'swarmy_controller:3021', targetPath: '/', kind: 'dashboard' },
+          { domain: 'mesh.xyz.com', upstream: '172.17.0.1:8081', targetPath: '/', kind: 'mesh-control' },
+        ],
+      }),
+    );
+    expect(out).toBe(
+      [
+        '{',
+        '  email ops@xyz.com',
+        '  storage swarmy {',
+        '    replica s3 {',
+        '      endpoint http://swarmy-garage:3900',
+        '      bucket swarmy-edge-certs',
+        '      region garage',
+        '      prefix caddy-enc/org_1',
+        '      import /run/secrets/swarmy-edge-certs-enc',
+        '      use_path_style true',
+        '    }',
+        '  }',
+        '}',
+        '',
+        'swarmy.xyz.com {',
+        '  # swarmy dashboard vhost',
+        '  reverse_proxy swarmy_controller:3021 {',
+        '    stream_close_delay 1h',
+        '  }',
+        '}',
+        '',
+        'mesh.xyz.com {',
+        '  # swarmy mesh-control vhost',
+        '  @grpc header Content-Type application/grpc*',
+        '  reverse_proxy @grpc h2c://172.17.0.1:8081 {',
+        '    flush_interval -1',
+        '    stream_close_delay 1h',
+        '    transport http {',
+        '      read_timeout 24h',
+        '      write_timeout 24h',
+        '    }',
+        '  }',
+        '  reverse_proxy 172.17.0.1:8081 {',
+        '    flush_interval -1',
+        '    stream_close_delay 1h',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    // The replica never becomes the store itself (the pre-QA-066 shape).
+    expect(out).not.toMatch(/^\s*storage s3/m);
+  });
+
   it('a webhook vhost with tls off serves plain http', () => {
     const out = buildCaddyfile(
       IngressConfigSchema.parse({

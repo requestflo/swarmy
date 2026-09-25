@@ -16,7 +16,7 @@ export const CADDY_CONTROLLER_SERVICE = 'swarmy-ingress-caddy';
 /**
  * swarmy's own Caddy build (docker/caddy-swarmy, published by
  * .github/workflows/images.yml): stock Caddy + rate_limit, cache,
- * maxmind_geolocation and the `storage s3` shared cert store. The default image
+ * maxmind_geolocation and the `storage swarmy` edge cert store. The default image
  * for BOTH topologies — the installer and every node already pull public GHCR.
  */
 export const SWARMY_CADDY_IMAGE = 'ghcr.io/requestflo/caddy-swarmy:latest';
@@ -96,8 +96,9 @@ export class CaddyDriver implements IngressDriver {
           'xcaddy --with github.com/mholt/caddy-ratelimit). Set a custom controller image.',
       });
     }
-    // Shared cert storage REQUIRES the swarmy build: the `storage s3` module
-    // (techknowlogick/certmagic-s3) is compiled in there, and a stock image
+    // Shared cert storage REQUIRES the swarmy build: the `storage swarmy`
+    // module (docker/caddy-swarmy/certstore) and its s3 replica
+    // (techknowlogick/certmagic-s3) are compiled in there, and a stock image
     // rejects the whole config at load. Hard error.
     const applyVia = typeof extra.applyVia === 'string' ? extra.applyVia : 'file';
     if (config.globalOptions.certStorage && stockImage) {
@@ -105,7 +106,8 @@ export class CaddyDriver implements IngressDriver {
         path: 'globalOptions.extraConfig.controllerImage',
         message:
           'shared certificate storage needs the swarmy Caddy build (docker/caddy-swarmy — ' +
-          'compiles certmagic-s3); the stock caddy image cannot load the `storage s3` block. ' +
+          'compiles the swarmy cert store + certmagic-s3); the stock caddy image cannot load the ' +
+          '`storage swarmy` block. ' +
           'Clear the custom controller image to use the default swarmy build.',
       });
     }

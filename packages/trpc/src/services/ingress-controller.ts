@@ -50,7 +50,7 @@ const DEFAULT_NETWORK = 'swarmy';
 /**
  * swarmy's Caddy build for BOTH topologies (docker/caddy-swarmy, public GHCR):
  * the plugins behind rate limits, response caching, country rules and the
- * shared `storage s3` cert store are compiled in, so no protection or topology
+ * `storage swarmy` edge cert store are compiled in, so no protection or topology
  * needs an image change first. Override: `setControllerImage` (per org) or
  * `SWARMY_CADDY_EDGE_IMAGE` (per controller).
  */
@@ -356,7 +356,7 @@ export interface EnsureEdgeOptions {
    * `SWARMY_CADDY_EDGE_IMAGE`, then swarmy's Caddy build
    * (`ghcr.io/requestflo/caddy-swarmy:latest`) — the SAME image the controller
    * topology runs, so a topology swap never introduces an unpullable image.
-   * Shared cert storage (`storage s3`) needs the swarmy build; the driver's
+   * Shared cert storage (`storage swarmy`) needs the swarmy build; the driver's
    * validate() hard-errors when it meets a stock caddy image.
    */
   image?: string;
@@ -399,7 +399,10 @@ export const EDGE_PLACEMENT_CONSTRAINT = `node.labels.${INGRESS_NODE_LABEL} == t
  *   agent can't write the host FS, so a bind-mounted host dir never worked.
  * - Same data/config volumes as the controller (per-node named volumes) — the
  *   node that ran the controller keeps its certificates across the swap, and
- *   `--resume` restores the last applied config across task restarts.
+ *   `--resume` restores the last applied config across task restarts. The
+ *   data volume IS the edge's cert store (`storage swarmy` serves from it,
+ *   Garage is only its replica), so a rebooted edge serves TLS before Garage
+ *   or the mesh is back (QA-066).
  * - Joins the org network + `swarmy` (fronted apps, Garage) + the private
  *   `swarmy-control` overlay: the dashboard vhost proxies to
  *   `swarmy_controller:3021` there, and every edge renders it.
@@ -410,7 +413,7 @@ export function caddyEdgeSpec(opts: {
   otelOrgId?: string;
   /** Shared cert store credentials secret (edge-per-node + object storage). */
   certStoreSecret?: string;
-  /** Its encryption-key secret (imported by the rendered `storage s3` block). */
+  /** Its encryption-key secret (imported by the rendered `replica s3` block). */
   certStoreEncSecret?: string;
   /** Publish the mesh-peer object-storage listener on every edge. */
   objectStorageMeshPort?: number;
@@ -462,7 +465,7 @@ export function caddyEdgeSpec(opts: {
       { type: 'volume', source: DATA_VOLUME, target: '/data' },
       { type: 'volume', source: CONFIG_VOLUME, target: '/config' },
     ],
-    // Credentials for the shared `storage s3` cert store ride ONLY in this
+    // Credentials for the cert store's s3 replica ride ONLY in this
     // mounted secret (AWS SDK default chain) — never in the Caddyfile.
     // (+ the DNS-01 token secrets for wildcard certificates, same rule.)
     ...(certs || opts.acmeDnsSecrets?.length
