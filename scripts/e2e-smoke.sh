@@ -199,12 +199,27 @@ check_4() {  # invite-only signup
   grep -q 'SIGNUP_INVITE_ONLY' "$WORK/body" || { log "403 without SIGNUP_INVITE_ONLY: $(head -c 300 "$WORK/body")"; return 1; }
   trpc_query authConfig.publicConfig | jq -e '.signupMode == "invite-only"' >/dev/null
 
-  local tm="tm-${RUN_ID}@example.com" link
+  # Invite-only by default (owner decision). An invite that NAMES an email is
+  # redeemable only by that address once PROVEN (verified, or carried by an
+  # SSO/social identity): a typed, unverified sign-up for it is refused, so no
+  # one can claim an invite just by knowing the address.
+  local tm="tm-${RUN_ID}@example.com" link lm="lm-${RUN_ID}@example.com" inv
   link="$(trpc_mutate members.invite "$(jq -cn --arg e "$tm" '{email:$e, role:"member"}')" | jq -r '.link // empty')"
   [ -n "$link" ] || { log "members.invite returned no link"; return 1; }
   code="$(http POST /api/auth/sign-up/email \
     "$(jq -cn --arg e "$tm" '{email:$e, password:"Teammate-passw0rd!", name:"Teammate"}')" "$mjar")"
-  [ "$code" = 200 ] || { log "invited sign-up → $code: $(head -c 300 "$WORK/body")"; return 1; }
+  [ "$code" = 403 ] || { log "unverified sign-up for an email invite → $code (want 403): $(head -c 300 "$WORK/body")"; return 1; }
+
+  # A link-only invite admits whoever holds the link: the /login?invite=<id>
+  # page parks the id in the swarmy_invite cookie, and sign-up redeems it.
+  link="$(trpc_mutate members.invite '{"role":"member"}' | jq -r '.link // empty')"
+  inv="$(printf '%s' "$link" | sed -n 's/.*[?&]invite=\([A-Za-z0-9_-]*\).*/\1/p')"
+  [ -n "$inv" ] || { log "link invite returned no invite id: ${link:-<none>}"; return 1; }
+  code="$(curl -sS -m 30 -o "$WORK/body" -w '%{http_code}' -X POST -H "origin: $ORIGIN" \
+    -H "cookie: swarmy_invite=${inv}" -c "$mjar" -H 'content-type: application/json' \
+    --data "$(jq -cn --arg e "$lm" '{email:$e, password:"Teammate-passw0rd!", name:"Teammate"}')" \
+    "$URL/api/auth/sign-up/email" || printf '000')"
+  [ "$code" = 200 ] || { log "sign-up with a link invite → $code: $(head -c 300 "$WORK/body")"; return 1; }
 }
 
 registry_enforced() { trpc_query cicd.getRegistryConfig | jq -e '.authEnforced == true' >/dev/null; }
