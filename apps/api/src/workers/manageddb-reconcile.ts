@@ -7,11 +7,9 @@ import {
   DB_FAILOVER_PENDING_LABEL,
   DB_PIN_NODE_LABEL,
   STACK_LABEL,
-  MANAGED_PG_ROOT,
   PG_ENV,
   PG_PROMOTE_SQL,
   applyPgMember,
-  pgBootRole,
   pgPrimaryEnv,
   pgReplicaEnv,
   choosePinNode,
@@ -32,7 +30,6 @@ import {
 } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
 import {
-  MANAGED_PG_PITR_CONF_TARGET,
   DEFAULT_WALG_IMAGE,
   WAL_ARCHIVE_MOUNT,
   pitrExtraConf,
@@ -53,6 +50,7 @@ import {
   renderWalCredsEnv,
   shipperScript,
 } from './manageddb-reconcile.core';
+import { pitrPrimarySpec, planBackupIntentCarry, preparePitrPrimary } from './manageddb-pitr.core';
 
 /**
  * Managed DB HA-topology reconcile worker (epic #8 + slice A2 pitr-ha).
@@ -116,9 +114,11 @@ import {
  *   (redeploy specs; the boot layer re-points standbys and moves a demoted
  *   ex-writer's data ASIDE before re-cloning — never deletes it), then
  *   `recordIncidentEvent` + `fireEvent` + `writeAudit`. The promoted service
- *   keeps its replica-role env (not redeployed); its boot layer sees writer
- *   data with no new epoch and keeps starting it as a writer, and the PITR
- *   convergence skips replica-env primaries (a PITR redeploy would restart it).
+ *   keeps its replica-role env at promotion; its boot layer sees writer data
+ *   with no new epoch and keeps starting it as a writer. PITR follows the LIVE
+ *   role (QA-068): the next ticks move the `swarmy.db.backup.*` intent off the
+ *   demoted ex-primary onto the new writer, and, when PITR is on, redeploy it
+ *   once as a pinned writer spec with the archive bits (manageddb-pitr.core).
  *
  *   Scheduled backups — once per minute the worker calls A1's
  *   `runDueDbBackups(now, deps)` seam so `swarmy.db.backup.schedule` labels fire.
@@ -564,46 +564,6 @@ async function loadWalTarget(orgId: string, targetId: string | undefined): Promi
   })) as WalTargetRow | null;
 }
 
-/** The PITR-enabled primary spec: archive volume + extended conf + marker. */
-function pitrPrimarySpec(
-  primary: SwarmServiceInfo,
-  c: Cluster,
-  version: string,
-  dataVolume: string | undefined,
-): ServiceSpec {
-  const networks = (primary.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
-  const placedRegion = primary.labels[DB_PLACED_REGION_LABEL];
-  const confName = `${c.base}-pitr-conf`;
-  const labels = { ...primary.labels, [DB_PITR_APPLIED_LABEL]: version };
-  // The declared storage volume (applyPgMember below) wins the data root.
-  return applyPgMember<ServiceSpec>({
-    name: primary.name,
-    image: primary.image,
-    mode: { replicated: { replicas: primary.desiredReplicas ?? 1 } },
-    env: envRecord(primary.env ?? []),
-    labels,
-    networks: networks.length > 0 ? networks : [clusterNet(c)],
-    mounts: [
-      { type: 'volume' as const, source: `${c.base}-wal-archive`, target: WAL_ARCHIVE_MOUNT },
-      // Physical base backups (wal-g backup-push) need the PGDATA on a named
-      // volume; mount it at the data root when the schedule names one.
-      ...(dataVolume
-        ? [{ type: 'volume' as const, source: dataVolume, target: MANAGED_PG_ROOT }]
-        : []),
-    ],
-    configs: [
-      ...(primary.configs ?? []).filter((n) => n !== confName).map((n) => ({ source: n })),
-      { source: confName, target: MANAGED_PG_PITR_CONF_TARGET },
-    ],
-    ...((primary.secrets ?? []).length > 0
-      ? { secrets: (primary.secrets ?? []).map((n) => ({ source: n })) }
-      : {}),
-    ...(placedRegion
-      ? { placement: { constraints: [`node.labels.${REGION_NODE_LABEL}==${placedRegion}`] } }
-      : {}),
-  }, labels);
-}
-
 /** Primary spec with the PITR bits dropped — the data mount + pin are kept. */
 function stripPitrSpec(primary: SwarmServiceInfo, c: Cluster): ServiceSpec {
   const labels = { ...primary.labels };
@@ -716,11 +676,13 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
     return;
   }
 
-  // Never redeploy an in-place-promoted primary: its env still says replica, and
-  // a PITR redeploy restarts the writer for nothing (its boot layer would keep
-  // it a writer, but the archive bits wait for a re-provision as a primary).
-  if (pgBootRole(envRecord(primary.env ?? [])) === 'replica') return;
   if (!primaryRedeployable) return; // legacy storage — surfaced as a db-storage warning
+  // The LIVE role decides (QA-068): a failover-promoted primary still boots from
+  // replica env. It gets a writer spec pinned to the node its data is on.
+  const task = execTarget(orgId, primary);
+  const prep = preparePitrPrimary(primary, task ? hub.swarmNodeIdFor(task.nodeId) : undefined);
+  if (prep.kind === 'wait') return; // retry next tick
+  const writer = prep.primary;
 
   const schedule = parseScheduleLite(primary.labels[DB_BACKUP_SCHEDULE_LABEL]);
   const target = await loadWalTarget(orgId, schedule?.targetId).catch(() => null);
@@ -744,10 +706,10 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
     secretAccessKey: target.secretKeyRef ? decryptSecret(target.secretKeyRef) : null,
   });
   // The declared persistent volume wins over a schedule-supplied one.
-  const dataVolume = primary.labels[DB_DATA_VOLUME_LABEL] ?? schedule?.dataVolume;
+  const dataVolume = writer.labels[DB_DATA_VOLUME_LABEL] ?? schedule?.dataVolume;
   const version = pitrVersion(creds, dataVolume);
   const secretName = `${c.base}-wal-creds-${version}`;
-  const primaryOk = primary.labels[DB_PITR_APPLIED_LABEL] === version;
+  const primaryOk = !prep.promoted && primary.labels[DB_PITR_APPLIED_LABEL] === version;
   const shipperOk = c.shipper?.labels[DB_PITR_APPLIED_LABEL] === version;
   if (primaryOk && shipperOk) return;
 
@@ -768,7 +730,7 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
   if (!primaryOk) {
     await hub
       .dispatch(node, 'service.deploy', {
-        spec: pitrPrimarySpec(primary, c, version, dataVolume),
+        spec: pitrPrimarySpec(writer, c, clusterNet(c), version, dataVolume),
         pullPolicy: 'missing',
       })
       .catch(() => undefined);
@@ -776,7 +738,7 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
   if (!shipperOk) {
     await hub
       .dispatch(node, 'service.deploy', {
-        spec: walShipperSpec(c, version, secretName, primary),
+        spec: walShipperSpec(c, version, secretName, writer),
         pullPolicy: 'always',
       })
       .catch(() => undefined);
@@ -788,7 +750,7 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
     actorType: 'system',
     targetType: 'dbCluster',
     targetId: `${c.stack}/${c.cluster}`,
-    metadata: { version, targetId: target.id, dataVolume: dataVolume ?? null },
+    metadata: { version, targetId: target.id, dataVolume: dataVolume ?? null, primary: primary.name, promoted: prep.promoted },
   }).catch(() => undefined);
   await seams.fireEvent(ctx, {
     signal: 'db-pitr',
@@ -797,6 +759,36 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
     message: `WAL archiving configured for ${c.cluster}`,
     status: 'resolved',
   }).catch(() => undefined);
+}
+
+/**
+ * Move the cluster's backup intent (`swarmy.db.backup.*`) onto the live primary
+ * (see {@link planBackupIntentCarry}). The primary gets the labels first, and
+ * the donors lose them only after that succeeds, so a failed tick leaves the
+ * intent where it was. Nothing is sent at steady state.
+ */
+async function carryBackupIntent(node: string, c: Cluster, primary: SwarmServiceInfo): Promise<void> {
+  const carry = planBackupIntentCarry(primary, replicaMembers(c));
+  if (!carry) return;
+  if (Object.keys(carry.add).length > 0 || carry.removeFromPrimary.length > 0) {
+    try {
+      await hub.dispatch(node, 'service.updateLabels', {
+        service: primary.name,
+        add: carry.add,
+        removeKeys: carry.removeFromPrimary,
+      });
+    } catch {
+      return; // retry next tick; the donors keep the intent meanwhile
+    }
+    const labels = { ...primary.labels, ...carry.add };
+    for (const k of carry.removeFromPrimary) delete labels[k];
+    c.primary = { ...primary, labels };
+  }
+  for (const d of carry.donors) {
+    await hub
+      .dispatch(node, 'service.updateLabels', { service: d.name, add: {}, removeKeys: d.removeKeys })
+      .catch(() => undefined);
+  }
 }
 
 // ── A2 failover promotion ─────────────────────────────────────────────────────
@@ -1408,6 +1400,9 @@ async function reconcileOrg(orgId: string): Promise<void> {
     }
 
     // (5) A2 — PITR / WAL archiving convergence (needs the audit/alert trail).
+    //     First the backup intent follows the LIVE primary: after a failover
+    //     the schedule/pitr labels still sit on the demoted ex-primary.
+    if (primary) await carryBackupIntent(node, c, primary);
     if (contract) await ensurePitr(contract, orgId, node, c).catch(() => undefined);
 
     // (6) A2 — replication-lag telemetry (`swarmy.db.lag.<member>` stamps).
