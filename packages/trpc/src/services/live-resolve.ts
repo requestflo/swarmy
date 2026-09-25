@@ -48,19 +48,30 @@ export interface LiveExecTarget {
  * exec. Scans `latestContainers` across the org's online nodes for a running
  * container whose swarm `serviceId` matches the service's Docker id. Returns
  * `undefined` when the service is unknown or has no running container anywhere.
+ * `newest`: the most recently created running container instead of the first
+ * found — during a rollout that is a task of the newest spec version, so a
+ * read right after a change (e.g. a rotated secret) sees the new value.
  */
-export function resolveExecTarget(ctx: OrgContext, idOrName: string): LiveExecTarget | undefined {
+export function resolveExecTarget(
+  ctx: OrgContext,
+  idOrName: string,
+  opts: { newest?: boolean } = {},
+): LiveExecTarget | undefined {
   const svc = resolveLiveService(ctx, idOrName);
   if (!svc) return undefined;
   // Org-scope the scan: only containers the live inventory attributes to this org.
   const orgContainerIds = new Set(ctx.hub.liveInventory(ctx.activeOrgId).containers.map((c) => c.id));
+  let best: { target: LiveExecTarget; createdAt: number } | undefined;
   for (const nodeId of ctx.hub.onlineNodeIds()) {
-    const match = ctx.hub.latestContainers(nodeId).find((c) => {
-      if (!orgContainerIds.has(c.id)) return false;
+    for (const c of ctx.hub.latestContainers(nodeId)) {
+      if (!orgContainerIds.has(c.id)) continue;
       const sid = c.serviceId ?? c.labels?.[SWARM_SERVICE_ID_LABEL];
-      return sid === svc.id && c.state === 'running';
-    });
-    if (match) return { serviceId: svc.id, serviceName: svc.name, containerId: match.id, nodeId };
+      if (sid !== svc.id || c.state !== 'running') continue;
+      const target = { serviceId: svc.id, serviceName: svc.name, containerId: c.id, nodeId };
+      if (!opts.newest) return target;
+      const createdAt = Number(c.createdAt) || 0;
+      if (!best || createdAt > best.createdAt) best = { target, createdAt };
+    }
   }
-  return undefined;
+  return best?.target;
 }

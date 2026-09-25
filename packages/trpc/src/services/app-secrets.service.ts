@@ -375,7 +375,9 @@ export async function revealSecretVar(
   const owned = versionsOf(await listAppSecretVersions(ctx, node.id), svc.name);
   const current = mountedVersions(owned, svc.secrets ?? []).get(input.key);
   if (!current) throw notFound('secret variable', input.key);
-  const target = resolveExecTarget(ctx, svc.id);
+  // Right after a rotation the rollout still has old-version tasks running: read
+  // from the NEWEST task (the rotated spec), never whichever one comes first.
+  const target = resolveExecTarget(ctx, svc.id, { newest: true });
   if (!target) throw commandRejected(`${svc.name} has no running task to read ${input.key} from — start it first`);
 
   let res: { exitCode: number; output?: string };
