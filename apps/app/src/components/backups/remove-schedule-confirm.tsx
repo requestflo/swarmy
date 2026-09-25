@@ -42,7 +42,7 @@ export function RemoveScheduleConfirm({ id, volume }: RemoveScheduleConfirmProps
           variant="ghost"
           size="icon"
           aria-label={`Remove schedule for ${volume}`}
-          className="text-status-offline hover:text-status-offline"
+          className="text-tone-bad hover:text-tone-bad"
         >
           <Trash2Icon className="size-4" />
         </Button>

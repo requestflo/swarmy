@@ -9,7 +9,7 @@ interface StackAddServiceCardProps {
 /** Services section: grow the stack in place via the inline expanding form. */
 export function StackAddServiceCard({ stack }: StackAddServiceCardProps): React.JSX.Element {
   return (
-    <section className="card-pop p-5">
+    <section className="calm-card p-5">
       <div className="flex items-center gap-3">
         <span className="bg-muted text-muted-foreground flex size-9 items-center justify-center rounded-lg">
           <BoxesIcon className="size-5" />

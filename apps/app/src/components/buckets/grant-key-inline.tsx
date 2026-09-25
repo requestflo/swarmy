@@ -78,7 +78,7 @@ export function GrantKeyInline({ bucketId, open, onDone }: GrantKeyInlineProps):
             </div>
           ))}
           <div className="flex justify-end">
-            <Button
+            <Button variant="outline"
               size="sm"
               disabled={grant.isPending || !keyId || (!read && !write && !owner)}
               onClick={() =>

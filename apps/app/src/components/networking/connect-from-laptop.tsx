@@ -112,7 +112,7 @@ export function ConnectFromLaptop({ stack }: { stack: string }): React.JSX.Eleme
         <p className="text-muted-foreground text-sm">{d?.reason ?? 'Not available on this cluster.'}</p>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card className="card-pop border-0">
+          <Card className="calm-card">
             <CardContent className="grid gap-5 p-6 text-sm">
               <p className="text-muted-foreground">
                 Databases and admin pages never face the internet. Sign in from your laptop and you reach exactly the ones your role
@@ -156,7 +156,7 @@ export function ConnectFromLaptop({ stack }: { stack: string }): React.JSX.Eleme
             </CardContent>
           </Card>
 
-          <Card className="card-pop border-0">
+          <Card className="calm-card">
             <CardContent className="divide-border grid divide-y p-0 text-sm">
               <div className="px-6 py-4">
                 <p className="font-medium">{d.allowed ? 'What you can reach' : "You can't connect to this app yet"}</p>
@@ -191,7 +191,7 @@ export function ConnectFromLaptop({ stack }: { stack: string }): React.JSX.Eleme
 
       {d?.available && (
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card className="card-pop border-0">
+          <Card className="calm-card">
             <CardContent className="divide-border grid divide-y p-0 text-sm">
               <div className="px-6 py-4">
                 <p className="font-medium">Connected people</p>
@@ -221,7 +221,7 @@ export function ConnectFromLaptop({ stack }: { stack: string }): React.JSX.Eleme
             </CardContent>
           </Card>
 
-          <Card className="card-pop border-0">
+          <Card className="calm-card">
             <CardContent className="divide-border grid divide-y p-0 text-sm">
               <div className="px-6 py-4">
                 <p className="font-medium">Personal access</p>
@@ -268,7 +268,7 @@ export function ConnectFromLaptop({ stack }: { stack: string }): React.JSX.Eleme
                     ))}
                   </SelectContent>
                 </Select>
-                <Button
+                <Button variant="outline"
                   size="sm"
                   disabled={!who || grant.isPending}
                   onClick={() => grant.mutate({ stack, userId: who, ...(Number(ttl) ? { ttlSec: Number(ttl) } : {}) })}

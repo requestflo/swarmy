@@ -43,7 +43,7 @@ export function TargetNodesCard({ targetNodes }: TargetNodesCardProps): React.JS
   };
 
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className="calm-card mt-6 border-0">
       <CardHeader>
         <CardTitle className="text-base">Target nodes</CardTitle>
         <CardDescription>

@@ -53,7 +53,7 @@ export function StackDbCoverageCard({
   if (coverage.databases.length === 0) return null;
   const off = coverage.destination == null;
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardContent className="p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
           <span className="mono-label">Databases</span>
@@ -62,7 +62,7 @@ export function StackDbCoverageCard({
           </span>
         </div>
         {off && (
-          <div className="bg-status-warning/10 text-status-warning flex flex-wrap items-center justify-between gap-3 border-t px-6 py-3 text-sm">
+          <div className="bg-status-warning/10 text-tone-warn flex flex-wrap items-center justify-between gap-3 border-t px-6 py-3 text-sm">
             <span className="inline-flex items-center gap-2 font-medium">
               <TriangleAlertIcon className="size-4" /> Backups are off — add a destination
             </span>
@@ -108,12 +108,12 @@ function CoverageRow({
             {db.nextRunAt ? ` · next ${untilTime(db.nextRunAt)}` : ''}
           </p>
           {logical?.mode === 'volume-only' && logical.note && (
-            <p className="text-status-warning inline-flex items-center gap-1.5 text-xs">
+            <p className="text-tone-warn inline-flex items-center gap-1.5 text-xs">
               <TriangleAlertIcon className="size-3.5" /> {logical.note}
             </p>
           )}
           {logical?.mode === 'logical' && logical.lastStatus === 'failed' && (
-            <p className="text-status-offline text-xs">
+            <p className="text-tone-bad text-xs">
               Last dump failed {relativeTime(logical.lastAt)}: {logical.lastError ?? 'unknown error'} — the volume copy still ran.
             </p>
           )}

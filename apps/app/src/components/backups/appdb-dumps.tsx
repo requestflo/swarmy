@@ -57,7 +57,7 @@ export function AppDbDumps({ stack, service, engine }: AppDbDumpsProps): React.J
       {dumps.isLoading ? (
         <span className="shimmer-line block h-4 w-48 rounded" />
       ) : dumps.error ? (
-        <p className="text-status-offline text-sm">{dumps.error.message}</p>
+        <p className="text-tone-bad text-sm">{dumps.error.message}</p>
       ) : rows.length === 0 ? (
         <p className="text-muted-foreground text-sm">No dumps yet — the first runs with tonight's backup.</p>
       ) : (

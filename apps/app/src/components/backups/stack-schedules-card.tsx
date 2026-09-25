@@ -70,13 +70,13 @@ export function StackSchedulesCard({
   );
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardContent className="p-0">
         <Collapsible open={creating} onOpenChange={setCreating}>
           <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
             <span className="mono-label">Schedules</span>
             <CollapsibleTrigger asChild>
-              <Button
+              <Button variant="outline"
                 size="sm"
                 className="rounded-full font-bold shadow-[0_8px_24px_-8px_var(--primary)] transition-transform hover:scale-[1.03]"
                 disabled={targets.length === 0}
@@ -215,7 +215,7 @@ function RetentionRow({ stack }: { stack: string }): React.JSX.Element {
             placeholder="days"
             className="border-input bg-background h-7 w-20 rounded-md border px-2 text-sm"
           />
-          <Button
+          <Button variant="outline"
             size="sm"
             className="h-7"
             disabled={save.isPending}

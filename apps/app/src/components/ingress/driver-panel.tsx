@@ -48,7 +48,7 @@ export function DriverPanel({
 }: DriverPanelProps): React.JSX.Element {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <Card className="card-pop border-0">
+      <Card className="calm-card">
         <CardHeader>
           <CardTitle className="text-base">Driver</CardTitle>
           <CardDescription>
@@ -85,7 +85,7 @@ export function DriverPanel({
         </CardContent>
       </Card>
 
-      <Card className="card-pop border-0">
+      <Card className="calm-card">
         <CardHeader>
           <CardTitle className="text-base">Rendered config preview</CardTitle>
           <CardDescription>What the agent would apply on ingress nodes.</CardDescription>

@@ -41,7 +41,7 @@ export function DomainActions({ domain: d }: { domain: EmailDomainData }): React
             Rotate DKIM key
           </DropdownMenuItem>
           <DropdownMenuItem
-            className="text-status-offline"
+            className="text-tone-bad"
             onSelect={() => {
               if (window.confirm(`Remove ${d.domain}? Apps can no longer send from it.`)) remove.mutate({ id: d.id });
             }}

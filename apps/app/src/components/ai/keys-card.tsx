@@ -26,7 +26,7 @@ export function KeysCard(): React.JSX.Element {
   const rows = keys.data ?? [];
 
   return (
-    <div className="card-pop p-5">
+    <div className="calm-card p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-semibold">Virtual keys</p>
@@ -82,7 +82,7 @@ export function KeysCard(): React.JSX.Element {
                     <span className="text-muted-foreground ml-2 text-xs">→ {k.appRef}</span>
                   ) : null}
                   {k.disabled ? (
-                    <span className="text-status-offline ml-2 text-xs">revoked</span>
+                    <span className="text-tone-bad ml-2 text-xs">revoked</span>
                   ) : null}
                 </TableCell>
                 <TableCell className="text-muted-foreground hidden text-xs sm:table-cell">
@@ -104,7 +104,7 @@ export function KeysCard(): React.JSX.Element {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="text-status-offline"
+                      className="text-tone-bad"
                       disabled={revoke.isPending}
                       onClick={() => revoke.mutate({ id: k.id })}
                     >

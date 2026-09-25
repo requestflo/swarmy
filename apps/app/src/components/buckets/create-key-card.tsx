@@ -55,7 +55,7 @@ export function CreateKeyCard({ open, onOpenChange, onCreated }: CreateKeyCardPr
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button
+            <Button variant="outline"
               onClick={() => create.mutate({ name })}
               disabled={create.isPending || name.trim().length === 0}
             >

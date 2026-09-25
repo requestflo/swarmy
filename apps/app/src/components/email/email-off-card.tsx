@@ -24,12 +24,12 @@ export function EmailOffCard({ vaultReady }: { vaultReady: boolean }): React.JSX
             <li>Invites, sign-up email checks and alerts start going out by email.</li>
           </ul>
           {!vaultReady ? (
-            <p className="text-status-warning text-sm">
+            <p className="text-tone-warn text-sm">
               Set <code className="mono-data">SWARMY_SECRET_KEY</code> on the controller first: DKIM keys and credentials are encrypted with it.
             </p>
           ) : null}
         </div>
-        <Button
+        <Button variant="outline"
           className="shadow-[0_8px_24px_-8px_var(--primary)] hover:scale-[1.03]"
           disabled={!vaultReady || enable.isPending}
           onClick={() => enable.mutate({ enabled: true })}

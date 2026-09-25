@@ -22,7 +22,7 @@ export function DomainCard({ domain: d }: { domain: EmailDomainData }): React.JS
   const check = useMutation(trpc.email.checkDomain.mutationOptions(useEmailMutationHandlers()));
   const pending = d.records.filter((r) => r.status !== 'ok').length;
   return (
-    <div className="card-pop p-5">
+    <div className="calm-card p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">

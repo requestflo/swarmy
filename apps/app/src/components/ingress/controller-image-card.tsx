@@ -55,7 +55,7 @@ export function ControllerImageCard({ image, defaultImage }: ControllerImageCard
   const isStock = isStockCaddy(effective);
 
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className="calm-card mt-6 border-0">
       <CardHeader>
         <CardTitle className="text-base">Controller image</CardTitle>
         <CardDescription>
@@ -85,7 +85,7 @@ export function ControllerImageCard({ image, defaultImage }: ControllerImageCard
               placeholder="registry.example.com/swarmy-caddy:latest"
               className="mono-data min-w-0 flex-1"
             />
-            <Button onClick={() => setImage.mutate({ image: draft.trim() || null })} disabled={setImage.isPending}>
+            <Button variant="outline" onClick={() => setImage.mutate({ image: draft.trim() || null })} disabled={setImage.isPending}>
               Save
             </Button>
             {image ? (

@@ -47,7 +47,7 @@ export function MeshDriverCard({
   onEnabledChange,
 }: MeshDriverCardProps): React.JSX.Element {
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardHeader>
         <CardTitle className="text-base">Driver</CardTitle>
         <CardDescription>

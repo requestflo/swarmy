@@ -33,7 +33,7 @@ export function CreateBucketCard({ open, onOpenChange }: CreateBucketCardProps):
   return (
     <Collapsible open={open} onOpenChange={onOpenChange}>
       <CollapsibleContent>
-        <div className="card-pop space-y-4 p-5">
+        <div className="calm-card space-y-4 p-5">
           <div>
             <p className="text-sm font-bold">New bucket</p>
             <p className="text-muted-foreground text-xs">
@@ -59,7 +59,7 @@ export function CreateBucketCard({ open, onOpenChange }: CreateBucketCardProps):
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button onClick={() => create.mutate({ name })} disabled={create.isPending || !valid}>
+            <Button variant="outline" onClick={() => create.mutate({ name })} disabled={create.isPending || !valid}>
               {create.isPending ? 'Creating…' : 'Create bucket'}
             </Button>
           </div>

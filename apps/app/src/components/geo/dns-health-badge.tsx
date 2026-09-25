@@ -16,11 +16,11 @@ import { useTRPC } from '@/integrations/trpc';
 export type DnsHealth = 'healthy' | 'degraded' | 'down' | 'checking' | 'unknown';
 
 const STYLES: Record<DnsHealth, { dot: string; text: string; label: string }> = {
-  healthy: { dot: 'bg-status-online', text: 'text-status-online', label: 'healthy' },
-  degraded: { dot: 'bg-status-warning', text: 'text-status-warning', label: 'degraded' },
-  down: { dot: 'bg-status-offline', text: 'text-status-offline', label: 'down' },
-  checking: { dot: 'bg-status-progress', text: 'text-status-progress', label: 'checking' },
-  unknown: { dot: 'bg-status-idle', text: 'text-status-idle', label: 'no record' },
+  healthy: { dot: 'bg-status-online', text: 'text-tone-ok', label: 'healthy' },
+  degraded: { dot: 'bg-status-warning', text: 'text-tone-warn', label: 'degraded' },
+  down: { dot: 'bg-status-offline', text: 'text-tone-bad', label: 'down' },
+  checking: { dot: 'bg-status-progress', text: 'text-tone-info', label: 'checking' },
+  unknown: { dot: 'bg-status-idle', text: 'text-tone-idle', label: 'no record' },
 };
 
 /** Health for one host from the derived DNS view rows (cheap, shared-cache friendly). */

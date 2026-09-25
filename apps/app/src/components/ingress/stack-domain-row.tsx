@@ -182,7 +182,7 @@ function RemoveDomainConfirm({ host, pending, onConfirm }: { host: string; pendi
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="ghost" size="sm" className="text-status-offline" disabled={pending}>
+        <Button variant="ghost" size="sm" className="text-tone-bad" disabled={pending}>
           <Trash2Icon className="size-4" /> Remove domain
         </Button>
       </AlertDialogTrigger>

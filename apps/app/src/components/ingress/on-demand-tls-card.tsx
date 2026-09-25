@@ -20,7 +20,7 @@ interface OnDemandTlsCardProps {
 export function OnDemandTlsCard({ onSave, onDisable, pending }: OnDemandTlsCardProps): React.JSX.Element {
   const [askUrl, setAskUrl] = React.useState('');
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className="calm-card mt-6 border-0">
       <CardHeader>
         <CardTitle className="text-base">On-demand TLS — custom domains</CardTitle>
         <CardDescription>
@@ -38,7 +38,7 @@ export function OnDemandTlsCard({ onSave, onDisable, pending }: OnDemandTlsCardP
               onChange={(e) => setAskUrl(e.target.value)}
               placeholder="https://controller.example.com/ingress/ask"
             />
-            <Button onClick={() => onSave(askUrl)} disabled={pending || !askUrl}>
+            <Button variant="outline" onClick={() => onSave(askUrl)} disabled={pending || !askUrl}>
               Enable
             </Button>
           </div>

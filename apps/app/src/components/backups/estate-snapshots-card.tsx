@@ -14,7 +14,7 @@ export function EstateSnapshotsCard(): React.JSX.Element {
   const rows = snapshots.data ?? [];
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardContent className="p-0">
         <div className="flex items-center justify-between gap-3 px-6 py-4">
           <span className="mono-label">Recent snapshots · estate-wide</span>

@@ -53,7 +53,7 @@ export function PassphraseCard(): React.JSX.Element {
   const has = config.data?.hasPassphrase ?? false;
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
         <div className="min-w-0">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -98,7 +98,7 @@ export function PassphraseCard(): React.JSX.Element {
                 I&apos;ve stored this passphrase in a password manager / recovery card.
               </label>
               <div className="mt-3">
-                <Button
+                <Button variant="outline"
                   size="sm"
                   disabled={!stored || save.isPending}
                   onClick={() => save.mutate({ passphrase: issued })}

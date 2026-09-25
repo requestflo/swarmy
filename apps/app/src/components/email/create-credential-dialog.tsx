@@ -74,7 +74,7 @@ export function CreateCredentialDialog({ domains, apiUrl, onCreated }: Props): R
             <Input id="cred-hook" type="url" value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://app.example.com/hooks/email" />
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={create.isPending || !name}>
+            <Button variant="outline" type="submit" disabled={create.isPending || !name}>
               {create.isPending ? 'Creating…' : 'Create'}
             </Button>
           </DialogFooter>

@@ -46,7 +46,7 @@ export function BucketsPage(): React.JSX.Element {
         description="S3-compatible object storage on your own nodes — create buckets, mint access keys and wire apps with one click."
         actions={
           ready ? (
-            <Button onClick={() => setCreateOpen((o2) => !o2)}>
+            <Button variant="outline" onClick={() => setCreateOpen((o2) => !o2)}>
               <PlusIcon className="size-4" /> New bucket
             </Button>
           ) : undefined
@@ -57,13 +57,13 @@ export function BucketsPage(): React.JSX.Element {
       {ready ? <CreateBucketCard open={createOpen} onOpenChange={setCreateOpen} /> : null}
 
       {overview.isLoading ? (
-        <div className="card-pop space-y-3 p-5">
+        <div className="calm-card space-y-3 p-5">
           <div className="shimmer-line h-8 rounded-lg" />
           <div className="shimmer-line h-8 rounded-lg" />
           <div className="shimmer-line h-8 w-2/3 rounded-lg" />
         </div>
       ) : overview.isError ? (
-        <div className="card-pop p-2">
+        <div className="calm-card p-2">
           <EmptyState
             icon={<ArchiveIcon />}
             title="Couldn't load buckets"
@@ -78,7 +78,7 @@ export function BucketsPage(): React.JSX.Element {
       ) : o?.state === 'disabled' ? (
         <StoreDisabledCard />
       ) : o?.state === 'unreachable' ? (
-        <div className="card-pop p-2">
+        <div className="calm-card p-2">
           <EmptyState
             icon={<ArchiveIcon />}
             title="Object store unreachable"
@@ -91,7 +91,7 @@ export function BucketsPage(): React.JSX.Element {
           />
         </div>
       ) : buckets.length === 0 ? (
-        <div className="card-pop p-2">
+        <div className="calm-card p-2">
           <EmptyState
             icon={<ArchiveIcon />}
             title="No buckets yet — create one."

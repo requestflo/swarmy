@@ -83,7 +83,7 @@ export function NsNodePicker({ zone, eligible }: NsNodePickerProps): React.JSX.E
           <p className="text-muted-foreground text-xs">
             {picked.length < 2 ? 'Registrars require at least 2.' : `${picked.length} pinned in order.`}
           </p>
-          <Button
+          <Button variant="outline"
             size="sm"
             onClick={() => setAdvertisedNs.mutate({ id: zone.id, nodeIds: picked })}
             disabled={!dirty || picked.length < 2 || picked.length > 4 || setAdvertisedNs.isPending}

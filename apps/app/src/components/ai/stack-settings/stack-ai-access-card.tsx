@@ -25,7 +25,7 @@ export function StackAiAccessCard({ stack }: StackAiAccessCardProps): React.JSX.
   const granted = Boolean(a?.key);
 
   return (
-    <section className="card-pop p-5">
+    <section className="calm-card p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <span className="bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg">

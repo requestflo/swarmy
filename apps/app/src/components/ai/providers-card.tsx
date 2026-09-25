@@ -23,7 +23,7 @@ export function ProvidersCard(): React.JSX.Element {
   const rest = AI_PROVIDER_KINDS.filter((k) => !byKind.has(k));
 
   return (
-    <div className="card-pop p-5">
+    <div className="calm-card p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg">
@@ -52,7 +52,7 @@ export function ProvidersCard(): React.JSX.Element {
           ))}
         </div>
       ) : providers.isError ? (
-        <p className="text-status-offline mt-4 text-sm">
+        <p className="text-tone-bad mt-4 text-sm">
           Couldn&apos;t load providers: {providers.error.message}
         </p>
       ) : (

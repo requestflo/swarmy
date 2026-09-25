@@ -17,7 +17,7 @@ export function SuppressionsTab(): React.JSX.Element {
   const add = useMutation(trpc.email.addSuppression.mutationOptions(useEmailMutationHandlers('Address suppressed')));
   const remove = useMutation(trpc.email.removeSuppression.mutationOptions(useEmailMutationHandlers('Removed — mail to it goes out again')));
   return (
-    <div className="card-pop p-5">
+    <div className="calm-card p-5">
       <div className="flex flex-wrap items-center gap-2">
         <Input className="max-w-xs" placeholder="Search addresses" value={search} onChange={(e) => setSearch(e.target.value)} />
         <form

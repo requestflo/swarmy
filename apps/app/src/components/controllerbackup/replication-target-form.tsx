@@ -64,7 +64,7 @@ export function ReplicationTargetForm({ replicated, currentTargetId }: Replicati
           ))}
         </SelectContent>
       </Select>
-      <Button size="sm" onClick={save} disabled={busy || (replicated && choice === currentTargetId)}>
+      <Button variant="outline" size="sm" onClick={save} disabled={busy || (replicated && choice === currentTargetId)}>
         {replicated ? 'Switch target' : 'Turn on replication'}
       </Button>
       {replicated ? (

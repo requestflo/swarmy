@@ -104,7 +104,7 @@ export function ScheduleCreateInline({
         </Field>
       </div>
       <div className="flex items-end justify-end">
-        <Button
+        <Button variant="outline"
           size="sm"
           className="rounded-full font-bold"
           disabled={

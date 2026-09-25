@@ -55,7 +55,7 @@ export function SwarmyControlPlaneCard(): React.JSX.Element {
   const others = (nodes.data ?? []).filter((n: { id: string }) => n.id !== d.node.id);
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
           <div>

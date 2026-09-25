@@ -18,7 +18,7 @@ export function NsOnboardingCard({ zone, nodes }: NsOnboardingCardProps): React.
   const eligible = nodes.filter((n) => n.ingress && n.outlet && n.region && n.publicIp);
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardHeader>
         <CardTitle className="text-base">
           Nameservers for <span className="mono-data">{zone.zone}</span>

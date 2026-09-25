@@ -29,7 +29,7 @@ export function SnapshotFailureReason({
       disabled={!long}
       title={long && !expanded ? 'Show the full error' : undefined}
       className={cn(
-        'text-status-offline mt-1 flex w-full min-w-0 items-start gap-1 text-left text-xs disabled:cursor-default',
+        'text-tone-bad mt-1 flex w-full min-w-0 items-start gap-1 text-left text-xs disabled:cursor-default',
         className,
       )}
     >

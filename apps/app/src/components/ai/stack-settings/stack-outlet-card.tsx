@@ -35,7 +35,7 @@ export function StackOutletCard({ stack }: StackOutletCardProps): React.JSX.Elem
   const dirty = draft !== null && draft.trim().toLowerCase() !== (current ?? '');
 
   return (
-    <section className="card-pop p-5">
+    <section className="calm-card p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <span className="bg-muted text-muted-foreground flex size-9 items-center justify-center rounded-lg">

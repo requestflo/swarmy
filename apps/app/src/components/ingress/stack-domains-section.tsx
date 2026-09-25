@@ -44,7 +44,7 @@ export function StackDomainsSection({ stack }: StackDomainsSectionProps): React.
       <AddDomainCard stack={stack} open={addOpen} onOpenChange={setAddOpen} />
 
       {domains.isLoading ? null : rows.length === 0 ? (
-        <div className="card-pop p-2">
+        <div className="calm-card p-2">
           <EmptyState
             icon={<GlobeIcon />}
             title="No domains routed yet"
@@ -57,7 +57,7 @@ export function StackDomainsSection({ stack }: StackDomainsSectionProps): React.
           />
         </div>
       ) : (
-        <div className="card-pop divide-border divide-y overflow-hidden">
+        <div className="calm-card divide-border divide-y overflow-hidden">
           {rows.map((d) => (
             <StackDomainRow key={d.id} domain={d} />
           ))}

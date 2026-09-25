@@ -14,7 +14,7 @@ export function TemplatesCard(): React.JSX.Element {
   const list = useQuery(trpc.email.templates.queryOptions());
   const remove = useMutation(trpc.email.removeTemplate.mutationOptions(useEmailMutationHandlers('Template removed')));
   return (
-    <div className="card-pop p-5">
+    <div className="calm-card p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-semibold">Templates</p>
@@ -44,7 +44,7 @@ export function TemplatesCard(): React.JSX.Element {
               <Button variant="ghost" size="sm" onClick={() => setEditing({ name: t.name, subject: t.subject, html: t.html ?? '', text: t.text ?? '' })}>
                 Edit
               </Button>
-              <Button variant="ghost" size="sm" className="text-status-offline" onClick={() => remove.mutate({ id: t.id })}>
+              <Button variant="ghost" size="sm" className="text-tone-bad" onClick={() => remove.mutate({ id: t.id })}>
                 Remove
               </Button>
             </div>

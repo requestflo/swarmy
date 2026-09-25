@@ -44,7 +44,7 @@ export function DelegationCheck({ zoneId, hasNameservers }: DelegationCheckProps
       </div>
 
       {check.isError ? (
-        <p className="text-status-offline mt-2 text-xs">{check.error.message}</p>
+        <p className="text-tone-bad mt-2 text-xs">{check.error.message}</p>
       ) : null}
 
       {d ? (

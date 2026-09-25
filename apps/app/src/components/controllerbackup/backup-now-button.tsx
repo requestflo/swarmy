@@ -27,7 +27,7 @@ export function BackupNowButton(): React.JSX.Element {
   const canRun = Boolean(config.data?.targetId) && (config.data?.hasPassphrase ?? false);
 
   return (
-    <Button onClick={() => runNow.mutate()} disabled={!canRun || runNow.isPending}>
+    <Button variant="outline" onClick={() => runNow.mutate()} disabled={!canRun || runNow.isPending}>
       <PlayIcon className="size-4" /> Back up now
     </Button>
   );

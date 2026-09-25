@@ -32,7 +32,7 @@ export function StackDnsStatus({ stack }: { stack: string }): React.JSX.Element 
           .
         </p>
       ) : (
-        <Card className="card-pop border-0">
+        <Card className="calm-card">
           <CardContent className="divide-border divide-y p-0">
             {rows.map((r) => (
               <div key={`${r.zone}-${r.host}-${r.source}`} className="flex items-center gap-3 px-6 py-3.5">

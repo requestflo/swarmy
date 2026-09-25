@@ -27,7 +27,7 @@ export function AddDomainDialog(): React.JSX.Element {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button className="shadow-[0_8px_24px_-8px_var(--primary)] hover:scale-[1.03]">
+        <Button variant="outline" className="shadow-[0_8px_24px_-8px_var(--primary)] hover:scale-[1.03]">
           <PlusIcon className="size-4" /> Add domain
         </Button>
       </DialogTrigger>
@@ -49,7 +49,7 @@ export function AddDomainDialog(): React.JSX.Element {
           </div>
           <DeliveryFields delivery={delivery} onDelivery={setDelivery} relay={relay} onRelay={setRelay} />
           <DialogFooter>
-            <Button type="submit" disabled={add.isPending || !domain}>
+            <Button variant="outline" type="submit" disabled={add.isPending || !domain}>
               {add.isPending ? 'Adding…' : 'Add domain'}
             </Button>
           </DialogFooter>

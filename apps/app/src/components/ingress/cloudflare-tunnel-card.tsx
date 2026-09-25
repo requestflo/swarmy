@@ -32,7 +32,7 @@ export function CloudflareTunnelCard({
   const [tunnelName, setTunnelName] = React.useState('swarmy');
 
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className="calm-card mt-6 border-0">
       <CardHeader>
         <CardTitle className="text-base">Cloudflare Tunnel</CardTitle>
         <CardDescription>
@@ -67,7 +67,7 @@ export function CloudflareTunnelCard({
               <Label className="mono-label">Name (for your reference)</Label>
               <Input value={tunnelName} onChange={(e) => setTunnelName(e.target.value)} />
             </div>
-            <Button
+            <Button variant="outline"
               onClick={() => onSave({ runToken: token.trim(), tunnelName: tunnelName.trim() || undefined })}
               disabled={pending || token.trim().length < 20}
             >

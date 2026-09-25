@@ -17,7 +17,7 @@ export function EmailWarnings({ warnings }: { warnings: EmailOverviewData['warni
           )}
         >
           {w.level === 'warn' ? (
-            <AlertTriangleIcon className="text-status-warning mt-0.5 size-4 shrink-0" />
+            <AlertTriangleIcon className="text-tone-warn mt-0.5 size-4 shrink-0" />
           ) : (
             <InfoIcon className="text-muted-foreground mt-0.5 size-4 shrink-0" />
           )}

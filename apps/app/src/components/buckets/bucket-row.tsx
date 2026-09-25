@@ -45,7 +45,7 @@ export function BucketRow({ bucket: b, expanded, onToggle, onDeleted }: BucketRo
             <KeyIcon className="size-3.5" aria-hidden /> {b.keyCount}
           </span>
           {b.website ? (
-            <span className="text-status-warning bg-status-warning/12 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium">
+            <span className="text-tone-warn bg-status-warning/12 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium">
               <GlobeIcon className="size-3" aria-hidden /> Public
             </span>
           ) : (

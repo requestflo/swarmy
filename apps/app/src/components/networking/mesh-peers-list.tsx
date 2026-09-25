@@ -42,7 +42,7 @@ export function MeshPeersList({ peers }: MeshPeersListProps): React.JSX.Element 
   const count = peers.length;
 
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className="calm-card mt-6 border-0">
       <CardHeader>
         <CardTitle className="text-base">Peers</CardTitle>
         <CardDescription>Nodes joined to the mesh and their live status.</CardDescription>

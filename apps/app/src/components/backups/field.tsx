@@ -14,7 +14,7 @@ export function Field({ label, error, children }: FieldProps): React.JSX.Element
     <div className="grid content-start gap-1.5">
       <Label className="mono-label">{label}</Label>
       {children}
-      {error ? <p className="text-status-offline text-xs">{error}</p> : null}
+      {error ? <p className="text-tone-bad text-xs">{error}</p> : null}
     </div>
   );
 }

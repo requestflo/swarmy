@@ -28,7 +28,7 @@ export function SendLogTab({ logStore }: { logStore: 'clickhouse' | 'memory' }):
     refetchInterval: 5_000,
   });
   return (
-    <div className="card-pop p-5">
+    <div className="calm-card p-5">
       <div className="flex flex-wrap items-center gap-2">
         <Input className="max-w-xs" placeholder="Search recipient, sender, subject, id" value={search} onChange={(e) => setSearch(e.target.value)} />
         <select className="border-input bg-background h-9 rounded-md border px-2 text-sm" value={event} onChange={(e) => setEvent(e.target.value as EventKind | '')}>

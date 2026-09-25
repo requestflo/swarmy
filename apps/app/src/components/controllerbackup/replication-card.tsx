@@ -30,7 +30,7 @@ export function ReplicationCard(): React.JSX.Element {
   const label = s.problem ? 'needs a look' : s.mode === 'replicated' ? 'replicated' : 'local only';
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
         <div className="min-w-0">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -50,7 +50,7 @@ export function ReplicationCard(): React.JSX.Element {
           <Stat label="Lag" value={s.lagSeconds == null ? '—' : `${s.lagSeconds}s`} sub={s.pendingBytes ? `${fmtBytes(s.pendingBytes)} pending` : undefined} />
           <Stat label="Runs on" value={s.hostname} sub={s.epoch != null ? `lease epoch ${s.epoch}` : s.role} />
         </dl>
-        {s.problem ? <p className="text-status-warning text-sm">{s.problem}</p> : null}
+        {s.problem ? <p className="text-tone-warn text-sm">{s.problem}</p> : null}
         <p className="text-muted-foreground text-sm">
           If this node died now you would lose {s.lossWindow}.
           {s.boot ? ` Last boot: ${s.boot.outcome}.` : ''}

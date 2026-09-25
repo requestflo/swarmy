@@ -28,7 +28,7 @@ function fmtSize(bytes: unknown): string {
 }
 
 /**
- * Controller-state restore catalog — flat hairline rows inside one card-pop.
+ * Controller-state restore catalog — flat hairline rows inside one calm-card.
  * Status comes straight off the cluster tokens via StatusBadge.
  */
 export function SnapshotsList(): React.JSX.Element {
@@ -37,7 +37,7 @@ export function SnapshotsList(): React.JSX.Element {
   const rows = snapshots.data ?? [];
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardHeader>
         <CardTitle className="text-base">Snapshots</CardTitle>
         <CardDescription>

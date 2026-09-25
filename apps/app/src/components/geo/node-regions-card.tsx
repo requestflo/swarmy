@@ -15,7 +15,7 @@ export function NodeRegionsCard({ nodes }: { nodes: NodeSummary[] }): React.JSX.
   const invalidate = (): void => void qc.invalidateQueries();
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardHeader>
         <CardTitle className="text-base">Node regions & public IPs</CardTitle>
         <CardDescription>

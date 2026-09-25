@@ -46,7 +46,7 @@ export function EditDeliveryDialog({ domain: d, open, onOpenChange }: Props): Re
         >
           <DeliveryFields delivery={delivery} onDelivery={setDelivery} relay={relay} onRelay={setRelay} passwordSet={d.relay?.passwordSet} />
           <DialogFooter>
-            <Button type="submit" disabled={save.isPending}>
+            <Button variant="outline" type="submit" disabled={save.isPending}>
               {save.isPending ? 'Saving…' : 'Save'}
             </Button>
           </DialogFooter>

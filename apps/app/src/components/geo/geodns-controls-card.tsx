@@ -37,7 +37,7 @@ export function GeoDnsControlsCard({ config }: { config?: GeoDnsConfig }): React
   const source = config?.geoipSource ?? 'dbip';
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-4 py-5">
         <div className="flex items-center gap-3">
           <Switch

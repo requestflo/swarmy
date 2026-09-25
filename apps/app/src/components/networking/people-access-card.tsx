@@ -28,7 +28,7 @@ export function PeopleAccessCard(): React.JSX.Element {
   if (!d) return <div className="shimmer-line h-32 rounded-2xl" />;
   if (!d.managed) {
     return (
-      <Card className="card-pop border-0">
+      <Card className="calm-card">
         <CardHeader>
           <CardTitle className="text-base">People access</CardTitle>
           <CardDescription>Needs the mesh control plane that runs in swarmy (install with --mesh swarmy).</CardDescription>
@@ -38,7 +38,7 @@ export function PeopleAccessCard(): React.JSX.Element {
   }
   const on = d.settings.enabled;
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardHeader>
         <div className="flex items-start justify-between gap-3">
           <div>

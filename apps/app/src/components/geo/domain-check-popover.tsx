@@ -27,7 +27,7 @@ export function DomainCheckPopover({ host }: { host: string }): React.JSX.Elemen
         {check.isFetching ? (
           <p className="text-muted-foreground text-sm">Probing public DNS…</p>
         ) : check.isError ? (
-          <p className="text-status-offline text-sm">{check.error.message}</p>
+          <p className="text-tone-bad text-sm">{check.error.message}</p>
         ) : c ? (
           <>
             <div className="flex flex-wrap gap-2">

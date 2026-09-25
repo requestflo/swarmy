@@ -89,7 +89,7 @@ export function TopologyCard({ topology, certStorage }: TopologyCardProps): Reac
   const switchBlocked = next === 'edge-per-node' && needsStore;
 
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className="calm-card mt-6 border-0">
       <CardHeader>
         <CardTitle className="text-base">Edge topology</CardTitle>
         <CardDescription>
@@ -127,7 +127,7 @@ export function TopologyCard({ topology, certStorage }: TopologyCardProps): Reac
 
         <div className="flex flex-wrap gap-2">
           {needsStore ? (
-            <Button onClick={() => void turnOnObjectStorage()} disabled={turningOn}>
+            <Button variant="outline" onClick={() => void turnOnObjectStorage()} disabled={turningOn}>
               {turningOn ? 'Turning on…' : 'Turn on object storage'}
             </Button>
           ) : null}

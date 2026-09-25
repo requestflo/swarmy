@@ -51,7 +51,7 @@ export function TestSendDialog({ domains }: { domains: string[] }): React.JSX.El
             <Input id="test-to" type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="you@example.com" required />
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={send.isPending || !to || !from}>
+            <Button variant="outline" type="submit" disabled={send.isPending || !to || !from}>
               {send.isPending ? 'Sending…' : 'Send test'}
             </Button>
           </DialogFooter>

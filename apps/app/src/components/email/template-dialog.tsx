@@ -58,7 +58,7 @@ export function TemplateDialog({ draft, onClose }: { draft: TemplateDraft; onClo
             <Textarea id="tpl-text" className="mono-data min-h-24 text-xs" value={t.text} onChange={set('text')} />
           </div>
           <DialogFooter>
-            <Button type="submit" disabled={save.isPending}>
+            <Button variant="outline" type="submit" disabled={save.isPending}>
               {save.isPending ? 'Saving…' : 'Save template'}
             </Button>
           </DialogFooter>

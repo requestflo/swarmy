@@ -77,7 +77,7 @@ export function NativeTargetHero({ targets }: NativeTargetHeroProps): React.JSX.
             <span className="mono-data text-sm">{native.bucket}</span>
           </div>
         ) : (
-          <Button
+          <Button variant="outline"
             className="rounded-full font-bold shadow-[0_8px_24px_-8px_var(--primary)] transition-transform hover:scale-[1.03]"
             disabled={ensure.isPending || !storeOn}
             onClick={() => ensure.mutate()}

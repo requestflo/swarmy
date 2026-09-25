@@ -26,7 +26,7 @@ export function SettingsCard(): React.JSX.Element {
   };
 
   return (
-    <div className="card-pop p-5">
+    <div className="calm-card p-5">
       <p className="font-semibold">Gateway settings</p>
       <p className="text-muted-foreground text-xs">Applies to every request through the gateway.</p>
 

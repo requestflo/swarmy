@@ -128,7 +128,7 @@ export function BucketDetailPanel({
           <AlertDialogTrigger asChild>
             <Button
               variant="outline"
-              className="text-status-offline shrink-0"
+              className="text-tone-bad shrink-0"
               disabled={del.isPending}
             >
               <Trash2Icon className="size-4" /> Delete bucket

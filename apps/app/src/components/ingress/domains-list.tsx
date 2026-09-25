@@ -35,7 +35,7 @@ export function DomainsList({ domains }: { domains: DomainRow[] }): React.JSX.El
   const served = domains.filter((d) => d.serving).length;
 
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className="calm-card mt-6 border-0">
       <CardHeader>
         <CardTitle className="text-base">All domains</CardTitle>
       </CardHeader>

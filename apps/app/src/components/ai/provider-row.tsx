@@ -134,7 +134,7 @@ export function ProviderRow({
         </Button>
       </div>
       {test ? (
-        <p className={test.ok ? 'text-status-online text-xs' : 'text-status-offline text-xs'}>
+        <p className={test.ok ? 'text-tone-ok text-xs' : 'text-tone-bad text-xs'}>
           {test.ok
             ? `OK — answered in ${test.latencyMs}ms`
             : `Failed: ${test.message ?? 'unknown error'}`}

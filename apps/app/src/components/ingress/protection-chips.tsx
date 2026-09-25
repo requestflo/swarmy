@@ -13,7 +13,7 @@ export function ProtectionChips({ protection }: ProtectionChipsProps): React.JSX
   if (chips.length === 0) return null;
   return (
     <span className="hidden flex-wrap items-center gap-1.5 lg:flex">
-      <ShieldCheckIcon className="text-status-online size-3.5" />
+      <ShieldCheckIcon className="text-tone-ok size-3.5" />
       {chips.map((c) => (
         <Badge key={c} variant="muted" className="mono-data text-[0.65rem]">
           {c}

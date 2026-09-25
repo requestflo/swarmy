@@ -53,7 +53,7 @@ export function UsageCharts(): React.JSX.Element {
 
   if (usage.isLoading) {
     return (
-      <div className="card-pop space-y-3 p-5">
+      <div className="calm-card space-y-3 p-5">
         <div className="shimmer-line h-5 w-40 rounded" />
         <div className="shimmer-line h-24 rounded-lg" />
       </div>
@@ -62,15 +62,15 @@ export function UsageCharts(): React.JSX.Element {
   const data = usage.data;
   if (!data) {
     return (
-      <div className="card-pop p-5">
-        <p className="text-status-offline text-sm">Couldn&apos;t load usage.</p>
+      <div className="calm-card p-5">
+        <p className="text-tone-bad text-sm">Couldn&apos;t load usage.</p>
       </div>
     );
   }
   const t = data.totals;
 
   return (
-    <div className="card-pop p-5">
+    <div className="calm-card p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="font-semibold">Usage &amp; cost</p>

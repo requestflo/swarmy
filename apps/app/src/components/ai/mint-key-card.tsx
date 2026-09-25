@@ -124,7 +124,7 @@ export function MintKeyCard({ onMinted }: MintKeyCardProps): React.JSX.Element {
             </p>
           </div>
           <div className="flex justify-end">
-            <Button size="sm" onClick={submit} disabled={mint.isPending || !name.trim()}>
+            <Button variant="outline" size="sm" onClick={submit} disabled={mint.isPending || !name.trim()}>
               {mint.isPending ? 'Minting…' : 'Mint key'}
             </Button>
           </div>

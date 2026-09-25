@@ -18,7 +18,7 @@ export function StoreDisabledCard(): React.JSX.Element {
         Buckets run on swarmy&apos;s replicated object store (Garage) — an S3-compatible cluster on
         your own nodes. Turn it on once and every bucket, key and app attachment lives here.
       </p>
-      <Button asChild className="mt-6">
+      <Button variant="outline" asChild className="mt-6">
         <Link to="/backups">Enable the replicated store</Link>
       </Button>
     </div>

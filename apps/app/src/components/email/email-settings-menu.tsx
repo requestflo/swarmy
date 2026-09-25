@@ -62,7 +62,7 @@ export function EmailSettingsMenu({ overview: o }: { overview: EmailOverviewData
         </DropdownMenuItem>
         {o.inboundEnabled ? <DropdownMenuItem onSelect={() => inbound.mutate({ enabled: false })}>Stop accepting inbound reports</DropdownMenuItem> : null}
         <DropdownMenuSeparator />
-        <DropdownMenuItem className="text-status-offline" onSelect={() => {
+        <DropdownMenuItem className="text-tone-bad" onSelect={() => {
             if (window.confirm('Turn off email? The mail server stops and apps can no longer send; queued mail is kept for when you turn it back on.')) disable.mutate({ enabled: false });
           }}>
           Turn off the email service

@@ -40,7 +40,7 @@ export function EnrollNodeCard({
   isPending,
 }: EnrollNodeCardProps): React.JSX.Element {
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardHeader>
         <CardTitle className="text-base">Enroll a node</CardTitle>
         <CardDescription>
@@ -72,7 +72,7 @@ export function EnrollNodeCard({
                   ))}
                 </SelectContent>
               </Select>
-              <Button onClick={() => onEnroll(enrollNodeId)} disabled={isPending || !enrollNodeId}>
+              <Button variant="outline" onClick={() => onEnroll(enrollNodeId)} disabled={isPending || !enrollNodeId}>
                 Enroll
               </Button>
             </div>

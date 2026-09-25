@@ -18,7 +18,7 @@ export function PrivateHostNote({
 }): React.JSX.Element | null {
   if (!host.trim() || !isPrivateHost(host)) return null;
   return (
-    <p className={cn('text-status-warning flex items-start gap-1.5 text-xs', className)}>
+    <p className={cn('text-tone-warn flex items-start gap-1.5 text-xs', className)}>
       <ShieldAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden />
       <span>
         Private address — served with swarmy's local certificate; your browser will warn the

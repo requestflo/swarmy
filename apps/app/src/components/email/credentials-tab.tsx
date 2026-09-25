@@ -21,7 +21,7 @@ export function CredentialsTab({ overview: o }: { overview: EmailOverviewData })
   const update = useMutation(trpc.email.updateCredential.mutationOptions(useEmailMutationHandlers('Saved')));
   const remove = useMutation(trpc.email.removeCredential.mutationOptions(useEmailMutationHandlers('Credential removed')));
   return (
-    <div className="card-pop p-5">
+    <div className="calm-card p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-semibold">Credentials</p>
@@ -64,7 +64,7 @@ export function CredentialsTab({ overview: o }: { overview: EmailOverviewData })
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-status-offline"
+                      className="text-tone-bad"
                       onClick={() => {
                         if (window.confirm(`Remove ${c.name}? Apps using it stop sending.`)) remove.mutate({ id: c.id });
                       }}

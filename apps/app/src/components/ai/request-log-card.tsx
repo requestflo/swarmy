@@ -11,7 +11,7 @@ export function RequestLogCard(): React.JSX.Element {
   const rows = logs.data ?? [];
 
   return (
-    <div className="card-pop p-5">
+    <div className="calm-card p-5">
       <p className="font-semibold">Request log</p>
       <p className="text-muted-foreground text-xs">
         Per-request rows with a 200-char redacted prompt — written only while the audit toggle is
@@ -54,9 +54,9 @@ export function RequestLogCard(): React.JSX.Element {
                 <TableCell className="mono-data text-xs">{r.keyName}</TableCell>
                 <TableCell className="mono-data text-xs">
                   {r.model}
-                  {r.cacheHit ? <span className="text-status-progress ml-1">· cached</span> : null}
+                  {r.cacheHit ? <span className="text-tone-info ml-1">· cached</span> : null}
                   {r.status !== 'ok' ? (
-                    <span className="text-status-offline ml-1">· {r.status}</span>
+                    <span className="text-tone-bad ml-1">· {r.status}</span>
                   ) : null}
                 </TableCell>
                 <TableCell className="mono-data hidden text-xs md:table-cell">

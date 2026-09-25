@@ -17,7 +17,7 @@ export function DomainsTab({ overview: o }: { overview: EmailOverviewData }): Re
         <AddDomainDialog />
       </div>
       {o.domains.length === 0 ? (
-        <div className="card-pop p-2">
+        <div className="calm-card p-2">
           <EmptyState
             icon={<GlobeIcon />}
             title="No sending domains yet — add one."

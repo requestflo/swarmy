@@ -53,7 +53,7 @@ export function PlaygroundCard(): React.JSX.Element {
   };
 
   return (
-    <div className="card-pop p-5">
+    <div className="calm-card p-5">
       <div className="flex items-center gap-3">
         <span className="bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg">
           <FlaskConicalIcon className="size-5" />
@@ -132,7 +132,7 @@ export function PlaygroundCard(): React.JSX.Element {
             ) : result ? (
               <>
                 {result.error ? (
-                  <p className="text-status-offline text-sm">{result.error}</p>
+                  <p className="text-tone-bad text-sm">{result.error}</p>
                 ) : (
                   <p className="text-sm whitespace-pre-wrap">{result.text || '(empty reply)'}</p>
                 )}

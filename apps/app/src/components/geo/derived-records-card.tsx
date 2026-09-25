@@ -24,7 +24,7 @@ export function DerivedRecordsCard(): React.JSX.Element {
   const healthy = rows.filter((r) => r.healthyCount > 0).length;
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardHeader>
         <CardTitle className="text-base">Derived records</CardTitle>
         <CardDescription>
@@ -94,7 +94,7 @@ function DerivedRow({ row }: { row: DnsViewRow }): React.JSX.Element {
       <span
         className={cn(
           'mono-label w-20 text-right',
-          row.healthyCount > 0 ? 'text-status-online' : 'text-status-offline',
+          row.healthyCount > 0 ? 'text-tone-ok' : 'text-tone-bad',
         )}
       >
         {row.healthyCount}/{row.endpoints.length} healthy

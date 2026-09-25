@@ -32,7 +32,7 @@ export function ManualRecordsCard({ zone }: { zone: DnsZoneView }): React.JSX.El
   const rows = records.data ?? [];
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
         <div className="space-y-1.5">
           <CardTitle className="text-base">
@@ -101,7 +101,7 @@ function RecordRow({
       <Button
         variant="ghost"
         size="icon"
-        className="text-muted-foreground hover:text-status-offline"
+        className="text-muted-foreground hover:text-tone-bad"
         onClick={onRemove}
         disabled={removing}
         aria-label={`Remove ${record.type} ${record.name}`}

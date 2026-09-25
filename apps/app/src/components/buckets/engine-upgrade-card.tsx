@@ -58,7 +58,7 @@ export function EngineUpgradeCard(): React.JSX.Element | null {
   const tag = (img: string) => img.split(':').pop();
 
   return (
-    <div className="card-pop mb-6 space-y-3 p-5">
+    <div className="calm-card mb-6 space-y-3 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="flex items-center gap-2 text-sm font-semibold">
@@ -80,7 +80,7 @@ export function EngineUpgradeCard(): React.JSX.Element | null {
         {v.available && !running ? (
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button disabled={start.isPending}>Upgrade storage</Button>
+              <Button variant="outline" disabled={start.isPending}>Upgrade storage</Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>

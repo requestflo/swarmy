@@ -62,7 +62,7 @@ export function KeysCard(): React.JSX.Element {
       {revealed ? (
         <KeyRevealBanner revealed={revealed} onDismiss={() => setRevealed(null)} />
       ) : null}
-      <div className="card-pop overflow-hidden">
+      <div className="calm-card overflow-hidden">
         <div className="flex items-center justify-between border-b px-5 py-3">
           <div>
             <h2 className="font-medium">Access keys</h2>
@@ -137,7 +137,7 @@ export function KeysCard(): React.JSX.Element {
                       <Button
                         variant="outline"
                         size="icon"
-                        className="text-status-offline shrink-0"
+                        className="text-tone-bad shrink-0"
                         aria-label={`Delete key ${k.name || k.id}`}
                         disabled={del.isPending}
                       >

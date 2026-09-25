@@ -26,7 +26,7 @@ export function EmailStatusStrip({ overview: o }: { overview: EmailOverviewData 
   const mta = mtaTone(o.mta);
   const p25 = port25(o);
   return (
-    <div className="card-pop grid gap-4 p-5 md:grid-cols-[1fr_auto]">
+    <div className="calm-card grid gap-4 p-5 md:grid-cols-[1fr_auto]">
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1">
           <p className="mono-label text-muted-foreground">Mail server</p>

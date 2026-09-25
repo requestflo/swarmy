@@ -36,13 +36,13 @@ export function DomainDnsPanel({ host }: { host: string }): React.JSX.Element {
         </Button>
       </div>
       {d.warnings.map((w) => (
-        <p key={w} className="text-status-warning text-xs">
+        <p key={w} className="text-tone-warn text-xs">
           {w}
         </p>
       ))}
 
       {d.guidance.wildcard ? (
-        <p className={d.guidance.wildcard.provider ? 'text-muted-foreground text-xs' : 'text-status-warning text-xs'}>
+        <p className={d.guidance.wildcard.provider ? 'text-muted-foreground text-xs' : 'text-tone-warn text-xs'}>
           <span className="mono-label">Wildcard certificate · </span>
           {d.guidance.wildcard.summary}
         </p>

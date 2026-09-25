@@ -71,8 +71,8 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
   if (targets.isPending || schedules.isPending || snapshots.isPending) {
     return (
       <div className="grid gap-6">
-        <div className="card-pop shimmer-line h-32" />
-        <div className="card-pop shimmer-line h-48" />
+        <div className="calm-card shimmer-line h-32" />
+        <div className="calm-card shimmer-line h-48" />
       </div>
     );
   }
@@ -90,7 +90,7 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
   if (targetOptions.length === 0) {
     const dbCount = coverage.data?.databases.length ?? 0;
     return (
-      <div className="card-pop p-2">
+      <div className="calm-card p-2">
         <EmptyState
           icon={<HardDriveIcon />}
           title={dbCount > 0 ? 'Backups are off — add a destination' : 'No backup destinations yet'}
@@ -100,7 +100,7 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
               : "Add an S3 bucket, a node path, or use swarmy object storage — then schedule this stack's volumes here."
           }
           action={
-            <Button asChild className="rounded-full font-bold">
+            <Button variant="outline" asChild className="rounded-full font-bold">
               <Link to="/backups">
                 Set up a destination <ArrowRightIcon className="size-4" />
               </Link>
@@ -122,7 +122,7 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
         activeScheduleCount={scheduleRows.filter((s) => !s.paused).length}
       />
 
-      <Card className="card-pop border-0">
+      <Card className="calm-card">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
           <p className="text-muted-foreground text-sm">
             Destinations are managed estate-wide.

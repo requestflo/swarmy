@@ -64,7 +64,7 @@ export function ControlPlaneCard({ driver }: { driver: string }): React.JSX.Elem
   const tokenHint = 'NetBird/Headscale Admin API token — stored encrypted, used server-side only.';
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardHeader>
         <CardTitle className="text-base">Control plane</CardTitle>
         <CardDescription>
@@ -117,7 +117,7 @@ export function ControlPlaneCard({ driver }: { driver: string }): React.JSX.Elem
               <p className="text-muted-foreground mt-1 text-xs">{tokenHint}</p>
             </div>
             <div className="flex justify-end">
-              <Button
+              <Button variant="outline"
                 disabled={save.isPending}
                 onClick={() =>
                   save.mutate({
