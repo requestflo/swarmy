@@ -14,7 +14,7 @@ import {
  * script under `sh` and assert the rules it converges to. `DOCKER-INGRESS`
  * publishes whatever ports `INGRESS_PORTS` lists.
  */
-function fakeIptables(dir: string, ingressPorts: number[]): string {
+function fakeIptables(dir: string, ingressPorts: number[], natChain: 'DOCKER-INGRESS' | 'DOCKER' = 'DOCKER-INGRESS'): string {
   const bin = path.join(dir, 'bin');
   Bun.spawnSync(['mkdir', '-p', bin]);
   const store = path.join(dir, 'rules');
@@ -25,7 +25,11 @@ store="${store}"
 echo "$*" >> "${dir}/calls"
 case "$*" in
   "-t filter -S DOCKER-USER") echo "-N DOCKER-USER"; exit 0 ;;
-  "-t nat -S DOCKER-INGRESS") ${ingressPorts.map((p) => `echo "-A DOCKER-INGRESS -p tcp -m tcp --dport ${p} -j DNAT --to-destination 172.18.0.2:${p}";`).join(' ')} exit 0 ;;
+  ${
+    natChain === 'DOCKER-INGRESS'
+      ? `"-t nat -S DOCKER-INGRESS") ${ingressPorts.map((p) => `echo "-A DOCKER-INGRESS -p tcp -m tcp --dport ${p} -j DNAT --to-destination 172.18.0.2:${p}";`).join(' ')} exit 0 ;;`
+      : `"-t nat -S DOCKER") echo "-A DOCKER ! -i docker0 -p tcp -m tcp --dport 5000 -j DNAT --to-destination 172.17.0.9:5000"; ${ingressPorts.map((p) => `echo "-A DOCKER ! -i docker_gwbridge -p tcp -m tcp --dport ${p} -j DNAT --to-destination 172.18.0.2:${p}";`).join(' ')} exit 0 ;;`
+  }
 esac
 cmd="$1"; shift
 chain="$1"; shift
@@ -83,6 +87,16 @@ describe('registry firewall floor (:5000 registry / :5001 pull-through cache nev
     runScript(renderRegistryFirewallScript(), bin);
     const rules = readFileSync(path.join(dir, 'rules'), 'utf8');
     expect(rules).toContain('--ctorigdstport 5001');
+    expect(rules).not.toContain('--ctorigdstport 5000');
+  });
+
+  it('finds routing-mesh ports in the nat DOCKER chain (Docker 29 has no DOCKER-INGRESS rules)', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'swarmy-regfw-'));
+    const bin = fakeIptables(dir, [5001], 'DOCKER');
+    runScript(renderRegistryFirewallScript(), bin);
+    const rules = readFileSync(path.join(dir, 'rules'), 'utf8');
+    expect(rules).toContain('--ctorigdstport 5001');
+    // a plain container publish on docker0 (not the routing mesh) is not the registry
     expect(rules).not.toContain('--ctorigdstport 5000');
   });
 

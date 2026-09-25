@@ -72,7 +72,10 @@ for ipt in iptables-legacy iptables-nft iptables; do
   rules="${cidrs.map((c) => `-s ${c} -j RETURN`).join('\n')}
 -i docker0 -j RETURN
 -i br-+ -j RETURN"
-  ingress="$("$ipt" -w -t nat -S DOCKER-INGRESS 2>/dev/null || true)"
+  # Older engines DNAT routing-mesh ports in DOCKER-INGRESS; Docker 29 puts them
+  # in the nat DOCKER chain as "! -i docker_gwbridge ... -j DNAT" instead.
+  ingress="$("$ipt" -w -t nat -S DOCKER-INGRESS 2>/dev/null || true)
+$("$ipt" -w -t nat -S DOCKER 2>/dev/null | grep -- '! -i docker_gwbridge' || true)"
   for p in ${ports.join(' ')}; do
     if printf '%s\\n' "$ingress" | grep -q -- "--dport $p "; then
       rules="$rules
