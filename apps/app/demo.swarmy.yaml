@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://swarmy.dev/schema/swarmy.v1.json
+#
+# The public "Live demo" (the dashboard in demo mode, fake data, no backend),
+# deployed by swarmy itself. Link the repo in the dashboard with config path
+# `apps/app/demo.swarmy.yaml`. Every push to main rebuilds and redeploys it.
+# Paths are relative to the repo root (the build context), not this file.
+#
+# DEMO DOMAIN: demo.swarmy.dev is a placeholder. Set the real one here and as
+# DEMO_URL in apps/web/swarmy.yaml (see README "Live demo").
+version: 1
+app: swarmy-demo
+
+services:
+  demo:
+    build:
+      path: .
+      dockerfile: apps/app/demo.Dockerfile
+      args:
+        # Where the demo banner's "swarmy.dev" and "Install swarmy" links go.
+        VITE_SWARMY_SITE_URL: https://swarmy.dev
+      watch: [apps/app, packages/ui, packages/core, packages/auth, packages/abac, packages/templates, packages/app-config]
+    port: 8080
+    replicas: 2
+    size: nano
+    healthcheck: { path: /, interval: 30s }
+    domains:
+      - demo.swarmy.dev

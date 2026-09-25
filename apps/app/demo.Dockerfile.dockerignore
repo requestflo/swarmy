@@ -1,0 +1,24 @@
+# Per-Dockerfile ignore for apps/app/demo.Dockerfile (replaces the root
+# .dockerignore). Keep the context small and clean.
+**/node_modules
+**/dist
+**/.output
+**/.tanstack
+**/.turbo
+**/.env
+**/.env.*
+.git
+.github
+.swarmy-dev-token
+**/.swarmy
+plans
+issues
+docs
+sdks
+terraform-provider-swarmy
+apps/web/**
+!apps/web/package.json
+apps/e2e
+packages/db/src/generated
+**/*.log
+.DS_Store
