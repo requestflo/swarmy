@@ -144,7 +144,7 @@ const DB_REGION_REPLICAS_RE = /^swarmy\.db\.region\.(.+)\.replicas$/;
 export const DB_TOPOLOGIES = [
   'single', // one writer, no replicas (replica service parked at 0)
   'primary-replica', // current default: 1 writer + N async read replicas
-  'failover', // primary-replica + an etcd consensus member + leader observation
+  'failover', // primary-replica + controller-decided promotion (caught-up rule)
   'geo', // write-region primary + per-region read replicas
   'active-active', // 2+ writable primaries (bidirectional logical replication)
 ] as const;
@@ -916,7 +916,7 @@ export async function confirmFailover(
  * Select (or change, in-situ) a cluster's HA topology. Pure Docker-truth: this
  * only stamps the `swarmy.db.topology` anchor label on every live member; the
  * manageddb-reconcile worker then CONVERGES the live member set to match —
- * standing up an etcd consensus member (failover), per-region read replicas
+ * enabling controller-decided promotion (failover), per-region read replicas
  * (geo), or extra primaries (active-active), and tearing down infra that the new
  * topology no longer needs. single/primary-replica behave exactly as before.
  *

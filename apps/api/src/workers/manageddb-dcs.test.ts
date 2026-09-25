@@ -1,18 +1,12 @@
 import { describe, expect, it } from 'bun:test';
-import { dcsSpec } from './manageddb-reconcile';
+import { dcsToRemove } from './manageddb-reconcile';
 
-/** QA-058: the DCS member keeps its data and stays off the primary's server. */
-const c = { base: 'qa-data_pg', stack: 'qa-data', cluster: 'pg' } as never;
-
-describe('dcsSpec', () => {
-  it('persists its data on a volume', () => {
-    expect(dcsSpec(c).mounts).toEqual([{ type: 'volume', source: 'qa-data_pg-dcs-data', target: '/etcd-data' }]);
+/** The failover topology no longer runs an etcd member; a leftover one is torn down. */
+describe('dcsToRemove', () => {
+  it('a leftover -dcs member is removed, whatever the topology', () => {
+    expect(dcsToRemove({ dcs: { name: 'qa-data_pg-dcs' } })).toBe('qa-data_pg-dcs');
   });
-  it('multi-server: never on the primary’s server', () => {
-    expect(dcsSpec(c, 'node-a', true).placement).toEqual({ constraints: ['node.id != node-a'] });
-  });
-  it('single server (nowhere else to go) or an unpinned primary: no constraint', () => {
-    expect(dcsSpec(c, 'node-a', false).placement).toBeUndefined();
-    expect(dcsSpec(c, undefined, true).placement).toBeUndefined();
+  it('nothing to remove when there is none', () => {
+    expect(dcsToRemove({})).toBeNull();
   });
 });

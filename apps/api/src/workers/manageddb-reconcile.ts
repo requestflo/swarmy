@@ -68,9 +68,9 @@ import {
  *   primary-replica → 1 writer + N async read replicas (the existing behaviour;
  *                     missing topology label defaults here, so legacy clusters are
  *                     untouched).
- *   failover        → primary-replica + a single-node etcd consensus member
- *                     (`-dcs`) as the election substrate, and the observed leader
- *                     reflected back as `swarmy.db.leader`.
+ *   failover        → primary-replica, with the observed leader reflected back as
+ *                     `swarmy.db.leader`; promotion is decided here, under the
+ *                     caught-up rule (no DCS member — see dcsToRemove).
  *   geo             → write-region primary (pinned to `swarmy.region==<region>`)
  *                     + per-region read-replica siblings materialised from
  *                     `swarmy.db.region.<region>.replicas`.
@@ -167,13 +167,6 @@ const SWARM_SERVICE_ID_LABEL = 'com.docker.swarm.service.id';
 const PG_PORT = 5432;
 const REPLICATION_USER = 'repl';
 const DEFAULT_DATABASE = 'app';
-/**
- * Election substrate for `failover` — a Patroni/Stolon image talks to this.
- * The etcd project's own release image (gcr.io/etcd-development is the
- * primary registry in etcd's release docs; multi-arch), configured by etcd's
- * native `ETCD_*` env flags — no vendor repackaging.
- */
-const ETCD_IMAGE = 'gcr.io/etcd-development/etcd:v3.5.21';
 
 const EXEC_TIMEOUT_MS = 15_000;
 const PROMOTE_TIMEOUT_MS = 30_000;
@@ -256,32 +249,14 @@ function memberLabels(
 const clusterNet = (c: Cluster) => `${c.base}-net`;
 
 /**
- * etcd member recording the cluster's leader. It observes the leader; it
- * does not arbitrate promotion (the lease-fenced controller does, gated by the
- * caught-up rule in @swarmy/core manageddb-failover). It used to be ephemeral
- * (data in the container) with no placement, so it could land on the primary's
- * server (QA-058). It now keeps its data on a volume and, on a multi-server
- * cluster, stays OFF the primary's server, so losing that server leaves the
- * record of who led. PURE — exported for tests.
+ * PURE — a leftover `-dcs` etcd member to tear down, or null. The failover
+ * topology used to add one, but nothing read it for the promotion decision
+ * (the lease-fenced controller decides, under the caught-up rule), so it only
+ * cost memory on small nodes and could break on its own. Every topology now
+ * removes it.
  */
-export function dcsSpec(c: Cluster, primaryNode?: string, multiNode = false): ServiceSpec {
-  const name = `${c.base}-dcs`;
-  return {
-    name,
-    image: ETCD_IMAGE,
-    mode: { replicated: { replicas: 1 } },
-    command: ['/usr/local/bin/etcd'],
-    env: {
-      ETCD_NAME: name,
-      ETCD_DATA_DIR: '/etcd-data',
-      ETCD_LISTEN_CLIENT_URLS: 'http://0.0.0.0:2379',
-      ETCD_ADVERTISE_CLIENT_URLS: `http://${name}:2379`,
-    },
-    labels: memberLabels(c, 'dcs', 'failover'),
-    networks: [clusterNet(c)],
-    mounts: [{ type: 'volume', source: `${c.base}-dcs-data`, target: '/etcd-data' }],
-    ...(multiNode && primaryNode ? { placement: { constraints: [`node.id != ${primaryNode}`] } } : {}),
-  };
+export function dcsToRemove(c: { dcs?: { name: string } }): string | null {
+  return c.dcs?.name ?? null;
 }
 
 /** A region-pinned streaming read replica (geo). Mirrors region-reconcile placement. */
@@ -1086,7 +1061,7 @@ async function maybePromote(
 
   // Labels-only flips: the promoted task keeps its promoted in-memory state.
   await setLabels(target.name, { [DB_ROLE_LABEL]: 'primary', [DB_LEADER_LABEL]: target.name });
-  const others = [primary, ...replicaMembers(c), c.dcs].filter(
+  const others = [primary, ...replicaMembers(c)].filter(
     (s): s is SwarmServiceInfo => Boolean(s) && s!.name !== target.name,
   );
   for (const member of others) {
@@ -1332,13 +1307,10 @@ async function reconcileOrg(orgId: string): Promise<void> {
       if ((c.replica.desiredReplicas ?? 0) !== target) await scale(c.replica.name, target);
     }
 
-    // (2) failover — etcd consensus member + leader observation.
+    // (2) failover — leader observation. (No etcd member: see dcsToRemove.)
+    const staleDcs = dcsToRemove(c);
+    if (staleDcs) await remove(staleDcs);
     if (topology === 'failover') {
-      // Converge every tick: an unchanged spec is a no-op at the hub (spec
-      // signature), and older ephemeral / co-located members get fixed.
-      const want = dcsSpec(c, primary?.labels[DB_PIN_NODE_LABEL], multiNode);
-      if (!c.dcs) await ensureNet(c);
-      await deploy(want);
       if (primary) {
         const healthy = (primary.runningReplicas ?? 0) > 0;
         const want = healthy ? primary.name : (primary.labels[DB_LEADER_LABEL] ?? '');
@@ -1346,9 +1318,6 @@ async function reconcileOrg(orgId: string): Promise<void> {
           await setLabels(primary.name, { [DB_LEADER_LABEL]: want });
         }
       }
-    } else if (c.dcs) {
-      // Topology moved away from failover → tear the consensus member down.
-      await remove(c.dcs.name);
     }
 
     // (3) geo — write-region primary + per-region read replicas.

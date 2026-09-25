@@ -52,8 +52,8 @@ export function failoverPolicy(topology: FailoverTopology): 'never' | 'gated' {
  * Can this cluster HONESTLY offer automatic failover right now (QA-058)? A
  * failover survives the primary's node dying only if a caught-up replica
  * lives on ANOTHER server. The promotion is arbitrated by the controller
- * (lease-fenced, a single writer), not by the `-dcs` etcd member, which only
- * observes the leader. Requirements:
+ * (lease-fenced, a single writer); there is no separate consensus service.
+ * Requirements:
  *  - at least 2 ready servers (the replica must not share the primary's);
  *  - at least one read replica declared;
  *  - the primary's data on a pinned persistent volume, which is what keeps the

@@ -1238,7 +1238,6 @@ export const data: DomainResolvers = {
         members: [
           { service: 'data_main-primary', role: 'primary', status: 'running', desired: 1, running: 1 },
           { service: 'data_main-replica', role: 'replica', status: 'running', desired: 2, running: 2, lagSeconds: 0.4 },
-          { service: 'data_main-dcs', role: 'dcs', status: 'running', desired: 1, running: 1 },
         ],
       },
       {

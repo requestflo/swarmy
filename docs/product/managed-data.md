@@ -105,9 +105,8 @@ Four ideas, one story:
 
 - **One provision form per data type, and swarmy fills the rest.** Postgres
   clusters ship topologies `single`, `primary-replica` (default), `failover`
-  (adds an etcd member that records the leader, on a volume and kept off the
-  primary's server; promotion itself is arbitrated by the lease-fenced
-  controller), `geo` (write-region primary + per-region read
+  (automatic promotion, decided by the lease-fenced controller under the
+  caught-up rule; no extra consensus service to run), `geo` (write-region primary + per-region read
   replicas via `swarmy.db.region.<region>.replicas`), and `active-active`.
   Caches ship `single` / `replica` / `sentinel` (primary + replicas + 3 sentinel
   members, quorum 2). Search is single-node Meilisearch or Typesense; vectors
@@ -174,7 +173,7 @@ Four ideas, one story:
   |---|---|
   | `single` | Never promoted — there is no replica. Restore from backup. |
   | `primary-replica` | Gated: auto-promote a provably caught-up replica, otherwise hold for confirmation. Same-region streaming is usually caught up, so this rarely asks. |
-  | `failover` | Same gate. The etcd member is the election substrate for a future Patroni-style engine; today the reconcile worker is the promoter. |
+  | `failover` | Same gate. The reconcile worker is the promoter; there is no etcd member (it was never read for the decision). If the controller itself moved (its node died with the primary's), the new controller has no watermark to prove a replica caught up, so it holds for confirmation. |
   | `geo` | Same gate. Cross-region replicas trail more often, so a geo failover asks for confirmation more often — by design. |
   | `active-active` | Never promoted — the other primaries are already writable. |
 
