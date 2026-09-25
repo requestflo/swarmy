@@ -43,6 +43,7 @@ export function CodeView({
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="font-display text-[16.5px] font-bold tracking-[-0.01em]">{title}</h2>
         <span className="text-muted-foreground text-xs">same data, same numbers</span>
+        {tab ? <CopyButton value={tab.code} className="ml-auto size-8" /> : null}
       </div>
       {tabs.length > 1 ? (
         <div role="tablist" aria-label="Format" className="border-border bg-background inline-flex w-fit gap-0.5 rounded-[10px] border p-0.5">
@@ -64,12 +65,9 @@ export function CodeView({
         </div>
       ) : null}
       {tab ? (
-        <div className="relative">
-          <pre tabIndex={0} aria-label={`${tab.label} code`} className="calm-code max-h-[560px] overflow-auto py-3 pr-12 pl-4 whitespace-pre">
-            {tab.code}
-          </pre>
-          <CopyButton value={tab.code} className="absolute top-2 right-2 size-8" />
-        </div>
+        <pre tabIndex={0} aria-label={`${tab.label} code`} className="calm-code max-h-[560px] overflow-auto px-4 py-3 whitespace-pre">
+          {tab.code}
+        </pre>
       ) : null}
       <p className="text-muted-foreground text-xs leading-relaxed">{note ?? SOURCE_NOTE[source]}</p>
     </section>
