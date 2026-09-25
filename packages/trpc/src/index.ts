@@ -386,6 +386,7 @@ export { meshConfigRepo } from './services/mesh-config.repo';
 export { reconcileMeshControl, getControlPlaneCard, managedOf, renderControlSpec } from './services/mesh-control.service';
 export type { ManagedControlPlane } from './services/mesh-control.service';
 export { reconcilePeopleAccess, computePeopleIntent, liveStacks } from './services/mesh-people.service';
+export { reconcileIntegrationsNetwork, integrationTargets, planIntegrations } from './services/integrations-network';
 export { observabilityConfigRepo } from './services/observability-config.repo';
 export { geoDnsConfigRepo, dnsZoneRepo } from './services/geodns.repo';
 export { storageClusterRepo, bucketAccessRepo } from './services/storage-cluster.repo';

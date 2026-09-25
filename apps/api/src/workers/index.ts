@@ -34,6 +34,7 @@ import { startAppSecretGc } from './app-secret-gc';
 import { startRumRetention } from './rum-retention';
 import { startErrorsAlerts } from './errors-alerts';
 import { startEmailReconcile } from './email-reconcile';
+import { startIntegrationsReconcile } from './integrations-reconcile';
 
 export function startWorkers(): () => void {
   const stops = [
@@ -74,6 +75,7 @@ export function startWorkers(): () => void {
     startRumRetention(),
     startErrorsAlerts(),
     startEmailReconcile(),
+    startIntegrationsReconcile(),
   ];
   return () => stops.forEach((s) => s());
 }

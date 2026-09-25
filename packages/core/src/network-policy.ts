@@ -23,12 +23,22 @@
  *                   …). Only the resource and the apps attached to it.
  *   swarmy-link-*   PER CONNECTED APP PAIR (explicit "connect apps"). Both
  *                   apps' services, aliased `<service>.<app>`.
+ *   swarmy-integrations  The controller's way OUT to in-swarm integrations:
+ *                   the controller, plus ONLY the services it must dial,
+ *                   i.e. discovered AI engines (Ollama / vLLM) and the
+ *                   in-swarm targets of alert channels / outbound webhooks.
+ *                   swarmy attaches and detaches them (the integrations
+ *                   reconcile); an app is never on it by default, can't
+ *                   declare it in compose, and can't alias on it. Nothing
+ *                   of the control plane (ClickHouse, the store) is on it.
  */
 
 /** The shared platform-services ("edge") overlay. Mirrors `SWARMY_OVERLAY_NETWORK`. */
 export const SHARED_PLATFORM_NETWORK = 'swarmy';
 /** The private control-plane overlay. User services never join it. */
 export const SWARMY_CONTROL_NETWORK = 'swarmy-control';
+/** The controller's egress overlay to in-swarm integration targets (see the header). */
+export const SWARMY_INTEGRATIONS_NETWORK = 'swarmy-integrations';
 /** Prefix of per-app-pair "connect apps" overlays. */
 export const LINK_NETWORK_PREFIX = 'swarmy-link-';
 /** Service label listing the peer apps a service's app is connected to (sorted, comma-joined). */
@@ -42,8 +52,13 @@ export const OVERLAY_MTU_OPTION = 'com.docker.network.driver.mtu';
 /** Docker overlay driver option turning on IPsec (value is ignored; `''` is conventional). */
 export const OVERLAY_ENCRYPTED_OPTION = 'encrypted';
 
-/** Networks a user-supplied service spec may attach to but never alias on. */
-export const PLATFORM_SHARED_NETWORKS: ReadonlySet<string> = new Set([SHARED_PLATFORM_NETWORK]);
+/**
+ * Networks a user-supplied service spec may carry but never alias on. The
+ * integrations overlay is here (not private) because a service swarmy attached
+ * keeps it through a live-spec rebuild; compose may still not DECLARE it, and
+ * the integrations reconcile detaches anything that isn't a target.
+ */
+export const PLATFORM_SHARED_NETWORKS: ReadonlySet<string> = new Set([SHARED_PLATFORM_NETWORK, SWARMY_INTEGRATIONS_NETWORK]);
 /** Networks a user-supplied service spec may never attach to at all. */
 export const PLATFORM_PRIVATE_NETWORKS: ReadonlySet<string> = new Set([SWARMY_CONTROL_NETWORK]);
 

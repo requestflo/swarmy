@@ -124,6 +124,9 @@ services:
       # every routed/observed app joins that one, and an app there could reach
       # (or alias-impersonate) the controller.
       - swarmy-control
+      # Egress to in-swarm integrations (discovered AI engines, alert/webhook
+      # targets). Only those services are attached to it; apps never are.
+      - swarmy-integrations
     deploy:
       # The control plane is platform plumbing, not a user app stack.
       labels:
@@ -172,6 +175,13 @@ networks:
   swarmy-control:
     external: true
     name: swarmy-control
+  # The controller's way out to in-swarm integration targets. swarmy attaches
+  # ONLY the services it must dial (discovered Ollama/vLLM, the in-swarm hosts
+  # of alert channels and outbound webhooks); nothing of the control plane is
+  # on it. The installer creates it.
+  swarmy-integrations:
+    external: true
+    name: swarmy-integrations
 
 volumes:
   swarmy-data:

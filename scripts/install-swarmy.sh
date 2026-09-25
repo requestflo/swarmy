@@ -74,6 +74,7 @@ STATE_DIR="/var/lib/swarmy/install"
 STATE_FILE="$STATE_DIR/state.env"
 OVERLAY_NET="swarmy"                           # SHARED platform overlay: edge ↔ routed apps, collector, Garage
 CONTROL_NET="swarmy-control"                   # PRIVATE control plane: controller + its DB (external in the stack file)
+INTEGRATIONS_NET="swarmy-integrations"         # controller → in-swarm integration targets only (AI engines, alert/webhook targets)
 CONTROLLER_DNS="swarmy_controller:3021"        # service name on swarmy-control
 # Platform services that bridge both overlays (they must reach the controller /
 # ClickHouse on swarmy-control): moved onto it BEFORE the controller leaves `swarmy`.
@@ -1207,6 +1208,7 @@ create_overlay() {
 ensure_overlay() {  # the stack file references swarmy-control as external — create both first
   create_overlay "$OVERLAY_NET" platform
   create_overlay "$CONTROL_NET" control
+  create_overlay "$INTEGRATIONS_NET" integrations
 }
 
 # Existing installs: every platform service that must reach the control plane

@@ -165,6 +165,25 @@ function decryptConfig(row: ChannelRow): ChannelConfigInput | null {
 }
 
 /**
+ * URLs the enabled alert channels deliver to (ntfy/gotify servers, slack/
+ * teams/discord/webhook URLs) — the integrations reconcile attaches their
+ * in-swarm hosts to the controller's egress overlay. Never returned to a client.
+ */
+export async function channelEndpointUrls(ctx: Pick<OrgContext, 'db' | 'activeOrgId'>): Promise<string[]> {
+  const rows = (await ctx.db.notificationChannel.findMany({
+    where: { orgId: ctx.activeOrgId, enabled: true },
+  })) as ChannelRow[];
+  const out: string[] = [];
+  for (const row of rows) {
+    const c = decryptConfig(row);
+    if (!c) continue;
+    if (c.kind === 'ntfy' || c.kind === 'gotify') out.push(c.server);
+    else if ('url' in c && typeof c.url === 'string') out.push(c.url);
+  }
+  return out;
+}
+
+/**
  * POST one rendered channel request. On failure the detail carries the
  * provider's own reason when it gives one (Telegram's `description`, ntfy's
  * `error`, Discord's `message`) — with every secret scrubbed out.

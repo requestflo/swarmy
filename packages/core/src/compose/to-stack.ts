@@ -1,7 +1,7 @@
 import { composeToModels, type ComposeFile } from './from-compose';
 import { modelToServiceSpec, type ServiceSpecLike } from './to-spec';
 import type { TranslationWarning } from './warnings';
-import { PLATFORM_PRIVATE_NETWORKS, PLATFORM_SHARED_NETWORKS } from '../network-policy';
+import { PLATFORM_PRIVATE_NETWORKS, PLATFORM_SHARED_NETWORKS, SWARMY_INTEGRATIONS_NETWORK } from '../network-policy';
 
 /**
  * compose object + stack name -> the namespaced swarm specs a
@@ -159,6 +159,11 @@ export function composeToStack(
     if (PLATFORM_PRIVATE_NETWORKS.has(name)) {
       throw new ComposeStackError(
         `service "${svcShort}" joins \`${name}\` — that is swarmy's private control-plane network; app services can't join it`,
+      );
+    }
+    if (name === SWARMY_INTEGRATIONS_NETWORK) {
+      throw new ComposeStackError(
+        `service "${svcShort}" joins \`${name}\` — swarmy attaches only the integration targets it dials (AI engines, alert/webhook targets); an app can't declare it`,
       );
     }
     if (!external && !networks.has(name) && !PLATFORM_SHARED_NETWORKS.has(name)) {
