@@ -82,6 +82,13 @@ jobs:
             image: ghcr.io/${{ github.repository_owner }}/swarmy-app-auth
             dockerfile: docker/app-auth/Dockerfile
             context: docker/app-auth
+          # wal-g for managed Postgres PITR: upstream ships binaries only, so this
+          # wraps the checksum-verified official release binary (docker/walg).
+          - name: walg
+            bom: walg
+            image: ghcr.io/${{ github.repository_owner }}/swarmy-walg
+            dockerfile: docker/walg/Dockerfile
+            context: docker/walg
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3

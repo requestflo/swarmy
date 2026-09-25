@@ -94,7 +94,6 @@ export const SYSTEM_IMAGES: readonly SystemImage[] = [
   { key: 'cosign', ref: 'gcr.io/projectsigstore/cosign:v2.4.1', digest: 'sha256:b03690aa52bfe94054187142fba24dc54137650682810633901767d8a3e15b31' },
   { key: 'busybox', ref: 'busybox:1.36', digest: 'sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662' },
   { key: 'restic', ref: 'restic/restic:0.16.4', digest: 'sha256:dad38b8042cfb1a759a958ed0061b888ebd05b1e780125a1fb4e2d687c6c0556' },
-  { key: 'walg', ref: 'ghcr.io/wal-g/wal-g:v3.0.3' },
   { key: 'garage', ref: 'dxflrs/garage:v2.4.1', digest: 'sha256:9c96caa2612d3411acc5b0e6701fb238dbfba33e533a6d7d3d811a4b12d0d020' },
   { key: 'garageV1', ref: 'dxflrs/garage:v1.0.1', digest: 'sha256:a5706cf1f3d7b349ac5133ec59ad8181b709270b75e5f2fa7b3e1a5c07d67137' },
   { key: 'clickhouse', ref: 'clickhouse/clickhouse-server:24.8-alpine', digest: 'sha256:b002e56ed5c16e224c312527f6fcba7e77216fec5d7a88a7828f59efc614feb5' },
@@ -121,6 +120,10 @@ export const SYSTEM_IMAGES: readonly SystemImage[] = [
   { key: 'controller', ref: 'ghcr.io/requestflo/swarmy-controller:latest' },
   // Per-app Better Auth service for `auth:` in swarmy.yaml (docker/app-auth, dev-platform §2B).
   { key: 'appAuth', ref: 'ghcr.io/requestflo/swarmy-app-auth:latest' },
+  // wal-g for managed Postgres PITR (docker/walg). wal-g ships release binaries, not
+  // images, so swarmy builds this from the checksum-verified v3.0.3 Postgres build;
+  // CI's platform.json pins its digest like the other swarmy builds (bom: walg).
+  { key: 'walg', ref: 'ghcr.io/requestflo/swarmy-walg:latest' },
 ];
 
 /** Repo namespace inside the built-in registry that holds the mirrored copies. */

@@ -127,3 +127,22 @@ describe('renderMirrorScript', () => {
     expect(s.split(MIRROR_FAIL_MARKER).length - 1).toBe(2);
   });
 });
+
+describe('walg is swarmy-built (QA-046)', () => {
+  test('points at swarmy-walg, the image CI builds from the checksum-verified release binary', async () => {
+    const { readFileSync } = await import('node:fs');
+    const path = await import('node:path');
+    const { SYSTEM_IMAGES } = await import('./system-images');
+    const { DEFAULT_WALG_IMAGE } = await import('./protocol/dbBackup');
+    const walg = SYSTEM_IMAGES.find((i) => i.key === 'walg')!;
+    expect(walg.ref).toBe('ghcr.io/requestflo/swarmy-walg:latest');
+    expect(DEFAULT_WALG_IMAGE).toBe(walg.ref);
+    const root = path.resolve(import.meta.dir, '../../..');
+    const wf = readFileSync(path.join(root, '.github/workflows/images.yml'), 'utf8');
+    expect(wf).toMatch(/- name: walg\n\s+bom: walg\n\s+image: ghcr\.io\/\$\{\{ github\.repository_owner \}\}\/swarmy-walg\n\s+dockerfile: docker\/walg\/Dockerfile/);
+    const df = readFileSync(path.join(root, 'docker/walg/Dockerfile'), 'utf8');
+    expect(df).toMatch(/ARG WALG_SHA256_AMD64=[0-9a-f]{64}/);
+    expect(df).toMatch(/ARG WALG_SHA256_ARM64=[0-9a-f]{64}/);
+    expect(df).toContain('sha256sum -c -');
+  });
+});

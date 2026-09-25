@@ -57,7 +57,8 @@ export function managedPgTag(tag: string): string {
 
 /** Pinned default images for the DB engines. */
 export const DEFAULT_PG_CLIENT_IMAGE = DEFAULT_MANAGED_PG_IMAGE;
-export const DEFAULT_WALG_IMAGE = 'ghcr.io/wal-g/wal-g:v3.0.3';
+/** swarmy's own wal-g build (docker/walg): there is no upstream wal-g image. Same ref as the `walg` system image. */
+export const DEFAULT_WALG_IMAGE = 'ghcr.io/requestflo/swarmy-walg:latest';
 export const DEFAULT_PGBACKREST_IMAGE = 'pgbackrest/pgbackrest:2.51';
 
 /**
