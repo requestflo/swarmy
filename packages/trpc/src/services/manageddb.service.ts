@@ -295,6 +295,27 @@ export function runningTaskOf(
   return undefined;
 }
 
+/**
+ * Default standby (plans/epic-volume-mobility.md §5.1, owner-approved): a new
+ * managed Postgres gets ONE streaming standby once the swarm has this many
+ * ready servers. It is anti-affine to the primary (`node.id!=<primary>`), so
+ * it is a copy on a different server. Costs about
+ * {@link DEFAULT_STANDBY_RAM_MB} MB of RAM.
+ */
+export const DEFAULT_STANDBY_MIN_SERVERS = 2;
+/** Rough resident size of one idle standby (shown in the create form). */
+export const DEFAULT_STANDBY_RAM_MB = 100;
+
+/** Pure: replicas for a new cluster when the caller did not choose. */
+export function defaultStandbyReplicas(readyServers: number): number {
+  return readyServers >= DEFAULT_STANDBY_MIN_SERVERS ? 1 : 0;
+}
+
+/** Servers a standby could land on: ready + active (not paused/drained). */
+export function readyServerCount(nodes: ReadonlyArray<{ status?: string; availability?: string }>): number {
+  return nodes.filter((n) => n.status === 'ready' && n.availability === 'active').length;
+}
+
 /** More than one swarm node ⇒ replicas get anti-affinity from the primary's node. */
 function isMultiNode(ctx: OrgContext): boolean {
   return ctx.hub.nodeInventory(ctx.activeOrgId).length > 1;
@@ -339,8 +360,14 @@ export interface ProvisionDbInput {
   /** Cluster name, e.g. "main". Service names derive from <stack>_<name>-*. */
   name: string;
   engine?: DbEngine;
-  /** Number of read replicas (the replica service's desired replica count). */
-  replicas: number;
+  /**
+   * Number of read replicas (the replica service's desired replica count).
+   * Omitted ⇒ the default standby: 1 copy on a different server once the swarm
+   * has {@link DEFAULT_STANDBY_MIN_SERVERS}+ ready servers, else 0 (see
+   * {@link defaultStandbyReplicas}). A re-provision keeps the declared count.
+   * Pass 0 to opt out of the standby.
+   */
+  replicas?: number;
   /** Optional caller-supplied superuser password; generated when omitted. */
   password?: string;
   /** Database created on the primary (default "app"). */
@@ -400,6 +427,8 @@ export interface ProvisionDbResult {
   rwHost: string;
   roHost: string;
   replicas: number;
+  /** True when `replicas` was not given and the server-count default chose it. */
+  replicasDefaulted: boolean;
   /**
    * Generated/used superuser password. Returned ONCE here so the caller can
    * surface it; it is NOT stored anywhere outside Docker. See the secret
@@ -518,7 +547,6 @@ export async function provisionDb(
   const stack = input.stack.trim();
   const cluster = input.name.trim();
   if (!stack || !cluster) throw commandRejected('stack and name are required');
-  const replicas = Math.max(0, Math.floor(input.replicas));
   const database = (input.database ?? DEFAULT_DATABASE).trim() || DEFAULT_DATABASE;
   const node = await resolveManagerNode(ctx);
 
@@ -529,6 +557,19 @@ export async function provisionDb(
   // One password reused for the superuser + replication account keeps the slice
   // simple; both services must agree on the replication credential.
   const existing = findCluster(ctx, stack, cluster).primary;
+  // Replicas: explicit → the live declaration (re-provision keeps it) → the
+  // default standby when the swarm has 2+ ready servers.
+  const declaredReplicas = existing ? Number.parseInt(existing.labels[DB_REPLICAS_LABEL] ?? '', 10) : Number.NaN;
+  const replicasDefaulted = input.replicas == null && !Number.isFinite(declaredReplicas);
+  const replicas = Math.max(
+    0,
+    Math.floor(
+      input.replicas ??
+        (Number.isFinite(declaredReplicas)
+          ? declaredReplicas
+          : defaultStandbyReplicas(readyServerCount(ctx.hub.nodeInventory(ctx.activeOrgId)))),
+    ),
+  );
   const image = resolveManagedPgImage(input, existing?.image);
   const password =
     input.password?.trim() ||
@@ -643,6 +684,7 @@ export async function provisionDb(
     rwHost: primary,
     roHost: replica,
     replicas,
+    replicasDefaulted,
     password,
   };
 }
@@ -932,9 +974,7 @@ export function getFailoverReadiness(
 ): ReturnType<typeof failoverReadiness> {
   const { primary, members } = findCluster(ctx, input.stack, input.cluster);
   if (members.length === 0) throw notFound('db cluster', input.cluster);
-  const readyNodes = ctx.hub
-    .nodeInventory(ctx.activeOrgId)
-    .filter((n) => n.status === 'ready' && n.availability === 'active').length;
+  const readyNodes = readyServerCount(ctx.hub.nodeInventory(ctx.activeOrgId));
   const replicas = Number.parseInt(primary?.labels[DB_REPLICAS_LABEL] ?? '0', 10) || 0;
   return failoverReadiness({ readyNodes, replicas, primaryPinned: !!primary?.labels[DB_PIN_NODE_LABEL] });
 }

@@ -24,11 +24,11 @@ export function DbDeclareClusterForm({
   // First database defaults to "main"; once one exists the field starts empty
   // (placeholder-guided) so you name a NEW one instead of re-declaring "main".
   const [name, setName] = React.useState(hasClusters ? '' : 'main');
-  // Replicas are anti-affine to the primary: each needs its own node. Default
-  // to what the swarm can actually place (≤2), following the nodes query in
-  // until the user picks a number themselves.
+  // Default standby: one copy on a different server once there are 2+ servers
+  // (the server applies the same default when replicas is omitted). Follows
+  // the nodes query in until the user picks a number; 0 opts out.
   const onlineNodes = useOnlineNodeCount();
-  const fitReplicas = onlineNodes === undefined ? 0 : Math.min(2, Math.max(0, onlineNodes - 1));
+  const fitReplicas = onlineNodes !== undefined && onlineNodes >= 2 ? 1 : 0;
   const [replicas, setReplicasState] = React.useState(fitReplicas);
   const touched = React.useRef(false);
   const setReplicas = (n: number): void => {
@@ -114,6 +114,11 @@ export function DbDeclareClusterForm({
             <DatabaseIcon className="size-4" /> Provision
           </Button>
         </div>
+        {replicas > 0 && (
+          <p className="text-muted-foreground mono-label">
+            Each standby is a live copy on another server — about {100 * replicas} MB of RAM. Set 0 to skip it.
+          </p>
+        )}
         {duplicate ? (
           <p className="text-destructive mono-label">
             <code className="mono-data">{trimmed}</code> already exists in this stack — pick a different name.

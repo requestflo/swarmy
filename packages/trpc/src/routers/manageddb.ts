@@ -49,7 +49,8 @@ export const managedDbRouter = router({
         stack: stackName,
         name: clusterName,
         engine: z.literal('postgres').default('postgres'),
-        replicas: z.number().int().min(0).max(20),
+        /** Omitted ⇒ 1 standby on another server when the swarm has 2+ ready servers; 0 opts out. */
+        replicas: z.number().int().min(0).max(20).optional(),
         password: z.string().min(8).max(128).optional(),
         database: z
           .string()
