@@ -11,3 +11,4 @@ export * from './tech';
 export * from './code-view';
 export * from './status-word';
 export * from './calm-tabs';
+export * from './code';
