@@ -54,7 +54,7 @@ export function StudioSidebar(p: StudioSidebarProps): React.JSX.Element {
         <>
           {p.schema && p.schema.databases.length > 1 ? (
             <Select value={p.database ?? p.schema.database ?? ''} onValueChange={p.onDatabase}>
-              <SelectTrigger className="mb-1 h-8 text-xs"><SelectValue placeholder="database" /></SelectTrigger>
+              <SelectTrigger aria-label="Database" className="mb-1 h-8 text-xs"><SelectValue placeholder="database" /></SelectTrigger>
               <SelectContent>{p.schema.databases.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
             </Select>
           ) : null}

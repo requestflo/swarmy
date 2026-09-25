@@ -11,6 +11,9 @@ import { StudioKeys } from './studio-keys';
 import { StudioConsole } from './studio-console';
 import { StudioSaved } from './studio-saved';
 import { StudioInsights } from './studio-insights';
+import { Depth, SayHeader } from '@/components/calm';
+import { StudioSummary } from './studio-summary';
+import { StudioCode } from './studio-code';
 import { isKvEngine, type StudioScope, type StudioTab, type StudioTableView } from './studio-types';
 
 const TABS: Array<[StudioTab | 'structure', string]> = [['data', 'Data'], ['structure', 'Structure'], ['console', 'Console'], ['saved', 'Saved queries'], ['insights', 'Slow queries']];
@@ -33,7 +36,7 @@ export function StudioPage({ stack, db, onDb }: { stack: string; db?: string; on
   const tables = schema.data?.tables;
   React.useEffect(() => { if (tables && (!table || !tables.some((t) => t.name === table.name && t.schema === table.schema))) setTable(tables[0] ?? null); }, [tables, table]);
 
-  if (targets.isPending) return <PageSkeleton />;
+  if (targets.isPending) return <PageSkeleton className="px-0 pt-0 xl:px-0" />;
   if (targets.isError) return <ErrorState error={targets.error} retry={() => void targets.refetch()} />;
   if (!current) return <EmptyState icon={<DatabaseIcon />} title="No databases in this app yet" description="Add managed Postgres on the Data tab, or deploy MySQL, MariaDB, Postgres, Mongo, Redis or Valkey in the compose file — they show up here." />;
 
@@ -41,15 +44,15 @@ export function StudioPage({ stack, db, onDb }: { stack: string; db?: string; on
   const kv = isKvEngine(current.engine);
   const openInConsole = (s: string) => { setDraft(s); setTab('console'); };
 
-  return (
-    <div className="card-pop flex min-h-[40rem] flex-col overflow-hidden border-0 lg:flex-row">
+  const box = (
+    <div className="calm-card flex min-h-[40rem] flex-col overflow-hidden lg:flex-row">
       <StudioSidebar targets={targets.data} current={current} onPick={onDb} schema={schema.data} database={scope.database} onDatabase={setDatabase} dbIndex={dbIndex} onDbIndex={setDbIndex} table={table} onTable={(t) => { setTable(t); if (tab !== 'structure') setTab('data'); }} />
       <section className="flex min-w-0 flex-1 flex-col gap-3 p-4">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="font-display text-xl font-bold">{kv ? 'Keys' : (table?.name ?? current.name)}</h2>
           <span className="text-muted-foreground font-mono text-xs">{current.name} · {current.engine}{schema.data?.version ? ` ${schema.data.version.split(/[ -]/)[0]}` : ''}</span>
           <div className="flex-1" />
-          <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs', unlocked ? 'bg-status-warning/15 text-status-warning' : 'bg-muted text-muted-foreground')}>
+          <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs', unlocked ? 'bg-status-warning/15 text-tone-warn' : 'bg-muted text-muted-foreground')}>
             {unlocked ? <LockOpenIcon className="size-3" /> : <LockIcon className="size-3" />}
             {unlocked ? 'Writes unlocked — each one is confirmed and audited' : 'Read-only · writes need data.write'}
           </span>
@@ -57,7 +60,7 @@ export function StudioPage({ stack, db, onDb }: { stack: string; db?: string; on
         </div>
         <div role="tablist" aria-label="Studio views" className="bg-muted flex w-fit flex-wrap gap-1 rounded-full p-1">
           {TABS.filter(([k]) => !(kv && k === 'structure')).map(([k, label]) => (
-            <button key={k} role="tab" type="button" aria-selected={tab === k} onClick={() => setTab(k)} className={cn('rounded-full px-3 py-1 text-xs font-semibold', tab === k ? 'bg-card shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+            <button key={k} role="tab" type="button" aria-selected={tab === k} onClick={() => setTab(k)} className={cn('min-h-9 rounded-full px-3 py-1 text-xs font-semibold pointer-coarse:min-h-11', tab === k ? 'bg-card shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
               {kv && k === 'data' ? 'Keys' : label}
             </button>
           ))}
@@ -66,6 +69,26 @@ export function StudioPage({ stack, db, onDb }: { stack: string; db?: string; on
           <StudioTabBody tab={tab} scope={scope} table={table} schemaPending={schema.isPending} schemaError={schema.error} draft={draft} setDraft={setDraft} openInConsole={openInConsole} />
         )}
       </section>
+    </div>
+  );
+  const nTables = schema.data?.tables.length;
+  return (
+    <div className="flex flex-col gap-5">
+      <SayHeader
+        size="md"
+        title={
+          <>
+            {current.name} {kv ? 'holds' : 'has'} {kv ? 'keys' : nTables === undefined ? 'tables' : `${nTables} ${nTables === 1 ? 'table' : 'tables'}`}.{' '}
+            <em>{unlocked ? 'Writes are unlocked, each one confirmed.' : 'Read-only until you unlock writes.'}</em>
+          </>
+        }
+        lede={`Browse, edit and query ${current.engine}. Every query runs through the agent on the database’s server, never a public port, and is audited.`}
+      />
+      <StudioCode stack={stack} target={current} table={table} />
+      <Depth only="summary">
+        <StudioSummary targets={targets.data} current={current} onPick={onDb} schema={schema.data} onTable={setTable} />
+      </Depth>
+      <Depth at="controls">{box}</Depth>
     </div>
   );
 }
