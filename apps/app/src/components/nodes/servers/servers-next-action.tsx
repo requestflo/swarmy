@@ -13,7 +13,7 @@ import { gb } from './server-words';
  * one-off containers; never an image a running service or the previous
  * release uses).
  */
-export function TidyUpNext({ server }: { server: FleetServer }): React.JSX.Element {
+export function TidyUpNext({ server, here }: { server: FleetServer; here?: boolean }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const run = useMutation(
@@ -29,18 +29,20 @@ export function TidyUpNext({ server }: { server: FleetServer }): React.JSX.Eleme
   const { node, live, diskPct } = server;
   return (
     <NextAction
-      title={`Free up space on ${node.name}.`}
+      title={here ? 'Free up space here.' : `Free up space on ${node.name}.`}
       tech={`nodes.runHygiene · prunes stopped containers, unused images, build cache · ${gb(live?.fsUsedBytes)} of ${gb(live?.fsTotalBytes)} used`}
       actions={
         <>
           <Button disabled={run.isPending} onClick={() => run.mutate({ nodeId: node.id })} className="pointer-coarse:min-h-11">
             {run.isPending ? 'Tidying up…' : `Tidy up ${node.name}`}
           </Button>
-          <Button asChild variant="ghost" className="pointer-coarse:min-h-11">
-            <Link to="/nodes/$nodeId" params={{ nodeId: node.id }}>
-              See what's using it
-            </Link>
-          </Button>
+          {here ? null : (
+            <Button asChild variant="ghost" className="pointer-coarse:min-h-11">
+              <Link to="/nodes/$nodeId" params={{ nodeId: node.id }}>
+                See what's using it
+              </Link>
+            </Button>
+          )}
         </>
       }
     >

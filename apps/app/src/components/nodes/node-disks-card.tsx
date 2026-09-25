@@ -44,7 +44,7 @@ export function NodeDisksCard({ nodeId, online }: { nodeId: string; online: bool
   if (!v || shown.length === 0) return null;
 
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className="calm-card border-0">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <HardDriveIcon className="text-primary size-4" />
@@ -64,7 +64,7 @@ export function NodeDisksCard({ nodeId, online }: { nodeId: string; online: bool
               v.formatAllowed ? (
                 <AlertDialog onOpenChange={() => setConfirm('')}>
                   <AlertDialogTrigger asChild>
-                    <Button size="sm" disabled={format.isPending}>Format and use</Button>
+                    <Button size="sm" variant="outline" disabled={format.isPending}>Format and use</Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>

@@ -1,89 +1,13 @@
 import * as React from 'react';
 import { createFileRoute, useParams } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
-import { useRolling } from '@/components/charts';
-import { NodeActions } from '@/components/nodes/node-actions';
-import { NodeLivePanel } from '@/components/nodes/node-live-panel';
-import { NodeDetailsPanel } from '@/components/nodes/node-details-panel';
-import { NodeContainersPanel } from '@/components/nodes/node-containers-panel';
-import { NodeControlsPanel } from '@/components/nodes/node-controls-panel';
-import { NodeRepairCard } from '@/components/nodes/node-repair-card';
-import { NodeSwarmJoinBanner } from '@/components/nodes/node-swarm-join-banner';
-import { NodeHygienePanel } from '@/components/nodes/node-hygiene-panel';
-import { NodeOldCopiesCard } from '@/components/nodes/node-old-copies-card';
-import { NodeRetirePanel } from '@/components/nodes/node-retire-panel';
-import { NodeDisksCard } from '@/components/nodes/node-disks-card';
+import { ServerDetailPage } from '@/components/nodes/server-detail/server-detail-page';
 
+/** One server: sentence, next action, what runs here, and every knob at Controls (components/nodes/server-detail). */
 export const Route = createFileRoute('/_authed/nodes/$nodeId')({
-  component: NodeDetailPage,
+  component: NodeDetailRoute,
 });
 
-function NodeDetailPage(): React.JSX.Element {
-  const trpc = useTRPC();
+function NodeDetailRoute(): React.JSX.Element {
   const { nodeId } = useParams({ from: '/_authed/nodes/$nodeId' });
-
-  const node = useQuery({ ...trpc.nodes.get.queryOptions({ id: nodeId }), refetchInterval: 5_000 });
-  const live = useQuery({
-    ...trpc.nodes.liveStatsLatest.queryOptions({ nodeId }),
-    refetchInterval: 2_000,
-  });
-  const containers = useQuery({
-    ...trpc.nodes.containers.queryOptions({ nodeId }),
-    refetchInterval: 5_000,
-  });
-  const costs = useQuery({ ...trpc.cost.overview.queryOptions(), refetchInterval: 5_000 });
-
-  const point = React.useMemo(
-    () =>
-      live.data
-        ? {
-            t: new Date().toLocaleTimeString(),
-            cpu: Number(live.data.cpuPercent.toFixed(1)),
-            mem: live.data.memTotalBytes
-              ? Number(((live.data.memUsedBytes / live.data.memTotalBytes) * 100).toFixed(1))
-              : 0,
-          }
-        : undefined,
-    [live.dataUpdatedAt, live.data],
-  );
-  const trend = useRolling(point, 60);
-
-  const n = node.data;
-  const monthlyUsd = costs.data?.nodes.find((c) => c.nodeId === nodeId)?.monthlyUsd ?? null;
-
-  return (
-    <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Infrastructure · Node"
-        title={
-          <>
-            {n?.name ?? 'Node'} is <em>{n?.status ?? 'unknown'}</em>.
-          </>
-        }
-        description={
-          n ? `${n.hostname} · ${n.engineVersion ?? 'docker'} · ${n.os ?? ''}` : undefined
-        }
-        actions={<NodeActions nodeId={nodeId} />}
-      />
-
-      <NodeRepairCard node={n} />
-      <NodeSwarmJoinBanner node={n} />
-
-      {/* minmax(0,…) tracks: a plain `fr` track has a min-content floor, so a wide
-          chart or a long mono value would push the page into a horizontal scroll. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <NodeLivePanel live={live.data} trend={trend} />
-        <NodeDetailsPanel node={n} live={live.data} />
-      </div>
-
-      <NodeControlsPanel node={n} monthlyUsd={monthlyUsd} />
-      <NodeContainersPanel containers={containers.data} />
-      <NodeHygienePanel nodeId={nodeId} />
-      <NodeDisksCard nodeId={nodeId} online={n?.status === 'online'} />
-      <NodeOldCopiesCard nodeId={nodeId} />
-      <NodeRetirePanel nodeId={nodeId} />
-    </div>
-  );
+  return <ServerDetailPage nodeId={nodeId} />;
 }

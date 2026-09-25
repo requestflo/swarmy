@@ -20,7 +20,7 @@ interface NodeLivePanelProps {
 export function NodeLivePanel({ live, trend }: NodeLivePanelProps): React.JSX.Element {
   const memPercent = live?.memTotalBytes ? (live.memUsedBytes / live.memTotalBytes) * 100 : 0;
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card border-0">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <ActivityIcon className="text-primary size-4" /> Live utilization

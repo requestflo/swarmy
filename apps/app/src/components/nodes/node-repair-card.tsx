@@ -76,7 +76,7 @@ export function NodeRepairCard({ node }: { node: NodeDetail | undefined }): Reac
     generate.mutate({ label: `repair:${node.hostname}`, ttlSeconds: REPAIR_TOKEN_TTL_SECONDS });
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card border-0">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <WrenchIcon className="size-4" />

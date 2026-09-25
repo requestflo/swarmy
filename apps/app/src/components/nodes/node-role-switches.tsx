@@ -107,7 +107,7 @@ export function RoleRow({ icon, label, hint, checked, disabled, onCheckedChange 
         </Label>
         <p className="text-muted-foreground mt-0.5 text-xs leading-snug">{hint}</p>
       </div>
-      <Switch checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
+      <Switch aria-label={label} checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
     </div>
   );
 }

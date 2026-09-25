@@ -21,7 +21,7 @@ interface NodeControlsPanelProps {
  */
 export function NodeControlsPanel({ node, monthlyUsd }: NodeControlsPanelProps): React.JSX.Element {
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className="calm-card border-0">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <SlidersHorizontalIcon className="text-primary size-4" /> Controls

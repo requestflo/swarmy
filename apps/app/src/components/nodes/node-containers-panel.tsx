@@ -1,17 +1,7 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
-import { BoxesIcon } from 'lucide-react';
-import {
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  EmptyState,
-  StatusBadge,
-  type StatusTone,
-} from '@swarmy/ui';
-import { StatusWord, toneFromStatus } from '@/components/calm';
+import type { StatusTone } from '@swarmy/ui';
+import { CalmRow, RowList, Section, toneFromStatus } from '@/components/calm';
 
 /** The container fields this list renders (subset of the agent container view). */
 export interface NodeContainer {
@@ -40,53 +30,35 @@ interface NodeContainersPanelProps {
 export function NodeContainersPanel({ containers }: NodeContainersPanelProps): React.JSX.Element {
   const rows = containers ?? [];
   return (
-    <Card className="card-pop mt-6 border-0">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <BoxesIcon className="text-primary size-4" /> Containers
-          <span className="mono-data text-muted-foreground">{rows.length}</span>
-        </CardTitle>
-      </CardHeader>
-      {/* grid-cols-1 = minmax(0,1fr): an implicit `auto` track would grow to the
-          full width of a truncated image ref and scroll the whole page. */}
-      <CardContent className="divide-border grid grid-cols-1 divide-y">
-        {rows.map((c) => {
-          const tone = STATE_TONE[c.state] ?? 'neutral';
-          return (
-            <div
-              key={c.id}
-              className="hover:bg-accent/60 -mx-2 flex items-center justify-between gap-4 rounded-xl px-4 py-3 transition-colors"
-            >
-              <div className="flex min-w-0 items-center gap-3">
-                <StatusBadge tone={tone} label="" />
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{c.name}</p>
-                  <p className="mono-label text-muted-foreground truncate">{c.image}</p>
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-4">
-                <span className="mono-data text-muted-foreground hidden text-xs sm:inline">
-                  {c.status}
-                </span>
-                <StatusWord tone={toneFromStatus(tone)} word={c.state} />
-              </div>
-            </div>
-          );
-        })}
-        {containers?.length === 0 ? (
-          <EmptyState
-            className="border-0"
-            icon={<BoxesIcon />}
-            title="Nothing running here yet"
-            description="Deploy a service and swarmy will place containers on this node."
-            action={
-              <Button asChild className="font-bold">
-                <Link to="/services/new">Deploy a service</Link>
-              </Button>
-            }
-          />
-        ) : null}
-      </CardContent>
-    </Card>
+    <Section title="Running here" count={containers ? rows.length : undefined} flush>
+      {containers === undefined ? (
+        <span className="shimmer-line my-3 block h-10 rounded-lg" />
+      ) : rows.length === 0 ? (
+        <p className="text-muted-foreground py-4 text-sm">
+          Nothing runs here yet.{' '}
+          <Link to="/deploy" className="text-primary font-semibold hover:underline">
+            Deploy an app
+          </Link>{' '}
+          and swarmy places it on a server with room.
+        </p>
+      ) : (
+        <RowList label="Containers on this server">
+          {rows.map((c) => {
+            const tone = toneFromStatus(STATE_TONE[c.state] ?? 'neutral');
+            return (
+              <CalmRow
+                key={c.id}
+                tone={tone}
+                name={c.name.replace(/^\//, '')}
+                sub={c.image}
+                say={c.status}
+                word={c.state}
+                wordTone={tone}
+              />
+            );
+          })}
+        </RowList>
+      )}
+    </Section>
   );
 }

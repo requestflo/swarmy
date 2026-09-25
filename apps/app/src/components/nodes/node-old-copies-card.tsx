@@ -42,7 +42,7 @@ export function NodeOldCopiesCard({ nodeId }: { nodeId: string }): React.JSX.Ele
   const due = list.filter((c) => c.due).length;
 
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className="calm-card border-0">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <ArchiveIcon className="text-primary size-4" />

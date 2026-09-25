@@ -92,7 +92,7 @@ export function NodeRegionCostForm({
           value={region ?? ''}
           onValueChange={(v) => setRegion.mutate({ id: nodeId, region: v })}
         >
-          <SelectTrigger className="w-full">
+          <SelectTrigger aria-label="Region" className="w-full">
             <SelectValue placeholder="Unset" />
           </SelectTrigger>
           <SelectContent>

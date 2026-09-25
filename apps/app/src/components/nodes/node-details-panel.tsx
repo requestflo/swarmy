@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUpCircleIcon } from 'lucide-react';
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, toast } from '@swarmy/ui';
 import { NODE_STATUS_TONE } from '@swarmy/core';
-import type { NodeDetail, NodeStatsSnapshot } from '@swarmy/core';
+import type { NodeDetail, NodeStatsSnapshot, NodeSummary } from '@swarmy/core';
 import { bytes, cores, pct } from '@/lib/format';
 import { useTRPC } from '@/integrations/trpc';
 import { StatusWord, toneFromStatus } from '@/components/calm';
@@ -16,7 +16,7 @@ interface NodeDetailsPanelProps {
 /** Static facts about the node — status, role, sizing, agent — as a hairline list. */
 export function NodeDetailsPanel({ node, live }: NodeDetailsPanelProps): React.JSX.Element {
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card border-0">
       <CardHeader>
         <CardTitle className="text-base">Details</CardTitle>
       </CardHeader>
@@ -47,7 +47,7 @@ export function NodeDetailsPanel({ node, live }: NodeDetailsPanelProps): React.J
 }
 
 /** Agent version + an "Update" affordance when this controller has a newer release. */
-function AgentVersionCell({ node }: { node: NodeDetail | undefined }): React.JSX.Element {
+export function AgentVersionCell({ node }: { node: NodeSummary | undefined }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const release = useQuery(trpc.nodes.agentRelease.queryOptions());

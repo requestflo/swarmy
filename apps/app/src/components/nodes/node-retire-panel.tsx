@@ -79,7 +79,7 @@ export function NodeRetirePanel({ nodeId }: { nodeId: string }): React.JSX.Eleme
   if (run && run.status !== 'done') {
     const live = run.status === 'running';
     return (
-      <Card className="card-pop mt-6 border-0">
+      <Card className="calm-card border-0">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <LogOutIcon className="text-primary size-4" /> Retiring {run.hostname}
@@ -134,7 +134,7 @@ export function NodeRetirePanel({ nodeId }: { nodeId: string }): React.JSX.Eleme
   const canStart = Boolean(p?.runnable) && typed.trim() === p?.node.hostname && (!needsAck || accepted);
 
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className="calm-card border-0">
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
         <CardTitle className="flex items-center gap-2 text-base">
           <LogOutIcon className="text-primary size-4" /> Retire this server

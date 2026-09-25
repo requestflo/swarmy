@@ -13,7 +13,7 @@ export function NodeSwarmJoinBanner({ node }: { node: NodeDetail | undefined }):
   const gaveUp = o.detail.startsWith("couldn't join the cluster");
   const retrying = o.state === 'joining' || /retrying in/.test(o.detail);
   return (
-    <Card className={cn('card-pop mb-4 border-0', gaveUp ? 'bg-destructive/10' : 'bg-accent/40')}>
+    <Card className={cn('calm-card border-0', gaveUp ? 'bg-destructive/10' : 'bg-accent/40')}>
       <CardContent className="grid gap-1 py-4 text-sm">
         <p className="font-medium">
           {gaveUp ? "This node couldn't join the cluster" : retrying ? 'Joining the cluster…' : 'Joining the cluster failed'}

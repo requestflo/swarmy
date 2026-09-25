@@ -30,7 +30,7 @@ export function NodeHygienePanel({ nodeId }: { nodeId: string }): React.JSX.Elem
   const runs = hygiene.data?.runs ?? [];
 
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className="calm-card border-0">
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
         <CardTitle className="flex items-center gap-2 text-base">
           <SparklesIcon className="text-primary size-4" /> Disk cleanup
