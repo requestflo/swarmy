@@ -20,11 +20,17 @@ import { handleCommand } from './executor';
 import { startLocalSocket, type DaemonStatus } from './local-socket';
 
 /** Push a `meshState` telemetry frame if a mesh client is running on this node. */
-async function reportMeshState(conn: AgentConnection): Promise<void> {
+async function reportMeshState(
+  conn: AgentConnection,
+  onAddressed?: (meshIp: string) => void,
+): Promise<void> {
   if (!env.ALLOW_MESH) return;
   try {
     const state = await sampleMeshState();
     if (state) conn.send('meshState', state);
+    // Keep the register facts current: a re-register (rejoin, redial) must carry
+    // the mesh IP as it is NOW, not as it was at startup (QA-063).
+    if (state?.connected && state.meshIp) onAddressed?.(state.meshIp);
     // QA-059: keep the swarm on the mesh across reboots (+ heal if it wasn't).
     if (state?.driver === 'netbird' && state.connected) {
       const docker = new DockerClient(env.DOCKER_SOCKET);
@@ -45,6 +51,17 @@ async function reportMeshState(conn: AgentConnection): Promise<void> {
  * (installer node #1). Dormant unless `ALLOW_MESH` is set. Never throws: mesh failure must never block the
  * node from registering/joining the swarm over LAN (fail open).
  */
+/** Poll until the mesh client is connected AND addressed; the IP, or undefined at the deadline. */
+async function waitForMeshAddress(ms: number): Promise<string | undefined> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    const state = await sampleMeshState().catch(() => null);
+    if (state?.connected && state.meshIp) return state.meshIp;
+    await new Promise((r) => setTimeout(r, 1_000));
+  }
+  return undefined;
+}
+
 async function joinMeshAtStartup(docker: DockerClient): Promise<{ meshIp?: string; meshConnected?: boolean }> {
   if (!env.ALLOW_MESH) return {};
 
@@ -56,8 +73,14 @@ async function joinMeshAtStartup(docker: DockerClient): Promise<{ meshIp?: strin
     // exact failure that used to strand rebooted nodes on their LAN IP.
     const existing = await sampleMeshState().catch(() => null);
     if (existing?.connected) {
-      log(`mesh already connected (${existing.driver}${existing.meshIp ? `, ${existing.meshIp}` : ''}) — reusing`);
-      return { meshIp: existing.meshIp, meshConnected: true };
+      // Connected is not addressed: wait for the IP (QA-063), never re-join.
+      const meshIp = existing.meshIp ?? (await waitForMeshAddress(15_000));
+      if (!meshIp) {
+        log(`mesh already connected (${existing.driver}) but has no address yet — registering without a mesh IP`);
+        return {};
+      }
+      log(`mesh already connected (${existing.driver}, ${meshIp}) — reusing`);
+      return { meshIp, meshConnected: true };
     }
     // No key ⇒ nothing to join. (Node #1 from the installer lands above: the
     // installer joins the mesh itself before `swarm init` on the mesh IP.)
@@ -80,16 +103,12 @@ async function joinMeshAtStartup(docker: DockerClient): Promise<{ meshIp?: strin
     log('joining mesh before registering…');
     await applyMesh(docker, rendered);
 
-    const deadline = Date.now() + 15_000;
-    while (Date.now() < deadline) {
-      const state = await sampleMeshState().catch(() => null);
-      if (state?.connected) {
-        log(`mesh connected (${state.driver}${state.meshIp ? `, ${state.meshIp}` : ''})`);
-        return { meshIp: state.meshIp, meshConnected: true };
-      }
-      await new Promise((r) => setTimeout(r, 1_000));
+    const meshIp = await waitForMeshAddress(15_000);
+    if (meshIp) {
+      log(`mesh connected (${env.MESH_DRIVER}, ${meshIp})`);
+      return { meshIp, meshConnected: true };
     }
-    log('mesh join did not confirm connectivity within 15s — proceeding without a mesh IP');
+    log('mesh join did not confirm connectivity and an address within 15s — proceeding without a mesh IP');
     return {};
   } catch (err) {
     log('mesh-first join failed — proceeding without a mesh IP:', err instanceof Error ? err.message : err);
@@ -460,8 +479,12 @@ export async function runDaemon(): Promise<void> {
     );
     // Live mesh-state reporter (epic #6, Phase 2+) — periodic telemetry feeding
     // the controller's MeshPeer reconcile. No-op when no mesh client is running.
-    void reportMeshState(conn);
-    timers.push(setInterval(() => void reportMeshState(conn), 20_000));
+    const refreshMeshFacts = (meshIp: string) => {
+      facts.meshIp = meshIp;
+      facts.meshConnected = true;
+    };
+    void reportMeshState(conn, refreshMeshFacts);
+    timers.push(setInterval(() => void reportMeshState(conn, refreshMeshFacts), 20_000));
 
     // Geo-edge health: is this node's Caddy/swarmy-dns task alive? (local docker ps)
     const reportIngressStatus = async () => {

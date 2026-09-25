@@ -453,3 +453,48 @@ describe('orchestrateSwarmMembership — mesh-first join (new node after mesh en
     expect(join.payload.dataPathAddr).toBeUndefined();
   });
 });
+
+describe('orchestrateSwarmMembership — every dispatched swarmJoin is one the agent can parse (QA-063)', () => {
+  it("an empty mesh IP ('' = connected, not yet addressed) sends no advertiseAddr", async () => {
+    const { SwarmJoinPayload } = await import('@swarmy/core/protocol');
+    const { joinStore } = makeStore(FULL);
+    const { hub, calls } = scriptedHub((nodeId, p) =>
+      nodeId === 'm1' && p.refreshOnly
+        ? { mode: 'init', swarmNodeId: 'sw-m1', managerAddr: '203.0.113.10:2377', joinTokens: { worker: 'W', manager: 'M' } }
+        : { mode: 'join', swarmNodeId: 'sw-b' },
+    );
+    await orchestrateSwarmMembership({
+      joinStore,
+      hub,
+      orgId: 'o1',
+      nodeId: 'lon1-b',
+      meshIp: '',
+      peers: () => [{ nodeId: 'm1', isManager: true, swarmState: 'active' }],
+    });
+    const join = calls.find((c) => c.nodeId === 'lon1-b')!;
+    expect(join.payload.advertiseAddr).toBeUndefined();
+    expect(SwarmJoinPayload.safeParse({ commandId: crypto.randomUUID(), ...join.payload }).success).toBe(true);
+  });
+
+  it("a stranded peer pulled in after a re-elect never advertises the INITIATING node's mesh IP", async () => {
+    const { joinStore } = makeStore(FULL);
+    const { hub, calls } = scriptedHub((nodeId, p) => {
+      if (p.mode === 'join' && p.managerAddr === FULL.managerAddr) throw new Error('context deadline exceeded');
+      if (p.mode === 'init' && nodeId === 'new')
+        return { mode: 'init', swarmNodeId: 'sw-new', managerAddr: '100.106.0.9:2377', joinTokens: { worker: 'NEW-W', manager: 'NEW-M' } };
+      return { mode: 'join', swarmNodeId: `sw-${nodeId}` };
+    });
+    await orchestrateSwarmMembership({
+      joinStore,
+      hub,
+      orgId: 'o1',
+      nodeId: 'new',
+      meshIp: '100.106.0.9',
+      peers: () => [{ nodeId: 'stranded', isManager: false, swarmState: 'inactive' }],
+    });
+    await Bun.sleep(0);
+    const peerJoin = calls.find((c) => c.nodeId === 'stranded')!;
+    expect(peerJoin.payload.advertiseAddr).toBeUndefined();
+    expect(peerJoin.payload.dataPathAddr).toBeUndefined();
+  });
+});

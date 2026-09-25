@@ -494,8 +494,10 @@ async function dispatchJoin(
   joinToken: string,
   managerAddr: string,
   nodeId = args.nodeId,
-  advertiseAddr = args.meshIp ?? undefined,
+  /** null = advertise nothing (the agent self-derives) — `undefined` means "this node's mesh IP". */
+  advertiseAddrArg: string | null | undefined = args.meshIp || undefined, // '' is no address (QA-063)
 ): Promise<SwarmJoinResultLike> {
+  const advertiseAddr = advertiseAddrArg || undefined;
   return args.hub.dispatch<SwarmJoinResultLike>(
     nodeId,
     SWARM_COMMAND,
@@ -568,7 +570,7 @@ async function initHere(args: OrchestrateArgs, reelect: boolean, reason: string)
   const res = await hub.dispatch<SwarmJoinResultLike>(
     nodeId,
     SWARM_COMMAND,
-    { mode: 'init', advertiseAddr: meshIp ?? undefined },
+    { mode: 'init', advertiseAddr: meshIp || undefined },
     { timeoutMs: SWARM_DISPATCH_TIMEOUT_MS },
   );
   const tokens = res.joinTokens ?? { worker: '', manager: '' };
@@ -592,7 +594,8 @@ async function initHere(args: OrchestrateArgs, reelect: boolean, reason: string)
   // otherwise they'd sit idle until their next re-register.
   if (tokens.worker && res.managerAddr) {
     for (const p of (args.peers?.() ?? []).filter((x) => x.nodeId !== nodeId && x.swarmState === 'inactive')) {
-      void dispatchJoin(args, 'worker', tokens.worker, res.managerAddr, p.nodeId, undefined)
+      // null, not undefined: undefined would default to the INITIATING node's mesh IP.
+      void dispatchJoin(args, 'worker', tokens.worker, res.managerAddr, p.nodeId, null)
         .then(() => statusByNode.set(p.nodeId, { state: 'joined', detail: `joined as worker via ${res.managerAddr}`, at: new Date().toISOString() }))
         .catch((e) => {
           console.warn(`[swarm] node ${p.nodeId}: join to new swarm failed: ${errMsg(e)}`);

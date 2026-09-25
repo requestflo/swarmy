@@ -380,7 +380,8 @@ async function handleRegister(ws: AgentSocket, payload: RegisterPayload, deps: D
     // Mesh-first join: advertise the node's confirmed mesh IP instead of its
     // LAN address so swarm control + data-plane traffic rides the mesh.
     // Absent/unconnected ⇒ undefined ⇒ agent's existing LAN self-derivation.
-    meshIp: facts.meshConnected ? (facts.meshIp ?? null) : null,
+    // An empty string is "not addressed yet", never an address (QA-063).
+    meshIp: facts.meshConnected && facts.meshIp ? facts.meshIp : null,
     // Manager liveness is hub truth: a live manager's fresh tokens always win
     // (no second swarm), and a known swarm whose managers stay away gets
     // re-elected instead of waited on forever. `db` only answers "does the

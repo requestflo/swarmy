@@ -4,8 +4,8 @@ import {
   BACKOFF,
   PROTOCOL_VERSION,
   SUBPROTOCOL,
+  ControllerEnvelope,
   parseControllerEnvelope,
-  type ControllerEnvelope,
   type RegisterAckPayload,
   type RegisterPayload,
 } from '@swarmy/core/protocol';
@@ -54,6 +54,42 @@ export function strandedShouldExit(
   return packaging === 'container';
 }
 
+/** Consecutive unreadable commands on one link before the agent redials (QA-063). */
+export const MAX_DROPPED_COMMANDS = 3;
+
+export interface DroppedFrame {
+  /** Wire `type`, or `(unknown)` when the frame isn't even JSON with a type. */
+  type: string;
+  /** The command's `payload.commandId`, when one can be read — the controller is waiting on it. */
+  commandId?: string;
+  /** Why it was dropped, in one line (zod issue paths + messages, or the JSON error). */
+  reason: string;
+}
+
+/**
+ * PURE — why a controller frame can't be handled, or null when it parses.
+ * A dropped command used to vanish without a trace: the controller timed out
+ * (swarmJoin 6/6) while the agent logged nothing (QA-063).
+ */
+export function describeDroppedFrame(data: unknown): DroppedFrame | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(String(data));
+  } catch (e) {
+    return { type: '(unknown)', reason: `not JSON: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  const r = ControllerEnvelope.safeParse(raw);
+  if (r.success) return null;
+  const obj = (raw ?? {}) as { type?: unknown; payload?: { commandId?: unknown } };
+  const type = typeof obj.type === 'string' ? obj.type : '(unknown)';
+  const commandId = typeof obj.payload?.commandId === 'string' ? obj.payload.commandId : undefined;
+  const reason = r.error.issues
+    .slice(0, 5)
+    .map((i) => `${i.path.length ? `${i.path.join('.')}: ` : ''}${i.message}`)
+    .join('; ');
+  return { type, ...(commandId ? { commandId } : {}), reason };
+}
+
 /** Reconnecting agent→controller WebSocket client with full-jitter backoff. */
 export class AgentConnection {
   private ws: WebSocket | null = null;
@@ -74,6 +110,10 @@ export class AgentConnection {
   private readonly backoff: NonNullable<ConnectionOpts['backoff']>;
   private readonly idleMs: number;
   private readonly strandedMs: number;
+  /** Unreadable commands in a row on the current link (reset by any handled one). */
+  private droppedInARow = 0;
+  /** `type: reason` keys already logged — each distinct drop is logged once. */
+  private readonly droppedLogged = new Set<string>();
 
   constructor(private opts: ConnectionOpts) {
     this.backoff = opts.backoff ?? BACKOFF;
@@ -149,6 +189,7 @@ export class AgentConnection {
 
     ws.addEventListener('open', () => {
       clearTimeout(dialTimer);
+      this.droppedInARow = 0;
       this.send('register', this.opts.buildRegister());
       this.stableTimer = setTimeout(() => {
         this.attempt = 0;
@@ -165,6 +206,7 @@ export class AgentConnection {
       try {
         env = parseControllerEnvelope(JSON.parse(String(ev.data)));
       } catch {
+        this.onDroppedFrame(ev.data);
         return;
       }
       if (env.type === 'ping') {
@@ -176,6 +218,7 @@ export class AgentConnection {
         this.opts.onRegisterAck(env.payload);
         return;
       }
+      this.droppedInARow = 0; // a command we can read: the link is not wedged
       this.opts.onCommand(env);
     });
 
@@ -196,6 +239,34 @@ export class AgentConnection {
     ws.addEventListener('error', () => {
       // The close handler schedules the reconnect.
     });
+  }
+
+  /**
+   * A frame the agent can't parse. Log it (once per distinct type+reason), answer
+   * a command with a `failed` result so the controller sees WHY instead of a
+   * timeout, and after MAX_DROPPED_COMMANDS in a row redial: a fresh register
+   * re-sends current facts, which is what unstuck lon1-b (QA-063).
+   */
+  private onDroppedFrame(data: unknown): void {
+    const d = describeDroppedFrame(data);
+    if (!d) return;
+    const key = `${d.type}: ${d.reason}`;
+    if (!this.droppedLogged.has(key)) {
+      this.droppedLogged.add(key);
+      console.log(`[swarmy-agent] dropped an unreadable controller frame (${d.type}): ${d.reason}`);
+    }
+    if (!d.commandId) return;
+    this.send('commandResult', {
+      commandId: d.commandId,
+      status: 'failed',
+      finishedAt: Date.now(),
+      error: { code: 'E_MALFORMED', message: `the agent could not read this ${d.type} command: ${d.reason}` },
+    });
+    this.droppedInARow += 1;
+    if (this.droppedInARow >= MAX_DROPPED_COMMANDS) {
+      this.droppedInARow = 0;
+      this.abandonCurrent?.(`${MAX_DROPPED_COMMANDS} controller commands in a row were unreadable — re-registering`);
+    }
   }
 
   private scheduleReconnect(): void {

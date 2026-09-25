@@ -192,9 +192,14 @@ export async function applyMesh(docker: DockerClient, rendered: RenderedMesh): P
  * `status --json` reports `netbirdIp` as `100.71.108.238/16`, but the value is
  * used verbatim as a Docker Swarm `--advertise-addr`, which rejects anything
  * that isn't a plain IP (or IP:port). Idempotent for already-bare IPs.
+ *
+ * Empty ⇒ undefined: a NetBird client that is
+ * connected but not yet addressed reports `netbirdIp: ""`, and an empty mesh IP
+ * used to reach the controller, which then sent `advertiseAddr: ""` — a
+ * swarmJoin the agent's own schema rejects, dropped 6/6 (QA-063).
  */
-function bareMeshIp(ip: string | undefined): string | undefined {
-  return ip ? ip.split('/')[0] : ip;
+export function bareMeshIp(ip: string | undefined): string | undefined {
+  return ip ? ip.split('/')[0] || undefined : undefined;
 }
 
 /**
