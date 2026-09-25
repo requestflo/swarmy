@@ -33,6 +33,7 @@ import { resolveManagerNode } from './dispatch.service';
 import { writeAudit } from './audit.service';
 import { fireEvent } from './alerts-fire';
 import { buildLogBus } from './build-log-bus';
+import { persistBuildLog, readStoredBuildLog } from './build-log-store';
 import { controllerPublicUrl, repoCredentials } from './git-credentials';
 import { SHA_RE, reportCommitStatus } from './git-feedback.service';
 import { promoteSpecFrom } from './releases.service';
@@ -378,6 +379,7 @@ async function runBuild(
       { timeoutMs: 1_800_000 },
     );
     buildLogBus.finish(commandId);
+    void persistBuildLog(ctx, commandId).catch(() => undefined);
     const digested = result?.digest ? `${host}/${imageName}@${result.digest}` : imageRef;
     const finished = await ctx.db.build.update({
       where: { id: build.id },
@@ -414,6 +416,7 @@ async function runBuild(
     return toBuildView(finished, repo.url);
   } catch (e) {
     buildLogBus.finish(commandId);
+    void persistBuildLog(ctx, commandId).catch(() => undefined);
     await ctx.db.build.update({
       where: { id: build.id },
       data: { status: 'FAILED', finishedAt: new Date() },
@@ -780,8 +783,14 @@ export async function getBuildLogPage(
   });
   if (!build) throw notFound('build', buildId);
   const snap = build.logsRef ? buildLogBus.snapshot(build.logsRef) : { lines: [], done: false };
+  // The in-memory bus is empty after a controller restart: a finished build's
+  // log is read from where it was persisted (QA-056).
+  const lines =
+    snap.lines.length === 0 && build.logsRef && build.finishedAt
+      ? await readStoredBuildLog(ctx, build.logsRef)
+      : snap.lines.map((l) => ({ seq: l.seq, stream: l.stream, message: l.message }));
   return {
-    lines: snap.lines.map((l) => ({ seq: l.seq, stream: l.stream, message: l.message })),
+    lines,
     done: snap.done || Boolean(build.finishedAt),
     status: build.status.toLowerCase(),
   };
