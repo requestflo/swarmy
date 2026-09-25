@@ -7,14 +7,11 @@ import {
   AlertDescription,
   AlertTitle,
   Button,
-  Card,
-  CardContent,
   CopyButton,
   EmptyState,
   Input,
   Label,
   StatusBadge,
-  cn,
   toast,
 } from '@swarmy/ui';
 import { NODE_PROFILE_LABELS, NODE_PROFILE_VALUES, type NodeProfile } from '@swarmy/core';
@@ -111,22 +108,18 @@ export function TokensTab(): React.JSX.Element {
 
   return (
     <div className="grid gap-6">
-      <Card className="card-pop border-0">
-        <CardContent className="grid gap-4 p-5">
-          <div>
-            <h2 className="font-display text-lg font-semibold">Enroll a node</h2>
-            <p className="text-muted-foreground mt-1 text-sm">
-              The fastest way is the{' '}
-              <Link to="/nodes/new" className="text-primary font-medium underline-offset-2 hover:underline">
-                guided one-liner
-              </Link>{' '}
-              — copy, paste, watch it connect. Or mint a raw join token below.
-            </p>
-          </div>
+      <div className="border-border grid gap-4 rounded-xl border p-4">
+          <p className="text-muted-foreground text-sm">
+            The easy way is{' '}
+            <Link to="/nodes/new" className="text-foreground font-semibold underline underline-offset-2">
+              Add a server
+            </Link>
+            : copy one line, paste it, watch it connect. Or make a raw join token here.
+          </p>
           <div className="flex flex-wrap items-end gap-3">
             <div className="grid min-w-[12rem] flex-1 gap-1.5">
-              <Label htmlFor="token-label" className="mono-label">
-                Label (optional)
+              <Label htmlFor="token-label">
+                Name (optional)
               </Label>
               <Input
                 id="token-label"
@@ -136,7 +129,7 @@ export function TokensTab(): React.JSX.Element {
               />
             </div>
             <div className="grid min-w-[11rem] gap-1.5">
-              <Label htmlFor="token-profile" className="mono-label">
+              <Label htmlFor="token-profile">
                 Profile
               </Label>
               <select
@@ -154,6 +147,7 @@ export function TokensTab(): React.JSX.Element {
               </select>
             </div>
             <Button
+              variant="outline"
               onClick={() =>
                 generate.mutate({
                   label: label || undefined,
@@ -162,16 +156,15 @@ export function TokensTab(): React.JSX.Element {
               }
               disabled={generate.isPending}
             >
-              <PlusIcon className="size-4" /> Generate token
+              <PlusIcon className="size-4" /> Make a token
             </Button>
           </div>
           <p className="text-muted-foreground -mt-2 text-xs">{NODE_PROFILE_LABELS[profile].description}</p>
-        </CardContent>
-      </Card>
+      </div>
 
       {issued && <IssuedTokenPanel token={issued.token} mesh={issued.mesh} target={issued.target} />}
 
-      <Card className={cn('card-pop border-0', rows.length > 0 && 'p-0')}>
+      <div>
         {rows.length === 0 ? (
           <EmptyState
             className="border-0 py-14"
@@ -191,7 +184,7 @@ export function TokensTab(): React.JSX.Element {
             {rows.map((t) => (
               <div
                 key={t.id}
-                className="hover:bg-accent/50 flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-4 transition-colors"
+                className="flex flex-wrap items-center gap-x-6 gap-y-2 px-1 py-3"
               >
                 <div className="min-w-[10rem] flex-1">
                   <p className="truncate font-medium">
@@ -232,7 +225,7 @@ export function TokensTab(): React.JSX.Element {
             ))}
           </div>
         )}
-      </Card>
+      </div>
     </div>
   );
 }

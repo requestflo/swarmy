@@ -1,13 +1,14 @@
 import * as React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ShieldCheckIcon, ShieldIcon } from 'lucide-react';
-import { Button, Card, CardContent, CardHeader, CardTitle, Skeleton, StatusBadge } from '@swarmy/ui';
+import { Button } from '@swarmy/ui';
+import { Section, StatusWord, Tech } from '@/components/calm';
+import { CardSkeleton } from '@/components/states';
 import { useTRPC } from '@/integrations/trpc';
 import { EnrolTwoFactorDialog } from './enrol-two-factor-dialog';
 import { ManageTwoFactorDialog, type ManageAction } from './manage-two-factor-dialog';
 
-/** Your own authenticator-app 2FA: enrol, regenerate backup codes, disable. */
-export function TwoFactorCard(): React.JSX.Element {
+/** Your own authenticator-app 2FA: enrol, regenerate backup codes, disable. `primary` makes "Set up" the page's one action. */
+export function TwoFactorCard({ primary = false }: { primary?: boolean }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const me = useQuery(trpc.security.me.queryOptions());
@@ -16,26 +17,12 @@ export function TwoFactorCard(): React.JSX.Element {
   const refresh = (): void => void qc.invalidateQueries();
 
   if (!me.data) {
-    return (
-      <Card>
-        <CardContent className="pt-6">
-          <Skeleton className="h-16 w-full" />
-        </CardContent>
-      </Card>
-    );
+    return <CardSkeleton />;
   }
   const { enrolled, hasPassword } = me.data;
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
-        <CardTitle className="flex items-center gap-2 text-base">
-          {enrolled ? <ShieldCheckIcon className="size-5" /> : <ShieldIcon className="size-5" />}
-          Two-factor authentication
-        </CardTitle>
-        <StatusBadge tone={enrolled ? 'online' : 'neutral'} label={enrolled ? 'On' : 'Off'} />
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <Section title="Authenticator app" hint="two-factor for password sign-ins" action={<StatusWord tone={enrolled ? 'ok' : 'idle'} word={enrolled ? 'On' : 'Off'} />}>
         <p className="text-muted-foreground text-sm">
           {enrolled
             ? 'Signing in with a password asks for a code from your authenticator app. Opening a terminal may ask again.'
@@ -44,18 +31,20 @@ export function TwoFactorCard(): React.JSX.Element {
         <div className="flex flex-wrap gap-2">
           {enrolled ? (
             <>
-              <Button variant="outline" onClick={() => setManage('regenerate')}>
+              <Button variant="outline" className="pointer-coarse:min-h-11" onClick={() => setManage('regenerate')}>
                 New backup codes
               </Button>
-              <Button variant="outline" onClick={() => setManage('disable')}>
+              <Button variant="ghost" className="pointer-coarse:min-h-11" onClick={() => setManage('disable')}>
                 Turn off
               </Button>
             </>
           ) : (
-            <Button onClick={() => setEnrolOpen(true)}>Set up authenticator app</Button>
+            <Button variant={primary ? 'default' : 'outline'} className="pointer-coarse:min-h-11" onClick={() => setEnrolOpen(true)}>
+              Set up authenticator app
+            </Button>
           )}
         </div>
-      </CardContent>
+        <Tech>TOTP · 6-digit codes · 30 s · 10 single-use backup codes · SSO sign-ins use your provider’s MFA</Tech>
       <EnrolTwoFactorDialog
         open={enrolOpen}
         onOpenChange={setEnrolOpen}
@@ -68,6 +57,6 @@ export function TwoFactorCard(): React.JSX.Element {
         hasPassword={hasPassword}
         onChanged={refresh}
       />
-    </Card>
+    </Section>
   );
 }
