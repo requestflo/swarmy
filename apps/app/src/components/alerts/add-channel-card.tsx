@@ -47,7 +47,7 @@ export function AddChannelCard({ open, onOpenChange }: AddChannelCardProps): Rea
   return (
     <Collapsible open={open} onOpenChange={onOpenChange}>
       <CollapsibleContent>
-        <div className="card-pop mb-3 space-y-4 p-5">
+        <div className="border-border mb-3 space-y-4 rounded-xl border p-4">
           <div>
             <p className="text-sm font-bold">Add a notification channel</p>
             <p className="text-muted-foreground text-xs">
@@ -75,6 +75,7 @@ export function AddChannelCard({ open, onOpenChange }: AddChannelCardProps): Rea
               Cancel
             </Button>
             <Button
+              variant="outline"
               disabled={!ready || create.isPending}
               onClick={() => config && create.mutate({ name: name.trim(), config })}
             >

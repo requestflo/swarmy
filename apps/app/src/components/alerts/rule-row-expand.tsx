@@ -92,9 +92,9 @@ export function RuleRowExpand({ rule }: { rule: AlertRuleView }): React.JSX.Elem
                 type="button"
                 onClick={() => toggleChannel(c.id)}
                 className={cn(
-                  'rounded-full border px-3 py-1 text-xs font-semibold transition-colors',
+                  'rounded-full border px-3 py-1 text-xs font-semibold transition-colors pointer-coarse:min-h-11',
                   channelIds.includes(c.id)
-                    ? 'border-primary bg-primary/10 text-primary'
+                    ? 'border-primary bg-primary/10 text-foreground'
                     : 'border-border text-muted-foreground hover:bg-accent',
                 )}
               >
@@ -131,6 +131,7 @@ export function RuleRowExpand({ rule }: { rule: AlertRuleView }): React.JSX.Elem
           </Button>
         )}
         <Button
+          variant="outline"
           disabled={!ready || save.isPending}
           onClick={() =>
             save.mutate({
