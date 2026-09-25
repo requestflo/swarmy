@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { BetterAuthPlugin } from 'better-auth';
 import { createAuthMiddleware } from 'better-auth/api';
+import { setCookieCache } from 'better-auth/cookies';
 import type { DB } from '@swarmy/db';
 import { emailDomainAllowed, inviteAdmits, parseAllowedDomains } from './signup-policy';
 import {
@@ -366,6 +367,11 @@ export function swarmyProvisioning(
                 where: { token: created.session.token },
                 data: { activeOrganizationId: orgId },
               });
+              // The endpoint already wrote the signed session_data cookie with
+              // no active org; without a rewrite an SSO first login reads "No
+              // active organization" until that cache expires (S78-8).
+              const session = { ...created.session, activeOrganizationId: orgId };
+              await setCookieCache(ctx, { session, user: created.user }, false);
             }
           }),
         },
