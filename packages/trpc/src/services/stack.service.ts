@@ -1,5 +1,4 @@
 import { stacks } from './apps.repo';
-import { randomUUID } from 'node:crypto';
 import { parse as parseYaml } from 'yaml';
 import {
   buildInventory,
@@ -41,6 +40,7 @@ import { overlayOptionsFor } from './platform-networks';
 import { carryLinks, stackPeers } from './stack-links.service';
 import { stackEndpoints, type StackEndpoints } from './service-endpoints';
 import { kickDomainChecks, registerDeployRoutes } from './domain-verify.service';
+import { stackDeploymentId } from './deployment.service';
 
 /**
  * Swarm state lives in Docker, not the DB. The Stack model is now config-only
@@ -578,8 +578,9 @@ export async function deployFromCompose(
   // for a name whose DNS doesn't point at us.
   const gatedHosts = await registerDeployRoutes(ctx, finalSpecs);
 
-  // Non-persisted deploy correlation id — keeps the API shape without a DB row.
-  const deploymentId = randomUUID();
+  // Not persisted: the id names the stack, so `GET /deployments/{id}` (and
+  // services.deployStatus) can poll the stack's live convergence.
+  const deploymentId = stackDeploymentId(stack.name);
   try {
     await removeLegacy(removals.before);
     for (const spec of finalSpecs) {

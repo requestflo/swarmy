@@ -10,7 +10,7 @@ import {
   StackDto,
   listEnvelope,
 } from '../dto';
-import { stackToDto } from '../mappers';
+import { deploymentRefToDto, stackToDto } from '../mappers';
 import { run } from '../respond';
 
 const StackList = listEnvelope(StackDto, 'StackList');
@@ -78,12 +78,16 @@ export function registerStackRoutes(app: OpenAPIHono<RestEnv>): void {
     (c) =>
       run(
         c,
-        () => {
+        async () => {
           const b = c.req.valid('json');
-          return deployFromCompose(c.get('orgCtx'), {
-            name: b.name,
-            composeSource: b.compose_source,
-          });
+          // The declared DeploymentRef; `deployment_id` (`stack:<name>`) polls
+          // the whole stack's convergence at GET /deployments/{id}.
+          return deploymentRefToDto(
+            await deployFromCompose(c.get('orgCtx'), {
+              name: b.name,
+              composeSource: b.compose_source,
+            }),
+          );
         },
         202,
       ),

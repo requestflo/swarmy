@@ -20,7 +20,7 @@ import {
   ServiceDto,
   listEnvelope,
 } from '../dto';
-import { serviceToDto } from '../mappers';
+import { deploymentRefToDto, serviceToDto } from '../mappers';
 import { run } from '../respond';
 
 const ServiceList = listEnvelope(ServiceDto, 'ServiceList');
@@ -94,7 +94,7 @@ export function registerServiceRoutes(app: OpenAPIHono<RestEnv>): void {
         c,
         async () => {
           const b = c.req.valid('json');
-          return createService(c.get('orgCtx'), {
+          return deploymentRefToDto(await createService(c.get('orgCtx'), {
             name: b.name,
             image: b.image,
             replicas: b.replicas ?? 1,
@@ -105,7 +105,7 @@ export function registerServiceRoutes(app: OpenAPIHono<RestEnv>): void {
             networks: [],
             constraints: [],
             nodeId: b.node_id,
-          });
+          }));
         },
         202,
       ),
@@ -128,11 +128,13 @@ export function registerServiceRoutes(app: OpenAPIHono<RestEnv>): void {
     (c) =>
       run(
         c,
-        () =>
-          scaleService(c.get('orgCtx'), {
-            id: c.req.param('id'),
-            replicas: c.req.valid('json').replicas,
-          }),
+        async () =>
+          deploymentRefToDto(
+            await scaleService(c.get('orgCtx'), {
+              id: c.req.param('id'),
+              replicas: c.req.valid('json').replicas,
+            }),
+          ),
         202,
       ),
   );
@@ -151,7 +153,7 @@ export function registerServiceRoutes(app: OpenAPIHono<RestEnv>): void {
         404: problemRes,
       },
     }),
-    (c) => run(c, () => restartService(c.get('orgCtx'), c.req.param('id')), 202),
+    (c) => run(c, async () => deploymentRefToDto(await restartService(c.get('orgCtx'), c.req.param('id'))), 202),
   );
 
   app.openapi(

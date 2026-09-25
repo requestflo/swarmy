@@ -1,4 +1,4 @@
-import type { InvService } from '@swarmy/core';
+import { buildInventory, type InvService } from '@swarmy/core';
 import type { DeployPhase, DeployStatus } from '@swarmy/core/views';
 import type { OrgContext } from '../context';
 import { notFound } from '../errors';
@@ -27,6 +27,42 @@ function synth(svc: InvService, deploymentId: string): DeployStatus {
     ready: running,
     message: null,
     startedAt: now,
+    finishedAt: complete ? now : null,
+  };
+}
+
+/** Deployment id of a whole-stack deploy (`stacks.deployFromCompose`): pollable. */
+export const STACK_DEPLOYMENT_PREFIX = 'stack:';
+export function stackDeploymentId(stack: string): string {
+  return `${STACK_DEPLOYMENT_PREFIX}${stack}`;
+}
+
+/**
+ * A stack deploy's convergence: every service of the stack, summed. Complete
+ * once each one runs its desired count; pulling while any is still pulling
+ * its image. Null when the stack has no live services (yet). PURE — exported
+ * for tests.
+ */
+export function synthStack(
+  services: InvService[],
+  deploymentId: string,
+  progress: (name: string) => DeployProgress | undefined = () => undefined,
+): DeployStatus | null {
+  if (services.length === 0) return null;
+  const desired = services.reduce((n, s) => n + s.replicas.desired, 0);
+  const ready = services.reduce((n, s) => n + Math.min(s.replicas.running, s.replicas.desired), 0);
+  const pulling = services.map((s) => progress(s.name)).find((p): p is DeployProgress => !!p);
+  const complete = !pulling && services.every((s) => s.replicas.running >= s.replicas.desired);
+  const now = new Date().toISOString();
+  return {
+    deploymentId,
+    serviceId: null,
+    kind: 'stack.deploy',
+    phase: pulling ? pulling.phase : complete ? 'complete' : 'converging',
+    desired,
+    ready,
+    message: pulling ? (pulling.message ?? 'pulling image…') : null,
+    startedAt: pulling ? new Date(pulling.startedAt).toISOString() : now,
     finishedAt: complete ? now : null,
   };
 }
@@ -64,6 +100,14 @@ function progressFor(ctx: OrgContext, name: string): DeployProgress | undefined 
 }
 
 export function getDeployStatus(ctx: OrgContext, deploymentId: string): DeployStatus {
+  if (deploymentId.startsWith(STACK_DEPLOYMENT_PREFIX)) {
+    const stack = deploymentId.slice(STACK_DEPLOYMENT_PREFIX.length);
+    const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
+    const members = buildInventory(services, containers).services.filter((s) => s.stack === stack);
+    const status = synthStack(members, deploymentId, (name) => progressFor(ctx, name));
+    if (!status) throw notFound('deployment', deploymentId);
+    return status;
+  }
   const svc = liveService(ctx, deploymentId);
   const status = withDeployProgress(
     svc ? synth(svc, deploymentId) : null,
