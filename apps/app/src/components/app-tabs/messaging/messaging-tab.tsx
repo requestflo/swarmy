@@ -20,6 +20,7 @@ export function MessagingTab({ stack }: { stack: string }): React.JSX.Element {
   const ready = queues.data && jobsOverview.data && hooks.data;
   return (
     <TabBody
+      asideAt="code"
       header={
         ready ? (
           <MessagingHeader queues={queues.data} jobs={jobsOverview.data} hooks={hooks.data} />

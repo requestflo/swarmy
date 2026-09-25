@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { cn } from '@swarmy/ui';
+import { useDepth, type DepthName } from '@/components/calm';
 
 /**
  * The body of one app-workspace tab. The workspace layout (S1) owns the app
@@ -9,20 +10,24 @@ import { cn } from '@swarmy/ui';
 export function TabBody({
   header,
   aside,
+  asideAt = 'summary',
   children,
   className,
 }: {
   header: React.ReactNode;
   aside?: React.ReactNode;
+  /** The shallowest depth the aside has content at; below it the main column takes the full width. */
+  asideAt?: DepthName;
   children: React.ReactNode;
   className?: string;
 }): React.JSX.Element {
+  const shown = useDepth().atLeast(asideAt) ? aside : undefined;
   return (
     <div className={cn('flex flex-col gap-6 pb-24 lg:pb-12', className)}>
       {header}
-      <div className={cn('grid gap-5', aside ? 'xl:grid-cols-[minmax(0,1fr)_400px]' : 'grid-cols-1')}>
+      <div className={cn('grid gap-5', shown ? 'xl:grid-cols-[minmax(0,1fr)_400px]' : 'grid-cols-1')}>
         <div className="flex min-w-0 flex-col gap-5">{children}</div>
-        {aside ? <aside className="flex min-w-0 flex-col gap-4">{aside}</aside> : null}
+        {shown ? <aside className="flex min-w-0 flex-col gap-4">{shown}</aside> : null}
       </div>
     </div>
   );

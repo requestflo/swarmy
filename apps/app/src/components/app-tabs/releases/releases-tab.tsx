@@ -26,6 +26,7 @@ export function ReleasesTab({ stack }: { stack: string }): React.JSX.Element {
   }
   return (
     <TabBody
+      asideAt="controls"
       header={releases.data ? <ReleasesHeader rows={rows} /> : <HeaderSkeleton />}
       aside={
         <>

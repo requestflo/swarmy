@@ -19,6 +19,7 @@ export function SettingsTab({ stack }: { stack: string }): React.JSX.Element {
   const ready = rows && nodes;
   return (
     <TabBody
+      asideAt="code"
       header={ready ? <SettingsHeader stack={stack} rows={rows} nodes={nodes} /> : <HeaderSkeleton />}
       aside={ready ? <CodeView title="Scaling as code" tabs={scalingCode(stack, rows)} source="readonly" /> : undefined}
     >
