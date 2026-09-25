@@ -41,6 +41,7 @@ import type { OrgContext } from '../context';
 import { writeAudit } from './audit.service';
 import { meshConfigRepo, type MeshConfigRow } from './mesh-config.repo';
 import { meshControlLive, meshPeers } from './mesh-peers';
+import { isMeshCidr } from './mesh-onmesh';
 import { objectStoreState, provisionSystemBucketKey } from './buckets.service';
 
 /** The swarmy OIDC client NetBird's Dex uses as its connector (confidential). */
@@ -509,12 +510,16 @@ export async function moveControlPlane(ctx: OrgContext, targetNodeId: string): P
 /**
  * The controller vhost for the mesh domain when NetBird runs behind the edge
  * (`tls.mode === 'edge'`): gRPC h2c + REST/IdP/relay to NetBird's plain
- * listener on the docker0 address of the node that hosts it. The cert then
- * lives in the edge's CertMagic store like every other swarmy name.
+ * listener. The cert then lives in the edge's CertMagic store like every other
+ * swarmy name.
  *
- * Limit (documented in the plan): the upstream is node-local, so the Caddy
- * task that serves this name must run on the control-plane node — true for
- * the default install (node #1 is the edge). Elsewhere the vhost answers 502.
+ * Upstream (QA-071): the control-plane node's MESH address, not docker0. The
+ * rendered config is the same for every edge, and a docker0 upstream only
+ * works on the control node itself: every other edge answered 502 for the mesh
+ * host. NetBird listens on all interfaces (`:8081`), wt0 carries it between
+ * nodes, and on the control node itself the mesh IP is local even before wt0
+ * is up (the mesh pin's `swarmy-mesh0`, QA-059). Until that node has reported
+ * a mesh IP, the configured listener (docker0) stays: the pre-fix behaviour.
  */
 export async function meshControlVhosts(ctx: OrgContext): Promise<
   { domain: string; upstream: string; targetPath: string; kind: 'mesh-control'; tls: 'auto' }[]
@@ -522,5 +527,23 @@ export async function meshControlVhosts(ctx: OrgContext): Promise<
   const row = await meshConfigRepo.get(ctx, ctx.activeOrgId).catch(() => null);
   const m = row ? managedOf(row) : null;
   if (!m || m.tls.mode !== 'edge' || !row?.enabled) return [];
-  return [{ domain: m.meshDomain, upstream: m.tls.listen, targetPath: '/', kind: 'mesh-control', tls: 'auto' }];
+  const meshIp = m.controlNodeId
+    ? meshPeers.get(m.controlNodeId)?.meshIp ?? advertisedMeshIp(ctx.hub.nodeInfoFor?.(m.controlNodeId)?.addr)
+    : undefined;
+  return [
+    { domain: m.meshDomain, upstream: meshControlUpstream(m.tls.listen, meshIp), targetPath: '/', kind: 'mesh-control', tls: 'auto' },
+  ];
+}
+
+/** A swarm advertise address (`host[:port]`) that is a mesh IP, bare. Pure. */
+function advertisedMeshIp(addr: string | null | undefined): string | undefined {
+  const host = addr?.replace(/:\d+$/, '');
+  return host && isMeshCidr(host) ? host : undefined;
+}
+
+/** `listen` (`172.17.0.1:8081`) re-pointed at the control node's mesh IP when known. Pure. */
+export function meshControlUpstream(listen: string, meshIp: string | undefined): string {
+  if (!meshIp || !isMeshCidr(meshIp)) return listen;
+  const port = /:(\d+)$/.exec(listen)?.[1] ?? '8081';
+  return `${meshIp}:${port}`;
 }

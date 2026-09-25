@@ -64,3 +64,16 @@ describe('TLS handover (QA-012)', () => {
   });
 });
 
+
+describe('mesh vhost upstream (QA-071: every edge, not just the control node)', () => {
+  test('points at the control node mesh IP, keeping the listener port', async () => {
+    const { meshControlUpstream } = await import('./mesh-control.service');
+    expect(meshControlUpstream('172.17.0.1:8081', '100.106.243.149')).toBe('100.106.243.149:8081');
+    expect(meshControlUpstream('172.17.0.1:9081', '100.106.243.149')).toBe('100.106.243.149:9081');
+  });
+  test('keeps the configured listener until a mesh IP is known (or it is not a mesh address)', async () => {
+    const { meshControlUpstream } = await import('./mesh-control.service');
+    expect(meshControlUpstream('172.17.0.1:8081', undefined)).toBe('172.17.0.1:8081');
+    expect(meshControlUpstream('172.17.0.1:8081', '203.0.113.7')).toBe('172.17.0.1:8081');
+  });
+});
