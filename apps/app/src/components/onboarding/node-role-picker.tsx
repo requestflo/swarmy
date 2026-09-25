@@ -15,7 +15,7 @@ const ROLE_OPTIONS: RoleOption[] = [
   {
     value: 'auto',
     title: 'Automatic',
-    hint: 'First node becomes manager; the rest join as workers.',
+    hint: 'The first server runs swarmy; the rest run apps.',
     icon: <ServerIcon className="size-4" />,
   },
   {
@@ -41,8 +41,8 @@ interface NodeRolePickerProps {
 export function NodeRolePicker({ role, onChange }: NodeRolePickerProps): React.JSX.Element {
   return (
     <fieldset className="grid gap-2.5">
-      <Label className="mono-label">Node role</Label>
-      <div className="grid gap-2.5 sm:grid-cols-3" role="radiogroup" aria-label="Node role">
+      <Label>Its role</Label>
+      <div className="grid gap-2.5 sm:grid-cols-3" role="radiogroup" aria-label="Its role">
         {ROLE_OPTIONS.map((opt) => {
           const selected = role === opt.value;
           return (
