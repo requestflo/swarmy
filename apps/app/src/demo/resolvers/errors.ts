@@ -1,4 +1,5 @@
 import type { DemoStore, DomainResolvers } from '../types';
+import { demoIssue, demoIssues, demoSetIssueStatus } from './errors-issues';
 
 /**
  * Error-tracking demo resolvers: the stack Errors tab's setup card (opt-in
@@ -56,6 +57,9 @@ export const errors: DomainResolvers = {
   },
 
   handlers: {
+    'errors.issues': (i) => demoIssues(i as { stack: string; status?: string; query?: string }),
+    'errors.issue': (i) => demoIssue(i as { stack: string; fingerprint: string }),
+    'errors.setIssueStatus': (i) => demoSetIssueStatus(i as Parameters<typeof demoSetIssueStatus>[0]),
     'errors.status': (i, s) => status(state(s), (i as { stack: string }).stack),
 
     'errors.setEnabled': (i, s) => {

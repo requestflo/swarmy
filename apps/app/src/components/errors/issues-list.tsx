@@ -54,7 +54,7 @@ export function IssuesList({ stack }: IssuesListProps): React.JSX.Element {
   const state = issues.data?.status;
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card shadow-none">
       <CardHeader className="gap-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <BugIcon className="size-4" /> Issues
@@ -140,7 +140,7 @@ export function IssuesList({ stack }: IssuesListProps): React.JSX.Element {
                     </p>
                     <p className="text-muted-foreground mono-label truncate">
                       {i.culprit || '—'}
-                      {i.regressedAt && i.status === 'unresolved' ? <span className="text-status-offline"> · came back</span> : null}
+                      {i.regressedAt && i.status === 'unresolved' ? <span className="text-tone-bad"> · came back</span> : null}
                       {i.status !== 'unresolved' ? <span> · {i.status.replace(/_/g, ' ')}</span> : null}
                     </p>
                   </div>
@@ -150,7 +150,7 @@ export function IssuesList({ stack }: IssuesListProps): React.JSX.Element {
                   <span className="text-muted-foreground hidden text-right text-xs md:block" title={`first seen ${timeAgo(i.firstSeen)}`}>
                     {timeAgo(i.lastSeen)}
                     <br />
-                    <span className="opacity-70">new {timeAgo(i.firstSeen)}</span>
+                    <span>new {timeAgo(i.firstSeen)}</span>
                   </span>
                   <span className="mono-data hidden truncate text-right text-xs md:block">{shortRelease(i.lastRelease ?? i.firstRelease)}</span>
                 </Link>

@@ -7,6 +7,7 @@ import { useTRPC } from '@/integrations/trpc';
 import { compact, levelTone, shortRelease, statusLabel, timeAgo, type IssueStatus } from './errors-shared';
 import { TrendBars } from './issues-list';
 import { StackTrace } from './stack-trace';
+import { IssueHeader } from './issue-header';
 
 interface IssueDetailProps {
   stack: string;
@@ -46,7 +47,7 @@ export function IssueDetail({ stack, fingerprint }: IssueDetailProps): React.JSX
   );
 
   const back = (
-    <Link to="/stacks/$name/errors" params={{ name: stack }} className="text-muted-foreground hover:text-foreground mb-3 inline-flex items-center gap-1 text-sm">
+    <Link to="/stacks/$name/errors" params={{ name: stack }} className="text-muted-foreground hover:text-foreground inline-flex min-h-11 w-fit items-center gap-1 text-sm">
       <ArrowLeftIcon className="size-3.5" /> All issues
     </Link>
   );
@@ -75,53 +76,13 @@ export function IssueDetail({ stack, fingerprint }: IssueDetailProps): React.JSX
   const open = issue.status === 'unresolved';
 
   return (
-    <div className="pb-8">
+    <div className="flex flex-col gap-5 pb-8">
       {back}
-      <Card className="card-pop mb-4 border-0 p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge tone={levelTone(issue.level)} label={issue.level} />
-              <Badge variant={open ? 'warning' : 'muted'}>{statusLabel(issue.status)}</Badge>
-              {issue.regressedAt && open ? <Badge variant="destructive">came back {timeAgo(issue.regressedAt)}</Badge> : null}
-            </div>
-            <h2 className="text-lg font-semibold break-words">{issue.title}</h2>
-            <p className="text-muted-foreground mono-data text-xs break-all">{issue.culprit}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {open ? (
-              <>
-                <Button size="sm" onClick={() => act('resolved')} disabled={setStatus.isPending}>
-                  <CheckIcon className="size-3.5" /> Resolve
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => act('resolved_next_release')} disabled={setStatus.isPending}>
-                  <RocketIcon className="size-3.5" /> Resolve in next release
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => act('ignored')} disabled={setStatus.isPending}>
-                  <EyeOffIcon className="size-3.5" /> Ignore
-                </Button>
-              </>
-            ) : (
-              <Button size="sm" variant="outline" onClick={() => act('unresolved')} disabled={setStatus.isPending}>
-                <RotateCcwIcon className="size-3.5" /> Reopen
-              </Button>
-            )}
-          </div>
-        </div>
-        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-5">
-          <Stat label="Events">{compact(issue.count)}</Stat>
-          <Stat label="Users">{compact(issue.users)}</Stat>
-          <Stat label="First seen">{timeAgo(issue.firstSeen)}</Stat>
-          <Stat label="Last seen">{timeAgo(issue.lastSeen)}</Stat>
-          <Stat label="Last 24h">
-            <TrendBars data={issue.trend.length ? issue.trend : new Array(24).fill(0)} className="mt-1 h-5 w-24" />
-          </Stat>
-        </div>
-      </Card>
+      <IssueHeader stack={stack} issue={issue} busy={setStatus.isPending} act={act} />
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0 space-y-4">
-          <Card className="card-pop border-0">
+          <Card className="calm-card shadow-none">
             <CardHeader>
               <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
                 <span>Stack trace</span>
@@ -141,7 +102,7 @@ export function IssueDetail({ stack, fingerprint }: IssueDetailProps): React.JSX
             </CardContent>
           </Card>
 
-          <Card className="card-pop border-0">
+          <Card className="calm-card shadow-none">
             <CardHeader>
               <CardTitle className="text-base">Breadcrumbs</CardTitle>
             </CardHeader>
@@ -151,7 +112,7 @@ export function IssueDetail({ stack, fingerprint }: IssueDetailProps): React.JSX
                   {[...ev.breadcrumbs].reverse().map((b, i) => (
                     <div key={i} className="grid grid-cols-[5.5rem_7rem_minmax(0,1fr)] gap-3 border-b px-6 py-2 text-xs last:border-b-0">
                       <span className="text-muted-foreground mono-data">{b.timestamp ? new Date(b.timestamp).toLocaleTimeString() : '—'}</span>
-                      <span className={cn('mono-label truncate', b.level === 'error' && 'text-status-offline', b.level === 'warning' && 'text-status-warning')}>
+                      <span className={cn('mono-label truncate', b.level === 'error' && 'text-tone-bad', b.level === 'warning' && 'text-tone-warn')}>
                         {b.category || b.type}
                       </span>
                       <span className="min-w-0 break-words">
@@ -166,7 +127,7 @@ export function IssueDetail({ stack, fingerprint }: IssueDetailProps): React.JSX
             </CardContent>
           </Card>
 
-          <Card className="card-pop border-0">
+          <Card className="calm-card shadow-none">
             <CardHeader>
               <CardTitle className="text-base">Recent events</CardTitle>
             </CardHeader>
@@ -195,7 +156,7 @@ export function IssueDetail({ stack, fingerprint }: IssueDetailProps): React.JSX
         </div>
 
         <div className="space-y-4">
-          <Card className="card-pop border-0">
+          <Card className="calm-card shadow-none">
             <CardHeader>
               <CardTitle className="text-base">Linked</CardTitle>
             </CardHeader>
@@ -244,7 +205,7 @@ export function IssueDetail({ stack, fingerprint }: IssueDetailProps): React.JSX
             </CardContent>
           </Card>
 
-          <Card className="card-pop border-0">
+          <Card className="calm-card shadow-none">
             <CardHeader>
               <CardTitle className="text-base">Tags</CardTitle>
             </CardHeader>
@@ -274,7 +235,7 @@ export function IssueDetail({ stack, fingerprint }: IssueDetailProps): React.JSX
           </Card>
 
           {ev ? (
-            <Card className="card-pop border-0">
+            <Card className="calm-card shadow-none">
               <CardHeader>
                 <CardTitle className="text-base">Event</CardTitle>
               </CardHeader>
@@ -292,15 +253,6 @@ export function IssueDetail({ stack, fingerprint }: IssueDetailProps): React.JSX
           ) : null}
         </div>
       </div>
-    </div>
-  );
-}
-
-function Stat({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <div>
-      <p className="mono-label text-muted-foreground">{label}</p>
-      <div className="text-base font-semibold">{children}</div>
     </div>
   );
 }

@@ -45,7 +45,7 @@ export function ErrorsSetupCard({ stack }: ErrorsSetupCardProps): React.JSX.Elem
   const pending = s?.pendingRedeploy ?? [];
 
   return (
-    <Card className="card-pop mb-4 border-0 p-5">
+    <Card className="calm-card shadow-none mb-4 border-0 p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 space-y-1">
           <p className="flex items-center gap-2 text-base font-semibold">
@@ -69,7 +69,7 @@ export function ErrorsSetupCard({ stack }: ErrorsSetupCardProps): React.JSX.Elem
       </div>
 
       {s && !s.storeEnabled ? (
-        <p className="text-status-warning mt-4 text-sm">
+        <p className="text-tone-warn mt-4 text-sm">
           Events are stored in the observability store, which is off.{' '}
           <Link to="/stacks/$name/observability" params={{ name: stack }} className="underline underline-offset-2">
             Turn Observability on

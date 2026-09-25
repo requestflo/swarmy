@@ -45,7 +45,7 @@ export function StackTrace({ exceptions }: { exceptions: ExceptionView[] }): Rea
             {i > 0 ? <span className="mono-label text-muted-foreground">caused by</span> : null}
             <span className="text-sm font-semibold">{e.type || 'Error'}</span>
             <span className="text-muted-foreground min-w-0 text-sm break-words">{e.value}</span>
-            {e.handled === false ? <Badge variant="destructive">unhandled</Badge> : null}
+            {e.handled === false ? <Badge variant="outline" className="border-tone-bad/50 text-tone-bad">unhandled</Badge> : null}
             {e.mechanism ? <Badge variant="muted">{e.mechanism}</Badge> : null}
           </div>
           <Frames frames={e.frames} allFrames={allFrames} />
@@ -80,10 +80,12 @@ function Frame({ frame: f, defaultOpen }: { frame: FrameView; defaultOpen: boole
   const line = f.lineno ?? 0;
   return (
     <div className={cn('border-b last:border-b-0', !f.inApp && 'bg-muted/30')}>
+      <div className={cn('flex w-full items-center gap-2 pr-4', hasContext && 'hover:bg-accent/50')}>
       <button
         type="button"
         onClick={() => hasContext && setOpen((o) => !o)}
-        className={cn('flex w-full items-center gap-2 px-4 py-2 text-left', hasContext && 'hover:bg-accent/50')}
+        aria-expanded={hasContext ? open : undefined}
+        className="flex min-h-9 min-w-0 flex-1 items-center gap-2 py-2 pl-4 text-left"
       >
         <ChevronRightIcon className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-90', !hasContext && 'opacity-0')} />
         <span className="mono-data min-w-0 flex-1 truncate text-xs">
@@ -98,22 +100,20 @@ function Frame({ frame: f, defaultOpen }: { frame: FrameView; defaultOpen: boole
             </span>
           ) : null}
         </span>
+      </button>
         {f.sourcemap ? (
-          <span
-            role="button"
-            tabIndex={0}
+          <button
+            type="button"
             title="Resolved with a source map — show the minified position"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowMin((s) => !s);
-            }}
-            className="text-status-progress flex shrink-0 items-center gap-1 text-[11px]"
+            aria-pressed={showMin}
+            onClick={() => setShowMin((s) => !s)}
+            className="text-tone-info flex min-h-6 shrink-0 items-center gap-1 text-[11px]"
           >
             <MapIcon className="size-3" /> source-mapped
-          </span>
+          </button>
         ) : null}
         {f.inApp ? <Badge variant="info" className="shrink-0">app</Badge> : null}
-      </button>
+      </div>
       {showMin && f.minified ? (
         <p className="text-muted-foreground mono-data px-10 pb-2 text-[11px] break-all">
           minified: {f.minified.function ?? '?'} at {f.minified.filename}:{f.minified.lineno}:{f.minified.colno} · map {f.sourcemap}
@@ -137,7 +137,7 @@ function Frame({ frame: f, defaultOpen }: { frame: FrameView; defaultOpen: boole
 function CodeLine({ n, text, active }: { n: number; text: string; active?: boolean }): React.JSX.Element {
   return (
     <div className={cn('flex px-4', active && 'bg-status-offline/25')}>
-      <span className="w-10 shrink-0 pr-3 text-right opacity-50 select-none">{n > 0 ? n : ''}</span>
+      <span className="w-10 shrink-0 pr-3 text-right opacity-80 select-none">{n > 0 ? n : ''}</span>
       <span className="whitespace-pre">{text}</span>
     </div>
   );
