@@ -106,7 +106,13 @@ function ssoToGenericOAuth(p: ResolvedSsoProvider) {
     providerId: p.providerId,
     clientId: p.clientId ?? '',
     clientSecret: p.clientSecret ?? '',
-    ...(p.discoveryUrl ? { discoveryUrl: p.discoveryUrl } : {}),
+    // Issuer-only providers (sso.upsert / REST allow it) need the standard
+    // discovery document, or genericOAuth answers INVALID_OAUTH_CONFIGURATION.
+    ...(p.discoveryUrl
+      ? { discoveryUrl: p.discoveryUrl }
+      : p.issuer && !p.authorizationUrl
+        ? { discoveryUrl: `${p.issuer.replace(/\/+$/, '')}/.well-known/openid-configuration` }
+        : {}),
     ...(p.issuer ? { issuer: p.issuer } : {}),
     ...(p.authorizationUrl ? { authorizationUrl: p.authorizationUrl } : {}),
     ...(p.tokenUrl ? { tokenUrl: p.tokenUrl } : {}),
