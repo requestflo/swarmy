@@ -44,20 +44,19 @@ export function ZoneRow({ zone, selected, onSelect }: ZoneRowProps): React.JSX.E
         selected ? 'bg-accent/60 border-l-[3px] border-l-primary' : 'hover:bg-accent/40',
       )}
     >
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={onSelect}
-        onKeyDown={(e) => e.key === 'Enter' && onSelect()}
-        className="flex cursor-pointer flex-wrap items-center gap-3 px-6 py-4"
-      >
-        <div className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-center gap-3 px-6 py-4">
+        <button
+          type="button"
+          onClick={onSelect}
+          aria-expanded={selected}
+          className="min-h-11 min-w-0 flex-1 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
           <p className="mono-data truncate font-medium">{zone.zone}</p>
           <p className="text-muted-foreground mono-label truncate">
             serial {zone.serial} · ttl {zone.ttl}s
             {zone.mode === 'swarmy-ns' ? ` · ${zone.nameservers.length} ns pinned` : ''}
           </p>
-        </div>
+        </button>
         <Badge variant="muted">{zoneModeLabel(zone.mode)}</Badge>
         {conflicts.length > 0 ? (
           <Badge variant="warning">
@@ -68,14 +67,13 @@ export function ZoneRow({ zone, selected, onSelect }: ZoneRowProps): React.JSX.E
         <Switch
           checked={zone.enabled}
           onCheckedChange={(v) => updateZone.mutate({ id: zone.id, enabled: v })}
-          onClick={(e) => e.stopPropagation()}
           disabled={updateZone.isPending}
           aria-label={`Zone ${zone.zone} enabled`}
         />
         <Button
           variant="ghost"
           size="icon"
-          className="text-muted-foreground hover:text-status-offline"
+          className="text-muted-foreground hover:text-tone-bad"
           onClick={(e) => {
             e.stopPropagation();
             removeZone.mutate({ id: zone.id });
@@ -92,7 +90,7 @@ export function ZoneRow({ zone, selected, onSelect }: ZoneRowProps): React.JSX.E
           <ZoneSettingsRow zone={zone} />
           <ZoneAutoAddressRow zone={zone} />
           {conflicts.map((c) => (
-            <p key={`${c.name}-${c.type}`} className="text-status-warning text-xs">
+            <p key={`${c.name}-${c.type}`} className="text-tone-warn text-xs">
               <TriangleAlertIcon className="mr-1 inline size-3.5 align-[-2px]" />
               <span className="mono-data">
                 {c.name} {c.type}

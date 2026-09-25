@@ -50,7 +50,7 @@ export function ZonesCard({ zones, selectedId, onSelect }: ZonesCardProps): Reac
   };
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
         <CardTitle className="text-base">Zones</CardTitle>
         <div className="flex items-center gap-2">
@@ -62,7 +62,7 @@ export function ZonesCard({ zones, selectedId, onSelect }: ZonesCardProps): Reac
             className="h-8 w-44 sm:w-56"
           />
           <Select value={mode} onValueChange={(v) => setMode(v as ZoneMode)}>
-            <SelectTrigger className="h-8 w-36">
+            <SelectTrigger className="h-8 w-36" aria-label="Who answers for this domain">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

@@ -51,7 +51,7 @@ export function ResolutionPreviewCard({ zone }: { zone: DnsZoneView }): React.JS
   const p = preview.data;
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card">
       <CardHeader>
         <CardTitle className="text-base">Resolution preview</CardTitle>
         <CardDescription>
@@ -69,7 +69,7 @@ export function ResolutionPreviewCard({ zone }: { zone: DnsZoneView }): React.JS
             className="h-8 min-w-40 flex-1"
           />
           <Select value={region} onValueChange={setRegion}>
-            <SelectTrigger className="h-8 w-40">
+            <SelectTrigger className="h-8 w-40" aria-label="Resolve from region">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -86,7 +86,7 @@ export function ResolutionPreviewCard({ zone }: { zone: DnsZoneView }): React.JS
           </Button>
         </div>
 
-        {preview.isError ? <p className="text-status-offline text-xs">{preview.error.message}</p> : null}
+        {preview.isError ? <p className="text-tone-bad text-xs">{preview.error.message}</p> : null}
 
         {p ? (
           <div className="space-y-2">

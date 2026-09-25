@@ -14,6 +14,7 @@ import {
   toast,
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { Tech } from '@/components/calm';
 import { PrivateHostNote } from './private-host-note';
 import { WWW_LABEL, canPairWww, type WwwMode } from './domain-state';
 
@@ -55,26 +56,24 @@ export function AddDomainCard({ stack, open, onOpenChange }: AddDomainCardProps)
   return (
     <Collapsible open={open} onOpenChange={onOpenChange}>
       <CollapsibleContent>
-        <div className="card-pop space-y-4 p-5">
-          <div>
-            <p className="text-sm font-bold">Map a domain</p>
-            <p className="text-muted-foreground text-xs">
-              Writes onto the target service's <code className="mono-data">swarmy.ingress.routes</code>{' '}
-              label — no controller redeploy needed to take effect.
-            </p>
+        <div className="calm-card space-y-4 p-5">
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-bold">Point an address at a service</p>
+            <p className="text-muted-foreground text-xs">It takes effect without a redeploy.</p>
+            <Tech>writes the service's swarmy.ingress.routes label</Tech>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-1.5">
-              <Label className="mono-label">Host</Label>
+              <Label className="text-[13px]">Address</Label>
               <Input value={host} onChange={(e) => setHost(e.target.value)} placeholder="app.example.com" />
               <PrivateHostNote host={host} />
             </div>
             <div className="grid gap-1.5">
-              <Label className="mono-label">Path prefix (optional)</Label>
+              <Label className="text-[13px]">Path (optional)</Label>
               <Input value={pathPrefix} onChange={(e) => setPathPrefix(e.target.value)} placeholder="/api" />
             </div>
             <div className="grid gap-1.5">
-              <Label className="mono-label">Service</Label>
+              <Label className="text-[13px]">Send visitors to</Label>
               <Select value={serviceId} onValueChange={setServiceId}>
                 <SelectTrigger>
                   <SelectValue placeholder={options.length ? 'Select a service' : 'No services in this stack'} />
@@ -89,12 +88,12 @@ export function AddDomainCard({ stack, open, onOpenChange }: AddDomainCardProps)
               </Select>
             </div>
             <div className="grid gap-1.5">
-              <Label className="mono-label">Target port</Label>
+              <Label className="text-[13px]">Port</Label>
               <Input type="number" min={1} max={65535} value={port} onChange={(e) => setPort(Number(e.target.value))} />
             </div>
             {canPairWww(host) ? (
               <div className="grid gap-1.5 sm:col-span-2">
-                <Label className="mono-label">www</Label>
+                <Label className="text-[13px]">www</Label>
                 <Select value={www} onValueChange={(v) => setWww(v as typeof www)}>
                   <SelectTrigger className="sm:w-72">
                     <SelectValue />
@@ -110,7 +109,7 @@ export function AddDomainCard({ stack, open, onOpenChange }: AddDomainCardProps)
               </div>
             ) : null}
             <div className="grid gap-1.5 sm:col-span-2">
-              <Label className="mono-label">TLS</Label>
+              <Label className="text-[13px]">HTTPS</Label>
               <Select value={tls} onValueChange={(v) => setTls(v as typeof tls)}>
                 <SelectTrigger className="sm:w-56">
                   <SelectValue />
@@ -127,7 +126,7 @@ export function AddDomainCard({ stack, open, onOpenChange }: AddDomainCardProps)
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button
+            <Button variant="outline"
               onClick={() =>
                 add.mutate({
                   host: host.trim(),

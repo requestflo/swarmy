@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, AlertDescription, AlertTitle, StatusBadge } from '@swarmy/ui';
+import { Alert, AlertDescription, AlertTitle } from '@swarmy/ui';
+import { Depth, Section, StatusWord, Tech, toneFromStatus } from '@/components/calm';
 import { edgeTone } from '@/components/ingress/edge-runtime';
 import { useTRPC } from '@/integrations/trpc';
 import { GeoDnsControlsCard } from './geodns-controls-card';
@@ -22,7 +23,8 @@ const RUNTIME_LABEL: Record<string, string> = {
 /**
  * Geo-DNS — "swarmy is the nameserver". Zones are the registrar-facing
  * artifact: point NS records at pinned swarmy nodes and web A records derive
- * from ingress automatically. Full section on the Edge & ingress page.
+ * from ingress automatically. Summary sentence on the Network hub; the
+ * knobs at Controls.
  */
 export function GeoDnsSection(): React.JSX.Element {
   const trpc = useTRPC();
@@ -39,23 +41,26 @@ export function GeoDnsSection(): React.JSX.Element {
   const runtime = config.data?.runtime;
   const showRuntime = enabled && runtime && runtime.state !== 'serving' && runtime.state !== 'paused';
 
+  const swarmyZones = zoneList.filter((z) => z.mode === 'swarmy-ns').length;
   return (
-    <section className="mt-14 space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="headline text-2xl">
-            swarmy is your <em>nameserver</em>
-          </h2>
-          <p className="text-muted-foreground mt-1 max-w-2xl text-sm">
-            Point your registrar at pinned swarmy nodes and every routed domain resolves to the
-            nearest healthy region — web records derive from ingress, no zone files to babysit.
-          </p>
-        </div>
-        <StatusBadge
-          tone={enabled ? edgeTone(runtime?.state) : 'neutral'}
-          label={enabled ? `swarmy-dns · ${RUNTIME_LABEL[runtime?.state ?? 'deploying']}` : 'Off'}
-        />
-      </div>
+    <div className="flex flex-col gap-4">
+      <Section
+        title="Nearest front door"
+        hint="Geo-DNS"
+        action={
+          <StatusWord
+            tone={enabled ? toneFromStatus(edgeTone(runtime?.state)) : 'idle'}
+            word={enabled ? `DNS ${RUNTIME_LABEL[runtime?.state ?? 'deploying']}` : 'Off'}
+          />
+        }
+      >
+        <p className="text-muted-foreground text-[13.5px] leading-relaxed">
+          {enabled
+            ? `swarmy answers for ${swarmyZones} domain${swarmyZones === 1 ? '' : 's'} itself and sends each visitor to the closest healthy front door.`
+            : 'Off. Every visitor goes to the same front door. Turn it on to answer for your domains and send visitors to the closest one.'}
+        </p>
+        <Tech>swarmy-dns on ingress+outlet servers · web records derive from routes · no zone files</Tech>
+      </Section>
 
       {showRuntime ? (
         <Alert variant={runtime.state === 'deploying' ? 'default' : 'destructive'}>
@@ -66,6 +71,7 @@ export function GeoDnsSection(): React.JSX.Element {
         </Alert>
       ) : null}
 
+      <Depth at="controls">
       <GeoDnsControlsCard config={config.data} />
 
       <ZonesCard
@@ -86,6 +92,7 @@ export function GeoDnsSection(): React.JSX.Element {
       </div>
 
       <NodeRegionsCard nodes={nodes.data ?? []} />
-    </section>
+      </Depth>
+    </div>
   );
 }

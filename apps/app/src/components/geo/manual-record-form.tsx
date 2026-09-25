@@ -60,7 +60,7 @@ export function ManualRecordForm({
   return (
     <div className="border-border bg-card flex flex-wrap items-center gap-2 rounded-xl border p-3">
       <Select value={type} onValueChange={(v) => setType(v as RecordType)}>
-        <SelectTrigger className="h-8 w-24">
+        <SelectTrigger className="h-8 w-24" aria-label="Record type">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

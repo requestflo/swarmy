@@ -60,7 +60,7 @@ export function GeoipSourcePicker({
           value={source}
           onValueChange={(v) => setConfig.mutate({ geoipSource: v as GeoipSource })}
         >
-          <SelectTrigger className="w-52">
+          <SelectTrigger className="w-52" aria-label="Where locations come from">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
