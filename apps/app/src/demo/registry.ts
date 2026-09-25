@@ -7,6 +7,7 @@ import { gitconnections } from './resolvers/gitconnections';
 import { apps } from './resolvers/apps';
 import { mesh } from './resolvers/mesh';
 import { observability } from './resolvers/observability';
+import { errors } from './resolvers/errors';
 import { geo } from './resolvers/geo';
 import { data } from './resolvers/data';
 import { access } from './resolvers/access';
@@ -55,6 +56,7 @@ const MODULES: DomainResolvers[] = [
   apps,
   mesh,
   observability,
+  errors,
   geo,
   data,
   access,

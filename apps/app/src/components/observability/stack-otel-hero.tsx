@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Card, StatusBadge, cn, toast } from '@swarmy/ui';
+import { Button, Card, Input, StatusBadge, cn, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { OtelStackToggle } from '@/components/stacks/otel-stack-toggle';
 import { heroLabel, heroTone, type CollectorStatus } from './observability-shared';
@@ -12,6 +12,8 @@ interface StackOtelHeroProps {
   collectorStatus: CollectorStatus;
   storeReachable: boolean;
   statusLoading: boolean;
+  /** How long the store keeps traces, metrics and logs (org-wide). */
+  retentionDays?: number;
 }
 
 /**
@@ -25,6 +27,7 @@ export function StackOtelHero({
   collectorStatus,
   storeReachable,
   statusLoading,
+  retentionDays,
 }: StackOtelHeroProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
@@ -76,6 +79,7 @@ export function StackOtelHero({
               Flip it on and <span className="mono-data">{stack}</span> gets OTEL_* env injected on
               its next deploy — traces, metrics and logs land on this page.
             </p>
+            {retentionDays != null && <RetentionControl days={retentionDays} />}
           </>
         ) : (
           <>
@@ -95,6 +99,53 @@ export function StackOtelHero({
         )}
       </Card>
     </div>
+  );
+}
+
+/** Org-wide: how many days the store keeps telemetry (and error events). */
+function RetentionControl({ days }: { days: number }): React.JSX.Element {
+  const trpc = useTRPC();
+  const qc = useQueryClient();
+  const [draft, setDraft] = React.useState(String(days));
+  React.useEffect(() => setDraft(String(days)), [days]);
+  const save = useMutation(
+    trpc.observability.setRetention.mutationOptions({
+      onSuccess: (r) => {
+        toast.success(`Telemetry kept for ${r.retentionDays} days`);
+        void qc.invalidateQueries({ queryKey: trpc.observability.status.queryKey() });
+      },
+      onError: (e) => toast.error(e.message),
+    }),
+  );
+  const n = Number(draft);
+  const valid = Number.isInteger(n) && n >= 1 && n <= 365;
+  return (
+    <form
+      className="flex items-center gap-2 text-xs"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (valid && n !== days) save.mutate({ retentionDays: n });
+      }}
+    >
+      <label htmlFor="obs-retention" className="text-muted-foreground">
+        Keep for
+      </label>
+      <Input
+        id="obs-retention"
+        type="number"
+        min={1}
+        max={365}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        className="h-7 w-16 px-2 text-xs"
+      />
+      <span className="text-muted-foreground">days (all stacks)</span>
+      {valid && n !== days && (
+        <Button type="submit" size="sm" variant="outline" className="h-7 px-2" disabled={save.isPending}>
+          Save
+        </Button>
+      )}
+    </form>
   );
 }
 

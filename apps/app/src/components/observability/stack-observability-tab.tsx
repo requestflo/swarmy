@@ -37,6 +37,7 @@ export function StackObservabilityTab({ stack }: StackObservabilityTabProps): Re
         collectorStatus={collectorStatus}
         storeReachable={storeReachable}
         statusLoading={status.isLoading}
+        retentionDays={status.data?.retentionDays}
       />
 
       <HealthReasonsPanel stack={stack} />

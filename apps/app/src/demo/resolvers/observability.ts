@@ -457,6 +457,14 @@ export const observability: DomainResolvers = {
       return toStatusView(st);
     },
 
+    'observability.setRetention': (i, s): ObservabilityStatusView => {
+      const { retentionDays } = i as { retentionDays: number };
+      const st = state(s);
+      st.config.retentionDays = retentionDays;
+      st.config.updatedAt = new Date().toISOString();
+      return toStatusView(st);
+    },
+
     // Per-stack opt-in — the demo stand-in for the `swarmy.otel.enabled` label.
     'observability.stackTelemetry': (i, s): { enabled: boolean } => {
       const { stack } = i as { stack: string };
