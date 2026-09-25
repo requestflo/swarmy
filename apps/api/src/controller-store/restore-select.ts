@@ -51,6 +51,14 @@ export interface BootFacts {
   bundle: { configured: boolean };
   /** A controller has run in this swarm before (lease label or markers seen). */
   priorController: boolean;
+  /**
+   * The controller lease as swarm raft had it when this task was created
+   * (SWARMY_LEASE_AT_START, readable without the replica), and this task's
+   * own swarm node. It proves how far the lineage got even when the replica
+   * (Garage) is down.
+   */
+  lease?: { epoch: number; node?: string; hostname?: string } | null;
+  selfNode?: string;
   /** Operator override (SWARMY_BOOT_SOURCE). */
   forced?: 'local' | 'replica' | 'bundle' | 'fresh';
   /** SWARMY_ALLOW_FRESH=1: accept an empty store even though one existed before. */
@@ -72,6 +80,13 @@ export function selectBootSource(f: BootFacts): BootDecision {
       };
     }
     if (replica.configured && !replica.reachable) {
+      // The replica can't say whether this file is current, but the lease in
+      // raft can. A lease epoch past the file's writer epoch, taken on ANOTHER
+      // node, means someone wrote after this file (QA-060: a rebooted node came
+      // back on epoch 11 while epochs 12–13 ran elsewhere). Starting would serve
+      // and write an old lineage, so wait for the replica instead.
+      const stale = localBehindLease(local.marker, f.lease ?? null, f.selfNode);
+      if (stale) return { kind: 'wait', reason: stale };
       return { kind: 'keep-local', reason: 'replica unreachable; keeping the local file (replication waits until it is checked)' };
     }
     return { kind: 'keep-local', reason: replicaUsable ? 'local file is the replica’s current lineage' : 'no replica data; local file is the only copy' };
@@ -91,6 +106,29 @@ export function selectBootSource(f: BootFacts): BootDecision {
     };
   }
   return { kind: 'fresh', reason: 'first boot: nothing to restore' };
+}
+
+/**
+ * PURE — why the local file is behind the lease, or null. Behind means the
+ * lease epoch is past the file's writer epoch AND that later epoch was taken
+ * on another node (its writes never reached this node's file). A later epoch
+ * on THIS node is this file's own writer (a restart here before replication
+ * restamped the marker), so it isn't stale. An unmarked file counts as epoch 0.
+ */
+export function localBehindLease(
+  marker: WriterMarker | null,
+  lease: { epoch: number; node?: string; hostname?: string } | null,
+  selfNode?: string,
+): string | null {
+  if (!lease || !Number.isFinite(lease.epoch)) return null;
+  const localEpoch = marker?.epoch ?? 0;
+  if (lease.epoch <= localEpoch) return null;
+  if (lease.node && selfNode && lease.node === selfNode) return null;
+  return (
+    `the local file was last written at epoch ${localEpoch}, but the lease in raft is at epoch ${lease.epoch}` +
+    `${lease.hostname ? ` on ${lease.hostname}` : lease.node ? ` on node ${lease.node}` : ''}, and the replica that holds those writes is unreachable. ` +
+    'Refusing to serve an older lineage: waiting for the replica (Swarm retries this task)'
+  );
 }
 
 function forcedDecision(f: BootFacts): BootDecision {

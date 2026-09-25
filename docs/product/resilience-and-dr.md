@@ -154,7 +154,11 @@ Four ideas, one story:
   or **start fresh**. A stale file left on a node the controller used before is
   kept as `control.db.stale-<ts>` and replaced. Boot never starts empty while a
   replica it can't reach may hold the data, and never starts empty in a swarm
-  that already had a controller unless `SWARMY_ALLOW_FRESH=1` is set.
+  that already had a controller unless `SWARMY_ALLOW_FRESH=1` is set. Nor
+  does it keep a local file that is behind the lease: when the replica is
+  unreachable, the lease in swarm raft (readable without it) still says how
+  far the lineage got. A file written at an older epoch than a lease taken on
+  another node waits for the replica rather than serve an old lineage.
   "Move controller to…" is a controlled version of the same thing: the
   controller ships its last writes, releases its lease and starts on the manager
   you pick.

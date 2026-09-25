@@ -33,6 +33,7 @@ import {
   writeLocalMarker,
   type ReplicaState,
 } from './replica';
+import { parseLeaseLabel } from '@swarmy/core/protocol';
 import { selectBootSource, type BootDecision, type BootFacts, type WriterMarker } from './restore-select';
 
 /** What boot saw and did, for the supervisor's pre-replication check. */
@@ -104,7 +105,7 @@ export async function runBoot(env: NodeJS.ProcessEnv = process.env, log: (m: str
   mkdirSync(paths.dir, { recursive: true });
 
   const local = { exists: localDbExists(paths), marker: readLocalMarker(paths) };
-  const replica = cfg.replica ? await readReplicaWithRetry(cfg.replica, local.exists ? 2 : 10, log) : null;
+  const replica = cfg.replica ? await readReplicaWithRetry(cfg.replica, local.exists ? 5 : 10, log) : null;
   const forced = env.SWARMY_BOOT_SOURCE as BootFacts['forced'] | undefined;
   const facts: BootFacts = {
     local,
@@ -116,6 +117,8 @@ export async function runBoot(env: NodeJS.ProcessEnv = process.env, log: (m: str
     },
     bundle: { configured: !!cfg.bundle },
     priorController: !!(env.SWARMY_LEASE_AT_START?.trim() || local.marker || replica?.marker),
+    lease: parseLeaseLabel(env.SWARMY_LEASE_AT_START),
+    selfNode: id.nodeId,
     allowFresh: env.SWARMY_ALLOW_FRESH === '1',
     ...(forced && ['local', 'replica', 'bundle', 'fresh'].includes(forced) ? { forced } : {}),
   };
@@ -133,6 +136,30 @@ export async function runBoot(env: NodeJS.ProcessEnv = process.env, log: (m: str
       return 1;
     case 'wait':
       log(`boot: ${decision.reason}. Exiting so Swarm retries.`);
+      // Leave a report so status / the next task shows WHY it isn't serving.
+      try {
+        writeFileSync(
+          paths.bootReport,
+          JSON.stringify(
+            {
+              at: new Date().toISOString(),
+              decision,
+              outcome: 'waiting for the replica (not serving)',
+              expectMarker: local.marker,
+              bootHeadTxid: null,
+              replicaConfigured: !!cfg.replica,
+              ...(replica?.error ? { replicaError: replica.error } : {}),
+              movedAside: null,
+              durationMs: Date.now() - started,
+            } satisfies BootReport,
+            null,
+            2,
+          ),
+          { mode: 0o600 },
+        );
+      } catch {
+        // the report is best-effort
+      }
       return 75;
     case 'keep-local':
       outcome = 'kept the local file';
