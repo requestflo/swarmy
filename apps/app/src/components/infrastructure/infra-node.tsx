@@ -16,13 +16,13 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  StatusBadge,
   cn,
   toast,
 } from '@swarmy/ui';
 import { NODE_STATUS_TONE, type NodeSummary } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { bytes, cores, pct } from '@/lib/format';
+import { StatusWord, toneFromStatus } from '@/components/calm';
 import type { InfraFlowNode } from './infra-canvas';
 
 /** Status dot token for a node (neutral falls back to the idle token). */
@@ -142,7 +142,7 @@ export function InfraNode({ data }: NodeProps<InfraFlowNode>): React.JSX.Element
 
       <div className="text-muted-foreground mt-1.5 flex items-center gap-2">
         <p className="mono-data truncate text-xs">{node.hostname}</p>
-        <StatusBadge tone={NODE_STATUS_TONE[node.status] ?? 'neutral'} label={node.status} />
+        <StatusWord tone={toneFromStatus(NODE_STATUS_TONE[node.status] ?? 'neutral')} word={node.status} className="text-[11px]" />
       </div>
 
       {/* Roles + region — interactive (nodrag, stop propagation). */}
@@ -171,7 +171,7 @@ export function InfraNode({ data }: NodeProps<InfraFlowNode>): React.JSX.Element
             onValueChange={(region) => setRegion.mutate({ id: node.id, region })}
             disabled={setRegion.isPending}
           >
-            <SelectTrigger className="h-7 w-auto gap-1 rounded-full px-2.5 text-[11px]">
+            <SelectTrigger aria-label={`Region for ${node.name}`} className="h-7 w-auto gap-1 rounded-full px-2.5 text-[11px]">
               <MapPinIcon className="size-3" />
               <SelectValue placeholder="Region" />
             </SelectTrigger>
@@ -232,7 +232,7 @@ function Capacity({
         {icon}
         {label}
       </div>
-      <Progress value={value} className="mt-1.5" />
+      <Progress value={value} aria-label={label} className="mt-1.5" />
       <p className="text-muted-foreground mt-1 text-[11px]">{sub}</p>
     </div>
   );

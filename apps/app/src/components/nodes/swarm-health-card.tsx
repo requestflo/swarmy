@@ -17,11 +17,11 @@ import {
   CardHeader,
   CardTitle,
   CopyButton,
-  StatusBadge,
   type StatusTone,
   toast,
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { StatusWord, toneFromStatus } from '@/components/calm';
 
 const VERDICT_TONE: Record<string, StatusTone> = {
   healthy: 'online',
@@ -99,7 +99,7 @@ export function SwarmHealthCard(): React.JSX.Element | null {
   const tone = VERDICT_TONE[h.managers.verdict] ?? 'neutral';
 
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className="calm-card border-0">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <ShieldCheckIcon className="text-primary size-4" /> Swarm health
@@ -116,7 +116,7 @@ export function SwarmHealthCard(): React.JSX.Element | null {
               <span className="text-muted-foreground text-sm">
                 manager{h.managers.total === 1 ? '' : 's'} reachable
               </span>
-              <StatusBadge tone={tone} label={VERDICT_LABEL[h.managers.verdict] ?? h.managers.verdict} />
+              <StatusWord tone={toneFromStatus(tone)} word={VERDICT_LABEL[h.managers.verdict] ?? h.managers.verdict} />
             </div>
             <p className="text-muted-foreground mt-1 text-sm">{h.managers.message}</p>
           </div>
@@ -145,10 +145,10 @@ export function SwarmHealthCard(): React.JSX.Element | null {
               <div className="flex items-center gap-2 text-sm font-medium">
                 <LockIcon className="size-4" /> Manager autolock
                 {h.autolock.keyStored ? (
-                  <StatusBadge tone="online" label="unlock key stored" />
+                  <StatusWord tone="ok" word="unlock key stored" />
                 ) : null}
                 {h.autolock.lockedNodes > 0 ? (
-                  <StatusBadge tone="warning" label={`${h.autolock.lockedNodes} locked`} />
+                  <StatusWord tone="warn" word={`${h.autolock.lockedNodes} locked`} />
                 ) : null}
               </div>
               <p className="text-muted-foreground mt-1 text-sm">
@@ -207,7 +207,7 @@ export function SwarmHealthCard(): React.JSX.Element | null {
           {oneTimeKey ? (
             <div className="bg-accent mt-3 flex items-center justify-between gap-3 rounded-xl px-3 py-2">
               <div className="min-w-0">
-                <p className="text-status-warning text-xs font-medium">
+                <p className="text-tone-warn text-xs font-medium">
                   Shown once — swarmy stored nothing. Keep it somewhere safe.
                 </p>
                 <p className="mono-data truncate text-sm">{oneTimeKey}</p>

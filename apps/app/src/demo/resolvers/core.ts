@@ -16,6 +16,9 @@ function byId<T extends { id: string }>(arr: T[], id: string): T | undefined {
 /** Session-local autolock state for the swarm.* demo resolvers. */
 const demoAutolock = { keyStored: false };
 
+/** Disk use per demo node (percent of the root filesystem). */
+const DEMO_DISK_PCT: Record<string, number> = { 'n-mgr-1': 38, 'n-mgr-2': 44, 'n-wkr-1': 81, 'n-wkr-2': 57, 'n-wkr-3': 23 };
+
 export const core: DomainResolvers = {
   handlers: {
     'org.currentOrg': (_i, s) => ({ id: s.org.id, name: s.org.name, slug: s.org.slug, role: s.org.role }),
@@ -62,16 +65,36 @@ export const core: DomainResolvers = {
       reclaimedBytes: 412 * 1024 ** 2,
       dryRun: false,
     }),
+    // The real input is `{ nodeId }` (the old `{ id }` is still accepted). Returns
+    // a full NodeStatsSnapshot so the Servers inspector has disk + memory figures;
+    // wkr-1 runs hot on disk so the upkeep ("Tidy up") path is visible.
     'nodes.liveStatsLatest': (i, s) => {
-      const n = byId(s.nodes, (i as { id?: string })?.id ?? '');
+      const q = (i ?? {}) as { id?: string; nodeId?: string };
+      const n = byId(s.nodes, q.nodeId ?? q.id ?? '');
       if (!n?.live) return null;
-      return { cpuPercent: jitter(n.live.cpuPercent), memPercent: jitter(n.live.memPercent, 3) };
+      const memTotal = n.resources.memBytes ?? 16 * 1024 ** 3;
+      const memPercent = jitter(n.live.memPercent, 3);
+      const fsTotal = (n.resources.cpus ?? 8) >= 16 ? 160 * 1024 ** 3 : 80 * 1024 ** 3;
+      const fsPct = DEMO_DISK_PCT[n.id] ?? 42;
+      return {
+        nodeId: n.id,
+        ts: Date.now(),
+        cpuPercent: jitter(n.live.cpuPercent),
+        cpuCount: n.resources.cpus ?? 4,
+        memPercent,
+        memUsedBytes: Math.round((memTotal * memPercent) / 100),
+        memTotalBytes: memTotal,
+        netRxBytes: 0,
+        netTxBytes: 0,
+        fsUsedBytes: Math.round((fsTotal * fsPct) / 100),
+        fsTotalBytes: fsTotal,
+      };
     },
     'nodes.containers': (i, s) => {
-      const id = (i as { id?: string })?.id;
+      const id = (i as { id?: string; nodeId?: string })?.nodeId ?? (i as { id?: string })?.id;
       return s.services
         .filter((sv) => sv.nodeId === id)
-        .map((sv) => ({ id: `ctr-${sv.id}`, name: sv.name, image: sv.image, state: 'running' }));
+        .map((sv) => ({ id: `ctr-${sv.id}`, name: sv.name, image: sv.image, state: 'running', status: 'Up 3 hours' }));
     },
     // Labels editor on the node page: '' values are deletions (mirrors the real
     // node.update label patch convention).

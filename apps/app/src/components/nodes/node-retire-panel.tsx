@@ -8,7 +8,6 @@ import {
   CardHeader,
   CardTitle,
   Input,
-  StatusBadge,
   Tabs,
   TabsContent,
   TabsList,
@@ -17,6 +16,7 @@ import {
   type StatusTone,
 } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { StatusWord, toneFromStatus } from '@/components/calm';
 
 type Downtime = 'none' | 'seconds' | 'short' | 'unknown';
 
@@ -83,7 +83,7 @@ export function NodeRetirePanel({ nodeId }: { nodeId: string }): React.JSX.Eleme
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <LogOutIcon className="text-primary size-4" /> Retiring {run.hostname}
-            <StatusBadge tone={RUN_TONE[run.status] ?? 'neutral'} label={run.status} />
+            <StatusWord tone={toneFromStatus(RUN_TONE[run.status] ?? 'neutral')} word={run.status} />
           </CardTitle>
           <div className="flex flex-wrap gap-2">
             {live ? (
@@ -117,7 +117,7 @@ export function NodeRetirePanel({ nodeId }: { nodeId: string }): React.JSX.Eleme
           <div className="divide-border grid max-h-72 grid-cols-1 divide-y overflow-y-auto">
             {[...run.log].reverse().map((l, i) => (
               <div key={`${l.at}-${i}`} className="flex flex-wrap items-baseline justify-between gap-2 py-1.5 text-sm">
-                <span className={l.level === 'error' ? 'text-destructive' : l.level === 'warn' ? 'text-status-warning' : ''}>
+                <span className={l.level === 'error' ? 'text-destructive' : l.level === 'warn' ? 'text-tone-warn' : ''}>
                   {l.message}
                 </span>
                 <span className="mono-data text-muted-foreground text-xs">{new Date(l.at).toLocaleTimeString()}</span>
@@ -187,7 +187,7 @@ export function NodeRetirePanel({ nodeId }: { nodeId: string }): React.JSX.Eleme
                   <ul className="space-y-1 text-sm">
                     {p.warnings.map((w) => (
                       <li key={w} className="flex gap-2">
-                        <TriangleAlertIcon className="text-status-warning mt-0.5 size-4 shrink-0" /> {w}
+                        <TriangleAlertIcon className="text-tone-warn mt-0.5 size-4 shrink-0" /> {w}
                       </li>
                     ))}
                   </ul>
@@ -229,7 +229,7 @@ export function NodeRetirePanel({ nodeId }: { nodeId: string }): React.JSX.Eleme
                         </span>
                       ) : null}
                     </span>
-                    <StatusBadge tone={PAUSE[s.downtime as Downtime].tone} label={PAUSE[s.downtime as Downtime].label} />
+                    <StatusWord tone={toneFromStatus(PAUSE[s.downtime as Downtime].tone)} word={PAUSE[s.downtime as Downtime].label} />
                   </li>
                 ))}
               </ol>

@@ -11,6 +11,7 @@ import {
   StatusBadge,
   type StatusTone,
 } from '@swarmy/ui';
+import { StatusWord, toneFromStatus } from '@/components/calm';
 
 /** The container fields this list renders (subset of the agent container view). */
 export interface NodeContainer {
@@ -67,7 +68,7 @@ export function NodeContainersPanel({ containers }: NodeContainersPanelProps): R
                 <span className="mono-data text-muted-foreground hidden text-xs sm:inline">
                   {c.status}
                 </span>
-                <StatusBadge tone={tone} label={c.state} />
+                <StatusWord tone={toneFromStatus(tone)} word={c.state} />
               </div>
             </div>
           );

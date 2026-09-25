@@ -105,14 +105,14 @@ export function NodeDangerControls({ nodeId, name, status, role }: NodeDangerCon
               <AlertDialogHeader>
                 <AlertDialogTitle>Drain {name}?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Every task on this node is rescheduled elsewhere in the swarm. The node stays
-                  enrolled and can be reactivated at any time.
+                  Everything on this server moves to your other servers. The server stays
+                  enrolled and can take work again at any time.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction onClick={() => drain.mutate({ id: nodeId })}>
-                  Drain node
+                  Drain server
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -146,7 +146,7 @@ export function NodeDangerControls({ nodeId, name, status, role }: NodeDangerCon
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction onClick={() => demote.mutate({ id: nodeId })}>
-                  Demote node
+                  Demote server
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -157,7 +157,7 @@ export function NodeDangerControls({ nodeId, name, status, role }: NodeDangerCon
       <AlertDialog>
         <AlertDialogTrigger asChild>
           <Button variant="destructive" disabled={remove.isPending}>
-            <TrashIcon className="size-4" /> Remove node
+            <TrashIcon className="size-4" /> Remove server
           </Button>
         </AlertDialogTrigger>
         <AlertDialogContent>
@@ -171,7 +171,7 @@ export function NodeDangerControls({ nodeId, name, status, role }: NodeDangerCon
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={() => remove.mutate({ id: nodeId })}>
-              Remove node
+              Remove server
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,11 +1,12 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUpCircleIcon } from 'lucide-react';
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, StatusBadge, toast } from '@swarmy/ui';
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, toast } from '@swarmy/ui';
 import { NODE_STATUS_TONE } from '@swarmy/core';
 import type { NodeDetail, NodeStatsSnapshot } from '@swarmy/core';
 import { bytes, cores, pct } from '@/lib/format';
 import { useTRPC } from '@/integrations/trpc';
+import { StatusWord, toneFromStatus } from '@/components/calm';
 
 interface NodeDetailsPanelProps {
   node: NodeDetail | undefined;
@@ -21,10 +22,7 @@ export function NodeDetailsPanel({ node, live }: NodeDetailsPanelProps): React.J
       </CardHeader>
       <CardContent className="divide-border grid grid-cols-1 divide-y text-sm">
         <Row label="Status">
-          <StatusBadge
-            tone={node ? (NODE_STATUS_TONE[node.status] ?? 'neutral') : 'neutral'}
-            label={node?.status ?? '—'}
-          />
+          <StatusWord tone={toneFromStatus(node ? (NODE_STATUS_TONE[node.status] ?? 'neutral') : 'neutral')} word={node?.status ?? '—'} />
         </Row>
         <Row label="Role">
           <Badge variant={node?.role === 'manager' ? 'info' : 'muted'}>{node?.role ?? '—'}</Badge>
