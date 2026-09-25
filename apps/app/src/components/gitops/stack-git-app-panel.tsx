@@ -1,8 +1,10 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { DatabaseIcon } from 'lucide-react';
-import { Button, StatusBadge } from '@swarmy/ui';
+import { Button } from '@swarmy/ui';
+import { Section, StatusWord, toneFromStatus } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
+import { AppEnvironmentsList } from './app-environments-list';
 import {
   canPromote,
   findStackApp,
@@ -52,13 +54,12 @@ export function StackGitAppPanel({ stack }: { stack: string }): React.JSX.Elemen
   const openPlan = (id: string, from?: string): void => setOpen({ id, from });
 
   return (
-    <section className="card-pop mb-6 space-y-3 p-5">
+    <Section
+      title={`From git · ${s.where}`}
+      action={<AppDriftBadge repoId={app.repoId} drift={app.drift} stack={stack} />}
+    >
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <p className="flex flex-wrap items-center gap-2 font-semibold">
-            From Git · {s.where}
-            <AppDriftBadge repoId={app.repoId} drift={app.drift} stack={stack} />
-          </p>
           <AppSource
             app={app}
             branch={env?.branch ?? (match.kind === 'preview' ? match.preview.branch : undefined)}
@@ -77,11 +78,11 @@ export function StackGitAppPanel({ stack }: { stack: string }): React.JSX.Elemen
       </div>
       <div className="flex flex-wrap items-center gap-3">
         {s.status ? (
-          <StatusBadge {...planStatus(s.status)} />
+          <StatusWord tone={toneFromStatus(planStatus(s.status).tone)} word={planStatus(s.status).label} />
         ) : (
-          <span className="text-muted-foreground text-sm">Waiting for the first push</span>
+          <span className="text-muted-foreground text-[13.5px]">Waiting for the first push</span>
         )}
-        {s.sha ? <span className="text-muted-foreground mono-label">{sha7(s.sha)}</span> : null}
+        {s.sha ? <span className="text-muted-foreground font-mono text-[11.5px]">{sha7(s.sha)}</span> : null}
         {s.planId ? (
           <Button variant="ghost" size="sm" onClick={() => openPlan(s.planId as string)}>
             View plan
@@ -90,7 +91,7 @@ export function StackGitAppPanel({ stack }: { stack: string }): React.JSX.Elemen
       </div>
       {dataNote ? (
         <p className="text-muted-foreground flex items-start gap-2 text-sm">
-          <DatabaseIcon className="text-status-progress mt-0.5 size-4 shrink-0" /> {dataNote}
+          <DatabaseIcon className="text-tone-info mt-0.5 size-4 shrink-0" /> {dataNote}
         </p>
       ) : null}
       {env ? <AppNeedsYou environments={[env]} onOpen={openPlan} /> : null}
@@ -101,6 +102,7 @@ export function StackGitAppPanel({ stack }: { stack: string }): React.JSX.Elemen
         promotedFrom={open?.from}
         onClose={() => setOpen(null)}
       />
-    </section>
+      <AppEnvironmentsList app={app} stack={stack} />
+    </Section>
   );
 }

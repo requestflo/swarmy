@@ -5,15 +5,15 @@ import type { ActionOutcomeView, Gate, PlanActionView } from './gitops-types';
 import { ConfirmActionDialog } from './confirm-action-dialog';
 
 const GATE: Record<Gate, { Icon: typeof PlusIcon; tone: string; label: string }> = {
-  auto: { Icon: PlusIcon, tone: 'text-status-online', label: 'runs on its own' },
-  confirm: { Icon: CircleAlertIcon, tone: 'text-status-warning', label: 'needs a confirm' },
-  blocked: { Icon: XIcon, tone: 'text-status-offline', label: 'blocked' },
+  auto: { Icon: PlusIcon, tone: 'text-tone-ok', label: 'runs on its own' },
+  confirm: { Icon: CircleAlertIcon, tone: 'text-tone-warn', label: 'needs a confirm' },
+  blocked: { Icon: XIcon, tone: 'text-tone-bad', label: 'blocked' },
 };
 
 const OUTCOME: Record<ActionOutcomeView['status'], { tone: string; label: string }> = {
-  done: { tone: 'text-status-online', label: 'Done' },
-  held: { tone: 'text-status-warning', label: 'Waiting for you' },
-  failed: { tone: 'text-status-offline', label: 'Failed' },
+  done: { tone: 'text-tone-ok', label: 'Done' },
+  held: { tone: 'text-tone-warn', label: 'Waiting for you' },
+  failed: { tone: 'text-tone-bad', label: 'Failed' },
   skipped: { tone: 'text-status-idle', label: 'Skipped' },
 };
 

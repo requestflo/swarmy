@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Card, CardContent, CardHeader, CardTitle, Skeleton } from '@swarmy/ui';
+import { Button, Skeleton } from '@swarmy/ui';
+import { Section } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { CanaryRunCard } from './canary-run-card';
 import { CanaryStartCard } from './canary-start-card';
@@ -19,11 +20,8 @@ export function CanaryPanel({ stack }: { stack: string }): React.JSX.Element {
   const runs = canaries.data ?? [];
 
   return (
-    <Card className="card-pop border-0">
-      <CardHeader>
-        <CardTitle className="text-base">Canary rollout</CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-4">
+    <Section title="Rollout" hint={runs.length ? 'a slice of visitors tries it first' : undefined}>
+      <div className="grid gap-4">
         {canaries.isLoading ? (
           <div className="grid gap-2">
             <Skeleton className="h-4 w-full" />
@@ -32,23 +30,23 @@ export function CanaryPanel({ stack }: { stack: string }): React.JSX.Element {
           </div>
         ) : canaries.isError ? (
           <div className="grid justify-items-start gap-2">
-            <p className="text-status-offline text-sm">{canaries.error.message}</p>
+            <p className="text-tone-bad text-sm">{canaries.error.message}</p>
             <Button size="sm" variant="outline" onClick={() => void canaries.refetch()}>
               Retry
             </Button>
           </div>
         ) : runs.length === 0 ? (
           <>
-            <p className="text-muted-foreground text-sm">
-              No canary in flight. Try a new image on a slice of real traffic — it promotes itself
-              when clean and rolls back on errors.
+            <p className="text-muted-foreground text-[13.5px]">
+              Nothing rolling out. Try a new version on a slice of visitors first: it takes over
+              when clean and goes away on errors.
             </p>
             <CanaryStartCard stack={stack} />
           </>
         ) : (
           runs.map((run) => <CanaryRunCard key={run.canaryService} run={run} />)
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </Section>
   );
 }

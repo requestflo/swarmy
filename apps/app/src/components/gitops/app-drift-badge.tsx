@@ -48,7 +48,7 @@ export function AppDriftBadge({ repoId, drift, stack }: AppDriftBadgeProps): Rea
       {total > 0 ? (
         <Badge
           variant="outline"
-          className="border-status-warning/40 text-status-warning"
+          className="border-status-warning/40 text-tone-warn"
           title={envs
             .map(
               (d) => `${envLabel(d.environment)}: ${d.changes} change${d.changes === 1 ? '' : 's'}`,

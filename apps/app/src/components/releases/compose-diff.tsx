@@ -25,8 +25,8 @@ export function ComposeDiff({ diff }: { diff: ComposeDiffLine[] }): React.JSX.El
             key={i}
             className={cn(
               'flex gap-2 px-2',
-              l.kind === 'add' && 'bg-status-online/12 text-status-online',
-              l.kind === 'del' && 'bg-status-offline/12 text-status-offline',
+              l.kind === 'add' && 'bg-status-online/12 text-tone-ok',
+              l.kind === 'del' && 'bg-status-offline/12 text-tone-bad',
             )}
           >
             <span className="text-muted-foreground/60 w-8 shrink-0 select-none text-right">

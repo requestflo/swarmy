@@ -25,7 +25,7 @@ export function PlanBody({
           </span>
         ) : null}
       </div>
-      {plan.error ? <p className="text-status-offline text-sm">{plan.error}</p> : null}
+      {plan.error ? <p className="text-tone-bad text-sm">{plan.error}</p> : null}
       <PlanIssues issues={plan.issues} configPath={configPath} />
       {plan.plan && plan.plan.actions.length > 0 ? (
         <ul className="card-pop divide-border divide-y overflow-hidden">

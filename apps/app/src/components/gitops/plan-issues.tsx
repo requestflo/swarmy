@@ -25,7 +25,7 @@ export function PlanIssues({
             <span
               className={cn(
                 'mono-data w-14 shrink-0 text-xs',
-                i.severity === 'error' ? 'text-status-offline' : 'text-status-warning',
+                i.severity === 'error' ? 'text-tone-bad' : 'text-tone-warn',
               )}
             >
               {i.line ? `L${i.line}${i.col ? `:${i.col}` : ''}` : '—'}

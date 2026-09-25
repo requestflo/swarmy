@@ -26,7 +26,17 @@ import { relativeTime } from './release-status';
  * the violations surface inline and an audited override is offered
  * (block-level overrides need an admin).
  */
-export function RollbackConfirm({ release }: { release: ReleaseView }): React.JSX.Element {
+export function RollbackConfirm({
+  release,
+  trigger,
+  label,
+}: {
+  release: ReleaseView;
+  /** Custom trigger (e.g. the page's coral "Put back v1.8.2"); defaults to a quiet button. */
+  trigger?: React.ReactElement;
+  /** The version's name in the dialog ("v1.8.2"). */
+  label?: string;
+}): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const [open, setOpen] = React.useState(false);
@@ -35,7 +45,7 @@ export function RollbackConfirm({ release }: { release: ReleaseView }): React.JS
   const rollback = useMutation(
     trpc.releases.rollback.mutationOptions({
       onSuccess: () => {
-        toast.success(`Rolling ${release.stackName} back — a new release is deploying.`);
+        toast.success(`Putting ${label ?? 'the earlier version'} of ${release.stackName} back, one copy at a time.`);
         setOpen(false);
         setOverride(false);
         void qc.invalidateQueries();
@@ -58,22 +68,24 @@ export function RollbackConfirm({ release }: { release: ReleaseView }): React.JS
       }}
     >
       <AlertDialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Undo2Icon className="size-4" /> Roll back to this release
-        </Button>
+        {trigger ?? (
+          <Button variant="outline" size="sm">
+            <Undo2Icon className="size-4" /> Put this version back
+          </Button>
+        )}
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Roll back {release.stackName}?</AlertDialogTitle>
+          <AlertDialogTitle>Put back {label ?? 'this version'} of {release.stackName}?</AlertDialogTitle>
           <AlertDialogDescription>
-            Redeploys the compose from {relativeTime(release.createdAt)} as a new release. The
-            current head release is marked rolled back. Everything is audited.
+            Runs the version from {relativeTime(release.createdAt)} again, one copy at a time. The
+            current version is marked put back. Everything is audited.
           </AlertDialogDescription>
         </AlertDialogHeader>
 
         {rollback.isError ? (
           <div className="border-status-offline/40 bg-status-offline/12 rounded-xl border px-4 py-3">
-            <p className="text-status-offline whitespace-pre-wrap text-xs">{rollback.error.message}</p>
+            <p className="text-tone-bad whitespace-pre-wrap text-xs">{rollback.error.message}</p>
           </div>
         ) : null}
 
@@ -98,7 +110,7 @@ export function RollbackConfirm({ release }: { release: ReleaseView }): React.JS
               rollback.mutate({ releaseId: release.id, override });
             }}
           >
-            {rollback.isPending ? 'Rolling back…' : 'Roll back'}
+            {rollback.isPending ? 'Putting back…' : `Put back ${label ?? ''}`.trim()}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

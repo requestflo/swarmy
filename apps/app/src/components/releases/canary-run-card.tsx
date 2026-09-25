@@ -15,7 +15,7 @@ function RedCell({ label, pct, ceiling }: { label: string; pct: number | null; c
       <p
         className={cn(
           'mono-data text-sm font-semibold',
-          pct === null ? 'text-muted-foreground' : breach ? 'text-status-offline' : 'text-status-online',
+          pct === null ? 'text-muted-foreground' : breach ? 'text-tone-bad' : 'text-tone-ok',
         )}
       >
         {pct === null ? 'no data' : `${pct}% errors`}
@@ -86,7 +86,7 @@ export function CanaryRunCard({ run }: { run: CanaryRunView }): React.JSX.Elemen
 
       <p className="text-muted-foreground text-xs">
         {windowDone ? (
-          <span className="text-status-progress font-medium">Watch window elapsed — promoting on the next pass.</span>
+          <span className="text-tone-info font-medium">Watch window elapsed — promoting on the next pass.</span>
         ) : (
           <>
             <span className="mono-data">{run.remainingMin}m</span> left of a{' '}
@@ -104,16 +104,16 @@ export function CanaryRunCard({ run }: { run: CanaryRunView }): React.JSX.Elemen
 
       <div className="flex flex-wrap gap-2">
         <Button size="sm" disabled={busy} onClick={() => promote.mutate({ stack: run.stack, service: run.service })}>
-          {promote.isPending ? 'Promoting…' : 'Promote now'}
+          {promote.isPending ? 'Switching…' : 'Send everyone to it'}
         </Button>
         <Button
           size="sm"
           variant="outline"
-          className="border-status-offline/40 text-status-offline hover:bg-status-offline/10"
+          className="border-status-offline/40 text-tone-bad hover:bg-status-offline/10"
           disabled={busy}
           onClick={() => abort.mutate({ stack: run.stack, service: run.service })}
         >
-          {abort.isPending ? 'Aborting…' : 'Abort'}
+          {abort.isPending ? 'Stopping…' : 'Stop the try-out'}
         </Button>
       </div>
     </div>

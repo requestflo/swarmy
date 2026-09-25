@@ -14,7 +14,7 @@ export function AppPreviewDataNotes({
     <ul className="space-y-1">
       {withData.map((p) => (
         <li key={p.stack} className="text-muted-foreground flex items-start gap-2 text-xs">
-          <DatabaseIcon className="text-status-progress mt-0.5 size-3.5 shrink-0" />
+          <DatabaseIcon className="text-tone-info mt-0.5 size-3.5 shrink-0" />
           <span>
             <span className="text-foreground font-medium">{previewLabel(p)}</span> ·{' '}
             {previewDataNote(p)}

@@ -55,8 +55,8 @@ export function CanaryStartCard({ stack }: { stack: string }): React.JSX.Element
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger asChild>
-        <Button size="sm" variant={open ? 'outline' : 'default'} className="w-fit">
-          <BirdIcon className="size-4" /> Start canary
+        <Button size="sm" variant="outline" className="w-fit pointer-coarse:min-h-11">
+          <BirdIcon className="size-4" /> Try a version on some visitors
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent>

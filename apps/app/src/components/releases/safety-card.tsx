@@ -4,15 +4,12 @@ import { Link } from '@tanstack/react-router';
 import type { DeployStrategyView } from '@swarmy/core';
 import {
   Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   Input,
   Label,
   Switch,
   toast,
 } from '@swarmy/ui';
+import { Section } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 
 function strategySummary(s: DeployStrategyView | null): string {
@@ -62,14 +59,10 @@ export function SafetyCard({ stackName }: { stackName: string }): React.JSX.Elem
   );
 
   return (
-    <Card className="card-pop border-0">
-      <CardHeader>
-        <CardTitle className="text-base">Deploy safety</CardTitle>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        <p className="text-muted-foreground -mt-2 text-sm">
-          Watch every new release and judge it against the stack's health. Stored on the stack
-          itself, so it survives anything.
+    <Section title="Watch, then keep or put back" hint="swarmy.deploy.safety label">
+        <p className="text-muted-foreground -mt-1 text-[13.5px]">
+          swarmy watches every new version against the app's health. Stored on the app itself, so
+          it survives anything, even the controller.
         </p>
 
         <div className="flex items-center justify-between gap-4">
@@ -78,6 +71,7 @@ export function SafetyCard({ stackName }: { stackName: string }): React.JSX.Elem
             <p className="text-muted-foreground text-xs">Hold "deploying" until the stack proves healthy.</p>
           </div>
           <Switch
+            aria-label="Health gate"
             checked={enabled}
             onCheckedChange={(v) => {
               setEnabled(v);
@@ -92,6 +86,7 @@ export function SafetyCard({ stackName }: { stackName: string }): React.JSX.Elem
             <p className="text-muted-foreground text-xs">Seconds to observe before judging (30–3600).</p>
           </div>
           <Input
+            aria-label="Watch window in seconds"
             type="number"
             min={30}
             max={3600}
@@ -107,12 +102,13 @@ export function SafetyCard({ stackName }: { stackName: string }): React.JSX.Elem
 
         <div className="flex items-center justify-between gap-4">
           <div>
-            <Label className="text-sm font-medium">Auto-rollback</Label>
+            <Label className="text-sm font-medium">Put back automatically</Label>
             <p className="text-muted-foreground text-xs">
-              Gate fails → redeploy the last healthy release automatically.
+              Health check fails → the last healthy version goes back on its own.
             </p>
           </div>
           <Switch
+            aria-label="Put back automatically"
             checked={autoRollback}
             disabled={!enabled}
             onCheckedChange={(v) => {
@@ -127,8 +123,8 @@ export function SafetyCard({ stackName }: { stackName: string }): React.JSX.Elem
             <Label className="text-sm font-medium">Strategy</Label>
             <p className="text-muted-foreground text-xs">{strategySummary(safety.data?.strategy ?? null)}</p>
           </div>
-          <Link to="/" className="text-primary text-xs font-semibold hover:underline">
-            Configure on deploy →
+          <Link to="/deploy" className="text-primary font-mono text-[11.5px] hover:underline">
+            Set on deploy →
           </Link>
         </div>
 
@@ -139,7 +135,6 @@ export function SafetyCard({ stackName }: { stackName: string }): React.JSX.Elem
         >
           {save.isPending ? 'Saving…' : 'Save safety settings'}
         </Button>
-      </CardContent>
-    </Card>
+    </Section>
   );
 }

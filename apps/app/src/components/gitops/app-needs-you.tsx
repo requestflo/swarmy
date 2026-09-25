@@ -17,7 +17,7 @@ export function AppNeedsYou({ environments, onOpen }: AppNeedsYouProps): React.J
   const n = Math.max(1, heldActions(plan).length);
   return (
     <div className="bg-status-warning/10 flex flex-wrap items-center gap-3 rounded-xl px-4 py-3">
-      <CircleAlertIcon className="text-status-warning size-4 shrink-0" />
+      <CircleAlertIcon className="text-tone-warn size-4 shrink-0" />
       <p className="min-w-0 flex-1 text-sm font-medium">
         {n} change{n === 1 ? '' : 's'} need{n === 1 ? 's' : ''} you on{' '}
         {envLabel(env.environment).toLowerCase()}.
