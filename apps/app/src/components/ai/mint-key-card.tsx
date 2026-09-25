@@ -58,7 +58,7 @@ export function MintKeyCard({ onMinted }: MintKeyCardProps): React.JSX.Element {
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="flex w-full flex-col items-end sm:w-auto">
       <CollapsibleTrigger asChild>
-        <Button variant={open ? 'outline' : 'default'}>
+        <Button variant="outline">
           {open ? <XIcon className="size-4" /> : <PlusIcon className="size-4" />}
           {open ? 'Cancel' : 'Mint key'}
         </Button>

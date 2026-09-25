@@ -45,6 +45,7 @@ export function SettingsCard(): React.JSX.Element {
               </p>
             </div>
             <Switch
+              aria-label="Request audit log"
               checked={s.auditLog}
               disabled={save.isPending}
               onCheckedChange={(v) => save.mutate({ auditLog: v })}
@@ -59,6 +60,7 @@ export function SettingsCard(): React.JSX.Element {
               </p>
             </div>
             <Switch
+              aria-label="Response cache"
               checked={s.cache}
               disabled={save.isPending}
               onCheckedChange={(v) => save.mutate({ cache: v })}
@@ -72,6 +74,7 @@ export function SettingsCard(): React.JSX.Element {
               </p>
             </div>
             <Switch
+              aria-label="Redact personal data"
               checked={s.guardrails.redactPii}
               disabled={save.isPending}
               onCheckedChange={(v) => save.mutate({ guardrails: { redactPii: v } })}
