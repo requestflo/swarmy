@@ -207,14 +207,9 @@ jobs:
         env:
           SWARMY_RELEASE_KEY: ${{ secrets.SWARMY_RELEASE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.SWARMY_RELEASE_KEY_PASSWORD }}
-        run: |
-          if [ -z "$SWARMY_RELEASE_KEY" ]; then
-            echo "::warning::SWARMY_RELEASE_KEY is not set — publishing an UNSIGNED manifest (controllers will refuse it)."
-            : > platform.json.sig
-            exit 0
-          fi
-          cosign sign-blob --yes --key env://SWARMY_RELEASE_KEY --tlog-upload=false \
-            --output-signature platform.json.sig platform.json
+        # Fails the job (and so skips the publish) when the key is missing or the
+        # signature is empty: an unsigned manifest never reaches the feed.
+        run: bash scripts/sign-platform-manifest.sh platform.json
       - uses: actions/upload-artifact@v4
         with:
           name: platform-manifest
@@ -224,6 +219,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # Belt and braces: never publish without a real signature.
+          [ -s platform.json.sig ] || { echo "::error::platform.json.sig is missing or empty; refusing to publish an unsigned manifest."; exit 1; }
           # Rolling channel release: <feed>/<channel>/platform.json.
           gh release view "$CHANNEL" >/dev/null 2>&1 || gh release create "$CHANNEL" --prerelease \
             --title "swarmy ${CHANNEL} channel" --notes "Rolling platform manifest for the ${CHANNEL} channel (swarmy upgrade feed)."
