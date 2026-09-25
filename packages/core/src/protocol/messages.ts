@@ -35,6 +35,7 @@ import { AppDbBackupMsg, AppDbRestoreMsg, AppDbVerifyMsg } from './appDb';
 import { QueueOpMsg } from './queueOp';
 import { DbQueryMsg } from './studio';
 import { ProbeSmtpMsg } from './email';
+import { FormatDiskMsg, GrowDiskMsg, ListDisksMsg } from './disk';
 import {
   SecretCreateMsg,
   SecretRemoveMsg,
@@ -109,6 +110,9 @@ export const ControllerToAgentMessage = z.discriminatedUnion('type', [
   ProvisionVolumeMsg,
   RemoveVolumeMsg,
   ListVolumesMsg,
+  ListDisksMsg,
+  FormatDiskMsg,
+  GrowDiskMsg,
   SwarmJoinMsg,
   SwarmSetAutolockMsg,
   SwarmRotateTokensMsg,

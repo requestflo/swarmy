@@ -13,7 +13,9 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { DockerClient } from '@swarmy/core/docker';
 import type { ServiceSpec } from '@swarmy/core/protocol';
+import { parseDiskVolumeDevice } from '@swarmy/core';
 import { runOnce } from './swarmres';
+import { defaultDiskDeps, ensureDiskVolumeDir } from './disk';
 
 // NOTE: the canonical Zod schemas live in `@swarmy/core/protocol/storage` (new
 // file, registered in the protocol index/union via the INTEGRATION snippets).
@@ -266,6 +268,11 @@ export async function provisionVolume(
       DriverOpts: spec.options,
     } as unknown as Parameters<typeof d.createVolume>[0]);
   } else {
+    // Placed on an added disk (`device` under /var/lib/swarmy/disks/<id>/volumes/):
+    // make its directory first, and refuse if that disk is not mounted — a
+    // missing mount would otherwise put the data on the root disk.
+    const device = spec.options.device;
+    if (device && parseDiskVolumeDevice(device)) await ensureDiskVolumeDir(defaultDiskDeps(docker).runHost, device);
     await d.createVolume({ Name: spec.name, Driver: 'local', DriverOpts: spec.options });
   }
   return { name: spec.name, mode: spec.mode, created: true };

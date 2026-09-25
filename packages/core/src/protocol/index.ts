@@ -31,3 +31,4 @@ export * from './appDbScripts';
 export * from './studio';
 export * from './queueOp';
 export * from './email';
+export * from './disk';

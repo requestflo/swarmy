@@ -111,4 +111,9 @@ export const DEFAULT_COMMAND_TIMEOUTS: Record<string, number> = {
   ping: 5_000,
   // Up to 5 MX targets × perTargetMs (6s default), sequential.
   probeSmtp: 45_000,
+  // Add a disk (host one-shots): a probe is quick; mkfs on a big cloud volume
+  // (lazy inode init, no discard) and an online resize2fs take minutes.
+  listDisks: 60_000,
+  formatDisk: 900_000,
+  growDisk: 900_000,
 };

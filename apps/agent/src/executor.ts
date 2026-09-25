@@ -34,6 +34,7 @@ import { probeSmtp } from './handlers/email';
 import { updateAgent } from './handlers/update';
 import { prepareSecretEnv } from './handlers/secret-env';
 import { prePullForDeploy } from './handlers/deploy-pull';
+import { defaultDiskDeps, formatDisk, growDisk, listDisks } from './handlers/disk';
 import {
   secretCreate,
   secretRemove,
@@ -314,6 +315,19 @@ export async function handleCommand(
       const p = envlp.payload;
       return run(conn, p.commandId, () => listVolumes(docker, p));
     }
+    case 'listDisks': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => listDisks(defaultDiskDeps(docker)));
+    }
+    case 'formatDisk': {
+      // Gated inside the handler (node capability + formatGate on a fresh probe).
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => formatDisk(defaultDiskDeps(docker), p));
+    }
+    case 'growDisk': {
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => growDisk(defaultDiskDeps(docker), p));
+    }
     case 'swarmJoin': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => applySwarmJoin(docker, p));
@@ -423,9 +437,15 @@ async function run(
       commandId,
       status: 'failed',
       finishedAt: Date.now(),
-      error: { code: 'E_DOCKER', message: e instanceof Error ? e.message : String(e) },
+      error: { code: agentErrorCode(e), message: e instanceof Error ? e.message : String(e) },
     });
   }
+}
+
+/** A handler's own stable `E_*` code (e.g. `E_DISK_REFUSED`) survives; everything else stays `E_DOCKER`. */
+export function agentErrorCode(e: unknown): string {
+  const code = (e as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && /^E_[A-Z][A-Z0-9_]*$/.test(code) ? code : 'E_DOCKER';
 }
 
 export async function deployOrUpdate(

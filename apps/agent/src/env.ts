@@ -61,6 +61,11 @@ export const env = {
   // enables it; SWARMY_ALLOW_NODE_SHELL=false vetoes it locally, `true` does
   // not force it on. See nodeShellGateAllows in @swarmy/core.
   SHELL_OVERRIDE: parseCapabilityOverride(process.env.SWARMY_ALLOW_NODE_SHELL),
+  // Formatting a BLANK added disk (plans/epic-volume-mobility.md phase 1) is
+  // DEFAULT-ON behind the typed-serial formatGate; `swarmy.node.diskFormat=false`
+  // turns it off per node, SWARMY_ALLOW_DISK_FORMAT=false vetoes it on this box
+  // (`true` forces it on over the label). See diskFormatGateAllows in @swarmy/core.
+  DISK_FORMAT_OVERRIDE: parseCapabilityOverride(process.env.SWARMY_ALLOW_DISK_FORMAT),
   // Hard per-session output cap (bytes) — `yes`-bomb / runaway-output guard.
   // 0 disables the cap. Default 64 MiB.
   TERM_MAX_OUTPUT_BYTES: Number(process.env.SWARMY_TERM_MAX_OUTPUT_BYTES ?? 64 * 1024 * 1024),
