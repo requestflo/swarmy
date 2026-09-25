@@ -76,6 +76,21 @@ describe('renderMaddyConfig', () => {
   });
 });
 
+describe('renderMaddyConfig with no domains yet (QA-024)', () => {
+  // maddy exits on "unused configuration block", so a fresh email service
+  // must not declare blocks only a domain route references.
+  const conf = renderMaddyConfig({ ...input, domains: [] });
+  it('declares no block nothing uses', () => {
+    for (const name of ['swarmy_senders', 'swarmy_bounce_hook']) {
+      const declared = conf.includes(` ${name} {`);
+      const used = conf.includes(`&${name}`);
+      expect(declared).toBe(used);
+    }
+    expect(conf).toContain('auth &swarmy_auth');
+    expect(conf).toContain('default_source {');
+  });
+});
+
 describe('tables + bundle', () => {
   it('pass table and sender table', () => {
     expect(renderUsersTable(input.users)).toBe('swarmy-system.abc123@swarmy: bcrypt:$2a$10$bbb\nweb.abc123@swarmy: bcrypt:$2a$10$aaa\n');

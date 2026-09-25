@@ -161,17 +161,23 @@ export function renderMaddyConfig(input: MaddyRenderInput): string {
     '    table file /run/secrets/users',
     '}',
     '',
-    'table.file swarmy_senders {',
-    '    file /run/secrets/senders',
-    '}',
-    '',
-    'target.smtp swarmy_bounce_hook {',
-    `    targets tcp://${hook.host}:${hook.port}`,
-    '    starttls no',
-    `    auth plain ${q(hook.username)} ${q(hook.password)}`,
-    '}',
-    '',
   ];
+  // maddy refuses to start on an unused block ("unused configuration block"),
+  // and only a route's `source` uses these two. No domains yet → leave them out.
+  if (routes.size > 0) {
+    L.push(
+      'table.file swarmy_senders {',
+      '    file /run/secrets/senders',
+      '}',
+      '',
+      'target.smtp swarmy_bounce_hook {',
+      `    targets tcp://${hook.host}:${hook.port}`,
+      '    starttls no',
+      `    auth plain ${q(hook.username)} ${q(hook.password)}`,
+      '}',
+      '',
+    );
+  }
   for (const [name, route] of [...routes].sort(([a], [b]) => a.localeCompare(b))) {
     if (route.relay) {
       const r = route.relay;
