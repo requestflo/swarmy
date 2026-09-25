@@ -175,7 +175,7 @@ try {
 
   // The node shell shows the demo notice instead of opening a socket.
   await page.goto(`${BASE}/nodes/n-mgr-1/terminal`, { waitUntil: 'networkidle' });
-  await page.getByRole('button', { name: /open node shell/i }).click();
+  await page.getByRole('button', { name: /open (node|the) shell/i }).click();
   try {
     await page.getByTestId('demo-unavailable').waitFor({ timeout: 5_000 });
     console.log('✓ node shell shows the demo notice');
