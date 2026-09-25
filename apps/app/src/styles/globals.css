@@ -18,6 +18,7 @@ body,
 :root {
   --primary: oklch(0.58 0.2 29.5);
   --ring: oklch(0.58 0.2 29.5);
+  --destructive: oklch(0.56 0.21 20);
   --nav: oklch(0.23 0.05 264);
   --nav-foreground: oklch(0.98 0.005 70);
   --nav-muted: oklch(0.8 0.02 264);
@@ -38,6 +39,7 @@ body,
   /* Same specificity as :root above, so the dark coral is restated here. */
   --primary: oklch(0.7 0.2 29.5);
   --ring: oklch(0.7 0.2 29.5);
+  --destructive: oklch(0.66 0.2 22);
   --nav: oklch(0.14 0.03 264);
   --nav-foreground: oklch(0.97 0.005 70);
   --nav-muted: oklch(0.78 0.02 264);
