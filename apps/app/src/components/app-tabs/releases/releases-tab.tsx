@@ -9,7 +9,7 @@ import { ErrorState, HeaderSkeleton } from '@/components/states';
 import { useTRPC } from '@/integrations/trpc';
 import { RowsSkeleton, TabBody } from '../tab-body';
 import { ReleaseHistory } from './release-history';
-import { ReleasesHeader } from './releases-header';
+import { ReleasesHeader, ReleasesNext } from './releases-header';
 import { releasesCode } from './releases-code';
 
 /** Releases: what is live, how it got there, and putting an earlier version back. Boards AppRollout · RPromote · Environments · BranchPreviews. */
@@ -43,6 +43,7 @@ export function ReleasesTab({ stack }: { stack: string }): React.JSX.Element {
         </>
       }
     >
+      {releases.data ? <ReleasesNext rows={rows} /> : null}
       <CanaryPanel stack={stack} />
       <StackGitAppPanel stack={stack} />
       {releases.data ? <ReleaseHistory rows={rows} /> : <RowsSkeleton />}

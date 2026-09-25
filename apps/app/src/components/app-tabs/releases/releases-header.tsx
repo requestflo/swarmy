@@ -13,7 +13,11 @@ export function ReleasesHeader({ rows }: { rows: ReleaseView[] }): React.JSX.Ele
     return (
       <SayHeader
         size="md"
-        title={<>No versions yet. <em>Deploy once and every version lands here.</em></>}
+        title={
+          <>
+            No versions yet. <em>Deploy once and every version lands here.</em>
+          </>
+        }
         lede="Each deploy is kept with what changed and whether it stayed healthy, so any of them can go back."
       />
     );
@@ -25,45 +29,67 @@ export function ReleasesHeader({ rows }: { rows: ReleaseView[] }): React.JSX.Ele
   const failed = rows.filter((r) => r.status === 'failed').length;
   const title =
     head.status === 'deploying' ? (
-      <>{label} is rolling out, <em>started by {by}.</em></>
+      <>
+        {label} is rolling out, <em>started by {by}.</em>
+      </>
     ) : head.status === 'failed' ? (
-      <>{label} <Say tone="bad">failed its health check.</Say> <em>Deployed by {by}.</em></>
+      <>
+        {label} <Say tone="bad">failed its health check.</Say> <em>Deployed by {by}.</em>
+      </>
     ) : head.status === 'rolled-back' ? (
-      <>{label} <Say tone="warn">was put back.</Say> <em>Deployed by {by}.</em></>
+      <>
+        {label} <Say tone="warn">was put back.</Say> <em>Deployed by {by}.</em>
+      </>
     ) : (
-      <>{label} is live, <em>deployed by {by}.</em></>
+      <>
+        {label} is live, <em>deployed by {by}.</em>
+      </>
     );
   const broken = head.status === 'failed' || head.status === 'rolled-back';
   return (
-    <div className="flex flex-col gap-5">
-      <SayHeader
-        size="md"
-        title={title}
-        lede={`${rows.length} version${rows.length === 1 ? '' : 's'} so far${failed ? `, ${failed} failed` : ''}. swarmy keeps each one with what changed, so any of them can go back.`}
-        actions={
-          good && !broken ? (
-            <RollbackConfirm
-              release={good}
-              label={goodLabel}
-              trigger={
-                <Button variant="outline" className="pointer-coarse:min-h-11">
-                  <Undo2Icon className="size-4" /> Put back {goodLabel}
-                </Button>
-              }
-            />
-          ) : undefined
-        }
-      />
-      {good && broken ? (
-        <NextAction
-          tone={head.status === 'failed' ? 'bad' : 'warn'}
-          title={`Put back ${goodLabel}, the last version that stayed healthy`}
-          tech={`releases.rollback · redeploys ${good.images.map((i) => i.image).join(', ')} as a new release`}
-          actions={<RollbackConfirm release={good} label={goodLabel} trigger={<Button>Put back {goodLabel}</Button>} />}
-        >
-          It runs again one copy at a time, so visitors never see a gap. {label} stays in the history.
-        </NextAction>
-      ) : null}
-    </div>
+    <SayHeader
+      size="md"
+      title={title}
+      lede={`${rows.length} version${rows.length === 1 ? '' : 's'} so far${failed ? `, ${failed} failed` : ''}. swarmy keeps each one with what changed, so any of them can go back.`}
+      actions={
+        good && !broken ? (
+          <RollbackConfirm
+            release={good}
+            label={goodLabel}
+            trigger={
+              <Button variant="outline" className="pointer-coarse:min-h-11">
+                <Undo2Icon className="size-4" /> Put back {goodLabel}
+              </Button>
+            }
+          />
+        ) : undefined
+      }
+    />
+  );
+}
+
+/** When the live version failed or was put back: put back the last good one (the page's coral action). */
+export function ReleasesNext({ rows }: { rows: ReleaseView[] }): React.JSX.Element | null {
+  const head = rows[0];
+  const good = lastGood(rows);
+  const broken = head?.status === 'failed' || head?.status === 'rolled-back';
+  if (!head || !good || !broken) return null;
+  const label = releaseLabel(head);
+  const goodLabel = releaseLabel(good);
+  return (
+    <NextAction
+      tone={head.status === 'failed' ? 'bad' : 'warn'}
+      title={`Put back ${goodLabel}, the last version that stayed healthy`}
+      tech={`releases.rollback · redeploys ${good.images.map((i) => i.image).join(', ')} as a new release`}
+      actions={
+        <RollbackConfirm
+          release={good}
+          label={goodLabel}
+          trigger={<Button>Put back {goodLabel}</Button>}
+        />
+      }
+    >
+      It runs again one copy at a time, so visitors never see a gap. {label} stays in the history.
+    </NextAction>
   );
 }
