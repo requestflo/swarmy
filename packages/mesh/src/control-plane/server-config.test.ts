@@ -110,3 +110,17 @@ describe('renderLitestreamConfig (golden)', () => {
     expect(() => renderLitestreamConfig({ dbs: [{ path: '/a.db', replica: r }, { path: '/b.db', replica: r }], socketPath: '/s' })).toThrow(/share the replica path/);
   });
 });
+
+describe('parseMeshTlsEnv (installer → controller)', () => {
+  test('every shape the installer writes', async () => {
+    const { parseMeshTlsEnv } = await import('./server-config');
+    expect(parseMeshTlsEnv(undefined)).toEqual({ tls: { mode: 'letsencrypt' } });
+    expect(parseMeshTlsEnv('none:8081')).toEqual({ tls: { mode: 'none', port: 8081 } });
+    expect(parseMeshTlsEnv('edge=172.17.0.1:8081')).toEqual({ tls: { mode: 'edge', listen: '172.17.0.1:8081' } });
+    expect(parseMeshTlsEnv('edge=172.17.0.1:8081@8444;bootstrap=none:8081')).toEqual({
+      tls: { mode: 'edge', listen: '172.17.0.1:8081', publicPort: 8444 },
+      bootstrapTls: { mode: 'none', port: 8081 },
+    });
+    expect(parseMeshTlsEnv('edge=172.17.0.1:8081@443;bootstrap=none:8081').tls).toEqual({ mode: 'edge', listen: '172.17.0.1:8081' });
+  });
+});

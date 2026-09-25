@@ -51,7 +51,18 @@ export interface ManagedControlPlane {
   /** Cluster slug: namespaces every NetBird object (`swarmy:<c>:*`). */
   cluster: string;
   meshDomain: string;
+  /** Where TLS ends for good (`edge` = swarmy's Caddy fronts NetBird). */
   tls: MeshControlTls;
+  /**
+   * The TLS handover (plan §2.3 step 8, QA-012). Behind the edge, NetBird
+   * can't be served by a Caddy that doesn't exist yet (the edge deploys after
+   * `swarm init`, which waits for the mesh). So it boots in `bootstrapTls`
+   * (plain HTTP on :8081, exposed on that port) and the reconcile hands over
+   * to `tls` once the edge answers for the mesh domain.
+   */
+  bootstrapTls?: MeshControlTls;
+  /** When the handover to `tls` happened (ms); unset = still on bootstrapTls. */
+  handedOverAt?: number;
   /** Controller node id of the node that runs `swarmy-mesh-control`. */
   controlNodeId?: string;
   /** Hostname of that node (the installer knows it before any node id exists). */
@@ -137,6 +148,35 @@ export function managedAdmin(row: MeshConfigRow): NetbirdAdminApi | null {
   return new NetbirdAdmin({ managementUrl: direct, token, fetchImpl });
 }
 
+/** The TLS mode NetBird runs with right now (bootstrap until the handover). */
+export function effectiveTls(m: Pick<ManagedControlPlane, 'tls' | 'bootstrapTls' | 'handedOverAt'>): MeshControlTls {
+  return m.bootstrapTls && !m.handedOverAt ? m.bootstrapTls : m.tls;
+}
+
+/** The URL peers use right now (for new routers, the card, connect info). */
+export function currentPublicUrl(m: Pick<ManagedControlPlane, 'meshDomain' | 'tls' | 'bootstrapTls' | 'handedOverAt'>): string {
+  return meshControlPublicUrl(m.meshDomain, effectiveTls(m));
+}
+
+/**
+ * Is the edge serving the mesh domain? A real HTTPS request to the final
+ * public URL (through the edge Caddy's `mesh-control` vhost, which proxies to
+ * NetBird's plain listener in either mode). A private CA is trusted when set.
+ */
+export async function edgeServesMesh(m: ManagedControlPlane, fetchImpl: typeof fetch = fetch): Promise<boolean> {
+  const url = `${meshControlPublicUrl(m.meshDomain, m.tls)}/api/instance`;
+  try {
+    const res = await fetchImpl(url, {
+      signal: AbortSignal.timeout(5000),
+      ...(m.extraCaPem ? ({ tls: { ca: m.extraCaPem } } as RequestInit) : {}),
+    });
+    const body = await res.text();
+    return res.ok && /setup_required/.test(body);
+  } catch {
+    return false;
+  }
+}
+
 /** Render the spec the hosting agent runs. Pure over the managed doc. */
 export function renderControlSpec(m: ManagedControlPlane): MeshControlSpec {
   const authSecret = dec(m.authSecretEnc);
@@ -144,7 +184,7 @@ export function renderControlSpec(m: ManagedControlPlane): MeshControlSpec {
   if (!authSecret || !encryptionKey) throw new Error('mesh control-plane secrets are missing from the vault');
   const configYaml = renderMeshControlConfig({
     meshDomain: m.meshDomain,
-    tls: m.tls,
+    tls: effectiveTls(m),
     authSecret,
     encryptionKey,
     // Connector first, then the flag (the server refuses to start otherwise).
@@ -251,6 +291,11 @@ export async function getControlPlaneCard(ctx: OrgContext): Promise<ControlPlane
   else if (!status.healthy) warnings.push('The control plane is running but not answering its health check.');
   if (!m.litestream) warnings.push('Not backed up yet: turn on object storage and swarmy starts Litestream to it.');
   if (m.meshDomain.endsWith('.sslip.io')) warnings.push(`${m.meshDomain} follows this node's IP, so moving the control plane means everyone signs in again. Use a domain you control to make moves seamless.`);
+  if (m.bootstrapTls && !m.handedOverAt) {
+    warnings.push(
+      `Waiting for swarmy's edge to serve ${m.meshDomain} (TLS handover). Until then NetBird answers on ${currentPublicUrl(m)}; people access starts after the handover.`,
+    );
+  }
   if (m.breakGlass) warnings.push('Break-glass is on: the local NetBird owner can sign in. Turn it off when you are done.');
   let total = servers;
   const api = managedAdmin(row);
@@ -259,7 +304,7 @@ export async function getControlPlaneCard(ctx: OrgContext): Promise<ControlPlane
     managed: true,
     cluster: m.cluster,
     meshDomain: m.meshDomain,
-    managementUrl: meshControlPublicUrl(m.meshDomain, m.tls),
+    managementUrl: currentPublicUrl(m),
     version: (m.image ?? NETBIRD_SERVER_IMAGE).match(/:(\d+\.\d+\.\d+)/)?.[1] ?? NETBIRD_VERSION,
     node: { id: nodeId, hostname: node?.hostname ?? m.controlNodeHostname ?? null, online: nodeId ? ctx.hub.isOnline(nodeId) : false },
     status,
@@ -267,7 +312,7 @@ export async function getControlPlaneCard(ctx: OrgContext): Promise<ControlPlane
     identity: { connector: Boolean(m.connector), localLogin: !m.connector || Boolean(m.breakGlass), breakGlass: Boolean(m.breakGlass) },
     backup: { configured: Boolean(m.litestream), running: Boolean(status?.litestream?.running), bucket: m.litestream?.bucket ?? null },
     peers: { total, servers },
-    tls: m.tls.mode,
+    tls: effectiveTls(m).mode,
     warnings,
   };
 }
@@ -306,8 +351,28 @@ export async function reconcileMeshControl(ctx: OrgContext, opts: { force?: bool
     }
   }
 
-  // 2. Swarmy as the connector.
-  if (api && !m.connector) {
+  // 1b. The TLS handover: once the edge serves the mesh domain, NetBird
+  // restarts on its final TLS mode (step 5 applies it). Peers joined before it
+  // keep working: their management URL (the :8081 listener) stays served, and
+  // signal/relay move to the edge URL with the next network map.
+  if (m.bootstrapTls && !m.handedOverAt) {
+    if (await edgeServesMesh(m)) {
+      m = await patchManaged(ctx, { handedOverAt: Date.now() });
+      steps.push(`TLS handover: ${m.meshDomain} now served by the edge`);
+      await writeAudit(ctx, {
+        action: 'mesh.control.handover',
+        targetType: 'meshConfig',
+        targetId: ctx.activeOrgId,
+        metadata: { from: m.bootstrapTls?.mode ?? null, to: m.tls.mode, url: meshControlPublicUrl(m.meshDomain, m.tls) },
+      });
+    } else {
+      steps.push(`TLS handover pending: the edge doesn't serve ${m.meshDomain} yet`);
+    }
+  }
+  const handedOver = !m.bootstrapTls || Boolean(m.handedOverAt);
+
+  // 2. Swarmy as the connector (after the handover: the callback is the final URL).
+  if (api && !m.connector && handedOver) {
     try {
       const callback = meshControlOidcCallback(m.meshDomain, m.tls);
       let client = await ensureOidcClient(ctx.db as never, {

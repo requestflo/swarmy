@@ -128,4 +128,18 @@ describe('install-swarmy.sh --mesh swarmy helpers', () => {
     expect(le.server.tls.letsencrypt.domains).toEqual(['mesh.x']);
     expect(le.server.exposedAddress).toBe('https://mesh.x:443');
   });
+
+  it('mesh_tls_env: behind the edge NetBird boots plain and the controller hands over (QA-012)', () => {
+    expect(sh('mesh_tls_env edge 172.17.0.1:8081').out).toBe('edge=172.17.0.1:8081;bootstrap=none:8081');
+    expect(sh('mesh_tls_env edge 172.17.0.1:8081 8444').out).toBe('edge=172.17.0.1:8081@8444;bootstrap=none:8081');
+    expect(sh('mesh_tls_env none x').out).toBe('none:8081');
+    expect(sh('mesh_tls_env letsencrypt x').out).toBe('letsencrypt');
+  });
+
+  it('the edge bootstrap config is served on :8081 in plain HTTP (nothing depends on the edge yet)', () => {
+    const doc = JSON.parse(sh('mesh_control_config mesh.x none :8081 relay-secret-0123456789 k').out.split('\n').slice(1).join('\n'));
+    expect(doc.server.listenAddress).toBe(':8081');
+    expect(doc.server.exposedAddress).toBe('http://mesh.x:8081');
+    expect(doc.server.tls).toBeUndefined();
+  });
 });

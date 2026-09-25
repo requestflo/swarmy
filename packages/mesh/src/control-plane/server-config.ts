@@ -149,3 +149,7 @@ export function renderMeshControlConfig(input: MeshControlConfigInput): string {
   }
   return `# swarmy-managed NetBird control plane — rendered, do not edit.\n${JSON.stringify(sortKeys({ server }), null, 2)}\n`;
 }
+
+
+/** The installer → controller TLS contract; lives in @swarmy/core so the bootstrap seed can use it. */
+export { parseMeshTlsEnv } from '@swarmy/core/mesh-bootstrap';

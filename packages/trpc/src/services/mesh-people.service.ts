@@ -23,7 +23,6 @@ import {
   declaredPorts,
   grantGroup,
   listPeoplePeers,
-  meshControlPublicUrl,
   pruneGroups,
   routerGroup,
   serviceFqdn,
@@ -43,7 +42,7 @@ import type { OrgContext } from '../context';
 import { canPrincipal, resolveStackByName, whoCan } from '../abac';
 import { writeAudit } from './audit.service';
 import { meshConfigRepo } from './mesh-config.repo';
-import { managedAdmin, managedOf, type ManagedControlPlane } from './mesh-control.service';
+import { currentPublicUrl, managedAdmin, managedOf, type ManagedControlPlane } from './mesh-control.service';
 
 export interface PeopleAccessSettings {
   enabled: boolean;
@@ -193,7 +192,7 @@ async function ensureRouters(
   const steps: string[] = [];
   const problems: Record<string, string> = {};
   const nodes = await onlineNodeIds(ctx);
-  const managementUrl = meshControlPublicUrl(m.meshDomain, m.tls);
+  const managementUrl = currentPublicUrl(m);
   const inv = liveStacks(ctx.hub.liveInventory(ctx.activeOrgId).services);
   for (const st of intent.stacks) {
     if (!st.ruleAccess && st.grants.length === 0) continue;
@@ -551,7 +550,7 @@ export async function connectInfo(ctx: OrgContext, stack: string): Promise<Conne
   };
   if (!m || !row.enabled) return { ...empty, reason: 'The mesh control plane does not run in swarmy on this cluster.' };
   if (!settings.enabled) return { ...empty, reason: 'People access is off. An admin can turn it on in Networking → Mesh.' };
-  const managementUrl = meshControlPublicUrl(m.meshDomain, m.tls);
+  const managementUrl = currentPublicUrl(m);
   const profile = `swarmy-${m.cluster}`;
   const resource = await resolveStackByName(ctx, { stack });
   if (!resource) throw new TRPCError({ code: 'NOT_FOUND', message: `stack ${stack} not found` });

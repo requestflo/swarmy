@@ -305,6 +305,9 @@ ${swarmyHost}:8443 {
   tls internal
   reverse_proxy 127.0.0.1:3021
 }
+EOF
+# The mesh vhost goes live only AFTER the install (the TLS handover under test).
+cat > /root/labtls/mesh.caddy <<EOF
 ${meshHost}:8444 {
   tls internal
   @grpc header Content-Type application/grpc*
@@ -335,6 +338,7 @@ SWARMY_RAW_BASE=http://host.lima.internal:5078
 SWARMY_PUBLIC_URL=${base}
 SWARMY_MESH_EXTRA_CA=/root/lab-ca.pem
 SWARMY_MESH_PUBLIC_PORT=8444
+SWARMY_MESH_HANDOVER_WAIT=15
 EOF
 set -a; . /root/.e2e.env; set +a
 curl -fsSL http://host.lima.internal:5078/scripts/install-swarmy.sh | bash -s -- --non-interactive --admin-email ${ADMIN.email} \\
@@ -345,6 +349,29 @@ curl -fsSL http://host.lima.internal:5078/scripts/install-swarmy.sh | bash -s --
     });
 
     labCa = await vm(N1, 'cat /root/lab-ca.pem');
+    await step('TLS handover: NetBird booted plain, a peer joined before the edge exists', async () => {
+      const out = await vm(N1, `docker exec swarmy-mesh-control grep -o '"exposedAddress": "[^"]*"' /run/swarmy-mesh/config.yaml
+docker exec swarmy-netbird netbird status | grep -E '^(Management|Signal):'`);
+      if (!/http:\/\/mesh-[\d-]+\.sslip\.io:8081/.test(out)) throw new Error(`not in bootstrap mode: ${out}`);
+      if (!/Management: Connected/.test(out) || !/Signal: Connected/.test(out)) throw new Error(`node1 before the handover: ${out}`);
+      if (!installOut.includes('SWARMY_MESH_MANAGEMENT_URL=http://mesh-')) throw new Error('the join line should carry the bootstrap URL before the handover');
+      return 'exposed on :8081, node1 connected (management + signal)';
+    });
+    await step('TLS handover: the edge serves the mesh domain → NetBird re-renders to edge, pre-handover peers stay up', async () => {
+      await vm(N1, `grep -q ':8444 {' /root/labtls/Caddyfile || cat /root/labtls/mesh.caddy >> /root/labtls/Caddyfile; docker exec swarmy-e2e-labtls caddy reload --config /etc/caddy/Caddyfile`);
+      const t0 = Date.now();
+      await until('handover (exposedAddress https)', async () => {
+        const o = await vm(N1, `docker exec swarmy-mesh-control grep -o '"exposedAddress": "[^"]*"' /run/swarmy-mesh/config.yaml || true`);
+        return o.includes('https://') || null;
+      }, 180_000, 3000);
+      const secs = Math.round((Date.now() - t0) / 1000);
+      const st = await until('node1 client reconnected after the restart', async () => {
+        const o = await vm(N1, `docker exec swarmy-netbird netbird status -d 2>/dev/null || true`);
+        return /Management: Connected/.test(o) && /Signal: Connected to https:\/\/mesh/.test(o) ? o : null;
+      }, 120_000, 3000);
+      const mgmt = st.match(/Management: Connected to (\S+)/)?.[1];
+      return `handed over after ${secs} s; node1 (joined before) connected — management ${mgmt}, signal via the edge`;
+    });
     await step('node1: control plane on the host network, swarm born on wt0', async () => {
       const out = await vm(
         N1,
@@ -398,7 +425,10 @@ docker network inspect ingress --format '{{(index .IPAM.Config 0).Subnet}}'`,
         const o = await vm(N1, `docker node ls --format '{{.Hostname}} {{.Status}}'; docker node inspect $(docker node ls -q) --format '{{.Description.Hostname}} {{.Status.Addr}}'`);
         return /swarmy-mesh-2 Ready/.test(o) && /swarmy-mesh-2 100\./.test(o) ? o : null;
       }, 600_000, 5000);
-      return out.split('\n').filter((l) => l.includes('100.')).join(', ');
+      // Joined with the bootstrap URL (printed before the handover): still on the mesh after it.
+      const wt1 = (await vm(N1, `ip -4 -o addr show wt0 | awk '{print $4}' | cut -d/ -f1`)).trim();
+      await until('node2 → node1 over wt0', async () => (await vm(N2, `ping -c1 -W2 ${wt1} >/dev/null && echo ok || true`)).includes('ok') || null, 60_000, 3000);
+      return out.split('\n').filter((l) => l.includes('100.')).join(', ') + ` (node2 pings node1 ${wt1} over wt0)`;
     });
 
     await step('deploy production stack shop (db declares 5432)', async () => {

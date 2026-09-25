@@ -311,6 +311,16 @@ mesh_public_url() {
   elif [ "$2" = edge ] && [ -n "${MESH_PUBLIC_PORT:-}" ] && [ "$MESH_PUBLIC_PORT" != 443 ]; then printf 'https://%s:%s' "$1" "$MESH_PUBLIC_PORT"
   else printf 'https://%s' "$1"; fi
 }
+# mesh_tls_env TLS EDGE_LISTEN [PUBLIC_PORT] → SWARMY_MESH_TLS for the controller
+# (parseMeshTlsEnv in packages/core/src/mesh-bootstrap.ts). Behind the edge,
+# NetBird boots in `none` and the controller hands over (`;bootstrap=`).
+mesh_tls_env() {
+  case "$1" in
+    none) printf 'none:%s' "$MESH_CONTROL_HTTP_PORT" ;;
+    edge) printf 'edge=%s%s;bootstrap=none:%s' "$2" "${3:+@$3}" "$MESH_CONTROL_HTTP_PORT" ;;
+    *) printf 'letsencrypt' ;;
+  esac
+}
 # mesh_addr_pool SEED → 10.<200..249>.0.0/16, stable per seed: uncommon (clear of
 # the 10.0.x home/office LANs laptops sit on) and distinct per cluster.
 mesh_addr_pool() {
@@ -812,7 +822,7 @@ json_id_named() { { tr '{' '\n' | grep -F "\"name\":\"$1\"" || true; } | sed -n 
 # the account the way the dashboard does (domain netbird.selfhosted, primary).
 nb_owner_jwt() {
   local email="$1" pw="$2" base="$NB_ADMIN_URL" pub jar body hdr url loc action code i verifier challenge
-  pub="$(mesh_public_url "$MESH_DOMAIN" "$MESH_TLS")"
+  pub="$(mesh_public_url "$MESH_DOMAIN" "${MESH_BOOT_TLS:-$MESH_TLS}")"   # Dex's issuer as NetBird runs now
   jar="$(mktemp)"; body="$(mktemp)"; hdr="$(mktemp)"
   verifier="$(openssl rand -base64 48 | tr '+/' '-_' | tr -d '=\n')"
   challenge="$(printf '%s' "$verifier" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')"
@@ -842,6 +852,19 @@ nb_owner_jwt() {
     | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p'
 }
 
+# mesh_handed_over — NetBird runs with its final (edge) config: exposedAddress is https.
+mesh_handed_over() {
+  docker exec "$MESH_CONTROL_CONTAINER" grep -q '"exposedAddress": "https://' /run/swarmy-mesh/config.yaml 2>/dev/null
+}
+# mesh_wait_handover — bounded wait for the controller's TLS handover (non-fatal).
+mesh_wait_handover() {
+  local i max="${SWARMY_MESH_HANDOVER_WAIT:-240}"
+  mesh_handed_over && return 0
+  say "Waiting for swarmy's edge to take over TLS for ${MESH_DOMAIN} (up to ${max}s)…"
+  for i in $(seq 1 $(( max / 5 ))); do mesh_handed_over && return 0; sleep 5; done
+  return 1
+}
+
 mesh_control_healthy() {
   docker exec "$MESH_CONTROL_CONTAINER" bash -c 'exec 3<>/dev/tcp/127.0.0.1/33073' 2>/dev/null
 }
@@ -852,11 +875,17 @@ ensure_mesh_control() {
   docker0="$(ip -4 -o addr show dev docker0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)"
   case "$MESH_TLS" in
     letsencrypt) listen=":443"; NB_ADMIN_URL="https://${MESH_DOMAIN}" ;;
-    edge) listen="${docker0:-172.17.0.1}:${MESH_CONTROL_HTTP_PORT}"; NB_ADMIN_URL="http://${listen}" ;;
+    edge) listen=":${MESH_CONTROL_HTTP_PORT}"; NB_ADMIN_URL="http://127.0.0.1:${MESH_CONTROL_HTTP_PORT}" ;;
     none) listen=":${MESH_CONTROL_HTTP_PORT}"; NB_ADMIN_URL="http://127.0.0.1:${MESH_CONTROL_HTTP_PORT}" ;;
   esac
-  MESH_LISTEN="$listen"
-  cfg="$(mesh_control_config "$MESH_DOMAIN" "$MESH_TLS" "$listen" "$MESH_AUTH_SECRET" "$MESH_ENCRYPTION_KEY")"
+  # Behind the edge, the edge doesn't exist yet: it deploys after `swarm init`,
+  # which waits for the mesh (QA-012). So NetBird BOOTS in `none` (plain HTTP,
+  # exposed on :8081) and the controller hands over to `edge` once the edge
+  # serves the mesh domain (TLS handover; mesh-control.service reconcile).
+  # The final listener is the same :8081, so peers joined now keep working.
+  MESH_BOOT_TLS="$MESH_TLS"; [ "$MESH_TLS" = edge ] && MESH_BOOT_TLS=none
+  MESH_LISTEN="${docker0:-172.17.0.1}:${MESH_CONTROL_HTTP_PORT}"   # the edge's upstream (docker0)
+  cfg="$(mesh_control_config "$MESH_DOMAIN" "$MESH_BOOT_TLS" "$listen" "$MESH_AUTH_SECRET" "$MESH_ENCRYPTION_KEY")"
 
   if ! docker ps --format '{{.Names}}' | grep -qx "$MESH_CONTROL_CONTAINER"; then
     if docker ps -a --format '{{.Names}}' | grep -qx "$MESH_CONTROL_CONTAINER"; then
@@ -952,7 +981,9 @@ ensure_mesh_control() {
   # talks to the local listener, which is up before any Caddy exists.
   MESH_IP="$(mesh_ip)"
   if [ -n "$MESH_IP" ]; then ok "mesh already up on ${NB_INTERFACE} (${MESH_IP})."; return 0; fi
-  client_url="$NB_MANAGEMENT_URL"; [ "$MESH_TLS" = edge ] && client_url="$NB_ADMIN_URL"
+  # Behind the edge, node #1's client dials the local listener: up before any
+  # edge exists, and still the same listener after the handover.
+  client_url="$NB_MANAGEMENT_URL"; [ "$MESH_TLS" = edge ] && client_url="http://${MESH_LISTEN}"
   local key key_file="$STATE_DIR/netbird-setup-key" ca_args=()
   # A private CA (SWARMY_MESH_EXTRA_CA) for the https control plane: the client
   # trusts it next to its system roots (Go reads every file in SSL_CERT_DIR).
@@ -1176,7 +1207,7 @@ deploy_stack() {
   local mesh_mode="" mesh_tls_env=""
   if [ "$MESH" = swarmy ]; then
     mesh_mode="managed-by-swarmy"
-    case "$MESH_TLS" in none) mesh_tls_env="none:${MESH_CONTROL_HTTP_PORT}" ;; edge) mesh_tls_env="edge=${MESH_LISTEN}${MESH_PUBLIC_PORT:+@$MESH_PUBLIC_PORT}" ;; *) mesh_tls_env="letsencrypt" ;; esac
+    mesh_tls_env="$(mesh_tls_env "$MESH_TLS" "$MESH_LISTEN" "${MESH_PUBLIC_PORT:-}")"
   fi
   # Caddy reaches the controller over swarmy-control: trust that subnet's
   # X-Forwarded-For so auth rate limits see real clients, not Caddy's address.
@@ -1214,7 +1245,7 @@ deploy_stack() {
   SWARMY_MESH_TLS="$mesh_tls_env" \
   SWARMY_MESH_CLUSTER="${CLUSTER_NAME:-}" \
   SWARMY_MESH_CONTROL_HOSTNAME="${NODE_HOSTNAME:-}" \
-  SWARMY_MESH_ADMIN_URL="$( [ "$MESH" = swarmy ] && [ "$MESH_TLS" = edge ] && printf '%s' "${NB_ADMIN_URL:-}" )" \
+  SWARMY_MESH_ADMIN_URL="$( [ "$MESH" = swarmy ] && [ "$MESH_TLS" = edge ] && printf 'http://%s' "${MESH_LISTEN:-}" )" \
     docker stack deploy --with-registry-auth -c "$f" "$STACK_NAME" >/dev/null \
     || die "docker stack deploy failed."
   say "Waiting for the controller to become healthy…"
@@ -1375,8 +1406,18 @@ finalize() {
   # (5 nodes / 24h), so the first nodes join on mesh IPs like the manager.
   local mesh_env=""
   if [ "$MESH" != none ] && [ -n "${NB_SERVICE_TOKEN:-}" ]; then
-    local k; k="$(nb_setup_key reusable 5 86400 'swarmy bootstrap one-liner')" || k=""
-    [ -z "$k" ] || mesh_env="SWARMY_MESH_SETUP_KEY=$k SWARMY_MESH_MANAGEMENT_URL=${NB_MANAGEMENT_URL%/} SWARMY_MESH_DRIVER=netbird "
+    local k join_mgmt="${NB_MANAGEMENT_URL%/}"
+    if [ "$MESH" = swarmy ] && [ "$MESH_TLS" = edge ]; then
+      # Hand out the final URL once the handover is done; until then, the
+      # bootstrap listener (which stays served after it) so the line works now.
+      if mesh_wait_handover; then ok "mesh TLS handed over to swarmy's edge (${join_mgmt})."
+      else
+        join_mgmt="http://${MESH_DOMAIN}:${MESH_CONTROL_HTTP_PORT}"
+        warn "the edge isn't serving ${MESH_DOMAIN} yet (DNS/certificate); the line below uses ${join_mgmt}, which keeps working after the handover."
+      fi
+    fi
+    k="$(nb_setup_key reusable 5 86400 'swarmy bootstrap one-liner')" || k=""
+    [ -z "$k" ] || mesh_env="SWARMY_MESH_SETUP_KEY=$k SWARMY_MESH_MANAGEMENT_URL=${join_mgmt} SWARMY_MESH_DRIVER=netbird "
     if [ -n "$k" ] && [ -n "${MESH_EXTRA_CA:-}" ] && [ -s "$MESH_EXTRA_CA" ]; then
       mesh_env="${mesh_env}SWARMY_MESH_CA_B64=$(base64 -w0 "$MESH_EXTRA_CA" 2>/dev/null || base64 "$MESH_EXTRA_CA" | tr -d '\n') "
     fi

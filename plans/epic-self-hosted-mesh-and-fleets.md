@@ -927,3 +927,42 @@ Still open:
   container agent's overlay veths go NO-CARRIER and it never reconnects
   until it is restarted. In the lab, a crash-looping edge Caddy triggered
   it by fighting the lab proxy for :443.
+
+### 11.10 QA-012: the TLS handover, built (2026-09-25)
+
+The DO QA found this. With Caddy ingress, `--mesh swarmy` defaulted to `edge`
+from the first second. Management was reachable on the local listener, but
+NetBird advertised Signal and Relay at `https://mesh.<domain>:443`. Nothing
+served that address until the edge Caddy existed. The edge deploys after
+`swarm init`, and `swarm init` waits for the mesh, so install died at
+"NetBird did not come up within 60s".
+
+What now happens instead, as planned in §2.3 step 8:
+
+1. **Boot plain.** Behind the edge, NetBird boots in `none` mode: plain HTTP
+   on `:8081`, exposed as `http://mesh.<domain>:8081`. Node #1's client
+   dials `http://<docker0>:8081`. `swarm init` proceeds as before.
+2. **Tell the controller.** The installer passes
+   `SWARMY_MESH_TLS=edge=<docker0>:8081[@port];bootstrap=none:8081`, parsed by
+   `parseMeshTlsEnv` in `@swarmy/core/mesh-bootstrap`. The managed doc holds
+   `tls` (final) and `bootstrapTls`, plus `handedOverAt` once done.
+3. **Serve early.** The edge's `mesh-control` vhost is rendered from the
+   start. It proxies to the same `:8081` listener, so it works in either mode.
+4. **Hand over.** Each reconcile, the controller probes
+   `https://mesh.<domain>/api/instance` through the edge (it trusts the
+   private CA when one is set). The first real answer sets `handedOverAt`.
+   The rendered config becomes the edge config (https exposed, same `:8081`
+   listener), and the agent restarts NetBird. This is the one short
+   control-plane blip; tunnels ride through.
+5. **Keep peers working.** A peer joined before the handover keeps its
+   management URL, because the `:8081` listener stays. With the next network
+   map its signal and relay move to the edge URL.
+6. **Connector after handover.** Swarmy's connector is registered only after
+   the handover, so its callback is the final https URL.
+7. **Join line.** The installer waits up to `SWARMY_MESH_HANDOVER_WAIT`
+   (240 s) for the handover. Then the printed Add-a-node line carries the
+   final URL. If the handover hasn't happened, the line carries the
+   bootstrap URL, which keeps working after the handover.
+
+Letsencrypt mode (a public box without Caddy) and `none` mode have no
+`bootstrapTls`, so they don't go through a handover.

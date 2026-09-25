@@ -35,7 +35,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { auth, usernamePlaceholderEmail } from '@swarmy/auth';
 import { decryptSecret, encryptSecret, hashToken } from '@swarmy/core/crypto';
-import { buildMeshConfigRow } from '@swarmy/core/mesh-bootstrap';
+import { buildMeshConfigRow, parseMeshTlsEnv } from '@swarmy/core/mesh-bootstrap';
 import { prisma } from '@swarmy/db';
 import { ingressConfigRepo, meshConfigRepo, primeSwarmJoinMaterial } from '@swarmy/trpc';
 import { hub } from '../gateway';
@@ -240,20 +240,13 @@ function managedMeshFromEnv(): Record<string, unknown> | null {
     log('the mesh control secret is missing authSecret/encryptionKey — treating the mesh as external.');
     return null;
   }
-  const tlsRaw = process.env.SWARMY_MESH_TLS ?? 'letsencrypt';
-  const tls = tlsRaw.startsWith('none')
-    ? { mode: 'none', port: Number(tlsRaw.split(':')[1] ?? 8081) || 8081 }
-    : tlsRaw.startsWith('edge')
-      ? (() => {
-          // edge=<listen>[@<public https port>]
-          const [listen, port] = (tlsRaw.split('=')[1] ?? '172.17.0.1:8081').split('@');
-          return { mode: 'edge', listen, ...(port && Number(port) !== 443 ? { publicPort: Number(port) } : {}) };
-        })()
-      : { mode: 'letsencrypt' };
+  // letsencrypt | none:<port> | edge=<listen>[@port][;bootstrap=none:<port>] (the TLS handover).
+  const { tls, bootstrapTls } = parseMeshTlsEnv(process.env.SWARMY_MESH_TLS);
   return {
     cluster: (process.env.SWARMY_MESH_CLUSTER || ORG_SLUG).toLowerCase(),
     meshDomain: domain,
     tls,
+    ...(bootstrapTls ? { bootstrapTls } : {}),
     controlNodeHostname: process.env.SWARMY_MESH_CONTROL_HOSTNAME || process.env.SWARMY_NODE_HOSTNAME || undefined,
     ...(process.env.SWARMY_MESH_ADMIN_URL ? { adminUrl: process.env.SWARMY_MESH_ADMIN_URL } : {}),
     authSecretEnc: encryptSecret(secrets.authSecret),
