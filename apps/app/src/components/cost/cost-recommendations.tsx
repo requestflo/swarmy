@@ -1,13 +1,11 @@
 import * as React from 'react';
-import { LightbulbIcon, XIcon } from 'lucide-react';
+import { XIcon } from 'lucide-react';
 import type { CostRecommendationView } from '@swarmy/core';
 import { Button, cn } from '@swarmy/ui';
+import { Section, Tech } from '@/components/calm';
 import { useDismissedRecs } from './use-dismissed-recs';
 
-/**
- * The recommendations feed: rule-generated saving/setup nudges with a per-item
- * dismiss (persisted in localStorage — ids are stable) and a restore link.
- */
+/** Worth trimming: saving and setup nudges, each dismissable (remembered in this browser). */
 export function CostRecommendations({
   recommendations,
   isLoading,
@@ -18,68 +16,42 @@ export function CostRecommendations({
   const { dismissed, dismiss, restoreAll } = useDismissedRecs();
   const visible = recommendations.filter((r) => !dismissed.has(r.id));
   const hiddenCount = recommendations.length - visible.length;
-
   return (
-    <section className="card-pop overflow-hidden">
-      <header className="border-border flex items-center justify-between border-b px-5 py-3">
-        <span className="mono-label !mb-0 flex items-center gap-1.5">
-          <LightbulbIcon className="size-3.5" />
-          Recommendations
-          {visible.length > 0 ? <span className="text-muted-foreground">· {visible.length}</span> : null}
-        </span>
-        {hiddenCount > 0 ? (
-          <button
-            type="button"
-            onClick={restoreAll}
-            className="text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline"
-          >
-            show {hiddenCount} dismissed
-          </button>
-        ) : null}
-      </header>
-
+    <Section
+      title="Worth trimming"
+      count={visible.length || undefined}
+      flush
+      action={
+        hiddenCount > 0 ? (
+          <Button variant="ghost" size="sm" onClick={restoreAll} className="pointer-coarse:min-h-11">
+            Show {hiddenCount} dismissed
+          </Button>
+        ) : null
+      }
+    >
       {isLoading ? (
-        <div className="space-y-3 p-5">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="shimmer-line h-10 rounded-lg" />
-          ))}
-        </div>
+        <div aria-hidden className="shimmer-line my-3 h-10 rounded-lg" />
       ) : visible.length === 0 ? (
-        <p className="text-muted-foreground px-5 py-8 text-center text-sm">
-          {recommendations.length === 0
-            ? 'Nothing to trim — the estate looks right-sized.'
-            : 'All recommendations dismissed.'}
+        <p className="text-muted-foreground py-4 text-sm">
+          {recommendations.length === 0 ? 'Nothing to trim. Everything looks the right size.' : 'All dismissed.'}
         </p>
       ) : (
-        <ul className="divide-border divide-y">
+        <ul className="flex flex-col">
           {visible.map((rec) => (
-            <li key={rec.id} className="group flex items-start gap-3 px-5 py-3.5">
-              <span
-                className={cn(
-                  'mt-1.5 size-2 shrink-0 rounded-full',
-                  rec.savingsUsd != null ? 'bg-status-warning' : 'bg-status-progress',
-                )}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm leading-snug">{rec.message}</span>
-                <span className="text-muted-foreground mono-data text-xs">
-                  {rec.resource}
-                  {rec.savingsUsd != null ? ` · ~$${rec.savingsUsd}/mo` : ''}
-                </span>
+            <li key={rec.id} className="border-border flex min-h-14 items-start gap-3 border-b py-2.5 last:border-b-0">
+              <span aria-hidden className={cn('mt-[7px] size-2 shrink-0 rounded-full', rec.savingsUsd != null ? 'bg-status-warning' : 'bg-status-progress')} />
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="text-[14px] leading-snug">{rec.message}</span>
+                <Tech>{`${rec.kind} · ${rec.resource}`}</Tech>
               </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7 shrink-0 opacity-40 transition-opacity group-hover:opacity-100"
-                onClick={() => dismiss(rec.id)}
-                aria-label={`Dismiss recommendation for ${rec.resource}`}
-              >
+              {rec.savingsUsd != null ? <span className="text-tone-ok shrink-0 font-mono text-[13px] font-semibold">−${rec.savingsUsd}/mo</span> : null}
+              <Button variant="ghost" size="icon" className="size-8 shrink-0 pointer-coarse:size-11" onClick={() => dismiss(rec.id)} aria-label={`Dismiss the note about ${rec.resource}`}>
                 <XIcon className="size-3.5" />
               </Button>
             </li>
           ))}
         </ul>
       )}
-    </section>
+    </Section>
   );
 }

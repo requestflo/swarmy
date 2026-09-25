@@ -75,14 +75,12 @@ export function NodeCostEditor({
       type="button"
       onClick={begin}
       className={cn(
-        'group inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm transition-colors',
-        monthlyUsd != null
-          ? 'mono-data hover:bg-accent font-semibold'
-          : 'text-primary hover:bg-primary/10 font-bold',
+        'group border-border inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors pointer-coarse:min-h-11',
+        monthlyUsd != null ? 'mono-data hover:bg-accent font-semibold' : 'hover:bg-accent font-semibold',
       )}
     >
-      {monthlyUsd != null ? `$${monthlyUsd}/mo` : 'Set cost'}
-      <PencilIcon className="size-3 opacity-0 transition-opacity group-hover:opacity-60" />
+      {monthlyUsd != null ? `$${monthlyUsd}/mo` : 'Set price'}
+      <PencilIcon aria-hidden className="size-3 opacity-60" />
     </button>
   );
 }
