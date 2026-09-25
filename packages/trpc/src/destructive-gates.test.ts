@@ -108,7 +108,6 @@ const GATES: Array<[string, unknown, string]> = [
   ['geodns.removeRecord', {}, 'dns.remove'],
   ['apiKeys.revoke', { id: 'k1' }, 'token.revoke'],
   ['oauth.revoke', { id: 'c1' }, 'token.revoke'],
-  ['mesh.routes.revoke', { routeId: 'r1' }, 'token.revoke'],
   ['members.deleteGrant', {}, 'member.write'],
   ['members.revokeInvitation', {}, 'member.write'],
   ['policies.delete', { id: 'p1' }, 'policy.write'],

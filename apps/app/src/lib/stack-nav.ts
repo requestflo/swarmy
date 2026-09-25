@@ -106,8 +106,8 @@ export const STACK_TABS: StackTab[] = [
     to: '/stacks/$name/access',
     label: 'Access',
     icon: ShieldCheckIcon,
-    blurb: 'Require login, who can enter, app users',
-    keywords: 'login sso protect private identity proxy forward auth users sign in auth better-auth',
+    blurb: 'Who can reach this app: login, people, laptops',
+    keywords: 'login sso protect private identity proxy forward auth users sign in auth better-auth laptop mesh netbird connect people',
     systemSafe: false,
   },
   {

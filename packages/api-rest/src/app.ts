@@ -12,7 +12,6 @@ import { registerNodeActionRoutes } from './routes/node-actions';
 import { registerDnsRecordRoutes } from './routes/dns-records';
 import { registerBackupRoutes } from './routes/backups';
 import { registerVolumeRoutes } from './routes/volumes';
-import { registerMeshRouteRoutes } from './routes/mesh-routes';
 import { registerAuditRoutes } from './routes/audit';
 import { registerNotifyRoutes } from './routes/notify';
 import { registerRegistryCredentialRoutes } from './routes/registry-credentials';
@@ -64,7 +63,6 @@ function buildResourceApp(deps: RestDeps, withAuth = true): OpenAPIHono<RestEnv>
   registerDnsRecordRoutes(app);
   registerBackupRoutes(app);
   registerVolumeRoutes(app);
-  registerMeshRouteRoutes(app);
   registerAuditRoutes(app);
   registerNotifyRoutes(app);
   registerRegistryCredentialRoutes(app);

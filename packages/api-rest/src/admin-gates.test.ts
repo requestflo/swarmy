@@ -35,7 +35,6 @@ const ADMIN_ROUTES: Array<[string, string, unknown, string]> = [
   ['POST', '/backup-targets', { name: 't', kind: 's3', url: 's3:x' }, 'backups.addTarget'],
   ['POST', '/dns/zones', { name: 'example.com' }, 'geodns.createZone'],
   ['POST', '/dns/zones/z1/records', { name: 'www', type: 'A', value: '1.2.3.4' }, 'geodns.upsertRecord'],
-  ['POST', '/mesh/routes', { service_id: 's1' }, 'mesh.routes.grant'],
   ['POST', '/registry-credentials', { prefix: 'ghcr.io', username: 'u', secret: 's' }, 'registryCredentials.upsert'],
   ['PATCH', '/registry-credentials/rc1', { username: 'u' }, 'registryCredentials.update'],
   ['POST', '/registry-credentials/rc1/test', {}, 'registryCredentials.test'],

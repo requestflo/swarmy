@@ -1,6 +1,6 @@
 ---
 name: mesh-networking
-description: Invariants, contracts, and file map for swarmy's zero-trust WireGuard mesh — the pluggable MeshDriver registry (netbird/headscale/tailscale/wireguard/none), the applyMesh/meshState protocol, the privileged mesh-client sidecar the agent supervises, and direct-stack-connect ACLs. Load before touching anything under packages/mesh, protocol/mesh.ts, mesh.service.ts, routers/mesh.ts, apps/agent/src/handlers/mesh.ts, or the Networking UI. Product rationale lives in docs/product/mesh-networking.md.
+description: Invariants, contracts, and file map for swarmy's zero-trust WireGuard mesh — the pluggable MeshDriver registry (netbird/headscale/tailscale/wireguard/none), the applyMesh/meshState protocol, the privileged mesh-client sidecar the agent supervises, and people access. Load before touching anything under packages/mesh, protocol/mesh.ts, mesh.service.ts, routers/mesh.ts, apps/agent/src/handlers/mesh.ts, or the Networking UI. Product rationale lives in docs/product/mesh-networking.md.
 ---
 
 # Mesh networking: driver → render → sidecar → meshState
@@ -18,7 +18,7 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 1. **`none` is the default; NetBird is the default once mesh is enabled.**
    `MeshConfig.driver` defaults `NONE`, `enabled` defaults `false`. A fresh org
    provisions nothing. Never make mesh implicitly on, and never let `enrollNode`
-   or `grantDirectRoute` run when `driver === 'none' || !enabled`. (The
+   or a people-access grant run when `driver === 'none' || !enabled`. (The
    self-host installer's own default is `--mesh swarmy`, an explicit operator
    choice recorded as `CFG_MESH`; a re-run never springs a mesh on a live
    swarm that was installed without one.)
@@ -34,7 +34,7 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 4. **Every command is one entry in three places** (same as any agent command):
    a Zod message in `packages/core/src/protocol/mesh.ts` added to the union in
    `messages.ts`; a `CommandName` + wire `type` in `COMMAND_PROTOCOL_TYPE`
-   (`packages/trpc/src/hub/types.ts` — `applyMesh`, `mesh.grantDirectRoute`); a
+   (`packages/trpc/src/hub/types.ts` — `applyMesh`, `mesh.accessRouter`); a
    `case` in `apps/agent/src/executor.ts`. `meshState` is the reverse direction
    (agent→controller telemetry) and does NOT go in `COMMAND_PROTOCOL_TYPE`.
 5. **Mesh secrets never touch node disk.** The single-use setup key rides the
@@ -47,8 +47,8 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
    / `wg show`), folded into the in-memory live peer map (`mesh-peers.ts`,
    no table — epic-docker-native-state P1). Never add a command just to read
    mesh state — surface it from the pushed snapshot / control-plane `listPeers`.
-7. **The mesh client is a privileged, off-by-default sidecar.** `applyMesh` and
-   `grantDirectRoute` are gated by `SWARMY_ALLOW_MESH` (default on) and reject
+7. **The mesh client is a privileged, off-by-default sidecar.** `applyMesh` is
+   gated by `SWARMY_ALLOW_MESH` (default on) and reject
    with `E_MESH_DISABLED` when a node opts out — parity with `ALLOW_EXEC`. The
    sidecar (`swarmy-netbird`/`swarmy-tailscale`, host net, `NET_ADMIN`,
    `/dev/net/tun`) has a **stable name** so re-applies reconcile one container,
@@ -57,17 +57,16 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
    `MeshConfig`/`MeshRoute` are config + access control — legitimately DB.
    Peers are derived (agent `meshState` + control-plane `listPeers`) and the
    rendered ACL is re-rendered from `MeshRoute` on demand. Likewise
-   *which node runs a service* (and thus a direct route's target `meshIp`) is
-   read live from Docker inventory (`resolveLiveService`/`resolveExecTarget`),
-   never a swarmy column. See `skill("docker-native-storage")`.
-9. **Direct connect is admin-only, ACL-scoped, TTL'd, and audited.**
-   `routes.grant`/`routes.revoke` are `adminProcedure`. Tags are deterministic
-   (`principalTagForRoute` = `tag:dc-<routeId>`, `targetTagForRoute` =
-   `tag:svc-<routeId>`) so ACL renders are stable and golden-diffable. `expiresAt`
-   bounds every grant; every grant/revoke/pushFailed writes `AuditLog`.
+   *which node runs a service* is read live from Docker inventory, never a
+   swarmy column. See `skill("docker-native-storage")`.
+9. **Laptop access is people access — there is no second path.** A person reaches
+   an app's private services through `mesh.people.*` grants (SSO identity,
+   per-port, optional `expiresAt`), shown on the app's **Access** tab. The old
+   ephemeral-key "direct connect" (`mesh.routes.*`, REST `/mesh/routes`) was
+   removed in 2026-09 — don't bring back a second way in.
 10. **Every mesh mutation is org-scoped and audited.** `enrollNode`, `setDriver`,
-    `setEnabled`, `setControlPlane`, `routes.grant/revoke` all write `writeAudit`
-    (`mesh.peer.join`, `mesh.setDriver`, `mesh.route.grant`, …). Never mutate mesh
+    `setEnabled`, `setControlPlane`, `people.grant/revoke` all write `writeAudit`
+    (`mesh.peer.join`, `mesh.setDriver`, …). Never mutate mesh
     state without an audit row.
 
 ## Contracts between the layers
@@ -107,16 +106,16 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 | Raw-WireGuard config render + keygen | `packages/mesh/src/render/{wireguard,keygen}.ts` |
 | provision/preview/status orchestration (pkg-level) | `packages/mesh/src/apply.ts` |
 | Wire/render protocol (`RenderedMesh`, `applyMesh`, `meshState`) | `packages/core/src/protocol/mesh.ts` (+ `messages.ts` union) |
-| `CommandName` → wire `type` (`applyMesh`, `mesh.grantDirectRoute`) | `packages/trpc/src/hub/types.ts` |
-| Controller service (enroll, direct-connect, reconcile) | `packages/trpc/src/services/mesh.service.ts` |
-| tRPC router (config/enroll/peers/routes/swarm migration) | `packages/trpc/src/routers/mesh.ts` |
+| `CommandName` → wire `type` (`applyMesh`, `mesh.accessRouter`) | `packages/trpc/src/hub/types.ts` |
+| Controller service (enroll, config, reconcile) | `packages/trpc/src/services/mesh.service.ts` |
+| tRPC router (config/enroll/peers/people/swarm migration) | `packages/trpc/src/routers/mesh.ts` |
 | Swarm-over-mesh migration (planner / runner / resume worker) | `packages/trpc/src/services/mesh-migration.{plan,service}.ts`, `apps/api/src/workers/mesh-migration.ts` |
 | Encrypt/decrypt service token, random keys | `packages/core/src/crypto.ts` |
-| Agent: sidecar apply, `meshState` sampler, WG grant | `apps/agent/src/handlers/mesh.ts` |
+| Agent: sidecar apply, `meshState` sampler | `apps/agent/src/handlers/mesh.ts` |
 | Agent: executor cases + `SWARMY_ALLOW_MESH` gate | `apps/agent/src/{executor,env,index}.ts` |
 | Live peer map (no table) + `reconcileMeshPeer` | `packages/trpc/src/services/mesh-peers.ts` |
 | Gateway `meshState` → live peer map | `apps/api/src/gateway/protocol-handlers.ts` |
-| DB models | `packages/db/prisma/schema/mesh.prisma` (MeshRoute: direct + `kind=person` grants) |
+| DB models | `packages/db/prisma/schema/mesh.prisma` (MeshRoute: `kind=person` grants) |
 | Self-hosted control plane: config render, Litestream render, pinned images | `packages/mesh/src/control-plane/{server-config,litestream}.ts`, `packages/mesh/src/images.ts` |
 | NetBird Admin API slice + the people/bootstrap diff (namespaced `swarmy:<c>:*`) | `packages/mesh/src/control-plane/{netbird-admin,people-sync}.ts` |
 | People access: names, `declaredPorts`, `buildPeopleAccessPlan`, `planUserSync`, `dexSubject` | `packages/mesh/src/people.ts` |
@@ -127,7 +126,7 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 | 30 s reconcile worker | `apps/api/src/workers/mesh-people-reconcile.ts` |
 | Installer `--mesh swarmy` (starts NetBird before `swarm init`) | `scripts/install-swarmy.sh` (`ensure_mesh_control`) |
 | e2e on Lima (install, join, person connects/denied/revoked) | `scripts/e2e-mesh-people.ts` |
-| Networking UI (driver/enroll/control-plane/peers/direct-connect) | `apps/app/src/routes/_authed/networking.tsx`, `apps/app/src/components/networking/*` |
+| Networking UI (driver/enroll/control-plane/peers) + per-app laptop access on the Access tab | `apps/app/src/routes/_authed/networking.tsx`, `routes/_authed/stacks/$name.access.tsx`, `apps/app/src/components/networking/*` |
 
 ## Adding a mesh driver (the recipe)
 
@@ -147,7 +146,7 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
    `applyMesh` — don't add a provider branch to the agent unless the client is
    genuinely new, and gate any new privileged path behind `SWARMY_ALLOW_MESH`.
 5. **UI**: the driver appears in `mesh-driver-card.tsx` via `DRIVER_LABELS`; add a
-   label + copy. Direct-connect join snippets live in `buildConnectInfo`.
+   label + copy.
 
 For a whole cross-stack feature (db → protocol → service → router → UI) see
 `skill("add-feature-slice")`; this skill is the mesh-specific slice of it.
@@ -221,4 +220,4 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
 - Verify: `bun --filter @swarmy/mesh typecheck && bun --filter @swarmy/mesh test`
   (driver + ACL + reconcile goldens), then `bun --filter @swarmy/agent typecheck`.
   Multi-node: `scripts/local-vms.sh` — enroll a second-region VM, watch its peer
-  reach `CONNECTED`, then grant a direct route and hit the service on its mesh IP.
+  reach `CONNECTED`, then grant a person access and connect from a laptop (`scripts/e2e-mesh-people.ts`).

@@ -334,46 +334,6 @@ export interface RegisterVolumeRequest {
   service_id?: string;
 }
 
-export interface MeshRoute {
-  id: string;
-  kind: string;
-  target_service_id: string | null;
-  target_stack_id: string | null;
-  cidr: string | null;
-  port: number | null;
-  principal_type: string;
-  principal_id: string;
-  expires_at: string | null;
-  created_at: string;
-}
-
-export interface MeshRouteList {
-  data: MeshRoute[];
-  next_cursor: string | null;
-}
-
-export interface MeshConnect {
-  driver: string;
-  address: string;
-  join_snippet: string;
-  setup_key?: string;
-}
-
-export interface GrantMeshRouteResult {
-  route: MeshRoute;
-  connect: MeshConnect;
-}
-
-export interface GrantMeshRouteRequest {
-  service_id?: string;
-  stack_id?: string;
-  principal_type?: 'peer' | 'group' | 'member';
-  principal_id: string;
-  port?: number;
-  proto?: 'tcp' | 'udp';
-  ttl_sec?: number;
-}
-
 export interface NotifyQueued {
   queued: true;
   to: string;

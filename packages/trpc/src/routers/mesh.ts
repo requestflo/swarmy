@@ -1,14 +1,9 @@
 import { z } from 'zod';
 import { adminProcedure, orgProcedure, router } from '../trpc';
-import { abacProcedure } from '../abac';
 import {
   enrollNode,
   getConfig,
-  grantDirectRoute,
   listPeers,
-  listRoutes,
-  previewAccess,
-  revokeDirectRoute,
   setControlPlane,
   setDriver,
   setEnabled,
@@ -107,36 +102,6 @@ export const meshRouter = router({
   resumeMigration: adminProcedure.mutation(({ ctx }) => resumeMigration(ctx)),
 
   cancelMigration: adminProcedure.mutation(({ ctx }) => cancelMigration(ctx)),
-
-  // ── Direct stack connect (Phase 2) ──────────────────────────────────────
-
-  routes: router({
-    list: orgProcedure.query(({ ctx }) => listRoutes(ctx)),
-
-    /** Preview the ACL a grant would create — no writes. */
-    preview: orgProcedure
-      .input(z.object({ port: z.number().int().positive().optional(), proto: z.enum(['tcp', 'udp']).optional() }))
-      .query(({ ctx, input }) => previewAccess(ctx, input)),
-
-    /** Grant a point-to-point route to a service/stack; returns join info + setup key. */
-    grant: adminProcedure
-      .input(
-        z.object({
-          serviceId: z.string().optional(),
-          stackId: z.string().optional(),
-          principalType: z.enum(['peer', 'group', 'member']).optional(),
-          principalId: z.string().min(1),
-          port: z.number().int().positive().optional(),
-          proto: z.enum(['tcp', 'udp']).optional(),
-          ttlSec: z.number().int().positive().optional(),
-        }),
-      )
-      .mutation(({ ctx, input }) => grantDirectRoute(ctx, input)),
-
-    revoke: abacProcedure('token.revoke')
-      .input(z.object({ routeId: z.string() }))
-      .mutation(({ ctx, input }) => revokeDirectRoute(ctx, input.routeId)),
-  }),
 
   // ── Self-hosted control plane (NetBird inside swarmy) ────────────────────
 

@@ -1,7 +1,7 @@
 /**
  * Wave G1 — additional public REST DTOs for the expanded CRUD surface
  * (api-keys, node actions, geo-DNS records, backups + snapshots, cluster
- * volumes, mesh routes).
+ * volumes).
  *
  * Kept in a separate file from the shared `dto.ts` so this wave merges cleanly.
  * Same conventions as `dto.ts`: snake_case JSON fields, `.openapi(name)` on every
@@ -204,48 +204,3 @@ export const RegisterVolumeBody = z
     service_id: z.string().optional(),
   })
   .openapi('RegisterVolumeRequest');
-
-// ── Mesh routes ───────────────────────────────────────────────────────────────
-
-export const MeshRouteDto = z
-  .object({
-    id: z.string(),
-    kind: z.string(),
-    target_service_id: z.string().nullable(),
-    target_stack_id: z.string().nullable(),
-    cidr: z.string().nullable(),
-    port: z.number().nullable(),
-    principal_type: z.string(),
-    principal_id: z.string(),
-    expires_at: z.string().nullable(),
-    created_at: z.string(),
-  })
-  .openapi('MeshRoute');
-
-export const MeshConnectDto = z
-  .object({
-    driver: z.string(),
-    address: z.string(),
-    join_snippet: z.string(),
-    setup_key: z.string().optional(),
-  })
-  .openapi('MeshConnect');
-
-export const GrantMeshRouteDto = z
-  .object({
-    route: MeshRouteDto,
-    connect: MeshConnectDto,
-  })
-  .openapi('GrantMeshRouteResult');
-
-export const GrantMeshRouteBody = z
-  .object({
-    service_id: z.string().optional(),
-    stack_id: z.string().optional(),
-    principal_type: z.enum(['peer', 'group', 'member']).optional(),
-    principal_id: z.string().min(1),
-    port: z.number().int().min(1).max(65535).optional(),
-    proto: z.enum(['tcp', 'udp']).optional(),
-    ttl_sec: z.number().int().min(0).optional(),
-  })
-  .openapi('GrantMeshRouteRequest');

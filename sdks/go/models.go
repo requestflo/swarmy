@@ -365,46 +365,6 @@ type RegisterVolumeRequest struct {
 	ServiceID     string         `json:"service_id,omitempty"`
 }
 
-type MeshRoute struct {
-	ID              string  `json:"id"`
-	Kind            string  `json:"kind"`
-	TargetServiceID *string `json:"target_service_id"`
-	TargetStackID   *string `json:"target_stack_id"`
-	Cidr            *string `json:"cidr"`
-	Port            *int    `json:"port"`
-	PrincipalType   string  `json:"principal_type"`
-	PrincipalID     string  `json:"principal_id"`
-	ExpiresAt       *string `json:"expires_at"`
-	CreatedAt       string  `json:"created_at"`
-}
-
-type MeshRouteList struct {
-	Data       []MeshRoute `json:"data"`
-	NextCursor *string     `json:"next_cursor"`
-}
-
-type MeshConnect struct {
-	Driver      string `json:"driver"`
-	Address     string `json:"address"`
-	JoinSnippet string `json:"join_snippet"`
-	SetupKey    string `json:"setup_key,omitempty"`
-}
-
-type GrantMeshRouteResult struct {
-	Route   MeshRoute   `json:"route"`
-	Connect MeshConnect `json:"connect"`
-}
-
-type GrantMeshRouteRequest struct {
-	ServiceID     string `json:"service_id,omitempty"`
-	StackID       string `json:"stack_id,omitempty"`
-	PrincipalType string `json:"principal_type,omitempty"`
-	PrincipalID   string `json:"principal_id"`
-	Port          int    `json:"port,omitempty"`
-	Proto         string `json:"proto,omitempty"`
-	TtlSec        int    `json:"ttl_sec,omitempty"`
-}
-
 type NotifyQueued struct {
 	Queued bool   `json:"queued"`
 	To     string `json:"to"`

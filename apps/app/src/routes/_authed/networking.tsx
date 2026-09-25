@@ -13,7 +13,6 @@ import {
 import { EnrollNodeCard } from '@/components/networking/enroll-node-card';
 import { MeshPeersList } from '@/components/networking/mesh-peers-list';
 import { ControlPlaneCard } from '@/components/networking/control-plane-card';
-import { DirectConnectCard } from '@/components/networking/direct-connect-card';
 import { PeopleAccessCard } from '@/components/networking/people-access-card';
 import { MoveSwarmDialog, SwarmOnMeshCard } from '@/components/networking/swarm-on-mesh-card';
 
@@ -142,7 +141,6 @@ function NetworkingPage(): React.JSX.Element {
 
       <MeshPeersList peers={peers.data ?? []} />
 
-      {live && <DirectConnectCard />}
     </div>
   );
 }

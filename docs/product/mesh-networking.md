@@ -21,10 +21,10 @@ private encrypted network between them should be one toggle and one paste:
    *no inbound ports, no firewall edits, and the key never touches disk.*
 4. The peer appears in the list: hostname, **mesh IP** (`100.92.0.x`), last
    handshake, `connected`. The headline flips to *"4 peers meshed."*
-5. Later, someone needs Postgres from their laptop. On the service they hit
-   **Direct connect**, get a copy-paste `netbird up` snippet scoped to *just
-   that workload* with a **TTL in minutes**, and hit the database on its real
-   port — no ingress, no public port, every second of it audited.
+5. Later, someone needs Postgres from their laptop. On the app's **Access** tab
+   they're granted access (optionally with a TTL), sign in with their swarmy
+   account on the NetBird client, and hit the database on its real port — no
+   ingress, no public port, every grant audited.
 
 No WireGuard keys pasted by hand. No ACL file edited. No VPC, no security group,
 no load balancer. It should feel like the nodes found each other privately —
@@ -71,10 +71,11 @@ Four ideas, one story:
   key is minted per enrollment, carried on one authenticated frame, and becomes
   the sidecar's env var only. Nothing mesh-secret is ever written to the node's
   filesystem.
-- **Direct connect is the same primitive, exposed the other way.** Instead of
-  joining a *node* to the mesh forever, it joins a *laptop/CI box* as an
-  ephemeral peer scoped by ACL to exactly one service, with a TTL and an audit
-  row. One mesh, two doors.
+- **People access is the same mesh, exposed the other way.** Instead of joining
+  a *node* forever, a person's laptop joins with their SSO identity and reaches
+  exactly the app services they were granted (per-port, optional TTL), through a
+  per-stack access router. One mesh, two doors. (An older ephemeral-key "direct
+  connect" was removed in 2026-09 — people access replaces it.)
 
 ## Roles and where truth lives
 
@@ -89,7 +90,7 @@ Four ideas, one story:
   the mesh's grants and control-plane credentials are swarmy's access-control
   and audit surface — exactly what the DB is *for*. `MeshConfig` (org-scoped
   1:1, `driver` default `NONE`, `enabled` default `false`, encrypted
-  control-plane token) and `MeshRoute` (direct-connect grants, `expiresAt`,
+  control-plane token) and `MeshRoute` (people-access grants, `expiresAt`,
   `createdById`) are swarmy state, not swarm state. Peers are NOT stored: their
   status / mesh IP / last-seen come from the agent's `meshState` reports (a
   process-local map) cross-checked with the control plane's `listPeers`, and
@@ -130,12 +131,6 @@ Four ideas, one story:
   (host network, `NET_ADMIN`/`SYS_ADMIN`/`SYS_RESOURCE`, `/dev/net/tun`). Raw
   WireGuard instead writes `wg0.conf` and runs `wg-quick up`. The whole
   capability is gated by `SWARMY_ALLOW_MESH` (default on, but a node can refuse).
-- **Direct connect is short-lived, ACL-scoped, and audited.** A grant renders a
-  deterministic ACL (`tag:dc-<routeId>` → `tag:svc-<routeId>`), pushes it to the
-  control plane (NetBird policy) or writes a file (Headscale HuJSON), mints an
-  ephemeral scoped setup key, and returns a `<meshIp>:<port>` address plus a
-  paste-ready join snippet. Every grant and revoke is an `adminProcedure` with an
-  audit row.
 - **The mesh underlies cross-region swarm.** Once nodes share one encrypted
   network, they can belong to one Docker Swarm across clouds and NAT — and the
   global edge (region-aware Caddy + geo-DNS) rides on top of that reachability.
@@ -147,9 +142,8 @@ Four ideas, one story:
 |---|---|
 | Control plane unreachable at enroll | The driver falls back to an opaque single-use key so a fresh/unconfigured org still enrolls; `status()` reports "control plane unreachable" instead of throwing. |
 | `applyMesh` fails on the node | The live peer is marked `FAILED` and `mesh.peer.enrollFailed` is audited; the error surfaces to the admin. No half-joined ghost. |
-| Node opts out of mesh (`SWARMY_ALLOW_MESH=false`) | The executor rejects `applyMesh`/`grantDirectRoute` with `E_MESH_DISABLED`; the rest of the agent is unaffected. |
+| Node opts out of mesh (`SWARMY_ALLOW_MESH=false`) | The executor rejects `applyMesh` with `E_MESH_DISABLED`; the rest of the agent is unaffected. |
 | Agent silent but control plane knows | Reconcile can fall back to `reconcileFromControlPlane` (NetBird `/api/peers`) so liveness isn't lost when the node's own reporter is quiet. |
-| Direct-route policy push fails | The route row is kept, the ACL marked un-applied, and `mesh.route.pushFailed` is audited — the grant isn't silently lost. |
 | Direct route TTL elapses | `expiresAt` records the bound, but TTL is optional and nothing sweeps expired routes yet — revoke is what tears down the control-plane policy and deletes the rows. Enforced expiry is an open gap (`plans/ROADMAP.md`). |
 
 ## Explicitly rejected
@@ -181,7 +175,7 @@ Four ideas, one story:
 
 The invariants and file map live in the `mesh-networking` skill
 (`.claude/skills/mesh-networking/SKILL.md`) — the `MeshDriver` registry, the
-`applyMesh`/`meshState` contract, and the direct-connect ACL model. Key homes:
+`applyMesh`/`meshState` contract, and people access. Key homes:
 `packages/mesh/src/*` (drivers, registry, pure ACL + reconcile), the NetBird
 control-plane client (`packages/mesh/src/control-plane/netbird.ts`),
 `packages/core/src/protocol/mesh.ts` (the wire/render contract),

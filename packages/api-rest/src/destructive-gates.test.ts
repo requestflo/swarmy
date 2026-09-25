@@ -71,7 +71,6 @@ const ROUTES: Array<[method: string, path: string, action: string, body?: unknow
   ['DELETE', '/nodes/n1', 'node.remove'],
   ['DELETE', '/backup-targets/t1', 'backup.remove'],
   ['DELETE', '/api-keys/k2', 'token.revoke'],
-  ['DELETE', '/mesh/routes/r1', 'token.revoke'],
   ['DELETE', '/registry-credentials/rc1', 'secret.delete'],
   ['DELETE', `/ingress/domains/${encodeURIComponent('svc:shop.example.com')}`, 'ingress.write'],
   ['DELETE', '/dns/zones/z1', 'dns.remove'],

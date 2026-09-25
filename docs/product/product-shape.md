@@ -152,7 +152,7 @@ them:
   are a master switch. "None stays the default" is a design stance, not an
   omission.
 - **Everything is audited.** Guardrail blocks and overrides, DR drills,
-  direct-connect routes, deploy decisions, role toggles — "every … is on the
+  people-access grants, deploy decisions, role toggles — "every … is on the
   record." The audit log is a first-class estate surface, not a debug feature.
 - **Safety is the product, not a mode.** Deploy health gates + auto-rollback,
   production guardrails, safe DR drills you run on a schedule "not during an

@@ -301,12 +301,7 @@ export {
   register as registerClusterVolume,
   deregister as deregisterClusterVolume,
 } from './services/clusterVolume.service';
-export {
-  listRoutes as listMeshRoutes,
-  grantDirectRoute,
-  revokeDirectRoute,
-  mintSetupKeyForOrg,
-} from './services/mesh.service';
+export { mintSetupKeyForOrg } from './services/mesh.service';
 export { meshPeers, reconcileMeshPeer } from './services/mesh-peers';
 export type { LiveMeshPeer } from './services/mesh-peers';
 export type { MintedSetupKey } from './services/mesh.service';

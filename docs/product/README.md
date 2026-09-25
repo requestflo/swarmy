@@ -53,7 +53,7 @@ go deep on one area each.
   drivers, TLS/tunnels, and public/private exposure enforcement.
   _Skills: `scaffold-ingress-driver`, `geo-edge-routing`._
 - [`mesh-networking.md`](./mesh-networking.md) — the zero-trust WireGuard mesh and
-  audited direct-connect to a single service. _Skill: `mesh-networking`._
+  people access to an app's private services. _Skill: `mesh-networking`._
 
 ### Platform services
 

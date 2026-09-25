@@ -540,65 +540,6 @@ class ClusterVolume:
 
 
 @dataclass
-class MeshRoute:
-    id: str
-    kind: str
-    target_service_id: Optional[str]
-    target_stack_id: Optional[str]
-    cidr: Optional[str]
-    port: Optional[float]
-    principal_type: str
-    principal_id: str
-    expires_at: Optional[str]
-    created_at: str
-
-    @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "MeshRoute":
-        return cls(
-            id=d.get("id"),
-            kind=d.get("kind"),
-            target_service_id=d.get("target_service_id"),
-            target_stack_id=d.get("target_stack_id"),
-            cidr=d.get("cidr"),
-            port=d.get("port"),
-            principal_type=d.get("principal_type"),
-            principal_id=d.get("principal_id"),
-            expires_at=d.get("expires_at"),
-            created_at=d.get("created_at"),
-        )
-
-
-@dataclass
-class MeshConnect:
-    driver: str
-    address: str
-    join_snippet: str
-    setup_key: Optional[str] = None
-
-    @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "MeshConnect":
-        return cls(
-            driver=d.get("driver"),
-            address=d.get("address"),
-            join_snippet=d.get("join_snippet"),
-            setup_key=d.get("setup_key"),
-        )
-
-
-@dataclass
-class GrantMeshRouteResult:
-    route: MeshRoute
-    connect: MeshConnect
-
-    @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "GrantMeshRouteResult":
-        return cls(
-            route=d.get("route"),
-            connect=d.get("connect"),
-        )
-
-
-@dataclass
 class NotifyQueued:
     queued: bool
     to: str
