@@ -17,8 +17,8 @@ const BASE =
  */
 export function StackTabStrip({ stack }: { stack: string }): React.JSX.Element {
   const tabs = isSystemStack(stack) ? SYSTEM_STACK_TABS : STACK_TABS;
-  // Replays, analytics and their settings are Observability sub-tabs with their own URLs.
-  const obsChild = /^\/stacks\/[^/]+\/(replays|analytics|rum-settings)(\/|$)/.test(useLocation().pathname);
+  // The shared analytics/replay settings page sits under the Analytics tab.
+  const rumSettings = /^\/stacks\/[^/]+\/rum-settings(\/|$)/.test(useLocation().pathname);
   return (
     <nav className="scrollbar-none -mx-1 mt-5 flex gap-1 overflow-x-auto border-b pb-3 pl-1">
       {tabs.map((tab) => (
@@ -30,7 +30,7 @@ export function StackTabStrip({ stack }: { stack: string }): React.JSX.Element {
           activeProps={{ className: cn(BASE, 'bg-ink text-ink-foreground shadow-sm') }}
           inactiveProps={{
             className:
-              obsChild && tab.to === '/stacks/$name/observability'
+              rumSettings && tab.to === '/stacks/$name/analytics'
                 ? cn(BASE, 'bg-ink text-ink-foreground shadow-sm')
                 : cn(BASE, 'text-muted-foreground hover:text-foreground hover:bg-accent'),
           }}

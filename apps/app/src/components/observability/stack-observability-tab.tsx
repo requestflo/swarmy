@@ -2,7 +2,6 @@ import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTRPC } from '@/integrations/trpc';
 import { StackStatusPages } from '@/components/statuspages/stack-status-pages';
-import { ObsSubTabs } from '@/components/rum/obs-sub-tabs';
 import { HealthReasonsPanel } from './health-reasons';
 import { LogsPanel } from './logs-panel';
 import { MetricsPanel } from './metrics-panel';
@@ -32,7 +31,6 @@ export function StackObservabilityTab({ stack }: StackObservabilityTabProps): Re
 
   return (
     <div className="pb-8">
-      <ObsSubTabs stack={stack} active="logs" />
       <StackOtelHero
         stack={stack}
         suiteEnabled={enabled}

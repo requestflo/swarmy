@@ -1,6 +1,8 @@
 import {
   ActivityIcon,
+  BarChart3Icon,
   BugIcon,
+  ClapperboardIcon,
   DatabaseBackupIcon,
   DatabaseIcon,
   LayoutDashboardIcon,
@@ -27,6 +29,8 @@ export interface StackTab {
     | '/stacks/$name/messaging'
     | '/stacks/$name/observability'
     | '/stacks/$name/errors'
+    | '/stacks/$name/analytics'
+    | '/stacks/$name/replays'
     | '/stacks/$name/network'
     | '/stacks/$name/access'
     | '/stacks/$name/config'
@@ -95,6 +99,22 @@ export const STACK_TABS: StackTab[] = [
     systemSafe: false,
   },
   {
+    to: '/stacks/$name/analytics',
+    label: 'Analytics',
+    icon: BarChart3Icon,
+    blurb: 'Visitors, pages & web vitals — counted at the edge',
+    keywords: 'rum analytics visitors pageviews referrers web vitals lcp cls inp countries browsers',
+    systemSafe: false,
+  },
+  {
+    to: '/stacks/$name/replays',
+    label: 'Replays',
+    icon: ClapperboardIcon,
+    blurb: 'Session replays of real visits',
+    keywords: 'session replay recordings rrweb rum user sessions',
+    systemSafe: false,
+  },
+  {
     to: '/stacks/$name/network',
     label: 'Network',
     icon: NetworkIcon,
@@ -123,7 +143,7 @@ export const STACK_TABS: StackTab[] = [
     label: 'Backups',
     icon: DatabaseBackupIcon,
     blurb: 'DR setup & resilience',
-    keywords: 'backups snapshots restore disaster recovery schedules resilience drills score',
+    keywords: 'backups snapshots restore disaster recovery schedules off-site second destination resilience drills unprotected',
     systemSafe: false,
   },
   {

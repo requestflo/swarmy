@@ -2,14 +2,12 @@ import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { cn } from '@swarmy/ui';
 
-export type ObsTab = 'logs' | 'replays' | 'errors' | 'analytics' | 'rsettings';
+export type ObsTab = 'replays' | 'analytics' | 'rsettings';
 
 const TABS: { key: ObsTab; label: string; to: string }[] = [
-  { key: 'logs', label: 'Logs & traces', to: '/stacks/$name/observability' },
-  { key: 'replays', label: 'Session replays', to: '/stacks/$name/replays' },
-  { key: 'errors', label: 'Errors', to: '/stacks/$name/errors' },
   { key: 'analytics', label: 'Analytics', to: '/stacks/$name/analytics' },
-  { key: 'rsettings', label: 'Replay & analytics settings', to: '/stacks/$name/rum-settings' },
+  { key: 'replays', label: 'Session replays', to: '/stacks/$name/replays' },
+  { key: 'rsettings', label: 'Settings', to: '/stacks/$name/rum-settings' },
 ];
 
 interface ObsSubTabsProps {
@@ -20,14 +18,14 @@ interface ObsSubTabsProps {
 }
 
 /**
- * The Observability area's sub-tabs — logs & traces, replays, errors,
- * analytics and their settings are one place to look at what visitors
- * experienced. Coral underline, same as a section's tab row.
+ * The visitor-experience sub-tabs shared by the Analytics and Replays stack
+ * tabs: analytics, session replays and their (shared) settings. Coral
+ * underline, same as a section's tab row.
  */
 export function ObsSubTabs({ stack, active, aside }: ObsSubTabsProps): React.JSX.Element {
   return (
     <nav
-      aria-label="Observability"
+      aria-label="Analytics and replays"
       className="border-border mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-b"
     >
       <div className="scrollbar-none -mb-px flex gap-1 overflow-x-auto">
@@ -35,7 +33,7 @@ export function ObsSubTabs({ stack, active, aside }: ObsSubTabsProps): React.JSX
           <Link
             key={t.key}
             // Typed routes: every `to` above is a real child of /stacks/$name.
-            to={t.to as '/stacks/$name/observability'}
+            to={t.to as '/stacks/$name/analytics'}
             params={{ name: stack }}
             aria-current={t.key === active ? 'page' : undefined}
             className={cn(
