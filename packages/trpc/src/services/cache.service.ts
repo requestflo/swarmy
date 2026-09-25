@@ -1019,8 +1019,27 @@ export async function setCacheMemory(
 }
 
 /**
+ * PURE — the app services wired to a cluster: carrying its inject label, or
+ * mounting its password secret (older attaches). Its own members excluded.
+ */
+export function attachedToCache<S extends { name: string; stack: string; labels: Record<string, string>; secrets?: string[] }>(
+  services: readonly S[],
+  stack: string,
+  cluster: string,
+  secretName: string,
+  members: ReadonlySet<string>,
+): S[] {
+  return services.filter(
+    (s) =>
+      !members.has(s.name) &&
+      ((s.stack === stack && s.labels[CACHE_INJECT_LABEL] === cluster) || (s.secrets ?? []).includes(secretName)),
+  );
+}
+
+/**
  * Destroy a cluster: remove every member service + the password secret.
- * Refused while apps are still attached (unless `force`). The data volume and
+ * Refused while apps are still attached, unless `force`, which detaches them
+ * first (like cache.detach). The data volume and
  * overlay network are left behind on purpose — volumes may hold the last
  * snapshot and there is no network-remove command; both are inert without the
  * services.
@@ -1030,15 +1049,34 @@ export async function destroyCache(
   input: { stack: string; cluster: string; force?: boolean },
 ): Promise<{ cluster: string; removed: true }> {
   const c = requireCluster(ctx, input.stack, input.cluster);
-  const attached = liveOrgServices(ctx).filter(
-    (s) => s.stack === c.stack && s.labels[CACHE_INJECT_LABEL] === c.name,
-  );
+  const secretName = cachePasswordSecretName(c.stack, c.name);
+  const memberNames = new Set(c.members.map((m) => m.name));
+  const attached = attachedToCache(liveOrgServices(ctx), c.stack, c.name, secretName, memberNames);
   if (attached.length > 0 && !input.force) {
     throw commandRejected(
       `${attached.length} service(s) still attached (${attached
         .map((s) => s.name)
         .join(', ')}) — detach them first or pass force`,
     );
+  }
+  // force: detach every attached app first, exactly like cache.detach (env
+  // vars, secret ref, network, labels), so no app keeps a dead REDIS_URL or
+  // pins the password secret (which blocked re-provisioning the same name).
+  const network = cacheNetworkName(c.stack, c.name);
+  for (const app of attached) {
+    const envVar = app.labels[CACHE_INJECT_VAR_LABEL] ?? 'REDIS_URL';
+    await patchLiveService(ctx, app, {
+      removeEnv: app.labels[CACHE_INJECT_LABEL] === c.name ? [envVar, cachePasswordFileVar(envVar)] : [],
+      removeSecrets: [secretName],
+      removeNetworks: [network],
+      removeLabels: [CACHE_INJECT_LABEL, CACHE_INJECT_VAR_LABEL],
+    });
+    await writeAudit(ctx, {
+      action: 'cache.detach',
+      targetType: 'cacheCluster',
+      targetId: cacheBaseName(input.stack, input.cluster),
+      metadata: { appService: app.name, reason: 'forced destroy' },
+    });
   }
   const node = await resolveManagerNode(ctx);
   try {
@@ -1049,14 +1087,16 @@ export async function destroyCache(
     throw mapDispatchError(e);
   }
   // Best-effort: a failed secret removal must not block the destroy.
-  await ctx.hub
-    .dispatch(node.id, 'secret.remove', { name: cachePasswordSecretName(c.stack, c.name) })
-    .catch(() => undefined);
+  await ctx.hub.dispatch(node.id, 'secret.remove', { name: secretName }).catch(() => undefined);
   await writeAudit(ctx, {
     action: 'cache.destroy',
     targetType: 'cacheCluster',
     targetId: cacheBaseName(input.stack, input.cluster),
-    metadata: { force: Boolean(input.force), members: c.members.map((s) => s.name) },
+    metadata: {
+      force: Boolean(input.force),
+      members: c.members.map((s) => s.name),
+      ...(attached.length ? { detached: attached.map((s) => s.name) } : {}),
+    },
   });
   return { cluster: input.cluster, removed: true };
 }
