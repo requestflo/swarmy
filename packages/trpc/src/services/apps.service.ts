@@ -335,7 +335,9 @@ export function realOps(
           });
           if (d.previewData) await seedPreviewDatabase(ctx, d, repo, sha, r.name, r.database);
           if (r.ha !== DEFAULT_TOPOLOGY) {
-            await setTopology(ctx, {
+            // setTopology reads the cluster from live inventory, which sees the
+            // services provisionDb just created only a heartbeat later (QA-029).
+            await untilClusterLive(() => setTopology(ctx, {
               stack,
               cluster: r.name,
               topology: r.ha,
@@ -347,7 +349,7 @@ export function realOps(
                     })),
                   }
                 : {}),
-            });
+            }));
           }
           return {};
         case 'cache':
@@ -742,6 +744,19 @@ export interface PlanCommitResult {
 }
 
 const envKey = (repoId: string, env: string, pr: number) => `${repoId}:${env}:${pr}`;
+
+/** Retry `fn` while it fails with NOT_FOUND (a just-provisioned resource not yet in live inventory). */
+export async function untilClusterLive<T>(fn: () => Promise<T>, timeoutMs = 90_000, stepMs = 3_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      return await fn();
+    } catch (e) {
+      if ((e as { code?: string })?.code !== 'NOT_FOUND' || Date.now() + stepMs > deadline) throw e;
+      await new Promise((r) => setTimeout(r, stepMs));
+    }
+  }
+}
 
 /** A push/poll/manual/PR entry point — plan the commit, then apply what may run. */
 export async function planCommit(

@@ -492,3 +492,18 @@ email:
     expect(attachmentKey(email[0]!)).toBe('email:noreply@shop.example.com:MAIL_PASSWORD=password');
   });
 });
+
+describe('untilClusterLive (QA-029)', () => {
+  it('retries NOT_FOUND until the resource is live, and rethrows anything else', async () => {
+    const { untilClusterLive } = await import('../apps.service');
+    let n = 0;
+    const v = await untilClusterLive(async () => {
+      n++;
+      if (n < 3) throw Object.assign(new Error('db cluster "db" not found'), { code: 'NOT_FOUND' });
+      return 'ok';
+    }, 1_000, 1);
+    expect(v).toBe('ok');
+    expect(n).toBe(3);
+    await expect(untilClusterLive(async () => { throw Object.assign(new Error('nope'), { code: 'FORBIDDEN' }); }, 1_000, 1)).rejects.toThrow('nope');
+  });
+});
