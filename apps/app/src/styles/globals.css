@@ -259,3 +259,12 @@ body,
     transform: none;
   }
 }
+
+/* `text-status-*` as TEXT (StatusBadge, older badges) resolves to the
+   text-safe tones, so every status word clears 4.5:1 in both themes. The
+   fills (`bg-status-*`, dots, washes) keep the brighter status colours. */
+.text-status-online { color: var(--tone-ok); }
+.text-status-warning { color: var(--tone-warn); }
+.text-status-offline { color: var(--tone-bad); }
+.text-status-progress { color: var(--tone-info); }
+.text-status-idle { color: var(--tone-idle); }
