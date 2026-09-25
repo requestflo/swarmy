@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { CheckIcon, Loader2Icon, PauseIcon, XIcon } from 'lucide-react';
-import { Badge, cn } from '@swarmy/ui';
+import { cn } from '@swarmy/ui';
+import { StatusWord } from '@/components/calm';
 import { STEP_TEXT } from './use-platform';
 
 interface StepView {
@@ -42,8 +43,8 @@ export function UpgradeTimeline({
             <span
               className={cn(
                 'mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full text-xs',
-                done && 'bg-status-online/15 text-status-online',
-                live && 'bg-primary/15 text-primary',
+                done && 'bg-status-online/10 text-tone-ok',
+                live && 'bg-primary/10 text-foreground',
                 bad && 'bg-destructive/15 text-destructive',
                 !done && !live && !bad && 'bg-muted text-muted-foreground',
               )}
@@ -64,14 +65,12 @@ export function UpgradeTimeline({
             <span className="grid min-w-0 flex-1 gap-0.5">
               <span className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold">{t.name}</span>
-                {pauses && s.key === 'engines' ? <Badge variant="warning">major · brief pause</Badge> : null}
+                {pauses && s.key === 'engines' ? <StatusWord tone="warn" word="major · brief pause" /> : null}
               </span>
               <span className="text-muted-foreground text-xs">{s.error ?? s.detail ?? t.what}</span>
             </span>
             <span className="grid shrink-0 justify-items-end gap-0.5">
-              <Badge variant={done ? 'success' : live ? 'info' : bad ? 'destructive' : 'muted'}>
-                {s.status === 'waiting' ? 'waiting' : s.status}
-              </Badge>
+              <StatusWord tone={done ? 'ok' : live ? 'info' : bad ? 'bad' : 'idle'} word={s.status === 'waiting' ? 'waiting' : s.status} />
               <span className="text-muted-foreground mono-data hidden text-[10.5px] sm:block">
                 {done ? '' : `if it fails: ${t.ifFails}`}
               </span>

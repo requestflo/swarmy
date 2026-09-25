@@ -58,3 +58,7 @@ export function when(iso: string | null | undefined): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) || d.getTime() === 0 ? '—' : d.toLocaleString();
 }
+
+export type PlatformStatus = NonNullable<ReturnType<typeof usePlatformStatus>['data']>;
+export type PlatformAvailable = NonNullable<PlatformStatus['release']['available']>;
+export type PlatformRun = NonNullable<PlatformStatus['run']>;

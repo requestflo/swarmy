@@ -9,10 +9,10 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Switch,
   cn,
   toast,
 } from '@swarmy/ui';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 import { useTRPC } from '@/integrations/trpc';
 import { usePlatformStatus } from './use-platform';
 
@@ -44,7 +44,7 @@ export function PolicyCard({ admin }: { admin: boolean }): React.JSX.Element | n
   };
 
   return (
-    <section className="card-pop grid gap-5 p-6" aria-label="Release policy">
+    <section className="calm-card grid gap-5 p-6" aria-label="Release policy">
       <div className="grid gap-2">
         <h3 className="text-base font-semibold">Release channel</h3>
         <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Release channel">
@@ -81,7 +81,7 @@ export function PolicyCard({ admin }: { admin: boolean }): React.JSX.Element | n
             </Label>
             <span className="text-muted-foreground text-xs">Only x.y.Z fixes on Stable, only inside the window. Majors and minors always wait for you.</span>
           </div>
-          <Switch
+          <QuietSwitch
             id="auto-patch"
             checked={policy.autoApplyPatches}
             disabled={!admin || set.isPending}
@@ -89,7 +89,7 @@ export function PolicyCard({ admin }: { admin: boolean }): React.JSX.Element | n
           />
         </div>
         <div className="grid gap-2">
-          <span className="mono-label text-muted-foreground">Maintenance window · {policy.windowText}</span>
+          <span className="text-muted-foreground text-xs font-semibold">Maintenance window · {policy.windowText}</span>
           <div className="flex flex-wrap items-center gap-1.5">
             {DAYS.map((d, i) => (
               <button
@@ -100,7 +100,7 @@ export function PolicyCard({ admin }: { admin: boolean }): React.JSX.Element | n
                 onClick={() => toggleDay(i)}
                 className={cn(
                   'h-7 min-w-10 rounded-lg border px-2 text-xs font-semibold',
-                  w.days.includes(i) ? 'border-primary/60 bg-primary/15 text-primary' : 'text-muted-foreground',
+                  w.days.includes(i) ? 'border-primary/60 bg-primary/10 text-foreground' : 'text-muted-foreground',
                 )}
               >
                 {d}
@@ -136,7 +136,7 @@ export function PolicyCard({ admin }: { admin: boolean }): React.JSX.Element | n
       </div>
 
       <div className="grid gap-1.5">
-        <Label htmlFor="feed-url" className="mono-label text-muted-foreground">
+        <Label htmlFor="feed-url" className="text-muted-foreground text-xs font-semibold">
           Release feed
         </Label>
         <div className="flex gap-2">
@@ -149,7 +149,7 @@ export function PolicyCard({ admin }: { admin: boolean }): React.JSX.Element | n
             onChange={(e) => setFeed(e.target.value)}
           />
           {admin && feed !== null && feed !== (policy.feedUrl ?? '') ? (
-            <Button size="sm" onClick={() => set.mutate({ feedUrl: feed || null }, { onSuccess: () => setFeed(null) })}>
+            <Button size="sm" variant="outline" onClick={() => set.mutate({ feedUrl: feed || null }, { onSuccess: () => setFeed(null) })}>
               Save
             </Button>
           ) : null}
