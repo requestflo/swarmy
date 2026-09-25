@@ -48,6 +48,46 @@ export function failoverPolicy(topology: FailoverTopology): 'never' | 'gated' {
   return topology === 'single' || topology === 'active-active' ? 'never' : 'gated';
 }
 
+/**
+ * Can this cluster HONESTLY offer automatic failover right now (QA-058)? A
+ * failover survives the primary's node dying only if a caught-up replica
+ * lives on ANOTHER server. The promotion is arbitrated by the controller
+ * (lease-fenced, a single writer), not by the `-dcs` etcd member, which only
+ * observes the leader. Requirements:
+ *  - at least 2 ready servers (the replica must not share the primary's);
+ *  - at least one read replica declared;
+ *  - the primary's data on a pinned persistent volume, which is what keeps the
+ *    replica off the primary's server (`swarmy.db.avoidNode`).
+ * PURE — the UI shows `reason` and setTopology refuses `failover` on it.
+ */
+export function failoverReadiness(input: {
+  readyNodes: number;
+  replicas: number;
+  primaryPinned: boolean;
+}): { ok: true; survives: string } | { ok: false; reason: string } {
+  if (input.readyNodes < 2) {
+    return {
+      ok: false,
+      reason: `Automatic failover needs at least 2 servers, so the replica can run on a different one from the primary. This cluster has ${input.readyNodes}.`,
+    };
+  }
+  if (input.replicas < 1) {
+    return { ok: false, reason: 'Automatic failover needs at least 1 read replica to promote. Add a replica first.' };
+  }
+  if (!input.primaryPinned) {
+    return {
+      ok: false,
+      reason:
+        "The primary's data isn't on a pinned persistent volume yet (Migrate storage), so swarmy can't keep the replica off the primary's server.",
+    };
+  }
+  return {
+    ok: true,
+    survives:
+      "Survives the primary's server (or its Postgres) failing: a caught-up replica on another server is promoted. A replica that is behind waits for your confirmation, so no silent data loss.",
+  };
+}
+
 /** The primary's last known flushed LSN (`pg_current_wal_flush_lsn()`). */
 export interface PrimaryWatermark {
   lsn: string;

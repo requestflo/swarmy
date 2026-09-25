@@ -255,8 +255,16 @@ function memberLabels(
 
 const clusterNet = (c: Cluster) => `${c.base}-net`;
 
-/** etcd DCS member — the consensus store a Patroni-style supervisor would use. */
-function dcsSpec(c: Cluster): ServiceSpec {
+/**
+ * etcd member recording the cluster's leader. It observes the leader; it
+ * does not arbitrate promotion (the lease-fenced controller does, gated by the
+ * caught-up rule in @swarmy/core manageddb-failover). It used to be ephemeral
+ * (data in the container) with no placement, so it could land on the primary's
+ * server (QA-058). It now keeps its data on a volume and, on a multi-server
+ * cluster, stays OFF the primary's server, so losing that server leaves the
+ * record of who led. PURE — exported for tests.
+ */
+export function dcsSpec(c: Cluster, primaryNode?: string, multiNode = false): ServiceSpec {
   const name = `${c.base}-dcs`;
   return {
     name,
@@ -271,6 +279,8 @@ function dcsSpec(c: Cluster): ServiceSpec {
     },
     labels: memberLabels(c, 'dcs', 'failover'),
     networks: [clusterNet(c)],
+    mounts: [{ type: 'volume', source: `${c.base}-dcs-data`, target: '/etcd-data' }],
+    ...(multiNode && primaryNode ? { placement: { constraints: [`node.id != ${primaryNode}`] } } : {}),
   };
 }
 
@@ -1324,10 +1334,11 @@ async function reconcileOrg(orgId: string): Promise<void> {
 
     // (2) failover — etcd consensus member + leader observation.
     if (topology === 'failover') {
-      if (!c.dcs) {
-        await ensureNet(c);
-        await deploy(dcsSpec(c));
-      }
+      // Converge every tick: an unchanged spec is a no-op at the hub (spec
+      // signature), and older ephemeral / co-located members get fixed.
+      const want = dcsSpec(c, primary?.labels[DB_PIN_NODE_LABEL], multiNode);
+      if (!c.dcs) await ensureNet(c);
+      await deploy(want);
       if (primary) {
         const healthy = (primary.runningReplicas ?? 0) > 0;
         const want = healthy ? primary.name : (primary.labels[DB_LEADER_LABEL] ?? '');

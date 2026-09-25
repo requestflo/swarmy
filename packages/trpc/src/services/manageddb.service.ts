@@ -15,7 +15,9 @@ import {
   applyPgMember,
   buildInventory,
   choosePinNode,
+  DB_PIN_NODE_LABEL,
   dbStorageLabels,
+  failoverReadiness,
   dbStorageState,
   pinnedPrimaryCounts,
   primaryDataVolumeName,
@@ -923,6 +925,20 @@ export async function confirmFailover(
  * defaults to 2 primaries until {@link setReplicas}-style `swarmy.db.primaries` is
  * raised. Both are safe no-ops on the reconcile until their inputs are declared.
  */
+/** Whether `failover` is honest for this cluster now, and why not (the UI shows it). */
+export function getFailoverReadiness(
+  ctx: OrgContext,
+  input: { stack: string; cluster: string },
+): ReturnType<typeof failoverReadiness> {
+  const { primary, members } = findCluster(ctx, input.stack, input.cluster);
+  if (members.length === 0) throw notFound('db cluster', input.cluster);
+  const readyNodes = ctx.hub
+    .nodeInventory(ctx.activeOrgId)
+    .filter((n) => n.status === 'ready' && n.availability === 'active').length;
+  const replicas = Number.parseInt(primary?.labels[DB_REPLICAS_LABEL] ?? '0', 10) || 0;
+  return failoverReadiness({ readyNodes, replicas, primaryPinned: !!primary?.labels[DB_PIN_NODE_LABEL] });
+}
+
 export async function setTopology(
   ctx: OrgContext,
   input: {
@@ -940,6 +956,11 @@ export async function setTopology(
   }
   const { primary, members } = findCluster(ctx, input.stack, input.cluster);
   if (members.length === 0) throw notFound('db cluster', input.cluster);
+  if (input.topology === 'failover') {
+    // Never offer failover the topology can't honestly provide (QA-058).
+    const ready = getFailoverReadiness(ctx, input);
+    if (!ready.ok) throw commandRejected(ready.reason);
+  }
   const node = await resolveManagerNode(ctx);
 
   const add: Record<string, string> = { [DB_TOPOLOGY_LABEL]: input.topology };

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { GitBranchIcon, NetworkIcon } from 'lucide-react';
 import {
   Button,
@@ -77,6 +77,13 @@ export function DbTopologySelector({
 
   const meta = MODES.find((m) => m.value === mode);
   const unchanged = mode === current?.topology && mode !== 'geo';
+  // Auto-failover only where it can honestly work (QA-058): say why not.
+  const readiness = useQuery({
+    ...trpc.db.failoverReadiness.queryOptions({ stack, cluster }),
+    enabled: mode === 'failover',
+  });
+  const failoverBlocked = mode === 'failover' && readiness.data && !readiness.data.ok ? readiness.data.reason : null;
+  const failoverSurvives = mode === 'failover' && readiness.data?.ok ? readiness.data.survives : null;
 
   const onApply = (): void => {
     const payload: SetTopologyInput = { stack, cluster, topology: mode };
@@ -124,6 +131,14 @@ export function DbTopologySelector({
           )}
         </div>
 
+        {failoverBlocked ? (
+          <p role="alert" className="border-status-offline/40 bg-status-offline/10 text-status-offline rounded-lg border px-3 py-2 text-sm">
+            {failoverBlocked}
+          </p>
+        ) : failoverSurvives ? (
+          <p className="text-muted-foreground text-sm">{failoverSurvives}</p>
+        ) : null}
+
         {mode === 'geo' && (
           <DbTopologyGeoFields
             writeRegion={writeRegion}
@@ -134,7 +149,7 @@ export function DbTopologySelector({
         )}
 
         <div className="flex items-center gap-3">
-          <Button onClick={onApply} disabled={apply.isPending || unchanged}>
+          <Button onClick={onApply} disabled={apply.isPending || unchanged || !!failoverBlocked}>
             <NetworkIcon className="size-4" /> Apply topology
           </Button>
           {current?.topology && (

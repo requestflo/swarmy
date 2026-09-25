@@ -481,6 +481,12 @@ function dbClusterView(st: DataState, t: DbTopoState): Record<string, unknown> {
 export const data: DomainResolvers = {
   handlers: {
     // ── managed-DB topology (slice A2: db-cluster-panel) ─────────────────────
+    // Demo swarm: three servers, a pinned primary with a replica, so failover is available.
+    'db.failoverReadiness': () => ({
+      ok: true,
+      survives:
+        "Survives the primary's server (or its Postgres) failing: a caught-up replica on another server is promoted. A replica that is behind waits for your confirmation, so no silent data loss.",
+    }),
     'db.get': (i, s): { stack: string; clusters: Record<string, unknown>[] } => {
       const { stack } = i as { stack: string };
       const st = getState(s);

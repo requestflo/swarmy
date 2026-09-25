@@ -105,7 +105,9 @@ Four ideas, one story:
 
 - **One provision form per data type, and swarmy fills the rest.** Postgres
   clusters ship topologies `single`, `primary-replica` (default), `failover`
-  (adds an etcd consensus member), `geo` (write-region primary + per-region read
+  (adds an etcd member that records the leader, on a volume and kept off the
+  primary's server; promotion itself is arbitrated by the lease-fenced
+  controller), `geo` (write-region primary + per-region read
   replicas via `swarmy.db.region.<region>.replicas`), and `active-active`.
   Caches ship `single` / `replica` / `sentinel` (primary + replicas + 3 sentinel
   members, quorum 2). Search is single-node Meilisearch or Typesense; vectors
@@ -136,6 +138,12 @@ Four ideas, one story:
   not recoverability. The backup/restore/drill story lives in the `backups-dr`
   domain.
 
+- **Automatic failover is offered only where it can work.** It survives the
+  primary's server dying only when a caught-up replica lives on another
+  server, so `failover` needs at least 2 ready servers, a read replica, and the
+  primary on a pinned persistent volume (which keeps the replica off its
+  server). Otherwise `db.setTopology failover` refuses and the topology picker
+  says why (`db.failoverReadiness`).
 - **Failover never silently loses data.** (Owner decision 2026-09-24:
   databases must be the most solid thing swarmy runs.) A primary unhealthy for
   more than `PROMOTION_GRACE_TICKS` (2, ~30 s) is failed over by

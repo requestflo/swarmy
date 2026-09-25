@@ -11,6 +11,7 @@ import {
   setRegionReplicas,
   setReplicas,
   setTopology,
+  getFailoverReadiness,
   setWriteRegion,
 } from '../services/manageddb.service';
 
@@ -89,6 +90,11 @@ export const managedDbRouter = router({
    * converges live infra to match — single | primary-replica | failover | geo |
    * active-active.
    */
+  /** Can `failover` honestly work for this cluster now? `reason` when not (shown in the topology picker). */
+  failoverReadiness: orgProcedure
+    .input(z.object({ stack: z.string().min(1), cluster: z.string().min(1) }))
+    .query(({ ctx, input }) => getFailoverReadiness(ctx, input)),
+
   setTopology: abacProcedure('stack.deploy', resolveStackByName)
     .input(
       z.object({
