@@ -824,6 +824,21 @@ nb_setup_key() {
   printf '%s' "$key"
 }
 
+# nb_setup_key_retry TYPE USES TTL NAME — nb_setup_key, retried while the Admin API
+# comes back. QA-062: right after the TLS handover swarmy-mesh-control restarts, so
+# :8081 is briefly down; the one-shot mint failed and the bootstrap line lost its
+# mesh key (a node joining with it lands on its public IP). Quiet until the last try.
+nb_setup_key_retry() {
+  local wait="${SWARMY_MESH_KEY_WAIT:-90}" step="${SWARMY_MESH_KEY_RETRY_SEC:-3}" k="" i=0 tries
+  tries=$(( wait / (step > 0 ? step : 1) ))
+  while [ "$i" -lt "$tries" ]; do
+    k="$(nb_setup_key "$@" 2>/dev/null)" && [ -n "$k" ] && { printf '%s' "$k"; return 0; }
+    i=$(( i + 1 ))
+    sleep "$step"
+  done
+  nb_setup_key "$@"
+}
+
 # ── --mesh swarmy: NetBird's control plane runs HERE, before the swarm exists ──
 # nb_api METHOD PATH [BODY] [TOKEN] — this host's NetBird Admin API; prints the body.
 nb_api() {
@@ -1555,7 +1570,8 @@ finalize() {
         warn "the edge isn't serving ${MESH_DOMAIN} yet (DNS/certificate); the line below uses ${join_mgmt}, which keeps working after the handover."
       fi
     fi
-    k="$(nb_setup_key reusable 5 86400 'swarmy bootstrap one-liner')" || k=""
+    k="$(nb_setup_key_retry reusable 5 86400 'swarmy bootstrap one-liner')" || k=""
+    [ -n "$k" ] || warn "no mesh key for the line below: a node joining with it lands on its public IP. Use Add a node in the dashboard, which carries the key."
     [ -z "$k" ] || mesh_env="SWARMY_MESH_SETUP_KEY=$k SWARMY_MESH_MANAGEMENT_URL=${join_mgmt} SWARMY_MESH_DRIVER=netbird "
     if [ -n "$k" ] && [ -n "${MESH_EXTRA_CA:-}" ] && [ -s "$MESH_EXTRA_CA" ]; then
       mesh_env="${mesh_env}SWARMY_MESH_CA_B64=$(base64 -w0 "$MESH_EXTRA_CA" 2>/dev/null || base64 "$MESH_EXTRA_CA" | tr -d '\n') "
