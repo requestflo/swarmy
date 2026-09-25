@@ -522,6 +522,24 @@ export function pgEnv(conn: DbConnection): string[] {
   ];
 }
 
+/**
+ * The libpq connection env a PHYSICAL engine needs to reach the live primary.
+ * `wal-g backup-push` / pgbackrest open a replication-capable session to run
+ * `pg_backup_start`/`pg_backup_stop` (they do not only read PGDATA), and libpq
+ * reads its target from the standard `PG*` variables. Same one-shot contract as
+ * {@link pgEnv}: the password rides the authenticated WS and exists only as
+ * this sidecar's container env — never a label, a file, argv or a log line.
+ */
+export function pgConnEnv(conn: DbConnection): string[] {
+  return [
+    `PGHOST=${conn.host}`,
+    `PGPORT=${conn.port}`,
+    `PGUSER=${conn.user}`,
+    `PGPASSWORD=${conn.password}`,
+    `PGDATABASE=${conn.database}`,
+  ];
+}
+
 /** A scratch Docker volume name for staging a logical dump (ephemeral). */
 function scratchVolumeName(jobId: string): string {
   return `swarmy-dbdump-${jobId.replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 48) || 'job'}`;
@@ -683,7 +701,7 @@ async function backupDbPhysical(
         image,
         entrypoint: ['/bin/sh', '-c'],
         args: ['set -e; export PGDATA=' + PGDATA_MOUNT + '; wal-g backup-push "$PGDATA"'],
-        env: [...env, `PGDATA=${PGDATA_MOUNT}`],
+        env: [...env, ...pgConnEnv(p.conn), `PGDATA=${PGDATA_MOUNT}`],
         binds: [`${assertVolumeName(p.dataVolume)}:${PGVOL_MOUNT}:ro`],
         networkMode: p.network,
       },
@@ -712,7 +730,7 @@ async function backupDbPhysical(
         `set -e; pgbackrest --stanza=swarmy --pg1-path=${PGDATA_MOUNT} ${flags} stanza-create || true; ` +
           `pgbackrest --stanza=swarmy --pg1-path=${PGDATA_MOUNT} ${flags} --type=full backup`,
       ],
-      env,
+      env: [...env, ...pgConnEnv(p.conn)],
       binds: [`${assertVolumeName(p.dataVolume)}:${PGVOL_MOUNT}`],
       networkMode: p.network,
     },

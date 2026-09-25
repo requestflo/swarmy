@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'bun:test';
+import type { DockerClient } from '@swarmy/core/docker';
+import type { DbBackupPayload } from '@swarmy/core/protocol';
+import type { AgentConnection } from '../connection';
 import {
   assertContainerPath,
+  backupDb,
   assertSnapshotRef,
   assertVolumeName,
   forgetArgsFor,
   logicalRestoreScript,
   parseForgetRemoved,
   pgBackRestRepoFlags,
+  pgConnEnv,
   pgEnv,
   pgbackrestRestoreScript,
   pitrScriptEnv,
@@ -166,5 +171,77 @@ describe('Postgres restore scripts carry NO payload value (env only)', () => {
     const v = `a'b"c$(id)\`x\``;
     const proc = Bun.spawn(['sh', '-c', `printf %s ${shq(v)}`], { stdout: 'pipe' });
     expect(await new Response(proc.stdout).text()).toBe(v);
+  });
+});
+
+/**
+ * QA-067: a physical base backup opens a libpq session to the primary
+ * (`pg_backup_start`), so its sidecar needs the PG* connection env. A fake
+ * Docker captures exactly what the sidecar container was created with.
+ */
+describe('physical base-backup sidecar connection env (QA-067)', () => {
+  function fakeDocker(out: string) {
+    const created: Array<{ Image: string; Env: string[]; Cmd: string[] }> = [];
+    const docker = {
+      pullImage: async () => undefined,
+      docker: {
+        modem: { demuxStream: (_s: unknown, o: { write(b: Buffer): void }) => o.write(Buffer.from(out)) },
+        createContainer: async (opts: { Image: string; Env: string[]; Cmd: string[] }) => {
+          created.push(opts);
+          return {
+            attach: async () => ({}),
+            start: async () => undefined,
+            wait: async () => ({ StatusCode: 0 }),
+            remove: async () => undefined,
+          };
+        },
+      },
+    } as unknown as DockerClient;
+    return { docker, created };
+  }
+  const conn = { send: () => undefined } as unknown as AgentConnection;
+  const payload = (engine: 'wal-g' | 'pgbackrest'): DbBackupPayload => ({
+    commandId: 'c1',
+    jobId: 'j1',
+    engine,
+    conn: { host: 'shop_main-primary', port: 5432, user: 'postgres', password: 's3cr3t', database: 'app' },
+    repo: { kind: 's3', repo: 's3:http://swarmy-garage:3900/bkt/pfx', password: 'rp', accessKeyId: 'AK', secretAccessKey: 'SK' },
+    tags: [],
+    network: 'shop_main-net',
+    dataVolume: 'shop_main-primary-data',
+  });
+
+  it('pgConnEnv carries the libpq target + password as env', () => {
+    expect(pgConnEnv(payload('wal-g').conn)).toEqual([
+      'PGHOST=shop_main-primary',
+      'PGPORT=5432',
+      'PGUSER=postgres',
+      'PGPASSWORD=s3cr3t',
+      'PGDATABASE=app',
+    ]);
+  });
+
+  it('wal-g backup-push gets PGHOST/PGUSER/PGPASSWORD in its container env (never argv)', async () => {
+    const { docker, created } = fakeDocker('Wrote backup with name base_000000010000000000000003\n');
+    const res = await backupDb(docker, conn, payload('wal-g'));
+    expect(res.snapshotId).toBe('base_000000010000000000000003');
+    expect(created).toHaveLength(1);
+    const env = created[0]!.Env;
+    expect(env).toContain('PGHOST=shop_main-primary');
+    expect(env).toContain('PGPORT=5432');
+    expect(env).toContain('PGUSER=postgres');
+    expect(env).toContain('PGPASSWORD=s3cr3t');
+    expect(env).toContain('WALG_S3_PREFIX=s3://bkt/pfx');
+    expect(created[0]!.Cmd.join(' ')).not.toContain('s3cr3t');
+  });
+
+  it('pgbackrest backup gets the same connection env', async () => {
+    const { docker, created } = fakeDocker('');
+    await backupDb(docker, conn, payload('pgbackrest'));
+    const env = created[0]!.Env;
+    expect(env).toContain('PGHOST=shop_main-primary');
+    expect(env).toContain('PGUSER=postgres');
+    expect(env).toContain('PGPASSWORD=s3cr3t');
+    expect(created[0]!.Cmd.join(' ')).not.toContain('s3cr3t');
   });
 });
