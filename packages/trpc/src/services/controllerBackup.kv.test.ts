@@ -41,7 +41,7 @@ function hubWith(manager: boolean): AgentHub {
 describe('swarm-kv in the controller bundle', () => {
   test('round-trips as the optional swarm-kv.json member; older bundles have none', async () => {
     const a = hubWith(true);
-    await ingressConfigRepo.update({ hub: a }, 'org1', { driver: 'TRAEFIK' });
+    await ingressConfigRepo.update({ hub: a }, 'org1', { driver: 'CLOUDFLARE_TUNNEL' });
     const { section } = await exportKvForBundle(a, ['org1']);
     const blob = serializeBundle({ ...base, swarmKv: section });
     expect(blob.includes(Buffer.from(SWARM_KV_MEMBER))).toBe(true);

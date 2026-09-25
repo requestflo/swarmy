@@ -3,14 +3,7 @@ import { CommandId } from './primitives';
 import { ServiceSpec } from './commands';
 
 /** Wire-level driver name. Mirrors the DB `IngressDriver` enum (lowercased). */
-export const IngressDriverName = z.enum([
-  'caddy',
-  'traefik',
-  'none',
-  'cloudflared',
-  'nginx',
-  'haproxy',
-]);
+export const IngressDriverName = z.enum(['caddy', 'none', 'cloudflared']);
 export type IngressDriverName = z.infer<typeof IngressDriverName>;
 
 /** A config file the agent should write on the node. */

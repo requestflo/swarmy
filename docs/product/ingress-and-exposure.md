@@ -45,7 +45,7 @@ service carrying the swarmy.ingress.routes label      dashboard: stack → Netwo
    │     { host, port, tls, protection?, canary?, cold?, regionUpstreams? }
    ▼
 controller renders — pure driver.render(config) → RenderedConfig
-   │  ② none · caddy · traefik · cloudflared · nginx · haproxy
+   │  ② none · caddy · cloudflared
    │     { files, serviceLabels, reloadCommand | adminApi, connector? }
    ▼
 DriverDispatch.sendToNode(nodeId, rendered)      (down the agent's OUTBOUND WS)
@@ -68,8 +68,8 @@ Four ideas, one story:
 - **Drivers are pure; the agent applies.** A driver is `render(config) →
   RenderedConfig` with no IO. The controller renders, `DriverDispatch.sendToNode`
   ships the payload down the node's outbound WebSocket, and the agent writes the
-  files and reloads. The same seam serves a vhost proxy (Caddy/Traefik/nginx/
-  HAProxy) and a tunnel connector (cloudflared) — the latter just carries a
+  files and reloads. The same seam serves a vhost proxy (Caddy) and a tunnel
+  connector (cloudflared) — the latter just carries a
   `connector` Swarm-service spec instead of vhost files. See the
   `scaffold-ingress-driver` skill.
 - **Automatic HTTPS is the product, and it survives node death.** Caddy is the
@@ -133,7 +133,8 @@ Four ideas, one story:
   public-IP `sslip.io` name gets Let's Encrypt. Until a manager is connected
   the edge reads "down", never a false green. `none` stays first-class — it
   renders empty and runs no process ("I manage my own routing", "Tracking
-  only"); traefik, cloudflared, nginx and haproxy are one switch away.
+  only"); Cloudflare Tunnel (paste a tunnel token) is one switch away. Traefik,
+  nginx and HAProxy were removed in 2026-09 (owner decision).
   (Owner decision 2026-09-24.)
 - **TLS is per-route: `auto` (Let's Encrypt), `off`, or `manual`/custom.** Auto
   is the happy path. **On-demand TLS** (custom domains) is gated by the
@@ -217,11 +218,8 @@ honest lifecycle, shown on the row in plain words:
   redirect apex → www, or serve both — expands controller-side into routes plus
   a 308 redirect site; the companion host gets its own DNS check and cert. An
   explicit route for the companion always wins.
-- **Apex + www redirects work on every driver.** Caddy renders a redirect
-  site; nginx a `return 308 …$request_uri` server; HAProxy an `http-request
-  redirect prefix … code 308` on the SNI/Host frontend; Traefik a `Host(from)`
-  router on `noop@internal` with a permanent `redirectRegex` (labels and file
-  provider). Goldens: `packages/ingress/src/render/redirects.test.ts`.
+- **Apex + www redirects.** Caddy renders a 308 redirect site (goldens in
+  `packages/ingress/src/render/www.test.ts`).
 - **Wildcard certificates, from your own nameservers.** `*.acme.com` can only
   be issued over ACME DNS-01. When the zone is served by swarmy-dns (NS
   delegated to the ingress+outlet nodes), the edge's `dns swarmy` Caddy module
@@ -321,10 +319,10 @@ Least privilege, by network:
 - **Auto-remediating exposure violations (in v1).** Silently deleting a published
   port could sever a database mid-flight. swarmy makes the violation loud and the
   remedy obvious, and leaves the last move to a human.
-- **A second reverse proxy as a co-default.** Traefik is kept for label-native
-  and BYO users but demoted to "advanced"; swarmy does not invest in
-  swarmy-owned Traefik HA. One recommended path (Caddy) keeps the cert story
-  singular.
+- **More than one reverse proxy.** Traefik, nginx and HAProxy drivers existed
+  and were removed (2026-09): protections, region-aware rendering and the cert
+  store are Caddy-only, and bring-your-own proxies can use `none`. One path
+  (Caddy) keeps the cert story singular.
 - **Putting the cert store on the request path.** It holds certs, challenge
   tokens and issuance locks only; served certs are cached in each Caddy.
 - **A dedicated Redis for certs.** A new data service to run, pin and back up;
@@ -339,7 +337,7 @@ topology, region-aware rendering, and node public-IP labels are the
 `geo-edge-routing` skill (product rationale in `docs/product/edge-network.md`).
 
 Key homes: driver registry + pure drivers `packages/ingress/src/{registry,types}.ts`
-and `packages/ingress/src/drivers/{none,caddy,traefik,cloudflared,nginx,haproxy}.ts`;
+and `packages/ingress/src/drivers/{none,caddy,cloudflared}.ts`;
 render helpers `packages/ingress/src/render/*`; wire types (RenderedConfig,
 connector, HaStorage, TunnelOptions, DomainRoute, RouteProtection)
 `packages/core/src/protocol/ingress.ts` and `packages/ingress/src/types.ts`;

@@ -1,6 +1,6 @@
 ---
 name: scaffold-ingress-driver
-description: Scaffold a new swarmy ingress driver (e.g. nginx, haproxy, cloudflared) in packages/ingress. Use when the user wants swarmy to support an additional ingress/reverse-proxy/tunnel option. Drivers are pure (render-only); the agent applies the RenderedConfig.
+description: Scaffold a new swarmy ingress driver (a new proxy or tunnel) in packages/ingress. Use when the user wants swarmy to support an additional ingress/reverse-proxy/tunnel option. Drivers are pure (render-only); the agent applies the RenderedConfig.
 ---
 
 # Scaffold an ingress driver
@@ -15,10 +15,10 @@ that generic intent — drivers never touch a node directly.
 1. **Read the contracts first** so the new driver matches:
    - `packages/ingress/src/types.ts` — `IngressDriver` interface, `IngressConfig`, `DomainRoute`, `DriverDispatch`.
    - `packages/core/src/protocol/ingress.ts` — `RenderedConfig`, `RenderedFile`, `ServiceLabels`, and the optional `connector` block (tunnel/connector deployments), i.e. the wire types.
-   - An existing driver: `packages/ingress/src/drivers/caddy.ts` (file strategy), `traefik.ts` (label strategy), or `cloudflared.ts` (tunnel/connector).
+   - An existing driver: `packages/ingress/src/drivers/caddy.ts` (file strategy) or `cloudflared.ts` (tunnel/connector). (Traefik, nginx and HAProxy were removed in 2026-09 — check with the owner before adding a driver.)
 
 2. **Pure renderer** — add `packages/ingress/src/render/<driver>.ts` (the
-   convention: `nginx.ts`, `haproxy.ts`, `cloudflared.ts`, `traefik-labels.ts`)
+   convention: `caddyfile.ts`, `cloudflared.ts`)
    that builds the config string(s) from `IngressConfig` with no IO, and export
    it from `packages/ingress/src/index.ts`. Mirror `render/caddyfile.ts`.
 
@@ -51,11 +51,11 @@ that generic intent — drivers never touch a node directly.
    - the dashboard picker: `apps/app/src/components/ingress/driver-panel.tsx`,
      fed by `ALL_DRIVERS` / `DRIVER_LABELS` / `DRIVER_BLURB` / `IngressDriverId`
      in `components/ingress/driver-config.ts`; any driver-specific card goes in
-     `routes/_authed/ingress.tsx` (as nginx/haproxy do),
+     `routes/_authed/ingress.tsx` (as cloudflared does),
    - the demo resolver `apps/app/src/demo/resolvers/ingress.ts`.
 
 6. **Verify** — a colocated golden render test (`render/<driver>.test.ts`, see
-   `nginx.test.ts`), then `bun --filter @swarmy/ingress test` and
+   `caddyfile.test.ts`), then `bun --filter @swarmy/ingress test` and
    `bun --filter @swarmy/ingress typecheck`.
 
 ## Notes

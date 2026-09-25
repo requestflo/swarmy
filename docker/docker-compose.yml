@@ -1,6 +1,6 @@
 # Optional local services for swarmy development. The controller needs none:
 # its store is embedded SQLite (<repo>/.swarmy/data by default).
-#   bun docker:up --profile ingress  -> caddy + traefik for ingress testing
+#   bun docker:up --profile ingress  -> caddy for ingress testing
 name: swarmy
 
 services:
@@ -28,24 +28,6 @@ services:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile
       - swarmy-caddy-data:/data
       - swarmy-caddy-config:/config
-
-  # Optional: a local Traefik to exercise the traefik ingress driver.
-  traefik:
-    image: traefik:v3.3
-    profiles: ['ingress']
-    restart: unless-stopped
-    command:
-      - --providers.file.directory=/etc/traefik/dynamic
-      - --entrypoints.web.address=:80
-      - --entrypoints.websecure.address=:443
-      - --api.dashboard=true
-    ports:
-      - '8081:80'
-      - '8444:443'
-      - '8090:8080' # dashboard
-    volumes:
-      - ./traefik/traefik.yml:/etc/traefik/traefik.yml
-      - ./traefik/dynamic:/etc/traefik/dynamic
 
 volumes:
   swarmy-caddy-data:

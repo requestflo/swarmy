@@ -75,7 +75,7 @@ const resolveDomainHost: ResolveResource = async (ctx, input) => {
   return live.find((r) => resourceEnv({ labels: r.labels ?? {} }) === PRODUCTION) ?? live[0] ?? null;
 };
 
-const driverEnum = z.enum(['caddy', 'traefik', 'none', 'cloudflared', 'nginx', 'haproxy']);
+const driverEnum = z.enum(['caddy', 'none', 'cloudflared']);
 
 /** One ingress route as written to the `swarmy.ingress.routes` service label. */
 const routeInput = z.object({

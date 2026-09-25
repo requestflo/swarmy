@@ -15,7 +15,7 @@ import type { EdgeState } from '@/components/ingress/edge-runtime';
  */
 
 /** Driver ids supported by the UI (mirrors `IngressDriverId` in driver-config.ts). */
-type IngressDriverId = 'none' | 'caddy' | 'traefik' | 'cloudflared' | 'nginx' | 'haproxy';
+type IngressDriverId = 'none' | 'caddy' | 'cloudflared';
 
 /** Mirror of `RouteProtection` (protection-model.ts / packages/ingress/src/types.ts). */
 interface RouteProtection {
@@ -194,14 +194,7 @@ interface IngressState {
   } | null;
 }
 
-const VALID_DRIVERS: ReadonlySet<IngressDriverId> = new Set<IngressDriverId>([
-  'none',
-  'caddy',
-  'traefik',
-  'cloudflared',
-  'nginx',
-  'haproxy',
-]);
+const VALID_DRIVERS: ReadonlySet<IngressDriverId> = new Set<IngressDriverId>(['none', 'caddy', 'cloudflared']);
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -289,21 +282,6 @@ function renderPreview(st: IngressState, driver: IngressDriverId): RenderedConfi
     };
   }
 
-  if (driver === 'traefik') {
-    return {
-      ...base,
-      serviceLabels: routes.map((r) => ({
-        service: r.service,
-        labels: {
-          'traefik.enable': 'true',
-          [`traefik.http.routers.${r.service}.rule`]: `Host(\`${r.host}\`)`,
-          [`traefik.http.services.${r.service}.loadbalancer.server.port`]: String(r.port),
-        },
-        removeLabelKeys: [],
-      })),
-      summary: `Traefik · ${routes.length} router(s) · label-based routing`,
-    };
-  }
 
   if (driver === 'cloudflared') {
     const rules = routes.map((r) => `  - hostname: ${r.host}\n    service: http://${r.service}:${r.port}`).join('\n');
@@ -320,38 +298,7 @@ function renderPreview(st: IngressState, driver: IngressDriverId): RenderedConfi
     };
   }
 
-  if (driver === 'nginx') {
-    const body =
-      routes
-        .map(
-          (r) =>
-            `server {\n\tlisten 443 ssl;\n\tserver_name ${r.host};\n\tlocation / { proxy_pass http://${r.service}:${r.port}; }\n}`,
-        )
-        .join('\n\n') || '# no domains routed yet';
-    return {
-      ...base,
-      files: [{ path: '/etc/nginx/conf.d/swarmy.conf', mode: 0o644, contents: body }],
-      reloadCommand: ['nginx', '-s', 'reload'],
-      summary: `nginx · ${routes.length} server block(s) · external ACME companion`,
-    };
-  }
 
-  if (driver === 'haproxy') {
-    const acls = routes.map((r) => `\tacl host_${r.service} hdr(host) -i ${r.host}\n\tuse_backend be_${r.service} if host_${r.service}`).join('\n');
-    const backends = routes.map((r) => `backend be_${r.service}\n\tserver s1 ${r.service}:${r.port} check`).join('\n\n');
-    return {
-      ...base,
-      files: [
-        {
-          path: '/etc/haproxy/haproxy.cfg',
-          mode: 0o644,
-          contents: `frontend fe_https\n\tbind :443\n${acls || '\t# no domains routed yet'}\n\n${backends}`,
-        },
-      ],
-      reloadCommand: ['haproxy', '-sf', '$(pidof haproxy)', '-f', '/etc/haproxy/haproxy.cfg'],
-      summary: `HAProxy · ${routes.length} backend(s) · SNI routing`,
-    };
-  }
 
   return { ...base, summary: 'None mode · swarmy tracks domains but writes nothing to nodes.' };
 }

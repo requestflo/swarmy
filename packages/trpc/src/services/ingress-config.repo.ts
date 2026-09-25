@@ -11,7 +11,7 @@ import type { AgentHub } from '../hub/types';
 import { orgSingleton, reachableOrgIds } from './kv-repo';
 
 /** Mirrors the (removed) Prisma `IngressDriver` enum. */
-export type IngressDriverEnum = 'CADDY' | 'TRAEFIK' | 'NONE' | 'CLOUDFLARE_TUNNEL' | 'NGINX' | 'HAPROXY';
+export type IngressDriverEnum = 'CADDY' | 'NONE' | 'CLOUDFLARE_TUNNEL';
 
 export interface IngressConfigDoc {
   driver: IngressDriverEnum;

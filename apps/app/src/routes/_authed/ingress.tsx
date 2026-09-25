@@ -10,7 +10,6 @@ import { ControllerImageCard } from '@/components/ingress/controller-image-card'
 import { TargetNodesCard } from '@/components/ingress/target-nodes-card';
 import { TopologyCard } from '@/components/ingress/topology-card';
 import { CloudflareTunnelCard } from '@/components/ingress/cloudflare-tunnel-card';
-import { ExternalAcmeNoticeCard } from '@/components/ingress/external-acme-notice-card';
 import { WildcardCertsCard } from '@/components/ingress/wildcard-certs-card';
 import { DomainsList } from '@/components/ingress/domains-list';
 import { GeoDnsSection } from '@/components/geo/geodns-section';
@@ -145,8 +144,6 @@ function IngressPage(): React.JSX.Element {
           pending={setTunnel.isPending}
         />
       ) : null}
-
-      {driver === 'nginx' || driver === 'haproxy' ? <ExternalAcmeNoticeCard driver={driver} /> : null}
 
       <DomainsList domains={domains.data ?? []} />
 

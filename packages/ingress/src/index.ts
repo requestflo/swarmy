@@ -18,14 +18,9 @@ export {
   SWARMY_CADDY_IMAGE,
   isStockCaddyImage,
 } from './drivers/caddy';
-export { TraefikDriver } from './drivers/traefik';
 export { NoneDriver } from './drivers/none';
 export { CloudflaredDriver } from './drivers/cloudflared';
-export { NginxDriver } from './drivers/nginx';
-export { HaproxyDriver } from './drivers/haproxy';
 export { buildCaddyfile, isPrivateHost, WAF_SCANNER_PATHS } from './render/caddyfile';
-export { buildNginxConfig, NGINX_CONFIG_PATH } from './render/nginx';
-export { buildHaproxyConfig, HAPROXY_CONFIG_PATH, HAPROXY_CERT_DIR } from './render/haproxy';
 export { buildConnectorServiceSpec, CLOUDFLARED_SECRET_NAME } from './render/connector';
 export {
   buildCloudflaredConfig,
@@ -34,8 +29,3 @@ export {
   CLOUDFLARED_CREDENTIALS_PATH,
 } from './render/cloudflared';
 export type { CloudflaredRenderInput } from './render/cloudflared';
-export {
-  buildTraefikLabels,
-  buildTraefikDynamicYaml,
-  routerName,
-} from './render/traefik-labels';

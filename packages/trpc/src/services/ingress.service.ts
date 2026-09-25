@@ -154,16 +154,13 @@ function computeColdRoutes(ctx: OrgContext): Map<string, ColdRoute> {
  * Driver ids supported at the controller. `cloudflared` is the Cloudflare Tunnel
  * (no-public-IP) driver added by the ingress-strategy epic.
  */
-export type IngressDriverId = 'caddy' | 'traefik' | 'none' | 'cloudflared' | 'nginx' | 'haproxy';
+export type IngressDriverId = 'caddy' | 'none' | 'cloudflared';
 
 /** Map a controller driver id ⇄ Prisma `IngressDriver` enum value. */
 const DRIVER_TO_ENUM: Record<IngressDriverId, IngressDriverEnum> = {
   caddy: 'CADDY',
-  traefik: 'TRAEFIK',
   none: 'NONE',
   cloudflared: 'CLOUDFLARE_TUNNEL',
-  nginx: 'NGINX',
-  haproxy: 'HAPROXY',
 };
 
 export interface IngressConfigView {
@@ -297,14 +294,8 @@ function driverLower(d: string): IngressDriverId {
   switch (d.toUpperCase()) {
     case 'CADDY':
       return 'caddy';
-    case 'TRAEFIK':
-      return 'traefik';
     case 'CLOUDFLARE_TUNNEL':
       return 'cloudflared';
-    case 'NGINX':
-      return 'nginx';
-    case 'HAPROXY':
-      return 'haproxy';
     default:
       return 'none';
   }

@@ -125,10 +125,10 @@ pass `--env-file .env` explicitly. With `SWARMY_DATA_DIR` unset, the controller,
 ## Ingress drivers (optional)
 
 `docker/docker-compose.yml` now holds only the optional `ingress` profile. To
-exercise the caddy/traefik ingress drivers locally:
+exercise the caddy ingress driver locally:
 
 ```bash
-docker compose --env-file .env -f docker/docker-compose.yml --profile ingress up -d   # caddy + traefik
+docker compose --env-file .env -f docker/docker-compose.yml --profile ingress up -d   # caddy
 ```
 
 (Bound to non-conflicting host ports — see `docker/docker-compose.yml`.)
