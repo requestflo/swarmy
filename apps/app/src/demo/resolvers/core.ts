@@ -271,7 +271,7 @@ export const core: DomainResolvers = {
       return s.services.filter(
         (sv) =>
           (!f.nodeId || sv.nodeId === f.nodeId) &&
-          (!f.stackId || sv.stackId === f.stackId) &&
+          (!f.stackId || sv.stackId === f.stackId || s.stacks.find((st) => st.id === sv.stackId)?.name === f.stackId) &&
           (!f.status || sv.status === f.status) &&
           (!f.search || sv.name.includes(f.search) || sv.image.includes(f.search)),
       );

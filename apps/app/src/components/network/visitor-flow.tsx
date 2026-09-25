@@ -20,7 +20,7 @@ export function VisitorFlow({
 }): React.JSX.Element {
   const apps = [...new Set(domains.map((d) => d.stack))];
   return (
-    <div className="grid items-center gap-3 md:grid-cols-[1fr_auto_1fr_auto_1.4fr]">
+    <div className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1.4fr)]">
       <Box icon={<UsersIcon className="size-4" />} title="Visitors" line={geoOn ? 'Sent to the nearest front door' : 'Every visitor'} />
       <ArrowRightIcon aria-hidden className="text-muted-foreground mx-auto size-4 rotate-90 md:rotate-0" />
       <Box
@@ -30,11 +30,11 @@ export function VisitorFlow({
         tech={`${driverLabel} · ports 80/443`}
       />
       <ArrowRightIcon aria-hidden className="text-muted-foreground mx-auto size-4 rotate-90 md:rotate-0" />
-      <ul className="flex flex-col gap-1.5">
+      <ul className="flex min-w-0 flex-col gap-1.5">
         {apps.map((app) => {
           const hosts = domains.filter((d) => d.stack === app);
           return (
-            <li key={app} className="border-border rounded-xl border px-3 py-2">
+            <li key={app} className="border-border min-w-0 rounded-xl border px-3 py-2">
               <p className="text-[13.5px] font-semibold">{app}</p>
               <p className="text-muted-foreground truncate font-mono text-[11px]">{hosts.map((h) => h.host).join(' · ')}</p>
             </li>
