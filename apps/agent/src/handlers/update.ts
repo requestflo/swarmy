@@ -114,16 +114,27 @@ async function dockerRecreate(docker: DockerClient, payload: Payload): Promise<v
   if (!image) throw new Error('docker-recreate requires an image in the payload');
   await docker.pullImage(image);
 
-  const self = await findOwnContainer(docker);
-  const inspect = await self.inspect();
+  const found = await findOwnContainer(docker);
+  const inspect = await found.inspect();
+  // Pin the handle to the container ID: `findOwnContainer` may return a NAME
+  // handle ('swarmy-agent'), and after the rename below that name belongs to
+  // the replacement, so removing "self" would remove the new agent (QA-025).
+  const self = docker.docker.getContainer(inspect.Id);
   const name = (inspect.Name ?? '/swarmy-agent').replace(/^\//, '');
+  // Carry only the env the operator set: entries baked into the OLD image
+  // (SWARMY_COMMIT, PATH, …) would override the new image's own and make the
+  // new agent report the old build forever.
+  const oldImageEnv = new Set(
+    ((await docker.docker.getImage(inspect.Image).inspect().catch(() => null))?.Config?.Env ?? []) as string[],
+  );
+  const env = carriedEnv(inspect.Config.Env ?? [], oldImageEnv);
 
   await self.rename({ name: `${name}-old` });
   try {
     const replacement = await docker.docker.createContainer({
       name,
       Image: image,
-      Env: inspect.Config.Env,
+      Env: env,
       Labels: inspect.Config.Labels,
       HostConfig: {
         Binds: inspect.HostConfig?.Binds ?? undefined,
@@ -144,6 +155,11 @@ async function dockerRecreate(docker: DockerClient, payload: Payload): Promise<v
   setTimeout(() => {
     void self.remove({ force: true }).catch(() => process.exit(0));
   }, EXIT_FLUSH_MS);
+}
+
+/** Pure: the container env minus entries identical to the old image's defaults. */
+export function carriedEnv(containerEnv: readonly string[], oldImageEnv: ReadonlySet<string>): string[] {
+  return containerEnv.filter((e) => !oldImageEnv.has(e));
 }
 
 /** Resolve the container this agent runs in: by conventional name, else by $HOSTNAME (= container id). */

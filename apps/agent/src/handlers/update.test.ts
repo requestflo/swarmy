@@ -101,3 +101,16 @@ describe('agentPackaging', () => {
     expect(agentPackaging()).toBe('container');
   });
 });
+
+describe('carriedEnv (docker-recreate, QA-025)', () => {
+  test('drops the old image defaults so the new image supplies its own', async () => {
+    const { carriedEnv } = await import('./update');
+    const oldImage = new Set(['PATH=/usr/bin', 'SWARMY_COMMIT=a2bb819']);
+    expect(carriedEnv(['AGENT_WS_URL=ws://c:3021/agent/ws', 'PATH=/usr/bin', 'SWARMY_COMMIT=a2bb819', 'SWARMY_ALLOW_MESH=1'], oldImage)).toEqual([
+      'AGENT_WS_URL=ws://c:3021/agent/ws',
+      'SWARMY_ALLOW_MESH=1',
+    ]);
+    // an operator override of an image default is kept
+    expect(carriedEnv(['SWARMY_COMMIT=pinned'], oldImage)).toEqual(['SWARMY_COMMIT=pinned']);
+  });
+});
