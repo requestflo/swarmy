@@ -46,7 +46,7 @@ export function JobDetail({
   const remove = useMutation(trpc.queues.studioRemove.mutationOptions({ onSuccess: (r) => done(r.message, true), onError }));
 
   if (job.isLoading) return <CardSkeleton lines={4} className="mb-2" />;
-  if (job.isError) return <p className="text-status-offline mb-2 text-sm">{job.error.message}</p>;
+  if (job.isError) return <p className="text-tone-bad mb-2 text-sm">{job.error.message}</p>;
   const d = job.data!;
   if (!d.found) return <p className="text-muted-foreground mb-2 text-sm">This job is gone.</p>;
   const j = d.job;
@@ -83,7 +83,7 @@ export function JobDetail({
 
       {j.failedReason ? (
         <div>
-          <p className="mono-label text-status-offline !mb-1">Failed reason</p>
+          <p className="mono-label text-tone-bad !mb-1">Failed reason</p>
           <p className="text-sm">{j.failedReason}</p>
         </div>
       ) : null}
@@ -125,7 +125,7 @@ export function JobDetail({
               <Button
                 size="sm"
                 variant="outline"
-                className="text-status-offline border-status-offline/40 hover:bg-status-offline/10"
+                className="text-tone-bad border-status-offline/40 hover:bg-status-offline/10"
                 disabled={remove.isPending}
               >
                 <Trash2Icon className="size-3.5" /> Remove

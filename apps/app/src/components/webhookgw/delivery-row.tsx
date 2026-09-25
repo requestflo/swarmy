@@ -43,7 +43,7 @@ export function DeliveryRow({ delivery: d }: { delivery: InboundDeliveryView }):
             {bytes(d.bodyBytes)}
           </span>
           {d.lastError ? (
-            <span className="text-status-warning w-full truncate text-xs sm:w-auto sm:max-w-64" title={d.lastError}>
+            <span className="text-tone-warn w-full truncate text-xs sm:w-auto sm:max-w-64" title={d.lastError}>
               {d.lastError}
             </span>
           ) : null}

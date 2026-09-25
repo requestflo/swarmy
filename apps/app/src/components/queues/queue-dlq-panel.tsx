@@ -55,7 +55,7 @@ export function QueueDlqPanel({ queue }: { queue: QueueView }): React.JSX.Elemen
       {items.isLoading ? (
         <div className="shimmer-line h-16 rounded-lg" />
       ) : items.isError ? (
-        <p className="text-status-offline text-xs">Couldn&apos;t read the DLQ: {items.error.message}</p>
+        <p className="text-tone-bad text-xs">Couldn&apos;t read the DLQ: {items.error.message}</p>
       ) : rows.length === 0 ? (
         <p className="text-muted-foreground text-xs">
           Nothing dead — jobs land in <code className="mono-data">{queue.name}:dead</code> after{' '}

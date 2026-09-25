@@ -72,7 +72,7 @@ export function ScheduleField({
       {value.trim().length === 0 ? (
         <p className="text-muted-foreground text-xs">minute hour day-of-month month day-of-week</p>
       ) : preview.data && !preview.data.valid ? (
-        <p className="text-status-offline text-xs">{preview.data.error}</p>
+        <p className="text-tone-bad text-xs">{preview.data.error}</p>
       ) : preview.data ? (
         <div className="text-muted-foreground text-xs">
           <span className="font-medium">{preview.data.scheduleText}</span>

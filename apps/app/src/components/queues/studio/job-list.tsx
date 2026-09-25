@@ -42,10 +42,10 @@ export function JobList({ studio, queue, state }: { studio: StudioRef; queue: st
           <p className="text-muted-foreground mono-data text-xs">
             {start + 1}–{Math.min(start + PAGE, page.total)} of {page.total.toLocaleString()}
           </p>
-          <Button size="sm" variant="ghost" disabled={start === 0} onClick={() => setStart(Math.max(0, start - PAGE))}>
+          <Button size="sm" variant="ghost" aria-label="Newer jobs" disabled={start === 0} onClick={() => setStart(Math.max(0, start - PAGE))}>
             <ChevronLeftIcon className="size-4" />
           </Button>
-          <Button size="sm" variant="ghost" disabled={start + PAGE >= page.total} onClick={() => setStart(start + PAGE)}>
+          <Button size="sm" variant="ghost" aria-label="Older jobs" disabled={start + PAGE >= page.total} onClick={() => setStart(start + PAGE)}>
             <ChevronRightIcon className="size-4" />
           </Button>
         </div>

@@ -35,7 +35,7 @@ export function DeleteJobConfirm({ job }: { job: ScheduledJobView }): React.JSX.
     <AlertDialog>
       <AlertDialogTrigger asChild>
         <Button variant="ghost" size="icon" aria-label="Delete">
-          <Trash2Icon className="text-status-offline size-4" />
+          <Trash2Icon className="text-tone-bad size-4" />
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>

@@ -52,11 +52,12 @@ export function DeliveriesFeed({
           <button
             key={s}
             type="button"
+            aria-pressed={status === s}
             onClick={() => setStatus(s)}
             className={cn(
               'mono-label rounded-full border px-3 py-1 !text-[10px] transition-colors',
               status === s
-                ? 'border-primary bg-primary/10 text-primary'
+                ? 'border-foreground/40 bg-foreground/[0.06] text-foreground'
                 : 'border-border text-muted-foreground hover:bg-accent',
             )}
           >
@@ -64,7 +65,7 @@ export function DeliveriesFeed({
           </button>
         ))}
         <Select value={endpointId} onValueChange={setEndpointId}>
-          <SelectTrigger className="h-8 w-44 text-xs"><SelectValue /></SelectTrigger>
+          <SelectTrigger aria-label="Which endpoint" className="h-8 w-44 text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All endpoints</SelectItem>
             {endpoints.map((e) => (
@@ -75,25 +76,25 @@ export function DeliveriesFeed({
       </div>
 
       {feed.isLoading ? (
-        <div className="card-pop space-y-3 p-5">
+        <div className="space-y-3 py-3">
           {[0, 1, 2].map((i) => (
             <div key={i} className="shimmer-line h-10 rounded-lg" />
           ))}
         </div>
       ) : feed.isError ? (
-        <div className="card-pop text-muted-foreground flex items-center justify-between gap-3 p-5 text-sm">
+        <div className="text-muted-foreground flex items-center justify-between gap-3 py-3 text-sm">
           <span>Couldn't load deliveries — {feed.error.message}</span>
           <Button variant="outline" size="sm" onClick={() => void feed.refetch()}>Retry</Button>
         </div>
       ) : rows.length === 0 ? (
-        <div className="card-pop text-muted-foreground flex items-center gap-3 p-6 text-sm">
+        <div className="text-muted-foreground flex items-center gap-3 py-3 text-sm">
           <InboxIcon className="size-4 shrink-0" />
           {status === 'all'
             ? 'Quiet so far — send a test event to any endpoint URL and it lands here.'
             : `No ${status === 'dead' ? 'dead-letter' : status} deliveries right now.`}
         </div>
       ) : (
-        <div className="card-pop divide-border divide-y overflow-hidden">
+        <div className="divide-border divide-y">
           {rows.map((d) => (
             <DeliveryRow key={d.id} delivery={d} />
           ))}

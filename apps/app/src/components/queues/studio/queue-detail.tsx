@@ -67,10 +67,10 @@ export function QueueDetail({ studio, queue }: { studio: StudioRef; queue: Studi
   const cleanable = CLEANABLE.includes(state);
 
   return (
-    <section className="card-pop min-w-0 space-y-5 p-5">
+    <section aria-label={`Queue ${queue.name}`} className="calm-card min-w-0 space-y-5 p-5">
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
-          <p className="mono-data truncate text-xl font-semibold">{queue.name}</p>
+          <h2 className="mono-data truncate text-xl font-semibold">{queue.name}</h2>
           <p className="text-muted-foreground text-xs">
             {queue.jobsTotal.toLocaleString()} jobs ever added
             {queue.rate
@@ -91,11 +91,11 @@ export function QueueDetail({ studio, queue }: { studio: StudioRef; queue: Studi
         </Button>
         <Button
           size="sm"
-          variant="outline"
+          variant={queue.counts.failed > 0 ? 'default' : 'outline'}
           disabled={retryAll.isPending || queue.counts.failed === 0}
           onClick={() => retryAll.mutate({ ...ref, from: 'failed' })}
         >
-          <RotateCcwIcon className="size-3.5" /> Retry all failed
+          <RotateCcwIcon className="size-3.5" /> Retry all {queue.counts.failed > 0 ? queue.counts.failed.toLocaleString() : ''} failed
         </Button>
         <Button
           size="sm"
@@ -114,14 +114,15 @@ export function QueueDetail({ studio, queue }: { studio: StudioRef; queue: Studi
             <button
               key={s.id}
               type="button"
+              aria-pressed={state === s.id}
               onClick={() => setState(s.id)}
               className={cn(
                 'hover:bg-muted/40 rounded-lg border px-2 py-1.5 text-left transition-colors',
-                state === s.id ? 'border-primary bg-accent' : 'border-border',
+                state === s.id ? 'border-foreground/40 bg-foreground/[0.05]' : 'border-border',
               )}
             >
               <p className="mono-label text-muted-foreground !mb-0 !text-[10px]">{s.label}</p>
-              <p className={cn('mono-data text-base', s.id === 'failed' && n > 0 && 'text-status-offline font-semibold')}>
+              <p className={cn('mono-data text-base', s.id === 'failed' && n > 0 && 'text-tone-bad font-semibold')}>
                 {n.toLocaleString()}
               </p>
             </button>
@@ -154,7 +155,7 @@ export function QueueDetail({ studio, queue }: { studio: StudioRef; queue: Studi
           <SparklesIcon className="text-muted-foreground size-4" />
           <p className="text-sm">Clean {STUDIO_STATES.find((s) => s.id === state)?.label.toLowerCase()} jobs</p>
           <Select value={grace} onValueChange={setGrace}>
-            <SelectTrigger className="h-8 w-40">
+            <SelectTrigger aria-label="Which jobs to clean" className="h-8 w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -170,7 +171,7 @@ export function QueueDetail({ studio, queue }: { studio: StudioRef; queue: Studi
               <Button
                 size="sm"
                 variant="outline"
-                className="text-status-offline border-status-offline/40 hover:bg-status-offline/10"
+                className="text-tone-bad border-status-offline/40 hover:bg-status-offline/10"
                 disabled={clean.isPending}
               >
                 Clean

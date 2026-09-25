@@ -1,15 +1,9 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { PlusIcon, WebhookIcon } from 'lucide-react';
-import {
-  Button,
-  Card,
-  CardContent,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-  EmptyState,
-} from '@swarmy/ui';
+import { PlusIcon } from 'lucide-react';
+import { Button, Collapsible, CollapsibleContent } from '@swarmy/ui';
+import { Depth, Section } from '@/components/calm';
+import { RowsSkeleton } from '@/components/app-tabs/tab-body';
 import { useTRPC } from '@/integrations/trpc';
 import { CreateEndpointInline } from './create-endpoint-inline';
 import { DeliveriesFeed } from './deliveries-feed';
@@ -44,63 +38,58 @@ export function StackWebhooksSection({ stack }: { stack: string }): React.JSX.El
         : `${o.deliveries24h.toLocaleString()} events in 24h`;
 
   return (
-    <div className="space-y-6">
-      <Card className="card-pop border-0">
-        <CardContent className="space-y-4 p-6">
+    <>
+      <Section
+        title="Webhooks in"
+        count={endpoints.data ? rows.length : undefined}
+        hint={subtitle}
+        flush
+        action={
+          <Depth at="controls">
+            <Button variant="outline" size="sm" className="pointer-coarse:min-h-11" onClick={() => setCreating((v) => !v)}>
+              <PlusIcon className="size-3.5" /> Add an endpoint
+            </Button>
+          </Depth>
+        }
+      >
           <Collapsible open={creating} onOpenChange={setCreating}>
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg">
-                <WebhookIcon className="size-5" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <h3 className="font-semibold leading-tight">Inbound webhooks</h3>
-                <p className="text-muted-foreground mono-label !mb-0">{subtitle}</p>
-              </div>
-              <CollapsibleTrigger asChild>
-                <Button variant="outline" className="shrink-0">
-                  <PlusIcon className="size-4" /> New endpoint
-                </Button>
-              </CollapsibleTrigger>
-            </div>
             <CollapsibleContent>
-              <div className="border-border bg-muted/20 mt-4 rounded-lg border p-4">
+              <div className="border-border mb-3 rounded-xl border p-4">
                 <CreateEndpointInline stack={stack} onDone={() => setCreating(false)} />
               </div>
             </CollapsibleContent>
           </Collapsible>
 
-          {endpoints.isLoading ? (
-            <div className="space-y-2">
-              <div className="shimmer-line h-12 rounded-lg" />
-              <div className="shimmer-line h-12 rounded-lg" />
-            </div>
+          {endpoints.isPending ? (
+            <RowsSkeleton rows={2} />
           ) : endpoints.isError ? (
             <div className="flex flex-wrap items-center gap-3 py-2">
-              <p className="text-status-offline text-sm">{endpoints.error.message}</p>
+              <p className="text-tone-bad text-sm">{endpoints.error.message}</p>
               <Button variant="outline" size="sm" onClick={() => void endpoints.refetch()}>
                 Retry
               </Button>
             </div>
           ) : rows.length === 0 ? (
-            <EmptyState
-              icon={<WebhookIcon />}
-              title={`No endpoints in ${stack} yet.`}
-              description="Give a third party a public URL. swarmy verifies each payload (HMAC, GitHub or Stripe signatures), stores it, and pushes it into a queue or forwards it — with retries and a dead-letter feed."
-              action={
-                <Button variant="outline" onClick={() => setCreating(true)}>
-                  <PlusIcon className="size-4" /> New endpoint
-                </Button>
-              }
-            />
+            <p className="text-muted-foreground py-3 text-[13.5px]">
+              No endpoints yet. Give a third party a public URL: swarmy checks each payload's signature, keeps it, and hands
+              it to a queue or your service, with retries.
+            </p>
           ) : (
             <EndpointsTable stack={stack} endpoints={rows} />
           )}
 
-          {rows.length > 0 ? <DeliveriesFeed stack={stack} endpoints={rows} /> : null}
-        </CardContent>
-      </Card>
+          {rows.length > 0 ? (
+            <Depth at="controls">
+              <div className="pb-3">
+                <DeliveriesFeed stack={stack} endpoints={rows} />
+              </div>
+            </Depth>
+          ) : null}
+      </Section>
 
-      <OutboundSection />
-    </div>
+      <Depth at="controls">
+        <OutboundSection />
+      </Depth>
+    </>
   );
 }

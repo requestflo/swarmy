@@ -120,7 +120,7 @@ export function EndpointRow({
           <CopyButton value={e.url} label="Copy URL" />
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="sm" className="text-status-offline">
+              <Button variant="ghost" size="sm" className="text-tone-bad">
                 Delete
               </Button>
             </AlertDialogTrigger>

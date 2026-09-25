@@ -1,15 +1,9 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CalendarClockIcon, PlusIcon } from 'lucide-react';
-import {
-  Button,
-  Card,
-  CardContent,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-  EmptyState,
-} from '@swarmy/ui';
+import { PlusIcon } from 'lucide-react';
+import { Button, Collapsible, CollapsibleContent } from '@swarmy/ui';
+import { Depth, Section } from '@/components/calm';
+import { RowsSkeleton } from '@/components/app-tabs/tab-body';
 import { useTRPC } from '@/integrations/trpc';
 import { JobEditInline } from './job-edit-inline';
 import { untilTime } from './job-status';
@@ -41,57 +35,43 @@ export function StackJobsSection({ stack }: { stack: string }): React.JSX.Elemen
         : 'cron, one-shot containers & execs';
 
   return (
-    <Card className="card-pop border-0">
-      <CardContent className="space-y-4 p-6">
+    <Section
+      title="Scheduled jobs"
+      count={jobs.data ? rows.length : undefined}
+      hint={subtitle}
+      flush
+      action={
+        <Depth at="controls">
+          <Button variant="outline" size="sm" className="pointer-coarse:min-h-11" onClick={() => setCreating((v) => !v)}>
+            <PlusIcon className="size-3.5" /> Add a job
+          </Button>
+        </Depth>
+      }
+    >
         <Collapsible open={creating} onOpenChange={setCreating}>
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg">
-              <CalendarClockIcon className="size-5" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <h3 className="font-semibold leading-tight">Scheduled jobs</h3>
-              <p className="text-muted-foreground mono-label !mb-0">{subtitle}</p>
-            </div>
-            <CollapsibleTrigger asChild>
-              <Button variant="outline" className="shrink-0">
-                <PlusIcon className="size-4" /> New job
-              </Button>
-            </CollapsibleTrigger>
-          </div>
           <CollapsibleContent>
-            <div className="border-border bg-muted/20 mt-4 rounded-lg border p-4">
+            <div className="border-border mb-3 rounded-xl border p-4">
               <JobEditInline stack={stack} job={null} onDone={() => setCreating(false)} />
             </div>
           </CollapsibleContent>
         </Collapsible>
 
-        {jobs.isLoading ? (
-          <div className="space-y-2">
-            <div className="shimmer-line h-12 rounded-lg" />
-            <div className="shimmer-line h-12 rounded-lg" />
-          </div>
+        {jobs.isPending ? (
+          <RowsSkeleton rows={2} />
         ) : jobs.isError ? (
           <div className="flex flex-wrap items-center gap-3 py-2">
-            <p className="text-status-offline text-sm">{jobs.error.message}</p>
+            <p className="text-tone-bad text-sm">{jobs.error.message}</p>
             <Button variant="outline" size="sm" onClick={() => void jobs.refetch()}>
               Retry
             </Button>
           </div>
         ) : rows.length === 0 ? (
-          <EmptyState
-            icon={<CalendarClockIcon />}
-            title={`No jobs in ${stack} yet — schedule one.`}
-            description="Cron-scheduled jobs run as one-shot containers or exec into your services — with history and output, right here."
-            action={
-              <Button variant="outline" onClick={() => setCreating(true)}>
-                <PlusIcon className="size-4" /> New job
-              </Button>
-            }
-          />
+          <p className="text-muted-foreground py-3 text-[13.5px]">
+            No jobs yet. Schedule one and it runs as a one-off copy of a service, with its output kept here.
+          </p>
         ) : (
           <JobsTable stack={stack} jobs={rows} />
         )}
-      </CardContent>
-    </Card>
+    </Section>
   );
 }

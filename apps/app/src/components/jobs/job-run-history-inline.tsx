@@ -69,7 +69,7 @@ export function JobRunHistoryInline({ jobId }: { jobId: string }): React.JSX.Ele
   if (runs.isError) {
     return (
       <div className="flex items-center gap-3">
-        <p className="text-status-offline text-sm">{runs.error.message}</p>
+        <p className="text-tone-bad text-sm">{runs.error.message}</p>
         <Button variant="outline" size="sm" onClick={() => void runs.refetch()}>
           Retry
         </Button>

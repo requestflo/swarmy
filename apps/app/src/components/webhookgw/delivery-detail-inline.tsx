@@ -48,7 +48,7 @@ export function DeliveryDetailInline({ deliveryId }: { deliveryId: string }): Re
   return (
     <div className="space-y-4 p-4">
       {d.lastError ? (
-        <p className="text-status-warning bg-status-warning/10 rounded-lg p-3 text-xs">
+        <p className="text-tone-warn bg-status-warning/10 rounded-lg p-3 text-xs">
           Last error: {d.lastError}
           {d.nextAttemptAt ? ` — retrying ${new Date(d.nextAttemptAt).toLocaleTimeString()}` : ''}
         </p>

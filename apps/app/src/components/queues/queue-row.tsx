@@ -6,10 +6,10 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-  StatusBadge,
   cn,
   type StatusTone,
 } from '@swarmy/ui';
+import { StatusWord, toneFromStatus } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { CountUp } from '@/components/count-up';
 import { QueueActions } from './queue-actions';
@@ -18,12 +18,12 @@ import { QueueRulesEditor } from './queue-rules-editor';
 
 /** Health tone for one queue row (failed > backlog > worker health). */
 export function queueTone(q: QueueView): { tone: StatusTone; label: string } {
-  if (!q.cacheOnline) return { tone: 'offline', label: 'cache down' };
+  if (!q.cacheOnline) return { tone: 'offline', label: 'Cache offline' };
   if ((q.stats?.failed ?? 0) > 0) return { tone: 'warning', label: `${q.stats?.failed} failed` };
   if (q.workers.running < Math.min(q.workers.desired, q.minWorkers)) {
-    return { tone: 'progress', label: 'scaling' };
+    return { tone: 'progress', label: 'Scaling' };
   }
-  return { tone: 'online', label: 'healthy' };
+  return { tone: 'online', label: 'Healthy' };
 }
 
 /**
@@ -48,10 +48,10 @@ export function QueueRow({ queue }: { queue: QueueView }): React.JSX.Element {
       <CollapsibleTrigger asChild>
         <button
           type="button"
-          className="hover:bg-muted/30 -mx-2 flex w-full items-center gap-3 rounded-md px-2 py-3 text-left"
+          className="hover:bg-foreground/[0.025] flex min-h-14 w-full items-center gap-3 rounded-sm px-1 py-2.5 text-left"
           aria-label={`${open ? 'Collapse' : 'Expand'} queue ${queue.name}`}
         >
-          <span className="bg-primary/10 text-primary flex size-8 shrink-0 items-center justify-center rounded-lg">
+          <span aria-hidden className="bg-foreground/[0.05] text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-lg">
             <ListOrderedIcon className="size-4" />
           </span>
           <div className="min-w-0 flex-1">
@@ -72,7 +72,7 @@ export function QueueRow({ queue }: { queue: QueueView }): React.JSX.Element {
               </p>
             </div>
           </div>
-          <StatusBadge tone={tone.tone} label={tone.label} className="shrink-0" />
+          <StatusWord tone={toneFromStatus(tone.tone as 'online')} word={tone.label} className="shrink-0" />
           <ChevronDownIcon
             className={cn('text-muted-foreground size-4 shrink-0 transition-transform', open && 'rotate-180')}
           />
@@ -94,7 +94,7 @@ export function QueueRow({ queue }: { queue: QueueView }): React.JSX.Element {
                 <p
                   className={cn(
                     'mono-data text-lg',
-                    label === 'Failed' && (value ?? 0) > 0 && 'text-status-offline font-semibold',
+                    label === 'Failed' && (value ?? 0) > 0 && 'text-tone-bad font-semibold',
                   )}
                 >
                   {typeof value === 'number' ? <CountUp value={value} /> : '—'}

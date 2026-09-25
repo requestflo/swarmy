@@ -11,7 +11,7 @@ export function EndpointsTable({
   endpoints: InboundEndpointView[];
 }): React.JSX.Element {
   return (
-    <div className="card-pop divide-border divide-y overflow-hidden">
+    <div className="divide-border divide-y">
       {endpoints.map((e) => (
         <EndpointRow key={e.id} stack={stack} endpoint={e} />
       ))}

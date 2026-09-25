@@ -19,26 +19,9 @@ const inp = <T>(i: unknown): Partial<T> => (i ?? {}) as Partial<T>;
 
 export const gaps: DomainResolvers = {
   handlers: {
-    // Queue Studio (browse BullMQ jobs on a cache cluster): no live Redis in the demo.
-    'queues.studioClusters': (): Out['queues']['studioClusters'] => [],
-    'queues.studioOverview': (i): Out['queues']['studioOverview'] => {
-      const { stack = '', cluster = '', prefix = 'bull' } = inp<{ stack: string; cluster: string; prefix: string }>(i);
-      return { stack, cluster, prefix, purpose: 'queue', primary: `${cluster}-0`, queues: [], truncated: false, sampledAt: now() };
-    },
-    'queues.studioJobs': (): Out['queues']['studioJobs'] => ({ start: 0, state: 'wait', jobs: [], total: 0 }),
-    'queues.studioJob': (): Out['queues']['studioJob'] => ({ found: false }),
-    'queues.studioRates': (): Out['queues']['studioRates'] => ({ status: 'ok', points: [] }),
+    // Queue Studio lives in queue-studio-demo.ts (merged into queues.ts).
 
-    // Error tracking: the project is live, no issues have come in.
-    'errors.issues': (): Out['errors']['issues'] => ({ status: 'ok', issues: [] }),
-    'errors.issue': (): Out['errors']['issue'] => ({
-      status: 'ok',
-      issue: null,
-      event: null,
-      events: [],
-      tags: [],
-      introducedIn: null,
-    }),
+    // Error tracking issues live in errors-issues.ts (wired in errors.ts).
 
     // Mesh people access and the managed control plane: not set up in the demo.
     'mesh.control.status': (): Out['mesh']['control']['status'] => ({

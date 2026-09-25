@@ -39,7 +39,7 @@ function DestructiveButton({
         <Button
           size="sm"
           variant="outline"
-          className="text-status-offline border-status-offline/40 hover:bg-status-offline/10"
+          className="text-tone-bad border-status-offline/40 hover:bg-status-offline/10"
           disabled={pending}
         >
           {icon} {pending ? '…' : label}

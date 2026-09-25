@@ -12,15 +12,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
   Button,
-  Card,
-  CardContent,
   Collapsible,
   CollapsibleContent,
-  CollapsibleTrigger,
   EmptyState,
   Switch,
   toast,
 } from '@swarmy/ui';
+import { Section } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { relTime } from '@/lib/format';
 import { RegisterOutboundInline } from './register-outbound-inline';
@@ -59,25 +57,24 @@ export function OutboundSection(): React.JSX.Element {
   const rows = endpoints.data ?? [];
 
   return (
-    <Card className="card-pop border-0">
-      <CardContent className="space-y-4 p-6">
+    <Section
+      title="Webhooks out"
+      count={endpoints.data ? rows.length : undefined}
+      hint="swarmy's own events, sent to your URLs (all apps)"
+      action={
+        <>
+          <Button variant="ghost" size="sm" disabled={rows.length === 0 || test.isPending} onClick={() => test.mutate({})}>
+            <SendIcon className="size-3.5" /> Test ping
+          </Button>
+          <Button variant="outline" size="sm" className="pointer-coarse:min-h-11" onClick={() => setCreating((v) => !v)}>
+            <PlusIcon className="size-3.5" /> Add an endpoint
+          </Button>
+        </>
+      }
+    >
         <Collapsible open={creating} onOpenChange={setCreating}>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <h3 className="font-semibold leading-tight">Outbound webhooks</h3>
-              <p className="text-muted-foreground mono-label !mb-0">swarmy events pushed to your URLs</p>
-            </div>
-            <Button variant="ghost" size="sm" disabled={rows.length === 0 || test.isPending} onClick={() => test.mutate({})}>
-              <SendIcon className="size-3.5" /> Test ping
-            </Button>
-            <CollapsibleTrigger asChild>
-              <Button variant="outline" className="shrink-0">
-                <PlusIcon className="size-4" /> New endpoint
-              </Button>
-            </CollapsibleTrigger>
-          </div>
           <CollapsibleContent>
-            <div className="border-border bg-muted/20 mt-4 rounded-lg border p-4">
+            <div className="border-border mb-3 rounded-xl border p-4">
               <RegisterOutboundInline onDone={() => setCreating(false)} />
             </div>
           </CollapsibleContent>
@@ -101,13 +98,14 @@ export function OutboundSection(): React.JSX.Element {
                   </p>
                 </div>
                 <Switch
+                  aria-label={`Send events to ${e.url}`}
                   checked={e.active}
                   disabled={setActive.isPending}
                   onCheckedChange={(active) => setActive.mutate({ id: e.id, active })}
                 />
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-status-offline">
+                    <Button variant="ghost" size="icon" aria-label={`Remove ${e.url}`} className="text-muted-foreground hover:text-tone-bad">
                       <Trash2Icon className="size-4" />
                     </Button>
                   </AlertDialogTrigger>
@@ -130,7 +128,6 @@ export function OutboundSection(): React.JSX.Element {
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
+    </Section>
   );
 }

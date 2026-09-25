@@ -1,12 +1,13 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
-import { ArrowLeftIcon, ListOrderedIcon, RefreshCwIcon } from 'lucide-react';
-import { Button, EmptyState, StatusBadge, cn } from '@swarmy/ui';
+import { ListOrderedIcon } from 'lucide-react';
+import { EmptyState, cn } from '@swarmy/ui';
+import { StatusWord } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { CountUp } from '@/components/count-up';
 import { CardSkeleton, ErrorState } from '@/components/states';
 import { QueueDetail } from './queue-detail';
+import { QueueStudioHeader } from './queue-studio-header';
 import type { StudioQueue, StudioRef } from './studio-types';
 
 /**
@@ -26,39 +27,23 @@ export function QueueStudio({ stack, cluster }: { stack: string; cluster: string
     retry: false,
   });
   const queues = (overview.data?.queues ?? []) as StudioQueue[];
-  const current = queues.find((q) => q.name === selected) ?? queues[0] ?? null;
+  const worst = [...queues].sort((a, b) => b.counts.failed - a.counts.failed)[0];
+  const current = queues.find((q) => q.name === selected) ?? (worst?.counts.failed ? worst : queues[0]) ?? null;
   const totals = queues.reduce(
     (t, q) => ({ backlog: t.backlog + q.backlog, active: t.active + q.counts.active, failed: t.failed + q.counts.failed }),
     { backlog: 0, active: 0, failed: 0 },
   );
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <Button asChild variant="ghost" size="sm" className="-ml-2">
-          <Link to="/stacks/$name/messaging" params={{ name: stack }}>
-            <ArrowLeftIcon className="size-4" /> Messaging
-          </Link>
-        </Button>
-        <div className="min-w-0 flex-1">
-          <h1 className="font-display truncate text-2xl font-bold sm:text-3xl">
-            Queue studio <span className="text-muted-foreground mono-data text-lg">{cluster}</span>
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            BullMQ on {stack}/{cluster} · read through the agent, never exposed
-            {overview.data?.purpose === 'cache' ? ' · this cache evicts — use a queue cache for BullMQ' : ''}
-          </p>
-        </div>
-        {overview.data ? (
-          <StatusBadge
-            tone={totals.failed > 0 ? 'warning' : 'online'}
-            label={totals.failed > 0 ? `${totals.failed.toLocaleString()} failed` : 'healthy'}
-          />
-        ) : null}
-        <Button variant="outline" size="sm" disabled={overview.isFetching} onClick={() => void overview.refetch()}>
-          <RefreshCwIcon className={cn('size-3.5', overview.isFetching && 'animate-spin')} /> Refresh
-        </Button>
-      </div>
+    <div className="space-y-5 pb-24 lg:pb-12">
+      <QueueStudioHeader
+        stack={stack}
+        cluster={cluster}
+        queues={overview.data ? queues : undefined}
+        purpose={overview.data?.purpose}
+        fetching={overview.isFetching}
+        onRefresh={() => void overview.refetch()}
+      />
 
       {overview.isLoading ? (
         <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
@@ -75,7 +60,7 @@ export function QueueStudio({ stack, cluster }: { stack: string; cluster: string
         />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-          <aside className="card-pop h-fit space-y-3 p-4">
+          <aside aria-label="Queues" className="calm-card h-fit space-y-3 p-4">
             <div className="grid grid-cols-3 gap-2">
               {(
                 [
@@ -86,7 +71,7 @@ export function QueueStudio({ stack, cluster }: { stack: string; cluster: string
               ).map(([label, v]) => (
                 <div key={label}>
                   <p className="mono-label text-muted-foreground !mb-0 !text-[10px]">{label}</p>
-                  <p className={cn('mono-data text-lg', label === 'Failed' && v > 0 && 'text-status-offline')}>
+                  <p className={cn('mono-data text-lg', label === 'Failed' && v > 0 && 'text-tone-bad')}>
                     <CountUp value={v} />
                   </p>
                 </div>
@@ -99,10 +84,11 @@ export function QueueStudio({ stack, cluster }: { stack: string; cluster: string
                   <button
                     key={q.name}
                     type="button"
+                    aria-pressed={active}
                     onClick={() => setSelected(q.name)}
                     className={cn(
                       'hover:bg-muted/30 -mx-2 flex w-[calc(100%+1rem)] items-center gap-3 rounded-md border-l-[3px] border-transparent px-2 py-2.5 text-left',
-                      active && 'bg-accent border-primary',
+                      active && 'bg-foreground/[0.04] border-foreground/50',
                     )}
                   >
                     <div className="min-w-0 flex-1">
@@ -113,9 +99,9 @@ export function QueueStudio({ stack, cluster }: { stack: string; cluster: string
                       </p>
                     </div>
                     {q.isPaused ? (
-                      <StatusBadge tone="neutral" label="paused" />
+                      <StatusWord tone="idle" word="Paused" />
                     ) : q.counts.failed > 0 ? (
-                      <StatusBadge tone="warning" label={`${q.counts.failed} failed`} />
+                      <StatusWord tone="warn" word={`${q.counts.failed} failed`} />
                     ) : null}
                   </button>
                 );

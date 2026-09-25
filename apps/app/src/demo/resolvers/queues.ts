@@ -8,6 +8,7 @@ import type {
   QueuesOverview,
 } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
+import { queueStudio } from './queue-studio-demo';
 
 /**
  * Queues demo resolvers — the Queues surface (`/queues`): queue list, live-ish
@@ -145,6 +146,7 @@ export const queues: DomainResolvers = {
   },
 
   handlers: {
+    ...queueStudio.handlers,
     'queues.list': (i, s): QueueView[] => {
       const { stack } = (i ?? {}) as { stack?: string };
       return [...getState(s).queues]
