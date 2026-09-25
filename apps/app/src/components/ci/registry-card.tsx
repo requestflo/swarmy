@@ -10,9 +10,9 @@ import {
   Input,
   Label,
   StatusBadge,
-  Switch,
   toast,
 } from '@swarmy/ui';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 import { useTRPC } from '@/integrations/trpc';
 
 interface RegistryConfig {
@@ -56,7 +56,7 @@ export function RegistryCard({ config }: RegistryCardProps): React.JSX.Element {
   );
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card border-0">
       <CardHeader>
         <CardTitle className="flex items-center justify-between text-base">
           In-swarm registry
@@ -81,7 +81,7 @@ export function RegistryCard({ config }: RegistryCardProps): React.JSX.Element {
               )}
             </p>
           </div>
-          <Switch checked={!!config?.enabled} onCheckedChange={(v) => setRegistry.mutate({ enabled: v })} />
+          <QuietSwitch aria-label="Built-in registry" checked={!!config?.enabled} onCheckedChange={(v) => setRegistry.mutate({ enabled: v })} />
         </div>
         {config?.enabled && (
           <div className="bg-accent/40 flex items-center justify-between rounded-xl px-4 py-3">
@@ -176,6 +176,7 @@ function HubCacheLogin(): React.JSX.Element {
         ) : null}
         <Button
           size="sm"
+          variant="outline"
           disabled={save.isPending || !username.trim() || !password}
           onClick={() => save.mutate({ login: { username: username.trim(), password } })}
         >

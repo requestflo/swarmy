@@ -18,7 +18,7 @@ export function GitComposeDraft({ draft }: { draft: ComposeDraft }): React.JSX.E
   return (
     <div className="space-y-2">
       <p className="flex flex-wrap items-center gap-2 text-sm">
-        <FileCode2Icon className="text-status-online size-4" />
+        <FileCode2Icon className="text-tone-ok size-4" />
         <span>
           Found <span className="mono-data">{draft.from}</span> — here’s a swarmy.yaml converted from it. Commit it at
           the repo root and push, then link.

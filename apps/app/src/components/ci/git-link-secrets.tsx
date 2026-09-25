@@ -15,7 +15,7 @@ export function GitLinkSecrets({ linked }: { linked: LinkedRepo }): React.JSX.El
   return (
     <div className="border-status-warning/30 space-y-3 rounded-2xl border p-4">
       <p className="flex items-center gap-2 text-sm font-medium">
-        <KeyRoundIcon className="text-status-warning size-4" /> Copy these now — we won’t show them
+        <KeyRoundIcon className="text-tone-warn size-4" /> Copy these now — we won’t show them
         again.
       </p>
       {linked.webhook ? (

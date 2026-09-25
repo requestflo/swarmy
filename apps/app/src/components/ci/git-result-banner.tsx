@@ -51,24 +51,24 @@ export function GitResultBanner({ onStart }: GitResultBannerProps): React.JSX.El
   const view =
     result.git === 'connected'
       ? {
-          tone: 'text-status-online',
+          tone: 'text-tone-ok',
           Icon: CheckCircle2Icon,
           text: `${name} is connected. Pick a repo and ship it.`,
         }
       : result.git === 'requested'
         ? {
-            tone: 'text-status-progress',
+            tone: 'text-tone-info',
             Icon: HourglassIcon,
             text: 'Install requested. An owner of that GitHub org needs to approve swarmy — it shows up here once they do.',
           }
         : {
-            tone: 'text-status-offline',
+            tone: 'text-tone-bad',
             Icon: TriangleAlertIcon,
             text: `That didn’t connect. ${result.message ?? 'Try again from Connections.'}`,
           };
 
   return (
-    <div role="status" className="card-pop mb-6 flex flex-wrap items-center gap-3 px-5 py-4">
+    <div role="status" className="calm-card mb-6 flex flex-wrap items-center gap-3 px-5 py-4">
       <view.Icon className={cn('size-5 shrink-0', view.tone)} />
       <p className="min-w-0 flex-1 text-sm font-medium">{view.text}</p>
       {result.git === 'connected' ? (

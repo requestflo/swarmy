@@ -16,7 +16,7 @@ export function ScanList(): React.JSX.Element {
   const rows = scans.data ?? [];
 
   return (
-    <Card className="card-pop mt-6 border-0">
+    <Card className="calm-card mt-6 border-0">
       <CardHeader>
         <CardTitle className="text-base">Image scans</CardTitle>
         <CardDescription>
@@ -30,7 +30,7 @@ export function ScanList(): React.JSX.Element {
             <div className="shimmer-line h-5 w-2/3" />
           </div>
         ) : scans.isError ? (
-          <p className="text-status-offline px-6 pb-8 text-sm">
+          <p className="text-tone-bad px-6 pb-8 text-sm">
             Couldn't load scans — {scans.error.message}
           </p>
         ) : rows.length === 0 ? (

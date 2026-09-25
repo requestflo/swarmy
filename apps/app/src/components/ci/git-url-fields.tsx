@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Input, Label, Switch } from '@swarmy/ui';
+import { Input, Label } from '@swarmy/ui';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 
 interface GitUrlFieldsProps {
   url: string;
@@ -45,7 +46,7 @@ export function GitUrlFields(props: GitUrlFieldsProps): React.JSX.Element {
               : 'For private repos over SSH. You paste the public half into your git host.'}
           </p>
         </div>
-        <Switch
+        <QuietSwitch
           checked={ssh || props.deployKey}
           disabled={ssh}
           onCheckedChange={props.onDeployKeyChange}

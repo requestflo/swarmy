@@ -37,7 +37,7 @@ export function GitConnectionsCard(): React.JSX.Element {
   );
 
   return (
-    <Card className="card-pop mb-6 overflow-hidden border-0">
+    <Card className="calm-card mb-6 overflow-hidden border-0">
       <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
         <div>
           <CardTitle className="text-base">Connections</CardTitle>

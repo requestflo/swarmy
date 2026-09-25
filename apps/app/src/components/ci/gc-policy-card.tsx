@@ -14,9 +14,9 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Switch,
   toast,
 } from '@swarmy/ui';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 import { useTRPC } from '@/integrations/trpc';
 
 type GcMode = 'on-healthcheck' | 'age-days';
@@ -64,7 +64,7 @@ export function GcPolicyCard({ value, onDone }: GcPolicyCardProps): React.JSX.El
   );
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card border-0">
       <CardHeader>
         <CardTitle className="text-base">Image GC</CardTitle>
         <CardDescription>Reclaim disk — but never delete a digest that's running in prod.</CardDescription>
@@ -73,7 +73,7 @@ export function GcPolicyCard({ value, onDone }: GcPolicyCardProps): React.JSX.El
         <div className="grid gap-1.5">
           <Label className="mono-label">Mode</Label>
           <Select value={mode} onValueChange={(v) => setMode(v as GcMode)}>
-            <SelectTrigger>
+            <SelectTrigger aria-label="Mode">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -93,7 +93,7 @@ export function GcPolicyCard({ value, onDone }: GcPolicyCardProps): React.JSX.El
             <Label className="font-medium">Keep prod images</Label>
             <p className="text-muted-foreground text-xs">Pin every digest running in prod. Recommended.</p>
           </div>
-          <Switch checked={keepProd} onCheckedChange={setKeepProd} />
+          <QuietSwitch aria-label="Keep prod images" checked={keepProd} onCheckedChange={setKeepProd} />
         </div>
         <div className="grid gap-1.5">
           <Label className="mono-label">Build cache</Label>

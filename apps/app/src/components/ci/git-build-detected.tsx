@@ -38,7 +38,7 @@ export function GitBuildDetected({ detected, showStarter }: GitBuildDetectedProp
   if (detected.unknown) {
     return (
       <p className="flex items-start gap-2 text-sm">
-        <TriangleAlertIcon className="text-status-warning mt-0.5 size-4 shrink-0" />
+        <TriangleAlertIcon className="text-tone-warn mt-0.5 size-4 shrink-0" />
         <span>{detected.summary}</span>
       </p>
     );
@@ -48,9 +48,9 @@ export function GitBuildDetected({ detected, showStarter }: GitBuildDetectedProp
     <div className="space-y-2 text-sm">
       <p className="flex flex-wrap items-center gap-2">
         {railpack ? (
-          <SparklesIcon className="text-status-online size-4" />
+          <SparklesIcon className="text-tone-ok size-4" />
         ) : (
-          <BoxIcon className="text-status-online size-4" />
+          <BoxIcon className="text-tone-ok size-4" />
         )}
         <span>
           {railpack ? 'Detected: ' : ''}

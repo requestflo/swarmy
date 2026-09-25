@@ -93,7 +93,7 @@ export function GitNewAppCard({
   );
 
   return (
-    <Card className="card-pop mb-6 overflow-hidden border-0">
+    <Card className="calm-card mb-6 overflow-hidden border-0">
       <CardHeader>
         <CardTitle className="text-base">New app from Git</CardTitle>
         <CardDescription>

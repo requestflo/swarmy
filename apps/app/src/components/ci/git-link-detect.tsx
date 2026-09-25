@@ -63,7 +63,7 @@ export function GitLinkDetect({
         <ul className="space-y-1.5">
           {configPaths.map((p) => (
             <li key={p} className="flex flex-wrap items-center gap-2">
-              <FileCode2Icon className="text-status-online size-4" />
+              <FileCode2Icon className="text-tone-ok size-4" />
               <span>
                 Found swarmy.yaml in <span className="mono-data">{where(p)}</span>
               </span>

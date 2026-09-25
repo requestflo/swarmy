@@ -20,7 +20,7 @@ export function RegistryCredentialsCard(): React.JSX.Element {
   const refresh = (): void => void qc.invalidateQueries({ queryKey: trpc.registryCredentials.list.queryKey() });
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card border-0">
       <CardHeader>
         <CardTitle className="flex items-center justify-between text-base">
           Private registries

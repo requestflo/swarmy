@@ -52,7 +52,7 @@ export function GitConfigPathField({
                 current === p ? 'border-primary bg-accent' : 'hover:bg-accent/60',
               )}
             >
-              <FileCode2Icon className="text-status-online size-3.5" />
+              <FileCode2Icon className="text-tone-ok size-3.5" />
               <span className="mono-data">{where(p)}</span>
             </button>
           ))}

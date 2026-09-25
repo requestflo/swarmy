@@ -4,8 +4,8 @@ import { Badge, Button, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 
 function severityClass(severity: string): string {
-  if (severity === 'CRITICAL') return 'text-status-offline';
-  if (severity === 'HIGH') return 'text-status-warning';
+  if (severity === 'CRITICAL') return 'text-tone-bad';
+  if (severity === 'HIGH') return 'text-tone-warn';
   return 'text-muted-foreground';
 }
 
@@ -39,17 +39,17 @@ export function ScanDetailInline({ scanId }: ScanDetailInlineProps): React.JSX.E
     );
   }
   if (detail.isError) {
-    return <p className="text-status-offline text-sm">{detail.error.message}</p>;
+    return <p className="text-tone-bad text-sm">{detail.error.message}</p>;
   }
   if (!d) return <></>;
 
   return (
     <>
       <div className="flex flex-wrap gap-2">
-        <Badge variant="outline" className="mono-data text-status-offline">
+        <Badge variant="outline" className="mono-data text-tone-bad">
           {d.criticalCount} critical
         </Badge>
-        <Badge variant="outline" className="mono-data text-status-warning">
+        <Badge variant="outline" className="mono-data text-tone-warn">
           {d.highCount} high
         </Badge>
         <Badge variant="outline" className="mono-data">
@@ -61,11 +61,11 @@ export function ScanDetailInline({ scanId }: ScanDetailInlineProps): React.JSX.E
       </div>
 
       {d.error ? (
-        <p className="text-status-offline bg-accent/40 rounded-xl px-4 py-3 text-sm">
+        <p className="text-tone-bad bg-accent/40 rounded-xl px-4 py-3 text-sm">
           Scan failed: {d.error}
         </p>
       ) : d.cves.length === 0 ? (
-        <p className="text-status-online text-sm font-medium">Clean — no vulnerabilities found.</p>
+        <p className="text-tone-ok text-sm font-medium">Clean — no vulnerabilities found.</p>
       ) : (
         <div className="divide-border grid divide-y rounded-xl border">
           {d.cves.map((c) => (

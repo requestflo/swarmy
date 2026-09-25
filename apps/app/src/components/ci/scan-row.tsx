@@ -49,11 +49,11 @@ export function ScanRow({ scan: s, expanded, onToggle }: ScanRowProps): React.JS
           {s.digest ? s.digest.replace('sha256:', '').slice(0, 12) : '—'}
         </span>
         <span className="mono-data hidden sm:block">
-          <span className={s.criticalCount > 0 ? 'text-status-offline font-semibold' : ''}>
+          <span className={s.criticalCount > 0 ? 'text-tone-bad font-semibold' : ''}>
             {s.criticalCount}
           </span>
           {' / '}
-          <span className={s.highCount > 0 ? 'text-status-warning' : ''}>{s.highCount}</span>
+          <span className={s.highCount > 0 ? 'text-tone-warn' : ''}>{s.highCount}</span>
           {' / '}
           {s.mediumCount}
         </span>

@@ -80,12 +80,12 @@ export function BuildLogViewer({
       className="bg-foreground/95 text-background h-[60vh] overflow-auto rounded-xl p-4 font-mono text-xs leading-relaxed"
     >
       {lines.length === 0 ? (
-        <p className="text-background/50">{live ? 'Waiting for build output…' : 'No logs captured.'}</p>
+        <p className="text-background/70">{live ? 'Waiting for build output…' : 'No logs captured.'}</p>
       ) : (
         lines.map((l, i) => (
           <pre
             key={`${l.stream}-${l.seq}-${i}`}
-            className={l.stream === 'stderr' ? 'text-status-offline whitespace-pre-wrap' : 'whitespace-pre-wrap'}
+            className={l.stream === 'stderr' ? 'text-tone-bad whitespace-pre-wrap' : 'whitespace-pre-wrap'}
           >
             {l.message}
           </pre>

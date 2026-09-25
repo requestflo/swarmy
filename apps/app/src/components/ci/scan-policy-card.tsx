@@ -9,9 +9,9 @@ import {
   CardTitle,
   Label,
   StatusBadge,
-  Switch,
   toast,
 } from '@swarmy/ui';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 import { useTRPC } from '@/integrations/trpc';
 
 /**
@@ -51,7 +51,7 @@ export function ScanPolicyCard(): React.JSX.Element {
     .slice(0, 24);
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card border-0">
       <CardHeader>
         <CardTitle className="flex items-center justify-between text-base">
           Image policy
@@ -72,7 +72,8 @@ export function ScanPolicyCard(): React.JSX.Element {
               Refuse deploys of images whose latest scan found critical CVEs.
             </p>
           </div>
-          <Switch
+          <QuietSwitch
+            aria-label="Block critical CVEs"
             checked={!!policy.data?.blockCriticalCves}
             disabled={policy.isPending || setPolicy.isPending}
             onCheckedChange={(v) => setPolicy.mutate({ blockCriticalCves: v })}
@@ -85,7 +86,8 @@ export function ScanPolicyCard(): React.JSX.Element {
               Require a valid cosign signature from your org key. Fails closed.
             </p>
           </div>
-          <Switch
+          <QuietSwitch
+            aria-label="Require signed images"
             checked={!!policy.data?.requireSignedImages}
             disabled={policy.isPending || setPolicy.isPending}
             onCheckedChange={(v) => setPolicy.mutate({ requireSignedImages: v })}
