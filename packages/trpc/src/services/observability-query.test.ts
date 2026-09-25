@@ -97,3 +97,19 @@ describe('buildMetricsSummaryQuery', () => {
     expect(sql).toContain('LIMIT 200');
   });
 });
+
+describe('metrics read every metric table (QA-041)', () => {
+  it('series and summary union gauge, sum and histogram (histogram → mean), org-scoped in EVERY branch', () => {
+    for (const sql of [
+      buildMetricsSeriesQuery(ORG, { metric: 'http.server.duration', stack: 'shop' }),
+      buildMetricsSummaryQuery(ORG, { metric: 'http.server.duration', stack: 'shop' }),
+    ]) {
+      expect(sql).toContain('FROM otel_metrics_gauge WHERE');
+      expect(sql).toContain('FROM otel_metrics_sum WHERE');
+      expect(sql).toContain('if(Count > 0, Sum / Count, 0) AS Value FROM otel_metrics_histogram WHERE');
+      expect(sql.split("ResourceAttributes['swarmy.org_id'] = 'org_abc123'").length - 1).toBe(3);
+      expect(sql.split("MetricName = 'http.server.duration'").length - 1).toBe(3);
+      expect(sql.split("ResourceAttributes['swarmy.stack'] = 'shop'").length - 1).toBe(3);
+    }
+  });
+});

@@ -5,7 +5,7 @@
  * ClickHouse HTTP interface. Every query is constrained by `swarmy_org_id` so a
  * caller can never read another org's telemetry (org-scoping at the storage
  * layer). The table layout mirrors the OTel Collector ClickHouse exporter
- * (`otel_traces`) plus a swarmy resource-metrics table (`otel_metrics_gauge`).
+ * (`otel_traces`) plus the metric tables (`otel_metrics_gauge` / `_sum` / `_histogram`).
  */
 
 export interface TracesQueryInput {
@@ -175,6 +175,28 @@ export function buildTraceDetailQuery(orgId: string, q: TraceDetailQueryInput): 
 }
 
 /**
+ * Metric points across the tables the OTel collector's ClickHouse exporter
+ * writes, as one `(ServiceName, TimeUnix, Value)` stream. The builders used
+ * to read only `otel_metrics_gauge`, so every SDK metric (`http.server.duration`
+ * is a histogram, request counters are sums) came back empty (QA-041).
+ *  - gauge, sum: the point's `Value` (a sum is the counter's value);
+ *  - histogram: the point's mean, `Sum / Count` (0 for an empty bucket set).
+ * The filters go INSIDE each branch so ClickHouse prunes every table.
+ */
+function metricPoints(where: string[]): string {
+  const cond = where.join(' AND ');
+  return [
+    '(',
+    `  SELECT ServiceName, TimeUnix, Value FROM otel_metrics_gauge WHERE ${cond}`,
+    '  UNION ALL',
+    `  SELECT ServiceName, TimeUnix, Value FROM otel_metrics_sum WHERE ${cond}`,
+    '  UNION ALL',
+    `  SELECT ServiceName, TimeUnix, if(Count > 0, Sum / Count, 0) AS Value FROM otel_metrics_histogram WHERE ${cond}`,
+    ')',
+  ].join('\n');
+}
+
+/**
  * Per-service aggregate of a metric over the window — the data behind a metrics
  * dashboard panel (avg / peak / sample count per service). Org-scoped.
  */
@@ -194,8 +216,7 @@ export function buildMetricsSummaryQuery(orgId: string, q: MetricsSummaryQueryIn
     '  round(avg(Value), 4) AS avg_value,',
     '  round(max(Value), 4) AS max_value,',
     '  count() AS samples',
-    'FROM otel_metrics_gauge',
-    `WHERE ${where.join(' AND ')}`,
+    `FROM ${metricPoints(where)}`,
     'GROUP BY service_name',
     'ORDER BY avg_value DESC',
     `LIMIT ${limit}`,
@@ -217,8 +238,7 @@ export function buildMetricsSeriesQuery(orgId: string, q: MetricsQueryInput): st
     'SELECT',
     `  toString(toStartOfInterval(TimeUnix, INTERVAL ${bucketSeconds} SECOND)) AS bucket,`,
     '  round(avg(Value), 4) AS value',
-    'FROM otel_metrics_gauge',
-    `WHERE ${where.join(' AND ')}`,
+    `FROM ${metricPoints(where)}`,
     'GROUP BY bucket',
     'ORDER BY bucket ASC',
   ].join('\n');
