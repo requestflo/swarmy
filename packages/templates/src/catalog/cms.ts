@@ -48,6 +48,10 @@ services:
       start_period: 90s
   mysql:
     image: mysql:8.4.7
+    # 8.4 ships mysql_native_password disabled; turn it back on so a client or
+    # account that negotiates it can still log in (QA-069). Ghost's own driver
+    # (mysql2) also speaks caching_sha2_password, the entrypoint's default.
+    command: ["mysqld", "--mysql-native-password=ON"]
     # 8.4's first-boot init peaks ~450 MiB; at 384mb it is OOM-killed mid-init
     # and leaves a data dir whose 'ghost' user can't connect (QA-018).
     memory: 768mb

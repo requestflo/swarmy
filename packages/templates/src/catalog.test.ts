@@ -112,6 +112,20 @@ describe('app template catalogue', () => {
   }
 });
 
+describe('ghost (QA-069)', () => {
+  it('its MySQL 8.4 runs with mysql_native_password enabled, keeping the image entrypoint', () => {
+    const ghost = APP_TEMPLATES.find((t) => t.id === 'ghost')!;
+    const raw = parseYaml(renderTemplateYaml(ghost, { stack: 'demo' })) as {
+      services: Record<string, { image?: string; command?: string[] }>;
+    };
+    expect(raw.services.mysql?.image).toMatch(/^mysql:8\.4\./);
+    // CMD (args), not an entrypoint override: docker-entrypoint.sh still inits the db.
+    expect(raw.services.mysql?.command).toEqual(['mysqld', '--mysql-native-password=ON']);
+    const loaded = loadTemplate(ghost, { stack: 'demo' });
+    expect(loaded.desired?.services.find((s) => s.name === 'mysql')?.command).toEqual(['mysqld', '--mysql-native-password=ON']);
+  });
+});
+
 describe('renderTemplateYaml', () => {
   it('replaces app: with the stack and JSON-escapes option values', () => {
     const t = {
