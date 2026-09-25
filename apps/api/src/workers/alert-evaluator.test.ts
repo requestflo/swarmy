@@ -21,7 +21,7 @@ const cond = (over: Partial<Condition> = {}): Condition => ({
   signal: 'node-offline',
   resource: 'node:w1',
   severity: 'critical',
-  message: 'Node w1 is offline',
+  message: 'Server w1 is offline',
   ...over,
 });
 

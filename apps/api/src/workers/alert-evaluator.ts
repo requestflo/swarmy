@@ -116,7 +116,7 @@ export function serviceDownConditions(
         signal: 'service-down',
         resource: `service:${s.name}`,
         severity: s.running === 0 ? 'critical' : 'warning',
-        message: `Service ${s.name} is running ${s.running}/${s.desired} replicas`,
+        message: `${s.name} is running ${s.running} of ${s.desired} copies`,
       });
     }
   }
@@ -136,7 +136,7 @@ export function diskConditions(
         signal: 'disk-usage',
         resource: `node:${n.name}`,
         severity: pct >= DISK_CRITICAL_PCT ? 'critical' : 'warning',
-        message: `Disk on ${n.name} is ${pct.toFixed(1)}% full (threshold ${thresholdPct}%)`,
+        message: `The disk on server ${n.name} is ${pct.toFixed(1)}% full (threshold ${thresholdPct}%)`,
       });
     }
   }
@@ -159,7 +159,7 @@ export function crashLoopConditions(
       signal: 'crash-loop' as const,
       resource: `service:${s.name}`,
       severity: 'critical' as const,
-      message: `Service ${s.name} is crash-looping: ${s.recentFailures} failed tasks in the last 10 min${
+      message: `${s.name} keeps crashing: it failed to start ${s.recentFailures} times in the last 10 min${
         s.lastError ? ` — last error: ${s.lastError.slice(0, 200)}` : ''
       }`,
     }));
@@ -273,7 +273,7 @@ export function dbLagConditions(
     signal: 'db-degraded' as const,
     resource: `db:${cluster}`,
     severity: 'warning' as const,
-    message: `Replica ${w.member} of ${cluster} is ${Math.round(w.lagSeconds)}s behind (threshold ${thresholdSeconds}s)`,
+    message: `The standby copy of ${cluster} (${w.member}) is ${Math.round(w.lagSeconds)}s behind (threshold ${thresholdSeconds}s)`,
   }));
 }
 
@@ -361,7 +361,7 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
         signal: 'node-offline',
         resource: `node:${n.name}`,
         severity: 'critical',
-        message: `Node ${n.name} is offline`,
+        message: `Server ${n.name} is offline`,
       });
     }
   }

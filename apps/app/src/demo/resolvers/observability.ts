@@ -747,7 +747,7 @@ const HEALTH_ENTRIES: HealthEntryView[] = [
     name: 'storefront',
     status: 'degraded',
     reasons: [
-      'service checkout running 1/2 tasks',
+      'checkout is running 1 of 2 copies',
       'checkout: error rate 6.2% (target <5.0%)',
       'checkout: p95 latency 1.8s (target <1.5s)',
     ],
@@ -757,17 +757,17 @@ const HEALTH_ENTRIES: HealthEntryView[] = [
     name: 'data',
     status: 'degraded',
     reasons: [
-      'database replica lag 12s (member postgres-replica-1, target <10s)',
+      "the database's standby copy is 12s behind (member postgres-replica-1, target <10s)",
       'queue depth rising (emails: 340 waiting)',
     ],
   },
-  { kind: 'stack', name: 'platform', status: 'degraded', reasons: ['service loki running 1/2 tasks'] },
+  { kind: 'stack', name: 'platform', status: 'degraded', reasons: ['loki is running 1 of 2 copies'] },
 ];
 
 const HEALTH_TOP_REASONS = [
-  'service checkout running 1/2 tasks',
-  'service loki running 1/2 tasks',
-  'database replica lag 12s (member postgres-replica-1, target <10s)',
+  'checkout is running 1 of 2 copies',
+  'loki is running 1 of 2 copies',
+  "the database's standby copy is 12s behind (member postgres-replica-1, target <10s)",
   'queue depth rising (emails: 340 waiting)',
   'checkout: error rate 6.2% (target <5.0%)',
   'checkout: p95 latency 1.8s (target <1.5s)',

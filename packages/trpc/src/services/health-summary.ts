@@ -182,19 +182,19 @@ export function composeHealth(sig: HealthSignals): HealthSummary {
   for (const s of sig.services) {
     if (s.desired <= 0) continue; // idle / intentionally stopped
     if (s.running === 0) {
-      if (s.scaleToZero) degraded.push(`service ${s.name} still waking (0/${s.desired} tasks running)`);
-      else down.push(`service ${s.name} is down (0/${s.desired} tasks running)`);
+      if (s.scaleToZero) degraded.push(`${s.name} is still waking up (0 of ${s.desired} copies running)`);
+      else down.push(`${s.name} is down (0 of ${s.desired} copies running)`);
     } else if (s.running < s.desired) {
-      degraded.push(`service ${s.name} running ${s.running}/${s.desired} tasks`);
+      degraded.push(`${s.name} is running ${s.running} of ${s.desired} copies`);
     }
   }
 
-  for (const n of sig.offlineNodes ?? []) degraded.push(`node ${n} offline`);
+  for (const n of sig.offlineNodes ?? []) degraded.push(`server ${n} is offline`);
 
   for (const lag of sig.dbLags ?? []) {
     if (lag.lagSeconds > DB_LAG_TARGET_SECONDS) {
       degraded.push(
-        `database replica lag ${fmtLag(lag.lagSeconds)} (member ${lag.member}, target <${DB_LAG_TARGET_SECONDS}s)`,
+        `the database's standby copy is ${fmtLag(lag.lagSeconds)} behind (member ${lag.member}, target <${DB_LAG_TARGET_SECONDS}s)`,
       );
     }
   }

@@ -5,7 +5,9 @@ import type { Condition } from './attrs';
 /**
  * Plain-words rendering of the policy model for the admin rules editor:
  * "Members of platform can deploy and restart on apps where env is production."
- * Pure and shared, so the list, the editor preview and tests agree.
+ * Pure and shared, so the list, the editor preview and tests agree. Words
+ * follow the dashboard glossary: an app is a stack, a part is a service, a
+ * server is a node, the private network is the mesh.
  */
 
 export interface ActionInfo {
@@ -16,28 +18,28 @@ export interface ActionInfo {
 }
 
 export const ACTION_CATALOG: ActionInfo[] = [
-  { id: 'node.read', label: 'view nodes', group: 'read' },
-  { id: 'service.read', label: 'view apps', group: 'read' },
-  { id: 'stack.read', label: 'view stacks', group: 'read' },
+  { id: 'node.read', label: 'view servers', group: 'read' },
+  { id: 'service.read', label: 'view app parts', group: 'read' },
+  { id: 'stack.read', label: 'view apps', group: 'read' },
   { id: 'ingress.read', label: 'view domains', group: 'read' },
   { id: 'member.read', label: 'view members', group: 'read' },
   { id: 'policy.read', label: 'view policies', group: 'read' },
   { id: 'authconfig.read', label: 'view sign-in settings', group: 'read' },
-  { id: 'service.deploy', label: 'deploy apps', group: 'operate' },
-  { id: 'stack.deploy', label: 'deploy stacks', group: 'operate' },
-  { id: 'service.scale', label: 'scale', group: 'operate' },
+  { id: 'service.deploy', label: 'deploy app parts', group: 'operate' },
+  { id: 'stack.deploy', label: 'deploy apps', group: 'operate' },
+  { id: 'service.scale', label: 'change copies', group: 'operate' },
   { id: 'service.restart', label: 'restart', group: 'operate' },
-  { id: 'node.drain', label: 'drain nodes', group: 'operate' },
+  { id: 'node.drain', label: 'empty servers', group: 'operate' },
   { id: 'service.configure', label: 'change app settings', group: 'configure' },
-  { id: 'node.setLabels', label: 'label nodes', group: 'configure' },
+  { id: 'node.setLabels', label: 'label servers', group: 'configure' },
   { id: 'ingress.write', label: 'manage domains', group: 'configure' },
-  { id: 'token.create', label: 'create join tokens', group: 'configure' },
-  { id: 'service.remove', label: 'remove apps', group: 'destructive' },
-  { id: 'stack.remove', label: 'remove stacks', group: 'destructive' },
-  { id: 'node.remove', label: 'remove nodes', group: 'destructive' },
+  { id: 'token.create', label: 'create join links', group: 'configure' },
+  { id: 'service.remove', label: 'remove app parts', group: 'destructive' },
+  { id: 'stack.remove', label: 'remove apps', group: 'destructive' },
+  { id: 'node.remove', label: 'remove servers', group: 'destructive' },
   { id: 'data.destroy', label: 'destroy data', group: 'destructive' },
   { id: 'data.restore', label: 'restore over live data', group: 'destructive' },
-  { id: 'data.failover', label: 'confirm a lossy failover', group: 'destructive' },
+  { id: 'data.failover', label: 'confirm a switch-over that can lose data', group: 'destructive' },
   { id: 'backup.remove', label: 'remove backup targets', group: 'destructive' },
   { id: 'secret.delete', label: 'delete secrets', group: 'destructive' },
   { id: 'dns.remove', label: 'remove DNS', group: 'destructive' },
@@ -47,7 +49,7 @@ export const ACTION_CATALOG: ActionInfo[] = [
   { id: 'token.revoke', label: 'revoke tokens', group: 'destructive' },
   { id: 'terminal.open', label: 'open a terminal', group: 'access' },
   { id: 'secrets.read', label: 'read secrets', group: 'access' },
-  { id: 'mesh.connect', label: 'join the mesh', group: 'access' },
+  { id: 'mesh.connect', label: 'join the private network', group: 'access' },
   { id: 'app.access', label: 'sign in to protected apps', group: 'access' },
   { id: 'ai.use', label: 'use AI models', group: 'access' },
   { id: 'data.read', label: 'read database rows', group: 'access' },
@@ -72,9 +74,9 @@ function joinWords(xs: string[], conj = 'and'): string {
 
 const ROLE_WORDS: Record<string, string> = { owner: 'Owners', admin: 'Admins', member: 'Members' };
 const TYPE_WORDS: Record<string, string> = {
-  service: 'apps',
-  stack: 'stacks',
-  node: 'nodes',
+  service: 'app parts',
+  stack: 'apps',
+  node: 'servers',
   org: 'the workspace',
 };
 
@@ -106,7 +108,7 @@ export function describeCondition(c: Condition): string {
   }
 }
 
-/** "Members of platform can deploy apps and restart on apps where env is not production." */
+/** "Members of platform can deploy app parts and restart on app parts where env is not production." */
 export function describePolicy(effect: 'permit' | 'forbid', doc: PolicyDoc): string {
   const who: string[] = [];
   const roles = (doc.roles ?? []).filter((r) => r !== '*');

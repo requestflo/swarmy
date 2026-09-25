@@ -27,7 +27,7 @@ describe('composeHealth', () => {
   it('marks a zero-running service down and the scope down when ALL are down', () => {
     const one = composeHealth({ services: [svc('web', 2, 0), svc('api', 1, 2)] });
     expect(one.status).toBe('degraded');
-    expect(one.reasons[0]).toBe('service web is down (0/2 tasks running)');
+    expect(one.reasons[0]).toBe('web is down (0 of 2 copies running)');
 
     const all = composeHealth({ services: [svc('web', 2, 0), svc('api', 1, 0)] });
     expect(all.status).toBe('down');
@@ -36,7 +36,7 @@ describe('composeHealth', () => {
   it('reports task shortfall as degraded', () => {
     const out = composeHealth({ services: [svc('api', 3, 1)] });
     expect(out.status).toBe('degraded');
-    expect(out.reasons).toEqual(['service api running 1/3 tasks']);
+    expect(out.reasons).toEqual(['api is running 1 of 3 copies']);
   });
 
   it('treats scale-to-zero services as waking, never down', () => {
@@ -56,7 +56,7 @@ describe('composeHealth', () => {
       ],
     });
     expect(out.status).toBe('degraded');
-    expect(out.reasons).toEqual(['database replica lag 12s (member orders-db-1, target <10s)']);
+    expect(out.reasons).toEqual(['the database\'s standby copy is 12s behind (member orders-db-1, target <10s)']);
   });
 
   it('emits failed-job and rising-depth queue reasons', () => {
@@ -110,7 +110,7 @@ describe('composeHealth', () => {
   it('lists offline nodes as degraded reasons', () => {
     const out = composeHealth({ services: [svc('web', 1, 1)], offlineNodes: ['hetzner-3'] });
     expect(out.status).toBe('degraded');
-    expect(out.reasons).toEqual(['node hetzner-3 offline']);
+    expect(out.reasons).toEqual(['server hetzner-3 is offline']);
   });
 
   it('collector trouble is info-only: listed but never degrades the status', () => {
@@ -142,10 +142,10 @@ describe('composeHealth', () => {
     const out = composeHealth(sig);
     expect(out.status).toBe('degraded');
     expect(out.reasons).toEqual([
-      'service web is down (0/2 tasks running)',
-      'service api running 2/3 tasks',
-      'node node-b offline',
-      'database replica lag 15s (member db-1, target <10s)',
+      'web is down (0 of 2 copies running)',
+      'api is running 2 of 3 copies',
+      'server node-b is offline',
+      'the database\'s standby copy is 15s behind (member db-1, target <10s)',
       'queue emails has 1 failed job',
       'queue depth rising (emails: 340 waiting)',
       'api: error rate 9.0% (target <5.0%)',

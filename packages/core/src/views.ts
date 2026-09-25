@@ -1054,8 +1054,8 @@ export const EVENT_ALERT_SIGNALS: readonly string[] = [
  */
 export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
   'node-offline': {
-    label: 'Node offline',
-    description: 'An enrolled node stopped heartbeating the controller for the for-duration.',
+    label: 'Server offline',
+    description: 'A server stopped checking in with swarmy for the for-duration.',
     unit: null,
     defaultThreshold: null,
     defaultForSeconds: 300,
@@ -1086,16 +1086,16 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     severity: 'critical',
   },
   'crash-loop': {
-    label: 'Container crash-looping',
-    description: 'A service’s tasks keep failing and restarting (failures in the last 10 minutes).',
+    label: 'Part keeps crashing',
+    description: 'A part of an app keeps failing to start and restarting (failures in the last 10 minutes).',
     unit: 'restarts',
     defaultThreshold: 3,
     defaultForSeconds: 0,
     severity: 'critical',
   },
   'service-down': {
-    label: 'Service down',
-    description: 'A service is running fewer replicas than it wants.',
+    label: 'Part short of copies',
+    description: 'A part of an app is running fewer copies than it wants.',
     unit: null,
     defaultThreshold: null,
     defaultForSeconds: 60,
@@ -1103,15 +1103,15 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
   },
   'db-degraded': {
     label: 'Database degraded',
-    description: 'A managed-database replica is lagging its primary.',
+    description: 'A database’s standby copy is falling behind the main one.',
     unit: 'seconds',
     defaultThreshold: 30,
     defaultForSeconds: 0,
     severity: 'warning',
   },
   'db-failover': {
-    label: 'Database failover',
-    description: 'A managed-database cluster changed leader.',
+    label: 'Database switched over',
+    description: 'A database switched to its standby copy.',
     unit: null,
     defaultThreshold: null,
     defaultForSeconds: 0,
@@ -1127,7 +1127,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
   },
   'cert-expiry': {
     label: 'Certificate expiring',
-    description: 'A TLS certificate on an ingress domain expires within the threshold, or failed to renew.',
+    description: 'The HTTPS certificate for an address expires within the threshold, or failed to renew.',
     unit: 'days',
     defaultThreshold: 14,
     defaultForSeconds: 0,
@@ -1135,7 +1135,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
   },
   'disk-usage': {
     label: 'Disk almost full',
-    description: 'A node’s filesystem usage crossed the threshold (critical above 95%).',
+    description: 'A server’s disk filled past the threshold (critical above 95%).',
     unit: '%',
     defaultThreshold: 85,
     defaultForSeconds: 0,
@@ -1151,7 +1151,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
   },
   'error-rate': {
     label: 'Error rate high',
-    description: 'A service’s request error rate crossed the threshold.',
+    description: 'A part’s share of failed requests crossed the threshold.',
     unit: '%',
     defaultThreshold: 5,
     defaultForSeconds: 0,

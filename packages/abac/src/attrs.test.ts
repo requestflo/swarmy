@@ -141,7 +141,7 @@ describe('plain-words rules', () => {
         resourceTypes: ['service'],
         conditions: [{ attr: 'resource.env', op: 'eq', value: 'production' }],
       }),
-    ).toBe('Members of platform can deploy apps and restart on apps where env is production.');
+    ).toBe('Members of platform can deploy app parts and restart on app parts where env is production.');
   });
 
   it('renders the seeded defaults', () => {
