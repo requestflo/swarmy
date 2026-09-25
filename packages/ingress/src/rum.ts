@@ -83,6 +83,24 @@ export function caddyRumHandle(r: RouteRum): string[] {
     `    rewrite * ${RUM_CONTROLLER_PREFIX}{uri}`,
     `    reverse_proxy ${r.upstream}`,
     '  }',
+    ...caddyReplayFontCors(r),
+  ];
+}
+
+/**
+ * Session replays render in the swarmy dashboard, a different origin, and
+ * browsers CORS-gate web fonts (and only fonts), so every replay logged
+ * "blocked by CORS policy" and fell back to system fonts (QA-057). On routes
+ * that record replays, font files get `Access-Control-Allow-Origin: *`, but
+ * only when the app sets none itself (`?`). Fonts are public, credential-free
+ * assets. PURE.
+ */
+export function caddyReplayFontCors(r: RouteRum): string[] {
+  if (r.mode !== 'identified' || !(r.replaySampleRate > 0)) return [];
+  return [
+    '  # Replays render in the swarmy dashboard: let it load this app\'s fonts (CORS-gated).',
+    '  @swarmy_replay_fonts path *.woff2 *.woff *.ttf *.otf *.eot',
+    '  header @swarmy_replay_fonts ?Access-Control-Allow-Origin *',
   ];
 }
 

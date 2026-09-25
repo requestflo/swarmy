@@ -83,6 +83,9 @@ shop.example.com {
     rewrite * /_rum{uri}
     reverse_proxy swarmy_controller:3021
   }
+  # Replays render in the swarmy dashboard: let it load this app's fonts (CORS-gated).
+  @swarmy_replay_fonts path *.woff2 *.woff *.ttf *.otf *.eot
+  header @swarmy_replay_fonts ?Access-Control-Allow-Origin *
   handle {
     swarmy_rum {
       attr data-app v1.eyJvIjoib3JnXzEifQ.c2ln
