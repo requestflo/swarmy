@@ -210,15 +210,58 @@ function dataOf<T extends object>(step: StepState): T {
   return step.data as T;
 }
 
+// ── service health baseline ─────────────────────────────────────────────────
+
+type HealthService = { name: string; desiredReplicas?: number; runningReplicas: number };
+
+/** PURE — swarmy's own services (and the controller) that run fewer replicas than desired. */
+export function unhealthySystemServices(services: readonly HealthService[]): HealthService[] {
+  return services.filter(
+    (s) => (s.name.startsWith('swarmy-') || s.name === CONTROLLER_SERVICE) && s.desiredReplicas !== undefined && s.runningReplicas < s.desiredReplicas,
+  );
+}
+
+/**
+ * PURE — what Verify fails on. A service already broken at preflight (the
+ * baseline) is not the upgrade's doing (QA-027): it's reported, not failed on.
+ * Offline servers always count (preflight required them all online).
+ */
+export function verifyProblems(input: {
+  offlineNodes: readonly string[];
+  services: readonly HealthService[];
+  baseline: readonly string[];
+}): { problems: string[]; preexisting: string[] } {
+  const before = new Set(input.baseline);
+  const bad = unhealthySystemServices(input.services);
+  return {
+    problems: [
+      ...input.offlineNodes.map((n) => `${n} offline`),
+      ...bad.filter((s) => !before.has(s.name)).map((s) => `${s.name} ${s.runningReplicas}/${s.desiredReplicas}`),
+    ],
+    preexisting: bad.filter((s) => before.has(s.name)).map((s) => s.name),
+  };
+}
+
 // ── steps ────────────────────────────────────────────────────────────────────
 
 export function buildHandlers(ctx: OrgContext, row: RunRow, deps: PlatformUpgradeDeps): StepHandlers {
   const target = parsePlatformManifest(row.manifest);
   const from = parsePlatformManifest(row.fromManifest);
   const options = (row.options as RunOptions | null) ?? {};
+  // Services already unhealthy at preflight (kept in the preflight step's data,
+  // so a run resumed after the controller restart still has it).
+  const preflightData = ((row.steps as unknown as StepState[] | null) ?? []).find((st) => st.key === 'preflight')?.data as
+    | { unhealthyBefore?: string[] }
+    | undefined;
+  let unhealthyBefore: string[] = preflightData?.unhealthyBefore ?? [];
 
   const preflight = async (c: StepContext) => {
-    const d = dataOf<{ backupSnapshotId?: string; mirrored?: boolean }>(c.step);
+    const d = dataOf<{ backupSnapshotId?: string; mirrored?: boolean; unhealthyBefore?: string[] }>(c.step);
+    if (!d.unhealthyBefore) {
+      d.unhealthyBefore = unhealthySystemServices(ctx.hub.liveInventory(ctx.activeOrgId).services).map((s) => s.name);
+      if (d.unhealthyBefore.length) c.note(`already unhealthy before the upgrade (Verify won't fail on these): ${d.unhealthyBefore.join(', ')}`);
+    }
+    unhealthyBefore = d.unhealthyBefore;
     const rel = verifyRelease(target, row.signature);
     if (!rel.verified) throw new Error(`unverified release: ${rel.reason}`);
     const block = upgradeBlockReason(row.fromVersion, target);
@@ -429,14 +472,13 @@ export function buildHandlers(ctx: OrgContext, row: RunRow, deps: PlatformUpgrad
     const nodes = await ctx.db.node.findMany({ where: { orgId: ctx.activeOrgId }, select: { id: true, name: true } });
     const deadline = deps.now().getTime() + 5 * 60_000;
     let problems: string[] = [];
+    let preexisting: string[] = [];
     for (;;) {
-      problems = [
-        ...nodes.filter((n) => !ctx.hub.isOnline(n.id)).map((n) => `${n.name} offline`),
-        ...ctx.hub
-          .liveInventory(ctx.activeOrgId)
-          .services.filter((s) => (s.name.startsWith('swarmy-') || s.name === CONTROLLER_SERVICE) && s.desiredReplicas !== undefined && s.runningReplicas < s.desiredReplicas)
-          .map((s) => `${s.name} ${s.runningReplicas}/${s.desiredReplicas}`),
-      ];
+      ({ problems, preexisting } = verifyProblems({
+        offlineNodes: nodes.filter((n) => !ctx.hub.isOnline(n.id)).map((n) => n.name),
+        services: ctx.hub.liveInventory(ctx.activeOrgId).services,
+        baseline: unhealthyBefore,
+      }));
       if (!problems.length) break;
       if (deps.now().getTime() > deadline) throw new Error(`the cluster did not settle: ${problems.join(', ')}`);
       await deps.sleep(deps.pollMs * 2);
@@ -445,7 +487,11 @@ export function buildHandlers(ctx: OrgContext, row: RunRow, deps: PlatformUpgrad
     await ctx.db.platformConfig.update({ where: { orgId: ctx.activeOrgId }, data: { currentManifest: target as object } });
     invalidateEffectiveImages(ctx.activeOrgId);
     c.note(`the cluster runs ${target.version}`);
-    return { status: 'done' as const, detail: `${nodes.length} server(s) online, system services converged` };
+    if (preexisting.length) c.note(`still unhealthy, as before the upgrade: ${preexisting.join(', ')}`);
+    return {
+      status: 'done' as const,
+      detail: `${nodes.length} server(s) online, system services converged${preexisting.length ? ` (${preexisting.length} were already unhealthy before the upgrade)` : ''}`,
+    };
   };
 
   return {
