@@ -48,7 +48,9 @@ services:
       start_period: 90s
   mysql:
     image: mysql:8.4.7
-    memory: 384mb
+    # 8.4's first-boot init peaks ~450 MiB; at 384mb it is OOM-killed mid-init
+    # and leaves a data dir whose 'ghost' user can't connect (QA-018).
+    memory: 768mb
     env:
       MYSQL_DATABASE: ghost
       MYSQL_USER: ghost
