@@ -1,41 +1,29 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import { ArrowRightIcon, HardDriveIcon } from 'lucide-react';
-import { Button, Card, CardContent, EmptyState } from '@swarmy/ui';
-import { useTRPC } from '@/integrations/trpc';
+import { Button } from '@swarmy/ui';
+import { AlreadyOn, Depth, NextAction, Say, SayHeader, SectionLink } from '@/components/calm';
 import { StackResilienceSection } from '@/components/resilience/stack-resilience-section';
-import { ErrorState } from '@/components/states';
+import { CardSkeleton, ErrorState } from '@/components/states';
+import { relativeTime } from './backup-format';
+import { StackBackupsCode } from './stack-backups-code';
 import { StackDbCoverageCard } from './stack-db-coverage-card';
 import { StackVolumeCoverageCard } from './stack-volume-coverage-card';
-import { StackDrHero } from './stack-dr-hero';
 import { StackSchedulesCard } from './stack-schedules-card';
 import { StackSnapshotsCard } from './stack-snapshots-card';
+import { useStackBackups } from './use-stack-backups';
+import { RetryBackupAction } from './retry-backup-action';
 
 interface StackBackupsProps {
   stack: string;
 }
 
 /**
- * The Backups tab of the stack workspace: this stack's DR posture, its
- * schedules, its snapshot catalog, and its resilience score + drills.
- * Destinations themselves are managed estate-wide at /backups.
+ * The app's Backups tab: one sentence about whether its data is safe, the
+ * one thing to do, its restore points; the per-volume switches, database
+ * coverage and schedules at Controls. Destinations live on /backups.
  */
 export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
-  const trpc = useTRPC();
-  const targets = useQuery({ ...trpc.backups.listTargets.queryOptions(), refetchInterval: 10_000 });
-  const schedules = useQuery({
-    ...trpc.backupSchedules.list.queryOptions({ stack }),
-    refetchInterval: 5_000,
-  });
-  const snapshots = useQuery({
-    ...trpc.backups.listSnapshots.queryOptions({ stack }),
-    refetchInterval: 5_000,
-  });
-  const coverage = useQuery({
-    ...trpc.backups.autoCoverage.queryOptions({ stack }),
-    refetchInterval: 15_000,
-  });
+  const b = useStackBackups(stack);
   const [creating, setCreating] = React.useState(false);
   const [prefillVolume, setPrefillVolume] = React.useState<string | undefined>(undefined);
   const changeVolume = React.useCallback((volume: string) => {
@@ -43,123 +31,82 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
     setCreating(true);
   }, []);
 
-  const targetRows = targets.data ?? [];
-  const targetOptions = React.useMemo(
-    () => targetRows.map((t) => ({ id: t.id, name: t.name })),
-    [targetRows],
+  if (b.pending) return <div className="grid gap-5"><CardSkeleton lines={3} /><CardSkeleton lines={5} /></div>;
+  if (b.targets.isError) {
+    return <ErrorState title="Couldn’t load backup destinations." error={b.targets.error} retry={() => void b.targets.refetch()} retrying={b.targets.isFetching} />;
+  }
+
+  const noHome = b.targetOptions.length === 0;
+  const all = b.total > 0 && b.covered === b.total;
+  const title = noHome ? (
+    <>{stack} isn&apos;t backed up. <Say tone="warn">Backups have nowhere to go.</Say></>
+  ) : b.failed ? (
+    <>{stack}&apos;s last save failed. <Say tone="bad">The ones before it are safe.</Say></>
+  ) : all ? (
+    <>{stack}&apos;s data is saved nightly. <em>{b.last ? `The last save was ${relativeTime(b.last.startedAt)}.` : 'The first save lands tonight.'}</em></>
+  ) : (
+    <>{b.covered} of {b.total} of {stack}&apos;s stores are saved nightly. <Say tone="warn">{b.total - b.covered} aren&apos;t.</Say></>
   );
-  const scheduleRows = schedules.data ?? [];
-  const snapshotRows = snapshots.data ?? [];
-
-  const nextRunAt = React.useMemo(() => {
-    const upcoming = scheduleRows
-      .filter((s) => !s.paused && s.nextRunAt)
-      .map((s) => s.nextRunAt as string)
-      .sort();
-    return upcoming[0] ?? null;
-  }, [scheduleRows]);
-
-  const lastSnapshot = snapshotRows[0] ?? null;
-  const targetName =
-    lastSnapshot?.targetName ||
-    targetOptions.find((t) => t.id === scheduleRows[0]?.targetId)?.name ||
-    targetOptions[0]?.name ||
-    null;
-
-  // The hero is a claim about coverage — draw nothing until every input has
-  // settled, so "no backups yet" can never flash over a covered stack.
-  if (targets.isPending || schedules.isPending || snapshots.isPending) {
-    return (
-      <div className="grid gap-6">
-        <div className="calm-card shimmer-line h-32" />
-        <div className="calm-card shimmer-line h-48" />
-      </div>
-    );
-  }
-  if (targets.isError) {
-    return (
-      <ErrorState
-        title="Couldn’t load backup destinations."
-        error={targets.error}
-        retry={() => void targets.refetch()}
-        retrying={targets.isFetching}
-      />
-    );
-  }
-
-  if (targetOptions.length === 0) {
-    const dbCount = coverage.data?.databases.length ?? 0;
-    return (
-      <div className="calm-card p-2">
-        <EmptyState
-          icon={<HardDriveIcon />}
-          title={dbCount > 0 ? 'Backups are off — add a destination' : 'No backup destinations yet'}
-          description={
-            dbCount > 0
-              ? `${stack} has ${dbCount} database${dbCount === 1 ? '' : 's'} that back up nightly, automatically, as soon as a destination exists — swarmy object storage, an S3 bucket, or a node path.`
-              : "Add an S3 bucket, a node path, or use swarmy object storage — then schedule this stack's volumes here."
-          }
-          action={
-            <Button variant="outline" asChild className="rounded-full font-bold">
-              <Link to="/backups">
-                Set up a destination <ArrowRightIcon className="size-4" />
-              </Link>
-            </Button>
-          }
-        />
-      </div>
-    );
-  }
+  const firstGap = b.uncovered[0];
+  const gapName = firstGap ? ('name' in firstGap ? firstGap.name : firstGap.volume) : '';
+  const schedules = (
+    <StackSchedulesCard
+            stack={stack}
+            schedules={b.scheduleRows}
+            targets={b.targetOptions}
+            creating={creating}
+            onCreatingChange={(open) => {
+              setCreating(open);
+              if (!open) setPrefillVolume(undefined);
+            }}
+            prefillVolume={prefillVolume}
+            onChangeAuto={changeVolume}
+          />
+  );
 
   return (
-    <div className="grid gap-6">
-      <StackDrHero
-        stack={stack}
-        lastBackupAt={lastSnapshot?.startedAt ?? null}
-        nextRunAt={nextRunAt}
-        targetName={targetName}
-        snapshotCount={snapshotRows.length}
-        activeScheduleCount={scheduleRows.filter((s) => !s.paused).length}
-      />
-
-      <Card className="calm-card">
-        <CardContent className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
-          <p className="text-muted-foreground text-sm">
-            Destinations are managed estate-wide.
-          </p>
-          <Link
-            to="/backups"
-            className="text-primary flex items-center gap-1 text-sm font-bold hover:underline"
-          >
-            Backup destinations <ArrowRightIcon className="size-4" />
-          </Link>
-        </CardContent>
-      </Card>
-
-      {coverage.data && (
-        <StackDbCoverageCard stack={stack} coverage={coverage.data} onChangeVolume={changeVolume} />
-      )}
-      {coverage.data?.volumes && (
-        <StackVolumeCoverageCard
-          stack={stack}
-          volumes={coverage.data.volumes}
-          appOptedOut={coverage.data.appOptedOut ?? false}
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
+      <div className="flex min-w-0 flex-col gap-5">
+        <SayHeader
+          size="md"
+          title={title}
+          lede={`${b.snapshotRows.length} restore point${b.snapshotRows.length === 1 ? '' : 's'}${b.destination ? `, kept in ${b.destination}` : ''}. Saves are encrypted and don’t stop the app.`}
         />
-      )}
-      <StackSchedulesCard
-        stack={stack}
-        schedules={scheduleRows}
-        targets={targetOptions}
-        creating={creating}
-        onCreatingChange={(open) => {
-          setCreating(open);
-          if (!open) setPrefillVolume(undefined);
-        }}
-        prefillVolume={prefillVolume}
-        onChangeAuto={changeVolume}
-      />
-      <StackSnapshotsCard stack={stack} snapshots={snapshotRows} targets={targetOptions} />
-      <StackResilienceSection stack={stack} />
+        {noHome ? (
+          <NextAction title="Give backups a home" actions={<Button asChild><Link to="/backups">Set up a destination</Link></Button>}>
+            {stack}&apos;s volumes and databases start saving nightly the moment a destination exists.
+          </NextAction>
+        ) : b.failed ? (
+          <RetryBackupAction snap={b.failed} />
+        ) : firstGap ? (
+          <NextAction
+            title={`${gapName} isn't backed up yet`}
+            actions={<Button onClick={() => changeVolume(firstGap.volume ?? '')}>Schedule a nightly save</Button>}
+          >
+            Pick when and where; it takes a minute and doesn&apos;t stop the app.
+          </NextAction>
+        ) : null}
+        <StackSnapshotsCard stack={stack} snapshots={b.snapshotRows} targets={b.targetOptions} />
+        <Depth at="controls">
+          {b.coverage?.volumes ? (
+            <StackVolumeCoverageCard stack={stack} volumes={b.coverage.volumes} appOptedOut={b.coverage.appOptedOut ?? false} />
+          ) : null}
+          {b.coverage ? <StackDbCoverageCard stack={stack} coverage={b.coverage} onChangeVolume={changeVolume} /> : null}
+        </Depth>
+        {creating ? schedules : <Depth at="controls">{schedules}</Depth>}
+        <StackResilienceSection stack={stack} />
+      </div>
+      <aside className="flex min-w-0 flex-col gap-4">
+        <StackBackupsCode stack={stack} b={b} />
+        <AlreadyOn
+          items={[
+            { what: 'Backups', detail: b.coverage?.appOptedOut ? 'off for this app' : 'every volume nightly' },
+            { what: 'Databases', detail: `${b.coverage?.databases.length ?? 0} on the same nightly run` },
+            { what: 'Encrypted', detail: 'before it leaves the server' },
+          ]}
+        />
+        <Link to="/backups" className="px-1"><SectionLink>Where backups go →</SectionLink></Link>
+      </aside>
     </div>
   );
 }
