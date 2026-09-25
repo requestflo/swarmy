@@ -10,13 +10,15 @@ interface AuthFormProps {
   onSubmit: (fields: AuthFields) => Promise<void>;
   /** The controller's public dashboard URL — where to go after an origin rejection. */
   dashboardUrl?: string | null;
+  /** The team's own sign-in is the page's action: the password button goes quiet (outline). */
+  quiet?: boolean;
 }
 
 /**
  * Password sign-in / sign-up. Email is optional on swarmy: sign-in takes a
  * username or an email; sign-up asks for a username and an optional email.
  */
-export function AuthForm({ mode, busy, onSubmit, dashboardUrl }: AuthFormProps): React.JSX.Element {
+export function AuthForm({ mode, busy, onSubmit, dashboardUrl, quiet }: AuthFormProps): React.JSX.Element {
   const [name, setName] = React.useState('');
   const [login, setLogin] = React.useState('');
   const [email, setEmail] = React.useState('');
@@ -77,7 +79,7 @@ export function AuthForm({ mode, busy, onSubmit, dashboardUrl }: AuthFormProps):
         />
       </div>
       {error ? <AuthError error={error} dashboardUrl={dashboardUrl ?? null} /> : null}
-      <Button type="submit" disabled={busy} className="mt-2 w-full pointer-coarse:min-h-11">
+      <Button type="submit" variant={quiet ? 'outline' : 'default'} disabled={busy} className="mt-2 w-full pointer-coarse:min-h-11">
         {busy && <Loader2Icon className="animate-spin" />}
         {mode === 'signin' ? 'Sign in' : 'Create account'}
       </Button>

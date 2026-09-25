@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router';
-import { Card, CardContent, toast } from '@swarmy/ui';
+import { toast } from '@swarmy/ui';
 import { AuthForm } from '@/components/auth/auth-form';
 import { InviteBanner } from '@/components/auth/invite-banner';
 import { setInviteCookie } from '@/components/auth/invite-cookie';
@@ -11,7 +11,7 @@ import { useInviteReturn } from '@/components/auth/use-invite-return';
 import { isOAuthAuthorizeFlow, resumeAuthorize, useOAuthResume } from '@/components/auth/use-oauth-resume';
 import { LoginTwoFactorStep } from '@/components/auth/login-two-factor-step';
 import { type AuthFields, type AuthMode, useAuthSubmit } from '@/components/auth/use-auth-submit';
-import { Wordmark } from '@/components/wordmark';
+import { SignInLayout } from '@/components/auth/sign-in-layout';
 import { DemoAuthPage } from '@/demo/demo-unavailable';
 import { DEMO_BUILD } from '@/demo/site';
 import { useSession } from '@swarmy/auth/client';
@@ -98,63 +98,50 @@ function LoginPage(): React.JSX.Element {
     await land();
   }
 
+  const options = challenge ? [] : (config.data?.signIn ?? []);
   return (
-    <div className="mesh bg-background flex min-h-screen items-center justify-center p-4">
-      <div className="mx-auto flex w-full max-w-md flex-col">
-        <div className="mb-8 flex flex-col items-center text-center">
-          <Wordmark className="text-2xl" />
-          <span className="eyebrow mt-6 text-muted-foreground">Welcome</span>
-          <h1 className="headline mt-3 text-[2.4rem] sm:text-5xl/[3.4rem]">
-            {mode === 'signin' ? <>Welcome <em>back</em>.</> : <>Run your <em>swarm</em>.</>}
-          </h1>
-          <p className="text-muted-foreground mt-3 text-sm">
-            {mode === 'signin'
-              ? 'Sign in with your organisation account, or a username.'
-              : invite
-                ? 'Create your account to join the team that invited you.'
-                : 'Set up your account and first team. Anyone can just deploy.'}
+    <SignInLayout
+      title={mode === 'signin' ? 'Sign in to swarmy.' : 'Run your swarm.'}
+      lede={
+        mode === 'signup'
+          ? invite ? 'Create your account to join the team that invited you.' : 'Set up your account and first team. Anyone can just deploy.'
+          : options.length ? 'Use the account your team already uses. No new password to remember.' : 'Sign in with your username or email.'
+      }
+      foot={
+        !challenge && (signupOpen || mode === 'signup') ? (
+          <p>
+            {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
+            <button type="button" className="text-foreground font-semibold hover:underline pointer-coarse:min-h-11" onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}>
+              {mode === 'signin' ? 'Sign up' : 'Sign in'}
+            </button>
           </p>
-        </div>
-
-        <Card className="card-pop border-0">
-          <CardContent className="pt-6">
-            {invite && !challenge && <InviteBanner inviteId={invite} />}
-            {inviteError && <p className="text-status-offline mb-4 text-sm font-medium">{inviteError}</p>}
-            {!challenge && (config.data?.signIn.length ?? 0) > 0 && (
-              <>
-                <SignInOptions options={config.data?.signIn ?? []} callbackURL={callbackURL} />
-                <OrDivider />
-              </>
-            )}
-            {challenge ? (
-              <LoginTwoFactorStep
-                onVerified={async () => {
-                  if (isOAuthAuthorizeFlow()) return resumeAuthorize();
-                  await finish('signin');
-                  await land();
-                }}
-                onCancel={() => setChallenge(false)}
-              />
-            ) : mode === 'signup' && !signupOpen ? (
-              <InviteOnlyNotice />
-            ) : (
-              <AuthForm mode={mode} busy={busy} onSubmit={onSubmit} dashboardUrl={config.data?.dashboardUrl} />
-            )}
-            {!challenge && (signupOpen || mode === 'signup') && (
-              <p className="text-muted-foreground mt-6 text-center text-sm">
-                {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
-                <button
-                  type="button"
-                  className="text-primary font-medium hover:underline"
-                  onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
-                >
-                  {mode === 'signin' ? 'Sign up' : 'Sign in'}
-                </button>
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+        ) : mode === 'signin' && !challenge ? (
+          <p>New here? Ask an admin on your team for an invite link.</p>
+        ) : null
+      }
+    >
+      {invite && !challenge && <InviteBanner inviteId={invite} />}
+      {inviteError && <p className="text-tone-bad mb-4 text-sm font-medium">{inviteError}</p>}
+      {options.length > 0 && (
+        <>
+          <SignInOptions options={options} callbackURL={callbackURL} />
+          <OrDivider />
+        </>
+      )}
+      {challenge ? (
+        <LoginTwoFactorStep
+          onVerified={async () => {
+            if (isOAuthAuthorizeFlow()) return resumeAuthorize();
+            await finish('signin');
+            await land();
+          }}
+          onCancel={() => setChallenge(false)}
+        />
+      ) : mode === 'signup' && !signupOpen ? (
+        <InviteOnlyNotice />
+      ) : (
+        <AuthForm mode={mode} busy={busy} onSubmit={onSubmit} dashboardUrl={config.data?.dashboardUrl} quiet={options.length > 0} />
+      )}
+    </SignInLayout>
   );
 }

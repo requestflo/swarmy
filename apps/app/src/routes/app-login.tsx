@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useSession } from '@swarmy/auth/client';
-import { Wordmark } from '@/components/wordmark';
+import { SignInLayout } from '@/components/auth/sign-in-layout';
 import { DemoAuthPage } from '@/demo/demo-unavailable';
 import { DEMO_BUILD } from '@/demo/site';
 
@@ -47,24 +47,11 @@ function AppLoginPage(): React.JSX.Element {
   }, [rd, session.isPending, session.data, navigate]);
 
   return (
-    <div className="mesh bg-background flex min-h-screen items-center justify-center p-4">
-      <div className="flex flex-col items-center text-center">
-        <Wordmark className="text-2xl" />
-        <span className="eyebrow mt-6 text-muted-foreground">Sign in</span>
-        <h1 className="headline mt-3 text-[2rem] sm:text-4xl">
-          {host ? (
-            <>
-              Continuing to <em>{host}</em>
-            </>
-          ) : (
-            'That sign-in link is incomplete.'
-          )}
-        </h1>
-        <p className="text-muted-foreground mt-3 max-w-sm">
-          {host ? 'One moment. swarmy is checking who you are.' : 'Open the app again to start over.'}
-        </p>
-        {host ? <span className="pulse-dot mt-6" aria-hidden /> : null}
-      </div>
-    </div>
+    <SignInLayout
+      title={host ? <>Continuing to <em>{host}</em></> : 'That sign-in link is incomplete.'}
+      lede={host ? 'One moment. swarmy is checking who you are.' : 'Open the app again to start over.'}
+    >
+      {host ? <span className="pulse-dot" aria-hidden /> : null}
+    </SignInLayout>
   );
 }
