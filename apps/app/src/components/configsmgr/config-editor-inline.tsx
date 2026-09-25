@@ -51,7 +51,7 @@ export function ConfigEditorInline({ family, onDone }: ConfigEditorInlineProps):
           ))}
         </div>
       ) : current.isError ? (
-        <p className="text-status-offline text-sm">{current.error.message}</p>
+        <p className="text-tone-bad text-sm">{current.error.message}</p>
       ) : preview ? (
         <DiffView oldText={base} newText={value} />
       ) : (

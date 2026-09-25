@@ -32,7 +32,7 @@ export function FamilyContent({
           ))}
         </div>
       ) : content.isError ? (
-        <p className="text-status-offline text-xs">{content.error.message}</p>
+        <p className="text-tone-bad text-xs">{content.error.message}</p>
       ) : !content.data ? null : (
         <>
           <pre className="border-border bg-accent/40 mono-data max-h-56 overflow-auto whitespace-pre-wrap break-all rounded-xl border p-3 text-xs leading-5">

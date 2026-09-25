@@ -69,7 +69,7 @@ export function ConfigDangerRow({ family }: { family: ConfigFamilyView }): React
             <Button
               size="sm"
               variant="outline"
-              className="border-status-offline/40 text-status-offline hover:bg-status-offline/10"
+              className="border-status-offline/40 text-tone-bad hover:bg-status-offline/10"
               disabled={inUse || del.isPending}
             >
               <Trash2Icon className="size-3.5" />

@@ -66,7 +66,7 @@ export function RotateSecretAlert({ family }: { family: SecretFamilyView }): Rea
         </AlertDialogHeader>
         <SecretValueField value={value} onChange={setValue} label="New value" />
         {family.consumers.length > 0 ? (
-          <div className="bg-status-warning/10 text-status-warning flex gap-2.5 rounded-xl p-3 text-xs">
+          <div className="bg-status-warning/10 text-tone-warn flex gap-2.5 rounded-xl p-3 text-xs">
             <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
             <div>
               <p className="font-semibold">

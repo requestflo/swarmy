@@ -23,7 +23,7 @@ export function ConsumerChips({ consumers }: { consumers: ConsumerChip[] }): Rea
             'mono-data rounded-full border px-2 py-0.5 text-[11px]',
             c.upToDate
               ? 'border-border text-muted-foreground'
-              : 'border-status-warning/40 text-status-warning',
+              : 'border-status-warning/40 text-tone-warn',
           )}
         >
           {c.serviceName}

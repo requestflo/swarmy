@@ -21,8 +21,8 @@ export function DiffView({ oldText, newText }: { oldText: string; newText: strin
   return (
     <div className="border-border overflow-hidden rounded-xl border">
       <div className="border-border bg-accent/40 flex items-center gap-2 border-b px-3 py-1.5">
-        <span className="mono-data text-status-online text-xs font-semibold">+{stats.added}</span>
-        <span className="mono-data text-status-offline text-xs font-semibold">−{stats.removed}</span>
+        <span className="mono-data text-tone-ok text-xs font-semibold">+{stats.added}</span>
+        <span className="mono-data text-tone-bad text-xs font-semibold">−{stats.removed}</span>
         <span className="text-muted-foreground text-xs">lines changed</span>
       </div>
       <div className="max-h-72 overflow-auto">
@@ -45,8 +45,8 @@ export function DiffView({ oldText, newText }: { oldText: string; newText: strin
                 <td
                   className={cn(
                     'w-4 select-none text-center align-top font-semibold',
-                    l.op === 'add' && 'text-status-online',
-                    l.op === 'del' && 'text-status-offline',
+                    l.op === 'add' && 'text-tone-ok',
+                    l.op === 'del' && 'text-tone-bad',
                   )}
                 >
                   {l.op === 'add' ? '+' : l.op === 'del' ? '−' : ''}

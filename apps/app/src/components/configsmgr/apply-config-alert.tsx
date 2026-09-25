@@ -85,9 +85,9 @@ export function ApplyConfigAlert({
         {preview.isLoading ? (
           <div className="shimmer-line h-16 rounded-xl" />
         ) : preview.isError ? (
-          <p className="text-status-offline text-sm">{preview.error.message}</p>
+          <p className="text-tone-bad text-sm">{preview.error.message}</p>
         ) : restarting.length > 0 ? (
-          <div className="bg-status-warning/10 text-status-warning flex gap-2.5 rounded-xl p-3 text-xs">
+          <div className="bg-status-warning/10 text-tone-warn flex gap-2.5 rounded-xl p-3 text-xs">
             <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
             <div>
               <p className="font-semibold">
