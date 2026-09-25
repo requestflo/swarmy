@@ -17,6 +17,7 @@
  */
 import { createHash } from 'node:crypto';
 import type { ServiceSpec } from '@swarmy/core/protocol';
+import { isManagedDataService } from '@swarmy/core';
 
 /** Label carrying the hash of the desired spec a system service was deployed from. */
 export const SPEC_SIGNATURE_LABEL = 'swarmy.spec.sig';
@@ -71,20 +72,21 @@ export const SYSTEM_UPDATE_CONFIG: NonNullable<ServiceSpec['updateConfig']> = {
 
 // ── the central gate (every system-service converge) ─────────────────────────
 
-/** Label prefixes of reconciler-owned managed-data services. */
-const MANAGED_DATA_PREFIXES = ['swarmy.db.', 'swarmy.cache.', 'swarmy.search.', 'swarmy.vector.', 'swarmy.storage.'];
 
 /**
  * PURE — is this a service swarmy's own reconcilers converge (and so re-send
  * on every tick and boot)? swarmy's platform services (`swarmy.system`,
- * `swarmy-*` / `swarmy_*` names) and the managed-data services. User app
+ * `swarmy-*` / `swarmy_*` names) and the managed-data services it created
+ * (both labels are refused on user specs by the admission wall). User app
  * deploys are never gated: an identical redeploy can be a deliberate restart.
  */
 export function isSystemOwned(spec: Pick<ServiceSpec, 'name' | 'labels'>): boolean {
   const labels = spec.labels ?? {};
   if (labels['swarmy.system'] === 'true') return true;
   if (/^swarmy[-_]/.test(spec.name)) return true;
-  return Object.keys(labels).some((k) => MANAGED_DATA_PREFIXES.some((p) => k.startsWith(p)));
+  // A managed service swarmy CREATED, never an app merely attached to one
+  // (attached apps carry only the `*.inject*` labels).
+  return isManagedDataService(labels);
 }
 
 /** The signature of a deploy: the desired spec plus the pull credentials it carries. */

@@ -1,4 +1,4 @@
-import { networkIsolationViolations } from '@swarmy/core';
+import { networkIsolationViolations, reservedLabelViolations } from '@swarmy/core';
 import { TRPCError } from '@trpc/server';
 import type { OrgContext } from '../context';
 import { evaluateAdmission, type AdmissionIntent, type Violation } from './admission.service';
@@ -53,7 +53,13 @@ export async function enforceAdmission(
 ): Promise<Violation[]> {
   // The network wall is not a policy: no override (admin or not) lets an app
   // join the control-plane network or alias a name on the shared platform one.
-  const wall = networkIsolationViolations(intent.specs);
+  // Reserved labels ride the same wall: an app may not pose as a platform
+  // service (`swarmy.system`) or as managed data it wasn't made into.
+  const liveByName = new Map(ctx.hub?.liveInventory?.(ctx.activeOrgId)?.services.map((s) => [s.name, s.labels]) ?? []);
+  const wall = [
+    ...networkIsolationViolations(intent.specs),
+    ...reservedLabelViolations(intent.specs, (name) => liveByName.get(name)),
+  ];
   if (wall.length) throw admissionDenied(wall.map((v) => ({ ...v, severity: 'block' as const })));
 
   const automation = opts.mode === 'automation';

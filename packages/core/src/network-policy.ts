@@ -171,7 +171,7 @@ export interface NetworkedSpecLike {
 }
 
 export interface NetworkIsolationViolation {
-  rule: 'network.control-plane' | 'network.platform-alias' | 'platform.reserved-name';
+  rule: 'network.control-plane' | 'network.platform-alias' | 'platform.reserved-name' | 'label.system' | 'label.managed-data';
   message: string;
   resource?: string;
 }
@@ -187,6 +187,74 @@ export interface NetworkIsolationViolation {
  */
 export function isReservedServiceName(name: string): boolean {
   return /^swarmy[-_]/.test(name) || name === 'swarmy';
+}
+
+// ───────────────────────────────────────── reserved labels ──
+
+/** swarmy's platform-service marker. Never user-supplied. */
+export const SYSTEM_LABEL = 'swarmy.system';
+/** Label families swarmy's managed-data services (and the apps it attaches to them) carry. */
+export const MANAGED_DATA_LABEL_PREFIXES = ['swarmy.db.', 'swarmy.cache.', 'swarmy.search.', 'swarmy.vector.'] as const;
+/**
+ * The label that makes a service a managed-data service swarmy CREATED, per
+ * family (an attached app carries only the `*.inject*` labels).
+ */
+export const MANAGED_DATA_OWNER_LABELS: Readonly<Record<(typeof MANAGED_DATA_LABEL_PREFIXES)[number], string>> = {
+  'swarmy.db.': 'swarmy.db.cluster',
+  'swarmy.cache.': 'swarmy.cache.cluster',
+  'swarmy.search.': 'swarmy.search.cluster',
+  'swarmy.vector.': 'swarmy.vector.name',
+};
+
+/** PURE — is this a managed-data service swarmy created (any family)? */
+export function isManagedDataService(labels: Readonly<Record<string, string>> | undefined): boolean {
+  return Object.values(MANAGED_DATA_OWNER_LABELS).some((k) => !!labels?.[k]);
+}
+
+/**
+ * Reserved labels in USER-supplied specs. `live` = the labels of the live
+ * service each spec would replace (by name), if one exists.
+ *  - `swarmy.system`: never user-supplied. Only a spec rebuilt from a live
+ *    service that already carries it, unchanged, passes.
+ *  - managed-data labels (`swarmy.db.*` / `.cache.*` / `.search.*` /
+ *    `.vector.*`): refused on a new service. On an existing one, a label is
+ *    fine when it's unchanged from the live service (swarmy put it there: an
+ *    attached app's inject labels ride every redeploy), or when the target is
+ *    a managed service of that family swarmy created (editing its allowed
+ *    fields). Anything else would let an app pose as managed data.
+ */
+export function reservedLabelViolations(
+  specs: readonly unknown[] | undefined,
+  live: (name: string) => Readonly<Record<string, string>> | undefined,
+): NetworkIsolationViolation[] {
+  const out: NetworkIsolationViolation[] = [];
+  for (const raw of specs ?? []) {
+    const spec = (raw ?? {}) as { name?: string; labels?: Record<string, string> };
+    const name = spec.name ?? '(unnamed)';
+    const labels = spec.labels ?? {};
+    const current = spec.name ? live(spec.name) : undefined;
+    if (SYSTEM_LABEL in labels && current?.[SYSTEM_LABEL] !== labels[SYSTEM_LABEL]) {
+      out.push({
+        rule: 'label.system',
+        message: `\`${SYSTEM_LABEL}\` marks swarmy's own platform services — an app can't set it`,
+        resource: name,
+      });
+    }
+    for (const prefix of MANAGED_DATA_LABEL_PREFIXES) {
+      const keys = Object.keys(labels).filter((k) => k.startsWith(prefix));
+      if (!keys.length) continue;
+      const managedTarget = !!current?.[MANAGED_DATA_OWNER_LABELS[prefix]];
+      const bad = managedTarget ? [] : keys.filter((k) => current?.[k] !== labels[k]);
+      if (bad.length) {
+        out.push({
+          rule: 'label.managed-data',
+          message: `${bad.map((k) => `\`${k}\``).join(', ')} ${bad.length === 1 ? 'is' : 'are'} set by swarmy on managed data it creates (and the apps it attaches) — an app can't set ${bad.length === 1 ? 'it' : 'them'}`,
+          resource: name,
+        });
+      }
+    }
+  }
+  return out;
 }
 
 /**
