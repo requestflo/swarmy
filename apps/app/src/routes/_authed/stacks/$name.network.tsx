@@ -1,19 +1,13 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { StackDomainsSection } from '@/components/ingress/stack-domains-section';
-import { StackDnsStatus } from '@/components/geo/stack-dns-status';
+import { DomainsTabPage } from '@/components/app-domains/domains-tab-page';
 
-/** Network tab: ingress routes, protections and geo-DNS status for this stack. */
+/** Domains tab: this app's addresses, their HTTPS state and protections, and geo-DNS. */
 export const Route = createFileRoute('/_authed/stacks/$name/network')({
   component: NetworkTab,
 });
 
 function NetworkTab(): React.JSX.Element {
   const { name } = Route.useParams();
-  return (
-    <div className="space-y-10">
-      <StackDomainsSection stack={name} />
-      <StackDnsStatus stack={name} />
-    </div>
-  );
+  return <DomainsTabPage stack={name} />;
 }
