@@ -37,7 +37,7 @@ export function KeepCard({ settings: s, onChange, disabled, footprint }: KeepCar
         <span className="text-muted-foreground text-xs">then deleted, not archived</span>
       </div>
       {s.mode !== 'identified' && s.replaySampleRate > 0 ? (
-        <p className="text-status-warning text-xs">
+        <p className="text-tone-warn text-xs">
           Replay only records in identified mode — switch the analytics mode below to start recording.
         </p>
       ) : null}

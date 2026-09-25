@@ -11,7 +11,7 @@ interface SignedInVisitorsProps {
 /** Identified mode: who was here, and a jump into their last replay. */
 export function SignedInVisitors({ stack, users }: SignedInVisitorsProps): React.JSX.Element {
   return (
-    <section className="card-pop flex min-w-0 flex-col gap-1 p-5" aria-label="Signed-in visitors">
+    <section className="calm-card shadow-none flex min-w-0 flex-col gap-1 p-5" aria-label="Signed-in visitors">
       <div className="flex items-baseline gap-2 pb-1">
         <h2 className="text-base font-bold">Signed-in visitors</h2>
         <span className="text-muted-foreground ml-auto font-mono text-[11px]">{users.length} people</span>

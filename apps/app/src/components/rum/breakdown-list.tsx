@@ -38,7 +38,7 @@ export function BreakdownList({
   const shown = rows.slice(0, limit);
   const max = Math.max(1, ...shown.map((r) => r.pageviews));
   return (
-    <section className={cn('card-pop flex min-w-0 flex-col gap-1 p-5', className)} aria-label={title}>
+    <section className={cn('calm-card shadow-none flex min-w-0 flex-col gap-1 p-5', className)} aria-label={title}>
       <div className="flex items-baseline gap-2 pb-1">
         <h2 className="text-base font-bold">{title}</h2>
         {caption ? <span className="text-muted-foreground text-xs">{caption}</span> : null}

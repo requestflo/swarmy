@@ -33,6 +33,10 @@ export function ReplayViewport({ stageRef, size, ready, url }: ReplayViewportPro
   const box = useBoxSize(boxRef);
   const scale = size && box.w && box.h ? Math.min(box.w / size.width, box.h / size.height, 1) : 1;
   const left = size ? Math.max(0, (box.w - size.width * scale) / 2) : 0;
+  React.useEffect(() => {
+    // rrweb's replay iframe comes without a title; screen readers need one.
+    stageRef.current?.querySelectorAll('iframe').forEach((f) => (f.title = 'Replayed page'));
+  }, [ready, stageRef]);
 
   return (
     <div className="border-border flex h-[420px] flex-col overflow-hidden rounded-2xl border bg-card lg:h-[500px]">

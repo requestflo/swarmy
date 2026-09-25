@@ -14,7 +14,7 @@ interface SessionListProps {
 /** Recorded sessions, newest first — flat rows in one card, coral rail on the open one. */
 export function SessionList({ stack, sessions, activeId, withErrors, onWithErrors }: SessionListProps): React.JSX.Element {
   return (
-    <aside className="card-pop flex min-h-0 flex-col overflow-hidden" aria-label="Sessions">
+    <aside className="calm-card shadow-none flex min-h-0 flex-col overflow-hidden" aria-label="Sessions">
       <div className="flex items-center gap-2 px-3 py-3">
         <span className="mono-label text-muted-foreground">Sessions</span>
         <button
@@ -23,7 +23,7 @@ export function SessionList({ stack, sessions, activeId, withErrors, onWithError
           onClick={() => onWithErrors(!withErrors)}
           className={cn(
             'ml-auto rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors',
-            withErrors ? 'bg-status-offline/12 text-status-offline' : 'bg-muted text-muted-foreground hover:text-foreground',
+            withErrors ? 'bg-status-offline/12 text-tone-bad' : 'bg-muted text-muted-foreground hover:text-foreground',
           )}
         >
           with errors

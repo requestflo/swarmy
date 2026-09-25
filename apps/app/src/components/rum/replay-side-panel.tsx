@@ -32,7 +32,7 @@ export function ReplaySidePanel({ stack, timeline, time, onSeek }: ReplaySidePan
   const now = lastAt(rows, time);
 
   return (
-    <aside className="card-pop flex min-h-0 flex-col gap-2 p-4" aria-label="This visit">
+    <aside className="calm-card shadow-none flex min-h-0 flex-col gap-2 p-4" aria-label="This visit">
       <div role="tablist" className="flex flex-wrap gap-1">
         {TABS.map((t) => (
           <button

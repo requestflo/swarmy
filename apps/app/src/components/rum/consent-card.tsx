@@ -34,7 +34,7 @@ export function ConsentCard({ settings: s, onChange, disabled }: SettingsCardPro
           disabled={disabled}
         />
       </div>
-      <p className={s.consent === 'none' ? 'text-status-warning text-sm' : 'text-muted-foreground text-sm'}>
+      <p className={s.consent === 'none' ? 'text-tone-warn text-sm' : 'text-muted-foreground text-sm'}>
         {LINE[s.consent]}
       </p>
       {s.consent !== 'none' ? (

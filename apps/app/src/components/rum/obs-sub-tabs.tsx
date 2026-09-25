@@ -26,7 +26,7 @@ export function ObsSubTabs({ stack, active, aside }: ObsSubTabsProps): React.JSX
   return (
     <nav
       aria-label="Analytics and replays"
-      className="border-border mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-b"
+      className="border-border flex flex-wrap items-center gap-x-4 gap-y-2 border-b"
     >
       <div className="scrollbar-none -mb-px flex gap-1 overflow-x-auto">
         {TABS.map((t) => (
@@ -37,7 +37,7 @@ export function ObsSubTabs({ stack, active, aside }: ObsSubTabsProps): React.JSX
             params={{ name: stack }}
             aria-current={t.key === active ? 'page' : undefined}
             className={cn(
-              'flex items-center border-b-2 px-3 py-2 text-sm font-semibold whitespace-nowrap transition-colors',
+              'flex min-h-11 items-center border-b-2 px-3 py-2 text-sm font-semibold whitespace-nowrap transition-colors',
               t.key === active
                 ? 'border-primary text-foreground'
                 : 'text-muted-foreground hover:text-foreground border-transparent',

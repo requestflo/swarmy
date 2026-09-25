@@ -14,7 +14,7 @@ export function AnalyticsKpis({ data, identified }: AnalyticsKpisProps): React.J
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
       <div className="ink-block flex flex-col gap-1 rounded-2xl px-4 py-3">
-        <span className="mono-label flex items-center gap-2 opacity-80">
+        <span className="mono-label text-ink-foreground flex items-center gap-2">
           <span className="pulse-dot" aria-hidden /> Live now
         </span>
         <CountUp value={live.visitors} className="font-display text-3xl font-bold" />
@@ -46,7 +46,7 @@ function Kpi({
   sub: string;
 }): React.JSX.Element {
   return (
-    <div className="card-pop flex flex-col gap-1 px-4 py-3">
+    <div className="calm-card shadow-none flex flex-col gap-1 px-4 py-3">
       <span className="mono-label text-muted-foreground">{label}</span>
       {value !== undefined ? (
         <CountUp value={value} format={compact} className="font-display text-3xl font-bold" />

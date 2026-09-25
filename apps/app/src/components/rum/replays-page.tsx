@@ -3,6 +3,10 @@ import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { FilmIcon } from 'lucide-react';
 import { useTRPC } from '@/integrations/trpc';
+import { Button } from '@swarmy/ui';
+import { Depth, NextAction, Say, SayHeader } from '@/components/calm';
+import { RumCode } from './rum-code';
+import { ReplaySummaryList } from './replay-summary-list';
 import { CardSkeleton, EmptyState, ErrorState } from '@/components/states';
 import { ObsSubTabs } from './obs-sub-tabs';
 import { ReplayPlayer } from './replay-player';
@@ -42,17 +46,32 @@ export function ReplaysPage({ stack, sessionId }: ReplaysPageProps): React.JSX.E
           ? 'no-store'
           : null;
 
+  const recording = !!s && s.enabled && s.mode === 'identified' && s.replaySampleRate > 0;
+  const withErr = sessions.filter((x) => x.errors > 0).length;
+  const title = !recording && sessions.length === 0
+    ? <>{stack} isn’t recording visits.</>
+    : <>{sessions.length} {sessions.length === 1 ? 'visit' : 'visits'} recorded this week. {withErr ? <Say tone="warn">{withErr} hit an error.</Say> : <em>None hit an error.</em>}</>;
+  const lede = s
+    ? `${pct(s.replaySampleRate)} of signed-in visits are recorded, inputs always masked${s.maskAllText ? ', all text masked' : ''}. Kept ${s.retentionDays} days.`
+    : undefined;
+
   return (
-    <div className="pb-8">
+    <div className="flex flex-col gap-4 pb-8">
+      <SayHeader size="md" title={title} lede={lede} />
       <ObsSubTabs stack={stack} active="replays" aside={aside} />
-      {s && !(s.enabled && s.mode === 'identified' && s.replaySampleRate > 0) ? (
-        <p className="border-status-warning/40 bg-status-warning/8 mb-4 rounded-2xl border px-4 py-3 text-sm">
-          New sessions aren't being recorded. Replay needs analytics on, identified mode and a sample rate above 0% —{' '}
-          <Link to="/stacks/$name/rum-settings" params={{ name: stack }} className="text-primary font-semibold">
-            change it in settings
-          </Link>
-          .
-        </p>
+      {s && settings.data ? <RumCode stack={stack} settings={s} routes={settings.data.routes} /> : null}
+      {s && !recording ? (
+        <NextAction
+          title="New visits aren’t being recorded"
+          tech="replay needs enabled · mode=identified · replaySampleRate > 0"
+          actions={
+            <Button asChild>
+              <Link to="/stacks/$name/rum-settings" params={{ name: stack }}>Turn on recording</Link>
+            </Button>
+          }
+        >
+          Replay needs analytics on, signed-in (identified) mode and a share of visits to record.
+        </NextAction>
       ) : null}
       {list.isPending || settings.isPending ? (
         <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
@@ -64,24 +83,21 @@ export function ReplaysPage({ stack, sessionId }: ReplaysPageProps): React.JSX.E
       ) : notice ? (
         <RumStateNotice stack={stack} kind={notice} />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-          <SessionList
-            stack={stack}
-            sessions={sessions}
-            activeId={selected}
-            withErrors={withErrors}
-            onWithErrors={setWithErrors}
-          />
-          {selected ? (
-            <ReplayPlayer stack={stack} sessionId={selected} />
-          ) : (
-            <EmptyState
-              icon={<FilmIcon />}
-              title="Nothing to play yet."
-              description="Recorded visits appear on the left a few seconds after they happen."
-            />
-          )}
-        </div>
+        <>
+          <Depth only="summary">
+            {sessionId ? <ReplayPlayer stack={stack} sessionId={sessionId} /> : <ReplaySummaryList stack={stack} sessions={sessions} />}
+          </Depth>
+          <Depth at="controls">
+            <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+              <SessionList stack={stack} sessions={sessions} activeId={selected} withErrors={withErrors} onWithErrors={setWithErrors} />
+              {selected ? (
+                <ReplayPlayer stack={stack} sessionId={selected} />
+              ) : (
+                <EmptyState icon={<FilmIcon />} title="Nothing to play yet." description="Recorded visits appear on the left a few seconds after they happen." />
+              )}
+            </div>
+          </Depth>
+        </>
       )}
     </div>
   );

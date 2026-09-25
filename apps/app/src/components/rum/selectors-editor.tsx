@@ -61,7 +61,7 @@ export function SelectorsEditor({ value, onChange, disabled }: SelectorsEditorPr
           Block
         </Button>
       </form>
-      {error ? <span className="text-status-offline text-xs">{error}</span> : null}
+      {error ? <span className="text-tone-bad text-xs">{error}</span> : null}
     </div>
   );
 }

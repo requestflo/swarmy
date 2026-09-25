@@ -19,7 +19,7 @@ function dayLabel(day: string): string {
 export function VisitorsChart({ series }: VisitorsChartProps): React.JSX.Element {
   const data = series.map((s) => ({ ...s, label: dayLabel(s.day) }));
   return (
-    <section className="card-pop flex flex-col gap-2 p-5" aria-label="Visitors per day">
+    <section className="calm-card shadow-none flex flex-col gap-2 p-5" aria-label="Visitors per day">
       <div className="flex items-center gap-2">
         <h2 className="text-base font-bold">Visitors per day</h2>
         <span className="text-muted-foreground ml-auto font-mono text-xs">

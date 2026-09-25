@@ -6,9 +6,9 @@ import { clock } from './rum-shared';
 import type { RowTone, TimelineRow } from './replay-timeline';
 
 const TONE: Record<RowTone, string> = {
-  online: 'text-status-online',
-  offline: 'text-status-offline',
-  warning: 'text-status-warning',
+  online: 'text-tone-ok',
+  offline: 'text-tone-bad',
+  warning: 'text-tone-warn',
   progress: 'text-status-progress',
   neutral: 'text-muted-foreground',
 };
@@ -27,7 +27,7 @@ export function ReplayEventRow({ stack, row, state, onSeek }: ReplayEventRowProp
       className={cn(
         'group flex items-center rounded-lg border border-transparent text-xs transition-colors',
         state === 'now' ? 'border-primary/50 bg-primary/10' : 'hover:bg-accent',
-        state === 'future' && 'opacity-50',
+        state === 'future' && 'text-muted-foreground',
       )}
     >
       <button

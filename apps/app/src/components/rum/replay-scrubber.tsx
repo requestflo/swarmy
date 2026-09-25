@@ -51,15 +51,10 @@ export function ReplayScrubber({ ticks, time, total, onSeek }: ReplayScrubberPro
       className="bg-muted/60 border-border focus-visible:ring-primary relative h-9 cursor-pointer rounded-lg border outline-none focus-visible:ring-2"
     >
       {ticks.map((k, i) => (
-        <button
+        <span
           key={i}
-          type="button"
+          aria-hidden
           title={`${clock(k.t)} · ${k.label}`}
-          aria-label={`Jump to ${clock(k.t)} · ${k.label}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onSeek(k.t);
-          }}
           className={cn(
             'absolute rounded-sm hover:scale-y-110',
             TICK_COLOR[k.kind],

@@ -4,8 +4,8 @@ import { TriangleAlertIcon } from 'lucide-react';
 /** The honest version: self-hosting moves the data, not the duties. */
 export function LegalCard(): React.JSX.Element {
   return (
-    <section className="card-pop border-status-warning/35 flex flex-col gap-1.5 border p-5">
-      <span className="text-status-warning flex items-center gap-2 text-sm font-bold">
+    <section className="calm-card shadow-none border-status-warning/35 flex flex-col gap-1.5 border p-5">
+      <span className="text-tone-warn flex items-center gap-2 text-sm font-bold">
         <TriangleAlertIcon className="size-4" /> Self-hosted isn't the same as consent-free
       </span>
       <p className="text-muted-foreground text-sm leading-relaxed">

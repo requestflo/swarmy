@@ -38,7 +38,7 @@ export function StorageForecast({ footprint: f, rate, keepDays }: StorageForecas
         Based on {compact(f.visitors24h)} visitors in the last 24 h and {bytes(avg)} per recorded session.
       </p>
       {rate >= 1 && keepDays >= 30 ? (
-        <p className="text-status-warning text-xs">
+        <p className="text-tone-warn text-xs">
           100% for {keepDays} days keeps more replays than you'll ever watch. 10% is usually plenty to find a bug.
         </p>
       ) : null}

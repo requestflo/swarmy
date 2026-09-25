@@ -32,12 +32,12 @@ export function RecordingCard({ settings: s, onChange, disabled, stores }: Recor
         next page view. Replay also needs identified mode and a sample rate above 0%.
       </p>
       {!stores.analytics ? (
-        <p className="text-status-warning text-sm">
+        <p className="text-tone-warn text-sm">
           Observability is off, so there's nowhere to count visits. Turn observability on for analytics.
         </p>
       ) : null}
       {!stores.replay ? (
-        <p className="text-status-warning text-sm">
+        <p className="text-tone-warn text-sm">
           Object storage isn't set up, so replays can't be kept. Set up object storage (Data → Object storage) for replay.
         </p>
       ) : null}

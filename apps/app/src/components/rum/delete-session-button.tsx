@@ -35,7 +35,7 @@ export function DeleteSessionButton({ stack, sessionId }: DeleteSessionButtonPro
       <Button
         size="sm"
         variant="outline"
-        className="border-status-offline/40 text-status-offline rounded-full font-bold"
+        className="border-status-offline/40 text-tone-bad rounded-full font-bold"
         onClick={() => setConfirming(true)}
       >
         <Trash2Icon className="size-3.5" /> Delete session
@@ -48,7 +48,7 @@ export function DeleteSessionButton({ stack, sessionId }: DeleteSessionButtonPro
       <Button
         size="sm"
         variant="outline"
-        className="border-status-offline text-status-offline h-7 rounded-full font-bold"
+        className="border-status-offline text-tone-bad h-7 rounded-full font-bold"
         disabled={del.isPending}
         onClick={() => del.mutate({ stack, sessionId })}
       >

@@ -9,7 +9,7 @@ export function AnalyticsConsentWarning({ stack }: { stack: string }): React.JSX
       role="alert"
       className="border-status-warning/40 bg-status-warning/8 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm"
     >
-      <TriangleAlertIcon className="text-status-warning size-4 shrink-0" />
+      <TriangleAlertIcon className="text-tone-warn size-4 shrink-0" />
       <b>Needs consent</b>
       <span className="text-muted-foreground min-w-0 flex-1">
         Identified mode ties visits to people — that's personal data. Wire the consent hook so only

@@ -61,7 +61,7 @@ export function GdprDeleteUserCard({ stack, disabled }: GdprDeleteUserCardProps)
         />
         <Segmented label="Erase from" value={scope} options={SCOPES} onChange={setScope} disabled={disabled} />
         {!confirming ? (
-          <Button type="submit" size="sm" variant="outline" disabled={disabled || !id} className="border-status-offline/40 text-status-offline rounded-full font-bold">
+          <Button type="submit" size="sm" variant="outline" disabled={disabled || !id} className="border-status-offline/40 text-tone-bad rounded-full font-bold">
             Delete…
           </Button>
         ) : (
@@ -73,7 +73,7 @@ export function GdprDeleteUserCard({ stack, disabled }: GdprDeleteUserCardProps)
               variant="outline"
               disabled={del.isPending}
               onClick={() => del.mutate({ userId: id, stack: scope === 'app' ? stack : undefined })}
-              className="border-status-offline text-status-offline h-7 rounded-full font-bold"
+              className="border-status-offline text-tone-bad h-7 rounded-full font-bold"
             >
               {del.isPending ? 'Erasing…' : 'Erase for good'}
             </Button>

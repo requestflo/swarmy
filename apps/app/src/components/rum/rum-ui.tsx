@@ -5,10 +5,10 @@ export type ChipTone = 'neutral' | 'online' | 'warning' | 'offline' | 'progress'
 
 const TONE: Record<ChipTone, string> = {
   neutral: 'bg-muted text-muted-foreground',
-  online: 'bg-status-online/12 text-status-online',
-  warning: 'bg-status-warning/15 text-status-warning',
-  offline: 'bg-status-offline/12 text-status-offline',
-  progress: 'bg-status-progress/12 text-status-progress',
+  online: 'border border-status-online/50 text-tone-ok',
+  warning: 'border border-status-warning/60 text-tone-warn',
+  offline: 'border border-status-offline/50 text-tone-bad',
+  progress: 'border border-status-progress/50 text-tone-info',
 };
 
 /** A small status pill ("inputs masked", "cookieless · no personal data"). */
@@ -97,7 +97,7 @@ export function RumSection({
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
-    <section className={cn('card-pop space-y-3 p-5', className)}>
+    <section className={cn('calm-card shadow-none space-y-3 p-5', className)}>
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-base font-bold">{title}</h2>
         {badge}
