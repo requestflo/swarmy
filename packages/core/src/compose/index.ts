@@ -49,6 +49,7 @@ export { validateModel } from './validate';
 export {
   interpolateCompose,
   interpolateString,
+  escapeInterpolation,
   ComposeInterpolationError,
   type ComposeVariables,
   type InterpolateResult,

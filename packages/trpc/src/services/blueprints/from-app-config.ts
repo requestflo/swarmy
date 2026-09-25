@@ -1,3 +1,4 @@
+import { escapeInterpolation } from '@swarmy/core/compose';
 import { stringify as stringifyYaml } from 'yaml';
 import { extractBindings, renderValue, type DesiredApp, type DesiredService } from '@swarmy/app-config';
 import type { BlueprintParamsInput, CacheEngine } from '@swarmy/core';
@@ -355,7 +356,8 @@ export function compileTemplate(
     kind: 'stack.deploy',
     label: `Deploy stack ${stack} (${names.length} service${names.length === 1 ? '' : 's'})`,
     payload: {
-      composeSource: stringifyYaml(doc),
+      // Literal source: `$` must survive the stack deploy interpolation.
+      composeSource: stringifyYaml(escapeInterpolation(doc)),
       services: names,
       ensureNetworks: [],
       postLabels,

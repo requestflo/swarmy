@@ -1,3 +1,4 @@
+import { escapeInterpolation } from '@swarmy/core/compose';
 /**
  * DesiredApp services → the compose file the apply loop deploys, plus the
  * post-deploy attachments that carry credentials (pure).
@@ -322,7 +323,8 @@ export function compileServices(
 
   const doc: Record<string, unknown> = { services };
   if (volumes.size) doc.volumes = Object.fromEntries([...volumes].sort().map((v) => [v, null]));
-  return { composeSource: stringifyYaml(doc), attachments, issues };
+  // swarmy.yaml values are literal: `$` must survive the stack deploy interpolation.
+  return { composeSource: stringifyYaml(escapeInterpolation(doc)), attachments, issues };
 }
 
 function credentialAttachment(

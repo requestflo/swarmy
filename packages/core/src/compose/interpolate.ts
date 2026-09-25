@@ -189,3 +189,25 @@ export function interpolateCompose<T>(doc: T, vars: ComposeVariables): Interpola
   }));
   return { doc: out, warnings };
 }
+
+/**
+ * The inverse, for compose that swarmy GENERATES from a literal source
+ * (swarmy.yaml apps, templates, blueprints): every `$` in a string value
+ * becomes `$$`, so the stack deploy's interpolation hands the container the
+ * exact text. Without it, `printf '%s' "$BULLMQ_CONNECT"` in a template's
+ * command reached the container as `printf '%s' ""` (QA-047). Keys and
+ * non-strings are untouched; the input is not mutated. PURE.
+ */
+export function escapeInterpolation<T>(doc: T): T {
+  const walk = (v: unknown): unknown => {
+    if (typeof v === 'string') return v.split('$').join('$$');
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = walk(x);
+      return out;
+    }
+    return v;
+  };
+  return walk(doc) as T;
+}

@@ -1,3 +1,4 @@
+import { escapeInterpolation } from '@swarmy/core/compose';
 import { stringify as stringifyYaml } from 'yaml';
 import type {
   BlueprintId,
@@ -226,7 +227,7 @@ export function buildCompose(services: Record<string, ComposeServiceDef>): strin
       [...networkNames].map((n) => [n, { external: true }]),
     );
   }
-  return stringifyYaml(doc);
+  return stringifyYaml(escapeInterpolation(doc));
 }
 
 // ── Shared step builders ──────────────────────────────────────────────────────
