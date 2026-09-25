@@ -149,20 +149,28 @@ mode renders with no console errors, a pathspec commit.
 
 - Route moves in plan §B.2 (`/ingress` → `/network/edge`, etc.). URLs stay; the
   nav and tabs present the new IA. Move with redirects in a later release.
-- A server-side user preference for depth (localStorage per user today).
-- ⌘K plain intents ("undo analytics", the Command board's preview pane) — the
-  palette is restyled with apps/servers and depth commands only.
 - Boards not built for lack of a data source: TimeTravel, Connections
   (app ↔ app), RClusters (multi-cluster), MeshConfig access-rule list, backup
   drill steps, per-copy CPU/memory on Scaling, the AppScaling sleep chart.
-- RSignIn two-column layout needs `routes/login.tsx` / `app-login.tsx` (demo
-  hooks live there); the sign-in pieces in `components/auth/*` are restyled.
 - Code views without a public API (alerts, incidents, cost, policies,
   guardrails, platform) are read-only JSON/labels; they gain REST when it exists.
-- Glossary leaks from other packages at Summary: `@swarmy/abac` describePolicy
-  says stacks/nodes/mesh; some server alert messages say replicas.
+  ⌘K "put back" shows `releases.rollback` for the same reason.
 - Per-app swarmy.yaml from git: the app Code view shows the live spec as
   compose (read-only); there is no stack-spec query yet.
-- Files over the 150-line limit carried over: `errors/issue-detail.tsx`,
-  `errors/issues-list.tsx`, `errors/errors-setup-card.tsx`,
-  `queues/studio/queue-detail.tsx`.
+- ⌘K intents are a fixed grammar (lib/intents.ts); free-form questions
+  ("why is X slow") jump to the page with the answer rather than answering.
+
+## 8. Done after S6 (follow-ups)
+
+- `/nodes/new` mints a join link only on "Create join link"; an unexpired
+  one from the same tab is reused.
+- One headline per app page: tab sentences render as a lede
+  (`UnderPageHeadline`).
+- Plain words from other packages: abac policy sentences, alert messages,
+  alert rule catalog, health reasons.
+- The depth default is saved server-side (`org.myPreferences`,
+  `user_preference` table); localStorage is the cache.
+- ⌘K plain intents with the preview pane.
+- RSignIn two-column sign-in (`components/auth/sign-in-layout.tsx`); the
+  DEMO_BUILD hooks in `routes/login.tsx` / `app-login.tsx` are unchanged.
+- The four files over 150 lines are split.
