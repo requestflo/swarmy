@@ -64,7 +64,7 @@ export function ComponentPicker({
     );
   }
   if (options.isError) {
-    return <p className="text-status-offline text-sm">{options.error.message}</p>;
+    return <p className="text-tone-bad text-sm">{options.error.message}</p>;
   }
   if (!options.data || options.data.length === 0) {
     return (

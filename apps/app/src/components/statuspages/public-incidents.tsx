@@ -54,7 +54,7 @@ export function PublicIncidents({
     );
   }
   return (
-    <div className="card-pop overflow-hidden p-0">
+    <div className="calm-card overflow-hidden p-0">
       {incidents.map((incident) => (
         <IncidentEntry key={incident.id} incident={incident} />
       ))}

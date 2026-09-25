@@ -38,7 +38,7 @@ export function StackStatusPages({ stack, suiteEnabled }: StackStatusPagesProps)
   const rows = pages.data ?? [];
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card border-0">
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-3 text-base">
           <span className="flex items-center gap-2">
@@ -94,7 +94,7 @@ export function StackStatusPages({ stack, suiteEnabled }: StackStatusPagesProps)
             description="Create one — its components are preselected from this stack, and you get a shareable public link the moment you hit create."
             action={
               <Button
-                variant={suiteEnabled ? 'default' : 'outline'}
+                variant="outline"
                 size="sm"
                 onClick={() => setCreating(true)}
               >

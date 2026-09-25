@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Input, Label, Switch } from '@swarmy/ui';
+import { Input, Label } from '@swarmy/ui';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 import { ComponentPicker } from './component-picker';
 import { SLUG_RE, slugify, type PageDraft } from './page-draft';
 
@@ -51,7 +52,7 @@ export function StatusPageFields({
           />
         </div>
         {slugInvalid ? (
-          <p className="text-status-offline text-xs">
+          <p className="text-tone-bad text-xs">
             3+ characters — lowercase letters, digits and dashes.
           </p>
         ) : (
@@ -88,7 +89,7 @@ export function StatusPageFields({
 
       <div className="flex items-center justify-between">
         <Label htmlFor="sp-uptime">Show uptime bars</Label>
-        <Switch
+        <QuietSwitch
           id="sp-uptime"
           checked={draft.showUptime}
           onCheckedChange={(showUptime) => onChange({ ...draft, showUptime })}
@@ -96,7 +97,7 @@ export function StatusPageFields({
       </div>
       <div className="flex items-center justify-between">
         <Label htmlFor="sp-incidents">Show incident history</Label>
-        <Switch
+        <QuietSwitch
           id="sp-incidents"
           checked={draft.showIncidents}
           onCheckedChange={(showIncidents) => onChange({ ...draft, showIncidents })}

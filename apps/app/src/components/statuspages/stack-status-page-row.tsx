@@ -15,10 +15,10 @@ import {
   Button,
   Collapsible,
   CollapsibleContent,
-  Switch,
   cn,
   toast,
 } from '@swarmy/ui';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 import { useTRPC } from '@/integrations/trpc';
 import { StatusPageInlineForm } from './status-page-inline-form';
 
@@ -85,7 +85,7 @@ export function StackStatusPageRow({ page, stack }: StackStatusPageRowProps): Re
         </a>
 
         <div className="flex items-center gap-1.5">
-          <Switch
+          <QuietSwitch
             checked={page.enabled}
             disabled={setEnabled.isPending}
             onCheckedChange={(enabled) => setEnabled.mutate({ id: page.id, enabled })}
@@ -102,7 +102,7 @@ export function StackStatusPageRow({ page, stack }: StackStatusPageRowProps): Re
           </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="icon" className="text-status-offline" aria-label={`Delete ${page.title}`}>
+              <Button variant="ghost" size="icon" className="text-tone-bad" aria-label={`Delete ${page.title}`}>
                 <Trash2Icon className="size-4" />
               </Button>
             </AlertDialogTrigger>

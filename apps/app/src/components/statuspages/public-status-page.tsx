@@ -96,7 +96,7 @@ export function PublicStatusPage({ slug }: { slug: string }): React.JSX.Element 
             {snapshot.data.components.length > 0 ? (
               <section className="mb-10">
                 <h2 className="mono-label text-muted-foreground mb-3">Components</h2>
-                <div className="card-pop overflow-hidden p-0">
+                <div className="calm-card overflow-hidden p-0">
                   {snapshot.data.components.map((component) => (
                     <ComponentRow key={component.key} component={component} />
                   ))}

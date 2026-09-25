@@ -27,10 +27,10 @@ export const OVERALL_LABEL: Record<PublicComponentStatus, string> = {
 
 /** Banner surface classes per overall status (status tokens only). */
 export const OVERALL_CLASSES: Record<PublicComponentStatus, string> = {
-  up: 'bg-status-online/12 text-status-online',
-  degraded: 'bg-status-warning/12 text-status-warning',
-  down: 'bg-status-offline/12 text-status-offline',
-  unknown: 'bg-status-idle/12 text-status-idle',
+  up: 'bg-status-online/12 text-tone-ok',
+  degraded: 'bg-status-warning/12 text-tone-warn',
+  down: 'bg-status-offline/12 text-tone-bad',
+  unknown: 'bg-status-idle/12 text-tone-idle',
 };
 
 /** One uptime bar's fill for a day's pct (null = no data). */
