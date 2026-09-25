@@ -990,3 +990,49 @@ converge an INPUT-chain jump to `SWARMY-MESH-CTL`:
 - DROP 9000, 9090 and 33073 from anywhere else.
 
 In the e2e, all three are unreachable from the Mac, and `:8081` still answers.
+
+### 11.11 QA-059: after a reboot the swarm fell off the mesh (fixed, 2026-09-25)
+
+Reproduced on the Lima pair by power-cycling the worker. dockerd starts before
+NetBird's wt0 exists, because dockerd itself starts the netbird container. A
+swarm worker doesn't store its local address (`LocalAddr: ""` in
+`docker-state.json`); swarmkit re-derives it at start from the route to the
+manager, which without wt0 is the default route. So the node gossips its LAN
+or public IP, and encrypted-overlay IPsec SAs are keyed to it
+(`src 192.168.64.15 dst 100.74…`). VXLAN still leaves over wt0, so Docker's
+`--pol none … -j DROP` drops every encrypted overlay packet.
+
+Two things did **not** fix it:
+- `systemctl restart docker`: wt0 dies with dockerd and comes back about 1 s
+  after the swarm has already re-derived its address.
+- Putting only the mesh IP on a dummy interface: the address alone isn't the
+  route lookup.
+
+The fix, verified on real power-cycles:
+- **Pin, before Docker.** `swarmy-mesh-pin.service` is a oneshot with
+  `Before=docker.service`, and docker gets a drop-in with Wants+After on it.
+  It puts the node's mesh IP on a dummy `swarmy-mesh0` and adds a route for
+  the mesh prefix through it, with `src <mesh IP>` and `metric 4242`. The
+  route to the manager yields the mesh IP from second one, and wt0's own
+  metric-0 route carries the traffic once it is up.
+- **Who installs it.**
+  - `install-swarmy.sh` on node #1, on every run.
+  - The agent on every node, re-asserted every 30 min. The binary agent does
+    it natively; the container agent uses a `--pid host` nsenter one-shot of
+    its own image.
+  - Joined nodes, including the NAT'd home server, get it from their agent.
+- **Self-heal (belt and braces).** The agent watches `ip xfrm state`. If the
+  local side of any SA isn't the mesh IP twice ≥ 45 s apart, it re-applies
+  the pin and restarts dockerd once (`systemctl --no-block`), at most once
+  per 30 min.
+- **No systemd** (Docker Desktop): the pin is skipped and the self-heal only
+  logs.
+
+Lab results:
+
+| Test | Result |
+|---|---|
+| Worker power-cycled, no pin | SAs keyed to 192.168.64.15; cross-node on an encrypted overlay fails |
+| Worker power-cycled, with the pin | pin at +3.4 s, docker at +5.9 s; SAs on 100.74.x; both directions answer; no manual step |
+| Controller node (node1, container agent, pin from the installer) power-cycled | controller healthy and reachable from node2; encrypted overlay good both ways |
+| Self-heal: pin removed, wt0 delayed 20 s with an iptables drop | SAs mis-keyed; the agent healed 65 s later with one dockerd restart; overlay good |

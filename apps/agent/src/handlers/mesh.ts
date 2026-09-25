@@ -213,6 +213,12 @@ export async function sampleMeshState(docker: DockerClient = defaultDocker()): P
     : { driver: 'netbird', connected: false, relayed: false, advertisedRoutes: [], peers: [], control, sampledAt: Date.now() };
 }
 
+/** The last `netbirdIp` with its prefix (`100.74.144.211/16`), for the reboot pin (mesh-pin.ts). */
+let lastMeshCidr: string | undefined;
+export function lastSampledMeshCidr(): string | undefined {
+  return lastMeshCidr;
+}
+
 async function sampleClientState(docker: DockerClient): Promise<MeshStatePayload | null> {
   const sampledAt = Date.now();
 
@@ -227,6 +233,7 @@ async function sampleClientState(docker: DockerClient): Promise<MeshStatePayload
         netbirdIp?: string;
         peers?: { details?: { ip?: string; status?: string; relayed?: boolean }[] };
       };
+      lastMeshCidr = j.netbirdIp || undefined;
       const peers = (j.peers?.details ?? []).map((p) => ({
         meshIp: bareMeshIp(p.ip),
         connected: p.status === 'Connected',

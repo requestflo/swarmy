@@ -159,6 +159,11 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
 - Every NetBird object swarmy writes is `swarmy:<c>:*` / `swarmy-<c>-*`; the diff
   never touches anything else. People reach only declared ports on service VIPs
   through the stack's router; nothing ever targets `swarmy:<c>:nodes`.
+- **Reboots (QA-059):** a worker re-derives its swarm address from the route to
+  the manager at dockerd start, before wt0 exists. `swarmy-mesh-pin.service`
+  (Before=docker) pins the mesh IP/prefix on dummy `swarmy-mesh0` (metric 4242);
+  the agent installs/re-asserts it (`handlers/mesh-pin.ts`) and self-heals
+  mis-keyed IPsec SAs with one dockerd restart. Never remove the pin.
 - People access is off until an admin enables it; revoke converges at once, the
   worker every 30 s; personal grants expire by `MeshRoute.expiresAt`.
 

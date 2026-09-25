@@ -1051,6 +1051,76 @@ ensure_mesh_control() {
   ok "this host joined its own mesh (${MESH_IP})."
 }
 
+# >>> swarmy mesh pin (keep in sync: apps/agent/src/handlers/mesh-pin.ts — unit-tested)
+# QA-059: after a reboot dockerd starts before wt0 exists, the swarm derives its
+# local address from the default route, and encrypted-overlay IPsec SAs get
+# keyed to the LAN/public IP — every encrypted overlay goes dark. Pin the mesh
+# address + prefix on a dummy interface BEFORE docker.service (low-priority
+# route; wt0's own route wins once it is up). The agent re-asserts this.
+ensure_mesh_pin() {
+  local ip="$1" cidr="$2" prefix
+  command -v systemctl >/dev/null 2>&1 || return 0
+  prefix="$(mesh_pin_prefix "$ip" "$cidr")" || return 0
+  mkdir -p /etc/swarmy /usr/local/lib/swarmy /etc/systemd/system/docker.service.d
+  printf 'MESH_IP=%s\nMESH_PREFIX=%s\n' "$ip" "$prefix" > /etc/swarmy/mesh-pin.env
+  cat > /usr/local/lib/swarmy/mesh-pin.sh <<'SWARMY_PIN_SH'
+#!/bin/sh
+# swarmy: keep the swarm on the mesh across reboots (QA-059). Rendered by the agent.
+set -u
+[ -r /etc/swarmy/mesh-pin.env ] || exit 0
+. /etc/swarmy/mesh-pin.env
+[ -n "${MESH_IP:-}" ] && [ -n "${MESH_PREFIX:-}" ] || exit 0
+ip link show swarmy-mesh0 >/dev/null 2>&1 || ip link add swarmy-mesh0 type dummy || exit 0
+ip link set swarmy-mesh0 up
+for a in $(ip -4 -o addr show dev swarmy-mesh0 | awk '{print $4}'); do
+  [ "$a" = "${MESH_IP}/32" ] || ip addr del "$a" dev swarmy-mesh0
+done
+ip addr show dev swarmy-mesh0 | grep -q " ${MESH_IP}/32 " || ip addr add "${MESH_IP}/32" dev swarmy-mesh0
+ip route replace "${MESH_PREFIX}" dev swarmy-mesh0 src "${MESH_IP}" metric 4242
+exit 0
+SWARMY_PIN_SH
+  chmod 0755 /usr/local/lib/swarmy/mesh-pin.sh
+  cat > /etc/systemd/system/swarmy-mesh-pin.service <<'SWARMY_PIN_UNIT'
+[Unit]
+Description=swarmy: pin the mesh address before Docker (swarm stays on the mesh after a reboot)
+DefaultDependencies=no
+After=network-pre.target systemd-networkd.service NetworkManager.service
+Before=docker.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/swarmy/mesh-pin.sh
+
+[Install]
+WantedBy=multi-user.target
+SWARMY_PIN_UNIT
+  cat > /etc/systemd/system/docker.service.d/10-swarmy-mesh-pin.conf <<'SWARMY_PIN_DROPIN'
+# swarmy (QA-059): the mesh address must be routable before the swarm starts.
+[Unit]
+Wants=swarmy-mesh-pin.service
+After=swarmy-mesh-pin.service
+SWARMY_PIN_DROPIN
+  systemctl daemon-reload
+  systemctl enable swarmy-mesh-pin.service >/dev/null 2>&1 || true
+  /usr/local/lib/swarmy/mesh-pin.sh
+  ok "mesh pinned before Docker (${ip}, ${prefix}): the swarm stays on the mesh after a reboot."
+}
+# mesh_pin_prefix IP BITS → the network prefix, e.g. 100.74.144.211 16 → 100.74.0.0/16 (pure).
+mesh_pin_prefix() {
+  local ip="$1" bits="$2" a b c d n m
+  printf '%s' "$ip" | grep -qE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$' || return 1
+  case "$bits" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$bits" -ge 8 ] && [ "$bits" -le 30 ] || return 1
+  IFS=. read -r a b c d <<SWARMY_IP
+$ip
+SWARMY_IP
+  n=$(( (a << 24) | (b << 16) | (c << 8) | d )); m=$(( (0xFFFFFFFF << (32 - bits)) & 0xFFFFFFFF )); n=$(( n & m ))
+  printf '%d.%d.%d.%d/%d' $(( (n >> 24) & 255 )) $(( (n >> 16) & 255 )) $(( (n >> 8) & 255 )) $(( n & 255 )) "$bits"
+}
+# <<< swarmy mesh pin
+
 ensure_mesh_node1() {
   [ "$MESH" = none ] && return 0
   if [ "$MESH" = swarmy ]; then ensure_mesh_control; return; fi
@@ -1085,6 +1155,7 @@ ensure_mesh_node1() {
 
 ensure_swarm() {
   local adv="${MESH_IP:-${LOCAL_IP:?need a local IP}}"
+
   if [ "$(docker info --format '{{.Swarm.LocalNodeState}}' 2>/dev/null)" = active ]; then
     ok "Docker Swarm already active."
     adv="$(docker info --format '{{.Swarm.NodeAddr}}' 2>/dev/null)"; adv="${adv:-$LOCAL_IP}"
@@ -1514,6 +1585,8 @@ main() {
   wizard
   ensure_secrets
   ensure_mesh_node1
+  # Every run (first install and upgrades): the swarm must survive a reboot on the mesh.
+  [ -z "${MESH_IP:-}" ] || ensure_mesh_pin "$MESH_IP" "$(ip -4 -o addr show dev "$NB_INTERFACE" 2>/dev/null | awk '{print $4}' | cut -d/ -f2 | head -n1)"
   marker_done swarm    || { ensure_swarm;        marker_set swarm; }
   ensure_docker_secrets
   deploy_stack

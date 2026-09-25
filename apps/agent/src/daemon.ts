@@ -7,7 +7,8 @@ import { clearState, loadState, saveState, type AgentState } from './state';
 import { AgentConnection, strandedShouldExit } from './connection';
 import { collectMetrics } from './stats';
 import { sendContainerList, sendServiceState, sendNodeList } from './snapshots';
-import { applyMesh, sampleMeshState } from './handlers/mesh';
+import { applyMesh, lastSampledMeshCidr, sampleMeshState } from './handlers/mesh';
+import { checkOverlayKeying, ensureMeshPin } from './handlers/mesh-pin';
 import { swarmRejoinInFlight } from './handlers/swarm';
 import { superviseMeshControl } from './handlers/mesh-control';
 import { detectPublicIp, setObservedPublicIp } from './public-ip';
@@ -24,6 +25,12 @@ async function reportMeshState(conn: AgentConnection): Promise<void> {
   try {
     const state = await sampleMeshState();
     if (state) conn.send('meshState', state);
+    // QA-059: keep the swarm on the mesh across reboots (+ heal if it wasn't).
+    if (state?.driver === 'netbird' && state.connected) {
+      const docker = new DockerClient(env.DOCKER_SOCKET);
+      await ensureMeshPin(docker, lastSampledMeshCidr(), log).catch(() => undefined);
+      await checkOverlayKeying(docker, state.meshIp, log).catch(() => undefined);
+    }
   } catch {
     // mesh client not present / not ready
   }
