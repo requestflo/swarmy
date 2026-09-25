@@ -51,7 +51,7 @@ export function GrantRow({ grant }: { grant: GrantEntry }): React.JSX.Element {
       <div className="flex justify-end">
         <AlertDialog>
           <AlertDialogTrigger asChild>
-            <Button variant="ghost" size="sm" disabled={del.isPending}>
+            <Button variant="ghost" size="sm" aria-label="Remove this grant" disabled={del.isPending}>
               <Trash2Icon className="size-4" />
             </Button>
           </AlertDialogTrigger>

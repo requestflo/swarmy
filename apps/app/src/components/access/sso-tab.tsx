@@ -22,14 +22,14 @@ export function SsoTab(): React.JSX.Element {
           Per-org enterprise sign-in. OIDC routes by email domain (&ldquo;Sign in with your
           company&rdquo;).
         </p>
-        <Button onClick={() => setCreateOpen((o) => !o)}>
+        <Button variant="outline" onClick={() => setCreateOpen((o) => !o)}>
           <PlusIcon className="size-4" /> Add provider
         </Button>
       </div>
 
       <SsoCreateCard open={createOpen} onOpenChange={setCreateOpen} />
 
-      <Card className="card-pop border-0">
+      <Card className="calm-card border-0 shadow-none">
         <CardContent className="p-0">
           {providers.length === 0 ? (
             <div className="px-6 py-4">

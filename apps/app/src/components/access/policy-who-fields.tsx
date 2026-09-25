@@ -49,7 +49,7 @@ export function PolicyWhoFields({ draft, patch }: PolicyWhoFieldsProps): React.J
 
   return (
     <div className="grid gap-2">
-      <Label className="mono-label">Who</Label>
+      <Label>Who</Label>
       <Select value={draft.who} onValueChange={(v) => patch({ who: v as Who })}>
         <SelectTrigger>
           <SelectValue />

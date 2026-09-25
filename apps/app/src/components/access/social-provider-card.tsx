@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Building2Icon, GithubIcon, GitlabIcon, ShieldCheckIcon } from 'lucide-react';
-import { Button, Card, CardContent, CardHeader, CardTitle, CopyButton, Input, Label, StatusBadge, Switch, toast } from '@swarmy/ui';
+import { Button, Card, CardContent, CardHeader, CardTitle, CopyButton, Input, Label, StatusBadge, toast } from '@swarmy/ui';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 import { useTRPC } from '@/integrations/trpc';
 import { PROVIDER_LABELS, enabledTone, type ProviderEntry } from './access-shared';
 
@@ -50,7 +51,7 @@ export function SocialProviderCard({ provider }: { provider: ProviderEntry }): R
 
   const Icon = ICONS[provider.type] ?? ShieldCheckIcon;
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card border-0 shadow-none">
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <div className="flex items-center gap-2.5">
           <Icon className="size-5" />
@@ -62,7 +63,8 @@ export function SocialProviderCard({ provider }: { provider: ProviderEntry }): R
             label={provider.enabled ? 'on' : 'off'}
           />
         </div>
-        <Switch
+        <QuietSwitch
+          aria-label={`${PROVIDER_LABELS[provider.type] ?? provider.type} sign-in`}
           checked={provider.enabled}
           onCheckedChange={(enabled) => save.mutate({ type: provider.type, enabled })}
           disabled={save.isPending}
@@ -70,7 +72,7 @@ export function SocialProviderCard({ provider }: { provider: ProviderEntry }): R
       </CardHeader>
       <CardContent className="grid gap-4 text-sm">
         <div className="grid gap-1.5">
-          <Label className="mono-label">Callback URL</Label>
+          <Label>Callback URL</Label>
           <div className="flex items-center gap-2">
             <code className="bg-muted mono-data flex-1 overflow-x-auto rounded-lg px-3 py-2 text-xs">
               {provider.callbackUrl}
@@ -79,15 +81,15 @@ export function SocialProviderCard({ provider }: { provider: ProviderEntry }): R
           </div>
         </div>
         <div className="grid gap-1.5">
-          <Label className="mono-label">Client ID</Label>
-          <Input value={clientId} onChange={(e) => setClientId(e.target.value)} />
+          <Label>Client ID</Label>
+          <Input aria-label="Client ID" value={clientId} onChange={(e) => setClientId(e.target.value)} />
         </div>
         <div className="grid gap-1.5">
-          <Label className="mono-label">
+          <Label>
             Client secret{' '}
             {provider.hasSecret && <span className="text-status-online">• set</span>}
           </Label>
-          <Input
+          <Input aria-label="Client secret"
             type="password"
             value={clientSecret}
             placeholder={provider.hasSecret ? '•••••••• (leave blank to keep)' : 'paste secret'}
@@ -96,20 +98,21 @@ export function SocialProviderCard({ provider }: { provider: ProviderEntry }): R
         </div>
         {settingKey && (
           <div className="grid gap-1.5">
-            <Label className="mono-label">{settingKey.label}</Label>
-            <Input value={setting} placeholder={settingKey.placeholder} onChange={(e) => setSetting(e.target.value)} />
+            <Label>{settingKey.label}</Label>
+            <Input aria-label="" value={setting} placeholder={settingKey.placeholder} onChange={(e) => setSetting(e.target.value)} />
             <p className="text-muted-foreground text-xs">{settingKey.hint}</p>
           </div>
         )}
         <div className="grid gap-1.5">
-          <Label className="mono-label">Allowed domains (optional)</Label>
-          <Input value={domains} placeholder="company.com, corp.io" onChange={(e) => setDomains(e.target.value)} />
+          <Label>Allowed domains (optional)</Label>
+          <Input aria-label="Allowed domains (optional)" value={domains} placeholder="company.com, corp.io" onChange={(e) => setDomains(e.target.value)} />
           <p className="text-muted-foreground text-xs">
             Accounts with a verified email at these domains may sign up without an invite and join as members. Blank:
             an invite is required.
           </p>
         </div>
         <Button
+          variant="outline"
           className="w-fit"
           onClick={() =>
             save.mutate({

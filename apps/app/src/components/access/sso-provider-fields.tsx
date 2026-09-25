@@ -42,26 +42,26 @@ export function SsoProviderFields({
   return (
     <>
       <div className="grid gap-1.5 sm:col-span-2">
-        <Label className="mono-label">Discovery URL</Label>
-        <Input value={discoveryUrl} onChange={(e) => onDiscoveryUrlChange(e.target.value)} />
+        <Label>Discovery URL</Label>
+        <Input aria-label="Discovery URL" value={discoveryUrl} onChange={(e) => onDiscoveryUrlChange(e.target.value)} />
       </div>
       <div className="grid gap-1.5">
-        <Label className="mono-label">Issuer (optional)</Label>
-        <Input value={issuer} onChange={(e) => onIssuerChange(e.target.value)} />
+        <Label>Issuer (optional)</Label>
+        <Input aria-label="Issuer (optional)" value={issuer} onChange={(e) => onIssuerChange(e.target.value)} />
       </div>
       <div className="grid gap-1.5">
-        <Label className="mono-label">Email domain</Label>
-        <Input value={domain} onChange={(e) => onDomainChange(e.target.value)} />
+        <Label>Email domain</Label>
+        <Input aria-label="Email domain" value={domain} onChange={(e) => onDomainChange(e.target.value)} />
       </div>
       <div className="grid gap-1.5">
-        <Label className="mono-label">Client ID</Label>
-        <Input value={clientId} onChange={(e) => onClientIdChange(e.target.value)} />
+        <Label>Client ID</Label>
+        <Input aria-label="Client ID" value={clientId} onChange={(e) => onClientIdChange(e.target.value)} />
       </div>
       <div className="grid gap-1.5">
-        <Label className="mono-label">
+        <Label>
           Client secret {p.hasSecret && <span className="text-status-online">• set</span>}
         </Label>
-        <Input
+        <Input aria-label="Client secret"
           type="password"
           value={clientSecret}
           placeholder={p.hasSecret ? '•••• (keep)' : 'paste secret'}

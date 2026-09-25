@@ -105,7 +105,7 @@ export function SsoProviderRow({ provider: p, expanded, onToggle }: SsoProviderR
             </div>
             {p.protocol === 'oidc' && <SsoProvisioningFields value={provisioning.value} onChange={provisioning.set} />}
             <div className="grid gap-1.5">
-              <Label className="mono-label">Callback URL (paste into IdP)</Label>
+              <Label>Callback URL (paste into IdP)</Label>
               <div className="flex items-center gap-2">
                 <code className="bg-muted mono-data flex-1 overflow-x-auto rounded-lg px-3 py-2 text-xs">
                   {p.callbackUrl}
@@ -115,6 +115,7 @@ export function SsoProviderRow({ provider: p, expanded, onToggle }: SsoProviderR
             </div>
             <div className="flex items-center justify-between">
               <Button
+                variant="outline"
                 size="sm"
                 disabled={upsert.isPending}
                 onClick={() => {

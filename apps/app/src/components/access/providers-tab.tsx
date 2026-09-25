@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRoundIcon, MailIcon, ShieldIcon } from 'lucide-react';
-import { Button, Card, CardContent, CardHeader, CardTitle, EmptyState, StatusBadge, Switch, toast } from '@swarmy/ui';
+import { Button, Card, CardContent, CardHeader, CardTitle, EmptyState, StatusBadge, toast } from '@swarmy/ui';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 import { authClient } from '@swarmy/auth/client';
 import { useTRPC } from '@/integrations/trpc';
 import {
@@ -82,7 +83,7 @@ function MethodCard({ provider }: { provider: ProviderEntry }): React.JSX.Elemen
   };
 
   return (
-    <Card className="card-pop border-0">
+    <Card className="calm-card border-0 shadow-none">
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <div className="flex items-center gap-2.5">
           {isPasskey ? <KeyRoundIcon className="size-5" /> : <MailIcon className="size-5" />}
@@ -94,7 +95,8 @@ function MethodCard({ provider }: { provider: ProviderEntry }): React.JSX.Elemen
             label={provider.enabled ? 'on' : 'off'}
           />
         </div>
-        <Switch
+        <QuietSwitch
+          aria-label={`${PROVIDER_LABELS[provider.type] ?? provider.type} sign-in`}
           checked={provider.enabled}
           onCheckedChange={(enabled) => save.mutate({ type: provider.type, enabled })}
           disabled={save.isPending}

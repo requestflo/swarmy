@@ -1,7 +1,9 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { PencilIcon, Trash2Icon } from 'lucide-react';
-import { Badge, Button, StatusBadge, Switch, toast } from '@swarmy/ui';
+import { Button, cn, toast } from '@swarmy/ui';
+import { Depth, TONE_DOT, TONE_TEXT, Tech } from '@/components/calm';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 import { useTRPC } from '@/integrations/trpc';
 import type { PolicyRow } from './use-policy-editor';
 
@@ -27,36 +29,38 @@ export function PolicyRuleRow({ rule, onEdit }: PolicyRuleRowProps): React.JSX.E
     }),
   );
 
+  const tone = !rule.enabled ? 'idle' : rule.effect === 'permit' ? 'ok' : 'warn';
   return (
-    <div className="hover:bg-accent/60 flex flex-wrap items-center gap-x-4 gap-y-2 px-6 py-4 transition-colors">
-      <div className="min-w-0 flex-1 basis-72">
-        <p className={rule.enabled ? 'font-medium' : 'text-muted-foreground font-medium line-through'}>{rule.sentence}</p>
-        <p className="text-muted-foreground mono-label mt-1 flex flex-wrap items-center gap-2">
-          <span className="truncate">{rule.name}</span>
-          <span>· priority {rule.priority}</span>
-          {rule.isDefault && <Badge variant="muted">default</Badge>}
-        </p>
+    <div className="border-border flex min-h-14 flex-wrap items-start gap-x-3 gap-y-2 border-b px-1 py-3 last:border-b-0">
+      <span aria-hidden className={cn('mt-[7px] size-2 shrink-0 rounded-full', TONE_DOT[tone])} />
+      <div className="flex min-w-0 flex-1 basis-60 flex-col gap-0.5">
+        <p className={cn('text-[14px] leading-snug font-medium', !rule.enabled && 'text-muted-foreground line-through')}>{rule.sentence}</p>
+        <Tech>{`${rule.name} · ${rule.effect} · priority ${rule.priority}${rule.isDefault ? ' · default, kept current by swarmy' : ''}`}</Tech>
       </div>
-      <StatusBadge tone={rule.effect === 'permit' ? 'online' : 'offline'} label={rule.effect === 'permit' ? 'can' : 'never'} />
-      <Switch
-        aria-label={rule.enabled ? 'Disable rule' : 'Enable rule'}
-        checked={rule.enabled}
-        disabled={set.isPending}
-        onCheckedChange={(enabled) =>
-          set.mutate({ id: rule.id, name: rule.name, effect: rule.effect, source: rule.source, priority: rule.priority, enabled })
-        }
-      />
-      {/* Default rules are managed by swarmy: switch them off, never rewrite them. */}
-      {!rule.isDefault && (
-        <div className="flex">
-          <Button variant="ghost" size="sm" aria-label="Edit rule" onClick={() => onEdit(rule)}>
-            <PencilIcon className="size-4" />
-          </Button>
-          <Button variant="ghost" size="sm" aria-label="Delete rule" onClick={() => del.mutate({ id: rule.id })}>
-            <Trash2Icon className="size-4" />
-          </Button>
-        </div>
-      )}
+      <span className={cn('shrink-0 pt-0.5 text-xs font-semibold', TONE_TEXT[tone])}>
+        {!rule.enabled ? 'Off' : rule.effect === 'permit' ? 'Allows' : 'Limits'}
+      </span>
+      <Depth at="controls">
+        <QuietSwitch
+          aria-label={rule.enabled ? `Turn off: ${rule.sentence}` : `Turn on: ${rule.sentence}`}
+          checked={rule.enabled}
+          disabled={set.isPending}
+          onCheckedChange={(enabled) =>
+            set.mutate({ id: rule.id, name: rule.name, effect: rule.effect, source: rule.source, priority: rule.priority, enabled })
+          }
+        />
+        {/* Default rules are managed by swarmy: switch them off, never rewrite them. */}
+        {!rule.isDefault && (
+          <div className="flex">
+            <Button variant="ghost" size="icon" aria-label={`Edit rule ${rule.name}`} onClick={() => onEdit(rule)} className="pointer-coarse:size-11">
+              <PencilIcon className="size-4" />
+            </Button>
+            <Button variant="ghost" size="icon" aria-label={`Delete rule ${rule.name}`} onClick={() => del.mutate({ id: rule.id })} className="pointer-coarse:size-11">
+              <Trash2Icon className="size-4" />
+            </Button>
+          </div>
+        )}
+      </Depth>
     </div>
   );
 }

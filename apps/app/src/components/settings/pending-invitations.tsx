@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCwIcon } from 'lucide-react';
-import { Badge, Button, Card, CopyButton, StatusBadge, toast } from '@swarmy/ui';
+import { Button, CopyButton, toast } from '@swarmy/ui';
+import { Depth, StatusWord } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { absTime, relTime } from '@/lib/format';
 
@@ -40,19 +41,18 @@ export function PendingInvitations(): React.JSX.Element | null {
   const busy = revoke.isPending || regenerate.isPending;
 
   return (
-    <section className="grid gap-3">
-      <div className="flex items-baseline justify-between gap-4 px-1">
-        <h2 className="font-display text-lg font-semibold">Pending invitations</h2>
-        <p className="text-muted-foreground text-xs">Links work once. Nobody gets an email — you send it.</p>
+    <div className="flex flex-col pt-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 pb-1">
+        <h3 className="calm-eyebrow">Invited, not joined yet</h3>
+        <p className="text-muted-foreground text-xs">Links work once. Nobody gets an email; you send it.</p>
       </div>
-      <Card className="card-pop border-0 p-0">
-        <div className="divide-border divide-y">
+        <div className="flex flex-col">
           {rows.map((inv) => {
             const expired = inv.status === 'expired';
             return (
               <div
                 key={inv.id}
-                className="hover:bg-accent/50 flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-4 transition-colors"
+                className="border-border flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-1 py-2.5 last:border-b-0"
               >
                 <div className="min-w-[12rem] flex-1">
                   <p className="truncate font-medium">{inv.email ?? 'Invite link (no email)'}</p>
@@ -62,10 +62,10 @@ export function PendingInvitations(): React.JSX.Element | null {
                     {expired ? `expired ${absTime(inv.expiresAt)}` : `expires ${absTime(inv.expiresAt)}`}
                   </p>
                 </div>
-                <Badge variant="muted">{inv.role}</Badge>
-                <StatusBadge tone={expired ? 'warning' : 'progress'} label={expired ? 'expired' : 'pending'} />
+                <StatusWord tone={expired ? 'warn' : 'info'} word={expired ? `${inv.role} · expired` : `${inv.role} · waiting`} />
                 <div className="ml-auto flex flex-wrap items-center gap-2">
                   {!expired && <CopyButton value={inv.link} label="Copy link" />}
+                  <Depth at="controls">
                   <Button
                     variant="outline"
                     size="sm"
@@ -78,12 +78,12 @@ export function PendingInvitations(): React.JSX.Element | null {
                   <Button variant="ghost" size="sm" disabled={busy} onClick={() => revoke.mutate({ id: inv.id })}>
                     Revoke
                   </Button>
+                  </Depth>
                 </div>
               </div>
             );
           })}
         </div>
-      </Card>
-    </section>
+    </div>
   );
 }

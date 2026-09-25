@@ -78,8 +78,8 @@ export function InviteMemberDialog({ callerRole }: { callerRole: InviteRole }): 
       }}
     >
       <DialogTrigger asChild>
-        <Button>
-          <UserPlusIcon className="size-4" /> Invite member
+        <Button className="pointer-coarse:min-h-11">
+          <UserPlusIcon className="size-4" /> Invite someone
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">

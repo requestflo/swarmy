@@ -29,7 +29,7 @@ export function MembersTab(): React.JSX.Element {
 
   return (
     <div className="grid gap-6">
-      <Card className="card-pop border-0">
+      <Card className="calm-card border-0 shadow-none">
         <CardHeader>
           <CardTitle className="text-base">Member attributes</CardTitle>
           <CardDescription>
@@ -69,7 +69,7 @@ export function MembersTab(): React.JSX.Element {
         </CardContent>
       </Card>
 
-      <Card className="card-pop border-0">
+      <Card className="calm-card border-0 shadow-none">
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <div className="min-w-0">
             <CardTitle className="text-base">Resource grants (ReBAC)</CardTitle>
@@ -77,7 +77,7 @@ export function MembersTab(): React.JSX.Element {
               Grant a member or team an owner/operator/viewer relation on a specific resource.
             </CardDescription>
           </div>
-          <Button size="sm" onClick={() => setGrantOpen((o) => !o)}>
+          <Button variant="outline" size="sm" onClick={() => setGrantOpen((o) => !o)}>
             <PlusIcon className="size-4" /> New grant
           </Button>
         </CardHeader>

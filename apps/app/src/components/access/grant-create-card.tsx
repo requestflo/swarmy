@@ -49,7 +49,7 @@ export function GrantCreateCard({ open, onOpenChange }: GrantCreateCardProps): R
         <div className="border-t px-6 py-5">
           <div className="grid gap-3 text-sm sm:grid-cols-2">
             <div className="grid gap-1.5">
-              <Label className="mono-label">Principal type</Label>
+              <Label>Principal type</Label>
               <Select value={principalType} onValueChange={(v) => setPrincipalType(v as 'member' | 'team')}>
                 <SelectTrigger>
                   <SelectValue />
@@ -61,11 +61,11 @@ export function GrantCreateCard({ open, onOpenChange }: GrantCreateCardProps): R
               </Select>
             </div>
             <div className="grid gap-1.5">
-              <Label className="mono-label">Principal id</Label>
-              <Input value={principalId} onChange={(e) => setPrincipalId(e.target.value)} />
+              <Label>Principal id</Label>
+              <Input aria-label="Principal id" value={principalId} onChange={(e) => setPrincipalId(e.target.value)} />
             </div>
             <div className="grid gap-1.5">
-              <Label className="mono-label">Resource type</Label>
+              <Label>Resource type</Label>
               <Select value={resourceType} onValueChange={(v) => setResourceType(v as typeof resourceType)}>
                 <SelectTrigger>
                   <SelectValue />
@@ -78,11 +78,11 @@ export function GrantCreateCard({ open, onOpenChange }: GrantCreateCardProps): R
               </Select>
             </div>
             <div className="grid gap-1.5">
-              <Label className="mono-label">Resource id</Label>
-              <Input value={resourceId} onChange={(e) => setResourceId(e.target.value)} />
+              <Label>Resource id</Label>
+              <Input aria-label="Resource id" value={resourceId} onChange={(e) => setResourceId(e.target.value)} />
             </div>
             <div className="grid gap-1.5 sm:col-span-2">
-              <Label className="mono-label">Relation</Label>
+              <Label>Relation</Label>
               <Select value={relation} onValueChange={(v) => setRelation(v as typeof relation)}>
                 <SelectTrigger>
                   <SelectValue />
@@ -100,6 +100,7 @@ export function GrantCreateCard({ open, onOpenChange }: GrantCreateCardProps): R
               Cancel
             </Button>
             <Button
+              variant="outline"
               size="sm"
               disabled={create.isPending || !principalId || !resourceId}
               onClick={() =>

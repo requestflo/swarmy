@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Switch, Textarea } from '@swarmy/ui';
+import { Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Textarea } from '@swarmy/ui';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 import type { SsoProvisioning } from './use-sso-provisioning';
 
 interface Props {
@@ -12,11 +13,11 @@ export function SsoProvisioningFields({ value, onChange }: Props): React.JSX.Ele
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <div className="grid gap-1.5">
-        <Label className="mono-label">Login button label</Label>
-        <Input value={value.displayName} placeholder="e.g. Company SSO" onChange={(e) => onChange({ displayName: e.target.value })} />
+        <Label>Login button label</Label>
+        <Input aria-label="Login button label" value={value.displayName} placeholder="e.g. Company SSO" onChange={(e) => onChange({ displayName: e.target.value })} />
       </div>
       <div className="grid gap-1.5">
-        <Label className="mono-label">New people join as</Label>
+        <Label>New people join as</Label>
         <Select value={value.defaultRole} onValueChange={(v) => onChange({ defaultRole: v as 'member' | 'admin' })}>
           <SelectTrigger>
             <SelectValue />
@@ -28,7 +29,7 @@ export function SsoProvisioningFields({ value, onChange }: Props): React.JSX.Ele
         </Select>
       </div>
       <label className="flex items-start gap-3 text-sm sm:col-span-2">
-        <Switch checked={value.autoProvision} onCheckedChange={(v) => onChange({ autoProvision: v })} />
+        <QuietSwitch checked={value.autoProvision} onCheckedChange={(v) => onChange({ autoProvision: v })} />
         <span>
           Let anyone in this directory sign in
           <span className="text-muted-foreground block">
@@ -37,12 +38,12 @@ export function SsoProvisioningFields({ value, onChange }: Props): React.JSX.Ele
         </span>
       </label>
       <div className="grid gap-1.5">
-        <Label className="mono-label">Group claim</Label>
-        <Input value={value.groupsClaim} placeholder="groups" onChange={(e) => onChange({ groupsClaim: e.target.value })} />
+        <Label>Group claim</Label>
+        <Input aria-label="Group claim" value={value.groupsClaim} placeholder="groups" onChange={(e) => onChange({ groupsClaim: e.target.value })} />
         <p className="text-muted-foreground text-xs">Keycloak/Authentik/Zitadel: usually <code>groups</code>. Dotted paths work.</p>
       </div>
       <div className="grid gap-1.5">
-        <Label className="mono-label">Group mapping (optional)</Label>
+        <Label>Group mapping (optional)</Label>
         <Textarea
           className="mono-data min-h-20 text-xs"
           value={value.groupMapText}

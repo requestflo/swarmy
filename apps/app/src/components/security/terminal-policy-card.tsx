@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label, Skeleton, Switch, toast } from '@swarmy/ui';
+import { Button, Input, Label, Skeleton, toast } from '@swarmy/ui';
+import { Section } from '@/components/calm';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 import { useTRPC } from '@/integrations/trpc';
 
 const MIN = 60_000;
@@ -53,11 +55,7 @@ export function TerminalPolicyCard(): React.JSX.Element {
   );
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Terminal</CardTitle>
-      </CardHeader>
-      <CardContent>
+    <Section title="Terminal">
         {!draft ? (
           <Skeleton className="h-24 w-full" />
         ) : (
@@ -74,7 +72,7 @@ export function TerminalPolicyCard(): React.JSX.Element {
             }}
           >
             <label className="flex items-start gap-3 text-sm sm:col-span-3">
-              <Switch checked={draft.requireMfa} onCheckedChange={(v) => setDraft({ ...draft, requireMfa: v })} />
+              <QuietSwitch checked={draft.requireMfa} onCheckedChange={(v) => setDraft({ ...draft, requireMfa: v })} />
               <span>
                 Require recent MFA to open a shell
                 <span className="text-muted-foreground block">
@@ -87,13 +85,12 @@ export function TerminalPolicyCard(): React.JSX.Element {
             {num('idleMinutes', 'Idle timeout (min)', 1, 1440)}
             {num('maxMinutes', 'Max session length (min)', 5, 1440)}
             <div className="sm:col-span-3">
-              <Button type="submit" disabled={save.isPending}>
+              <Button variant="outline" type="submit" disabled={save.isPending}>
                 Save
               </Button>
             </div>
           </form>
         )}
-      </CardContent>
-    </Card>
+      </Section>
   );
 }

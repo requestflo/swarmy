@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Card, CardContent, CardHeader, CardTitle, Skeleton, StatusBadge, toast, type StatusTone } from '@swarmy/ui';
+import { Button, Skeleton, StatusBadge, toast, type StatusTone } from '@swarmy/ui';
+import { Section } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 
 const STANDING: Record<string, { tone: StatusTone; label: (deadline: Date | null) => string }> = {
@@ -28,11 +29,7 @@ export function MemberMfaList(): React.JSX.Element {
   const [confirming, setConfirming] = React.useState<string | null>(null);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Members</CardTitle>
-      </CardHeader>
-      <CardContent>
+    <Section title="Two-factor, person by person">
         {!members.data ? (
           <Skeleton className="h-24 w-full" />
         ) : (
@@ -70,7 +67,6 @@ export function MemberMfaList(): React.JSX.Element {
             })}
           </ul>
         )}
-      </CardContent>
-    </Card>
+      </Section>
   );
 }

@@ -25,7 +25,7 @@ export function PolicyActionPicker({ value, onChange }: PolicyActionPickerProps)
 
   return (
     <div className="grid gap-3">
-      <Label className="mono-label">
+      <Label>
         Can… <span className="text-muted-foreground normal-case">(none picked = anything)</span>
       </Label>
       {ORDER.map((group) => (

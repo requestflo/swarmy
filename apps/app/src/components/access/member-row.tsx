@@ -69,6 +69,7 @@ export function MemberRow({ member, expanded, onToggle }: MemberRowProps): React
                 Cancel
               </Button>
               <Button
+                variant="outline"
                 size="sm"
                 disabled={save.isPending}
                 onClick={() => {

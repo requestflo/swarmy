@@ -60,12 +60,12 @@ export function SsoCreateCard({ open, onOpenChange }: SsoCreateCardProps): React
             </p>
           </div>
           <div className="grid gap-1.5">
-            <Label className="mono-label">Provider slug</Label>
-            <Input value={providerId} placeholder="acme" onChange={(e) => setProviderId(e.target.value)} />
+            <Label>Provider slug</Label>
+            <Input aria-label="Provider slug" value={providerId} placeholder="acme" onChange={(e) => setProviderId(e.target.value)} />
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5">
-              <Label className="mono-label">Protocol</Label>
+              <Label>Protocol</Label>
               <Select value={protocol} onValueChange={(v) => setProtocol(v as 'oidc' | 'saml')}>
                 <SelectTrigger>
                   <SelectValue />
@@ -77,32 +77,32 @@ export function SsoCreateCard({ open, onOpenChange }: SsoCreateCardProps): React
               </Select>
             </div>
             <div className="grid gap-1.5">
-              <Label className="mono-label">Email domain</Label>
-              <Input value={domain} placeholder="acme.com" onChange={(e) => setDomain(e.target.value)} />
+              <Label>Email domain</Label>
+              <Input aria-label="Email domain" value={domain} placeholder="acme.com" onChange={(e) => setDomain(e.target.value)} />
             </div>
           </div>
           {protocol === 'oidc' ? (
             <>
               <div className="grid gap-1.5">
-                <Label className="mono-label">Discovery URL</Label>
-                <Input
+                <Label>Discovery URL</Label>
+                <Input aria-label="Discovery URL"
                   value={discoveryUrl}
                   placeholder="https://idp.acme.com/.well-known/openid-configuration"
                   onChange={(e) => setDiscoveryUrl(e.target.value)}
                 />
               </div>
               <div className="grid gap-1.5">
-                <Label className="mono-label">Issuer (optional)</Label>
-                <Input value={issuer} onChange={(e) => setIssuer(e.target.value)} />
+                <Label>Issuer (optional)</Label>
+                <Input aria-label="Issuer (optional)" value={issuer} onChange={(e) => setIssuer(e.target.value)} />
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="grid gap-1.5">
-                  <Label className="mono-label">Client ID</Label>
-                  <Input value={clientId} onChange={(e) => setClientId(e.target.value)} />
+                  <Label>Client ID</Label>
+                  <Input aria-label="Client ID" value={clientId} onChange={(e) => setClientId(e.target.value)} />
                 </div>
                 <div className="grid gap-1.5">
-                  <Label className="mono-label">Client secret</Label>
-                  <Input
+                  <Label>Client secret</Label>
+                  <Input aria-label="Client secret"
                     type="password"
                     value={clientSecret}
                     placeholder="paste secret"
@@ -122,6 +122,7 @@ export function SsoCreateCard({ open, onOpenChange }: SsoCreateCardProps): React
               Cancel
             </Button>
             <Button
+              variant="outline"
               disabled={upsert.isPending || !providerId}
               onClick={() =>
                 upsert.mutate({

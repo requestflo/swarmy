@@ -17,7 +17,7 @@ export function PolicyScopeFields({ draft, patch }: PolicyScopeFieldsProps): Rea
     <div className="grid gap-3">
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="grid gap-1.5">
-          <Label className="mono-label">On</Label>
+          <Label>On</Label>
           <Select value={draft.resourceType} onValueChange={(v) => patch({ resourceType: v as ResourceScope })}>
             <SelectTrigger>
               <SelectValue />
@@ -31,7 +31,7 @@ export function PolicyScopeFields({ draft, patch }: PolicyScopeFieldsProps): Rea
           </Select>
         </div>
         <div className="grid gap-1.5">
-          <Label className="mono-label">Environment</Label>
+          <Label>Environment</Label>
           <Select value={draft.env} onValueChange={(v) => patch({ env: v as EnvScope })}>
             <SelectTrigger>
               <SelectValue />
@@ -58,7 +58,7 @@ export function PolicyScopeFields({ draft, patch }: PolicyScopeFieldsProps): Rea
       </p>
 
       <div className="grid gap-1.5">
-        <Label className="mono-label">Only where labels match</Label>
+        <Label>Only where labels match</Label>
         {draft.labels.map((l, i) => (
           <div key={i} className="flex items-center gap-2">
             <Input value={l.key} placeholder="label (e.g. team)" onChange={(e) => setLabel(i, 'key', e.target.value)} />

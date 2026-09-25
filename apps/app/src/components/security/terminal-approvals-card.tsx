@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Card, CardContent, CardHeader, CardTitle, Skeleton, toast } from '@swarmy/ui';
+import { Button, Skeleton, toast } from '@swarmy/ui';
+import { Section } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 
 /**
@@ -38,11 +39,7 @@ export function TerminalApprovalsCard(): React.JSX.Element {
   );
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Node shell requests</CardTitle>
-      </CardHeader>
-      <CardContent>
+    <Section title="Server shell requests">
         {!approvals.data ? (
           <Skeleton className="h-16 w-full" />
         ) : pending.length === 0 ? (
@@ -74,6 +71,7 @@ export function TerminalApprovalsCard(): React.JSX.Element {
                         Deny
                       </Button>
                       <Button
+                        variant="outline"
                         size="sm"
                         disabled={decide.isPending}
                         onClick={() => decide.mutate({ approvalId: a.id, approve: true })}
@@ -87,7 +85,6 @@ export function TerminalApprovalsCard(): React.JSX.Element {
             })}
           </ul>
         )}
-      </CardContent>
-    </Card>
+      </Section>
   );
 }

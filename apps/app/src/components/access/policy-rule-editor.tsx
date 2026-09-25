@@ -52,11 +52,11 @@ export function PolicyRuleEditor({ initial, onClose }: PolicyRuleEditorProps): R
 
           <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
             <div className="grid gap-1.5">
-              <Label className="mono-label">Name (optional)</Label>
-              <Input value={e.draft.name} onChange={(ev) => e.patch({ name: ev.target.value })} placeholder="Platform team ships prod" />
+              <Label>Name (optional)</Label>
+              <Input aria-label="Name (optional)" value={e.draft.name} onChange={(ev) => e.patch({ name: ev.target.value })} placeholder="Platform team ships prod" />
             </div>
             <div className="grid gap-1.5">
-              <Label className="mono-label">Effect</Label>
+              <Label>Effect</Label>
               <Select value={e.draft.effect} onValueChange={(v) => e.patch({ effect: v as 'permit' | 'forbid' })}>
                 <SelectTrigger>
                   <SelectValue />
@@ -68,8 +68,8 @@ export function PolicyRuleEditor({ initial, onClose }: PolicyRuleEditorProps): R
               </Select>
             </div>
             <div className="grid gap-1.5">
-              <Label className="mono-label">Priority</Label>
-              <Input
+              <Label>Priority</Label>
+              <Input aria-label="Priority"
                 type="number"
                 className="w-24"
                 value={e.priority}
@@ -80,7 +80,7 @@ export function PolicyRuleEditor({ initial, onClose }: PolicyRuleEditorProps): R
 
           {e.jsonMode ? (
             <div className="grid gap-1.5">
-              <Label className="mono-label">Rule (JSON)</Label>
+              <Label>Rule (JSON)</Label>
               <Textarea className="font-mono text-xs" rows={10} value={e.source} onChange={(ev) => e.setSource(ev.target.value)} />
             </div>
           ) : (

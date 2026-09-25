@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle, Skeleton, Switch, toast } from '@swarmy/ui';
+import { Skeleton, toast } from '@swarmy/ui';
+import { Section } from '@/components/calm';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 import { useTRPC } from '@/integrations/trpc';
 
 /**
@@ -26,16 +28,12 @@ export function Require2faCard(): React.JSX.Element {
   const on = policy.data ? policy.data.require2fa !== 'off' : false;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Workspace two-factor</CardTitle>
-      </CardHeader>
-      <CardContent>
+    <Section title="Workspace two-factor">
         {!policy.data ? (
           <Skeleton className="h-16 w-full" />
         ) : (
           <label className="flex items-start gap-3 text-sm">
-            <Switch
+            <QuietSwitch
               checked={on}
               disabled={save.isPending}
               onCheckedChange={(v) =>
@@ -52,7 +50,6 @@ export function Require2faCard(): React.JSX.Element {
             </span>
           </label>
         )}
-      </CardContent>
-    </Card>
+      </Section>
   );
 }
