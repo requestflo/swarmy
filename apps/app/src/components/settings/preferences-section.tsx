@@ -21,9 +21,9 @@ export function PreferencesSection(): React.JSX.Element {
           <DepthSegments value={value} onChange={set} label="How much detail to show by default" />
         </div>
         <p className="text-muted-foreground text-[13.5px]">
-          <b className="text-foreground">{DEPTH_LABEL[value]}</b>: {EXPLAIN[value]} Every page still has its own switch at the top, and goes back to this when you leave it.
+          <b className="text-foreground">{DEPTH_LABEL[value]}</b>: {EXPLAIN[value]} It follows you to any browser you sign in on. Every page still has its own switch at the top, and goes back to this when you leave it.
         </p>
-        <Tech>stored in this browser as swarmy-depth:&lt;your user id&gt;</Tech>
+        <Tech>saved to your account (org.setMyPreferences) · cached in this browser as swarmy-depth:&lt;your user id&gt;</Tech>
       </div>
       <div className="border-border flex flex-wrap items-center gap-3 border-t pt-3">
         <span className="text-[14px] font-semibold">Appearance</span>

@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { useLocation } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import { useTRPC } from '@/integrations/trpc';
+import { useSavedDepth } from './depth-saved';
 
 /**
  * Calm Layers depth: every screen reads at three depths, and each adds detail
@@ -13,7 +12,10 @@ import { useTRPC } from '@/integrations/trpc';
  *
  * Three scopes, innermost wins: a section's own switch → this page's switch
  * (top bar; resets to the default on navigation) → the person's default (the
- * sidenav "Show me" dial, persisted per user).
+ * sidenav "Show me" dial). The default is saved server-side
+ * (`org.myPreferences`) so it follows the person across browsers;
+ * localStorage (`swarmy-depth:<userId>`) is the cache that paints the first
+ * frame before the query answers.
  */
 export type DepthName = 'summary' | 'controls' | 'code';
 export const DEPTHS: readonly DepthName[] = ['summary', 'controls', 'code'];
@@ -23,31 +25,6 @@ export const DEPTH_LABEL: Record<DepthName, string> = {
   code: 'Code',
 };
 const RANK: Record<DepthName, number> = { summary: 0, controls: 1, code: 2 };
-
-const BASE_KEY = 'swarmy-depth';
-
-function isDepth(v: unknown): v is DepthName {
-  return v === 'summary' || v === 'controls' || v === 'code';
-}
-
-function readStored(userId: string | null): DepthName | null {
-  try {
-    const own = userId ? window.localStorage.getItem(`${BASE_KEY}:${userId}`) : null;
-    const v = own ?? window.localStorage.getItem(BASE_KEY);
-    return isDepth(v) ? v : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeStored(userId: string | null, d: DepthName): void {
-  try {
-    if (userId) window.localStorage.setItem(`${BASE_KEY}:${userId}`, d);
-    window.localStorage.setItem(BASE_KEY, d);
-  } catch {
-    // storage unavailable — the choice lasts for this tab only
-  }
-}
 
 interface DefaultCtx {
   /** The person's default depth. */
@@ -65,14 +42,7 @@ const DefaultContext = React.createContext<DefaultCtx | null>(null);
 const SectionContext = React.createContext<DepthName | null>(null);
 
 export function DepthProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
-  const trpc = useTRPC();
-  const whoami = useQuery(trpc.org.whoami.queryOptions());
-  const userId = whoami.data?.userId ?? null;
-  const [stored, setStored] = React.useState<DepthName | null>(() => readStored(null));
-  React.useEffect(() => {
-    if (userId) setStored(readStored(userId));
-  }, [userId]);
-
+  const { stored, save } = useSavedDepth();
   const value: DepthName = stored ?? 'summary';
   const { pathname } = useLocation();
   // The page override is keyed by pathname, so navigating resets it to the default.
@@ -84,14 +54,13 @@ export function DepthProvider({ children }: { children: React.ReactNode }): Reac
       value,
       chosen: stored !== null,
       set: (d) => {
-        writeStored(userId, d);
-        setStored(d);
+        save(d);
         setPageOverride(null);
       },
       page,
       setPage: (d) => setPageOverride({ path: pathname, d }),
     }),
-    [value, stored, userId, page, pathname],
+    [value, stored, save, page, pathname],
   );
   return <DefaultContext.Provider value={ctx}>{children}</DefaultContext.Provider>;
 }

@@ -13,6 +13,17 @@ export interface WhoAmI {
   activeOrgId: string | null;
 }
 
+export type DepthPreference = 'summary' | 'controls' | 'code';
+
+export interface MyPreferences {
+  /** The Calm Layers default depth ("Show me"); null until the person picks one. */
+  depth: DepthPreference | null;
+}
+
+function asDepth(v: string | null | undefined): DepthPreference | null {
+  return v === 'summary' || v === 'controls' || v === 'code' ? v : null;
+}
+
 export interface OrgView {
   id: string;
   name: string;
@@ -32,6 +43,24 @@ export const orgRouter = router({
       activeOrgId: ctx.activeOrgId,
     };
   }),
+
+  /** The signed-in person's dashboard preferences (they follow them across browsers). */
+  myPreferences: protectedProcedure.query(async ({ ctx }): Promise<MyPreferences> => {
+    const row = await ctx.db.userPreference.findUnique({ where: { userId: ctx.user.id } });
+    return { depth: asDepth(row?.depth) };
+  }),
+
+  /** Save the person's own preferences. Personal, so no org gate and no audit entry. */
+  setMyPreferences: protectedProcedure
+    .input(z.object({ depth: z.enum(['summary', 'controls', 'code']) }))
+    .mutation(async ({ ctx, input }): Promise<MyPreferences> => {
+      const row = await ctx.db.userPreference.upsert({
+        where: { userId: ctx.user.id },
+        create: { userId: ctx.user.id, depth: input.depth },
+        update: { depth: input.depth },
+      });
+      return { depth: asDepth(row.depth) };
+    }),
 
   currentOrg: protectedProcedure.query(async ({ ctx }): Promise<OrgView | null> => {
     if (!ctx.activeOrgId) return null;

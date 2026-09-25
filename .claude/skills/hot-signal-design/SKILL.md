@@ -37,7 +37,8 @@ The boards (68-board canvas + the Calm Layers R-boards) are the visual source.
   where it is at Controls and Code. The Code view goes at the top of the aside.
 - **Per-person default.** The sidenav "Show me" dial (phone: the user menu)
   sets it; the top-bar switch changes this page only and resets on navigation;
-  a `Section switchable` can go its own way. Stored per user in localStorage
+  a `Section switchable` can go its own way. Saved per person server-side
+  (`org.myPreferences` / `setMyPreferences`), cached in localStorage
   (`swarmy-depth:<userId>`). First run asks (the RWelcome card on Overview).
 - **No screen ships without its Summary sentence and its Code view.**
 

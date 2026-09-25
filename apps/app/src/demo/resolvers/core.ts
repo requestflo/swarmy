@@ -16,6 +16,9 @@ function byId<T extends { id: string }>(arr: T[], id: string): T | undefined {
 /** Session-local autolock state for the swarm.* demo resolvers. */
 const demoAutolock = { keyStored: false };
 
+/** The demo person's saved "Show me" depth (this tab only; the browser cache still applies). */
+let demoDepth: 'summary' | 'controls' | 'code' | null = null;
+
 /** Disk use per demo node (percent of the root filesystem). */
 const DEMO_DISK_PCT: Record<string, number> = { 'n-mgr-1': 38, 'n-mgr-2': 44, 'n-wkr-1': 81, 'n-wkr-2': 57, 'n-wkr-3': 23 };
 
@@ -23,6 +26,11 @@ export const core: DomainResolvers = {
   handlers: {
     'org.currentOrg': (_i, s) => ({ id: s.org.id, name: s.org.name, slug: s.org.slug, role: s.org.role }),
     'org.whoami': (_i, s) => ({ userId: s.user.id, name: s.user.name, email: s.user.email, username: null }),
+    'org.myPreferences': () => ({ depth: demoDepth }),
+    'org.setMyPreferences': (input) => {
+      demoDepth = (input as { depth: 'summary' | 'controls' | 'code' }).depth;
+      return { depth: demoDepth };
+    },
 
     'estate.summary': (_i, s) => {
       const online = s.nodes.filter((n) => n.status === 'online').length;
