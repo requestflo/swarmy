@@ -225,6 +225,11 @@ describe('host scripts', () => {
     expect(s).toContain('UUID=$UUID $MNT ext4');
   });
 
+  it('sizes are printed as whole numbers (awk would print 5.2e+09 for a big disk)', () => {
+    expect(renderDiskProbeScript()).toContain('printf "%s %.0f\\n"');
+    expect(renderGrowScript('12345678')).toContain('printf "%.0f"');
+  });
+
   it('grow and volume-dir scripts', () => {
     expect(renderGrowScript('12345678')).toContain('resize2fs');
     expect(renderVolumeDirScript('/var/lib/swarmy/disks/A1/volumes/v')).toContain("mountpoint -q '/var/lib/swarmy/disks/A1'");

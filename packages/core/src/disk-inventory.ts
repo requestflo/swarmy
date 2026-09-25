@@ -303,7 +303,7 @@ export function renderDiskProbeScript(path?: string): string {
     // util-linux < 2.37 has no MOUNTPOINTS column.
     `lsblk -J -b -o ${LSBLK_COLS},MOUNTPOINTS 2>/dev/null || lsblk -J -b -o ${LSBLK_COLS},MOUNTPOINT`,
     'echo __SWARMY_DF__',
-    `df -Pk 2>/dev/null | awk 'NR>1 && index($6,"${SWARMY_DISK_ROOT}")==1 {print $6, $2*1024}'`,
+    `df -Pk 2>/dev/null | awk 'NR>1 && index($6,"${SWARMY_DISK_ROOT}")==1 {printf "%s %.0f\\n", $6, $2*1024}'`,
   ];
   if (path) {
     lines.push(
@@ -431,7 +431,7 @@ case "$FS" in
   xfs) xfs_growfs "$MNT" >/dev/null 2>&1 || err "xfs_growfs failed" ;;
   *) err "cannot grow a $FS filesystem" ;;
 esac
-echo "__SWARMY_GROWN__ $(df -Pk "$MNT" | awk 'NR==2 {print $2*1024}')"
+echo "__SWARMY_GROWN__ $(df -Pk "$MNT" | awk 'NR==2 {printf "%.0f", $2*1024}')"
 `;
 }
 
