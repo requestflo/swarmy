@@ -3,9 +3,9 @@ import type { BlueprintOptionView, BlueprintSize } from '@swarmy/core';
 import { cn, Input, Switch } from '@swarmy/ui';
 
 const SIZE_HINTS: Record<BlueprintSize, string> = {
-  s: 'Solo — 1 replica, no DB replicas',
-  m: 'Team — 2 replicas, 1 DB replica',
-  l: 'Scale — 3 replicas, HA data',
+  s: 'Solo · 1 copy, one database',
+  m: 'Team · 2 copies, a standby database',
+  l: 'Scale · 3 copies, two standby databases',
 };
 
 /**
@@ -32,7 +32,7 @@ export function BlueprintSizePicker({
 }): React.JSX.Element {
   return (
     <div>
-      <span className="mono-label">Size</span>
+      <span className="text-sm font-medium">Size</span>
       <div className="mt-2 grid grid-cols-3 gap-2">
         {(['s', 'm', 'l'] as const).map((s) => {
           const needs = SIZE_MIN_NODES[s];
@@ -52,8 +52,8 @@ export function BlueprintSizePicker({
                 {SIZE_HINTS[s]}
               </span>
               {short ? (
-                <span className="text-status-warning mt-1 block text-[11px] leading-tight">
-                  Needs {needs}+ nodes for the DB replica{needs > 2 ? 's' : ''}
+                <span className="text-tone-warn mt-1 block text-[11px] leading-tight">
+                  Needs {needs}+ servers for the standby database
                 </span>
               ) : null}
             </button>

@@ -10,11 +10,12 @@ import {
 } from 'lucide-react';
 import type { BlueprintDeployResultView, BlueprintStepStatus } from '@swarmy/core';
 import { Button, CopyButton } from '@swarmy/ui';
+import { StatusWord } from '@/components/calm';
 
 function StatusIcon({ status }: { status: BlueprintStepStatus }): React.JSX.Element {
-  if (status === 'succeeded') return <CheckCircle2Icon className="text-status-online size-4" />;
-  if (status === 'failed') return <XCircleIcon className="text-status-offline size-4" />;
-  return <MinusCircleIcon className="text-status-idle size-4" />;
+  if (status === 'succeeded') return <CheckCircle2Icon className="text-tone-ok size-4" />;
+  if (status === 'failed') return <XCircleIcon className="text-tone-bad size-4" />;
+  return <MinusCircleIcon className="text-tone-idle size-4" />;
 }
 
 /**
@@ -30,6 +31,17 @@ export function BlueprintDeployResult({
 }): React.JSX.Element {
   return (
     <div className="space-y-4">
+      {result.ok ? (
+        <div className="flex flex-col gap-1">
+          <StatusWord tone={result.url ? 'ok' : 'info'} word={result.url ? 'Online' : 'Deploying'} />
+          <p className="font-display text-[1.6rem] leading-tight font-bold tracking-[-0.02em]">
+            {result.url ? 'It’s live.' : 'It’s on its way.'}
+          </p>
+          {result.url ? (
+            <p className="text-muted-foreground text-[13px]">Anyone can open it now. Point your own domain at it any time.</p>
+          ) : null}
+        </div>
+      ) : null}
       <ol className="divide-border divide-y rounded-xl border">
         {result.steps.map((step, i) => (
           <li key={`${step.kind}-${i}`} className="flex items-start gap-3 px-3 py-2.5">
@@ -42,7 +54,7 @@ export function BlueprintDeployResult({
                 <p className="mono-data text-muted-foreground text-[11px]">{step.detail}</p>
               ) : null}
               {step.error ? (
-                <p className="text-status-offline text-xs break-words">{step.error}</p>
+                <p className="text-tone-bad text-xs break-words">{step.error}</p>
               ) : null}
               {step.status === 'skipped' ? (
                 <p className="text-muted-foreground text-xs">Skipped after the failure above.</p>
@@ -77,7 +89,7 @@ export function BlueprintDeployResult({
         {result.ok ? (
           <Button asChild className="rounded-full font-bold">
             <Link to="/stacks/$name" params={{ name: result.stackName }}>
-              Open stack <ArrowRightIcon className="size-4" />
+              Open {result.stackName} <ArrowRightIcon className="size-4" />
             </Link>
           </Button>
         ) : (

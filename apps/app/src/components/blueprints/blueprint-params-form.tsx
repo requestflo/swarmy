@@ -15,6 +15,8 @@ import {
 } from '@swarmy/ui';
 import { useOnlineNodeCount } from '@/lib/use-online-node-count';
 import { PrivateHostNote } from '@/components/ingress/private-host-note';
+import { Depth, Tech } from '@/components/calm';
+import { defaultAppName, getsAutoAddress } from './template-words';
 import {
   BlueprintOptionField,
   BlueprintSizePicker,
@@ -43,7 +45,7 @@ export function BlueprintParamsForm({
   const form = useForm<FormValues>({
     resolver: zodResolver(FormSchema),
     defaultValues: {
-      name: '',
+      name: defaultAppName(meta),
       domain: '',
       size: defaultSizeForNodes(onlineNodes),
       options: defaultOptions(meta),
@@ -78,13 +80,11 @@ export function BlueprintParamsForm({
           name="name"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="mono-label">Name</FormLabel>
+              <FormLabel>App name</FormLabel>
               <FormControl>
-                <Input placeholder="blog" className="font-mono" autoFocus {...field} />
+                <Input placeholder="blog" className="font-mono" {...field} />
               </FormControl>
-              <p className="text-muted-foreground text-xs">
-                Becomes the stack name and the prefix of everything created.
-              </p>
+              <p className="text-muted-foreground text-xs">Used in addresses and logs. Lowercase, no spaces.</p>
               <FormMessage />
             </FormItem>
           )}
@@ -95,12 +95,14 @@ export function BlueprintParamsForm({
             name="domain"
             render={({ field }) => (
               <FormItem>
-                <FormLabel className="mono-label">Domain (optional)</FormLabel>
+                <FormLabel>Your own domain (optional)</FormLabel>
                 <FormControl>
                   <Input placeholder="blog.example.com" className="font-mono" {...field} />
                 </FormControl>
                 <p className="text-muted-foreground text-xs">
-                  Adds an ingress route with automatic TLS. Leave empty to skip.
+                  {getsAutoAddress(meta)
+                    ? 'Leave it empty and it gets a web address straight away, with HTTPS. Add a domain any time.'
+                    : 'HTTPS at this address, set up for you. Leave it empty to skip.'}
                 </p>
                 <PrivateHostNote host={domain} />
                 <FormMessage />
@@ -108,25 +110,30 @@ export function BlueprintParamsForm({
             )}
           />
         ) : null}
-        <BlueprintSizePicker
-          value={size}
-          onlineNodes={onlineNodes}
-          onChange={(s) => {
-            sizeTouched.current = true;
-            form.setValue('size', s);
-          }}
-        />
-        {meta.options.map((opt) => (
-          <BlueprintOptionField
-            key={opt.key}
-            option={opt}
-            value={options[opt.key]}
-            onChange={(v) => setOpt(opt.key, v)}
+        <Tech>
+          size {size} · {Object.keys(options).length} option{Object.keys(options).length === 1 ? '' : 's'} · secrets generated at deploy
+        </Tech>
+        <Depth at="controls">
+          <BlueprintSizePicker
+            value={size}
+            onlineNodes={onlineNodes}
+            onChange={(s) => {
+              sizeTouched.current = true;
+              form.setValue('size', s);
+            }}
           />
-        ))}
+          {meta.options.map((opt) => (
+            <BlueprintOptionField
+              key={opt.key}
+              option={opt}
+              value={options[opt.key]}
+              onChange={(v) => setOpt(opt.key, v)}
+            />
+          ))}
+        </Depth>
         <div className="flex justify-end pt-1">
-          <Button type="submit" className="rounded-full font-bold">
-            Preview plan
+          <Button type="submit" className="w-full rounded-full font-bold pointer-coarse:min-h-11 sm:w-auto">
+            Review {meta.name}
           </Button>
         </div>
       </form>

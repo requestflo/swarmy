@@ -36,7 +36,7 @@ export function BlueprintPlanPreview({
   if (error || !plan) {
     return (
       <div className="space-y-3 py-2">
-        <p className="text-status-offline text-sm break-words">
+        <p className="text-tone-bad text-sm break-words">
           {error ?? "Couldn't build the plan."}
         </p>
         <Button variant="outline" className="rounded-full font-bold" onClick={onBack}>

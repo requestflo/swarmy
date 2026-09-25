@@ -43,7 +43,7 @@ export function BlueprintDeployPanel({
     trpc.blueprints.deploy.mutationOptions({
       onSuccess: (r) => {
         void qc.invalidateQueries();
-        if (r.ok) toast.success(`Stack ${r.stackName} is deploying`);
+        if (r.ok) toast.success(`${r.stackName} is deploying`);
         else toast.error(`Deploy of ${r.stackName} hit a snag — see the steps`);
         // Nothing to reveal → straight into the new stack's workspace.
         if (r.ok && r.notes.length === 0) {
@@ -62,11 +62,11 @@ export function BlueprintDeployPanel({
     <div className="grid min-w-0 gap-3">
       <p className="text-muted-foreground text-xs">
         {phase === 'form'
-          ? 'Name it, size it — nothing is created until you deploy.'
+          ? 'Nothing runs until you press Deploy.'
           : phase === 'preview'
-            ? 'Review the plan — nothing has been created yet.'
+            ? 'This is exactly what gets created. Nothing has run yet.'
             : result?.ok
-              ? 'Everything below ran in order. Give services a minute to converge.'
+              ? 'Everything below ran in order. Give it a minute to start.'
               : 'The first failure stopped the run; later steps were skipped.'}
       </p>
       {phase === 'form' ? (

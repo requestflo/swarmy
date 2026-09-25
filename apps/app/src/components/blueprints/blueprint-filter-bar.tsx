@@ -29,13 +29,13 @@ export function BlueprintFilterBar({
       aria-pressed={category === id}
       onClick={() => onCategoryChange(id)}
       className={cn(
-        'rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+        'rounded-full px-2.5 py-1 text-xs font-medium transition-colors pointer-coarse:min-h-9',
         category === id
           ? 'bg-ink text-ink-foreground'
           : 'bg-muted text-muted-foreground hover:bg-accent',
       )}
     >
-      {label} <span className="mono-data opacity-70">{count}</span>
+      {label} <span className="mono-data">{count}</span>
     </button>
   );
   return (
@@ -47,7 +47,7 @@ export function BlueprintFilterBar({
           onChange={(e) => onQueryChange(e.target.value)}
           placeholder="Search apps: plausible, wiki, postgres…"
           aria-label="Search blueprints"
-          className="h-9 rounded-full pl-8 text-sm"
+          className="h-10 rounded-full pl-8 text-sm"
         />
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
