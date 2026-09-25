@@ -24,8 +24,7 @@ type ControlPlaneMode = 'managed-by-swarmy' | 'external';
 
 /**
  * Networking → control-plane config (epic #6, Phase 2+). Driver-specific fields:
- * NetBird/Headscale want a management URL + service token; Tailscale wants an
- * auth key; raw WireGuard has no control plane. Secrets are write-only — the
+ * NetBird/Headscale want a management URL + service token. Secrets are write-only — the
  * server stores them encrypted and never returns them.
  */
 export function ControlPlaneCard({ driver }: { driver: string }): React.JSX.Element {
@@ -58,32 +57,21 @@ export function ControlPlaneCard({ driver }: { driver: string }): React.JSX.Elem
   // NetBird running inside swarmy: the live control-plane card, not a form.
   if (config.data?.controlPlaneMode === 'managed-by-swarmy' && driver === 'netbird') return <SwarmyControlPlaneCard />;
 
-  const isWireguard = driver === 'wireguard';
-  const isTailscale = driver === 'tailscale';
   const needsUrl = driver === 'netbird' || driver === 'headscale';
   const tokenConfigured = !!config.data?.tokenConfigured;
 
-  const tokenLabel = isTailscale ? 'Auth key' : 'Service token';
-  const tokenHint = isTailscale
-    ? 'Tailscale reusable/ephemeral auth key — stored encrypted, never shown again.'
-    : 'NetBird/Headscale Admin API token — stored encrypted, used server-side only.';
+  const tokenLabel = 'Service token';
+  const tokenHint = 'NetBird/Headscale Admin API token — stored encrypted, used server-side only.';
 
   return (
     <Card className="card-pop border-0">
       <CardHeader>
         <CardTitle className="text-base">Control plane</CardTitle>
         <CardDescription>
-          {isWireguard
-            ? 'Raw WireGuard has no control plane — swarmy mints keypairs and renders wg0.conf. You own routing & NAT.'
-            : 'Where the mesh coordination lives. Secrets are encrypted at rest and never returned.'}
+          Where the mesh coordination lives. Secrets are encrypted at rest and never returned.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-5">
-        {isWireguard ? (
-          <div className="text-muted-foreground bg-accent/40 rounded-xl px-4 py-3 text-sm">
-            No control plane required. Configure the mesh subnet under driver settings.
-          </div>
-        ) : (
           <>
             {needsUrl && (
               <>
@@ -143,7 +131,6 @@ export function ControlPlaneCard({ driver }: { driver: string }): React.JSX.Elem
               </Button>
             </div>
           </>
-        )}
       </CardContent>
     </Card>
   );

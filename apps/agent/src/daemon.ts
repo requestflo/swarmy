@@ -68,7 +68,6 @@ async function joinMeshAtStartup(docker: DockerClient): Promise<{ meshIp?: strin
         acceptRoutes: true,
         ...(env.MESH_CA_B64 ? { caPem: Buffer.from(env.MESH_CA_B64, 'base64').toString('utf8') } : {}),
       },
-      files: [],
       summary: 'mesh-first join at agent startup',
     };
     log('joining mesh before registering…');

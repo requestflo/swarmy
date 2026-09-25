@@ -14,7 +14,7 @@ import type { DemoStore, DomainResolvers } from '../types';
  */
 
 /** Driver ids the UI offers (mirrors `MeshDriverId` in mesh-driver-card.tsx). */
-type MeshDriverId = 'none' | 'netbird' | 'headscale' | 'tailscale' | 'wireguard';
+type MeshDriverId = 'none' | 'netbird' | 'headscale';
 
 /** Mirror of the controller's `MeshConfigView` (mesh.service.ts). */
 interface MeshConfigView {
@@ -47,17 +47,9 @@ interface MeshState {
   tokenConfigured: boolean;
   updatedAt: string;
   peers: MeshPeerView[];
-  /** Demo: the swarm has been moved onto the mesh data-path. */
-  swarmOnMesh?: boolean;
 }
 
-const VALID_DRIVERS: ReadonlySet<MeshDriverId> = new Set<MeshDriverId>([
-  'none',
-  'netbird',
-  'headscale',
-  'tailscale',
-  'wireguard',
-]);
+const VALID_DRIVERS: ReadonlySet<MeshDriverId> = new Set<MeshDriverId>(['none', 'netbird', 'headscale']);
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -93,17 +85,6 @@ function toConfigView(st: MeshState): MeshConfigView {
 /** Next free mesh IP in the 100.92.0.0/16 NetBird-style range, by peer count. */
 function nextMeshIp(st: MeshState): string {
   return `100.92.0.${10 + st.peers.length}`;
-}
-
-/** The join snippet a principal would paste, shaped per driver (see mesh.service). */
-function joinSnippet(driver: MeshDriverId, url: string, setupKey: string): string {
-  if (driver === 'netbird') {
-    return `netbird up --management-url ${url || 'https://netbird.northwind.dev'} --setup-key ${setupKey}`;
-  }
-  if (driver === 'headscale' || driver === 'tailscale') {
-    return `tailscale up --login-server ${url || 'https://controlplane.tailscale.com'} --authkey ${setupKey}`;
-  }
-  return `# add this machine as a WireGuard peer, then: wg-quick up wg0`;
 }
 
 export const mesh: DomainResolvers = {
@@ -172,46 +153,6 @@ export const mesh: DomainResolvers = {
       st.updatedAt = nowIso();
       return peer;
     },
-
-    // Swarm-over-mesh: a static-but-coherent plan off the demo peers. The two
-    // managers stay put (fewer than 3); CONNECTED workers are already moved.
-    'mesh.swarmStatus': (_i, s) => {
-      const st = getState(s);
-      const moved = st.swarmOnMesh ?? false;
-      const nodes = st.peers.map((p, idx) => {
-        const manager = p.nodeId.includes('mgr');
-        const onMesh = !manager && (moved || p.status === 'CONNECTED');
-        return {
-          nodeId: p.nodeId,
-          hostname: p.nodeId.replace(/^n-/, ''),
-          kind: manager ? 'manager' : 'worker',
-          action: manager ? 'stays-put' : onMesh ? 'already' : 'move',
-          addr: onMesh ? p.meshIp : `203.0.113.${10 + idx}`,
-          meshIp: p.meshIp,
-          onMesh,
-          leader: p.nodeId === 'n-mgr-1',
-          reason: manager
-            ? 'Manager stays on its public address; NAT’d nodes connect out to it and it reaches them over the mesh.'
-            : onMesh
-              ? 'Already on the mesh data-path.'
-              : 'Briefly drained, then rejoined on its mesh IP.',
-          pinned: [],
-        };
-      });
-      return {
-        meshEnabled: st.enabled && st.driver !== 'none',
-        driver: st.driver,
-        plan: { direction: 'onto-mesh', managerCount: 2, managersStay: true, nodes, warnings: [], blockers: [] },
-        run: null,
-      };
-    },
-    'mesh.migrateSwarm': (i, s) => {
-      const st = getState(s);
-      st.swarmOnMesh = (i as { direction?: string }).direction !== 'off-mesh';
-      return { status: 'done' };
-    },
-    'mesh.resumeMigration': () => ({ status: 'done' }),
-    'mesh.cancelMigration': () => ({ status: 'canceled' }),
 
   },
 

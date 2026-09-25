@@ -13,14 +13,13 @@ import {
 } from './network-policy';
 
 describe('overlay MTU over the mesh', () => {
-  it('NetBird/Tailscale wt0 1280 → overlay 1230 (VXLAN 50), 1170 encrypted', () => {
+  it('NetBird wt0 / Headscale tailscale0 1280 → overlay 1230 (VXLAN 50), 1170 encrypted', () => {
     expect(meshLinkMtu('netbird')).toBe(1280);
-    expect(meshLinkMtu('tailscale')).toBe(1280);
+    expect(meshLinkMtu('headscale')).toBe(1280);
     expect(overlayMtuFor(1280)).toBe(1230);
     expect(overlayMtuFor(1280, true)).toBe(1170);
   });
-  it('raw WireGuard 1420 → 1370; no mesh → Docker default (unset)', () => {
-    expect(overlayMtuFor(meshLinkMtu('wireguard'))).toBe(1370);
+  it('no mesh → Docker default (unset)', () => {
     expect(meshLinkMtu('none')).toBeUndefined();
     expect(overlayMtuFor(undefined)).toBeUndefined();
   });

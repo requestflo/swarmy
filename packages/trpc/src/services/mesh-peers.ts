@@ -21,7 +21,7 @@ export type LiveMeshPeerStatus = MeshPeerStatus;
 export interface LiveMeshPeer {
   orgId: string;
   nodeId: string;
-  /** Wire driver name (`netbird`, `tailscale`, …). */
+  /** Wire driver name (`netbird`, `headscale`). */
   driver: string;
   status: LiveMeshPeerStatus;
   meshIp: string | null;

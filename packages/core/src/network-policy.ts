@@ -60,17 +60,14 @@ export const IPSEC_OVERHEAD = 60;
 
 /**
  * The WireGuard interface MTU each mesh driver brings up. NetBird (`wt0`)
- * and Tailscale (`tailscale0`) default to 1280; raw WireGuard (`wg0`) to 1420.
+ * and Headscale's tailscale client (`tailscale0`) default to 1280.
  * `none` = no mesh, underlay MTU (1500) — Docker's default is already right.
  */
 export function meshLinkMtu(driver: string | null | undefined): number | undefined {
   switch ((driver ?? 'none').toLowerCase()) {
     case 'netbird':
     case 'headscale':
-    case 'tailscale':
       return 1280;
-    case 'wireguard':
-      return 1420;
     default:
       return undefined;
   }

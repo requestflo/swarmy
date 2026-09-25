@@ -1,6 +1,6 @@
 ---
 name: mesh-networking
-description: Invariants, contracts, and file map for swarmy's zero-trust WireGuard mesh — the pluggable MeshDriver registry (netbird/headscale/tailscale/wireguard/none), the applyMesh/meshState protocol, the privileged mesh-client sidecar the agent supervises, and people access. Load before touching anything under packages/mesh, protocol/mesh.ts, mesh.service.ts, routers/mesh.ts, apps/agent/src/handlers/mesh.ts, or the Networking UI. Product rationale lives in docs/product/mesh-networking.md.
+description: Invariants, contracts, and file map for swarmy's zero-trust WireGuard mesh — the pluggable MeshDriver registry (netbird/headscale/none), the applyMesh/meshState protocol, the privileged mesh-client sidecar the agent supervises, and people access. Load before touching anything under packages/mesh, protocol/mesh.ts, mesh.service.ts, routers/mesh.ts, apps/agent/src/handlers/mesh.ts, or the Networking UI. Product rationale lives in docs/product/mesh-networking.md.
 ---
 
 # Mesh networking: driver → render → sidecar → meshState
@@ -28,9 +28,9 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
    provider is a new `MeshDriver` + `render()`, never an agent change. Same rule
    as ingress drivers — render pure, apply at the edge.
 3. **Control-plane calls go through `DriverControlPlane`; drivers stay pure
-   apart from it.** `createSetupKey`/`listPeers`/`revokePeer`/`applyPolicyPlan`
-   are the only IO a driver may do, injected by the service. `render()`,
-   `validate()`, and `applyAccess()` are pure and golden-testable.
+   apart from it.** `createSetupKey`/`listPeers`/`revokePeer`
+   are the only IO a driver may do, injected by the service. `render()` and
+   `validate()` are pure and golden-testable.
 4. **Every command is one entry in three places** (same as any agent command):
    a Zod message in `packages/core/src/protocol/mesh.ts` added to the union in
    `messages.ts`; a `CommandName` + wire `type` in `COMMAND_PROTOCOL_TYPE`
@@ -43,8 +43,7 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
    `MeshConfig.controlPlane` and resolved just-in-time; it is never returned to
    the client (`getConfig` exposes only `tokenConfigured: boolean`).
 6. **Reads are telemetry, not commands.** Live peer state is the agent's
-   `meshState` push (sampled from `netbird status --json` / `tailscale status`
-   / `wg show`), folded into the in-memory live peer map (`mesh-peers.ts`,
+   `meshState` push (sampled from `netbird status --json` / `tailscale status`), folded into the in-memory live peer map (`mesh-peers.ts`,
    no table — epic-docker-native-state P1). Never add a command just to read
    mesh state — surface it from the pushed snapshot / control-plane `listPeers`.
 7. **The mesh client is a privileged, off-by-default sidecar.** `applyMesh` is
@@ -87,11 +86,6 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
   the live peer map via `reconcileMeshPeer` (`packages/trpc/src/services/mesh-peers.ts`;
   a no-op for an unknown node unless it reports connected with an IP). Pure mapping
   lives in `reconcilePeerState` / `reconcileFromControlPlane` (`reconcile.ts`).
-- **Access render**: `driver.applyAccess(config, intent)` returns
-  `{ kind:'control-plane', plan }` (NetBird → `applyPolicyPlan`),
-  `{ kind:'file', path, contents }` (Headscale HuJSON), or `{ kind:'none' }`
-  (none/wireguard node-local). `buildNetbirdPolicyPlan`/`buildHeadscaleAcl` are
-  pure and sorted-by-id for stable goldens.
 
 ## File map
 
@@ -99,17 +93,15 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 |---|---|
 | Driver interface, config schema, `DriverControlPlane` | `packages/mesh/src/types.ts` |
 | Driver registry (`defaultRegistry`, `none`+`netbird` first) | `packages/mesh/src/registry.ts` |
-| Drivers (netbird/headscale/tailscale/wireguard/none) | `packages/mesh/src/drivers/*` |
+| Drivers (netbird/headscale/none) | `packages/mesh/src/drivers/*` |
 | NetBird Admin-API client (setup-keys/peers/groups/policies) | `packages/mesh/src/control-plane/netbird.ts` |
-| Pure ACL / policy render (tags, HuJSON, NetBird plan) | `packages/mesh/src/acl.ts` |
 | Pure peer reconcile mapping | `packages/mesh/src/reconcile.ts` |
-| Raw-WireGuard config render + keygen | `packages/mesh/src/render/{wireguard,keygen}.ts` |
 | provision/preview/status orchestration (pkg-level) | `packages/mesh/src/apply.ts` |
 | Wire/render protocol (`RenderedMesh`, `applyMesh`, `meshState`) | `packages/core/src/protocol/mesh.ts` (+ `messages.ts` union) |
 | `CommandName` → wire `type` (`applyMesh`, `mesh.accessRouter`) | `packages/trpc/src/hub/types.ts` |
 | Controller service (enroll, config, reconcile) | `packages/trpc/src/services/mesh.service.ts` |
-| tRPC router (config/enroll/peers/people/swarm migration) | `packages/trpc/src/routers/mesh.ts` |
-| Swarm-over-mesh migration (planner / runner / resume worker) | `packages/trpc/src/services/mesh-migration.{plan,service}.ts`, `apps/api/src/workers/mesh-migration.ts` |
+| tRPC router (config/enroll/peers/people/control) | `packages/trpc/src/routers/mesh.ts` |
+| "Servers on the mesh" check (refuses turning the mesh off under them) | `packages/trpc/src/services/mesh-onmesh.ts` |
 | Encrypt/decrypt service token, random keys | `packages/core/src/crypto.ts` |
 | Agent: sidecar apply, `meshState` sampler | `apps/agent/src/handlers/mesh.ts` |
 | Agent: executor cases + `SWARMY_ALLOW_MESH` gate | `apps/agent/src/{executor,env,index}.ts` |
@@ -132,9 +124,9 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
 
 1. **Driver** in `packages/mesh/src/drivers/<name>.ts` implementing `MeshDriver`:
    `validate` (pure), `provisionNode` (control-plane side — mint key via injected
-   `DriverControlPlane`), `render` (pure `RenderedMesh`), `status`, and optional
-   `applyAccess`. Keep the WireGuard interface name + client image as exported
-   consts (see `NETBIRD_INTERFACE = 'wt0'`, `WIREGUARD_CONFIG_PATH`).
+   `DriverControlPlane`), `render` (pure `RenderedMesh`) and `status`. Keep the WireGuard interface name
+   + client image as exported consts (see `NETBIRD_INTERFACE = 'wt0'`). Check
+   with the owner first: Tailscale and raw WireGuard were removed in 2026-09.
 2. **Register** it in `defaultRegistry` (`registry.ts`) and re-export from
    `packages/mesh/src/index.ts`.
 3. **Controller wiring**: add the id to the `driverEnum` in `routers/mesh.ts` and
@@ -142,8 +134,7 @@ that mirrors ingress exactly — the `MeshDriver` registry is the ingress
    (`mesh.prisma`). If the provider has a real Admin API, teach `makeControlPlane`
    to return a real client for it; otherwise the opaque-key stub is fine.
 4. **Agent apply** (only if the client is a new shape): most providers reuse the
-   NetBird/Tailscale sidecar or the raw-WireGuard `files + reloadCommand` path in
-   `applyMesh` — don't add a provider branch to the agent unless the client is
+   NetBird sidecar or the tailscale-client sidecar in `applyMesh` — don't add a provider branch to the agent unless the client is
    genuinely new, and gate any new privileged path behind `SWARMY_ALLOW_MESH`.
 5. **UI**: the driver appears in `mesh-driver-card.tsx` via `DRIVER_LABELS`; add a
    label + copy.
@@ -178,13 +169,12 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
   (`NETBIRD_CLIENT_IMAGE`, and the installer's) is pinned by tag + digest
   (`packages/mesh/src/images.ts`, mirrored in the SYSTEM_IMAGES BOM; bump both).
 - Overlay MTU is mesh-aware (`overlayMtuFor` in `packages/core/src/network-policy.ts`):
-  NetBird/Tailscale `wt0` 1280 − VXLAN 50 = 1230 (1170 encrypted); raw
-  WireGuard 1420 → 1370. The installer creates `swarmy`/`swarmy-control` with
+  NetBird `wt0` / Headscale `tailscale0` 1280 − VXLAN 50 = 1230 (1170
+  encrypted). The installer creates `swarmy`/`swarmy-control` with
   it, stack overlays get it from `overlayOptionsFor(ctx)` when the org mesh is
   on, and the agent's `ensureNetwork` makes every new overlay without an MTU
   inherit the platform overlay's. An EXISTING overlay's MTU can't change in
-  place (recreate = disruptive): a swarm migrated onto the mesh keeps 1500 on
-  old networks — `scripts/verify-networking.sh` (2 MB cross-node transfer)
+  place (recreate = disruptive): an old network keeps its MTU — `scripts/verify-networking.sh` (2 MB cross-node transfer)
   tells you if that bites.
 - The network wall (`network-policy.ts`): the controller (its store is embedded) +
   ClickHouse live only on the private `swarmy-control` overlay; user specs may
@@ -201,23 +191,14 @@ For a whole cross-stack feature (db → protocol → service → router → UI) 
   keys each encrypted-overlay IPsec SA on ADVERTISED addresses; a manager on
   its public IP talking to mesh-IP workers sources packets from its mesh IP,
   the SAs never match, and the `swarmy` overlay (every ingress route) goes
-  dark. The migration plan therefore BLOCKS moving nodes while the sole
-  manager is off-mesh (fix: `swarmy-agent rejoin --force` on it).
-- Re-pinning an existing swarm onto the mesh data-path is a guided
-  drain-one-at-a-time migration, not a toggle (`--data-path-addr` can't change
-  on a running node): `mesh.migrateSwarm` (pure rules in
-  `mesh-migration.plan.ts`, runner in `mesh-migration.service.ts`, run state in
-  `MeshConfig.settings.swarmMigration`, resumed by `workers/mesh-migration.ts`).
-  Per node: enroll → snapshot labels → [demote] → drain → `swarmJoin{rejoin,
-  advertiseAddr, dataPathAddr}` → restore labels + re-point `swarmy.*.node`
-  pins to the NEW swarm id → [promote] → `updateSwarmNode{remove}` the old id.
-  <3 managers never move (enroll-only, must stay publicly reachable). The
-  agent's swarm watchdog is suppressed during a rejoin (`swarmRejoinInFlight`).
-  Disabling the mesh while nodes advertise on it is refused — the UI routes it
-  through an off-mesh move with `disableWhenDone`.
+  dark (fix: `swarmy-agent rejoin --force` on the off-mesh manager).
+- A swarm is moved on or off the mesh only by reinstalling a server (the
+  dashboard migration was removed in 2026-09). `mesh.setEnabled(false)` refuses
+  while any server's swarm advertise address is on the mesh
+  (`mesh-onmesh.ts#nodesOnMesh`).
 - The cross-region edge (region-aware Caddy + geo-DNS) rides on the reachability
   the mesh provides — coordinate boundary changes with `skill("geo-edge-routing")`.
 - Verify: `bun --filter @swarmy/mesh typecheck && bun --filter @swarmy/mesh test`
-  (driver + ACL + reconcile goldens), then `bun --filter @swarmy/agent typecheck`.
+  (driver + reconcile goldens), then `bun --filter @swarmy/agent typecheck`.
   Multi-node: `scripts/local-vms.sh` — enroll a second-region VM, watch its peer
   reach `CONNECTED`, then grant a person access and connect from a laptop (`scripts/e2e-mesh-people.ts`).

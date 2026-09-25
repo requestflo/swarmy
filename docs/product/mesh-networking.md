@@ -63,8 +63,7 @@ Four ideas, one story:
 - **The driver renders; the agent applies.** The controller-side driver produces
   a driver-agnostic `RenderedMesh` (the mesh analog of ingress's
   `RenderedConfig`); the agent consumes it without knowing which provider it is.
-  Adding Headscale/Tailscale/raw-WireGuard is a new driver + render, never an
-  agent rewrite — the same pluggable registry as ingress (see the
+  Adding a driver is a new driver + render, never an agent rewrite — the same pluggable registry as ingress (see the
   `scaffold-ingress-driver` skill).
 - **Secrets are single-use and never land on disk.** The service token lives
   encrypted in swarmy's vault and is resolved just-in-time; the per-node setup
@@ -110,11 +109,10 @@ Four ideas, one story:
   mesh off later renders `action: 'leave'` and tears the client down. "swarmy
   stays out of the way" is the literal `none` driver summary.
 - **NetBird is the default once mesh is enabled**, with a self-hostable
-  (`managed-by-swarmy`) or `external` control plane. Headscale, Tailscale, and
-  raw WireGuard are first-class alternatives behind the same `MeshDriver`
-  interface — pluralism for power users without complicating the default path.
-  Headscale suits teams that keep ACLs as code (HuJSON); raw `wireguard` means
-  "you own routing/NAT/key exchange", like the `none` ingress driver. With
+  (`managed-by-swarmy`) or `external` control plane. Headscale is the one
+  advanced alternative behind the same `MeshDriver` interface (your own
+  Headscale server, the official tailscale client). Tailscale-the-SaaS and raw
+  WireGuard drivers were removed in 2026-09 (owner decision). With
   `managed-by-swarmy` (the installer's `--mesh swarmy`, the default) swarmy runs
   its own NetBird control plane inside the swarm, started before the swarm
   exists; NetBird cloud or an external self-hosted server are the alternatives.
@@ -127,9 +125,9 @@ Four ideas, one story:
   `applyMesh`, then settles the peer to `CONNECTED`/`ENROLLED` (or `FAILED`,
   audited).
 - **The client is a privileged, supervised sidecar.** A long-lived
-  `swarmy-netbird` / `swarmy-tailscale` container owns the WireGuard interface
-  (host network, `NET_ADMIN`/`SYS_ADMIN`/`SYS_RESOURCE`, `/dev/net/tun`). Raw
-  WireGuard instead writes `wg0.conf` and runs `wg-quick up`. The whole
+  `swarmy-netbird` (or, for Headscale, `swarmy-tailscale`) container owns the
+  WireGuard interface (host network, `NET_ADMIN`/`SYS_ADMIN`/`SYS_RESOURCE`,
+  `/dev/net/tun`). The whole
   capability is gated by `SWARMY_ALLOW_MESH` (default on, but a node can refuse).
 - **The mesh underlies cross-region swarm.** Once nodes share one encrypted
   network, they can belong to one Docker Swarm across clouds and NAT — and the
@@ -152,9 +150,7 @@ Four ideas, one story:
   exact ops swarmy exists to erase. The mesh is WireGuard-grade, NAT-friendly,
   and inbound-portless by construction.
 - **A SaaS-only control plane in the critical path.** NetBird's control plane is
-  self-hostable, so the control plane can run on your own hardware. Tailscale (SaaS
-  coordination) is offered as a driver for teams already living there — never the
-  default.
+  self-hostable, so the control plane can run on your own hardware.
 - **Writing setup keys or WireGuard secrets to node disk.** Keys ride one
   authenticated frame and become container env only; the service token is
   encrypted at rest and resolved JIT. A secret on disk is a secret that leaks.
@@ -164,12 +160,13 @@ Four ideas, one story:
 - **A DB mirror of the provider's peer list.** The control plane is
   authoritative; swarmy reconciles from telemetry + `listPeers`, it does not
   shadow-copy state it can query.
-- **One-click re-pin of an already-LAN-clustered swarm onto the mesh.**
-  `--data-path-addr` can't change on a running swarm node without leave/rejoin;
-  converting an in-place cluster is a guided, drain-one-at-a-time migration, not
-  a toggle (`mesh.migrateSwarm`). A self-host install with `--mesh` forms the
-  swarm on node #1's mesh IP from the start, which is what keeps encrypted
-  overlays working across NAT'd and public nodes alike.
+- **Moving a running swarm on or off the mesh from the dashboard.**
+  `--data-path-addr` can't change on a running swarm node without leave/rejoin.
+  A self-host install with `--mesh` forms the swarm on node #1's mesh IP from the
+  start (which keeps encrypted overlays working across NAT'd and public nodes);
+  a cluster installed without the mesh joins it by reinstalling. swarmy refuses
+  to turn the mesh off under servers that run the swarm over it. (A guided
+  dashboard migration existed and was removed in 2026-09 — owner decision.)
 
 ## Implementation map
 

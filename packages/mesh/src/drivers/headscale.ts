@@ -1,25 +1,21 @@
 import type { MeshEnrollment, MeshStatus, RenderedMesh } from '@swarmy/core/protocol';
 import type {
   DriverControlPlane,
-  MeshAccessRender,
   MeshConfig,
   MeshDriver,
   MeshValidationResult,
   ProvisionNodeOpts,
 } from '../types';
-import { buildHeadscaleAcl, type MeshAccessIntent } from '../acl';
 
 /** Headscale uses the official Tailscale client; default tailscale interface. */
 export const HEADSCALE_INTERFACE = 'tailscale0';
 export const HEADSCALE_CLIENT_IMAGE = 'tailscale/tailscale:latest';
-export const HEADSCALE_ACL_PATH = '/etc/headscale/acl.hujson';
 
 /**
  * Headscale driver — a self-hosted reimplementation of the Tailscale control
  * plane. Nodes run the official Tailscale client pointed at the Headscale
  * `--login-server`, authenticating with a pre-auth key minted control-plane-side
  * (`headscale preauthkeys create`, surfaced here via {@link DriverControlPlane}).
- * Access is config-as-code: a single HuJSON ACL file (see {@link applyAccess}).
  */
 export class HeadscaleDriver implements MeshDriver {
   readonly name = 'headscale';
@@ -65,7 +61,6 @@ export class HeadscaleDriver implements MeshDriver {
         advertiseRoutes: enrollment.advertiseRoutes,
         acceptRoutes: enrollment.acceptRoutes,
       },
-      files: [],
       summary: `Join Headscale mesh via ${enrollment.managementUrl ?? '(no URL)'} (tailscale client)${
         enrollment.advertiseRoutes.length
           ? `, advertising ${enrollment.advertiseRoutes.join(', ')}`
@@ -91,9 +86,5 @@ export class HeadscaleDriver implements MeshDriver {
         message: e instanceof Error ? e.message : 'control plane unreachable',
       };
     }
-  }
-
-  applyAccess(_config: MeshConfig, intent: MeshAccessIntent): MeshAccessRender {
-    return { kind: 'file', path: HEADSCALE_ACL_PATH, contents: buildHeadscaleAcl(intent) };
   }
 }

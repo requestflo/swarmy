@@ -19,9 +19,7 @@ Pick a driver under **Networking**:
 |---|---|
 | `none` | Default. swarmy provisions no mesh. |
 | NetBird | Zero-trust WireGuard mesh with NAT traversal. Use NetBird's cloud or your own NetBird server. |
-| Headscale | A self-hosted Tailscale control plane. Nodes run the official Tailscale client. |
-| Tailscale | For teams already on Tailscale. swarmy supplies an auth key; access rules stay in the Tailscale console. |
-| WireGuard | Plain WireGuard with no control plane. swarmy generates keys and configs. There is no NAT traversal, so you own routing. |
+| Headscale (advanced) | Your own Headscale server (the open Tailscale control plane). Nodes run the official Tailscale client. |
 
 The control-plane token you paste is stored encrypted and used only on the
 server. You do not see it again.

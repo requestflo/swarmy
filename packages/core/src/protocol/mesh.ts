@@ -22,27 +22,12 @@ import { CommandId } from './primitives';
  */
 
 /** Wire-level driver name. Mirrors the DB `MeshDriver` enum (lowercased). */
-export const MeshDriverName = z.enum([
-  'netbird',
-  'headscale',
-  'tailscale',
-  'wireguard',
-  'none',
-]);
+export const MeshDriverName = z.enum(['netbird', 'headscale', 'none']);
 export type MeshDriverName = z.infer<typeof MeshDriverName>;
 
-/** Which on-node client a {@link RenderedMesh} drives. */
-export const MeshClientKind = z.enum(['netbird', 'tailscale', 'wireguard', 'none']);
+/** Which on-node client a {@link RenderedMesh} drives (Headscale uses the tailscale client). */
+export const MeshClientKind = z.enum(['netbird', 'tailscale', 'none']);
 export type MeshClientKind = z.infer<typeof MeshClientKind>;
-
-/** A config file the agent should write on the node (e.g. a `wg0.conf`). */
-export const MeshRenderedFile = z.object({
-  path: z.string(),
-  contents: z.string(),
-  /** POSIX mode, e.g. 0o600 — agent applies it when writing. */
-  mode: z.number().int().default(0o600),
-});
-export type MeshRenderedFile = z.infer<typeof MeshRenderedFile>;
 
 /**
  * The node-facing enrollment a driver mints control-plane-side: everything the
@@ -55,30 +40,9 @@ export const MeshEnrollment = z.object({
   managementUrl: z.string().optional(),
   /** NetBird single-use setup key (resolved JIT from the vault). */
   setupKey: z.string().optional(),
-  /** Headscale/Tailscale pre-auth / auth key (resolved JIT from the vault). */
+  /** Headscale pre-auth key (resolved JIT from the vault). */
   authKey: z.string().optional(),
-  /** Tailscale tailnet (org) the node joins. */
-  tailnet: z.string().optional(),
-  /** WireGuard keypair + peers for the raw-WireGuard driver. */
-  wireguard: z
-    .object({
-      address: z.string(),
-      privateKey: z.string(),
-      listenPort: z.number().int().positive().default(51820),
-      dns: z.array(z.string()).default([]),
-      peers: z
-        .array(
-          z.object({
-            publicKey: z.string(),
-            endpoint: z.string().optional(),
-            allowedIps: z.array(z.string()).default([]),
-            persistentKeepalive: z.number().int().nonnegative().optional(),
-          }),
-        )
-        .default([]),
-    })
-    .optional(),
-  /** WireGuard interface name the client will create, e.g. `wt0` / `wg0` / `tailscale0`. */
+  /** WireGuard interface name the client will create, e.g. `wt0` / `tailscale0`. */
   interface: z.string().default('wt0'),
   /** Subnet routes this node should advertise into the mesh. */
   advertiseRoutes: z.array(z.string()).default([]),
@@ -89,10 +53,9 @@ export type MeshEnrollment = z.infer<typeof MeshEnrollment>;
 
 /**
  * Full output of a mesh driver's `render()` — the mesh analog of
- * `RenderedConfig`. Carried verbatim to the agent inside `applyMesh`. For
- * NetBird/Tailscale the agent runs/joins the official client container using
- * `client`; for the raw-WireGuard driver it writes `files` then runs
- * `reloadCommand` (`wg-quick up wg0`).
+ * `RenderedConfig`. Carried verbatim to the agent inside `applyMesh`: the agent
+ * runs/joins the official client container (NetBird, or the tailscale client
+ * for Headscale) described by `client`.
  */
 export const RenderedMesh = z.object({
   driver: MeshDriverName,
@@ -105,9 +68,8 @@ export const RenderedMesh = z.object({
       managementUrl: z.string().optional(),
       /** NetBird single-use setup key (resolved JIT — only on the dispatched frame). */
       setupKey: z.string().optional(),
-      /** Headscale/Tailscale auth key (resolved JIT — only on the dispatched frame). */
+      /** Headscale auth key (resolved JIT — only on the dispatched frame). */
       authKey: z.string().optional(),
-      tailnet: z.string().optional(),
       interface: z.string().default('wt0'),
       advertiseRoutes: z.array(z.string()).default([]),
       acceptRoutes: z.boolean().default(true),
@@ -118,10 +80,6 @@ export const RenderedMesh = z.object({
       caPem: z.string().optional(),
     })
     .optional(),
-  /** Files to write (raw-WireGuard-style drivers). */
-  files: z.array(MeshRenderedFile).default([]),
-  /** Optional post-write reload (e.g. `wg-quick up wg0`). */
-  reloadCommand: z.array(z.string()).optional(),
   /** Human-inspectable summary for previews / the Networking UI. */
   summary: z.string().default(''),
 });

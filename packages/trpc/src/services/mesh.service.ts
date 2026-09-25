@@ -32,20 +32,16 @@ function badRequest(message: string): TRPCError {
 }
 
 /** Controller driver ids ⇄ Prisma `MeshDriver` enum. */
-export type MeshDriverId = 'netbird' | 'headscale' | 'tailscale' | 'wireguard' | 'none';
+export type MeshDriverId = 'netbird' | 'headscale' | 'none';
 import type { MeshDriverEnum } from './mesh-config.repo';
 const DRIVER_TO_ENUM: Record<MeshDriverId, MeshDriverEnum> = {
   netbird: 'NETBIRD',
   headscale: 'HEADSCALE',
-  tailscale: 'TAILSCALE',
-  wireguard: 'WIREGUARD',
   none: 'NONE',
 };
 const ENUM_TO_DRIVER: Record<string, MeshDriverId> = {
   NETBIRD: 'netbird',
   HEADSCALE: 'headscale',
-  TAILSCALE: 'tailscale',
-  WIREGUARD: 'wireguard',
   NONE: 'none',
 };
 

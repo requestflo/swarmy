@@ -8,13 +8,7 @@ import {
   setDriver,
   setEnabled,
 } from '../services/mesh.service';
-import {
-  cancelMigration,
-  nodesOnMesh,
-  resumeMigration,
-  startMigration,
-  swarmMeshStatus,
-} from '../services/mesh-migration.service';
+import { nodesOnMesh } from '../services/mesh-onmesh';
 import { commandRejected } from '../errors';
 import { getControlPlaneCard, moveControlPlane, reconcileMeshControl, setBreakGlass } from '../services/mesh-control.service';
 import {
@@ -30,7 +24,7 @@ import {
 
 const isAdmin = (role: string | undefined) => role === 'owner' || role === 'admin';
 
-const driverEnum = z.enum(['none', 'netbird', 'headscale', 'tailscale', 'wireguard']);
+const driverEnum = z.enum(['none', 'netbird', 'headscale']);
 
 export const meshRouter = router({
   getConfig: orgProcedure.query(({ ctx }) => getConfig(ctx)),
@@ -41,13 +35,13 @@ export const meshRouter = router({
   setEnabled: adminProcedure
     .input(z.object({ enabled: z.boolean(), force: z.boolean().optional() }))
     .mutation(async ({ ctx, input }) => {
-      // Turning the mesh off under nodes that advertise on it strands them —
-      // move the swarm off first (`migrateSwarm` off-mesh + disableWhenDone).
+      // Turning the mesh off under servers that run the swarm over it strands
+      // them — refuse; moving a server off the mesh means reinstalling it.
       if (!input.enabled && !input.force) {
         const stranded = await nodesOnMesh(ctx);
         if (stranded.length > 0) {
           throw commandRejected(
-            `${stranded.join(', ')} still ${stranded.length === 1 ? 'runs' : 'run'} the swarm over the mesh — move the swarm off the mesh first.`,
+            `${stranded.join(', ')} still ${stranded.length === 1 ? 'runs' : 'run'} the swarm over the mesh — reinstall ${stranded.length === 1 ? 'it' : 'them'} without --mesh first.`,
           );
         }
       }
@@ -78,30 +72,6 @@ export const meshRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => enrollNode(ctx, input)),
-
-  // ── Swarm over mesh: re-pin a RUNNING swarm's advertise/data-path addrs ──
-
-  /** Per-node picture (address, on-mesh, planned action) + the persisted run. */
-  swarmStatus: orgProcedure
-    .input(z.object({ direction: z.enum(['onto-mesh', 'off-mesh']).optional() }).optional())
-    .query(({ ctx, input }) => swarmMeshStatus(ctx, input?.direction)),
-
-  /** Start the rolling, resumable one-node-at-a-time move (onto or off the mesh). */
-  migrateSwarm: adminProcedure
-    .input(
-      z.object({
-        direction: z.enum(['onto-mesh', 'off-mesh']).default('onto-mesh'),
-        /** Required when the plan carries warnings (pinned data, controller host…). */
-        acknowledgeWarnings: z.boolean().optional(),
-        /** off-mesh: turn the mesh off once every node is back on its own address. */
-        disableWhenDone: z.boolean().optional(),
-      }),
-    )
-    .mutation(({ ctx, input }) => startMigration(ctx, input)),
-
-  resumeMigration: adminProcedure.mutation(({ ctx }) => resumeMigration(ctx)),
-
-  cancelMigration: adminProcedure.mutation(({ ctx }) => cancelMigration(ctx)),
 
   // ── Self-hosted control plane (NetBird inside swarmy) ────────────────────
 

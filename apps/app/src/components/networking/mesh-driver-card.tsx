@@ -14,24 +14,20 @@ import {
   Switch,
 } from '@swarmy/ui';
 
-export type MeshDriverId = 'none' | 'netbird' | 'headscale' | 'tailscale' | 'wireguard';
+export type MeshDriverId = 'none' | 'netbird' | 'headscale';
 
-export const DRIVER_ORDER: MeshDriverId[] = ['none', 'netbird', 'headscale', 'tailscale', 'wireguard'];
+export const DRIVER_ORDER: MeshDriverId[] = ['none', 'netbird', 'headscale'];
 
 export const DRIVER_LABELS: Record<MeshDriverId, string> = {
   none: 'None',
   netbird: 'NetBird',
-  headscale: 'Headscale',
-  tailscale: 'Tailscale',
-  wireguard: 'WireGuard',
+  headscale: 'Headscale (advanced)',
 };
 
 const DRIVER_BLURB: Record<MeshDriverId, string> = {
   none: 'Unopinionated by default. Nodes use their own network — swarmy stays out of the way.',
   netbird: 'Zero-trust WireGuard mesh. Any node, any cloud, behind NAT — no inbound ports.',
-  headscale: 'Self-hosted Tailscale control plane. Official clients, config-as-code ACLs.',
-  tailscale: 'Bring your own Tailscale tailnet — SaaS control plane, best NAT traversal.',
-  wireguard: 'Raw WireGuard. swarmy templates wg0.conf; you own routing & NAT.',
+  headscale: 'Advanced: your own Headscale server (the open Tailscale control plane), official clients.',
 };
 
 interface MeshDriverCardProps {

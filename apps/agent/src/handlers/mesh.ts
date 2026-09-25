@@ -6,11 +6,9 @@
  * `mesh.ts`). Mirrors `applyIngress` in executor.ts: it consumes a rendered
  * payload and applies it — it never reasons about which provider it is.
  *
- *   - NetBird / Tailscale (incl. Headscale via the tailscale client): a long-
- *     lived, privileged sidecar container that owns the WireGuard interface and
- *     dials out to the management server — no inbound ports.
- *   - raw WireGuard: write `wg0.conf` + run `wg-quick up wg0` (carried in
- *     `files` + `reloadCommand`).
+ *   - NetBird, or Headscale via the tailscale client: a long-lived, privileged
+ *     sidecar container that owns the WireGuard interface and dials out to the
+ *     management server — no inbound ports.
  *
  * Secrets (single-use setup/auth keys) arrive over the authenticated WS and are
  * only ever the client container's env — never written to disk on the node.
@@ -19,10 +17,8 @@
  * `E_MESH_DISABLED` when a node opts out (parity with `ALLOW_EXEC`).
  *
  * Also exports the `meshState` reporter loop (telemetry the agent PUSHES, read
- * from `netbird status --json` / `tailscale status` / `wg show`).
+ * from `netbird status --json` / `tailscale status`).
  */
-import { mkdir, writeFile } from 'node:fs/promises';
-import path from 'node:path';
 import { DockerClient, defaultContainerLogConfig } from '@swarmy/core/docker';
 import type {
   ApplyMeshResult,
@@ -46,13 +42,6 @@ export const CA_CERT_DIRS = '/etc/ssl/certs:/var/lib/netbird';
 interface ExecResult {
   code: number;
   stdout: string;
-}
-
-async function execShell(cmd: string[]): Promise<void> {
-  if (!cmd.length) return;
-  const proc = Bun.spawn(cmd, { stdout: 'ignore', stderr: 'ignore' });
-  const code = await proc.exited;
-  if (code !== 0) throw new Error(`${cmd[0]} exited ${code}`);
 }
 
 /**
@@ -82,13 +71,6 @@ let samplerDocker: DockerClient | undefined;
 function defaultDocker(): DockerClient {
   samplerDocker ??= new DockerClient();
   return samplerDocker;
-}
-
-async function execCapture(cmd: string[]): Promise<ExecResult> {
-  const proc = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'ignore' });
-  const stdout = await new Response(proc.stdout).text();
-  const code = await proc.exited;
-  return { code, stdout };
 }
 
 /** Run / re-join the NetBird client container. */
@@ -146,7 +128,7 @@ async function joinNetbird(docker: DockerClient, rendered: RenderedMesh): Promis
   return { driver: rendered.driver, joined: true };
 }
 
-/** Run / re-join the Tailscale client container (also serves Headscale via --login-server). */
+/** Run / re-join the tailscale client container for Headscale (--login-server). */
 async function joinTailscale(docker: DockerClient, rendered: RenderedMesh): Promise<ApplyMeshResult> {
   const client = rendered.client;
   if (!client) throw new Error('tailscale render is missing the client block');
@@ -186,7 +168,6 @@ async function leaveMesh(docker: DockerClient, rendered: RenderedMesh): Promise<
   // Leaving forgets the peer identity too: a later join is a fresh peer.
   await docker.docker.getVolume(NETBIRD_STATE_VOLUME).remove().catch(() => undefined);
   await docker.docker.getContainer(TAILSCALE_CONTAINER).remove({ force: true }).catch(() => undefined);
-  if (rendered.reloadCommand?.length) await execShell(rendered.reloadCommand).catch(() => undefined);
   return { driver: rendered.driver, joined: false };
 }
 
@@ -199,37 +180,12 @@ export async function applyMesh(docker: DockerClient, rendered: RenderedMesh): P
     return leaveMesh(docker, rendered);
   }
 
-  // Raw-WireGuard-style drivers carry files + a reload command.
-  if (rendered.files.length) {
-    for (const file of rendered.files) {
-      await mkdir(path.dirname(file.path), { recursive: true });
-      await writeFile(file.path, file.contents, { mode: file.mode ?? 0o600 });
-    }
-    if (rendered.reloadCommand?.length) await execShell(rendered.reloadCommand);
-    return { driver: rendered.driver, joined: true };
-  }
-
   const kind = rendered.client?.kind;
   if (kind === 'tailscale') return joinTailscale(docker, rendered);
   return joinNetbird(docker, rendered);
 }
 
 // ── meshState reporter (telemetry the agent pushes) ──────────────────────────
-
-/** Parse `wg show <iface> dump` (tab-separated) into a coarse connected flag. */
-export function parseWgConnected(dump: string): { connected: boolean; lastHandshakeAt?: string } {
-  const lines = dump.trim().split('\n').filter(Boolean);
-  // First line is the interface; subsequent lines are peers: ...latest-handshake...
-  let latest = 0;
-  for (const line of lines.slice(1)) {
-    const cols = line.split('\t');
-    const hs = Number(cols[4] ?? 0);
-    if (hs > latest) latest = hs;
-  }
-  return latest > 0
-    ? { connected: true, lastHandshakeAt: new Date(latest * 1000).toISOString() }
-    : { connected: false };
-}
 
 /**
  * Strip a CIDR prefix from a mesh address so it's a bare host IP. NetBird's
@@ -290,7 +246,7 @@ async function sampleClientState(docker: DockerClient): Promise<MeshStatePayload
     }
   }
 
-  // Tailscale/Headscale: `tailscale status --json`.
+  // Headscale (tailscale client): `tailscale status --json`.
   const ts = await containerExecCapture(docker, TAILSCALE_CONTAINER, ['tailscale', 'status', '--json']).catch(
     () => ({ code: 1, stdout: '' }),
   );
@@ -301,7 +257,7 @@ async function sampleClientState(docker: DockerClient): Promise<MeshStatePayload
         BackendState?: string;
       };
       return {
-        driver: 'tailscale',
+        driver: 'headscale',
         meshIp: bareMeshIp(j.Self?.TailscaleIPs?.[0]),
         connected: j.BackendState === 'Running',
         relayed: true,
@@ -310,15 +266,8 @@ async function sampleClientState(docker: DockerClient): Promise<MeshStatePayload
         sampledAt,
       };
     } catch (e) {
-      return { driver: 'tailscale', connected: false, relayed: true, advertisedRoutes: [], peers: [], error: e instanceof Error ? e.message : String(e), sampledAt };
+      return { driver: 'headscale', connected: false, relayed: true, advertisedRoutes: [], peers: [], error: e instanceof Error ? e.message : String(e), sampledAt };
     }
-  }
-
-  // Raw WireGuard: `wg show wg0 dump`.
-  const wg = await execCapture(['wg', 'show', 'wg0', 'dump']).catch(() => ({ code: 1, stdout: '' }));
-  if (wg.code === 0 && wg.stdout) {
-    const { connected, lastHandshakeAt } = parseWgConnected(wg.stdout);
-    return { driver: 'wireguard', interface: 'wg0', connected, relayed: false, lastHandshakeAt, advertisedRoutes: [], peers: [], sampledAt };
   }
 
   return null;

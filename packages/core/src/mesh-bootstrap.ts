@@ -7,7 +7,7 @@
  */
 import { encryptSecret } from './crypto';
 
-const MESH_DRIVERS = ['NETBIRD', 'HEADSCALE', 'TAILSCALE', 'WIREGUARD', 'NONE'] as const;
+const MESH_DRIVERS = ['NETBIRD', 'HEADSCALE', 'NONE'] as const;
 export type MeshDriverName = (typeof MESH_DRIVERS)[number];
 
 export interface MeshConfigRow {
@@ -48,4 +48,31 @@ export function buildMeshConfigRow(
     managementUrl,
     controlPlane: { mode: 'external', url: managementUrl, serviceTokenEnc: encryptSecret(serviceToken) },
   };
+}
+
+/** Structural twin of @swarmy/mesh `MeshControlTls` (core can't import mesh). */
+export type MeshTlsMode =
+  | { mode: 'letsencrypt'; email?: string }
+  | { mode: 'edge'; listen: string; publicPort?: number }
+  | { mode: 'none'; port: number };
+
+/**
+ * The installer → controller TLS contract (`SWARMY_MESH_TLS`), pure:
+ *   `letsencrypt` | `none:<port>` | `edge=<listen>[@<public port>][;bootstrap=none:<port>]`
+ * `bootstrap` is the mode NetBird boots in until the edge serves the mesh
+ * domain (the TLS handover, QA-012).
+ */
+export function parseMeshTlsEnv(raw: string | undefined): { tls: MeshTlsMode; bootstrapTls?: MeshTlsMode } {
+  const [main, ...rest] = (raw || 'letsencrypt').split(';');
+  const one = (v: string): MeshTlsMode => {
+    if (v.startsWith('none')) return { mode: 'none', port: Number(v.split(':')[1]) || 8081 };
+    if (v.startsWith('edge')) {
+      const [listen, port] = (v.split('=')[1] || '172.17.0.1:8081').split('@');
+      const p = Number(port);
+      return { mode: 'edge', listen: listen!, ...(p && p !== 443 ? { publicPort: p } : {}) };
+    }
+    return { mode: 'letsencrypt' };
+  };
+  const boot = rest.find((r) => r.startsWith('bootstrap='))?.slice('bootstrap='.length);
+  return { tls: one(main!), ...(boot ? { bootstrapTls: one(boot) } : {}) };
 }

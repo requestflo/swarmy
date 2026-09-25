@@ -117,7 +117,7 @@ upgrades.
 | **Compute** | Node onboarding (join tokens + install profiles), live service canvas, stack GUI builder, compose round-trip, web terminal/exec |
 | **Edge** | Pluggable ingress (`caddy` default, `traefik`, `nginx`, `haproxy`, `cloudflared`, or `none`), auto-HTTPS, Cloudflare Tunnel, region-aware routing, exposure modes |
 | **DNS** | Authoritative geo-DNS (`apps/dns`) with GeoIP / ECS nearest-region steering |
-| **Mesh** | Zero-trust private network — drivers: NetBird, Headscale, Tailscale, WireGuard, or `none` |
+| **Mesh** | Zero-trust private network — NetBird (default when on), Headscale (advanced), or `none` |
 | **Data** | Managed Postgres (HA topologies + PITR), Valkey/Redis cache, search, vectors, Garage object storage |
 | **CI/CD** | Build on your nodes, in-swarm registry, image scans/signing policy, GC, PR previews, canary releases |
 | **Ops** | OTEL → ClickHouse observability, alerts / incidents / status pages, restic backups (nightly DB backups by default) + controller self-backup, resilience score |
@@ -221,7 +221,7 @@ online, re-run the same install one-liner (it repairs in place) or click
 domains for display but writes **no** routing config. New drivers implement `IngressDriver` in
 `@swarmy/ingress`.
 
-**Mesh** — `none` by default; enable NetBird / Headscale / Tailscale / WireGuard
+**Mesh** — `none` by default; enable NetBird (or Headscale, advanced)
 when you want private cross-node (and cross-cloud) connectivity. New drivers
 implement `MeshDriver` in `@swarmy/mesh`.
 

@@ -212,8 +212,6 @@ export {
 } from './services/node.service';
 // WS7 private-mesh profile: the register path auto-enrolls the node into the mesh.
 export { enrollNode as enrollMeshNode } from './services/mesh.service';
-// Swarm-over-mesh migration: the worker resumes runs after a controller restart.
-export { resumeRunningMigrations } from './services/mesh-migration.service';
 // ── geo-dns ("swarmy is the nameserver"): worker + REST seams ──
 export {
   listDnsView,

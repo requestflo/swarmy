@@ -12,7 +12,6 @@
  * fails fast with a clear error rather than silently no-op'ing.
  */
 import type { DriverControlPlane, MeshPeerInfo } from '../types';
-import type { NetbirdPolicyPlan } from '../acl';
 import { MeshControlPlaneError } from '../errors';
 
 export interface NetbirdClientOptions {
@@ -144,57 +143,5 @@ export class NetbirdControlPlane implements DriverControlPlane {
 
   async revokePeer(peerId: string): Promise<void> {
     await this.api<void>(`/peers/${encodeURIComponent(peerId)}`, { method: 'DELETE' });
-  }
-
-  /**
-   * Reconcile a {@link NetbirdPolicyPlan} (from `buildNetbirdPolicyPlan`) into
-   * the control plane: ensure groups exist, then upsert policies. Returns the
-   * created/looked-up group ids keyed by name so callers can store policy refs.
-   */
-  async applyPolicyPlan(plan: NetbirdPolicyPlan): Promise<{ groupIds: Record<string, string>; policyIds: string[] }> {
-    const existing = await this.api<NbGroup[]>('/groups');
-    const byName = new Map(existing.map((g) => [g.name, g.id]));
-    const groupIds: Record<string, string> = {};
-    for (const g of plan.groups) {
-      let id = byName.get(g.name);
-      if (!id) {
-        const created = await this.api<NbGroup>('/groups', {
-          method: 'POST',
-          body: JSON.stringify({ name: g.name }),
-        });
-        id = created.id;
-      }
-      groupIds[g.name] = id;
-    }
-
-    const policyIds: string[] = [];
-    for (const p of plan.policies) {
-      const created = await this.api<{ id: string }>('/policies', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: p.name,
-          enabled: p.enabled,
-          rules: [
-            {
-              name: p.name,
-              enabled: p.enabled,
-              sources: [groupIds[p.sourceGroup]],
-              destinations: [groupIds[p.destinationGroup]],
-              bidirectional: false,
-              protocol: p.protocol,
-              ports: p.ports,
-              action: 'accept',
-            },
-          ],
-        }),
-      });
-      policyIds.push(created.id);
-    }
-    return { groupIds, policyIds };
-  }
-
-  /** Revoke a previously-created policy (direct-route teardown). */
-  async deletePolicy(policyId: string): Promise<void> {
-    await this.api<void>(`/policies/${encodeURIComponent(policyId)}`, { method: 'DELETE' });
   }
 }

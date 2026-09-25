@@ -8,7 +8,7 @@
 import { orgSingleton, type KvRow } from './kv-repo';
 
 /** Mirrors the (removed) Prisma `MeshDriver` enum. */
-export type MeshDriverEnum = 'NETBIRD' | 'HEADSCALE' | 'TAILSCALE' | 'WIREGUARD' | 'NONE';
+export type MeshDriverEnum = 'NETBIRD' | 'HEADSCALE' | 'NONE';
 
 export interface MeshConfigDoc {
   driver: MeshDriverEnum;

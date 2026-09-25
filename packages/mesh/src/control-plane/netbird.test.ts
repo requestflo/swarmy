@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { NetbirdControlPlane } from './netbird';
 import { MeshControlPlaneError } from '../errors';
-import { buildNetbirdPolicyPlan, principalTagForRoute, targetTagForRoute } from '../acl';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(status === 204 ? null : JSON.stringify(body), {
@@ -60,7 +59,7 @@ describe('NetbirdControlPlane.createSetupKey auto-groups', () => {
     expect(seen[0]!.auto_groups).toEqual(['gN']);
   });
 
-  test('an ephemeral (direct-connect) key never joins the nodes group', async () => {
+  test('an ephemeral key never joins the nodes group', async () => {
     const seen: { auto_groups: string[] }[] = [];
     await cpWith([{ id: 'gN', name: 'swarmy:lon:nodes' }], seen).createSetupKey({ nodeId: 'dc-1', ephemeral: true });
     expect(seen[0]!.auto_groups).toEqual([]);
@@ -86,47 +85,6 @@ describe('NetbirdControlPlane.listPeers', () => {
     expect(peers).toEqual([
       { peerId: 'p1', nodeId: 'web-1', meshIp: '100.64.0.2', connected: true, lastSeen: '2026-06-27T00:00:00Z' },
     ]);
-  });
-});
-
-describe('NetbirdControlPlane.applyPolicyPlan', () => {
-  test('creates missing groups then posts policies', async () => {
-    const created: string[] = [];
-    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
-      const u = String(url);
-      const method = init?.method ?? 'GET';
-      if (u.endsWith('/api/groups') && method === 'GET') {
-        return jsonResponse([{ id: 'g-existing', name: 'tag:dc-route_a' }]);
-      }
-      if (u.endsWith('/api/groups') && method === 'POST') {
-        const name = JSON.parse(String(init!.body)).name;
-        created.push(name);
-        return jsonResponse({ id: `g-${name}`, name });
-      }
-      if (u.endsWith('/api/policies') && method === 'POST') {
-        return jsonResponse({ id: 'pol-1' });
-      }
-      throw new Error(`unexpected ${method} ${u}`);
-    }) as unknown as typeof fetch;
-
-    const cp = new NetbirdControlPlane({ managementUrl: 'https://x', serviceToken: 't', fetchImpl });
-    const plan = buildNetbirdPolicyPlan({
-      orgId: 'o',
-      grants: [
-        {
-          id: 'route_a',
-          principalTag: principalTagForRoute('route_a'),
-          targetTag: targetTagForRoute('route_a'),
-          ports: [5432],
-          proto: 'tcp',
-        },
-      ],
-    });
-    const res = await cp.applyPolicyPlan(plan);
-    // tag:dc-route_a already existed; tag:svc-route_a is created.
-    expect(created).toContain('tag:svc-route_a');
-    expect(res.policyIds).toEqual(['pol-1']);
-    expect(res.groupIds['tag:dc-route_a']).toBe('g-existing');
   });
 });
 

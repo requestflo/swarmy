@@ -84,7 +84,6 @@ async function meshJoin(setupKeyFlag: string | undefined, managementUrlFlag: str
       advertiseRoutes: [],
       acceptRoutes: true,
     },
-    files: [],
     summary: 'cli mesh join',
   };
   say('joining mesh…');
@@ -114,7 +113,6 @@ async function meshLeave(autoYes: boolean): Promise<void> {
   const rendered: RenderedMesh = {
     driver: (env.MESH_DRIVER || 'netbird') as RenderedMesh['driver'],
     action: 'leave',
-    files: [],
     summary: 'cli mesh leave',
   };
   await applyMesh(docker, rendered);

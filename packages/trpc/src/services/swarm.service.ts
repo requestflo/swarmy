@@ -423,8 +423,7 @@ async function joinViaLiveManager(
 
 /**
  * Read the CURRENT join token + manager address off a live manager (Docker
- * truth) and refresh the in-memory cache. Shared by onboarding joins and the
- * mesh migration's rejoin (`mesh-migration.service.ts`).
+ * truth) and refresh the in-memory cache (onboarding joins).
  */
 export async function fetchLiveJoinMaterial(
   args: Pick<OrchestrateArgs, 'db' | 'hub' | 'orgId' | 'joinStore'>,

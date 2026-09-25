@@ -1,13 +1,11 @@
 import type { MeshEnrollment, MeshStatus, RenderedMesh } from '@swarmy/core/protocol';
 import type {
   DriverControlPlane,
-  MeshAccessRender,
   MeshConfig,
   MeshDriver,
   MeshValidationResult,
   ProvisionNodeOpts,
 } from '../types';
-import { buildNetbirdPolicyPlan, type MeshAccessIntent } from '../acl';
 
 import { NETBIRD_CLIENT_IMAGE_PINNED } from '../images';
 
@@ -67,7 +65,6 @@ export class NetbirdDriver implements MeshDriver {
         advertiseRoutes: enrollment.advertiseRoutes,
         acceptRoutes: enrollment.acceptRoutes,
       },
-      files: [],
       summary: `Join NetBird mesh via ${enrollment.managementUrl ?? '(no URL)'} on ${
         enrollment.interface ?? NETBIRD_INTERFACE
       }${
@@ -96,9 +93,5 @@ export class NetbirdDriver implements MeshDriver {
         message: e instanceof Error ? e.message : 'control plane unreachable',
       };
     }
-  }
-
-  applyAccess(_config: MeshConfig, intent: MeshAccessIntent): MeshAccessRender {
-    return { kind: 'control-plane', plan: buildNetbirdPolicyPlan(intent) };
   }
 }
