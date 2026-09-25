@@ -31,7 +31,7 @@ export function DomainCard({ domain: d }: { domain: EmailDomainData }): React.JS
             <span className="bg-muted rounded-full px-2 py-0.5 text-xs">
               {d.delivery === 'relay' ? `Relay · ${d.relay?.host ?? '?'}` : 'Direct delivery'}
             </span>
-            {d.isSystem ? <span className="bg-primary/10 text-primary rounded-full px-2 py-0.5 text-xs">swarmy’s own mail</span> : null}
+            {d.isSystem ? <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs">swarmy’s own mail</span> : null}
           </div>
           <p className="text-muted-foreground text-xs">
             {dnsLine(d)} {d.checkedAt ? `Checked ${new Date(d.checkedAt).toLocaleTimeString()}.` : 'Not checked yet.'}
