@@ -108,3 +108,19 @@ describe('planAutoAddresses', () => {
     expect(planAutoAddresses({ candidates: [cand()], base: null, takenHosts: [] })).toEqual([]);
   });
 });
+
+describe('auto-published ports are public (QA-009)', () => {
+  it('a port entry with no published value (swarm auto-publishes it) is eligible, not "not-public"', () => {
+    expect(
+      autoAddressEligibility({
+        serviceId: 's',
+        serviceName: 'shop_web',
+        stack: 'shop',
+        labels: {},
+        ports: [{ target: 8080, protocol: 'tcp' }],
+        exposedTcp: [],
+        routeHosts: [],
+      }),
+    ).toEqual({ port: 8080 });
+  });
+});

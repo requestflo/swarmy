@@ -415,11 +415,10 @@ export class DockerClient {
         name: netName.get(n.Target ?? '') ?? n.Target ?? '',
         aliases: n.Aliases ?? [],
       }));
-      const ports = (spec.EndpointSpec?.Ports ?? []).map((p) => ({
-        target: p.TargetPort ?? 0,
-        published: p.PublishedPort,
-        protocol: (p.Protocol as 'tcp' | 'udp') ?? 'tcp',
-      }));
+      const ports = livePorts(
+        (s as { Endpoint?: { Ports?: EndpointPortLike[] } }).Endpoint?.Ports,
+        spec.EndpointSpec?.Ports,
+      );
       out.push({
         id,
         name: spec.Name || id,
@@ -975,6 +974,31 @@ export function foldPullEvent(acc: PullAccumulator, event: PullProgressEvent): P
     if (msg) acc.error = msg;
   }
   return acc;
+}
+
+interface EndpointPortLike {
+  TargetPort?: number;
+  PublishedPort?: number;
+  Protocol?: string;
+}
+
+/**
+ * A service's published ports as the swarm actually runs them. A spec port
+ * with no `PublishedPort` is still published: swarm assigns one from
+ * 30000-32767 on the routing mesh, world-reachable. Only the live
+ * `Endpoint.Ports` carries that assigned number, so it wins; the spec is the
+ * fallback while the endpoint isn't allocated yet. PURE — exported for tests.
+ */
+export function livePorts(
+  endpoint: readonly EndpointPortLike[] | undefined,
+  spec: readonly EndpointPortLike[] | undefined,
+): Array<{ target: number; published?: number; protocol: 'tcp' | 'udp' }> {
+  const src = endpoint && endpoint.length > 0 ? endpoint : (spec ?? []);
+  return src.map((p) => ({
+    target: p.TargetPort ?? 0,
+    ...(p.PublishedPort ? { published: p.PublishedPort } : {}),
+    protocol: p.Protocol === 'udp' ? 'udp' : 'tcp',
+  }));
 }
 
 /**

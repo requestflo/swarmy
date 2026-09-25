@@ -104,7 +104,10 @@ export interface AutoAddressCandidate {
   serviceName: string;
   stack: string;
   labels: Record<string, string>;
-  /** Service-spec ports (`published` present ⇒ world-reachable today). */
+  /**
+   * The service's published ports (live `Endpoint.Ports`). Every entry is
+   * world-reachable: one with no `published` value is auto-published by swarm.
+   */
   ports: ReadonlyArray<{ target: number; published?: number; protocol: string }>;
   /** Ports the service's containers expose (image EXPOSE). */
   exposedTcp: readonly number[];
@@ -135,7 +138,9 @@ export function autoAddressEligibility(c: AutoAddressCandidate): { port: number 
   const intent = l['swarmy.expose'];
   if (intent === 'private' || intent === 'mesh' || intent === 'tunnel') return { skip: 'not-public' };
   const override = Number(l[AUTO_ADDRESS_PORT_LABEL]);
-  const published = c.ports.filter((p) => p.published !== undefined && p.protocol !== 'udp').map((p) => p.target);
+  // Any port entry is published (swarm auto-assigns a public port when none was
+  // given), so it counts as public whether or not `published` is set.
+  const published = c.ports.filter((p) => p.protocol !== 'udp').map((p) => p.target);
   const optedIn = l[AUTO_ADDRESS_LABEL] === 'true' || intent === 'public';
   if (published.length === 0 && !optedIn) return { skip: 'not-public' };
   if (Number.isInteger(override) && override > 0 && override < 65536) return { port: override };
