@@ -8,10 +8,12 @@ import { DecisionsFeed } from './decisions-feed';
 import { RulesList } from './rules-list';
 import { SafetyModeCard } from './safety-mode-card';
 import { StackEnvCard } from './stack-env-card';
+import { ExposureSection } from '@/components/exposure/exposure-page';
 
 /**
- * Governance → Guardrails: the production safety switch, the rule list,
- * the stack environment editor and the blocked/overridden decisions feed.
+ * Governance → Safety: the production safety switch, the guardrail rules, the
+ * stack environment editor and the blocked/overridden decisions feed — then
+ * the Exposure audit (what faces the internet) on the same page.
  */
 export function GuardrailsPage(): React.JSX.Element {
   const trpc = useTRPC();
@@ -36,7 +38,7 @@ export function GuardrailsPage(): React.JSX.Element {
       <SectionHeader
         section="Governance"
         title={title}
-        description="Rules that keep production safe — pinned images, database replicas, backups, limits. Violating deploys are refused; every block and override is on the record."
+        description="Rules that keep production safe — pinned images, database replicas, backups, limits, and what may face the internet. Violating deploys are refused; every block and override is on the record."
       />
 
       {config.isLoading ? (
@@ -69,6 +71,8 @@ export function GuardrailsPage(): React.JSX.Element {
           </div>
         </div>
       ) : null}
+
+      <ExposureSection />
     </div>
   );
 }

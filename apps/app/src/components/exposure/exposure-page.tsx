@@ -3,16 +3,16 @@ import { useQuery } from '@tanstack/react-query';
 import { ShieldAlertIcon } from 'lucide-react';
 import { Button, EmptyState } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { SectionHeader } from '@/components/section-header';
 import { ExposureRulesCard } from './exposure-rules-card';
 import { ExposureTable } from './exposure-table';
 import { ExposureViolations } from './exposure-violations';
 
 /**
- * Network → Exposure: the public/private/managed audit of every service,
- * the rules card ("Block violating deploys") and the live violations feed.
+ * The Exposure half of the Safety page: the public/private/managed audit of
+ * every service, the rules card ("Block violating deploys") and the live
+ * violations feed.
  */
-export function ExposurePage(): React.JSX.Element {
+export function ExposureSection(): React.JSX.Element {
   const trpc = useTRPC();
 
   const overview = useQuery({
@@ -29,28 +29,22 @@ export function ExposurePage(): React.JSX.Element {
   const vio = violations.data ?? [];
   const violatingIds = new Set(vio.map((v) => v.serviceId));
 
-  const title =
-    rows.length === 0 ? (
-      <>
-        What's <em>exposed</em>?
-      </>
-    ) : vio.length > 0 ? (
-      <>
-        {vio.length} exposure violation{vio.length === 1 ? '' : 's'} need <em>you</em>.
-      </>
-    ) : (
-      <>
-        {counts.public} public, {counts.private + counts.managed} <em>sealed</em>.
-      </>
-    );
+  const summary =
+    rows.length === 0
+      ? 'Nothing running yet.'
+      : vio.length > 0
+        ? `${vio.length} exposure violation${vio.length === 1 ? '' : 's'} need you.`
+        : `${counts.public} public, ${counts.private + counts.managed} sealed.`;
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <SectionHeader
-        section="Governance"
-        title={title}
-        description="Every service, audited: what faces the internet (domains and published ports), what stays private, and what your rules say about it."
-      />
+    <section id="exposure" className="mt-12">
+      <div className="mb-4">
+        <h2 className="font-display text-xl font-bold">What's exposed</h2>
+        <p className="text-muted-foreground mt-1 max-w-2xl text-sm">
+          Every service, audited: what faces the internet (domains and published ports), what stays
+          private, and what your rules say about it. {summary}
+        </p>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <div className="min-w-0">
@@ -91,6 +85,6 @@ export function ExposurePage(): React.JSX.Element {
           <ExposureRulesCard />
         </div>
       </div>
-    </div>
+    </section>
   );
 }

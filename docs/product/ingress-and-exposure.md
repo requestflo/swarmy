@@ -117,7 +117,7 @@ Four ideas, one story:
   driver included), and "declared public but unreachable" surfaces as a warning.
   The inferred classifier stays — it is the *observed* half of the comparison.
   Open: the background exposure-audit worker doesn't yet alert on
-  declared-vs-observed drift (the Exposure page does), and the ingress renderer
+  declared-vs-observed drift (the Safety page's Exposure section does), and the ingress renderer
   doesn't consult `swarmy.expose` — see `plans/ROADMAP.md`.
 
 ## Ingress & exposure behaviour
@@ -176,7 +176,7 @@ Four ideas, one story:
   violation.
 - **Exposure alerts, it does not amputate (v1).** Rules — no public ports on
   managed data, no public UDP, warn on new published ports — surface on the
-  Exposure page and, when **"Block violating deploys"** (`enforce`) is on, refuse
+  Safety page's Exposure section and, when **"Block violating deploys"** (`enforce`) is on, refuse
   the *next deploy* through admission (warn-severity is overridable; block is
   not). swarmy never removes a live port by itself. The fix is always yours.
 
@@ -302,7 +302,7 @@ Least privilege, by network:
 | Custom domain added before its DNS record exists | Withheld from the render and denied by `/ingress/ask` until public DNS points at an edge; the row says exactly which record to create. No failed ACME orders, no rate-limit burn. |
 | Cloudflare Tunnel: connector or CF blips | Connector dials out and reconnects; no inbound port to fail. Routing rules are declarative server-side, re-pushed idempotently on the next sync. |
 | A driver can't express a protection (e.g. rate limit on `none`) | `validate()` warns; `render` still emits a working config for what it *can* do. Degraded, never broken. |
-| Managed database publishes a port | Audited as a `public-port` violation, alerted on the Exposure page, and (if enforce is on) the next deploy is refused — but the running port is left in place for the operator to remove. |
+| Managed database publishes a port | Audited as a `public-port` violation, alerted on the Safety page, and (if enforce is on) the next deploy is refused — but the running port is left in place for the operator to remove. |
 
 ## Explicitly rejected
 
@@ -350,5 +350,5 @@ config in swarm-kv via `services/ingress-config.repo.ts` (`IngressConfig`, incl.
 the tunnel block) and the `governance.prisma` row (`ExposureConfig`); the public on-demand-TLS gate
 `apps/api/src/ingress-ask.ts` mounted at `/ingress/ask` in `apps/api/src/index.ts`;
 agent handlers `apps/agent/src/handlers/{ingress-local,ingress-connector,
-ingress-status}.ts`; UI `apps/app/src/routes/_authed/{ingress,exposure}.tsx` with
+ingress-status}.ts`; UI `apps/app/src/routes/_authed/{ingress,governance}.tsx` (exposure is a section of the Safety page) with
 `apps/app/src/components/ingress/*` and `apps/app/src/components/exposure/*`.

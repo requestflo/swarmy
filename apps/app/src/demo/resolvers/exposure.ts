@@ -10,7 +10,7 @@ import type {
 import type { DemoStore, DomainResolvers } from '../types';
 
 /**
- * Exposure demo resolvers — the Exposure surface (`/exposure`): the audit
+ * Exposure demo resolvers — the Exposure section of the Safety page (`/governance`): the audit
  * table, the rules card, the violations feed and the per-service declared
  * mode (`swarmy.expose`). Return shapes mirror `exposure.service.ts` views
  * exactly (imported from @swarmy/core, never redeclared). Service ids line up

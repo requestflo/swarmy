@@ -20,7 +20,6 @@ import {
   ScrollTextIcon,
   ServerIcon,
   SettingsIcon,
-  ShieldAlertIcon,
   ShieldCheckIcon,
   ShieldIcon,
   SirenIcon,
@@ -120,8 +119,7 @@ export const SECTIONS: Destination[] = [
   { to: '/incidents', label: 'Incidents', icon: SirenIcon, group: 'Activity', blurb: 'Open incidents across all stacks', keywords: 'outage timeline postmortem resolved downtime', badge: 'incidentsOpen' },
 
   // ── Governance ──────────────────────────────────────────────────────────
-  { to: '/governance', label: 'Guardrails', icon: ShieldCheckIcon, group: 'Governance', blurb: 'Production safety rules', keywords: 'governance policies production safety rules blocked overrides opa admission' },
-  { to: '/exposure', label: 'Exposure', icon: ShieldAlertIcon, group: 'Governance', blurb: 'Public vs private, enforced', keywords: 'public private protected ports attack surface audit violations firewall' },
+  { to: '/governance', label: 'Safety', icon: ShieldCheckIcon, group: 'Governance', blurb: 'Guardrails and what’s exposed', keywords: 'governance guardrails policies production safety rules blocked overrides opa admission exposure public private protected ports attack surface audit violations firewall' },
   { to: '/settings/access', label: 'Access & roles', icon: ShieldIcon, group: 'Governance', blurb: 'RBAC / ABAC & members', keywords: 'rbac abac members sso policies roles access' },
   { to: '/audit', label: 'Audit log', icon: ScrollTextIcon, group: 'Governance', blurb: 'Who did what, exportable', keywords: 'compliance who did what history export actions' },
   { to: '/cost', label: 'Cost & capacity', icon: CircleDollarSignIcon, group: 'Governance', blurb: 'Spend & right-sizing tips', keywords: 'spend usd nodes utilization idle savings recommendations capacity' },
