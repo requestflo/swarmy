@@ -158,7 +158,12 @@ export const SwarmResourceInfo = z.object({
 });
 export type SwarmResourceInfo = z.infer<typeof SwarmResourceInfo>;
 
-export const SecretCreateResult = z.object({ id: z.string(), name: z.string() });
+export const SecretCreateResult = z.object({
+  id: z.string(),
+  name: z.string(),
+  /** The secret already existed with the same content (idempotent create). */
+  existed: z.boolean().optional(),
+});
 export type SecretCreateResult = z.infer<typeof SecretCreateResult>;
 
 export const SecretRemoveResult = z.object({ name: z.string(), removed: z.boolean() });

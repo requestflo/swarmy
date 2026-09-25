@@ -13,6 +13,7 @@
  * Wire types live in `@swarmy/core/protocol` (`swarmres.ts`). Results are
  * reported through the existing `commandResult` path.
  */
+import { createHash } from 'node:crypto';
 import type { DockerClient } from '@swarmy/core/docker';
 import type {
   ConfigCreatePayload,
@@ -35,12 +36,53 @@ import { presentOrFallback, pullWithFallback } from './pull-fallback';
 
 // ── secrets ──────────────────────────────────────────────────────────────────
 
+/** Label stamped on every secret the agent creates: sha256 of its content. */
+export const SECRET_CONTENT_LABEL = 'swarmy.content.sha256';
+
+export function secretContentHash(dataB64: string): string {
+  return createHash('sha256').update(Buffer.from(dataB64, 'base64')).digest('hex');
+}
+
+/**
+ * PURE — is an existing secret of this name "the same secret" we were asked to
+ * create? Docker never returns a secret's data, so content is compared through
+ * the hash label. A secret created before the label existed matches when it
+ * carries every label the request asks for (the same idempotent create, e.g.
+ * swarmy-dns-admin with its family label). A different hash is never a match.
+ */
+export function existingSecretMatches(
+  existing: { labels: Record<string, string> },
+  wanted: { hash: string; labels?: Record<string, string> },
+): boolean {
+  const have = existing.labels[SECRET_CONTENT_LABEL];
+  if (have) return have === wanted.hash;
+  const labels = wanted.labels ?? {};
+  return Object.keys(labels).length > 0 && Object.entries(labels).every(([k, v]) => existing.labels[k] === v);
+}
+
+const ALREADY_EXISTS = /already exists|name conflicts|\b409\b/i;
+
+/**
+ * Create a secret, idempotently. "already exists" (409) with matching content
+ * is success, not a failure the controller re-dispatches (and the agent logs)
+ * on every reconcile tick forever (QA-026). Different content still fails.
+ */
 export async function secretCreate(
-  docker: DockerClient,
+  docker: Pick<DockerClient, 'createSecret' | 'listSecrets'>,
   p: SecretCreatePayload,
 ): Promise<SecretCreateResult> {
-  const id = await docker.createSecret(p.name, p.dataB64, p.labels);
-  return { id, name: p.name };
+  const hash = secretContentHash(p.dataB64);
+  try {
+    const id = await docker.createSecret(p.name, p.dataB64, { ...(p.labels ?? {}), [SECRET_CONTENT_LABEL]: hash });
+    return { id, name: p.name };
+  } catch (e) {
+    if (!ALREADY_EXISTS.test(e instanceof Error ? e.message : String(e))) throw e;
+    const existing = (await docker.listSecrets()).find((s) => s.name === p.name);
+    if (existing && existingSecretMatches(existing, { hash, labels: p.labels })) {
+      return { id: existing.id, name: p.name, existed: true };
+    }
+    throw new Error(`secret ${p.name} already exists with different content`);
+  }
 }
 
 export async function secretRemove(
