@@ -14,8 +14,10 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         VITE_SITE_URL: https://swarmy.dev
-        # Where "Live demo" links point: a dashboard built with VITE_SWARMY_DEMO_LINKS=1.
-        VITE_APP_URL: https://demo.swarmy.dev
+        # Where "Live demo" (and the dashboard link) point: the static demo
+        # deployed from apps/app/demo.swarmy.yaml. Placeholder until the real
+        # domain is chosen; keep it in step with that file's `domains:`.
+        DEMO_URL: https://demo.swarmy.dev
       watch: [apps/web, packages/ui, packages/app-config, packages/core]
     port: 8080
     replicas: 2

@@ -40,9 +40,11 @@ COPY packages/core packages/core
 COPY packages/app-config packages/app-config
 COPY apps/web apps/web
 # Baked into the prerendered HTML (canonical URLs, dashboard/demo links).
+# DEMO_URL is the one setting for the "Live demo" link and the dashboard link
+# (VITE_APP_URL). https://demo.swarmy.dev is a placeholder for the real domain.
 ARG VITE_SITE_URL=https://swarmy.dev
-ARG VITE_APP_URL=https://demo.swarmy.dev
-ENV VITE_SITE_URL=${VITE_SITE_URL} VITE_APP_URL=${VITE_APP_URL}
+ARG DEMO_URL=https://demo.swarmy.dev
+ENV VITE_SITE_URL=${VITE_SITE_URL} VITE_DEMO_URL=${DEMO_URL} VITE_APP_URL=${DEMO_URL}
 RUN cd apps/web && bun run build
 
 # ── Stage 2: serve it ───────────────────────────────────────────────────────

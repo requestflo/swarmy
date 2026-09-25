@@ -204,6 +204,28 @@ online, re-run the same install one-liner (it repairs in place) or click
 **Repair this node** in the dashboard — see
 [`docs/NODE-RECOVERY.md`](./docs/NODE-RECOVERY.md).
 
+### Live demo
+
+The public demo is the dashboard built in demo mode: fake in-memory data, no
+controller, no database, no sign-in. It shows a "Demo: data is fake, nothing is
+saved" banner, and the terminal and sign-in screens become demo notices.
+
+```bash
+bun --filter @swarmy/app build:demo   # static files in apps/app/dist/demo
+bun apps/e2e/demo-smoke.ts            # serve it and walk every route in Chromium
+docker build -f apps/app/demo.Dockerfile -t swarmy/demo .   # Caddy image, :8080
+```
+
+swarmy hosts it itself from [`apps/app/demo.swarmy.yaml`](./apps/app/demo.swarmy.yaml),
+the same way the marketing site deploys from `apps/web/swarmy.yaml`.
+
+**The demo's address is one value: `DEMO_URL`.** It is currently the
+placeholder `https://demo.swarmy.dev`. When the real domain is known, set it in
+two places: `DEMO_URL` under `args` in `apps/web/swarmy.yaml` (the site's
+"Live demo" link and `VITE_APP_URL`), and `domains` in
+`apps/app/demo.swarmy.yaml`. The same default is in `apps/web/Dockerfile` and
+`apps/web/src/lib/site.ts`.
+
 ## Scripts
 
 | Command | Does |
