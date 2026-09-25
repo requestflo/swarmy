@@ -276,7 +276,7 @@ function seedApprovals(): TerminalApprovalView[] {
     {
       id: 'appr-pending',
       orgId: 'org-demo',
-      requestedById: DEMO_USER.id,
+      requestedById: 'user-ava',
       nodeId: wkr2,
       reason: 'break-glass disk pressure triage',
       status: 'pending',
@@ -542,6 +542,19 @@ export const infraextra: DomainResolvers = {
         createdAt: new Date().toISOString(),
       };
       s.approvals.unshift(row);
+      return row;
+    },
+
+    'terminal.approval.list': (_input, store): TerminalApprovalView[] => state(store).approvals,
+
+    'terminal.approval.decide': (input, store): TerminalApprovalView => {
+      const { approvalId, approve } = input as { approvalId: string; approve: boolean };
+      const row = state(store).approvals.find((a) => a.id === approvalId);
+      if (!row) throw new Error(`approval "${approvalId}" not found`);
+      if (row.requestedById === store.user.id) throw new Error('another admin has to decide your own request');
+      if (row.status !== 'pending') throw new Error(`this request is already ${row.status}`);
+      row.status = approve ? 'approved' : 'denied';
+      row.approvedById = store.user.id;
       return row;
     },
 

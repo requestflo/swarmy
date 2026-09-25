@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTRPC } from '@/integrations/trpc';
 import { MemberMfaList } from './member-mfa-list';
 import { Require2faCard } from './require-2fa-card';
+import { TerminalApprovalsCard } from './terminal-approvals-card';
 import { TerminalPolicyCard } from './terminal-policy-card';
 import { TwoFactorCard } from './two-factor-card';
 
@@ -20,6 +21,7 @@ export function SecurityTab(): React.JSX.Element {
       {isAdmin && (
         <div className="space-y-6">
           <TerminalPolicyCard />
+          <TerminalApprovalsCard />
           <MemberMfaList />
         </div>
       )}

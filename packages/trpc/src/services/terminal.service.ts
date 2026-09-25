@@ -9,6 +9,8 @@ import {
 } from '@swarmy/core';
 import type { AgentHub } from '../hub/types';
 import type { OrgContext } from '../context';
+import { TRPCError } from '@trpc/server';
+import { badRequest, notFound } from '../errors';
 import { writeAudit } from './audit.service';
 
 /**
@@ -340,8 +342,20 @@ export async function decideNodeShellApproval(
   ctx: OrgContext,
   input: { approvalId: string; approve: boolean },
 ): Promise<TerminalApprovalRow> {
-  const row = await models(ctx.db).terminalApproval.update({
-    where: { id: input.approvalId },
+  const m = models(ctx.db);
+  // Org-scoped lookup: an admin can only decide their own org's requests.
+  const existing = await m.terminalApproval.findFirst({
+    where: { id: input.approvalId, orgId: ctx.activeOrgId },
+  });
+  if (!existing) throw notFound('approval', input.approvalId);
+  // Four-eyes: the requester can't approve (or deny) their own request.
+  if (existing.requestedById === ctx.user.id) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'another admin has to decide your own request' });
+  }
+  if (existing.status !== 'pending') throw badRequest(`this request is already ${existing.status}`);
+  if (existing.expiresAt.getTime() <= Date.now()) throw badRequest('this request has expired');
+  const row = await m.terminalApproval.update({
+    where: { id: existing.id },
     data: { status: input.approve ? 'approved' : 'denied', approvedById: ctx.user.id },
   });
   await writeAudit(ctx, {
