@@ -282,3 +282,20 @@ body,
 [data-slot='button'].bg-primary:hover {
   scale: none;
 }
+
+/* 44px touch targets on touch screens. Buttons grow to 44px; switches keep
+   their look and get an invisible 44px hit area around them. */
+@media (pointer: coarse) {
+  main button:not([data-slot='switch']) {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  [data-slot='switch'] {
+    position: relative;
+  }
+  [data-slot='switch']::after {
+    content: '';
+    position: absolute;
+    inset: -12px -4px;
+  }
+}
