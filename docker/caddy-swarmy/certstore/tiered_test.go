@@ -3,6 +3,7 @@ package certstore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"sort"
@@ -23,8 +24,11 @@ type fakeReplica struct {
 	locks map[string]bool
 	down  bool
 	hang  bool
-	calls int
-	clock time.Time
+	// s3Head404: Stat misses come back as the AWS SDK's HeadObject error
+	// (API code "NotFound", HTTP 404), not fs.ErrNotExist — as certmagic-s3 does.
+	s3Head404 bool
+	calls     int
+	clock     time.Time
 }
 
 type obj struct {
@@ -125,6 +129,9 @@ func (f *fakeReplica) Stat(ctx context.Context, k string) (certmagic.KeyInfo, er
 	defer f.mu.Unlock()
 	o, ok := f.objs[k]
 	if !ok {
+		if f.s3Head404 {
+			return certmagic.KeyInfo{}, fmt.Errorf("operation error S3: HeadObject: %w", headNotFound{})
+		}
 		return certmagic.KeyInfo{}, fs.ErrNotExist
 	}
 	return certmagic.KeyInfo{Key: k, Modified: o.mod, Size: int64(len(o.v)), IsTerminal: true}, nil
@@ -404,7 +411,7 @@ func TestSyncableFilter(t *testing.T) {
 	for k, want := range map[string]bool{
 		certKey:                                     true,
 		"acme/ca/users/x@y/x.json":                  true,
-		"ocsp/mesh.example.com-abc":                 true,
+		"ocsp/mesh.example.com-abc":                 false,
 		"locks/issue_cert_x.lock":                   false,
 		"challenge_tokens/ca/mesh.example.com.json": false,
 		"instance.uuid":                             false,
@@ -460,4 +467,51 @@ func TestStringNeverFormatsTheReplica(t *testing.T) {
 type secretReplica struct {
 	*fakeReplica
 	key string
+}
+
+// headNotFound mimics smithy-go's API error for a HeadObject miss.
+type headNotFound struct{}
+
+func (headNotFound) Error() string       { return "NotFound: Not Found" }
+func (headNotFound) ErrorCode() string   { return "NotFound" }
+func (headNotFound) HTTPStatusCode() int { return 404 }
+
+// Found in the lab: Garage answered the probe's HeadObject with a 404 and the
+// store read that as "replica down", so nothing ever synced.
+func TestHeadObject404IsAMissNotAnOutage(t *testing.T) {
+	r := newFake()
+	r.s3Head404 = true
+	s := newStore(t, r)
+	_ = s.Local.Store(ctx, certKey, []byte("C"))
+	st, err := s.syncOnce(ctx)
+	if err != nil || st.Pushed != 1 {
+		t.Fatalf("sync = %+v, %v", st, err)
+	}
+	if _, err := s.Stat(ctx, "certificates/ca/none/none.crt"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Stat miss = %v", err)
+	}
+	if !s.replicaUp() {
+		t.Fatal("a 404 opened the breaker")
+	}
+	if replicaMiss(errors.New("503 Service Unavailable")) {
+		t.Fatal("a 503 is not a miss")
+	}
+}
+
+// OCSP staples are looked up for every certificate at every load: with a dead
+// (hung) replica that lookup must not wait — it never leaves the node.
+func TestOCSPNeverTouchesTheReplica(t *testing.T) {
+	r := newFake()
+	r.set(false, true) // hung
+	s := newStore(t, r)
+	start := time.Now()
+	if _, err := s.Load(ctx, "ocsp/mesh.example.com-abc"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if err := s.Store(ctx, "ocsp/mesh.example.com-abc", []byte("staple")); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(start) > 50*time.Millisecond || r.callCount() != 0 {
+		t.Fatalf("ocsp reached the replica (%d calls, %v)", r.callCount(), time.Since(start))
+	}
 }

@@ -113,7 +113,8 @@ invariants that must survive every change, and where everything lives.
   (5 s timeout + 30 s circuit breaker; a dead replica reads as "not found" so
   certmagic goes to ACME), writes local-then-replica, takes the replica lock
   only while it answers (else the local lock alone), and runs a newer-wins
-  sync both ways every 5 min (30 s while work is pending). The local copy is
+  sync both ways every 5 min (30 s while work is pending). OCSP staples never
+  leave the node. An S3 HeadObject 404 is a miss, not an outage. The local copy is
   plain 0600 files on the root-only volume; the replica copy stays NaCl-sealed
   (certmagic-s3 `encryption_key`). Never make a TLS boot path wait on Garage
   or anything reached over the mesh. NEVER render a credential into the

@@ -32,6 +32,8 @@ import (
 //   - Lock: always the local lock; plus the replica lock while the replica
 //     answers (mutual exclusion across edges). An unreachable replica falls
 //     back to the local lock alone — at worst two edges both renew.
+//   - OCSP staples stay on the node (looked up at every load, per-node,
+//     cheap to re-fetch), so a dead replica never delays loading a cert.
 //   - Sync (background): newer-wins by modification time, both ways. Local
 //     mtimes are aligned to the replica's after every copy so the two clocks
 //     never ping-pong.
@@ -159,12 +161,35 @@ func (t *Tiered) rctx(ctx context.Context) (context.Context, context.CancelFunc)
 
 func notExist(err error) bool { return errors.Is(err, fs.ErrNotExist) }
 
+// replicaMiss: the replica answered "no such key". certmagic-s3 maps GetObject's
+// NoSuchKey to fs.ErrNotExist but not HeadObject's bare 404 (Stat), which the
+// AWS SDK surfaces as an API error "NotFound" — found in the lab: without this
+// every probe read a healthy Garage as down. Duck-typed on smithy's
+// APIError / HTTP response error so this module needs no AWS dependency.
+func replicaMiss(err error) bool {
+	if err == nil {
+		return false
+	}
+	if notExist(err) {
+		return true
+	}
+	var coded interface{ ErrorCode() string }
+	if errors.As(err, &coded) {
+		switch coded.ErrorCode() {
+		case "NotFound", "NoSuchKey":
+			return true
+		}
+	}
+	var status interface{ HTTPStatusCode() int }
+	return errors.As(err, &status) && status.HTTPStatusCode() == 404
+}
+
 // probe reports whether the replica answers at all (a miss is an answer).
 func (t *Tiered) probe(ctx context.Context) error {
 	rc, cancel := t.rctx(ctx)
 	defer cancel()
 	_, err := t.Replica.Stat(rc, probeKey)
-	if err == nil || notExist(err) {
+	if err == nil || replicaMiss(err) {
 		t.markUp()
 		return nil
 	}
@@ -189,7 +214,7 @@ func (t *Tiered) alignMtime(ctx context.Context, key string) {
 // Load reads locally; on a local miss, from the replica (written back).
 func (t *Tiered) Load(ctx context.Context, key string) ([]byte, error) {
 	v, err := t.Local.Load(ctx, key)
-	if err == nil || !notExist(err) || !t.replicaUp() {
+	if err == nil || !notExist(err) || nodeLocal(key) || !t.replicaUp() {
 		return v, err
 	}
 	rc, cancel := t.rctx(ctx)
@@ -202,7 +227,7 @@ func (t *Tiered) Load(ctx context.Context, key string) ([]byte, error) {
 			t.alignMtime(ctx, key)
 		}
 		return rv, nil
-	case notExist(rerr):
+	case replicaMiss(rerr):
 		t.markUp()
 		return nil, err
 	default:
@@ -217,6 +242,9 @@ func (t *Tiered) Load(ctx context.Context, key string) ([]byte, error) {
 func (t *Tiered) Store(ctx context.Context, key string, value []byte) error {
 	if err := t.Local.Store(ctx, key, value); err != nil {
 		return err
+	}
+	if t.Replica == nil || nodeLocal(key) {
+		return nil
 	}
 	t.mu.Lock()
 	delete(t.pendingDeletes, key)
@@ -246,7 +274,7 @@ func (t *Tiered) Delete(ctx context.Context, key string) error {
 		keys = t.localTerminalKeys(ctx, key)
 	}
 	lerr := t.Local.Delete(ctx, key)
-	if t.Replica == nil {
+	if t.Replica == nil || nodeLocal(key) {
 		return lerr
 	}
 	if t.replicaUp() {
@@ -267,7 +295,7 @@ func (t *Tiered) deleteReplica(ctx context.Context, key string) {
 		rc, cancel := t.rctx(ctx)
 		err := t.Replica.Delete(rc, key)
 		cancel()
-		if err == nil || notExist(err) {
+		if err == nil || replicaMiss(err) {
 			return
 		}
 		t.markDown("delete", err)
@@ -283,7 +311,7 @@ func (t *Tiered) Exists(ctx context.Context, key string) bool {
 	if t.Local.Exists(ctx, key) {
 		return true
 	}
-	if !t.replicaUp() {
+	if nodeLocal(key) || !t.replicaUp() {
 		return false
 	}
 	rc, cancel := t.rctx(ctx)
@@ -294,7 +322,7 @@ func (t *Tiered) Exists(ctx context.Context, key string) bool {
 // Stat reads locally; on a local miss, from the replica.
 func (t *Tiered) Stat(ctx context.Context, key string) (certmagic.KeyInfo, error) {
 	ki, err := t.Local.Stat(ctx, key)
-	if err == nil || !notExist(err) || !t.replicaUp() {
+	if err == nil || !notExist(err) || nodeLocal(key) || !t.replicaUp() {
 		return ki, err
 	}
 	rc, cancel := t.rctx(ctx)
@@ -304,7 +332,7 @@ func (t *Tiered) Stat(ctx context.Context, key string) (certmagic.KeyInfo, error
 	case rerr == nil:
 		t.markUp()
 		return rki, nil
-	case notExist(rerr):
+	case replicaMiss(rerr):
 		t.markUp()
 		return ki, err
 	default:
@@ -434,6 +462,11 @@ func (t *Tiered) pending() bool {
 	return t.dirty || len(t.pendingDeletes) > 0
 }
 
+// nodeLocal keys never touch the replica: OCSP staples are per-node, cheap to
+// re-fetch, and are looked up for every certificate at every load — asking a
+// dead replica for them would put its timeout on the boot path.
+func nodeLocal(key string) bool { return strings.HasPrefix(key, "ocsp/") }
+
 // syncable: certificate material only — not locks, not in-flight ACME
 // challenge tokens (those are written through synchronously and must not be
 // resurrected), not per-instance files at the root (instance.uuid,
@@ -442,7 +475,7 @@ func syncable(key string) bool {
 	if !strings.Contains(key, "/") {
 		return false
 	}
-	if strings.HasPrefix(key, "locks/") || strings.HasPrefix(key, "challenge_tokens/") {
+	if strings.HasPrefix(key, "locks/") || strings.HasPrefix(key, "challenge_tokens/") || nodeLocal(key) {
 		return false
 	}
 	if strings.HasSuffix(key, ".lock") || strings.HasPrefix(path.Base(key), ".") {
@@ -480,7 +513,7 @@ func (t *Tiered) syncOnce(ctx context.Context) (SyncStats, error) {
 		rc, cancel := t.rctx(ctx)
 		err := t.Replica.Delete(rc, k)
 		cancel()
-		if err != nil && !notExist(err) {
+		if err != nil && !replicaMiss(err) {
 			t.markDown("sync delete", err)
 			return st, err
 		}
@@ -515,7 +548,7 @@ func (t *Tiered) syncOnce(ctx context.Context) (SyncStats, error) {
 		ki, err := t.Replica.Stat(rc, k)
 		cancel()
 		if err != nil {
-			if notExist(err) {
+			if replicaMiss(err) {
 				continue
 			}
 			t.markDown("sync stat", err)
@@ -602,7 +635,7 @@ func (t *Tiered) pull(ctx context.Context, key string, modified time.Time) (bool
 	v, err := t.Replica.Load(rc, key)
 	cancel()
 	if err != nil {
-		if notExist(err) {
+		if replicaMiss(err) {
 			return false, nil
 		}
 		t.markDown("sync pull", err)
