@@ -8,6 +8,7 @@ export async function startUdpServer(
   host: string,
   port: number,
 ): Promise<{ close(): void }> {
+  let lastErrorLog = 0;
   const socket = await Bun.udpSocket({
     hostname: host,
     port,
@@ -17,7 +18,22 @@ export async function startUdpServer(
         if (!handled) return; // unparseable — drop
         const response = encodeForUdp(handled.packet, handled.parsed.udpPayloadSize);
         // Backpressure returns false — drop; DNS clients retry (often via TCP).
-        sock.send(response, peerPort, addr);
+        try {
+          sock.send(response, peerPort, addr);
+        } catch {
+          // a vanished client: drop, never take the nameserver down with it
+        }
+      },
+      // Without a handler Bun throws socket errors out of the event loop. A
+      // client that is gone by the time we answer comes back as an ICMP
+      // port-unreachable → ECONNREFUSED on the next recv, and that killed the
+      // whole server (QA-048). One client's error must never stop the NS.
+      error(_sock, err) {
+        const now = Date.now();
+        if (now - lastErrorLog > 60_000) {
+          lastErrorLog = now;
+          log(`udp ${host}:${port}: ignoring socket error (logged at most once a minute): ${err.message}`);
+        }
       },
     },
   });
