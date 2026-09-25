@@ -94,6 +94,9 @@ NB_INTERFACE="wt0"
 MESH_CONTROL_CONTAINER="swarmy-mesh-control"
 MESH_CONTROL_IMAGE="${SWARMY_NETBIRD_SERVER_IMAGE:-ghcr.io/netbirdio/netbird-server:0.79.0@sha256:d1da0c0179c9e6f2ab7b48be54d06341b11037855a9426b9f2536aa79f13360b}"
 MESH_CONTROL_HTTP_PORT=8081
+# >>> swarmy mesh-control entrypoint (keep in sync: apps/agent/src/handlers/mesh-control.ts MESH_CONTROL_ENTRYPOINT — unit-tested)
+MESH_CONTROL_SCRIPT='umask 077; chmod 0700 /var/lib/swarmy-mesh-conf 2>/dev/null; if [ ! -s /run/swarmy-mesh/config.yaml ] && [ -s /var/lib/swarmy-mesh-conf/config.yaml ]; then if [ -s /var/lib/swarmy-mesh-conf/extra-ca.pem ]; then cp /var/lib/swarmy-mesh-conf/extra-ca.pem /run/swarmy-mesh/extra-ca.pem; fi; cp /var/lib/swarmy-mesh-conf/config.yaml /run/swarmy-mesh/config.yaml.tmp && mv /run/swarmy-mesh/config.yaml.tmp /run/swarmy-mesh/config.yaml; fi; while [ ! -s /run/swarmy-mesh/config.yaml ]; do sleep 0.2; done; if [ -s /run/swarmy-mesh/extra-ca.pem ]; then cat /etc/ssl/certs/ca-certificates.crt /run/swarmy-mesh/extra-ca.pem > /run/swarmy-mesh/ca.pem; export SSL_CERT_FILE=/run/swarmy-mesh/ca.pem; fi; exec /go/bin/netbird-server --config /run/swarmy-mesh/config.yaml'
+# <<< swarmy mesh-control entrypoint
 
 # ── logging ─────────────────────────────────────────────────────────────────
 c_blue=''; c_green=''; c_yellow=''; c_red=''; c_dim=''; c_reset=''
@@ -982,15 +985,22 @@ ensure_mesh_control() {
       --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
       --tmpfs /run/swarmy-mesh:rw,noexec,nosuid,size=1m,mode=0700 \
       -v swarmy-mesh-control:/var/lib/netbird \
+      -v swarmy-mesh-control-conf:/var/lib/swarmy-mesh-conf \
       -e NB_DISABLE_GEOLOCATION=true -e GOMEMLIMIT=192MiB $pat_env \
       --label swarmy.managed=true --label swarmy.role=mesh-control --label "swarmy.mesh.control.image=${MESH_CONTROL_IMAGE}" \
       --entrypoint sh "$MESH_CONTROL_IMAGE" \
-      -c 'while [ ! -s /run/swarmy-mesh/config.yaml ]; do sleep 0.2; done; if [ -s /run/swarmy-mesh/extra-ca.pem ]; then cat /etc/ssl/certs/ca-certificates.crt /run/swarmy-mesh/extra-ca.pem > /run/swarmy-mesh/ca.pem; export SSL_CERT_FILE=/run/swarmy-mesh/ca.pem; fi; exec /go/bin/netbird-server --config /run/swarmy-mesh/config.yaml' \
+      -c "$MESH_CONTROL_SCRIPT" \
       >/dev/null || die "failed to start the mesh control plane."
   fi
-  # The config (relay secret, store key) lives in the container's tmpfs, never on
-  # its spec. The agent keeps the same copy (0600, its own volume) so it can put
-  # it back after a restart even while the controller is unreachable.
+  # The config (relay secret, store key) is served from the container's tmpfs,
+  # never its spec. It also persists, root-only, in swarmy-mesh-control-conf:
+  # the entrypoint seeds the tmpfs from it after a reboot with no agent, overlay
+  # or swarm (QA-066 d). The agent keeps its own copy too.
+  printf '%s\n' "$cfg" | docker exec -i "$MESH_CONTROL_CONTAINER" sh -c 'umask 077; chmod 0700 /var/lib/swarmy-mesh-conf; cat > /var/lib/swarmy-mesh-conf/config.yaml.tmp && mv /var/lib/swarmy-mesh-conf/config.yaml.tmp /var/lib/swarmy-mesh-conf/config.yaml' \
+    || warn "could not persist the mesh control plane config; the agent persists it instead."
+  if [ -n "${MESH_EXTRA_CA:-}" ] && [ -s "$MESH_EXTRA_CA" ]; then
+    docker exec -i "$MESH_CONTROL_CONTAINER" sh -c 'umask 077; cat > /var/lib/swarmy-mesh-conf/extra-ca.pem' < "$MESH_EXTRA_CA" || true
+  fi
   if ! docker exec "$MESH_CONTROL_CONTAINER" test -s /run/swarmy-mesh/config.yaml 2>/dev/null; then
     # A private CA for swarmy's own https issuer (NetBird only accepts https issuers).
     if [ -n "${MESH_EXTRA_CA:-}" ] && [ -s "$MESH_EXTRA_CA" ]; then

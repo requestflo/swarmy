@@ -8,16 +8,23 @@
  * breaks and raft loses quorum swarm could not reschedule anything. The thing
  * the swarm depends on must not depend on the swarm.
  *
- * Secrets: the rendered config (authSecret, encryptionKey) lives in the
- * container's tmpfs — never the image, the container spec or `docker inspect`
- * — written through `docker exec` (spike §11.1: `docker cp` can't reach a
- * tmpfs). The container's entrypoint waits for the file. A restart empties the
- * tmpfs, so {@link superviseMeshControl} (every 10 s, independent of the
- * controller connection) rewrites it from the agent's own 0600 copy in its
- * state dir. That copy is what makes a cold boot of the control-plane node
- * work while the controller runs elsewhere (it reaches us over the overlay,
- * which rides the mesh this very container serves). It is never in the NetBird
- * volume, so store.db and its encryptionKey don't sit together.
+ * Secrets: the rendered config (authSecret, encryptionKey) is served from
+ * the container's tmpfs — never the image, the container spec or `docker
+ * inspect` — written through `docker exec` (spike §11.1: `docker cp` can't
+ * reach a tmpfs). {@link superviseMeshControl} (every 10 s, independent of the
+ * controller connection) keeps it there from the agent's own 0600 copy in its
+ * state dir.
+ *
+ * Cold boot (QA-066 d): the tmpfs is empty after a reboot, and the agent may
+ * not be running yet — on a multi-manager swarm nothing on this node may wait
+ * for the agent, the overlay or the swarm, because they all wait for the mesh
+ * this container serves. So the config also persists in its own root-only
+ * volume (`swarmy-mesh-control-conf`: a 0700 dir, 0600 files — the same
+ * protection as the agent's copy on the same disk), and the entrypoint seeds
+ * the empty tmpfs from it before waiting. dockerd alone brings :8081 back. The
+ * copy is never in the NetBird volume, so store.db and its encryptionKey
+ * still don't sit together, and it is written before any restart, so a restart
+ * never seeds a stale config.
  *
  * Gated by SWARMY_ALLOW_MESH (executor), like the node sidecar.
  */
@@ -34,18 +41,29 @@ import { agentPackaging } from './update';
 export const MESH_CONTROL_CONTAINER = 'swarmy-mesh-control';
 export const MESH_CONTROL_VOLUME = 'swarmy-mesh-control';
 export const MESH_LITESTREAM_CONTAINER = 'swarmy-mesh-litestream';
+/** Root-only volume holding the persisted config the entrypoint seeds the tmpfs from (QA-066 d). */
+export const MESH_CONTROL_CONF_VOLUME = 'swarmy-mesh-control-conf';
+const CONF_DIR = '/var/lib/swarmy-mesh-conf';
 const CONFIG_DIR = '/run/swarmy-mesh';
 const CONFIG_FILE = `${CONFIG_DIR}/config.yaml`;
 const DATA_DIR = '/var/lib/netbird';
 const LS_CONFIG_FILE = '/run/swarmy-litestream/litestream.yml';
 const IMAGE_LABEL = 'swarmy.mesh.control.image';
 
-/** Wait for the config in the tmpfs, then exec the server (PID 1 becomes netbird-server). */
+/**
+ * Seed the tmpfs from the persisted copy when it is empty (a reboot), wait for
+ * the config, then exec the server (PID 1 becomes netbird-server).
+ * Keep in sync with scripts/install-swarmy.sh (mesh-control.test.ts checks).
+ */
 export const MESH_CONTROL_ENTRYPOINT = [
   'sh',
   '-c',
-  // An extra CA (written before the config) joins the system roots for this process only.
-  `while [ ! -s ${CONFIG_FILE} ]; do sleep 0.2; done; ` +
+  `umask 077; chmod 0700 ${CONF_DIR} 2>/dev/null; ` +
+    `if [ ! -s ${CONFIG_FILE} ] && [ -s ${CONF_DIR}/config.yaml ]; then ` +
+    `if [ -s ${CONF_DIR}/extra-ca.pem ]; then cp ${CONF_DIR}/extra-ca.pem ${CONFIG_DIR}/extra-ca.pem; fi; ` +
+    `cp ${CONF_DIR}/config.yaml ${CONFIG_FILE}.tmp && mv ${CONFIG_FILE}.tmp ${CONFIG_FILE}; fi; ` +
+    // An extra CA (written before the config) joins the system roots for this process only.
+    `while [ ! -s ${CONFIG_FILE} ]; do sleep 0.2; done; ` +
     `if [ -s ${CONFIG_DIR}/extra-ca.pem ]; then cat /etc/ssl/certs/ca-certificates.crt ${CONFIG_DIR}/extra-ca.pem > ${CONFIG_DIR}/ca.pem; export SSL_CERT_FILE=${CONFIG_DIR}/ca.pem; fi; ` +
     `exec /go/bin/netbird-server --config ${CONFIG_FILE}`,
 ];
@@ -172,19 +190,51 @@ async function createControl(docker: DockerClient, spec: MeshControlSpec): Promi
       NetworkMode: 'host',
       RestartPolicy: { Name: 'unless-stopped' },
       LogConfig: defaultContainerLogConfig(),
-      Binds: [`${MESH_CONTROL_VOLUME}:${DATA_DIR}`],
+      Binds: [`${MESH_CONTROL_VOLUME}:${DATA_DIR}`, `${MESH_CONTROL_CONF_VOLUME}:${CONF_DIR}`],
       Tmpfs: { [CONFIG_DIR]: 'rw,noexec,nosuid,size=1m,mode=0700' },
     },
   });
   await container.start();
 }
 
-async function configHashInside(docker: DockerClient): Promise<string | null> {
-  const r = await execIn(docker, MESH_CONTROL_CONTAINER, ['sh', '-c', `[ -s ${CONFIG_FILE} ] && sha256sum ${CONFIG_FILE} | cut -d' ' -f1`]).catch(
+/** Pure: a live container that predates the persisted config (QA-066 d) must be re-created once. */
+export function controlNeedsRecreate(cur: {
+  Config?: { Entrypoint?: string[] | string | null; Cmd?: string[] | string | null; Labels?: Record<string, string> | null };
+  HostConfig?: { Binds?: string[] | null };
+} | null, image: string): boolean {
+  if (!cur) return true;
+  if (cur.Config?.Labels?.[IMAGE_LABEL] !== image) return true;
+  // Entrypoint + Cmd: the installer's `--entrypoint sh IMAGE -c '…'` splits the same argv.
+  const arr = (v: string[] | string | null | undefined) => (Array.isArray(v) ? v : v ? [v] : []);
+  const argv = [...arr(cur.Config?.Entrypoint), ...arr(cur.Config?.Cmd)];
+  if (argv.join('\u0000') !== MESH_CONTROL_ENTRYPOINT.join('\u0000')) return true;
+  return !(cur.HostConfig?.Binds ?? []).includes(`${MESH_CONTROL_CONF_VOLUME}:${CONF_DIR}`);
+}
+
+async function fileHashIn(docker: DockerClient, file: string): Promise<string | null> {
+  const r = await execIn(docker, MESH_CONTROL_CONTAINER, ['sh', '-c', `[ -s ${file} ] && sha256sum ${file} | cut -d' ' -f1`]).catch(
     () => null,
   );
   if (!r || r.code !== 0) return null;
   return r.stdout.trim() || null;
+}
+
+/** Keep the persisted copy (what a reboot seeds from) equal to `spec`. */
+async function persistConfig(docker: DockerClient, spec: MeshControlSpec): Promise<void> {
+  if (spec.caPem) {
+    if ((await fileHashIn(docker, `${CONF_DIR}/extra-ca.pem`)) !== sha256(spec.caPem)) {
+      await writeInto(docker, MESH_CONTROL_CONTAINER, `${CONF_DIR}/extra-ca.pem`, spec.caPem);
+    }
+  } else {
+    await execIn(docker, MESH_CONTROL_CONTAINER, ['rm', '-f', `${CONF_DIR}/extra-ca.pem`]).catch(() => undefined);
+  }
+  if ((await fileHashIn(docker, `${CONF_DIR}/config.yaml`)) !== sha256(spec.configYaml)) {
+    await writeInto(docker, MESH_CONTROL_CONTAINER, `${CONF_DIR}/config.yaml`, spec.configYaml);
+  }
+}
+
+async function configHashInside(docker: DockerClient): Promise<string | null> {
+  return fileHashIn(docker, CONFIG_FILE);
 }
 
 async function healthy(docker: DockerClient): Promise<boolean> {
@@ -291,15 +341,17 @@ async function converge(docker: DockerClient, spec: MeshControlSpec): Promise<Me
   const d = docker.docker;
   const cur = await inspectOrNull(docker, MESH_CONTROL_CONTAINER);
   const wantHash = sha256(spec.configYaml);
-  let started = false;
-  if (!cur || cur.Config?.Labels?.[IMAGE_LABEL] !== spec.image) {
+  if (controlNeedsRecreate(cur, spec.image)) {
     await docker.pullImage(spec.image).catch(() => undefined);
     await createControl(docker, spec);
-    started = true;
-  } else if (!cur.State?.Running) {
+  } else if (!cur?.State?.Running) {
     await d.getContainer(MESH_CONTROL_CONTAINER).start().catch(() => undefined);
   }
-  const have = started ? null : await configHashInside(docker);
+  // Persist FIRST: the restart below re-seeds the tmpfs from this copy.
+  await persistConfig(docker, spec);
+  // Also after a fresh create: its entrypoint may already have seeded the copy
+  // as it was BEFORE persistConfig (an image change) — then this restarts it.
+  const have = await configHashInside(docker);
   if (have !== wantHash) {
     if (have) {
       // The server doesn't re-read its config: restart, then hand it the new one.
@@ -341,6 +393,8 @@ export async function applyMeshControl(docker: DockerClient, p: ApplyMeshControl
     // so a reboot doesn't bring an old control plane back. The volume stays.
     await docker.docker.getContainer(MESH_LITESTREAM_CONTAINER).remove({ force: true }).catch(() => undefined);
     await docker.docker.getContainer(MESH_CONTROL_CONTAINER).remove({ force: true }).catch(() => undefined);
+    // …and the persisted copy a reboot would seed an old control plane from.
+    await docker.docker.getVolume(MESH_CONTROL_CONF_VOLUME).remove().catch(() => undefined);
     await forgetLocal();
     return { running: false, healthy: false, waitingForConfig: false };
   }
