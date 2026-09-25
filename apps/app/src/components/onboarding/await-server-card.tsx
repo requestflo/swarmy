@@ -6,10 +6,12 @@ import { StatusWord } from '@/components/calm';
 import type { AwaitedNode } from './use-await-node';
 
 function useElapsed(running: boolean): string {
-  const [start] = React.useState(() => Date.now());
+  // Counts from when the link exists, not from when the page opened.
+  const [start, setStart] = React.useState(() => Date.now());
   const [, tick] = React.useState(0);
   React.useEffect(() => {
     if (!running) return;
+    setStart(Date.now());
     const t = window.setInterval(() => tick((n) => n + 1), 1_000);
     return () => window.clearInterval(t);
   }, [running]);
@@ -39,6 +41,12 @@ export function AwaitServerCard({
             </Link>
           </Button>
         </>
+      ) : !armed ? (
+        <>
+          <span aria-hidden className="bg-muted-foreground/40 size-3 rounded-full" />
+          <h2 className="font-display text-[1.3rem] font-bold tracking-[-0.02em]">The new server shows up here.</h2>
+          <p className="text-muted-foreground text-[13.5px]">Once you make a link and run it, this watches for it to join.</p>
+        </>
       ) : (
         <>
           <span aria-hidden className="relative flex size-16 items-center justify-center">
@@ -46,10 +54,10 @@ export function AwaitServerCard({
             <span className="bg-primary relative size-3 rounded-full" />
           </span>
           <h2 className="font-display text-[1.3rem] font-bold tracking-[-0.02em]">
-            {armed ? 'Waiting for it to phone home…' : 'Making your link…'}
+            Waiting for it to phone home…
           </h2>
           <p className="text-muted-foreground font-mono text-[12px]">
-            {armed ? `listening · ${elapsed} · usually under 90 s` : 'one moment'}
+            {`listening · ${elapsed} · usually under 90 s`}
           </p>
         </>
       )}

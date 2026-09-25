@@ -13,7 +13,8 @@ import type { NodeRoleChoice } from './node-role-picker';
 
 /**
  * Add a server (canvas "AddServer"): one line front and centre, what's
- * already handled, and the waiting pulse. Role, labels and a named link live
+ * already handled, and the waiting pulse. Nothing is minted until the person
+ * clicks "Create join link" (an unexpired link from this tab is reused). Role, labels and a named link live
  * at Controls (Automatic by default); the raw token at Code. With no HTTPS
  * address the line would be refused, so the page asks for a domain instead.
  */
@@ -22,7 +23,7 @@ export function AddServerPage(): React.JSX.Element {
   const [role, setRole] = React.useState<NodeRoleChoice>('auto');
   const [labels, setLabels] = React.useState('');
   const arrived = useAwaitNode(link !== null);
-  const blocked = link !== null && needsHttps(link.target);
+  const blocked = needsHttps(link?.target);
 
   return (
     <CalmPage
@@ -74,8 +75,21 @@ export function AddServerPage(): React.JSX.Element {
             </Button>
           }
         />
-      ) : (
+      ) : link ? (
         <InstallLine link={link} role={role} labels={labels} done={arrived !== null} />
+      ) : (
+        <NextAction
+          tone="info"
+          title="Make a join link for the new server."
+          tech="nodes.generateJoinToken · single use · expires in 1 h"
+          actions={
+            <Button onClick={() => mint()} disabled={pending} className="pointer-coarse:min-h-11">
+              {pending ? 'Making…' : 'Create join link'}
+            </Button>
+          }
+        >
+          It works once and expires in an hour. The line to paste appears here.
+        </NextAction>
       )}
       {blocked ? null : (
         <Depth at="controls">
