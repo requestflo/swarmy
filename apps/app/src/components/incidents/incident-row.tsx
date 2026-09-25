@@ -1,48 +1,27 @@
 import * as React from 'react';
-import { useNavigate } from '@tanstack/react-router';
-import { ChevronRightIcon } from 'lucide-react';
 import type { IncidentView } from '@swarmy/core';
-import { IncidentStatusChip, SeverityChip, formatDuration, relativeTime } from './incident-status';
-import { StackChip } from './stack-chip';
+import { CalmRow } from '@/components/calm';
 import { stackFromIncidentTitle, useServiceStackMap } from '@/components/alerts/use-service-stack-map';
+import { formatDuration, relativeTime } from './incident-status';
 
-/** One incident as a flat hairline row — the whole row links to the timeline. */
+/** One incident as a quiet row linking to its timeline. */
 export function IncidentRow({ incident }: { incident: IncidentView }): React.JSX.Element {
-  const navigate = useNavigate();
   const stackMap = useServiceStackMap();
-  const stack = stackFromIncidentTitle(incident.title, stackMap);
-  const open = (): void =>
-    void navigate({ to: '/incidents/$incidentId', params: { incidentId: incident.id } });
-
+  const app = stackFromIncidentTitle(incident.title, stackMap);
+  const open = incident.status === 'open';
+  const when = open
+    ? `opened ${relativeTime(incident.openedAt)} · ${formatDuration(incident.durationSec)} so far`
+    : `fixed ${incident.resolvedAt ? relativeTime(incident.resolvedAt) : ''} · took ${formatDuration(incident.durationSec)}`;
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={open}
-      onKeyDown={(e) => e.key === 'Enter' && open()}
-      className="hover:bg-accent/50 group flex w-full cursor-pointer items-center gap-4 border-b px-6 py-4 transition-colors last:border-b-0"
-    >
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="truncate font-medium">{incident.title}</span>
-          <SeverityChip severity={incident.severity} />
-          {stack ? <StackChip stack={stack} /> : null}
-        </div>
-        <p className="text-muted-foreground mt-0.5 truncate text-xs">
-          {incident.status === 'open'
-            ? `Opened ${relativeTime(incident.openedAt)}`
-            : `Resolved ${incident.resolvedAt ? relativeTime(incident.resolvedAt) : ''}`}
-          {' · '}
-          <span className="mono-data">{formatDuration(incident.durationSec)}</span>
-          {incident.status === 'open' ? ' and counting' : ' total'}
-        </p>
-      </div>
-      <div className="hidden shrink-0 text-right sm:block">
-        <p className="mono-data text-sm">{incident.eventCount}</p>
-        <p className="mono-label text-muted-foreground">events</p>
-      </div>
-      <IncidentStatusChip status={incident.status} className="shrink-0" />
-      <ChevronRightIcon className="text-muted-foreground size-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
-    </div>
+    <CalmRow
+      tone={open ? (incident.severity === 'minor' ? 'warn' : 'bad') : 'ok'}
+      name={incident.title}
+      sub={app ? `app ${app}` : `${incident.eventCount} steps`}
+      say={incident.summary ?? when}
+      tech={`${incident.id} · ${incident.severity} · ${incident.eventCount} events`}
+      word={open ? 'Open' : 'Resolved'}
+      to="/incidents/$incidentId"
+      params={{ incidentId: incident.id }}
+    />
   );
 }

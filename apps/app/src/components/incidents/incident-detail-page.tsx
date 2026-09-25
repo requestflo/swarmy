@@ -1,23 +1,21 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
-import { ArrowLeftIcon, RotateCcwIcon } from 'lucide-react';
-import { Button, Card, CardContent, Separator, Skeleton, toast } from '@swarmy/ui';
+import { RotateCcwIcon } from 'lucide-react';
+import { Button, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { PageHeader } from '@/components/page-header';
-import { IncidentStatusChip, SeverityChip, formatDuration, relativeTime } from './incident-status';
+import { CalmPage, NextAction, Say, SayHeader, Section, Tech } from '@/components/calm';
+import { ErrorState, SkeletonBody } from '@/components/states';
+import { formatDuration, relativeTime } from './incident-status';
+import { IncidentAside } from './incident-aside';
 import { IncidentTimeline } from './incident-timeline';
 import { NoteComposer } from './note-composer';
 import { ResolveIncidentDialog } from './resolve-incident-dialog';
 
-/** One incident: the full timeline, notes composer and resolve/reopen. */
+/** One incident: what happened, step by step; add a note; resolve or reopen. */
 export function IncidentDetailPage({ incidentId }: { incidentId: string }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
-  const incident = useQuery({
-    ...trpc.incidents.get.queryOptions({ id: incidentId }),
-    refetchInterval: 5_000,
-  });
+  const incident = useQuery({ ...trpc.incidents.get.queryOptions({ id: incidentId }), refetchInterval: 5_000 });
   const reopen = useMutation(
     trpc.incidents.reopen.mutationOptions({
       onSuccess: () => {
@@ -27,88 +25,61 @@ export function IncidentDetailPage({ incidentId }: { incidentId: string }): Reac
       onError: (e) => toast.error(e.message),
     }),
   );
-
-  const data = incident.data;
+  const d = incident.data;
+  const crumbs = [{ label: 'Activity', to: '/activity' }, { label: 'Incidents', to: '/incidents' }, { label: d?.title ?? 'Incident' }];
+  const actions =
+    d && d.status === 'resolved' ? (
+      <Button variant="outline" size="sm" disabled={reopen.isPending} onClick={() => reopen.mutate({ id: d.id })}>
+        <RotateCcwIcon className="size-4" /> {reopen.isPending ? 'Reopening…' : 'Reopen'}
+      </Button>
+    ) : undefined;
 
   return (
-    <div className="mx-auto w-full max-w-[1100px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <Link
-        to="/incidents"
-        className="text-muted-foreground hover:text-foreground mb-4 inline-flex items-center gap-1.5 text-sm transition-colors"
-      >
-        <ArrowLeftIcon className="size-4" /> All incidents
-      </Link>
-
+    <CalmPage
+      crumbs={crumbs}
+      actions={actions}
+      aside={d ? <IncidentAside incident={d} /> : undefined}
+    >
       {incident.isLoading ? (
-        <div className="grid gap-4">
-          <Skeleton className="h-24 w-2/3" />
-          <Skeleton className="h-64 w-full" />
-        </div>
+        <SkeletonBody variant="list" />
       ) : incident.isError ? (
-        <Card className="card-pop border-0">
-          <CardContent className="flex flex-col items-center gap-3 py-12">
-            <p className="text-status-offline text-sm">{incident.error.message}</p>
-            <Button variant="outline" onClick={() => void incident.refetch()}>
-              Retry
-            </Button>
-          </CardContent>
-        </Card>
-      ) : data ? (
+        <ErrorState title="Couldn’t load this incident." error={incident.error} retry={() => void incident.refetch()} />
+      ) : d ? (
         <>
-          <PageHeader
-            eyebrow="Operations · Incident"
+          <SayHeader
+            eyebrow={`${d.severity} incident`}
             title={
-              data.status === 'open' ? (
+              d.status === 'open' ? (
                 <>
-                  {data.title} — <em>open</em>.
+                  {d.title}. <Say tone="bad">Open {formatDuration(d.durationSec)}.</Say>
                 </>
               ) : (
                 <>
-                  {data.title} — <em>resolved</em>.
+                  {d.title}. <em>Fixed in {formatDuration(d.durationSec)}.</em>
                 </>
               )
             }
-            description={
-              data.status === 'open'
-                ? `Opened ${relativeTime(data.openedAt)} · ${formatDuration(data.durationSec)} and counting · ${data.eventCount} events.`
-                : `Resolved ${data.resolvedAt ? relativeTime(data.resolvedAt) : ''} · ${formatDuration(data.durationSec)} start to finish · ${data.eventCount} events.`
-            }
-            actions={
-              data.status === 'open' ? (
-                <ResolveIncidentDialog incidentId={data.id} title={data.title} />
-              ) : (
-                <Button
-                  variant="outline"
-                  disabled={reopen.isPending}
-                  onClick={() => reopen.mutate({ id: data.id })}
-                >
-                  <RotateCcwIcon className="size-4" />
-                  {reopen.isPending ? 'Reopening…' : 'Reopen'}
-                </Button>
-              )
+            lede={
+              d.summary ??
+              (d.status === 'open'
+                ? `Opened ${relativeTime(d.openedAt)}. ${d.eventCount} steps on the timeline so far.`
+                : `Resolved ${d.resolvedAt ? relativeTime(d.resolvedAt) : ''}. ${d.eventCount} steps from start to finish.`)
             }
           />
-
-          <div className="mb-6 flex flex-wrap items-center gap-2">
-            <IncidentStatusChip status={data.status} />
-            <SeverityChip severity={data.severity} />
-            {data.summary ? (
-              <p className="text-muted-foreground w-full text-sm sm:w-auto">{data.summary}</p>
-            ) : null}
-          </div>
-
-          <Card className="card-pop border-0">
-            <CardContent className="px-0 py-6">
-              <h2 className="mono-label text-muted-foreground mb-4 px-6">Timeline</h2>
-              <IncidentTimeline events={data.events} />
-              <Separator className="my-4" />
-              <div className="px-6">
-                <NoteComposer incidentId={data.id} />
-              </div>
-            </CardContent>
-          </Card>
+          <Tech>{`${d.id} · ${d.severity} · opened ${d.openedAt}${d.resolvedAt ? ` · resolved ${d.resolvedAt}` : ''}`}</Tech>
+          {d.status === 'open' ? (
+            <NextAction title="Mark it resolved once it’s fixed." actions={<ResolveIncidentDialog incidentId={d.id} title={d.title} />} tone="bad">
+              That writes a last step on the timeline. You can reopen it if it flares up again.
+            </NextAction>
+          ) : null}
+          <Section title="What happened" count={`${d.events.length} steps`} hint="oldest first">
+            <IncidentTimeline events={d.events} />
+            <div className="border-border border-t pt-4">
+              <NoteComposer incidentId={d.id} />
+            </div>
+          </Section>
         </>
       ) : null}
-    </div>
+    </CalmPage>
   );
 }

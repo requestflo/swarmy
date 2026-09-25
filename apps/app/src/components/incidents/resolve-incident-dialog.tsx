@@ -45,7 +45,7 @@ export function ResolveIncidentDialog({
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger asChild>
-        <Button className="shadow-[0_8px_24px_-8px_var(--primary)] transition-transform hover:scale-[1.03]">
+        <Button className="pointer-coarse:min-h-11">
           <CheckCircle2Icon className="size-4" /> Resolve incident
         </Button>
       </AlertDialogTrigger>
