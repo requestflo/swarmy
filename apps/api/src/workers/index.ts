@@ -35,6 +35,7 @@ import { startRumRetention } from './rum-retention';
 import { startErrorsAlerts } from './errors-alerts';
 import { startEmailReconcile } from './email-reconcile';
 import { startIntegrationsReconcile } from './integrations-reconcile';
+import { startOrphanReconcile } from './orphan-reconcile';
 
 export function startWorkers(): () => void {
   const stops = [
@@ -76,6 +77,7 @@ export function startWorkers(): () => void {
     startErrorsAlerts(),
     startEmailReconcile(),
     startIntegrationsReconcile(),
+    startOrphanReconcile(),
   ];
   return () => stops.forEach((s) => s());
 }
