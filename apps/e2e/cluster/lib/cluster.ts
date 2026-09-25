@@ -278,6 +278,9 @@ export class Cluster {
       '--image', await this.image('controller', tag),
       '--agent-image', await this.image('agent', tag),
       '--mesh', this.cfg.mesh,
+      // The harness enrols workers over the plain-HTTP fabric address; node
+      // installs are HTTPS-only unless the controller opts in (H17).
+      '--allow-insecure-install',
       ...extraFlags,
     ];
     await this.mustSh(this.manager, 'umask 077; cat > /root/.swarmy-e2e.env', {

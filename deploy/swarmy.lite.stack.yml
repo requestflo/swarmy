@@ -58,6 +58,9 @@ services:
       # itself (multi-line is fine: the stack loader interpolates after YAML parsing).
       SWARMY_RELEASE_PUBKEY: ${SWARMY_RELEASE_PUBKEY:-}
       SWARMY_PLATFORM_FEED_URL: ${SWARMY_PLATFORM_FEED_URL:-}
+      # H17: node installs are HTTPS-only; "1" (installer --allow-insecure-install)
+      # also serves them over plain HTTP when there is no HTTPS address.
+      SWARMY_ALLOW_INSECURE_INSTALL: ${SWARMY_ALLOW_INSECURE_INSTALL:-}
       # Non-secret swarm identity; the join tokens themselves arrive as secrets below.
       SWARM_ID: ${SWARMY_SWARM_ID}
       SWARM_MANAGER_ADDR: ${SWARMY_MANAGER_ADDR}

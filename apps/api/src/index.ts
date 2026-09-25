@@ -7,6 +7,7 @@ import {
   adaptDirectHttpResponse,
   authRegistry,
   directHttpHost,
+  isTrustedProxy,
   parseTrustedProxies,
   setServedHostsProvider,
   resolveClientIp,
@@ -32,6 +33,16 @@ import { resolveControllerPublicUrl } from '@swarmy/core';
 import { renderInstallScript } from './install-script';
 import { renderLoader, renderChecksumFile, sha256Hex } from './install/loader';
 import { renderInstaller, type RenderInstallerOptions } from './install/installer';
+import { releaseForBuild, type StoredRelease } from './install/release';
+import {
+  decideInstallTransport,
+  insecureInstallAllowed,
+  isInstallPath,
+  isPipedScriptPath,
+  refusalScript,
+  requestIsHttps,
+} from './install/transport';
+import { releasePublicKey } from '@swarmy/core/platform-verify';
 import { agentWebSocketHandlers, hub, type AgentWsData } from './gateway';
 import { servedHostsFrom } from './served-hosts';
 import { activatorApp } from './activator';
@@ -148,6 +159,8 @@ function installerOptionsFor(version: string): RenderInstallerOptions {
     binaryBaseUrl: env.AGENT_BINARY_BASE_URL,
     binarySha256,
     binaryBaseFromController: env.AGENT_BINARY_BASE_URL_EXPLICIT == null,
+    // H17: the node verifies the signed release manifest with this key.
+    releasePubkeyPem: releasePublicKey(),
   };
 }
 
@@ -165,6 +178,7 @@ app.get('/install/loader.sh', (c) => {
       version,
       installerSha256: sha256Hex(installerBody),
       binaryBaseUrl: env.AGENT_BINARY_BASE_URL_EXPLICIT ?? undefined,
+      allowInsecure: insecureInstallAllowed(),
     }),
     200,
     { 'content-type': 'text/x-shellscript; charset=utf-8', 'cache-control': 'no-store' },
@@ -185,6 +199,29 @@ app.get('/install/:version/install.sh.sha256', (c) => {
     'content-type': 'text/plain; charset=utf-8',
     'cache-control': 'public, max-age=300',
   });
+});
+
+// H17: the signed release manifest for THIS controller's build (fetched from
+// the feed or imported from a bundle — never minted here), which the node
+// installer verifies with the release key and checks its downloads against.
+// 404 ⇒ the installer falls back to the checksums above, with a warning.
+async function servedRelease() {
+  const rows = await prisma.platformConfig.findMany({ select: { available: true } }).catch(() => []);
+  return releaseForBuild(
+    rows.map((r) => r.available as StoredRelease | null),
+    versionInfo(),
+    releasePublicKey(),
+  );
+}
+app.get('/install/release/platform.json', async (c) => {
+  const rel = await servedRelease();
+  if (!rel) return c.text('no signed release manifest for this controller build', 404);
+  return c.body(rel.body, 200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+});
+app.get('/install/release/platform.json.sig', async (c) => {
+  const rel = await servedRelease();
+  if (!rel) return c.text('no signed release manifest for this controller build', 404);
+  return c.text(`${rel.signature}\n`, 200, { 'cache-control': 'no-store' });
 });
 
 // Recovery beacon (self-healing epic): a node that lost every credential
@@ -425,6 +462,30 @@ const server = Bun.serve<WsData>({
       if (!data) return new Response('unauthorized', { status: 401 });
       const upgraded = srv.upgrade(req, { data });
       return upgraded ? undefined : new Response('websocket upgrade failed', { status: 400 });
+    }
+    // H17: the install surface is HTTPS-only (redirect or refuse), except the
+    // node-local bootstrap on loopback and the operator's explicit opt-in.
+    if (isInstallPath(url.pathname)) {
+      const peer = srv.requestIP(req)?.address;
+      // Normalised TCP peer (no XFF consulted with empty headers).
+      const socketPeer = resolveClientIp(peer, new Headers(), trustedProxies);
+      const decision = decideInstallTransport({
+        pathname: url.pathname,
+        search: url.search,
+        https: requestIsHttps({ url: req.url, headers: req.headers, peerIsTrustedProxy: !!socketPeer && isTrustedProxy(socketPeer, trustedProxies) }),
+        clientIp: resolveClientIp(peer, req.headers, trustedProxies),
+        publicUrl: env.CONTROLLER_PUBLIC_URL,
+        allowInsecure: insecureInstallAllowed(),
+      });
+      if (decision.action === 'redirect') return new Response(null, { status: 308, headers: { location: decision.location } });
+      if (decision.action === 'refuse') {
+        // `curl -f | sh` hides a 4xx body: the piped entrypoints get a script
+        // that prints the reason and exits 1; everything else a plain 403.
+        if (isPipedScriptPath(url.pathname)) {
+          return new Response(refusalScript(decision.body), { status: 200, headers: { 'content-type': 'text/x-shellscript; charset=utf-8', 'cache-control': 'no-store' } });
+        }
+        return new Response(decision.body, { status: decision.status, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+      }
     }
     const authReq = adaptDirectHttpRequest(req, directHost, cookiePrefix);
     const res = await app.fetch(withClientIp(authReq, srv.requestIP(req)?.address, trustedProxies));

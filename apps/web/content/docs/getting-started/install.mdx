@@ -83,6 +83,8 @@ non-interactive path.
 | `--agent-image <ref>` | `SWARMY_AGENT_IMAGE` | Agent image. |
 | `--port <n>` | `SWARMY_PUBLISH_PORT` | Dashboard port. Default `3021`. |
 | `--allow-signup` | `SWARMY_ALLOW_SIGNUP=true` | Open self-registration. By default sign-up is invite-only. |
+| `--release-pubkey <file\|pem>` | `SWARMY_RELEASE_PUBKEY` | The swarmy release public key. Releases and node installs are checked against it. Empty means the key built into the controller. |
+| `--allow-insecure-install` | `SWARMY_ALLOW_INSECURE_INSTALL=1` | Let nodes install over plain HTTP when the dashboard has no HTTPS address. **Insecure**: see below. |
 
 With `--ingress cloudflare`, also set `CF_API_TOKEN`, `CF_ACCOUNT_ID` and
 `CF_ZONE_ID`. With `--mesh netbird-*`, also set `NB_SERVICE_TOKEN` and
@@ -90,6 +92,60 @@ With `--ingress cloudflare`, also set `CF_API_TOKEN`, `CF_ACCOUNT_ID` and
 
 A re-run with no flags keeps the images, port and sign-up policy from the
 first install. It never switches them silently.
+
+## How node installs are protected
+
+The "Add a node" one-liner runs as root on the new server, so swarmy checks
+every step of it.
+
+**HTTPS only.** The controller serves the loader, the installer, the release
+manifest and the agent binaries over HTTPS only. A plain `http://` request is
+redirected to the dashboard's HTTPS address. If there is no HTTPS address, the
+request is refused. The scripts on the node refuse plain `http://` addresses
+too, and `curl` never follows a redirect back to HTTP.
+
+There is one exception, the **node-local bootstrap**. Traffic that never leaves
+the machine can use plain HTTP:
+
+- the installer's own node #1, which runs the agent image over the private
+  swarm network and downloads nothing, and
+- a one-liner run on the controller's own server against
+  `http://localhost:3021` (or `127.0.0.1`).
+
+**Checked against the signed release.** Each swarmy release publishes a
+manifest, `platform.json`, signed with the swarmy release key. The manifest
+lists the checksum of every agent binary and the digest of every image. The
+controller keeps the copy for its own version and hands it to the installer.
+The installer then:
+
+1. Verifies the manifest's signature on the node with `openssl`. The key is
+   the one you passed with `--release-pubkey` (or `SWARMY_RELEASE_PUBKEY` on the
+   node), else the key built into the controller.
+2. Checks the downloaded agent binary against the checksum in the manifest.
+3. Pulls the agent container image by the manifest's digest.
+
+If the signature does not match, the install stops and nothing is installed.
+
+**No release key yet.** If no release key is configured, or the controller has
+no signed manifest for its version, the installer falls back to the checksum
+the controller serves. It prints `UNVERIFIED RELEASE` so you can see this. To
+turn on signed checks, open **Settings → Platform** and check for a release,
+or import the offline bundle. If you passed a key yourself on the node, the
+installer never falls back.
+
+**No HTTPS address (NAT, LAN, `--no-https`).** Give the dashboard a domain with
+`--domain`, or put it behind any HTTPS proxy and set `CONTROLLER_PUBLIC_URL`
+to that `https://` address. On a network you trust, you can re-run the
+installer with `--allow-insecure-install` instead. Nodes then install over
+plain HTTP with a loud warning. Anyone on the network path could take over a
+node while it joins.
+
+To check a loader by hand, it prints the installer's pinned checksum in its
+header:
+
+```bash
+curl -fsSL https://<dashboard>/install/loader.sh | head -12
+```
 
 ## Ports
 

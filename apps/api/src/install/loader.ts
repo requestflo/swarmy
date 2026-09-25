@@ -45,6 +45,13 @@ export interface RenderLoaderOptions {
    * e.g. a CDN). Omitted ⇒ derived from the controller base at run time.
    */
   binaryBaseUrl?: string;
+  /**
+   * The controller operator opted into plain-HTTP installs
+   * (`SWARMY_ALLOW_INSECURE_INSTALL=1`, see ./transport.ts). Baked as the
+   * default for `SWARMY_ALLOW_INSECURE`; otherwise only HTTPS (and the
+   * loopback node-local bootstrap) is accepted.
+   */
+  allowInsecure?: boolean;
 }
 
 /** Single-quote a value for safe embedding in a POSIX sh script. */
@@ -100,18 +107,31 @@ done
 
 SWARMY_CONTROLLER_URL=\${SWARMY_CONTROLLER_URL:-${shq(controllerUrl)}}
 SWARMY_CONTROLLER_URL="\${SWARMY_CONTROLLER_URL%/}"
+SWARMY_ALLOW_INSECURE="\${SWARMY_ALLOW_INSECURE:-${opts.allowInsecure ? 1 : 0}}"
+# Loopback = the node-local bootstrap (the controller host itself): nothing
+# crosses a network, so plain HTTP is fine there.
+_loopback=""
+_h="\${SWARMY_CONTROLLER_URL#*://}"; _h="\${_h%%/*}"
+case "$_h" in \\[*) _h="\${_h%%]*}]" ;; *) _h="\${_h%%:*}" ;; esac
+if [ "$_h" = localhost ] || [ "$_h" = "[::1]" ] || printf '%s' "$_h" | grep -Eq '^127\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}$'; then
+  _loopback=1
+  printf 'swarmy: warning: controller URL %s is loopback; pass --controller <reachable-url> if this is a different machine\\n' "$SWARMY_CONTROLLER_URL" >&2
+fi
 case "$SWARMY_CONTROLLER_URL" in
-  http://*|https://*) ;;
-  *) err "controller URL must start with http:// or https:// (got: $SWARMY_CONTROLLER_URL)" ;;
-esac
-case "$SWARMY_CONTROLLER_URL" in
-  *://localhost*|*://127.*|*://\\[::1\\]*)
-    printf 'swarmy: warning: controller URL %s is loopback; pass --controller <reachable-url> if this is a different machine\\n' "$SWARMY_CONTROLLER_URL" >&2 ;;
+  https://*) ;;
+  http://*)
+    if [ -n "$_loopback" ]; then :
+    elif [ "$SWARMY_ALLOW_INSECURE" = 1 ]; then
+      printf 'swarmy: WARNING: INSECURE install over plain HTTP (%s). Anyone on the network path can tamper with it. Give the controller an HTTPS address to fix this.\\n' "$SWARMY_CONTROLLER_URL" >&2
+    else
+      err "the controller URL must be https:// (got $SWARMY_CONTROLLER_URL). Over plain HTTP anyone on the network path can swap the installer. Use the controller's HTTPS address${controllerUrl.startsWith('https://') ? ` (${controllerUrl})` : ''}, or — only on a network you trust — set SWARMY_ALLOW_INSECURE=1."
+    fi ;;
+  *) err "controller URL must start with https:// (got: $SWARMY_CONTROLLER_URL)" ;;
 esac
 SWARMY_INSTALLER_URL="\${SWARMY_INSTALLER_URL:-$SWARMY_CONTROLLER_URL${installerPath}}"
 SWARMY_INSTALLER_SHA256="\${SWARMY_INSTALLER_SHA256:-${sha}}"
 SWARMY_BINARY_BASE_URL=\${SWARMY_BINARY_BASE_URL:-${binaryDefault}}
-export SWARMY_CONTROLLER_URL SWARMY_BINARY_BASE_URL
+export SWARMY_CONTROLLER_URL SWARMY_BINARY_BASE_URL SWARMY_ALLOW_INSECURE
 [ -z "\${SWARMY_JOIN_TOKEN:-}" ] || export SWARMY_JOIN_TOKEN
 
 command -v curl >/dev/null 2>&1 || err "curl is required"
@@ -127,7 +147,12 @@ fi
 
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
-curl -fsSL "$SWARMY_INSTALLER_URL" -o "$tmp" || err "failed to download installer from $SWARMY_INSTALLER_URL"
+# Redirects may only go to HTTPS; an https:// URL never falls back to HTTP.
+case "$SWARMY_INSTALLER_URL" in
+  https://*) _proto='=https' ;;
+  *) _proto='=http,https' ;;
+esac
+curl -fsSL --proto "$_proto" --proto-redir '=https' "$SWARMY_INSTALLER_URL" -o "$tmp" || err "failed to download installer from $SWARMY_INSTALLER_URL"
 
 got="$(sha_of "$tmp")"
 if [ "$got" != "$SWARMY_INSTALLER_SHA256" ]; then

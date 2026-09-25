@@ -27,6 +27,7 @@ import {
 import { DOCKER_LOG_OPTS_SH, DOCKER_RUN_LOG_FLAGS } from './docker-log-opts';
 import { DOCKER_REGISTRY_MIRROR_SH } from './docker-registry-mirror';
 import { assertSafeInstallVersion } from './version-guard';
+import { RELEASE_VERIFY_SH } from './release-verify-sh';
 
 export interface RenderInstallerOptions {
   controllerUrl: string;
@@ -43,6 +44,13 @@ export interface RenderInstallerOptions {
    * resolved (loader / --controller / SWARMY_CONTROLLER_URL), not the baked one.
    */
   binaryBaseFromController?: boolean;
+  /**
+   * The swarmy release public key (PEM) this controller trusts
+   * (`releasePublicKey()`), baked in so the installer can verify the signed
+   * release manifest on the node (H17). Null/empty ⇒ checksum fallback with a
+   * warning, unless the operator passes `SWARMY_RELEASE_PUBKEY`.
+   */
+  releasePubkeyPem?: string | null;
 }
 
 /** A representative systemd unit baked into the installer (heredoc-written on the box). */
@@ -67,6 +75,7 @@ export function renderInstaller(opts: RenderInstallerOptions): string {
     : '';
   const unit = unitTemplate();
   const snapshotUnit = renderSnapshotUnit({ binaryPath: DEFAULT_BINARY_PATH, stateDir: DEFAULT_STATE_DIR });
+  const pubkeyB64 = opts.releasePubkeyPem?.trim() ? Buffer.from(`${opts.releasePubkeyPem.trim()}\n`, 'utf8').toString('base64') : '';
   return `#!/usr/bin/env sh
 # swarmy node installer (stage 2 of 2) — version ${version}
 # Verified by the loader's pinned sha256 before reaching here.
@@ -87,6 +96,11 @@ MESH_SETUP_KEY="\${SWARMY_MESH_SETUP_KEY:-}"
 MESH_MANAGEMENT_URL="\${SWARMY_MESH_MANAGEMENT_URL:-}"
 MESH_DRIVER="\${SWARMY_MESH_DRIVER:-netbird}"
 MESH_CA_B64="\${SWARMY_MESH_CA_B64:-}"
+# Plain-HTTP downloads are refused unless this is 1 (the controller operator's
+# opt-in, exported by the loader) — see the download-integrity block below.
+SWARMY_ALLOW_INSECURE="\${SWARMY_ALLOW_INSECURE:-0}"
+# The release key this controller trusts; SWARMY_RELEASE_PUBKEY overrides it.
+BAKED_RELEASE_PUBKEY_B64="${pubkeyB64}"
 CONTAINER_NAME="swarmy-agent"
 BIN_PATH="${DEFAULT_BINARY_PATH}"
 ENV_FILE="${DEFAULT_ENV_FILE}"
@@ -100,6 +114,7 @@ for arg in "$@"; do
   case "$_want" in
     controller) CONTROLLER_URL="$arg"; _want=""; continue ;;
     token) JOIN_TOKEN="$arg"; EXPLICIT_JOIN_TOKEN="$arg"; _want=""; continue ;;
+    pubkey) SWARMY_RELEASE_PUBKEY="$arg"; _want=""; continue ;;
   esac
   case "$arg" in
     --uninstall) UNINSTALL=1 ;;
@@ -109,6 +124,8 @@ for arg in "$@"; do
     --controller=*) CONTROLLER_URL="\${arg#--controller=}" ;;
     --token) _want=token ;;
     --token=*) JOIN_TOKEN="\${arg#--token=}"; EXPLICIT_JOIN_TOKEN="$JOIN_TOKEN" ;;
+    --release-pubkey) _want=pubkey ;;
+    --release-pubkey=*) SWARMY_RELEASE_PUBKEY="\${arg#--release-pubkey=}" ;;
   esac
 done
 CONTROLLER_URL="\${CONTROLLER_URL%/}"
@@ -137,6 +154,7 @@ detect_platform() {
   echo "\${_os}-\${_arch}"
 }
 
+${RELEASE_VERIFY_SH}
 expected_sha() {
   case "$1" in
 ${shaCases}
@@ -215,6 +233,10 @@ case "$CONTROLLER_URL" in
   *) die "SWARMY_CONTROLLER_URL must start with http:// or https://" ;;
 esac
 [ -n "$JOIN_TOKEN" ] || die "Set SWARMY_JOIN_TOKEN (mint one in the dashboard)."
+require_secure_url "$CONTROLLER_URL" "The controller URL"
+
+# --- signed release manifest (what the downloads below are checked against) ---
+load_release
 
 # --- swap on small hosts --------------------------------------------------------
 # A 1 GB node running the agent + an edge + DNS + a storage member has no
@@ -272,10 +294,11 @@ write_env() {
 install_systemd() {
   say "Installing the native systemd backend…"
   platform="$(detect_platform)"
-  exp="$(expected_sha "$platform")"
+  exp="$(pinned_binary_sha "$platform" "$(expected_sha "$platform")")" || exit 1
   [ -n "$exp" ] || die "no pinned binary for $platform"
+  require_secure_url "$BINARY_BASE_URL" "The agent binary URL"
   tmp="$(mktemp)"
-  curl -fsSL "$BINARY_BASE_URL/$platform" -o "$tmp" || die "failed to download agent binary"
+  fetch "$BINARY_BASE_URL/$platform" "$tmp" || die "failed to download agent binary"
   got="$(sha_of "$tmp")"
   [ "$got" = "$exp" ] || die "agent binary checksum mismatch (expected $exp, got $got)"
   install -m 0755 "$tmp" "$BIN_PATH"
@@ -298,6 +321,7 @@ ${snapshotUnit}SWARMY_SNAPSHOT_EOF
 
 install_docker() {
   say "Installing the Docker-container backend…"
+  pin_agent_image
   docker pull "$AGENT_IMAGE" >/dev/null 2>&1 || warn "Could not pull a newer image; using local copy if present."
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
   if [ -n "$DROP_AGENT_STATE" ]; then

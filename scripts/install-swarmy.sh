@@ -53,6 +53,11 @@
 #   --platform-feed-url <url>    SWARMY_PLATFORM_FEED_URL — the platform release feed base
 #                                (serves <channel>/platform.json[.sig]; an air-gapped
 #                                mirror). Empty = the GitHub releases feed.
+#   --allow-insecure-install     SWARMY_ALLOW_INSECURE_INSTALL=1 — let nodes install over
+#                                plain HTTP when the dashboard has no HTTPS address (NAT,
+#                                LAN, --no-https). INSECURE: anyone on the network path
+#                                can take over a node that joins. Default: the node
+#                                installer is served over HTTPS only (security review H17).
 # Cloudflare (when --ingress cloudflare): CF_API_TOKEN, CF_ACCOUNT_ID, CF_ZONE_ID
 # NetBird (when --mesh netbird-*):        NB_SERVICE_TOKEN, NB_MANAGEMENT_URL
 # (--mesh swarmy needs neither: this script starts NetBird and mints the token.)
@@ -128,13 +133,15 @@ PUBLISH_PORT="${SWARMY_PUBLISH_PORT:-3021}"
 ALLOW_SIGNUP="${SWARMY_ALLOW_SIGNUP:-}"
 RELEASE_PUBKEY="${SWARMY_RELEASE_PUBKEY:-}"
 PLATFORM_FEED_URL="${SWARMY_PLATFORM_FEED_URL:-}"
+ALLOW_INSECURE_INSTALL="${SWARMY_ALLOW_INSECURE_INSTALL:-}"
 
 # Which settings the operator gave THIS run (flag or env). Anything not given
 # falls back to what the first install recorded in state.env — a re-run with
 # no flags must never silently switch image, port or sign-up policy.
 EXPLICIT=" "
-for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS RELEASE_PUBKEY PLATFORM_FEED_URL; do
+for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS ALLOW_INSECURE_INSTALL RELEASE_PUBKEY PLATFORM_FEED_URL; do
   case "$v" in
+    ALLOW_INSECURE_INSTALL) [ -n "${SWARMY_ALLOW_INSECURE_INSTALL:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
     RELEASE_PUBKEY) [ -n "${SWARMY_RELEASE_PUBKEY:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
     PLATFORM_FEED_URL) [ -n "${SWARMY_PLATFORM_FEED_URL:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
     ADMIN_EMAIL) [ -n "${SWARMY_ADMIN_EMAIL:-}" ] && EXPLICIT="$EXPLICIT$v " ;;
@@ -171,6 +178,7 @@ while [ $# -gt 0 ]; do
     --allow-signup) ALLOW_SIGNUP="true" EXPLICIT="${EXPLICIT}ALLOW_SIGNUP " ;;
     --release-pubkey) RELEASE_PUBKEY="${2:?}"; EXPLICIT="${EXPLICIT}RELEASE_PUBKEY "; shift ;;
     --platform-feed-url) PLATFORM_FEED_URL="${2:?}"; EXPLICIT="${EXPLICIT}PLATFORM_FEED_URL "; shift ;;
+    --allow-insecure-install) ALLOW_INSECURE_INSTALL=1 EXPLICIT="${EXPLICIT}ALLOW_INSECURE_INSTALL " ;;
     -h|--help) grep -E '^#( |$)' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $1 (try --help)" ;;
   esac
@@ -217,6 +225,17 @@ host_addresses() {
 # controller publishes its port in HOST mode (no routing mesh: the auth rate
 # limits need the real client IP), so it answers only on the server the
 # controller runs on, and the address changes when the controller moves.
+# add_node_mode SHARE_URL ALLOW_INSECURE → how the "Add a node" line can work (H17):
+#   https    — the node installer is served over HTTPS (the normal case)
+#   insecure — plain HTTP, because the operator passed --allow-insecure-install
+#   refused  — plain HTTP and no opt-in: the controller will not serve it
+add_node_mode() {
+  case "$1" in
+    https://*) printf 'https' ;;
+    *) if [ "${2:-}" = 1 ]; then printf 'insecure'; else printf 'refused'; fi ;;
+  esac
+}
+
 direct_url_note() {
   printf 'node-local: answers only on the server running the controller, and changes if the controller moves'
 }
@@ -256,12 +275,12 @@ remember_settings() {
   if [ -n "$saved" ] && [ "$saved" != lite ]; then
     die "this controller was installed with the '$saved' datastore tier (Postgres), which no longer exists. Take a fresh install; there is no migration path from a Postgres-era controller."
   fi
-  for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS RELEASE_PUBKEY PLATFORM_FEED_URL; do
+  for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS ALLOW_INSECURE_INSTALL RELEASE_PUBKEY PLATFORM_FEED_URL; do
     eval "saved=\${CFG_$v:-}"
     [ -n "$saved" ] || continue
     explicit "$v" || eval "$v=\$saved"
   done
-  for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS RELEASE_PUBKEY PLATFORM_FEED_URL; do
+  for v in ADMIN_EMAIL IMAGE AGENT_IMAGE PUBLISH_PORT ALLOW_SIGNUP DOMAIN NO_HTTPS ALLOW_INSECURE_INSTALL RELEASE_PUBKEY PLATFORM_FEED_URL; do
     eval "state_set CFG_$v \"\${$v}\""
   done
 }
@@ -1349,6 +1368,7 @@ deploy_stack() {
   SWARMY_ALLOW_SIGNUP="$ALLOW_SIGNUP" \
   SWARMY_RELEASE_PUBKEY="$RELEASE_PUBKEY" \
   SWARMY_PLATFORM_FEED_URL="$PLATFORM_FEED_URL" \
+  SWARMY_ALLOW_INSECURE_INSTALL="$ALLOW_INSECURE_INSTALL" \
   SWARMY_NODE_HOSTNAME="$NODE_HOSTNAME" \
   SWARMY_CONTROLLER_PLACEMENT="$placement" \
   SWARMY_CONTROL_STORE_SECRET="$store_secret" \
@@ -1541,12 +1561,24 @@ finalize() {
       mesh_env="${mesh_env}SWARMY_MESH_CA_B64=$(base64 -w0 "$MESH_EXTRA_CA" 2>/dev/null || base64 "$MESH_EXTRA_CA" | tr -d '\n') "
     fi
   fi
-  printf '  Add a node:  curl -fsSL %s/install/loader.sh | %sSWARMY_JOIN_TOKEN=%s sh -s -- --controller %s\n' \
-    "$share" "$mesh_env" "$BOOTSTRAP_JOIN_TOKEN" "$share"
-  if [ -n "$DASHBOARD_DOMAIN" ] && [ "$HTTPS_READY" != 1 ]; then
-    printf '               %s\n' "${c_dim}(until the certificate is issued, swap https://${DASHBOARD_DOMAIN} for ${LOGIN_URL} in this command)${c_reset}"
-  fi
-  printf '               %s\n' "${c_dim}(this token works for 24h / 5 nodes — after that use Add a node in the dashboard)${c_reset}"
+  # H17: the node installer is served over HTTPS only (see add_node_mode).
+  case "$(add_node_mode "$share" "$ALLOW_INSECURE_INSTALL")" in
+    refused)
+      printf '  Add a node:  %s\n' "${c_yellow}nodes install over HTTPS only, and this dashboard has no HTTPS address.${c_reset}"
+      printf '               %s\n' "${c_dim}Re-run with --domain <name> (an A record to this server), or — only on a network you trust — --allow-insecure-install.${c_reset}"
+      ;;
+    *)
+      printf '  Add a node:  curl -fsSL %s/install/loader.sh | %sSWARMY_JOIN_TOKEN=%s sh -s -- --controller %s\n' \
+        "$share" "$mesh_env" "$BOOTSTRAP_JOIN_TOKEN" "$share"
+      if [ -n "$DASHBOARD_DOMAIN" ] && [ "$HTTPS_READY" != 1 ]; then
+        printf '               %s\n' "${c_dim}(the installer is served over HTTPS only: run this once the certificate is issued, in about a minute)${c_reset}"
+      fi
+      case "$share" in
+        http://*) printf '               %s\n' "${c_yellow}(INSECURE: plain HTTP because of --allow-insecure-install — anyone on the network path can tamper with a node's install)${c_reset}" ;;
+      esac
+      printf '               %s\n' "${c_dim}(this token works for 24h / 5 nodes — after that use Add a node in the dashboard)${c_reset}"
+      ;;
+  esac
   printf '\n'
   warn "BACK UP $STATE_FILE (esp. SWARMY_SECRET_KEY). Lose it and every stored credential is unrecoverable."
   hr

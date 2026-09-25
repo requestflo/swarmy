@@ -56,8 +56,13 @@ covers adding people.
 one-liner. It looks like this:
 
 ```bash
-curl -fsSL http://<controller>:3021/install/loader.sh | SWARMY_JOIN_TOKEN=swt_… sh -s -- --controller http://<controller>:3021
+curl -fsSL https://<dashboard>/install/loader.sh | SWARMY_JOIN_TOKEN=swt_… sh -s -- --controller https://<dashboard>
 ```
+
+Nodes install over **HTTPS only**, and the installer checks the agent against
+the signed swarmy release. A dashboard without an HTTPS address needs a
+`--domain` first. See
+[How node installs are protected](/docs/getting-started/install#how-node-installs-are-protected).
 
 Run it **as root** on the new box. It installs Docker if needed, then installs
 the agent (a systemd binary where systemd is available, otherwise a container).

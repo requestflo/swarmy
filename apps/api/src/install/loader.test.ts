@@ -50,7 +50,7 @@ describe('renderLoader', () => {
     const body = installer();
     const loader = renderLoader({ controllerUrl: CONTROLLER, version: VERSION, installerSha256: sha256Hex(body) });
     expect(loader.length).toBeLessThan(body.length);
-    expect(loader.length).toBeLessThan(4_000);
+    expect(loader.length).toBeLessThan(6_000);
   });
 
   it('verifies the checksum and fails loudly on mismatch (script invariants)', () => {
@@ -86,13 +86,13 @@ function runLoader(
   loaderBody: string,
   args: string[],
   env: Record<string, string> = {},
-): { status: number; stderr: string; curlUrls: string[]; installerEnv: Record<string, string>; installerArgs: string } {
+): { status: number; stderr: string; curlUrls: string[]; curlFlags: string[]; installerEnv: Record<string, string>; installerArgs: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'swarmy-loader-'));
   const stub = `#!/bin/sh\nprintf 'CTL=%s\\nBIN=%s\\nTOK=%s\\n' "$SWARMY_CONTROLLER_URL" "$SWARMY_BINARY_BASE_URL" "\${SWARMY_JOIN_TOKEN:-}" > "${dir}/env.out"\nprintf '%s ' "$@" > "${dir}/args.out"\n`;
   writeFileSync(path.join(dir, 'installer.sh'), stub);
   writeFileSync(
     path.join(dir, 'curl'),
-    `#!/bin/sh\nout=""; url=""\nwhile [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2 ;; -*) shift ;; *) url="$1"; shift ;; esac; done\necho "$url" >> "${dir}/curl.log"\ncp "${dir}/installer.sh" "$out"\n`,
+    `#!/bin/sh\nout=""; url=""\nwhile [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2 ;; --proto|--proto-redir) echo "$1 $2" >> "${dir}/curl.flags"; shift 2 ;; -*) shift ;; *) url="$1"; shift ;; esac; done\necho "$url" >> "${dir}/curl.log"\ncp "${dir}/installer.sh" "$out"\n`,
   );
   chmodSync(path.join(dir, 'curl'), 0o755);
   writeFileSync(path.join(dir, 'loader.sh'), loaderBody);
@@ -120,6 +120,7 @@ function runLoader(
     status: proc.exitCode ?? -1,
     stderr: proc.stderr.toString(),
     curlUrls: read('curl.log').split('\n').filter(Boolean),
+    curlFlags: read('curl.flags').split('\n').filter(Boolean),
     installerEnv,
     installerArgs: read('args.out').trim(),
   };
@@ -129,7 +130,7 @@ describe('loader: one controller base drives every stage', () => {
   // The controller baked its (unreachable) localhost default; the node reached
   // it at a LAN address — the exact readiness-sweep failure.
   const loader = renderLoader({ controllerUrl: 'http://localhost:3021', version: VERSION, installerSha256: 'f'.repeat(64) });
-  const LAN = 'http://192.168.11.87:3021';
+  const LAN = 'https://swarmy.lan:3021';
 
   it('--controller <base> → installer URL, binary base, and dial-back all use that base', () => {
     const r = runLoader(loader, ['--controller', LAN, '--uninstall'], { SWARMY_JOIN_TOKEN: 'swt_x' });
@@ -183,10 +184,51 @@ describe('loader: one controller base drives every stage', () => {
   });
 
   it('a quote in the baked default cannot break out of the script', () => {
-    const evil = renderLoader({ controllerUrl: "http://x/'; touch /tmp/pwned; '", version: VERSION, installerSha256: 'f'.repeat(64) });
+    const evil = renderLoader({ controllerUrl: "https://x/'; touch /tmp/pwned; '", version: VERSION, installerSha256: 'f'.repeat(64) });
     const r = runLoader(evil, []);
     // The value is treated as data (and then rejected/used verbatim) — never executed.
     expect(r.curlUrls[0] ?? '').toContain("'; touch /tmp/pwned; '");
+  });
+});
+
+describe('loader: HTTPS only (H17)', () => {
+  const HTTP_LAN = 'http://192.168.11.87:3021';
+  const secure = renderLoader({ controllerUrl: 'https://app.example.com', version: VERSION, installerSha256: 'f'.repeat(64) });
+
+  it('refuses a plain-HTTP controller and names the HTTPS address', () => {
+    const r = runLoader(secure, ['--controller', HTTP_LAN]);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('must be https://');
+    expect(r.stderr).toContain('(https://app.example.com)');
+    expect(r.curlUrls).toEqual([]);
+  });
+
+  it('pins curl to https for the download and every redirect', () => {
+    const r = runLoader(secure, []);
+    expect(r.status).toBe(0);
+    expect(r.curlFlags).toEqual(['--proto =https', '--proto-redir =https']);
+  });
+
+  it('the node-local bootstrap (loopback) may use plain HTTP', () => {
+    for (const url of ['http://localhost:3021', 'http://127.0.0.1:3021', 'http://[::1]:3021']) {
+      const r = runLoader(secure, ['--controller', url]);
+      expect(r.status).toBe(0);
+      expect(r.curlUrls[0]).toBe(`${url}/install/${VERSION}/install.sh`);
+    }
+    // A DNS name that merely starts like loopback is not loopback.
+    expect(runLoader(secure, ['--controller', 'http://127.0.0.1.evil.example:3021']).status).not.toBe(0);
+    expect(runLoader(secure, ['--controller', 'http://localhost.evil.example']).status).not.toBe(0);
+  });
+
+  it('SWARMY_ALLOW_INSECURE=1 (or the controller operator\'s baked opt-in) allows it, loudly', () => {
+    const r = runLoader(secure, ['--controller', HTTP_LAN], { SWARMY_ALLOW_INSECURE: '1' });
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain('INSECURE');
+    expect(r.curlFlags).toContain('--proto-redir =https');
+    const optedIn = renderLoader({ controllerUrl: HTTP_LAN, version: VERSION, installerSha256: 'f'.repeat(64), allowInsecure: true });
+    const r2 = runLoader(optedIn, []);
+    expect(r2.status).toBe(0);
+    expect(r2.stderr).toContain('INSECURE');
   });
 });
 
