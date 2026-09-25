@@ -4,32 +4,13 @@ import { useQuery } from '@tanstack/react-query';
 import { BugIcon, SearchIcon } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, EmptyState, Input, Skeleton, cn } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { compact, levelTone, shortRelease, STATUS_FILTERS, timeAgo, type IssueStatus } from './errors-shared';
+import { TrendBars } from './trend-bars';
+import { LEVEL_DOT, compact, levelTone, shortRelease, STATUS_FILTERS, timeAgo, type IssueStatus } from './errors-shared';
 
 interface IssuesListProps {
   stack: string;
 }
 
-const TONE_DOT: Record<string, string> = {
-  offline: 'bg-status-offline',
-  warning: 'bg-status-warning',
-  progress: 'bg-status-progress',
-  neutral: 'bg-muted-foreground',
-  online: 'bg-status-online',
-};
-
-/** 24 hourly bars — the issue's last day at a glance. */
-export function TrendBars({ data, className }: { data: number[]; className?: string }): React.JSX.Element {
-  const max = Math.max(1, ...data);
-  return (
-    <svg viewBox="0 0 48 16" className={cn('h-4 w-12', className)} aria-hidden>
-      {data.map((v, i) => {
-        const h = v === 0 ? 0.75 : Math.max(2, (v / max) * 16);
-        return <rect key={i} x={i * 2} y={16 - h} width={1.4} height={h} className={v ? 'fill-status-offline/70' : 'fill-muted-foreground/25'} />;
-      })}
-    </svg>
-  );
-}
 
 /**
  * The Issues list for one app: one row per grouped error, newest activity
@@ -135,7 +116,7 @@ export function IssuesList({ stack }: IssuesListProps): React.JSX.Element {
                 >
                   <div className="min-w-0">
                     <p className="flex items-center gap-2 truncate text-sm font-semibold">
-                      <span className={cn('size-1.5 shrink-0 rounded-full', TONE_DOT[levelTone(i.level)])} />
+                      <span className={cn('size-1.5 shrink-0 rounded-full', LEVEL_DOT[levelTone(i.level)])} />
                       <span className="truncate">{i.title}</span>
                     </p>
                     <p className="text-muted-foreground mono-label truncate">

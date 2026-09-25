@@ -1,37 +1,12 @@
 import * as React from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FastForwardIcon, PauseIcon, PlayIcon, RotateCcwIcon, SparklesIcon } from 'lucide-react';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-  Button,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  cn,
-  toast,
-} from '@swarmy/ui';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { FastForwardIcon, PauseIcon, PlayIcon, RotateCcwIcon } from 'lucide-react';
+import { Button, cn, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { AreaTrend } from '@/components/charts';
 import { JobList } from './job-list';
+import { QueueCleanBar } from './queue-clean';
+import { QueueRates } from './queue-rates';
 import { STUDIO_STATES, stateCount, type StudioQueue, type StudioRef, type StudioState } from './studio-types';
-
-const CLEANABLE: StudioState[] = ['completed', 'failed', 'wait', 'delayed', 'prioritized', 'paused'];
-const GRACE: { label: string; ms: number }[] = [
-  { label: 'all', ms: 0 },
-  { label: 'older than 1h', ms: 3_600_000 },
-  { label: 'older than 24h', ms: 86_400_000 },
-  { label: 'older than 7d', ms: 7 * 86_400_000 },
-];
 
 /** One queue: counts by state, actions, rates, and the job browser. */
 export function QueueDetail({ studio, queue }: { studio: StudioRef; queue: StudioQueue }): React.JSX.Element {
@@ -50,21 +25,6 @@ export function QueueDetail({ studio, queue }: { studio: StudioRef; queue: Studi
   const promoteAll = useMutation(
     trpc.queues.studioPromoteAll.mutationOptions({ onSuccess: (r) => done(r.message), onError }),
   );
-  const clean = useMutation(trpc.queues.studioClean.mutationOptions({ onSuccess: (r) => done(r.message), onError }));
-  const [grace, setGrace] = React.useState('0');
-
-  const rates = useQuery({
-    ...trpc.queues.studioRates.queryOptions({ ...ref, windowMinutes: 60 }),
-    refetchInterval: 30_000,
-    retry: false,
-  });
-  const series = (rates.data?.points ?? []).map((p) => ({
-    t: p.bucket,
-    throughput: p.seconds > 0 ? Math.round((p.completed / p.seconds) * 60 * 10) / 10 : 0,
-    failures: p.seconds > 0 ? Math.round((p.failed / p.seconds) * 60 * 10) / 10 : 0,
-  }));
-
-  const cleanable = CLEANABLE.includes(state);
 
   return (
     <section aria-label={`Queue ${queue.name}`} className="calm-card min-w-0 space-y-5 p-5">
@@ -130,80 +90,11 @@ export function QueueDetail({ studio, queue }: { studio: StudioRef; queue: Studi
         })}
       </div>
 
-      {rates.data?.status === 'ok' && series.length > 1 ? (
-        <div>
-          <p className="mono-label text-muted-foreground !mb-1">Last hour · jobs/min</p>
-          <AreaTrend
-            data={series}
-            height={140}
-            series={[
-              { key: 'throughput', label: 'done/min', color: 'var(--color-status-online)' },
-              { key: 'failures', label: 'failed/min', color: 'var(--color-status-offline)' },
-            ]}
-          />
-        </div>
-      ) : rates.data?.status === 'disabled' ? (
-        <p className="text-muted-foreground text-[11px]">
-          Turn on Observability to keep throughput and failure-rate history.
-        </p>
-      ) : null}
+      <QueueRates studio={studio} queue={queue.name} />
 
       <JobList studio={studio} queue={queue.name} state={state} />
 
-      {cleanable && stateCount(queue, state) > 0 ? (
-        <div className="border-border flex flex-wrap items-center gap-2 border-t pt-4">
-          <SparklesIcon className="text-muted-foreground size-4" />
-          <p className="text-sm">Clean {STUDIO_STATES.find((s) => s.id === state)?.label.toLowerCase()} jobs</p>
-          <Select value={grace} onValueChange={setGrace}>
-            <SelectTrigger aria-label="Which jobs to clean" className="h-8 w-40">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {GRACE.map((g) => (
-                <SelectItem key={g.ms} value={String(g.ms)}>
-                  {g.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-tone-bad border-status-offline/40 hover:bg-status-offline/10"
-                disabled={clean.isPending}
-              >
-                Clean
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete {state} jobs on {queue.name}?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Removes up to 1,000 jobs (and their data and logs) in this state
-                  {grace !== '0' ? `, ${GRACE.find((g) => String(g.ms) === grace)?.label}` : ''}. This can’t be undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() =>
-                    clean.mutate({
-                      ...ref,
-                      state: state as 'completed' | 'failed' | 'wait' | 'delayed' | 'prioritized' | 'paused',
-                      graceMs: Number(grace),
-                      limit: 1000,
-                    })
-                  }
-                >
-                  Clean
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
-      ) : null}
+      <QueueCleanBar studio={studio} queue={queue} state={state} />
     </section>
   );
 }

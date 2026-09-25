@@ -47,3 +47,12 @@ export function compact(n: number): string {
   if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
+
+/** Dot fill per `levelTone` (decorative; the level word carries the meaning). */
+export const LEVEL_DOT: Record<string, string> = {
+  offline: 'bg-status-offline',
+  warning: 'bg-status-warning',
+  progress: 'bg-status-progress',
+  neutral: 'bg-muted-foreground',
+  online: 'bg-status-online',
+};

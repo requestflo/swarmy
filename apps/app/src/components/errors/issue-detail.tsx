@@ -1,12 +1,12 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeftIcon, BugIcon, CheckIcon, EyeOffIcon, FilmIcon, GitCommitIcon, ListTreeIcon, RotateCcwIcon, RocketIcon } from 'lucide-react';
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Skeleton, StatusBadge, cn, toast } from '@swarmy/ui';
+import { ArrowLeftIcon, BugIcon } from 'lucide-react';
+import { EmptyState, Skeleton, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { compact, levelTone, shortRelease, statusLabel, timeAgo, type IssueStatus } from './errors-shared';
-import { TrendBars } from './issues-list';
-import { StackTrace } from './stack-trace';
+import type { IssueStatus } from './errors-shared';
+import { IssueAside } from './issue-aside';
+import { IssueEventCards } from './issue-event-cards';
 import { IssueHeader } from './issue-header';
 
 interface IssueDetailProps {
@@ -82,200 +82,12 @@ export function IssueDetail({ stack, fingerprint }: IssueDetailProps): React.JSX
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="min-w-0 space-y-4">
-          <Card className="calm-card shadow-none">
-            <CardHeader>
-              <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
-                <span>Stack trace</span>
-                {ev ? (
-                  <span className="text-muted-foreground mono-label font-normal">
-                    event {ev.eventId.slice(0, 8)} · {timeAgo(ev.timestamp)}
-                  </span>
-                ) : null}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {ev?.exceptions.length ? (
-                <StackTrace exceptions={ev.exceptions} />
-              ) : (
-                <p className="text-muted-foreground text-sm break-words">{ev?.message || 'No exception data on this event.'}</p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="calm-card shadow-none">
-            <CardHeader>
-              <CardTitle className="text-base">Breadcrumbs</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {ev?.breadcrumbs.length ? (
-                <div className="border-t">
-                  {[...ev.breadcrumbs].reverse().map((b, i) => (
-                    <div key={i} className="grid grid-cols-[5.5rem_7rem_minmax(0,1fr)] gap-3 border-b px-6 py-2 text-xs last:border-b-0">
-                      <span className="text-muted-foreground mono-data">{b.timestamp ? new Date(b.timestamp).toLocaleTimeString() : '—'}</span>
-                      <span className={cn('mono-label truncate', b.level === 'error' && 'text-tone-bad', b.level === 'warning' && 'text-tone-warn')}>
-                        {b.category || b.type}
-                      </span>
-                      <span className="min-w-0 break-words">
-                        {b.message || (b.data ? <code className="mono-data">{JSON.stringify(b.data).slice(0, 240)}</code> : '—')}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-muted-foreground px-6 pb-6 text-sm">No breadcrumbs on this event.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="calm-card shadow-none">
-            <CardHeader>
-              <CardTitle className="text-base">Recent events</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="border-t">
-                {d.events.map((e) => (
-                  <button
-                    key={e.eventId}
-                    type="button"
-                    onClick={() => setEventId(e.eventId)}
-                    className={cn(
-                      'hover:bg-accent/60 grid w-full grid-cols-[6rem_minmax(0,1fr)_auto] items-center gap-3 border-b px-6 py-2 text-left text-xs last:border-b-0',
-                      ev?.eventId === e.eventId && 'bg-accent/40',
-                    )}
-                  >
-                    <span className="text-muted-foreground">{timeAgo(e.timestamp)}</span>
-                    <span className="truncate">
-                      {e.user || 'anonymous'} · {e.serverName || e.environment}
-                    </span>
-                    <span className="mono-data">{shortRelease(e.release)}</span>
-                  </button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          <IssueEventCards d={d} ev={ev} onPick={setEventId} />
         </div>
-
         <div className="space-y-4">
-          <Card className="calm-card shadow-none">
-            <CardHeader>
-              <CardTitle className="text-base">Linked</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <LinkedRow icon={<ListTreeIcon className="size-4" />} label="Trace">
-                {ev?.traceId ? (
-                  <Link to="/observability/$traceId" params={{ traceId: ev.traceId }} className="mono-data text-xs underline underline-offset-2">
-                    {ev.traceId.slice(0, 16)}…
-                  </Link>
-                ) : (
-                  <span className="text-muted-foreground text-xs">no trace context</span>
-                )}
-              </LinkedRow>
-              <LinkedRow icon={<FilmIcon className="size-4" />} label="Replay">
-                {ev?.replayId ? (
-                  <a href={`/stacks/${encodeURIComponent(stack)}/replays/${encodeURIComponent(ev.replayId)}`} className="mono-data text-xs underline underline-offset-2">
-                    {ev.replayId.slice(0, 12)}…
-                  </a>
-                ) : (
-                  <span className="text-muted-foreground text-xs">not recorded</span>
-                )}
-              </LinkedRow>
-              <LinkedRow icon={<GitCommitIcon className="size-4" />} label="Introduced in">
-                {d.introducedIn ? (
-                  <span className="text-xs">
-                    <span className="mono-data">{shortRelease(d.introducedIn.version)}</span>
-                    {d.introducedIn.deployedAt ? (
-                      <>
-                        {' '}
-                        · deployed {timeAgo(d.introducedIn.deployedAt)} ·{' '}
-                        <Link to="/stacks/$name/releases" params={{ name: stack }} className="underline underline-offset-2">
-                          release history
-                        </Link>
-                      </>
-                    ) : null}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground text-xs">no release (set SENTRY_RELEASE)</span>
-                )}
-              </LinkedRow>
-              {issue.resolvedInRelease ? (
-                <LinkedRow icon={<RocketIcon className="size-4" />} label="Fix expected after">
-                  <span className="mono-data text-xs">{shortRelease(issue.resolvedInRelease)}</span>
-                </LinkedRow>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Card className="calm-card shadow-none">
-            <CardHeader>
-              <CardTitle className="text-base">Tags</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {d.tags.length ? (
-                d.tags.map((t) => {
-                  const total = t.values.reduce((a, v) => a + v.count, 0) || 1;
-                  return (
-                    <div key={t.key} className="space-y-1">
-                      <p className="mono-label text-muted-foreground">{t.key}</p>
-                      {t.values.map((v) => (
-                        <div key={v.value} className="relative overflow-hidden rounded-md px-2 py-0.5 text-xs">
-                          <div className="bg-status-progress/15 absolute inset-y-0 left-0" style={{ width: `${Math.round((v.count / total) * 100)}%` }} />
-                          <span className="relative flex justify-between gap-2">
-                            <span className="truncate">{v.value}</span>
-                            <span className="mono-data">{Math.round((v.count / total) * 100)}%</span>
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })
-              ) : (
-                <p className="text-muted-foreground text-sm">No tags.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {ev ? (
-            <Card className="calm-card shadow-none">
-              <CardHeader>
-                <CardTitle className="text-base">Event</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-1 text-xs">
-                {Object.entries(ev.userDetail).map(([k, v]) => (
-                  <KV key={k} k={`user.${k}`} v={v} />
-                ))}
-                {ev.request?.url ? <KV k="request" v={`${ev.request.method ?? ''} ${ev.request.url}`} /> : null}
-                <KV k="environment" v={ev.environment} />
-                <KV k="release" v={ev.release || '—'} />
-                <KV k="sdk" v={ev.sdk || '—'} />
-                {ev.grouping ? <KV k="grouped by" v={ev.grouping.variant.replace(/-/g, ' ')} /> : null}
-              </CardContent>
-            </Card>
-          ) : null}
+          <IssueAside stack={stack} d={d} ev={ev} />
         </div>
       </div>
     </div>
-  );
-}
-
-function LinkedRow({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="text-muted-foreground mt-0.5">{icon}</span>
-      <div className="min-w-0">
-        <p className="mono-label text-muted-foreground">{label}</p>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function KV({ k, v }: { k: string; v: string }): React.JSX.Element {
-  return (
-    <p className="flex justify-between gap-3">
-      <span className="text-muted-foreground mono-label">{k}</span>
-      <span className="mono-data min-w-0 truncate text-right" title={v}>
-        {v}
-      </span>
-    </p>
   );
 }

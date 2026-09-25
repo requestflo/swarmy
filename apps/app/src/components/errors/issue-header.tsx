@@ -3,7 +3,7 @@ import { CheckIcon, EyeOffIcon, RocketIcon, RotateCcwIcon } from 'lucide-react';
 import { Button } from '@swarmy/ui';
 import { CodeView, Say, SayHeader, Tech } from '@/components/calm';
 import { compact, shortRelease, statusLabel, timeAgo, type IssueStatus } from './errors-shared';
-import { TrendBars } from './issues-list';
+import { TrendBars } from './trend-bars';
 
 interface IssueHead {
   fingerprint: string;
