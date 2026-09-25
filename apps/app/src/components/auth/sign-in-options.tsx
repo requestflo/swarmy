@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Building2Icon, GithubIcon, GitlabIcon, KeyRoundIcon } from 'lucide-react';
-import { Button, toast } from '@swarmy/ui';
+import { Button, cn, toast } from '@swarmy/ui';
 import { authClient } from '@swarmy/auth/client';
 
 export interface SignInOption {
@@ -45,15 +45,27 @@ export function SignInOptions({ options, callbackURL }: SignInOptionsProps): Rea
 
   return (
     <div className="grid gap-2">
-      {options.map((o) => {
+      {options.map((o, i) => {
         const Icon = o.kind === 'sso' ? KeyRoundIcon : (ICONS[o.id] ?? KeyRoundIcon);
+        const first = i === 0;
         return (
-          <Button key={`${o.kind}:${o.id}`} type="button" variant="outline" className="w-full" disabled={pending !== null} onClick={() => void go(o)}>
-            <Icon className="size-4" />
-            Continue with {o.label}
+          <Button
+            key={`${o.kind}:${o.id}`}
+            type="button"
+            variant="outline"
+            className={cn('w-full justify-start gap-3 pointer-coarse:min-h-11', first && 'border-primary/60 h-12 text-[15px]')}
+            disabled={pending !== null}
+            onClick={() => void go(o)}
+          >
+            <Icon aria-hidden className="size-4" />
+            <span className="flex-1 text-left">
+              {pending === o.id ? `Opening ${o.label}…` : o.kind === 'sso' ? `Company sign-in (${o.label})` : `Continue with ${o.label}`}
+            </span>
+            {first && options.length > 1 ? <span className="text-muted-foreground text-xs font-medium">your team uses this</span> : null}
           </Button>
         );
       })}
+      <p className="text-muted-foreground px-1 pt-1 text-xs">Use the account your team already has. It checks its own two-factor, so swarmy never asks twice.</p>
     </div>
   );
 }
@@ -63,7 +75,7 @@ export function OrDivider(): React.JSX.Element {
   return (
     <div className="text-muted-foreground my-5 flex items-center gap-3 text-xs">
       <span className="bg-border h-px flex-1" />
-      or use a username
+      or sign in with a username
       <span className="bg-border h-px flex-1" />
     </div>
   );

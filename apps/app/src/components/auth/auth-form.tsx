@@ -39,12 +39,12 @@ export function AuthForm({ mode, busy, onSubmit, dashboardUrl }: AuthFormProps):
     <form onSubmit={submit} className="grid gap-4">
       {signup && (
         <div className="grid gap-2">
-          <Label htmlFor="name" className="mono-label">Name</Label>
+          <Label htmlFor="name">Name</Label>
           <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
         </div>
       )}
       <div className="grid gap-2">
-        <Label htmlFor="login" className="mono-label">{signup ? 'Username' : 'Username or email'}</Label>
+        <Label htmlFor="login">{signup ? 'Username' : 'Username or email'}</Label>
         <Input
           id="login"
           autoComplete="username"
@@ -58,14 +58,14 @@ export function AuthForm({ mode, busy, onSubmit, dashboardUrl }: AuthFormProps):
       </div>
       {signup && (
         <div className="grid gap-2">
-          <Label htmlFor="email" className="mono-label">
-            Email <span className="text-muted-foreground font-normal normal-case">(optional)</span>
+          <Label htmlFor="email">
+            Email <span className="text-muted-foreground font-normal">(optional)</span>
           </Label>
           <Input id="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         </div>
       )}
       <div className="grid gap-2">
-        <Label htmlFor="password" className="mono-label">Password</Label>
+        <Label htmlFor="password">Password</Label>
         <Input
           id="password"
           type="password"
@@ -77,7 +77,7 @@ export function AuthForm({ mode, busy, onSubmit, dashboardUrl }: AuthFormProps):
         />
       </div>
       {error ? <AuthError error={error} dashboardUrl={dashboardUrl ?? null} /> : null}
-      <Button type="submit" disabled={busy} className="mt-2 w-full">
+      <Button type="submit" disabled={busy} className="mt-2 w-full pointer-coarse:min-h-11">
         {busy && <Loader2Icon className="animate-spin" />}
         {mode === 'signin' ? 'Sign in' : 'Create account'}
       </Button>
@@ -98,10 +98,10 @@ function AuthError({ error, dashboardUrl }: { error: unknown; dashboardUrl: stri
     const elsewhere = dashboardUrl && safeOrigin(dashboardUrl) !== error.origin ? dashboardUrl : null;
     return (
       <div role="alert" className="border-status-offline/40 bg-status-offline/10 rounded-xl border px-4 py-3 text-sm">
-        <p className="text-status-offline font-medium">This address isn't trusted for sign-in</p>
+        <p className="text-tone-bad font-medium">This address isn't trusted for sign-in</p>
         <p className="text-muted-foreground mt-1">
           swarmy only accepts sign-in from addresses it knows it serves on, and{' '}
-          <span className="mono-data">{error.origin}</span> isn't one of them.
+          <span className="font-mono text-[13px]">{error.origin}</span> isn't one of them.
           {elsewhere ? (
             <>
               {' '}Open the dashboard at{' '}
@@ -118,7 +118,7 @@ function AuthError({ error, dashboardUrl }: { error: unknown; dashboardUrl: stri
     );
   }
   return (
-    <p role="alert" className="text-status-offline text-sm font-medium">
+    <p role="alert" className="text-tone-bad text-sm font-medium">
       {error instanceof Error ? error.message : 'authentication failed'}
     </p>
   );
