@@ -38,21 +38,66 @@ export function stackDeploymentId(stack: string): string {
 }
 
 /**
+ * Stack deploys the controller accepted, so a poll right after POST /stacks
+ * answers "queued" instead of 404 while the live inventory catches up (it
+ * lags the dispatch by a few seconds). In memory, per org+stack, with the
+ * service names the deploy expects. Entries expire after ACCEPTED_TTL_MS.
+ */
+const ACCEPTED_TTL_MS = 15 * 60_000;
+const acceptedStackDeploys = new Map<string, { at: number; services: string[] }>();
+
+export function noteStackDeployAccepted(orgId: string, stack: string, services: string[], now = Date.now()): void {
+  acceptedStackDeploys.set(`${orgId}\u0000${stack}`, { at: now, services: [...services] });
+}
+
+/** The deploy failed before anything landed: stop answering "queued" for it. */
+export function forgetStackDeploy(orgId: string, stack: string): void {
+  acceptedStackDeploys.delete(`${orgId}\u0000${stack}`);
+}
+
+export function acceptedStackDeploy(orgId: string, stack: string, now = Date.now()): { at: number; services: string[] } | undefined {
+  const key = `${orgId}\u0000${stack}`;
+  const hit = acceptedStackDeploys.get(key);
+  if (hit && now - hit.at > ACCEPTED_TTL_MS) {
+    acceptedStackDeploys.delete(key);
+    return undefined;
+  }
+  return hit;
+}
+
+/**
  * A stack deploy's convergence: every service of the stack, summed. Complete
  * once each one runs its desired count; pulling while any is still pulling
- * its image. Null when the stack has no live services (yet). PURE — exported
- * for tests.
+ * its image. `expected` (the accepted deploy's service names) keeps it
+ * "converging" while any expected service hasn't shown up yet, and turns "no
+ * live services" into "queued" instead of null. Null only when neither exists.
+ * PURE — exported for tests.
  */
 export function synthStack(
   services: InvService[],
   deploymentId: string,
   progress: (name: string) => DeployProgress | undefined = () => undefined,
+  expected?: { at: number; services: string[] },
 ): DeployStatus | null {
-  if (services.length === 0) return null;
+  if (services.length === 0) {
+    if (!expected) return null;
+    return {
+      deploymentId,
+      serviceId: null,
+      kind: 'stack.deploy',
+      phase: 'queued',
+      desired: null,
+      ready: 0,
+      message: 'deploy accepted; waiting for the services to appear',
+      startedAt: new Date(expected.at).toISOString(),
+      finishedAt: null,
+    };
+  }
+  const missing = (expected?.services ?? []).filter((n) => !services.some((s) => s.name === n));
   const desired = services.reduce((n, s) => n + s.replicas.desired, 0);
   const ready = services.reduce((n, s) => n + Math.min(s.replicas.running, s.replicas.desired), 0);
   const pulling = services.map((s) => progress(s.name)).find((p): p is DeployProgress => !!p);
-  const complete = !pulling && services.every((s) => s.replicas.running >= s.replicas.desired);
+  const complete = !pulling && missing.length === 0 && services.every((s) => s.replicas.running >= s.replicas.desired);
   const now = new Date().toISOString();
   return {
     deploymentId,
@@ -104,7 +149,12 @@ export function getDeployStatus(ctx: OrgContext, deploymentId: string): DeploySt
     const stack = deploymentId.slice(STACK_DEPLOYMENT_PREFIX.length);
     const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
     const members = buildInventory(services, containers).services.filter((s) => s.stack === stack);
-    const status = synthStack(members, deploymentId, (name) => progressFor(ctx, name));
+    const status = synthStack(
+      members,
+      deploymentId,
+      (name) => progressFor(ctx, name),
+      acceptedStackDeploy(ctx.activeOrgId, stack),
+    );
     if (!status) throw notFound('deployment', deploymentId);
     return status;
   }

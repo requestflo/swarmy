@@ -55,3 +55,22 @@ describe('DeploymentRef (QA-007)', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('right after POST /stacks (QA-028)', () => {
+  it('an accepted stack deploy polls as queued before its services appear, never 404', async () => {
+    const { noteStackDeployAccepted } = await import('@swarmy/trpc/devx');
+    noteStackDeployAccepted('org1', 'fresh', ['fresh_web']);
+    const res = await appWith([]).request('/deployments/stack:fresh', { headers: { authorization: 'Bearer swarmy_test' } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ deployment_id: 'stack:fresh', phase: 'queued', finished_at: null });
+  });
+
+  it('stays converging while an expected service has not shown up', async () => {
+    const { noteStackDeployAccepted } = await import('@swarmy/trpc/devx');
+    noteStackDeployAccepted('org1', 'half', ['half_web', 'half_db']);
+    const res = await appWith([svc('half_web', 'half', 1, 1)]).request('/deployments/stack:half', {
+      headers: { authorization: 'Bearer swarmy_test' },
+    });
+    expect(await res.json()).toMatchObject({ phase: 'converging' });
+  });
+});

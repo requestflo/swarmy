@@ -40,7 +40,7 @@ import { overlayOptionsFor } from './platform-networks';
 import { carryLinks, stackPeers } from './stack-links.service';
 import { stackEndpoints, type StackEndpoints } from './service-endpoints';
 import { kickDomainChecks, registerDeployRoutes } from './domain-verify.service';
-import { stackDeploymentId } from './deployment.service';
+import { forgetStackDeploy, noteStackDeployAccepted, stackDeploymentId } from './deployment.service';
 
 /**
  * Swarm state lives in Docker, not the DB. The Stack model is now config-only
@@ -581,6 +581,8 @@ export async function deployFromCompose(
   // Not persisted: the id names the stack, so `GET /deployments/{id}` (and
   // services.deployStatus) can poll the stack's live convergence.
   const deploymentId = stackDeploymentId(stack.name);
+  // Pollable at once: the id answers "queued" until the inventory shows the services.
+  noteStackDeployAccepted(ctx.activeOrgId, stack.name, finalSpecs.map((s) => s.name));
   try {
     await removeLegacy(removals.before);
     for (const spec of finalSpecs) {
@@ -588,6 +590,7 @@ export async function deployFromCompose(
     }
     await removeLegacy(removals.after);
   } catch (e) {
+    forgetStackDeploy(ctx.activeOrgId, stack.name);
     throw mapDispatchError(e);
   }
 
