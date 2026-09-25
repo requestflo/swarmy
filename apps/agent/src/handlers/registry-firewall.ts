@@ -28,8 +28,8 @@
  * container of its own image (which ships iptables). The script picks every
  * iptables backend (legacy / nft) that has Docker's `DOCKER-USER` chain.
  */
+import { selfContainer } from '../self-container';
 import { existsSync } from 'node:fs';
-import os from 'node:os';
 import type { DockerClient } from '@swarmy/core/docker';
 
 export const REGISTRY_FIREWALL_CHAIN = 'SWARMY-REGISTRY';
@@ -137,7 +137,7 @@ async function runNative(script: string): Promise<{ exitCode: number; output: st
 /** Container agent: a one-shot host-network NET_ADMIN container of our own image. */
 async function runInSidecar(docker: DockerClient, script: string): Promise<{ exitCode: number; output: string }> {
   const d = docker.docker;
-  const self = (await d.getContainer(os.hostname()).inspect()) as { Image?: string };
+  const self = (await selfContainer(docker)) ?? ({} as { Image?: string });
   if (!self.Image) throw new Error('cannot resolve the agent image');
   const c = await d.createContainer({
     Image: self.Image,

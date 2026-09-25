@@ -140,7 +140,7 @@ async function dockerRecreate(docker: DockerClient, payload: Payload): Promise<v
         Binds: inspect.HostConfig?.Binds ?? undefined,
         Mounts: inspect.HostConfig?.Mounts ?? undefined,
         RestartPolicy: inspect.HostConfig?.RestartPolicy ?? { Name: 'unless-stopped' },
-        NetworkMode: inspect.HostConfig?.NetworkMode ?? undefined,
+        NetworkMode: agentNetworkMode(inspect.HostConfig?.NetworkMode),
         // Bounded logs even when the original run had none (older installers).
         LogConfig: boundedLogConfig(inspect.HostConfig?.LogConfig as { Type?: string; Config?: Record<string, string> } | undefined),
       },
@@ -155,6 +155,21 @@ async function dockerRecreate(docker: DockerClient, payload: Payload): Promise<v
   setTimeout(() => {
     void self.remove({ force: true }).catch(() => process.exit(0));
   }, EXIT_FLUSH_MS);
+}
+
+/**
+ * Pure: the network mode for the replacement agent (QA-066 e). An agent on an
+ * overlay (`swarmy-control`, node #1's old installs) moves to the host
+ * network: dockerd can't start a container on an overlay until the managers
+ * answer, and after a reboot of a multi-manager swarm that needs the mesh this
+ * very agent supervises. It dials the controller through swarm instead
+ * (controller-link.ts). Host, bridge and anything else are kept.
+ */
+export function agentNetworkMode(old: string | undefined): string | undefined {
+  if (!old || old === 'host' || old === 'bridge' || old === 'default' || old === 'none' || old.startsWith('container:')) {
+    return old || undefined;
+  }
+  return 'host';
 }
 
 /** Pure: the container env minus entries identical to the old image's defaults. */

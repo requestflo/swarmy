@@ -27,9 +27,9 @@
  * `--pid host --privileged` nsenter container for the container agent. A host
  * without systemd (Docker Desktop) is skipped with a note.
  */
+import { selfContainer } from '../self-container';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import type { DockerClient } from '@swarmy/core/docker';
 import { env } from '../env';
@@ -130,8 +130,8 @@ export async function runOnHost(docker: DockerClient, script: string, timeoutMs 
       return { code, out: o + e };
     }
     const d = docker.docker;
-    const self = (await d.getContainer(os.hostname()).inspect()) as { Image?: string };
-    if (!self.Image) return { code: 1, out: 'cannot resolve the agent image' };
+    const self = await selfContainer(docker);
+    if (!self?.Image) return { code: 1, out: 'cannot resolve the agent image' };
     const c = await d.createContainer({
       Image: self.Image,
       Entrypoint: ['nsenter', '-t', '1', '-m', '-u', '-i', '-n', '-p', '--', 'sh', '-c', script],

@@ -12,6 +12,8 @@ import {
 
 interface ConnectionOpts {
   url: string;
+  /** Re-resolved before every dial when set (host-network agent, QA-066 e); falls back to `url`. */
+  resolveUrl?: () => Promise<string>;
   buildRegister: () => RegisterPayload;
   onRegisterAck: (payload: RegisterAckPayload) => void;
   onCommand: (env: ControllerEnvelope) => void;
@@ -151,9 +153,19 @@ export class AgentConnection {
   }
 
   private connect(): void {
+    if (!this.opts.resolveUrl) return this.dial(this.opts.url);
+    void this.opts
+      .resolveUrl()
+      .catch(() => this.opts.url)
+      .then((url) => {
+        if (!this.closed) this.dial(url);
+      });
+  }
+
+  private dial(url: string): void {
     this.dials += 1;
     if (this.dials > 1) console.log(`[swarmy-agent] redialing controller (attempt ${this.dials})`);
-    const ws = new WebSocket(this.opts.url, SUBPROTOCOL);
+    const ws = new WebSocket(url, SUBPROTOCOL);
     this.ws = ws;
     this.lastInboundAt = Date.now();
     this.livenessArmed = false;

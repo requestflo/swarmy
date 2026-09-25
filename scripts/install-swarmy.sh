@@ -1340,12 +1340,7 @@ ensure_overlay() {  # the stack file references swarmy-control as external — c
 # `--network-add` is a rolling update; Caddy blips once. Idempotent.
 migrate_control_bridges() {
   local svc nets
-  # The node-#1 agent dials swarmy_controller:3021 — give it the control net first.
-  if docker ps --format '{{.Names}}' | grep -qx "$AGENT_CONTAINER" \
-    && ! docker inspect "$AGENT_CONTAINER" --format '{{json .NetworkSettings.Networks}}' | grep -q "\"$CONTROL_NET\""; then
-    docker network connect "$CONTROL_NET" "$AGENT_CONTAINER" >/dev/null 2>&1 \
-      && ok "node #1 agent connected to the $CONTROL_NET overlay."
-  fi
+  # (The node-#1 agent is on the host network since QA-066 e: nothing to attach.)
   for svc in $CONTROL_BRIDGES; do
     docker service inspect "$svc" >/dev/null 2>&1 || continue
     nets="$(docker service inspect "$svc" -f '{{range .Spec.TaskTemplate.Networks}}{{.Target}} {{end}}' 2>/dev/null || true)"
@@ -1453,19 +1448,16 @@ enrol_node1() {
       docker rm -f "$AGENT_CONTAINER" >/dev/null
     fi
   fi
+  # QA-066 (e): the agent runs on the HOST network. On an overlay it could not
+  # even start after a reboot of a multi-manager swarm (the attach waits for
+  # managers, which wait for the mesh this agent supervises). Older installs
+  # ran it on swarmy-control: re-create it once (its identity is on the volume).
+  if docker ps -a --format '{{.Names}}' | grep -qx "$AGENT_CONTAINER" \
+    && [ "$(docker inspect "$AGENT_CONTAINER" --format '{{.HostConfig.NetworkMode}}' 2>/dev/null)" != host ]; then
+    say "Moving node #1 agent onto the host network…"
+    docker rm -f "$AGENT_CONTAINER" >/dev/null
+  fi
   if docker ps --format '{{.Names}}' | grep -qx "$AGENT_CONTAINER"; then
-    # The agent dials swarmy_controller:3021, which now lives ONLY on the
-    # private control network — connect it there (live, no restart). It stays
-    # on `swarmy` too (in-cluster names like swarmy-garage). Older installs
-    # attached it to the stack-prefixed `swarmy_swarmy`; drop that.
-    local net
-    for net in "$CONTROL_NET" "$OVERLAY_NET"; do
-      if ! docker inspect "$AGENT_CONTAINER" --format '{{json .NetworkSettings.Networks}}' | grep -q "\"$net\""; then
-        docker network connect "$net" "$AGENT_CONTAINER" >/dev/null 2>&1 || true
-        ok "node #1 agent connected to the $net overlay."
-      fi
-    done
-    docker network disconnect "${STACK_NAME}_swarmy" "$AGENT_CONTAINER" >/dev/null 2>&1 || true
     ok "node #1 agent already running."
     return
   fi
@@ -1475,9 +1467,12 @@ enrol_node1() {
   # path the agent loads itself (apps/agent/src/env.ts) — never -e, which keeps
   # it in `docker inspect` for anyone on the socket. Mirrors installer.ts.
   write_agent_env
+  # Host network, never an overlay (QA-066 e). AGENT_WS_URL keeps the overlay
+  # name: the agent resolves it through swarm (the node running the controller,
+  # its host-mode published port).
   docker run -d --name "$AGENT_CONTAINER" --restart unless-stopped \
     --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
-    --network "$CONTROL_NET" \
+    --network host \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v swarmy-agent:/var/lib/swarmy \
     -v "$AGENT_ENV_FILE":/etc/swarmy/agent.env:ro \
@@ -1486,7 +1481,6 @@ enrol_node1() {
     -e SWARMY_ALLOW_MESH=true \
     "$AGENT_IMAGE" >/dev/null \
     || die "failed to start node #1 agent."
-  docker network connect "$OVERLAY_NET" "$AGENT_CONTAINER" >/dev/null 2>&1 || true
   ok "node #1 agent started (watch it turn ONLINE in the dashboard)."
 }
 

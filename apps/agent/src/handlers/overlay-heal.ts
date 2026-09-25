@@ -30,6 +30,7 @@
  * networks. `ingress` is never touched: its sandbox is permanent and it has
  * no attachable endpoints to cycle.
  */
+import { selfContainer } from '../self-container';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { DockerClient } from '@swarmy/core/docker';
@@ -158,9 +159,7 @@ async function snapshot(docker: DockerClient): Promise<{ containers: OverlayCont
 
 /** This agent's own container id, when it runs in one. */
 async function selfContainerId(docker: DockerClient): Promise<string | undefined> {
-  const os = await import('node:os');
-  const i = (await docker.docker.getContainer(os.hostname()).inspect().catch(() => null)) as { Id?: string } | null;
-  return i?.Id;
+  return (await selfContainer(docker))?.Id;
 }
 
 /**

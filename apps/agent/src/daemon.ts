@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { selfContainer } from './self-container';
 import os from 'node:os';
 import { PROTOCOL_VERSION, type NodeFacts, type RegisterPayload, type RenderedMesh } from '@swarmy/core/protocol';
 import { DockerClient } from '@swarmy/core/docker';
@@ -18,6 +19,7 @@ import { agentPackaging } from './handlers/update';
 import { REGISTRY_FIREWALL_INTERVAL_MS, enforceRegistryFirewall, parseAllowCidrs } from './handlers/registry-firewall';
 import { COMMIT, VERSION, versionInfo } from './version';
 import { handleCommand } from './executor';
+import { lastResolvedControllerUrl, resolveControllerUrl } from './controller-link';
 import { startLocalSocket, type DaemonStatus } from './local-socket';
 
 /** Push a `meshState` telemetry frame if a mesh client is running on this node. */
@@ -157,6 +159,10 @@ function controllerHttpBaseFromWs(wsUrl: string): string {
 
 export async function runDaemon(): Promise<void> {
   const docker = new DockerClient(env.DOCKER_SOCKET);
+  // A container agent on the host network (QA-066 e) — or a binary one — has no overlay endpoint.
+  const hostNetworked =
+    agentPackaging() !== 'container' ||
+    (await selfContainer(docker).then((i) => i?.HostConfig?.NetworkMode === 'host'));
   let state: AgentState | null = await loadState();
   const startedAt = Date.now();
 
@@ -225,7 +231,7 @@ export async function runDaemon(): Promise<void> {
     const claimSecret = randomBytes(32).toString('base64url');
     const claimHash = createHash('sha256').update(claimSecret).digest('hex');
     const fingerprint = `${claimHash.slice(0, 4)}-${claimHash.slice(4, 8)}`.toUpperCase();
-    const base = controllerHttpBaseFromWs(env.AGENT_WS_URL);
+    const base = controllerHttpBaseFromWs(lastResolvedControllerUrl(env.AGENT_WS_URL));
     let claimId: string | null = null;
 
     log('────────────────────────────────────────────────────────────');
@@ -388,6 +394,8 @@ export async function runDaemon(): Promise<void> {
 
   const conn = new AgentConnection({
     url: env.AGENT_WS_URL,
+    // Host-network agent (QA-066 e): the overlay name is resolved through swarm.
+    resolveUrl: () => resolveControllerUrl(env.AGENT_WS_URL, docker),
     buildRegister,
     onRegisterAck: (payload) => {
       state = {
@@ -425,7 +433,8 @@ export async function runDaemon(): Promise<void> {
       // restart policy recycles the container with a fresh attachment. A
       // host binary keeps redialing (its path is the host network).
       const mins = Math.round(downForMs / 60_000);
-      if (strandedShouldExit(agentPackaging())) {
+      // On the host network (QA-066 e) there is no overlay endpoint to recycle.
+      if (strandedShouldExit(agentPackaging()) && !hostNetworked) {
         log(`no live controller link for ${mins} min — exiting so the restart policy recycles this container (fresh overlay endpoint)`);
         setTimeout(() => process.exit(1), 250);
       } else {
