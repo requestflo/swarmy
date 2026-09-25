@@ -36,7 +36,7 @@ RUN set -eu; mkdir -p /out; \
     'The database is redistributed unmodified; swarmy-dns maps each country to a' \
     'representative coordinate for steering.' > /out/NOTICE
 
-FROM oven/bun:1.3-alpine
+FROM oven/bun:1.3.14-alpine
 
 LABEL org.opencontainers.image.licenses.geoip="CC-BY-4.0" \
       dev.swarmy.geoip.attribution="IP Geolocation by DB-IP (https://db-ip.com), CC BY 4.0"

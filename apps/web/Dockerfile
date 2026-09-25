@@ -8,7 +8,7 @@
 # replaces it for this build so the site and its Markdown docs are in context.
 
 # ── Stage 1: prerender the site ─────────────────────────────────────────────
-FROM oven/bun:1.3-alpine AS build
+FROM oven/bun:1.3.14-alpine AS build
 WORKDIR /app
 COPY package.json bun.lock tsconfig.base.json ./
 # bun validates the whole lockfile graph, so every workspace manifest must be

@@ -6,7 +6,7 @@
 #     -e SWARMY_JOIN_TOKEN=swt_... \
 #     -e SWARMY_AGENT_STATE=/var/lib/swarmy/agent.json \
 #     swarmy/agent
-FROM oven/bun:1.3-alpine AS base
+FROM oven/bun:1.3.14-alpine AS base
 
 # iptables: the registry firewall floor runs in a one-shot host-network
 # sidecar of this image (handlers/registry-firewall.ts). Both backends, so
@@ -24,7 +24,7 @@ WORKDIR /app
 # collected layer is content-addressed, so the install stays cached until a
 # manifest actually changes. apps/web and apps/e2e are excluded by
 # .dockerignore — leaf apps nothing in the agent's graph depends on.
-FROM oven/bun:1.3-alpine AS manifests
+FROM oven/bun:1.3.14-alpine AS manifests
 COPY apps /src/apps
 COPY packages /src/packages
 RUN cd /src && for f in apps/*/package.json packages/*/package.json; do \

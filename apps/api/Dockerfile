@@ -6,7 +6,7 @@
 # controller (SWARMY_STATIC_DIR), so a self-host install ships ONE artifact.
 
 # ── Stage 1: build the dashboard SPA ────────────────────────────────────────
-FROM oven/bun:1.3-alpine AS spa
+FROM oven/bun:1.3.14-alpine AS spa
 WORKDIR /app
 COPY package.json bun.lock ./
 # Root tsconfigs — packages/db/tsconfig.json extends ../../tsconfig.base.json, and
@@ -29,7 +29,7 @@ RUN bun --filter @swarmy/app build
 # install backend + agent self-update work fully self-hosted.
 # Debian (glibc) base on purpose: on an Alpine builder `--target=bun-linux-x64`
 # resolves to the musl runtime, which won't run on the glibc hosts nodes use.
-FROM --platform=$BUILDPLATFORM oven/bun:1.3-debian AS agentbin
+FROM --platform=$BUILDPLATFORM oven/bun:1.3.14-debian AS agentbin
 WORKDIR /app
 COPY package.json bun.lock ./
 COPY tsconfig.base.json tsconfig.json ./
@@ -44,7 +44,7 @@ RUN SWARMY_COMMIT=${SWARMY_COMMIT} bun run scripts/build-agent-binaries.ts /app/
 # ── Stage 1b': compile the `swarmy` developer CLI ─────────────────────────
 # Same cross-compile-once approach; four targets (macOS + Linux, arm64 + x64).
 # Served at /install/cli/<platform> with `curl <controller>/install/cli.sh | sh`.
-FROM --platform=$BUILDPLATFORM oven/bun:1.3-debian AS clibin
+FROM --platform=$BUILDPLATFORM oven/bun:1.3.14-debian AS clibin
 WORKDIR /app
 COPY package.json bun.lock ./
 COPY tsconfig.base.json tsconfig.json ./
@@ -97,7 +97,7 @@ RUN set -eu; mkdir -p /out; \
 FROM litestream/litestream:0.5.17 AS litestream
 
 # ── Stage 2: the controller runtime ─────────────────────────────────────────
-FROM oven/bun:1.3-alpine
+FROM oven/bun:1.3.14-alpine
 WORKDIR /app
 
 # restic on $PATH for controller backups (+ CA roots for S3/B2 destinations).

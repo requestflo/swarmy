@@ -4,7 +4,7 @@
 #   port 3000, routed at /auth/* on the app's domains
 #   /data            its own SQLite file (volume) unless DATABASE_URL is set
 #   /run/secrets     auth-<provider>-client-id / -client-secret, optional auth-secret
-FROM oven/bun:1.3-alpine
+FROM oven/bun:1.3.14-alpine
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
