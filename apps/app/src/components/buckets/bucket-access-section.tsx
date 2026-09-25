@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { GlobeIcon, LockIcon, NetworkIcon } from 'lucide-react';
 import { Button, CopyButton, Input, cn, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { Depth } from '@/components/calm';
 
 type Mode = 'INTERNAL' | 'MESH' | 'PUBLIC';
 
@@ -11,19 +12,19 @@ const MODES: Array<{ mode: Mode; label: string; icon: typeof LockIcon; blurb: st
     mode: 'INTERNAL',
     label: 'Internal',
     icon: LockIcon,
-    blurb: 'Only apps and services inside swarmy. Nothing is routed from outside.',
+    blurb: 'Only your apps. Nothing reaches it from outside.',
   },
   {
     mode: 'MESH',
-    label: 'Mesh',
+    label: 'Private network',
     icon: NetworkIcon,
-    blurb: 'Plus devices on your mesh network, via any edge node’s mesh IP.',
+    blurb: 'Plus laptops and servers on your private network.',
   },
   {
     mode: 'PUBLIC',
     label: 'Public',
     icon: GlobeIcon,
-    blurb: 'Plus the internet, over HTTPS on your public S3 domain.',
+    blurb: 'Plus the internet, over HTTPS at its own address. Writes still need a key.',
   },
 ];
 
@@ -45,7 +46,7 @@ export function BucketAccessSection({ bucketId }: { bucketId: string }): React.J
           v.mode === 'PUBLIC'
             ? `"${v.bucket}" is reachable from the internet at ${v.endpoints.public ?? 'its public domain'} (keys still required)`
             : v.mode === 'MESH'
-              ? `"${v.bucket}" is reachable from your mesh`
+              ? `"${v.bucket}" is reachable from your private network`
               : `"${v.bucket}" is internal-only again`;
         toast[v.mode === 'PUBLIC' ? 'warning' : 'success'](msg);
         void qc.invalidateQueries();
@@ -70,17 +71,16 @@ export function BucketAccessSection({ bucketId }: { bucketId: string }): React.J
   const pending = setAccess.isPending;
   const endpoints: Array<{ label: string; url: string }> = [
     ...(v.endpoints.public ? [{ label: 'Internet', url: v.endpoints.public }] : []),
-    ...v.endpoints.mesh.map((url) => ({ label: 'Mesh', url })),
+    ...v.endpoints.mesh.map((url) => ({ label: 'Private network', url })),
     { label: 'Inside swarmy', url: v.endpoints.internal },
   ];
 
   return (
     <section className="space-y-3">
       <div>
-        <p className="mono-label text-muted-foreground !mb-0">Access</p>
+        <p className="text-sm font-semibold">Who can reach it</p>
         <p className="text-muted-foreground text-xs">
-          Who can reach this bucket’s S3 API. Every request still needs an access key or a presigned
-          link — “public” means reachable, not anonymous.
+          Every request still needs a key or a signed link. Public means reachable, not anonymous.
         </p>
       </div>
 
@@ -99,15 +99,15 @@ export function BucketAccessSection({ bucketId }: { bucketId: string }): React.J
               onClick={() => !on && setAccess.mutate({ bucketId, mode })}
               className={cn(
                 'rounded-xl border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-                on ? 'bg-ink text-ink-foreground border-transparent' : 'bg-card hover:bg-accent',
+                on ? 'border-primary bg-primary/[0.06] shadow-[inset_0_0_0_1px_var(--primary)]' : 'bg-card hover:bg-accent',
               )}
             >
               <span className="flex items-center gap-2 text-sm font-semibold">
                 <Icon className="size-4" /> {label}
               </span>
-              <span className={cn('mt-1 block text-xs', on ? 'opacity-80' : 'text-muted-foreground')}>
+              <span className={cn('mt-1 block text-xs', 'text-muted-foreground')}>
                 {mode === 'MESH' && !v.meshAvailable
-                  ? 'Needs the mesh (Networking → Mesh) and an edge node on it.'
+                  ? 'Needs the private network and a front door on it.'
                   : mode === 'PUBLIC' && !v.publicDomain
                     ? 'Set a public S3 domain below first.'
                     : blurb}
@@ -117,6 +117,7 @@ export function BucketAccessSection({ bucketId }: { bucketId: string }): React.J
         })}
       </div>
 
+      <Depth at="controls">
       <div className="space-y-1.5">
         {endpoints.map((e) => (
           <div key={e.url} className="bg-card flex items-center gap-2 rounded-lg px-3 py-2">
@@ -165,6 +166,7 @@ export function BucketAccessSection({ bucketId }: { bucketId: string }): React.J
         Shared by every public bucket. Its DNS must point at your edge nodes; the certificate is issued
         automatically.
       </p>
+      </Depth>
     </section>
   );
 }
