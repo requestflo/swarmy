@@ -55,7 +55,7 @@ export function ControllerImageCard({ image, defaultImage }: ControllerImageCard
   const isStock = isStockCaddy(effective);
 
   return (
-    <Card className="calm-card mt-6 border-0">
+    <Card className="calm-card">
       <CardHeader>
         <CardTitle className="text-base">Controller image</CardTitle>
         <CardDescription>
@@ -65,7 +65,7 @@ export function ControllerImageCard({ image, defaultImage }: ControllerImageCard
       </CardHeader>
       <CardContent className="grid gap-4">
         <div className="flex items-center gap-2">
-          <Badge variant={isStock ? 'muted' : 'default'} className="mono-data">
+          <Badge variant={isStock ? 'muted' : 'outline'} className="mono-data">
             {effective}
           </Badge>
           {isStock ? (

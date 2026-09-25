@@ -41,7 +41,7 @@ export function WildcardCertsCard(): React.JSX.Element {
   const v = view.data;
 
   return (
-    <Card className="calm-card mt-6 border-0">
+    <Card className="calm-card">
       <CardHeader>
         <CardTitle className="text-base">Wildcard certificates</CardTitle>
         <CardDescription>

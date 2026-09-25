@@ -77,7 +77,7 @@ export function ProviderRow({
         ) : configured && info.needsKey ? (
           <Badge variant="secondary">key stored</Badge>
         ) : null}
-        {view?.isDefault ? <Badge>default</Badge> : null}
+        {view?.isDefault ? <Badge variant="outline">default</Badge> : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {info.needsKey || kind === 'vllm' ? (

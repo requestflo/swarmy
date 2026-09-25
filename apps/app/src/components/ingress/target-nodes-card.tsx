@@ -43,7 +43,7 @@ export function TargetNodesCard({ targetNodes }: TargetNodesCardProps): React.JS
   };
 
   return (
-    <Card className="calm-card mt-6 border-0">
+    <Card className="calm-card">
       <CardHeader>
         <CardTitle className="text-base">Target nodes</CardTitle>
         <CardDescription>
@@ -64,7 +64,7 @@ export function TargetNodesCard({ targetNodes }: TargetNodesCardProps): React.JS
                   <p className="mono-data truncate text-sm font-medium">{n.name}</p>
                   <p className="text-muted-foreground mono-label truncate">{n.role}</p>
                 </div>
-                <Switch checked={selected.has(n.id)} onCheckedChange={(v) => toggle(n.id, v)} disabled={setTargetNodes.isPending} />
+                <Switch aria-label={`Run the front door on ${n.name}`} checked={selected.has(n.id)} onCheckedChange={(v) => toggle(n.id, v)} disabled={setTargetNodes.isPending} />
               </div>
             ))}
           </div>

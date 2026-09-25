@@ -89,7 +89,7 @@ export function TopologyCard({ topology, certStorage }: TopologyCardProps): Reac
   const switchBlocked = next === 'edge-per-node' && needsStore;
 
   return (
-    <Card className="calm-card mt-6 border-0">
+    <Card className="calm-card">
       <CardHeader>
         <CardTitle className="text-base">Edge topology</CardTitle>
         <CardDescription>
@@ -99,7 +99,7 @@ export function TopologyCard({ topology, certStorage }: TopologyCardProps): Reac
       </CardHeader>
       <CardContent className="grid gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="default">{LABELS[topology]}</Badge>
+          <Badge variant="muted">{LABELS[topology]}</Badge>
           {topology === 'edge-per-node' && certStorage.mode === 'shared' ? (
             <Badge variant="muted">
               Certificates: shared across {edgesPhrase(certStorage.edges)} via swarmy object storage
