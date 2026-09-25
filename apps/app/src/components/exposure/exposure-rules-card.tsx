@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ExposureRulesView } from '@swarmy/core';
 
 type RulesWithIntent = ExposureRulesView & { enforceDeclaredIntent: boolean };
-import { Switch, toast } from '@swarmy/ui';
+import { toast } from '@swarmy/ui';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 import { useTRPC } from '@/integrations/trpc';
 
 /** One rule toggle row: name, plain-English description, switch. */
@@ -26,7 +27,7 @@ function RuleRow({
         <span className="block text-sm font-semibold">{label}</span>
         <span className="text-muted-foreground block text-xs">{description}</span>
       </span>
-      <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} className="mt-0.5" />
+      <QuietSwitch checked={checked} onCheckedChange={onChange} disabled={disabled} className="mt-0.5" />
     </label>
   );
 }
@@ -52,7 +53,7 @@ export function ExposureRulesCard(): React.JSX.Element {
   const set = (patch: Partial<RulesWithIntent>): void => setRules.mutate(patch);
 
   return (
-    <section className="card-pop overflow-hidden">
+    <section className="calm-card overflow-hidden">
       <header className="border-border border-b px-5 py-3">
         <span className="mono-label !mb-0">Rules</span>
         <p className="text-muted-foreground text-xs">
@@ -107,7 +108,7 @@ export function ExposureRulesCard(): React.JSX.Element {
                   Off = advisory: violations show here and raise alerts, but deploys go through.
                 </span>
               </span>
-              <Switch
+              <QuietSwitch
                 checked={r.enforce}
                 onCheckedChange={(v) => set({ enforce: v })}
                 disabled={busy}

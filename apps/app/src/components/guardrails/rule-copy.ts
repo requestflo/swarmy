@@ -15,45 +15,37 @@ export interface GuardrailRuleCopy {
 
 export const RULE_COPY: Record<GuardrailRuleId, GuardrailRuleCopy> = {
   noLatestTagInProd: {
-    title: 'No :latest images in production',
-    description:
-      'Do not deploy :latest (or untagged) images to production — pin a version so rollbacks mean something.',
+    title: 'No :latest in production',
+    description: 'Pin a version, so a restart never pulls a surprise and putting back an old version means something.',
   },
   minDbReplicasProd: {
-    title: 'Minimum database replicas in production',
-    description:
-      'Production databases need read replicas to survive losing a node. Below the minimum, the deploy is flagged.',
+    title: 'Production databases keep standby copies',
+    description: 'A production database needs a copy on another server, so losing one server loses no data.',
     paramKey: 'n',
-    paramLabel: 'Min replicas',
+    paramLabel: 'At least',
   },
   requireBackupPolicy: {
-    title: 'Databases must have a backup policy',
-    description:
-      'A stack with a database needs a backup schedule (on the cluster or a volume) before it ships.',
+    title: 'Databases are backed up',
+    description: 'An app with a database needs a backup schedule before it ships.',
   },
   requireHealthcheck: {
-    title: 'Services must define a healthcheck',
-    description:
-      'Without a healthcheck, swarm cannot tell a healthy container from a wedged one during rollouts.',
+    title: 'Every service says when it’s healthy',
+    description: 'Without a health check swarmy can’t tell a working service from a stuck one while it rolls out.',
   },
   requireResourceLimits: {
-    title: 'Services must set a memory limit',
-    description:
-      'An unbounded service can eat a node. Every spec should cap its memory.',
+    title: 'Every service has a memory limit',
+    description: 'A service with no limit can eat a whole server.',
   },
   requireSignedImagesProd: {
-    title: 'Production images must be signed',
-    description:
-      'When Registry policy already verifies signatures, that check applies; this rule flags prod deploys while signing enforcement is switched off.',
+    title: 'Production images are signed',
+    description: 'Only images built by swarmy CI or signed with your key go to production. Registry signing checks apply when they’re on.',
   },
   noPrivilegedContainers: {
     title: 'No privileged containers',
-    description:
-      'Privileged mode is root on the host. Grant specific capabilities instead.',
+    description: 'Privileged mode is root on the server. Grant the specific capabilities instead.',
   },
   noHostPortsProd: {
-    title: 'No host-mode ports in production',
-    description:
-      'Host-mode ports pin traffic to one node and bypass the routing mesh — publish through ingress instead.',
+    title: 'Production traffic comes through the front door',
+    description: 'Host ports tie traffic to one server and skip the front door; publish through a domain instead.',
   },
 };

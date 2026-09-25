@@ -1,78 +1,66 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ShieldAlertIcon } from 'lucide-react';
-import { Button, EmptyState } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { SectionHeader } from '@/components/section-header';
+import { CodeView, Say } from '@/components/calm';
+import { ErrorState, SkeletonBody } from '@/components/states';
+import { RowPage, plural } from '@/components/rowpage/row-page';
+import { ExposureSection } from '@/components/exposure/exposure-page';
 import { DecisionsFeed } from './decisions-feed';
 import { RulesList } from './rules-list';
-import { SafetyModeCard } from './safety-mode-card';
+import { SafetyModeCard, SafetyModeNext } from './safety-mode-card';
 import { StackEnvCard } from './stack-env-card';
-import { ExposureSection } from '@/components/exposure/exposure-page';
 
-/**
- * Governance → Safety: the production safety switch, the guardrail rules, the
- * stack environment editor and the blocked/overridden decisions feed — then
- * the Exposure audit (what faces the internet) on the same page.
- */
+/** Settings → Guardrails: the rules every deploy is checked against, as Block · Warn · Off, and what they stopped. */
 export function GuardrailsPage(): React.JSX.Element {
   const trpc = useTRPC();
-  const config = useQuery({
-    ...trpc.guardrails.config.queryOptions(),
-    refetchInterval: 15_000,
-  });
+  const config = useQuery({ ...trpc.guardrails.config.queryOptions(), refetchInterval: 15_000 });
+  const decisions = useQuery({ ...trpc.guardrails.recentDecisions.queryOptions({ limit: 30 }), refetchInterval: 15_000 });
+  const envs = useQuery(trpc.guardrails.stackEnvs.queryOptions());
+  const c = config.data;
+  const on = c?.rules.filter((r) => r.enabled) ?? [];
+  const blocking = on.filter((r) => r.severity === 'block').length;
+  const since = Date.now() - 30 * 86_400_000;
+  const stopped = (decisions.data ?? []).filter((d) => d.kind === 'blocked' && new Date(d.at).getTime() >= since).length;
 
-  const enabledCount = config.data?.rules.filter((r) => r.enabled).length ?? 0;
-  const title = config.data?.productionSafetyMode ? (
-    <>
-      Production is <em>locked down</em>.
-    </>
+  const title = !c ? (
+    'Guardrails.'
   ) : (
     <>
-      {enabledCount} guardrail{enabledCount === 1 ? '' : 's'} <em>armed</em>.
+      {plural(blocking, 'rule')} block, {on.length - blocking} warn.{' '}
+      {decisions.data ? (stopped ? <Say tone="ok">Last 30 days they stopped {plural(stopped, 'deploy')}.</Say> : <em>Nothing stopped in 30 days.</em>) : null}
     </>
   );
+  const code = c
+    ? [
+        { label: 'guardrails', code: JSON.stringify(c, null, 2) },
+        { label: 'labels', code: (envs.data ?? []).map((s) => `${s.stack.padEnd(18)} ${s.production ? 'swarmy.env=production' : '(no swarmy.env)'}`).join('\n') || '# no apps yet' },
+      ]
+    : [];
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 lg:pb-20 xl:px-10">
-      <SectionHeader
-        section="Governance"
-        title={title}
-        description="Rules that keep production safe — pinned images, database replicas, backups, limits, and what may face the internet. Violating deploys are refused; every block and override is on the record."
-      />
-
+    <RowPage
+      title={title}
+      description={c?.productionSafetyMode ? 'Production is locked down: every rule blocks there. Each rule below also sets what happens everywhere else.' : 'Checked on every deploy, by anyone. Production is an app labelled production.'}
+      aside={
+        <>
+          {c ? <CodeView title="Guardrails as code" tabs={code} source="readonly" /> : null}
+          <DecisionsFeed />
+          <StackEnvCard />
+        </>
+      }
+    >
       {config.isLoading ? (
-        <div className="space-y-6">
-          <div className="shimmer-line h-28 rounded-2xl" />
-          <div className="shimmer-line h-64 rounded-2xl" />
-        </div>
+        <SkeletonBody variant="list" />
       ) : config.isError ? (
-        <div className="card-pop p-2">
-          <EmptyState
-            icon={<ShieldAlertIcon />}
-            title="Couldn't load your guardrails"
-            description={config.error.message}
-            action={
-              <Button variant="outline" onClick={() => void config.refetch()}>
-                Retry
-              </Button>
-            }
-          />
-        </div>
-      ) : config.data ? (
-        <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
-          <div className="min-w-0 space-y-6">
-            <SafetyModeCard config={config.data} />
-            <RulesList config={config.data} />
-          </div>
-          <div className="space-y-6">
-            <StackEnvCard />
-            <DecisionsFeed />
-          </div>
-        </div>
+        <ErrorState title="Couldn’t load your guardrails." error={config.error} retry={() => void config.refetch()} />
+      ) : c ? (
+        <>
+          <SafetyModeNext config={c} />
+          <RulesList config={c} decisions={decisions.data ?? []} />
+          <SafetyModeCard config={c} />
+        </>
       ) : null}
-
       <ExposureSection />
-    </div>
+    </RowPage>
   );
 }

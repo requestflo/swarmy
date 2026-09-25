@@ -1,64 +1,51 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ShieldCheckIcon, ShieldIcon } from 'lucide-react';
 import type { GuardrailsConfigView } from '@swarmy/core';
-import { Switch, toast } from '@swarmy/ui';
+import { Button, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { NextAction, Section, StatusWord, Tech } from '@/components/calm';
+import { QuietSwitch } from '@/components/rowpage/row-page';
 
-/**
- * The big production-safety switch. ON ⇒ every guardrail below is enforced —
- * blocking — on any stack marked production. Statement surface (ink-block).
- */
-export function SafetyModeCard({ config }: { config: GuardrailsConfigView }): React.JSX.Element {
+function useSetMode() {
   const trpc = useTRPC();
   const qc = useQueryClient();
-
-  const setMode = useMutation(
+  return useMutation(
     trpc.guardrails.setSafetyMode.mutationOptions({
       onSuccess: (next) => {
-        toast.success(
-          next.productionSafetyMode
-            ? 'Production safety mode ON — every rule blocks on production stacks'
-            : 'Production safety mode off — per-rule settings apply',
-        );
+        toast.success(next.productionSafetyMode ? 'Production is locked down: every rule blocks there.' : 'Safety mode off: each rule’s own level applies.');
         void qc.invalidateQueries();
       },
       onError: (e) => toast.error(e.message),
     }),
   );
+}
 
-  const on = config.productionSafetyMode;
-
+/** When production isn't locked down, locking it is the page's one next action. */
+export function SafetyModeNext({ config }: { config: GuardrailsConfigView }): React.JSX.Element | null {
+  const setMode = useSetMode();
+  if (config.productionSafetyMode) return null;
   return (
-    <section className="ink-block rounded-2xl p-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex min-w-0 items-start gap-4">
-          {on ? (
-            <ShieldCheckIcon className="text-status-online mt-1 size-8 shrink-0" />
-          ) : (
-            <ShieldIcon className="mt-1 size-8 shrink-0 opacity-60" />
-          )}
-          <div className="min-w-0">
-            <h2 className="headline text-2xl sm:text-3xl">
-              Production safety mode is {on ? <em>on</em> : <>off</>}.
-            </h2>
-            <p className="mt-1.5 max-w-xl text-sm opacity-80">
-              One switch: every rule below is enforced — blocking — on any stack marked{' '}
-              <span className="mono-data">production</span>. Per-rule settings still govern
-              everything else.
-            </p>
-          </div>
-        </div>
-        <label className="flex shrink-0 cursor-pointer items-center gap-3">
-          <span className="mono-label !mb-0 opacity-80">{on ? 'Armed' : 'Off'}</span>
-          <Switch
-            checked={on}
-            disabled={setMode.isPending}
-            onCheckedChange={(v) => setMode.mutate({ enabled: v })}
-            className="scale-125"
-          />
-        </label>
-      </div>
-    </section>
+    <NextAction
+      title="Lock production down."
+      tech="guardrails.setSafetyMode · every rule enforced at block on apps labelled swarmy.env=production"
+      actions={<Button className="pointer-coarse:min-h-11" disabled={setMode.isPending} onClick={() => setMode.mutate({ enabled: true })}>Turn on safety mode</Button>}
+    >
+      One switch: every guardrail blocks on production apps, whatever its own level. Everything else keeps its own settings.
+    </NextAction>
+  );
+}
+
+/** The production safety switch. */
+export function SafetyModeCard({ config }: { config: GuardrailsConfigView }): React.JSX.Element {
+  const setMode = useSetMode();
+  const on = config.productionSafetyMode;
+  return (
+    <Section title="Production safety mode" action={<StatusWord tone={on ? 'ok' : 'idle'} word={on ? 'On' : 'Off'} />}>
+      <label className="flex items-start gap-3 text-sm">
+        <QuietSwitch checked={on} disabled={setMode.isPending} onCheckedChange={(v) => setMode.mutate({ enabled: v })} aria-label="Production safety mode" />
+        <span className="text-muted-foreground">When on, every rule below blocks on production apps. Per-rule levels still govern everything else.</span>
+      </label>
+      <Tech>productionSafetyMode · production = the swarmy.env=production label</Tech>
+    </Section>
   );
 }

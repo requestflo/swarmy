@@ -88,7 +88,7 @@ export function ExposureTable({
   return (
     <div className="space-y-6">
       {groupRows(rows).map((group) => (
-        <section key={group.key} className="card-pop overflow-hidden">
+        <section key={group.key} className="calm-card overflow-hidden">
           <header className="border-border flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b px-5 py-3">
             <span className="mono-label !mb-0 flex items-center gap-1.5">
               {group.icon}
@@ -130,14 +130,14 @@ export function ExposureTable({
                         className={cn(
                           'block text-[11px]',
                           row.drift.level === 'violation'
-                            ? 'text-status-offline'
-                            : 'text-status-warning',
+                            ? 'text-tone-bad'
+                            : 'text-tone-warn',
                         )}
                       >
                         Drift: {row.drift.message}.
                       </span>
                     ) : isPublic && !violating && !row.declared ? (
-                      <span className="text-status-warning block text-[11px]">
+                      <span className="text-tone-warn block text-[11px]">
                         Expected? If not, remove the published port / route.
                       </span>
                     ) : null}

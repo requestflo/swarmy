@@ -16,7 +16,7 @@ export function ExposureViolations({
   isLoading: boolean;
 }): React.JSX.Element {
   return (
-    <section className="card-pop overflow-hidden">
+    <section className="calm-card overflow-hidden">
       <header className="border-border flex items-center justify-between border-b px-5 py-3">
         <span className="mono-label !mb-0">Violations</span>
         {violations.length > 0 ? (
@@ -32,7 +32,7 @@ export function ExposureViolations({
         </div>
       ) : violations.length === 0 ? (
         <div className="flex items-start gap-3 px-5 py-4">
-          <ShieldCheckIcon className="text-status-online mt-0.5 size-4 shrink-0" />
+          <ShieldCheckIcon className="text-tone-ok mt-0.5 size-4 shrink-0" />
           <p className="text-muted-foreground text-sm">
             Nothing violates your exposure rules right now.
           </p>
@@ -42,7 +42,7 @@ export function ExposureViolations({
           {violations.map((v) => (
             <div key={`${v.serviceId}:${v.rule}`} className="space-y-1.5 px-5 py-3.5">
               <div className="flex items-start gap-2">
-                <ShieldAlertIcon className="text-status-offline mt-0.5 size-4 shrink-0" />
+                <ShieldAlertIcon className="text-tone-bad mt-0.5 size-4 shrink-0" />
                 <div className="min-w-0">
                   <Link
                     to="/services/$serviceId"

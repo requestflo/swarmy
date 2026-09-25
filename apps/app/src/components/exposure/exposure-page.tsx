@@ -37,25 +37,25 @@ export function ExposureSection(): React.JSX.Element {
         : `${counts.public} public, ${counts.private + counts.managed} sealed.`;
 
   return (
-    <section id="exposure" className="mt-12">
-      <div className="mb-4">
-        <h2 className="font-display text-xl font-bold">What's exposed</h2>
+    <section id="exposure" className="flex flex-col gap-4 pt-4">
+      <div>
+        <h2 className="font-display text-[1.35rem] font-bold tracking-[-0.01em]">What faces the internet</h2>
         <p className="text-muted-foreground mt-1 max-w-2xl text-sm">
           Every service, audited: what faces the internet (domains and published ports), what stays
           private, and what your rules say about it. {summary}
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
+      <div className="grid gap-5 2xl:grid-cols-[1fr_360px]">
         <div className="min-w-0">
           {overview.isLoading ? (
-            <div className="card-pop space-y-3 p-5">
+            <div className="calm-card space-y-3 p-5">
               {[0, 1, 2, 3].map((i) => (
                 <div key={i} className="shimmer-line h-12 rounded-lg" />
               ))}
             </div>
           ) : overview.isError ? (
-            <div className="card-pop p-2">
+            <div className="calm-card p-2">
               <EmptyState
                 icon={<ShieldAlertIcon />}
                 title="Couldn't run the audit"
@@ -68,7 +68,7 @@ export function ExposureSection(): React.JSX.Element {
               />
             </div>
           ) : rows.length === 0 ? (
-            <div className="card-pop p-2">
+            <div className="calm-card p-2">
               <EmptyState
                 icon={<ShieldAlertIcon />}
                 title="Nothing running yet"

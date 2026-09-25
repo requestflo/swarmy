@@ -1,92 +1,54 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { GuardrailRuleView, GuardrailsConfigView, SetGuardrailRuleInput } from '@swarmy/core';
-import {
-  Input,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  StatusBadge,
-  Switch,
-  toast,
-} from '@swarmy/ui';
+import type { GuardrailDecisionView, GuardrailRuleView, GuardrailsConfigView, SetGuardrailRuleInput } from '@swarmy/core';
+import { Input, cn, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { Depth, Section, Tech } from '@/components/calm';
 import { RULE_COPY } from './rule-copy';
+import { RuleLevelSwitch, type RuleLevel } from './rule-level';
+import { ruleHistory } from './rule-history';
 
-function RuleRow({
-  rule,
-  forced,
-  busy,
-  onChange,
-}: {
+function RuleRow({ rule, forced, busy, decisions, onChange }: {
   rule: GuardrailRuleView;
-  /** Safety mode is ON — prod deploys enforce this rule at block regardless. */
   forced: boolean;
   busy: boolean;
+  decisions: GuardrailDecisionView[];
   onChange: (patch: Omit<SetGuardrailRuleInput, 'id'>) => void;
 }): React.JSX.Element {
   const copy = RULE_COPY[rule.id];
+  const level: RuleLevel = rule.enabled ? rule.severity : 'off';
+  const hist = ruleHistory(rule.id, decisions);
   const paramValue = copy.paramKey ? (rule.params[copy.paramKey] ?? 0) : null;
-
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
-      <div className="min-w-0 flex-1 basis-64">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold">{copy.title}</span>
-          {rule.prodOnly ? <StatusBadge tone="neutral" label="prod only" /> : null}
-          {forced ? <StatusBadge tone="progress" label="forced block in prod" /> : null}
-        </div>
-        <p className="text-muted-foreground mt-0.5 text-xs">{copy.description}</p>
+    <div className="border-border flex flex-wrap items-start gap-x-4 gap-y-2 border-b px-1 py-3.5 last:border-b-0">
+      <div className="flex min-w-0 flex-1 basis-64 flex-col gap-0.5">
+        <span className="text-[14.5px] font-semibold">{copy.title}</span>
+        <span className="text-muted-foreground text-[13px]">{copy.description}</span>
+        <span className={cn('text-[12.5px]', hist.stopped ? 'text-tone-ok' : hist.hits ? 'text-tone-warn' : 'text-muted-foreground')}>{hist.line}</span>
+        <Tech>{`${rule.id}${rule.prodOnly ? ' · apps labelled swarmy.env=production only' : ''}${forced ? ' · safety mode forces block in production' : ''}`}</Tech>
       </div>
-
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-3">
         {copy.paramKey && paramValue !== null ? (
-          <label className="flex items-center gap-1.5">
-            <span className="mono-label !mb-0">{copy.paramLabel}</span>
-            <Input
-              type="number"
-              min={0}
-              max={10}
-              value={paramValue}
-              disabled={busy}
-              onChange={(e) => {
+          <Depth at="controls">
+            <label className="flex items-center gap-1.5 text-xs font-semibold">
+              {copy.paramLabel}
+              <Input type="number" min={0} max={10} value={paramValue} disabled={busy} className="h-8 w-16 text-center" onChange={(e) => {
                 const n = Number.parseInt(e.target.value, 10);
                 if (Number.isFinite(n) && n >= 0) onChange({ params: { [copy.paramKey!]: n } });
-              }}
-              className="h-8 w-16 text-center"
-            />
-          </label>
+              }} />
+            </label>
+          </Depth>
         ) : null}
-        <Select
-          value={rule.severity}
-          onValueChange={(v) => onChange({ severity: v as 'block' | 'warn' })}
-          disabled={busy}
-        >
-          <SelectTrigger className="h-8 w-24">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="block">Block</SelectItem>
-            <SelectItem value="warn">Warn</SelectItem>
-          </SelectContent>
-        </Select>
-        <Switch
-          checked={rule.enabled}
-          disabled={busy}
-          onCheckedChange={(v) => onChange({ enabled: v })}
-        />
+        <RuleLevelSwitch label={copy.title} value={level} disabled={busy} onChange={(v) => onChange(v === 'off' ? { enabled: false } : { enabled: true, severity: v })} />
       </div>
     </div>
   );
 }
 
-/** The rules card: every guardrail with toggle, severity and params. */
-export function RulesList({ config }: { config: GuardrailsConfigView }): React.JSX.Element {
+/** Every guardrail as Block · Warn · Off, with what it did in the last 30 days. */
+export function RulesList({ config, decisions }: { config: GuardrailsConfigView; decisions: GuardrailDecisionView[] }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
-
   const setRule = useMutation(
     trpc.guardrails.setRule.mutationOptions({
       onSuccess: () => {
@@ -96,27 +58,12 @@ export function RulesList({ config }: { config: GuardrailsConfigView }): React.J
       onError: (e) => toast.error(e.message),
     }),
   );
-
   return (
-    <section className="card-pop overflow-hidden">
-      <header className="border-border border-b px-5 py-3">
-        <span className="mono-label !mb-0">Rules</span>
-        <p className="text-muted-foreground text-xs">
-          Checked on every deploy. Block = refused (admin override); warn = refused but any member
-          can override. Prod-only rules apply to stacks marked production.
-        </p>
-      </header>
-      <div className="divide-border divide-y">
-        {config.rules.map((rule) => (
-          <RuleRow
-            key={rule.id}
-            rule={rule}
-            forced={config.productionSafetyMode}
-            busy={setRule.isPending}
-            onChange={(patch) => setRule.mutate({ id: rule.id, ...patch })}
-          />
-        ))}
-      </div>
-    </section>
+    <Section title="Guardrails" hint="checked on every deploy, by anyone: people, CI and Terraform alike" flush>
+      <p className="text-muted-foreground pb-1 text-[13px]">Block refuses the deploy (an admin can override). Warn asks, and anyone can push through. Every block and override is on the record.</p>
+      {config.rules.map((rule) => (
+        <RuleRow key={rule.id} rule={rule} forced={config.productionSafetyMode} busy={setRule.isPending} decisions={decisions} onChange={(patch) => setRule.mutate({ id: rule.id, ...patch })} />
+      ))}
+    </Section>
   );
 }
