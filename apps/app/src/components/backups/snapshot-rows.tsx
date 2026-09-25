@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { DatabaseBackupIcon } from 'lucide-react';
-import { EmptyState, StatusBadge } from '@swarmy/ui';
-import { fmtBytes, relativeTime, SNAPSHOT_TONE } from './backup-format';
+import { EmptyState } from '@swarmy/ui';
+import { CalmRow, RowList, type Tone } from '@/components/calm';
+import { fmtBytes, relativeTime } from './backup-format';
 import { RestoreSnapshotConfirm } from './restore-snapshot-confirm';
 import { SnapshotFailureReason } from './snapshot-failure-reason';
 
@@ -22,51 +23,45 @@ interface SnapshotRowsProps {
   emptyDescription: string;
 }
 
-/** Flat snapshot rows with hairline dividers — restore confirms via AlertDialog. */
-export function SnapshotRows({
-  rows,
-  emptyTitle,
-  emptyDescription,
-}: SnapshotRowsProps): React.JSX.Element {
+const STATUS: Record<string, { tone: Tone; word: string }> = {
+  SUCCEEDED: { tone: 'ok', word: 'Saved' },
+  RUNNING: { tone: 'info', word: 'Saving' },
+  FAILED: { tone: 'bad', word: 'Failed' },
+  PRUNED: { tone: 'idle', word: 'Expired' },
+};
+
+function when(iso: string): string {
+  return new Date(iso).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+/** Restore points as flat rows: when, how big, where it's kept, and Restore. */
+export function SnapshotRows({ rows, emptyTitle, emptyDescription }: SnapshotRowsProps): React.JSX.Element {
   if (rows.length === 0) {
-    return (
-      <div className="border-t px-6 py-2">
-        <EmptyState
-          className="border-0"
-          icon={<DatabaseBackupIcon />}
-          title={emptyTitle}
-          description={emptyDescription}
-        />
-      </div>
-    );
+    return <EmptyState className="border-0" icon={<DatabaseBackupIcon />} title={emptyTitle} description={emptyDescription} />;
   }
   return (
-    <div className="divide-border divide-y border-t">
-      {rows.map((snap) => (
-        <div
-          key={snap.id}
-          className="hover:bg-accent/60 flex items-center gap-4 px-6 py-4 transition-colors"
-        >
-          <StatusBadge tone={SNAPSHOT_TONE[snap.status] ?? 'neutral'} label="" />
-          <div className="min-w-0 flex-1">
-            <p className="mono-data truncate font-medium">{snap.volume}</p>
-            <p className="text-muted-foreground mono-label truncate">
-              {snap.status.toLowerCase()} · {snap.targetName || 'unknown destination'} ·{' '}
-              {relativeTime(snap.startedAt)}
-            </p>
-            {snap.status === 'FAILED' ? <SnapshotFailureReason error={snap.error} /> : null}
-          </div>
-          <div className="hidden w-20 text-right sm:block">
-            <p className="mono-data text-sm">{fmtBytes(snap.sizeBytes)}</p>
-            <p className="text-muted-foreground mono-label">size</p>
-          </div>
-          <RestoreSnapshotConfirm
-            snapshotId={snap.id}
-            volume={snap.volume}
-            disabled={snap.status !== 'SUCCEEDED'}
+    <RowList label="Restore points">
+      {rows.map((snap) => {
+        const s = STATUS[snap.status] ?? { tone: 'idle' as Tone, word: snap.status.toLowerCase() };
+        return (
+          <CalmRow
+            key={snap.id}
+            tone={s.tone}
+            name={snap.volume}
+            sub={when(snap.startedAt)}
+            say={
+              snap.status === 'FAILED' ? (
+                <SnapshotFailureReason error={snap.error} />
+              ) : (
+                `${fmtBytes(snap.sizeBytes)} · in ${snap.targetName || 'an unknown destination'} · ${relativeTime(snap.startedAt)}`
+              )
+            }
+            tech={`snapshot ${snap.id.slice(0, 8)}`}
+            word={s.word}
+            trailing={<RestoreSnapshotConfirm snapshotId={snap.id} volume={snap.volume} disabled={snap.status !== 'SUCCEEDED'} />}
           />
-        </div>
-      ))}
-    </div>
+        );
+      })}
+    </RowList>
   );
 }

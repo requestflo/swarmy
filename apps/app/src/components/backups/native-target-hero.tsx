@@ -53,19 +53,19 @@ export function NativeTargetHero({ targets }: NativeTargetHeroProps): React.JSX.
         </div>
       ) : null}
 
-      <div className="ink-block flex flex-wrap items-center justify-between gap-6 rounded-2xl px-6 py-6 sm:px-8">
+      <div className="calm-card flex flex-wrap items-center justify-between gap-6 rounded-2xl px-6 py-6 sm:px-8">
         <div className="flex min-w-0 items-start gap-4">
-          <span className="bg-ink-foreground/10 flex size-11 shrink-0 items-center justify-center rounded-2xl">
+          <span className="bg-muted flex size-11 shrink-0 items-center justify-center rounded-2xl">
             <DatabaseZapIcon className="size-5" />
           </span>
           <div className="min-w-0">
             <h2 className="font-display text-xl font-bold">Use swarmy object storage.</h2>
-            <p className="text-ink-foreground/70 mt-1 max-w-xl text-sm">
+            <p className="text-muted-foreground mt-1 max-w-xl text-sm">
               One click mints a dedicated bucket + key on your replicated Garage store and points
               restic at it over the cluster network. No cloud account, no egress.
             </p>
             {!storeOn && !native ? (
-              <p className="text-ink-foreground/60 mono-label mt-2">
+              <p className="text-muted-foreground mono-label mt-2">
                 Needs the replicated store — enable it below first.
               </p>
             ) : null}
@@ -78,7 +78,6 @@ export function NativeTargetHero({ targets }: NativeTargetHeroProps): React.JSX.
           </div>
         ) : (
           <Button variant="outline"
-            className="rounded-full font-bold shadow-[0_8px_24px_-8px_var(--primary)] transition-transform hover:scale-[1.03]"
             disabled={ensure.isPending || !storeOn}
             onClick={() => ensure.mutate()}
           >

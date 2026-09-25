@@ -62,16 +62,17 @@ export function ScheduleCard(): React.JSX.Element {
         <div className="flex flex-wrap items-end gap-6">
           <div className="flex items-center gap-2 pb-2">
             <Switch
+              id="ctl-backup-enabled"
               checked={enabled}
               onCheckedChange={(v) => setConfig.mutate({ enabled: v })}
               disabled={!canRun}
             />
-            <Label className="mono-label">Enabled</Label>
+            <Label htmlFor="ctl-backup-enabled" className="mono-label">Enabled</Label>
           </div>
           <div className="grid min-w-[14rem] gap-1.5">
-            <Label className="mono-label">Backup target</Label>
+            <Label htmlFor="ctl-backup-target" className="mono-label">Backup target</Label>
             <Select value={targetId} onValueChange={(v) => setConfig.mutate({ targetId: v })}>
-              <SelectTrigger>
+              <SelectTrigger id="ctl-backup-target">
                 <SelectValue placeholder="Pick a target" />
               </SelectTrigger>
               <SelectContent>
