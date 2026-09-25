@@ -30,12 +30,15 @@ export function RollbackConfirm({
   release,
   trigger,
   label,
+  onDone,
 }: {
   release: ReleaseView;
   /** Custom trigger (e.g. the page's coral "Put back v1.8.2"); defaults to a quiet button. */
   trigger?: React.ReactElement;
   /** The version's name in the dialog ("v1.8.2"). */
   label?: string;
+  /** After a successful put-back (the ⌘K preview closes the palette). */
+  onDone?: () => void;
 }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
@@ -49,6 +52,7 @@ export function RollbackConfirm({
         setOpen(false);
         setOverride(false);
         void qc.invalidateQueries();
+        onDone?.();
       },
       onError: (e) => toast.error(e.message),
     }),

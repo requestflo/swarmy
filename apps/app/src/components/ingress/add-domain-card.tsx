@@ -22,14 +22,16 @@ interface AddDomainCardProps {
   stack: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Prefill the host (⌘K "add journal.shop.dev to shop"). */
+  initialHost?: string;
 }
 
 /** Inline expanding "map a domain" card — this stack's services only. */
-export function AddDomainCard({ stack, open, onOpenChange }: AddDomainCardProps): React.JSX.Element {
+export function AddDomainCard({ stack, open, onOpenChange, initialHost }: AddDomainCardProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
   const services = useQuery({ ...trpc.services.list.queryOptions({ stackId: stack }), enabled: open });
-  const [host, setHost] = React.useState('');
+  const [host, setHost] = React.useState(initialHost ?? '');
   const [pathPrefix, setPathPrefix] = React.useState('');
   const [serviceId, setServiceId] = React.useState('');
   const [port, setPort] = React.useState(80);

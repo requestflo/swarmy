@@ -1,163 +1,128 @@
 import * as React from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import {
-  CommandDialog,
-  CommandInput,
-  CommandList,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandSeparator,
-} from '@swarmy/ui';
-import { NODE_STATUS_TONE, SERVICE_STATUS_TONE } from '@swarmy/core';
-import { useTRPC } from '@/integrations/trpc';
-import { useGo } from '@/lib/use-go';
-import { computeStackStats } from '@/components/canvas/stack-aggregates';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator, Dialog, DialogContent, DialogTitle, cn } from '@swarmy/ui';
+import { useApps } from '@/components/apps/use-apps';
+import { parseIntents, type Intent, type IntentWorld } from '@/lib/intents';
 import { useCommandPalette } from './command-palette-provider';
-import { PRIMARY, SECTIONS, QUICK_ACTIONS, NAV_GROUP_ORDER } from '@/lib/destinations';
-import { DEPTHS, DEPTH_LABEL, usePageDepth, useDepthDefault } from '@/components/calm/depth';
+import { IntentPreview } from './intent-preview';
+import { PaletteGroups } from './palette-groups';
 
-const SECTION_ORDER = NAV_GROUP_ORDER;
+/** What the intents can name: apps (with their addresses) and their parts. */
+function useIntentWorld(): IntentWorld {
+  const a = useApps();
+  return React.useMemo(() => {
+    const all = [...a.apps, ...a.platform];
+    return {
+      apps: all.map((x) => ({ name: x.name, hosts: x.hosts })),
+      parts: all.flatMap((x) =>
+        x.stat.services.map((s) => ({ id: s.id, name: s.name.replace(`${x.name}_`, ''), app: x.name, desired: s.replicas.desired })),
+      ),
+    };
+  }, [a.apps, a.platform]);
+}
+
+const key = (i: Intent) => `intent:${i.id}`;
 
 /**
- * ⌘K — "Ask or jump": actions, the seven rows and their pages, live apps /
- * services / servers, and the depth for this page or by default.
+ * ⌘K — "Ask or jump" (the Command board). Plain intents ("undo analytics",
+ * "add a domain to shop") become rows under Do it / Jump to, and the
+ * highlighted one shows in the preview pane: what will happen, its one
+ * button, and the API call behind it. Enter on a Do it row moves to that
+ * button, so nothing runs without a second Enter. Everything else is the
+ * jump list (PaletteGroups).
  */
-export function CommandPalette(): React.JSX.Element {
-  const { open, setOpen } = useCommandPalette();
+function PaletteBody({ close }: { close: () => void }): React.JSX.Element {
   const navigate = useNavigate();
-  const go = useGo();
-  const trpc = useTRPC();
-  const services = useQuery({ ...trpc.services.list.queryOptions(), enabled: open });
-  const nodes = useQuery({ ...trpc.nodes.list.queryOptions(), enabled: open });
-  const page = usePageDepth();
-  const def = useDepthDefault();
-  const inventory = useQuery({ ...trpc.inventory.get.queryOptions(), enabled: open });
-  const stacks = React.useMemo(
-    () => (inventory.data ? computeStackStats(inventory.data).map((s) => s.name) : []),
-    [inventory.data],
-  );
+  const world = useIntentWorld();
+  const [query, setQuery] = React.useState('');
+  const [active, setActive] = React.useState('');
+  const ctaRef = React.useRef<HTMLButtonElement | null>(null);
+  const intents = React.useMemo(() => parseIntents(query, world), [query, world]);
+  const current = intents.find((i) => key(i) === active) ?? intents[0] ?? null;
+  const app = world.apps[0]?.name;
+  const part = world.parts.find((p) => p.app === app)?.name;
+  const examples = app ? [`undo ${app}`, `add a domain to ${app}`, part ? `restart ${part}` : null, `why is ${app} slow`].filter((x): x is string => !!x) : [];
 
-  const close = () => setOpen(false);
-  const goTo = (to: string) => {
+  const goIntent = (i: Intent) => {
+    if (i.action.kind !== 'go') return;
     close();
-    go(to);
+    void navigate({ to: i.action.to, params: i.action.params as never, search: i.action.search as never });
+  };
+  const select = (i: Intent) => {
+    if (i.action.kind === 'go') return goIntent(i);
+    setActive(key(i));
+    requestAnimationFrame(() => ctaRef.current?.focus());
   };
 
   return (
-    <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Ask or jump… an app, a server, a page, or “deploy”" />
-      <CommandList>
-        <CommandEmpty>Nothing matches. Try an app or server name.</CommandEmpty>
-
-        <CommandGroup heading="Actions">
-          {QUICK_ACTIONS.map((a) => (
-            <CommandItem key={a.id} value={`${a.label} ${a.keywords ?? ''}`} onSelect={() => goTo(a.to)}>
-              <a.icon className="text-primary" />
-              {a.label}
-            </CommandItem>
-          ))}
-        </CommandGroup>
-
-        <CommandSeparator />
-
-        <CommandGroup heading="Jump to">
-          {PRIMARY.map((p) => (
-            <CommandItem key={p.to} value={`${p.label} ${p.keywords ?? ''}`} onSelect={() => goTo(p.to)}>
-              <p.icon />
-              {p.label}
-            </CommandItem>
-          ))}
-        </CommandGroup>
-
-        {SECTION_ORDER.map((group) => (
-          <CommandGroup key={group} heading={group}>
-            {SECTIONS.filter((s) => s.group === group).map((s) => (
-              <CommandItem key={s.to} value={`${s.label} ${s.keywords ?? ''}`} onSelect={() => goTo(s.to)}>
-                <s.icon />
-                {s.label}
-              </CommandItem>
+    <Command value={active} onValueChange={setActive} className="[&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2.5">
+      <CommandInput className="pr-8" value={query} onValueChange={setQuery} placeholder="Ask or jump… “undo storefront”, an app, a server, a page" />
+      <div className="text-muted-foreground flex min-h-9 flex-wrap items-center gap-2 border-b px-3 py-1.5 text-[12px]">
+        {current ? (
+          <span className="calm-eyebrow text-primary">Intent · {current.verb}</span>
+        ) : (
+          <>
+            <span className="calm-eyebrow">Try</span>
+            {examples.map((x) => (
+              <button key={x} type="button" onClick={() => setQuery(x)} className="border-border hover:text-foreground hover:border-primary/60 rounded-full border px-2.5 py-0.5 pointer-coarse:min-h-11">
+                {x}
+              </button>
             ))}
-          </CommandGroup>
-        ))}
-
-        {stacks.length > 0 && (
-          <CommandGroup heading="Apps">
-            {stacks.slice(0, 8).map((name) => (
-              <CommandItem
-                key={name}
-                value={`app ${name}`}
-                onSelect={() => {
-                  close();
-                  void navigate({ to: '/stacks/$name', params: { name } });
-                }}
-              >
-                {name}
-              </CommandItem>
-            ))}
-          </CommandGroup>
+          </>
         )}
+      </div>
+      <div className={cn('grid grid-cols-[minmax(0,1fr)]', current && 'md:grid-cols-[minmax(0,1fr)_320px]')}>
+        <CommandList className="max-h-[min(420px,50vh)]">
+          {intents.length ? null : <CommandEmpty>Nothing matches. Try an app or server name, or “undo …”.</CommandEmpty>}
+          {(['Do it', 'Jump to'] as const).map((g) =>
+            intents.some((i) => i.group === g) ? (
+              <CommandGroup key={g} heading={g} forceMount>
+                {intents.filter((i) => i.group === g).map((i) => (
+                  <CommandItem key={i.id} value={key(i)} keywords={[query]} forceMount onSelect={() => select(i)}>
+                    <span aria-hidden className={cn('size-2.5 shrink-0 border-2', g === 'Do it' ? 'border-primary bg-primary rounded-full' : 'border-muted-foreground rounded-[2px]')} />
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate">{i.title}</span>
+                      <span className="text-muted-foreground truncate text-[12px]">{i.sub}</span>
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            ) : null,
+          )}
+          {intents.length ? <CommandSeparator /> : null}
+          <PaletteGroups apps={world.apps.map((a) => a.name)} close={close} />
+        </CommandList>
+        {current ? (
+          // Enter/Space on the preview's button is the button's own, not cmdk's "select the row".
+          // eslint-disable-next-line jsx-a11y/no-static-element-interactions
+          <div
+            className="border-border bg-surface-2/40 min-w-0 border-t md:border-t-0 md:border-l"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
+            }}
+          >
+            <IntentPreview key={current.id} intent={current} ctaRef={ctaRef} onGo={goIntent} onDone={close} />
+          </div>
+        ) : null}
+      </div>
+      <div className="text-muted-foreground hidden gap-4 border-t px-3 py-2 font-mono text-[11px] sm:flex">
+        <span>↑↓ move</span>
+        <span>↵ preview, then ↵ to run</span>
+        <span>esc close</span>
+        <span className="ml-auto">every action is checked against your role and logged</span>
+      </div>
+    </Command>
+  );
+}
 
-        {(services.data?.length ?? 0) > 0 && (
-          <CommandGroup heading="Services">
-            {services.data?.slice(0, 8).map((svc) => (
-              <CommandItem
-                key={svc.id}
-                value={`service ${svc.name} ${svc.image}`}
-                onSelect={() => {
-                  close();
-                  void navigate({ to: '/services/$serviceId', params: { serviceId: svc.id } });
-                }}
-              >
-                <span
-                  className="size-2 rounded-full bg-current"
-                  style={{ color: `var(--status-${SERVICE_STATUS_TONE[svc.status] ?? 'idle'})` }}
-                />
-                {svc.name}
-                <span className="text-muted-foreground ml-auto truncate font-mono text-xs">{svc.image}</span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        )}
-
-        {(nodes.data?.length ?? 0) > 0 && (
-          <CommandGroup heading="Servers">
-            {nodes.data?.slice(0, 8).map((node) => (
-              <CommandItem
-                key={node.id}
-                value={`server node ${node.name} ${node.hostname}`}
-                onSelect={() => {
-                  close();
-                  void navigate({ to: '/nodes/$nodeId', params: { nodeId: node.id } });
-                }}
-              >
-                <span
-                  className="size-2 rounded-full bg-current"
-                  style={{ color: `var(--status-${NODE_STATUS_TONE[node.status] ?? 'idle'})` }}
-                />
-                {node.name}
-                <span className="text-muted-foreground ml-auto truncate text-xs">{node.hostname}</span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        )}
-        <CommandSeparator />
-        <CommandGroup heading="Show me">
-          {DEPTHS.map((d) => (
-            <CommandItem key={`page-${d}`} value={`show ${d} depth this page detail`} onSelect={() => { page.setDepth(d); close(); }}>
-              {DEPTH_LABEL[d]} on this page
-              {page.depth === d ? <span className="text-muted-foreground ml-auto text-xs">now</span> : null}
-            </CommandItem>
-          ))}
-          {DEPTHS.map((d) => (
-            <CommandItem key={`default-${d}`} value={`default ${d} depth always`} onSelect={() => { def.set(d); close(); }}>
-              {DEPTH_LABEL[d]} by default
-              {def.value === d ? <span className="text-muted-foreground ml-auto text-xs">your default</span> : null}
-            </CommandItem>
-          ))}
-        </CommandGroup>
-      </CommandList>
-    </CommandDialog>
+export function CommandPalette(): React.JSX.Element {
+  const { open, setOpen } = useCommandPalette();
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-w-[min(56rem,calc(100vw-2rem))] grid-cols-[minmax(0,1fr)] gap-0 overflow-hidden p-0">
+        <DialogTitle className="sr-only">Ask or jump</DialogTitle>
+        {open ? <PaletteBody close={() => setOpen(false)} /> : null}
+      </DialogContent>
+    </Dialog>
   );
 }

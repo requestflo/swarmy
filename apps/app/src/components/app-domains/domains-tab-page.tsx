@@ -17,9 +17,9 @@ import { domainWords, domainsHeadline } from './domain-words';
  * the one action. Controls opens each row's protection editor (the ingress
  * components) and the geo-DNS status; Code is swarmy.yaml `domains:` + REST.
  */
-export function DomainsTabPage({ stack }: { stack: string }): React.JSX.Element {
+export function DomainsTabPage({ stack, add }: { stack: string; add?: string }): React.JSX.Element {
   const trpc = useTRPC();
-  const [adding, setAdding] = React.useState(false);
+  const [adding, setAdding] = React.useState(add !== undefined);
   const q = useQuery({ ...trpc.ingress.listDomains.queryOptions({ stack }), refetchInterval: 5000 });
   if (q.isPending) return <PageSkeleton className="px-0 pt-0 xl:px-0" />;
   const rows = (q.data ?? []) as StackDomain[];
@@ -41,7 +41,7 @@ export function DomainsTabPage({ stack }: { stack: string }): React.JSX.Element 
           </Button>
         }
       />
-      <AddDomainCard stack={stack} open={adding} onOpenChange={setAdding} />
+      <AddDomainCard stack={stack} open={adding} onOpenChange={setAdding} initialHost={add} />
       <DomainsCode stack={stack} rows={rows} />
       <Depth only="summary">
         {rows.length > 0 ? (
