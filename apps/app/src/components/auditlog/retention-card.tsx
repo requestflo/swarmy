@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Input, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { Depth, Section, Tech } from '@/components/calm';
 
 /** How long audit rows live before the hourly retention worker prunes them. */
 export function RetentionCard(): React.JSX.Element {
@@ -28,17 +29,20 @@ export function RetentionCard(): React.JSX.Element {
   const dirty = draft !== null && parsed !== current;
 
   return (
-    <div className="card-pop p-5">
-      <h3 className="font-display text-base font-bold">Retention</h3>
-      <p className="text-muted-foreground mt-1 text-sm">
-        Entries older than this are pruned automatically. Compliance regimes usually want
-        1–7 years.
-      </p>
+    <Section title="How long it’s kept">
+      {retention.data ? (
+        <p className="text-muted-foreground text-sm">
+          Kept for <b className="text-foreground">{current} days</b>, then pruned automatically. Compliance regimes usually want 1–7 years.
+        </p>
+      ) : (
+        <div aria-hidden className="shimmer-line h-5 w-2/3 rounded" />
+      )}
+      <Depth at="controls">
       {retention.isLoading ? (
-        <div className="shimmer-line mt-4 h-9 rounded-lg" />
+        <div className="shimmer-line h-9 rounded-lg" />
       ) : (
         <form
-          className="mt-4 flex items-center gap-2"
+          className="flex items-center gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             if (valid && dirty) save.mutate({ days: parsed });
@@ -60,10 +64,12 @@ export function RetentionCard(): React.JSX.Element {
         </form>
       )}
       {!valid ? (
-        <p className="text-status-warning mt-2 text-xs">Pick between 7 and 3650 days.</p>
+        <p className="text-tone-warn text-xs">Pick between 7 and 3650 days.</p>
       ) : retention.data?.isDefault ? (
-        <p className="text-muted-foreground mt-2 text-xs">Using the default — 365 days.</p>
+        <p className="text-muted-foreground text-xs">Using the default: 365 days.</p>
       ) : null}
-    </div>
+      </Depth>
+      <Tech>audit.setRetention · pruned hourly by the retention worker · 7–3650 days</Tech>
+    </Section>
   );
 }

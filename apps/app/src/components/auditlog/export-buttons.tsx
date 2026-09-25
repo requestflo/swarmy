@@ -34,20 +34,20 @@ export function ExportButtons({ filters }: { filters: AuditFilterInput }): React
   return (
     <div className="flex items-center gap-2">
       <Button
-        size="sm"
+        className="pointer-coarse:min-h-11"
         disabled={exportLog.isPending}
         onClick={() => exportLog.mutate({ ...filters, format: 'csv' })}
       >
         <DownloadIcon className="size-4" />
-        {exportLog.isPending ? 'Exporting…' : 'Export CSV'}
+        {exportLog.isPending ? 'Exporting…' : 'Export for the auditors'}
       </Button>
       <Button
-        size="sm"
-        variant="outline"
+        variant="ghost"
+        className="pointer-coarse:min-h-11"
         disabled={exportLog.isPending}
         onClick={() => exportLog.mutate({ ...filters, format: 'json' })}
       >
-        Export JSON
+        As JSON
       </Button>
     </div>
   );

@@ -1,10 +1,11 @@
 import * as React from 'react';
-import { ScrollTextIcon } from 'lucide-react';
-import { Button, EmptyState } from '@swarmy/ui';
+import { Button } from '@swarmy/ui';
 import type { AuditEntryView } from '@swarmy/core';
+import { Section } from '@/components/calm';
+import { ErrorState, SkeletonBody } from '@/components/states';
 import { AuditRow } from './audit-row';
 
-/** The timeline: flat rows in one card, hairline-divided, each expanding inline. */
+/** The trail: one quiet section, hairline rows, each opening its full record inline. */
 export function AuditTable({
   entries,
   isLoading,
@@ -14,6 +15,7 @@ export function AuditTable({
   isFetchingNextPage,
   onLoadMore,
   onRetry,
+  toolbar,
 }: {
   entries: AuditEntryView[];
   isLoading: boolean;
@@ -23,61 +25,28 @@ export function AuditTable({
   isFetchingNextPage: boolean;
   onLoadMore: () => void;
   onRetry: () => void;
+  toolbar?: React.ReactNode;
 }): React.JSX.Element {
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
-
-  if (isLoading) {
-    return (
-      <div className="card-pop space-y-3 p-4">
-        {[0, 1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="shimmer-line h-10 rounded-lg" />
-        ))}
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="card-pop p-6 text-center">
-        <p className="text-status-offline text-sm font-medium">
-          Couldn't load the audit log{errorMessage ? ` — ${errorMessage}` : ''}.
-        </p>
-        <Button variant="outline" size="sm" className="mt-3" onClick={onRetry}>
-          Retry
-        </Button>
-      </div>
-    );
-  }
-
-  if (entries.length === 0) {
-    return (
-      <div className="card-pop p-2">
-        <EmptyState
-          icon={<ScrollTextIcon />}
-          title="Nothing matches these filters"
-          description="Every mutation in the org is recorded here the moment it happens — clear a filter or widen the date range."
-        />
-      </div>
-    );
-  }
-
+  if (isLoading) return <SkeletonBody variant="list" />;
+  if (isError) return <ErrorState title="Couldn’t load the audit log." error={errorMessage} retry={onRetry} />;
   return (
-    <div className="card-pop divide-border divide-y overflow-hidden">
-      {entries.map((e) => (
-        <AuditRow
-          key={e.id}
-          entry={e}
-          expanded={expandedId === e.id}
-          onToggle={() => setExpandedId((id) => (id === e.id ? null : e.id))}
-        />
-      ))}
+    <Section title="Who did what" count={`${entries.length}${hasNextPage ? '+' : ''} entries`} hint="newest first" flush>
+      {toolbar ? <div className="flex flex-col gap-3 pb-3">{toolbar}</div> : null}
+      {entries.length === 0 ? (
+        <p className="text-muted-foreground py-6 text-sm">Nothing matches. Clear a filter or widen the dates; every change is recorded the moment it happens.</p>
+      ) : (
+        entries.map((e) => (
+          <AuditRow key={e.id} entry={e} expanded={expandedId === e.id} onToggle={() => setExpandedId((id) => (id === e.id ? null : e.id))} />
+        ))
+      )}
       {hasNextPage ? (
-        <div className="flex justify-center p-3">
-          <Button variant="outline" size="sm" disabled={isFetchingNextPage} onClick={onLoadMore}>
-            {isFetchingNextPage ? 'Loading…' : 'Load older entries'}
+        <div className="flex justify-center py-3">
+          <Button variant="ghost" size="sm" disabled={isFetchingNextPage} onClick={onLoadMore} className="pointer-coarse:min-h-11">
+            {isFetchingNextPage ? 'Loading…' : 'Show older'}
           </Button>
         </div>
       ) : null}
-    </div>
+    </Section>
   );
 }

@@ -19,12 +19,13 @@ export function CannedChips({
             key={q.key}
             type="button"
             title={q.hint}
+            aria-pressed={isActive}
             onClick={() => onPick(isActive ? null : q.key)}
             className={cn(
-              'rounded-full border px-3.5 py-1.5 text-xs font-bold transition-colors',
+              'rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors pointer-coarse:min-h-11',
               isActive
-                ? 'border-primary bg-primary text-primary-foreground'
-                : 'border-border bg-card text-foreground hover:bg-accent',
+                ? 'border-foreground/40 bg-surface-2 text-foreground dark:bg-accent'
+                : 'border-border text-muted-foreground hover:text-foreground',
             )}
           >
             {q.label}
