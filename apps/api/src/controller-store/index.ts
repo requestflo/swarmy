@@ -16,10 +16,25 @@ export function leaseManagers(ownHostname: string): string[] {
   return online.sort((a, b) => Number(store.nodeHostname.get(b) === ownHostname) - Number(store.nodeHostname.get(a) === ownHostname));
 }
 
+/**
+ * Manager nodes in the swarm (online or not), from the node lists the manager
+ * agents report; null until one has reported. PURE over those lists.
+ */
+export function swarmManagerCount(lists: Iterable<ReadonlyArray<{ swarmNodeId: string; role: string }>>): number | null {
+  const ids = new Set<string>();
+  let seen = false;
+  for (const list of lists) {
+    seen = true;
+    for (const n of list) if (n.role === 'manager') ids.add(n.swarmNodeId);
+  }
+  return seen && ids.size > 0 ? ids.size : null;
+}
+
 export function startControllerStore(startWorkers: () => () => void): ControllerStore {
   const self = controllerIdentity();
   const cs = new ControllerStore({
     managers: () => leaseManagers(self.hostname),
+    managerCount: () => swarmManagerCount([...store.swarmNodes.values(), ...store.lastKnownSwarmNodes.values()]),
     dispatch: (nodeId, payload, timeoutMs) =>
       hub.dispatch<ControllerServiceResult>(nodeId, 'controller.service', payload, { timeoutMs }),
     pragma: async (sql) => {

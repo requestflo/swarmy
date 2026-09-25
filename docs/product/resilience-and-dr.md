@@ -163,9 +163,14 @@ Four ideas, one story:
   service's labels and renews it every 10 s. Each renewal is a version-checked
   `service update` through a manager agent, so it is an atomic compare-and-swap
   that needs raft quorum. A challenger takes over only after it has watched the
-  same lease write sit unchanged for 30 s on its own clock (no clock
-  comparison). The holder stops writing earlier than that: 22 s after its last
-  successful renewal it kills Litestream WITHOUT a final sync and exits. Every
+  same lease write sit unchanged for the holder's TTL (60 s) on its own clock
+  (no clock comparison). The holder stops writing earlier than that: 52 s after
+  its last confirmed renewal it kills Litestream WITHOUT a final sync and exits.
+  A renewal with no answer (a manager agent's link blipping) is retried every
+  2 s through every online manager and never counts as a loss; only a lease that
+  names ANOTHER holder does, and a CAS race on a lease that is still ours is a
+  plain retry. On a single-manager swarm no second controller can run while this
+  one holds the task, so silence alone never fences there. Every
   takeover bumps the epoch, and a superseded holder can't renew. Workers and
   Litestream start only while the lease is held. Before it replicates, a new
   holder checks that the replica is exactly what it restored: the same writer
@@ -174,7 +179,7 @@ Four ideas, one story:
   that dies loses at most the writes of that last second (the e2e measures
   0–1 s). A clean move or stop (SIGTERM, drain, "Move controller to…") ships the
   tail first and loses nothing. When the old node dies, a failover takes about
-  40 s: Swarm reschedules, then the new controller waits out the 30 s lease.
+  70 s: Swarm reschedules, then the new controller waits out the 60 s lease.
   After a clean stop the new controller takes the lease at once. Without a
   replica, the loss window is everything since the last controller bundle.
 - **The controller can back up its own brain.** A single encrypted bundle —
@@ -221,8 +226,8 @@ Four ideas, one story:
 |---|---|
 | A backup target is down when a scheduled backup fires | The `Snapshot` row is marked `FAILED` with the error; the schedule's `nextRunAt` still advances; backup recency turns the Resilience score red until a good run lands. |
 | Node holding a `local` volume dies | Past the grace window, `dr-reconcile` restores the volume's latest snapshot (by `Snapshot.hostNodeId`) onto a healthy manager and writes a `RestoreOperation` — recovery to the last backup, not zero-RPO. |
-| The controller's node dies (replicated store) | Swarm starts the controller on another manager. Its empty volume is restored from the replica before the DB opens, it takes the lease once the old one has been silent for 30 s, and agents re-adopt. Up to about 1 s of writes is lost. |
-| The controller is partitioned from the managers | It can't renew (no raft quorum on its side), so it stops writing and exits within 22 s, without a final sync. The majority side's new controller can take over only after 30 s. If the old side still shipped after the new one's restore, the new one's pre-replication check sees it and restores again. No two lineages are ever interleaved. |
+| The controller's node dies (replicated store) | Swarm starts the controller on another manager. Its empty volume is restored from the replica before the DB opens, it takes the lease once the old one has been silent for 60 s, and agents re-adopt. Up to about 1 s of writes is lost. |
+| The controller is partitioned from the managers | It can't renew (no raft quorum on its side), so it stops writing and exits within 52 s, without a final sync. The majority side's new controller can take over only after 60 s. If the old side still shipped after the new one's restore, the new one's pre-replication check sees it and restores again. No two lineages are ever interleaved. |
 | The replica (Garage) is down at boot | With a local file: keep it, start without replicating, and retry the check every 15 s. With an empty volume: exit and let Swarm retry. Never start empty. |
 | Controller (the brain) is lost entirely | Stand up a new controller, stop the controller and run the standalone `restore` entrypoint with the target coords + user-held passphrase; it puts the snapshot in place as `control.db` (the old file kept as `control.db.pre-restore-<ts>`), applies newer migrations, and the agents re-adopt via their hashed session secrets. Disaster recovery uses the CLI (the dashboard is down); in-place rollback uses the UI. |
 | Restore passphrase is lost | The controller-state bundle is unreadable — by design (zero-knowledge). swarmy cannot recover it; the setup flow gates on "I've stored it" for exactly this reason. |

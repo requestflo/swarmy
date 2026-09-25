@@ -201,6 +201,23 @@ export function decideLeaseWrite(
   }
 }
 
+/**
+ * After losing the version-checked write race, why? The service spec changed
+ * under us, but ANY write bumps the version (another label, a placement
+ * change, our own earlier renewal that we saw time out). Only a lease now held
+ * by someone else, or at another epoch, is `lost`. Still ours is a plain
+ * `conflict` the holder retries: reporting it as `lost` fenced healthy
+ * controllers ("lease lost to epoch 6", said by the epoch-6 holder). PURE.
+ */
+export function casLossReason(
+  op: { kind: 'lease.acquire' | 'lease.renew' | 'lease.release'; holder: string; epoch?: number },
+  current: ControllerLeaseRecord | null,
+): 'lost' | 'conflict' {
+  if (op.kind !== 'lease.renew') return 'conflict';
+  const ours = !!current && !current.released && current.holder === op.holder && current.epoch === op.epoch;
+  return ours ? 'conflict' : 'lost';
+}
+
 export interface ControllerServiceResult {
   ok: boolean;
   /** The live lease after the op (or the one that blocked it). */

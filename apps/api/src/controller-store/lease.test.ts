@@ -2,8 +2,11 @@ import { describe, expect, it } from 'bun:test';
 import { decideLeaseWrite, type ControllerLeaseRecord } from '@swarmy/core/protocol';
 import {
   LEASE_FENCE_MARGIN_MS,
+  LEASE_RENEW_EVERY_MS,
   LEASE_TTL_MS,
   fenceDeadline,
+  fenceOnSilence,
+  renewalVerdict,
   minEpoch,
   mustFence,
   observe,
@@ -152,5 +155,44 @@ describe('epoch fencing on the agent (decideLeaseWrite)', () => {
     // After B's write lands, C's identical request sees B's record, not the stale one.
     const c = decideLeaseWrite(b.next, acquire({ holder: 'task-c', node: 'node-c', expect: stale }), 11);
     expect(c.result).toMatchObject({ ok: false, reason: 'held' });
+  });
+});
+
+describe('renewal resilience (QA-022)', () => {
+  const me = { holder: 'task-a', node: 'node-a' };
+  const mine = { holder: 'task-a', node: 'node-a', epoch: 6, renewedAt: 1, ttlMs: 60_000 };
+
+  it('only positive evidence of another holder is a loss', () => {
+    expect(renewalVerdict(null, me)).toEqual({ kind: 'unknown' });
+    expect(renewalVerdict({ ok: true, lease: mine }, me)).toEqual({ kind: 'held', lease: mine });
+    // A CAS race or a stale 'lost' that still names US is never a loss.
+    expect(renewalVerdict({ ok: false, lease: mine, reason: 'conflict' }, me)).toEqual({ kind: 'unknown' });
+    expect(renewalVerdict({ ok: false, lease: mine, reason: 'lost' }, me)).toEqual({ kind: 'unknown' });
+    // Our own write at a newer epoch (a timed-out call that landed) is ours.
+    expect(renewalVerdict({ ok: true, lease: { ...mine, epoch: 7 } }, me).kind).toBe('held');
+    const other = { ...mine, holder: 'task-b', epoch: 7 };
+    expect(renewalVerdict({ ok: false, lease: other, reason: 'lost' }, me)).toEqual({ kind: 'lost', lease: other });
+    expect(renewalVerdict({ ok: false, lease: null, reason: 'lost' }, me)).toEqual({ kind: 'free', lease: null });
+    expect(renewalVerdict({ ok: false, lease: { ...mine, released: true }, reason: 'lost' }, me).kind).toBe('free');
+  });
+
+  it('a 20-25 s link blip no longer fences (it used to at 22 s)', () => {
+    expect(fenceOnSilence(25_000, 0, 3)).toBe(false);
+    expect(fenceOnSilence(LEASE_TTL_MS - LEASE_FENCE_MARGIN_MS, 0, 3)).toBe(true);
+    expect(LEASE_TTL_MS - LEASE_FENCE_MARGIN_MS).toBeGreaterThanOrEqual(50_000);
+    expect(LEASE_TTL_MS / LEASE_RENEW_EVERY_MS).toBeGreaterThanOrEqual(6);
+  });
+
+  it('single-manager swarm: silence alone never fences (no second controller can exist)', () => {
+    expect(fenceOnSilence(10 * 60_000, 0, 1)).toBe(false);
+    expect(fenceOnSilence(10 * 60_000, 0, null)).toBe(true); // unknown → conservative
+  });
+});
+
+describe('swarmManagerCount', () => {
+  it('dedupes managers across the agents that report them', async () => {
+    const { swarmManagerCount } = await import('./index');
+    expect(swarmManagerCount([])).toBeNull();
+    expect(swarmManagerCount([[{ swarmNodeId: 'a', role: 'manager' }, { swarmNodeId: 'w', role: 'worker' }], [{ swarmNodeId: 'a', role: 'manager' }]])).toBe(1);
   });
 });

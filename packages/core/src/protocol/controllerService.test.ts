@@ -53,3 +53,16 @@ describe('lease label', () => {
     expect(isControllerPlacementConstraint('node.labels.x == y')).toBe(false);
   });
 });
+
+describe('casLossReason (QA-022)', () => {
+  it('a lost CAS on a lease that is still ours is a conflict, not a loss', async () => {
+    const { casLossReason } = await import('./controllerService');
+    const renew = { kind: 'lease.renew', holder: 't', epoch: 6 } as const;
+    const lease = { holder: 't', node: 'n', epoch: 6, renewedAt: 1, ttlMs: 60_000 };
+    expect(casLossReason(renew, lease)).toBe('conflict');
+    expect(casLossReason(renew, { ...lease, holder: 'u' })).toBe('lost');
+    expect(casLossReason(renew, { ...lease, epoch: 7 })).toBe('lost');
+    expect(casLossReason(renew, null)).toBe('lost');
+    expect(casLossReason({ kind: 'lease.acquire', holder: 't' }, lease)).toBe('conflict');
+  });
+});

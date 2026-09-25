@@ -15,6 +15,7 @@ import {
   CONTROLLER_FLOATING_CONSTRAINT,
   CONTROLLER_LEASE_LABEL,
   CONTROLLER_STORE_SECRET_TARGET,
+  casLossReason,
   decideLeaseWrite,
   isControllerPlacementConstraint,
   parseLeaseLabel,
@@ -110,7 +111,7 @@ export async function applyControllerService(
       // Lost the CAS race: report the label as it is now.
       const again = (await svc.inspect()) as { Spec: ServiceSpecLike };
       const current = parseLeaseLabel(again.Spec.Labels?.[CONTROLLER_LEASE_LABEL]);
-      return { ok: false, lease: current, reason: op.kind === 'lease.renew' ? 'lost' : 'conflict' };
+      return { ok: false, lease: current, reason: casLossReason(op, current) };
     }
     case 'configure': {
       const tt = { ...(spec.TaskTemplate ?? {}) };

@@ -19,13 +19,13 @@ import type { ControllerLeaseRecord, ControllerServiceOp, ControllerServiceResul
 import { controllerIdentity, litestreamBin, loadControlStoreConfig, storePaths, type ControlStoreConfig, type ControllerIdentity, type StorePaths } from './config';
 import { readBootReport, type BootReport } from './boot';
 import {
-  LEASE_FENCE_MARGIN_MS,
   LEASE_RENEW_EVERY_MS,
+  LEASE_RETRY_MS,
   LEASE_TTL_MS,
+  fenceOnSilence,
   minEpoch,
-  mustFence,
   observe,
-  stillHeld,
+  renewalVerdict,
   takeoverDecision,
   type LeaseObservation,
 } from './lease';
@@ -36,6 +36,8 @@ import { replicationPrecheck, type WriterMarker } from './restore-select';
 export interface StoreDeps {
   /** Online manager node ids, the preferred one (our own node) first. */
   managers(): string[];
+  /** Manager nodes in the swarm (online or not), or null when unknown. */
+  managerCount?(): number | null;
   dispatch(nodeId: string, payload: { service: string; op: ControllerServiceOp }, timeoutMs: number): Promise<ControllerServiceResult>;
   /** Run a PRAGMA on the app's one SQLite connection. */
   pragma(sql: string): Promise<void>;
@@ -227,11 +229,18 @@ export class ControllerStore {
   // ── leader ───────────────────────────────────────────────────────────────
 
   private renewing = false;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private silenceWarned = false;
   private async renewTick(): Promise<void> {
     if (this.role !== 'leader' || this.renewing || this.epoch == null) return;
     this.renewing = true;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    const self = { holder: this.id.taskId, node: this.id.nodeId };
     try {
-      for (const node of this.deps.managers().slice(0, 2)) {
+      // Every online manager, own node first: one agent's link blip must not
+      // cost the renewal while another manager can carry it.
+      for (const node of this.deps.managers()) {
         const sentAt = performance.now();
         const res = await this.call(node, {
           kind: 'lease.renew',
@@ -241,27 +250,68 @@ export class ControllerStore {
           ttlMs: LEASE_TTL_MS,
           epoch: this.epoch,
         });
-        if (!res) continue; // unreachable: try the next manager, the watchdog keeps time
-        if (stillHeld(res, { holder: this.id.taskId, node: this.id.nodeId }, this.epoch)) {
-          this.lastOkSentAt = sentAt;
-          this.lease = res.lease;
+        const v = renewalVerdict(res, self);
+        if (v.kind === 'held') {
+          this.confirmed(sentAt, v.lease);
           return;
         }
-        if (res.reason === 'lost' || (res.ok && !stillHeld(res, { holder: this.id.taskId, node: this.id.nodeId }, this.epoch))) {
-          this.fence(`lease lost to ${res.lease ? `epoch ${res.lease.epoch} on ${res.lease.hostname ?? res.lease.node}` : 'nobody (label removed)'}`);
+        if (v.kind === 'lost') {
+          this.fence(`lease lost to epoch ${v.lease.epoch} on ${v.lease.hostname ?? v.lease.node} (task ${v.lease.holder})`);
           return;
         }
-        // 'conflict' (a CAS race): next tick retries against the fresh version.
+        if (v.kind === 'free') {
+          // Label removed / released under us, and no other holder: take it back.
+          const again = await this.call(node, {
+            kind: 'lease.acquire',
+            holder: this.id.taskId,
+            node: this.id.nodeId,
+            hostname: this.id.hostname,
+            ttlMs: LEASE_TTL_MS,
+            expect: v.lease,
+            minEpoch: this.epoch,
+          });
+          const w = renewalVerdict(again, self);
+          if (w.kind === 'held') {
+            this.deps.log(`controller store: lease re-acquired (epoch ${w.lease.epoch}) after it went missing`);
+            this.confirmed(sentAt, w.lease);
+            return;
+          }
+          if (w.kind === 'lost') {
+            this.fence(`lease taken by epoch ${w.lease.epoch} on ${w.lease.hostname ?? w.lease.node} (task ${w.lease.holder})`);
+            return;
+          }
+        }
+        // unknown: no answer or a CAS race on our own lease — try the next manager.
       }
+      // Nothing confirmed: retry soon instead of waiting a whole interval.
+      this.retryTimer = setTimeout(() => void this.renewTick(), LEASE_RETRY_MS);
     } finally {
       this.renewing = false;
     }
   }
 
+  private confirmed(sentAt: number, lease: ControllerLeaseRecord): void {
+    this.lastOkSentAt = sentAt;
+    this.lease = lease;
+    // Our own write at a newer epoch (a timed-out call that landed) is still ours.
+    if (this.epoch == null || lease.epoch > this.epoch) this.epoch = lease.epoch;
+    if (this.silenceWarned) this.deps.log('controller store: lease renewals confirmed again');
+    this.silenceWarned = false;
+  }
+
   private watchdog(): void {
     if (this.role !== 'leader') return;
-    if (mustFence(performance.now(), this.lastOkSentAt, LEASE_TTL_MS, LEASE_FENCE_MARGIN_MS)) {
-      this.fence(`no successful renewal for ${Math.round((performance.now() - this.lastOkSentAt) / 1000)}s`);
+    const now = performance.now();
+    const managers = this.deps.managerCount?.() ?? null;
+    if (fenceOnSilence(now, this.lastOkSentAt, managers)) {
+      this.fence(`no successful renewal for ${Math.round((now - this.lastOkSentAt) / 1000)}s`);
+      return;
+    }
+    if (managers === 1 && !this.silenceWarned && now - this.lastOkSentAt > LEASE_TTL_MS) {
+      this.silenceWarned = true;
+      this.deps.log(
+        `controller store: no confirmed lease renewal for ${Math.round((now - this.lastOkSentAt) / 1000)}s; single-manager swarm, so no other controller can run. Still writing and retrying.`,
+      );
     }
   }
 
@@ -281,6 +331,7 @@ export class ControllerStore {
     const wasLeader = this.role === 'leader';
     this.role = 'stopping';
     for (const t of this.timers) clearInterval(t);
+    if (this.retryTimer) clearTimeout(this.retryTimer);
     try {
       this.stopWorkers?.();
     } catch {
