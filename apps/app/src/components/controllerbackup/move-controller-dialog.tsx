@@ -68,7 +68,9 @@ export function MoveControllerDialog({ managers, disabled, disabledReason }: Mov
           <AlertDialogDescription>
             The controller ships its last writes, stops, and starts on the node you pick, which restores
             the store from the replica. Expect about 30 seconds without the dashboard. Your apps keep
-            running. If you reach the dashboard at a node&apos;s IP address, reconnect at the new node.
+            running. The https dashboard address follows the controller. A direct{' '}
+            <span className="mono-data">http://&lt;ip&gt;:3021</span> address does not: it answers only on the
+            node running the controller, so after the move use the new node&apos;s IP, or better, the https address.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <Select value={target} onValueChange={setTarget}>

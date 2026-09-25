@@ -44,8 +44,14 @@ curl -fsSL https://raw.githubusercontent.com/requestflo/swarmy/main/scripts/inst
 
 It installs Docker, initialises a one-node swarm, deploys the controller (it
 serves the dashboard too), and enrols the machine as node #1. At the end it
-prints the dashboard URL (`http://<host-ip>:3021`), your login (plus the
-password, if it generated one), and an **Add a node** one-liner. Re-running it
+prints the dashboard URL, your login (plus the password, if it generated one),
+and an **Add a node** one-liner. On a public box the dashboard URL is
+`https://swarmy.<ip-with-dashes>.sslip.io` (or your `--domain`), served by
+swarmy's edge. Use that one: it keeps working when the controller moves to
+another manager. The direct `http://<host-ip>:3021` address is node-local. It
+answers only on the server running the controller (the port is published in
+host mode so sign-in rate limits see real client IPs), and it changes if the
+controller moves. Re-running it
 is safe: it converges instead of duplicating.
 
 Useful flags (pass them after `bash -s --` when piping; `bash scripts/install-swarmy.sh --help`

@@ -213,6 +213,14 @@ host_addresses() {
     | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && !/^(127\.|169\.254\.|0\.)/ && !seen[$0]++ { printf "%s%s", sep, $0; sep = " " } END { if (sep) print "" }'
 }
 
+# direct_url_note → why the http://<ip>:<port> login is node-local. The
+# controller publishes its port in HOST mode (no routing mesh: the auth rate
+# limits need the real client IP), so it answers only on the server the
+# controller runs on, and the address changes when the controller moves.
+direct_url_note() {
+  printf 'node-local: answers only on the server running the controller, and changes if the controller moves'
+}
+
 # ── state helpers ───────────────────────────────────────────────────────────
 # shellcheck source=/dev/null
 state_load() { [ -f "$STATE_FILE" ] && . "$STATE_FILE" || true; }
@@ -1425,12 +1433,16 @@ finalize() {
   ok "swarmy is up."
   printf '\n'
   if [ -n "$DASHBOARD_DOMAIN" ]; then
+    # The https address is THE login: it goes through the edge, so it keeps
+    # working when the controller moves to another manager (QA-044).
     printf '  Dashboard:  https://%s\n' "$DASHBOARD_DOMAIN"
     if [ "$HTTPS_READY" != 1 ]; then
       printf '              %s\n' "${c_dim}(certificate issues in ~1 min; until then ${LOGIN_URL} works)${c_reset}"
     fi
+    printf '  Direct:     %s  %s\n' "$LOGIN_URL" "${c_dim}($(direct_url_note))${c_reset}"
   else
     printf '  Dashboard:  %s\n' "${LOGIN_URL:-$PUBLIC_URL}"
+    printf '              %s\n' "${c_dim}($(direct_url_note); add --domain for an address that follows it)${c_reset}"
   fi
   printf '  Login:      %s\n' "$ADMIN_EMAIL"
   if [ "${GENERATED_PW:-0}" = 1 ]; then printf '  Password:   %s   %s\n' "$ADMIN_PASSWORD" "${c_yellow}(generated — save it now)${c_reset}"; fi
