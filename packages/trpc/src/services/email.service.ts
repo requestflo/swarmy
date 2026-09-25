@@ -9,7 +9,8 @@
  *   runtime.ts           — the send API, report ingestion, swarmy's own mail
  *   store.ts / log.ts    — the send log (ClickHouse) + process memory
  */
-import { promises as dnsPromises } from 'node:dns';
+import { getServers as dnsGetServers, promises as dnsPromises } from 'node:dns';
+import { decodeTxtAnswers, encodeTxtQuery } from '@swarmy/dns';
 import { encryptSecret, isVaultConfigured } from '@swarmy/core/crypto';
 import { DEFAULT_SMTP_PROBE_TARGETS, interpretSmtpProbe, type ProbeSmtpResult, type StaticDnsRecord } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
@@ -440,9 +441,47 @@ export async function rotateDkimKey(ctx: OrgContext, id: string): Promise<EmailD
   return domainView(ctx, updated, await heloFor(ctx), cfg?.systemDomainId ?? null);
 }
 
+/** One TXT query to the first system resolver over UDP; null → use node:dns. */
+async function queryTxtDirect(name: string): Promise<string[] | null> {
+  const server = dnsGetServers()[0]?.replace(/^\[|\](:\d+)?$/g, '');
+  if (!server || typeof Bun === 'undefined') return null;
+  try {
+    return await new Promise<string[] | null>((resolve) => {
+      let sock: { close(): void } | null = null;
+      const timer = setTimeout(() => {
+        sock?.close();
+        resolve(null);
+      }, 3000);
+      void Bun.udpSocket({
+        socket: {
+          data(s: { close(): void }, buf: Uint8Array) {
+            clearTimeout(timer);
+            s.close();
+            resolve(decodeTxtAnswers(buf));
+          },
+        },
+      })
+        .then((s) => {
+          sock = s;
+          s.send(encodeTxtQuery(name, Math.floor(Math.random() * 0xffff)), 53, server);
+        })
+        .catch(() => {
+          clearTimeout(timer);
+          resolve(null);
+        });
+    });
+  } catch {
+    return null;
+  }
+}
+
 /** Live resolvers (the system resolver: what receivers will see). */
 export const systemDnsLookups = {
   async txt(name: string): Promise<string[]> {
+    // Bun splits a multi-string TXT record into several records (a 2048-bit
+    // DKIM key never matched); ask the system resolver directly first.
+    const direct = await queryTxtDirect(name);
+    if (direct) return direct;
     try {
       return (await dnsPromises.resolveTxt(name)).map((chunks) => chunks.join(''));
     } catch (e) {
