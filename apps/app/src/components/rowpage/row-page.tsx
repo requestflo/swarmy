@@ -43,5 +43,5 @@ export function plural(n: number, one: string, many = `${one}s`): string {
 
 /** An on/off switch that reads as "on", not as the page's coral action. */
 export function QuietSwitch({ className, ...props }: React.ComponentProps<typeof Switch>): React.JSX.Element {
-  return <Switch className={cn('data-[state=checked]:bg-tone-ok pointer-coarse:my-3', className)} {...props} />;
+  return <Switch className={cn('data-[state=checked]:bg-tone-ok bg-clip-padding pointer-coarse:-m-3 pointer-coarse:h-11 pointer-coarse:w-[60px] pointer-coarse:border-[12px]', className)} {...props} />;
 }
