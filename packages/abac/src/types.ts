@@ -56,6 +56,12 @@ export const ACTIONS = [
   'ingress.remove',
   /** Remove a git repo / CI connection (and, later, a git app). */
   'cicd.remove',
+  /**
+   * Format a blank added disk on a server (ext4, typed last-4 of the serial).
+   * Owner/admin-only like every destructive action; also gated per node on the
+   * agent (`swarmy.node.diskFormat`, `SWARMY_ALLOW_DISK_FORMAT`).
+   */
+  'node.disk.format',
   // Attribute-based access (2026-09-24). Evaluated against the resource's
   // attributes (env, labels, type) so "members deploy outside production" is one
   // rule. `service.configure` is member-permitted outside production by the

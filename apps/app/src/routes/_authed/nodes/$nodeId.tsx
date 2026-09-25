@@ -14,6 +14,7 @@ import { NodeSwarmJoinBanner } from '@/components/nodes/node-swarm-join-banner';
 import { NodeHygienePanel } from '@/components/nodes/node-hygiene-panel';
 import { NodeOldCopiesCard } from '@/components/nodes/node-old-copies-card';
 import { NodeRetirePanel } from '@/components/nodes/node-retire-panel';
+import { NodeDisksCard } from '@/components/nodes/node-disks-card';
 
 export const Route = createFileRoute('/_authed/nodes/$nodeId')({
   component: NodeDetailPage,
@@ -80,6 +81,7 @@ function NodeDetailPage(): React.JSX.Element {
       <NodeControlsPanel node={n} monthlyUsd={monthlyUsd} />
       <NodeContainersPanel containers={containers.data} />
       <NodeHygienePanel nodeId={nodeId} />
+      <NodeDisksCard nodeId={nodeId} online={n?.status === 'online'} />
       <NodeOldCopiesCard nodeId={nodeId} />
       <NodeRetirePanel nodeId={nodeId} />
     </div>

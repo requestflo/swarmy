@@ -43,6 +43,7 @@ import {
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import { placeOnDefaultDisk } from './disks.service';
 import { AUTO_BACKUP_RETENTION_DAYS } from './autoBackup';
 import { resolveManagerNode } from './dispatch.service';
 import { patchLiveService } from './service-patch';
@@ -607,6 +608,10 @@ export async function provisionDb(
       'cannot resolve a swarm node to pin the Postgres primary to (no node has reported yet) — retry in a few seconds',
     );
   }
+  // A NEW cluster's primary volume lands on the pinned server's added disk,
+  // when it has one (plans/epic-volume-mobility.md phase 1). Never for an
+  // existing cluster: its data already lives where it is.
+  if (!existingLive) await placeOnDefaultDisk(ctx, pinNode, dataVolume);
   const existingReplica = findCluster(ctx, stack, cluster).replica;
 
   // Default-on backups: born with a nightly pg_dump schedule unless the primary

@@ -43,6 +43,7 @@ export const ACTION_CATALOG: ActionInfo[] = [
   { id: 'dns.remove', label: 'remove DNS', group: 'destructive' },
   { id: 'ingress.remove', label: 'remove tunnels', group: 'destructive' },
   { id: 'cicd.remove', label: 'remove git connections', group: 'destructive' },
+  { id: 'node.disk.format', label: 'format disks', group: 'destructive' },
   { id: 'token.revoke', label: 'revoke tokens', group: 'destructive' },
   { id: 'terminal.open', label: 'open a terminal', group: 'access' },
   { id: 'secrets.read', label: 'read secrets', group: 'access' },

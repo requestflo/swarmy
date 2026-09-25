@@ -1,11 +1,11 @@
 # Epic: volume mobility — add a disk, move a volume, retire a server
 
-Status: **phases 2, 3 and 5 built; phase 1 pure half built, formatting on
-hold** (owner decision on privileged formatting pending), 2026-09-24.
+Status: **phases 1, 2, 3 and 5 built; phase 4 defaults built** (owner
+approved the recommendations, 2026-09-25 — see §11).
 
 | Phase | Built | Where |
 |---|---|---|
-| 1 Add a disk | classifier + format gate only (no agent command, no UI) | `packages/core/src/disk-inventory.ts` |
+| 1 Add a disk | `disk.list` / `disk.format` / `disk.grow` agent commands, placement of new managed-data volumes, node-page disk card | `packages/core/src/disk-inventory.ts`, `protocol/disk.ts`, `apps/agent/src/handlers/disk.ts`, `packages/trpc/src/services/disks.service.ts`, `routers/disks.ts`, `components/nodes/node-disks-card.tsx` |
 | 2 Move a volume | two-pass mover + planned Postgres switchover | `packages/core/src/volume-move.ts`, `packages/trpc/src/services/volumeMove.service.ts`, `swarmy.db.switchover` hook in `manageddb-reconcile.ts` |
 | 3 Retire a server | planner, runner, router, UI | `node-decommission.plan.ts`, `decommission.service.ts`, `routers/decommission.ts`, `components/nodes/node-retire-panel.tsx` |
 | 4 Spread and protect | not started | — |
@@ -167,7 +167,7 @@ NAME,PATH,SIZE,TYPE,FSTYPE,MOUNTPOINTS,SERIAL,MODEL,RO,RM,PTTYPE` plus
 | `blank` | a whole disk, no partitions, no FS signature, no PT, not mounted, not RO, not removable, ≥ 1 GiB | **Format and use** |
 | `has-data` | any FS signature or partition table | **Mount as-is** (read-only look first) — never format |
 | `mounted` / `system` | mounted, or holds `/`, `/boot`, swap, or `/var/lib/docker` | nothing |
-| `in-use-by-swarmy` | mounted under `/mnt/swarmy/<id>` | show usage |
+| `in-use-by-swarmy` | mounted under `/var/lib/swarmy/disks/<serial>` | show usage |
 
 **Safety rules (hard, in the agent, not only the UI):**
 - The agent refuses `disk.format` unless the device is `blank` **at the moment
@@ -177,19 +177,29 @@ NAME,PATH,SIZE,TYPE,FSTYPE,MOUNTPOINTS,SERIAL,MODEL,RO,RM,PTTYPE` plus
 - The user types the last 4 characters of the serial to confirm (the pattern
   other destructive gates use). ABAC action `node.disk.format`, admin only,
   audited.
-- ext4 by default (`mkfs.ext4 -L swarmy-<id> -m 1`). XFS as an expert option.
+- **ext4 only** (`mkfs.ext4 -L swarmy-<id> -m 1 -E nodiscard`; owner, 2026-09-25).
 - Mount by **UUID** in `/etc/fstab` with `nofail,x-systemd.device-timeout=10s`
-  so a missing disk never blocks boot. The mountpoint is `/mnt/swarmy/<fs-uuid>`.
+  so a missing disk never blocks boot. The mountpoint is
+  `/var/lib/swarmy/disks/<serial>` (the serial, sanitised to `[A-Za-z0-9_.-]`,
+  is the disk's id: stable across reboots, unlike `/dev/sdX`).
+- The format script re-checks serial, size, mounts, partitions, `wipefs -n`
+  and `blkid -p` in the same shell, immediately before `mkfs`.
 - The container agent needs the host's `/dev` and `/etc/fstab`; it runs these
-  as a privileged one-shot (`container.runOnce` with `--privileged -v
-  /:/host`), the same way the mesh sidecar is privileged. The systemd agent
-  runs them directly.
+  as a privileged one-shot (`--pid host --privileged` + `nsenter -t 1`, the
+  mesh pin's `runOnHost`), the same way the mesh sidecar is privileged. The
+  systemd agent runs them directly. **Allowed by default** (owner, 2026-09-25);
+  opt out per server with the node label `swarmy.node.diskFormat=false` or
+  `SWARMY_ALLOW_DISK_FORMAT=false` in the box's `/etc/swarmy/agent.env`.
 
-**Placement.** The disk becomes a **node label** `swarmy.disk.<uuid>=<mount>`
-plus `swarmy.disk.default=<uuid>` (Docker truth; no table). New volumes that
-swarmy creates on that node (managed DB data, blueprint volumes) are created
-with `-o type=none -o o=bind -o device=/mnt/swarmy/<uuid>/volumes/<name>`.
-The volume name does not change, so no service spec changes.
+**Placement.** The disk becomes a **node label** `swarmy.disk.<id>=<mount>`
+plus `swarmy.disk.default=<id>` for the first one (Docker truth; no table).
+New managed-data volumes swarmy pins to that node (Postgres primary, cache
+primary, search, vector) are pre-created there by `volume.provision` with
+`-o type=none -o o=bind -o device=/var/lib/swarmy/disks/<id>/volumes/<name>`;
+the agent makes the directory and **refuses if the disk is not mounted**
+(never silently fill the root disk). The volume name does not change, so no
+service spec changes. Compose volumes float with their task and are not
+placed yet (they move with phase 2's mover).
 
 **Existing volumes** move with phase 2's *disk-to-disk* path (same node): stop,
 rsync, recreate the volume with the bind device, start. For a managed Postgres
@@ -349,9 +359,12 @@ managed PG primary, a volume app, Garage rf=2 and the edge on the target).
    `resilience.service.ts` fed by the phase 3 planner run with `online:false`
    for each server — the planner already answers "what happens if this server
    is gone", including `data-unreachable`.
-5. **Replicated volume layer: not now.** Revisit only if users ask for shared
-   RWX files: then JuiceFS-on-Garage as a "shared files" volume type, and
-   LINSTOR/DRBD as an expert driver for owners with 4 GB+ servers.
+5. **Replicated volume layer: not now — decided** (owner, 2026-09-25). No
+   Ceph/Gluster/DRBD/SeaweedFS/JuiceFS under volumes. Data is protected by
+   engine-native copies (Postgres standby), restic to Garage, and Garage's own
+   replication, and made mobile by the phase 2 mover. Revisit only if users
+   ask for shared RWX files: then JuiceFS-on-Garage as a "shared files" volume
+   type, and LINSTOR/DRBD as an expert driver for owners with 4 GB+ servers.
 
 **Effort:** S–M (≈ 3 days) for 1–4.
 
@@ -436,7 +449,7 @@ engine words (`replica`, `LSN`, `layout`) only in Controls/Code.
 
 ## 9. Where state lives (docker-native-storage)
 
-- Disks: node labels `swarmy.disk.<uuid>`, `swarmy.disk.default`.
+- Disks: node labels `swarmy.disk.<id>`, `swarmy.disk.default`, opt-out `swarmy.node.diskFormat=false`.
 - A running move: service labels `swarmy.move.*` (step, destination, epoch).
 - A running decommission: node labels `swarmy.decom.*` on the target.
 - History: audit rows (`volume.move.*`, `node.decommission.*`, `node.disk.*`).
@@ -465,6 +478,12 @@ engine words (`replica`, `LSN`, `layout`) only in Controls/Code.
 ---
 
 ## 11. Owner decisions
+
+**Answered 2026-09-25: the recommendations were approved.** 1 yes (default
+standby at 2+ ready servers, opt-out); 2 yes (every named volume nightly to
+the native Garage target, opt-out per volume/app); 4 ext4 only; 5 the
+container agent may format via a privileged one-shot, gated by `formatGate`
+and a per-node opt-out; 6 no replicated volume layer. The questions as asked:
 
 1. **Default standby:** give new managed Postgres a replica by default when
    there are 2+ servers (+~100 MB RAM per DB)? Recommended: yes.

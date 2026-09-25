@@ -1,4 +1,5 @@
 import { backupTargets } from './backups.repo';
+import { placeOnDefaultDisk } from './disks.service';
 import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import {
@@ -833,6 +834,8 @@ export async function provisionCache(
     decl.pinNode = pinNode;
     if (isMultiNodeSwarm(ctx)) decl.avoidNode = pinNode;
   }
+  // A new primary volume lands on the pinned server's added disk, when it has one.
+  await placeOnDefaultDisk(ctx, pinNode, cacheDataVolume(stack, cluster));
   const password = generatePassword();
   const secretName = cachePasswordSecretName(stack, cluster);
   const dataB64 = Buffer.from(password, 'utf8').toString('base64');

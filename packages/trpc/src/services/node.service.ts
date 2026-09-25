@@ -3,6 +3,7 @@ import {
   NODE_DATABASE_LABEL,
   NODE_EXEC_LABEL,
   NODE_SHELL_LABEL,
+  NODE_DISK_FORMAT_LABEL,
   hasExecDisabledLabel,
   hasShellLabel,
   NODE_STORAGE_LABEL,
@@ -216,7 +217,7 @@ export async function dispatchNodeLabels(
  * `nodes.setRole` toggles — never the generic (member-reachable) label editor,
  * or any member could hand themselves a host shell.
  */
-export const RESERVED_CAPABILITY_LABELS: readonly string[] = [NODE_EXEC_LABEL, NODE_SHELL_LABEL];
+export const RESERVED_CAPABILITY_LABELS: readonly string[] = [NODE_EXEC_LABEL, NODE_SHELL_LABEL, NODE_DISK_FORMAT_LABEL];
 
 export async function setNodeLabels(
   ctx: OrgContext,

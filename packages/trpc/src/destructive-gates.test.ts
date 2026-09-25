@@ -81,6 +81,7 @@ const GATES: Array<[string, unknown, string]> = [
   ['services.remove', { id: 'svc' }, 'service.remove'],
   ['nodes.drain', { id: 'n1' }, 'node.drain'],
   ['nodes.remove', { id: 'n1' }, 'node.remove'],
+  ['disks.format', { nodeId: 'n1' }, 'node.disk.format'],
   ['nodes.runHygiene', { nodeId: 'n1' }, 'data.destroy'],
   ['nodes.revokeJoinToken', { id: 't1' }, 'token.revoke'],
   ['stacks.remove', { id: 'st1' }, 'stack.remove'],

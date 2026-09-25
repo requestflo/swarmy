@@ -177,6 +177,7 @@ Four ideas, one story:
   | `data.restore` | volume, DB, cache, search and controller restores (they overwrite live data) |
   | `data.failover` | confirming a managed-DB failover that may lose the last writes (see `managed-data.md`) |
   | `backup.remove` | removing a backup target |
+  | `node.disk.format` | formatting a blank added disk on a server (typed last 4 of the serial; also off per server with `swarmy.node.diskFormat=false`) |
   | `secret.delete` | deleting or pruning a secret/config family |
   | `dns.remove` / `ingress.remove` / `ingress.write` | geo-DNS zone/record removal; Cloudflare tunnel delete; domain removal |
   | `token.revoke` / `member.write` / `policy.write` / `authconfig.write` / `cicd.remove` | API key / OAuth client / join token / direct-connect revoke; grants + invitations; policy, SSO and git-repo removal |

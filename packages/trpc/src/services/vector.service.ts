@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { placeOnDefaultDisk } from './disks.service';
 import {
   applyDataPin,
   buildInventory,
@@ -263,6 +264,8 @@ export async function provisionVector(
   // Pin to one node (node-local data volume). No node reported yet ⇒ deploy
   // unpinned; vector-reconcile pins it where its first task lands.
   const pinNode = chooseDataPin(ctx, node.id);
+  // A new data volume lands on the pinned server's added disk, when it has one.
+  await placeOnDefaultDisk(ctx, pinNode, vectorDataVolume(stack, name));
   const apiKey = generateApiKey();
   const secretName = vectorKeySecretName(stack, name);
   const dataB64 = Buffer.from(apiKey, 'utf8').toString('base64');

@@ -1,4 +1,5 @@
 import { backupTargets } from './backups.repo';
+import { placeOnDefaultDisk } from './disks.service';
 import { resticNetworkFor } from './backups.service';
 import { randomBytes } from 'node:crypto';
 import {
@@ -487,6 +488,8 @@ export async function provisionSearch(
   // unpinned; search-reconcile pins it where its first task lands.
   const pinNode = chooseDataPin(ctx, node.id);
   const decl: SearchInstanceDecl = { stack, name, engine: input.engine, ...(pinNode ? { pinNode } : {}) };
+  // A new data volume lands on the pinned server's added disk, when it has one.
+  await placeOnDefaultDisk(ctx, pinNode, searchDataVolume(stack, name));
   const masterKey = generateMasterKey();
   const secretName = searchKeySecretName(stack, name);
   const dataB64 = Buffer.from(masterKey, 'utf8').toString('base64');

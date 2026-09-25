@@ -25,6 +25,7 @@ import { controllerStoreRouter } from './routers/controllerStore';
 import { storageRouter } from './routers/storage';
 import { platformRouter } from './routers/platform';
 import { decommissionRouter } from './routers/decommission';
+import { disksRouter } from './routers/disks';
 import { backupSchedulesRouter } from './routers/backupSchedules';
 import { ssoRouter } from './routers/sso';
 import { securityRouter } from './routers/security';
@@ -69,6 +70,7 @@ export const appRouter = router({
   db: managedDbRouter,
   nodes: nodesRouter,
   decommission: decommissionRouter,
+  disks: disksRouter,
   services: servicesRouter,
   stacks: stacksRouter,
   estate: estateRouter,

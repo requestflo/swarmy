@@ -160,6 +160,7 @@ describe('PolicyEngine.withDefaults (behaviour preservation)', () => {
     'dns.remove',
     'ingress.remove',
     'cicd.remove',
+    'node.disk.format',
   ] as const;
 
   it('owner + admin keep every destructive action (no lockout)', () => {
