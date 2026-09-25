@@ -59,6 +59,11 @@ describe('storeNeedsConverge', () => {
     expect(storeNeedsConverge({ ...good, configs: [] })).toBe(true);
     expect(storeNeedsConverge({ ...good, mode: 'replicated' })).toBe(true);
   });
+  it('a store on a stale garage.toml converges (QA-066 c: bootstrap_peers learned after deploy)', () => {
+    expect(storeNeedsConverge(good, 'swarmy-garage-config-abcd1234')).toBe(false);
+    expect(storeNeedsConverge(good, 'swarmy-garage-config-99999999')).toBe(true);
+    expect(storeNeedsConverge(good, undefined)).toBe(false);
+  });
   it('a store off the swarmy overlay converges (swarmy-garage:3900 resolves nowhere)', () => {
     expect(storeNeedsConverge({ ...good, networks: [] })).toBe(true);
     expect(storeNeedsConverge({ ...good, networks: undefined })).toBe(true);

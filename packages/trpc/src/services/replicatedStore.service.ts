@@ -449,10 +449,18 @@ export function storeNeedsConverge(
     | (Pick<SwarmServiceInfo, 'mode' | 'configs' | 'mounts'> &
         Partial<Pick<SwarmServiceInfo, 'networks' | 'ports' | 'secrets'>>)
     | undefined,
+  /**
+   * The `garage.toml` config the row renders to now. A live store on another
+   * one converges — e.g. members' node ids were learned after it was deployed,
+   * and the config that carries them as `bootstrap_peers` (QA-066 c) never
+   * reached the tasks.
+   */
+  desiredConfig?: string,
 ): boolean {
   if (!svc) return true;
   if ((svc.mounts ?? []).some((m) => m.type === 'bind')) return true;
   if (!(svc.configs ?? []).some((n) => n.startsWith(`${GARAGE_CONFIG_PREFIX}-`))) return true;
+  if (desiredConfig && !(svc.configs ?? []).includes(desiredConfig)) return true;
   if (!(svc.networks ?? []).some((n) => n.name === GARAGE_NETWORK)) return true;
   // The controller replicates control.db into Garage over the control overlay.
   if (!(svc.networks ?? []).some((n) => n.name === SWARMY_CONTROL_NETWORK)) return true;
@@ -474,7 +482,14 @@ export async function convergeStoreDeployment(ctx: OrgContext, now = Date.now())
   const row = await load(ctx);
   if (!row?.enabled || row.driver.toLowerCase() !== 'garage') return false;
   const svc = ctx.hub.liveInventory(ctx.activeOrgId).services.find((s) => s.name === SERVICE_NAME);
-  if (!storeNeedsConverge(svc)) return false;
+  // Exactly what enable() would deploy for the recorded members (none yet ⇒ enable picks them; no drift check).
+  const nodeIds = members(row);
+  const desired = nodeIds.length
+    ? garageConfigObject(
+        renderInput(ctx, { ...row, replicationFactor: effectiveReplicationFactor(row.replicationFactor, nodeIds.length) }),
+      ).name
+    : undefined;
+  if (!storeNeedsConverge(svc, desired)) return false;
   // Throttle: a converge that cannot take (e.g. an older agent that does not
   // report configs/mounts) must not redeploy + audit every worker tick.
   const last = lastConvergeAt.get(ctx.activeOrgId) ?? 0;

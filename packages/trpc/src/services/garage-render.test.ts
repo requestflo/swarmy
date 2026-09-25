@@ -11,6 +11,7 @@ import {
   GARAGE_NETWORK,
   garageAdminUrl,
   effectiveReplicationFactor,
+  garageBootstrapPeers,
   garageConfigObject,
   garageSecretObjects,
   isGarageSecretName,
@@ -163,5 +164,50 @@ describe('garage deployment — overlay-only, nothing published', () => {
 
   it('admin base URL is the service name on the overlay', () => {
     expect(garageAdminUrl('swarmy-garage')).toBe('http://swarmy-garage:3903/v1');
+  });
+});
+
+describe('garage bootstrap_peers (QA-066 c: members redial each other with no controller)', () => {
+  const idA = 'a'.repeat(64);
+  const idB = 'b'.repeat(64);
+  const joined: GarageRenderInput = {
+    ...BASE,
+    members: [
+      { nodeId: 'node_b', rpcHost: 'swarmy-garage', capacityGb: 100, garageNodeId: idB },
+      { nodeId: 'node_a', rpcHost: 'swarmy-garage', capacityGb: 100, garageNodeId: idA },
+    ],
+  };
+
+  it('lists every joined member at the swarm DNS name of all current task IPs (golden)', () => {
+    const toml = renderGarageToml(joined);
+    expect(toml).toContain(
+      [
+        'rpc_secret_file = "/run/secrets/garage-rpc-secret"',
+        'bootstrap_peers = [',
+        `  "${idA}@tasks.swarmy-garage:3901",`,
+        `  "${idB}@tasks.swarmy-garage:3901",`,
+        ']',
+        '',
+        '[s3_api]',
+      ].join('\n'),
+    );
+  });
+
+  it('is order-independent, so the content-addressed config is stable', () => {
+    const flipped = { ...joined, members: [...joined.members].reverse() };
+    expect(garageBootstrapPeers(flipped)).toEqual(garageBootstrapPeers(joined));
+  });
+
+  it('is absent until two members have joined (a single store never rolls for it)', () => {
+    expect(renderGarageToml(BASE)).not.toContain('bootstrap_peers');
+    const one = { ...BASE, members: [{ ...BASE.members[0]!, garageNodeId: idA }, BASE.members[1]!] };
+    expect(renderGarageToml(one)).not.toContain('bootstrap_peers');
+    expect(garageConfigObject(one).name).toBe(garageConfigObject(BASE).name);
+  });
+
+  it('never renders an id that is not a Garage node id', () => {
+    const bad = { ...joined, members: [...joined.members, { nodeId: 'x', rpcHost: 'swarmy-garage', capacityGb: 1, garageNodeId: 'x"]\nrpc_secret = "y' }] };
+    expect(garageBootstrapPeers(bad)).toHaveLength(2);
+    expect(renderGarageToml(bad)).not.toContain('rpc_secret =');
   });
 });

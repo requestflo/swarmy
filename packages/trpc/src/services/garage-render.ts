@@ -187,6 +187,28 @@ export interface GarageRenderInput {
 }
 
 /**
+ * `bootstrap_peers` for the shared `garage.toml` (QA-066 c): every joined
+ * member's node id at `tasks.<service>:3901`, the swarm DNS name that resolves
+ * to every CURRENT task IP. Garage re-resolves this list on each discovery
+ * tick (every 60 s while a layout node is down) and tries each id at each
+ * address — a wrong pairing just fails the handshake. So a member whose task
+ * came back on a new overlay IP (a reboot) finds its peers, and they find it,
+ * with no controller in the loop. Before this the only way back was the
+ * reconcile's `POST /v1/connect`, which needs agents → controller → edge, and
+ * a rebooted mesh-control node had none of those: it needed a manual
+ * `garage node connect`.
+ *
+ * Empty below two joined members (nothing to meet), so a single-member store's
+ * config does not change — and roll — when its id is first learned. Sorted, so
+ * the config (content-addressed) is stable.
+ */
+export function garageBootstrapPeers(input: Pick<GarageRenderInput, 'members' | 'serviceName'>): string[] {
+  const ids = [...new Set(input.members.map((m) => m.garageNodeId).filter((id): id is string => Boolean(id && /^[0-9a-f]{64}$/i.test(id))))].sort();
+  if (ids.length < 2) return [];
+  return ids.map((id) => `${id}@tasks.${input.serviceName}:${GARAGE_RPC_PORT}`);
+}
+
+/**
  * Render `garage.toml` for a member. Deterministic for a given input. Carries
  * NO secret material: `rpc_secret_file` / `admin_token_file` point at the
  * mounted Docker secrets (Garage refuses world-readable secret files, so the
@@ -194,6 +216,7 @@ export interface GarageRenderInput {
  */
 export function renderGarageToml(input: GarageRenderInput): string {
   const zones = input.members.map((m) => `node:${m.nodeId}`).join(', ');
+  const peers = garageBootstrapPeers(input);
   return [
     '# Managed by swarmy (volumes-dr). Do not edit by hand.',
     `metadata_dir = "/var/lib/garage/meta"`,
@@ -204,6 +227,7 @@ export function renderGarageToml(input: GarageRenderInput): string {
     '',
     `rpc_bind_addr = "[::]:${GARAGE_RPC_PORT}"`,
     `rpc_secret_file = "/run/secrets/${GARAGE_RPC_SECRET_TARGET}"`,
+    ...(peers.length ? ['bootstrap_peers = [', ...peers.map((p) => `  "${p}",`), ']'] : []),
     '',
     '[s3_api]',
     `s3_region = "${input.region}"`,
