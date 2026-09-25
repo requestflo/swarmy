@@ -22,13 +22,15 @@ import { existsSync, readFileSync } from 'node:fs';
 import { canonicalManifestJson, parsePlatformManifest, type PlatformManifest } from './platform-manifest';
 
 /**
- * The swarmy release public key (cosign.pub). Empty until the release key pair
- * is generated (`cosign generate-key-pair`, private half + password as the
- * `SWARMY_RELEASE_KEY` / `SWARMY_RELEASE_KEY_PASSWORD` Actions secrets). While
- * empty, every manifest reads as "unverified release" unless the operator sets
- * `SWARMY_RELEASE_PUBKEY`.
+ * The swarmy release public key (cosign.pub, ECDSA P-256). Its private half +
+ * password are the `SWARMY_RELEASE_KEY` / `SWARMY_RELEASE_KEY_PASSWORD` Actions
+ * secrets. An operator can still override it with `SWARMY_RELEASE_PUBKEY`.
  */
-export const BUILT_IN_RELEASE_PUBKEY = '';
+export const BUILT_IN_RELEASE_PUBKEY = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEnOuvVNftLXopiDMkF9ylopYyr3vS
+7iC4arphnIpM4tXgKCpCeIRVLSEEb98SP82hgfhOBKOzpzBpnjOBLkWsVA==
+-----END PUBLIC KEY-----
+`;
 
 /** The trusted release key PEM for this controller, or null when none is configured. */
 export function releasePublicKey(env: Record<string, string | undefined> = process.env): string | null {
