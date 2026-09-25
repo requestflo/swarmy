@@ -19,6 +19,7 @@ export function CopyButton({
       variant="outline"
       size={label ? 'sm' : 'icon'}
       className={cn(className)}
+      aria-label={label ? undefined : copied ? 'Copied' : 'Copy'}
       onClick={() => {
         void navigator.clipboard.writeText(value);
         setCopied(true);
