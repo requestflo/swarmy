@@ -106,7 +106,8 @@ describe('metrics read every metric table (QA-041)', () => {
     ]) {
       expect(sql).toContain('FROM otel_metrics_gauge WHERE');
       expect(sql).toContain('FROM otel_metrics_sum WHERE');
-      expect(sql).toContain('if(Count > 0, Sum / Count, 0) AS Value FROM otel_metrics_histogram WHERE');
+      expect(sql).toContain('Sum / Count AS Value FROM otel_metrics_histogram WHERE');
+      expect(sql).toContain('AND Count > 0');
       expect(sql.split("ResourceAttributes['swarmy.org_id'] = 'org_abc123'").length - 1).toBe(3);
       expect(sql.split("MetricName = 'http.server.duration'").length - 1).toBe(3);
       expect(sql.split("ResourceAttributes['swarmy.stack'] = 'shop'").length - 1).toBe(3);

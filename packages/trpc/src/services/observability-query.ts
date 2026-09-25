@@ -180,8 +180,10 @@ export function buildTraceDetailQuery(orgId: string, q: TraceDetailQueryInput): 
  * to read only `otel_metrics_gauge`, so every SDK metric (`http.server.duration`
  * is a histogram, request counters are sums) came back empty (QA-041).
  *  - gauge, sum: the point's `Value` (a sum is the counter's value);
- *  - histogram: the point's mean, `Sum / Count` (0 for an empty bucket set).
+ *  - histogram: the point's mean, `Sum / Count`; an empty point (Count 0)
+ *    carries no observation and is skipped, not averaged in as 0.
  * The filters go INSIDE each branch so ClickHouse prunes every table.
+ * Verified against ClickHouse 24.8 with the exporter's column types.
  */
 function metricPoints(where: string[]): string {
   const cond = where.join(' AND ');
@@ -191,7 +193,7 @@ function metricPoints(where: string[]): string {
     '  UNION ALL',
     `  SELECT ServiceName, TimeUnix, Value FROM otel_metrics_sum WHERE ${cond}`,
     '  UNION ALL',
-    `  SELECT ServiceName, TimeUnix, if(Count > 0, Sum / Count, 0) AS Value FROM otel_metrics_histogram WHERE ${cond}`,
+    `  SELECT ServiceName, TimeUnix, Sum / Count AS Value FROM otel_metrics_histogram WHERE ${cond} AND Count > 0`,
     ')',
   ].join('\n');
 }
