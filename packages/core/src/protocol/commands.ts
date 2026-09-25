@@ -68,6 +68,20 @@ export const ServiceSpec = z.object({
       maxAttempts: z.number().int().optional(),
     })
     .optional(),
+  /**
+   * Rolling-update policy (Docker `UpdateConfig`). swarmy's system services
+   * set it so an update never takes every task down at once: one task at a
+   * time, rolled back if the new one fails. Omitted = Docker's defaults.
+   */
+  updateConfig: z
+    .object({
+      parallelism: z.number().int().nonnegative().optional(),
+      order: z.enum(['stop-first', 'start-first']).optional(),
+      failureAction: z.enum(['pause', 'continue', 'rollback']).optional(),
+      monitorNs: z.number().int().nonnegative().optional(),
+      delayNs: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
   placement: z
     .object({
       constraints: z.array(z.string()).optional(),

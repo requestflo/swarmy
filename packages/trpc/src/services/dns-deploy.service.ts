@@ -1,3 +1,4 @@
+import { SYSTEM_UPDATE_CONFIG, specUnchanged, withSpecSignature } from './system-service-deploy';
 import { createHmac } from 'node:crypto';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
@@ -126,11 +127,16 @@ export async function ensureDnsService(
     })
     .catch(() => undefined);
 
+  // Only a real change to the desired spec is dispatched: a no-op update
+  // still restarted every nameserver (QA-049).
+  const spec = withSpecSignature({ ...dnsServiceSpec(settings), updateConfig: SYSTEM_UPDATE_CONFIG });
+  const live = ctx.hub.liveInventory(ctx.activeOrgId).services.find((s) => s.name === DNS_SERVICE);
+  if (specUnchanged(live, spec)) {
+    recordDnsDeploy(ctx.activeOrgId, true);
+    return { name: DNS_SERVICE };
+  }
   try {
-    await ctx.hub.dispatch(node.id, 'service.deploy', {
-      spec: dnsServiceSpec(settings),
-      pullPolicy: 'missing',
-    });
+    await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'missing' });
   } catch (e) {
     recordDnsDeploy(ctx.activeOrgId, false, e instanceof Error ? e.message : String(e));
     throw mapDispatchError(e);

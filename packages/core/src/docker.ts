@@ -1213,6 +1213,17 @@ export function toServiceCreateOptions(spec: ServiceSpec): Docker.CreateServiceO
       LogDriver: logDriverFor(spec),
     },
     Mode: mode,
+    ...(spec.updateConfig
+      ? {
+          UpdateConfig: {
+            Parallelism: spec.updateConfig.parallelism,
+            Order: spec.updateConfig.order,
+            FailureAction: spec.updateConfig.failureAction,
+            Monitor: spec.updateConfig.monitorNs,
+            Delay: spec.updateConfig.delayNs,
+          },
+        }
+      : {}),
     EndpointSpec: spec.ports
       ? {
           Ports: spec.ports.map((p) => ({

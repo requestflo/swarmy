@@ -1,3 +1,4 @@
+import { SYSTEM_UPDATE_CONFIG, specUnchanged, withSpecSignature } from './system-service-deploy';
 import {
   STACK_LABEL,
   SWARMY_CONTROL_NETWORK,
@@ -507,10 +508,15 @@ function specMode(spec: ServiceSpec): 'replicated' | 'global' {
 export async function deployWithModeSwap(
   ctx: OrgContext,
   managerNodeId: string,
-  spec: ServiceSpec,
+  specIn: ServiceSpec,
 ): Promise<boolean> {
-  const want = specMode(spec);
-  const live = ctx.hub.liveInventory(ctx.activeOrgId).services.find((s) => s.name === spec.name);
+  const want = specMode(specIn);
+  const live = ctx.hub.liveInventory(ctx.activeOrgId).services.find((s) => s.name === specIn.name);
+  // The edge is a system service: roll one task at a time, and dispatch only
+  // on a real change to the desired spec (a no-op update restarted every edge
+  // task on every converge; QA-049).
+  const spec = withSpecSignature({ ...specIn, updateConfig: specIn.updateConfig ?? SYSTEM_UPDATE_CONFIG });
+  if (live && live.mode === want && specUnchanged(live, spec)) return false;
   const remove = async (): Promise<void> => {
     try {
       await ctx.hub.dispatch(managerNodeId, 'service.remove', { service: spec.name });
