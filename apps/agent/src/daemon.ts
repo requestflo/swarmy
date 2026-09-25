@@ -9,6 +9,7 @@ import { collectMetrics } from './stats';
 import { sendContainerList, sendServiceState, sendNodeList } from './snapshots';
 import { applyMesh, lastSampledMeshCidr, sampleMeshState } from './handlers/mesh';
 import { checkOverlayKeying, ensureMeshPin } from './handlers/mesh-pin';
+import { checkOverlayCarrier } from './handlers/overlay-heal';
 import { swarmRejoinInFlight } from './handlers/swarm';
 import { superviseMeshControl } from './handlers/mesh-control';
 import { detectPublicIp, setObservedPublicIp } from './public-ip';
@@ -190,6 +191,17 @@ export async function runDaemon(): Promise<void> {
   };
   void meshControlTick();
   const meshControlTimer = setInterval(() => void meshControlTick(), 10_000);
+
+  // QA-066 (b): overlay endpoints orphaned by dockerd (NO-CARRIER) — detect and
+  // heal regardless of the controller link, which rides those very overlays.
+  let overlayHealRunning = false;
+  const overlayHealTimer = setInterval(() => {
+    if (overlayHealRunning) return;
+    overlayHealRunning = true;
+    void checkOverlayCarrier(docker, log).finally(() => {
+      overlayHealRunning = false;
+    });
+  }, 60_000);
 
   // Live diagnostics surface for the local CLI (status/doctor/reconnect over
   // the unix socket). Everything here is what the daemon KNOWS — the CLI
@@ -536,6 +548,7 @@ export async function runDaemon(): Promise<void> {
     for (const t of timers) clearInterval(t);
     clearInterval(firewallTimer);
     clearInterval(meshControlTimer);
+    clearInterval(overlayHealTimer);
     stopBeacon();
     localSocket?.stop();
     conn.stop();
