@@ -6,7 +6,9 @@ import type { RumSettings, RumSettingsView } from './rum-shared';
 /** This app's RUM settings (+ its routes and which stores exist). */
 export function useRumSettings(stack: string) {
   const trpc = useTRPC();
-  return useQuery(trpc.rum.getSettings.queryOptions({ stack }));
+  // A refetch right after a save could read the inventory before the label
+  // write lands; the save's own answer (what was saved) holds for a moment.
+  return useQuery({ ...trpc.rum.getSettings.queryOptions({ stack }), staleTime: 10_000 });
 }
 
 /** Owners and admins can change settings and erase data. */

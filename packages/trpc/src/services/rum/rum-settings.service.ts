@@ -126,10 +126,22 @@ function rawRoutes(labels: Record<string, string>): RawRoute[] {
   }
 }
 
-export async function getRumSettings(ctx: OrgContext, stack: string): Promise<RumSettingsView> {
-  const services = stackServices(ctx, stack);
+/**
+ * `written`: labels this request just wrote, per service name. The live
+ * inventory lags a label write by a snapshot tick, so a view read straight
+ * after a save showed the OLD settings (and the page flipped back). Overlaying
+ * what was written makes the answer exactly what was saved.
+ */
+export async function getRumSettings(
+  ctx: OrgContext,
+  stack: string,
+  written: Record<string, Record<string, string>> = {},
+): Promise<RumSettingsView> {
+  const services = stackServices(ctx, stack).map((s) =>
+    written[s.name] ? { ...s, labels: { ...s.labels, ...written[s.name] } } : s,
+  );
   if (services.length === 0) throw notFound('stack', stack);
-  const settings = appRumSettings(ctx, stack);
+  const settings = readRumSettings(services.find((s) => s.labels[RUM_SETTINGS_LABEL])?.labels);
   const routes: RumRouteView[] = [];
   for (const s of services) {
     for (const r of rawRoutes(s.labels)) {
@@ -187,7 +199,8 @@ export async function setRumSettings(
     },
   });
   await refresh(ctx).catch(() => undefined);
-  return getRumSettings(ctx, input.stack);
+  // Answer with what was saved, not the not-yet-refreshed inventory.
+  return getRumSettings(ctx, input.stack, Object.fromEntries(services.map((svc) => [svc.name, { [RUM_SETTINGS_LABEL]: value }])));
 }
 
 /** Flip one route's own toggle (`null` = follow the app). Only the `rum` key of that entry changes. */
@@ -224,5 +237,5 @@ export async function setRumRoute(
     metadata: { host: input.host, path: input.path, override: input.override },
   });
   await refresh(ctx).catch(() => undefined);
-  return getRumSettings(ctx, input.stack);
+  return getRumSettings(ctx, input.stack, { [svc.name]: { [INGRESS_ROUTES_LABEL]: JSON.stringify(routes) } });
 }
