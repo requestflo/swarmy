@@ -73,9 +73,9 @@ export function PlaygroundCard(): React.JSX.Element {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
-                <Label className="mono-label">Key</Label>
+                <Label htmlFor="pg-key" className="mono-label">Key</Label>
                 <Select value={selectedKey} onValueChange={setKeyId}>
-                  <SelectTrigger>
+                  <SelectTrigger id="pg-key">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -88,9 +88,9 @@ export function PlaygroundCard(): React.JSX.Element {
                 </Select>
               </div>
               <div className="grid gap-1.5">
-                <Label className="mono-label">Model</Label>
+                <Label htmlFor="pg-model" className="mono-label">Model</Label>
                 <Select value={selectedModel} onValueChange={setModel}>
-                  <SelectTrigger>
+                  <SelectTrigger id="pg-model">
                     <SelectValue placeholder={models.isPending ? 'Loading…' : 'Add a provider first'} />
                   </SelectTrigger>
                   <SelectContent>

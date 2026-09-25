@@ -3,7 +3,8 @@ import { cn } from '../lib/utils';
 
 export function Table({ className, ...props }: React.ComponentProps<'table'>) {
   return (
-    <div data-slot="table-container" className="relative w-full overflow-x-auto">
+    // Focusable so keyboard users can scroll a wide table (WCAG scrollable-region-focusable).
+    <div data-slot="table-container" tabIndex={0} className="relative w-full overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 rounded-sm">
       <table data-slot="table" className={cn('w-full caption-bottom text-sm', className)} {...props} />
     </div>
   );

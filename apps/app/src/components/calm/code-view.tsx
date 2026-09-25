@@ -65,7 +65,7 @@ export function CodeView({
       ) : null}
       {tab ? (
         <div className="relative">
-          <pre tabIndex={0} aria-label={`${tab.label} code`} className="calm-code max-h-[560px] overflow-auto px-4 py-3 whitespace-pre">
+          <pre tabIndex={0} aria-label={`${tab.label} code`} className="calm-code max-h-[560px] overflow-auto py-3 pr-12 pl-4 whitespace-pre">
             {tab.code}
           </pre>
           <CopyButton value={tab.code} className="absolute top-2 right-2 size-8" />

@@ -56,7 +56,7 @@ function RoleChip({
       className={cn(
         'nodrag inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold transition-colors disabled:opacity-50',
         active
-          ? 'border-transparent bg-primary/15 text-primary'
+          ? 'border-primary/50 bg-primary/10 text-foreground'
           : 'border-border text-muted-foreground hover:bg-muted',
       )}
       aria-pressed={active}
