@@ -57,7 +57,10 @@ jobs:
 `;
 
 /** The live route label a service carries once the ledger's routes were set on it (live = truth). */
-function routeLabelsFor(ledger: { routes: Record<string, { service: string; host: string; path: string }> }, service: string) {
+function routeLabelsFor(
+  ledger: { routes: Record<string, { service: string; host: string; path: string }> },
+  service: string,
+): Record<string, string> {
   const routes = Object.values(ledger.routes)
     .filter((r) => r.service === service)
     .map((r) => ({ host: r.host, port: 80, tls: 'auto', ...(r.path && r.path !== '/' ? { path: r.path } : {}) }));
