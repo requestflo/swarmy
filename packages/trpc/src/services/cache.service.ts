@@ -32,7 +32,7 @@ import type {
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
-import { auditRetentionOutcome, stackRetentionFor } from './backups.service';
+import { auditRetentionOutcome, stackRetentionFor, resticNetworkFor } from './backups.service';
 import { resolveManagerNode } from './dispatch.service';
 import { patchLiveService } from './service-patch';
 import { resolveExecTarget } from './live-resolve';
@@ -1276,6 +1276,7 @@ export async function backupCache(
       {
         jobId: `cache-${cacheBaseName(input.stack, input.cluster)}-${Date.now()}`,
         repo: toResticRepo(target),
+        network: resticNetworkFor(target.endpoint),
         volume,
         tags: [
           `org:${ctx.activeOrgId}`,
@@ -1336,7 +1337,7 @@ export async function restoreCache(
     result = await ctx.hub.dispatch<RestoreVolumeResult>(
       dataNode.nodeId,
       'backup.restore',
-      { repo: toResticRepo(target), snapshotId: input.snapshotId, targetVolume: volume },
+      { repo: toResticRepo(target), network: resticNetworkFor(target.endpoint), snapshotId: input.snapshotId, targetVolume: volume },
       { timeoutMs: BACKUP_TIMEOUT_MS },
     );
   } catch (e) {
@@ -1365,6 +1366,7 @@ export async function listCacheBackups(
   try {
     const res = await ctx.hub.dispatch<ListSnapshotsResult>(node.id, 'backup.list', {
       repo: toResticRepo(target),
+      network: resticNetworkFor(target.endpoint),
       tags: [cacheBackupTag(input.stack, input.cluster)],
     });
     return res.snapshots

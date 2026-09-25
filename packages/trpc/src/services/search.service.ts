@@ -1,4 +1,5 @@
 import { backupTargets } from './backups.repo';
+import { resticNetworkFor } from './backups.service';
 import { randomBytes } from 'node:crypto';
 import {
   applyDataPin,
@@ -794,6 +795,7 @@ export async function backupSearch(
       {
         jobId: `search-${searchBaseName(input.stack, input.name)}-${Date.now()}`,
         repo: toResticRepo(target),
+        network: resticNetworkFor(target.endpoint),
         volume,
         tags: [
           `org:${ctx.activeOrgId}`,
@@ -849,7 +851,7 @@ export async function restoreSearch(
     result = await ctx.hub.dispatch<RestoreVolumeResult>(
       dataNode.nodeId,
       'backup.restore',
-      { repo: toResticRepo(target), snapshotId: input.snapshotId, targetVolume: volume },
+      { repo: toResticRepo(target), network: resticNetworkFor(target.endpoint), snapshotId: input.snapshotId, targetVolume: volume },
       { timeoutMs: BACKUP_TIMEOUT_MS },
     );
   } catch (e) {
@@ -885,6 +887,7 @@ export async function listSearchBackups(
   try {
     const res = await ctx.hub.dispatch<ListSnapshotsResult>(node.id, 'backup.list', {
       repo: toResticRepo(target),
+      network: resticNetworkFor(target.endpoint),
       tags: [searchBackupTag(input.stack, input.name)],
     });
     return res.snapshots
