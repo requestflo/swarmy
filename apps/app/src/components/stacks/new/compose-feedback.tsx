@@ -14,8 +14,8 @@ export function ComposeFeedback({ check }: ComposeFeedbackProps): React.JSX.Elem
   if (check.status === 'error') {
     return (
       <div className="border-status-offline/30 bg-status-offline/5 flex items-start gap-2 rounded-xl border px-3 py-2.5">
-        <XCircleIcon className="text-status-offline mt-0.5 size-4 shrink-0" />
-        <p className="text-status-offline text-sm break-words">
+        <XCircleIcon className="text-tone-bad mt-0.5 size-4 shrink-0" />
+        <p className="text-tone-bad text-sm break-words">
           {check.parseError ?? "Couldn't parse the compose file."}
         </p>
       </div>
@@ -24,7 +24,7 @@ export function ComposeFeedback({ check }: ComposeFeedbackProps): React.JSX.Elem
   return (
     <div className="border-border grid gap-2 rounded-xl border px-3 py-2.5">
       <p className="flex items-center gap-1.5 text-sm font-medium">
-        <CheckCircle2Icon className="text-status-online size-4" />
+        <CheckCircle2Icon className="text-tone-ok size-4" />
         {check.services.length} service{check.services.length === 1 ? '' : 's'} ready to deploy
       </p>
       <div className="flex flex-wrap gap-1.5">
@@ -41,7 +41,7 @@ export function ComposeFeedback({ check }: ComposeFeedbackProps): React.JSX.Elem
               key={`${w.path}-${i}`}
               className={cn(
                 'flex items-start gap-2 text-xs',
-                w.level === 'warn' ? 'text-status-warning' : 'text-muted-foreground',
+                w.level === 'warn' ? 'text-tone-warn' : 'text-muted-foreground',
               )}
             >
               {w.level === 'warn' ? (

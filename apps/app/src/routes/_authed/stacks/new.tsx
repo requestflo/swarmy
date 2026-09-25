@@ -1,24 +1,20 @@
 import * as React from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { PageHeader } from '@/components/page-header';
+import { SectionHeader } from '@/components/section-header';
 import { DeployStackForm } from '@/components/stacks/new/deploy-stack-form';
 
-/** Deploy a stack from a compose file — a focused full page, never a dialog. */
+/** Deploy an app from a compose file (a Deploy step): paste, check, deploy. */
 export const Route = createFileRoute('/_authed/stacks/new')({
   component: NewStackPage,
 });
 
 function NewStackPage(): React.JSX.Element {
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 pt-8 lg:pb-20 xl:px-10">
-      <PageHeader
-        eyebrow="Stacks · New"
-        title={
-          <>
-            Ship a whole app at <em>once</em>.
-          </>
-        }
-        description="Paste a compose file. Every service deploys in one move and lands in its own workspace."
+    <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 pb-24 lg:pb-20 xl:px-10">
+      <SectionHeader
+        eyebrow="Nothing runs until you press Deploy"
+        title="Paste a compose file."
+        description="Every service goes up at once and lands in one app. swarmy checks the file as you type."
       />
       <DeployStackForm />
     </div>
