@@ -25,6 +25,7 @@
  * live labels via {@link applyPgMember} (storage + the swarmy boot layer of
  * `manageddb-pg`) instead of rebuilding a bare spec.
  */
+import { defaultDiskMount } from './disk-inventory';
 import { MANAGED_PG_PGDATA, MANAGED_PG_ROOT, applyPgBoot, type PgBootSpecLike } from './manageddb-pg';
 
 /** Named volume this member's data root (`/var/lib/postgresql/data`) lives on. */
@@ -208,13 +209,17 @@ export interface PinCandidateNode {
   role: 'manager' | 'worker';
   availability: 'active' | 'pause' | 'drain';
   status: 'unknown' | 'down' | 'ready' | 'disconnected';
+  /** Swarm node labels — `swarmy.disk.default` marks a node with an added data disk. */
+  labels?: Record<string, string>;
 }
 
 /**
- * Choose the node a NEW primary is pinned to. Pure. Prefers schedulable
- * (ready + active) nodes hosting the fewest existing pinned primaries; ties go
- * to `fallback` (the manager the controller dispatches through), then managers,
- * then id order for determinism. With no usable inventory it returns `fallback`.
+ * Choose the node a NEW primary is pinned to. Pure. Among schedulable
+ * (ready + active) nodes it prefers, in order: a node with a default data disk
+ * (`swarmy.disk.default`, so the data lands on the added disk and not the root
+ * disk — QA-076), the fewest existing pinned primaries, `fallback` (the
+ * manager the controller dispatches through), managers, then id order for
+ * determinism. With no usable inventory it returns `fallback`.
  */
 export function choosePinNode(input: {
   nodes: readonly PinCandidateNode[];
@@ -225,8 +230,10 @@ export function choosePinNode(input: {
   const usable = input.nodes.filter((n) => n.status === 'ready' && n.availability === 'active');
   if (usable.length === 0) return input.fallback;
   const load = (id: string) => input.pinnedCounts.get(id) ?? 0;
+  const disk = (n: PinCandidateNode) => Number(defaultDiskMount(n.labels) !== null);
   const sorted = [...usable].sort(
     (a, b) =>
+      disk(b) - disk(a) ||
       load(a.swarmNodeId) - load(b.swarmNodeId) ||
       Number(b.swarmNodeId === input.fallback) - Number(a.swarmNodeId === input.fallback) ||
       Number(b.role === 'manager') - Number(a.role === 'manager') ||

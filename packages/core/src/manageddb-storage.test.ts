@@ -130,6 +130,32 @@ describe('choosePinNode', () => {
     ).toBe('m1');
   });
 
+  it('prefers the node with the default data disk, even over the fallback manager and a lighter load (QA-076)', () => {
+    const withDisk = { labels: { 'swarmy.disk.default': 'vol1', 'swarmy.disk.vol1': '/var/lib/swarmy/disks/vol1' } };
+    expect(
+      choosePinNode({
+        nodes: [node('lon1-a', 'manager'), node('lon1-b', 'worker', withDisk)],
+        pinnedCounts: new Map([['lon1-b', 1]]),
+        fallback: 'lon1-a',
+      }),
+    ).toBe('lon1-b');
+    // A malformed disk label does not count; a drained disk node is skipped.
+    expect(
+      choosePinNode({
+        nodes: [node('m1', 'manager'), node('w1', 'worker', { labels: { 'swarmy.disk.default': 'x', 'swarmy.disk.x': '/tmp' } })],
+        pinnedCounts: new Map(),
+        fallback: 'm1',
+      }),
+    ).toBe('m1');
+    expect(
+      choosePinNode({
+        nodes: [node('m1', 'manager'), node('w1', 'worker', { ...withDisk, availability: 'drain' })],
+        pinnedCounts: new Map(),
+        fallback: 'm1',
+      }),
+    ).toBe('m1');
+  });
+
   it('falls back when there is no usable inventory', () => {
     expect(choosePinNode({ nodes: [], pinnedCounts: new Map(), fallback: 'm1' })).toBe('m1');
   });

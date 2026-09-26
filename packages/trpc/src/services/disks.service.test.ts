@@ -110,4 +110,11 @@ describe('placeOnDefaultDisk', () => {
     g.ctx.hub.dispatch = async () => { throw new Error('disk not mounted'); };
     expect(await placeOnDefaultDisk(g.ctx, 'sw1', 'v')).toBeNull();
   });
+  it('required: a failed pre-create on a declared default disk throws instead of using the root disk (QA-076)', async () => {
+    const g = fakeCtx({ 'swarmy.disk.A': '/var/lib/swarmy/disks/A', 'swarmy.disk.default': 'A' });
+    g.ctx.hub.dispatch = async () => { throw new Error('disk not mounted'); };
+    await expect(placeOnDefaultDisk(g.ctx, 'sw1', 'v', { required: true })).rejects.toThrow(/default disk.*disk not mounted/);
+    // No default disk declared: still a no-op, even when required.
+    expect(await placeOnDefaultDisk(fakeCtx().ctx, 'sw1', 'v', { required: true })).toBeNull();
+  });
 });

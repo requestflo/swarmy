@@ -119,6 +119,7 @@ const GATES: Array<[string, unknown, string]> = [
   ['gitConnections.remove', { id: 'g1' }, 'cicd.remove'],
   ['registryCredentials.remove', { id: 'rc1' }, 'secret.delete'],
   ['db.confirmFailover', {}, 'data.failover'],
+  ['db.remove', { stack: 'shop', cluster: 'main', confirm: 'shop/main' }, 'data.destroy'],
   ['swarm.revealUnlockKey', undefined, 'secrets.read'],
   ['policies.set', { name: 'p', effect: 'permit', source: '{}' }, 'policy.write'],
   ['policies.whoCan', { action: 'service.read' }, 'member.write'],

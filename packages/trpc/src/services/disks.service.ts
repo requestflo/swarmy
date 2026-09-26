@@ -141,21 +141,31 @@ export async function setDiskFormatAllowed(ctx: Ctx, input: { nodeId: string; al
  * the service spec is unchanged. Returns the device, or null when the node
  * has no default disk / is not connected / the pre-create failed (the volume
  * is then created on the root disk as before — never an error for the caller).
+ *
+ * `required`: when the node DOES declare a default disk, a failed pre-create
+ * throws instead of silently falling back to the root disk (QA-076) — the
+ * managed Postgres path, where data on the wrong disk is the bug.
  */
 export async function placeOnDefaultDisk(
   ctx: Pick<OrgContext, 'hub'>,
   swarmNodeId: string | undefined,
   volumeName: string,
+  opts: { required?: boolean } = {},
 ): Promise<string | null> {
   if (!swarmNodeId) return null;
+  let options: ReturnType<typeof diskVolumeOptions> = null;
   try {
     const nodeId = ctx.hub.onlineNodeIds().find((id) => ctx.hub.swarmNodeIdFor(id) === swarmNodeId);
     if (!nodeId) return null;
-    const options = diskVolumeOptions(ctx.hub.nodeInfoFor(nodeId)?.labels, volumeName);
+    options = diskVolumeOptions(ctx.hub.nodeInfoFor(nodeId)?.labels, volumeName);
     if (!options) return null;
     await ctx.hub.dispatch(nodeId, 'volume.provision', { spec: { name: volumeName, mode: 'local', options } });
     return options.device;
-  } catch {
+  } catch (e) {
+    if (opts.required && options) {
+      const why = e instanceof Error ? e.message : String(e);
+      throw commandRejected(`could not put ${volumeName} on the server's default disk (${why}) — refusing to fall back to the root disk`);
+    }
     return null;
   }
 }

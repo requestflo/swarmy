@@ -611,7 +611,9 @@ export async function provisionDb(
   // A NEW cluster's primary volume lands on the pinned server's added disk,
   // when it has one (plans/epic-volume-mobility.md phase 1). Never for an
   // existing cluster: its data already lives where it is.
-  if (!existingLive) await placeOnDefaultDisk(ctx, pinNode, dataVolume);
+  // The pin already prefers a node with a default disk (choosePinNode); a
+  // failed pre-create there is an error, not a silent root-disk fallback (QA-076).
+  if (!existingLive) await placeOnDefaultDisk(ctx, pinNode, dataVolume, { required: true });
   const existingReplica = findCluster(ctx, stack, cluster).replica;
 
   // Default-on backups: born with a nightly pg_dump schedule unless the primary
@@ -1631,4 +1633,87 @@ function cutoverFailureMessage(
     `Recover from: ${refs}. The copy was verified (pg_basebackup exit 0, data/PG_VERSION present) before cutover; ` +
     `inspect \`docker service ps ${service} --no-trunc\` and the task logs, and do not remove that volume.`
   );
+}
+
+// ── removing a cluster ───────────────────────────────────────────────────────
+
+/** The phrase `db.remove` wants typed: `<stack>/<cluster>`. */
+export function dbRemoveConfirmPhrase(stack: string, cluster: string): string {
+  return `${stack}/${cluster}`;
+}
+
+/**
+ * Remove a managed Postgres: every member service (primary, standbys, region
+ * siblings, extra primaries) and its WAL shipper. Destructive → the router's
+ * `data.destroy` policy gate plus the typed `<stack>/<cluster>` phrase here.
+ * Refused while an app is still wired to it (`swarmy.db.inject`), so no app is
+ * left with a dead DATABASE_URL. The data volumes are KEPT unless
+ * `deleteData` (then removed from every online server — irreversible).
+ * Audited as `db.remove`.
+ */
+export async function removeDb(
+  ctx: OrgContext,
+  input: { stack: string; cluster: string; confirm: string; deleteData?: boolean },
+): Promise<{ cluster: string; removed: string[]; volumesDeleted: string[]; volumesKept: string[] }> {
+  const expected = dbRemoveConfirmPhrase(input.stack, input.cluster);
+  if (input.confirm.trim() !== expected) {
+    throw commandRejected(`type ${expected} to remove this database`);
+  }
+  const { members } = findCluster(ctx, input.stack, input.cluster);
+  if (members.length === 0) throw notFound('db cluster', input.cluster);
+  const attached = liveStackServices(ctx, input.stack).filter(
+    (s) => s.labels[DB_INJECT_LABEL] === input.cluster && s.labels[DB_CLUSTER_LABEL] !== input.cluster,
+  );
+  if (attached.length > 0) {
+    throw commandRejected(
+      `${attached.length} app(s) still use this database (${attached.map((s) => s.name).join(', ')}) — disconnect them first`,
+    );
+  }
+  const shipper = liveSwarmService(ctx, walShipperServiceName(input.stack, input.cluster));
+  // Primaries first: with no primary left the reconcile worker has no
+  // declaration to re-create replicas from while we remove the rest.
+  const ordered = [
+    ...members.filter((m) => m.labels[DB_ROLE_LABEL] === 'primary'),
+    ...members.filter((m) => m.labels[DB_ROLE_LABEL] !== 'primary'),
+  ];
+  const toRemove = [...new Set([...ordered.map((m) => m.name), ...(shipper ? [shipper.name] : [])])];
+  const volumes = [
+    ...new Set([
+      primaryDataVolumeName(input.stack, input.cluster),
+      replicaDataVolumeName(input.stack, input.cluster),
+      walArchiveVolumeName(input.stack, input.cluster),
+      ...members.map((m) => m.labels[DB_DATA_VOLUME_LABEL]).filter((v): v is string => Boolean(v)),
+    ]),
+  ];
+
+  const node = await resolveManagerNode(ctx);
+  try {
+    for (const name of toRemove) await ctx.hub.dispatch(node.id, 'service.remove', { service: name });
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
+  const volumesDeleted: string[] = [];
+  if (input.deleteData) {
+    // Local volumes live on whichever server ran the task — ask every online one.
+    for (const nodeId of ctx.hub.onlineNodeIds()) {
+      for (const name of volumes) {
+        const ok = await ctx.hub
+          .dispatch(nodeId, 'volume.remove', { name, cluster: false })
+          .then(() => true, () => false); // absent here = fine
+        if (ok && !volumesDeleted.includes(name)) volumesDeleted.push(name);
+      }
+    }
+  }
+  await writeAudit(ctx, {
+    action: 'db.remove',
+    targetType: 'dbCluster',
+    targetId: expected,
+    metadata: { removed: toRemove, deleteData: Boolean(input.deleteData), volumes },
+  });
+  return {
+    cluster: input.cluster,
+    removed: toRemove,
+    volumesDeleted,
+    volumesKept: input.deleteData ? [] : volumes,
+  };
 }

@@ -8,6 +8,7 @@ import {
   injectConnection,
   migrateStorage,
   provisionDb,
+  removeDb,
   setRegionReplicas,
   setReplicas,
   setTopology,
@@ -170,6 +171,23 @@ export const managedDbRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => migrateStorage(ctx, input)),
+
+  /**
+   * Remove a managed Postgres (every member + its WAL shipper). Destructive →
+   * the `data.destroy` policy gate (owner/admin by default) plus the typed
+   * `confirm` phrase `<stack>/<cluster>`. Refused while an app is connected.
+   * Data volumes are kept unless `deleteData`. Audited (`db.remove`).
+   */
+  remove: abacProcedure('data.destroy', resolveStackByName)
+    .input(
+      z.object({
+        stack: stackName,
+        cluster: clusterName,
+        confirm: z.string().min(1).max(200),
+        deleteData: z.boolean().default(false),
+      }),
+    )
+    .mutation(({ ctx, input }) => removeDb(ctx, input)),
 
   /** Inject DATABASE_URL (+ *_RO_URL) env onto an app service in the stack. */
   inject: abacProcedure('service.configure', resolveStackService)
