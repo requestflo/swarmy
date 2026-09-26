@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyIcon, PlusIcon, RefreshCwIcon, Trash2Icon } from 'lucide-react';
+import { KeyIcon, LockIcon, PlusIcon, RefreshCwIcon, Trash2Icon } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -101,65 +101,80 @@ export function KeysCard(): React.JSX.Element {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{k.name || 'unnamed key'}</p>
                   <p className="mono-data text-muted-foreground truncate text-xs">{k.id}</p>
+                  {k.platform ? (
+                    <p className="text-muted-foreground truncate text-xs">{k.usedBy}</p>
+                  ) : null}
                 </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="shrink-0"
-                        aria-label={`Rotate key ${k.name || k.id}`}
-                        disabled={rotate.isPending}
-                      >
-                        <RefreshCwIcon className="size-4" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Rotate key "{k.name || k.id}"?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Mints a replacement with identical bucket access, swaps any attached app
-                          onto it (redeploy), then deletes this key. Tools using the old secret
-                          directly must be updated with the new one.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Keep it</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => rotate.mutate({ accessKeyId: k.id })}>
-                          Rotate key
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="text-tone-bad shrink-0"
-                        aria-label={`Delete key ${k.name || k.id}`}
-                        disabled={del.isPending}
-                      >
-                        <Trash2Icon className="size-4" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete key "{k.name || k.id}"?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Apps and tools using this key lose access immediately. There is no undo.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Keep it</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => del.mutate({ accessKeyId: k.id })}>
-                          Delete key
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
+                {k.platform ? (
+                  // swarmy depends on this key (backups, cert sync, …): it
+                  // rotates and cleans it up itself, and the API refuses a
+                  // person's delete/rotate (QA-081).
+                  <span
+                    className="text-muted-foreground inline-flex shrink-0 items-center gap-1.5 text-xs font-medium"
+                    title="swarmy manages this key. It is replaced and cleaned up automatically."
+                  >
+                    <LockIcon className="size-3.5" /> Used by swarmy
+                  </span>
+                ) : (
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="shrink-0"
+                          aria-label={`Rotate key ${k.name || k.id}`}
+                          disabled={rotate.isPending}
+                        >
+                          <RefreshCwIcon className="size-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Rotate key "{k.name || k.id}"?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Mints a replacement with identical bucket access, swaps any attached app
+                            onto it (redeploy), then deletes this key. Tools using the old secret
+                            directly must be updated with the new one.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Keep it</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => rotate.mutate({ accessKeyId: k.id })}>
+                            Rotate key
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="text-tone-bad shrink-0"
+                          aria-label={`Delete key ${k.name || k.id}`}
+                          disabled={del.isPending}
+                        >
+                          <Trash2Icon className="size-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete key "{k.name || k.id}"?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Apps and tools using this key lose access immediately. There is no undo.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Keep it</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => del.mutate({ accessKeyId: k.id })}>
+                            Delete key
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

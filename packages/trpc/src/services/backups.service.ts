@@ -29,6 +29,8 @@ import {
   garageS3Endpoint,
   grantKeyOnBucket,
   overview as bucketsOverview,
+  retireSupersededSystemKeys,
+  revokeSystemKey,
 } from './buckets.service';
 import { resolveManagerNode, requireOnlineNode } from './dispatch.service';
 import { listStacks } from './stack.service';
@@ -412,9 +414,16 @@ export async function ensureNativeTarget(ctx: OrgContext): Promise<NativeTargetR
     const raced = (await backupTargets(ctx, ctx.activeOrgId).findFirst({
       where: { orgId: ctx.activeOrgId, name: NATIVE_TARGET_NAME },
     })) as unknown as TargetRow | null;
-    if (!raced) throw e;
+    if (!raced) {
+      await revokeSystemKey(ctx, key.accessKeyId);
+      throw e;
+    }
+    // The winner's key is the one in use: ours would be a leftover (QA-081).
+    await revokeSystemKey(ctx, key.accessKeyId);
     return { target: toView(raced), bucket: raced.bucket, created: false };
   }
+  // One restic key per org: a re-created target supersedes the old key (QA-081).
+  await retireSupersededSystemKeys(ctx, key.name, key.accessKeyId);
   await writeAudit(ctx, {
     action: 'backup.target.native',
     targetType: 'backupTarget',

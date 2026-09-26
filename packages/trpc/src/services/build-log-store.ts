@@ -14,7 +14,7 @@ import path from 'node:path';
 import { decryptSecret, encryptSecret } from '@swarmy/core/crypto';
 import { s3BlobStore, type BlobStore } from '@swarmy/rum';
 import type { OrgContext } from '../context';
-import { objectStoreState, provisionSystemBucketKey } from './buckets.service';
+import { objectStoreState, provisionSystemBucketKey, retireSupersededSystemKeys } from './buckets.service';
 import { buildLogBus } from './build-log-bus';
 import { orgSingleton } from './kv-repo';
 
@@ -41,6 +41,12 @@ const storeRepo = orgSingleton<BuildLogStoreDoc>('build-logs', () => ({
   region: 'garage',
   endpoint: '',
 }));
+
+/** The key the build-log archive holds (platform-key GC, QA-081). */
+export async function buildLogStoreKeyIds(ctx: OrgContext): Promise<string[]> {
+  const doc = await storeRepo.find(ctx, ctx.activeOrgId);
+  return doc?.accessKeyId ? [doc.accessKeyId] : [];
+}
 
 /** PURE — NDJSON for a log, and back. Tolerant of a torn last line. */
 export function encodeLog(lines: readonly StoredLogLine[]): string {
@@ -92,6 +98,7 @@ async function blobStore(ctx: OrgContext, provision: boolean): Promise<BlobStore
     region: cred.region,
     endpoint: cred.endpoint,
   });
+  await retireSupersededSystemKeys(ctx, KEY_NAME, cred.accessKeyId);
   return s3BlobStore({ endpoint: cred.endpoint, region: cred.region, bucket: cred.bucket, accessKeyId: cred.accessKeyId, secretAccessKey: cred.secretAccessKey });
 }
 

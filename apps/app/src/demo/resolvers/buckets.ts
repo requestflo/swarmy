@@ -10,6 +10,14 @@ import type { DemoStore, DomainResolvers } from '../types';
 
 // ───────────────────────────────────────────── controller view mirrors ──
 
+/** Mirrors trpc `platform-keys.ts` for the one platform key the demo seeds. */
+function isDemoPlatformKey(name: string | undefined): boolean {
+  return name === 'swarmy-object-storage-restic';
+}
+function demoKeyUsedBy(name: string): string | null {
+  return isDemoPlatformKey(name) ? 'Backups (volumes, databases, WAL archive, controller)' : null;
+}
+
 interface BucketPermissionsView {
   read: boolean;
   write: boolean;
@@ -115,7 +123,9 @@ export const buckets: DomainResolvers = {
 
     'buckets.listKeys': (_i, s) => ({
       state: 'ready' as const,
-      keys: [...getState(s).keys].sort((a, b) => (a.name < b.name ? -1 : 1)),
+      keys: [...getState(s).keys]
+        .sort((a, b) => (a.name < b.name ? -1 : 1))
+        .map((k) => ({ ...k, platform: isDemoPlatformKey(k.name), usedBy: demoKeyUsedBy(k.name) })),
     }),
 
     'buckets.createBucket': (i, s) => {
@@ -170,6 +180,7 @@ export const buckets: DomainResolvers = {
       const st = getState(s);
       const old = st.keys.find((k) => k.id === accessKeyId);
       if (!old) throw new Error(`key ${accessKeyId} not found`);
+      if (isDemoPlatformKey(old.name)) throw new Error('swarmy uses this key — it can\'t be rotated here');
       const newId = keyId();
       st.keys = st.keys.map((k) => (k.id === accessKeyId ? { id: newId, name: k.name } : k));
       const redeployed: string[] = [];
@@ -230,6 +241,9 @@ export const buckets: DomainResolvers = {
     'buckets.deleteKey': (i, s) => {
       const { accessKeyId } = i as { accessKeyId: string };
       const st = getState(s);
+      if (isDemoPlatformKey(st.keys.find((k) => k.id === accessKeyId)?.name)) {
+        throw new Error('swarmy uses this key — it can\'t be deleted here');
+      }
       const used = st.buckets.filter((b) =>
         b.attachments.some((a) => a.accessKeyId === accessKeyId),
       );
@@ -374,6 +388,7 @@ export const buckets: DomainResolvers = {
         { id: uploadsKey, name: 'swarmy-attach-api-app-uploads' },
         { id: ciKey, name: 'ci-artifacts' },
         { id: 'GK0a45cc19demo03', name: 'laptop-cli' },
+        { id: 'GKe41b07d2demo04', name: 'swarmy-object-storage-restic' },
       ],
       buckets: [
         {

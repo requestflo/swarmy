@@ -15,7 +15,7 @@ import { abacProcedure } from '../abac';
 import {
   attachToService,
   createBucket,
-  createKey,
+  createUserKey,
   deleteBucket,
   deleteKey,
   detach,
@@ -93,7 +93,7 @@ export const objectStorageRouter = router({
   /** Mints a key — the secret is returned ONCE and never retrievable again. */
   createKey: adminProcedure
     .input(CreateBucketKeyInput)
-    .mutation(({ ctx, input }) => createKey(ctx, input.name)),
+    .mutation(({ ctx, input }) => createUserKey(ctx, input.name)),
 
   deleteKey: abacProcedure('data.destroy')
     .input(DeleteBucketKeyInput)

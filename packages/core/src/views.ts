@@ -579,6 +579,14 @@ export interface BucketsOverview {
 export interface StorageAccessKeyView {
   id: string;
   name: string;
+  /**
+   * True for a key swarmy minted for itself (presign, Litestream, backups, edge
+   * certs, …). The UI shows it as "Used by swarmy" with no delete/rotate, and
+   * the API refuses both (QA-081).
+   */
+  platform?: boolean;
+  /** What depends on a platform key, in plain words (null for user keys). */
+  usedBy?: string | null;
 }
 
 export interface BucketKeysView {

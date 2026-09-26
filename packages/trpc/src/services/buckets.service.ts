@@ -37,6 +37,7 @@ import {
   type SetBucketWebsiteInput,
   type StorageAccessKeyView,
 } from '@swarmy/core';
+import { TRPCError } from '@trpc/server';
 import { decryptSecret, encryptSecret } from '@swarmy/core/crypto';
 import type { RunOnceResult } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
@@ -49,6 +50,7 @@ import { MAX_PRESIGN_EXPIRES_SECONDS, presignS3Url } from './s3-presign';
 import { bucketInfoUrlPrefix, garageMajorOf, toGarageRequest, type GarageCall, type GarageMajor } from './garage-admin';
 import { parsePhysicalSecretName, physicalSecretName } from './secretsMgr.service';
 import { bucketAccessRepo, storageClusterRepo } from './storage-cluster.repo';
+import { platformKeyPurpose, planPlatformKeyGc, reservedKeyNameReason, type GcKey } from './platform-keys';
 
 // Keep in lockstep with replicatedStore.service.ts (same deployment).
 const STORE_SERVICE_NAME = 'swarmy-garage';
@@ -529,7 +531,10 @@ export async function listKeys(ctx: OrgContext): Promise<BucketKeysView> {
     const raw = parseJson<Array<{ id?: string; name?: string }>>(body, 'key list');
     const keys: StorageAccessKeyView[] = (Array.isArray(raw) ? raw : [])
       .filter((k) => typeof k.id === 'string')
-      .map((k) => ({ id: k.id as string, name: k.name ?? '' }))
+      .map((k) => {
+        const purpose = platformKeyPurpose(k.name);
+        return { id: k.id as string, name: k.name ?? '', platform: purpose !== null, usedBy: purpose?.usedBy ?? null };
+      })
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     return { state: 'ready', keys };
   } catch {
@@ -612,6 +617,7 @@ async function mintKey(
   if (!raw.accessKeyId || !raw.secretAccessKey) {
     throw commandRejected('object store did not return a key');
   }
+  noteMinted(raw.accessKeyId);
   return {
     accessKeyId: raw.accessKeyId,
     secretAccessKey: raw.secretAccessKey,
@@ -635,11 +641,47 @@ export async function createKey(ctx: OrgContext, name: string): Promise<BucketKe
   return key;
 }
 
+/**
+ * A person minting a key (the `buckets.createKey` route). The `swarmy-` prefix
+ * is reserved for keys swarmy manages — see `platform-keys.ts`.
+ */
+export async function createUserKey(ctx: OrgContext, name: string): Promise<BucketKeyCreatedView> {
+  const reserved = reservedKeyNameReason(name);
+  if (reserved) throw new TRPCError({ code: 'BAD_REQUEST', message: reserved });
+  return createKey(ctx, name);
+}
+
+/**
+ * Refuse a person's delete/rotate of a key swarmy depends on (QA-081). FORBIDDEN,
+ * not a soft rejection: removing it silently breaks backups, cert sync, …
+ */
+export function assertNotPlatformKey(
+  key: { accessKeyId: string; name?: string | null },
+  action: 'delete' | 'rotate',
+): void {
+  const purpose = platformKeyPurpose(key.name);
+  if (!purpose) return;
+  throw new TRPCError({
+    code: 'FORBIDDEN',
+    message: `key "${key.name}" (${key.accessKeyId}) is used by swarmy for: ${purpose.usedBy}. swarmy manages it — it can't be ${action === 'delete' ? 'deleted' : 'rotated'} here.`,
+  });
+}
+
+/** The key's Garage name (throws when the key does not exist). */
+async function keyName(ctx: OrgContext, store: StoreHandle, accessKeyId: string): Promise<string> {
+  const body = await garageAdmin(ctx, store, {
+    method: 'GET',
+    path: `/key?id=${encodeURIComponent(accessKeyId)}`,
+  });
+  return parseJson<{ name?: string }>(body, 'key').name ?? '';
+}
+
 export async function deleteKey(
   ctx: OrgContext,
   accessKeyId: string,
 ): Promise<{ accessKeyId: string; removed: true }> {
   const store = await requireStore(ctx);
+  assertNotPlatformKey({ accessKeyId, name: await keyName(ctx, store, accessKeyId) }, 'delete');
   const inUse = liveOrgServices(ctx).filter((s) => s.labels[S3_KEY_LABEL] === accessKeyId);
   if (inUse.length > 0) {
     throw commandRejected(
@@ -700,6 +742,7 @@ export async function rotateAccessKey(
   });
   const info = parseJson<GarageKeyInfo>(infoBody, 'key info');
   const name = info.name ?? '';
+  assertNotPlatformKey({ accessKeyId, name }, 'rotate');
 
   // 1. Replacement key, same display name, identical grants.
   const next = await mintKey(ctx, store, name || `rotated-${accessKeyId}`);
@@ -825,6 +868,7 @@ async function ensurePresignKey(
     accessKeyRef: encryptSecret(key.accessKeyId),
     secretKeyRef: encryptSecret(key.secretAccessKey),
   });
+  await retireSupersededSystemKeys(ctx, PRESIGN_KEY_NAME, key.accessKeyId);
   return { accessKeyId: key.accessKeyId, secretAccessKey: key.secretAccessKey };
 }
 
@@ -1201,4 +1245,95 @@ export async function revokeSystemKey(ctx: OrgContext, accessKeyId: string): Pro
     method: 'DELETE',
     path: `/key?id=${encodeURIComponent(accessKeyId)}`,
   }).catch(() => undefined);
+}
+
+// ── Platform keys: one per purpose (QA-081) ───────────────────────────────────
+
+/** Keys this process minted, by id → ms. Never garbage-collected inside the grace window. */
+const recentMints = new Map<string, number>();
+
+function noteMinted(accessKeyId: string, now = Date.now()): void {
+  recentMints.set(accessKeyId, now);
+  // Bounded: drop entries well past any grace window.
+  for (const [id, at] of recentMints) if (now - at > 60 * 60_000) recentMints.delete(id);
+}
+
+/** Test hook. */
+export function _recentMintsForTest(): Map<string, number> {
+  return recentMints;
+}
+
+/** All keys (id + name + Garage creation time when the engine reports one). */
+async function listGcKeys(ctx: OrgContext, store: StoreHandle): Promise<GcKey[]> {
+  const body = await garageAdmin(ctx, store, { method: 'GET', path: '/key?list' });
+  const raw = parseJson<Array<{ id?: string; name?: string; created?: string }>>(body, 'key list');
+  return (Array.isArray(raw) ? raw : [])
+    .filter((k) => typeof k.id === 'string')
+    .map((k) => {
+      const created = k.created ? Date.parse(k.created) : Number.NaN;
+      return { id: k.id as string, name: k.name ?? '', ...(Number.isFinite(created) ? { createdAt: created } : {}) };
+    });
+}
+
+/**
+ * Rotate in place: once a consumer has PERSISTED its new platform key, delete
+ * the same-named keys it superseded (older mints, a lost credential's key).
+ * Keys inside the grace window are left for the reconcile GC — they may be a
+ * concurrent caller's not-yet-persisted mint. Best-effort; never throws.
+ */
+export async function retireSupersededSystemKeys(
+  ctx: OrgContext,
+  keyName: string,
+  keepAccessKeyId: string,
+  now = Date.now(),
+): Promise<string[]> {
+  const store = await loadStore(ctx).catch(() => null);
+  if (!store) return [];
+  const keys = await listGcKeys(ctx, store).catch(() => [] as GcKey[]);
+  const stale = keys.filter((k) => k.name === keyName && k.id !== keepAccessKeyId);
+  // Same rules as the GC, with the in-use set = the key just persisted.
+  const purpose = platformKeyPurpose(keyName);
+  if (!purpose) return [];
+  const doomed = planPlatformKeyGc(stale, { [purpose.id]: [keepAccessKeyId] }, recentMints, now);
+  return deletePlatformKeys(ctx, store, doomed, 'superseded');
+}
+
+/**
+ * Reconcile-side GC: delete every platform key its consumer no longer holds.
+ * `inUse[purpose]` = the key ids that purpose's consumer has persisted
+ * (null = couldn't tell → that purpose is skipped). Returns the deleted ids.
+ */
+export async function gcPlatformKeysWith(
+  ctx: OrgContext,
+  inUse: Parameters<typeof planPlatformKeyGc>[1],
+  now = Date.now(),
+): Promise<string[]> {
+  const store = await loadStore(ctx);
+  if (!store) return [];
+  const keys = await listGcKeys(ctx, store);
+  return deletePlatformKeys(ctx, store, planPlatformKeyGc(keys, inUse, recentMints, now), 'unused');
+}
+
+async function deletePlatformKeys(
+  ctx: OrgContext,
+  store: StoreHandle,
+  keys: readonly GcKey[],
+  reason: 'superseded' | 'unused',
+): Promise<string[]> {
+  const removed: string[] = [];
+  for (const k of keys) {
+    try {
+      await garageAdmin(ctx, store, { method: 'DELETE', path: `/key?id=${encodeURIComponent(k.id)}` });
+      removed.push(k.id);
+      await writeAudit(ctx, {
+        action: 'buckets.retireSystemKey',
+        targetType: 'bucketKey',
+        targetId: k.id,
+        metadata: { name: k.name, reason },
+      }).catch(() => undefined);
+    } catch {
+      // best-effort — the next reconcile retries
+    }
+  }
+  return removed;
 }

@@ -53,6 +53,8 @@ export interface ControllerStoreRuntimeStatus {
     endpoint: string;
     bucket: string;
     prefix: string;
+    /** The replica's S3 key id (not a secret) — lets the platform-key GC know it's in use. */
+    accessKeyId?: string;
   };
   replicating: boolean;
   replicationBlocked: string | null;
@@ -82,6 +84,18 @@ export function setControllerStoreRuntime(r: ControllerStoreRuntime | null): voi
 async function runtimeStatus(): Promise<ControllerStoreRuntimeStatus> {
   if (!runtime) throw commandRejected('the controller store runtime is not running in this process');
   return runtime.status();
+}
+
+/**
+ * The Garage key the running controller replicates with, for the platform-key
+ * GC (QA-081): `[]` = it uses none, `null` = can't tell (no runtime in this
+ * process, or a runtime too old to report the key) — unknown is never unused.
+ */
+export async function controllerReplicaKeyIds(): Promise<string[] | null> {
+  if (!runtime) return null;
+  const s = await runtime.status();
+  if (!s.replica || s.replica.kind !== 'garage') return [];
+  return s.replica.accessKeyId ? [s.replica.accessKeyId] : null;
 }
 
 // ── status view ──────────────────────────────────────────────────────────────

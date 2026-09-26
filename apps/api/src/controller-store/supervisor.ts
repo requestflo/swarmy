@@ -65,6 +65,8 @@ export interface ControllerStoreStatus {
     endpoint: string;
     bucket: string;
     prefix: string;
+    /** S3 key id (not a secret): the platform-key GC must not reap it. */
+    accessKeyId?: string;
   };
   replicating: boolean;
   /** Why replication hasn't started yet, when it should have. */
@@ -387,7 +389,15 @@ export class ControllerStore {
       leaseAgeMs: this.lastOkSentAt ? Math.round(performance.now() - this.lastOkSentAt) : null,
       waitingFor: this.waitingFor,
       replica: t
-        ? { kind: t.kind, label: t.label, ...(t.targetId ? { targetId: t.targetId } : {}), endpoint: t.endpoint, bucket: t.bucket, prefix: t.prefix }
+        ? {
+            kind: t.kind,
+            label: t.label,
+            ...(t.targetId ? { targetId: t.targetId } : {}),
+            endpoint: t.endpoint,
+            bucket: t.bucket,
+            prefix: t.prefix,
+            accessKeyId: t.accessKeyId,
+          }
         : null,
       replicating: !!this.litestream,
       replicationBlocked: this.replicationBlocked,

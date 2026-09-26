@@ -88,6 +88,7 @@ export { sweepRumRetentionForOrg, type RetentionSweepResult } from './services/r
 export { replayLinkFor } from './services/rum/rum-query';
 // Garage store convergence (storage-reconcile worker).
 export { convergeStoreDeployment, garageCapacityGb } from './services/replicatedStore.service';
+export { gcPlatformKeys } from './services/platform-keys.service';
 
 // ── git-cicd-registry P2: webhook + GC + build-log seams ──
 export { buildLogBus } from './services/build-log-bus';

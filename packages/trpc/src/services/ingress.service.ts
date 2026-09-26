@@ -1011,6 +1011,13 @@ export async function setDriver(
   return getConfig(ctx);
 }
 
+/** The key edge cert sync holds (platform-key GC, QA-081). */
+export async function edgeCertStorageKeyIds(ctx: OrgContext): Promise<string[]> {
+  const row = await ingressConfigRepo.find(ctx, ctx.activeOrgId);
+  const id = row ? readSettings(row).certStorage?.accessKeyId : undefined;
+  return id ? [id] : [];
+}
+
 /** Merge a partial patch into the persisted settings JSON. */
 async function patchSettings(
   ctx: OrgContext,

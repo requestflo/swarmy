@@ -42,11 +42,15 @@ import { writeAudit } from './audit.service';
 import { meshConfigRepo, type MeshConfigRow } from './mesh-config.repo';
 import { meshControlLive, meshPeers } from './mesh-peers';
 import { isMeshCidr } from './mesh-onmesh';
-import { objectStoreState, provisionSystemBucketKey } from './buckets.service';
+import { objectStoreState, provisionSystemBucketKey, retireSupersededSystemKeys } from './buckets.service';
 
 /** The swarmy OIDC client NetBird's Dex uses as its connector (confidential). */
 export const MESH_OIDC_CLIENT_ID = 'swarmy-mesh';
 export const MESH_BACKUP_BUCKET = 'swarmy-mesh';
+/** The mesh control plane's Litestream key (one per managed cluster; platform-owned, see platform-keys.ts). */
+export function meshLitestreamKeyName(cluster: string): string {
+  return `swarmy-mesh-litestream-${cluster}`;
+}
 
 export interface ManagedControlPlane {
   /** Cluster slug: namespaces every NetBird object (`swarmy:<c>:*`). */
@@ -415,7 +419,8 @@ export async function reconcileMeshControl(ctx: OrgContext, opts: { force?: bool
     const os = await objectStoreState(ctx).catch(() => ({ enabled: false as const }));
     if (os.enabled) {
       try {
-        const cred = await provisionSystemBucketKey(ctx, { bucket: MESH_BACKUP_BUCKET, keyName: `swarmy-mesh-litestream-${m.cluster}` });
+        const keyName = meshLitestreamKeyName(m.cluster);
+        const cred = await provisionSystemBucketKey(ctx, { bucket: MESH_BACKUP_BUCKET, keyName });
         m = await patchManaged(ctx, {
           litestream: {
             accessKeyId: cred.accessKeyId,
@@ -426,6 +431,9 @@ export async function reconcileMeshControl(ctx: OrgContext, opts: { force?: bool
             region: cred.region,
           },
         });
+        // One key per cluster: a re-created control plane re-mints; the keys
+        // the lost credential left behind go now (QA-081).
+        await retireSupersededSystemKeys(ctx, keyName, cred.accessKeyId);
         steps.push('litestream key provisioned');
       } catch (e) {
         steps.push(`litestream key failed: ${e instanceof Error ? e.message : String(e)}`);

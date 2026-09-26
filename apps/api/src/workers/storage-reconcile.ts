@@ -7,6 +7,7 @@ import {
   fireEvent,
   garageCapacityGb,
   garageMajorOf,
+  gcPlatformKeys,
   resumeEngineUpgrade,
   systemContext,
   toGarageRequest,
@@ -77,6 +78,8 @@ import {
  */
 
 const TICK_MS = 30_000;
+/** Platform-key GC cadence (QA-081): every 10 min, first run on the 2nd tick. */
+const KEY_GC_EVERY_TICKS = 20;
 const DISPATCH_TIMEOUT_MS = 45_000;
 const SWARM_SERVICE_ID_LABEL = 'com.docker.swarm.service.id';
 
@@ -338,6 +341,14 @@ async function reconcileOrg(row: ClusterRow, tick: number): Promise<void> {
         resource: STORE_SERVICE_NAME,
         message: `Object store ${health.status}: ${health.partitionsAllOk}/${health.partitions} partitions fully synced, ${health.storageNodesOk}/${health.storageNodes} storage nodes ok`,
       }).catch(() => undefined);
+    }
+
+    // (4) One key per platform purpose: reap the keys swarmy minted for itself
+    // that no consumer holds any more (superseded mints, lost credentials).
+    if (tick % KEY_GC_EVERY_TICKS === 2) {
+      await gcPlatformKeys(systemContext({ db: prisma, hub, auth: authRegistry.getAuth() }, orgId)).catch(
+        () => undefined,
+      );
     }
 
     state.failures = 0;

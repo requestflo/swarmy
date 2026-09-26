@@ -16,7 +16,7 @@ import { clickhouseClient, type ClickhouseClient } from '@swarmy/core';
 import { RUM_DDL, RUM_REPLAY_BUCKET, s3BlobStore, type BlobStore } from '@swarmy/rum';
 import type { OrgContext } from '../../context';
 import { observabilityConfigRepo } from '../observability-config.repo';
-import { objectStoreState, provisionSystemBucketKey } from '../buckets.service';
+import { objectStoreState, provisionSystemBucketKey, retireSupersededSystemKeys } from '../buckets.service';
 import { orgSingleton, type KvScope } from '../kv-repo';
 
 export const RUM_S3_KEY_NAME = 'swarmy-rum';
@@ -37,6 +37,12 @@ const rumStoreRepo = orgSingleton<RumStoreDoc>('rum', () => ({
   region: 'garage',
   endpoint: '',
 }));
+
+/** The key session replay holds (platform-key GC, QA-081). */
+export async function rumStoreKeyIds(ctx: OrgContext): Promise<string[]> {
+  const doc = await rumStoreRepo.find(ctx, ctx.activeOrgId);
+  return doc?.accessKeyId ? [doc.accessKeyId] : [];
+}
 
 function safeDecrypt(blob: string): string {
   try {
@@ -114,6 +120,7 @@ export async function rumBlobStore(ctx: OrgContext): Promise<BlobStore | null> {
       region: cred.region,
       endpoint: cred.endpoint,
     });
+    await retireSupersededSystemKeys(ctx, RUM_S3_KEY_NAME, cred.accessKeyId);
     return s3BlobStore({
       endpoint: cred.endpoint,
       region: cred.region,
