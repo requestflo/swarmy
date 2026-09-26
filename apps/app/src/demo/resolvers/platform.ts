@@ -109,7 +109,7 @@ function status(s: DemoStore) {
             ],
           },
       policy: { ...p.policy, windowText: winText(p.policy.window), feed: `${p.policy.feedUrl ?? 'https://github.com/requestflo/swarmy/releases/download'}/${p.policy.channel}/platform.json` },
-      lastCheckAt: new Date(Date.now() - 38 * 60_000).toISOString(),
+      lastCheckAt: new Date(demoCheckedAt).toISOString(),
       lastCheckError: null,
     },
     run,
@@ -117,10 +117,16 @@ function status(s: DemoStore) {
   };
 }
 
+/** When the demo last "checked the feed": 38 min before load, then whenever Check runs. */
+let demoCheckedAt = Date.now() - 38 * 60_000;
+
 export const platform: DomainResolvers = {
   handlers: {
     'platform.status': (_i, s) => status(s),
-    'platform.check': (_i, s) => status(s).release,
+    'platform.check': (_i, s) => {
+      demoCheckedAt = Date.now();
+      return status(s).release;
+    },
     'platform.setPolicy': (i, s) => {
       const p = state(s);
       p.policy = { ...p.policy, ...(i as Partial<DemoPlatform['policy']>) };
