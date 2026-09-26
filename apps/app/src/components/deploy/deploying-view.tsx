@@ -3,18 +3,9 @@ import { Say, SayHeader } from '@/components/calm';
 import { PageSkeleton } from '@/components/states';
 import { DeployingCode } from './deploying-code';
 import { DeployingLog } from './deploying-log';
-import { DeployingTracker, clock } from './deploying-tracker';
+import { DeployingTracker } from './deploying-tracker';
+import { useNow } from './deploy-elapsed';
 import type { DeployWatch } from './use-deploy-progress';
-
-/** A ticking "0:28 elapsed" from when the deploy went out (only when this tab sent it). */
-function Elapsed({ startedAt }: { startedAt: number }): React.JSX.Element {
-  const [now, setNow] = React.useState(() => Date.now());
-  React.useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1_000);
-    return () => clearInterval(t);
-  }, []);
-  return <span className="text-muted-foreground font-mono text-[12px]">{clock(Math.max(0, Math.round((now - startedAt) / 1000)))} elapsed</span>;
-}
 
 /**
  * Board "Deploying", in Calm Layers: the sentence, the five-step tracker from
@@ -26,16 +17,19 @@ function Elapsed({ startedAt }: { startedAt: number }): React.JSX.Element {
 export function DeployingView({
   stack,
   watch,
-  startedAt,
   banner,
 }: {
   stack: string;
   watch: DeployWatch;
-  startedAt: number | null;
   /** The one-time secrets banner, right under the sentence. */
   banner?: React.ReactNode;
 }): React.JSX.Element {
+  const now = useNow();
   if (!watch.ready) return <PageSkeleton className="px-0 pt-0 xl:px-0" />;
+  // How long each streamed step has been working, from the deploy's start.
+  const workingFor = Object.fromEntries(
+    Object.entries(watch.startedAt).map(([k, sec]) => [k, watch.since ? Math.round((now - watch.since) / 1000) - sec : undefined]),
+  ) as Partial<Record<keyof typeof watch.startedAt, number>>;
   const failed = watch.failed;
   const eyebrow = [failed ? 'STOPPED' : `STEP ${watch.current} OF ${watch.steps.length}`, watch.server].filter(Boolean).join(' · ');
   return (
@@ -56,14 +50,13 @@ export function DeployingView({
             ? `It stopped at “${failed.title}”. The live log below says why.`
             : 'You can leave this page. It keeps going, and we’ll tell you when it’s live.'
         }
-        actions={startedAt && !failed ? <Elapsed startedAt={startedAt} /> : undefined}
       />
       {banner}
-      <DeployingCode stackId={watch.stackId} service={watch.primary} domain={watch.domain} />
+      <DeployingCode stackId={watch.stackId} service={watch.primary} domain={watch.domain} deployId={watch.deployId} />
       <div className="calm-card px-5 py-6 lg:px-6 lg:py-8">
-        <DeployingTracker steps={watch.steps} doneAt={watch.doneAt} />
+        <DeployingTracker steps={watch.steps} doneAt={watch.doneAt} workingFor={workingFor} />
       </div>
-      <DeployingLog service={watch.primary} server={watch.server} />
+      <DeployingLog service={watch.primary} server={watch.server} events={watch.events} streaming={watch.streaming} />
     </div>
   );
 }

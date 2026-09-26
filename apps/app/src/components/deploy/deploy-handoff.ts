@@ -11,14 +11,16 @@ interface Handoff {
   result: BlueprintDeployResultView | null;
   /** When the deploy was sent, for the elapsed clock. */
   startedAt: number;
+  /** The traced deploy's id (`deploys.events`), when the controller traced it. */
+  deployId: string | null;
 }
 
 const handoffs = new Map<string, Handoff>();
 const dismissed = new Set<string>();
 
 /** Record a deploy that just went out; the app page picks it up. */
-export function handDeploy(stack: string, result: BlueprintDeployResultView | null = null): void {
-  handoffs.set(stack, { result, startedAt: Date.now() });
+export function handDeploy(stack: string, result: BlueprintDeployResultView | null = null, deployId?: string): void {
+  handoffs.set(stack, { result, startedAt: Date.now(), deployId: result?.deployId ?? deployId ?? null });
   dismissed.delete(stack);
 }
 

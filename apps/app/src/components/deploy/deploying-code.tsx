@@ -6,20 +6,26 @@ import type { DeployDomain } from './deploy-steps';
 /**
  * Code depth for a deploy in flight: how to watch the same thing from a
  * terminal. Only real surfaces — `swarmy logs -f` (apps/cli) and the public
- * REST paths the tracker's signals map to (GET /stacks/{id}, /services,
- * /ingress/domains/{id}/status, /services/{id}/logs/stream).
+ * REST paths the tracker's signals map to: the deploy's own events
+ * (GET /deploys/{id}/events, the `deploy_id` POST /stacks returns), then
+ * GET /stacks/{id}, /services, /ingress/domains/{id}/status and
+ * /services/{id}/logs/stream.
  */
 export function DeployingCode({
   stackId,
   service,
   domain,
+  deployId,
 }: {
   stackId: string | null;
   service: InvService | null;
   domain: DeployDomain | null;
+  /** The traced deploy, when this page is following one. */
+  deployId: string | null;
 }): React.JSX.Element {
   const svcId = service?.id ?? '<service-id>';
   const rest = [
+    deployId ? `# This deploy, step by step: image pull, data, start, certificate, health (kept 30 min)\n${curl('GET', `/deploys/${deployId}/events`)}` : null,
     stackId ? `# The app and its status\n${curl('GET', `/stacks/${stackId}`)}` : null,
     `# Its services, with replicas running / desired\n${curl('GET', '/services')}`,
     domain ? `# The address: DNS and the HTTPS certificate\n${curl('GET', `/ingress/domains/${encodeURIComponent(domain.id)}/status`)}` : null,

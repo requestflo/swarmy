@@ -42,6 +42,7 @@ import { security } from './resolvers/security';
 import { rum } from './resolvers/rum';
 import { studio } from './resolvers/studio';
 import { gaps } from './resolvers/gaps';
+import { deployEvents } from './resolvers/deploy-events';
 
 /**
  * Assembles every per-domain resolver module into flat lookup tables for the demo
@@ -92,6 +93,7 @@ const MODULES: DomainResolvers[] = [
   studio,
   rum,
   gaps,
+  deployEvents,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(

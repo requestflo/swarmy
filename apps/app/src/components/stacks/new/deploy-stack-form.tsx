@@ -44,7 +44,7 @@ export function DeployStackForm(): React.JSX.Element {
         }
         void qc.invalidateQueries();
         // Land on the app page's "Deploying → It's live" state.
-        handDeploy(vars.name);
+        handDeploy(vars.name, null, res.deployId);
         void navigate({ to: '/stacks/$name', params: { name: vars.name }, search: { deployed: 1 } });
       },
       onError: (e) => toast.error(e.message),

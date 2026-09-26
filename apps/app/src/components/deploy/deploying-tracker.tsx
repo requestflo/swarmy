@@ -3,6 +3,7 @@ import { AlertTriangleIcon, CheckIcon, LoaderCircleIcon, MinusIcon, XIcon } from
 import { cn } from '@swarmy/ui';
 import { TONE_TEXT, Tech, type Tone } from '@/components/calm';
 import type { DeployStep, StepKey, StepState } from './deploy-steps';
+import { clock } from './deploy-elapsed';
 
 const TONE: Record<StepState, Tone> = {
   done: 'ok',
@@ -22,11 +23,13 @@ const RING: Record<StepState, string> = {
   needs: 'border-status-warning bg-status-warning/10 text-tone-warn',
 };
 
-export const clock = (sec: number): string => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+export { clock };
 
-function word(s: DeployStep, at: number | undefined): string {
+/** "0:12" when done (from the deploy's start), "working · 0:07" while it runs. */
+function word(s: DeployStep, at: number | undefined, since: number | undefined): string {
   if (s.state === 'done') return at === undefined ? 'done' : clock(at);
   if (s.state === 'needs') return 'needs you';
+  if (s.state === 'working' && since !== undefined) return `working · ${clock(Math.max(0, since))}`;
   return s.state;
 }
 
@@ -49,15 +52,18 @@ function Dot({ step, n }: { step: DeployStep; n: number }): React.JSX.Element {
 /**
  * The five-step tracker (board "Deploying"): a row across the page on a wide
  * screen, a vertical rail on a phone. Each step: its title, a plain sub-line,
- * the state word (done with the time this tab saw it), and at Controls the
- * mono tech line.
+ * the state word (done with its time from the deploy's start, or how long it
+ * has been working), and at Controls the mono tech lines.
  */
 export function DeployingTracker({
   steps,
   doneAt,
+  workingFor = {},
 }: {
   steps: DeployStep[];
   doneAt: Partial<Record<StepKey, number>>;
+  /** Seconds each working step has been running (streamed deploys only). */
+  workingFor?: Partial<Record<StepKey, number>>;
 }): React.JSX.Element {
   return (
     <ol aria-label="Deploy steps" className="grid gap-0 lg:grid-cols-5 lg:gap-4">
@@ -85,9 +91,14 @@ export function DeployingTracker({
               <span className="text-muted-foreground text-[12.5px]">{s.sub}</span>
               <span className={cn('font-mono text-[13px]', TONE_TEXT[TONE[s.state]])}>
                 <span className="sr-only">Status: </span>
-                {word(s, doneAt[s.key])}
+                {word(s, doneAt[s.key], workingFor[s.key])}
               </span>
               {s.tech ? <Tech className="lg:max-w-[22ch]">{s.tech}</Tech> : null}
+              {(s.facts ?? []).map((f) => (
+                <Tech key={f} className="lg:max-w-[22ch]">
+                  {f}
+                </Tech>
+              ))}
             </div>
           </li>
         );

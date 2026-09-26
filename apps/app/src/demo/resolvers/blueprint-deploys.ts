@@ -15,10 +15,10 @@ import { seedDemoRoute } from './ingress';
  * stacks, domains) sees the same store, so they agree.
  */
 
-const DATA_START = 2_500;
-const DATA_READY = 6_000;
-const MAIN_START = 4_500;
-const MAIN_READY = 10_000;
+export const DATA_START = 2_500;
+export const DATA_READY = 6_000;
+export const MAIN_START = 4_500;
+export const MAIN_READY = 10_000;
 export const CERT_READY = 13_000;
 
 interface DemoDeploy {

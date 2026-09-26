@@ -4,6 +4,8 @@ import { useSubscription } from '@trpc/tanstack-react-query';
 import type { InvService } from '@swarmy/core';
 import { cn } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { DeployEventLog } from './deploy-event-log';
+import type { DeployEvent } from './deploy-events';
 
 interface LogLine {
   seq: number;
@@ -41,14 +43,26 @@ function Tail({ serviceId }: { serviceId: string }): React.JSX.Element {
 }
 
 /**
- * "Show live log": closed by default (the tracker is the story). A service
- * with no running copy has nothing to tail yet, so it says so instead of
- * opening an empty stream.
+ * "Show live log": closed by default (the tracker is the story). It shows
+ * the deploy's own events (pull, data, start, certificate, health) and,
+ * once the service has a running copy, its own log tailed below them.
+ * Without a traced deploy it falls back to the tail alone.
  */
-export function DeployingLog({ service, server }: { service: InvService | null; server: string | null }): React.JSX.Element {
+export function DeployingLog({
+  service,
+  server,
+  events,
+  streaming,
+}: {
+  service: InvService | null;
+  server: string | null;
+  events: DeployEvent[];
+  streaming: boolean;
+}): React.JSX.Element {
   const [open, setOpen] = React.useState(false);
   const id = React.useId();
   const started = Boolean(service && service.replicas.running > 0);
+  const note = (streaming || started) && server ? `streaming from ${server}` : null;
   return (
     <section aria-label="Live log" className="flex flex-col gap-3">
       <button
@@ -60,13 +74,17 @@ export function DeployingLog({ service, server }: { service: InvService | null; 
       >
         <ChevronDownIcon aria-hidden className={cn('size-4 transition-transform motion-reduce:transition-none', !open && '-rotate-90')} />
         {open ? 'Hide live log' : 'Show live log'}
-        {open && started && server ? <span className="text-muted-foreground font-mono text-[11.5px] font-normal">streaming from {server}</span> : null}
+        {open && note ? <span className="text-muted-foreground font-mono text-[11.5px] font-normal">{note}</span> : null}
       </button>
       {open ? (
-        <div id={id}>
+        <div id={id} className="flex flex-col gap-3">
+          {events.length ? <DeployEventLog events={events} /> : null}
           {service && started ? (
-            <Tail serviceId={service.id} />
-          ) : (
+            <>
+              {events.length ? <p className="text-muted-foreground font-mono text-[11.5px]">{service.name} · its own log</p> : null}
+              <Tail serviceId={service.id} />
+            </>
+          ) : events.length ? null : (
             <p className="calm-card text-muted-foreground px-4 py-3 text-[13px]">Logs appear once it starts.</p>
           )}
         </div>

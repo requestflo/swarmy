@@ -22,6 +22,8 @@ export interface DeployStep {
   state: StepState;
   /** The mono Controls line (image ref, service name, replicas, host). */
   tech: string | null;
+  /** More Controls lines from the deploy's own events ("7 layers · 142 MB", the digest). */
+  facts?: string[];
 }
 
 /** The slice of a route (`ingress.listDomains` row) the tracker reads. */
@@ -146,13 +148,15 @@ export function deriveDeploy(x: {
     tech: `${services.filter(up).length}/${services.length} services running${domain ? ` · edge ${domain.serving ? 'serving' : 'not serving'}` : ''}`,
   };
 
-  const steps = [image, data, start, https, health];
+  return { primary, domain, ...settle([image, data, start, https, health]) };
+}
+
+/** Where a run of steps stands: live when all are done or not needed. */
+export function settle(steps: DeployStep[]): Pick<DeployProgress, 'steps' | 'live' | 'current' | 'failed'> {
   const settled = (s: DeployStep): boolean => s.state === 'done' || s.state === 'skipped';
   const idx = steps.findIndex((s) => !settled(s));
   return {
     steps,
-    primary,
-    domain,
     live: idx === -1,
     current: idx === -1 ? steps.length : idx + 1,
     failed: steps.find((s) => s.state === 'failed') ?? null,

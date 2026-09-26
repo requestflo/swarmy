@@ -11,6 +11,7 @@ import type {
 import { APP_TEMPLATES, findAppTemplate, loadTemplate, primaryService, templateMeta } from '@swarmy/templates';
 import type { DemoStore, DomainResolvers } from '../types';
 import { demoDeployParts, landDemoDeploy } from './blueprint-deploys';
+import { startDemoTrace } from './deploy-events';
 
 /**
  * Blueprints demo resolvers — the Blueprints gallery (`/blueprints`): the full
@@ -377,12 +378,21 @@ export const blueprints: DomainResolvers = {
       // The app's services start at 0/1 and come up over ~15 s (blueprint-deploys.ts), with an address.
       const planServices = (steps.find((st) => st.kind === 'stack.deploy')?.detail.services ?? '').split(', ').filter(Boolean);
       const route = steps.find((st) => st.kind === 'ingress.route');
-      landDemoDeploy(s, {
+      const parts = demoDeployParts(id, params.name, params.options, planServices, route ? { service: route.detail.service ?? '', port: Number(route.detail.port) || 80 } : null);
+      const host = landDemoDeploy(s, {
         stackId,
         stack: params.name,
-        parts: demoDeployParts(id, params.name, params.options, planServices, route ? { service: route.detail.service ?? '', port: Number(route.detail.port) || 80 } : null),
+        parts,
         domain: params.domain,
         exposed: meta.supportsDomain && findAppTemplate(id)?.exposure !== 'private',
+      });
+      // The deploy's own event stream (deploys.events), on the same clock.
+      const deployId = startDemoTrace(s, {
+        stack: params.name,
+        parts,
+        host,
+        dataSteps: steps.filter((st) => ['db.provision', 'cache.provision', 'bucket', 'secret'].includes(st.kind)).map((st) => st.label),
+        node: s.nodes.find((n) => n.id === 'n-wkr-1')?.name ?? 'wkr-1',
       });
       const url = params.domain && meta.supportsDomain ? `https://${params.domain}` : null;
       const notes =
@@ -400,6 +410,7 @@ export const blueprints: DomainResolvers = {
         steps: results,
         url,
         notes,
+        deployId,
       };
     },
   },
