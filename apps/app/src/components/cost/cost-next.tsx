@@ -1,17 +1,29 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
-import type { CostOverviewView, CostRecommendationView } from '@swarmy/core';
+import type { CostBudgetView, CostOverviewView, CostRecommendationView } from '@swarmy/core';
 import { Button } from '@swarmy/ui';
 import { NextAction, usePageDepth } from '@/components/calm';
 
-/** The one thing worth doing on Cost: price the servers, or look at the biggest saving. */
-export function CostNext({ o, recs }: { o: CostOverviewView; recs: CostRecommendationView[] }): React.JSX.Element | null {
+/**
+ * The one thing worth doing on Cost: price the servers first; then set a
+ * monthly budget (owner decision Q6); then look at the biggest saving.
+ */
+export function CostNext({
+  o,
+  recs,
+  budget,
+}: {
+  o: CostOverviewView;
+  recs: CostRecommendationView[];
+  budget: CostBudgetView | undefined;
+}): React.JSX.Element | null {
   const { depth, setDepth } = usePageDepth();
   const unpriced = o.nodes.filter((n) => n.monthlyUsd == null);
-  const openEditors = (): void => {
+  const openAt = (id: string): void => {
     if (depth === 'summary') setDepth('controls');
-    window.requestAnimationFrame(() => document.getElementById('server-prices')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    window.requestAnimationFrame(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
   };
+  const openEditors = (): void => openAt('server-prices');
   if (o.totals.pricedNodes === 0 || unpriced.length > 0) {
     return (
       <NextAction
@@ -24,6 +36,21 @@ export function CostNext({ o, recs }: { o: CostOverviewView; recs: CostRecommend
         }
       >
         Put in the monthly price you pay your host. Every total, per-app split and saving works from that.
+      </NextAction>
+    );
+  }
+  if (budget && budget.monthlyUsd == null) {
+    return (
+      <NextAction
+        title="Set a monthly budget."
+        tech="cost.setBudget · the cost-budget alert rule warns at 80% by default"
+        actions={
+          <Button className="pointer-coarse:min-h-11" onClick={() => openAt('budget')}>
+            Set a monthly budget
+          </Button>
+        }
+      >
+        swarmy warns your channels when the month is on track to pass it, and can send a short summary every Monday. It never stops a deploy.
       </NextAction>
     );
   }
@@ -41,7 +68,7 @@ export function CostNext({ o, recs }: { o: CostOverviewView; recs: CostRecommend
       eyebrow="Biggest saving"
       tone="ok"
       title={best.message}
-      tech={`${best.kind} · ${best.resource} · about $${best.savingsUsd}/mo`}
+      tech={best.tech ?? `${best.kind} · ${best.resource} · about $${best.savingsUsd}/mo`}
       actions={link ? <Button asChild className="pointer-coarse:min-h-11">{link}</Button> : undefined}
     >
       A guess from the last days of usage. Nothing changes until you do it.

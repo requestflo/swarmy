@@ -3,6 +3,7 @@ import type { AlertEventView, AlertRuleView, NotificationChannelView } from '@sw
 import { EVALUATOR_TICK_SECONDS } from './rule-facts';
 import { RuleCard } from './rule-card';
 import { ruleForEvent } from './rule-sentence';
+import { useBudgetNote } from './use-budget-note';
 
 /** The board's list length: firing rules and the one being edited always show too. */
 const SHOWN = 6;
@@ -17,13 +18,18 @@ interface RulesListProps {
 }
 
 /**
- * Firing rules first, then custom rules, then the built-in ones; rules that
- * share a signal sit together (a signal can have several, one per target).
+ * Firing rules first, then custom rules, then the built-in ones — those
+ * routed to chosen channels before the rest; rules that share a signal sit
+ * together (a signal can have several, one per target).
  */
 export function orderRules(rules: AlertRuleView[], firingByRule: Map<string, unknown>): AlertRuleView[] {
   const firstIndex = new Map<string, number>();
+  const routed = (r: AlertRuleView): number => Number(r.channelIds.length > 0);
   const base = [...rules].sort(
-    (a, b) => Number(firingByRule.has(b.id)) - Number(firingByRule.has(a.id)) || Number(a.isDefault) - Number(b.isDefault),
+    (a, b) =>
+      Number(firingByRule.has(b.id)) - Number(firingByRule.has(a.id)) ||
+      Number(a.isDefault) - Number(b.isDefault) ||
+      routed(b) - routed(a),
   );
   base.forEach((r, i) => {
     if (!firstIndex.has(r.signal)) firstIndex.set(r.signal, i);
@@ -37,6 +43,7 @@ export function orderRules(rules: AlertRuleView[], firingByRule: Map<string, unk
 /** "17 RULES · 2 FIRING · evaluated every 30 s", then one quiet card per rule. */
 export function RulesList({ rules, channels, events, firingByRule, selectedId, onSelect }: RulesListProps): React.JSX.Element {
   const [all, setAll] = React.useState(false);
+  const budgetNote = useBudgetNote();
   const firingCount = rules.filter((r) => firingByRule.has(r.id)).length;
   const ordered = orderRules(rules, firingByRule);
   const shown = all ? ordered : ordered.filter((r, i) => i < SHOWN || r.id === selectedId || firingByRule.has(r.id));
@@ -61,6 +68,7 @@ export function RulesList({ rules, channels, events, firingByRule, selectedId, o
                 channels={channels}
                 firing={firingByRule.get(r.id) ?? []}
                 lastFired={events.find((e) => e.ruleId === r.id || (e.ruleId === null && ruleForEvent(rules, e.signal, e.resource)?.id === r.id))}
+                note={r.signal === 'cost-budget' ? budgetNote : undefined}
                 selected={selectedId === r.id}
                 onSelect={() => onSelect(r.id)}
               />

@@ -4,7 +4,8 @@ import { signalTargetKind, type AlertSignal } from '@swarmy/core';
  * How each signal reads as a sentence, and which knobs the controller really
  * honours. Only five signals read their rule threshold (the alert-evaluator's
  * disk / crash / lag / queue / error-rate checks); the level signals honour
- * the for-duration gate; everything else fires on the event. cert-expiry's
+ * the for-duration gate; everything else fires on the event. cost-budget
+ * reads its threshold as the warn-at % of the workspace budget (Q6). cert-expiry's
  * 14 days is fixed in domain-verify, so it is not offered as a knob here.
  *
  * A rule's target (owner decision Q10) follows the metric with `prep`:
@@ -53,6 +54,8 @@ export const SIGNAL_PHRASE: Record<AlertSignal, SignalPhrase> = {
   'error-new-issue': event('an error swarmy hasn’t seen shows up', false, 'in'),
   'error-regression': event('a fixed error comes back', false, 'in'),
   'error-spike': event('one error spikes far above its usual rate', false, 'in'),
+  // The workspace budget (owner decision Q6): the threshold is the warn-at %.
+  'cost-budget': { metric: 'the month’s projected cost', prep: null, op: 'at least', unit: '% of budget', presets: [50, 80, 90, 100], held: false },
 };
 
 /** Every phrase's target clause agrees with the signal catalogue's target kind. */

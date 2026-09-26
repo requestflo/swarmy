@@ -42,7 +42,7 @@ export function CostRecommendations({
               <span aria-hidden className={cn('mt-[7px] size-2 shrink-0 rounded-full', rec.savingsUsd != null ? 'bg-status-warning' : 'bg-status-progress')} />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="text-[14px] leading-snug">{rec.message}</span>
-                <Tech>{`${rec.kind} · ${rec.resource}`}</Tech>
+                <Tech>{rec.tech ?? `${rec.kind} · ${rec.resource}`}</Tech>
               </span>
               {rec.savingsUsd != null ? <span className="text-tone-ok shrink-0 font-mono text-[13px] font-semibold">−${rec.savingsUsd}/mo</span> : null}
               <Button variant="ghost" size="icon" className="size-8 shrink-0 pointer-coarse:size-11" onClick={() => dismiss(rec.id)} aria-label={`Dismiss the note about ${rec.resource}`}>

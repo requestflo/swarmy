@@ -99,6 +99,8 @@ export const alerts: DomainResolvers = {
         ...(signal === 'error-rate' ? { enabled: false } : {}),
         // Muted for a noisy migration: still recording, sending nothing.
         ...(signal === 'queue-depth' ? { mutedUntil: new Date(Date.now() + 38 * 60_000).toISOString() } : {}),
+        // The workspace budget warning (owner decision Q6): 80% of $300 → #ops Slack.
+        ...(signal === 'cost-budget' ? { channelIds: [slack.id] } : {}),
       }),
     );
     // Several rules on one signal, each with its own target (owner decision

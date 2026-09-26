@@ -11,6 +11,8 @@ interface RuleCardProps {
   channels: NotificationChannelView[];
   firing: AlertEventView[];
   lastFired: AlertEventView | undefined;
+  /** What the rule watches right now, when that says more than its history (the Budget card). */
+  note?: string;
   selected: boolean;
   onSelect: () => void;
 }
@@ -26,7 +28,7 @@ function heldWords(firing: AlertEventView[]): string {
  * quiet), the sentence with its target, and a mono line of what it last saw.
  * A muted rule reads "muted" in the idle tone with "until 11:40" in the line.
  */
-export function RuleCard({ rule, channels, firing, lastFired, selected, onSelect }: RuleCardProps): React.JSX.Element {
+export function RuleCard({ rule, channels, firing, lastFired, note, selected, onSelect }: RuleCardProps): React.JSX.Element {
   const critical = firing.some((e) => e.severity === 'critical');
   const muted = rule.enabled && isMuted(rule);
   const [tone, word]: [Tone, string] = muted
@@ -40,9 +42,11 @@ export function RuleCard({ rule, channels, firing, lastFired, selected, onSelect
   const first = firing[0];
   const seen = first
     ? `${firing.map((e) => resourceName(e.resource)).join(', ')} · since ${relTime(first.firedAt)}${heldWords(firing)}`
-    : lastFired
-      ? `last fired ${relTime(lastFired.firedAt)} · ${resourceName(lastFired.resource)}`
-      : 'hasn’t fired lately';
+    : note
+      ? note
+      : lastFired
+        ? `last fired ${relTime(lastFired.firedAt)} · ${resourceName(lastFired.resource)}`
+        : 'hasn’t fired lately';
   const line = muted && rule.mutedUntil ? `until ${clockTime(rule.mutedUntil)}${first ? ` · ${seen}` : ''}` : seen;
   return (
     <button

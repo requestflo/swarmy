@@ -7,6 +7,7 @@ import type {
   SetNodeCostInput,
 } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
+import { budgetHandlers, seedBudget } from './cost-budget';
 
 /**
  * Cost demo resolvers — the Cost surface (`/cost`): stat tiles, the per-node
@@ -25,6 +26,7 @@ interface CostState {
   weekly: Record<string, { cpu: number; mem: number }>;
   idle: Array<{ serviceId: string; name: string; stack: string; avgCpuPct: number }>;
   storage: CostStorageView;
+  budget: ReturnType<typeof seedBudget>;
 }
 
 function getState(store: DemoStore): CostState {
@@ -115,7 +117,8 @@ function recommendationsView(store: DemoStore): CostRecommendationView[] {
         id: `unpriced-node:${n.nodeId}`,
         kind: 'unpriced-node',
         resource: `node ${n.name}`,
-        message: `${n.name} has no monthly cost set — add one to unlock per-stack breakdowns and savings estimates.`,
+        message: `${n.name} has no monthly price yet — add one to see what each app costs and what you could save.`,
+        tech: `node ${n.name} · swarmy.node.cost unset`,
         savingsUsd: null,
       });
     } else if (!n.online && n.monthlyUsd > 0) {
@@ -123,7 +126,8 @@ function recommendationsView(store: DemoStore): CostRecommendationView[] {
         id: `offline-node:${n.nodeId}`,
         kind: 'offline-node',
         resource: `node ${n.name}`,
-        message: `${n.name} is offline but still costs $${n.monthlyUsd}/mo — bring it back or remove it.`,
+        message: `${n.name} is offline but still costs $${n.monthlyUsd} a month — bring it back or remove it.`,
+        tech: `node ${n.name} · offline · swarmy.node.cost=${n.monthlyUsd}`,
         savingsUsd: n.monthlyUsd,
       });
     }
@@ -134,7 +138,8 @@ function recommendationsView(store: DemoStore): CostRecommendationView[] {
       id: `oversized-node:${n.nodeId}`,
       kind: 'oversized-node',
       resource: `node ${n.name}`,
-      message: `${n.name} averaged ${n.avgCpuPct}% CPU / ${n.avgMemPct}% memory over ${n.windowDays}d — consider a smaller node${savings != null ? ` (save ~$${savings}/mo)` : ''}.`,
+      message: `${n.name} is mostly idle (${Math.round(n.avgCpuPct)}% busy, ${Math.round(n.avgMemPct)}% of memory in use over ${n.windowDays} days) — a smaller server would do${savings != null ? ` and save about $${savings} a month` : ''}.`,
+      tech: `node ${n.name} · cpu ${n.avgCpuPct}% / mem ${n.avgMemPct}% avg over ${n.windowDays}d · oversized`,
       savingsUsd: savings,
     });
   }
@@ -144,7 +149,8 @@ function recommendationsView(store: DemoStore): CostRecommendationView[] {
       id: `idle-service:${s.serviceId}`,
       kind: 'idle-service',
       resource: `service ${s.name}`,
-      message: `${s.name} uses ${s.avgCpuPct}% CPU over ${s.windowDays}d — scale it down or enable scale-to-zero${savings != null ? ` (frees ~$${savings}/mo)` : ''}.`,
+      message: `${s.name} in ${s.stack} is barely used (${s.avgCpuPct}% busy over ${s.windowDays} days) — run fewer copies or let it sleep when idle${savings != null ? ` to free about $${savings} a month` : ''}.`,
+      tech: `service ${s.name} · cpu ${s.avgCpuPct}% avg over ${s.windowDays}d · scale down or scale-to-zero`,
       savingsUsd: savings,
     });
   }
@@ -159,6 +165,8 @@ function recommendationsView(store: DemoStore): CostRecommendationView[] {
 export const cost: DomainResolvers = {
   handlers: {
     'cost.overview': (_i, s): CostOverviewView => overviewView(s),
+
+    ...budgetHandlers(overviewView),
 
     'cost.storage': (_i, s): CostStorageView => getState(s).storage,
 
@@ -179,11 +187,12 @@ export const cost: DomainResolvers = {
   },
 
   seed: (store) => {
-    // Three priced nodes (the manifest's "3 nodes w/ costs"), two left unpriced
-    // so the inline editor + unpriced nudges are visible. wkr-3 idles under 20%
+    // Four priced nodes ($214 a month), one left unpriced so the inline
+    // editor + the unpriced nudge stay visible. wkr-3 idles under 20%
     // in its 7-day averages → the oversized rule fires with a save-~$18 guess.
     const state: CostState = {
-      prices: { 'n-mgr-1': 24, 'n-wkr-1': 48, 'n-wkr-3': 36 },
+      // $214 a month against the $300 budget (~71%); mgr-2 stays unpriced.
+      prices: { 'n-mgr-1': 24, 'n-wkr-1': 96, 'n-wkr-2': 58, 'n-wkr-3': 36 },
       weekly: {
         'n-mgr-1': { cpu: 31, mem: 48 },
         'n-wkr-1': { cpu: 58, mem: 66 },
@@ -193,6 +202,7 @@ export const cost: DomainResolvers = {
         { serviceId: 'svc-nats', name: 'nats', stack: 'data', avgCpuPct: 0.6 },
         { serviceId: 'svc-loki', name: 'loki', stack: 'platform', avgCpuPct: 1.3 },
       ],
+      budget: seedBudget(),
       storage: {
         garageState: 'ready',
         bucketCount: 3,

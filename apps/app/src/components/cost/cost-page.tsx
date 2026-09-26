@@ -7,6 +7,8 @@ import { CodeView, Say, Tech } from '@/components/calm';
 import { ErrorState, SkeletonBody } from '@/components/states';
 import { RowPage } from '@/components/rowpage/row-page';
 import { bytes } from '@/lib/format';
+import { CostBudgetCard } from './cost-budget-card';
+import { CostBudgetSection } from './cost-budget-section';
 import { costCode } from './cost-code';
 import { CostNext } from './cost-next';
 import { CostRecommendations } from './cost-recommendations';
@@ -21,7 +23,9 @@ export function CostPage(): React.JSX.Element {
   const overview = useQuery({ ...trpc.cost.overview.queryOptions(), refetchInterval: 10_000 });
   const storage = useQuery({ ...trpc.cost.storage.queryOptions(), refetchInterval: 60_000 });
   const recs = useQuery({ ...trpc.cost.recommendations.queryOptions(), refetchInterval: 30_000 });
+  const budget = useQuery({ ...trpc.cost.budget.queryOptions(), refetchInterval: 30_000 });
   const o = overview.data;
+  const status = budget.data?.status ?? null;
   const save = (recs.data ?? []).reduce((a, r) => a + (r.savingsUsd ?? 0), 0);
 
   const title = !o ? (
@@ -33,6 +37,23 @@ export function CostPage(): React.JSX.Element {
   ) : o.totals.pricedNodes === 0 ? (
     <>
       Price your servers. <em>Then swarmy splits the bill by app.</em>
+    </>
+  ) : status ? (
+    <>
+      {usd(o.totals.monthlyUsd)} of {usd(status.budgetUsd)} this month.{' '}
+      {status.state === 'over' ? (
+        <Say tone="bad">Over budget.</Say>
+      ) : status.state === 'warn' ? (
+        <Say tone="warn">Over {status.warnPct}% of budget.</Say>
+      ) : (
+        <em>On track.</em>
+      )}
+      {save > 0 ? (
+        <>
+          {' '}
+          <Say tone="ok">You could save {usd(save)}.</Say>
+        </>
+      ) : null}
     </>
   ) : (
     <>
@@ -51,7 +72,12 @@ export function CostPage(): React.JSX.Element {
       aside={
         o ? (
           <>
-            <CodeView title="Cost as code" tabs={costCode(o)} source="readonly" />
+            <CodeView
+              title="Cost as code"
+              tabs={costCode(o, budget.data)}
+              source="readonly"
+              note="Server prices are labels on each server. The budget is a dashboard setting saved from this page (no REST route yet)."
+            />
             <CostRecommendations recommendations={recs.data ?? []} isLoading={recs.isLoading} />
           </>
         ) : undefined
@@ -67,7 +93,9 @@ export function CostPage(): React.JSX.Element {
         </Button>
       ) : (
         <>
-          <CostNext o={o} recs={recs.data ?? []} />
+          {o.totals.pricedNodes > 0 ? <CostBudgetCard o={o} budget={budget.data} /> : null}
+          <CostNext o={o} recs={recs.data ?? []} budget={budget.data} />
+          {o.totals.pricedNodes > 0 ? <CostBudgetSection /> : null}
           {o.totals.pricedNodes > 0 ? <CostSplit stacks={o.stacks} monthlyUsd={o.totals.monthlyUsd} allocatedUsd={o.totals.allocatedUsd} /> : null}
           <CostServers nodes={o.nodes} />
           {storage.data ? (
