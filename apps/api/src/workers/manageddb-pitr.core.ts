@@ -1,12 +1,15 @@
+import { createHash } from 'node:crypto';
 import {
   DB_AVOID_NODE_LABEL,
   DB_PIN_NODE_LABEL,
   MANAGED_PG_ROOT,
   PG_ENV,
+  STACK_LABEL,
   applyPgMember,
   pgBootRole,
 } from '@swarmy/core';
-import { MANAGED_PG_PITR_CONF_TARGET, WAL_ARCHIVE_MOUNT } from '@swarmy/core/protocol';
+import { DEFAULT_WALG_IMAGE, MANAGED_PG_PITR_CONF_TARGET, WAL_ARCHIVE_MOUNT } from '@swarmy/core/protocol';
+import { shipperScript } from './manageddb-reconcile.core';
 import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
 
 /**
@@ -262,4 +265,81 @@ export function pitrPrimarySpec(
       ? { placement: { constraints: [`node.labels.${REGION_NODE_LABEL}==${placedRegion}`] } }
       : {}),
   }, labels);
+}
+
+// ── wal-shipper sidecar ───────────────────────────────────────────────────────
+
+const MANAGED_LABEL = 'swarmy.managed';
+const DB_CLUSTER_LABEL = 'swarmy.db.cluster';
+const DB_WAL_SHIPPER_LABEL = 'swarmy.db.walShipper';
+const SCALE_TO_ZERO_EXEMPT_LABEL = 'swarmy.scaleToZero.exempt';
+/**
+ * Revision of the shipper's own spec (loop script + networks). The PITR
+ * version only covers creds + data volume, so a change to the shipper itself,
+ * such as the QA-080 fix or joining the storage network, would otherwise never
+ * reach a running shipper.
+ */
+export const DB_WAL_SHIPPER_REV_LABEL = 'swarmy.db.walShipper.rev';
+
+/** PURE: the shipper revision for this script and these networks. */
+export function walShipperRev(networks: readonly string[]): string {
+  return createHash('sha256')
+    .update(shipperScript())
+    .update('\n')
+    .update([...networks].sort().join(','))
+    .digest('hex')
+    .slice(0, 10);
+}
+
+/** Networks the shipper joins: the cluster net and the storage overlay (in-cluster S3), QA-080. */
+export function walShipperNetworks(clusterNet: string, storageNetwork: string | undefined): string[] {
+  return storageNetwork && storageNetwork !== clusterNet ? [clusterNet, storageNetwork] : [clusterNet];
+}
+
+/** PURE: is the running shipper already this version AND this revision? */
+export function walShipperUpToDate(
+  shipper: { labels: Record<string, string> } | undefined,
+  version: string,
+  networks: readonly string[],
+): boolean {
+  return (
+    shipper?.labels[DB_PITR_APPLIED_LABEL] === version &&
+    shipper.labels[DB_WAL_SHIPPER_REV_LABEL] === walShipperRev(networks)
+  );
+}
+
+/** PURE: the per-cluster wal-shipper sidecar (wal-g loop, creds via Docker secret). */
+export function walShipperSpec(
+  c: { base: string; stack: string; cluster: string },
+  version: string,
+  secretName: string,
+  primary: { labels: Record<string, string> },
+  networks: readonly string[],
+): ServiceSpec {
+  const placedRegion = primary.labels[DB_PLACED_REGION_LABEL];
+  // The archive volume is node-local: follow the primary's node pin exactly.
+  const pin = primary.labels[DB_PIN_NODE_LABEL];
+  const constraints = [
+    ...(placedRegion ? [`node.labels.${REGION_NODE_LABEL}==${placedRegion}`] : []),
+    ...(pin ? [`node.id==${pin}`] : []),
+  ];
+  return {
+    name: `${c.base}-wal-shipper`,
+    image: DEFAULT_WALG_IMAGE,
+    mode: { replicated: { replicas: 1 } },
+    command: ['/bin/sh', '-c', shipperScript()],
+    labels: {
+      [MANAGED_LABEL]: 'true',
+      [STACK_LABEL]: c.stack,
+      [DB_CLUSTER_LABEL]: c.cluster,
+      [DB_WAL_SHIPPER_LABEL]: 'true',
+      [DB_PITR_APPLIED_LABEL]: version,
+      [DB_WAL_SHIPPER_REV_LABEL]: walShipperRev(networks),
+      [SCALE_TO_ZERO_EXEMPT_LABEL]: 'true',
+    },
+    mounts: [{ type: 'volume' as const, source: `${c.base}-wal-archive`, target: WAL_ARCHIVE_MOUNT }],
+    secrets: [{ source: secretName, target: 'wal-creds' }],
+    networks: [...networks],
+    ...(constraints.length > 0 ? { placement: { constraints } } : {}),
+  };
 }

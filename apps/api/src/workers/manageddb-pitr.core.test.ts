@@ -11,6 +11,11 @@ import {
   planBackupIntentCarry,
   preparePitrPrimary,
   rehomeScheduleLabel,
+  DB_WAL_SHIPPER_REV_LABEL,
+  walShipperNetworks,
+  walShipperRev,
+  walShipperSpec,
+  walShipperUpToDate,
 } from './manageddb-pitr.core';
 
 /**
@@ -181,5 +186,37 @@ describe('planBackupIntentCarry: backup intent follows the live primary', () => 
     const noVol = JSON.stringify({ cron: '0 * * * *', engine: 'pg_dump' });
     expect(rehomeScheduleLabel(noVol)).toBe(noVol);
     expect(rehomeScheduleLabel('not json')).toBe('not json');
+  });
+});
+
+describe('wal-shipper: storage network + revision (QA-080)', () => {
+  const c = { base, stack: 'shop', cluster: 'main' };
+  const writer = { labels: { 'swarmy.db.node': 'node-b' } };
+
+  it('joins the storage overlay for an in-cluster destination, only the cluster net otherwise', () => {
+    expect(walShipperNetworks(`${base}-net`, 'swarmy')).toEqual([`${base}-net`, 'swarmy']);
+    expect(walShipperNetworks(`${base}-net`, undefined)).toEqual([`${base}-net`]);
+  });
+
+  it('the spec carries both networks, the archive mount, the pin and the revision', () => {
+    const nets = walShipperNetworks(`${base}-net`, 'swarmy');
+    const spec = walShipperSpec(c, 'v1', `${base}-wal-creds-v1`, writer, nets);
+    expect(spec.networks).toEqual([`${base}-net`, 'swarmy']);
+    expect(spec.mounts).toContainEqual({ type: 'volume', source: `${base}-wal-archive`, target: WAL_ARCHIVE_MOUNT });
+    expect(spec.placement?.constraints).toContain('node.id==node-b');
+    expect(spec.labels?.[DB_PITR_APPLIED_LABEL]).toBe('v1');
+    expect(spec.labels?.[DB_WAL_SHIPPER_REV_LABEL]).toBe(walShipperRev(nets));
+    expect(spec.command?.join(' ')).toContain('mkdir -p /wal-archive/archive_status');
+  });
+
+  it('a shipper from before the fix (same PITR version, no revision) is redeployed once, then left alone', () => {
+    const nets = walShipperNetworks(`${base}-net`, 'swarmy');
+    const old = { labels: { [DB_PITR_APPLIED_LABEL]: 'v1' } };
+    expect(walShipperUpToDate(old, 'v1', nets)).toBe(false);
+    const deployed = walShipperSpec(c, 'v1', 's', writer, nets);
+    expect(walShipperUpToDate({ labels: deployed.labels ?? {} }, 'v1', nets)).toBe(true);
+    // A changed destination network is a new revision.
+    expect(walShipperUpToDate({ labels: deployed.labels ?? {} }, 'v1', [`${base}-net`])).toBe(false);
+    expect(walShipperUpToDate(undefined, 'v1', nets)).toBe(false);
   });
 });

@@ -176,6 +176,17 @@ describe('shipperScript — the wal-push loop', () => {
     expect(s).toContain('rm -f -- "$f"');
     expect(s).toContain('/wal-archive/*');
   });
+
+  it('keeps /wal-archive/archive_status in place before every pass (QA-080)', () => {
+    const s = shipperScript();
+    const mk = s.indexOf('mkdir -p /wal-archive/archive_status');
+    expect(mk).toBeGreaterThan(s.indexOf('while true; do'));
+    expect(mk).toBeLessThan(s.indexOf('for f in /wal-archive/*'));
+    // The loop walks the files itself; wal-g's parallel .ready scan stays off.
+    expect(s).toContain('export WALG_UPLOAD_CONCURRENCY=1');
+    // The status dir is a directory, never pushed as a segment.
+    expect(s).toContain('[ -f "$f" ] || continue');
+  });
 });
 
 describe('planClusterStorage — persistent layout convergence', () => {

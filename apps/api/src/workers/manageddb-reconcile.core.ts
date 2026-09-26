@@ -146,12 +146,23 @@ export function pitrVersion(credsEnv: string, dataVolume: string | undefined): s
     .slice(0, 10);
 }
 
-/** The wal-shipper loop: source creds, push each archived segment, delete local. */
+/**
+ * The wal-shipper loop: source creds, push each archived segment, delete local.
+ *
+ * `wal-g wal-push <file>` treats the file's directory as pg_wal and opens its
+ * `archive_status/` subdirectory, to look for more `.ready` segments to upload
+ * in parallel. The archive volume has no such directory, so every push failed
+ * with "open /wal-archive/archive_status: no such file or directory"
+ * (QA-080). The loop keeps an empty one in place, which means "nothing else
+ * ready", and turns the parallel uploader off: the loop itself walks the files.
+ */
 export function shipperScript(): string {
   return [
     'set -u',
     'set -a; . /run/secrets/wal-creds; set +a',
+    'export WALG_UPLOAD_CONCURRENCY=1',
     'while true; do',
+    `  mkdir -p ${WAL_ARCHIVE_MOUNT}/archive_status`,
     `  for f in ${WAL_ARCHIVE_MOUNT}/*; do`,
     '    [ -f "$f" ] || continue',
     '    if wal-g wal-push "$f"; then rm -f -- "$f"; fi',

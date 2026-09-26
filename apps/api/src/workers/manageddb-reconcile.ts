@@ -32,11 +32,7 @@ import {
   pgNeedsCredentialMigration,
 } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
-import {
-  DEFAULT_WALG_IMAGE,
-  WAL_ARCHIVE_MOUNT,
-  pitrExtraConf,
-} from '@swarmy/core/protocol';
+import { pitrExtraConf } from '@swarmy/core/protocol';
 import type { ContainerInfo, ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
 import { hub, store } from '../gateway';
 import {
@@ -51,9 +47,15 @@ import {
   pitrVersion,
   promotionDue,
   renderWalCredsEnv,
-  shipperScript,
 } from './manageddb-reconcile.core';
-import { pitrPrimarySpec, planBackupIntentCarry, preparePitrPrimary } from './manageddb-pitr.core';
+import {
+  pitrPrimarySpec,
+  planBackupIntentCarry,
+  preparePitrPrimary,
+  walShipperNetworks,
+  walShipperSpec,
+  walShipperUpToDate,
+} from './manageddb-pitr.core';
 
 /**
  * Managed DB HA-topology reconcile worker (epic #8 + slice A2 pitr-ha).
@@ -605,40 +607,6 @@ export function stripPitrSpec(primary: SwarmServiceInfo, c: Cluster): ServiceSpe
   }, labels);
 }
 
-/** The per-cluster wal-shipper sidecar (wal-g loop, creds via Docker secret). */
-function walShipperSpec(
-  c: Cluster,
-  version: string,
-  secretName: string,
-  primary: SwarmServiceInfo,
-): ServiceSpec {
-  const placedRegion = primary.labels[DB_PLACED_REGION_LABEL];
-  // The archive volume is node-local: follow the primary's node pin exactly.
-  const pin = primary.labels[DB_PIN_NODE_LABEL];
-  const constraints = [
-    ...(placedRegion ? [`node.labels.${REGION_NODE_LABEL}==${placedRegion}`] : []),
-    ...(pin ? [`node.id==${pin}`] : []),
-  ];
-  return {
-    name: `${c.base}-wal-shipper`,
-    image: DEFAULT_WALG_IMAGE,
-    mode: { replicated: { replicas: 1 } },
-    command: ['/bin/sh', '-c', shipperScript()],
-    labels: {
-      [MANAGED_LABEL]: 'true',
-      [STACK_LABEL]: c.stack,
-      [DB_CLUSTER_LABEL]: c.cluster,
-      [DB_WAL_SHIPPER_LABEL]: 'true',
-      [DB_PITR_APPLIED_LABEL]: version,
-      [SCALE_TO_ZERO_EXEMPT_LABEL]: 'true',
-    },
-    mounts: [{ type: 'volume' as const, source: `${c.base}-wal-archive`, target: WAL_ARCHIVE_MOUNT }],
-    secrets: [{ source: secretName, target: 'wal-creds' }],
-    networks: [clusterNet(c)],
-    ...(constraints.length > 0 ? { placement: { constraints } } : {}),
-  };
-}
-
 /** Create a Docker secret/config, tolerating "already exists" (immutable objects). */
 async function createSwarmObject(
   node: string,
@@ -732,7 +700,10 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
   const version = pitrVersion(creds, dataVolume);
   const secretName = `${c.base}-wal-creds-${version}`;
   const primaryOk = !prep.promoted && primary.labels[DB_PITR_APPLIED_LABEL] === version;
-  const shipperOk = c.shipper?.labels[DB_PITR_APPLIED_LABEL] === version;
+  // The shipper pushes to the destination: an in-cluster one (swarmy-garage)
+  // only resolves on the storage overlay (QA-080).
+  const shipperNets = walShipperNetworks(clusterNet(c), seams.resticNetworkFor(target.endpoint));
+  const shipperOk = walShipperUpToDate(c.shipper, version, shipperNets);
   if (primaryOk && shipperOk) return;
 
   const objectLabels = { [MANAGED_LABEL]: 'true', [DB_CLUSTER_LABEL]: c.cluster };
@@ -760,7 +731,7 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
   if (!shipperOk) {
     await hub
       .dispatch(node, 'service.deploy', {
-        spec: walShipperSpec(c, version, secretName, writer),
+        spec: walShipperSpec(c, version, secretName, writer, shipperNets),
         pullPolicy: 'always',
       })
       .catch(() => undefined);
