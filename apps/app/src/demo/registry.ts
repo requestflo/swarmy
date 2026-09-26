@@ -45,6 +45,7 @@ import { gaps } from './resolvers/gaps';
 import { deployEvents } from './resolvers/deploy-events';
 import { firstLook } from './resolvers/first-look';
 import { inviteLinks } from './resolvers/invite-links';
+import { traffic } from './resolvers/traffic';
 
 /**
  * Assembles every per-domain resolver module into flat lookup tables for the demo
@@ -98,6 +99,7 @@ const MODULES: DomainResolvers[] = [
   deployEvents,
   firstLook,
   inviteLinks,
+  traffic,
 ];
 
 export const HANDLERS: Record<string, DemoHandler> = Object.assign(
