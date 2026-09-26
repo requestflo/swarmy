@@ -3,6 +3,11 @@ import { authRegistry, resolveSignupMode, type SignupMode } from '@swarmy/auth';
 import { instanceOwnerProcedure, orgProcedure, protectedProcedure, publicProcedure, router } from '../trpc';
 import { listProviders, setProvider, signInOptions, type SignInOption } from '../services/authConfig.service';
 import { acceptInvitation, invitationPreview, type InvitationPreview } from '../services/invitations.service';
+import { isInviteLinkToken, type InviteLinkState } from '@swarmy/auth';
+import { acceptInviteLink, inviteLinkPreview } from '../services/inviteLinks.service';
+
+/** An invite link's preview: a single-use invitation, or a shareable `swi_…` link (its app + state too). */
+export type AnyInvitePreview = InvitationPreview & { stackName?: string | null; state?: InviteLinkState };
 
 /**
  * Auth-provider configuration. Reads are org-members; writes change
@@ -28,8 +33,13 @@ export const authConfigRouter = router({
 
   /** Unauthenticated: who an invite link is from, for the login page. The link id is the credential. */
   invitePreview: publicProcedure
-    .input(z.object({ id: z.string().regex(/^[\w-]{1,128}$/) }))
-    .query(({ ctx, input }): Promise<InvitationPreview | null> => invitationPreview(ctx.db, input.id)),
+    .input(z.object({ id: z.string().regex(/^[\w-]{1,160}$/) }))
+    .query(async ({ ctx, input }): Promise<AnyInvitePreview | null> => {
+      if (!isInviteLinkToken(input.id)) return invitationPreview(ctx.db, input.id);
+      const p = await inviteLinkPreview(ctx.db, input.id);
+      if (!p || p.state === 'revoked') return null;
+      return { orgName: p.orgName, role: p.role, email: null, expired: p.state !== 'ok', stackName: p.stackName, state: p.state };
+    }),
 
   /**
    * Redeem an invite link for the signed-in user (any sign-in method; no email
@@ -37,8 +47,14 @@ export const authConfigRouter = router({
    * usually redeemed it already.
    */
   acceptInvite: protectedProcedure
-    .input(z.object({ id: z.string().regex(/^[\w-]{1,128}$/) }))
-    .mutation(({ ctx, input }) => acceptInvitation(ctx, input.id)),
+    .input(z.object({ id: z.string().regex(/^[\w-]{1,160}$/) }))
+    .mutation(async ({ ctx, input }): Promise<{ orgId: string }> => {
+      if (!isInviteLinkToken(input.id)) return acceptInvitation(ctx, input.id);
+      // A shareable link: join (and get its app grant), then make the org active.
+      const r = await acceptInviteLink(ctx, input.id);
+      await ctx.auth.api.setActiveOrganization({ headers: ctx.reqHeaders, body: { organizationId: r.orgId } });
+      return { orgId: r.orgId };
+    }),
 
   listProviders: orgProcedure.query(({ ctx }) => listProviders(ctx)),
 

@@ -1,6 +1,7 @@
 import { APIError } from 'better-auth/api';
 import type { DB } from '@swarmy/db';
 import { isLinkInviteEmail } from './identity';
+import { inviteLinkAdmits, isInviteLinkToken } from './invite-links';
 
 /**
  * Who may create an account (and a new organization) on this controller.
@@ -20,7 +21,8 @@ import { isLinkInviteEmail } from './identity';
  *      proven: verified (locally or asserted verified by the IdP), or carried
  *      by an SSO provider of the inviting org (see {@link inviteAdmits});
  *   5. the request carries an invite link (`swarmy_invite` cookie, set by the
- *      login page) naming a pending, unexpired invitation that admits this
+ *      login page) naming a pending, unexpired invitation — or a shareable
+ *      `swi_…` invite link with uses left (`invite-links.ts`) — that admits this
  *      person: a link-only invite admits whoever holds it (username, social,
  *      SSO — no email needed); an invite that names an email admits only that
  *      proven address, as in 4;
@@ -46,7 +48,7 @@ export const ORG_CREATE_FORBIDDEN_MESSAGE =
 
 /** The slice of the Prisma client the policy reads. */
 export type SignupPolicyDb = Pick<DB, 'user' | 'organization' | 'invitation' | 'member'> &
-  Partial<Pick<DB, 'ssoProvider'>>;
+  Partial<Pick<DB, 'ssoProvider' | 'inviteLink'>>;
 
 /** How the account is being created (from the Better Auth request, when there is one). */
 export interface SignupVia {
@@ -142,7 +144,10 @@ export async function isSignupAllowed(
     select: { email: true, organizationId: true },
   });
   if (invite && inviteAdmits(invite.email, person, invite.organizationId)) return true;
-  if (via.inviteId) {
+  // A shareable invite link (`swi_…`) admits whoever holds it while it is
+  // unexpired, unrevoked and has uses left.
+  if (isInviteLinkToken(via.inviteId) && (await inviteLinkAdmits(db, via.inviteId, now))) return true;
+  if (via.inviteId && !isInviteLinkToken(via.inviteId)) {
     const link = await db.invitation.findFirst({
       where: { id: via.inviteId, status: 'pending', expiresAt: { gt: now } },
       select: { email: true, organizationId: true },

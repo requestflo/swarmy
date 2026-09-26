@@ -31,6 +31,7 @@ import { backupSchedulesRouter } from './routers/backupSchedules';
 import { ssoRouter } from './routers/sso';
 import { securityRouter } from './routers/security';
 import { membersRouter } from './routers/members';
+import { inviteLinksRouter } from './routers/inviteLinks';
 import { oauthRouter } from './routers/oauth';
 import { webhooksOutRouter } from './routers/webhooksOut';
 import { inventoryRouter } from './routers/inventory';
@@ -101,6 +102,7 @@ export const appRouter = router({
   sso: ssoRouter,
   security: securityRouter,
   members: membersRouter,
+  inviteLinks: inviteLinksRouter,
   oauth: oauthRouter,
   webhooksOut: webhooksOutRouter,
   // ── platform buildout spine (see plans/platform-buildout-manifest.md) ──

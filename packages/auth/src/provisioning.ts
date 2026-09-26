@@ -15,6 +15,7 @@ import {
   usernamePlaceholderEmail,
 } from './identity';
 import type { ResolvedAuthConfig, ResolvedSsoProvider } from './config';
+import { isInviteLinkToken } from './invite-links';
 
 /**
  * Who joins which org, and with which groups, when they sign in.
@@ -349,7 +350,9 @@ export function swarmyProvisioning(
             }
 
             const inviteId = inviteIdFromRequest(ctx);
-            if (inviteId) {
+            // Shareable `swi_…` links are redeemed by the login page's accept
+            // (`authConfig.acceptInvite`), which also grants the app; keep the cookie.
+            if (inviteId && !isInviteLinkToken(inviteId)) {
               const res = await redeemInvitation(
                 db,
                 { invitationId: inviteId, user: created.user as { id: string; email: string; emailVerified?: boolean } },

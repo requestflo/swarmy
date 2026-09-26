@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { DB } from '@swarmy/db';
+import { hashToken } from '@swarmy/core/crypto';
 import { buildAuth } from './server';
 import {
   assertSignupAllowed,
@@ -202,5 +203,34 @@ describe('allowedDomains', () => {
     expect(emailDomainAllowed('a@company.com', d)).toBe(true);
     expect(emailDomainAllowed('a@evil.company.com', d)).toBe(false);
     expect(emailDomainAllowed('a@company.com', [])).toBe(false);
+  });
+});
+
+describe('isSignupAllowed: shareable invite links (swi_…)', () => {
+  const token = 'swi_ab12cd34_secret';
+  function withLink(link: { expiresAt: Date | null; maxUses: number | null; uses: number; revokedAt: Date | null } | null) {
+    const db = fakeDb({ users: 1 }) as unknown as Record<string, unknown>;
+    db.inviteLink = {
+      findUnique: async ({ where }: { where: { tokenHash: string } }) =>
+        link && where.tokenHash === hashToken(token)
+          ? { id: 'il1', orgId: 'org_a', role: 'member', stackName: null, ...link }
+          : null,
+    };
+    return db as unknown as SignupPolicyDb;
+  }
+  const live = { expiresAt: future, maxUses: 10, uses: 3, revokedAt: null };
+
+  it('admits a brand-new person holding a live link', async () => {
+    expect(await isSignupAllowed(withLink(live), 'new@x.test', PROD, new Date(), { inviteId: token })).toBe(true);
+  });
+  it('refuses an expired, used-up, revoked or unknown link', async () => {
+    for (const link of [
+      { ...live, expiresAt: past },
+      { ...live, uses: 10 },
+      { ...live, revokedAt: past },
+      null,
+    ]) {
+      expect(await isSignupAllowed(withLink(link), 'new@x.test', PROD, new Date(), { inviteId: token })).toBe(false);
+    }
   });
 });

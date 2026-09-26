@@ -72,6 +72,15 @@ export {
 } from './identity';
 export { redeemInvitation, provisionSsoMember, type AuthAudit } from './provisioning';
 export {
+  INVITE_LINK_PREFIX,
+  isInviteLinkToken,
+  inviteLinkState,
+  findInviteLink,
+  inviteLinkAdmits,
+  type InviteLinkRow,
+  type InviteLinkState,
+} from './invite-links';
+export {
   loadAuthConfig,
   loadSsoProviders,
   resolveSsoProviderByEmail,

@@ -111,6 +111,7 @@ const GATES: Array<[string, unknown, string]> = [
   ['oauth.revoke', { id: 'c1' }, 'token.revoke'],
   ['members.deleteGrant', {}, 'member.write'],
   ['members.revokeInvitation', {}, 'member.write'],
+  ['inviteLinks.revoke', {}, 'member.write'],
   ['policies.delete', { id: 'p1' }, 'policy.write'],
   ['sso.delete', { id: 'sso1' }, 'authconfig.write'],
   ['cicd.removeRepo', { id: 'r1' }, 'cicd.remove'],
