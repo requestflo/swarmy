@@ -188,6 +188,18 @@ describe('buildRecommendations — the rule list', () => {
     expect(recs[0]!.message).toContain('wkr-1');
   });
 
+  it('keeps glossary words out of every message (they live in tech)', () => {
+    const recs = buildRecommendations({
+      nodes: [nodeView({ nodeId: 'n1', name: 'wkr-1' }), nodeView({ nodeId: 'n2', name: 'gone', online: false, monthlyUsd: 10 })],
+      oversizedNodes: [{ nodeId: 'n3', name: 'big', avgCpuPct: 5, avgMemPct: 6, monthlyUsd: 36, windowDays: 7 }],
+      idleServices: [{ serviceId: 's1', name: 'idle', stack: 'x', avgCpuPct: 1, windowDays: 7, estMonthlyUsd: 4 }],
+    });
+    for (const r of recs) {
+      expect(r.message).not.toMatch(/\bnode\b|scale-to-zero|stack|per-stack|replica/i);
+      expect(r.tech).toBeTruthy();
+    }
+  });
+
   it('flags offline-but-priced nodes with the full cost as the saving', () => {
     const recs = buildRecommendations({
       nodes: [nodeView({ nodeId: 'n1', name: 'wkr-1', online: false, monthlyUsd: 40 })],
@@ -195,7 +207,7 @@ describe('buildRecommendations — the rule list', () => {
       idleServices: [],
     });
     expect(recs[0]).toMatchObject({ kind: 'offline-node', savingsUsd: 40 });
-    expect(recs[0]!.message).toContain('$40/mo');
+    expect(recs[0]!.message).toBe('wkr-1 is offline but still costs $40 a month — bring it back or remove it.');
   });
 
   it('guesses half the node cost for oversized nodes', () => {
@@ -210,7 +222,10 @@ describe('buildRecommendations — the rule list', () => {
     const recs = buildRecommendations({ nodes: [], oversizedNodes: [oversized], idleServices: [] });
     expect(recs[0]).toMatchObject({ id: 'oversized-node:n3', savingsUsd: 18 });
     expect(recs[0]!.message).toContain('worker-3');
-    expect(recs[0]!.message).toContain('save ~$18/mo');
+    expect(recs[0]!.message).toBe(
+      'worker-3 is mostly idle (2% busy, 11% of memory in use over 7 days) — a smaller server would do and save about $18 a month.',
+    );
+    expect(recs[0]!.tech).toBe('node worker-3 · cpu 2% / mem 11% avg over 7d · oversized');
   });
 
   it('uses the idle service attributed cost as its saving guess', () => {
@@ -224,7 +239,10 @@ describe('buildRecommendations — the rule list', () => {
     };
     const recs = buildRecommendations({ nodes: [], oversizedNodes: [], idleServices: [idle] });
     expect(recs[0]).toMatchObject({ id: 'idle-service:s1', kind: 'idle-service', savingsUsd: 12.5 });
-    expect(recs[0]!.message).toContain('0.8% CPU over 7d');
+    expect(recs[0]!.message).toBe(
+      'worker in data is barely used (0.8% busy over 7 days) — run fewer copies or let it sleep when idle to free about $12.5 a month.',
+    );
+    expect(recs[0]!.tech).toContain('scale-to-zero');
   });
 
   it('sorts biggest saving first, setup nudges last', () => {

@@ -187,13 +187,16 @@ const usd = (n: number): string => `$${round2(n)}`;
 export function buildRecommendations(input: RecommendationInput): CostRecommendationView[] {
   const out: CostRecommendationView[] = [];
 
+  // Messages are Summary words (server, app, sleep when idle); the technical
+  // form rides `tech`, shown on the Controls line.
   for (const n of input.nodes) {
     if (n.monthlyUsd == null) {
       out.push({
         id: `unpriced-node:${n.nodeId}`,
         kind: 'unpriced-node',
         resource: `node ${n.name}`,
-        message: `${n.name} has no monthly cost set — add one to unlock per-stack breakdowns and savings estimates.`,
+        message: `${n.name} has no monthly price yet — add one to see what each app costs and what you could save.`,
+        tech: `node ${n.name} · ${NODE_COST_LABEL} unset`,
         savingsUsd: null,
       });
     } else if (!n.online && n.monthlyUsd > 0) {
@@ -201,7 +204,8 @@ export function buildRecommendations(input: RecommendationInput): CostRecommenda
         id: `offline-node:${n.nodeId}`,
         kind: 'offline-node',
         resource: `node ${n.name}`,
-        message: `${n.name} is offline but still costs ${usd(n.monthlyUsd)}/mo — bring it back or remove it.`,
+        message: `${n.name} is offline but still costs ${usd(n.monthlyUsd)} a month — bring it back or remove it.`,
+        tech: `node ${n.name} · offline · ${NODE_COST_LABEL}=${n.monthlyUsd}`,
         savingsUsd: round2(n.monthlyUsd),
       });
     }
@@ -214,18 +218,21 @@ export function buildRecommendations(input: RecommendationInput): CostRecommenda
       id: `oversized-node:${n.nodeId}`,
       kind: 'oversized-node',
       resource: `node ${n.name}`,
-      message: `${n.name} averaged ${round2(n.avgCpuPct)}% CPU / ${round2(n.avgMemPct)}% memory over ${n.windowDays}d — consider a smaller node${savings != null ? ` (save ~${usd(savings)}/mo)` : ''}.`,
+      message: `${n.name} is mostly idle (${Math.round(n.avgCpuPct)}% busy, ${Math.round(n.avgMemPct)}% of memory in use over ${n.windowDays} days) — a smaller server would do${savings != null ? ` and save about ${usd(savings)} a month` : ''}.`,
+      tech: `node ${n.name} · cpu ${round2(n.avgCpuPct)}% / mem ${round2(n.avgMemPct)}% avg over ${n.windowDays}d · oversized`,
       savingsUsd: savings,
     });
   }
 
   for (const s of input.idleServices) {
     const savings = s.estMonthlyUsd != null && s.estMonthlyUsd > 0 ? round2(s.estMonthlyUsd) : null;
+    const over = s.windowDays > 0 ? ` over ${s.windowDays} days` : ' right now';
     out.push({
       id: `idle-service:${s.serviceId}`,
       kind: 'idle-service',
       resource: `service ${s.name}`,
-      message: `${s.name} uses ${round2(s.avgCpuPct)}% CPU${s.windowDays > 0 ? ` over ${s.windowDays}d` : ''} — scale it down or enable scale-to-zero${savings != null ? ` (frees ~${usd(savings)}/mo)` : ''}.`,
+      message: `${s.name} in ${s.stack} is barely used (${round2(s.avgCpuPct)}% busy${over}) — run fewer copies or let it sleep when idle${savings != null ? ` to free about ${usd(savings)} a month` : ''}.`,
+      tech: `service ${s.name} · cpu ${round2(s.avgCpuPct)}%${s.windowDays > 0 ? ` avg over ${s.windowDays}d` : ' live'} · scale down or scale-to-zero`,
       savingsUsd: savings,
     });
   }
@@ -277,6 +284,27 @@ async function nodeUtil(ctx: OrgContext, nodeId: string): Promise<NodeUtil> {
     memUtilPct: memTotal != null && Number(memTotal) > 0 ? (Number(memUsed ?? 0) / Number(memTotal)) * 100 : null,
     source: 'history',
   };
+}
+
+// ── The monthly run rate (cheap: labels only) ────────────────────────────────
+
+/**
+ * The workspace's monthly run rate: the sum of every priced server's
+ * `swarmy.node.cost` label — the same number as `overview().totals.monthlyUsd`
+ * without the utilization/history reads, so the alert evaluator can check the
+ * budget every tick. It is an estimate of the month, not a bill.
+ */
+export async function monthlyRunRate(ctx: OrgContext): Promise<{ monthlyUsd: number; pricedNodes: number }> {
+  const rows = await ctx.db.node.findMany({ where: { orgId: ctx.activeOrgId }, select: { id: true } });
+  let total = 0;
+  let priced = 0;
+  for (const r of rows) {
+    const price = parseNodeCost(ctx.hub.nodeInfoFor(r.id)?.labels);
+    if (price == null) continue;
+    total += price;
+    priced += 1;
+  }
+  return { monthlyUsd: round2(total), pricedNodes: priced };
 }
 
 // ── The overview query ────────────────────────────────────────────────────────

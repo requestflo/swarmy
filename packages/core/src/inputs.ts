@@ -1075,6 +1075,20 @@ export const SetNodeCostInput = z.object({
 });
 export type SetNodeCostInput = z.infer<typeof SetNodeCostInput>;
 
+/** Workspace cost budget (owner decision Q6). */
+export const SetCostBudgetInput = z.object({
+  /** Monthly budget in USD; null clears it (the budget alert then never fires). */
+  monthlyUsd: z.number().min(1).max(10_000_000).nullable(),
+  /** Warn at this % of the budget — written to the cost-budget rule's threshold. */
+  warnAtPct: z.number().int().min(1).max(500),
+  /** Channels the budget warning goes to ([] = every enabled channel). */
+  warnChannelIds: z.array(z.string().min(1)).max(20).optional(),
+  weeklySummary: z.boolean(),
+  /** [] = every enabled channel. */
+  weeklyChannelIds: z.array(z.string().min(1)).max(20),
+});
+export type SetCostBudgetInput = z.infer<typeof SetCostBudgetInput>;
+
 // ── Resilience (slice F2) — safe drills ───────────────────────────────────────
 
 /** Restore drill: clone the latest DB backup into a throwaway cluster and verify. */

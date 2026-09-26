@@ -16,7 +16,8 @@ import { ALERT_SIGNAL_INFO, type AlertSeverityView, type AlertSignal, type Chann
  */
 
 export interface AlertNotification {
-  kind: 'firing' | 'resolved' | 'test';
+  /** `summary` = a plain scheduled message (the weekly cost summary), no alert chrome. */
+  kind: 'firing' | 'resolved' | 'test' | 'summary';
   signal: string;
   severity: AlertSeverityView;
   resource: string;
@@ -32,6 +33,7 @@ export function renderNotificationText(n: AlertNotification): string {
   if (n.kind === 'test') {
     return `swarmy test notification — if you can read this, the channel works. (${n.at})`;
   }
+  if (n.kind === 'summary') return `${n.ruleName ?? 'swarmy'}: ${n.message}`;
   const head = n.kind === 'firing' ? `🔥 FIRING [${n.severity}]` : `✅ RESOLVED`;
   const rule = n.ruleName ? ` · rule "${n.ruleName}"` : '';
   return `${head} ${n.signal} on ${n.resource} — ${n.message}${rule} (${n.at})`;
@@ -40,6 +42,7 @@ export function renderNotificationText(n: AlertNotification): string {
 /** Email subject line for a notification. */
 export function renderNotificationSubject(n: AlertNotification): string {
   if (n.kind === 'test') return 'swarmy: test notification';
+  if (n.kind === 'summary') return `swarmy: ${(n.ruleName ?? 'summary').toLowerCase()}`;
   const head = n.kind === 'firing' ? `[${n.severity.toUpperCase()}]` : '[RESOLVED]';
   return `swarmy ${head} ${n.signal}: ${n.resource}`;
 }
@@ -47,6 +50,7 @@ export function renderNotificationSubject(n: AlertNotification): string {
 /** Human title: the rule name, else the catalog label, else the raw signal. */
 export function notificationTitle(n: AlertNotification): string {
   if (n.kind === 'test') return 'swarmy test notification';
+  if (n.kind === 'summary') return n.ruleName ?? 'swarmy';
   const label =
     n.ruleName ?? ALERT_SIGNAL_INFO[n.signal as AlertSignal]?.label ?? n.signal;
   return n.kind === 'resolved' ? `Resolved: ${label}` : label;
@@ -71,9 +75,13 @@ const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0,
 
 export function renderDiscordBody(n: AlertNotification): Record<string, unknown> {
   const color =
-    n.kind === 'resolved' || n.kind === 'test' ? DISCORD_COLORS.resolved : DISCORD_COLORS[n.severity];
+    n.kind === 'summary'
+      ? DISCORD_COLORS.info
+      : n.kind === 'resolved' || n.kind === 'test'
+        ? DISCORD_COLORS.resolved
+        : DISCORD_COLORS[n.severity];
   const fields =
-    n.kind === 'test'
+    n.kind === 'test' || n.kind === 'summary'
       ? []
       : [
           { name: 'Resource', value: clip(n.resource, 1024), inline: true },
@@ -110,7 +118,7 @@ export function escapeTelegramMarkdownV2(text: string): string {
 
 export function renderTelegramText(n: AlertNotification): string {
   const e = escapeTelegramMarkdownV2;
-  if (n.kind === 'test') return `*${e('swarmy test notification')}*\n${e(notificationBody(n))}`;
+  if (n.kind === 'test' || n.kind === 'summary') return `*${e(notificationTitle(n))}*\n${e(notificationBody(n))}`;
   const icon = n.kind === 'firing' ? (n.severity === 'critical' ? '🔴' : n.severity === 'warning' ? '🟠' : '🔵') : '✅';
   const lines = [
     `${icon} *${e(notificationTitle(n))}*`,
@@ -137,7 +145,7 @@ export function renderTelegramBody(
 
 /** ntfy priority 1..5 (min, low, default, high, urgent). */
 export function ntfyPriority(n: AlertNotification): 1 | 2 | 3 | 4 | 5 {
-  if (n.kind === 'test') return 3;
+  if (n.kind === 'test' || n.kind === 'summary') return 3;
   if (n.kind === 'resolved') return 2;
   return n.severity === 'critical' ? 5 : n.severity === 'warning' ? 4 : 3;
 }
@@ -145,6 +153,7 @@ export function ntfyPriority(n: AlertNotification): 1 | 2 | 3 | 4 | 5 {
 /** ntfy tags: an emoji shortcode first (rendered as the icon), then the signal. */
 export function ntfyTags(n: AlertNotification): string[] {
   if (n.kind === 'test') return ['white_check_mark', 'swarmy'];
+  if (n.kind === 'summary') return ['moneybag', 'swarmy'];
   if (n.kind === 'resolved') return ['white_check_mark', n.signal];
   const emoji = n.severity === 'critical' ? 'rotating_light' : n.severity === 'warning' ? 'warning' : 'information_source';
   return [emoji, n.signal];
@@ -154,7 +163,7 @@ export function renderNtfyBody(n: AlertNotification, topic: string): Record<stri
   return {
     topic,
     title: notificationTitle(n),
-    message: n.kind === 'test' ? notificationBody(n) : `${n.message}\n${n.resource}`,
+    message: n.kind === 'test' || n.kind === 'summary' ? notificationBody(n) : `${n.message}\n${n.resource}`,
     priority: ntfyPriority(n),
     tags: ntfyTags(n),
   };
@@ -164,7 +173,7 @@ export function renderNtfyBody(n: AlertNotification, topic: string): Record<stri
 
 /** Gotify priority 0..10 — ≥8 is the "high" band clients pop as urgent. */
 export function gotifyPriority(n: AlertNotification): number {
-  if (n.kind === 'test') return 5;
+  if (n.kind === 'test' || n.kind === 'summary') return 5;
   if (n.kind === 'resolved') return 2;
   return n.severity === 'critical' ? 8 : n.severity === 'warning' ? 5 : 3;
 }
@@ -172,7 +181,7 @@ export function gotifyPriority(n: AlertNotification): number {
 export function renderGotifyBody(n: AlertNotification): Record<string, unknown> {
   return {
     title: notificationTitle(n),
-    message: n.kind === 'test' ? notificationBody(n) : `${n.message}\n${n.resource}`,
+    message: n.kind === 'test' || n.kind === 'summary' ? notificationBody(n) : `${n.message}\n${n.resource}`,
     priority: gotifyPriority(n),
   };
 }

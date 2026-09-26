@@ -5,6 +5,7 @@ import {
   ensureDefaultRules,
   fireEvent,
   latestStoreProbe,
+  monthlyRunRate,
   observabilityConfigRepo,
   orgErrorRates,
   recordIncidentEvent,
@@ -15,6 +16,9 @@ import {
 import type { OrgContext } from '@swarmy/trpc';
 import {
   ALERT_SIGNAL_INFO,
+  COST_BUDGET_RESOURCE,
+  budgetAlertFiring,
+  budgetAlertMessage,
   parseAlertSelector,
   selectorMatches,
   subjectFromResource,
@@ -41,6 +45,10 @@ import { forecastConditions, loadDiskSeries } from './disk-forecast-alerts';
  *   queue-depth        `swarmy.queues.stats` wait above the rule threshold
  *   error-rate         ClickHouse span error-rate above threshold (store up)
  *   store-unreachable  observability enabled but the store stopped answering
+ *   cost-budget        the projected month (today's monthly run rate from the
+ *                      `swarmy.node.cost` labels) is at/above the rule's
+ *                      threshold % of the workspace budget (owner decision Q6;
+ *                      no budget → never fires; resolves when it drops back)
  *
  * Several rules per signal (owner decision Q10): each enabled rule evaluates
  * the signal with its OWN threshold and for-duration, keeps only the subjects
@@ -265,6 +273,22 @@ export function errorRateConditions(
   return out;
 }
 
+/**
+ * cost-budget: one workspace-wide condition (`org:budget`) while the projected
+ * month is at or above `thresholdPct` of the budget. No budget → none.
+ */
+export function budgetConditions(projectedUsd: number, budgetUsd: number | null | undefined, thresholdPct: number): Condition[] {
+  if (!budgetAlertFiring(projectedUsd, budgetUsd, thresholdPct) || budgetUsd == null) return [];
+  return [
+    {
+      signal: 'cost-budget',
+      resource: COST_BUDGET_RESOURCE,
+      severity: 'warning',
+      message: budgetAlertMessage(projectedUsd, budgetUsd, thresholdPct),
+    },
+  ];
+}
+
 /** Mirror of health-summary parseLagSeconds: `12s` / `850ms` / bare number. */
 export function parseLagSeconds(raw: string | undefined | null): number | null {
   if (!raw) return null;
@@ -409,7 +433,7 @@ export function toRuleLike(row: {
 // ── Tick state (per org; reset on restart — DB rows are the durable truth) ───
 
 /** Signals resolved automatically when their condition clears. */
-const LEVEL_SIGNALS: AlertSignal[] = [
+export const LEVEL_SIGNALS: AlertSignal[] = [
   'node-offline',
   'service-down',
   'crash-loop',
@@ -419,6 +443,7 @@ const LEVEL_SIGNALS: AlertSignal[] = [
   'queue-depth',
   'error-rate',
   'store-unreachable',
+  'cost-budget',
 ];
 
 const pendingByOrg = new Map<string, Map<string, number>>();
@@ -611,6 +636,14 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
         perRule.push(...ruleConditions(rules, 'error-rate', (t) => errorRateConditions(rows, t)));
       }
     }
+  }
+
+  // cost-budget — the projected month against the workspace budget (Q6).
+  const budget = await prisma.costBudget.findUnique({ where: { orgId }, select: { monthlyUsd: true } });
+  if (budget?.monthlyUsd) {
+    const budgetUsd = budget.monthlyUsd;
+    const rate = await monthlyRunRate(ctx);
+    perRule.push(...ruleConditions(rules, 'cost-budget', (t) => budgetConditions(rate.monthlyUsd, budgetUsd, t)));
   }
 
   return [...fanOut(rules, conditions), ...perRule];

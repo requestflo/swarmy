@@ -10,6 +10,10 @@ import {
   ntfyTags,
   redactSecrets,
   renderDiscordBody,
+  renderGotifyBody,
+  renderNotificationSubject,
+  renderNotificationText,
+  renderNtfyBody,
   renderTelegramText,
   type AlertNotification,
 } from './alerts-channels';
@@ -175,5 +179,27 @@ describe('default alerts: opt-out is permanent', () => {
     // A user-deleted default is still an isDefault row (tombstone) → counts as present.
     expect(missingDefaultSignals(all)).toEqual([]);
     expect(missingDefaultSignals(all.filter((s) => s !== 'crash-loop'))).toEqual(['crash-loop']);
+  });
+});
+
+describe('summary notifications (weekly cost summary, owner decision Q6)', () => {
+  const summary: AlertNotification = {
+    kind: 'summary',
+    signal: 'cost-weekly-summary',
+    severity: 'info',
+    resource: 'org:budget',
+    message: '$214 of $300 this month (71%). On track to land at $214. Biggest: storefront $82.',
+    ruleName: 'Weekly cost summary',
+    at: '2026-09-28T09:00:00.000Z',
+    eventId: null,
+  };
+  it('reads as one plain message, without alert chrome', () => {
+    expect(renderNotificationText(summary)).toBe(
+      'Weekly cost summary: $214 of $300 this month (71%). On track to land at $214. Biggest: storefront $82.',
+    );
+    expect(renderNotificationSubject(summary)).toBe('swarmy: weekly cost summary');
+    expect(renderNtfyBody(summary, 'ops')).toMatchObject({ title: 'Weekly cost summary', message: summary.message, priority: 3 });
+    expect(renderGotifyBody(summary)).toMatchObject({ title: 'Weekly cost summary', message: summary.message });
+    expect(renderDiscordBody(summary).embeds).toMatchObject([{ title: 'Weekly cost summary', fields: [] }]);
   });
 });

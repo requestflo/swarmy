@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  LEVEL_SIGNALS,
   backupMissedConditions,
+  budgetConditions,
   derivedNextBackupRun,
   conditionKey,
   crashLoopConditions,
@@ -327,5 +329,52 @@ describe('default-alert signals (launch-blocker #6)', () => {
     expect(derivedNextBackupRun(s, at('2026-09-23T03:00:04Z'))?.toISOString()).toBe('2026-09-24T03:00:00.000Z');
     expect(derivedNextBackupRun({ ...s, anchorAt: null }, null)?.toISOString()).toBe('2026-09-21T10:00:00.000Z');
     expect(derivedNextBackupRun({ ...s, unit: 'fortnights' }, null)).toBeNull();
+  });
+});
+
+describe('cost-budget (owner decision Q6)', () => {
+  const rule = (over: Partial<RuleLike> = {}): RuleLike => ({
+    id: 'budget',
+    signal: 'cost-budget',
+    threshold: 80,
+    forSeconds: 0,
+    enabled: true,
+    selector: {},
+    mutedUntil: null,
+    ...over,
+  });
+
+  it('never fires without a budget', () => {
+    expect(budgetConditions(10_000, null, 80)).toEqual([]);
+    expect(budgetConditions(10_000, 0, 80)).toEqual([]);
+  });
+
+  it('fires one workspace condition when the projected month reaches the rule threshold', () => {
+    const out = ruleConditions([rule()], 'cost-budget', (t) => budgetConditions(255, 300, t));
+    expect(out).toEqual([
+      {
+        signal: 'cost-budget',
+        resource: 'org:budget',
+        severity: 'warning',
+        message: 'On track to spend $255 this month — 85% of the $300 budget (warns at 80%)',
+        ruleId: 'budget',
+      },
+    ]);
+  });
+
+  it('honours the rule threshold (the warn-at %) and a disabled rule', () => {
+    expect(ruleConditions([rule({ threshold: 90 })], 'cost-budget', (t) => budgetConditions(255, 300, t))).toEqual([]);
+    expect(ruleConditions([rule({ enabled: false })], 'cost-budget', (t) => budgetConditions(255, 300, t))).toEqual([]);
+  });
+
+  it('resolves when the month drops back: a level signal whose condition clears', () => {
+    expect(LEVEL_SIGNALS).toContain('cost-budget');
+    const pending = new Map<string, number>();
+    const firing = ruleConditions([rule()], 'cost-budget', (t) => budgetConditions(255, 300, t));
+    expect(gateConditions(pending, firing, () => 0, 1_000)).toHaveLength(1);
+    // Next tick a server price drops: no condition, so the open event's key is no longer active.
+    const next = ruleConditions([rule()], 'cost-budget', (t) => budgetConditions(200, 300, t));
+    expect(next).toEqual([]);
+    expect(new Set(next.map(conditionKey)).has(conditionKey(firing[0]!))).toBe(false);
   });
 });

@@ -22,6 +22,7 @@ import { startQueueReconcile } from './queue-reconcile';
 import { startJobScheduler } from './job-scheduler';
 import { startInboundWebhookDispatch } from './inbound-webhook-dispatch';
 import { startAlertEvaluator } from './alert-evaluator';
+import { startCostWeeklySummary } from './cost-weekly-summary';
 import { startDeploySafety } from './deploy-safety';
 import { startAppReconcile } from './app-reconcile';
 import { startExposureAudit } from './exposure-audit';
@@ -65,6 +66,7 @@ export function startWorkers(): () => void {
     startJobScheduler(),
     startInboundWebhookDispatch(),
     startAlertEvaluator(),
+    startCostWeeklySummary(),
     startDeploySafety(),
     startAppReconcile(),
     startExposureAudit(),

@@ -1028,6 +1028,7 @@ export const ALERT_SIGNALS = [
   'error-new-issue',
   'error-regression',
   'error-spike',
+  'cost-budget',
 ] as const;
 export type AlertSignal = (typeof ALERT_SIGNALS)[number];
 
@@ -1222,6 +1223,16 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultForSeconds: 0,
     severity: 'critical',
     target: 'app',
+  },
+  'cost-budget': {
+    label: 'Budget',
+    description:
+      'The month is on track to cost the threshold % of the workspace’s monthly budget or more (an estimate from server prices). Never fires without a budget.',
+    unit: '%',
+    defaultThreshold: 80,
+    defaultForSeconds: 0,
+    severity: 'warning',
+    target: null,
   },
 };
 
@@ -2056,9 +2067,56 @@ export interface CostRecommendationView {
   kind: CostRecommendationKind;
   /** Display resource ("node wkr-3", "service worker"). */
   resource: string;
+  /** Plain words (Summary-safe: server, app, sleep when idle). */
   message: string;
+  /** The technical form for the Controls line ("node wkr-3 · cpu 4% / mem 9% over 7d"). */
+  tech?: string;
   /** Rough monthly saving guess (USD); null for setup nudges. */
   savingsUsd: number | null;
+}
+
+/** Where the month stands against the budget (pure: `budgetStatus`, cost-budget.ts). */
+export type CostBudgetState = 'ok' | 'warn' | 'over';
+
+export interface CostBudgetStatusView {
+  budgetUsd: number;
+  /** The month's projected total: today's monthly run rate from server prices. */
+  projectedUsd: number;
+  /** projected ÷ budget × 100, rounded. */
+  usedPct: number;
+  /** The warn-at % (the cost-budget alert rule's threshold). */
+  warnPct: number;
+  /** ok · warn (≥ warn %) · over (≥ 100%). */
+  state: CostBudgetState;
+}
+
+/** The workspace budget (owner decision Q6) and the weekly cost summary settings. */
+export interface CostBudgetView {
+  /** Monthly budget in USD; null = no budget set (the alert never fires). */
+  monthlyUsd: number | null;
+  /** Warn at this % of the budget — the default cost-budget rule's threshold. */
+  warnAtPct: number;
+  /** The cost-budget rule's channels ([] = every enabled channel). */
+  warnChannelIds: string[];
+  /** The default cost-budget rule (null when opted out). */
+  ruleId: string | null;
+  /** The cost-budget rule is on (false when switched off or opted out). */
+  warnEnabled: boolean;
+  weeklySummary: boolean;
+  /** [] = every enabled channel. */
+  weeklyChannelIds: string[];
+  lastWeeklyAt: string | null;
+  /** IANA zone the Monday 09:00 send uses (quiet hours' zone, else UTC). */
+  timeZone: string;
+  /** Null without a budget. */
+  status: CostBudgetStatusView | null;
+}
+
+/** Result of "Send a test summary now". */
+export interface CostWeeklySummaryResult {
+  text: string;
+  sent: number;
+  failed: number;
 }
 
 // ── Resilience (slice F2) — readiness score, posture problems, safe drills ────

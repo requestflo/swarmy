@@ -365,6 +365,9 @@ export { fireEvent, releaseHeld, isRuleMuted } from './services/alerts-fire';
 // Error tracking (Sentry-compatible ingest, artifacts, spike sweep).
 export * from './services/errors';
 export { ensureDefaultRules } from './services/alerts.service';
+// Cost budget (owner decision Q6): the evaluator's run rate + the weekly summary worker step.
+export { monthlyRunRate } from './services/cost.service';
+export { runWeeklySummary, type WeeklyRunOutcome } from './services/cost-budget.service';
 export { runNodeHygieneAllOrgs } from './services/node-hygiene.service';
 // Disk re-attach (QA-075b): the disk-reconcile worker's per-node check + the placement signal.
 export { runDiskReconcileFor, unmountedDefaultDiskNodes, type DiskReconcileOutcome } from './services/disks.service';
