@@ -8,7 +8,6 @@ import { Depth, NextAction, Say, SayHeader } from '@/components/calm';
 import { RumCode } from './rum-code';
 import { ReplaySummaryList } from './replay-summary-list';
 import { CardSkeleton, EmptyState, ErrorState } from '@/components/states';
-import { ObsSubTabs } from './obs-sub-tabs';
 import { ReplayPlayer } from './replay-player';
 import { pct } from './rum-shared';
 import { RumStateNotice, type RumNoticeKind } from './rum-state-notice';
@@ -33,9 +32,6 @@ export function ReplaysPage({ stack, sessionId }: ReplaysPageProps): React.JSX.E
   const s = settings.data?.settings;
   const sessions = list.data?.sessions ?? [];
   const selected = sessionId ?? sessions[0]?.sessionId;
-  const aside = s
-    ? `${sessions.length} sessions this week · ${pct(s.replaySampleRate)} sampled · inputs masked`
-    : undefined;
 
   const notice: RumNoticeKind | null =
     list.data?.status === 'disabled'
@@ -58,7 +54,6 @@ export function ReplaysPage({ stack, sessionId }: ReplaysPageProps): React.JSX.E
   return (
     <div className="flex flex-col gap-4 pb-8">
       <SayHeader size="md" title={title} lede={lede} />
-      <ObsSubTabs stack={stack} active="replays" aside={aside} />
       {s && settings.data ? <RumCode stack={stack} settings={s} routes={settings.data.routes} /> : null}
       {s && !recording ? (
         <NextAction

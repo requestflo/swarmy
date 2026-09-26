@@ -13,7 +13,7 @@ export function appAlreadyOn(stack: string, f: AppFacts): AlreadyOnItem[] {
     out.push({
       what: 'Safe deploys',
       detail: `each change is watched for ${Math.round(f.safety.windowSec / 60) || 1} min${f.safety.autoRollback ? ' and put back if it fails' : ''}`,
-      to: `${base}/releases`,
+      to: `${base}/config/rollout`,
     });
   }
   const https = (f.domains ?? []).filter((d) => d.serving && (d.tls === 'auto' || d.tls === 'custom'));

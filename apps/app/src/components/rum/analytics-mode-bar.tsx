@@ -1,10 +1,7 @@
 import * as React from 'react';
-import { Link } from '@tanstack/react-router';
-import { SettingsIcon } from 'lucide-react';
 import { Chip, Segmented } from './rum-ui';
 
 interface AnalyticsModeBarProps {
-  stack: string;
   identified: boolean;
   days: number;
   onDays: (d: number) => void;
@@ -20,7 +17,7 @@ const DAY_OPTIONS = [
  * Which mode the app counts in, said plainly: privacy mode is cookieless and
  * aggregate; identified mode ties visits to signed-in people (personal data).
  */
-export function AnalyticsModeBar({ stack, identified, days, onDays }: AnalyticsModeBarProps): React.JSX.Element {
+export function AnalyticsModeBar({ identified, days, onDays }: AnalyticsModeBarProps): React.JSX.Element {
   return (
     <div className="flex flex-wrap items-center gap-3">
       {identified ? (
@@ -35,13 +32,6 @@ export function AnalyticsModeBar({ stack, identified, days, onDays }: AnalyticsM
       </span>
       <div className="ml-auto flex items-center gap-2">
         <Segmented label="Time range" value={days} options={DAY_OPTIONS} onChange={onDays} />
-        <Link
-          to="/stacks/$name/rum-settings"
-          params={{ name: stack }}
-          className="border-border hover:bg-accent inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold"
-        >
-          <SettingsIcon className="size-3.5" /> Settings
-        </Link>
       </div>
     </div>
   );

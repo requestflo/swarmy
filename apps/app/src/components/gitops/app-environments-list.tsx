@@ -18,16 +18,27 @@ function status(st: string | undefined): { tone: Tone; word: string } {
  * Every place this app runs from git — production, named environments and
  * branch/PR previews — one row each (boards Environments · BranchPreviews).
  */
-export function AppEnvironmentsList({ app, stack }: { app: GitApp; stack: string }): React.JSX.Element | null {
+export function AppEnvironmentsList({
+  app,
+  stack,
+  show = 'all',
+}: {
+  app: GitApp;
+  stack: string;
+  /** Environments only (Releases), previews only (Config › Jobs & previews), or both. */
+  show?: 'all' | 'environments' | 'previews';
+}): React.JSX.Element | null {
   const trpc = useTRPC();
   const stacks = useQuery(trpc.stacks.list.queryOptions());
   // Link a row only to an app that's actually running, never to "No app called …".
   const linkTo = (s: string): string | undefined =>
     s !== stack && stacks.data?.some((x) => x.name === s) ? '/stacks/$name/releases' : undefined;
-  if (app.environments.length + app.previews.length <= 1) return null;
+  const envs = show === 'previews' ? [] : app.environments;
+  const previews = show === 'environments' ? [] : app.previews;
+  if (show === 'previews' ? previews.length === 0 : envs.length + previews.length <= 1) return null;
   return (
-    <div className="border-border -mx-1 flex flex-col border-t pt-1">
-      {app.environments.map((e) => (
+    <div className={show === 'previews' ? 'flex flex-col' : 'border-border -mx-1 flex flex-col border-t pt-1'}>
+      {envs.map((e) => (
         <CalmRow
           key={e.stack}
           tone={status(e.latest?.status).tone}
@@ -40,7 +51,7 @@ export function AppEnvironmentsList({ app, stack }: { app: GitApp; stack: string
           params={{ name: e.stack }}
         />
       ))}
-      {app.previews.map((p) => (
+      {previews.map((p) => (
         <CalmRow
           key={p.stack}
           tone={status(p.status).tone}

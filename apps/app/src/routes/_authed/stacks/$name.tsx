@@ -4,8 +4,9 @@ import { StackWorkspaceLayout } from '@/components/stacks/workspace/stack-worksp
 
 /**
  * The app workspace — an app (a Docker stack) is a real URL and the unit you
- * operate. Child routes are its tabs (Overview · Logs · Domains · Data ·
- * Variables & secrets · Releases · Access · …, see lib/stack-nav.ts).
+ * operate. Child routes are its tabs (Services · Domains · Data ·
+ * Observability · Access · Config · Backups · Releases · Source, with
+ * sub-tabs; see lib/stack-nav.ts).
  */
 interface StackWorkspaceSearch {
   /** Set right after a deploy: the page shows "Deploying → It's live" (components/deploy/deploy-flow). */

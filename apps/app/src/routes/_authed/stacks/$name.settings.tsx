@@ -1,13 +1,9 @@
-import * as React from 'react';
-import { createFileRoute } from '@tanstack/react-router';
-import { SettingsTab } from '@/components/app-tabs/scaling/settings-tab';
+import { createFileRoute, redirect } from '@tanstack/react-router';
+import { legacyStackTarget } from '@/lib/stack-nav-match';
 
-/** Settings tab: copies and where they run; from Controls, environment, AI gateway, add-service, danger zone. */
+/** Old flat Settings tab → Config › Scaling (2026-09-26, the board 9-tab IA). */
 export const Route = createFileRoute('/_authed/stacks/$name/settings')({
-  component: SettingsTabRoute,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: legacyStackTarget('settings')!, params: { name: params.name }, replace: true });
+  },
 });
-
-function SettingsTabRoute(): React.JSX.Element {
-  const { name } = Route.useParams();
-  return <SettingsTab stack={name} />;
-}

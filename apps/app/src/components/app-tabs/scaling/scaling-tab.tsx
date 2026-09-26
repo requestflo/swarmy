@@ -10,11 +10,12 @@ import { SettingsHeader } from './settings-header';
 import { useAppPlacement } from './use-app-placement';
 
 /**
- * Settings: copies and where they run (boards AppScaling · AppPlacement) at
- * Summary; the steppers and the app's own settings (environment, AI gateway,
- * add a service, remove) from Controls; the live deploy block at Code.
+ * Config › Scaling (board AppScaling): copies per part at Summary; the
+ * steppers and the app's own settings (environment, AI gateway, add a
+ * service, remove the app) from Controls; the live deploy block at Code.
+ * Where each part runs is Config › Placement & volumes.
  */
-export function SettingsTab({ stack }: { stack: string }): React.JSX.Element {
+export function ScalingTab({ stack }: { stack: string }): React.JSX.Element {
   const { rows, nodes } = useAppPlacement(stack);
   const ready = rows && nodes;
   return (

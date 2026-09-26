@@ -37,10 +37,11 @@ function summary(m: StackAppMatch): {
 }
 
 /**
- * "From Git" on a stack's Releases tab — only for stacks a swarmy.yaml owns
+ * "From Git" on a stack's Releases tab (`previews={false}`: branch previews
+ * list on Config › Jobs & previews instead) — only for stacks a swarmy.yaml owns
  * (an app environment or a preview). Everything else renders nothing.
  */
-export function StackGitAppPanel({ stack }: { stack: string }): React.JSX.Element | null {
+export function StackGitAppPanel({ stack, previews = true }: { stack: string; previews?: boolean }): React.JSX.Element | null {
   const trpc = useTRPC();
   const apps = useQuery({ ...trpc.apps.list.queryOptions(), refetchInterval: 15_000 });
   const [open, setOpen] = React.useState<{ id: string; from?: string } | null>(null);
@@ -102,7 +103,7 @@ export function StackGitAppPanel({ stack }: { stack: string }): React.JSX.Elemen
         promotedFrom={open?.from}
         onClose={() => setOpen(null)}
       />
-      <AppEnvironmentsList app={app} stack={stack} />
+      <AppEnvironmentsList app={app} stack={stack} show={previews ? 'all' : 'environments'} />
     </Section>
   );
 }

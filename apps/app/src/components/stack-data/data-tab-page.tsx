@@ -59,9 +59,15 @@ export function DataTabPage({ stack }: { stack: string }): React.JSX.Element {
               autoBlocked={c.name === focusName ? autoBlocked : null}
             />
           ))}
-          <CacheSection stack={stack} />
-          <SearchSection stack={stack} />
-          <VectorSection stack={stack} />
+          <div id="cache" className="scroll-mt-4">
+            <CacheSection stack={stack} />
+          </div>
+          <div id="search" className="scroll-mt-4">
+            <SearchSection stack={stack} />
+          </div>
+          <div id="vector" className="scroll-mt-4">
+            <VectorSection stack={stack} />
+          </div>
           {d.clusters.length === 0 ? (
             <Section title="Add a database">
               <DbDeclareClusterForm stack={stack} existingNames={[]} />

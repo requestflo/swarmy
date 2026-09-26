@@ -7,7 +7,7 @@ import { VariablesTab } from '@/components/app-tabs/variables/variables-tab';
  * write-only secrets (versioned Docker secrets, one-click rotation) and, from
  * Controls up, config files. Code depth shows the swarmy.yaml env block and CLI.
  */
-export const Route = createFileRoute('/_authed/stacks/$name/config')({
+export const Route = createFileRoute('/_authed/stacks/$name/config/')({
   component: ConfigTab,
 });
 

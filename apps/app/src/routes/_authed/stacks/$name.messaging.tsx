@@ -1,13 +1,12 @@
-import * as React from 'react';
-import { createFileRoute } from '@tanstack/react-router';
-import { MessagingTab } from '@/components/app-tabs/messaging/messaging-tab';
+import { createFileRoute, redirect } from '@tanstack/react-router';
+import { legacyStackTarget } from '@/lib/stack-nav-match';
 
-/** Jobs & queues tab: queues, scheduled jobs and webhooks for this app. */
+/**
+ * Old Jobs & queues tab → Config › Jobs & previews; a queue anchor in the old
+ * URL (`#queues`) lands on Data › Queues (2026-09-26, the board 9-tab IA).
+ */
 export const Route = createFileRoute('/_authed/stacks/$name/messaging')({
-  component: MessagingTabRoute,
+  beforeLoad: ({ params, location }) => {
+    throw redirect({ to: legacyStackTarget('messaging', location.hash)!, params: { name: params.name }, replace: true });
+  },
 });
-
-function MessagingTabRoute(): React.JSX.Element {
-  const { name } = Route.useParams();
-  return <MessagingTab stack={name} />;
-}

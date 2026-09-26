@@ -8,7 +8,6 @@ import { AnalyticsConsentWarning } from './analytics-consent-warning';
 import { AnalyticsKpis } from './analytics-kpis';
 import { AnalyticsModeBar } from './analytics-mode-bar';
 import { BreakdownList } from './breakdown-list';
-import { ObsSubTabs } from './obs-sub-tabs';
 import { compact, countryName, pct } from './rum-shared';
 import { RumStateNotice } from './rum-state-notice';
 import { SignedInVisitors } from './signed-in-visitors';
@@ -30,13 +29,6 @@ export function AnalyticsPage({ stack }: { stack: string }): React.JSX.Element {
   const identified = s?.mode === 'identified';
   const host = settings.data?.routes[0]?.host;
 
-  const tabs = (
-    <ObsSubTabs
-      stack={stack}
-      active="analytics"
-      aside={host ? `${host} · counted at the edge, no script to add` : 'counted at the edge, no script to add'}
-    />
-  );
   if (q.isPending || settings.isPending) {
     return (
       <div className="space-y-3 pb-8">
@@ -53,7 +45,6 @@ export function AnalyticsPage({ stack }: { stack: string }): React.JSX.Element {
     return (
       <div className="flex flex-col gap-5 pb-8">
         <SayHeader size="md" title="Couldn’t read this app’s analytics." />
-        {tabs}
         <ErrorState error={q.error} retry={() => void q.refetch()} retrying={q.isFetching} />
       </div>
     );
@@ -76,10 +67,9 @@ export function AnalyticsPage({ stack }: { stack: string }): React.JSX.Element {
   return (
     <div className="flex flex-col gap-4 pb-8">
       <SayHeader size="md" title={title} lede={lede} />
-      {tabs}
       {s ? <RumCode stack={stack} settings={s} routes={settings.data?.routes ?? []} /> : null}
       <Depth at="controls">
-        <AnalyticsModeBar stack={stack} identified={identified} days={days} onDays={setDays} />
+        <AnalyticsModeBar identified={identified} days={days} onDays={setDays} />
       </Depth>
       {identified && s?.consent === 'none' ? <AnalyticsConsentWarning stack={stack} /> : null}
       {notice ? (

@@ -13,7 +13,7 @@ function copies(n: number): string {
   return `${n} cop${n === 1 ? 'y' : 'ies'}`;
 }
 
-/** One row per service: how many copies, where they may run, and (Controls) the −/+ stepper. */
+/** One row per service: how many copies, whether they're spread out, and (Controls) the −/+ stepper. Placement rules live on Config › Placement & volumes. */
 export function CopiesSection({ stack, rows, nodes }: { stack: string; rows: PlacedService[]; nodes: NodeSummary[] }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
@@ -24,7 +24,7 @@ export function CopiesSection({ stack, rows, nodes }: { stack: string; rows: Pla
     }),
   );
   return (
-    <Section title="Copies and where they run" count={rows.length} flush>
+    <Section title="Copies" count={rows.length} flush>
       <div className="flex flex-col">
         {rows.map(({ inv, detail }) => {
           const { running, desired } = inv.replicas;
@@ -45,7 +45,7 @@ export function CopiesSection({ stack, rows, nodes }: { stack: string; rows: Pla
                   {whereWords(detail, nodes)}
                   {desired > 1 && !pinnedServer(detail, nodes) ? ', spread out so one server can stop' : ''}.
                 </span>
-                <Tech>{detail?.constraints.join(' · ') || `${inv.mode} · no placement rules`}</Tech>
+                <Tech>{`${inv.mode} · replicas: ${desired}`}</Tech>
               </span>
               <Depth at="controls">
                 <ServiceScaleStepper

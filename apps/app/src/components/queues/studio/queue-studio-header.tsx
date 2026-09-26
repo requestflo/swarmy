@@ -22,8 +22,8 @@ export function QueueStudioHeader({ stack, cluster, queues, purpose, fetching, o
   return (
     <div className="flex flex-col gap-4">
       <Button asChild variant="ghost" size="sm" className="-ml-2 w-fit pointer-coarse:min-h-11">
-        <Link to="/stacks/$name/messaging" params={{ name: stack }}>
-          <ArrowLeftIcon className="size-4" /> Jobs & queues
+        <Link to="/stacks/$name/queues" params={{ name: stack }}>
+          <ArrowLeftIcon className="size-4" /> All queues
         </Link>
       </Button>
       <SayHeader

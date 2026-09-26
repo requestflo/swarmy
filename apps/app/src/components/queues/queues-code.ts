@@ -1,25 +1,12 @@
-import type { QueueView, ScheduledJobView } from '@swarmy/core';
+import type { QueueView } from '@swarmy/core';
 import { toYaml, withHeader, type CodeTab } from '@/components/calm';
 
-/** The jobs + queue resources as swarmy.yaml, and the worker's swarmy.queues label as swarmy reads it. */
-export function messagingCode(stack: string, jobs: ScheduledJobView[], queues: QueueView[]): CodeTab[] {
-  const jobsYaml: Record<string, { schedule: string; service?: string; image?: string; run: string; retries?: number }> = {};
-  for (const j of jobs) {
-    const svc = j.serviceRef?.startsWith(`${stack}_`) ? j.serviceRef.slice(stack.length + 1) : j.serviceRef;
-    jobsYaml[j.name] = {
-      schedule: j.schedule,
-      ...(svc ? { service: svc } : j.image ? { image: j.image } : {}),
-      run: j.command.join(' '),
-      ...(j.retries ? { retries: j.retries } : {}),
-    };
-  }
+/** The queue stores as swarmy.yaml resources, and each worker's swarmy.queues label as swarmy reads it. */
+export function queuesCode(stack: string, queues: QueueView[]): CodeTab[] {
   const caches = [...new Set(queues.map((q) => q.cacheName))];
   const resources = Object.fromEntries(caches.map((c) => [c, 'queue' as const]));
   const tabs: CodeTab[] = [
-    {
-      label: 'swarmy.yaml',
-      code: withHeader(`${stack} — scheduled jobs and queue stores`, toYaml({ ...(caches.length ? { resources } : {}), jobs: jobsYaml })),
-    },
+    { label: 'swarmy.yaml', code: withHeader(`${stack} — queue stores`, toYaml({ resources })) },
   ];
   if (queues.length) {
     const byWorker = new Map<string, QueueView[]>();

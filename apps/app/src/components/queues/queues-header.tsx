@@ -1,41 +1,27 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
-import type { InboundWebhooksOverview, JobsOverview, QueueView } from '@swarmy/core';
+import type { QueueView } from '@swarmy/core';
 import { Button } from '@swarmy/ui';
 import { NextAction, Say, SayHeader } from '@/components/calm';
-import { plural } from '../tab-body';
+import { plural } from '@/components/app-tabs/tab-body';
 
-interface Props {
-  queues: QueueView[];
-  jobs: JobsOverview;
-  hooks: InboundWebhooksOverview;
-}
-
-/** "2 queues, 450 jobs waiting. Nothing stuck." + the one stuck thing, if any. */
-export function MessagingHeader({ queues, jobs, hooks }: Props): React.JSX.Element {
+/** "2 queues, 450 jobs waiting. Nothing stuck." */
+export function QueuesHeader({ queues }: { queues: QueueView[] }): React.JSX.Element {
   const waiting = queues.reduce((n, q) => n + (q.stats?.wait ?? 0), 0);
   const failed = queues.reduce((n, q) => n + (q.stats?.failed ?? 0), 0);
-  const stuck = failed + hooks.dead + jobs.failed24h;
+  const workers = new Set(queues.map((q) => q.workerService)).size;
   const title = (
     <>
       {plural(queues.length, 'queue')}, {plural(waiting, 'job')} waiting.{' '}
-      {stuck === 0 ? (
-        <em>Nothing stuck.</em>
-      ) : failed > 0 ? (
-        <Say tone="warn">{failed.toLocaleString()} failed and need a look.</Say>
-      ) : hooks.dead > 0 ? (
-        <Say tone="warn">{plural(hooks.dead, 'webhook')} couldn't be delivered.</Say>
-      ) : (
-        <Say tone="warn">{plural(jobs.failed24h, 'scheduled run')} failed today.</Say>
-      )}
+      {failed > 0 ? <Say tone="warn">{failed.toLocaleString()} failed and need a look.</Say> : <em>Nothing stuck.</em>}
     </>
   );
-  const lede = `${plural(jobs.enabled, 'scheduled job')} and ${plural(hooks.endpoints, 'webhook endpoint')}; ${hooks.deliveries24h.toLocaleString()} events came in today.`;
+  const lede = `Work your app hands to ${plural(workers, 'worker')}. Each store opens in the queue studio.`;
   return <SayHeader size="md" title={title} lede={lede} />;
 }
 
 /** The one stuck thing worth a look: the queue with the most failed jobs. */
-export function MessagingNext({ stack, queues }: { stack: string; queues: QueueView[] }): React.JSX.Element | null {
+export function QueuesNext({ stack, queues }: { stack: string; queues: QueueView[] }): React.JSX.Element | null {
   const worst = [...queues].sort((a, b) => (b.stats?.failed ?? 0) - (a.stats?.failed ?? 0))[0];
   if (!worst || (worst.stats?.failed ?? 0) === 0) return null;
   return (
