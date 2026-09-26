@@ -1421,6 +1421,16 @@ export const SECRET_FAMILY_LABEL = 'swarmy.secret.family';
 export const SECRET_VERSION_LABEL = 'swarmy.secret.version';
 /** Label ON each managed Docker secret naming the owning org. */
 export const SECRET_ORG_LABEL = 'swarmy.secret.org';
+/**
+ * Labels ON a Docker secret a blueprint generated: the stack it was generated
+ * for and the blueprint id. Stack delete removes these families (when nothing
+ * outside the stack uses them) and a redeploy of the same stack + blueprint
+ * adopts them (QA-078). Docker secrets are immutable, so the owner is stamped
+ * at create — the stack NAME (org-scoped via {@link SECRET_ORG_LABEL}), since
+ * the stack row does not exist yet when the blueprint generates its secrets.
+ */
+export const SECRET_OWNER_STACK_LABEL = 'swarmy.secret.owner.stack';
+export const SECRET_OWNER_BLUEPRINT_LABEL = 'swarmy.secret.owner.blueprint';
 
 /** Quick-create template suggestions — family NAMES only, never values. */
 export const SECRET_NAME_TEMPLATES = [

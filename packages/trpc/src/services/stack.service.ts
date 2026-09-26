@@ -29,6 +29,7 @@ import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { liveServiceSpec } from './service-patch';
 import { carrySecretFamilies, mountsSecretFamily } from './secret-family-carry';
+import { removeStackOwnedSecrets } from './secret-owner.service';
 import { augmentSpecsForStack } from './otel-injection';
 import { stackTelemetryEnabled } from './observability.service';
 import { augmentSpecsForErrors, releaseFor, specsRequestErrors } from './errors/injection';
@@ -721,6 +722,10 @@ export async function removeStack(
     for (const svc of liveStackServices(ctx, stack.name)) {
       await ctx.hub.dispatch(node.id, 'service.remove', { service: svc.name }).catch(() => undefined);
     }
+    // The secret families a blueprint generated for THIS stack (owner label),
+    // unless a service outside the stack still mounts one — else redeploying
+    // the same name fails on "family already exists" (QA-078). Audited.
+    await removeStackOwnedSecrets(ctx, node.id, stack.name).catch(() => undefined);
     // Then the stack's own overlays (`<stack>_default`, `<stack>_<net>`). The
     // agent only removes networks labelled for THIS stack + `swarmy.managed`
     // (what `network.ensure` stamped at deploy) — never external ones — and

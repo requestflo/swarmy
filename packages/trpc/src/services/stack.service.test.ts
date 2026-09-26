@@ -263,10 +263,11 @@ describe('removeStack — cleans up the stack overlays', () => {
     const res = await removeStack(ctx, 'stack-1');
     expect(res).toEqual({ id: 'stack-1', removed: true });
     expect(peekKv(ctx.hub, 'org1', 'stack', 'stack-1')).toBeNull();
-    expect(dispatched.map((d) => d.command)).toEqual(['service.remove', 'service.remove', 'network.removeForStack']);
+    // (secret.list: the blueprint-generated secrets it owns are cleaned up too — QA-078.)
+    expect(dispatched.map((d) => d.command)).toEqual(['service.remove', 'service.remove', 'secret.list', 'network.removeForStack']);
     expect(dispatched.slice(0, 2).map((d) => d.payload.service)).toEqual(['site_web', 'site_db']);
     // Stack-scoped: the agent only removes networks labelled for THIS stack + swarmy.managed.
-    expect(dispatched[2]!.payload).toEqual({ stack: 'site' });
+    expect(dispatched[3]!.payload).toEqual({ stack: 'site' });
   });
 });
 

@@ -162,12 +162,12 @@ export function groupSecrets(
 const DISPATCH_TIMEOUT_MS = 30_000;
 const DEPLOY_TIMEOUT_MS = 60_000;
 
-function liveOrgServices(ctx: OrgContext): InvService[] {
+export function liveOrgServices(ctx: OrgContext): InvService[] {
   const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
   return buildInventory(services, containers).services;
 }
 
-async function listRawSecrets(ctx: OrgContext, nodeId: string): Promise<SwarmResourceInfo[]> {
+export async function listRawSecrets(ctx: OrgContext, nodeId: string): Promise<SwarmResourceInfo[]> {
   try {
     const res = await ctx.hub.dispatch<SecretListResult>(
       nodeId,
@@ -182,7 +182,7 @@ async function listRawSecrets(ctx: OrgContext, nodeId: string): Promise<SwarmRes
 }
 
 /** Consumers of any physical version, matched off live spec secret refs. */
-function consumersOf(
+export function consumersOf(
   services: InvService[],
   group: FamilyGroup,
 ): { service: InvService; version: number }[] {
@@ -380,7 +380,7 @@ async function requireFamily(
   return group;
 }
 
-function managedLabels(ctx: OrgContext, family: string, version: number): Record<string, string> {
+export function managedLabels(ctx: OrgContext, family: string, version: number): Record<string, string> {
   return {
     [SECRET_FAMILY_LABEL]: family,
     [SECRET_VERSION_LABEL]: String(version),

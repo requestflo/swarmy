@@ -24,7 +24,6 @@ import { attachCacheToService, provisionCache } from './cache.service';
 import { attachToService as attachBucketToService, createBucket } from './buckets.service';
 import {
   attachSecretToService,
-  createSecretFamily,
 } from './secretsMgr.service';
 import { deployFromCompose } from './stack.service';
 import { ensureBlueprintSecretFamily } from './secret-owner.service';
@@ -438,8 +437,15 @@ async function runStep(
         new Set([TOKEN_DB_PASSWORD, TOKEN_DB_URL, TOKEN_REDIS_PASSWORD, TOKEN_REDIS_URL, ...(sctx.credentialTokens ?? [])]),
       );
       for (const f of split.families) {
-        const created = await createSecretFamily(ctx, { family: f.family, value: substituteTokens(f.template, sctx.tokens) });
-        sctx.secretNames[f.family] = created.name;
+        // Owner-labelled like the generated secrets (QA-078); the value is this
+        // deploy's, so a leftover from an earlier deploy of the stack is rotated.
+        const ensured = await ensureBlueprintSecretFamily(ctx, {
+          family: f.family,
+          owner: { stack, blueprint: sctx.blueprint },
+          generate: () => substituteTokens(f.template, sctx.tokens),
+          needValue: true,
+        });
+        sctx.secretNames[f.family] = ensured.name;
       }
       const wires = split.wires;
       const atCreate = wires.filter(
