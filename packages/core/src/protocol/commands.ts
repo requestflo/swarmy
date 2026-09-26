@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CommandId, Timestamp } from './primitives';
+import { DeployWatch } from './deploy';
 
 /** Reusable command preamble (every controller→agent command carries these). */
 const cmd = { commandId: CommandId, timeoutMs: z.number().int().positive().optional() };
@@ -181,6 +182,12 @@ export const DeployServicePayload = z.object({
    * org-registry images; additive — older agents ignore it.
    */
   registryAuth: RegistryAuth.optional(),
+  /**
+   * Stream this service's pull/start progress into a traced deploy
+   * (`deployProgress` frames, see ./deploy). Best-effort and bounded; the
+   * command's result never waits on it. Additive — older agents ignore it.
+   */
+  watch: DeployWatch.optional(),
 });
 export const DeployServiceMsg = z.object({
   type: z.literal('deployService'),

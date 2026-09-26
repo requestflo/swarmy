@@ -22,6 +22,7 @@ export * from './dns';
 export * from './terminal';
 export * from './hygiene';
 export * from './build';
+export * from './deploy';
 export * from './prune';
 export * from './storage';
 export * from './swarm';

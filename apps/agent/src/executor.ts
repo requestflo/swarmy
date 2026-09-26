@@ -34,6 +34,7 @@ import { probeSmtp } from './handlers/email';
 import { updateAgent } from './handlers/update';
 import { prepareSecretEnv } from './handlers/secret-env';
 import { prePullForDeploy } from './handlers/deploy-pull';
+import { startDeployWatch } from './handlers/deploy-watch-run';
 import { defaultDiskDeps, formatDisk, growDisk, listDisks, repairDisk } from './handlers/disk';
 import {
   secretCreate,
@@ -90,16 +91,23 @@ export async function handleCommand(
       conn.send('ack', { refId: envlp.id, accepted: true });
       return;
     case 'deployService': {
-      const { commandId, spec, registryAuth, pullPolicy } = envlp.payload;
-      await run(conn, commandId, () =>
-        deployOrUpdate(docker, spec, registryAuth ?? spec.registryAuth, {
+      const { commandId, spec, registryAuth, pullPolicy, watch } = envlp.payload;
+      let ok = false;
+      const since = Date.now();
+      await run(conn, commandId, async () => {
+        const out = await deployOrUpdate(docker, spec, registryAuth ?? spec.registryAuth, {
           pullPolicy,
           // Heartbeats while the image pulls: the hub re-arms the deadline and
           // the dashboard shows "pulling image…" (handlers/deploy-pull).
           onProgress: (progress) => conn.send('commandResult', { commandId, status: 'running', progress }),
-        }),
-      );
+        });
+        ok = true;
+        return out;
+      });
       pushInventory(docker, conn);
+      // A traced deploy: follow its tasks (pull → start → running) and stream
+      // `deployProgress` — after the result went out, never holding it up.
+      if (watch && ok) startDeployWatch(docker, conn, { watch, spec, since, registryAuth: registryAuth ?? spec.registryAuth });
       return;
     }
     case 'scaleService': {

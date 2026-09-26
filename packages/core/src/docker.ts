@@ -929,7 +929,7 @@ export class DockerClient {
   async pullImage(
     image: string,
     authconfig?: { username: string; password: string; serveraddress?: string },
-    onProgress?: (line: string) => void,
+    onProgress?: (line: string, event: PullProgressEvent) => void,
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       this.docker.pull(image, { authconfig }, (err: Error | null, stream?: NodeJS.ReadableStream) => {
@@ -947,7 +947,7 @@ export class DockerClient {
           },
           (event: PullProgressEvent) => {
             foldPullEvent(acc, event);
-            if (onProgress && event.status) onProgress(event.status);
+            if (onProgress && event.status) onProgress(event.status, event);
           },
         );
       });
@@ -958,6 +958,10 @@ export class DockerClient {
 /** One `docker pull` JSON progress event (the fields swarmy reads). */
 export interface PullProgressEvent {
   status?: string;
+  /** The layer id a per-layer event is about (absent on whole-image lines). */
+  id?: string;
+  /** Bytes so far / total for a Downloading/Extracting line. */
+  progressDetail?: { current?: number; total?: number };
   aux?: { Digest?: string };
   error?: string;
   errorDetail?: { message?: string; code?: number };
