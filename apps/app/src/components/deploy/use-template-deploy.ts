@@ -4,13 +4,14 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { BlueprintDeployResultView, BlueprintMetaView, BlueprintParamsInput } from '@swarmy/core';
 import { toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
+import { landOnDeployedApp } from './deploy-handoff';
 
 /**
- * Deploy a template with the Configure page's params: the same
- * `blueprints.deploy` call and the same hand-off as the inline panel
- * (components/blueprints/blueprint-deploy-panel.tsx) — a clean run goes
- * straight to the new app's page; a run with one-time reveals or a failure
- * stays here so nothing is lost.
+ * Deploy a template with the Configure page's params (`blueprints.deploy`).
+ * Once the app itself went out it lands on the app page's "Deploying → It's
+ * live" state, result and one-time reveals carried over in memory
+ * (`landOnDeployedApp`). Only a run that stopped before the app existed stays
+ * here and shows its steps.
  */
 export function useTemplateDeploy(meta: BlueprintMetaView) {
   const trpc = useTRPC();
@@ -21,12 +22,8 @@ export function useTemplateDeploy(meta: BlueprintMetaView) {
     trpc.blueprints.deploy.mutationOptions({
       onSuccess: (r) => {
         void qc.invalidateQueries();
-        if (r.ok) toast.success(`${r.stackName} is deploying`);
-        else toast.error(`Deploy of ${r.stackName} hit a snag — see the steps`);
-        if (r.ok && r.notes.length === 0) {
-          void navigate({ to: '/stacks/$name', params: { name: r.stackName } });
-          return;
-        }
+        if (landOnDeployedApp(r, navigate)) return;
+        toast.error(`Deploy of ${r.stackName} hit a snag — see the steps`);
         setResult(r);
       },
       onError: (e) => toast.error(e.message),
