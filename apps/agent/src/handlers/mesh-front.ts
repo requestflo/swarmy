@@ -27,6 +27,7 @@
  * policy serves the new one, and a Running front that stops answering is
  * re-created (QA-072).
  */
+import { createHash } from 'node:crypto';
 import { connect } from 'node:tls';
 import { DockerClient, defaultContainerLogConfig } from '@swarmy/core/docker';
 import { runOnHost } from './mesh-pin';
@@ -188,6 +189,16 @@ async function edgeImage(docker: DockerClient): Promise<string | undefined> {
   return list.sort((a, b) => (b.Created ?? 0) - (a.Created ?? 0))[0]?.Image;
 }
 
+/**
+ * Pure (QA-077): what a front container must match to be kept — the spec, the
+ * rendered script AND the image. The label used to hold only the spec, so an
+ * agent upgrade that changed the script (QA-072) left the old script running
+ * until it wedged. Any change now re-creates the container.
+ */
+export function frontSpecLabel(f: MeshFront, image: string, script: string = renderFrontScript(f)): string {
+  return createHash('sha256').update(JSON.stringify({ f, script, image })).digest('hex');
+}
+
 let fallbackState = '';
 let probeFails = 0;
 let lastRecreateAt = 0;
@@ -216,13 +227,14 @@ export async function ensureMeshFront(docker: DockerClient, configYaml: string |
       await setFallback(docker, null, false, log);
       return;
     }
-    const want = JSON.stringify(f);
+    // The image the front should run: the edge's current one (an edge upgrade rolls the front too).
+    const image = (await edgeImage(docker)) ?? cur?.Config?.Image;
+    if (!image) return; // no edge has run here yet: nothing to serve with
+    const want = frontSpecLabel(f, image);
     const stale = !cur || cur.Config?.Labels?.[SPEC_LABEL] !== want;
     const wedged = !stale && cur?.State?.Running === true && frontNeedsRecreate(probeFails, lastRecreateAt, Date.now());
     if (wedged) log(`mesh front for ${f.domain} running but not answering ${probeFails} probes in a row: re-creating it (QA-072)`);
     if (stale || wedged) {
-      const image = (await edgeImage(docker)) ?? cur?.Config?.Image;
-      if (!image) return; // no edge has run here yet: nothing to serve with
       await d.getContainer(MESH_FRONT_CONTAINER).remove({ force: true }).catch(() => undefined);
       const c = await d.createContainer({
         name: MESH_FRONT_CONTAINER,

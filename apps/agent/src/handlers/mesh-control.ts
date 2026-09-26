@@ -246,6 +246,16 @@ async function healthy(docker: DockerClient): Promise<boolean> {
   return !!r && r.code === 0;
 }
 
+/**
+ * Pure (QA-077): what the Litestream sidecar must match to be kept. The
+ * entrypoint is part of it: the label once covered only image/env/network,
+ * so an agent upgrade that changed the script would never have reached a
+ * running sidecar (the trap that left QA-072's old front script running).
+ */
+export function litestreamSpecLabel(ls: { image: string; env: Record<string, string>; network: string }): string {
+  return sha256(JSON.stringify({ image: ls.image, env: ls.env, network: ls.network, entrypoint: LITESTREAM_ENTRYPOINT }));
+}
+
 async function ensureLitestream(docker: DockerClient, spec: MeshControlSpec): Promise<MeshControlStatus['litestream']> {
   const d = docker.docker;
   const ls = spec.litestream;
@@ -253,7 +263,7 @@ async function ensureLitestream(docker: DockerClient, spec: MeshControlSpec): Pr
     await d.getContainer(MESH_LITESTREAM_CONTAINER).remove({ force: true }).catch(() => undefined);
     return undefined;
   }
-  const want = sha256(JSON.stringify({ image: ls.image, env: ls.env, network: ls.network }));
+  const want = litestreamSpecLabel(ls);
   const cur = await inspectOrNull(docker, MESH_LITESTREAM_CONTAINER);
   if (!cur || cur.Config?.Labels?.['swarmy.mesh.litestream.spec'] !== want) {
     await docker.pullImage(ls.image).catch(() => undefined);

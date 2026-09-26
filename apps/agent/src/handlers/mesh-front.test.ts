@@ -68,3 +68,67 @@ describe('mesh front never wedges (QA-072)', () => {
     expect(frontNeedsRecreate(7, now - FRONT_RECREATE_EVERY_MS, now)).toBe(true);
   });
 });
+
+describe('agent-managed containers roll onto a new script (QA-077)', () => {
+  const f = { domain: 'mesh.lab', port: 443, upstream: '127.0.0.1:8081' };
+  const IMG = 'ghcr.io/requestflo/caddy-swarmy@sha256:aaaa';
+  const cfg = `# x\n{ "server": { "exposedAddress": "https://mesh.lab:443", "listenAddress": ":8081" } }`;
+
+  /** A docker fake holding one front container with `label`; records creates. */
+  function fakeDocker(label: string | null) {
+    const created: unknown[] = [];
+    const removed: string[] = [];
+    const docker = {
+      docker: {
+        getContainer: (name: string) => ({
+          inspect: async () => {
+            if (label === null) throw new Error('no such container');
+            return { Config: { Labels: { 'swarmy.mesh.front.spec': label }, Image: IMG }, State: { Running: true } };
+          },
+          remove: async () => void removed.push(name),
+          start: async () => undefined,
+        }),
+        listContainers: async () => [{ Image: IMG, Created: 1 }],
+        createContainer: async (o: unknown) => {
+          created.push(o);
+          return { start: async () => undefined };
+        },
+      },
+    };
+    return { docker: docker as never, created, removed };
+  }
+
+  test('the label covers the script and the image', async () => {
+    const { frontSpecLabel } = await import('./mesh-front');
+    expect(frontSpecLabel(f, IMG)).toBe(frontSpecLabel(f, IMG));
+    expect(frontSpecLabel(f, IMG, 'the QA-072 script')).not.toBe(frontSpecLabel(f, IMG));
+    expect(frontSpecLabel(f, `${IMG}b`)).not.toBe(frontSpecLabel(f, IMG));
+  });
+
+  test('a front running an older script is re-created; an up-to-date one is kept', async () => {
+    const { ensureMeshFront, frontSpecLabel } = await import('./mesh-front');
+    const old = fakeDocker(frontSpecLabel(f, IMG, 'the QA-072 script'));
+    await ensureMeshFront(old.docker, cfg, () => undefined);
+    expect(old.created).toHaveLength(1);
+    expect((old.created[0] as { Labels: Record<string, string> }).Labels['swarmy.mesh.front.spec']).toBe(frontSpecLabel(f, IMG));
+
+    const cur = fakeDocker(frontSpecLabel(f, IMG));
+    await ensureMeshFront(cur.docker, cfg, () => undefined);
+    expect(cur.created).toHaveLength(0);
+    expect(cur.removed).toHaveLength(0);
+
+    // The pre-QA-077 label (the bare spec JSON) rolls once.
+    const legacy = fakeDocker(JSON.stringify(f));
+    await ensureMeshFront(legacy.docker, cfg, () => undefined);
+    expect(legacy.created).toHaveLength(1);
+  });
+
+  test('the Litestream sidecar label covers its entrypoint too', async () => {
+    const { litestreamSpecLabel } = await import('./mesh-control');
+    const ls = { image: 'litestream/litestream:0.3.13', env: { A: '1' }, network: 'swarmy-control' };
+    expect(litestreamSpecLabel(ls)).toBe(litestreamSpecLabel({ ...ls }));
+    const { createHash } = await import('node:crypto');
+    const preFix = createHash('sha256').update(JSON.stringify({ image: ls.image, env: ls.env, network: ls.network })).digest('hex');
+    expect(litestreamSpecLabel(ls)).not.toBe(preFix);
+  });
+});
