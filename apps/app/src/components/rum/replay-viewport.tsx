@@ -39,7 +39,7 @@ export function ReplayViewport({ stageRef, size, ready, url }: ReplayViewportPro
   }, [ready, stageRef]);
 
   return (
-    <div className="border-border flex h-[420px] flex-col overflow-hidden rounded-2xl border bg-card lg:h-[500px]">
+    <div className="border-border flex h-[300px] flex-col overflow-hidden rounded-2xl border bg-card sm:h-[420px] lg:h-[500px]">
       <div className="bg-muted text-muted-foreground flex h-8 shrink-0 items-center gap-2 border-b px-3 font-mono text-[11px]">
         <i className="bg-border size-2 rounded-full" />
         <i className="bg-border size-2 rounded-full" />

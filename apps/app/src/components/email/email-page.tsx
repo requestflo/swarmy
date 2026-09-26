@@ -51,7 +51,7 @@ export function EmailPage(): React.JSX.Element {
       {!o.enabled ? (
         <EmailOffCard vaultReady={o.vaultReady} />
       ) : (
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
           <div className="flex min-w-0 flex-col gap-5">
             <EmailNextAction overview={o} />
             <EmailDomainRows overview={o} />
@@ -66,12 +66,14 @@ export function EmailPage(): React.JSX.Element {
               <EmailStatusStrip overview={o} />
               <EmailWarnings warnings={o.warnings} />
               <Tabs defaultValue="domains">
-                <TabsList>
-                  <TabsTrigger value="domains">Records</TabsTrigger>
-                  <TabsTrigger value="log">Send log</TabsTrigger>
-                  <TabsTrigger value="suppressions">Never mailed again</TabsTrigger>
-                  <TabsTrigger value="credentials">Logins & templates</TabsTrigger>
-                </TabsList>
+                <div className="-mx-1 max-w-full overflow-x-auto px-1 pb-1">
+                  <TabsList>
+                    <TabsTrigger value="domains">Records</TabsTrigger>
+                    <TabsTrigger value="log">Send log</TabsTrigger>
+                    <TabsTrigger value="suppressions">Never mailed again</TabsTrigger>
+                    <TabsTrigger value="credentials">Logins & templates</TabsTrigger>
+                  </TabsList>
+                </div>
                 <TabsContent value="domains" className="mt-4"><DomainsTab overview={o} /></TabsContent>
                 <TabsContent value="log" className="mt-4"><SendLogTab logStore={o.logStore} /></TabsContent>
                 <TabsContent value="suppressions" className="mt-4"><SuppressionsTab /></TabsContent>

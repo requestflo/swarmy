@@ -29,7 +29,7 @@ export function QueueDetail({ studio, queue }: { studio: StudioRef; queue: Studi
   return (
     <section aria-label={`Queue ${queue.name}`} className="calm-card min-w-0 space-y-5 p-5">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-[1_1_14rem]">
           <h2 className="mono-data truncate text-xl font-semibold">{queue.name}</h2>
           <p className="text-muted-foreground text-xs">
             {queue.jobsTotal.toLocaleString()} jobs ever added

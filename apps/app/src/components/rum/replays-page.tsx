@@ -74,7 +74,7 @@ export function ReplaysPage({ stack, sessionId }: ReplaysPageProps): React.JSX.E
         </NextAction>
       ) : null}
       {list.isPending || settings.isPending ? (
-        <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
           <CardSkeleton lines={6} />
           <CardSkeleton lines={8} className="min-h-[420px]" />
         </div>
@@ -88,7 +88,7 @@ export function ReplaysPage({ stack, sessionId }: ReplaysPageProps): React.JSX.E
             {sessionId ? <ReplayPlayer stack={stack} sessionId={sessionId} /> : <ReplaySummaryList stack={stack} sessions={sessions} />}
           </Depth>
           <Depth at="controls">
-            <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
               <SessionList stack={stack} sessions={sessions} activeId={selected} withErrors={withErrors} onWithErrors={setWithErrors} />
               {selected ? (
                 <ReplayPlayer stack={stack} sessionId={selected} />

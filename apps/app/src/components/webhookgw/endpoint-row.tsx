@@ -100,7 +100,7 @@ export function EndpointRow({
                 </span>
               </span>
               <span className="mono-data text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-3 truncate text-xs">
-                <span title={e.url}>{e.url}</span>
+                <span title={e.url} className="min-w-0 break-all">{e.url}</span>
                 {e.domain ? (
                   <span className="text-primary inline-flex items-center gap-1" title={e.domain}>
                     <GlobeIcon className="size-3" /> {e.domain}

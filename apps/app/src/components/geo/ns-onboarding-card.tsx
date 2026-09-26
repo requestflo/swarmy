@@ -28,7 +28,7 @@ export function NsOnboardingCard({ zone, nodes }: NsOnboardingCardProps): React.
           answer DNS for this zone from every region.
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-6 lg:grid-cols-2">
+      <CardContent className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-2">
         <NsNodePicker zone={zone} eligible={eligible} />
 
         <div className="space-y-4">

@@ -35,7 +35,7 @@ export function ZoneAutoAddressRow({ zone }: { zone: DnsZoneView }): React.JSX.E
         App addresses in this zone
       </Label>
       <span className="text-muted-foreground min-w-0 flex-1 text-xs">
-        Every public app gets <span className="mono-data">&lt;app&gt;.{zone.zone}</span>, answered by your own
+        Every public app gets <span className="mono-data break-all">&lt;app&gt;.{zone.zone}</span>, answered by your own
         nameservers — no sslip.io. Needs the NS delegation above to be live; existing addresses move over.
       </span>
     </div>

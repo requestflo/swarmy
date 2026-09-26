@@ -51,15 +51,15 @@ export function ZonesCard({ zones, selectedId, onSelect }: ZonesCardProps): Reac
 
   return (
     <Card className="calm-card">
-      <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
+      <CardHeader className="flex-row flex-wrap items-center justify-between gap-4 space-y-0">
         <CardTitle className="text-base">Zones</CardTitle>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <Input
             value={zone}
             onChange={(e) => setZone(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && add()}
             placeholder="example.com"
-            className="h-8 w-44 sm:w-56"
+            className="h-8 min-w-0 flex-1 sm:w-56 sm:flex-none"
           />
           <Select value={mode} onValueChange={(v) => setMode(v as ZoneMode)}>
             <SelectTrigger className="h-8 w-36" aria-label="Who answers for this domain">

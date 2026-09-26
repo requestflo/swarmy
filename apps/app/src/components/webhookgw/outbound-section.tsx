@@ -92,7 +92,7 @@ export function OutboundSection(): React.JSX.Element {
             {rows.map((e) => (
               <div key={e.id} className="flex flex-wrap items-center gap-3 py-3">
                 <div className="min-w-0 flex-1">
-                  <p className="mono-data text-sm">{e.url}</p>
+                  <p className="mono-data text-sm break-all">{e.url}</p>
                   <p className="text-muted-foreground text-xs">
                     {e.events.join(', ')} · added {relTime(e.createdAt)}
                   </p>

@@ -40,7 +40,7 @@ function Player({ stack, detail }: { stack: string; detail: ReplayDetail }): Rea
   const now = lastAt(timeline.ticks, p.time);
 
   return (
-    <div className="grid min-w-0 gap-4 min-[1800px]:grid-cols-[minmax(0,1fr)_380px]">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 min-[1800px]:grid-cols-[minmax(0,1fr)_380px]">
       <section className="flex min-w-0 flex-col gap-3" aria-label="Player">
         <ReplayHeader stack={stack} detail={detail} linked={detail.requests.length > 0} admin={admin} />
         <ReplayViewport stageRef={stage} size={p.size} ready={p.ready} url={page?.href ?? ''} />
