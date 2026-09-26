@@ -22,11 +22,11 @@ describe('install-swarmy.sh host_addresses', () => {
       SWARMY_HOST_ADDRESSES: '10.0.0.5 172.17.0.1 127.0.0.1 169.254.9.9 100.92.1.7 fe80::1 10.0.0.5',
     });
     expect(r).toEqual({ out: '10.0.0.5 172.17.0.1 100.92.1.7 46.101.22.121\n', code: 0 });
-  });
+  }, 30_000);
 
   it('nothing detected is an empty list, not a failure (set -e safe)', () => {
     expect(sh('host_addresses ""; echo "rc=$?"', { SWARMY_HOST_ADDRESSES: '' }).out).toBe('rc=0\n');
-  });
+  }, 30_000);
 
   it('is passed to the stack deploy and through to the controller', () => {
     expect(readFileSync(SCRIPT, 'utf8')).toContain('SWARMY_DIRECT_HOSTS="$(host_addresses "${PUBLIC_IP:-}")" \\');

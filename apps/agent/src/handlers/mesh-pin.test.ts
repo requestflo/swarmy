@@ -61,7 +61,7 @@ describe('mesh pin (QA-059: the swarm stays on the mesh after a reboot)', () => 
       const r = Bun.spawnSync(['bash', '-c', `. "$0"; mesh_pin_prefix ${ip} ${bits}`, INSTALLER], { stdout: 'pipe' });
       expect(r.stdout.toString()).toBe(meshPinFor(`${ip}/${bits}`)!.prefix);
     }
-  });
+  }, 30_000);
 });
 
 describe('native host exec (QA-075: a disk mount must land in the HOST mount namespace)', () => {

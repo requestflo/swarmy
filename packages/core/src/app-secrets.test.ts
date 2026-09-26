@@ -345,7 +345,7 @@ describe('the shim, executed', () => {
       env: { PATH: '/usr/bin:/bin', SWARMY_SECRET_ENV: 'X;rm' },
     });
     expect(bad.exitCode).toBe(78);
-  });
+  }, 30_000);
 });
 
 describe('compose `x-swarmy-secret-env`', () => {

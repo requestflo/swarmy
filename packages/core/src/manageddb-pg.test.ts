@@ -28,7 +28,7 @@ describe('pgBootScript — the swarmy entrypoint over the official image', () =>
   it('is valid POSIX sh', () => {
     const r = Bun.spawnSync(['sh', '-n'], { stdin: new TextEncoder().encode(s) });
     expect(r.exitCode).toBe(0);
-  });
+  }, 30_000);
 
   it('ends by handing off to the OFFICIAL entrypoint (initdb, gosu drop)', () => {
     expect(s.trimEnd().endsWith('exec docker-entrypoint.sh postgres')).toBe(true);

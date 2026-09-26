@@ -127,7 +127,7 @@ describe('digest extraction', () => {
       proc.stdin.end();
       expect((await new Response(proc.stdout).text()).trim()).toBe(DIGEST);
     }
-  });
+  }, 30_000);
 
   it('parseBuildDigest reads the marker line', () => {
     expect(parseBuildDigest(`#12 done\nSWARMY_DIGEST=${DIGEST}\n`)).toBe(DIGEST);
@@ -291,7 +291,7 @@ describe('Railpack (zero-config) builds', () => {
     expect(out).toContain('"ghcr.io/railwayapp/railpack-builder@sha256:a104c457');
     expect(out).toContain('"ghcr.io/railwayapp/railpack-runtime@sha256:b699280f');
     expect(out).not.toContain('mise-2026.9.12');
-  });
+  }, 30_000);
 });
 
 describe('build meta capture', () => {

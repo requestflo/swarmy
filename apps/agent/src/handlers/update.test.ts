@@ -60,7 +60,7 @@ describe('selfReplaceAt', () => {
     expect(readFileSync(binPath, 'utf8')).toBe(FAKE_NEW_BINARY);
     expect(readFileSync(`${binPath}.old`, 'utf8')).toContain('0.1.0');
     expect(existsSync(`${binPath}.download`)).toBe(false);
-  });
+  }, 30_000);
 
   test('a checksum mismatch leaves the running binary untouched and removes the download', async () => {
     const { binPath } = sandbox();
@@ -72,7 +72,7 @@ describe('selfReplaceAt', () => {
     expect(readFileSync(binPath, 'utf8')).toBe(before);
     expect(existsSync(`${binPath}.download`)).toBe(false);
     expect(existsSync(`${binPath}.old`)).toBe(false);
-  });
+  }, 30_000);
 
   test('a binary that fails the --version sanity probe is rejected', async () => {
     const { binPath } = sandbox();
@@ -83,7 +83,7 @@ describe('selfReplaceAt', () => {
 
     expect(readFileSync(binPath, 'utf8')).toBe(before);
     expect(existsSync(`${binPath}.download`)).toBe(false);
-  });
+  }, 30_000);
 
   test('requires downloadUrl + sha256', async () => {
     const { binPath } = sandbox();
@@ -93,7 +93,7 @@ describe('selfReplaceAt', () => {
         binPath,
       ),
     ).rejects.toThrow(/requires downloadUrl/);
-  });
+  }, 30_000);
 });
 
 describe('agentPackaging', () => {

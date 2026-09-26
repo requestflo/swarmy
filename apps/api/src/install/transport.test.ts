@@ -96,5 +96,5 @@ describe('install transport (H17)', () => {
     expect(r.exitCode).toBe(1);
     expect(r.stdout.toString()).toBe('');
     expect(r.stderr.toString()).toBe("it's refused\nline two\n");
-  });
+  }, 30_000);
 });

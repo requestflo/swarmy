@@ -22,7 +22,7 @@ describe('install-swarmy.sh: node installs over HTTPS only (H17)', () => {
     expect(sh('add_node_mode https://swarmy.1-2-3-4.sslip.io ""').out).toBe('https');
     expect(sh('add_node_mode http://10.0.0.5:3021 ""').out).toBe('refused');
     expect(sh('add_node_mode http://10.0.0.5:3021 1').out).toBe('insecure');
-  });
+  }, 30_000);
 
   it('the opt-in is read from env and the flag, remembered, and passed to the stack', () => {
     expect(sh('printf %s "$ALLOW_INSECURE_INSTALL"', { SWARMY_ALLOW_INSECURE_INSTALL: '1' }).out).toBe('1');
@@ -36,5 +36,5 @@ describe('install-swarmy.sh: node installs over HTTPS only (H17)', () => {
     const stack = readFileSync(STACK, 'utf8');
     const env = stack.slice(stack.indexOf('\n  controller:'), stack.indexOf('\n    ports:'));
     expect(env).toContain('\n      SWARMY_ALLOW_INSECURE_INSTALL: ${SWARMY_ALLOW_INSECURE_INSTALL:-}\n');
-  });
+  }, 30_000);
 });

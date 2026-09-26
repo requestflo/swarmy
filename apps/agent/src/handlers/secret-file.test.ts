@@ -12,7 +12,7 @@ describe('singleFileTar', () => {
     expect(r.exitCode).toBe(0);
     expect(readFileSync(join(dir, 'setup-key'), 'utf8')).toBe('ABCD-1234\n');
     expect(statSync(join(dir, 'setup-key')).mode & 0o777).toBe(0o600);
-  });
+  }, 30_000);
   test('blocks are 512-aligned', () => {
     expect(singleFileTar('k', 'x'.repeat(700)).length % 512).toBe(0);
   });

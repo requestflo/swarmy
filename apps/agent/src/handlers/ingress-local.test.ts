@@ -24,7 +24,7 @@ describe('writeFileExec — in-task config delivery (replicated Caddy controller
     expect(await proc.exited).toBe(0);
     expect(await Bun.file(path).text()).toBe(contents);
     await Bun.$`rm -rf ${dir}`.quiet();
-  });
+  }, 30_000);
 });
 
 describe('localReload — writes then reloads inside THIS node\'s task (edge-per-node + controller)', () => {

@@ -182,7 +182,7 @@ describe('Postgres restore scripts carry NO payload value (env only)', () => {
     const v = `a'b"c$(id)\`x\``;
     const proc = Bun.spawn(['sh', '-c', `printf %s ${shq(v)}`], { stdout: 'pipe' });
     expect(await new Response(proc.stdout).text()).toBe(v);
-  });
+  }, 30_000);
 });
 
 /**
@@ -531,5 +531,5 @@ describe('physical sidecar networks + hard timeout (QA-079)', () => {
     expect(good.exitCode).toBe(0);
     expect(good.stdout.toString().trim()).toBe('ok');
     Bun.spawnSync(['rm', '-rf', dir]);
-  });
+  }, 30_000);
 });

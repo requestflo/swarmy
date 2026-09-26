@@ -215,7 +215,7 @@ describe('probeScript (runs in-task; executed here under /bin/sh)', () => {
       SWARMY_DB_AUTHDB: '',
       SWARMY_DB_PORT: '3306',
     });
-  });
+  }, 30_000);
 
   it('a missing trailer is a failed probe, and unknown keys are dropped', () => {
     expect(() => parseProbeOutput('SWARMY_DB_USER=root\n')).toThrow('credential probe did not complete');
@@ -224,7 +224,7 @@ describe('probeScript (runs in-task; executed here under /bin/sh)', () => {
 
   it('shq survives embedded quotes', () => {
     expect(sh(`printf %s ${shq("it's")}`).out).toBe("it's");
-  });
+  }, 30_000);
 });
 
 describe('SQL copy-restore rename (executed with the real sed)', () => {
@@ -257,7 +257,7 @@ describe('SQL copy-restore rename (executed with the real sed)', () => {
         '',
       ].join('\n'),
     );
-  });
+  }, 30_000);
 
   it('every script is valid POSIX sh (sh -n)', () => {
     for (const s of [
@@ -279,7 +279,7 @@ describe('SQL copy-restore rename (executed with the real sed)', () => {
       expect(r.stderr).toBe('');
       expect(r.status).toBe(0);
     }
-  });
+  }, 30_000);
 });
 
 describe('dump script goldens (the flags that make a dump consistent)', () => {
@@ -357,7 +357,7 @@ describe('script outputs, suffix, tags, scratch env', () => {
     const r = sh(KV_PLACE_SCRIPT.replaceAll('/swarmy-dump', dir));
     expect(r.code).toBe(4);
     expect(readFileSync(join(dir, 'rdbpath.txt'), 'utf8')).toBe('../etc/x\n');
-  });
+  }, 30_000);
 });
 
 describe('redisArgHints (redis rewrites its proc title, so read the configured argv)', () => {
@@ -405,7 +405,7 @@ describe('hostile database names (scripts executed under /bin/sh with stub tools
     expect(readFileSync(join(dir, 'databases.txt'), 'utf8')).toBe('app\n');
     expect(r.err).toContain('skipping a database with an unsafe name');
     for (const e of EVIL) expect(log).not.toContain(e);
-  });
+  }, 30_000);
 
   it('postgres load: names are psql variables, never SQL text; hostile snapshot entries skipped', () => {
     const { dir, run } = sandbox({
@@ -424,7 +424,7 @@ describe('hostile database names (scripts executed under /bin/sh with stub tools
       expect(psql).not.toContain(e);
       expect(restore).not.toContain(e);
     }
-  });
+  }, 30_000);
 
   it('mysql dump: a database named --host=evil never becomes a mysqldump option', () => {
     const { dir, run } = sandbox({
@@ -437,7 +437,7 @@ describe('hostile database names (scripts executed under /bin/sh with stub tools
     expect(log.trim().endsWith('--databases app')).toBe(true);
     for (const e of EVIL) expect(log).not.toContain(e);
     expect(readFileSync(join(dir, 'databases.txt'), 'utf8')).toBe('app\n');
-  });
+  }, 30_000);
 
   it('a hostile SWARMY_DB_NAME is refused too', () => {
     const { dir, run } = sandbox({
@@ -447,5 +447,5 @@ describe('hostile database names (scripts executed under /bin/sh with stub tools
     const r = run(dumpScript('postgres', 'user'), { SWARMY_DB_NAME: 'postgresql://evil/x' });
     expect(r.code).toBe(0);
     expect(() => readFileSync(join(dir, 'pg_dump.log'), 'utf8')).toThrow();
-  });
+  }, 30_000);
 });

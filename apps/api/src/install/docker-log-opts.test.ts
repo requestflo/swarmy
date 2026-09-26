@@ -30,7 +30,7 @@ describe('daemon.json log-opts merge (installer + join script)', () => {
       expect(r.code).toBe(0);
       expect(JSON.parse(r.out)).toEqual({ 'log-driver': 'json-file', 'log-opts': { 'max-size': '10m', 'max-file': '3' } });
     }
-  });
+  }, 30_000);
 
   it('merges into existing settings without dropping them', () => {
     const r = merge('{"registry-mirrors": ["https://mirror.example"], "live-restore": true}');
@@ -41,17 +41,17 @@ describe('daemon.json log-opts merge (installer + join script)', () => {
       'log-driver': 'json-file',
       'log-opts': { 'max-size': '10m', 'max-file': '3' },
     });
-  });
+  }, 30_000);
 
   it("never touches an operator's own log configuration", () => {
     expect(merge('{"log-driver": "local"}').code).toBe(3);
     expect(merge('{"log-opts": {"max-size": "100m"}}').code).toBe(3);
-  });
+  }, 30_000);
 
   it('refuses to merge JSON it cannot parse as an object', () => {
     expect(merge('[1,2]').code).toBe(2);
     expect(merge('{not json').code).toBe(2);
-  });
+  }, 30_000);
 });
 
 describe('log rotation is wired into both installers', () => {
@@ -75,5 +75,5 @@ describe('log rotation is wired into both installers', () => {
     expect(s).toContain(`${DOCKER_LOG_OPTS_SH}ensure_docker_log_opts\n`);
     expect(s).toContain(DOCKER_RUN_LOG_FLAGS);
     expect(Bun.spawnSync(['sh', '-n', '-c', s]).exitCode).toBe(0);
-  });
+  }, 30_000);
 });

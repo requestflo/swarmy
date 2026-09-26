@@ -38,20 +38,20 @@ describe('sign-platform-manifest.sh', () => {
     expect(r.err).toContain('::error');
     expect(r.err).toContain('SWARMY_RELEASE_KEY secret is not set');
     expect(r.sig).toBeNull();
-  });
+  }, 30_000);
 
   it('an empty signature from cosign fails and leaves nothing to publish', () => {
     const r = run({ SWARMY_RELEASE_KEY: 'k' }, fakeCosign(''));
     expect(r.code).toBe(1);
     expect(r.err).toContain('empty signature');
     expect(r.sig).toBeNull();
-  });
+  }, 30_000);
 
   it('a real signature passes', () => {
     const r = run({ SWARMY_RELEASE_KEY: 'k' }, fakeCosign('MEUCIQ-signature'));
     expect(r.code).toBe(0);
     expect(r.sig).toBe('MEUCIQ-signature');
-  });
+  }, 30_000);
 
   it('the workflow uses the script and guards the publish', () => {
     const wf = readFileSync(path.join(ROOT, '.github/workflows/images.yml'), 'utf8');

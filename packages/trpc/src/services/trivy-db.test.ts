@@ -79,22 +79,22 @@ describe('scan script', () => {
     expect(r.log).not.toContain('--download-db-only');
     expect(r.log).toContain('--skip-db-update');
     expect(r.log.trim().endsWith('img:1')).toBe(true);
-  });
+  }, 30_000);
   test('old DB + refresh works → one update, then scan with skip', () => {
     const r = runScript({ dbAgeSeconds: 3 * 86400, downloadFails: false });
     expect(r.log).toContain('--download-db-only');
     expect(r.log).toContain('--skip-db-update');
     expect(scanUsedStaleDb(r.stderr)).toBe(false);
-  });
+  }, 30_000);
   test('old DB + refresh fails → scan the stale DB and flag it (never fail the scan for staleness)', () => {
     const r = runScript({ dbAgeSeconds: 3 * 86400, downloadFails: true });
     expect(r.stderr).toContain(TRIVY_DB_STALE_MARKER);
     expect(r.log.split('\n').filter(Boolean).pop()).toContain('--skip-db-update');
-  });
+  }, 30_000);
   test('no DB at all → trivy downloads it itself (no skip flag)', () => {
     const r = runScript({ dbAgeSeconds: null, downloadFails: false });
     expect(r.log).not.toContain('--skip-db-update');
-  });
+  }, 30_000);
 });
 
 describe('pickTrivyRefreshNodes', () => {

@@ -43,6 +43,12 @@ function world(failures: number, opts: { online?: () => boolean; state?: () => s
 
 beforeEach(() => clearSwarmJoinRetries());
 
+// Each orchestration attempt re-encrypts the join tokens, and every
+// encryptSecret runs a CPU-bound scrypt key derivation (~30ms idle, far more
+// under load). The give-up test does six attempts, so it gets headroom past
+// bun's 5s default rather than flaking on a busy machine.
+const CPU_BOUND_TIMEOUT = 30_000;
+
 describe('swarm.join retry (a slow first path must not strand a node)', () => {
   it('backoff schedule is bounded', () => {
     expect(nextSwarmJoinAttemptAt(1, 0)).toBe(SWARM_JOIN_BACKOFF_MS[0]);
@@ -67,7 +73,7 @@ describe('swarm.join retry (a slow first path must not strand a node)', () => {
     expect(w.joins()).toBe(2);
     expect(pendingSwarmJoins()).toEqual([]);
     expect(swarmOrchestrationStatus('new')?.state).toBe('joined');
-  });
+  }, CPU_BOUND_TIMEOUT);
 
   it('gives up after the bounded attempts with a clear reason on the node', async () => {
     const w = world(99);
@@ -82,7 +88,7 @@ describe('swarm.join retry (a slow first path must not strand a node)', () => {
     const st = swarmOrchestrationStatus('new');
     expect(st?.state).toBe('failed');
     expect(st?.detail).toMatch(/^couldn't join the cluster: command timeout \(gave up after 6 attempts/);
-  });
+  }, CPU_BOUND_TIMEOUT);
 
   it('an offline node waits (no dispatch into the void); a node that joined anyway is cleared', async () => {
     let online = true;
@@ -96,7 +102,7 @@ describe('swarm.join retry (a slow first path must not strand a node)', () => {
     state = 'active';
     expect((await retryPendingSwarmJoins(p.nextAt)).joined).toEqual(['new']);
     expect(pendingSwarmJoins()).toEqual([]);
-  });
+  }, CPU_BOUND_TIMEOUT);
 
   it('a re-register starts the count over', async () => {
     const w = world(99);
@@ -105,5 +111,5 @@ describe('swarm.join retry (a slow first path must not strand a node)', () => {
     expect(pendingSwarmJoins()[0]!.attempts).toBe(2);
     await orchestrateSwarmMembership(w.args).catch(() => undefined); // the agent reconnected
     expect(pendingSwarmJoins()[0]!.attempts).toBe(1);
-  });
+  }, CPU_BOUND_TIMEOUT);
 });

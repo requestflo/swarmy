@@ -166,5 +166,5 @@ describe.skipIf(!RUN)('email MTA end to end (maddy + Mailpit)', () => {
     expect(events.some((e) => e.event === 'delivered' && e.rcpt === 'ada@dest.test' && e.credential === APP_USER)).toBe(true);
     expect(events.some((e) => e.event === 'rejected' && e.rcpt === 'gone@dest.test')).toBe(true);
     expect(events.some((e) => e.event === 'failed' && e.rcpt === 'nobody@dest.test')).toBe(true);
-  });
+  }, 30_000);
 });

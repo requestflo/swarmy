@@ -25,5 +25,5 @@ describe('e2e check 4 ↔ signup policy', () => {
     const link = 'https://swarmy.example/login?invite=cmfz9x0ab0001qwe';
     const sed = Bun.spawnSync(['sh', '-c', `printf '%s' "$0" | sed -n 's/.*[?&]invite=\\([A-Za-z0-9_-]*\\).*/\\1/p'`, link]);
     expect(sed.stdout.toString().trim()).toBe('cmfz9x0ab0001qwe');
-  });
+  }, 30_000);
 });

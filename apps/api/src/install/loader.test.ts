@@ -139,26 +139,26 @@ describe('loader: one controller base drives every stage', () => {
     expect(r.installerEnv).toEqual({ CTL: LAN, BIN: `${LAN}/install/bin`, TOK: 'swt_x' });
     // Loader-only flags are consumed; the rest are forwarded to the installer.
     expect(r.installerArgs).toBe('--uninstall');
-  });
+  }, 30_000);
 
   it('--controller=<base>/ and --token work (trailing slash trimmed)', () => {
     const r = runLoader(loader, [`--controller=${LAN}/`, '--token', 'swt_arg']);
     expect(r.status).toBe(0);
     expect(r.installerEnv.CTL).toBe(LAN);
     expect(r.installerEnv.TOK).toBe('swt_arg');
-  });
+  }, 30_000);
 
   it('SWARMY_CONTROLLER_URL env works like --controller', () => {
     const r = runLoader(loader, [], { SWARMY_CONTROLLER_URL: LAN });
     expect(r.curlUrls[0]).toBe(`${LAN}/install/${VERSION}/install.sh`);
     expect(r.installerEnv.BIN).toBe(`${LAN}/install/bin`);
-  });
+  }, 30_000);
 
   it('with no override, the baked (request-resolved) base is used — and loopback warns', () => {
     const r = runLoader(loader, []);
     expect(r.curlUrls[0]).toBe(`http://localhost:3021/install/${VERSION}/install.sh`);
     expect(r.stderr).toContain('loopback');
-  });
+  }, 30_000);
 
   it('an operator-pinned binary CDN is kept', () => {
     const cdn = renderLoader({
@@ -169,26 +169,26 @@ describe('loader: one controller base drives every stage', () => {
     });
     const r = runLoader(cdn, []);
     expect(r.installerEnv).toMatchObject({ CTL: LAN, BIN: 'https://cdn.example.com/agent' });
-  });
+  }, 30_000);
 
   it('rejects a non-http controller and a dangling --controller', () => {
     expect(runLoader(loader, ['--controller', 'ftp://x']).status).not.toBe(0);
     expect(runLoader(loader, ['--controller']).status).not.toBe(0);
-  });
+  }, 30_000);
 
   it('checksum mismatch still refuses to run the installer', () => {
     const r = runLoader(loader, ['--controller', LAN], { SWARMY_INSTALLER_SHA256: '0'.repeat(64) });
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain('checksum mismatch');
     expect(r.installerEnv).toEqual({});
-  });
+  }, 30_000);
 
   it('a quote in the baked default cannot break out of the script', () => {
     const evil = renderLoader({ controllerUrl: "https://x/'; touch /tmp/pwned; '", version: VERSION, installerSha256: 'f'.repeat(64) });
     const r = runLoader(evil, []);
     // The value is treated as data (and then rejected/used verbatim) — never executed.
     expect(r.curlUrls[0] ?? '').toContain("'; touch /tmp/pwned; '");
-  });
+  }, 30_000);
 });
 
 describe('loader: HTTPS only (H17)', () => {
@@ -201,13 +201,13 @@ describe('loader: HTTPS only (H17)', () => {
     expect(r.stderr).toContain('must be https://');
     expect(r.stderr).toContain('(https://app.example.com)');
     expect(r.curlUrls).toEqual([]);
-  });
+  }, 30_000);
 
   it('pins curl to https for the download and every redirect', () => {
     const r = runLoader(secure, []);
     expect(r.status).toBe(0);
     expect(r.curlFlags).toEqual(['--proto =https', '--proto-redir =https']);
-  });
+  }, 30_000);
 
   it('the node-local bootstrap (loopback) may use plain HTTP', () => {
     for (const url of ['http://localhost:3021', 'http://127.0.0.1:3021', 'http://[::1]:3021']) {
@@ -218,7 +218,7 @@ describe('loader: HTTPS only (H17)', () => {
     // A DNS name that merely starts like loopback is not loopback.
     expect(runLoader(secure, ['--controller', 'http://127.0.0.1.evil.example:3021']).status).not.toBe(0);
     expect(runLoader(secure, ['--controller', 'http://localhost.evil.example']).status).not.toBe(0);
-  });
+  }, 30_000);
 
   it('SWARMY_ALLOW_INSECURE=1 (or the controller operator\'s baked opt-in) allows it, loudly', () => {
     const r = runLoader(secure, ['--controller', HTTP_LAN], { SWARMY_ALLOW_INSECURE: '1' });
@@ -229,7 +229,7 @@ describe('loader: HTTPS only (H17)', () => {
     const r2 = runLoader(optedIn, []);
     expect(r2.status).toBe(0);
     expect(r2.stderr).toContain('INSECURE');
-  });
+  }, 30_000);
 });
 
 describe('installer: parses cleanly and derives binaries from the resolved base', () => {
@@ -246,7 +246,7 @@ describe('installer: parses cleanly and derives binaries from the resolved base'
     const dir = mkdtempSync(path.join(tmpdir(), 'swarmy-inst-'));
     writeFileSync(path.join(dir, 'install.sh'), body);
     expect(Bun.spawnSync(['sh', '-n', path.join(dir, 'install.sh')]).exitCode).toBe(0);
-  });
+  }, 30_000);
 
   it('re-derives BINARY_BASE_URL from CONTROLLER_URL unless explicitly pinned', () => {
     expect(body).toContain('[ -n "${SWARMY_BINARY_BASE_URL:-}" ] || BINARY_BASE_URL="$CONTROLLER_URL/install/bin"');

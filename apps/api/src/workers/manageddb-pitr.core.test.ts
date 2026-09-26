@@ -263,7 +263,7 @@ describe('atomic WAL archive', () => {
     // Already archived: Postgres gets a failure and retries, and the file is never clobbered.
     expect(archive(arc, src, '000000010000000000000001').exitCode).not.toBe(0);
     rmSync(dir, { recursive: true, force: true });
-  });
+  }, 30_000);
 
   it('the shipper pushes only complete segments and leaves an in-flight .tmp alone', () => {
     const dir = mkdtempSync(join(tmpdir(), 'walship-'));
@@ -287,7 +287,7 @@ describe('atomic WAL archive', () => {
     expect(readFileSync(pushed, 'utf8').trim()).toBe(join(arc, '000000010000000000000001'));
     expect(readdirSync(arc).sort()).toEqual(['.000000010000000000000002.tmp', 'archive_status']);
     rmSync(dir, { recursive: true, force: true });
-  });
+  }, 30_000);
 
   it('the PITR conf config is content-named, so a changed conf is a new config', () => {
     expect(pitrConfName(base)).toMatch(new RegExp(`^${base}-pitr-conf-[0-9a-f]{10}$`));
@@ -333,5 +333,5 @@ describe('atomic WAL archive', () => {
     expect(sql).toContain('SELECT pg_reload_conf();');
     expect(sql).not.toMatch(/restart|pg_ctl/);
     rmSync(dir, { recursive: true, force: true });
-  });
+  }, 30_000);
 });

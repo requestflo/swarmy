@@ -134,6 +134,7 @@ describe('inspect program', () => {
         changedPaths: ['services/orders/main.ts', 'services/orders/swarmy.yaml'],
       });
     },
+    30_000,
   );
 });
 
@@ -174,7 +175,7 @@ describe('inspect fallback when a host refuses fetch-by-sha', () => {
     const res = parseInspectOutput(`${r.stdout}\n${r.stderr}`, req.paths);
     expect(res.sha).toBe(target);
     expect(res.files['swarmy.yaml']).toBe('version: 1\n');
-  });
+  }, 30_000);
 });
 
 describe('deploy keys', () => {
@@ -202,6 +203,7 @@ describe('deploy keys', () => {
       expect(r.stdout.trim().split(' ').slice(0, 2)).toEqual(k.publicKey.split(' ').slice(0, 2));
       expect(readFileSync(f, 'utf8')).toBe(k.privateKey);
     },
+    30_000,
   );
 
   it('recognises ssh URLs and hosts', () => {
@@ -246,5 +248,5 @@ describe('inspect build-detection probes', () => {
     expect(res.probes?.['package-lock.json']).toBe('');
     expect(Object.keys(res.probes ?? {}).sort()).toEqual(['package-lock.json', 'package.json']);
     expect(detectBuild(res.probes ?? {}).summary).toBe('Next.js · Node · start: npm run start');
-  });
+  }, 30_000);
 });

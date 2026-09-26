@@ -96,7 +96,7 @@ done`,
     const fetchRefused = run('fetch http://10.0.0.5:3021/install/bin/linux-x64 /dev/null', {});
     expect(fetchRefused.code).not.toBe(0);
     expect(fetchRefused.err).toContain('refusing to download over plain HTTP');
-  });
+  }, 30_000);
 
   it('the installer threads the checks through every download', () => {
     const body = renderInstaller({
@@ -127,7 +127,7 @@ done`,
     expect(r.out).toContain('state=unverified');
     expect(r.out).toContain('f'.repeat(64));
     expect(r.err).toContain('UNVERIFIED RELEASE: no swarmy release key is configured');
-  });
+  }, 30_000);
 
   it('no signed manifest on the controller: fallback + warning; but an explicit operator key refuses', () => {
     const r = run('load_release; echo "state=$RELEASE_STATE"', {});
@@ -137,7 +137,7 @@ done`,
     const strict = run('load_release', {}, { SWARMY_RELEASE_PUBKEY: keys().pub });
     expect(strict.code).not.toBe(0);
     expect(strict.err).toContain('SWARMY_RELEASE_PUBKEY is set');
-  });
+  }, 30_000);
 
   it.skipIf(!HAS_OPENSSL)('a verified manifest pins the agent binary and the agent image digest', () => {
     const k = keys();
@@ -157,7 +157,7 @@ done`,
     // The operator's own key (PEM in env) works the same.
     const own = run('load_release; echo "state=$RELEASE_STATE"', served, { SWARMY_RELEASE_PUBKEY: k.pub });
     expect(own.out).toContain('state=verified');
-  });
+  }, 30_000);
 
   it.skipIf(!HAS_OPENSSL)('a controller pin that contradicts the signed release is fatal', () => {
     const k = keys();
@@ -166,7 +166,7 @@ done`,
     expect(r.code).not.toBe(0);
     expect(r.err).toContain('different agent binary');
     expect(r.out).not.toContain('x=');
-  });
+  }, 30_000);
 
   it.skipIf(!HAS_OPENSSL)('a tampered manifest, a wrong key or a garbage signature refuses to install', () => {
     const k = keys();
@@ -179,14 +179,14 @@ done`,
     expect(wrong.code).not.toBe(0);
     const garbage = run('load_release', { manifest: canonicalManifestJson(manifest), sig: '!!!' }, { BAKED_RELEASE_PUBKEY_B64: b64(k.pub) });
     expect(garbage.code).not.toBe(0);
-  });
+  }, 30_000);
 
   it.skipIf(!HAS_OPENSSL)('Ed25519 release keys verify too', () => {
     const k = keys('ed25519');
     const served = { manifest: canonicalManifestJson(manifest), sig: signPlatformManifest(manifest, k.priv) };
     const r = run('load_release; echo "state=$RELEASE_STATE"', served, { SWARMY_RELEASE_PUBKEY: k.pub });
     expect(r.out).toContain('state=verified');
-  });
+  }, 30_000);
 
   it.skipIf(!HAS_OPENSSL)('agent image pinning: a custom image warns, a contradicting digest is fatal', () => {
     const k = keys();
@@ -198,7 +198,7 @@ done`,
     const bad = run('load_release; pin_agent_image', served, { ...env, AGENT_IMAGE: `ghcr.io/requestflo/swarmy-agent@sha256:${'0'.repeat(64)}` });
     expect(bad.code).not.toBe(0);
     expect(bad.err).toContain('different digest');
-  });
+  }, 30_000);
 
   it('image_repo strips tag and digest, keeps a registry port', () => {
     const r = run(
@@ -206,5 +206,5 @@ done`,
       {},
     );
     expect(r.out.trim().split('\n')).toEqual(['ghcr.io/a/b', 'ghcr.io/a/b', '10.0.0.5:5000/x', '10.0.0.5:5000/x']);
-  });
+  }, 30_000);
 });

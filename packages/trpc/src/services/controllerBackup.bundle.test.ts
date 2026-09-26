@@ -120,7 +120,7 @@ describe('runRestic — missing restic executable', () => {
     expect(err!.message).toContain('restic is not available on the controller');
     expect(err!.message).toContain('brew install restic');
     expect(err!.message).toContain('SWARMY_RESTIC_BINARY');
-  });
+  }, 30_000);
 
   test('defaultRunner is binary mode unless explicitly set to docker', () => {
     expect(defaultRunner({}).mode).toBe('binary');

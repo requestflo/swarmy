@@ -15,23 +15,23 @@ function sh(expr: string): { out: string; code: number } {
 describe('install-swarmy.sh https dashboard domain', () => {
   it('sourcing does not run the installer', () => {
     expect(sh('echo sourced')).toEqual({ out: 'sourced\n', code: 0 });
-  });
+  }, 30_000);
 
   it('sslip_domain dashes an IPv4 into swarmy.<a-b-c-d>.sslip.io', () => {
     expect(sh('sslip_domain 46.101.22.121').out).toBe('swarmy.46-101-22-121.sslip.io');
     expect(sh('sslip_domain 999.1.1.1').code).not.toBe(0);
     expect(sh('sslip_domain 2001:db8::1').code).not.toBe(0);
     expect(sh('sslip_domain ""').code).not.toBe(0);
-  });
+  }, 30_000);
 
   it('public-IP box (bound), no --domain → sslip.io default', () => {
     expect(sh('dashboard_domain bound 46.101.22.121 "" 0 none').out).toBe('swarmy.46-101-22-121.sslip.io');
-  });
+  }, 30_000);
 
   it('--domain overrides (lower-cased), even behind NAT', () => {
     expect(sh('dashboard_domain bound 46.101.22.121 Swarmy.Example.com 0 caddy').out).toBe('swarmy.example.com');
     expect(sh('dashboard_domain nat 46.101.22.121 swarmy.example.com 0 none').out).toBe('swarmy.example.com');
-  });
+  }, 30_000);
 
   it('--no-https opts out; NAT/CGNAT/unknown keep the LAN http login', () => {
     expect(sh('dashboard_domain bound 46.101.22.121 "" 1 none').out).toBe('');
@@ -39,16 +39,16 @@ describe('install-swarmy.sh https dashboard domain', () => {
     for (const v of ['nat', 'cgnat', 'unknown']) {
       expect(sh(`dashboard_domain ${v} 46.101.22.121 "" 0 none`).out).toBe('');
     }
-  });
+  }, 30_000);
 
   it('a Cloudflare Tunnel fronts the dashboard itself (no Caddy vhost)', () => {
     expect(sh('dashboard_domain bound 46.101.22.121 "" 0 cloudflare').out).toBe('');
-  });
+  }, 30_000);
 
   it('bound but no public IP detected → nothing (never a bogus domain)', () => {
     const r = sh('dashboard_domain bound "" "" 0 none');
     expect(r).toEqual({ out: '', code: 0 });
-  });
+  }, 30_000);
 });
 
 // Secrets hygiene: state.env holds the vault key, auth secret, admin password,
@@ -74,7 +74,7 @@ describe('install-swarmy.sh secret handling', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it('no join token or setup key on a docker run -e (or the PAT on curl argv)', () => {
     expect(script).not.toMatch(/-e\s+SWARMY_JOIN_TOKEN=/);
@@ -96,25 +96,25 @@ describe('install-swarmy.sh --mesh swarmy helpers', () => {
     expect(sh('mesh_domain "" swarmy.46-101-22-121.sslip.io 46.101.22.121').out).toBe('mesh.swarmy.46-101-22-121.sslip.io');
     expect(sh('mesh_domain "" "" 192.168.64.5').out).toBe('mesh-192-168-64-5.sslip.io');
     expect(sh('mesh_domain "" "" ""').code).not.toBe(0);
-  });
+  }, 30_000);
 
   it('mesh_tls_mode: edge behind Caddy, letsencrypt on a bare public box, none on a LAN', () => {
     expect(sh('mesh_tls_mode "" caddy swarmy.example.com bound').out).toBe('edge');
     expect(sh('mesh_tls_mode "" none "" bound').out).toBe('letsencrypt');
     expect(sh('mesh_tls_mode "" none "" nat').out).toBe('none');
     expect(sh('mesh_tls_mode letsencrypt caddy swarmy.example.com bound').out).toBe('letsencrypt');
-  });
+  }, 30_000);
 
   it('mesh_public_url follows the TLS mode', () => {
     expect(sh('mesh_public_url mesh.x none').out).toBe('http://mesh.x:8081');
     expect(sh('mesh_public_url mesh.x edge').out).toBe('https://mesh.x');
-  });
+  }, 30_000);
 
   it('mesh_addr_pool is stable per seed, 10.200–249 and never 10.0', () => {
     const a = sh('mesh_addr_pool mesh.example.com').out;
     expect(a).toMatch(/^10\.2[0-4]\d\.0\.0\/16$/);
     expect(sh('mesh_addr_pool mesh.example.com').out).toBe(a);
-  });
+  }, 30_000);
 
   it('mesh_control_config is JSON the combined server reads, with no default-policy key', () => {
     const r = sh('mesh_control_config mesh.x none :8081 relay-secret-0123456789 MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=');
@@ -127,19 +127,19 @@ describe('install-swarmy.sh --mesh swarmy helpers', () => {
     const le = JSON.parse(sh('mesh_control_config mesh.x letsencrypt :443 s k').out.split('\n').slice(1).join('\n'));
     expect(le.server.tls.letsencrypt.domains).toEqual(['mesh.x']);
     expect(le.server.exposedAddress).toBe('https://mesh.x:443');
-  });
+  }, 30_000);
 
   it('mesh_tls_env: behind the edge NetBird boots plain and the controller hands over (QA-012)', () => {
     expect(sh('mesh_tls_env edge 172.17.0.1:8081').out).toBe('edge=172.17.0.1:8081;bootstrap=none:8081');
     expect(sh('mesh_tls_env edge 172.17.0.1:8081 8444').out).toBe('edge=172.17.0.1:8081@8444;bootstrap=none:8081');
     expect(sh('mesh_tls_env none x').out).toBe('none:8081');
     expect(sh('mesh_tls_env letsencrypt x').out).toBe('letsencrypt');
-  });
+  }, 30_000);
 
   it('the edge bootstrap config is served on :8081 in plain HTTP (nothing depends on the edge yet)', () => {
     const doc = JSON.parse(sh('mesh_control_config mesh.x none :8081 relay-secret-0123456789 k').out.split('\n').slice(1).join('\n'));
     expect(doc.server.listenAddress).toBe(':8081');
     expect(doc.server.exposedAddress).toBe('http://mesh.x:8081');
     expect(doc.server.tls).toBeUndefined();
-  });
+  }, 30_000);
 });

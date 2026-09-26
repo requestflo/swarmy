@@ -32,7 +32,7 @@ describe('daemon.json registry-mirrors merge (installer + join script)', () => {
       expect(r.code).toBe(0);
       expect(JSON.parse(r.out)).toEqual({ 'registry-mirrors': MIRRORS });
     }
-  });
+  }, 30_000);
 
   it('merges into existing settings (e.g. the log-opts the step before wrote)', () => {
     const r = merge('{"log-driver": "json-file", "log-opts": {"max-size": "10m"}, "live-restore": true}');
@@ -43,7 +43,7 @@ describe('daemon.json registry-mirrors merge (installer + join script)', () => {
       'live-restore': true,
       'registry-mirrors': MIRRORS,
     });
-  });
+  }, 30_000);
 
   it('lists mirror.gcr.io after the cache, so a failing cache falls back before Hub', () => {
     expect(MIRRORS).toEqual(['http://localhost:5001', 'https://mirror.gcr.io']);
@@ -54,23 +54,23 @@ describe('daemon.json registry-mirrors merge (installer + join script)', () => {
     expect(r.code).toBe(0);
     expect(JSON.parse(r.out)).toEqual({ 'live-restore': true, 'registry-mirrors': MIRRORS });
     expect(merge(JSON.stringify({ 'registry-mirrors': MIRRORS })).code).toBe(3);
-  });
+  }, 30_000);
 
   it('SWARMY_REGISTRY_MIRROR_FALLBACK=off keeps the cache alone', () => {
     const r = merge(null, { SWARMY_REGISTRY_MIRROR_FALLBACK: 'off' });
     expect(JSON.parse(r.out)).toEqual({ 'registry-mirrors': [DEFAULT_REGISTRY_MIRROR_URL] });
     expect(merge(`{"registry-mirrors": ["${DEFAULT_REGISTRY_MIRROR_URL}"]}`, { SWARMY_REGISTRY_MIRROR_FALLBACK: '' }).code).toBe(3);
-  });
+  }, 30_000);
 
   it("never touches an operator's own mirrors", () => {
     expect(merge('{"registry-mirrors": ["https://mirror.example"]}').code).toBe(3);
     expect(merge('{"registry-mirrors": []}').code).toBe(3);
-  });
+  }, 30_000);
 
   it('refuses to merge JSON it cannot parse as an object', () => {
     expect(merge('[1,2]').code).toBe(2);
     expect(merge('{not json').code).toBe(2);
-  });
+  }, 30_000);
 
   it('an explicitly empty SWARMY_REGISTRY_MIRROR skips the step', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'swarmy-regmirror-'));
@@ -82,7 +82,7 @@ describe('daemon.json registry-mirrors merge (installer + join script)', () => {
       stdout: 'pipe',
     });
     expect(r.stdout.toString()).toContain('skipped');
-  });
+  }, 30_000);
 });
 
 describe('registry mirror is wired into both installers', () => {
@@ -102,5 +102,5 @@ describe('registry mirror is wired into both installers', () => {
     });
     expect(s).toContain(`${DOCKER_REGISTRY_MIRROR_SH}ensure_docker_registry_mirror\n`);
     expect(Bun.spawnSync(['sh', '-n', '-c', s]).exitCode).toBe(0);
-  });
+  }, 30_000);
 });

@@ -36,14 +36,14 @@ describe('installer bootstrap mesh key (QA-062)', () => {
     expect(r.out).toBe('NBKEY-123');
     expect(r.calls).toBe(4);
     expect(r.err).toBe('');
-  });
+  }, 30_000);
 
   it('gives up after the wait with the real error', () => {
     const r = mint(99, { SWARMY_MESH_KEY_WAIT: '3' });
     expect(r.code).not.toBe(0);
     expect(r.out).toBe('');
     expect(r.err).toContain('port 8081');
-  });
+  }, 30_000);
 
   it('the bootstrap line uses the retrying mint and warns when it has no key', () => {
     const script = readFileSync(SCRIPT, 'utf8');

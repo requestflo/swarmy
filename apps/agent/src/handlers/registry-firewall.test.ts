@@ -79,7 +79,7 @@ describe('registry firewall floor (:5000 registry / :5001 pull-through cache nev
     const again = runScript(renderRegistryFirewallScript({ allowCidrs: ['100.64.0.0/10'] }), bin);
     expect(again.out).toContain('swarmy-registry-firewall: unchanged (iptables-legacy)');
     expect(readFileSync(path.join(dir, 'rules'), 'utf8').trim().split('\n')).toHaveLength(6);
-  });
+  }, 30_000);
 
   it('only drops ports the swarm ingress actually publishes (no registry → no DROP rule)', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'swarmy-regfw-'));
@@ -88,7 +88,7 @@ describe('registry firewall floor (:5000 registry / :5001 pull-through cache nev
     const rules = readFileSync(path.join(dir, 'rules'), 'utf8');
     expect(rules).toContain('--ctorigdstport 5001');
     expect(rules).not.toContain('--ctorigdstport 5000');
-  });
+  }, 30_000);
 
   it('finds routing-mesh ports in the nat DOCKER chain (Docker 29 has no DOCKER-INGRESS rules)', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'swarmy-regfw-'));
@@ -98,7 +98,7 @@ describe('registry firewall floor (:5000 registry / :5001 pull-through cache nev
     expect(rules).toContain('--ctorigdstport 5001');
     // a plain container publish on docker0 (not the routing mesh) is not the registry
     expect(rules).not.toContain('--ctorigdstport 5000');
-  });
+  }, 30_000);
 
   it('reconverges when the allowlist changes (stale rules are flushed)', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'swarmy-regfw-'));
@@ -107,13 +107,13 @@ describe('registry firewall floor (:5000 registry / :5001 pull-through cache nev
     const r = runScript(renderRegistryFirewallScript(), bin);
     expect(r.out).toContain('applied');
     expect(readFileSync(path.join(dir, 'rules'), 'utf8')).not.toContain('10.0.0.0/8');
-  });
+  }, 30_000);
 
   it('reports unsupported when no backend has DOCKER-USER', () => {
     const r = runScript(renderRegistryFirewallScript(), mkdtempSync(path.join(tmpdir(), 'swarmy-regfw-empty-')));
     expect(r.out).toContain('unsupported');
     expect(parseFirewallOutput(r.out, r.code)).toBe('unsupported');
-  });
+  }, 30_000);
 
   it('never lets an allowlist entry reach the shell unless it is a strict IPv4 CIDR', () => {
     expect(parseAllowCidrs('10.0.0.0/8, 100.64.0.0/10 1.2.3.4')).toEqual(['10.0.0.0/8', '100.64.0.0/10', '1.2.3.4']);

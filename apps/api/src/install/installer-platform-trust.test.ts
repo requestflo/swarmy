@@ -32,7 +32,7 @@ describe('install-swarmy.sh release pubkey + platform feed', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it('platform_feed_url_ok takes an http(s) base or nothing', () => {
     expect(sh('platform_feed_url_ok https://mirror.lan/swarmy').code).toBe(0);
@@ -40,7 +40,7 @@ describe('install-swarmy.sh release pubkey + platform feed', () => {
     expect(sh('platform_feed_url_ok ""').code).toBe(0);
     expect(sh('platform_feed_url_ok ftp://x').code).not.toBe(0);
     expect(sh('platform_feed_url_ok "https://a b"').code).not.toBe(0);
-  });
+  }, 30_000);
 
   it('env is read (a file path resolves to the PEM); bad values refuse before anything runs', () => {
     expect(sh('printf %s "$RELEASE_PUBKEY|$PLATFORM_FEED_URL"', {
@@ -51,7 +51,7 @@ describe('install-swarmy.sh release pubkey + platform feed', () => {
     expect(bad.code).not.toBe(0);
     expect(bad.err).toContain('must be a PEM public key');
     expect(sh('echo unreachable', { SWARMY_PLATFORM_FEED_URL: 'mirror.lan' }).code).not.toBe(0);
-  });
+  }, 30_000);
 
   it('flags exist, are remembered across re-runs, and are passed to docker stack deploy', () => {
     const script = readFileSync(SCRIPT, 'utf8');

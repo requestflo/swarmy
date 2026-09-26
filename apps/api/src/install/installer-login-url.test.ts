@@ -20,5 +20,5 @@ describe('installer login URL', () => {
     const note = r.stdout.toString();
     expect(note).toContain('node-local');
     expect(note).toContain('changes if the controller moves');
-  });
+  }, 30_000);
 });

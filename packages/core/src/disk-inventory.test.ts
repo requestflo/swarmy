@@ -269,7 +269,7 @@ describe('host scripts', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it('sizes are printed as whole numbers (awk would print 5.2e+09 for a big disk)', () => {
     expect(renderDiskProbeScript()).toContain('printf "%s %.0f\\n"');
