@@ -39,7 +39,7 @@ export function OverviewPage(): React.JSX.Element {
   if (estate.status === 'pending' || a.pending || fleet.pending || !sig.ready) return <PageSkeleton variant="kpis" />;
 
   const e = estate.data;
-  if (e.nodes.total === 0 || a.apps.length === 0) return <WelcomeEstate servers={fleet.servers} nodes={fleet.nodes} />;
+  if (e.nodes.total === 0 || a.apps.length === 0) return <WelcomeEstate servers={fleet.servers} nodes={fleet.nodes} setup={setup} channels={e.alerts.channels} />;
 
   const say = estateSay({
     apps: a.apps,

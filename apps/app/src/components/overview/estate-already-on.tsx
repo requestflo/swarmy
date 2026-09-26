@@ -14,11 +14,13 @@ export function estateAlreadyOn(f: SetupFacts, x: { channels: number; servers: n
   }
   if (f.domainCount) {
     out.push({ what: 'HTTPS', detail: `${f.domainCount} domain${f.domainCount === 1 ? '' : 's'}, renews itself`, to: '/network' });
+  } else if (f.frontDoorOn) {
+    out.push({ what: 'HTTPS', detail: 'for every address you add, renews itself', to: '/network' });
   }
   if (f.meshOn) {
     out.push({
       what: 'Private network',
-      detail: f.meshPeers >= x.servers ? `all ${x.servers} servers, no open ports` : `${f.meshPeers} of ${x.servers} servers`,
+      detail: f.meshPeers >= x.servers ? `${x.servers === 1 ? 'your server' : `all ${x.servers} servers`}, no open ports` : `${f.meshPeers} of ${x.servers} servers`,
       to: '/networking',
     });
   }

@@ -6,6 +6,8 @@ export interface SetupFacts {
   ready: boolean;
   backupTargets: { name: string }[];
   domainCount: number;
+  /** The front door (ingress) is on, so every address gets HTTPS by itself. */
+  frontDoorOn: boolean;
   meshOn: boolean;
   meshPeers: number;
   members: number;
@@ -24,6 +26,7 @@ export function useSetupFacts(): SetupFacts {
     ready: all.every((q) => !q.isPending),
     backupTargets: (targets.data ?? []).filter((t) => t.enabled),
     domainCount: ingress.data?.domainCount ?? 0,
+    frontDoorOn: ingress.data?.enabled ?? false,
     meshOn: mesh.data?.enabled ?? false,
     meshPeers: mesh.data?.peerCount ?? 0,
     members: members.data?.length ?? 0,
