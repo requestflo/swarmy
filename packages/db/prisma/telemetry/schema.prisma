@@ -40,3 +40,26 @@ model MetricSample {
   @@index([orgId, ts])
   @@map("metric_sample")
 }
+
+// Per-edge request counts (Q4), 5-minute rollups kept 7 days. Written by the
+// controller's edge-traffic worker from its in-memory 1-minute ring; pruned
+// by the same worker. `host = ''` is the coverage marker: the edge reported
+// during this bucket (so a quiet bucket reads 0, not "no data"). `region` and
+// `app` are resolved at write time (null app = the "other" bucket: a host
+// that is no app's route).
+model EdgeTrafficRollup {
+  id          Int      @id @default(autoincrement())
+  orgId       String
+  nodeId      String
+  region      String?
+  host        String
+  app         String?
+  bucketStart DateTime
+  requests    Int
+  errors5xx   Int
+
+  @@unique([orgId, nodeId, host, bucketStart])
+  @@index([orgId, bucketStart])
+  @@index([bucketStart])
+  @@map("edge_traffic_rollup")
+}
