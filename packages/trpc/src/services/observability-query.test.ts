@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  buildRequestSeriesQuery,
   buildMetricsSeriesQuery,
   buildMetricsSummaryQuery,
   buildTraceDetailQuery,
@@ -112,5 +113,25 @@ describe('metrics read every metric table (QA-041)', () => {
       expect(sql.split("MetricName = 'http.server.duration'").length - 1).toBe(3);
       expect(sql.split("ResourceAttributes['swarmy.stack'] = 'shop'").length - 1).toBe(3);
     }
+  });
+});
+
+describe('buildRequestSeriesQuery', () => {
+  it('org-scopes, counts entry spans only and buckets ascending', () => {
+    const sql = buildRequestSeriesQuery(ORG, { stack: 'storefront' });
+    expect(sql).toContain("ResourceAttributes['swarmy.org_id'] = 'org_abc123'");
+    expect(sql).toContain("ResourceAttributes['swarmy.stack'] = 'storefront'");
+    expect(sql).toContain("SpanKind IN ('SPAN_KIND_SERVER', 'SPAN_KIND_CONSUMER')");
+    expect(sql).toContain('INTERVAL 180 MINUTE');
+    expect(sql).toContain('INTERVAL 300 SECOND');
+    expect(sql).toContain('quantile(0.95)(Duration)');
+    expect(sql).toContain('ORDER BY bucket ASC');
+  });
+
+  it('escapes the part name and clamps the window', () => {
+    const sql = buildRequestSeriesQuery(ORG, { service: "x' OR 1=1", windowMinutes: 10 ** 9, bucketSeconds: 1 });
+    expect(sql).toContain("ServiceName = 'x\\' OR 1=1'");
+    expect(sql).toContain('INTERVAL 10080 MINUTE');
+    expect(sql).toContain('INTERVAL 5 SECOND');
   });
 });

@@ -113,6 +113,51 @@ export function buildErrorRatesQuery(
   ].join('\n');
 }
 
+/** A request-health series: calls, errors and p95 per bucket (the incident chart). */
+export interface RequestSeriesQueryInput {
+  stack?: string;
+  service?: string;
+  /** Lookback window in minutes (default 180). */
+  windowMinutes?: number;
+  /** Bucket width in seconds (default 300). */
+  bucketSeconds?: number;
+}
+
+export interface RequestSeriesRow {
+  bucket: string;
+  calls: number;
+  errors: number;
+  p95_ms: number;
+}
+
+/**
+ * Entry spans (SERVER / CONSUMER / root — a request's own outcome, like
+ * `buildErrorRatesQuery`) bucketed over the window: calls, errors and the
+ * 95th-percentile duration. Org-scoped; the stack/service filters are literals.
+ */
+export function buildRequestSeriesQuery(orgId: string, q: RequestSeriesQueryInput): string {
+  const windowMinutes = clampInt(q.windowMinutes, 180, 1, 60 * 24 * 7);
+  const bucketSeconds = clampInt(q.bucketSeconds, 300, 5, 3600);
+  const where: string[] = [
+    `ResourceAttributes['swarmy.org_id'] = ${lit(orgId)}`,
+    `Timestamp >= now() - INTERVAL ${windowMinutes} MINUTE`,
+    "(SpanKind IN ('SPAN_KIND_SERVER', 'SPAN_KIND_CONSUMER') OR ParentSpanId = '')",
+  ];
+  if (q.stack) where.push(`ResourceAttributes['swarmy.stack'] = ${lit(q.stack)}`);
+  if (q.service) where.push(`ServiceName = ${lit(q.service)}`);
+  return [
+    'SELECT',
+    `  toString(toStartOfInterval(Timestamp, INTERVAL ${bucketSeconds} SECOND)) AS bucket,`,
+    '  count() AS calls,',
+    "  countIf(StatusCode = 'STATUS_CODE_ERROR') AS errors,",
+    '  round(quantile(0.95)(Duration) / 1000000, 2) AS p95_ms',
+    'FROM otel_traces',
+    `WHERE ${where.join(' AND ')}`,
+    'GROUP BY bucket',
+    'ORDER BY bucket ASC',
+  ].join('\n');
+}
+
 export function buildTracesQuery(orgId: string, q: TracesQueryInput): string {
   const windowMinutes = clampInt(q.windowMinutes, 60, 1, 60 * 24 * 7);
   const limit = clampInt(q.limit, 100, 1, 500);

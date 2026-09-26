@@ -20,6 +20,7 @@ import {
   getStatus,
   metricsSeries,
   metricsSummary,
+  requestSeries,
   setEnabled,
   setRetention,
   stackTelemetryEnabled,
@@ -75,6 +76,18 @@ export const observabilityRouter = router({
       }),
     )
     .query(({ ctx, input }) => metricsSeries(ctx, input)),
+
+  /** Calls, errors and p95 per bucket (entry spans) — the incident room's chart. */
+  requestSeries: orgProcedure
+    .input(
+      z.object({
+        stack: z.string().optional(),
+        service: z.string().optional(),
+        windowMinutes: z.number().int().min(1).max(60 * 24 * 7).optional(),
+        bucketSeconds: z.number().int().min(5).max(3600).optional(),
+      }),
+    )
+    .query(({ ctx, input }) => requestSeries(ctx, input)),
 
   metricsSummary: orgProcedure
     .input(

@@ -69,6 +69,9 @@ import {
   buildTraceDetailQuery,
   buildMetricsSeriesQuery,
   buildMetricsSummaryQuery,
+  buildRequestSeriesQuery,
+  type RequestSeriesQueryInput,
+  type RequestSeriesRow,
   type TraceRow,
   type SpanRow,
   type MetricsPoint,
@@ -414,6 +417,23 @@ export async function metricsSeries(
   const rows = await clickhouseJson<MetricsPoint>(dsn, sql);
   if (rows === null) return { status: 'unreachable', points: [] };
   return { status: 'ok', points: rows };
+}
+
+export interface RequestSeriesResult {
+  status: 'ok' | 'disabled' | 'unreachable';
+  points: RequestSeriesRow[];
+}
+
+/** Calls, errors and p95 per bucket for a stack or a part (the incident chart). Org-scoped. */
+export async function requestSeries(
+  ctx: OrgContext,
+  query: RequestSeriesQueryInput,
+): Promise<RequestSeriesResult> {
+  const dsn = await activeDsn(ctx);
+  if (!dsn) return { status: 'disabled', points: [] };
+  const rows = await clickhouseJson<RequestSeriesRow>(dsn, buildRequestSeriesQuery(ctx.activeOrgId, query));
+  if (rows === null) return { status: 'unreachable', points: [] };
+  return { status: 'ok', points: rows.map((r) => ({ ...r, calls: Number(r.calls), errors: Number(r.errors), p95_ms: Number(r.p95_ms) })) };
 }
 
 /** Full span tree for one trace (the waterfall view). Org-scoped. */
