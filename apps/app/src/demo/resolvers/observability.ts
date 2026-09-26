@@ -1,4 +1,5 @@
 import type { DemoStore, DomainResolvers } from '../types';
+import { STREAM_T0, STREAM_TRACES, STREAM_WINDOW_MS, streamSeedRows, tickStream } from './observability-stream';
 
 /**
  * Demo resolvers for the Observability / Mission Control surface (router
@@ -313,7 +314,8 @@ function seedTraces(): { traces: TraceRow[]; spans: Record<string, SpanRow[]> } 
     const tpl = OP_TEMPLATES[i % OP_TEMPLATES.length]!;
     // Spread ages from ~30s ago back to ~58 minutes ago.
     const ageMs = 30_000 + Math.round((i / count) * (58 * MIN)) + Math.round(Math.random() * 20_000);
-    const isError = Math.random() < 0.15;
+    // The storefront stream owns the last 20 minutes' errors (observability-stream.ts).
+    const isError = ageMs > STREAM_WINDOW_MS && Math.random() < 0.15;
     const { row, spans: tspans } = makeTrace(tpl, ageMs, isError);
     traces.push(row);
     spans[row.trace_id] = tspans;
@@ -324,7 +326,9 @@ function seedTraces(): { traces: TraceRow[]; spans: Record<string, SpanRow[]> } 
 }
 
 function buildSeed(): ObservabilityState {
-  const { traces, spans } = seedTraces();
+  const seeded = seedTraces();
+  const traces = [...seeded.traces, ...STREAM_TRACES.traces].sort((a, b) => b.start_time.localeCompare(a.start_time));
+  const spans = { ...seeded.spans, ...STREAM_TRACES.spans };
   return {
     config: {
       enabled: true,
@@ -629,6 +633,7 @@ function buildLogSeed(st: ObservabilityState): LogRowView[] {
 
   // Correlated lines: reuse each seeded trace's id + spans so links resolve.
   for (const trace of st.traces) {
+    if (STREAM_TRACES.spans[trace.trace_id]) continue;
     const spans = st.spans[trace.trace_id] ?? [];
     for (const span of spans.slice(0, 2)) {
       const atMs = Number(span.start_unix_nano) / 1_000_000 + Math.random() * 5;
@@ -649,9 +654,12 @@ function buildLogSeed(st: ObservabilityState): LogRowView[] {
       Math.random() < 0.6
         ? Math.random() * HOUR
         : HOUR + Math.random() * 23 * HOUR;
-    const atMs = now - ageMs;
+    // Storefront's last 20 minutes come from the stream story, not from noise.
+    const clear = STACK_SERVICES['storefront']!.includes(service) && ageMs < STREAM_WINDOW_MS ? STREAM_WINDOW_MS : 0;
+    const atMs = now - ageMs - clear;
     rows.push(makeLogRow(service, atMs, pickTemplate(service), '', hex(16)));
   }
+  rows.push(...streamSeedRows());
 
   rows.sort((a, b) => Number(b.ts_nano) - Number(a.ts_nano));
   return rows;
@@ -682,10 +690,12 @@ observability.handlers!['observability.logs'] = (i, s): ObservabilityLogsPage =>
     }) ?? { from: 0, to: Date.now() };
   const st = state(s);
   if (!st.config.enabled) return { status: 'disabled', rows: [], nextCursor: null };
+  const all = logRows(s);
+  s.extra['observability.stream.until'] = tickStream(all, (s.extra['observability.stream.until'] as number | undefined) ?? Math.max(STREAM_T0, Number(all[0]?.ts_nano.slice(0, -6) ?? 0)));
 
   const fromNano = Math.max(0, Math.floor(q.from)) * 1_000_000;
   const toNano = Math.max(0, Math.floor(q.to)) * 1_000_000;
-  let rows = logRows(s).filter((r) => {
+  let rows = all.filter((r) => {
     const ts = Number(r.ts_nano);
     return ts >= fromNano && ts <= toNano;
   });
