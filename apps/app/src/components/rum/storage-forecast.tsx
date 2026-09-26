@@ -11,8 +11,9 @@ interface StorageForecastProps {
 const TYPICAL_SESSION_BYTES = 180 * 1024;
 
 /**
- * Forecast from what's actually stored: yesterday's visitors × the chosen
- * sample × the average recorded session, kept for the chosen days.
+ * Forecast from what's actually stored: yesterday's recordings (or, before
+ * any, yesterday's visitors × the chosen sample) × the average recorded
+ * session, kept for the chosen days.
  */
 export function StorageForecast({ footprint: f, rate, keepDays }: StorageForecastProps): React.JSX.Element {
   if (!f) {
@@ -23,7 +24,9 @@ export function StorageForecast({ footprint: f, rate, keepDays }: StorageForecas
     );
   }
   const avg = f.replaySessions > 0 ? f.replayBytes / f.replaySessions : TYPICAL_SESSION_BYTES;
-  const perDay = Math.round(f.visitors24h * rate);
+  // Only signed-in visits record, so yesterday's actual recordings are the honest base; all visitors × rate is the fallback.
+  const measured = f.replaySessions24h > 0;
+  const perDay = measured ? f.replaySessions24h : Math.round(f.visitors24h * rate);
   const dayBytes = perDay * avg;
   const kept = dayBytes * keepDays;
   return (
@@ -35,7 +38,7 @@ export function StorageForecast({ footprint: f, rate, keepDays }: StorageForecas
         <Stat value={bytes(f.replayBytes)} label={`stored now · ${compact(f.replaySessions)} sessions`} />
       </div>
       <p className="text-muted-foreground text-xs">
-        Based on {compact(f.visitors24h)} visitors in the last 24 h and {bytes(avg)} per recorded session.
+        Based on {measured ? `${compact(f.replaySessions24h)} recorded in the last 24 h` : `${compact(f.visitors24h)} visitors in the last 24 h`} and {bytes(avg)} per recorded session.
       </p>
       {rate >= 1 && keepDays >= 30 ? (
         <p className="text-tone-warn text-xs">

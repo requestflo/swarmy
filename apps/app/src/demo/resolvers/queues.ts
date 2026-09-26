@@ -8,7 +8,15 @@ import type {
   QueuesOverview,
 } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
-import { queueStudio } from './queue-studio-demo';
+import { queueStudio, STOREFRONT_QUEUES } from './queue-studio-demo';
+
+/** How each storefront queue's workers scale (the counts live in STOREFRONT_QUEUES). */
+const STOREFRONT_WORKERS: Record<string, { workerService: string; scalePerJobs: number; maxWorkers: number; retries: number; running: number }> = {
+  emails: { workerService: 'storefront_email-worker', scalePerJobs: 25, maxWorkers: 4, retries: 5, running: 2 },
+  'image-resize': { workerService: 'storefront_media-worker', scalePerJobs: 50, maxWorkers: 6, retries: 3, running: 6 },
+  webhooks: { workerService: 'storefront_webhook-worker', scalePerJobs: 100, maxWorkers: 3, retries: 8, running: 1 },
+  'abandoned-carts': { workerService: 'storefront_email-worker', scalePerJobs: 200, maxWorkers: 1, retries: 3, running: 1 },
+};
 
 /**
  * Queues demo resolvers — the Queues surface (`/queues`): queue list, live-ish
@@ -87,35 +95,25 @@ function makeQueue(input: Partial<QueueView> & Pick<QueueView, 'name' | 'workerS
 
 export const queues: DomainResolvers = {
   seed: (store) => {
-    // Three queues on the seeded cache clusters — one with a failure pile-up.
-    const emails = makeQueue({
-      name: 'emails',
-      workerService: 'storefront_email-worker',
-      stack: 'storefront',
-      cacheCluster: 'main',
-      cacheStack: 'storefront',
-      cacheName: 'main',
-      scalePerJobs: 25,
-      minWorkers: 1,
-      maxWorkers: 4,
-      retries: 5,
-      workers: { desired: 2, running: 2 },
-      stats: { wait: 38, active: 4, failed: 0, delayed: 12, ts: nowIso() },
+    // storefront's queues come from the studio's list, so both screens count the same four.
+    const storefront = STOREFRONT_QUEUES.map((q) => {
+      const w = STOREFRONT_WORKERS[q.name] ?? { workerService: 'storefront_worker', scalePerJobs: 100, maxWorkers: 2, retries: 3, running: 1 };
+      return makeQueue({
+        name: q.name,
+        workerService: w.workerService,
+        stack: 'storefront',
+        cacheCluster: 'main',
+        cacheStack: 'storefront',
+        cacheName: 'main',
+        scalePerJobs: w.scalePerJobs,
+        minWorkers: 1,
+        maxWorkers: w.maxWorkers,
+        retries: w.retries,
+        workers: { desired: w.running, running: w.running },
+        stats: { wait: q.wait, active: q.active, failed: q.failed, delayed: q.delayed, ts: nowIso() },
+      });
     });
-    const resize = makeQueue({
-      name: 'image-resize',
-      workerService: 'storefront_media-worker',
-      stack: 'storefront',
-      cacheCluster: 'main',
-      cacheStack: 'storefront',
-      cacheName: 'main',
-      scalePerJobs: 50,
-      minWorkers: 1,
-      maxWorkers: 6,
-      retries: 3,
-      workers: { desired: 6, running: 6 },
-      stats: { wait: 412, active: 11, failed: 37, delayed: 0, ts: nowIso() },
-    });
+    const resize = storefront.find((q) => q.name === 'image-resize')!;
     const outbox = makeQueue({
       name: 'webhook-outbox',
       workerService: 'platform_dispatcher',
@@ -134,7 +132,7 @@ export const queues: DomainResolvers = {
     });
 
     store.extra.queues = {
-      queues: [emails, resize, outbox],
+      queues: [...storefront, outbox],
       dlq: {
         [key(resize)]: [
           '{"jobId":"9021","file":"hero-4k.png","error":"sharp: input image exceeds pixel limit","attempts":3}',

@@ -161,7 +161,7 @@ const routes: Array<[string, RegExp?]> = [
 try {
   for (const [route, expect] of routes) await visit(route, expect);
   // A stack's public status page is the app's own page, not the dashboard: no banner.
-  await visit('/s/requestflo-status', /operational|degraded|outage|status/i, false);
+  await visit('/s/northwind-status', /operational|degraded|outage|status/i, false);
 
   // Param routes whose ids exist only in the page that links to them.
   const discovered: Array<[string, RegExp]> = [

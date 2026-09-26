@@ -25,7 +25,7 @@ export function StatusPageFields({
         <Label htmlFor="sp-title">Page title</Label>
         <Input
           id="sp-title"
-          placeholder="RequestFlo"
+          placeholder="Northwind"
           value={draft.title}
           onChange={(e) =>
             onChange({
@@ -43,7 +43,7 @@ export function StatusPageFields({
           <span className="mono-data text-muted-foreground shrink-0">/s/</span>
           <Input
             id="sp-slug"
-            placeholder="requestflo-status"
+            placeholder="northwind-status"
             value={draft.slug}
             disabled={slugLocked}
             onChange={(e) =>

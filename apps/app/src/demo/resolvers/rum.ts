@@ -121,7 +121,7 @@ function analytics(s: DemoStore, stack: string, days: number) {
     status: 'ok' as const,
     days,
     kpis: on
-      ? { visits: Math.round(28_750 * k), pageviews: Math.round(112_100 * k), bounceRate: 0.38, medianVisitSeconds: 161, signedIn: identified ? Math.round(1840 * k) : 0 }
+      ? { visits: Math.round(28_750 * k), pageviews: Math.round(112_100 * k), bounceRate: 0.38, medianVisitSeconds: 161, signedIn: identified ? Math.round(60 * k) : 0 }
       : { visits: 0, pageviews: 0, bounceRate: 0, medianVisitSeconds: 0, signedIn: 0 },
     live: on ? { visitors: 37 + (Math.floor(Date.now() / 15_000) % 9), pageviews: 142 } : { visitors: 0, pageviews: 0 },
     series,
@@ -198,7 +198,8 @@ export const rum: DomainResolvers = {
     },
     'rum.footprint': (i, s) =>
       settingsFor(s, (i as { stack: string }).stack).enabled
-        ? { eventRows: 812_400, replaySessions: 2_870, replayBytes: 2_870 * 176_000, replaySessions24h: 412, visitors24h: 4_120 }
+        ? // ~6 recordings a week (10% of ~60 signed-in visits; most shoppers check out as guests), kept 14 days.
+          { eventRows: 812_400, replaySessions: 11, replayBytes: 11 * 176_000, replaySessions24h: 1, visitors24h: 4_120 }
         : null,
     'rum.replays': (i, s) => {
       const { stack, withErrors, userId } = i as { stack: string; withErrors?: boolean; userId?: string };

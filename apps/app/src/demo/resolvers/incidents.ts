@@ -230,43 +230,39 @@ export const incidents: DomainResolvers = {
       ],
     };
 
+    // One story with the Overview row ("checkout is running 1 of 2 copies") and
+    // Today ("Calum changed storefront (1.9.0). Rolling out now."): the 1.9.0
+    // rollout (rel-store-6, releases.ts) left checkout a copy short.
     const deployGate: DemoIncident = {
       id: 'inc-deploy-storefront',
-      title: 'Failed deploy on storefront',
+      title: 'checkout is down to 1 of 2 copies during the 1.9.0 rollout',
       status: 'open',
-      severity: 'critical',
+      severity: 'major',
       summary: null,
-      openedAt: minutesAgo(18),
+      openedAt: minutesAgo(1),
       resolvedAt: null,
       events: [
         {
           id: 'ie-d1',
-          at: minutesAgo(18),
+          at: minutesAgo(1),
           kind: 'opened',
           message: 'Incident opened (release:storefront)',
           meta: gkRel,
         },
         {
           id: 'ie-d2',
-          at: minutesAgo(18),
-          kind: 'deploy.gate.failed',
-          message:
-            'Release rel-9f31d2 failed its health gate (storefront: 2/5 tasks unhealthy; error-rate 12%)',
-          meta: { ...gkRel, releaseId: 'rel-9f31d2', stackName: 'storefront' },
+          at: minutesAgo(1),
+          kind: 'alert.fired',
+          message: 'replicas on service:checkout — 1 of 2 running since release rel-store-6 (1.9.0) began its canary',
+          meta: { ...gkRel, signal: 'replicas', releaseId: 'rel-store-6', stackName: 'storefront' },
         },
         {
           id: 'ie-d3',
-          at: minutesAgo(16),
-          kind: 'deploy.gate.rollback',
-          message: 'Auto-rolled storefront back to release rel-8c02aa',
-          meta: { ...gkRel, failedReleaseId: 'rel-9f31d2', rolledBackTo: 'rel-8c02aa' },
-        },
-        {
-          id: 'ie-d4',
-          at: minutesAgo(14),
-          kind: 'alert.fired',
-          message: 'error-rate on service:web — 12% of requests failing (threshold 5%)',
-          meta: { ...gkRel, signal: 'error-rate' },
+          at: minutesAgo(1),
+          kind: 'note',
+          message:
+            'The canary holds at 10% while checkout is short a copy. If the health gate fails, swarmy puts back 1.8.2 by itself.',
+          meta: { author: 'swarmy' },
         },
       ],
     };

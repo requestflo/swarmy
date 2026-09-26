@@ -120,7 +120,15 @@ const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 
 const rid = (prefix: string): string => `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
-const shortSha = (): string => Math.random().toString(16).slice(2, 9);
+/** Deterministic 8-char id for seeded rows, so `/ci/build-…` deep links survive a reload. */
+const stableHash = (key: string, len: number, radix: number): string => {
+  let h = 2166136261;
+  for (const c of key) h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0;
+  let out = '';
+  for (let i = 0; out.length < len; i++) out += (Math.imul(h, 2 * i + 1) >>> 0).toString(radix);
+  return out.slice(0, len);
+};
+const stableId = (prefix: string, key: string): string => `${prefix}-${stableHash(key, 8, 36)}`;
 
 /** Read (or lazily init) the CI/CD slice of the store. */
 function state(store: DemoStore): CicdState {
@@ -253,12 +261,13 @@ function build(
   finishedMsAgo: number | null,
 ): BuildView {
   const repo = repos.find((r) => r.id === repoId);
-  const sha = `sha256:${shortSha()}${shortSha()}`;
+  const key = `${repoId}/${imageName}/${ref}/${status}/${startedMsAgo}`;
+  const sha = `sha256:${stableHash(key, 14, 16)}`;
   const image =
     status === 'failed' ? `${REGISTRY_HOST}/${imageName}:${ref}` : `${REGISTRY_HOST}/${imageName}@${sha}`;
-  const logsRef = rid('log');
+  const logsRef = stableId('log', key);
   return {
-    id: rid('build'),
+    id: stableId('build', key),
     repoId,
     repoUrl: repo?.url ?? '',
     commit: ref,

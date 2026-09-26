@@ -54,7 +54,7 @@ export const alerts: DomainResolvers = {
       name: 'On-call email',
       kind: 'email',
       enabled: true,
-      target: 'oncall@acme.dev',
+      target: 'oncall@northwind.dev',
       hasSecret: false,
       createdAt: agoIso(60 * 24 * 30),
     };

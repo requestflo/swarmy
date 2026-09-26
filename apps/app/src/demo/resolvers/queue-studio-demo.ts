@@ -8,7 +8,7 @@ import type { DomainResolvers } from '../types';
 const MIN = 60_000;
 const t = (msAgo: number): string => String(Date.now() - msAgo);
 
-interface DemoQ {
+export interface DemoQ {
   name: string;
   wait: number;
   active: number;
@@ -17,7 +17,8 @@ interface DemoQ {
   failed: number;
   perMin: number;
 }
-const QUEUES: DemoQ[] = [
+/** storefront's queues on `main` — the one list the messaging tab (queues.ts) and the studio both read. */
+export const STOREFRONT_QUEUES: DemoQ[] = [
   { name: 'emails', wait: 38, active: 2, delayed: 1, completed: 18_420, failed: 0, perMin: 42 },
   { name: 'image-resize', wait: 412, active: 6, delayed: 0, completed: 51_880, failed: 37, perMin: 120 },
   { name: 'webhooks', wait: 0, active: 1, delayed: 4, completed: 8_211, failed: 12, perMin: 18 },
@@ -29,6 +30,22 @@ const JOB_NAMES: Record<string, string[]> = {
   'image-resize': ['product.thumbnail', 'product.hero', 'banner.webp'],
   webhooks: ['stripe.payment_intent.sync', 'stripe.charge.refund', 'shopify.inventory'],
   'abandoned-carts': ['cart.reminder'],
+};
+
+/** Each queue fails the way its jobs would: webhooks hit Stripe's rate limit, images hit a bad upload. */
+const FAILURE: Record<string, { reason: string; stack: string }> = {
+  webhooks: {
+    reason: '429 from api.stripe.com — rate limit exceeded',
+    stack: 'Error: 429 from api.stripe.com\n    at syncPaymentIntent (dist/jobs/stripe.js:48:11)',
+  },
+  'image-resize': {
+    reason: 'sharp: Input buffer contains unsupported image format',
+    stack: 'Error: Input buffer contains unsupported image format\n    at Sharp.toBuffer (node_modules/sharp/lib/output.js:163:17)\n    at resizeProduct (dist/jobs/image-resize.js:31:9)',
+  },
+  default: {
+    reason: 'SMTP 421 from mail.northwind.dev — try again later',
+    stack: 'Error: SMTP 421 from mail.northwind.dev\n    at sendMail (dist/jobs/email.js:22:7)',
+  },
 };
 
 function sample(q: DemoQ) {
@@ -65,8 +82,8 @@ function job(queue: string, id: number, state: string, i: number) {
     timestamp: t((i + 1) * 3 * MIN),
     processedOn: state === 'wait' || state === 'delayed' ? null : t((i + 1) * 3 * MIN - 2000),
     finishedOn: failed || state === 'completed' ? t((i + 1) * 3 * MIN - 4000) : null,
-    failedReason: failed ? (queue === 'webhooks' ? '429 from api.stripe.com — rate limit exceeded' : 'sharp: Input buffer contains unsupported image format') : null,
-    stacktrace: failed ? JSON.stringify(['Error: 429 from api.stripe.com\n    at syncPaymentIntent (dist/jobs/stripe.js:48:11)']) : null,
+    failedReason: failed ? FAILURE[queue]?.reason ?? FAILURE.default!.reason : null,
+    stacktrace: failed ? JSON.stringify([FAILURE[queue]?.stack ?? FAILURE.default!.stack]) : null,
     processedBy: state === 'wait' ? null : 'worker.2',
   };
 }
@@ -81,12 +98,12 @@ export const queueStudio: DomainResolvers = {
     },
     'queues.studioOverview': (i) => {
       const { stack = '', cluster = '', prefix = 'bull' } = (i ?? {}) as { stack?: string; cluster?: string; prefix?: string };
-      const queues = stack === 'storefront' && cluster === 'main' ? QUEUES.map(sample) : [];
+      const queues = stack === 'storefront' && cluster === 'main' ? STOREFRONT_QUEUES.map(sample) : [];
       return { stack, cluster, prefix, purpose: 'queue', primary: `${cluster}-0`, queues, truncated: false, sampledAt: new Date().toISOString() };
     },
     'queues.studioJobs': (i) => {
       const { queue = '', state = 'wait', start = 0 } = (i ?? {}) as { queue?: string; state?: string; start?: number };
-      const q = QUEUES.find((x) => x.name === queue);
+      const q = STOREFRONT_QUEUES.find((x) => x.name === queue);
       const total = q ? (({ wait: q.wait, active: q.active, delayed: q.delayed, completed: q.completed, failed: q.failed }) as Record<string, number>)[state] ?? 0 : 0;
       const n = Math.max(0, Math.min(8, total - start));
       const jobs = Array.from({ length: n }, (_, k) => job(queue, 8812 - start - k, state, k));
@@ -94,7 +111,7 @@ export const queueStudio: DomainResolvers = {
     },
     'queues.studioJob': (i) => {
       const { queue = '', id = '' } = (i ?? {}) as { queue?: string; id?: string };
-      if (!QUEUES.some((q) => q.name === queue)) return { found: false };
+      if (!STOREFRONT_QUEUES.some((q) => q.name === queue)) return { found: false };
       return {
         found: true,
         state: 'failed',
@@ -105,7 +122,7 @@ export const queueStudio: DomainResolvers = {
     },
     'queues.studioRates': (i) => {
       const { queue = '' } = (i ?? {}) as { queue?: string };
-      const q = QUEUES.find((x) => x.name === queue);
+      const q = STOREFRONT_QUEUES.find((x) => x.name === queue);
       const points = Array.from({ length: 24 }, (_, k) => ({
         bucket: new Date(Date.now() - (23 - k) * 15 * MIN).toISOString(),
         completed: Math.round((q?.perMin ?? 0) * 15 * (0.7 + 0.3 * Math.sin(k / 3))),

@@ -44,7 +44,7 @@ function state(s: DemoStore): AppAccessState {
 function view(s: DemoStore, stack: string): AppAccessViewData {
   const st = state(s);
   const rules = st.rules[stack] ?? { everyone: false, groups: [], people: [] };
-  const hosts = stack === 'storefront' ? ['shop.acme.dev', 'api.acme.dev'] : [`${stack}.acme.dev`];
+  const hosts = stack === 'storefront' ? ['shop.northwind.dev', 'api.northwind.dev'] : [`${stack}.northwind.dev`];
   const routes = hosts.map((host, i) => ({
     id: `${stack}|${host}`,
     serviceId: `svc-${stack}-${i}`,
@@ -76,7 +76,7 @@ function view(s: DemoStore, stack: string): AppAccessViewData {
             providerSetup: ['github', 'google'].map((p) => ({
               provider: p,
               secrets: [`auth-${p}-client-id`, `auth-${p}-client-secret`],
-              callbackUrl: `https://shop.acme.dev/auth/callback/${p}`,
+              callbackUrl: `https://shop.northwind.dev/auth/callback/${p}`,
             })),
           }
         : null,

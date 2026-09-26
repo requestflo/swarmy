@@ -1,4 +1,6 @@
 import * as React from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useTRPC } from '@/integrations/trpc';
 import { CalmRow, type Tone } from '@/components/calm';
 import { relTime } from '@/lib/format';
 import type { GitApp } from './gitops-types';
@@ -17,6 +19,11 @@ function status(st: string | undefined): { tone: Tone; word: string } {
  * branch/PR previews — one row each (boards Environments · BranchPreviews).
  */
 export function AppEnvironmentsList({ app, stack }: { app: GitApp; stack: string }): React.JSX.Element | null {
+  const trpc = useTRPC();
+  const stacks = useQuery(trpc.stacks.list.queryOptions());
+  // Link a row only to an app that's actually running, never to "No app called …".
+  const linkTo = (s: string): string | undefined =>
+    s !== stack && stacks.data?.some((x) => x.name === s) ? '/stacks/$name/releases' : undefined;
   if (app.environments.length + app.previews.length <= 1) return null;
   return (
     <div className="border-border -mx-1 flex flex-col border-t pt-1">
@@ -29,7 +36,7 @@ export function AppEnvironmentsList({ app, stack }: { app: GitApp; stack: string
           sub={e.stack === stack ? 'this one' : e.stack}
           say={`Tracks ${e.branch}${e.latest ? ` · last deploy ${relTime(e.latest.createdAt)}` : ''}`}
           tech={e.latest ? `${sha7(e.latest.sha)} · ${e.latest.status}` : undefined}
-          to={e.stack === stack ? undefined : '/stacks/$name/releases'}
+          to={linkTo(e.stack)}
           params={{ name: e.stack }}
         />
       ))}
@@ -42,7 +49,7 @@ export function AppEnvironmentsList({ app, stack }: { app: GitApp; stack: string
           sub={p.url ?? p.stack}
           say={`Preview${p.data ? ` with a copy of ${p.data.from}'s data` : ''} · updated ${relTime(p.updatedAt)}`}
           tech={`${sha7(p.sha)} · ${p.status}`}
-          to={p.stack === stack ? undefined : '/stacks/$name/releases'}
+          to={linkTo(p.stack)}
           params={{ name: p.stack }}
         />
       ))}

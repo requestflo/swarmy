@@ -24,7 +24,7 @@ export const EMPTY_DRAFT: PageDraft = {
 
 export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-/** Title → kebab slug suggestion ("RequestFlo Status" → "requestflo-status"). */
+/** Title → kebab slug suggestion ("Northwind Status" → "northwind-status"). */
 export function slugify(title: string): string {
   return title
     .toLowerCase()

@@ -19,7 +19,7 @@ import type { DemoStore, DomainResolvers } from '../types';
  * demo mode (via `statusPages.preview`, since there is no controller to serve
  * `GET /status/<slug>.json`).
  *
- * Seeded world: one live page `requestflo-status` ("RequestFlo") watching five
+ * Seeded world: one live page `northwind-status` ("Northwind") watching five
  * components with 90 days of believable uptime (one rough day two weeks ago
  * matching a resolved incident) and the checkout service currently degraded —
  * so the public page shows an amber banner, imperfect bars and an incident
@@ -270,14 +270,14 @@ export const statuspages: DomainResolvers = {
   },
 
   seed: (store) => {
-    const pageId = 'sp-requestflo';
+    const pageId = 'sp-northwind';
     // Attached to the seeded `storefront` stack so the stack workspace's
     // Observability tab lists it (its components are storefront services).
     const page: StackedPage = {
       id: pageId,
-      slug: 'requestflo-status',
-      title: 'RequestFlo',
-      domain: 'status.requestflo.dev',
+      slug: 'northwind-status',
+      title: 'Northwind',
+      domain: 'status.northwind.dev',
       stackName: 'storefront',
       components: [
         { key: 'website', label: 'Website', kind: 'service', ref: 'web' },
@@ -289,7 +289,7 @@ export const statuspages: DomainResolvers = {
       showUptime: true,
       showIncidents: true,
       enabled: true,
-      publicPath: '/s/requestflo-status',
+      publicPath: '/s/northwind-status',
       createdAt: new Date(Date.now() - 120 * DAY_MS).toISOString(),
       updatedAt: new Date(Date.now() - 3 * DAY_MS).toISOString(),
     };
