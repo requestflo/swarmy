@@ -22,6 +22,7 @@
 import { createHash } from 'node:crypto';
 import { STACK_LABEL, SWARMY_CONTROL_NETWORK, SYSTEM_STACK, SYSTEM_STACK_LABEL } from '@swarmy/core';
 import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
+import type { TelemetrySettings } from '@swarmy/core';
 import {
   CLICKHOUSE_INIT_PATH,
   COLLECTOR_CONFIG_PATH,
@@ -125,6 +126,8 @@ export function observabilityConfigs(opts: {
   password: string;
   retentionDays: number;
   database?: string;
+  /** Sampling / redaction / per-signal retention rendered into the collector. */
+  telemetry?: TelemetrySettings;
 }): ObservabilityConfigSet {
   const database = opts.database ?? 'otel';
   const initSql = renderClickhouseInitSql({ database, retentionDays: opts.retentionDays });
@@ -134,6 +137,7 @@ export function observabilityConfigs(opts: {
     clickhousePasswordFile: CLICKHOUSE_PASSWORD_FILE,
     clickhouseDatabase: database,
     retentionDays: opts.retentionDays,
+    telemetry: opts.telemetry,
   });
   return {
     collector: {

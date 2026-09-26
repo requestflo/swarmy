@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { defaultTelemetrySettings, renderTelemetryProcessors } from '@swarmy/core';
 import {
   CLICKHOUSE_INIT_PATH,
   COLLECTOR_CONFIG_PATH,
@@ -88,5 +89,51 @@ describe('renderObservabilityFiles', () => {
       store: { database: 'otel', retentionDays: 14 },
     });
     expect(files.collectorConfig.contents).toContain('ttl: 336h');
+  });
+});
+
+describe('renderCollectorConfig with telemetry settings (ObsSettings)', () => {
+  const telemetry = {
+    sampling: { keepErrors: true as const, slowTraceMs: 1000, restPercent: 25 },
+    retention: { tracesDays: 14, logsDays: 14, metricsDays: 30 },
+    redaction: defaultTelemetrySettings().redaction,
+  };
+
+  it('splices the sampling + redaction processors in pipeline order (golden)', () => {
+    const yaml = renderCollectorConfig({ ...COLLECTOR_INPUT, telemetry });
+    expect(yaml.slice(yaml.indexOf('service:'))).toBe(
+      [
+        'service:',
+        '  pipelines:',
+        '    traces:',
+        '      receivers: [otlp]',
+        '      processors: [resource, attributes/redact_spans, transform/redact_spans, tail_sampling, batch]',
+        '      exporters: [clickhouse]',
+        '    metrics:',
+        '      receivers: [otlp]',
+        '      processors: [resource, batch]',
+        '      exporters: [clickhouse]',
+        '    logs:',
+        '      receivers: [otlp]',
+        '      processors: [resource, attributes/redact_logs, transform/redact_logs, batch]',
+        '      exporters: [clickhouse]',
+        '',
+      ].join('\n'),
+    );
+    // The processors block is the same pure render the dashboard's Code view shows.
+    const processors = yaml.slice(yaml.indexOf('processors:'), yaml.indexOf('exporters:'));
+    for (const line of renderTelemetryProcessors(telemetry).lines) expect(processors).toContain(line);
+    expect(processors.indexOf('  resource:')).toBeLessThan(processors.indexOf('  tail_sampling:'));
+  });
+
+  it('creates tables with the LONGEST retention (per-table TTLs narrow them after)', () => {
+    expect(renderCollectorConfig({ ...COLLECTOR_INPUT, retentionDays: 7, telemetry })).toContain('ttl: 720h');
+  });
+
+  it('keeps everything (no sampler) at 100% and changes the render when settings change', () => {
+    const keepAll = { ...telemetry, sampling: { ...telemetry.sampling, restPercent: 100 } };
+    const a = renderCollectorConfig({ ...COLLECTOR_INPUT, telemetry: keepAll });
+    expect(a).not.toContain('tail_sampling');
+    expect(a).not.toBe(renderCollectorConfig({ ...COLLECTOR_INPUT, telemetry }));
   });
 });

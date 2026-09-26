@@ -1345,3 +1345,62 @@ export const CanaryStatusInput = z.object({
 });
 export type CanaryStatusInput = z.infer<typeof CanaryStatusInput>;
 
+
+// ── Telemetry settings (ObsSettings board) ────────────────────────────────────
+
+/**
+ * A regex the collector (Go RE2) can compile: it must compile in JS and use no
+ * look-around or back-references, which RE2 rejects at collector start.
+ */
+function isRe2Safe(re: string): boolean {
+  if (/\(\?[=!<]|\\[1-9]/.test(re)) return false;
+  try {
+    new RegExp(re);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** One redaction rule the collector applies before anything is stored. */
+export const TelemetryRedactionRule = z
+  .object({
+    id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/),
+    /** Plain-words name shown in the list ("Drop the Authorization header"). */
+    name: z.string().trim().min(1).max(80),
+    /** `drop-attr`: delete attributes whose KEY matches; `mask-regex`: rewrite matching VALUES. */
+    kind: z.enum(['drop-attr', 'mask-regex']),
+    target: z.enum(['span', 'log', 'both']),
+    match: z.string().min(1).max(256).refine(isRe2Safe, 'Not a regex the collector can use (no look-around or back-references)'),
+    /** Replacement for `mask-regex` (`$1` refers to a capture group). */
+    replace: z.string().max(64).optional(),
+    enabled: z.boolean(),
+  })
+  .refine((r) => r.kind !== 'mask-regex' || r.replace !== undefined, { message: 'A mask needs a replacement', path: ['replace'] });
+export type TelemetryRedactionRule = z.infer<typeof TelemetryRedactionRule>;
+
+/** What the collector keeps, for how long, and what it scrubs first. */
+export const TelemetrySettings = z.object({
+  sampling: z.object({
+    /** Every trace with an error is kept. Fixed on: the sampler never drops an error. */
+    keepErrors: z.literal(true),
+    /** Keep every trace at least this slow; null turns the slow-trace rule off. */
+    slowTraceMs: z.number().int().min(50).max(600_000).nullable(),
+    /** Share of the remaining traces kept (100 = keep everything, no sampler). */
+    restPercent: z.number().int().min(1).max(100),
+  }),
+  retention: z.object({
+    tracesDays: z.number().int().min(1).max(365),
+    logsDays: z.number().int().min(1).max(365),
+    metricsDays: z.number().int().min(1).max(365),
+  }),
+  redaction: z
+    .array(TelemetryRedactionRule)
+    .max(32)
+    .refine((rules) => new Set(rules.map((r) => r.id)).size === rules.length, 'Rule ids must be unique'),
+});
+export type TelemetrySettings = z.infer<typeof TelemetrySettings>;
+
+/** Input for `observability.setSettings`: the whole settings document. */
+export const SetTelemetrySettingsInput = TelemetrySettings;
+export type SetTelemetrySettingsInput = z.infer<typeof SetTelemetrySettingsInput>;

@@ -20,6 +20,7 @@
  *    (the service replays it after first deploy as a belt-and-braces step).
  */
 
+import { maxRetentionDays, renderTelemetryProcessors, type TelemetrySettings } from '@swarmy/core';
 import {
   CLICKHOUSE_NATIVE_PORT,
   OTLP_GRPC_PORT,
@@ -50,6 +51,14 @@ export interface CollectorRenderInput {
   batchTimeoutSeconds?: number;
   /** Data retention; becomes the exporter's per-table TTL. Default 7 days. */
   retentionDays?: number;
+  /**
+   * Sampling + redaction + per-signal retention (ObsSettings). When set, the
+   * `tail_sampling` / `attributes` / `transform` processors join the pipelines
+   * and the exporter's create-time TTL is the LONGEST signal retention — so a
+   * fresh table never drops data before the per-table `MODIFY TTL` lands
+   * (`observability-retention.ts`).
+   */
+  telemetry?: TelemetrySettings;
 }
 
 export interface StoreInitInput {
@@ -84,6 +93,10 @@ export function renderCollectorConfig(input: CollectorRenderInput): string {
   const port = input.clickhousePort ?? CLICKHOUSE_NATIVE_PORT;
   const batch = clampInt(input.batchTimeoutSeconds, 5, 1, 60);
   const endpoint = `tcp://${input.clickhouseHost}:${port}?dial_timeout=10s&compress=lz4`;
+  const tel = input.telemetry ? renderTelemetryProcessors(input.telemetry) : null;
+  const ttlDays = input.telemetry ? maxRetentionDays(input.telemetry) : input.retentionDays;
+  const chain = (sig: 'traces' | 'metrics' | 'logs') =>
+    `[${['resource', ...(tel?.pipelines[sig] ?? []), 'batch'].join(', ')}]`;
 
   return [
     '# Managed by swarmy (observability). Do not edit by hand.',
@@ -104,6 +117,7 @@ export function renderCollectorConfig(input: CollectorRenderInput): string {
     '      - key: swarmy.managed',
     '        value: "true"',
     '        action: upsert',
+    ...(tel?.lines ?? []),
     '',
     'exporters:',
     '  clickhouse:',
@@ -119,7 +133,7 @@ export function renderCollectorConfig(input: CollectorRenderInput): string {
     // fails ("No such column TraceState"). Let it CREATE the tables to match its
     // own writer exactly; swarmy's queries use only standard columns it emits.
     '    create_schema: true',
-    `    ttl: ${clampInt(input.retentionDays, 7, 1, 365) * 24}h`,
+    `    ttl: ${clampInt(ttlDays, 7, 1, 365) * 24}h`,
     '    timeout: 10s',
     '    retry_on_failure:',
     '      enabled: true',
@@ -130,15 +144,15 @@ export function renderCollectorConfig(input: CollectorRenderInput): string {
     '  pipelines:',
     '    traces:',
     '      receivers: [otlp]',
-    '      processors: [resource, batch]',
+    `      processors: ${chain('traces')}`,
     '      exporters: [clickhouse]',
     '    metrics:',
     '      receivers: [otlp]',
-    '      processors: [resource, batch]',
+    `      processors: ${chain('metrics')}`,
     '      exporters: [clickhouse]',
     '    logs:',
     '      receivers: [otlp]',
-    '      processors: [resource, batch]',
+    `      processors: ${chain('logs')}`,
     '      exporters: [clickhouse]',
     '',
   ].join('\n');
