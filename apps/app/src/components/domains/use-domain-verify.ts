@@ -26,6 +26,7 @@ export function useDomainVerify(host: string) {
   });
   const domains = useQuery(trpc.ingress.listDomains.queryOptions());
   const plan = useQuery(trpc.ingress.domainPlan.queryOptions({ host }));
+  const regions = useQuery(trpc.geodns.listRegions.queryOptions());
   const route = (domains.data ?? []).find((d) => d.host === host || d.companionHost === host) ?? null;
   const done = () => void qc.invalidateQueries();
   const verify = useMutation(
@@ -45,12 +46,18 @@ export function useDomainVerify(host: string) {
   );
   const planData = (plan.data as DomainPlan | undefined) ?? null;
   const edgeName = (ip: string): string => planData?.edges.find((e) => e.ip === ip)?.name ?? ip;
+  // Edge servers on the map: placed by their region's coordinates (unplaced edges are left off).
+  const mapEdges = (planData?.edges ?? []).flatMap((e) => {
+    const r = e.region ? (regions.data ?? []).find((x) => x.region === e.region) : undefined;
+    return r ? [{ name: e.name ?? e.ip, lat: r.lat, lon: r.lng }] : [];
+  });
   return {
     plan: planData,
     detail: (status.data as DomainDetail | undefined) ?? null,
     error: status.error,
     route,
     edgeName,
+    mapEdges,
     check: () => verify.mutate({ host }),
     checking: verify.isPending,
     skip: () => skip.mutate({ host }),

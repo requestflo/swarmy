@@ -1,5 +1,5 @@
 import type { Tone } from '@/components/calm';
-import type { DomainState, DomainStatus, ResolverSeen } from '@/components/ingress/domain-state';
+import type { DomainState, DomainStatus } from '@/components/ingress/domain-state';
 
 /** The four steps of the rail (board 29). `error` sits on the step that failed. */
 export const STEPS = ['Waiting for DNS', 'Verified', 'Issuing certificate', 'Active'] as const;
@@ -34,30 +34,6 @@ export const STATE_CHIP: Record<DomainState, { word: string; tone: Tone }> = {
   active: { word: 'active', tone: 'ok' },
   error: { word: 'needs you', tone: 'bad' },
 };
-
-/** Plain names for the resolvers swarmy asks (see `resolverChainLookup`). */
-export function resolverName(r: string): { name: string; how: string } {
-  if (r === 'system') return { name: 'swarmy’s own resolver', how: 'the controller’s system DNS' };
-  if (r === 'swarmy-dns') return { name: 'swarmy’s nameservers', how: 'asked directly' };
-  if (r === '1.1.1.1') return { name: 'Cloudflare 1.1.1.1', how: 'over HTTPS' };
-  if (r === '8.8.8.8') return { name: 'Google 8.8.8.8', how: 'over HTTPS' };
-  return { name: r, how: 'over HTTPS' };
-}
-
-/** What one resolver said, in a few words. */
-export function resolverAnswer(r: ResolverSeen): string {
-  if (r.error) return `no answer (${r.error})`;
-  const ips = [...r.a, ...r.aaaa];
-  if (ips.length) return ips.join(', ');
-  if (r.cname.length) return `CNAME ${r.cname.join(', ')} (no address)`;
-  return r.nxdomain ? 'no such name yet' : 'no address record';
-}
-
-/** "2 of 3" — resolvers that answered and see an edge, of those that answered. */
-export function agreeCount(resolvers: ResolverSeen[]): { seen: number; answered: number } {
-  const answered = resolvers.filter((r) => !r.error);
-  return { seen: answered.filter((r) => r.matches).length, answered: answered.length };
-}
 
 /** "12 s" / "3 min" / "2 h" — a short duration for the check clock. */
 export function shortDuration(ms: number): string {

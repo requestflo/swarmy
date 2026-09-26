@@ -2,22 +2,14 @@ import * as React from 'react';
 import { CheckIcon } from 'lucide-react';
 import { cn } from '@swarmy/ui';
 import type { DomainDetail } from '@/components/ingress/domain-state';
-import { STEPS, agreeCount, railState } from './lifecycle';
+import { STEPS, railState } from './lifecycle';
+import { gateOf, railDnsLines } from './resolver-words';
 
 /** The 4-step progress rail: Waiting for DNS → Verified → Issuing certificate → Active. */
 export function VerifyRail({ d }: { d: DomainDetail }): React.JSX.Element {
   const rail = railState(d);
-  const resolvers = d.dns?.resolvers ?? [];
-  const { seen, answered } = agreeCount(resolvers);
-  const matched = resolvers.filter((r) => r.matches).map((r) => r.resolver);
-  const pub = matched.filter((r) => r !== 'system' && r !== 'swarmy-dns');
-  const agreed = pub.length ? pub : matched.map((r) => (r === 'system' ? 'swarmy' : r));
-  const subs = [
-    d.verifiedManually ? 'skipped by an admin' : answered ? `${seen} of ${answered} resolvers` : 'asking resolvers…',
-    d.verifiedManually ? 'without a DNS check' : agreed.length ? `${agreed.join(' + ')} agree` : 'every resolver must agree',
-    'Let’s Encrypt',
-    'HTTPS everywhere',
-  ];
+  const [waiting, verified] = railDnsLines(gateOf(d), d.verifiedManually);
+  const subs = [waiting, verified, 'Let’s Encrypt', 'HTTPS everywhere'];
   return (
     <ol aria-label="Progress" className="grid grid-cols-2 gap-x-4 gap-y-3 sm:flex sm:items-center sm:gap-0">
       {STEPS.map((label, i) => {
@@ -43,7 +35,7 @@ export function VerifyRail({ d }: { d: DomainDetail }): React.JSX.Element {
                 {label}
                 <span className="sr-only">{done ? ' (done)' : cur ? (bad ? ' (failed)' : ' (in progress)') : ''}</span>
               </span>
-              <span className="text-muted-foreground truncate font-mono text-[11px]">{bad ? 'needs you' : subs[i]}</span>
+              <span className="text-muted-foreground font-mono text-[11px] leading-snug">{bad ? 'needs you' : subs[i]}</span>
             </span>
             {i < STEPS.length - 1 ? (
               <span aria-hidden className={cn('mx-3 hidden h-px min-w-6 flex-1 sm:block', done ? 'bg-status-online' : 'bg-border')} />

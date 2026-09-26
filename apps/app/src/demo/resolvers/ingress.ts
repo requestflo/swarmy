@@ -2,7 +2,7 @@ import type { TlsMode } from '@swarmy/core';
 import type { RenderedConfig } from '@swarmy/core/protocol';
 import type { DemoStore, DomainResolvers } from '../types';
 import type { EdgeState } from '@/components/ingress/edge-runtime';
-import { advance, checkStatus, demoEdges, registrarGuidance, type DemoCheck, type DemoEdge } from './ingress-domains';
+import { advance, checkStatus, demoDns, demoEdges, registrarGuidance, type DemoCheck, type DemoEdge } from './ingress-domains';
 
 /**
  * Ingress demo resolvers — the Networking surface (driver chooser + rendered-config
@@ -63,8 +63,8 @@ function demoCompanion(host: string): string | null {
 function demoStatus(host: string, tls: TlsMode, edges: DemoEdge[], issuingUntil?: number) {
   const now = Date.now();
   const ips = edges.map((e) => e.ip);
-  const resolvers = ['system', '1.1.1.1', '8.8.8.8'].map((resolver) => ({ resolver, a: ips, aaaa: [] as string[], cname: [] as string[], matches: true }));
-  const dns = { a: ips, aaaa: [] as string[], cname: [] as string[], matched: ips, resolvers };
+  const all = demoDns(4, ips, []);
+  const dns = { a: ips, aaaa: [] as string[], cname: [] as string[], matched: ips, resolvers: all.resolvers, gate: all.gate };
   if (issuingUntil && now < issuingUntil && tls !== 'off') {
     return {
       host,
@@ -676,7 +676,8 @@ export const ingress: DomainResolvers = {
           protection: null,
           canaryPct: null,
           www: 'redirect-www-to-apex',
-          check: { stage: 0, wrongIp: '192.64.119.20', addedAt: Date.now() - 4 * 60_000, lastCheckedAt: Date.now() - 12_000, verifiedAt: null },
+          // 7 of 12 public resolvers already see the edges; 8.8.8.8 still holds the parking page.
+          check: { stage: 1, wrongIp: '192.64.119.20', addedAt: Date.now() - 4 * 60_000, lastCheckedAt: Date.now() - 12_000, verifiedAt: null },
         },
         {
           id: 'dom-api',

@@ -1,4 +1,5 @@
 import type { StatusTone } from '@swarmy/ui';
+import type { DnsGateView, DomainResolverView } from '@swarmy/core';
 
 /** Mirrors the controller's `DomainState` (@swarmy/ingress domain-verify). */
 export type DomainState = 'waiting_dns' | 'verified' | 'issuing' | 'active' | 'error';
@@ -6,16 +7,10 @@ export type DomainState = 'waiting_dns' | 'verified' | 'issuing' | 'active' | 'e
 /** Apex ↔ www toggle values (mirrors `WwwMode`). */
 export type WwwMode = 'redirect-www-to-apex' | 'redirect-apex-to-www' | 'serve-both';
 
-/** One resolver's answer (mirrors `ResolverSeen`). */
-export interface ResolverSeen {
-  resolver: string;
-  a: string[];
-  aaaa: string[];
-  cname: string[];
-  nxdomain?: boolean;
-  error?: string;
-  matches: boolean;
-}
+/** One resolver's result on the last check (`DomainResolverView`, @swarmy/core). */
+export type ResolverView = DomainResolverView;
+/** The go-live gate on the last check (`DnsGateView`, @swarmy/core). */
+export type DnsGate = DnsGateView;
 
 /** Mirrors the controller's `DomainStatusView` (domain-verify.service.ts). */
 export interface DomainStatus {
@@ -28,7 +23,7 @@ export interface DomainStatus {
   verifiedManually: boolean;
   lastCheckedAt: string | null;
   nextCheckAt: string | null;
-  dns: { a: string[]; aaaa: string[]; cname: string[]; matched: string[]; resolvers?: ResolverSeen[] } | null;
+  dns: { a: string[]; aaaa: string[]; cname: string[]; matched: string[]; resolvers: ResolverView[]; gate: DnsGate | null } | null;
   certificate: {
     issuer: string | null;
     expiresAt: string | null;

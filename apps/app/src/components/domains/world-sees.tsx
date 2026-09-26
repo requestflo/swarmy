@@ -1,60 +1,72 @@
 import * as React from 'react';
-import { Section, StatusWord, Tech } from '@/components/calm';
-import type { DomainDetail } from '@/components/ingress/domain-state';
-import { agreeCount, resolverAnswer, resolverName } from './lifecycle';
+import { Section, Tech } from '@/components/calm';
+import type { DnsGate, DomainDetail } from '@/components/ingress/domain-state';
+import type { MapEdge } from './resolver-map';
+import { MapLegend, ResolverList } from './resolver-list';
+import { gateOf, gateRuleTech, splitResolvers } from './resolver-words';
+
+const ResolverMap = React.lazy(() => import('./resolver-map'));
+
+/** The rule, in one plain sentence (Summary). */
+function ruleSentence(g: DnsGate | null): string {
+  if (g?.basis === 'local') {
+    return 'No public resolver answered, so swarmy is using its own: each one that answers has to point here.';
+  }
+  const anchors = g?.anchors ?? ['1.1.1.1', '8.8.8.8'];
+  const who =
+    anchors.length === 2 ? ', including Cloudflare’s and Google’s,' : anchors[0] === '1.1.1.1' ? ', including Cloudflare’s,' : anchors[0] ? ', including Google’s,' : '';
+  return `swarmy goes live once most resolvers${who} point here. The rest are old answers that will expire.`;
+}
 
 /**
- * "What the world sees": exactly the resolvers swarmy asked on the last
- * check (`dns.resolvers`), what each answered and whether it sees an edge.
- *
- * PENDING OWNER DECISION — a wider resolver fan-out (the board's 12-resolver
- * world map). The controller asks only its own resolver, swarmy's
- * nameservers (for hosts in a swarmy zone) and the DoH resolvers in
- * SWARMY_DOH_RESOLVERS (default 1.1.1.1 + 8.8.8.8). If more vantage points
- * are added, render them here from the same `dns.resolvers` list; don't
- * draw resolvers swarmy didn't ask.
+ * "What the world sees" (board 29): the public resolvers swarmy asked on the
+ * last check on a world map at each operator's home city, the legend, and the
+ * list of what each answered. The same results decide the go-live gate
+ * (`dnsGate` in @swarmy/ingress), so the count here is the gate's count.
  */
-export function WorldSees({ d }: { d: DomainDetail }): React.JSX.Element {
-  const resolvers = d.dns?.resolvers ?? [];
-  const { seen, answered } = agreeCount(resolvers);
-  const expected = [...new Set([...(d.guidance.records ?? []).filter((r) => r.type === 'A' || r.type === 'AAAA').map((r) => r.value)])];
+export function WorldSees({ d, edges }: { d: DomainDetail; edges: MapEdge[] }): React.JSX.Element {
+  const { world, local } = splitResolvers(d.dns?.resolvers ?? []);
+  const g = gateOf(d);
+  const count = g && g.basis === 'public' ? `${g.agreeing} of ${world.length} see your edges` : undefined;
+  const mapLabel = `World map: ${world.map((r) => `${r.name} (${r.city ?? 'unknown'}) ${r.state.replace('_', ' ')}`).join('; ')}`;
   return (
-    <Section
-      title="What the world sees"
-      count={answered ? `${seen} of ${answered} see your edges` : undefined}
-      flush
-    >
-      {resolvers.length === 0 ? (
-        <p className="text-muted-foreground py-3 text-[13.5px]">
+    <Section title="What the world sees" count={count}>
+      {world.length === 0 && local.length === 0 ? (
+        <p className="text-muted-foreground text-[13.5px]">
           {d.lastCheckedAt ? 'The last check didn’t keep per-resolver answers. Check again to see them.' : 'Not checked yet. The first check runs within a minute.'}
         </p>
       ) : (
-        <ul className="flex flex-col">
-          {resolvers.map((r) => {
-            const n = resolverName(r.resolver);
-            return (
-              <li key={r.resolver} className="border-border flex min-h-12 flex-wrap items-center gap-x-3 gap-y-0.5 border-b py-2 last:border-b-0">
-                <span className="flex min-w-0 flex-1 flex-col sm:flex-none sm:basis-60">
-                  <span className="text-[13.5px] font-semibold">{n.name}</span>
-                  <span className="text-muted-foreground font-mono text-[11px]">{n.how}</span>
-                </span>
-                <span className="min-w-0 flex-1 font-mono text-[12.5px] break-all">{resolverAnswer(r)}</span>
-                <StatusWord tone={r.error ? 'idle' : r.matches ? 'ok' : 'warn'} word={r.error ? 'no answer' : r.matches ? 'sees your edges' : 'elsewhere'} />
-                <Tech className="basis-full">
-                  {r.resolver} · A [{r.a.join(', ')}] · AAAA [{r.aaaa.join(', ')}] · CNAME [{r.cname.join(', ')}]
-                  {r.nxdomain ? ' · NXDOMAIN' : ''}
-                  {r.error ? ` · ${r.error}` : ''}
-                </Tech>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="flex flex-col gap-3">
+          {world.length ? (
+            <>
+              <div className="border-border overflow-hidden rounded-md border">
+                <React.Suspense fallback={<div className="bg-muted aspect-[960/372] w-full animate-pulse" />}>
+                  <ResolverMap resolvers={world} edges={edges} label={mapLabel} />
+                </React.Suspense>
+              </div>
+              <MapLegend edges={edges.map((e) => e.name)} />
+            </>
+          ) : null}
+          <p className="text-[13.5px] leading-relaxed">{ruleSentence(g)}</p>
+          {world.length ? (
+            <p className="text-muted-foreground text-[12px] leading-relaxed">
+              Each dot sits at the operator’s home city. These resolvers are anycast, so the answer came from whichever of their sites is nearest swarmy, not from the dot.
+            </p>
+          ) : null}
+          <Tech>{gateRuleTech(g)}</Tech>
+          <Tech>SWARMY_DOH_RESOLVERS · unset = these {world.length || 12} · off = none (swarmy’s own resolvers decide) · wire:https://… adds an RFC 8484 endpoint</Tech>
+          {world.length ? <ResolverList resolvers={world} label="Public resolvers" /> : null}
+          {local.length ? (
+            <div className="flex flex-col gap-1">
+              <h3 className="text-muted-foreground pt-1 font-mono text-[11px] tracking-wider uppercase">Inside your cluster</h3>
+              <ResolverList resolvers={local} label="swarmy’s own resolvers" />
+              <p className="text-muted-foreground text-[12px]">
+                {g?.basis === 'local' ? 'These decide while no public resolver answers.' : 'Shown for reference; they decide only when no public resolver answers.'}
+              </p>
+            </div>
+          ) : null}
+        </div>
       )}
-      <p className="text-muted-foreground pt-2 pb-2 text-[12.5px] leading-relaxed">
-        swarmy decides using these. Every one that answers has to see your edges; one that can’t be reached is skipped. When
-        swarmy’s own resolver already sees another address, it doesn’t ask the public ones.
-      </p>
-      {expected.length ? <Tech className="pb-2">expected · {expected.join(' · ')}</Tech> : null}
     </Section>
   );
 }

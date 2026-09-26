@@ -68,7 +68,7 @@ export function DomainVerifyPage({ host }: { host: string }): React.JSX.Element 
         <VerifyRail d={d} />
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
           <div className="flex min-w-0 flex-col gap-5">
-            <WorldSees d={d} />
+            <WorldSees d={d} edges={v.mapEdges} />
             {waiting && records.length ? (
               <Section title="The records to have" count={records.length}>
                 <p className="text-muted-foreground text-[13px]">{d.guidance.summary}</p>

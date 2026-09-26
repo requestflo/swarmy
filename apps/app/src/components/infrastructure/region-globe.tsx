@@ -1,14 +1,11 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { geoEquirectangular, geoGraticule10, geoPath, type GeoSphere } from 'd3-geo';
-import { feature } from 'topojson-client';
 import { GlobeIcon } from 'lucide-react';
 import { Skeleton, cn, toast } from '@swarmy/ui';
 import type { NodeSummary } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
-// Vite gives us the bundled asset URL (avoids inlining a ~100 KB JSON literal type
-// into the typecheck); we fetch + parse it once at runtime.
-import worldUrl from 'world-atlas/countries-110m.json?url';
+import { useWorldCountries } from './world-countries';
 
 /**
  * RegionGlobe — a 2-D world map for assigning nodes to regions.
@@ -147,33 +144,8 @@ export default function RegionGlobe(): React.JSX.Element {
   const projection = React.useMemo(() => geoEquirectangular().fitSize([W, MAP_H], SPHERE), []);
   const graticule = React.useMemo(() => geoPath(projection)(geoGraticule10()) ?? '', [projection]);
 
-  // Country polygons: fetch the TopoJSON once, project each feature to an SVG path.
-  const [countries, setCountries] = React.useState<string[] | null>(null);
-  React.useEffect(() => {
-    let cancelled = false;
-    const path = geoPath(projection);
-    (async () => {
-      try {
-        const res = await fetch(worldUrl);
-        const topo = (await res.json()) as Parameters<typeof feature>[0];
-        const obj = topo.objects.countries;
-        if (!obj) {
-          if (!cancelled) setCountries([]);
-          return;
-        }
-        const fc = feature(topo, obj);
-        const feats = 'features' in fc ? fc.features : [fc];
-        const ds = feats.map((f) => path(f) ?? '').filter(Boolean);
-        if (!cancelled) setCountries(ds);
-      } catch {
-        // Degrade gracefully: markers still render over the graticule.
-        if (!cancelled) setCountries([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [projection]);
+  // Country polygons: fetched once and projected (shared with the domain check's map).
+  const countries = useWorldCountries(projection);
 
   // ── layout: project regions, cluster nodes around them, dock the rest ──
   const layout = React.useMemo(() => {

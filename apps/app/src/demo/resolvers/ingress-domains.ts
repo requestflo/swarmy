@@ -1,11 +1,12 @@
+import { DOH_ANCHORS, DOH_RESOLVERS, type ResolverState } from '@swarmy/core';
 import type { DemoStore } from '../types';
 import { apexOf, normalizeHost } from '@/components/domains/host-shape';
 
 /**
  * Demo custom-domain checks: a believable walk through the controller's
  * lifecycle (waiting_dns → verified → issuing → active), one step per
- * "Check again". Mirrors `resolverChainLookup` (swarmy's own resolver first;
- * the public DoH resolvers only once it already sees an edge), `evaluateDns`
+ * "Check again". Mirrors `resolverChainLookup` (swarmy's own resolver, then the
+ * 12 public DoH resolvers on every check), the 3-in-4 gate and `evaluateDns`
  * reasons, the per-edge TLS probe, and `nextCheckDelay` timing.
  */
 export interface DemoCheck {
@@ -60,8 +61,52 @@ export function advance(c: DemoCheck, now: number, skip = false): DemoCheck {
   return { ...c, stage, lastCheckedAt: now, verifiedAt: c.verifiedAt ?? (stage >= 2 ? now : null), manual, dnsStage: manual ? (c.dnsStage ?? c.stage) : undefined };
 }
 
-function answer(resolver: string, ips: string[], edges: string[]) {
-  return { resolver, a: ips, aaaa: [], cname: [], ...(ips.length ? {} : { nxdomain: true }), matches: ips.some((ip) => edges.includes(ip)) };
+/** Which public resolvers see the edges at each DNS stage (the rest still hold the old answer). */
+const AGREE_AT: Record<number, string[]> = {
+  0: [],
+  1: ['cloudflare', 'quad9', 'opendns', 'adguard', 'mullvad', 'controld', 'cira'],
+  2: DOH_RESOLVERS.map((r) => r.id).filter((id) => id !== 'alidns' && id !== 'dnspod'),
+};
+/** Resolvers that time out at a stage (left out of the count). */
+const SILENT_AT: Record<number, string[]> = { 3: ['iij'] };
+
+function resolverRow(id: string, state: ResolverState, ips: string[]) {
+  const info = DOH_RESOLVERS.find((r) => r.id === id);
+  return {
+    id,
+    name: info?.name ?? 'swarmy’s own resolver',
+    operator: info?.operator ?? null,
+    city: info?.city ?? null,
+    region: info?.region ?? null,
+    lat: info?.lat ?? null,
+    lon: info?.lon ?? null,
+    tier: (info ? 'public' : 'local') as 'public' | 'local',
+    format: info?.format ?? null,
+    url: info?.url ?? null,
+    anchor: id in DOH_ANCHORS,
+    state,
+    ips,
+    cname: [] as string[],
+    nxdomain: state === 'cached' && ips.length === 0,
+    error: state === 'no_answer' ? 'The operation timed out.' : null,
+  };
+}
+
+/** Per-resolver results + the gate for a DNS stage (mirrors `evaluateDns` / `dnsGate`). */
+export function demoDns(dnsStage: number, ours: string[], old: string[]) {
+  const agree = AGREE_AT[dnsStage] ?? DOH_RESOLVERS.map((r) => r.id);
+  const silent = SILENT_AT[dnsStage] ?? [];
+  const pub = DOH_RESOLVERS.map((r) =>
+    silent.includes(r.id) ? resolverRow(r.id, 'no_answer', []) : agree.includes(r.id) ? resolverRow(r.id, 'agrees', ours) : resolverRow(r.id, 'cached', old),
+  );
+  const system = dnsStage === 0 ? resolverRow('system', 'cached', old) : resolverRow('system', 'agrees', ours);
+  const answering = pub.filter((r) => r.state !== 'no_answer');
+  const agreeing = answering.filter((r) => r.state === 'agrees').length;
+  const needed = Math.ceil((answering.length * 3) / 4);
+  const anchorsAgree = answering.filter((r) => r.anchor).every((r) => r.state === 'agrees');
+  const gate = { basis: 'public' as const, agreeing, answering: answering.length, needed, anchors: ['1.1.1.1', '8.8.8.8'], anchorsAgree, pass: agreeing >= needed && anchorsAgree };
+  const seen = [...new Set([system, ...pub].flatMap((r) => r.ips))];
+  return { resolvers: [system, ...pub], gate, seen, matched: seen.filter((ip) => ours.includes(ip)) };
 }
 
 /** A `DomainStatusView` for this check stage. */
@@ -73,15 +118,13 @@ export function checkStatus(host: string, c: DemoCheck, edges: DemoEdge[], tls: 
   const old = companion || !c.wrongIp ? [] : [c.wrongIp];
   const stage = c.stage;
   const dnsStage = c.dnsStage ?? stage;
-  const resolvers =
-    dnsStage === 0 ? [answer('system', old, ips)] : dnsStage === 1 ? [answer('system', ips, ips), answer('1.1.1.1', ips, ips), answer('8.8.8.8', old, ips)] : ['system', '1.1.1.1', '8.8.8.8'].map((r) => answer(r, ips, ips));
-  const seen = [...new Set(resolvers.flatMap((r) => r.a))];
+  const dns = demoDns(dnsStage, ips, old);
   const expected = ips.join(' or ');
   const reason =
     stage === 0
       ? old.length ? `${host} points at ${old.join(', ')} — expected ${expected}.` : `No DNS record for ${host} yet.`
       : stage === 1
-        ? `Still propagating: 8.8.8.8 sees ${old.join(', ') || 'nothing'}.`
+        ? `Still propagating: ${dns.gate.agreeing} of ${dns.gate.answering} resolvers see a swarmy edge; swarmy needs ${dns.gate.needed}, including 1.1.1.1 and 8.8.8.8. 8.8.8.8 still sees ${old.join(', ') || 'no record'}.`
         : tls === 'off' ? 'Serving over plain HTTP (TLS is off).'
           : stage === 2 ? 'DNS verified — requesting a certificate.'
             : stage === 3 ? 'Requesting a certificate from Let’s Encrypt…'
@@ -104,7 +147,7 @@ export function checkStatus(host: string, c: DemoCheck, edges: DemoEdge[], tls: 
     verifiedManually: !!c.manual,
     lastCheckedAt: new Date(last).toISOString(),
     nextCheckAt: new Date(last + every).toISOString(),
-    dns: { a: seen, aaaa: [], cname: [], matched: seen.filter((ip) => ips.includes(ip)), resolvers },
+    dns: { a: dns.seen, aaaa: [], cname: [], matched: dns.matched, resolvers: dns.resolvers, gate: dns.gate },
     certificate,
   };
 }

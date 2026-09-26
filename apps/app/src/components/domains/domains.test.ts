@@ -4,6 +4,8 @@ import { hostKind, wwwExample, companionOf } from './host-shape';
 import { planRows, planTitle } from './plan-records';
 import { cadenceCopy, checkClock, railState } from './lifecycle';
 import { diagnose } from './diagnosis';
+import { gateOf, railDnsLines } from './resolver-words';
+import type { DnsGate } from '@/components/ingress/domain-state';
 
 const plan = (host: string, label: string): DomainPlan => ({
   host,
@@ -91,5 +93,28 @@ describe('diagnose', () => {
   it('explains an AAAA record', () => {
     const g = diagnose({ ...base, reason: 'An AAAA record points a.com at 2606:4700::1. Let’s Encrypt tries IPv6 first, so remove it.' });
     expect(g.fix).toContain('Delete the AAAA record');
+  });
+});
+
+describe('resolver words (the 3-in-4 gate on the rail)', () => {
+  const gate = (over: Partial<DnsGate> = {}): DnsGate => ({ basis: 'public', agreeing: 7, answering: 12, needed: 9, anchors: ['1.1.1.1', '8.8.8.8'], anchorsAgree: false, pass: false, ...over });
+  it('waiting: "7 of 12 resolvers" · "needs 9 of 12, including 1.1.1.1 and 8.8.8.8"', () => {
+    expect(railDnsLines(gate(), false)).toEqual(['7 of 12 resolvers', 'needs 9 of 12, including 1.1.1.1 and 8.8.8.8']);
+  });
+  it('verified: "9 of 12 agree, including 1.1.1.1 and 8.8.8.8"', () => {
+    expect(railDnsLines(gate({ agreeing: 9, anchorsAgree: true, pass: true }), false)[1]).toBe('9 of 12 agree, including 1.1.1.1 and 8.8.8.8');
+  });
+  it('a custom list without anchors, the local fallback and an admin skip', () => {
+    expect(railDnsLines(gate({ agreeing: 3, answering: 4, needed: 3, anchors: [], pass: true }), false)[1]).toBe('3 of 4 agree');
+    expect(railDnsLines(gate({ basis: 'local', agreeing: 1, answering: 1, needed: 1, pass: true }), false)[1]).toBe('swarmy’s own resolvers agree');
+    expect(railDnsLines(null, true)).toEqual(['skipped by an admin', 'without a DNS check']);
+  });
+  it('gateOf derives counts for records from before the gate was kept', () => {
+    const r = (state: 'agrees' | 'cached' | 'no_answer') => ({ state, error: state === 'no_answer' ? 'timeout' : null }) as never;
+    expect(gateOf({ dns: { a: [], aaaa: [], cname: [], matched: [], resolvers: [r('agrees'), r('cached'), r('no_answer')], gate: null } })).toMatchObject({
+      agreeing: 1,
+      answering: 2,
+      pass: false,
+    });
   });
 });
