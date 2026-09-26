@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { ChevronDownIcon, Trash2Icon } from 'lucide-react';
 import {
   AlertDialog,
@@ -23,8 +24,7 @@ import { ProtectionChips } from './protection-chips';
 import { ProtectionEditor } from './protection-editor';
 import { edgeTone, notServingLabel, type EdgeState } from './edge-runtime';
 import type { RouteProtection } from './protection-model';
-import { DomainDnsPanel } from './domain-dns-panel';
-import { DOMAIN_STATE_LABEL, WWW_LABEL, canPairWww, domainStateTone, type DomainStatus, type WwwMode } from './domain-state';
+import { DOMAIN_STATE_LABEL, domainStateTone, type DomainStatus, type WwwMode } from './domain-state';
 
 /** One stack-scoped domain route (mirrors the controller's DomainView). */
 export interface StackDomain {
@@ -65,15 +65,6 @@ export function StackDomainRow({ domain }: { domain: StackDomain }): React.JSX.E
     trpc.ingress.removeDomain.mutationOptions({
       onSuccess: () => {
         toast.success(`${domain.host} removed`);
-        void qc.invalidateQueries();
-      },
-      onError: (e) => toast.error(e.message),
-    }),
-  );
-  const setWww = useMutation(
-    trpc.ingress.setDomainWww.mutationOptions({
-      onSuccess: () => {
-        toast.success('Saved');
         void qc.invalidateQueries();
       },
       onError: (e) => toast.error(e.message),
@@ -140,24 +131,16 @@ export function StackDomainRow({ domain }: { domain: StackDomain }): React.JSX.E
         )}
         <ChevronDownIcon className={cn('text-muted-foreground size-4 shrink-0 transition-transform', expanded && 'rotate-180')} />
       </button>
-      {expanded ? <DomainDnsPanel host={domain.host} /> : null}
-      {expanded && canPairWww(domain.host) ? (
+      {expanded ? (
         <div className="flex flex-wrap items-center gap-3 border-t px-6 py-3">
-          <span className="mono-label text-muted-foreground">www</span>
-          <select
-            className="border-input bg-background rounded-md border px-2 py-1 text-sm"
-            value={domain.www ?? 'none'}
-            disabled={setWww.isPending}
-            onChange={(e) =>
-              setWww.mutate({ id: domain.id, www: e.target.value === 'none' ? null : (e.target.value as WwwMode) })
-            }
+          <p className="text-muted-foreground min-w-0 flex-1 text-[13px]">{domain.status?.reason ?? 'DNS and certificate not checked yet.'}</p>
+          <Link
+            to="/network/domains/$host"
+            params={{ host: domain.host }}
+            className="text-primary inline-flex min-h-11 items-center font-mono text-[12px] hover:underline"
           >
-            {(Object.keys(WWW_LABEL) as Array<keyof typeof WWW_LABEL>).map((k) => (
-              <option key={k} value={k}>
-                {WWW_LABEL[k]}
-              </option>
-            ))}
-          </select>
+            DNS, www and certificate →
+          </Link>
         </div>
       ) : null}
       {expanded ? (

@@ -47,6 +47,7 @@ import {
   type ExpectedTarget,
   type HostPosture,
   type ResolverAnswer,
+  type ResolverSeen,
   type TlsProbe,
   type WwwMode,
 } from '@swarmy/ingress';
@@ -218,7 +219,7 @@ export async function expectedTarget(ctx: OrgContext): Promise<ExpectedTarget & 
 }
 
 /** The swarmy-served (swarmy-ns) zone that contains `host`, if any. */
-async function zoneFor(
+export async function zoneFor(
   ctx: OrgContext,
   host: string,
 ): Promise<{ zone: string; nameservers: Array<{ fqdn: string; ip: string }> } | null> {
@@ -476,7 +477,14 @@ export interface DomainStatusView {
   verifiedManually: boolean;
   lastCheckedAt: string | null;
   nextCheckAt: string | null;
-  dns: { a: string[]; aaaa: string[]; cname: string[]; matched: string[] } | null;
+  dns: {
+    a: string[];
+    aaaa: string[];
+    cname: string[];
+    matched: string[];
+    /** What each resolver swarmy asked answered (empty for records from before this was kept). */
+    resolvers: ResolverSeen[];
+  } | null;
   certificate: {
     issuer: string | null;
     expiresAt: string | null;
@@ -508,7 +516,9 @@ export function toStatusView(host: string, rec: DomainCheckRecord | undefined, p
     verifiedManually: rec?.verifiedManually ?? false,
     lastCheckedAt: iso(rec?.lastCheckedAt),
     nextCheckAt: iso(rec?.nextCheckAt),
-    dns: rec?.dns ? { a: rec.dns.a, aaaa: rec.dns.aaaa, cname: rec.dns.cname, matched: rec.dns.matched } : null,
+    dns: rec?.dns
+      ? { a: rec.dns.a, aaaa: rec.dns.aaaa, cname: rec.dns.cname, matched: rec.dns.matched, resolvers: rec.dns.resolvers ?? [] }
+      : null,
     certificate: rec?.cert
       ? {
           issuer: rec.cert.issuer,

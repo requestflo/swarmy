@@ -114,7 +114,7 @@ export function parseIntents(query: string, world: IntentWorld): Intent[] {
     const a = findApp(world, dom.app);
     const h = dom.host && DOMAIN.test(dom.host) ? dom.host : undefined;
     if (a) {
-      push({ id: `domain:${a.name}:${h ?? ''}`, verb: 'Add a domain', group: 'Do it', title: h ? `Add ${h} to ${a.name}` : `Add a domain to ${a.name}`, sub: 'opens the form on its Domains tab · HTTPS is automatic', action: { kind: 'go', to: '/stacks/$name/network', params: { name: a.name }, search: { add: h ?? '' } } });
+      push({ id: `domain:${a.name}:${h ?? ''}`, verb: 'Add a domain', group: 'Do it', title: h ? `Add ${h} to ${a.name}` : `Add a domain to ${a.name}`, sub: 'shows the records to add · HTTPS is automatic', action: { kind: 'go', to: '/network/domains/new', search: { app: a.name, ...(h ? { host: h } : {}) } } });
     }
   }
 

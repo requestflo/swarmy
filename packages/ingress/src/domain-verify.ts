@@ -40,6 +40,25 @@ export interface DnsObservation {
   cname: string[];
   /** Which of the answers are swarmy edges. */
   matched: string[];
+  /**
+   * What each resolver swarmy asked answered, and whether it sees an edge —
+   * the "what the world sees" view. Optional: records written before this
+   * field existed don't carry it.
+   */
+  resolvers?: ResolverSeen[];
+}
+
+/** One resolver's answer as kept on the observation (see `DnsObservation.resolvers`). */
+export interface ResolverSeen {
+  resolver: string;
+  a: string[];
+  aaaa: string[];
+  cname: string[];
+  nxdomain?: boolean;
+  /** Transport / SERVFAIL error: this resolver told us nothing (and is ignored). */
+  error?: string;
+  /** It answered with at least one swarmy edge (or the tunnel CNAME). */
+  matches: boolean;
 }
 
 /** What one certificate probe observed (TLS handshake against the edges). */
@@ -440,7 +459,21 @@ export function evaluateDns(host: string, answers: readonly ResolverAnswer[], ex
   const a = [...new Set(answered.flatMap((x) => x.a))].sort();
   const aaaa = [...new Set(answered.flatMap((x) => x.aaaa))].sort();
   const cname = [...new Set(answered.flatMap((x) => x.cname))].sort();
-  const base = { a, aaaa, cname, warnings: [] as string[], matched: [] as string[] };
+  const edgeSet = new Set(expected.ips.map(canonIp));
+  const tunnel = expected.tunnelCname?.toLowerCase() ?? null;
+  const resolvers: ResolverSeen[] = answers.map((x) => ({
+    resolver: x.resolver,
+    a: x.a,
+    aaaa: x.aaaa,
+    cname: x.cname,
+    ...(x.nxdomain ? { nxdomain: true } : {}),
+    ...(x.error ? { error: x.error } : {}),
+    matches:
+      !x.error &&
+      ([...x.a, ...x.aaaa].some((ip) => edgeSet.has(canonIp(ip))) ||
+        (tunnel !== null && (x.cname.includes(tunnel) || (x.a.length > 0 && x.a.every(isCloudflareProxyIp))))),
+  }));
+  const base = { a, aaaa, cname, warnings: [] as string[], matched: [] as string[], resolvers };
   const fail = (reason: string, warnings: string[] = []): DnsObservation => ({ ...base, ok: false, reason, warnings });
 
   if (answered.length === 0) {

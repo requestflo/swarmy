@@ -6,6 +6,17 @@ export type DomainState = 'waiting_dns' | 'verified' | 'issuing' | 'active' | 'e
 /** Apex ↔ www toggle values (mirrors `WwwMode`). */
 export type WwwMode = 'redirect-www-to-apex' | 'redirect-apex-to-www' | 'serve-both';
 
+/** One resolver's answer (mirrors `ResolverSeen`). */
+export interface ResolverSeen {
+  resolver: string;
+  a: string[];
+  aaaa: string[];
+  cname: string[];
+  nxdomain?: boolean;
+  error?: string;
+  matches: boolean;
+}
+
 /** Mirrors the controller's `DomainStatusView` (domain-verify.service.ts). */
 export interface DomainStatus {
   host: string;
@@ -17,7 +28,7 @@ export interface DomainStatus {
   verifiedManually: boolean;
   lastCheckedAt: string | null;
   nextCheckAt: string | null;
-  dns: { a: string[]; aaaa: string[]; cname: string[]; matched: string[] } | null;
+  dns: { a: string[]; aaaa: string[]; cname: string[]; matched: string[]; resolvers?: ResolverSeen[] } | null;
   certificate: {
     issuer: string | null;
     expiresAt: string | null;
@@ -25,6 +36,30 @@ export interface DomainStatus {
     edges: Array<{ ip: string; ok: boolean; error?: string }>;
     checkedAt: string | null;
   } | null;
+}
+
+/** One record to create (mirrors `DnsRecordHint`). */
+export interface DnsRecordHint {
+  type: 'A' | 'AAAA' | 'CNAME' | 'NS';
+  name: string;
+  label: string;
+  value: string;
+  note?: string;
+}
+
+/** Mirrors `DnsGuidance`. */
+export interface DnsGuidance {
+  mode: 'records' | 'zone' | 'tunnel' | 'private';
+  summary: string;
+  records: DnsRecordHint[];
+  alternatives: DnsRecordHint[];
+  wildcard?: { provider: 'swarmy' | 'cloudflare' | null; summary: string };
+}
+
+/** Mirrors `DomainDetailView` (`ingress.domainStatus`). */
+export interface DomainDetail extends DomainStatus {
+  guidance: DnsGuidance;
+  companion: DomainStatus | null;
 }
 
 export const DOMAIN_STATE_LABEL: Record<DomainState, string> = {
@@ -49,16 +84,19 @@ export function domainStateTone(state: DomainState): StatusTone {
   }
 }
 
-export const WWW_LABEL: Record<WwwMode | 'none', string> = {
-  none: 'Only this host',
-  'redirect-www-to-apex': 'Also www — redirect www → apex',
-  'redirect-apex-to-www': 'Also www — redirect apex → www',
-  'serve-both': 'Also www — serve both',
-};
-
 /** Can this host pair with a www companion? (not wildcards / IPs / single labels) */
 export function canPairWww(host: string): boolean {
   const h = host.trim().toLowerCase();
   if (!h.includes('.') || h.startsWith('*.') || /^\d+\.\d+\.\d+\.\d+$/.test(h) || h.includes(':')) return false;
   return !h.startsWith('www.') || h.slice(4).includes('.');
+}
+
+/** Mirrors `DomainPlanView` (`ingress.domainPlan`): the records for a host before it is added. */
+export interface DomainPlan {
+  host: string;
+  apex: string;
+  isApex: boolean;
+  registrar: DnsGuidance;
+  nameserver: { zone: string; nameservers: Array<{ fqdn: string; ip: string }>; guidance: DnsGuidance } | null;
+  edges: Array<{ ip: string; name: string | null; region: string | null }>;
 }

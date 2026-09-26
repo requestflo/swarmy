@@ -36,6 +36,7 @@ import {
   skipDomainVerification,
   verifyDomainNow,
 } from '../services/domain-verify.service';
+import { previewDomainPlan } from '../services/domain-plan.service';
 
 /**
  * Ingress resolvers: a route lives on its target service's
@@ -217,6 +218,15 @@ export const ingressRouter = router({
   domainStatus: orgProcedure
     .input(z.object({ host: z.string().min(1) }))
     .query(({ ctx, input }) => getDomainStatus(ctx, input.host)),
+
+  /**
+   * "Add a domain" preview: the records to create for a host that is not
+   * routed yet (from the live edges), and the swarmy-served zone containing
+   * it when there is one. Read-only.
+   */
+  domainPlan: orgProcedure
+    .input(z.object({ host: z.string().min(1).max(253) }))
+    .query(({ ctx, input }) => previewDomainPlan(ctx, input.host)),
 
   /** Re-check DNS + certificate for a host right now ("Check again"). */
   verifyDomain: abacProcedure('ingress.write', resolveDomainHost)

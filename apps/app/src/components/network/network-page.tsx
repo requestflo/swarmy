@@ -9,13 +9,11 @@ import { DRIVER_LABELS, type IngressDriverId } from '@/components/ingress/driver
 import { useNetwork } from './use-network';
 import { DomainList } from './domain-list';
 import { VisitorFlow } from './visitor-flow';
-import { AddDomainDialog } from './add-domain-dialog';
 import { NetworkCode } from './network-code';
 
 /** Network hub — its tab is "Domains": every address, where it goes, and whether HTTPS is on. */
 export function NetworkPage(): React.JSX.Element {
   const n = useNetwork();
-  const [adding, setAdding] = React.useState(false);
   const [view, setView] = React.useState<'list' | 'picture'>('list');
 
   if (n.error && !n.ready) return <Shell><PageError error={n.error} retry={n.retry} /></Shell>;
@@ -49,8 +47,8 @@ export function NetworkPage(): React.JSX.Element {
             : `${total} address${total === 1 ? '' : 'es'} across ${new Set(n.domains.map((d) => d.stack)).size} apps. Certificates renew themselves.`
         }
         actions={
-          <Button variant={first ? 'outline' : 'default'} onClick={() => setAdding(true)}>
-            Add a domain
+          <Button asChild variant={first ? 'outline' : 'default'}>
+            <Link to="/network/domains/new">Add a domain</Link>
           </Button>
         }
       />
@@ -62,11 +60,11 @@ export function NetworkPage(): React.JSX.Element {
               tech={first.status?.reason}
               actions={
                 <Button asChild>
-                  <Link to="/stacks/$name/network" params={{ name: first.stack }}>Show the record to add</Link>
+                  <Link to="/network/domains/$host" params={{ host: first.host }}>Show what DNS sees</Link>
                 </Button>
               }
             >
-              Add one record at your registrar. swarmy checks every minute, then gets HTTPS by itself.
+              Add the records at your registrar. swarmy keeps checking, then gets HTTPS by itself.
             </NextAction>
           ) : null}
           <Section
@@ -76,7 +74,7 @@ export function NetworkPage(): React.JSX.Element {
             action={<ViewToggle view={view} onChange={setView} />}
           >
             {view === 'list' ? (
-              <DomainList domains={n.domains} onAdd={() => setAdding(true)} />
+              <DomainList domains={n.domains} />
             ) : (
               <VisitorFlow domains={n.domains} frontDoors={n.frontDoors} driverLabel={driver} geoOn={n.geoOn} />
             )}
@@ -92,7 +90,6 @@ export function NetworkPage(): React.JSX.Element {
           </Section>
         </aside>
       </div>
-      <AddDomainDialog open={adding} onOpenChange={setAdding} />
     </Shell>
   );
 }

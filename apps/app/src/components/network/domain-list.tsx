@@ -1,11 +1,12 @@
 import * as React from 'react';
+import { Link } from '@tanstack/react-router';
 import { CalmRow, RowList } from '@/components/calm';
 import { EmptyState } from '@/components/states';
 import { GlobeIcon } from 'lucide-react';
 import { domainSay, type HubDomain } from './use-network';
 
 /** One flat row per address: where it goes, whether HTTPS is on, the tech line at Controls. */
-export function DomainList({ domains, onAdd }: { domains: HubDomain[]; onAdd: () => void }): React.JSX.Element {
+export function DomainList({ domains }: { domains: HubDomain[] }): React.JSX.Element {
   if (domains.length === 0) {
     return (
       <EmptyState
@@ -13,9 +14,9 @@ export function DomainList({ domains, onAdd }: { domains: HubDomain[]; onAdd: ()
         title="No addresses yet"
         description="Give an app its own address. swarmy gets the HTTPS certificate and renews it."
         action={
-          <button type="button" onClick={onAdd} className="text-primary min-h-11 text-sm font-semibold hover:underline">
+          <Link to="/network/domains/new" className="text-primary inline-flex min-h-11 items-center text-sm font-semibold hover:underline">
             Add a domain
-          </button>
+          </Link>
         }
       />
     );
@@ -33,8 +34,8 @@ export function DomainList({ domains, onAdd }: { domains: HubDomain[]; onAdd: ()
             say={s.say}
             tech={`:${d.targetPort} · tls ${d.tls}${d.auto ? ' · sslip.io' : ''}`}
             word={s.word}
-            to="/stacks/$name/network"
-            params={{ name: d.stack }}
+            to="/network/domains/$host"
+            params={{ host: d.host }}
           />
         );
       })}

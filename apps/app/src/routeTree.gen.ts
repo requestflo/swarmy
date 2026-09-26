@@ -65,6 +65,8 @@ import { Route as AuthedStacksNameAnalyticsRouteImport } from './routes/_authed/
 import { Route as AuthedStacksNameAccessRouteImport } from './routes/_authed/stacks/$name.access'
 import { Route as AuthedServicesServiceIdTerminalRouteImport } from './routes/_authed/services/$serviceId_.terminal'
 import { Route as AuthedNodesNodeIdTerminalRouteImport } from './routes/_authed/nodes/$nodeId_.terminal'
+import { Route as AuthedNetworkDomainsNewRouteImport } from './routes/_authed/network_.domains.new'
+import { Route as AuthedNetworkDomainsHostRouteImport } from './routes/_authed/network_.domains.$host'
 import { Route as AuthedStacksNameReplaysIndexRouteImport } from './routes/_authed/stacks/$name.replays.index'
 import { Route as AuthedStacksNameErrorsIndexRouteImport } from './routes/_authed/stacks/$name.errors.index'
 import { Route as AuthedStacksNameReplaysSessionIdRouteImport } from './routes/_authed/stacks/$name.replays.$sessionId'
@@ -361,6 +363,17 @@ const AuthedNodesNodeIdTerminalRoute =
     path: '/nodes/$nodeId/terminal',
     getParentRoute: () => AuthedRoute,
   } as any)
+const AuthedNetworkDomainsNewRoute = AuthedNetworkDomainsNewRouteImport.update({
+  id: '/network_/domains/new',
+  path: '/network/domains/new',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedNetworkDomainsHostRoute =
+  AuthedNetworkDomainsHostRouteImport.update({
+    id: '/network_/domains/$host',
+    path: '/network/domains/$host',
+    getParentRoute: () => AuthedRoute,
+  } as any)
 const AuthedStacksNameReplaysIndexRoute =
   AuthedStacksNameReplaysIndexRouteImport.update({
     id: '/replays/',
@@ -432,6 +445,8 @@ export interface FileRoutesByFullPath {
   '/stacks/$name': typeof AuthedStacksNameRouteWithChildren
   '/stacks/new': typeof AuthedStacksNewRoute
   '/nodes/': typeof AuthedNodesIndexRoute
+  '/network/domains/$host': typeof AuthedNetworkDomainsHostRoute
+  '/network/domains/new': typeof AuthedNetworkDomainsNewRoute
   '/nodes/$nodeId/terminal': typeof AuthedNodesNodeIdTerminalRoute
   '/services/$serviceId/terminal': typeof AuthedServicesServiceIdTerminalRoute
   '/stacks/$name/access': typeof AuthedStacksNameAccessRoute
@@ -493,6 +508,8 @@ export interface FileRoutesByTo {
   '/settings/platform': typeof AuthedSettingsPlatformRoute
   '/stacks/new': typeof AuthedStacksNewRoute
   '/nodes': typeof AuthedNodesIndexRoute
+  '/network/domains/$host': typeof AuthedNetworkDomainsHostRoute
+  '/network/domains/new': typeof AuthedNetworkDomainsNewRoute
   '/nodes/$nodeId/terminal': typeof AuthedNodesNodeIdTerminalRoute
   '/services/$serviceId/terminal': typeof AuthedServicesServiceIdTerminalRoute
   '/stacks/$name/access': typeof AuthedStacksNameAccessRoute
@@ -557,6 +574,8 @@ export interface FileRoutesById {
   '/_authed/stacks/$name': typeof AuthedStacksNameRouteWithChildren
   '/_authed/stacks/new': typeof AuthedStacksNewRoute
   '/_authed/nodes/': typeof AuthedNodesIndexRoute
+  '/_authed/network_/domains/$host': typeof AuthedNetworkDomainsHostRoute
+  '/_authed/network_/domains/new': typeof AuthedNetworkDomainsNewRoute
   '/_authed/nodes/$nodeId_/terminal': typeof AuthedNodesNodeIdTerminalRoute
   '/_authed/services/$serviceId_/terminal': typeof AuthedServicesServiceIdTerminalRoute
   '/_authed/stacks/$name/access': typeof AuthedStacksNameAccessRoute
@@ -621,6 +640,8 @@ export interface FileRouteTypes {
     | '/stacks/$name'
     | '/stacks/new'
     | '/nodes/'
+    | '/network/domains/$host'
+    | '/network/domains/new'
     | '/nodes/$nodeId/terminal'
     | '/services/$serviceId/terminal'
     | '/stacks/$name/access'
@@ -682,6 +703,8 @@ export interface FileRouteTypes {
     | '/settings/platform'
     | '/stacks/new'
     | '/nodes'
+    | '/network/domains/$host'
+    | '/network/domains/new'
     | '/nodes/$nodeId/terminal'
     | '/services/$serviceId/terminal'
     | '/stacks/$name/access'
@@ -745,6 +768,8 @@ export interface FileRouteTypes {
     | '/_authed/stacks/$name'
     | '/_authed/stacks/new'
     | '/_authed/nodes/'
+    | '/_authed/network_/domains/$host'
+    | '/_authed/network_/domains/new'
     | '/_authed/nodes/$nodeId_/terminal'
     | '/_authed/services/$serviceId_/terminal'
     | '/_authed/stacks/$name/access'
@@ -1169,6 +1194,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedNodesNodeIdTerminalRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/network_/domains/new': {
+      id: '/_authed/network_/domains/new'
+      path: '/network/domains/new'
+      fullPath: '/network/domains/new'
+      preLoaderRoute: typeof AuthedNetworkDomainsNewRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/network_/domains/$host': {
+      id: '/_authed/network_/domains/$host'
+      path: '/network/domains/$host'
+      fullPath: '/network/domains/$host'
+      preLoaderRoute: typeof AuthedNetworkDomainsHostRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/_authed/stacks/$name/replays/': {
       id: '/_authed/stacks/$name/replays/'
       path: '/replays'
@@ -1290,6 +1329,8 @@ interface AuthedRouteChildren {
   AuthedStacksNameRoute: typeof AuthedStacksNameRouteWithChildren
   AuthedStacksNewRoute: typeof AuthedStacksNewRoute
   AuthedNodesIndexRoute: typeof AuthedNodesIndexRoute
+  AuthedNetworkDomainsHostRoute: typeof AuthedNetworkDomainsHostRoute
+  AuthedNetworkDomainsNewRoute: typeof AuthedNetworkDomainsNewRoute
   AuthedNodesNodeIdTerminalRoute: typeof AuthedNodesNodeIdTerminalRoute
   AuthedServicesServiceIdTerminalRoute: typeof AuthedServicesServiceIdTerminalRoute
   AuthedTerminalSessionsIdRoute: typeof AuthedTerminalSessionsIdRoute
@@ -1332,6 +1373,8 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedStacksNameRoute: AuthedStacksNameRouteWithChildren,
   AuthedStacksNewRoute: AuthedStacksNewRoute,
   AuthedNodesIndexRoute: AuthedNodesIndexRoute,
+  AuthedNetworkDomainsHostRoute: AuthedNetworkDomainsHostRoute,
+  AuthedNetworkDomainsNewRoute: AuthedNetworkDomainsNewRoute,
   AuthedNodesNodeIdTerminalRoute: AuthedNodesNodeIdTerminalRoute,
   AuthedServicesServiceIdTerminalRoute: AuthedServicesServiceIdTerminalRoute,
   AuthedTerminalSessionsIdRoute: AuthedTerminalSessionsIdRoute,

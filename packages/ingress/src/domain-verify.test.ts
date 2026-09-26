@@ -79,6 +79,18 @@ describe('evaluateDns', () => {
     const v = evaluateDns('shop.acme.com', [ans('1.1.1.1', ['203.0.113.10']), ans('8.8.8.8', ['203.0.113.10'])], EDGE);
     expect(v).toMatchObject({ ok: true, reason: null, warnings: [], matched: ['203.0.113.10'] });
   });
+  it('keeps what each resolver answered, and whether it sees an edge', () => {
+    const v = evaluateDns(
+      'a.com',
+      [ans('system', ['203.0.113.10']), ans('1.1.1.1', ['198.51.100.7']), ans('8.8.8.8', [], [], { error: 'timeout' })],
+      EDGE,
+    );
+    expect(v.resolvers).toEqual([
+      { resolver: 'system', a: ['203.0.113.10'], aaaa: [], cname: [], matches: true },
+      { resolver: '1.1.1.1', a: ['198.51.100.7'], aaaa: [], cname: [], matches: false },
+      { resolver: '8.8.8.8', a: [], aaaa: [], cname: [], error: 'timeout', matches: false },
+    ]);
+  });
   it('matches IPv6 in any textual form', () => {
     expect(evaluateDns('a.com', [ans('c', [], ['2001:0db8:0000::0010'])], EDGE).ok).toBe(true);
   });

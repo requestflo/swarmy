@@ -1,11 +1,11 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { PlusIcon } from 'lucide-react';
 import { Button } from '@swarmy/ui';
 import { CalmRow, Depth, RowList, Say, SayHeader, Section, Tech } from '@/components/calm';
 import { PageSkeleton } from '@/components/states';
 import { useTRPC } from '@/integrations/trpc';
-import { AddDomainCard } from '@/components/ingress/add-domain-card';
 import { StackDomainRow, type StackDomain } from '@/components/ingress/stack-domain-row';
 import { StackDnsStatus } from '@/components/geo/stack-dns-status';
 import { DomainsCode } from './domains-code';
@@ -19,7 +19,11 @@ import { domainWords, domainsHeadline } from './domain-words';
  */
 export function DomainsTabPage({ stack, add }: { stack: string; add?: string }): React.JSX.Element {
   const trpc = useTRPC();
-  const [adding, setAdding] = React.useState(add !== undefined);
+  const navigate = useNavigate();
+  // Old links (`?add=`) land on the Add a domain page, with the host prefilled.
+  React.useEffect(() => {
+    if (add !== undefined) void navigate({ to: '/network/domains/new', search: { app: stack, ...(add ? { host: add } : {}) }, replace: true });
+  }, [add, stack, navigate]);
   const q = useQuery({ ...trpc.ingress.listDomains.queryOptions({ stack }), refetchInterval: 5000 });
   if (q.isPending) return <PageSkeleton className="px-0 pt-0 xl:px-0" />;
   const rows = (q.data ?? []) as StackDomain[];
@@ -36,12 +40,13 @@ export function DomainsTabPage({ stack, add }: { stack: string; add?: string }):
         }
         lede="Every address goes through swarmy’s front door, which gets and renews the certificate and applies the protections before a request reaches the app."
         actions={
-          <Button onClick={() => setAdding((v) => !v)} aria-expanded={adding}>
-            <PlusIcon className="size-4" /> Add a domain
+          <Button asChild>
+            <Link to="/network/domains/new" search={{ app: stack }}>
+              <PlusIcon className="size-4" /> Add a domain
+            </Link>
           </Button>
         }
       />
-      <AddDomainCard stack={stack} open={adding} onOpenChange={setAdding} initialHost={add} />
       <DomainsCode stack={stack} rows={rows} />
       <Depth only="summary">
         {rows.length > 0 ? (
@@ -50,7 +55,7 @@ export function DomainsTabPage({ stack, add }: { stack: string; add?: string }):
               {rows.map((d) => {
                 const w = domainWords(d);
                 return (
-                  <CalmRow key={d.id} tone={w.tone} name={`${d.host}${d.pathPrefix && d.pathPrefix !== '/' ? d.pathPrefix : ''}`} sub={`→ ${d.serviceName.replace(`${stack}_`, '')}:${d.targetPort}`} say={w.say} word={w.word} wordTone={w.tone} />
+                  <CalmRow key={d.id} tone={w.tone} name={`${d.host}${d.pathPrefix && d.pathPrefix !== '/' ? d.pathPrefix : ''}`} sub={`→ ${d.serviceName.replace(`${stack}_`, '')}:${d.targetPort}`} say={w.say} word={w.word} wordTone={w.tone} to="/network/domains/$host" params={{ host: d.host }} />
                 );
               })}
             </RowList>

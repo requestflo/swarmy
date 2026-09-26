@@ -22,7 +22,7 @@ describe('parseIntents', () => {
 
   it('"add a domain to shop" finds storefront by its address', () => {
     const [i] = parseIntents('add a domain to shop', world);
-    expect(i?.action).toEqual({ kind: 'go', to: '/stacks/$name/network', params: { name: 'storefront' }, search: { add: '' } });
+    expect(i?.action).toEqual({ kind: 'go', to: '/network/domains/new', search: { app: 'storefront' } });
   });
 
   it('carries the domain into the form', () => {
