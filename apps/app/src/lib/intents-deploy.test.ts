@@ -38,7 +38,7 @@ describe('deploy intents', () => {
     expect(first('deploy gh as Blog')?.action).toMatchObject({ template: 'ghost', name: 'blog' });
   });
 
-  it('parses "to <server>" in either order, without pinning', () => {
+  it('parses "to <server>" in either order, resolving the server by name or prefix', () => {
     expect(first('deploy ghost to london')?.action).toMatchObject({ name: 'ghost', to: 'london', server: null });
     expect(first('deploy ghost as blog to mgr')?.action).toMatchObject({ name: 'blog', to: 'mgr', server: 'mgr-1' });
     expect(first('deploy ghost on wkr-1 as blog')?.action).toMatchObject({ name: 'blog', server: 'wkr-1' });

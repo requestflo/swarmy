@@ -3,7 +3,9 @@ import { Link } from '@tanstack/react-router';
 import { SayHeader, TONE_DOT } from '@/components/calm';
 import { clock } from './deploying-tracker';
 import { LiveAddressCard } from './live-address-card';
+import { LiveAfterList } from './live-after-list';
 import { LiveAlreadyOn } from './live-already-on';
+import { LiveFirstLook } from './live-first-look';
 import { LiveNextMoves } from './live-next-moves';
 import type { DeployWatch } from './use-deploy-progress';
 
@@ -11,8 +13,9 @@ const hhmm = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour:
 
 /**
  * Board "It's live": the eyebrow (NAME · DEPLOYED 10:41 · 1:02), the sentence,
- * the address card with the one coral Open ↗, what is already on, and the two
- * next moves. The duration shows only when this tab sent the deploy.
+ * the address card with the one coral Open ↗, "After it's live" steps, what
+ * is already on and the two next moves; on the right, the first-look stats.
+ * The duration shows only when this tab sent the deploy.
  */
 export function LiveView({
   stack,
@@ -21,6 +24,7 @@ export function LiveView({
   liveAt,
   onLeave,
   banner,
+  afterLive = [],
 }: {
   stack: string;
   watch: DeployWatch;
@@ -29,6 +33,8 @@ export function LiveView({
   onLeave: () => void;
   /** The one-time secrets banner, right under the sentence. */
   banner?: React.ReactNode;
+  /** The template's steps for once it's live (nothing secret). */
+  afterLive?: string[];
 }): React.JSX.Element {
   const took = startedAt ? ` · ${clock(Math.max(0, Math.round((liveAt - startedAt) / 1000)))}` : '';
   const short = (n: string): string => (n.startsWith(`${stack}_`) ? n.slice(stack.length + 1) : n);
@@ -58,15 +64,14 @@ export function LiveView({
             </Link>
           </p>
         )}
+        <LiveAfterList steps={afterLive} url={watch.domain ? `https://${watch.domain.host}` : null} />
         <LiveAlreadyOn stack={stack} domain={watch.domain} />
         <LiveNextMoves stack={stack} parts={`${main}${rest}`} onLeave={onLeave} />
       </div>
-      {/*
-        TODO(stats-strip): the right-hand slot of board "It's live" — a strip of
-        first-response time, copies healthy and TLS grade over a preview of the
-        site. Waiting on an owner decision (which numbers, and where each comes
-        from honestly). Render nothing here until then.
-      */}
+      <aside aria-label="First look" className="flex min-w-0 flex-col gap-3 xl:pt-24">
+        <h2 className="calm-eyebrow">First look · from swarmy</h2>
+        <LiveFirstLook stack={stack} />
+      </aside>
     </div>
   );
 }

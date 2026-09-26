@@ -25,9 +25,9 @@ const RING: Record<StepState, string> = {
 
 export { clock };
 
-/** "0:12" when done (from the deploy's start), "working · 0:07" while it runs. */
-function word(s: DeployStep, at: number | undefined, since: number | undefined): string {
-  if (s.state === 'done') return at === undefined ? 'done' : clock(at);
+/** "0:12" when done (how long it took), "working · 0:07" while it runs. */
+function word(s: DeployStep, took: number | undefined, since: number | undefined): string {
+  if (s.state === 'done') return took === undefined ? 'done' : clock(took);
   if (s.state === 'needs') return 'needs you';
   if (s.state === 'working' && since !== undefined) return `working · ${clock(Math.max(0, since))}`;
   return s.state;
@@ -52,16 +52,17 @@ function Dot({ step, n }: { step: DeployStep; n: number }): React.JSX.Element {
 /**
  * The five-step tracker (board "Deploying"): a row across the page on a wide
  * screen, a vertical rail on a phone. Each step: its title, a plain sub-line,
- * the state word (done with its time from the deploy's start, or how long it
- * has been working), and at Controls the mono tech lines.
+ * the state word (done with how long it took, or how long it has been
+ * working), and at Controls the mono tech lines. The total is the top bar's clock.
  */
 export function DeployingTracker({
   steps,
-  doneAt,
+  took,
   workingFor = {},
 }: {
   steps: DeployStep[];
-  doneAt: Partial<Record<StepKey, number>>;
+  /** Seconds each finished step took (./deploy-durations). */
+  took: Partial<Record<StepKey, number>>;
   /** Seconds each working step has been running (streamed deploys only). */
   workingFor?: Partial<Record<StepKey, number>>;
 }): React.JSX.Element {
@@ -91,7 +92,7 @@ export function DeployingTracker({
               <span className="text-muted-foreground text-[12.5px]">{s.sub}</span>
               <span className={cn('font-mono text-[13px]', TONE_TEXT[TONE[s.state]])}>
                 <span className="sr-only">Status: </span>
-                {word(s, doneAt[s.key], workingFor[s.key])}
+                {word(s, took[s.key], workingFor[s.key])}
               </span>
               {s.tech ? <Tech className="lg:max-w-[22ch]">{s.tech}</Tech> : null}
               {(s.facts ?? []).map((f) => (

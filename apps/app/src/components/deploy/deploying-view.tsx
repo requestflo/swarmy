@@ -4,6 +4,7 @@ import { PageSkeleton } from '@/components/states';
 import { DeployingCode } from './deploying-code';
 import { DeployingLog } from './deploying-log';
 import { DeployingTracker } from './deploying-tracker';
+import { stepDurations } from './deploy-durations';
 import { useNow } from './deploy-elapsed';
 import type { DeployWatch } from './use-deploy-progress';
 
@@ -54,7 +55,7 @@ export function DeployingView({
       {banner}
       <DeployingCode stackId={watch.stackId} service={watch.primary} domain={watch.domain} deployId={watch.deployId} />
       <div className="calm-card px-5 py-6 lg:px-6 lg:py-8">
-        <DeployingTracker steps={watch.steps} doneAt={watch.doneAt} workingFor={workingFor} />
+        <DeployingTracker steps={watch.steps} took={stepDurations(watch.steps, watch.doneAt, watch.startedAt)} workingFor={workingFor} />
       </div>
       <DeployingLog service={watch.primary} server={watch.server} events={watch.events} streaming={watch.streaming} />
     </div>

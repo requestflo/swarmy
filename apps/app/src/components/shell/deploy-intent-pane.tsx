@@ -9,7 +9,7 @@ import { defaultSizeForNodes } from '@/components/blueprints/blueprint-option-fi
 import { memoryLabel } from '@/components/blueprints/template-words';
 import { useTemplatePlan } from '@/components/blueprints/use-template-plan';
 import { useTemplateDeploy } from '@/components/deploy/use-template-deploy';
-import { fitsIn, useServerRoom } from '@/components/deploy/use-server-room';
+import { fitsIn, useServerRoom, type ServerRoom } from '@/components/deploy/use-server-room';
 import { bytes } from '@/lib/format';
 import type { IntentAction } from '@/lib/intents';
 import { useOnlineNodeCount } from '@/lib/use-online-node-count';
@@ -17,9 +17,9 @@ import { Pane, type PaneProps } from './intent-pane';
 
 type DeployAction = Extract<IntentAction, { kind: 'deploy' }>;
 
-function useFit(meta: BlueprintMetaView): string {
+function useFit(meta: BlueprintMetaView, pinned: ServerRoom | null): string {
   const room = useServerRoom();
-  const top = room.roomiest;
+  const top = pinned ?? room.roomiest;
   const need = memoryLabel(meta);
   if (room.pending) return need ? `${need} · checking room…` : 'checking room…';
   if (!top) return need ?? 'no server online';
@@ -32,13 +32,25 @@ function Ready({ meta, action, intent, ctaRef, onGo }: PaneProps & { meta: Bluep
   const online = useOnlineNodeCount();
   const apps = useApps();
   const options = React.useMemo(() => Object.fromEntries(meta.options.map((o) => [o.key, o.defaultValue])), [meta]);
-  const parsed = BlueprintParamsInput.safeParse({ name: action.name, size: defaultSizeForNodes(online), options });
-  const plan = useTemplatePlan(meta, { name: action.name, options });
+  const room = useServerRoom();
+  // "to wkr-2": the named server when it's Ready (then the deploy is pinned there).
+  const pinned = action.server ? (room.servers.find((x) => x.name === action.server) ?? null) : null;
+  const unplaceable = action.to !== null && !pinned && !room.pending;
+  const parsed = BlueprintParamsInput.safeParse({ name: action.name, size: defaultSizeForNodes(online), options, ...(pinned ? { node: pinned.id } : {}) });
+  const plan = useTemplatePlan(meta, { name: action.name, options, ...(pinned ? { node: pinned.id } : {}) });
   const deploy = useTemplateDeploy(meta);
-  const fit = useFit(meta);
+  const fit = useFit(meta, pinned);
   const taken = [...apps.apps, ...apps.platform].some((a) => a.name === action.name);
   const address = plan.data?.autoHost ?? (plan.isPending ? 'working it out…' : plan.isError ? 'made when it deploys' : 'none: it stays private');
-  const where = action.to ? `swarmy picks the server for now (you said “${action.to}”)` : 'swarmy picks the server with room';
+  const where = !action.to
+    ? 'swarmy picks the server with room'
+    : pinned
+      ? `${pinned.name} · pinned there`
+      : room.pending
+        ? 'checking your servers…'
+        : action.server
+          ? `${action.server} isn’t ready, so nothing can go on it`
+          : `no server called “${action.to}”`;
   const failed = deploy.result?.steps.find((s) => s.status === 'failed');
 
   return (
@@ -61,7 +73,7 @@ function Ready({ meta, action, intent, ctaRef, onGo }: PaneProps & { meta: Bluep
       ]}
       cta={
         <div className="flex flex-wrap gap-2">
-          <Button ref={ctaRef} disabled={!parsed.success || taken || deploy.pending || !!failed} onClick={() => parsed.success && deploy.run(parsed.data)}>
+          <Button ref={ctaRef} disabled={!parsed.success || taken || unplaceable || deploy.pending || !!failed} onClick={() => parsed.success && deploy.run(parsed.data)}>
             {deploy.pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
             {deploy.pending ? `Deploying ${action.name}…` : `Deploy ${action.name}`}
           </Button>

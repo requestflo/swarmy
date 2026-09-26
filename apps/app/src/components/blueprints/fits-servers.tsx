@@ -1,9 +1,8 @@
 import * as React from 'react';
 import { TriangleAlertIcon } from 'lucide-react';
 import type { BlueprintMetaView } from '@swarmy/core';
-import { cn } from '@swarmy/ui';
-import { gb } from '@/components/nodes/servers/server-words';
 import { fitsIn, useServerRoom } from '@/components/deploy/use-server-room';
+import { FitBar } from './fit-bar';
 import { memoryLabel } from './template-words';
 
 /** "Fits your servers?": one bar per online server, the template's need against its free memory. */
@@ -21,21 +20,12 @@ export function FitsServers({ meta }: { meta: BlueprintMetaView }): React.JSX.El
         <p className="text-muted-foreground text-[13px]">No server is reporting its memory yet.</p>
       ) : (
         <ul className="flex flex-col gap-1.5">
-          {room.servers.map((s) => {
-            const fits = fitsIn(need, s.freeBytes);
-            const pct = Math.min(100, Math.round(((need * 1024 ** 2) / Math.max(1, s.freeBytes)) * 100));
-            return (
-              <li key={s.id} className="grid grid-cols-[minmax(0,6.5rem)_minmax(0,1fr)_auto] items-center gap-2.5 text-[12px]">
-                <span className="truncate font-mono">{s.name}</span>
-                <span className="bg-muted h-1.5 overflow-hidden rounded-full" aria-hidden>
-                  <span className={cn('block h-full rounded-full', fits ? 'bg-status-online' : 'bg-status-warning')} style={{ width: `${pct}%` }} />
-                </span>
-                <span className={cn('font-mono text-[11.5px] whitespace-nowrap', fits ? 'text-tone-ok' : 'text-tone-warn')}>
-                  {gb(s.freeBytes)} free · {fits ? 'fits' : "won't fit"}
-                </span>
-              </li>
-            );
-          })}
+          {room.servers.map((s) => (
+            <li key={s.id} className="grid grid-cols-[minmax(0,6.5rem)_minmax(0,1fr)_auto] items-center gap-2.5 text-[12px]">
+              <span className="truncate font-mono">{s.name}</span>
+              <FitBar need={need} server={s} />
+            </li>
+          ))}
         </ul>
       )}
       {tight.length ? (

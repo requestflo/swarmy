@@ -32,15 +32,19 @@ export function ConfigureAside({
   plan,
   host,
   ownDomain,
+  nodeId = null,
 }: {
   meta: BlueprintMetaView;
   plan: BlueprintPlanView | undefined;
   host: string | null;
   ownDomain: boolean;
+  /** The picked server (Pick a server), or null for Automatic. */
+  nodeId?: string | null;
 }): React.JSX.Element {
   const trpc = useTRPC();
   const targets = useQuery(trpc.backups.listTargets.queryOptions());
   const room = useServerRoom();
+  const where = (nodeId ? room.servers.find((x) => x.id === nodeId) : null) ?? room.roomiest;
   const hasTarget = (targets.data ?? []).some((t) => t.enabled);
   const backup = targets.isPending ? undefined : hasTarget ? 'pg_dump · kept 7 days' : 'needs a place to keep backups';
   const model = graphModel(meta, { plan, host, backup });
@@ -64,7 +68,7 @@ export function ConfigureAside({
             <dt>Needs</dt>
             <dd className="text-foreground font-mono text-[12.5px]">
               {memoryLabel(meta)}
-              {room.roomiest ? ` of ${gb(room.roomiest.freeBytes)} free` : ''}
+              {where ? ` of ${gb(where.freeBytes)} free on ${where.name}` : ''}
             </dd>
           </div>
         ) : null}

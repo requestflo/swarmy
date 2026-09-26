@@ -48,7 +48,7 @@ export function DeployFlow({ stack, pinned }: { stack: string; pinned: boolean }
       />
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-6 pt-8 pb-28 lg:pb-16 xl:px-8">
         {liveAt !== null ? (
-          <LiveView stack={stack} watch={watch} startedAt={watch.since ?? startedAt} liveAt={liveAt} onLeave={leave} banner={banner} />
+          <LiveView stack={stack} watch={watch} startedAt={watch.since ?? startedAt} liveAt={liveAt} onLeave={leave} banner={banner} afterLive={handoff?.result?.afterLive} />
         ) : (
           <DeployingView stack={stack} watch={watch} banner={banner} />
         )}

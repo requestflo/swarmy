@@ -12,6 +12,7 @@ import { APP_TEMPLATES, findAppTemplate, loadTemplate, primaryService, templateM
 import type { DemoStore, DomainResolvers } from '../types';
 import { demoDeployParts, landDemoDeploy } from './blueprint-deploys';
 import { startDemoTrace } from './deploy-events';
+import { demoPlacement, pinDemoSteps, splitDemoNotes } from './blueprint-pin';
 
 /**
  * Blueprints demo resolvers — the Blueprints gallery (`/blueprints`): the full
@@ -334,15 +335,17 @@ export const blueprints: DomainResolvers = {
   handlers: {
     'blueprints.list': (): BlueprintMetaView[] => METAS,
 
-    'blueprints.plan': (i): BlueprintPlanView => {
+    'blueprints.plan': (i, s: DemoStore): BlueprintPlanView => {
       const { id, params } = i as BlueprintPlanInput;
-      const steps = planSteps(id, params);
+      const node = demoPlacement(s, params.node);
+      const steps = pinDemoSteps(planSteps(id, params), node);
       return {
         id,
         stackName: params.name,
         summary: summaryOf(params.name, steps),
         steps,
         ...(params.domain ? {} : { autoHost: demoAutoHost(id, params.name) }),
+        ...(node ? { node } : {}),
       };
     },
 
@@ -353,7 +356,8 @@ export const blueprints: DomainResolvers = {
       if (s.stacks.some((st) => st.name === params.name)) {
         throw new Error(`stack "${params.name}" already exists — pick another name`);
       }
-      const steps = planSteps(id, params);
+      const node = demoPlacement(s, params.node);
+      const steps = pinDemoSteps(planSteps(id, params), node);
       const results = steps.map((step) => ({
         kind: step.kind,
         label: step.label,
@@ -385,6 +389,7 @@ export const blueprints: DomainResolvers = {
         parts,
         domain: params.domain,
         exposed: meta.supportsDomain && findAppTemplate(id)?.exposure !== 'private',
+        ...(node ? { node: node.id } : {}),
       });
       // The deploy's own event stream (deploys.events), on the same clock.
       const deployId = startDemoTrace(s, {
@@ -392,24 +397,23 @@ export const blueprints: DomainResolvers = {
         parts,
         host,
         dataSteps: steps.filter((st) => ['db.provision', 'cache.provision', 'bucket', 'secret'].includes(st.kind)).map((st) => st.label),
-        node: s.nodes.find((n) => n.id === 'n-wkr-1')?.name ?? 'wkr-1',
+        node: node?.name ?? s.nodes.find((n) => n.id === 'n-wkr-1')?.name ?? 'wkr-1',
       });
-      const url = params.domain && meta.supportsDomain ? `https://${params.domain}` : null;
-      const notes =
+      const url = params.domain && meta.supportsDomain ? `https://${params.domain}` : host ? `https://${host}` : null;
+      const reveals =
         id === 'directus'
-          ? [
-              `Directus admin login — ${strOpt(params, 'adminEmail', 'admin@example.com')} / ${rand()}${rand()} (shown once, save it now)`,
-            ]
-          : (findAppTemplate(id)?.reveal ?? [])
-              .map((r) => r.replace(/\$\{\{\s*secrets\.[a-z0-9-]+\s*\}\}/g, () => `${rand()}${rand()}`))
-              .concat((meta.postDeploy ?? []).map((line) => line.replaceAll('<url>', url ?? 'the app URL')));
+          ? [`Directus admin login — ${strOpt(params, 'adminEmail', 'admin@example.com')} / ${rand()}${rand()} (shown once, save it now)`]
+          : (findAppTemplate(id)?.reveal ?? []).map((r) => r.replace(/\$\{\{\s*secrets\.[a-z0-9-]+\s*\}\}/g, () => `${rand()}${rand()}`));
+      const { notes, afterLive } = splitDemoNotes(reveals, meta.postDeploy ?? [], url);
       return {
         id,
         stackName: params.name,
         ok: true,
         steps: results,
-        url,
+        url: params.domain && meta.supportsDomain ? url : null,
         notes,
+        afterLive,
+        ...(node ? { node } : {}),
         deployId,
       };
     },

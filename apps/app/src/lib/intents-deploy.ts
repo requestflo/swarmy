@@ -3,8 +3,9 @@ import type { Intent, IntentWorld } from './intents-types';
 /**
  * "deploy ghost", "deploy ghost as blog", "deploy ghost to london",
  * "deploy n8n as flows on mgr-1". The template matches by id or name (exact,
- * then prefix); the name defaults to the template id. `to <server>` is parsed
- * but not pinned yet: swarmy picks the server (the preview says so).
+ * then prefix); the name defaults to the template id. `to <server>` names a
+ * server (exact, then prefix); the preview pins the deploy there when it's
+ * Ready, and says "no server called …" when nothing matches.
  */
 const DEPLOY = /^(?:deploy|install|launch) (\S+)((?: (?:as|called|named) \S+| (?:to|on|onto) \S+)*)$/;
 

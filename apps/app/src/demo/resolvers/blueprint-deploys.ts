@@ -38,8 +38,8 @@ export interface DemoDeployPart {
   main: boolean;
 }
 
-/** Seed a fresh app's services (0/1, nothing pulled yet) and remember when it went out. */
-export function seedDemoDeploy(s: DemoStore, stackId: string, parts: DemoDeployPart[]): ServiceDetail[] {
+/** Seed a fresh app's services (0/1, nothing pulled yet), pinned to node `pin` when given, and remember when it went out. */
+export function seedDemoDeploy(s: DemoStore, stackId: string, parts: DemoDeployPart[], pin?: string): ServiceDetail[] {
   const now = new Date().toISOString();
   const rid = (): string => Math.random().toString(36).slice(2, 7);
   const made = parts.map<ServiceDetail>((p) => ({
@@ -49,14 +49,14 @@ export function seedDemoDeploy(s: DemoStore, stackId: string, parts: DemoDeployP
     status: 'pending',
     replicas: { desired: 1, running: 0 },
     ingressEnabled: p.main && p.port !== undefined,
-    nodeId: 'n-wkr-1',
+    nodeId: pin ?? 'n-wkr-1',
     stackId,
     updatedAt: now,
     env: {},
     ports: p.port ? [{ target: p.port, protocol: 'tcp', mode: 'ingress' }] : [],
     volumes: [],
     networks: [`${stackId}_net`],
-    constraints: [],
+    constraints: pin ? [`node.id==${pin}`] : [],
     swarmServiceId: null,
     createdAt: now,
   }));
@@ -136,10 +136,10 @@ export function demoDeployParts(
 /** Seed the app's services and give the main one an address (the domain asked for, else an automatic sslip.io one). */
 export function landDemoDeploy(
   s: DemoStore,
-  x: { stackId: string; stack: string; parts: DemoDeployPart[]; domain?: string; exposed: boolean },
+  x: { stackId: string; stack: string; parts: DemoDeployPart[]; domain?: string; exposed: boolean; node?: string },
 ): string | null {
   if (!x.parts.some((p) => p.main) && x.parts[0]) x.parts[0].main = true;
-  const made = seedDemoDeploy(s, x.stackId, x.parts);
+  const made = seedDemoDeploy(s, x.stackId, x.parts, x.node);
   const i = x.parts.findIndex((p) => p.main);
   const main = made[i];
   const part = x.parts[i];

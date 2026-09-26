@@ -63,7 +63,7 @@ export function ConfigureForm({ meta, name }: { meta: BlueprintMetaView; name?: 
       aside={
         <>
           <TemplateCode meta={meta} name={form.params?.name} options={form.options} />
-          <ConfigureAside meta={meta} plan={plan.data} host={host} ownDomain={form.ownDomain} />
+          <ConfigureAside meta={meta} plan={plan.data} host={host} ownDomain={form.ownDomain} nodeId={form.node} />
         </>
       }
     >
@@ -84,7 +84,7 @@ export function ConfigureForm({ meta, name }: { meta: BlueprintMetaView; name?: 
       ) : (
         <div className="flex flex-col gap-5">
           <ConfigureIdentity meta={meta} form={form} autoHost={plan.data?.autoHost} planPending={plan.isPending} />
-          <ConfigureWhere />
+          <ConfigureWhere meta={meta} form={form} placement={plan.data?.node} />
           <ConfigureSecrets meta={meta} form={form} plan={plan.data} />
           <ConfigureControls meta={meta} form={form} />
           {plan.isError ? <p className="text-tone-bad text-[13px]">{plan.error.message}</p> : null}
