@@ -25,7 +25,9 @@ import type { DB } from '@swarmy/db';
 import { decryptSecret, randomToken } from '@swarmy/core/crypto';
 import {
   DB_DATA_VOLUME_LABEL,
+  DB_PASSWORD_SECRET_LABEL,
   DB_PIN_NODE_LABEL,
+  PG_ENV,
   buildInventory,
   type InvService,
 } from '@swarmy/core';
@@ -51,6 +53,7 @@ import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import { runPitrRestore } from './dbPitrRestore.service';
 import { auditRetentionOutcome, resticNetworkFor } from './backups.service';
 import { systemContext } from './cicd.service';
 import { resolveManagerNode } from './dispatch.service';
@@ -744,9 +747,35 @@ export async function restoreDb(ctx: OrgContext, input: RestoreDbInput): Promise
   const schedule = parseScheduleLabel(source?.labels[DB_BACKUP_SCHEDULE_LABEL]);
   const target = await loadTarget(ctx, await resolveTargetId(ctx, input.targetId, schedule));
 
+  // PITR owns the whole stop → aside + fetch → start → promote sequence and
+  // needs no DB password up front (QA-087).
+  if (input.mode === 'pitr') {
+    if (!isPhysicalEngine(input.engine)) {
+      throw commandRejected(`pitr restore requires a physical engine (wal-g/pgbackrest), got "${input.engine}"`);
+    }
+    const node = await physicalNode(ctx, primary.labels);
+    const view = await runPitrRestore(ctx, {
+      targetRef: `${destStack}/${destCluster}`,
+      service: primary.name,
+      desiredReplicas: primary.replicas.desired,
+      passwordSecret: primary.labels[DB_PASSWORD_SECRET_LABEL] || undefined,
+      replicationUser: envRecord(primary)[PG_ENV.replicationUser] || 'repl',
+      nodeId: node.id,
+      dataVolume: dataVolume!,
+      engine: input.engine,
+      snapshotId: input.snapshotId ?? 'latest',
+      targetTime: input.targetTime,
+      repo: toResticRepo(target),
+      tags: dbTags(ctx.activeOrgId, destStack, destCluster, input.engine),
+      network: clusterNetworkName(destStack, destCluster),
+      resticNetwork: resticNetworkFor(target.endpoint),
+      targetId: target.id,
+    });
+    return { mode: view.mode, engine: view.engine, bytesRestored: view.bytesRestored, recoveredTo: view.recoveredTo };
+  }
+
   const conn = await connFrom(ctx, destStack, destCluster, primary, input.database);
-  const node =
-    input.mode === 'pitr' ? await physicalNode(ctx, primary.labels) : await resolveManagerNode(ctx);
+  const node = await resolveManagerNode(ctx);
   try {
     const result = await ctx.hub.dispatch<DbRestoreResult>(node.id, 'db.restore', {
       engine: input.engine,
