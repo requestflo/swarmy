@@ -162,6 +162,9 @@ export type DbBackupPayload = z.infer<typeof DbBackupPayload>;
 export const DbRestoreMode = z.enum(['clone-to-new-cluster', 'in-place', 'pitr', 'single-database']);
 export type DbRestoreMode = z.infer<typeof DbRestoreMode>;
 
+/** A pitr aside suffix: letters, digits and dashes (it becomes a path segment). */
+export const PITR_STAMP_RE = /^[0-9A-Za-z-]{1,40}$/;
+
 export const DbRestorePayload = z.object({
   ...cmd,
   engine: DbBackupEngine,
@@ -183,6 +186,19 @@ export const DbRestorePayload = z.object({
    * agents ignore it (zod strips unknown keys) — the base backup still restores.
    */
   restoreCommand: z.string().optional(),
+  /**
+   * pitr (additive, QA-087): the suffix of the pre-restore copy. The agent
+   * moves the target's PGDATA ASIDE to `<PGDATA>.pre-pitr-<stamp>` (kept,
+   * never deleted) before the fetch. The controller picks the stamp, so it can
+   * ask for a rollback later.
+   */
+  pitrStamp: z.string().regex(PITR_STAMP_RE, 'invalid pitr stamp').optional(),
+  /**
+   * pitr (additive, QA-087): `restore` (the default) stages the recovery.
+   * `rollback` puts `<PGDATA>.pre-pitr-<stamp>` back in place of a restore
+   * that did not recover. The target must be stopped for both.
+   */
+  pitrAction: z.enum(['restore', 'rollback']).optional(),
   ...engineEnv,
 });
 export const DbRestoreMsg = z.object({
@@ -214,6 +230,10 @@ export const DbRestoreResult = z.object({
   bytesRestored: z.number().int().nonnegative().default(0),
   /** pitr: the recovery target actually applied. */
   recoveredTo: z.string().optional(),
+  /** pitr: the base backup that was fetched. */
+  backupName: z.string().optional(),
+  /** pitr: where the pre-restore PGDATA was kept (absent when there was none). */
+  asidePath: z.string().optional(),
   durationMs: z.number().int().nonnegative().optional(),
 });
 export type DbRestoreResult = z.infer<typeof DbRestoreResult>;

@@ -39,6 +39,7 @@ import {
 } from '@swarmy/core/protocol';
 import type { AgentConnection } from '../connection';
 import { putSecretFiles } from './secret-file';
+import { restoreWalgPitr, waitVolumeIdle } from './pitr-restore';
 
 /** Where the volume is mounted inside the restic container. */
 const MOUNT = '/data';
@@ -243,6 +244,24 @@ export function physicalSidecarTimeoutMs(explicit: number | undefined, kind: 'db
   return Math.max(30_000, budget - 60_000);
 }
 
+/** Longest error message a failed sidecar reports: its LAST lines, where the tool says why. */
+export const ERROR_TAIL_CHARS = 600;
+
+/**
+ * The failure a sidecar reports: the TAIL of its stderr (QA-087). Tools like
+ * wal-g log pages of INFO lines before the one line that says what went
+ * wrong, and anything downstream that shortens a message keeps its head. So
+ * this keeps the last lines, marked `…` when cut, and falls back when stderr
+ * is empty.
+ */
+export function stderrTail(stderr: string, fallback: string): string {
+  const lines = stderr.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim().length > 0);
+  if (lines.length === 0) return fallback;
+  let out = lines.slice(-12).join('\n');
+  if (out.length > ERROR_TAIL_CHARS) out = out.slice(out.length - ERROR_TAIL_CHARS);
+  return out.length < lines.join('\n').length ? `…${out}` : out;
+}
+
 /** Ensure the restic repo exists (idempotent — `init` no-ops on an existing repo). */
 export async function ensureRepo(
   docker: DockerClient,
@@ -343,7 +362,7 @@ export async function applyRetention(
       return {
         retentionDays: opts.retentionDays,
         snapshotsRemoved: 0,
-        error: res.stderr.trim() || `restic forget exited ${res.exitCode}`,
+        error: stderrTail(res.stderr, `restic forget exited ${res.exitCode}`),
       };
     }
     return {
@@ -388,7 +407,7 @@ export async function backupVolume(
     onLine,
   );
   if (res.exitCode !== 0) {
-    throw new Error(res.stderr.trim() || `restic backup exited ${res.exitCode}`);
+    throw new Error(stderrTail(res.stderr, `restic backup exited ${res.exitCode}`));
   }
 
   // restic --json emits one summary object on the final line.
@@ -447,7 +466,7 @@ export async function restoreVolume(
     streamer(conn, p.commandId),
   );
   if (res.exitCode !== 0) {
-    throw new Error(res.stderr.trim() || `restic restore exited ${res.exitCode}`);
+    throw new Error(stderrTail(res.stderr, `restic restore exited ${res.exitCode}`));
   }
   return {
     targetVolume: p.targetVolume,
@@ -530,7 +549,7 @@ export async function listSnapshots(
     networkMode: p.network,
   });
   if (res.exitCode !== 0) {
-    throw new Error(res.stderr.trim() || `restic snapshots exited ${res.exitCode}`);
+    throw new Error(stderrTail(res.stderr, `restic snapshots exited ${res.exitCode}`));
   }
   let raw: unknown[] = [];
   try {
@@ -746,7 +765,7 @@ function parseS3Repo(repo: ResticRepo): { endpoint: string; bucket: string; pref
 }
 
 /** Env for wal-g / pgbackrest: S3 coordinates + creds (no secret on disk). */
-function physicalEnv(repo: ResticRepo): { env: string[]; bucket: string; endpoint: string; prefix: string } {
+export function physicalEnv(repo: ResticRepo): { env: string[]; bucket: string; endpoint: string; prefix: string } {
   const { endpoint, bucket, prefix } = parseS3Repo(repo);
   const walgPrefix = `s3://${bucket}${prefix ? `/${prefix}` : ''}`;
   const env = [
@@ -821,7 +840,7 @@ async function backupDbLogical(
       onLine,
     );
     if (dump.exitCode !== 0) {
-      throw new Error(dump.stderr.trim() || `${p.engine} exited ${dump.exitCode}`);
+      throw new Error(stderrTail(dump.stderr, `${p.engine} exited ${dump.exitCode}`));
     }
 
     // 2) Store the staged dump with restic into the same target catalog.
@@ -839,7 +858,7 @@ async function backupDbLogical(
       onLine,
     );
     if (store.exitCode !== 0) {
-      throw new Error(store.stderr.trim() || `restic backup exited ${store.exitCode}`);
+      throw new Error(stderrTail(store.stderr, `restic backup exited ${store.exitCode}`));
     }
     const summary = parseSummary(store.stdout);
 
@@ -922,7 +941,7 @@ async function backupDbPhysical(
       onLine,
     );
     if (res.exitCode !== 0) {
-      throw new Error(res.stderr.trim() || `wal-g backup-push exited ${res.exitCode}`);
+      throw new Error(stderrTail(res.stderr, `wal-g backup-push exited ${res.exitCode}`));
     }
     return {
       snapshotId: parseWalgBackupName(res.stdout + res.stderr),
@@ -950,7 +969,7 @@ async function backupDbPhysical(
     onLine,
   );
   if (res.exitCode !== 0) {
-    throw new Error(res.stderr.trim() || `pgbackrest backup exited ${res.exitCode}`);
+    throw new Error(stderrTail(res.stderr, `pgbackrest backup exited ${res.exitCode}`));
   }
   return {
     snapshotId: 'pgbackrest:latest',
@@ -1008,15 +1027,6 @@ export function pgbackrestBackupScript(flags: string): string {
     `set -e; ${S3_PREFLIGHT}pgbackrest --stanza=swarmy --pg1-path="$PGDATA" ${flags} stanza-create || true; ` +
     `pgbackrest --stanza=swarmy --pg1-path="$PGDATA" ${flags} --type=full backup`
   );
-}
-
-/** wal-g fetch + recovery target into `$PGDATA`: `$SWARMY_BACKUP_NAME`, `$SWARMY_TARGET_TIME`. */
-export function walgRestoreScript(withTarget: boolean): string {
-  const recoveryConf = withTarget
-    ? `printf "recovery_target_time = '%s'\\nrecovery_target_action = 'promote'\\n" "$SWARMY_TARGET_TIME" ` +
-      `>> "$PGDATA/postgresql.auto.conf"; touch "$PGDATA/recovery.signal";`
-    : '';
-  return `set -e; ${S3_PREFLIGHT}wal-g backup-fetch "$PGDATA" "$SWARMY_BACKUP_NAME"; ${recoveryConf}`;
 }
 
 /** pgbackrest restore into `$PGDATA`: `$SWARMY_TARGET_TIME`; `flags` from {@link pgBackRestRepoFlags} (quoted). */
@@ -1092,7 +1102,7 @@ async function restoreDbLogical(
       onLine,
     );
     if (fetch.exitCode !== 0) {
-      throw new Error(fetch.stderr.trim() || `restic restore exited ${fetch.exitCode}`);
+      throw new Error(stderrTail(fetch.stderr, `restic restore exited ${fetch.exitCode}`));
     }
     const bytesRestored = await restoredBytes(docker, fetch.stdout, {
       image: resticImage,
@@ -1118,7 +1128,7 @@ async function restoreDbLogical(
       onLine,
     );
     if (load.exitCode !== 0) {
-      throw new Error(load.stderr.trim() || `restore (${p.engine}) exited ${load.exitCode}`);
+      throw new Error(stderrTail(load.stderr, `restore (${p.engine}) exited ${load.exitCode}`));
     }
     return {
       mode: p.mode,
@@ -1144,50 +1154,34 @@ async function restoreDbPitr(
   if (!p.dataVolume) {
     throw new Error('pitr restore requires the target PGDATA volume (dataVolume) to be set');
   }
+  // wal-g: the full stop-aware sequence (aside, fetch, WAL, recovery, rollback), QA-087.
+  if (p.engine === 'wal-g') return restoreWalgPitr(docker, p, started, onLine);
+  if (p.pitrAction === 'rollback') throw new Error('pitr rollback is only supported for wal-g');
   const { env, bucket, endpoint, prefix } = physicalEnv(p.repo);
   const target = p.targetTime ?? '';
   const scriptEnv = pitrScriptEnv(p);
   const dataVolume = assertVolumeName(p.dataVolume);
   // Restore into the path the server will read (QA-074), not a sidecar-only one.
   const layout = await resolvePgDataLayout(docker, p.conn.host, dataVolume);
-  if (p.engine === 'wal-g') {
-    const image = p.engineImage ?? DEFAULT_WALG_IMAGE;
-    // Fetch the base backup, then stage a recovery target so PG replays WAL to it.
-    const res = await runSidecar(
-      docker,
-      {
-        image,
-        entrypoint: ['/bin/sh', '-c'],
-        args: [walgRestoreScript(Boolean(target))],
-        env: [...env, ...scriptEnv, `PGDATA=${layout.pgdata}`],
-        binds: [`${dataVolume}:${layout.mountTarget}`],
-        ...physicalNetworks(p),
-        timeout: { ms: physicalSidecarTimeoutMs(p.timeoutMs, 'dbRestore'), what: 'wal-g backup-fetch' },
-      },
-      onLine,
-    );
-    if (res.exitCode !== 0) {
-      throw new Error(res.stderr.trim() || `wal-g backup-fetch exited ${res.exitCode}`);
-    }
-  } else {
-    const image = p.engineImage ?? DEFAULT_PGBACKREST_IMAGE;
-    const flags = pgBackRestRepoFlags(p.repo, bucket, endpoint, prefix);
-    const res = await runSidecar(
-      docker,
-      {
-        image,
-        entrypoint: ['/bin/sh', '-c'],
-        args: [pgbackrestRestoreScript(flags, Boolean(target))],
-        env: [...env, ...scriptEnv, `PGDATA=${layout.pgdata}`],
-        binds: [`${dataVolume}:${layout.mountTarget}`],
-        ...physicalNetworks(p),
-        timeout: { ms: physicalSidecarTimeoutMs(p.timeoutMs, 'dbRestore'), what: 'pgbackrest restore' },
-      },
-      onLine,
-    );
-    if (res.exitCode !== 0) {
-      throw new Error(res.stderr.trim() || `pgbackrest restore exited ${res.exitCode}`);
-    }
+  // Never restore under a live server.
+  await waitVolumeIdle(docker, dataVolume);
+  const image = p.engineImage ?? DEFAULT_PGBACKREST_IMAGE;
+  const flags = pgBackRestRepoFlags(p.repo, bucket, endpoint, prefix);
+  const res = await runSidecar(
+    docker,
+    {
+      image,
+      entrypoint: ['/bin/sh', '-c'],
+      args: [pgbackrestRestoreScript(flags, Boolean(target))],
+      env: [...env, ...scriptEnv, `PGDATA=${layout.pgdata}`],
+      binds: [`${dataVolume}:${layout.mountTarget}`],
+      ...physicalNetworks(p),
+      timeout: { ms: physicalSidecarTimeoutMs(p.timeoutMs, 'dbRestore'), what: 'pgbackrest restore' },
+    },
+    onLine,
+  );
+  if (res.exitCode !== 0) {
+    throw new Error(stderrTail(res.stderr, `pgbackrest restore exited ${res.exitCode}`));
   }
   return {
     mode: p.mode,

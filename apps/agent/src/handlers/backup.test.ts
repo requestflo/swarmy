@@ -22,7 +22,6 @@ import {
   pitrScriptEnv,
   repoBinds,
   shq,
-  walgRestoreScript,
   physicalNetworks,
   physicalSidecarTimeoutMs,
   pgbackrestBackupScript,
@@ -141,14 +140,6 @@ describe('Postgres restore scripts carry NO payload value (env only)', () => {
     expect(script).toContain('-d "$DBNAME"');
     expect(script).not.toContain(evil);
     expect(pgEnv({ host: 'h', port: 5432, user: 'u', password: 'p', database: 'app' })).toContain('DBNAME=app');
-  });
-
-  it('wal-g script reads $SWARMY_BACKUP_NAME / $SWARMY_TARGET_TIME', () => {
-    const s = walgRestoreScript(true);
-    expect(s).toContain('"$SWARMY_BACKUP_NAME"');
-    expect(s).toContain('"$SWARMY_TARGET_TIME"');
-    expect(s).not.toContain('2026-09-24');
-    expect(walgRestoreScript(false)).not.toContain('recovery_target_time');
   });
 
   it('pgbackrest script reads $SWARMY_TARGET_TIME', () => {
@@ -299,7 +290,8 @@ describe('physical sidecars use the server data layout (QA-074)', () => {
       pullImage: async () => undefined,
       docker: {
         getImage: () => ({ inspect: async () => ({ Config: {} }) }),
-        listContainers: async (o: { filters: unknown }) => {
+        listContainers: async (o: { filters: { volume?: unknown } }) => {
+          if (o.filters.volume) return []; // the target is stopped (waitVolumeIdle)
           filters.push(o.filters);
           return opts.container ? [{ Id: 'c-old', Created: 1 }, { Id: 'c-new', Created: 2 }] : [];
         },
@@ -331,7 +323,8 @@ describe('physical sidecars use the server data layout (QA-074)', () => {
     commandId: 'c1', jobId: 'j1', engine, conn: pgConn, repo, tags: [], dataVolume: VOL,
   });
   const restore = (engine: 'wal-g' | 'pgbackrest'): DbRestorePayload => ({
-    commandId: 'c2', engine, mode: 'pitr', conn: pgConn, repo, snapshotId: 'latest', tags: [], dataVolume: VOL,
+    commandId: 'c2', engine, mode: 'pitr', conn: pgConn, repo, snapshotId: 'base_0001', tags: [], dataVolume: VOL,
+    pitrStamp: '20260926T120000Z',
     targetTime: '2026-09-24T15:30:00Z',
   });
   const expectServerLayout = (c: { Env: string[]; Cmd: string[]; HostConfig: { Binds: string[] } }, mode: string) => {
@@ -484,7 +477,7 @@ describe('physical sidecar networks + hard timeout (QA-079)', () => {
   it('the PITR restore fetch joins both networks too', async () => {
     const { docker, connected } = fakeDocker();
     const p: DbRestorePayload = {
-      commandId: 'c2', engine: 'wal-g', mode: 'pitr', conn: pgConn, repo, snapshotId: 'latest', tags: [],
+      commandId: 'c2', engine: 'wal-g', mode: 'pitr', conn: pgConn, repo, snapshotId: 'base_0001', tags: [], pitrStamp: 's1',
       dataVolume: 'qa-data_pg-primary-data', network: 'qa-data_pg-net', resticNetwork: 'swarmy',
     };
     await restoreDb(docker, conn, p);
@@ -509,7 +502,7 @@ describe('physical sidecar networks + hard timeout (QA-079)', () => {
   });
 
   it('every physical script runs the S3 preflight first', () => {
-    for (const script of [WALG_BACKUP_SCRIPT, pgbackrestBackupScript('--f'), walgRestoreScript(true), pgbackrestRestoreScript('--f', false)]) {
+    for (const script of [WALG_BACKUP_SCRIPT, pgbackrestBackupScript('--f'), pgbackrestRestoreScript('--f', false)]) {
       expect(script.startsWith(`set -e; ${S3_PREFLIGHT}`)).toBe(true);
     }
   });
