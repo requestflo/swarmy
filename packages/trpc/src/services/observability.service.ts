@@ -35,6 +35,7 @@ import {
   type InvService,
 } from '@swarmy/core';
 import { encryptSecret, decryptSecret } from '@swarmy/core/crypto';
+import { defaultTelemetrySettings, type TelemetrySettings } from '@swarmy/core';
 import type { OrgContext } from '../context';
 import { writeAudit } from './audit.service';
 import { observabilityConfigRepo, type ObservabilityConfigRow } from './observability-config.repo';
@@ -167,7 +168,7 @@ export function latestStoreProbe(orgId: string): StoreProbe | null {
  * deploy record only contributes "when was it requested" (start grace) and
  * "did the dispatch itself fail".
  */
-function liveSuiteStatus(
+export function liveSuiteStatus(
   ctx: OrgContext,
   row: Pick<ObsConfigRow, 'enabled' | 'updatedAt'>,
 ): { collector: CollectorStatus; store: CollectorStatus } {
@@ -202,7 +203,7 @@ function toView(ctx: OrgContext, row: ObsConfigRow): ObservabilityConfigView {
   };
 }
 
-function safeDecrypt(blob: string): string {
+export function safeDecrypt(blob: string): string {
   try {
     return decryptSecret(blob);
   } catch {
@@ -280,7 +281,13 @@ export async function setRetention(
   retentionDays: number,
 ): Promise<ObservabilityConfigView> {
   await ensureConfig(ctx);
-  const row = await observabilityConfigRepo.update(ctx, ctx.activeOrgId, { retentionDays });
+  // Keep saved per-signal settings in step: the single number is traces + logs.
+  const row = await observabilityConfigRepo.update(ctx, ctx.activeOrgId, (cur) => ({
+    retentionDays,
+    ...(cur.telemetry
+      ? { telemetry: { ...cur.telemetry, retention: { ...cur.telemetry.retention, tracesDays: retentionDays, logsDays: retentionDays } } }
+      : {}),
+  }));
   await writeAudit(ctx, {
     action: 'observability.setRetention',
     targetType: 'org',
@@ -476,8 +483,9 @@ async function activeDsn(ctx: OrgContext): Promise<string | null> {
 async function deployStore(ctx: OrgContext, dsnPlain: string): Promise<void> {
   const node = await resolveManagerNode(ctx);
   const dsn = parseDsn(dsnPlain);
-  const retentionDays = await retentionFor(ctx);
-  const configs = desiredConfigs(dsn, retentionDays);
+  const row = await ensureConfig(ctx);
+  const retentionDays = row.retentionDays;
+  const configs = desiredConfigs(dsn, row);
 
   // 1. Docker secret + configs first — the specs reference them by name. The
   //    password rides ONLY in the secret; the configs carry no secret material.
@@ -513,8 +521,21 @@ async function deployStore(ctx: OrgContext, dsnPlain: string): Promise<void> {
   await applyInitDdl(dsnPlain, configs.clickhouseInit.contents).catch(() => undefined);
 }
 
-function desiredConfigs(dsn: ClickhouseDsn, retentionDays: number): ObservabilityConfigSet {
-  return observabilityConfigs({ password: dsn.password, retentionDays, database: dsn.database });
+/** The org's telemetry settings: saved, or the defaults over its single retention. */
+export function telemetrySettingsFor(row: Pick<ObsConfigRow, 'telemetry' | 'retentionDays'>): TelemetrySettings {
+  return row.telemetry ?? defaultTelemetrySettings(row.retentionDays);
+}
+
+export function desiredConfigs(
+  dsn: ClickhouseDsn,
+  row: Pick<ObsConfigRow, 'telemetry' | 'retentionDays'>,
+): ObservabilityConfigSet {
+  return observabilityConfigs({
+    password: dsn.password,
+    retentionDays: row.retentionDays,
+    database: dsn.database,
+    telemetry: telemetrySettingsFor(row),
+  });
 }
 
 /** Where ClickHouse is pinned: its existing pin label, else the dispatch manager. */
@@ -611,7 +632,10 @@ async function sweepStaleConfigs(ctx: OrgContext, nodeId: string, keep: string[]
 const CONVERGE_COOLDOWN_MS = 5 * 60_000;
 const lastConvergeAt = new Map<string, number>();
 
-export async function reconcileObservabilitySuite(ctx: OrgContext): Promise<boolean> {
+export async function reconcileObservabilitySuite(
+  ctx: OrgContext,
+  opts: { force?: boolean } = {},
+): Promise<boolean> {
   const row = await observabilityConfigRepo.find(ctx, ctx.activeOrgId);
   if (!row?.enabled || !row.clickhouseDsn) return false;
   const managerId = ctx.hub.managerNode(ctx.activeOrgId);
@@ -621,14 +645,15 @@ export async function reconcileObservabilitySuite(ctx: OrgContext): Promise<bool
   const needs = observabilityNeedsConverge({
     store: services.find((s) => s.name === CLICKHOUSE_SERVICE),
     collector: services.find((s) => s.name === COLLECTOR_SERVICE),
-    desired: desiredConfigs(parseDsn(dsnPlain), row.retentionDays),
+    desired: desiredConfigs(parseDsn(dsnPlain), row),
     desiredPin: storePin(ctx, managerId),
   });
   if (!needs) return false;
   // Throttle: a converge that cannot take (e.g. an older agent that does not
   // report configs/mounts) must not redeploy every worker tick.
   const now = Date.now();
-  if (now - (lastConvergeAt.get(ctx.activeOrgId) ?? 0) < CONVERGE_COOLDOWN_MS) return false;
+  // A human "Apply" (force) skips the throttle; the worker never does.
+  if (!opts.force && now - (lastConvergeAt.get(ctx.activeOrgId) ?? 0) < CONVERGE_COOLDOWN_MS) return false;
   lastConvergeAt.set(ctx.activeOrgId, now);
   const prior = suiteRuns.get(ctx.activeOrgId);
   try {
@@ -637,8 +662,9 @@ export async function reconcileObservabilitySuite(ctx: OrgContext): Promise<bool
     // grace, so re-stamping it every tick would hide a service that never
     // comes up.
     if (!prior || prior.failed) markSuiteDeploy(ctx.activeOrgId, false);
-  } catch {
+  } catch (e) {
     markSuiteDeploy(ctx.activeOrgId, true);
+    if (opts.force) throw mapDispatchError(e);
   }
   return true;
 }

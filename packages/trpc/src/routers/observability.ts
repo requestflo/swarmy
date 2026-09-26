@@ -7,6 +7,14 @@ import { logs } from '../services/observability.service';
 import { ObservabilityHealthInput, ObservabilityMapInput } from '@swarmy/core';
 import { serviceMap } from '../services/observability.service';
 import { healthNarrative } from '../services/health-summary';
+// ── telemetry settings (ObsSettings) ──
+import { SetTelemetrySettingsInput } from '@swarmy/core';
+import {
+  getTelemetrySettings,
+  setTelemetrySettings,
+  telemetryForecast,
+  telemetryPipeline,
+} from '../services/observability-telemetry.service';
 import {
   enableForStack,
   getStatus,
@@ -92,4 +100,18 @@ export const observabilityRouter = router({
   health: orgProcedure
     .input(ObservabilityHealthInput)
     .query(({ ctx, input }) => healthNarrative(ctx, input)),
+
+  // ── telemetry settings (ObsSettings) ── sampling, per-signal retention, redaction.
+  settings: orgProcedure.query(({ ctx }) => getTelemetrySettings(ctx)),
+
+  /** Save + apply: re-renders the collector (config swap, no app restarts) and sets each table's TTL. Audited. */
+  setSettings: adminProcedure
+    .input(SetTelemetrySettingsInput)
+    .mutation(({ ctx, input }) => setTelemetrySettings(ctx, input)),
+
+  /** Measured bytes per signal, daily ingest and the store disk's free space (nulls when unmeasured). */
+  forecast: orgProcedure.query(({ ctx }) => telemetryForecast(ctx)),
+
+  /** Collector → store: where each runs, endpoints, stored spans/s, reachability. */
+  pipeline: orgProcedure.query(({ ctx }) => telemetryPipeline(ctx)),
 });

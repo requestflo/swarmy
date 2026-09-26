@@ -14,8 +14,10 @@
  * redeploy through the normal `service.deploy` path — so installs deployed
  * with the old bind-mount specs heal on the next tick.
  *
- * Retention itself is TTL-driven inside ClickHouse (see `renderClickhouseInitSql`),
- * so this worker never deletes telemetry.
+ * Retention itself is TTL-driven inside ClickHouse: each tick converges every
+ * exporter table's `MODIFY TTL` onto the per-signal retention
+ * (`reconcileObservabilityRetention`, signature-gated), so this worker never
+ * deletes telemetry — ClickHouse drops expired parts at its next merge.
  *
  * `ObservabilityConfig` is read from each org's swarm-kv document.
  */
@@ -23,7 +25,13 @@ import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
 import { clickhouseClient, type ClickhouseClient } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
-import { observabilityConfigRepo, reconcileObservabilitySuite, recordStoreProbe, systemContext } from '@swarmy/trpc';
+import {
+  observabilityConfigRepo,
+  reconcileObservabilityRetention,
+  reconcileObservabilitySuite,
+  recordStoreProbe,
+  systemContext,
+} from '@swarmy/trpc';
 import { hub } from '../gateway';
 
 const TICK_MS = 60_000;
@@ -69,6 +77,8 @@ async function tick(): Promise<void> {
   for (const cfg of configs) {
     const ctx = systemContext({ db: prisma, hub, auth: authRegistry.getAuth() }, cfg.orgId);
     await reconcileObservabilitySuite(ctx).catch(() => undefined);
+    // Per-signal TTLs (signature-gated: a steady tick sends no ALTER).
+    await reconcileObservabilityRetention(ctx).catch(() => undefined);
     await reconcileOrg(cfg).catch(() => undefined);
   }
 }
