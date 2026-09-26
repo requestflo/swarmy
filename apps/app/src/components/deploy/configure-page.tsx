@@ -11,11 +11,11 @@ import { ConfigureForm } from './configure-form';
  * Deploy → Configure (board 3), `/deploy/<template>`: loads the template and
  * hands it to the form. An unknown id says so and offers every template.
  */
-export function ConfigurePage({ templateId }: { templateId: string }): React.JSX.Element {
+export function ConfigurePage({ templateId, name }: { templateId: string; name?: string }): React.JSX.Element {
   const trpc = useTRPC();
   const list = useQuery(trpc.blueprints.list.queryOptions());
   const meta = list.data?.find((m) => m.id === templateId && !m.docOnly) ?? null;
-  if (meta) return <ConfigureForm key={meta.id} meta={meta} />;
+  if (meta) return <ConfigureForm key={meta.id} meta={meta} name={name} />;
   return (
     <CalmPage crumbs={[{ label: 'Deploy', to: '/deploy' }, { label: templateId }]}>
       {list.isPending ? (

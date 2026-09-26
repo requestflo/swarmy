@@ -11,6 +11,12 @@ const world: IntentWorld = {
     { id: 's2', name: 'web', app: 'storefront', desired: 3 },
     { id: 's3', name: 'clickhouse', app: 'analytics', desired: 1 },
   ],
+  templates: [
+    { id: 'ghost', name: 'Ghost' },
+    { id: 'n8n', name: 'n8n' },
+    { id: 'wordpress', name: 'WordPress' },
+  ],
+  servers: ['mgr-1', 'wkr-1'],
 };
 const ids = (q: string) => parseIntents(q, world).map((i) => i.id);
 

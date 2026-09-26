@@ -1,47 +1,15 @@
+import { deployIntents } from './intents-deploy';
+import type { GoAction, Intent, IntentApp, IntentPart, IntentWorld } from './intents-types';
+
 /**
  * ⌘K plain-language intents (the Command board): "undo analytics",
- * "add a domain to shop", "restart checkout", "scale api to 3". Pure: the
- * palette passes what it knows (apps, their parts, servers) and gets back
- * ranked intents, each mapped to a real action — a tRPC mutation the preview
+ * "add a domain to shop", "restart checkout", "scale api to 3",
+ * "deploy ghost as blog". Pure: the palette passes what it knows (apps,
+ * their parts, templates, servers) and gets back ranked intents, each mapped to a real action — a tRPC mutation the preview
  * pane runs after you confirm, or a page to open (with the form prefilled).
  */
 
-export interface IntentApp {
-  name: string;
-  /** Every address the app answers on ("shop.northwind.dev"), so "shop" finds it. */
-  hosts: string[];
-}
-
-export interface IntentPart {
-  id: string;
-  /** The part's own name ("checkout"), without the app prefix. */
-  name: string;
-  app: string | null;
-  desired: number;
-}
-
-export interface IntentWorld {
-  apps: IntentApp[];
-  parts: IntentPart[];
-}
-
-export type IntentAction =
-  | { kind: 'go'; to: string; params?: Record<string, string>; search?: Record<string, string> }
-  | { kind: 'rollback'; app: string }
-  | { kind: 'restart'; part: IntentPart }
-  | { kind: 'scale'; part: IntentPart; to: number };
-
-export interface Intent {
-  id: string;
-  /** The board's intent label: "Intent · Put back". */
-  verb: string;
-  group: 'Do it' | 'Jump to';
-  title: string;
-  sub: string;
-  action: IntentAction;
-}
-
-export const INTENT_EXAMPLES = ['undo storefront', 'add a domain to shop', 'restart checkout', 'why is storefront slow'];
+export type { GoAction, Intent, IntentAction, IntentApp, IntentPart, IntentTemplate, IntentWorld } from './intents-types';
 
 const norm = (s: string) => s.toLowerCase().replace(/[“”"']/g, '').replace(/\s+/g, ' ').trim();
 
@@ -64,11 +32,13 @@ export function findParts(world: IntentWorld, word: string): IntentPart[] {
   return exact.length ? exact : world.parts.filter((p) => p.name.toLowerCase().startsWith(w));
 }
 
-const app$ = (a: string, tab?: string): IntentAction => ({
+const app$ = (a: string, tab?: string): GoAction => ({
   kind: 'go',
   to: tab ? `/stacks/$name/${tab}` : '/stacks/$name',
   params: { name: a },
 });
+
+const svc$ = (id: string): GoAction => ({ kind: 'go', to: '/services/$serviceId', params: { serviceId: id } });
 
 const DOMAIN = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
@@ -81,10 +51,12 @@ export function parseIntents(query: string, world: IntentWorld): Intent[] {
   };
   let m: RegExpMatchArray | null;
 
+  for (const i of deployIntents(q, world)) push(i);
+
   if ((m = q.match(/^(?:undo|roll ?back|revert|put back|go back)(?: on)? (\S+)/))) {
     const a = findApp(world, m[1]!);
     if (a) {
-      push({ id: `rollback:${a.name}`, verb: 'Put back', group: 'Do it', title: `Put back ${a.name}'s last healthy version`, sub: 'one copy at a time · the current one stays in the history', action: { kind: 'rollback', app: a.name } });
+      push({ id: `rollback:${a.name}`, verb: 'Put back', group: 'Do it', title: `Put back ${a.name}'s last healthy version`, sub: 'one copy at a time · the current one stays in the history', action: { kind: 'rollback', app: a.name }, edit: app$(a.name, 'releases') });
       push({ id: `go:releases:${a.name}`, verb: 'Put back', group: 'Jump to', title: `${a.name} › Releases`, sub: 'every version and what changed', action: app$(a.name, 'releases') });
     }
   }
@@ -93,7 +65,7 @@ export function parseIntents(query: string, world: IntentWorld): Intent[] {
     const parts = findParts(world, m[1]!);
     const a = parts.length ? null : findApp(world, m[1]!);
     for (const p of parts.length ? parts : world.parts.filter((x) => a && x.app === a.name)) {
-      push({ id: `restart:${p.id}`, verb: 'Restart', group: 'Do it', title: `Restart ${p.name}${p.app ? ` in ${p.app}` : ''}`, sub: 'one copy at a time, so nobody sees a gap', action: { kind: 'restart', part: p } });
+      push({ id: `restart:${p.id}`, verb: 'Restart', group: 'Do it', title: `Restart ${p.name}${p.app ? ` in ${p.app}` : ''}`, sub: 'one copy at a time, so nobody sees a gap', action: { kind: 'restart', part: p }, edit: svc$(p.id) });
     }
   }
 
@@ -101,7 +73,7 @@ export function parseIntents(query: string, world: IntentWorld): Intent[] {
     const to = Number(m[2]);
     for (const p of findParts(world, m[1]!)) {
       if (p.desired === to) continue;
-      push({ id: `scale:${p.id}:${to}`, verb: 'Copies', group: 'Do it', title: `Run ${to} ${to === 1 ? 'copy' : 'copies'} of ${p.name}`, sub: `${p.desired} now · ${to > p.desired ? 'adds' : 'removes'} them one at a time`, action: { kind: 'scale', part: p, to } });
+      push({ id: `scale:${p.id}:${to}`, verb: 'Copies', group: 'Do it', title: `Run ${to} ${to === 1 ? 'copy' : 'copies'} of ${p.name}`, sub: `${p.desired} now · ${to > p.desired ? 'adds' : 'removes'} them one at a time`, action: { kind: 'scale', part: p, to }, edit: svc$(p.id) });
     }
   }
 

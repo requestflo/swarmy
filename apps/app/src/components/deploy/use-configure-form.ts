@@ -11,9 +11,9 @@ export type Options = Record<string, string | boolean>;
  * the template's options. `params` is the validated deploy input, or null
  * while something doesn't validate (the field says what).
  */
-export function useConfigureForm(meta: BlueprintMetaView) {
+export function useConfigureForm(meta: BlueprintMetaView, initialName?: string) {
   const online = useOnlineNodeCount();
-  const [name, setName] = React.useState(() => defaultAppName(meta));
+  const [name, setName] = React.useState(() => initialName ?? defaultAppName(meta));
   const [ownDomain, setOwnDomain] = React.useState(false);
   const [domain, setDomain] = React.useState('');
   const [size, setSizeRaw] = React.useState<BlueprintSize | null>(null);

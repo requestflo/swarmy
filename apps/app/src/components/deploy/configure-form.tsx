@@ -22,8 +22,8 @@ const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(naviga
  * and secrets at Summary; size and switches at Controls; the swarmy.yaml at
  * Code. One coral Deploy (⌘/Ctrl+Enter) runs the same `blueprints.deploy`.
  */
-export function ConfigureForm({ meta }: { meta: BlueprintMetaView }): React.JSX.Element {
-  const form = useConfigureForm(meta);
+export function ConfigureForm({ meta, name }: { meta: BlueprintMetaView; name?: string }): React.JSX.Element {
+  const form = useConfigureForm(meta, name);
   const plan = useTemplatePlan(meta, form.params ?? undefined);
   const deploy = useTemplateDeploy(meta);
   const label = form.params?.name ?? meta.name;

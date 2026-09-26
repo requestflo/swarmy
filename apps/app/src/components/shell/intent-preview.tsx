@@ -5,45 +5,8 @@ import { useTRPC } from '@/integrations/trpc';
 import { RollbackConfirm } from '@/components/releases/rollback-confirm';
 import { agoWords, lastGood, releaseLabel } from '@/components/app-tabs/releases/release-label';
 import type { Intent } from '@/lib/intents';
-
-interface PaneProps {
-  intent: Intent;
-  /** The CTA, so Enter on a "Do it" row moves focus here (a second Enter confirms). */
-  ctaRef: React.RefObject<HTMLButtonElement | null>;
-  onGo: (intent: Intent) => void;
-  onDone: () => void;
-}
-
-function Pane({ eyebrow, title, body, rows, cta, foot }: {
-  eyebrow: string;
-  title: string;
-  body: string;
-  rows: Array<[string, string]>;
-  cta: React.ReactNode;
-  foot: string;
-}): React.JSX.Element {
-  return (
-    <section aria-label="Preview" aria-live="polite" className="flex h-full flex-col gap-3 p-5">
-      <span className="calm-eyebrow">{eyebrow}</span>
-      <h2 className="font-display text-[1.15rem] leading-snug font-bold tracking-[-0.01em]">{title}</h2>
-      <p className="text-muted-foreground text-[13px] leading-relaxed">{body}</p>
-      {rows.length ? (
-        <dl className="border-border divide-border divide-y border-y text-[12.5px]">
-          {rows.map(([k, v]) => (
-            <div key={k} className="flex justify-between gap-3 py-1.5">
-              <dt className="text-muted-foreground">{k}</dt>
-              <dd className="text-right">{v}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
-      <div className="mt-auto flex flex-col gap-2 pt-2">
-        {cta}
-        <code className="text-muted-foreground block truncate font-mono text-[11px]" title={foot}>{foot}</code>
-      </div>
-    </section>
-  );
-}
+import { DeployPane } from './deploy-intent-pane';
+import { Pane, type PaneProps } from './intent-pane';
 
 function RollbackPane({ intent, ctaRef, onDone, app }: PaneProps & { app: string }): React.JSX.Element {
   const trpc = useTRPC();
@@ -115,6 +78,7 @@ export function IntentPreview(props: PaneProps): React.JSX.Element {
   const { intent, ctaRef, onGo } = props;
   const a = intent.action;
   if (a.kind === 'rollback') return <RollbackPane {...props} app={a.app} />;
+  if (a.kind === 'deploy') return <DeployPane {...props} action={a} />;
   if (a.kind === 'restart' || a.kind === 'scale') return <PartPane {...props} />;
   const domain = a.to === '/stacks/$name/network' ? a.search?.add : undefined;
   return (
