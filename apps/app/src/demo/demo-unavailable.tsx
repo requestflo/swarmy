@@ -35,13 +35,14 @@ export function DemoUnavailable({
 }
 
 /** Full-page version for the routes outside the shell (sign-in, app sign-in). */
-export function DemoAuthPage(): React.JSX.Element {
+export function DemoAuthPage({ notice }: { notice?: React.ReactNode }): React.JSX.Element {
   return (
     <div className="bg-background flex min-h-screen flex-col">
       <DemoBanner />
       <div className="mesh flex flex-1 items-center justify-center p-4">
         <div className="flex flex-col items-center text-center">
           <Wordmark className="text-2xl" />
+          {notice ? <div className="mt-6 w-full max-w-md text-left">{notice}</div> : null}
           <DemoUnavailable title="No sign-in needed">
             This is a demo, so there are no accounts. Everything runs in your browser on fake data.
           </DemoUnavailable>

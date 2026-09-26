@@ -34,8 +34,14 @@ export const Route = createFileRoute('/login')({
     return out;
   },
   // The hosted demo has no accounts: a notice replaces the sign-in screen.
-  component: DEMO_BUILD ? DemoAuthPage : LoginPage,
+  component: DEMO_BUILD ? DemoLoginPage : LoginPage,
 });
+
+/** The demo has no accounts; an invite link (/join/swi_…) still previews who it's from. */
+function DemoLoginPage(): React.JSX.Element {
+  const { invite } = Route.useSearch();
+  return <DemoAuthPage notice={invite ? <InviteBanner inviteId={invite} demo /> : undefined} />;
+}
 
 function LoginPage(): React.JSX.Element {
   const navigate = useNavigate();

@@ -4,7 +4,7 @@ import { MailOpenIcon } from 'lucide-react';
 import { useTRPC } from '@/integrations/trpc';
 
 /** Who an invite link is from. The link itself is the credential; no email needed. */
-export function InviteBanner({ inviteId }: { inviteId: string }): React.JSX.Element | null {
+export function InviteBanner({ inviteId, demo }: { inviteId: string; demo?: boolean }): React.JSX.Element | null {
   const trpc = useTRPC();
   const preview = useQuery(trpc.authConfig.invitePreview.queryOptions({ id: inviteId }));
   if (preview.isPending) return null;
@@ -15,11 +15,20 @@ export function InviteBanner({ inviteId }: { inviteId: string }): React.JSX.Elem
       {!p ? (
         <span>This invite link has been used, revoked, or never existed. Ask for a new one.</span>
       ) : p.expired ? (
-        <span>This invite to {p.orgName} has expired. Ask an admin for a fresh link.</span>
+        <span>
+          {p.state === 'used'
+            ? `This invite link to ${p.orgName} has been used up. Ask an admin for a fresh one.`
+            : `This invite to ${p.orgName} has expired. Ask an admin for a fresh link.`}
+        </span>
       ) : (
         <span>
-          You&rsquo;re invited to join <strong>{p.orgName}</strong> as {p.role === 'admin' ? 'an admin' : `a ${p.role}`}.
-          Continue with your usual sign-in, or create a username below.
+          You&rsquo;re invited to join <strong>{p.orgName}</strong> as {p.role === 'admin' ? 'an admin' : `a ${p.role}`}
+          {p.stackName ? (
+            <>
+              {' '}on <strong>{p.stackName}</strong>
+            </>
+          ) : null}
+          . {demo ? 'In the demo you are already in, so there is nothing to accept.' : 'Continue with your usual sign-in, or create a username below.'}
         </span>
       )}
     </div>

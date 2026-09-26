@@ -14,6 +14,7 @@ import { Route as AppLoginRouteImport } from './routes/app-login'
 import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
 import { Route as SSlugRouteImport } from './routes/s.$slug'
+import { Route as JoinTokenRouteImport } from './routes/join.$token'
 import { Route as AuthedTelemetryRouteImport } from './routes/_authed/telemetry'
 import { Route as AuthedStatusPagesRouteImport } from './routes/_authed/status-pages'
 import { Route as AuthedSettingsRouteImport } from './routes/_authed/settings'
@@ -103,6 +104,11 @@ const AuthedIndexRoute = AuthedIndexRouteImport.update({
 const SSlugRoute = SSlugRouteImport.update({
   id: '/s/$slug',
   path: '/s/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JoinTokenRoute = JoinTokenRouteImport.update({
+  id: '/join/$token',
+  path: '/join/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthedTelemetryRoute = AuthedTelemetryRouteImport.update({
@@ -485,6 +491,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthedSettingsRoute
   '/status-pages': typeof AuthedStatusPagesRoute
   '/telemetry': typeof AuthedTelemetryRoute
+  '/join/$token': typeof JoinTokenRoute
   '/s/$slug': typeof SSlugRoute
   '/ci/$buildId': typeof AuthedCiBuildIdRoute
   '/data/buckets': typeof AuthedDataBucketsRoute
@@ -556,6 +563,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthedSettingsRoute
   '/status-pages': typeof AuthedStatusPagesRoute
   '/telemetry': typeof AuthedTelemetryRoute
+  '/join/$token': typeof JoinTokenRoute
   '/s/$slug': typeof SSlugRoute
   '/': typeof AuthedIndexRoute
   '/ci/$buildId': typeof AuthedCiBuildIdRoute
@@ -629,6 +637,7 @@ export interface FileRoutesById {
   '/_authed/settings': typeof AuthedSettingsRoute
   '/_authed/status-pages': typeof AuthedStatusPagesRoute
   '/_authed/telemetry': typeof AuthedTelemetryRoute
+  '/join/$token': typeof JoinTokenRoute
   '/s/$slug': typeof SSlugRoute
   '/_authed/': typeof AuthedIndexRoute
   '/_authed/ci_/$buildId': typeof AuthedCiBuildIdRoute
@@ -704,6 +713,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/status-pages'
     | '/telemetry'
+    | '/join/$token'
     | '/s/$slug'
     | '/ci/$buildId'
     | '/data/buckets'
@@ -775,6 +785,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/status-pages'
     | '/telemetry'
+    | '/join/$token'
     | '/s/$slug'
     | '/'
     | '/ci/$buildId'
@@ -847,6 +858,7 @@ export interface FileRouteTypes {
     | '/_authed/settings'
     | '/_authed/status-pages'
     | '/_authed/telemetry'
+    | '/join/$token'
     | '/s/$slug'
     | '/_authed/'
     | '/_authed/ci_/$buildId'
@@ -899,6 +911,7 @@ export interface RootRouteChildren {
   AuthedRoute: typeof AuthedRouteWithChildren
   AppLoginRoute: typeof AppLoginRoute
   LoginRoute: typeof LoginRoute
+  JoinTokenRoute: typeof JoinTokenRoute
   SSlugRoute: typeof SSlugRoute
 }
 
@@ -937,6 +950,13 @@ declare module '@tanstack/react-router' {
       path: '/s/$slug'
       fullPath: '/s/$slug'
       preLoaderRoute: typeof SSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/join/$token': {
+      id: '/join/$token'
+      path: '/join/$token'
+      fullPath: '/join/$token'
+      preLoaderRoute: typeof JoinTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authed/telemetry': {
@@ -1561,6 +1581,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthedRoute: AuthedRouteWithChildren,
   AppLoginRoute: AppLoginRoute,
   LoginRoute: LoginRoute,
+  JoinTokenRoute: JoinTokenRoute,
   SSlugRoute: SSlugRoute,
 }
 export const routeTree = rootRouteImport
