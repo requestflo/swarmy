@@ -29,6 +29,7 @@ import { EMAIL_BIND_LABEL } from './email/maddy';
 import { AI_BIND_ENV, AI_BIND_LABEL, AI_ENV_VAR, AI_INJECT_KEY_LABEL, AI_INJECT_LABEL, AI_KEY_FILE_VAR, aiKeySecretName } from './ai.service';
 import { ATTACH_ENV_KEYS, S3_BUCKET_LABEL, S3_KEY_LABEL, S3_SECRET_LABEL } from './buckets.service';
 import {
+  CACHE_CLUSTER_LABEL,
   CACHE_INJECT_LABEL,
   CACHE_INJECT_VAR_LABEL,
   cacheNetworkName,
@@ -45,6 +46,12 @@ type SecretRef = NonNullable<ServiceSpec['secrets']>[number];
 export interface CarryExtras {
   /** The live service's exact secret refs (from {@link secretRefsFromInspect}); preferred over derivation. */
   secretRefs?: SecretRef[];
+  /**
+   * The org's live services. When given, a domain whose managed resource no
+   * longer exists (no member service left) is NOT carried — a destroyed
+   * cache's wiring must never be re-injected by a redeploy (QA-043).
+   */
+  liveServices?: readonly Pick<SwarmServiceInfo, 'labels'>[];
 }
 
 /** What one attached domain contributes to the carried spec. */
@@ -56,6 +63,8 @@ interface DomainCarry {
   network?: string;
   /** Secret source name + the env var holding its `/run/secrets/<target>` path. */
   secret?: { source: string; fileVar?: string };
+  /** The resource's member labels (`label=value` in `stack`) — its existence check. */
+  resource?: { stack: string; label: string; value: string };
 }
 
 const SECRETS_DIR = '/run/secrets/';
@@ -102,7 +111,11 @@ export function attachedDomains(source: Pick<SwarmServiceInfo, 'name' | 'labels'
       labels: [CACHE_INJECT_LABEL, CACHE_INJECT_VAR_LABEL],
       env: [v, fileVar],
       ...(stack
-        ? { network: cacheNetworkName(stack, cache), secret: { source: cachePasswordSecretName(stack, cache), fileVar } }
+        ? {
+            network: cacheNetworkName(stack, cache),
+            secret: { source: cachePasswordSecretName(stack, cache), fileVar },
+            resource: { stack, label: CACHE_CLUSTER_LABEL, value: cache },
+          }
         : {}),
     });
   }
@@ -231,7 +244,14 @@ export function carryManagedAttachments(
   extras: CarryExtras = {},
 ): ServiceSpec {
   if (!source) return spec;
-  const domains = attachedDomains(source).filter((d) => !spec.labels?.[d.marker]);
+  const live = extras.liveServices;
+  const resourceGone = (d: DomainCarry): boolean =>
+    Boolean(
+      live &&
+        d.resource &&
+        !live.some((s) => s.labels[STACK_LABEL] === d.resource!.stack && s.labels[d.resource!.label] === d.resource!.value),
+    );
+  const domains = attachedDomains(source).filter((d) => !spec.labels?.[d.marker] && !resourceGone(d));
   if (domains.length === 0) return spec;
 
   const liveEnv = envRecord(source.env ?? []);

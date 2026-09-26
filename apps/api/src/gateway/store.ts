@@ -135,11 +135,21 @@ export class GatewayStore {
     }));
   }
 
-  /** Raw live Docker services across the org's nodes, deduped by service id. */
+  /**
+   * Raw live Docker services across the org's nodes, deduped by service id.
+   * Every manager reports the same swarm services, but not at the same
+   * moment: the one a write was dispatched to pushes right after it, the
+   * others on their next tick. The NEWEST spec (Docker's `UpdatedAt`) wins, so
+   * a just-patched service never reads back as its stale pre-patch copy from
+   * another manager (QA-043: a stripped cache wiring re-injected from it).
+   */
   liveServicesForOrg(orgId: string): SwarmServiceInfo[] {
     const byId = new Map<string, SwarmServiceInfo>();
     for (const nodeId of this.nodesForOrg(orgId)) {
-      for (const svc of this.serviceInfo.get(nodeId) ?? []) byId.set(svc.id, svc);
+      for (const svc of this.serviceInfo.get(nodeId) ?? []) {
+        const seen = byId.get(svc.id);
+        if (!seen || (svc.updatedAt ?? 0) >= (seen.updatedAt ?? 0)) byId.set(svc.id, svc);
+      }
     }
     return [...byId.values()];
   }

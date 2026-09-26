@@ -493,7 +493,7 @@ export async function deployFromCompose(
     const routed = carryIngressRoutes(wired, source);
     // …and the secret variables set on it (Docker secrets, never values).
     const attached = carrySecretFamilies(
-      carrySecretVars(carryManagedAttachments(routed, source), source),
+      carrySecretVars(carryManagedAttachments(routed, source, { liveServices: liveRaw }), source),
       familyLive.get(spec.name),
     );
     return carryLinks(attached, { orgId: ctx.activeOrgId, stack: input.name, peers });

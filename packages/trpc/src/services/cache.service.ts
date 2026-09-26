@@ -810,6 +810,20 @@ export async function provisionCache(
   if (findCluster(ctx, stack, cluster)) {
     throw commandRejected(`cache cluster "${cluster}" already exists in stack "${stack}"`);
   }
+  // QA-043: the cluster is gone, but an app may still carry its wiring (a
+  // destroy that raced a redeploy). Unwire those first — a leftover secret ref
+  // makes Docker refuse to replace the password secret, and a leftover inject
+  // label would re-inject the old wiring on the next redeploy.
+  const staleSecret = cachePasswordSecretName(stack, cluster);
+  for (const app of attachedToCache(liveOrgServices(ctx), stack, cluster, staleSecret, new Set())) {
+    await stripCacheWiring(ctx, app, stack, cluster);
+    await writeAudit(ctx, {
+      action: 'cache.detach',
+      targetType: 'cacheCluster',
+      targetId: cacheBaseName(stack, cluster),
+      metadata: { appService: app.name, reason: 'stale wiring before re-provision' },
+    });
+  }
   if (input.topology === 'sentinel' && input.replicas < 1) {
     // Sentinel failover needs a replica to promote — hold the floor at 1.
     input = { ...input, replicas: 1 };
@@ -1040,6 +1054,51 @@ export function attachedToCache<S extends { name: string; stack: string; labels:
 }
 
 /**
+ * PURE — what unwiring `app` from `<stack>/<cluster>` removes: the inject var
+ * + its `_PASSWORD_FILE` companion (per the inject label), plus any env still
+ * pointing at the cluster (its `/run/secrets/<secret>` file or its primary
+ * host) from an older or half-applied attach. Inject labels are dropped
+ * whenever they name this cluster.
+ */
+export function cacheWiringToStrip(
+  app: { labels: Record<string, string>; env?: readonly string[] },
+  stack: string,
+  cluster: string,
+): { env: string[]; labels: string[] } {
+  const secretPath = `/run/secrets/${cachePasswordSecretName(stack, cluster)}`;
+  const host = cachePrimaryName(stack, cluster);
+  const env = new Set<string>();
+  const labelled = app.labels[CACHE_INJECT_LABEL] === cluster;
+  if (labelled) {
+    const envVar = app.labels[CACHE_INJECT_VAR_LABEL] ?? 'REDIS_URL';
+    env.add(envVar);
+    env.add(cachePasswordFileVar(envVar));
+  }
+  for (const kv of app.env ?? []) {
+    const i = kv.indexOf('=');
+    if (i <= 0) continue;
+    const v = kv.slice(i + 1);
+    if (v === secretPath || v.startsWith(`redis://${host}:`) || v.includes(`@${host}:`)) env.add(kv.slice(0, i));
+  }
+  return { env: [...env], labels: labelled ? [CACHE_INJECT_LABEL, CACHE_INJECT_VAR_LABEL] : [] };
+}
+
+/**
+ * Unwire one app from a cluster in ONE live patch — env, password secret ref,
+ * cluster network and inject labels together — so nothing is left behind for
+ * a redeploy's attachment carry to re-inject from.
+ */
+async function stripCacheWiring(ctx: OrgContext, app: InvService, stack: string, cluster: string): Promise<void> {
+  const strip = cacheWiringToStrip(app, stack, cluster);
+  await patchLiveService(ctx, app, {
+    removeEnv: strip.env,
+    removeSecrets: [cachePasswordSecretName(stack, cluster)],
+    removeNetworks: [cacheNetworkName(stack, cluster)],
+    removeLabels: strip.labels,
+  });
+}
+
+/**
  * Destroy a cluster: remove every member service + the password secret.
  * Refused while apps are still attached, unless `force`, which detaches them
  * first (like cache.detach). The data volume and
@@ -1065,15 +1124,10 @@ export async function destroyCache(
   // force: detach every attached app first, exactly like cache.detach (env
   // vars, secret ref, network, labels), so no app keeps a dead REDIS_URL or
   // pins the password secret (which blocked re-provisioning the same name).
-  const network = cacheNetworkName(c.stack, c.name);
+  // Env, secret ref AND inject labels go in ONE patch: a label left behind is
+  // what a later redeploy's attachment carry re-injects from.
   for (const app of attached) {
-    const envVar = app.labels[CACHE_INJECT_VAR_LABEL] ?? 'REDIS_URL';
-    await patchLiveService(ctx, app, {
-      removeEnv: app.labels[CACHE_INJECT_LABEL] === c.name ? [envVar, cachePasswordFileVar(envVar)] : [],
-      removeSecrets: [secretName],
-      removeNetworks: [network],
-      removeLabels: [CACHE_INJECT_LABEL, CACHE_INJECT_VAR_LABEL],
-    });
+    await stripCacheWiring(ctx, app, c.stack, c.name);
     await writeAudit(ctx, {
       action: 'cache.detach',
       targetType: 'cacheCluster',
