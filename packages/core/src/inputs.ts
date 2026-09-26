@@ -705,6 +705,18 @@ export const ResolveIncidentInput = z.object({
 });
 export type ResolveIncidentInput = z.infer<typeof ResolveIncidentInput>;
 
+/** The public status-page update phases (Statuspage.io vocabulary). */
+export const INCIDENT_UPDATE_PHASES = ['investigating', 'identified', 'monitoring', 'resolved'] as const;
+export type IncidentUpdatePhase = (typeof INCIDENT_UPDATE_PHASES)[number];
+
+/** Post a public update to an open incident; `resolved` also resolves it. */
+export const PostIncidentUpdateInput = z.object({
+  incidentId: z.string().min(1),
+  phase: z.enum(INCIDENT_UPDATE_PHASES),
+  message: z.string().trim().min(1).max(4_000),
+});
+export type PostIncidentUpdateInput = z.infer<typeof PostIncidentUpdateInput>;
+
 // ── Status pages (slice C5) — CRUD + public snapshot ──────────────────────────
 import { STATUS_PAGE_COMPONENT_KINDS } from './views';
 

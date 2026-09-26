@@ -2,6 +2,7 @@ import {
   IncidentNoteInput,
   IncidentRefInput,
   IncidentsListInput,
+  PostIncidentUpdateInput,
   ResolveIncidentInput,
 } from '@swarmy/core';
 import { orgProcedure, router } from '../trpc';
@@ -10,6 +11,7 @@ import {
   getIncident,
   listIncidents,
   overview,
+  postUpdate,
   reopenIncident,
   resolveIncidentManually,
 } from '../services/incidents.service';
@@ -37,6 +39,14 @@ export const incidentsRouter = router({
   resolve: orgProcedure
     .input(ResolveIncidentInput)
     .mutation(({ ctx, input }) => resolveIncidentManually(ctx, input)),
+
+  /**
+   * Post a public status-page update (investigating · identified · monitoring
+   * · resolved). `resolved` also resolves the incident.
+   */
+  postUpdate: orgProcedure
+    .input(PostIncidentUpdateInput)
+    .mutation(({ ctx, input }) => postUpdate(ctx, input)),
 
   /** Reopen a resolved incident. */
   reopen: orgProcedure

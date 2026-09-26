@@ -8,10 +8,12 @@ import type {
   IncidentView,
   IncidentsListInput,
   IncidentsOverview,
+  PostIncidentUpdateInput,
+  PublicIncidentUpdateView,
   PublicIncidentView,
   ResolveIncidentInput,
 } from '@swarmy/core';
-import { INCIDENT_SEVERITIES } from '@swarmy/core';
+import { INCIDENT_SEVERITIES, INCIDENT_UPDATE_PHASES } from '@swarmy/core';
 import type { OrgContext } from '../context';
 import { commandRejected, notFound } from '../errors';
 import { writeAudit } from './audit.service';
@@ -164,6 +166,16 @@ export async function publicIncidents(
     take: 25,
     include: { events: { orderBy: { at: 'desc' }, take: 10 } },
   });
+  const posted = rows.length
+    ? await ctx.db.incidentEvent.findMany({
+        where: {
+          orgId: ctx.activeOrgId,
+          incidentId: { in: rows.map((r) => r.id) },
+          kind: { startsWith: STATUS_KIND_PREFIX },
+        },
+        orderBy: { at: 'desc' },
+      })
+    : [];
   return rows.map((row) => ({
     id: row.id,
     title: row.title,
@@ -176,7 +188,29 @@ export async function publicIncidents(
       kind: e.kind,
       message: e.message,
     })),
+    publicUpdates: toPublicUpdates(posted.filter((e) => e.incidentId === row.id)),
   }));
+}
+
+/** Timeline kinds written by `postUpdate` — `status.<phase>`. */
+const STATUS_KIND_PREFIX = 'status.';
+
+/**
+ * Only the updates a person posted for visitors: `meta.public === true` with a
+ * known phase. Latest first; message + phase + time, never the rest of meta.
+ */
+export function toPublicUpdates(
+  events: Array<{ at: Date; kind: string; message: string; meta: unknown }>,
+): PublicIncidentUpdateView[] {
+  const out: PublicIncidentUpdateView[] = [];
+  for (const e of [...events].sort((a, b) => b.at.getTime() - a.at.getTime())) {
+    const meta = toEventView({ id: '', ...e }).meta;
+    const phase = meta.phase;
+    if (meta.public !== true || typeof phase !== 'string') continue;
+    if (!(INCIDENT_UPDATE_PHASES as readonly string[]).includes(phase)) continue;
+    out.push({ at: e.at.toISOString(), phase: phase as PublicIncidentUpdateView['phase'], message: e.message });
+  }
+  return out;
 }
 
 // ── Mutations ─────────────────────────────────────────────────────────────────
@@ -273,5 +307,41 @@ export async function reopenIncident(
     targetId: incident.id,
     metadata: { title: incident.title },
   });
+  return getIncident(ctx, { id: incident.id });
+}
+
+/**
+ * Post a public status-page update to an open incident: a `status.<phase>`
+ * timeline event with `meta.public` (the only events a status page shows as
+ * posted updates). `resolved` also resolves the incident through the manual
+ * resolve path, so the lifecycle, its final event and its audit row match.
+ */
+export async function postUpdate(
+  ctx: OrgContext,
+  input: PostIncidentUpdateInput,
+): Promise<IncidentDetailView> {
+  const incident = await requireIncident(ctx, input.incidentId);
+  if (incident.status === 'RESOLVED') {
+    throw commandRejected('this incident is resolved — reopen it to post another update');
+  }
+  const message = input.message.trim();
+  const event = await ctx.db.incidentEvent.create({
+    data: {
+      orgId: ctx.activeOrgId,
+      incidentId: incident.id,
+      kind: `${STATUS_KIND_PREFIX}${input.phase}`,
+      message,
+      meta: { public: true, phase: input.phase, author: ctx.user.name || ctx.user.email } as object,
+    },
+  });
+  await writeAudit(ctx, {
+    action: 'incidents.postUpdate',
+    targetType: 'incident',
+    targetId: incident.id,
+    metadata: { eventId: event.id, phase: input.phase },
+  });
+  if (input.phase === 'resolved') {
+    return resolveIncidentManually(ctx, { id: incident.id, message });
+  }
   return getIncident(ctx, { id: incident.id });
 }

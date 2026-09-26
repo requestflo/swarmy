@@ -1329,6 +1329,18 @@ export interface PublicIncidentView {
   resolvedAt: string | null;
   /** Latest-first update feed (message + timestamp only — no meta). */
   updates: Array<{ at: string; kind: string; message: string }>;
+  /**
+   * Latest-first updates a person posted for visitors (`incidents.postUpdate`,
+   * events with `meta.public: true`) — the phase and what they wrote.
+   */
+  publicUpdates: PublicIncidentUpdateView[];
+}
+
+/** One posted public update on an incident. */
+export interface PublicIncidentUpdateView {
+  at: string;
+  phase: 'investigating' | 'identified' | 'monitoring' | 'resolved';
+  message: string;
 }
 
 // ── Status pages (slice C5) — public component status, uptime bars, incidents ─
