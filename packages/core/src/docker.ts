@@ -902,6 +902,16 @@ export class DockerClient {
    * (`imageArgv` pulls). Unknown (API error) → true, so a transient failure
    * never blocks a deploy; the task error would still say why.
    */
+  /** The local image id (`sha256:…`, the content digest) — undefined when absent. */
+  async imageId(image: string): Promise<string | undefined> {
+    try {
+      const info = (await this.docker.getImage(image).inspect()) as { Id?: string };
+      return info.Id || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   async imageHasShell(image: string): Promise<boolean> {
     let c: Docker.Container | undefined;
     try {

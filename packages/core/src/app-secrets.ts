@@ -54,6 +54,46 @@ export const SECRET_ENV_SHIM_PATH = '/run/swarmy/secret-env.sh';
 export const SECRET_ENV_SHIM_CONFIG = 'swarmy_secret-env-shim_v1';
 /** The user's own command/args before the shim wrap (JSON `{command,args}`). */
 export const SECRET_ENV_ARGV_LABEL = 'swarmy.secretenv.argv';
+/**
+ * Names that fell back to FILE delivery on a shell-less image (comma list):
+ * the app reads `<NAME>_FILE`. Set by the agent, read by the dashboard,
+ * reversed by {@link unwrapSecretEnv}.
+ */
+export const SECRET_ENV_FILE_LABEL = 'swarmy.secretenv.file';
+
+/**
+ * PURE — the shell-less fallback: every `secretEnv` name the spec allows
+ * (`secretEnvFileFallback`) becomes `<NAME>_FILE=/run/secrets/<NAME>` (its
+ * secret is already mounted there) instead of shim delivery. The plain value
+ * never enters the spec. Returns the names that still need the shim (the
+ * caller refuses those on a shell-less image).
+ */
+export function applySecretEnvFileFallback(spec: ServiceSpec): { spec: ServiceSpec; unresolved: string[] } {
+  const allowed = new Set(spec.secretEnvFileFallback ?? []);
+  const names = [...new Set(spec.secretEnv ?? [])];
+  const fallback = names.filter((n) => allowed.has(n));
+  const unresolved = names.filter((n) => !allowed.has(n));
+  const { secretEnvFileFallback: _f, ...rest } = spec;
+  if (fallback.length === 0) return { spec: rest, unresolved };
+  const env = { ...(spec.env ?? {}) };
+  for (const n of fallback) {
+    delete env[n];
+    env[`${n}_FILE`] = `${SECRETS_DIR}/${n}`;
+  }
+  const out: ServiceSpec = {
+    ...rest,
+    env,
+    labels: { ...(spec.labels ?? {}), [SECRET_ENV_FILE_LABEL]: fallback.join(',') },
+  };
+  if (unresolved.length) out.secretEnv = unresolved;
+  else delete out.secretEnv;
+  return { spec: out, unresolved };
+}
+
+/** Names a live spec delivers as `<NAME>_FILE` because its image has no shell. */
+export function secretEnvFileNames(labels: Record<string, string> | undefined): string[] {
+  return (labels?.[SECRET_ENV_FILE_LABEL] ?? '').split(',').filter((n) => isEnvName(n));
+}
 
 export const SECRETS_DIR = '/run/secrets';
 /** Docker caps object names at 64 chars. */
@@ -220,7 +260,8 @@ export function originalArgv(spec: Pick<ServiceSpec, 'command' | 'args'>, image:
 export function wrapSecretEnv(input: ServiceSpec, image: ImageArgv | null): ServiceSpec {
   const spec = unwrapSecretEnv(input);
   const names = [...new Set(spec.secretEnv ?? [])];
-  const { secretEnv: _drop, ...rest } = spec;
+  // The fallback allowance is a deploy-time instruction, never Docker spec.
+  const { secretEnv: _drop, secretEnvFileFallback: _fallback, ...rest } = spec;
   if (names.length === 0) return rest;
 
   const targets = new Set((spec.secrets ?? []).map((r) => r.target ?? r.source));
@@ -271,7 +312,8 @@ export function isSecretEnvWrapped(spec: Pick<ServiceSpec, 'command' | 'labels'>
  * the argv label and `SWARMY_SECRET_ENV`, and surface the names as
  * `secretEnv`. A non-wrapped spec is returned unchanged. PURE.
  */
-export function unwrapSecretEnv(spec: ServiceSpec): ServiceSpec {
+export function unwrapSecretEnv(input: ServiceSpec): ServiceSpec {
+  const spec = unwrapSecretEnvFileFallback(input);
   if (!isSecretEnvWrapped(spec)) return spec;
   const out: ServiceSpec = { ...spec };
   const labels = { ...(spec.labels ?? {}) };
@@ -314,6 +356,26 @@ export function unwrapSecretEnv(spec: ServiceSpec): ServiceSpec {
   else delete out.configs;
 
   if (names.length > 0) out.secretEnv = [...new Set([...(spec.secretEnv ?? []), ...names])];
+  return out;
+}
+
+/**
+ * Reverse {@link applySecretEnvFileFallback} on a live spec: the names go back
+ * into `secretEnv` (+ `secretEnvFileFallback`), their `<NAME>_FILE` env and
+ * the label drop — so the next deploy re-decides (the image may have a shell now).
+ */
+function unwrapSecretEnvFileFallback(spec: ServiceSpec): ServiceSpec {
+  const names = secretEnvFileNames(spec.labels);
+  if (names.length === 0) return spec;
+  const labels = { ...(spec.labels ?? {}) };
+  delete labels[SECRET_ENV_FILE_LABEL];
+  const env = { ...(spec.env ?? {}) };
+  for (const n of names) if (env[`${n}_FILE`] === `${SECRETS_DIR}/${n}`) delete env[`${n}_FILE`];
+  const out: ServiceSpec = { ...spec, labels };
+  if (Object.keys(env).length) out.env = env;
+  else delete out.env;
+  out.secretEnv = [...new Set([...(spec.secretEnv ?? []), ...names])];
+  out.secretEnvFileFallback = [...new Set([...(spec.secretEnvFileFallback ?? []), ...names])];
   return out;
 }
 

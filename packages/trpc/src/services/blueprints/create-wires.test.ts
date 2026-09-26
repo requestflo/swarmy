@@ -226,10 +226,25 @@ describe('credentialEnvToSecrets — no credential env in any spec', () => {
       { family: 'n8n_app_URL', template: 'x __SWARMY_DB_URL__' },
     ]);
     expect(res.wires).toEqual([
-      { type: 'secret', service: 'app', family: 'n8n_app_DB_PASSWORD', envName: 'DB_PASSWORD', delivery: 'env' },
-      { type: 'secret', service: 'app', family: 'n8n_app_URL', envName: 'URL', delivery: 'env' },
+      { type: 'secret', service: 'app', family: 'n8n_app_DB_PASSWORD', envName: 'DB_PASSWORD', delivery: 'env', fileFallback: true },
+      { type: 'secret', service: 'app', family: 'n8n_app_URL', envName: 'URL', delivery: 'env', fileFallback: true },
       { type: 'env', service: 'app', env: { DB_HOST: 'h' } },
     ]);
     expect(credentialEnvFamily('s'.repeat(60), 'svc', 'KEY').length).toBeLessThanOrEqual(56);
+  });
+});
+
+describe('blueprint credential env on a shell-less image', () => {
+  it('credential secret wires allow the _FILE fallback on the create spec', () => {
+    const spec = withCreateTimeWires(
+      { name: 'n8n_app', image: 'n8n:1' } as ServiceSpec,
+      [{ type: 'secret', service: 'app', family: 'n8n_app_DB_PASSWORD', envName: 'DB_PASSWORD', delivery: 'env', fileFallback: true }],
+      { n8n_app_DB_PASSWORD: 'n8n_app_DB_PASSWORD__v1' },
+      {},
+    );
+    expect(spec.secrets).toEqual([{ source: 'n8n_app_DB_PASSWORD__v1', target: 'DB_PASSWORD' }]);
+    expect(spec.secretEnv).toEqual(['DB_PASSWORD']);
+    expect(spec.secretEnvFileFallback).toEqual(['DB_PASSWORD']);
+    expect(spec.env?.DB_PASSWORD).toBeUndefined();
   });
 });

@@ -8,7 +8,9 @@
  * shim config to exist.
  */
 import {
+  applySecretEnvFileFallback,
   needsImageArgv,
+  unwrapSecretEnv,
   SECRET_ENV_SHIM_CONFIG,
   SECRET_ENV_SHIM_SCRIPT,
   wrapSecretEnv,
@@ -24,6 +26,27 @@ export interface SecretEnvDocker {
     opts?: { pull?: boolean; authconfig?: { username: string; password: string; serveraddress?: string } },
   ): Promise<ImageArgv>;
   imageHasShell?(image: string): Promise<boolean>;
+  /** The local image id (`sha256:…`) — the shell-probe cache key. */
+  imageId?(image: string): Promise<string | undefined>;
+}
+
+/** image id (digest) → has /bin/sh. An image id is immutable, so the answer never changes. */
+const shellCache = new Map<string, boolean>();
+
+/** Does `image` have /bin/sh? Probed once per image digest (create-without-start + stat). */
+export async function hasShellCached(docker: SecretEnvDocker, image: string): Promise<boolean> {
+  if (!docker.imageHasShell) return true; // no probe available: assume the shim can run
+  const id = (await docker.imageId?.(image).catch(() => undefined)) ?? undefined;
+  const cached = id ? shellCache.get(id) : undefined;
+  if (cached !== undefined) return cached;
+  const has = await docker.imageHasShell(image);
+  if (id) shellCache.set(id, has);
+  return has;
+}
+
+/** Test seam. */
+export function clearShellCache(): void {
+  shellCache.clear();
 }
 
 /** Idempotently create the (immutable, value-free) shim config. */
@@ -51,16 +74,24 @@ export async function prepareSecretEnv(
   spec: ServiceSpec,
   opts: { pull?: boolean; authconfig?: { username: string; password: string; serveraddress?: string } } = {},
 ): Promise<ServiceSpec> {
-  if (!spec.secretEnv?.length) return wrapSecretEnv(spec, null);
-  await ensureSecretEnvShim(docker);
+  // A live spec that fell back earlier is re-decided from scratch.
+  const wanted = unwrapSecretEnv(spec);
+  if (!wanted.secretEnv?.length) return wrapSecretEnv(wanted, null);
   // Always resolve the image (pulls it when absent) — also needed for the shell probe.
-  const argv = await docker.imageArgv(spec.image, opts);
-  if (docker.imageHasShell && !(await docker.imageHasShell(spec.image))) {
-    // Fail the deploy with the fix, instead of rolling out tasks that die on
-    // "exec /bin/sh: no such file" (FROM scratch / distroless images).
-    throw new Error(
-      `${spec.image} has no /bin/sh, so secrets can't be delivered as env vars — switch ${spec.secretEnv.join(', ')} to file delivery (<NAME>_FILE=/run/secrets/<NAME>)`,
-    );
+  const argv = await docker.imageArgv(wanted.image, opts);
+  if (!(await hasShellCached(docker, wanted.image))) {
+    // No /bin/sh for the shim (FROM scratch / distroless). Names the spec
+    // allows fall back to `<NAME>_FILE` (the secret file is already mounted)
+    // — never to a plain value. Anything else fails the deploy with the fix,
+    // instead of rolling out tasks that die on "exec /bin/sh: no such file".
+    const { spec: filed, unresolved } = applySecretEnvFileFallback(wanted);
+    if (unresolved.length > 0) {
+      throw new Error(
+        `${wanted.image} has no /bin/sh, so secrets can't be delivered as env vars — switch ${unresolved.join(', ')} to file delivery (<NAME>_FILE=/run/secrets/<NAME>)`,
+      );
+    }
+    return filed;
   }
-  return wrapSecretEnv(spec, needsImageArgv(spec) ? argv : null);
+  await ensureSecretEnvShim(docker);
+  return wrapSecretEnv(wanted, needsImageArgv(wanted) ? argv : null);
 }

@@ -34,6 +34,7 @@ export function withCreateTimeWires(
   const env: Record<string, string> = { ...(spec.env ?? {}) };
   const secrets = [...(spec.secrets ?? [])];
   const secretEnv = new Set(spec.secretEnv ?? []);
+  const fallback = new Set(spec.secretEnvFileFallback ?? []);
   for (const w of wires) {
     if (w.type === 'env') {
       for (const [k, v] of Object.entries(w.env)) env[k] = substituteTokens(v, tokens);
@@ -45,6 +46,7 @@ export function withCreateTimeWires(
       // Exported as $envName by the secret-env shim; the spec holds only the NAME.
       if (!secrets.some((r) => r.source === name && r.target === w.envName)) secrets.push({ source: name, target: w.envName });
       secretEnv.add(w.envName);
+      if (w.fileFallback) fallback.add(w.envName);
       delete env[w.envName];
     } else {
       for (const ref of secretRefsFor([name])) {
@@ -56,6 +58,7 @@ export function withCreateTimeWires(
   const next: ServiceSpec = { ...spec, env };
   if (secrets.length) next.secrets = secrets;
   if (secretEnv.size) next.secretEnv = [...secretEnv].sort();
+  if (fallback.size) next.secretEnvFileFallback = [...fallback].sort();
   return next;
 }
 
@@ -108,7 +111,7 @@ export function credentialEnvToSecrets(
       }
       const family = credentialEnvFamily(stack, w.service, key);
       families.push({ family, template: value });
-      out.push({ type: 'secret', service: w.service, family, envName: key, delivery: 'env' });
+      out.push({ type: 'secret', service: w.service, family, envName: key, delivery: 'env', fileFallback: true });
     }
     if (Object.keys(plain).length) out.push({ ...w, env: plain });
   }

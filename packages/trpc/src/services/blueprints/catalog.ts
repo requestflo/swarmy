@@ -67,7 +67,15 @@ export type WireAction =
    * path (`file`, default), or — `delivery: 'env'` — exported as `envName` by
    * the secret-env shim (value never in the spec).
    */
-  | { type: 'secret'; service: string; family: string; envName: string; delivery?: 'file' | 'env' }
+  | {
+      type: 'secret';
+      service: string;
+      family: string;
+      envName: string;
+      delivery?: 'file' | 'env';
+      /** env delivery on a shell-less image falls back to `<envName>_FILE` (never plain env). */
+      fileFallback?: boolean;
+    }
   /** buckets `attachToService`: S3_* env + bucket-scoped key as a Docker secret. */
   | { type: 'bucket'; service: string; bucket: string }
   /** Merge env vars (values may contain tokens) onto the live service spec. */

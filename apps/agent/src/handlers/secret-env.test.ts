@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { SECRET_ENV_SHIM_CONFIG, SECRET_ENV_SHIM_PATH, SECRET_ENV_SHIM_SCRIPT } from '@swarmy/core';
 import type { ServiceSpec } from '@swarmy/core/protocol';
-import { prepareSecretEnv, type SecretEnvDocker } from './secret-env';
+import { clearShellCache, hasShellCached, prepareSecretEnv, type SecretEnvDocker } from './secret-env';
 
 function fake(opts: { configs?: string[]; raceOnCreate?: boolean } = {}) {
   const configs = new Set(opts.configs ?? []);
@@ -71,5 +71,76 @@ describe('prepareSecretEnv (agent deploy-time wrap)', () => {
     expect(await prepareSecretEnv(docker, plain)).toEqual(plain);
     expect(calls.created).toHaveLength(0);
     expect(calls.argv).toHaveLength(0);
+  });
+});
+
+describe('shell-less fallback to <NAME>_FILE (owner decision)', () => {
+  const wired: ServiceSpec = {
+    name: 'shop_api',
+    image: 'gcr.io/distroless/static:nonroot',
+    env: { LOG: 'info' },
+    secrets: [
+      { source: 'shop_main-pg-url__v1', target: 'DATABASE_URL' },
+      { source: 'shop_main-pg-ro-url__v1', target: 'DATABASE_RO_URL' },
+    ],
+    secretEnv: ['DATABASE_RO_URL', 'DATABASE_URL'],
+    secretEnvFileFallback: ['DATABASE_RO_URL', 'DATABASE_URL'],
+  };
+
+  it('a shell-less image gets DATABASE_URL_FILE (the mounted secret), no plain env, no shim', async () => {
+    clearShellCache();
+    const { docker } = fake({ configs: [SECRET_ENV_SHIM_CONFIG] });
+    const out = await prepareSecretEnv({ ...docker, imageHasShell: async () => false, imageId: async () => 'sha256:aaa' }, wired);
+    expect(out.env).toEqual({
+      LOG: 'info',
+      DATABASE_URL_FILE: '/run/secrets/DATABASE_URL',
+      DATABASE_RO_URL_FILE: '/run/secrets/DATABASE_RO_URL',
+    });
+    expect(out.command).toBeUndefined();
+    expect(out.secretEnv).toBeUndefined();
+    expect(out.secretEnvFileFallback).toBeUndefined();
+    expect(out.secrets).toEqual(wired.secrets);
+    expect(out.labels?.['swarmy.secretenv.file']).toBe('DATABASE_RO_URL,DATABASE_URL');
+  });
+
+  it('a normal image keeps the shim, even when fallback is allowed', async () => {
+    clearShellCache();
+    const { docker } = fake({ configs: [SECRET_ENV_SHIM_CONFIG] });
+    const out = await prepareSecretEnv({ ...docker, imageHasShell: async () => true, imageId: async () => 'sha256:bbb' }, wired);
+    expect(out.command).toEqual(['/bin/sh', SECRET_ENV_SHIM_PATH]);
+    expect(out.env).toEqual({ LOG: 'info', SWARMY_SECRET_ENV: 'DATABASE_RO_URL,DATABASE_URL' });
+    expect(out.labels?.['swarmy.secretenv.file']).toBeUndefined();
+    expect(out.secretEnvFileFallback).toBeUndefined();
+  });
+
+  it('a live fallback spec is re-decided on the next deploy (the image may have a shell now)', async () => {
+    clearShellCache();
+    const { docker } = fake({ configs: [SECRET_ENV_SHIM_CONFIG] });
+    const filed = await prepareSecretEnv({ ...docker, imageHasShell: async () => false, imageId: async () => 'sha256:c1' }, wired);
+    const again = await prepareSecretEnv({ ...docker, imageHasShell: async () => true, imageId: async () => 'sha256:c2' }, filed);
+    expect(again.command).toEqual(['/bin/sh', SECRET_ENV_SHIM_PATH]);
+    expect(again.env?.DATABASE_URL_FILE).toBeUndefined();
+    expect(again.labels?.['swarmy.secretenv.file']).toBeUndefined();
+  });
+
+  it('names not allowed to fall back still refuse the deploy', async () => {
+    clearShellCache();
+    const { docker } = fake({ configs: [SECRET_ENV_SHIM_CONFIG] });
+    const mixed = { ...wired, secrets: [...wired.secrets!, { source: 'k__v1', target: 'API_KEY' }], secretEnv: [...wired.secretEnv!, 'API_KEY'] };
+    await expect(
+      prepareSecretEnv({ ...docker, imageHasShell: async () => false, imageId: async () => 'sha256:d' }, mixed),
+    ).rejects.toThrow(/API_KEY to file delivery/);
+  });
+
+  it('probes each image digest once', async () => {
+    clearShellCache();
+    let probes = 0;
+    const { docker } = fake({ configs: [SECRET_ENV_SHIM_CONFIG] });
+    const d = { ...docker, imageHasShell: async () => (probes++, false), imageId: async () => 'sha256:same' };
+    await prepareSecretEnv(d, wired);
+    await prepareSecretEnv(d, wired);
+    expect(probes).toBe(1);
+    expect(await hasShellCached(d, 'other:tag')).toBe(false); // same digest, cached
+    expect(probes).toBe(1);
   });
 });

@@ -15,6 +15,7 @@ import {
   dbSecretName,
   parseDbSecretName,
   pgNeedsCredentialMigration,
+  secretEnvFileNames,
   type DbSecretKind,
   pgBootRole,
   pgPrimaryEnv,
@@ -1046,6 +1047,12 @@ export type DbMemberView = DbClusterMemberView;
 export interface DbClusterView {
   name: string;
   engine: DbEngine;
+  /**
+   * Apps wired to this cluster whose image has no `/bin/sh`: they get
+   * `<envVar>_FILE` (the secret file) instead of `<envVar>` and must read the
+   * URL from that file. Absent when every wired app gets the plain env var name.
+   */
+  fileDelivered?: Array<{ service: string; envVar: string }>;
   primary: { service: string; status: InvServiceStatus | 'absent' };
   replicas: { desired: number; running: number };
   /** Single-writer endpoint (swarm DNS name of the primary service). */
@@ -1163,6 +1170,12 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
       .map((m) => m.lagSeconds)
       .filter((v): v is number => v !== undefined);
 
+    const fileDelivered = liveStackServices(ctx, stack)
+      .filter((s) => s.labels[DB_INJECT_LABEL] === name)
+      .map((s) => ({ service: s.name, envVar: s.labels[DB_INJECT_VAR_LABEL] || 'DATABASE_URL', filed: secretEnvFileNames(s.labels) }))
+      .filter((a) => a.filed.includes(a.envVar))
+      .map(({ service, envVar }) => ({ service, envVar }));
+
     clusters.push({
       name,
       engine: 'postgres',
@@ -1181,6 +1194,7 @@ export function getDbTopology(ctx: OrgContext, stack: string): DbTopologyView {
       members: memberViews,
       pitr,
       ...(shipper ? { walShipper: { service: shipper.name, status: shipper.status } } : {}),
+      ...(fileDelivered.length > 0 ? { fileDelivered } : {}),
       ...(measuredLags.length > 0 ? { maxLagSeconds: Math.max(...measuredLags) } : {}),
       ...(leader ? { leader } : {}),
       ...(writeRegion ? { writeRegion } : {}),
@@ -1542,6 +1556,9 @@ export async function injectConnection(
         { source: roSecret, target: roVar },
       ],
       secretEnv: [...new Set([...(spec.secretEnv ?? []), envVar, roVar])].sort(),
+      // A shell-less image (distroless) can't run the shim: the agent then sets
+      // DATABASE_URL_FILE / _RO_URL_FILE instead — never the plain URL.
+      secretEnvFileFallback: [...new Set([...(spec.secretEnvFileFallback ?? []), envVar, roVar])].sort(),
     }),
   });
   return {

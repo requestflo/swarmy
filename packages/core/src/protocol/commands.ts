@@ -148,6 +148,14 @@ export const ServiceSpec = z.object({
    * delivery there).
    */
   secretEnv: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).optional(),
+  /**
+   * Names in `secretEnv` that may fall back to FILE delivery when the image
+   * has no `/bin/sh` for the shim (distroless / scratch): the agent then sets
+   * `<NAME>_FILE=/run/secrets/<NAME>` instead — never the plain value — and
+   * stamps `swarmy.secretenv.file` so the dashboard can tell the app to read
+   * the file. Names not listed still fail the deploy on a shell-less image.
+   */
+  secretEnvFileFallback: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).optional(),
   stopGracePeriodNs: z.number().int().nonnegative().optional(),
   /**
    * Container log driver (compose `logging`). OMITTED = swarmy's bounded

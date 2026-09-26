@@ -23,6 +23,8 @@ export interface DbClusterRowView {
   storage?: DbStorageView;
   /** A failover swarmy HELD because it could lose writes (admin confirms). */
   pendingFailover?: DbPendingFailoverView;
+  /** Wired apps with no shell: they read `<envVar>_FILE`, not `<envVar>`. */
+  fileDelivered?: Array<{ service: string; envVar: string }>;
 }
 
 function toneFor(status: ClusterStatus): 'online' | 'warning' | 'offline' | 'neutral' | 'progress' {
@@ -88,7 +90,14 @@ export function DbClusterRow({ stack, cluster }: { stack: string; cluster: DbClu
         <span className="mb-1 text-[13.5px] font-semibold">Connect</span>
         <HostRow env="DATABASE_URL" host={c.rwHost} kind="read-write" />
         <HostRow env="DATABASE_RO_URL" host={c.roHost} kind="copies" />
-        <Tech>password in a Docker secret, shown once at create · private network only, no published port</Tech>
+        <Tech>password in a Docker secret, revealed on request · private network only, no published port</Tech>
+        {c.fileDelivered?.map((a) => (
+          <p key={a.service} className="text-muted-foreground mt-1 text-xs">
+            <code className="mono-data">{a.service}</code> has no shell, so it gets{' '}
+            <code className="mono-data">{a.envVar}_FILE</code> instead of <code className="mono-data">{a.envVar}</code>: the
+            app must read the URL from that file.
+          </p>
+        ))}
       </div>
       <DbClusterRowDetail stack={stack} cluster={c.name} topology={c.topology} />
     </div>

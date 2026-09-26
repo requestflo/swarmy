@@ -395,3 +395,27 @@ describe('carrySecretVars (compose redeploy keeps dashboard-set secrets)', () =>
     expect(out.secrets?.map((r) => r.target)).toEqual(['TLS_KEY']);
   });
 });
+
+describe('applySecretEnvFileFallback (shell-less images)', () => {
+  it('allowed names become <NAME>_FILE; the rest are reported; unwrap restores the intent', async () => {
+    const { applySecretEnvFileFallback, unwrapSecretEnv, SECRET_ENV_FILE_LABEL } = await import('./app-secrets');
+    const spec: ServiceSpec = {
+      name: 'a',
+      image: 'distroless',
+      env: { LOG: '1', DATABASE_URL: 'stale' },
+      secrets: [{ source: 'u__v1', target: 'DATABASE_URL' }, { source: 'k__v1', target: 'API_KEY' }],
+      secretEnv: ['DATABASE_URL', 'API_KEY'],
+      secretEnvFileFallback: ['DATABASE_URL'],
+    };
+    const { spec: out, unresolved } = applySecretEnvFileFallback(spec);
+    expect(unresolved).toEqual(['API_KEY']);
+    expect(out.env).toEqual({ LOG: '1', DATABASE_URL_FILE: '/run/secrets/DATABASE_URL' });
+    expect(out.labels?.[SECRET_ENV_FILE_LABEL]).toBe('DATABASE_URL');
+    expect(out.secretEnvFileFallback).toBeUndefined();
+    const back = unwrapSecretEnv({ ...out, secretEnv: undefined });
+    expect(back.env).toEqual({ LOG: '1' });
+    expect(back.secretEnv).toEqual(['DATABASE_URL']);
+    expect(back.secretEnvFileFallback).toEqual(['DATABASE_URL']);
+    expect(back.labels?.[SECRET_ENV_FILE_LABEL]).toBeUndefined();
+  });
+});

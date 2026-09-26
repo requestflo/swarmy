@@ -32,6 +32,8 @@ export function carrySecretFamilies(spec: ServiceSpec, live: ServiceSpec | undef
   const env: Record<string, string> = { ...(spec.env ?? {}) };
   const secretEnv = new Set(spec.secretEnv ?? []);
   const liveSecretEnv = new Set(live?.secretEnv ?? []);
+  const fallback = new Set(spec.secretEnvFileFallback ?? []);
+  const liveFallback = new Set(live?.secretEnvFileFallback ?? []);
   const carried = new Set<string>();
   for (const r of liveRefs) {
     const target = r.target ?? r.source;
@@ -40,6 +42,7 @@ export function carrySecretFamilies(spec: ServiceSpec, live: ServiceSpec | undef
     secrets.push(r);
     carried.add(target);
     if (liveSecretEnv.has(target) && env[target] === undefined) secretEnv.add(target);
+    if (liveFallback.has(target) && env[target] === undefined) fallback.add(target);
   }
   if (!carried.size) return spec;
   for (const [k, v] of Object.entries(live?.env ?? {})) {
@@ -49,5 +52,6 @@ export function carrySecretFamilies(spec: ServiceSpec, live: ServiceSpec | undef
   const out: ServiceSpec = { ...spec, secrets };
   if (Object.keys(env).length) out.env = env;
   if (secretEnv.size) out.secretEnv = [...secretEnv].sort();
+  if (fallback.size) out.secretEnvFileFallback = [...fallback].sort();
   return out;
 }

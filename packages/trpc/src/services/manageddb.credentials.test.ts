@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
+import { applySecretEnvFileFallback } from '@swarmy/core';
 import type { OrgContext } from '../context';
 import {
+  getDbTopology,
   injectConnection,
   migrateDbCredentials,
   provisionDb,
@@ -60,9 +62,13 @@ function world() {
       createdAt: s.gen,
       labels: {},
     }));
-  const put = (spec: Record<string, any>) => {
+  const put = (input: Record<string, any>) => {
+    // The agent's deploy-time decision: a shell-less image falls back to _FILE.
+    const spec: Record<string, any> = String(input.image).includes('distroless')
+      ? applySecretEnvFileFallback(input as never).spec
+      : input;
     const prev = services.get(spec.name);
-    specsSeen.push(spec);
+    specsSeen.push(input);
     services.set(spec.name, {
       id: prev?.id ?? `id-${spec.name}`,
       name: spec.name,
@@ -76,6 +82,7 @@ function world() {
       env: Object.entries(spec.env ?? {}).map(([k, v]) => `${k}=${v}`),
       refs: (spec.secrets ?? []).map((r: Ref) => ({ source: r.source, ...(r.target ? { target: r.target } : {}) })),
       ...(spec.secretEnv ? { secretEnv: spec.secretEnv } : {}),
+      ...(spec.secretEnvFileFallback ? { secretEnvFileFallback: spec.secretEnvFileFallback } : {}),
       networks: (spec.networks ?? []).map((n: string) => ({ name: n, aliases: [] })),
       mounts: (spec.mounts ?? []).filter((m: { type: string }) => m.type === 'volume'),
       ...(spec.command ? { command: spec.command } : {}),
@@ -180,10 +187,15 @@ function world() {
 }
 
 const APP = 'shop_web';
-function addApp(w: ReturnType<typeof world>, env: Record<string, string> = { LOG: 'debug' }, labels: Record<string, string> = {}) {
+function addApp(
+  w: ReturnType<typeof world>,
+  env: Record<string, string> = { LOG: 'debug' },
+  labels: Record<string, string> = {},
+  image = 'web:1',
+) {
   w.put({
     name: APP,
-    image: 'web:1',
+    image,
     labels: { 'com.docker.stack.namespace': STACK, ...labels },
     env,
     networks: ['shop_default'],
@@ -222,6 +234,23 @@ describe('managed Postgres credentials are Docker secrets', () => {
     expect(app.secretEnv).toEqual(['DATABASE_RO_URL', 'DATABASE_URL']);
     expect(w.secrets.get('shop_main-pg-url__v1')).toBe('postgres://postgres:inject-secret-pw@shop_main-primary:5432/app');
     w.assertNowhere('inject-secret-pw');
+  });
+
+  it('inject into a shell-less image: DATABASE_URL_FILE (the secret file), never plain env; dashboard notes it', async () => {
+    const w = world();
+    await provisionDb(w.ctx, { stack: STACK, name: CLUSTER, replicas: 0, password: 'distroless-secret-pw', autoBackup: false });
+    addApp(w, { LOG: 'debug' }, {}, 'gcr.io/distroless/static:nonroot');
+    await injectConnection(w.ctx, { stack: STACK, cluster: CLUSTER, appService: APP });
+    const deployed = w.specsSeen.at(-1) as { secretEnvFileFallback?: string[] };
+    expect(deployed.secretEnvFileFallback).toEqual(['DATABASE_RO_URL', 'DATABASE_URL']);
+    const app = w.services.get(APP)!;
+    expect(app.env).toContain('DATABASE_URL_FILE=/run/secrets/DATABASE_URL');
+    expect(app.env).toContain('DATABASE_RO_URL_FILE=/run/secrets/DATABASE_RO_URL');
+    expect(app.env.some((e) => e.startsWith('DATABASE_URL='))).toBe(false);
+    expect(app.refs).toContainEqual({ source: 'shop_main-pg-url__v1', target: 'DATABASE_URL' });
+    w.assertNowhere('distroless-secret-pw');
+    const view = await getDbTopology(w.ctx, STACK);
+    expect(view.clusters[0]?.fileDelivered).toEqual([{ service: APP, envVar: 'DATABASE_URL' }]);
   });
 
   it('rotate: new secret version, roles re-set from the new file, members + apps moved, old versions removed', async () => {
