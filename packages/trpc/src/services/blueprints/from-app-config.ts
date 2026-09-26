@@ -40,10 +40,12 @@ import {
  *  - values that are known and not secret (hosts, ports, db name, app url)
  *    are rendered straight into the compose env;
  *  - anything carrying a credential resolves to an executor token
- *    (`__SWARMY_*__`) and is applied post-deploy as an `env` wire, so the
- *    persisted compose source never holds even a token;
+ *    (`__SWARMY_*__`) and becomes an `env` wire, so the persisted compose
+ *    source never holds even a token;
  *  - `FOO_FILE: /run/secrets/<x>` on a service that lists `secrets: [x]` becomes
  *    a `secret` wire (a mounted Docker secret — the value never touches env).
+ *  `secret` and `env` wires are folded into the spec each service is FIRST
+ *  created with (`blueprints/create-wires.ts`, QA-073), never attached after.
  */
 
 const DB_PORT = '5432';

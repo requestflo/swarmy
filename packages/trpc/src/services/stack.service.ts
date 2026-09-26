@@ -426,6 +426,12 @@ export async function deployFromCompose(
     override?: boolean;
     /** `automation` (git-apps GitOps loop): warns pass, only a `block` refuses. */
     admissionMode?: 'interactive' | 'automation';
+    /**
+     * Extra wiring folded into each spec BEFORE it is created (generated
+     * secrets a database reads on first boot — QA-073). Applied to the specs
+     * only; the persisted compose source never sees it.
+     */
+    atCreate?: (spec: ServiceSpec, short: string) => ServiceSpec;
   },
 ): Promise<DeployFromComposeResult> {
   guardNotSystemStack(ctx, input.name);
@@ -471,7 +477,8 @@ export async function deployFromCompose(
     // the LIVE service since — ingress routes (+ edge network), managed-data
     // attachments (DATABASE_URL & co + their private overlay + secret), and
     // app links — or the deploy silently unwires the app.
-    const routed = carryIngressRoutes(spec as ServiceSpec, source);
+    const wired = input.atCreate ? input.atCreate(spec as ServiceSpec, short) : (spec as ServiceSpec);
+    const routed = carryIngressRoutes(wired, source);
     // …and the secret variables set on it (Docker secrets, never values).
     const attached = carrySecretVars(carryManagedAttachments(routed, source), source);
     return carryLinks(attached, { orgId: ctx.activeOrgId, stack: input.name, peers });

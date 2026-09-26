@@ -45,6 +45,7 @@ import {
 } from './blueprints/catalog';
 import { ALL_BLUEPRINTS, findBlueprint } from './blueprints/registry';
 import { TemplateCompileError } from './blueprints/from-app-config';
+import { isCreateTimeWire, withCreateTimeWires, type CreateTimeWire } from './blueprints/create-wires';
 
 /**
  * Blueprints (slice F3) — list the static catalog, dry-run a plan, and deploy
@@ -59,7 +60,9 @@ import { TemplateCompileError } from './blueprints/from-app-config';
  * blueprints only orchestrate and audit. Generated credentials live in Docker
  * (secrets or service env, the documented manageddb-inject tradeoff) and are
  * never persisted controller-side; the persisted compose source carries no
- * credential because wiring happens post-deploy on the Docker objects.
+ * credential: generated secrets and credential env are folded into the specs
+ * the services are first created with (never the stored compose — QA-073),
+ * and managed-data wiring happens post-deploy on the Docker objects.
  */
 
 const WIRE_WAIT_TIMEOUT_MS = 30_000;
@@ -240,6 +243,8 @@ interface StepContext {
   notes: string[];
   /** Created bucket name → Garage bucket id (for the attach wire). */
   bucketIds: Record<string, string>;
+  /** Created secret family → its physical Docker secret (wired at create). */
+  secretNames: Record<string, string>;
 }
 
 async function ensureOverlayNetwork(ctx: OrgContext, name: string): Promise<void> {
@@ -383,7 +388,8 @@ async function runStep(
     }
     case 'secret': {
       const value = generateSecretValue(step.payload.format, step.payload.length);
-      await createSecretFamily(ctx, { family: step.payload.family, value });
+      const created = await createSecretFamily(ctx, { family: step.payload.family, value });
+      sctx.secretNames[step.payload.family] = created.name;
       if (step.payload.token) sctx.tokens[step.payload.token] = value;
       if (step.payload.revealNote) {
         sctx.notes.push(substituteTokens(step.payload.revealNote, sctx.tokens));
@@ -396,7 +402,31 @@ async function runStep(
       }
       // The compose source is credential-free by construction; deployFromCompose
       // runs the admission pipeline and records the Release snapshot.
-      await deployFromCompose(ctx, { name: stack, composeSource: step.payload.composeSource });
+      // Generated secrets + credential env go on the spec each service is FIRST
+      // created with — a database reads its password once, on first boot, so
+      // attaching it afterwards leaves it without its user (QA-073).
+      const atCreate = step.payload.wires.filter(
+        (w): w is CreateTimeWire => isCreateTimeWire(w) && (w.type === 'env' || w.family in sctx.secretNames),
+      );
+      await deployFromCompose(ctx, {
+        name: stack,
+        composeSource: step.payload.composeSource,
+        ...(atCreate.length
+          ? {
+              atCreate: (spec, short) =>
+                withCreateTimeWires(spec, atCreate.filter((w) => w.service === short), sctx.secretNames, sctx.tokens),
+            }
+          : {}),
+      });
+      for (const w of atCreate) {
+        if (w.type !== 'secret') continue;
+        await writeAudit(ctx, {
+          action: 'secrets.attach',
+          targetType: 'secretFamily',
+          targetId: w.family,
+          metadata: { service: stackServiceName(stack, w.service), version: 1, envName: w.envName, delivery: w.delivery ?? 'file', atCreate: true },
+        });
+      }
       // Post-labels (queue defs etc.) are stamped verbatim — deliberately NO
       // token substitution so a secret can never land in a Docker label.
       const node = await resolveManagerNode(ctx);
@@ -412,6 +442,7 @@ async function runStep(
         }
       }
       for (const wire of step.payload.wires) {
+        if (atCreate.includes(wire as CreateTimeWire)) continue;
         await applyWire(ctx, stack, { ...wire, service: stackServiceName(stack, wire.service) }, sctx);
       }
       for (const note of step.payload.notes ?? []) {
@@ -462,7 +493,7 @@ export async function deployBlueprint(
 
   const env = await planEnv(ctx, entry, input);
   const steps = planSteps(entry, input, env);
-  const sctx: StepContext = { tokens: {}, notes: [], bucketIds: {} };
+  const sctx: StepContext = { tokens: {}, notes: [], bucketIds: {}, secretNames: {} };
   const results: BlueprintStepResultView[] = [];
   let failed = false;
   let url: string | null = null;
