@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'bun:test';
-import { MANAGED_PG_PITR_CONF_TARGET, WAL_ARCHIVE_MOUNT } from '@swarmy/core/protocol';
+import {
+  MANAGED_PG_PITR_CONF_TARGET,
+  PITR_ARCHIVE_COMMAND,
+  WAL_ARCHIVE_MOUNT,
+  pitrExtraConf,
+} from '@swarmy/core/protocol';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { shipperScript } from './manageddb-reconcile.core';
 import type { SwarmServiceInfo } from '@swarmy/core/protocol';
 import {
   DB_BACKUP_AUTO_LABEL,
@@ -16,6 +25,11 @@ import {
   walShipperRev,
   walShipperSpec,
   walShipperUpToDate,
+  DB_PITR_ARCHIVE_CMD_LABEL,
+  PITR_ARCHIVE_COMMAND_HASH,
+  archiveCommandReloadScript,
+  archiveCommandStale,
+  pitrConfName,
 } from './manageddb-pitr.core';
 
 /**
@@ -111,7 +125,7 @@ describe('pitrPrimarySpec on a failover-promoted primary (QA-068)', () => {
     expect(envOf(spec)['SWARMY_PG_PRIMARY_HOST']).toBeUndefined();
     expect(spec.mounts).toContainEqual({ type: 'volume', source: `${base}-wal-archive`, target: WAL_ARCHIVE_MOUNT });
     expect(spec.mounts?.some((m) => m.source === `${base}-replica-data`)).toBe(true);
-    expect(spec.configs).toContainEqual({ source: `${base}-pitr-conf`, target: MANAGED_PG_PITR_CONF_TARGET });
+    expect(spec.configs).toContainEqual({ source: pitrConfName(base), target: MANAGED_PG_PITR_CONF_TARGET });
     expect(spec.placement?.constraints).toContain('node.id==node-b');
     expect(spec.placement?.constraints?.some((c) => c.startsWith('node.id!='))).toBe(false);
   });
@@ -218,5 +232,106 @@ describe('wal-shipper: storage network + revision (QA-080)', () => {
     // A changed destination network is a new revision.
     expect(walShipperUpToDate({ labels: deployed.labels ?? {} }, 'v1', [`${base}-net`])).toBe(false);
     expect(walShipperUpToDate(undefined, 'v1', nets)).toBe(false);
+  });
+});
+
+/**
+ * Atomic WAL archive: Postgres copies each segment to a hidden temp name and
+ * renames it into place, and the shipper never sees a half-copied segment.
+ * Rolled out to running primaries by a reload, not a restart.
+ */
+describe('atomic WAL archive', () => {
+  const sh = (script: string, env: Record<string, string> = {}) =>
+    Bun.spawnSync(['sh', '-c', script], { env: { PATH: '/usr/bin:/bin', ...env }, stdout: 'pipe', stderr: 'pipe' });
+
+  /** archive_command as Postgres runs it: %p/%f substituted, the archive dir relocated. */
+  const archive = (dir: string, src: string, seg: string) =>
+    sh(PITR_ARCHIVE_COMMAND.replaceAll(WAL_ARCHIVE_MOUNT, dir).replaceAll('%p', src).replaceAll('%f', seg));
+
+  it('archive_command copies to .<seg>.tmp then renames, and never overwrites', () => {
+    expect(PITR_ARCHIVE_COMMAND).toBe(
+      'test ! -f /wal-archive/%f && cp %p /wal-archive/.%f.tmp && mv /wal-archive/.%f.tmp /wal-archive/%f',
+    );
+    const dir = mkdtempSync(join(tmpdir(), 'walarc-'));
+    const src = join(dir, 'src');
+    writeFileSync(src, 'segment-bytes');
+    const arc = join(dir, 'arc');
+    sh(`mkdir -p ${arc}`);
+    expect(archive(arc, src, '000000010000000000000001').exitCode).toBe(0);
+    expect(readdirSync(arc)).toEqual(['000000010000000000000001']);
+    expect(readFileSync(join(arc, '000000010000000000000001'), 'utf8')).toBe('segment-bytes');
+    // Already archived: Postgres gets a failure and retries, and the file is never clobbered.
+    expect(archive(arc, src, '000000010000000000000001').exitCode).not.toBe(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('the shipper pushes only complete segments and leaves an in-flight .tmp alone', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'walship-'));
+    const arc = join(dir, 'arc');
+    const bin = join(dir, 'bin');
+    sh(`mkdir -p ${arc} ${bin}`);
+    writeFileSync(join(arc, '000000010000000000000001'), 'done');
+    writeFileSync(join(arc, '.000000010000000000000002.tmp'), 'half');
+    const pushed = join(dir, 'pushed');
+    writeFileSync(join(bin, 'wal-g'), `#!/bin/sh\necho "$2" >> ${pushed}\n`);
+    chmodSync(join(bin, 'wal-g'), 0o755);
+    const creds = join(dir, 'creds');
+    writeFileSync(creds, 'WALG_S3_PREFIX=s3://b\n');
+    // One pass of the real loop: relocated paths, and exit instead of sleeping.
+    const once = shipperScript()
+      .replaceAll('/run/secrets/wal-creds', creds)
+      .replaceAll(WAL_ARCHIVE_MOUNT, arc)
+      .replace('sleep 10', 'exit 0');
+    const r = sh(once, { PATH: `${bin}:/usr/bin:/bin` });
+    expect(r.exitCode).toBe(0);
+    expect(readFileSync(pushed, 'utf8').trim()).toBe(join(arc, '000000010000000000000001'));
+    expect(readdirSync(arc).sort()).toEqual(['.000000010000000000000002.tmp', 'archive_status']);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('the PITR conf config is content-named, so a changed conf is a new config', () => {
+    expect(pitrConfName(base)).toMatch(new RegExp(`^${base}-pitr-conf-[0-9a-f]{10}$`));
+    expect(pitrExtraConf()).toContain(PITR_ARCHIVE_COMMAND);
+  });
+
+  it('a (re)deploy mounts only the current conf generation and stamps the command hash', () => {
+    const live = promotedReplica({
+      env: ['SWARMY_PG_ROLE=primary'],
+      configs: [`${base}-pitr-conf`, `${base}-pitr-conf-0123456789`, 'other-config'],
+    } as Partial<SwarmServiceInfo>);
+    const spec = pitrPrimarySpec(live, { base }, `${base}-net`, 'v1', undefined);
+    expect(spec.configs).toEqual([
+      { source: 'other-config' },
+      { source: pitrConfName(base), target: MANAGED_PG_PITR_CONF_TARGET },
+    ]);
+    expect(spec.labels?.[DB_PITR_ARCHIVE_CMD_LABEL]).toBe(PITR_ARCHIVE_COMMAND_HASH);
+  });
+
+  it('archiveCommandStale: an old primary reloads once; current conf or stamp = nothing to do', () => {
+    expect(archiveCommandStale({ labels: {}, configs: [`${base}-pitr-conf`] }, base)).toBe(true);
+    expect(archiveCommandStale({ labels: {}, configs: [pitrConfName(base)] }, base)).toBe(false);
+    expect(
+      archiveCommandStale({ labels: { [DB_PITR_ARCHIVE_CMD_LABEL]: PITR_ARCHIVE_COMMAND_HASH }, configs: [`${base}-pitr-conf`] }, base),
+    ).toBe(false);
+  });
+
+  it('the reload is ALTER SYSTEM + pg_reload_conf (no restart), the command passed as a psql variable', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'reload-'));
+    const log = join(dir, 'log');
+    writeFileSync(
+      join(dir, 'psql'),
+      `#!/bin/sh\nfor a in "$@"; do printf '%s\\n' "$a"; done > ${log}.args\ncat > ${log}.sql\n`,
+    );
+    chmodSync(join(dir, 'psql'), 0o755);
+    const r = sh(archiveCommandReloadScript('PGPASSWORD=x'), { PATH: `${dir}:/usr/bin:/bin` });
+    expect(r.exitCode).toBe(0);
+    const args = readFileSync(`${log}.args`, 'utf8').split('\n');
+    expect(args).toContain(`cmd=${PITR_ARCHIVE_COMMAND}`);
+    expect(args).toContain('ON_ERROR_STOP=1');
+    const sql = readFileSync(`${log}.sql`, 'utf8');
+    expect(sql).toContain("ALTER SYSTEM SET archive_command = :'cmd';");
+    expect(sql).toContain('SELECT pg_reload_conf();');
+    expect(sql).not.toMatch(/restart|pg_ctl/);
+    rmSync(dir, { recursive: true, force: true });
   });
 });

@@ -232,10 +232,18 @@ export const WAL_ARCHIVE_MOUNT = '/wal-archive';
 
 /**
  * Postgres `archive_command` staged onto a PITR-enabled primary: copy each
- * finished WAL segment into the archive volume (idempotent — never overwrite).
+ * finished WAL segment into the archive volume (idempotent: never overwrite).
  * The per-cluster wal-shipper sidecar then `wal-g wal-push`es and deletes it.
+ *
+ * The copy is ATOMIC: it goes to a hidden `.<seg>.tmp` and is renamed into
+ * place (same directory, so rename(2)). The shipper's `*` glob skips dotfiles,
+ * so it can never push, and then delete, a half-copied segment. A plain `cp`
+ * to the final name could, and that left a truncated segment in S3 that breaks
+ * recovery without any error. A leftover `.tmp` from a crash is overwritten on
+ * the retry.
  */
-export const PITR_ARCHIVE_COMMAND = `test ! -f ${WAL_ARCHIVE_MOUNT}/%f && cp %p ${WAL_ARCHIVE_MOUNT}/%f`;
+export const PITR_ARCHIVE_COMMAND =
+  `test ! -f ${WAL_ARCHIVE_MOUNT}/%f && cp %p ${WAL_ARCHIVE_MOUNT}/.%f.tmp && mv ${WAL_ARCHIVE_MOUNT}/.%f.tmp ${WAL_ARCHIVE_MOUNT}/%f`;
 
 /**
  * Canonical `restore_command` for a PITR restore: fetch replayed WAL back out

@@ -165,6 +165,9 @@ export function shipperScript(): string {
     `  mkdir -p ${WAL_ARCHIVE_MOUNT}/archive_status`,
     `  for f in ${WAL_ARCHIVE_MOUNT}/*; do`,
     '    [ -f "$f" ] || continue',
+    // `*` already skips dotfiles; say so explicitly: a `.<seg>.tmp` is a copy
+    // still in flight (PITR_ARCHIVE_COMMAND renames it into place when done).
+    '    case "${f##*/}" in .*) continue ;; esac',
     '    if wal-g wal-push "$f"; then rm -f -- "$f"; fi',
     '  done',
     '  sleep 10',

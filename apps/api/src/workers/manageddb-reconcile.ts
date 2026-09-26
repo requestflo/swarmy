@@ -49,6 +49,11 @@ import {
   renderWalCredsEnv,
 } from './manageddb-reconcile.core';
 import {
+  DB_PITR_ARCHIVE_CMD_LABEL,
+  PITR_ARCHIVE_COMMAND_HASH,
+  archiveCommandReloadScript,
+  archiveCommandStale,
+  pitrConfName,
   pitrPrimarySpec,
   planBackupIntentCarry,
   preparePitrPrimary,
@@ -592,6 +597,7 @@ async function loadWalTarget(orgId: string, targetId: string | undefined): Promi
 export function stripPitrSpec(primary: SwarmServiceInfo, c: Cluster): ServiceSpec {
   const labels = { ...primary.labels };
   delete labels[DB_PITR_APPLIED_LABEL];
+  delete labels[DB_PITR_ARCHIVE_CMD_LABEL];
   const networks = (primary.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
   const placedRegion = primary.labels[DB_PLACED_REGION_LABEL];
   return applyPgMember<ServiceSpec>({
@@ -704,6 +710,28 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
   // only resolves on the storage overlay (QA-080).
   const shipperNets = walShipperNetworks(clusterNet(c), seams.resticNetworkFor(target.endpoint));
   const shipperOk = walShipperUpToDate(c.shipper, version, shipperNets);
+  // An applied primary on an older archive_command: reload it in place
+  // (ALTER SYSTEM + pg_reload_conf); no redeploy, so no restart.
+  if (primaryOk && archiveCommandStale(primary, c.base)) {
+    const res = await execIn(orgId, primary, archiveCommandReloadScript(PG_PASSWORD_FROM_MEMBER));
+    if (res && res.exitCode === 0) {
+      await hub
+        .dispatch(node, 'service.updateLabels', {
+          service: primary.name,
+          add: { [DB_PITR_ARCHIVE_CMD_LABEL]: PITR_ARCHIVE_COMMAND_HASH },
+          removeKeys: [],
+        })
+        .catch(() => undefined);
+      await seams.writeAudit(ctx, {
+        action: 'db.pitr.archiveCommand',
+        actorType: 'system',
+        targetType: 'dbCluster',
+        targetId: `${c.stack}/${c.cluster}`,
+        metadata: { primary: primary.name, archiveCommand: PITR_ARCHIVE_COMMAND_HASH, method: 'reload' },
+      }).catch(() => undefined);
+    }
+    // A failed exec (member not running here yet) simply retries next tick.
+  }
   if (primaryOk && shipperOk) return;
 
   const objectLabels = { [MANAGED_LABEL]: 'true', [DB_CLUSTER_LABEL]: c.cluster };
@@ -715,7 +743,7 @@ async function ensurePitr(contract: Contract, orgId: string, node: string, c: Cl
       labels: objectLabels,
     })
     .catch(() => undefined);
-  await createSwarmObject(node, 'config.create', `${c.base}-pitr-conf`, pitrExtraConf(), objectLabels).catch(
+  await createSwarmObject(node, 'config.create', pitrConfName(c.base), pitrExtraConf(), objectLabels).catch(
     () => undefined,
   );
   await createSwarmObject(node, 'secret.create', secretName, creds, objectLabels).catch(() => undefined);

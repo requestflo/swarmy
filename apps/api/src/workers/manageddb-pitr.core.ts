@@ -8,7 +8,13 @@ import {
   applyPgMember,
   pgBootRole,
 } from '@swarmy/core';
-import { DEFAULT_WALG_IMAGE, MANAGED_PG_PITR_CONF_TARGET, WAL_ARCHIVE_MOUNT } from '@swarmy/core/protocol';
+import {
+  DEFAULT_WALG_IMAGE,
+  MANAGED_PG_PITR_CONF_TARGET,
+  PITR_ARCHIVE_COMMAND,
+  WAL_ARCHIVE_MOUNT,
+  pitrExtraConf,
+} from '@swarmy/core/protocol';
 import { shipperScript } from './manageddb-reconcile.core';
 import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
 
@@ -222,6 +228,71 @@ export function preparePitrPrimary(
   };
 }
 
+// ── PITR conf (archive_mode + archive_command) ────────────────────────────────
+
+/** Short content hash, so a changed conf gets a NEW (immutable) Docker config. */
+function contentHash(s: string): string {
+  return createHash('sha256').update(s).digest('hex').slice(0, 10);
+}
+
+/** Hash of the archive_command the reconcile wants on every PITR primary. */
+export const PITR_ARCHIVE_COMMAND_HASH = contentHash(PITR_ARCHIVE_COMMAND);
+
+/**
+ * The Docker config carrying the PITR conf, named by its CONTENT. Docker
+ * configs are immutable, so the fixed `<base>-pitr-conf` name kept every
+ * existing cluster on its first content forever.
+ */
+export function pitrConfName(base: string): string {
+  return `${base}-pitr-conf-${contentHash(pitrExtraConf())}`;
+}
+
+/** Any generation of a cluster's PITR conf (the legacy unhashed name included). */
+function isPitrConf(base: string, name: string): boolean {
+  return name === `${base}-pitr-conf` || name.startsWith(`${base}-pitr-conf-`);
+}
+
+/**
+ * Stamp on a PITR primary: the hash of the archive_command it runs. Set in the
+ * spec on every PITR (re)deploy, and after a live reload
+ * ({@link archiveCommandReloadScript}).
+ */
+export const DB_PITR_ARCHIVE_CMD_LABEL = 'swarmy.db.pitr.archiveCommand';
+
+/**
+ * PURE: does this already-applied PITR primary need its archive_command
+ * brought up to date? False once it mounts the current conf or carries the
+ * current stamp. The reconcile then RELOADS the command in place rather than
+ * redeploying. A config change is a new task (a Postgres restart), while
+ * archive_command is a sighup setting.
+ */
+export function archiveCommandStale(primary: { labels: Record<string, string>; configs?: readonly string[] }, base: string): boolean {
+  if (primary.labels[DB_PITR_ARCHIVE_CMD_LABEL] === PITR_ARCHIVE_COMMAND_HASH) return false;
+  return !(primary.configs ?? []).includes(pitrConfName(base));
+}
+
+/** POSIX single-quote for a constant spliced into `sh -c`. */
+function shq(v: string): string {
+  return `'${v.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * The in-place update for a running PITR primary: `ALTER SYSTEM` (persisted in
+ * PGDATA's postgresql.auto.conf, read after the included conf, so it wins),
+ * then `pg_reload_conf()`, which is SIGHUP and involves no restart. The command
+ * goes in as a psql variable (`:'cmd'` quotes it as a literal), never as SQL
+ * text. `passwordPrefix` is the member's own superuser-password env
+ * assignment (PG_PASSWORD_FROM_MEMBER).
+ */
+export function archiveCommandReloadScript(passwordPrefix: string): string {
+  return [
+    `${passwordPrefix} psql -U postgres -d postgres -v ON_ERROR_STOP=1 -tA -v cmd=${shq(PITR_ARCHIVE_COMMAND)} <<'SWARMY_SQL'`,
+    "ALTER SYSTEM SET archive_command = :'cmd';",
+    'SELECT pg_reload_conf();',
+    'SWARMY_SQL',
+  ].join('\n');
+}
+
 /**
  * PURE: the PITR-enabled primary spec: archive volume, extended conf, marker.
  * Built from live truth (or a {@link preparePitrPrimary} result), so it is the
@@ -236,8 +307,12 @@ export function pitrPrimarySpec(
 ): ServiceSpec {
   const networks = (primary.networks ?? []).map((n) => n.name).filter((n) => n.length > 0);
   const placedRegion = primary.labels[DB_PLACED_REGION_LABEL];
-  const confName = `${c.base}-pitr-conf`;
-  const labels = { ...primary.labels, [DB_PITR_APPLIED_LABEL]: version };
+  const confName = pitrConfName(c.base);
+  const labels = {
+    ...primary.labels,
+    [DB_PITR_APPLIED_LABEL]: version,
+    [DB_PITR_ARCHIVE_CMD_LABEL]: PITR_ARCHIVE_COMMAND_HASH,
+  };
   // The declared storage volume (applyPgMember below) wins the data root.
   return applyPgMember<ServiceSpec>({
     name: primary.name,
@@ -255,7 +330,8 @@ export function pitrPrimarySpec(
         : []),
     ],
     configs: [
-      ...(primary.configs ?? []).filter((n) => n !== confName).map((n) => ({ source: n })),
+      // Drop every older generation of the PITR conf: two files would both be included.
+      ...(primary.configs ?? []).filter((n) => !isPitrConf(c.base, n)).map((n) => ({ source: n })),
       { source: confName, target: MANAGED_PG_PITR_CONF_TARGET },
     ],
     ...((primary.secrets ?? []).length > 0
