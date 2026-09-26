@@ -13,9 +13,12 @@ export interface Crumb {
 /** The 52px top bar: a mono breadcrumb, quiet page actions, and this page's depth switch. */
 export function CalmTopBar({
   crumbs,
+  meta,
   actions,
 }: {
   crumbs: Crumb[];
+  /** Quiet facts beside the breadcrumb (a "1 needs you" pill, a mono summary). */
+  meta?: React.ReactNode;
   actions?: React.ReactNode;
 }): React.JSX.Element {
   return (
@@ -34,6 +37,7 @@ export function CalmTopBar({
           </React.Fragment>
         ))}
       </nav>
+      {meta ? <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">{meta}</div> : null}
       <div className="flex-1" />
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
       <PageDepthSwitch />
@@ -48,6 +52,7 @@ export function CalmTopBar({
  */
 export function CalmPage({
   crumbs,
+  meta,
   actions,
   aside,
   children,
@@ -55,6 +60,7 @@ export function CalmPage({
   className,
 }: {
   crumbs: Crumb[];
+  meta?: React.ReactNode;
   actions?: React.ReactNode;
   aside?: React.ReactNode;
   children: React.ReactNode;
@@ -64,7 +70,7 @@ export function CalmPage({
 }): React.JSX.Element {
   return (
     <div className="flex min-h-full flex-col">
-      <CalmTopBar crumbs={crumbs} actions={actions} />
+      <CalmTopBar crumbs={crumbs} meta={meta} actions={actions} />
       <div
         className={cn(
           'mx-auto grid w-full gap-7 px-6 pt-7 pb-24 lg:pb-16 xl:px-8',

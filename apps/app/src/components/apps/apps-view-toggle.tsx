@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { ListIcon, MapIcon } from 'lucide-react';
 import { cn } from '@swarmy/ui';
 
 export type AppsView = 'list' | 'map';
@@ -25,6 +26,7 @@ export function useAppsView(): [AppsView, (v: AppsView) => void] {
 }
 
 const LABEL: Record<AppsView, string> = { list: 'List', map: 'Map' };
+const ICON = { list: ListIcon, map: MapIcon } as const;
 
 export function AppsViewToggle({ view, onChange }: { view: AppsView; onChange: (v: AppsView) => void }): React.JSX.Element {
   return (
@@ -36,10 +38,11 @@ export function AppsViewToggle({ view, onChange }: { view: AppsView; onChange: (
           aria-pressed={view === v}
           onClick={() => onChange(v)}
           className={cn(
-            'h-7 rounded-[8px] px-3 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:min-h-11',
+            'inline-flex h-7 items-center gap-1.5 rounded-[8px] px-3 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:min-h-11',
             view === v ? 'bg-surface-2 text-foreground dark:bg-accent' : 'text-muted-foreground hover:text-foreground',
           )}
         >
+          {React.createElement(ICON[v], { 'aria-hidden': true, className: 'size-3.5' })}
           {LABEL[v]}
         </button>
       ))}

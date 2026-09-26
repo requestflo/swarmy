@@ -56,3 +56,25 @@ export function statusCli(apps: AppItem[]): string {
   const blocks = apps.map((a) => [`# ${a.name}`, '$ swarmy status', ...statusLines(a)].join('\n'));
   return withHeader('swarmy status, run in each app’s linked repo', blocks.join('\n\n'));
 }
+
+interface GitAppRow {
+  repoId: string;
+  appName: string | null;
+  branch: string;
+  environments: { environment: string; branch: string; stack: string }[];
+  previews: { pr: number; stack: string; status: string; url: string | null }[];
+}
+
+/** `GET /api/v1/apps` — git apps with their environments and previews (the Environments column). */
+export function appsRest(apps: GitAppRow[]): string {
+  return restExchange('GET', '/apps', {
+    data: apps.map((a) => ({
+      repo_id: a.repoId,
+      app_name: a.appName,
+      branch: a.branch,
+      environments: a.environments.map((e) => ({ environment: e.environment, branch: e.branch, stack: e.stack })),
+      previews: a.previews.map((p) => ({ pr: p.pr, stack: p.stack, status: p.status, url: p.url })),
+    })),
+    next_cursor: null,
+  });
+}

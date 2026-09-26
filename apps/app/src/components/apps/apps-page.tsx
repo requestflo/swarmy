@@ -1,86 +1,121 @@
 import * as React from 'react';
 import { Link } from '@tanstack/react-router';
+import { PlusIcon } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@swarmy/ui';
-import { useTRPC } from '@/integrations/trpc';
-import { CalmPage, CodeView, Say, SayHeader, Section, useDepth } from '@/components/calm';
+import { CalmPage, useDepth } from '@/components/calm';
 import { PageError, PageSkeleton } from '@/components/states';
 import { ApplicationsCanvas } from '@/components/canvas/applications-canvas';
+import { useTRPC } from '@/integrations/trpc';
 import { useEstateSummary } from '@/lib/use-estate-summary';
-import { AppRows } from './app-rows';
+import { groupRows, poolFor, statusCounts, type StatusFilter } from './app-board-model';
+import { AppsCodeView } from './apps-code-view';
+import { AppsControls, type Grouping } from './apps-controls';
+import { AppsEmpty } from './apps-empty';
+import { AppsSay, AppsTopMeta, type EstateCounts } from './apps-header';
+import { AppsTable } from './apps-table';
 import { AppsViewToggle, useAppsView } from './apps-view-toggle';
 import { appsSay } from './estate-say';
-import { stacksRest } from './estate-code';
-import { plural } from './app-words';
-import { useApps } from './use-apps';
+import { PlatformCards } from './platform-cards';
+import { useAppsBoard } from './use-apps-board';
 
 /**
- * Apps: every app as one calm row, with the estate map as a view toggle
- * (List | Map, remembered). One coral action: deploy an app.
+ * Apps (board 69): the sentence, search + filters + grouping, every app as a
+ * table-like row (right now · environments · servers · last deploy · traffic),
+ * the inline fix for an app that needs you, and swarmy's own parts. The Map
+ * view sits behind the List | Map toggle.
  */
 export function AppsPage(): React.JSX.Element {
   const trpc = useTRPC();
-  const a = useApps();
+  const b = useAppsBoard();
   const estate = useEstateSummary();
-  const stacks = useQuery(trpc.stacks.list.queryOptions());
+  const org = useQuery(trpc.org.currentOrg.queryOptions());
   const [view, setView] = useAppsView();
   const code = useDepth().atLeast('code');
+  const [q, setQ] = React.useState('');
+  const [status, setStatus] = React.useState<StatusFilter>('all');
+  const [group, setGroup] = React.useState<Grouping>('none');
 
-  if (a.error) return <PageError title="Couldn’t read your apps." error={a.error} retry={a.refetch} />;
-  if (a.pending || estate.status === 'pending') return <PageSkeleton variant="list" />;
+  if (b.error) return <PageError title="Couldn’t read your apps." error={b.error} retry={b.refetch} />;
+  if (b.pending || estate.status === 'pending') return <PageSkeleton variant="list" />;
 
+  const production = poolFor(b.rows, 'none');
   const e = estate.data;
   const say = appsSay({
-    apps: a.apps,
+    apps: production.map((r) => r.app),
     alertsFiring: e?.alerts.firing ?? 0,
     incidentsOpen: e?.incidents.open ?? 0,
     nodesOnline: e?.nodes.online ?? 0,
     nodesTotal: e?.nodes.total ?? 0,
   });
-  const parts = a.apps.reduce((n, x) => n + x.stat.serviceCount, 0);
-  const deploy = (
-    <Button asChild>
-      <Link to="/deploy">Deploy an app</Link>
-    </Button>
-  );
+  const counts: EstateCounts = {
+    apps: production.length,
+    parts: production.reduce((n, r) => n + r.app.stat.serviceCount, 0),
+    needsYou: production.filter((r) => r.status === 'attn').length,
+    servers: b.nodes?.length,
+    regions: new Set((b.nodes ?? []).map((n) => n.region).filter(Boolean)).size,
+  };
+  const empty = b.rows.length === 0;
 
   return (
     <CalmPage
       crumbs={[{ label: 'Apps' }]}
+      meta={<AppsTopMeta c={counts} />}
+      actions={
+        <>
+          <AppsViewToggle view={view} onChange={setView} />
+          {empty ? null : (
+            <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex pointer-coarse:min-h-11">
+              <Link to="/deploy">
+                <PlusIcon aria-hidden className="size-3.5" /> Deploy an app
+              </Link>
+            </Button>
+          )}
+        </>
+      }
       wide
-      aside={code ? <CodeView tabs={[{ label: 'REST', code: stacksRest(stacks.data ?? []) }]} source="dashboard" /> : undefined}
+      aside={code ? <AppsCodeView apps={b.apps} /> : undefined}
     >
-      <SayHeader
-        title={
-          a.apps.length === 0 ? (
-            <>Nothing deployed yet. <em>Your first app takes about two minutes.</em></>
-          ) : (
+      {empty ? (
+        <AppsEmpty workspace={org.data?.name} />
+      ) : (
+        <>
+          <AppsSay say={say} c={counts} />
+          {view === 'list' ? (
             <>
-              {say.lead} {say.clause ? <Say tone={say.clause.tone}>{say.clause.text}</Say> : null}
+              <AppsControls
+                q={q}
+                onQ={setQ}
+                status={status}
+                onStatus={setStatus}
+                counts={statusCounts(poolFor(b.rows, group), q)}
+                group={group}
+                onGroup={setGroup}
+              />
+              <AppsTable
+                groups={groupRows(b.rows, group, q, status)}
+                labelled={group === 'env'}
+                traffic={b.traffic}
+                q={q}
+                onClear={() => {
+                  setQ('');
+                  setStatus('all');
+                }}
+              />
             </>
-          )
-        }
-        lede={
-          a.apps.length === 0
-            ? 'Pick a template or bring your own compose file, image or git repo. It gets an address with HTTPS and a nightly backup.'
-            : `${plural(parts, 'part')} across ${plural(a.apps.length, 'app')}. Open one to see how it is built.`
-        }
-        actions={deploy}
-      />
-      {a.apps.length > 0 ? (
-        <Section
-          title="Your apps"
-          count={a.apps.length}
-          flush={view === 'list'}
-          action={<AppsViewToggle view={view} onChange={setView} />}
-        >
-          {view === 'list' ? <AppRows apps={a.apps} /> : <ApplicationsCanvas />}
-        </Section>
-      ) : null}
-      {view === 'list' && a.platform.length > 0 ? (
-        <Section title="Platform" hint="swarmy’s own parts, kept running for you" flush>
-          <AppRows apps={a.platform} label="Platform" />
-        </Section>
+          ) : (
+            <section aria-label="Map" className="calm-card overflow-hidden">
+              <ApplicationsCanvas />
+            </section>
+          )}
+        </>
+      )}
+      {view === 'list' || empty ? <PlatformCards system={b.platform.flatMap((p) => p.stat.services)} nodes={b.nodes} /> : null}
+      {view === 'list' && !empty && group === 'none' ? (
+        <p className="text-muted-foreground font-mono text-[11px]">
+          Click an app to open its canvas ·{' '}
+          <kbd className="bg-surface-2 border-border rounded-md border px-1.5 dark:bg-accent">/</kbd> to search · Map shows where each one runs
+        </p>
       ) : null}
     </CalmPage>
   );
