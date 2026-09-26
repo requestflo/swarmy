@@ -3,6 +3,7 @@ import type {
   IncidentEventView,
   IncidentView,
   IncidentsOverview,
+  PostIncidentUpdateInput,
 } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 
@@ -17,7 +18,7 @@ import type { DemoStore, DomainResolvers } from '../types';
  * `incidents.service.ts` views exactly (imported from @swarmy/core).
  */
 
-interface DemoIncident {
+export interface DemoIncident {
   id: string;
   title: string;
   status: 'open' | 'resolved';
@@ -28,7 +29,7 @@ interface DemoIncident {
   events: IncidentEventView[];
 }
 
-interface IncidentsState {
+export interface IncidentsState {
   incidents: DemoIncident[];
 }
 
@@ -142,6 +143,20 @@ export const incidents: DomainResolvers = {
         message: message?.trim() || `Manually resolved by ${s.user.name}`,
         meta: { manual: true },
       });
+      return toDetail(incident);
+    },
+
+    'incidents.postUpdate': (i, s): IncidentDetailView => {
+      const { incidentId, phase, message } = i as PostIncidentUpdateInput;
+      const incident = requireIncident(s, incidentId);
+      if (incident.status === 'resolved') throw new Error('this incident is resolved — reopen it to post another update');
+      const now = new Date().toISOString();
+      incident.events.push({ id: rid('ie'), at: now, kind: `status.${phase}`, message: message.trim(), meta: { public: true, phase, author: s.user.name } });
+      if (phase === 'resolved') {
+        incident.status = 'resolved';
+        incident.resolvedAt = now;
+        incident.events.push({ id: rid('ie'), at: now, kind: 'resolved', message: message.trim(), meta: { manual: true } });
+      }
       return toDetail(incident);
     },
 
@@ -263,6 +278,13 @@ export const incidents: DomainResolvers = {
           message:
             'The canary holds at 10% while checkout is short a copy. If the health gate fails, swarmy puts back 1.8.2 by itself.',
           meta: { author: 'swarmy' },
+        },
+        {
+          id: 'ie-d4',
+          at: minutesAgo(1),
+          kind: 'status.investigating',
+          message: 'Some checkouts are slower than usual. We are on it.',
+          meta: { public: true, phase: 'investigating', author: 'Calum Macrae' },
         },
       ],
     };

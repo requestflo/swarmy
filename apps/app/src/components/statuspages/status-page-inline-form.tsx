@@ -8,8 +8,8 @@ import { EMPTY_DRAFT, draftFromPage, draftReady, type PageDraft } from './page-d
 import { keyFor } from './component-picker';
 
 interface StatusPageInlineFormProps {
-  /** The workspace stack — new pages are created attached to it. */
-  stack: string;
+  /** The workspace stack — new pages are created attached to it (none from Activity › Status pages). */
+  stack?: string;
   /** Present → edit mode; absent → create mode. */
   page?: StatusPageView;
   onDone: () => void;
@@ -87,7 +87,7 @@ export function StatusPageInlineForm({
       create.mutate({
         ...common,
         slug: draft.slug,
-        stackName: stack,
+        ...(stack ? { stackName: stack } : {}),
         ...(draft.domain.trim() === '' ? {} : { domain: draft.domain.trim() }),
       });
     }

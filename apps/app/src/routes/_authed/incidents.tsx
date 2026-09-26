@@ -1,11 +1,8 @@
-import * as React from 'react';
-import { createFileRoute } from '@tanstack/react-router';
-import { IncidentsPage } from '@/components/incidents/incidents-page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+/** Incidents moved into Activity › Stream (the Incidents filter); old links still land. */
 export const Route = createFileRoute('/_authed/incidents')({
-  component: IncidentsRoute,
+  beforeLoad: () => {
+    throw redirect({ to: '/activity', search: { filter: 'incident' }, replace: true });
+  },
 });
-
-function IncidentsRoute(): React.JSX.Element {
-  return <IncidentsPage />;
-}

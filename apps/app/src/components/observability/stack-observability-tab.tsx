@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { AlreadyOn, Depth, SayHeader } from '@/components/calm';
 import { PageSkeleton } from '@/components/states';
 import { useTRPC } from '@/integrations/trpc';
-import { StackStatusPages } from '@/components/statuspages/stack-status-pages';
+import { Link } from '@tanstack/react-router';
 import { HealthReasonsPanel } from './health-reasons';
 import { LogsPanel } from './logs-panel';
 import { MetricsPanel } from './metrics-panel';
@@ -73,7 +73,12 @@ export function StackObservabilityTab({ stack }: { stack: string }): React.JSX.E
         <div id="logs" className="scroll-mt-4">
           <LogsPanel enabled={enabled} stack={stack} />
         </div>
-        <StackStatusPages stack={stack} suiteEnabled={enabled} />
+        <p className="text-muted-foreground text-sm">
+          Status pages moved to Activity.{' '}
+          <Link to="/status-pages" className="text-foreground font-semibold underline-offset-2 hover:underline">
+            See what visitors see →
+          </Link>
+        </p>
       </Depth>
     </div>
   );

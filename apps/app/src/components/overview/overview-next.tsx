@@ -15,6 +15,7 @@ interface Next {
   label: string;
   to: string;
   params?: Record<string, string>;
+  search?: Record<string, string>;
 }
 
 /**
@@ -32,7 +33,7 @@ export function pickNext(
     return {
       tone: 'bad', title: inc.title, since: relTime(inc.openedAt), label: 'Open the incident',
       body: `Opened ${relTime(inc.openedAt)}, ${inc.eventCount} update${inc.eventCount === 1 ? '' : 's'} so far. Its page has the timeline and what changed.`,
-      tech: `incident ${inc.id} · ${inc.severity}`, to: '/incidents/$incidentId', params: { incidentId: inc.id },
+      tech: `incident ${inc.id} · ${inc.severity}`, to: '/activity', search: { incident: inc.id },
     };
   }
   const al = firing[0];
@@ -72,7 +73,7 @@ export function OverviewNext({ next }: { next: Next }): React.JSX.Element {
       tech={next.tech}
       actions={
         <Button asChild>
-          <Link to={next.to} params={next.params as never}>{next.label}</Link>
+          <Link to={next.to} params={next.params as never} search={next.search as never}>{next.label}</Link>
         </Button>
       }
       hint={

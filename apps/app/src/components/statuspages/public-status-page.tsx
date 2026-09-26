@@ -1,41 +1,7 @@
 import * as React from 'react';
-import type { PublicComponentView } from '@swarmy/core';
-import { Skeleton, StatusBadge, cn } from '@swarmy/ui';
+import { Skeleton } from '@swarmy/ui';
 import { usePublicStatus } from './use-public-status';
-import { PublicIncidents } from './public-incidents';
-import { UptimeBars } from './uptime-bars';
-import {
-  OVERALL_CLASSES,
-  OVERALL_LABEL,
-  PUBLIC_STATUS_LABEL,
-  PUBLIC_STATUS_TONE,
-} from './status-tone';
-
-function ComponentRow({ component }: { component: PublicComponentView }): React.JSX.Element {
-  return (
-    <div className="border-border border-b px-5 py-4 last:border-b-0">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-medium">{component.label}</p>
-        <StatusBadge
-          tone={PUBLIC_STATUS_TONE[component.status]}
-          label={PUBLIC_STATUS_LABEL[component.status]}
-        />
-      </div>
-      {component.uptime90d.length > 0 ? (
-        <>
-          <UptimeBars days={component.uptime90d} className="mt-3" />
-          <div className="text-muted-foreground mt-1.5 flex justify-between text-xs">
-            <span>90 days ago</span>
-            <span className="mono-data">
-              {component.uptimePct === null ? 'no data yet' : `${component.uptimePct}% uptime`}
-            </span>
-            <span>today</span>
-          </div>
-        </>
-      ) : null}
-    </div>
-  );
-}
+import { PublicStatusBody } from './public-status-body';
 
 function LoadingSkeleton(): React.JSX.Element {
   return (
@@ -72,43 +38,7 @@ export function PublicStatusPage({ slug }: { slug: string }): React.JSX.Element 
             </p>
           </div>
         ) : (
-          <>
-            <header className="mb-6">
-              <h1 className="headline text-[2.2rem] sm:text-5xl">{snapshot.data.page.title}</h1>
-              <p className="text-muted-foreground mt-2 text-sm">
-                Live status · updated{' '}
-                <span className="mono-data">
-                  {new Date(snapshot.data.generatedAt).toLocaleTimeString()}
-                </span>
-              </p>
-            </header>
-
-            <div
-              className={cn(
-                'mb-8 flex items-center gap-3 rounded-2xl px-5 py-4 text-base font-bold sm:text-lg',
-                OVERALL_CLASSES[snapshot.data.overall],
-              )}
-            >
-              <span className="size-2.5 shrink-0 rounded-full bg-current" />
-              {OVERALL_LABEL[snapshot.data.overall]}
-            </div>
-
-            {snapshot.data.components.length > 0 ? (
-              <section className="mb-10">
-                <h2 className="mono-label text-muted-foreground mb-3">Components</h2>
-                <div className="calm-card overflow-hidden p-0">
-                  {snapshot.data.components.map((component) => (
-                    <ComponentRow key={component.key} component={component} />
-                  ))}
-                </div>
-              </section>
-            ) : null}
-
-            <section>
-              <h2 className="mono-label text-muted-foreground mb-3">Incident history</h2>
-              <PublicIncidents incidents={snapshot.data.incidents} />
-            </section>
-          </>
+          <PublicStatusBody snapshot={snapshot.data} />
         )}
 
         <footer className="text-muted-foreground mt-14 flex items-center justify-center gap-1 text-xs">

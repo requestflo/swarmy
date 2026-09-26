@@ -1,5 +1,6 @@
 import type {
   CreateStatusPageInput,
+  PublicIncidentUpdateView,
   PublicIncidentView,
   PublicComponentStatus,
   PublicStatusView,
@@ -12,6 +13,7 @@ import type {
   UptimeDayView,
 } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
+import type { IncidentsState } from './incidents';
 
 /**
  * Status-pages demo resolvers — the Status pages settings surface
@@ -138,10 +140,38 @@ function toSnapshot(store: DemoStore, page: StatusPageView): PublicStatusView {
     page: { slug: page.slug, title: page.title },
     overall: worst(components.map((c) => c.status)),
     components,
-    incidents: page.showIncidents ? st.incidents : [],
+    incidents: page.showIncidents ? [...liveIncidents(store), ...st.incidents] : [],
     maintenance: [],
     generatedAt: nowIso(),
   };
+}
+
+/**
+ * The incidents store (resolvers/incidents.ts) as the public feed — open plus
+ * the last 30 days of resolved, with only the updates posted for visitors
+ * (`meta.public`), mirroring `incidents.service#publicIncidents`.
+ */
+function liveIncidents(store: DemoStore): PublicIncidentView[] {
+  const monthAgo = Date.now() - 30 * DAY_MS;
+  const all = (store.extra.incidents as IncidentsState | undefined)?.incidents ?? [];
+  return all
+    .filter((i) => i.status === 'open' || (i.resolvedAt && new Date(i.resolvedAt).getTime() >= monthAgo))
+    .sort((a, b) => (a.status !== b.status ? (a.status === 'open' ? -1 : 1) : b.openedAt.localeCompare(a.openedAt)))
+    .map((i) => {
+      const latest = [...i.events].sort((a, b) => b.at.localeCompare(a.at));
+      return {
+        id: i.id,
+        title: i.title,
+        status: i.status,
+        severity: i.severity,
+        openedAt: i.openedAt,
+        resolvedAt: i.resolvedAt,
+        updates: latest.slice(0, 10).map((e) => ({ at: e.at, kind: e.kind, message: e.message })),
+        publicUpdates: latest
+          .filter((e) => e.meta.public === true && typeof e.meta.phase === 'string')
+          .map((e) => ({ at: e.at, phase: e.meta.phase as PublicIncidentUpdateView['phase'], message: e.message })),
+      };
+    });
 }
 
 function emptyDays(): UptimeDayView[] {
@@ -323,6 +353,11 @@ export const statuspages: DomainResolvers = {
             { at: minutes(21), kind: 'note', message: 'Rolled back api to 2.3.9; error rate falling.' },
             { at: minutes(9), kind: 'alert.fired', message: 'Checkout degraded — upstream API 5xx responses.' },
             { at: minutes(0), kind: 'opened', message: 'API error rate 6.2% (target <1%) after the 2.4.0 rollout.' },
+          ],
+          publicUpdates: [
+            { at: minutes(38), phase: 'resolved', message: 'Everything is back to normal. Sorry for the trouble.' },
+            { at: minutes(21), phase: 'monitoring', message: 'A fix is live. Error rates are falling and we are watching closely.' },
+            { at: minutes(4), phase: 'investigating', message: 'Some API requests and checkouts are failing. We are on it.' },
           ],
         },
       ],

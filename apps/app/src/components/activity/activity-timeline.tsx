@@ -1,30 +1,33 @@
 import * as React from 'react';
+import { Link } from '@tanstack/react-router';
 import { cn } from '@swarmy/ui';
-import { Section } from '@/components/calm';
-import type { ActivityItem, ActivityKind } from './activity-items';
+import type { ActivityItem, StreamFilter } from './activity-items';
 import { ActivityRow } from './activity-row';
 
-const FILTERS: { key: ActivityKind | 'all'; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'alert', label: 'Alerts' },
-  { key: 'incident', label: 'Incidents' },
-  { key: 'deploy', label: 'Deploys' },
-  { key: 'change', label: 'Changes' },
-];
+const LABEL: Record<StreamFilter, string> = { all: 'All', alert: 'Alerts', incident: 'Incidents', deploy: 'Deploys', backup: 'Backups' };
+const ORDER: StreamFilter[] = ['all', 'alert', 'incident', 'deploy', 'backup'];
 
-function dayLabel(iso: string): string {
+/** "TODAY · THU 24 SEP" / "YESTERDAY" / "TUE 22 SEP". */
+export function dayLabel(iso: string, now = new Date()): string {
   const d = new Date(iso);
-  const today = new Date();
-  const y = new Date(today);
-  y.setDate(today.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return 'Today';
+  const y = new Date(now);
+  y.setDate(now.getDate() - 1);
+  const date = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '');
+  if (d.toDateString() === now.toDateString()) return `Today · ${date}`;
   if (d.toDateString() === y.toDateString()) return 'Yesterday';
-  return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  return date;
 }
 
-/** The single timeline: one quiet section, filter chips, rows grouped by day. */
-export function ActivityTimeline({ items }: { items: ActivityItem[] }): React.JSX.Element {
-  const [filter, setFilter] = React.useState<ActivityKind | 'all'>('all');
+/** The Stream: filter chips with real counts, then rows grouped by day on one rail. */
+export function ActivityTimeline({
+  items,
+  filter,
+  selectedId,
+}: {
+  items: ActivityItem[];
+  filter: StreamFilter;
+  selectedId?: string;
+}): React.JSX.Element {
   const shown = filter === 'all' ? items : items.filter((i) => i.kind === filter);
   const groups: { day: string; rows: ActivityItem[] }[] = [];
   for (const it of shown.slice(0, 80)) {
@@ -34,39 +37,44 @@ export function ActivityTimeline({ items }: { items: ActivityItem[] }): React.JS
     else groups.push({ day, rows: [it] });
   }
   return (
-    <Section title="Timeline" count={`${shown.length} events`} hint="newest first" flush>
-      <div role="group" aria-label="Show" className="flex flex-wrap gap-1.5 pb-2">
-        {FILTERS.map((f) => {
-          const n = f.key === 'all' ? items.length : items.filter((i) => i.kind === f.key).length;
-          const on = f.key === filter;
+    <section aria-label="Stream" className="flex min-w-0 flex-col gap-3">
+      <div role="group" aria-label="Show" className="flex flex-wrap gap-1">
+        {ORDER.map((key) => {
+          const n = key === 'all' ? items.length : items.filter((i) => i.kind === key).length;
+          const on = key === filter;
           return (
-            <button
-              key={f.key}
-              type="button"
+            <Link
+              key={key}
+              to="/activity"
+              search={key === 'all' ? {} : { filter: key }}
               aria-pressed={on}
-              onClick={() => setFilter(f.key)}
               className={cn(
-                'h-8 rounded-full border px-3 text-[12.5px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:min-h-11',
-                on ? 'bg-surface-2 border-border text-foreground dark:bg-accent' : 'text-muted-foreground hover:text-foreground border-transparent',
+                'inline-flex h-9 items-center gap-1.5 rounded-[10px] px-3 text-[13px] font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:min-h-11',
+                on ? 'bg-surface-2 text-foreground dark:bg-accent' : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {f.label} <span className="font-mono text-[11px]">{n}</span>
-            </button>
+              {LABEL[key]} <span className="font-mono text-[11px] font-normal">{n}</span>
+            </Link>
           );
         })}
       </div>
       {groups.length === 0 ? (
-        <p className="text-muted-foreground py-6 text-sm">Nothing here yet. Deploys, alerts and changes show up the moment they happen.</p>
+        <p className="text-muted-foreground calm-card px-5 py-6 text-sm">
+          {filter === 'all' ? 'Nothing here yet. Deploys, alerts and backups show up the moment they happen.' : `No ${LABEL[filter].toLowerCase()} in the stream yet.`}
+        </p>
       ) : (
-        groups.map((g) => (
-          <div key={g.day} className="flex flex-col">
-            <h3 className="calm-eyebrow pt-3 pb-1">{g.day}</h3>
-            {g.rows.map((it) => (
-              <ActivityRow key={it.id} item={it} />
-            ))}
-          </div>
-        ))
+        <div className="relative">
+          <span aria-hidden className="bg-border absolute top-2 bottom-2 left-[73px] w-px" />
+          {groups.map((g) => (
+            <div key={g.day} className="relative flex flex-col">
+              <h3 className="calm-eyebrow ml-[94px] pt-3 pb-1 uppercase">{g.day}</h3>
+              {g.rows.map((it) => (
+                <ActivityRow key={it.id} item={it} filter={filter} selected={Boolean(it.incidentId && it.incidentId === selectedId)} />
+              ))}
+            </div>
+          ))}
+        </div>
       )}
-    </Section>
+    </section>
   );
 }

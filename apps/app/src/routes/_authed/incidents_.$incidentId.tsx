@@ -1,12 +1,8 @@
-import * as React from 'react';
-import { createFileRoute } from '@tanstack/react-router';
-import { IncidentDetailPage } from '@/components/incidents/incident-detail-page';
+import { createFileRoute, redirect } from '@tanstack/react-router';
 
+/** An incident now opens in the room beside the Stream; old deep links still land. */
 export const Route = createFileRoute('/_authed/incidents_/$incidentId')({
-  component: IncidentDetailRoute,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: '/activity', search: { incident: params.incidentId }, replace: true });
+  },
 });
-
-function IncidentDetailRoute(): React.JSX.Element {
-  const { incidentId } = Route.useParams();
-  return <IncidentDetailPage incidentId={incidentId} />;
-}

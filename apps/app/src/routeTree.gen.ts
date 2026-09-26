@@ -15,6 +15,7 @@ import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
 import { Route as SSlugRouteImport } from './routes/s.$slug'
 import { Route as AuthedTelemetryRouteImport } from './routes/_authed/telemetry'
+import { Route as AuthedStatusPagesRouteImport } from './routes/_authed/status-pages'
 import { Route as AuthedSettingsRouteImport } from './routes/_authed/settings'
 import { Route as AuthedOverviewRouteImport } from './routes/_authed/overview'
 import { Route as AuthedNetworkingRouteImport } from './routes/_authed/networking'
@@ -107,6 +108,11 @@ const SSlugRoute = SSlugRouteImport.update({
 const AuthedTelemetryRoute = AuthedTelemetryRouteImport.update({
   id: '/telemetry',
   path: '/telemetry',
+  getParentRoute: () => AuthedRoute,
+} as any)
+const AuthedStatusPagesRoute = AuthedStatusPagesRouteImport.update({
+  id: '/status-pages',
+  path: '/status-pages',
   getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedSettingsRoute = AuthedSettingsRouteImport.update({
@@ -477,6 +483,7 @@ export interface FileRoutesByFullPath {
   '/networking': typeof AuthedNetworkingRoute
   '/overview': typeof AuthedOverviewRoute
   '/settings': typeof AuthedSettingsRoute
+  '/status-pages': typeof AuthedStatusPagesRoute
   '/telemetry': typeof AuthedTelemetryRoute
   '/s/$slug': typeof SSlugRoute
   '/ci/$buildId': typeof AuthedCiBuildIdRoute
@@ -547,6 +554,7 @@ export interface FileRoutesByTo {
   '/networking': typeof AuthedNetworkingRoute
   '/overview': typeof AuthedOverviewRoute
   '/settings': typeof AuthedSettingsRoute
+  '/status-pages': typeof AuthedStatusPagesRoute
   '/telemetry': typeof AuthedTelemetryRoute
   '/s/$slug': typeof SSlugRoute
   '/': typeof AuthedIndexRoute
@@ -619,6 +627,7 @@ export interface FileRoutesById {
   '/_authed/networking': typeof AuthedNetworkingRoute
   '/_authed/overview': typeof AuthedOverviewRoute
   '/_authed/settings': typeof AuthedSettingsRoute
+  '/_authed/status-pages': typeof AuthedStatusPagesRoute
   '/_authed/telemetry': typeof AuthedTelemetryRoute
   '/s/$slug': typeof SSlugRoute
   '/_authed/': typeof AuthedIndexRoute
@@ -693,6 +702,7 @@ export interface FileRouteTypes {
     | '/networking'
     | '/overview'
     | '/settings'
+    | '/status-pages'
     | '/telemetry'
     | '/s/$slug'
     | '/ci/$buildId'
@@ -763,6 +773,7 @@ export interface FileRouteTypes {
     | '/networking'
     | '/overview'
     | '/settings'
+    | '/status-pages'
     | '/telemetry'
     | '/s/$slug'
     | '/'
@@ -834,6 +845,7 @@ export interface FileRouteTypes {
     | '/_authed/networking'
     | '/_authed/overview'
     | '/_authed/settings'
+    | '/_authed/status-pages'
     | '/_authed/telemetry'
     | '/s/$slug'
     | '/_authed/'
@@ -932,6 +944,13 @@ declare module '@tanstack/react-router' {
       path: '/telemetry'
       fullPath: '/telemetry'
       preLoaderRoute: typeof AuthedTelemetryRouteImport
+      parentRoute: typeof AuthedRoute
+    }
+    '/_authed/status-pages': {
+      id: '/_authed/status-pages'
+      path: '/status-pages'
+      fullPath: '/status-pages'
+      preLoaderRoute: typeof AuthedStatusPagesRouteImport
       parentRoute: typeof AuthedRoute
     }
     '/_authed/settings': {
@@ -1464,6 +1483,7 @@ interface AuthedRouteChildren {
   AuthedNetworkingRoute: typeof AuthedNetworkingRoute
   AuthedOverviewRoute: typeof AuthedOverviewRoute
   AuthedSettingsRoute: typeof AuthedSettingsRoute
+  AuthedStatusPagesRoute: typeof AuthedStatusPagesRoute
   AuthedTelemetryRoute: typeof AuthedTelemetryRoute
   AuthedIndexRoute: typeof AuthedIndexRoute
   AuthedCiBuildIdRoute: typeof AuthedCiBuildIdRoute
@@ -1509,6 +1529,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedNetworkingRoute: AuthedNetworkingRoute,
   AuthedOverviewRoute: AuthedOverviewRoute,
   AuthedSettingsRoute: AuthedSettingsRoute,
+  AuthedStatusPagesRoute: AuthedStatusPagesRoute,
   AuthedTelemetryRoute: AuthedTelemetryRoute,
   AuthedIndexRoute: AuthedIndexRoute,
   AuthedCiBuildIdRoute: AuthedCiBuildIdRoute,

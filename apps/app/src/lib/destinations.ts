@@ -16,13 +16,13 @@ import {
   MailIcon,
   NetworkIcon,
   PackageIcon,
+  RadioTowerIcon,
   RocketIcon,
   ScrollTextIcon,
   ServerIcon,
   SettingsIcon,
   ShieldCheckIcon,
   ShieldIcon,
-  SirenIcon,
   SparklesIcon,
   type LucideIcon,
 } from 'lucide-react';
@@ -73,7 +73,7 @@ export const PRIMARY: Destination[] = [
   { to: '/nodes', label: 'Servers', icon: ServerIcon, group: 'Servers', blurb: 'The machines your apps run on', keywords: 'nodes cluster machines hosts servers capacity regions add server', badge: 'nodesOffline' },
   { to: '/network', label: 'Network', icon: GlobeIcon, group: 'Network', blurb: 'Domains, the front door, private network, email', keywords: 'domains dns https tls edge ingress caddy mesh private network geo email' },
   { to: '/data', label: 'Data', icon: DatabaseIcon, group: 'Data', blurb: 'Databases, storage, backups, AI', keywords: 'postgres database cache redis buckets s3 storage backups restore ai gateway' },
-  { to: '/activity', label: 'Activity', icon: ActivityIcon, group: 'Activity', blurb: 'What happened, what’s firing, who did what', keywords: 'alerts incidents audit log history timeline cost' },
+  { to: '/activity', label: 'Activity', icon: ActivityIcon, group: 'Activity', blurb: 'What happened, what’s firing, who did what', keywords: 'alerts incidents status pages audit log history timeline stream cost telemetry' },
   { to: '/settings', label: 'Settings', icon: SettingsIcon, group: 'Settings', blurb: 'Workspace, people, keys, CI, upgrades', keywords: 'settings org members access sso api keys cli mcp ci registry platform upgrade' },
 ];
 
@@ -98,12 +98,12 @@ export const SECTIONS: Destination[] = [
   { to: '/ai', label: 'AI gateway', icon: SparklesIcon, group: 'Data', blurb: 'Providers, keys, usage, playground', keywords: 'llm anthropic openai openrouter models virtual keys usage tokens embeddings gateway playground' },
 
   // ── Activity ────────────────────────────────────────────────────────────
-  { to: '/activity', label: 'Timeline', icon: ActivityIcon, group: 'Activity', blurb: 'Everything that happened, newest first', keywords: 'timeline history feed changes deploys', exact: true },
+  { to: '/activity', label: 'Stream', icon: ActivityIcon, group: 'Activity', blurb: 'Everything that happened, newest first, and the incident room', keywords: 'stream timeline history feed changes deploys incidents outage postmortem backups', exact: true, badge: 'incidentsOpen' },
   { to: '/alerts', label: 'Alerts', icon: BellIcon, group: 'Activity', blurb: 'What’s firing, rules and where they go', keywords: 'rules channels notifications firing resolved slack email discord thresholds', badge: 'alertsFiring' },
+  { to: '/status-pages', label: 'Status pages', icon: RadioTowerIcon, group: 'Activity', blurb: 'What your visitors see, and updates you post to them', keywords: 'status page public uptime incident update investigating identified monitoring resolved statuspage' },
   { to: '/telemetry', label: 'Telemetry', icon: ActivityIcon, group: 'Activity', blurb: 'Which apps send traces, logs and metrics, what’s kept and for how long', keywords: 'telemetry otel collector sampling tail retention redaction ttl clickhouse disk forecast traces logs metrics' },
-  { to: '/incidents', label: 'Incidents', icon: SirenIcon, group: 'Activity', blurb: 'Open and past incidents', keywords: 'outage timeline postmortem resolved downtime', badge: 'incidentsOpen' },
-  { to: '/audit', label: 'Audit log', icon: ScrollTextIcon, group: 'Activity', blurb: 'Who did what, exportable', keywords: 'compliance who did what history export actions' },
   { to: '/cost', label: 'Cost', icon: CircleDollarSignIcon, group: 'Activity', blurb: 'Spend, budgets and savings', keywords: 'spend usd budgets utilization idle savings recommendations capacity billing' },
+  { to: '/audit', label: 'Audit log', icon: ScrollTextIcon, group: 'Activity', blurb: 'Who did what, exportable', keywords: 'compliance who did what history export actions' },
 
   // ── Settings ────────────────────────────────────────────────────────────
   { to: '/settings', label: 'Workspace', icon: SettingsIcon, group: 'Settings', blurb: 'Name, preferences, your own security', keywords: 'settings org profile general preferences two factor 2fa passkey security', exact: true },

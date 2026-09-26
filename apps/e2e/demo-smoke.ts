@@ -143,6 +143,7 @@ const routes: Array<[string, RegExp?]> = [
   ['/alerts'],
   ['/incidents'],
   ['/incidents/inc-failover-main-db'],
+  ['/status-pages'],
   ['/cost'],
   ['/audit'],
   ['/governance'],
