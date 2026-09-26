@@ -11,6 +11,7 @@ import { SESSION_TOKEN_PREFIX, observedPublicIpv4, parseNodeProfile, type NodePr
 import type { LogLine } from '@swarmy/core/views';
 import { prisma } from '@swarmy/db';
 import {
+  deployEventBus,
   enrollMeshNode,
   foreignSwarmOf,
   orchestrateSwarmMembership,
@@ -206,6 +207,14 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
     case 'termExit':
       terminalHub.onAgentTermFrame(env.type, env.payload);
       return;
+    case 'deployProgress': {
+      // A traced deploy's pull/start progress. Kept only when the sending node
+      // belongs to the org that started the deploy (the bus checks org+stack).
+      const nodeId = ws.data.nodeId;
+      const orgId = nodeId ? deps.store.nodeOrg.get(nodeId) : undefined;
+      if (orgId) deployEventBus.push(orgId, env.payload);
+      return;
+    }
     case 'ingressNodeStatus': {
       const nodeId = ws.data.nodeId;
       if (nodeId) deps.store.ingressNodeStatus.set(nodeId, env.payload);

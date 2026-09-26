@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from '@hono/zod-openapi';
-import { deployFromCompose, getStack, listStacks, removeStack, resolveStack, resolveStackByName } from '@swarmy/trpc';
+import { getStack, listStacks, removeStack, resolveStack, resolveStackByName } from '@swarmy/trpc';
+import { deployComposeTraced } from '@swarmy/trpc/devx';
 import type { RestEnv } from '../middleware';
 import { requireAction, requireScope } from '../middleware';
 import {
@@ -81,9 +82,10 @@ export function registerStackRoutes(app: OpenAPIHono<RestEnv>): void {
         async () => {
           const b = c.req.valid('json');
           // The declared DeploymentRef; `deployment_id` (`stack:<name>`) polls
-          // the whole stack's convergence at GET /deployments/{id}.
+          // the whole stack's convergence at GET /deployments/{id}, and
+          // `deploy_id` its step-by-step events at GET /deploys/{id}/events.
           return deploymentRefToDto(
-            await deployFromCompose(c.get('orgCtx'), {
+            await deployComposeTraced(c.get('orgCtx'), {
               name: b.name,
               composeSource: b.compose_source,
             }),

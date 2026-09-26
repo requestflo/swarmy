@@ -147,6 +147,10 @@ export const DeploymentRefDto = z
   .object({
     id: z.string(),
     deployment_id: z.string(),
+    deploy_id: z
+      .string()
+      .optional()
+      .openapi({ description: 'A traced deploy: its step-by-step events at GET /deploys/{id}/events (30 min).' }),
   })
   .openapi('DeploymentRef');
 

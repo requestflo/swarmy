@@ -95,6 +95,6 @@ export function domainToDto(d: DomainView) {
  * Service-layer `{ id, deploymentId }` → the declared `DeploymentRef`
  * (`{ id, deployment_id }`). `deployment_id` polls at `GET /deployments/{id}`.
  */
-export function deploymentRefToDto(r: { id: string; deploymentId: string }) {
-  return { id: r.id, deployment_id: r.deploymentId };
+export function deploymentRefToDto(r: { id: string; deploymentId: string; deployId?: string }) {
+  return { id: r.id, deployment_id: r.deploymentId, ...(r.deployId ? { deploy_id: r.deployId } : {}) };
 }

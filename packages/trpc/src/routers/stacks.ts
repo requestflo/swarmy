@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { orgProcedure, router } from '../trpc';
 import { abacProcedure, abacProcedureAll, resolvePeerStack, resolveStack, resolveStackByName } from '../abac';
 import {
-  deployFromCompose,
   listStacks,
   parseCompose,
   redeployStack,
@@ -10,6 +9,7 @@ import {
   stackEndpointsFor,
 } from '../services/stack.service';
 import { connectStacks, disconnectStacks } from '../services/stack-links.service';
+import { deployComposeTraced } from '../services/deploy-compose-traced';
 
 export const stacksRouter = router({
   list: orgProcedure.query(({ ctx }) => listStacks(ctx)),
@@ -28,7 +28,8 @@ export const stacksRouter = router({
         override: z.boolean().optional(),
       }),
     )
-    .mutation(({ ctx, input }) => deployFromCompose(ctx, input)),
+    // Traced: the result's `deployId` streams its progress (`deploys.events`).
+    .mutation(({ ctx, input }) => deployComposeTraced(ctx, input)),
   redeploy: abacProcedure('stack.deploy', resolveStack)
     .input(
       z.object({

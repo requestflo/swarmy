@@ -39,3 +39,6 @@ export { createAppPreview } from './services/apps.service';
 export { enableForStack, stackTelemetryEnabled } from './services/observability.service';
 export { stackStatus as errorsStackStatus, type StackErrorsStatus } from './services/errors/errors.service';
 export { rotateKey as rotateErrorsKey, type ErrorProjectView } from './services/errors/projects';
+// Traced deploys (the Deploying screen's stream): REST GET /deploys/{id}/events.
+export { getDeployEvents } from './services/deploy-trace.service';
+export { deployComposeTraced } from './services/deploy-compose-traced';

@@ -92,6 +92,7 @@ export { gcPlatformKeys } from './services/platform-keys.service';
 
 // ── git-cicd-registry P2: webhook + GC + build-log seams ──
 export { buildLogBus } from './services/build-log-bus';
+export { deployEventBus, type DeployEvent, type DeployTraceView } from './services/deploy-events';
 export {
   triggerBuildForRepo,
   systemContext,

@@ -26,6 +26,9 @@ import {
   attachSecretToService,
 } from './secretsMgr.service';
 import { deployFromCompose } from './stack.service';
+import { beginDeployTrace, type DeployTrace } from './deploy-trace.service';
+import { followDeployTail } from './deploy-tail.service';
+import { stepDoneLine, stepKey, stepStage, tracesItself } from './blueprints/trace-steps';
 import { ensureBlueprintSecretFamily } from './secret-owner.service';
 import { setServiceRoutes } from './ingress-routes-api';
 import {
@@ -253,6 +256,12 @@ interface StepContext {
   secretNames: Record<string, string>;
   /** Tokens resolving to a credential (generated secrets) — never plain env. */
   credentialTokens?: Set<string>;
+  /** The traced deploy (the Deploying screen's stream). */
+  trace?: DeployTrace;
+  /** The app's own service (routed / auto-addressed), for the trace. */
+  mainService?: string;
+  /** Full swarm names the stack deploy created. */
+  deployed?: string[];
 }
 
 async function ensureOverlayNetwork(ctx: OrgContext, name: string): Promise<void> {
@@ -453,9 +462,10 @@ async function runStep(
       const atCreate = wires.filter(
         (w): w is CreateTimeWire => isCreateTimeWire(w) && (w.type === 'env' || w.family in sctx.secretNames),
       );
-      await deployFromCompose(ctx, {
+      const out = await deployFromCompose(ctx, {
         name: stack,
         composeSource: step.payload.composeSource,
+        ...(sctx.trace ? { trace: sctx.trace, mainService: sctx.mainService } : {}),
         ...(atCreate.length
           ? {
               atCreate: (spec, short) =>
@@ -463,6 +473,7 @@ async function runStep(
             }
           : {}),
       });
+      sctx.deployed = out.services;
       for (const w of atCreate) {
         if (w.type !== 'secret') continue;
         await writeAudit(ctx, {
@@ -538,7 +549,18 @@ export async function deployBlueprint(
 
   const env = await planEnv(ctx, entry, input);
   const steps = planSteps(entry, input, env);
-  const sctx: StepContext = { blueprint: input.id, steps, tokens: {}, notes: [], bucketIds: {}, secretNames: {} };
+  const trace = beginDeployTrace(ctx, stack);
+  const route = steps.find((st) => st.kind === 'ingress.route');
+  const sctx: StepContext = {
+    blueprint: input.id,
+    steps,
+    tokens: {},
+    notes: [],
+    bucketIds: {},
+    secretNames: {},
+    trace,
+    mainService: route?.kind === 'ingress.route' ? route.payload.service : entry.autoAddressService,
+  };
   const results: BlueprintStepResultView[] = [];
   let failed = false;
   let url: string | null = null;
@@ -548,16 +570,25 @@ export async function deployBlueprint(
       results.push({ kind: step.kind, label: step.label, status: 'skipped', detail: null, error: null });
       continue;
     }
+    const key = stepKey(stack, step.kind, results.length);
+    const own = tracesItself(step.kind);
+    if (own) trace.emit({ stage: 'data', status: 'started', service: key, message: step.label });
     try {
       const detail = await runStep(ctx, stack, step, sctx);
       results.push({ kind: step.kind, label: step.label, status: 'succeeded', detail, error: null });
+      if (own) trace.emit({ stage: 'data', status: 'done', service: key, message: stepDoneLine(step.kind, step.label, detail) });
       if (step.kind === 'ingress.route') url = `https://${step.payload.host}`;
     } catch (e) {
       failed = true;
       const message = e instanceof Error ? e.message : String(e);
       results.push({ kind: step.kind, label: step.label, status: 'failed', detail: null, error: message });
+      // The step's own error line (the result shows the same one); never a value.
+      trace.emit({ stage: stepStage(step.kind), status: 'failed', service: key, message: `${step.label}: ${message}` });
     }
   }
+  // The tail (route certificate + health) closes the trace; a stopped run closes it now.
+  if (failed || !sctx.deployed) trace.finish();
+  else void followDeployTail(ctx, trace, sctx.deployed);
 
   await writeAudit(ctx, {
     action: 'blueprints.deploy',
@@ -579,6 +610,7 @@ export async function deployBlueprint(
     steps: results,
     url: blueprintUrl({ routedUrl: url, autoHost: env.autoHost ?? null, ok: !failed }),
     notes: sctx.notes,
+    deployId: trace.id,
   };
 }
 

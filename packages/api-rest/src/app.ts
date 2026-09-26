@@ -18,6 +18,7 @@ import { registerRegistryCredentialRoutes } from './routes/registry-credentials'
 import { registerGitRoutes } from './routes/git';
 import { registerAppRoutes } from './routes/apps';
 import { registerDevxRoutes } from './routes/devx';
+import { registerDeployRoutes } from './routes/deploys';
 import { idempotency } from './idempotency';
 
 export const OPENAPI_DOC_ROUTE = '/openapi.json';
@@ -69,6 +70,7 @@ function buildResourceApp(deps: RestDeps, withAuth = true): OpenAPIHono<RestEnv>
   registerGitRoutes(app);
   registerAppRoutes(app);
   registerDevxRoutes(app);
+  registerDeployRoutes(app);
 
   app.onError((e, c) => {
     const p = trpcErrorToProblem(e, c.req.path);

@@ -45,6 +45,8 @@ import { carryLinks, stackPeers } from './stack-links.service';
 import { stackEndpoints, type StackEndpoints } from './service-endpoints';
 import { kickDomainChecks, registerDeployRoutes } from './domain-verify.service';
 import { forgetStackDeploy, noteStackDeployAccepted, stackDeploymentId } from './deployment.service';
+import { deployWatchFor, mainServiceOf } from './deploy-roles';
+import type { DeployTrace } from './deploy-trace.service';
 
 /**
  * Swarm state lives in Docker, not the DB. The Stack model is now config-only
@@ -414,6 +416,8 @@ export interface DeployFromComposeResult {
   warnings: TranslationWarning[];
   /** Legacy bare-named services replaced (and removed) by this deploy. */
   migrated: string[];
+  /** The traced deploy's id (`deploys.events`), when the caller traced it. */
+  deployId?: string;
 }
 
 export async function deployFromCompose(
@@ -436,6 +440,13 @@ export async function deployFromCompose(
      * only; the persisted compose source never sees it.
      */
     atCreate?: (spec: ServiceSpec, short: string) => ServiceSpec;
+    /**
+     * Trace this deploy (the Deploying screen): each service's agent streams
+     * its pull/start progress into the trace. `mainService` names the app's
+     * own service (the short or full name) when the caller knows it.
+     */
+    trace?: DeployTrace;
+    mainService?: string;
   },
 ): Promise<DeployFromComposeResult> {
   guardNotSystemStack(ctx, input.name);
@@ -609,8 +620,13 @@ export async function deployFromCompose(
   noteStackDeployAccepted(ctx.activeOrgId, stack.name, finalSpecs.map((s) => s.name));
   try {
     await removeLegacy(removals.before);
+    const main = input.trace ? mainServiceOf(finalSpecs, input.mainService) : null;
     for (const spec of finalSpecs) {
-      await ctx.hub.dispatch(node.id, 'service.deploy', { spec, pullPolicy: 'always' });
+      await ctx.hub.dispatch(node.id, 'service.deploy', {
+        spec,
+        pullPolicy: 'always',
+        ...(input.trace ? { watch: deployWatchFor(input.trace, spec, main) } : {}),
+      });
     }
     await removeLegacy(removals.after);
   } catch (e) {
@@ -654,6 +670,7 @@ export async function deployFromCompose(
     services: finalSpecs.map((s) => s.name),
     warnings: [...variables.warnings, ...plan.warnings],
     migrated,
+    ...(input.trace ? { deployId: input.trace.id } : {}),
   };
 }
 

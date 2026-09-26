@@ -16,6 +16,7 @@ import { authConfigRouter } from './routers/authConfig';
 import { policiesRouter } from './routers/policies';
 import { terminalRouter } from './routers/terminal';
 import { cicdRouter } from './routers/cicd';
+import { deploysRouter } from './routers/deploys';
 import { gitConnectionsRouter } from './routers/gitConnections';
 import { appsRouter } from './routers/apps';
 import { geodnsRouter } from './routers/geodns';
@@ -87,6 +88,7 @@ export const appRouter = router({
   policies: policiesRouter,
   terminal: terminalRouter,
   cicd: cicdRouter,
+  deploys: deploysRouter,
   gitConnections: gitConnectionsRouter,
   apps: appsRouter,
   geodns: geodnsRouter,

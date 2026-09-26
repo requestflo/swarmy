@@ -278,6 +278,10 @@
           },
           "deployment_id": {
             "type": "string"
+          },
+          "deploy_id": {
+            "type": "string",
+            "description": "A traced deploy: its step-by-step events at GET /deploys/{id}/events (30 min)."
           }
         },
         "required": [
@@ -3419,6 +3423,123 @@
           "store_enabled",
           "project",
           "pending_redeploy"
+        ]
+      },
+      "DeployEvent": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer"
+          },
+          "at": {
+            "type": "integer",
+            "description": "Epoch ms."
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "pull",
+              "data",
+              "start",
+              "route",
+              "health"
+            ],
+            "description": "Open set."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "started",
+              "progress",
+              "done",
+              "failed"
+            ]
+          },
+          "node": {
+            "type": "string",
+            "description": "The server it happened on (`swarmy` for the controller’s own steps)."
+          },
+          "service": {
+            "type": "string",
+            "nullable": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "layers_total": {
+                "type": "integer"
+              },
+              "layers_done": {
+                "type": "integer"
+              },
+              "bytes_total": {
+                "type": "integer"
+              },
+              "bytes_done": {
+                "type": "integer"
+              },
+              "digest": {
+                "type": "string"
+              },
+              "image": {
+                "type": "string"
+              },
+              "replicas_running": {
+                "type": "integer"
+              },
+              "replicas_desired": {
+                "type": "integer"
+              },
+              "host": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "seq",
+          "at",
+          "stage",
+          "status",
+          "node",
+          "service",
+          "message",
+          "detail"
+        ]
+      },
+      "DeployEvents": {
+        "type": "object",
+        "properties": {
+          "deploy_id": {
+            "type": "string"
+          },
+          "stack": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "integer"
+          },
+          "done": {
+            "type": "boolean",
+            "description": "Live, failed, or no longer watched: no more events will come."
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeployEvent"
+            }
+          }
+        },
+        "required": [
+          "deploy_id",
+          "stack",
+          "started_at",
+          "done",
+          "data"
         ]
       }
     },
@@ -7598,6 +7719,52 @@
             }
           },
           "403": {
+            "description": "Problem",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/deploys/{id}/events": {
+      "get": {
+        "tags": [
+          "Stacks"
+        ],
+        "summary": "A deploy’s progress events (poll while it runs)",
+        "security": [
+          {
+            "bearerApiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The `deploy_id` from POST /stacks."
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Events so far",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployEvents"
+                }
+              }
+            }
+          },
+          "404": {
             "description": "Problem",
             "content": {
               "application/problem+json": {

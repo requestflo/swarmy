@@ -2250,6 +2250,11 @@ export interface BlueprintDeployResultView {
    * result and never retrievable again — mirrors the cache-provision pattern.
    */
   notes: string[];
+  /**
+   * The traced deploy's id: `deploys.events({ deployId })` streams its steps
+   * (image pull, data, start, certificate, health). Absent on older controllers.
+   */
+  deployId?: string;
 }
 
 // ── Managed search (slice F4) — views over Docker-truth `swarmy.search.*` labels ──
