@@ -23,6 +23,7 @@ import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
+import { keyReachesApp, scopeSatisfies } from '@swarmy/core';
 import {
   ingest,
   MAX_ARTIFACT_BYTES,
@@ -130,7 +131,9 @@ errorsIngestApp.post('/errors/v1/stacks/:stack/releases/:release/files', uploadL
     ? await resolveOrgContextFromApiKey({ db: prisma, hub, auth: authRegistry.getAuth() }, key).catch(() => null)
     : null;
   if (!resolved) return c.json({ detail: 'a swarmy API key is required (Authorization: Bearer swk_…)' }, 401);
-  if (!resolved.apiKey.scopes.includes('write')) return c.json({ detail: 'this API key is read-only' }, 403);
+  if (!scopeSatisfies(resolved.apiKey.scopes, 'write')) return c.json({ detail: 'uploading source maps needs a key that can write' }, 403);
+  // An app-scoped key uploads only for its own apps (the REST app gate's rule).
+  if (!keyReachesApp(resolved.apiKey.stackNames, c.req.param('stack'))) return c.json({ detail: 'not found' }, 404);
   if (resolved.ctx.membership.role === 'member') return c.json({ detail: 'uploading source maps needs an admin key' }, 403);
   let files: { name: string; content: string }[];
   try {

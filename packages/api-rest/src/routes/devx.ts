@@ -257,7 +257,7 @@ export function registerDevxRoutes(app: OpenAPIHono<RestEnv>): void {
       description:
         'Keys not named are kept exactly (secret variables included). `secrets` become Docker secrets (new versions, rolling update). Policy: `service.configure` on the service.',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write'), requireAction('service.configure', resolveService)] as const,
+      middleware: [requireScope('deploy'), requireAction('service.configure', resolveService)] as const,
       request: { params: idParam, body: jsonBody(PatchEnvBody) },
       responses: {
         202: { content: { 'application/json': { schema: PatchEnvResultDto } }, description: 'Rolling out' },
@@ -399,7 +399,7 @@ export function registerDevxRoutes(app: OpenAPIHono<RestEnv>): void {
       description:
         'Plans the branch’s swarmy.yaml and deploys it as a preview environment with its own stack and URL, the same machinery as a branch or pull-request preview. Torn down by `previews.ttl` or when the branch is deleted.',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('deploy')] as const,
       request: { params: repoParam, body: jsonBody(PreviewBody) },
       responses: {
         202: { content: { 'application/json': { schema: PreviewResultDto } }, description: 'Preview result' },

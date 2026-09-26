@@ -78,7 +78,7 @@ export function registerServiceRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Services'],
       summary: 'Create a service (async deploy)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write'), requireAction('service.deploy', resolveNewService, (b) => ({ name: b.name }))] as const,
+      middleware: [requireScope('deploy'), requireAction('service.deploy', resolveNewService, (b) => ({ name: b.name }))] as const,
       request: { body: jsonBody(CreateServiceBody) },
       responses: {
         202: {
@@ -118,7 +118,7 @@ export function registerServiceRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Services'],
       summary: 'Scale a service (async deploy)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write'), requireAction('service.scale', resolveService)] as const,
+      middleware: [requireScope('deploy'), requireAction('service.scale', resolveService)] as const,
       request: { params: idParam, body: jsonBody(ScaleBody) },
       responses: {
         202: { content: { 'application/json': { schema: DeploymentRefDto } }, description: 'Accepted' },
@@ -146,7 +146,7 @@ export function registerServiceRoutes(app: OpenAPIHono<RestEnv>): void {
       tags: ['Services'],
       summary: 'Restart a service (async deploy)',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write'), requireAction('service.restart', resolveService)] as const,
+      middleware: [requireScope('deploy'), requireAction('service.restart', resolveService)] as const,
       request: { params: idParam },
       responses: {
         202: { content: { 'application/json': { schema: DeploymentRefDto } }, description: 'Accepted' },

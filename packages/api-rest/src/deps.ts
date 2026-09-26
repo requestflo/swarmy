@@ -6,12 +6,13 @@
  */
 import type { OrgContext } from '@swarmy/trpc';
 
-export type ApiKeyScope = 'read' | 'write' | 'secrets.read';
+export type { ApiKeyScope } from '@swarmy/core';
+import type { ApiKeyScope } from '@swarmy/core';
 
 export interface ResolvedApiKey {
   ctx: OrgContext;
   /** `kind` says which credential it was; OAuth tokens carry `oauth:<client_id>` as id. */
-  apiKey: { id: string; scopes: ApiKeyScope[]; kind?: 'api_key' | 'oauth' };
+  apiKey: { id: string; scopes: ApiKeyScope[]; kind?: 'api_key' | 'oauth'; stackNames?: string[] | null };
 }
 
 export interface RestDeps {

@@ -11,17 +11,31 @@ import { z } from '@hono/zod-openapi';
 
 // ── API keys ────────────────────────────────────────────────────────────────
 
+const ApiKeyScopeDto = z
+  .enum(['read', 'deploy', 'write', 'secrets.read'])
+  .openapi('ApiKeyScope', {
+    description:
+      '`read` every GET; `deploy` ship and roll back (deploy, env, scale, restart, promote, preview; implies read); `write` every mutation (implies deploy); `secrets.read` reveal secret values. Open enum: new values may be added.',
+  });
+
 export const ApiKeyDto = z
   .object({
     id: z.string(),
     name: z.string(),
     prefix: z.string(),
-    scopes: z.array(z.enum(['read', 'write', 'secrets.read'])),
+    scopes: z.array(ApiKeyScopeDto),
+    preset: z.enum(['read', 'deploy', 'admin', 'custom']).openapi({
+      description: 'The dashboard preset the scopes match (Read-only / Deploy / Admin), or `custom`.',
+    }),
+    stack_names: z.array(z.string()).nullable().openapi({
+      description: 'Apps (stack names) the key may reach; null = every app in the org.',
+    }),
     last_used_at: z.string().nullable(),
+    expires_at: z.string().nullable(),
     created_at: z.string(),
     created_by_id: z.string().nullable(),
     revoked_at: z.string().nullable(),
-    status: z.enum(['active', 'revoked']),
+    status: z.enum(['active', 'revoked', 'expired']),
   })
   .openapi('ApiKey');
 
@@ -33,7 +47,16 @@ export const ApiKeyIssuedDto = ApiKeyDto.extend({
 export const CreateApiKeyBody = z
   .object({
     name: z.string().min(1),
-    scopes: z.array(z.enum(['read', 'write', 'secrets.read'])).optional(),
+    preset: z.enum(['read', 'deploy', 'admin']).optional().openapi({
+      description: 'Read-only = [read]; Deploy = [read, deploy]; Admin = [read, write, secrets.read]. Wins over `scopes`.',
+    }),
+    scopes: z.array(ApiKeyScopeDto).optional(),
+    stack_names: z.array(z.string().min(1)).nullable().optional().openapi({
+      description: 'Limit the key to these apps (stack names). Omit or null for every app.',
+    }),
+    expiry: z.enum(['30d', '90d', '1y', 'never']).optional().openapi({
+      description: 'When the key stops working. Default `never`.',
+    }),
   })
   .openapi('CreateApiKeyRequest');
 

@@ -11,13 +11,19 @@ import type { Auth } from '@swarmy/auth';
 import type { DB } from '@swarmy/db';
 import type { OrgContext } from './context';
 import type { AgentHub } from './hub/types';
+import type { ApiKeyScope } from '@swarmy/core';
+import { parseStackNames } from './services/apiKeys.service';
 
-export type ApiKeyScope = 'read' | 'write' | 'secrets.read';
+export type { ApiKeyScope } from '@swarmy/core';
 
 export interface ResolvedApiKeyContext {
   ctx: OrgContext;
-  /** `kind` says which credential it was; OAuth tokens carry `oauth:<client_id>` as id. */
-  apiKey: { id: string; scopes: ApiKeyScope[]; kind?: 'api_key' | 'oauth' };
+  /**
+   * `kind` says which credential it was; OAuth tokens carry `oauth:<client_id>` as id.
+   * `stackNames` limits the key to those apps (null/absent = every app); the
+   * REST app gate (`@swarmy/api-rest` `appScopeGate`) enforces it per request.
+   */
+  apiKey: { id: string; scopes: ApiKeyScope[]; kind?: 'api_key' | 'oauth'; stackNames?: string[] | null };
 }
 
 export interface ResolveApiKeyDeps {
@@ -52,6 +58,7 @@ export async function resolveOrgContextFromApiKey(
       id: true,
       orgId: true,
       scopes: true,
+      stackNames: true,
       revokedAt: true,
       expiresAt: true,
       createdById: true,
@@ -84,7 +91,15 @@ export async function resolveOrgContextFromApiKey(
     .catch(() => undefined);
 
   const ctx = principalContext(deps, row.orgId, creator, member);
-  return { ctx, apiKey: { id: row.id, scopes: (row.scopes as ApiKeyScope[]) ?? ['read'], kind: 'api_key' } };
+  return {
+    ctx,
+    apiKey: {
+      id: row.id,
+      scopes: (row.scopes as ApiKeyScope[]) ?? ['read'],
+      kind: 'api_key',
+      stackNames: parseStackNames(row.stackNames),
+    },
+  };
 }
 
 /**

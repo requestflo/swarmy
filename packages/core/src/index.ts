@@ -23,6 +23,7 @@ export * from './swarm-kv';
 export * from './app-secrets';
 export * from './clickhouse';
 export * from './telemetry';
+export * from './api-keys';
 // NOTE: './crypto' (node:crypto credential vault) is server-only and is NOT
 // re-exported here — import it via '@swarmy/core/crypto' so it never reaches the
 // browser bundle.

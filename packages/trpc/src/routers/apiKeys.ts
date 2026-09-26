@@ -1,11 +1,11 @@
 import { z } from 'zod';
+import { API_KEY_EXPIRIES, API_KEY_SCOPES } from '@swarmy/core';
 import { adminProcedure, orgProcedure, router } from '../trpc';
 import { abacProcedure } from '../abac';
 import {
   createApiKey,
   listApiKeys,
   revokeApiKey,
-  type ApiKeyScope,
 } from '../services/apiKeys.service';
 import {
   approveDeviceAuthorization,
@@ -13,21 +13,24 @@ import {
   describeDeviceAuthorization,
 } from '../services/cli-device.service';
 
-const scopes = z.array(z.enum(['read', 'write', 'secrets.read'])).min(1);
+const scopes = z.array(z.enum(API_KEY_SCOPES)).min(1);
 
 export const apiKeysRouter = router({
   list: orgProcedure.query(({ ctx }) => listApiKeys(ctx)),
 
+  // A preset (Read-only / Deploy / Admin) or raw scopes; optionally limited
+  // to some apps; expiring in 30 d / 90 d / 1 y or never. Plaintext once.
   create: adminProcedure
     .input(
       z.object({
         name: z.string().min(1).max(80),
+        preset: z.enum(['read', 'deploy', 'admin']).optional(),
         scopes: scopes.optional(),
+        stackNames: z.array(z.string().min(1).max(128)).max(100).nullish(),
+        expiry: z.enum(API_KEY_EXPIRIES).optional(),
       }),
     )
-    .mutation(({ ctx, input }) =>
-      createApiKey(ctx, { name: input.name, scopes: input.scopes as ApiKeyScope[] | undefined }),
-    ),
+    .mutation(({ ctx, input }) => createApiKey(ctx, input)),
 
   revoke: abacProcedure('token.revoke')
     .input(z.object({ id: z.string() }))

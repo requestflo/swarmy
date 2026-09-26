@@ -40,9 +40,19 @@ describe('developer routes', () => {
     });
   });
 
-  const WRITES: Array<[string, string, unknown]> = [
+  // Ship-shaped routes need `deploy` (a write key has it; a read key doesn't).
+  for (const [method, path, body] of [
     ['PATCH', '/services/s1/env', { set: { A: '1' } }],
     ['POST', '/apps/r1/previews', { branch: 'feat/x' }],
+  ] as const) {
+    it(`${method} ${path} needs the deploy scope`, async () => {
+      const res = await call(appFor('owner', ['read', 'secrets.read']), method, path, body);
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { detail: string }).detail).toContain('"deploy" scope');
+    });
+  }
+
+  const WRITES: Array<[string, string, unknown]> = [
     ['PUT', '/stacks/shop/telemetry', { enabled: true }],
     ['POST', '/stacks/shop/errors/rotate-key', {}],
   ];

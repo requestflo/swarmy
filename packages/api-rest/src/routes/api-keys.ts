@@ -67,7 +67,13 @@ export function registerApiKeyRoutes(app: OpenAPIHono<RestEnv>): void {
         async () => {
           const b = c.req.valid('json');
           return apiKeyIssuedToDto(
-            await createApiKey(c.get('orgCtx'), { name: b.name, scopes: b.scopes }),
+            await createApiKey(c.get('orgCtx'), {
+              name: b.name,
+              preset: b.preset,
+              scopes: b.scopes,
+              stackNames: b.stack_names ?? null,
+              expiry: b.expiry,
+            }),
           );
         },
         201,

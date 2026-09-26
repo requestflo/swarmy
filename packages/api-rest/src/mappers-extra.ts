@@ -13,12 +13,15 @@ export interface ApiKeyViewShape {
   id: string;
   name: string;
   prefix: string;
-  scopes: ('read' | 'write' | 'secrets.read')[];
+  scopes: ('read' | 'deploy' | 'write' | 'secrets.read')[];
+  preset: 'read' | 'deploy' | 'admin' | 'custom';
+  stackNames: string[] | null;
   lastUsedAt: string | null;
+  expiresAt: string | null;
   createdAt: string;
   createdById: string | null;
   revokedAt: string | null;
-  status: 'active' | 'revoked';
+  status: 'active' | 'revoked' | 'expired';
 }
 
 export function apiKeyToDto(k: ApiKeyViewShape) {
@@ -27,7 +30,10 @@ export function apiKeyToDto(k: ApiKeyViewShape) {
     name: k.name,
     prefix: k.prefix,
     scopes: k.scopes,
+    preset: k.preset,
+    stack_names: k.stackNames,
     last_used_at: k.lastUsedAt,
+    expires_at: k.expiresAt,
     created_at: k.createdAt,
     created_by_id: k.createdById,
     revoked_at: k.revokedAt,

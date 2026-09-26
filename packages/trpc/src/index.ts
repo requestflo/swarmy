@@ -19,6 +19,7 @@ export * from './errors';
 
 // ── REST front door: api-key→OrgContext seam + service functions it reuses ──
 export { resolveOrgContextFromApiKey } from './apiKeyContext';
+export { stackNameForId, serviceStackName } from './api-key-apps';
 // The fine-grained policy step both front doors share (REST `requireAction`).
 export {
   authorize,

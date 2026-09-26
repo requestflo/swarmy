@@ -20,6 +20,7 @@ import { registerAppRoutes } from './routes/apps';
 import { registerDevxRoutes } from './routes/devx';
 import { registerDeployRoutes } from './routes/deploys';
 import { idempotency } from './idempotency';
+import { appScopeGate } from './app-scope';
 
 export const OPENAPI_DOC_ROUTE = '/openapi.json';
 export const DOCS_ROUTE = '/docs';
@@ -46,11 +47,13 @@ function buildResourceApp(deps: RestDeps, withAuth = true): OpenAPIHono<RestEnv>
     scheme: 'bearer',
     bearerFormat: 'swk',
     description:
-      'swarmy API key (`Authorization: Bearer swk_…`), or an OAuth access token swarmy issued for its APIs (scopes `swarmy:read` / `swarmy:write`).',
+      'swarmy API key (`Authorization: Bearer swk_…`), or an OAuth access token swarmy issued for its APIs (scopes `swarmy:read` / `swarmy:write`). Key scopes: `read` (every GET), `deploy` (ship and roll back: deploy stacks/services, change env, scale, restart, promote, preview), `write` (every mutation; implies `deploy`), `secrets.read` (reveal secret values). A key limited to some apps (`stack_names`) reaches only those apps; org-wide endpoints answer 403 and other apps 404.',
   });
 
   if (withAuth) {
     app.use('*', apiKeyAuth(deps));
+    // App-scoped keys are held to their apps here, for every route (fail-closed).
+    app.use('*', appScopeGate());
     // Idempotency must run AFTER auth — it reads c.get('orgCtx').
     app.use('*', idempotency());
   }

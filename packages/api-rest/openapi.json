@@ -16,7 +16,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "swk",
-        "description": "swarmy API key (`Authorization: Bearer swk_…`), or an OAuth access token swarmy issued for its APIs (scopes `swarmy:read` / `swarmy:write`)."
+        "description": "swarmy API key (`Authorization: Bearer swk_…`), or an OAuth access token swarmy issued for its APIs (scopes `swarmy:read` / `swarmy:write`). Key scopes: `read` (every GET), `deploy` (ship and roll back: deploy stacks/services, change env, scale, restart, promote, preview), `write` (every mutation; implies `deploy`), `secrets.read` (reveal secret values). A key limited to some apps (`stack_names`) reaches only those apps; org-wide endpoints answer 403 and other apps 404."
       }
     },
     "schemas": {
@@ -820,6 +820,16 @@
           "www"
         ]
       },
+      "ApiKeyScope": {
+        "type": "string",
+        "enum": [
+          "read",
+          "deploy",
+          "write",
+          "secrets.read"
+        ],
+        "description": "`read` every GET; `deploy` ship and roll back (deploy, env, scale, restart, promote, preview; implies read); `write` every mutation (implies deploy); `secrets.read` reveal secret values. Open enum: new values may be added."
+      },
       "ApiKey": {
         "type": "object",
         "properties": {
@@ -835,15 +845,32 @@
           "scopes": {
             "type": "array",
             "items": {
-              "type": "string",
-              "enum": [
-                "read",
-                "write",
-                "secrets.read"
-              ]
+              "$ref": "#/components/schemas/ApiKeyScope"
             }
           },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "read",
+              "deploy",
+              "admin",
+              "custom"
+            ],
+            "description": "The dashboard preset the scopes match (Read-only / Deploy / Admin), or `custom`."
+          },
+          "stack_names": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string"
+            },
+            "description": "Apps (stack names) the key may reach; null = every app in the org."
+          },
           "last_used_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "expires_at": {
             "type": "string",
             "nullable": true
           },
@@ -862,7 +889,8 @@
             "type": "string",
             "enum": [
               "active",
-              "revoked"
+              "revoked",
+              "expired"
             ]
           }
         },
@@ -871,7 +899,10 @@
           "name",
           "prefix",
           "scopes",
+          "preset",
+          "stack_names",
           "last_used_at",
+          "expires_at",
           "created_at",
           "created_by_id",
           "revoked_at",
@@ -922,16 +953,39 @@
             "type": "string",
             "minLength": 1
           },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "read",
+              "deploy",
+              "admin"
+            ],
+            "description": "Read-only = [read]; Deploy = [read, deploy]; Admin = [read, write, secrets.read]. Wins over `scopes`."
+          },
           "scopes": {
             "type": "array",
             "items": {
-              "type": "string",
-              "enum": [
-                "read",
-                "write",
-                "secrets.read"
-              ]
+              "$ref": "#/components/schemas/ApiKeyScope"
             }
+          },
+          "stack_names": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Limit the key to these apps (stack names). Omit or null for every app."
+          },
+          "expiry": {
+            "type": "string",
+            "enum": [
+              "30d",
+              "90d",
+              "1y",
+              "never"
+            ],
+            "description": "When the key stops working. Default `never`."
           }
         },
         "required": [

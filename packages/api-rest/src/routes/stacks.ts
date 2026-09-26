@@ -67,7 +67,7 @@ export function registerStackRoutes(app: OpenAPIHono<RestEnv>): void {
       summary: 'Deploy a stack from a compose document (async)',
       security: [{ bearerApiKey: [] }],
       middleware: [
-        requireScope('write'),
+        requireScope('deploy'),
         requireAction('stack.deploy', resolveStackByName, (b) => ({ name: b.name, composeSource: b.compose_source })),
       ] as const,
       request: { body: { content: { 'application/json': { schema: DeployStackBody } } } },

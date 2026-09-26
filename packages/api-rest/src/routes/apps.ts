@@ -366,7 +366,7 @@ export function registerAppRoutes(app: OpenAPIHono<RestEnv>): void {
       description:
         'Each step is authorized by what it destroys (data.destroy / service.remove / stack.deploy); a step the key’s principal may not confirm fails the whole call with `403`. Ids that are not held (or no longer planned) are ignored.',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write')] as const,
+      middleware: [requireScope('deploy')] as const,
       request: { params: planParam, body: jsonBody(ConfirmBody) },
       responses: {
         200: { content: { 'application/json': { schema: ConfirmResultDto } }, description: 'Confirmed' },
@@ -455,7 +455,7 @@ export function registerAppRoutes(app: OpenAPIHono<RestEnv>): void {
       description:
         'Runs the same plan → apply as a push (destructive steps still wait for confirmation). Returns when the plan is recorded and its runnable part applied. Admin/owner only.',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write'), requireAdmin()] as const,
+      middleware: [requireScope('deploy'), requireAdmin()] as const,
       request: { params: repoParam, body: jsonBody(DeployBody) },
       responses: {
         200: { content: { 'application/json': { schema: PlanCommitResultDto } }, description: 'Planned' },
@@ -566,7 +566,7 @@ export function registerAppRoutes(app: OpenAPIHono<RestEnv>): void {
       description:
         'No rebuild: production is planned with the digests the source environment runs now, through the same gates (destructive steps still wait). Admin/owner only.',
       security: [{ bearerApiKey: [] }],
-      middleware: [requireScope('write'), requireAdmin()] as const,
+      middleware: [requireScope('deploy'), requireAdmin()] as const,
       request: { params: repoParam, body: jsonBody(PromoteBody) },
       responses: {
         200: { content: { 'application/json': { schema: PromoteResultDto } }, description: 'Promoted (planned)' },

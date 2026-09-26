@@ -1,4 +1,5 @@
 import type { Context, MiddlewareHandler } from 'hono';
+import { scopeSatisfies } from '@swarmy/core';
 import { authorize, type OrgContext, type ResolveResource } from '@swarmy/trpc';
 import type { ApiKeyScope, RestDeps } from './deps';
 import { PROBLEM_CONTENT_TYPE, problem, trpcErrorToProblem } from './problem';
@@ -7,7 +8,7 @@ import { PROBLEM_CONTENT_TYPE, problem, trpcErrorToProblem } from './problem';
 export interface RestEnv {
   Variables: {
     orgCtx: OrgContext;
-    apiKey: { id: string; scopes: ApiKeyScope[]; kind?: 'api_key' | 'oauth' };
+    apiKey: { id: string; scopes: ApiKeyScope[]; kind?: 'api_key' | 'oauth'; stackNames?: string[] | null };
   };
 }
 
@@ -34,11 +35,15 @@ export function apiKeyAuth(deps: RestDeps): MiddlewareHandler<RestEnv> {
   };
 }
 
-/** Require a scope for the route (read for GET, write for mutations). */
+/**
+ * Require a scope for the route: `read` for GETs, `deploy` for ship/roll-back
+ * mutations (deploy, env, scale, restart, promote, previews), `write` for the
+ * rest. `write` ⊇ `deploy` ⊇ `read` (`scopeSatisfies` in `@swarmy/core`).
+ */
 export function requireScope(scope: ApiKeyScope): MiddlewareHandler<RestEnv> {
   return async (c, next) => {
     const key = c.get('apiKey');
-    const ok = key.scopes.includes(scope) || (scope === 'read' && key.scopes.includes('write'));
+    const ok = scopeSatisfies(key.scopes, scope);
     if (!ok) {
       return c.json(
         problem(403, `API key lacks "${scope}" scope`, 'POLICY_DENIED'),
