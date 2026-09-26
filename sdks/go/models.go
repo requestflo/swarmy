@@ -135,6 +135,14 @@ type DeployStackRequest struct {
 	ComposeSource string `json:"compose_source"`
 }
 
+type StackRemoved struct {
+	ID             string   `json:"id"`
+	Removed        bool     `json:"removed"`
+	DeleteData     bool     `json:"delete_data"`
+	VolumesDeleted []string `json:"volumes_deleted"`
+	VolumesKept    []string `json:"volumes_kept"`
+}
+
 type IngressDomainStatus struct {
 	Host             string         `json:"host"`
 	State            string         `json:"state"`

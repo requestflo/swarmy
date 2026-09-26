@@ -176,6 +176,17 @@ export const COMMANDS: CommandSpec[] = [
     },
   },
   {
+    name: 'remove',
+    summary: 'Remove an app environment (its data is kept unless --delete-data)',
+    usage: 'swarmy remove [--app <app|stack>] [--delete-data] [--yes]',
+    flags: {
+      app: { type: 'string', short: 'a', value: 'app|stack', description: 'App or stack (default: the linked app)' },
+      environment: APP_FLAGS.environment!,
+      'delete-data': { type: 'boolean', description: 'Also delete its data: volumes on every server and the passwords swarmy made for it' },
+      yes: { type: 'boolean', short: 'y', description: 'Do not ask for the stack name to confirm' },
+    },
+  },
+  {
     name: 'mcp',
     summary: 'Run the swarmy MCP server over stdio (for Claude Code, Cursor, …)',
     usage: 'swarmy mcp [--read-only]',

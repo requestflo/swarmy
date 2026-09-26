@@ -239,6 +239,25 @@ class Stack:
 
 
 @dataclass
+class StackRemoved:
+    id: str
+    removed: bool
+    delete_data: bool
+    volumes_deleted: List[str]
+    volumes_kept: List[str]
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "StackRemoved":
+        return cls(
+            id=d.get("id"),
+            removed=d.get("removed"),
+            delete_data=d.get("delete_data"),
+            volumes_deleted=d.get("volumes_deleted"),
+            volumes_kept=d.get("volumes_kept"),
+        )
+
+
+@dataclass
 class IngressDomainStatus:
     host: str
     state: str

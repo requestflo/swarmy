@@ -13,6 +13,7 @@ import { deploy, link, open, status, unlink } from './commands/app';
 import { envLs, envPull, envPush, logs, run as runCmd } from './commands/service';
 import { check, explain, mcp } from './commands/local';
 import { errorsDsn, errorsRotateKey, sourcemapsUpload } from './commands/errors';
+import { remove } from './commands/stack';
 
 type Handler = (ctx: Ctx) => Promise<number | void>;
 
@@ -32,6 +33,7 @@ const HANDLERS: Record<string, Handler> = {
   open,
   status,
   mcp,
+  remove,
   explain,
   'sourcemaps upload': sourcemapsUpload,
   'errors dsn': errorsDsn,

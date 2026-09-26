@@ -104,6 +104,14 @@ export interface DeployStackRequest {
   compose_source: string;
 }
 
+export interface StackRemoved {
+  id: string;
+  removed: true;
+  delete_data: boolean;
+  volumes_deleted: string[];
+  volumes_kept: string[];
+}
+
 export interface IngressDomainStatus {
   host: string;
   state: 'waiting_dns' | 'verified' | 'issuing' | 'active' | 'error';

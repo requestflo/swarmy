@@ -28,6 +28,7 @@ import type {
   ServiceList,
   Stack,
   StackList,
+  StackRemoved,
 } from './models.js';
 
 /** Options shared by all paginated list calls. */
@@ -210,8 +211,15 @@ export class StacksResource {
     return this.http.request<DeploymentRef>('POST', '/stacks', { body });
   }
 
-  remove(id: string): Promise<Removed> {
-    return this.http.request<Removed>('DELETE', `/stacks/${encodeURIComponent(id)}`);
+  /**
+   * Remove a stack. Its data (named volumes + its blueprint's generated
+   * secrets) is kept unless `deleteData` — a same-name redeploy then picks it
+   * back up.
+   */
+  remove(id: string, opts: { deleteData?: boolean } = {}): Promise<StackRemoved> {
+    return this.http.request<StackRemoved>('DELETE', `/stacks/${encodeURIComponent(id)}`, {
+      query: { delete_data: opts.deleteData ? 'true' : undefined },
+    });
   }
 
   telemetry(id: string): Promise<StackTelemetry> {

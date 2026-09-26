@@ -113,10 +113,22 @@ func (s *StacksService) Deploy(ctx context.Context, body DeployStackRequest) (*D
 	return &out, nil
 }
 
-// Remove deletes a stack.
-func (s *StacksService) Remove(ctx context.Context, id string) (*Removed, error) {
-	var out Removed
-	if err := s.client.do(ctx, "DELETE", "/stacks/"+pathEscape(id), nil, nil, &out); err != nil {
+// RemoveStackOptions tunes StacksService.Remove.
+type RemoveStackOptions struct {
+	// DeleteData also deletes the stack's data: its named volumes on every
+	// server and the secrets its blueprint generated. Default: kept, so a
+	// same-name redeploy picks the old data back up.
+	DeleteData bool
+}
+
+// Remove deletes a stack (its data is kept unless opts.DeleteData).
+func (s *StacksService) Remove(ctx context.Context, id string, opts RemoveStackOptions) (*StackRemoved, error) {
+	var out StackRemoved
+	var q url.Values
+	if opts.DeleteData {
+		q = url.Values{"delete_data": {"true"}}
+	}
+	if err := s.client.do(ctx, "DELETE", "/stacks/"+pathEscape(id), q, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

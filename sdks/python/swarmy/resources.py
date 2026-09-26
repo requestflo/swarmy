@@ -13,6 +13,7 @@ from .models import (
     Removed,
     Service,
     Stack,
+    StackRemoved,
 )
 
 
@@ -101,8 +102,13 @@ class StacksResource:
             self._http.request("POST", "/stacks", body={"name": name, "compose_source": compose_source})
         )
 
-    def remove(self, stack_id: str) -> Removed:
-        return Removed.from_dict(self._http.request("DELETE", "/stacks/{}".format(_quote(stack_id))))
+    def remove(self, stack_id: str, delete_data: bool = False) -> StackRemoved:
+        """Remove a stack. Its data (named volumes + its blueprint's generated
+        secrets) is kept unless ``delete_data`` — a same-name redeploy picks it back up."""
+        query = {"delete_data": "true"} if delete_data else None
+        return StackRemoved.from_dict(
+            self._http.request("DELETE", "/stacks/{}".format(_quote(stack_id)), query=query)
+        )
 
     def iterate(self, limit: Optional[int] = None) -> Iterator[Stack]:
         return _paginate(lambda c: self.list(cursor=c, limit=limit))

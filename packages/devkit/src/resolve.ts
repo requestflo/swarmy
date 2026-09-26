@@ -2,7 +2,7 @@
  * Name resolution shared by the CLI and the MCP tools: people and models say
  * "orders" or "web", the API speaks ids.
  */
-import type { App, Service, SwarmyClient } from './sdk';
+import type { App, Service, Stack, SwarmyClient } from './sdk';
 
 export class NotFoundError extends Error {}
 
@@ -41,6 +41,21 @@ export function appStack(app: App, environment = 'production'): string {
     );
   }
   return env.stack;
+}
+
+/** A stack by id or name (the REST API addresses stacks by id). */
+export async function resolveStack(client: SwarmyClient, ref: string): Promise<Stack> {
+  let cursor: string | undefined;
+  const seen: string[] = [];
+  for (;;) {
+    const page = await client.stacks.list(cursor ? { cursor } : undefined);
+    const hit = page.data.find((s) => s.id === ref || s.name === ref);
+    if (hit) return hit;
+    seen.push(...page.data.map((s) => s.name));
+    if (!page.next_cursor) break;
+    cursor = page.next_cursor;
+  }
+  throw new NotFoundError(`no stack "${ref}" (known: ${seen.join(', ') || 'none'})`);
 }
 
 /** Services of a stack (by `stack_id`, which is the stack name for Docker-truth stacks). */

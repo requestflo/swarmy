@@ -406,6 +406,45 @@
           "compose_source"
         ]
       },
+      "StackRemoved": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "removed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "delete_data": {
+            "type": "boolean",
+            "description": "Whether the app's data (named volumes + its blueprint's generated secrets) was deleted too."
+          },
+          "volumes_deleted": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Named volumes deleted on every server."
+          },
+          "volumes_kept": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Named volumes left on the servers (all of them unless delete_data; else any that could not be removed)."
+          }
+        },
+        "required": [
+          "id",
+          "removed",
+          "delete_data",
+          "volumes_deleted",
+          "volumes_kept"
+        ]
+      },
       "IngressWwwMode": {
         "type": "string",
         "nullable": true,
@@ -4098,6 +4137,7 @@
           "Stacks"
         ],
         "summary": "Remove a stack",
+        "description": "Stops and removes every service in the stack. Its data — the named volumes on every server and the secrets its blueprint generated — is KEPT unless `delete_data=true`, so redeploying the same name picks the old data back up. Audited.",
         "security": [
           {
             "bearerApiKey": []
@@ -4111,6 +4151,19 @@
             "required": true,
             "name": "id",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "Also delete the app's data (default false)."
+            },
+            "required": false,
+            "name": "delete_data",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4119,7 +4172,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Removed"
+                  "$ref": "#/components/schemas/StackRemoved"
                 }
               }
             }

@@ -16,7 +16,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import { checkRepo, formatCheckReport, memoryRepoFs, nodeRepoFs, type CheckReport } from '../check';
 import { explainError, formatExplanations } from '../explain';
-import { NotFoundError, appStack, resolveApp, resolveService, stackServices } from '../resolve';
+import { NotFoundError, appStack, resolveApp, resolveService, resolveStack, stackServices } from '../resolve';
 import { SwarmyApiError, type SwarmyClient } from '../sdk';
 import path from 'node:path';
 
@@ -38,7 +38,7 @@ export interface SwarmyMcpOptions {
 }
 
 /** Names of the tools that change something (registered only with write scope). */
-export const MUTATING_TOOLS = ['deploy', 'trial_deploy', 'env_set', 'telemetry_toggle'] as const;
+export const MUTATING_TOOLS = ['deploy', 'trial_deploy', 'env_set', 'telemetry_toggle', 'remove_stack'] as const;
 export const READ_TOOLS = ['check_repo', 'list_apps', 'app_status', 'logs', 'env', 'explain_error'] as const;
 
 type ToolResult = { content: Array<{ type: 'text'; text: string }>; structuredContent?: Record<string, unknown>; isError?: boolean };
@@ -91,7 +91,7 @@ export function createSwarmyMcpServer(opts: SwarmyMcpOptions): McpServer {
         'each environment (production, staging, previews) is its own stack of services.',
         'Start with list_apps or app_status. Use check_repo before a first deploy.',
         canWrite
-          ? 'This credential may deploy and change settings; confirm with the user before deploy, env_set or telemetry_toggle.'
+          ? 'This credential may deploy and change settings; confirm with the user before deploy, env_set, telemetry_toggle or remove_stack.'
           : 'This connection is READ-ONLY: it can inspect, check and explain, but not deploy or change anything.',
       ].join(' '),
     },
@@ -415,6 +415,39 @@ export function createSwarmyMcpServer(opts: SwarmyMcpOptions): McpServer {
         if (!target) throw new Error('pass `stack`, or `app` (+ `environment`)');
         const r = await client.stacks.setTelemetry(target, enabled);
         return ok(`Telemetry ${r.enabled ? 'on' : 'off'} for ${r.stack}; it applies on the next deploy.`, r);
+      }),
+  );
+
+  server.registerTool(
+    'remove_stack',
+    {
+      title: 'Remove an app environment (a stack)',
+      description:
+        'Stops and removes every service in one stack. Its data — named volumes on every server and the secrets its blueprint generated — is KEPT unless `delete_data` is true, so redeploying the same name picks the old data back up. `delete_data: true` deletes it for good. Irreversible: ask the user first, then pass the stack name they agreed to as `confirm`.',
+      inputSchema: z.object({
+        stack: z.string().optional().describe('Stack name or id. Or give `app` (+ `environment`).'),
+        app: z.string().optional(),
+        environment: z.string().optional(),
+        delete_data: z.boolean().optional().describe("Also delete the app's data (volumes + generated secrets). Default false: kept."),
+        confirm: z.string().describe('The stack name, exactly — typed back after the user agreed to remove it.'),
+      }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ stack, app, environment, delete_data, confirm }) =>
+      guard(async () => {
+        const ref = stack ?? (app ? appStack(await resolveApp(client, app), environment) : undefined);
+        if (!ref) throw new Error('pass `stack`, or `app` (+ `environment`)');
+        const target = await resolveStack(client, ref);
+        if (confirm !== target.name) {
+          throw new Error(`confirm must be the stack name "${target.name}" exactly — ask the user before removing it`);
+        }
+        const r = await client.stacks.remove(target.id, { deleteData: delete_data === true });
+        return ok(
+          r.delete_data
+            ? `Removed ${target.name} and its data${r.volumes_deleted.length ? ` (volumes: ${r.volumes_deleted.join(', ')})` : ''}.${r.volumes_kept.length ? ` Could not delete: ${r.volumes_kept.join(', ')}.` : ''}`
+            : `Removed ${target.name}. Its data is kept${r.volumes_kept.length ? ` (volumes: ${r.volumes_kept.join(', ')})` : ''}; deploying the same name picks it back up.`,
+          r,
+        );
       }),
   );
 

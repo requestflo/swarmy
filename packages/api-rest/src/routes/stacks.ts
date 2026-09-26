@@ -6,8 +6,8 @@ import {
   DeployStackBody,
   DeploymentRefDto,
   ProblemDto,
-  RemovedDto,
   StackDto,
+  StackRemovedDto,
   listEnvelope,
 } from '../dto';
 import { deploymentRefToDto, stackToDto } from '../mappers';
@@ -99,14 +99,36 @@ export function registerStackRoutes(app: OpenAPIHono<RestEnv>): void {
       path: '/stacks/{id}',
       tags: ['Stacks'],
       summary: 'Remove a stack',
+      description:
+        "Stops and removes every service in the stack. Its data — the named volumes on every server and the secrets its blueprint generated — is KEPT unless `delete_data=true`, so redeploying the same name picks the old data back up. Audited.",
       security: [{ bearerApiKey: [] }],
       middleware: [requireScope('write'), requireAction('stack.remove', resolveStack)] as const,
-      request: { params: idParam },
+      request: {
+        params: idParam,
+        query: z.object({
+          delete_data: z
+            .enum(['true', 'false'])
+            .optional()
+            .openapi({ param: { name: 'delete_data', in: 'query' }, description: "Also delete the app's data (default false)." }),
+        }),
+      },
       responses: {
-        200: { content: { 'application/json': { schema: RemovedDto } }, description: 'Removed' },
+        200: { content: { 'application/json': { schema: StackRemovedDto } }, description: 'Removed' },
         404: problemRes,
       },
     }),
-    (c) => run(c, () => removeStack(c.get('orgCtx'), c.req.param('id'))),
+    (c) =>
+      run(c, async () => {
+        const r = await removeStack(c.get('orgCtx'), c.req.param('id'), {
+          deleteData: c.req.valid('query').delete_data === 'true',
+        });
+        return {
+          id: r.id,
+          removed: r.removed,
+          delete_data: r.deleteData,
+          volumes_deleted: r.volumesDeleted,
+          volumes_kept: r.volumesKept,
+        };
+      }),
   );
 }

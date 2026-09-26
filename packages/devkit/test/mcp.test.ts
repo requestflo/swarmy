@@ -52,6 +52,26 @@ describe('MCP tool schemas', () => {
 });
 
 describe('MCP tools over the REST SDK', () => {
+  test('remove_stack: typed confirm required; data kept by default, deleted only with delete_data (QA-078)', async () => {
+    const { mcp, api } = await connect(['read', 'write']);
+    const tool = (await mcp.listTools()).tools.find((t) => t.name === 'remove_stack')!;
+    expect(tool.annotations?.destructiveHint).toBe(true);
+    expect(tool.inputSchema.required).toEqual(['confirm']);
+
+    const wrong = await mcp.callTool({ name: 'remove_stack', arguments: { app: 'shop', confirm: 'yes' } });
+    expect(wrong.isError).toBe(true);
+    expect(text(wrong)).toContain('confirm must be the stack name "shop"');
+    expect(api.calls.some((c) => c.method === 'DELETE')).toBe(false);
+
+    const kept = await mcp.callTool({ name: 'remove_stack', arguments: { app: 'shop', confirm: 'shop' } });
+    expect(text(kept)).toContain('Its data is kept');
+    expect(api.calls.filter((c) => c.method === 'DELETE').at(-1)!.path).toBe('/stacks/stk_1');
+
+    const gone = await mcp.callTool({ name: 'remove_stack', arguments: { stack: 'shop', delete_data: true, confirm: 'shop' } });
+    expect(text(gone)).toContain('Removed shop and its data');
+    expect(api.calls.filter((c) => c.method === 'DELETE').at(-1)!.path).toBe('/stacks/stk_1?delete_data=true');
+  });
+
   test('list_apps and app_status', async () => {
     const { mcp } = await connect(['read']);
     const apps = await mcp.callTool({ name: 'list_apps', arguments: {} });

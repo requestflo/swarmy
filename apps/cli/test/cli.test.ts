@@ -214,6 +214,19 @@ describe('against a controller', () => {
       const rot = memIo();
       expect(await main(['errors', 'rotate-key', '--app', 'shop', '--yes'], rot, dir)).toBe(0);
       expect(rot.stdout).toEqual(['https://k2@ctl.test/7']);
+
+      // remove: no TTY and no --yes refuses; data kept by default; --delete-data asks for it (QA-078).
+      const refused = memIo();
+      expect(await main(['remove', '--app', 'shop'], refused, dir)).toBe(2);
+      expect(rw.calls.some((c) => c.method === 'DELETE')).toBe(false);
+      const kept = memIo();
+      expect(await main(['remove', '--app', 'shop', '--yes'], kept, dir)).toBe(0);
+      expect(rw.calls.filter((c) => c.method === 'DELETE').at(-1)!.path).toBe('/stacks/stk_1');
+      expect(kept.stdout).toEqual(['Removed shop. Its data is kept (shop_data).']);
+      const gone = memIo();
+      expect(await main(['remove', '--app', 'shop', '--delete-data', '--yes'], gone, dir)).toBe(0);
+      expect(rw.calls.filter((c) => c.method === 'DELETE').at(-1)!.path).toBe('/stacks/stk_1?delete_data=true');
+      expect(gone.stdout).toEqual(['Removed shop and its data.']);
     } finally {
       delete process.env.SWARMY_API_KEY;
       delete process.env.SWARMY_CONTROLLER;

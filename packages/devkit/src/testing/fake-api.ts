@@ -84,6 +84,14 @@ const services = [
   },
 ];
 
+const stack = {
+  id: 'stk_1',
+  name: 'shop',
+  service_count: 2,
+  status: 'running',
+  updated_at: '2026-09-24T10:00:00.000Z',
+};
+
 const env = {
   service_id: 'svc_web',
   service: 'shop_web',
@@ -135,6 +143,18 @@ export function fakeApi(opts: { scopes?: string[]; key?: string } = {}): FakeApi
       if (req.method === 'GET' && p === '/apps') return json({ data: [app], next_cursor: null });
       if (req.method === 'GET' && p === '/apps/plans/plan_1') return json(plan);
       if (req.method === 'GET' && p === '/services') return json({ data: services, next_cursor: null });
+      if (req.method === 'GET' && p === '/stacks') return json({ data: [stack], next_cursor: null });
+      if (req.method === 'DELETE' && p === `/stacks/${stack.id}`) {
+        if (!write) return problem(403, 'API key lacks "write" scope', 'POLICY_DENIED');
+        const deleteData = url.searchParams.get('delete_data') === 'true';
+        return json({
+          id: stack.id,
+          removed: true,
+          delete_data: deleteData,
+          volumes_deleted: deleteData ? ['shop_data'] : [],
+          volumes_kept: deleteData ? [] : ['shop_data'],
+        });
+      }
       let r = m(/^\/services\/([^/]+)$/);
       if (req.method === 'GET' && r) {
         const s = services.find((x) => x.id === r![1]);

@@ -154,6 +154,17 @@ export const RemovedDto = z
   .object({ id: z.string(), removed: z.literal(true) })
   .openapi('Removed');
 
+/** DELETE /stacks/{id}: what went and what was kept (QA-078). */
+export const StackRemovedDto = z
+  .object({
+    id: z.string(),
+    removed: z.literal(true),
+    delete_data: z.boolean().openapi({ description: "Whether the app's data (named volumes + its blueprint's generated secrets) was deleted too." }),
+    volumes_deleted: z.array(z.string()).openapi({ description: 'Named volumes deleted on every server.' }),
+    volumes_kept: z.array(z.string()).openapi({ description: 'Named volumes left on the servers (all of them unless delete_data; else any that could not be removed).' }),
+  })
+  .openapi('StackRemoved');
+
 /** Cursor pagination envelope factory. */
 export function listEnvelope<T extends z.ZodTypeAny>(item: T, name: string) {
   return z
