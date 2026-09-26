@@ -2,7 +2,7 @@ import * as React from 'react';
 import type { AlertEventView, AlertRuleView, NotificationChannelView } from '@swarmy/core';
 import { EVALUATOR_TICK_SECONDS } from './rule-facts';
 import { RuleCard } from './rule-card';
-import { governingRule } from './rule-sentence';
+import { ruleForEvent } from './rule-sentence';
 
 /** The board's list length: firing rules and the one being edited always show too. */
 const SHOWN = 6;
@@ -16,11 +16,22 @@ interface RulesListProps {
   onSelect: (id: string) => void;
 }
 
-/** Firing rules first, then custom rules, then the built-in ones. */
+/**
+ * Firing rules first, then custom rules, then the built-in ones; rules that
+ * share a signal sit together (a signal can have several, one per target).
+ */
 export function orderRules(rules: AlertRuleView[], firingByRule: Map<string, unknown>): AlertRuleView[] {
-  return [...rules].sort(
+  const firstIndex = new Map<string, number>();
+  const base = [...rules].sort(
     (a, b) => Number(firingByRule.has(b.id)) - Number(firingByRule.has(a.id)) || Number(a.isDefault) - Number(b.isDefault),
   );
+  base.forEach((r, i) => {
+    if (!firstIndex.has(r.signal)) firstIndex.set(r.signal, i);
+  });
+  return base
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => (firstIndex.get(a.r.signal) ?? 0) - (firstIndex.get(b.r.signal) ?? 0) || a.i - b.i)
+    .map(({ r }) => r);
 }
 
 /** "17 RULES · 2 FIRING · evaluated every 30 s", then one quiet card per rule. */
@@ -49,8 +60,7 @@ export function RulesList({ rules, channels, events, firingByRule, selectedId, o
                 rule={r}
                 channels={channels}
                 firing={firingByRule.get(r.id) ?? []}
-                lastFired={events.find((e) => e.ruleId === r.id || (e.ruleId === null && e.signal === r.signal))}
-                shadowedBy={governingRule(rules, r.signal)?.id === r.id ? undefined : governingRule(rules, r.signal)}
+                lastFired={events.find((e) => e.ruleId === r.id || (e.ruleId === null && ruleForEvent(rules, e.signal, e.resource)?.id === r.id))}
                 selected={selectedId === r.id}
                 onSelect={() => onSelect(r.id)}
               />

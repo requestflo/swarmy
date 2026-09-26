@@ -1,4 +1,4 @@
-import type { AlertEventView } from '@swarmy/core';
+import { selectorMatches, subjectFromResource, type AlertEventView, type AlertSelector } from '@swarmy/core';
 
 export const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -17,13 +17,28 @@ export interface WeekHistory {
 }
 
 /**
- * What a signal really fired in the last 7 days, from the alert event feed
- * (the controller's own fired history — never a synthetic series).
+ * What a signal really fired in the last 7 days on the rule's target, from the
+ * alert event feed (the controller's own fired history — never a synthetic
+ * series). One fire per event: two rules on one subject count once each.
  */
-export function weekHistory(events: AlertEventView[], signal: string, now: number, pageFull: boolean): WeekHistory {
+export function weekHistory(
+  events: AlertEventView[],
+  signal: string,
+  now: number,
+  pageFull: boolean,
+  selector: AlertSelector = {},
+): WeekHistory {
   const from = now - WEEK_MS;
+  const seen = new Set<string>();
   const fires = events
-    .filter((e) => e.signal === signal && Date.parse(e.firedAt) >= from)
+    .filter((e) => e.signal === signal && Date.parse(e.firedAt) >= from && selectorMatches(selector, subjectFromResource(e.resource)))
+    // Several rules can record the same moment on the same subject: count it once.
+    .filter((e) => {
+      const key = `${e.resource}|${Math.round(Date.parse(e.firedAt) / 60_000)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .map((e) => ({
       start: Date.parse(e.firedAt),
       end: e.status === 'firing' ? null : Date.parse(e.resolvedAt ?? e.firedAt),

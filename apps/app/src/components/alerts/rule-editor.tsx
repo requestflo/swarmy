@@ -8,9 +8,10 @@ import { RuleEditorFooter } from './rule-editor-footer';
 import { evaluatorKey, rawExpression } from './rule-facts';
 import { RuleHistoryChart } from './rule-history-chart';
 import { RuleKnobs } from './rule-knobs';
-import { newRuleEffect, resourceName } from './rule-sentence';
+import { resourceName } from './rule-sentence';
 import { SentenceTokens } from './sentence-tokens';
 import type { AlertsData } from './use-alerts-data';
+import { useAlertTargets } from './use-alert-targets';
 import { draftForSignal, useRuleDraft } from './use-rule-draft';
 
 interface RuleEditorProps {
@@ -27,8 +28,9 @@ export function RuleEditor({ rule, data, onDirtyChange, onSaved, onDeleted }: Ru
   const uid = React.useId();
   const ids = { value: `${uid}-v`, duration: `${uid}-d`, channels: `${uid}-c` };
   React.useEffect(() => onDirtyChange(d.dirty), [d.dirty, onDirtyChange]);
+  const targets = useAlertTargets();
   const firing = rule ? data.firingByRule.get(rule.id) ?? [] : [];
-  const effect = rule ? null : newRuleEffect(data.rules, d.draft.signal);
+  const siblings = data.rules.filter((r) => r.signal === d.draft.signal && r.enabled && r.id !== rule?.id).length;
   const nameTouched = d.draft.name !== draftForSignal(d.draft.signal).name;
 
   return (
@@ -68,19 +70,20 @@ export function RuleEditor({ rule, data, onDirtyChange, onSaved, onDeleted }: Ru
           channels={data.channels}
           canPickSignal={!rule}
           onPickSignal={(signal) => d.patch({ ...draftForSignal(signal, d.draft.channelIds), ...(nameTouched ? { name: d.draft.name } : {}) })}
+          targets={targets}
+          onPickTarget={(selector) => d.patch({ selector })}
           ids={ids}
         />
         <RuleKnobs draft={d.draft} channels={data.channels} patch={d.patch} ids={ids} />
-        {effect?.kind === 'replaces' ? (
-          <p className="text-muted-foreground text-xs">Saving this takes over from the built-in “{effect.rule?.name}” rule.</p>
-        ) : effect?.kind === 'shadowed' ? (
-          <p className="text-tone-warn text-xs">
-            “{effect.rule?.name}” already watches this and stays in charge, so this one won’t be used. Edit that rule instead.
+        {siblings > 0 ? (
+          <p className="text-muted-foreground text-xs">
+            {siblings === 1 ? 'One other rule watches' : `${siblings} other rules watch`} this signal too. Each one alerts on its own, so a
+            narrower rule can go somewhere else.
           </p>
         ) : null}
         <Tech>
           {rule ? `rule ${rule.id} · ` : ''}
-          {rawExpression(d.draft)} · evaluator key {evaluatorKey(d.draft.signal)}
+          {rawExpression(d.draft)} · evaluator key {evaluatorKey(d.draft.signal, rule?.id)}
           {firing.length ? ` · open on ${firing.map((e) => resourceName(e.resource)).join(', ')}` : ''}
         </Tech>
       </div>
@@ -88,23 +91,24 @@ export function RuleEditor({ rule, data, onDirtyChange, onSaved, onDeleted }: Ru
       <RuleHistoryChart
         events={data.events}
         signal={d.draft.signal}
+        selector={d.draft.selector}
         changed={!rule || d.draft.threshold !== d.base.threshold || d.draft.forSeconds !== d.base.forSeconds}
         pageFull={data.events.length >= 200}
       />
 
-      {/* Slot: "Who hears about it" — an escalation chain (page X if nobody acks in N min). No backend; owner decision pending. */}
-      {/* Slot: "Mute for 1h" beside Save. No mute/snooze in the alerts schema; owner decision pending. */}
-      {/* Slot: "Quiet hours" (critical still pages). No backend; owner decision pending. */}
-      {/* Slot: "Group related alerts" (one message per incident). No backend; owner decision pending. */}
+      {/* Board 45's "Who hears about it" escalation chain and "Group related alerts" are left out by owner decision Q10 (e). */}
 
       <RuleEditorFooter
         rule={rule}
         dirty={d.dirty}
         saving={d.saving}
         removing={d.removing}
+        muting={d.muting}
         onSave={d.save}
         onDiscard={d.reset}
         onDelete={d.remove}
+        onMute={d.mute}
+        onUnmute={d.unmute}
       />
     </section>
   );

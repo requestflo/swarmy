@@ -46,7 +46,7 @@ export function CodeView({
         {tab ? <CopyButton value={tab.code} className="ml-auto size-8" /> : null}
       </div>
       {tabs.length > 1 ? (
-        <div role="tablist" aria-label="Format" className="border-border bg-background inline-flex w-fit gap-0.5 rounded-[10px] border p-0.5">
+        <div role="tablist" aria-label="Format" className="border-border bg-background inline-flex w-fit max-w-full flex-wrap gap-0.5 rounded-[10px] border p-0.5">
           {tabs.map((t, k) => (
             <button
               key={t.label}

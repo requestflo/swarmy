@@ -13,8 +13,9 @@ import { useAlertsData } from './use-alerts-data';
 type Selection = { mode: 'edit'; id: string } | { mode: 'new' } | null;
 
 /**
- * Activity → Alerts (boards 45 + 55): the rules list, the sentence editor and
- * the channels, side by side at xl, two columns at lg, stacked on a phone.
+ * Activity → Alerts (boards 45 + 55): the rules list (several rules per
+ * signal, each with its target), the sentence editor and the channels with
+ * quiet hours, side by side at xl, two columns at lg, stacked on a phone.
  * The one coral is "New rule" — until the editor holds unsaved changes, when
  * "Save rule" takes it and New rule steps back to outline.
  */
@@ -89,7 +90,12 @@ export function AlertsPage(): React.JSX.Element {
               setSel(null);
             }}
           />
-          <ChannelsColumn channels={data.channels} rules={data.rules} rule={isNew ? null : selected ?? null} className="lg:col-span-2 xl:col-span-1" />
+          <ChannelsColumn
+            channels={data.channels}
+            rules={data.rules}
+            rule={isNew ? null : selected ?? null}
+            quietHours={data.quietHours}
+            className="lg:col-span-2 xl:col-span-1" />
         </div>
       )}
     </RowPage>

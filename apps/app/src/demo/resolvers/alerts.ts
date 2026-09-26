@@ -1,19 +1,31 @@
 import type {
   AlertEventView,
+  AlertQuietHoursView,
   AlertRuleView,
+  AlertSelector,
   AlertSignal,
   AlertsOverview,
   ChannelConfigInput,
   ChannelTestResult,
   NotificationChannelView,
 } from '@swarmy/core';
-import { ALERT_SIGNALS, ALERT_SIGNAL_INFO } from '@swarmy/core';
+import {
+  ALERT_SIGNALS,
+  ALERT_SIGNAL_INFO,
+  inQuietHours,
+  normalizeAlertSelector,
+  selectorMatches,
+  subjectFromResource,
+  validateAlertSelector,
+} from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
 
 /**
  * Alerting demo resolvers — the Alerts surface (`/alerts`): rules seeded from
- * the signal catalog plus one custom rule, three notification channels, and a live-feeling event feed
- * (two firing, a few resolved). Shapes mirror alerts.service.ts views exactly
+ * the signal catalog plus two custom error-rate rules on different targets
+ * (storefront → Slack at 5%, storefront / checkout → phones at 2%; owner
+ * decision Q10: several rules per signal), one muted rule, quiet hours, three
+ * notification channels, and a live-feeling event feed (firing + resolved). Shapes mirror alerts.service.ts views exactly
  * (imported from @swarmy/core, never redeclared). State lives in
  * `store.extra.alerts`; mutations rewrite it so invalidation re-renders.
  */
@@ -22,6 +34,7 @@ interface AlertsState {
   channels: NotificationChannelView[];
   rules: AlertRuleView[];
   events: AlertEventView[];
+  quiet: Omit<AlertQuietHoursView, 'activeNow'>;
 }
 
 const nowIso = (): string => new Date().toISOString();
@@ -37,6 +50,8 @@ function makeRule(signal: AlertSignal, over: Partial<AlertRuleView> = {}): Alert
     id: id('rule'),
     name: info.label,
     signal,
+    selector: {},
+    mutedUntil: null,
     threshold: info.defaultThreshold,
     forSeconds: info.defaultForSeconds,
     channelIds: [],
@@ -77,21 +92,40 @@ export const alerts: DomainResolvers = {
       createdAt: agoIso(60 * 24 * 9),
     };
     const rules = ALERT_SIGNALS.map((signal) =>
-      makeRule(signal, signal === 'node-offline' ? { channelIds: [email.id, slack.id, phones.id] } : {}),
+      makeRule(signal, {
+        ...(signal === 'node-offline' ? { channelIds: [email.id, slack.id, phones.id] } : {}),
+        // The built-in "any app" error-rate rule is off: the two narrower
+        // rules below watch storefront instead.
+        ...(signal === 'error-rate' ? { enabled: false } : {}),
+        // Muted for a noisy migration: still recording, sending nothing.
+        ...(signal === 'queue-depth' ? { mutedUntil: new Date(Date.now() + 38 * 60_000).toISOString() } : {}),
+      }),
     );
-    // One custom rule: it takes over from the built-in error-rate one (the
-    // oldest custom rule for a signal wins, as in alerts-fire `matchRule`).
-    const appErrors = makeRule('error-rate', {
-      name: 'App errors',
-      threshold: 5,
-      forSeconds: 300,
-      channelIds: [slack.id],
-      isDefault: false,
-      createdAt: agoIso(60 * 24 * 10),
-    });
-    rules.push(appErrors);
-    const ruleFor = (signal: AlertSignal): AlertRuleView | undefined =>
-      rules.find((r) => r.signal === signal && !r.isDefault) ?? rules.find((r) => r.signal === signal);
+    // Several rules on one signal, each with its own target (owner decision
+    // Q10): storefront above 5% → Slack; its checkout part above 2% → phones.
+    rules.push(
+      makeRule('error-rate', {
+        name: 'Storefront errors',
+        selector: { app: 'storefront' },
+        threshold: 5,
+        forSeconds: 300,
+        channelIds: [slack.id],
+        isDefault: false,
+        createdAt: agoIso(60 * 24 * 10),
+      }),
+      makeRule('error-rate', {
+        name: 'Checkout errors',
+        selector: { app: 'storefront', service: 'checkout' },
+        threshold: 2,
+        forSeconds: 300,
+        channelIds: [phones.id],
+        isDefault: false,
+        createdAt: agoIso(60 * 24 * 6),
+      }),
+    );
+    // Every enabled rule whose target covers the subject records its own event.
+    const rulesFor = (signal: AlertSignal, resource: string): AlertRuleView[] =>
+      rules.filter((r) => r.signal === signal && r.enabled && selectorMatches(r.selector, subjectFromResource(resource)));
     const ev = (
       signal: AlertSignal,
       resource: string,
@@ -99,18 +133,24 @@ export const alerts: DomainResolvers = {
       firedMin: number,
       lastedMin: number | null,
       severity: AlertEventView['severity'] = ALERT_SIGNAL_INFO[signal].severity,
-    ): AlertEventView => ({
-      id: id('evt'),
-      ruleId: ruleFor(signal)?.id ?? null,
-      ruleName: ruleFor(signal)?.name ?? null,
-      signal,
-      severity,
-      resource,
-      message,
-      status: lastedMin === null ? 'firing' : 'resolved',
-      firedAt: agoIso(firedMin),
-      resolvedAt: lastedMin === null ? null : agoIso(firedMin - lastedMin),
-    });
+      only?: (r: AlertRuleView) => boolean,
+    ): AlertEventView[] =>
+      rulesFor(signal, resource)
+        .filter((r) => (only ? only(r) : true))
+        .map((rule) => ({
+          id: id('evt'),
+          ruleId: rule.id,
+          ruleName: rule.name,
+          signal,
+          severity,
+          resource,
+          message,
+          status: lastedMin === null ? 'firing' : 'resolved',
+          notify: 'sent',
+          firedAt: agoIso(firedMin),
+          resolvedAt: lastedMin === null ? null : agoIso(firedMin - lastedMin),
+        }));
+    const checkoutOnly = (r: AlertRuleView): boolean => r.selector.service === 'checkout';
     const H = 60;
     const D = 24 * H;
 
@@ -119,17 +159,25 @@ export const alerts: DomainResolvers = {
     // and checkout's error rate is 6.2% (the demo service map). Checkout errors
     // also fired twice earlier this week, so "Fired 3× this week" is the feed.
     const events: AlertEventView[] = [
-      ev('error-rate', 'service:checkout', 'Error rate on checkout is 6.2% over 5m (41/662 spans, threshold 5%)', 18, null),
-      ev('service-down', 'service:checkout', 'checkout is running 1 of 2 copies', 1, null),
-      ev('error-rate', 'service:checkout', 'Error rate on checkout is 7.9% over 5m (58/734 spans, threshold 5%)', 2 * D + 5 * H, 26),
-      ev('error-rate', 'service:api', 'Error rate on api is 5.4% over 5m (37/690 spans, threshold 5%)', 5 * D + 9 * H, 12),
-      ev('service-down', 'service:checkout', 'checkout was running 0 of 2 copies', 5 * H, 6, 'critical'),
-      ev('node-offline', 'node:wkr-3', 'Server wkr-3 is offline', 26 * H, 60),
-      ev('disk-usage', 'node:wkr-1', 'The disk on server wkr-1 is 86.3% full (threshold 85%)', 4 * D, 3 * H),
-      ev('backup-failed', 'backup:data_pgdata', 'Last backup of volume data_pgdata failed: repository is already locked', 6 * D + 3 * H, 9 * H),
+      // 6.2% on checkout is above both storefront's 5% and checkout's 2%: two rules, two events.
+      ...ev('error-rate', 'service:storefront_checkout', 'Error rate on storefront_checkout is 6.2% over 5m (41/662 spans)', 18, null),
+      ...ev('service-down', 'service:storefront_checkout', 'storefront_checkout is running 1 of 2 copies', 1, null),
+      ...ev('error-rate', 'service:storefront_checkout', 'Error rate on storefront_checkout is 7.9% over 5m (58/734 spans)', 2 * D + 5 * H, 26),
+      // 3.4% only crosses checkout's own 2% line.
+      ...ev('error-rate', 'service:storefront_checkout', 'Error rate on storefront_checkout is 3.4% over 5m (22/648 spans, threshold 2%)', 4 * D + 2 * H, 9, 'warning', checkoutOnly),
+      ...ev('error-rate', 'service:storefront_api', 'Error rate on storefront_api is 5.4% over 5m (37/690 spans, threshold 5%)', 5 * D + 9 * H, 12),
+      ...ev('service-down', 'service:storefront_checkout', 'storefront_checkout was running 0 of 2 copies', 5 * H, 6, 'critical'),
+      ...ev('node-offline', 'node:wkr-3', 'Server wkr-3 is offline', 26 * H, 60),
+      ...ev('disk-usage', 'node:wkr-1', 'The disk on server wkr-1 is 86.3% full (threshold 85%)', 4 * D, 3 * H),
+      ...ev('backup-failed', 'backup:data_pgdata', 'Last backup of volume data_pgdata failed: repository is already locked', 6 * D + 3 * H, 9 * H),
     ];
 
-    store.extra.alerts = { channels: [email, slack, phones], rules, events } satisfies AlertsState;
+    store.extra.alerts = {
+      channels: [email, slack, phones],
+      rules,
+      events,
+      quiet: { enabled: true, start: '22:00', end: '07:00', timeZone: 'Europe/London', criticalPages: true },
+    } satisfies AlertsState;
   },
 
   handlers: {
@@ -154,7 +202,9 @@ export const alerts: DomainResolvers = {
       return getState(s)
         .events.filter((e) => (status ? e.status === status : true))
         .sort((a, b) => Date.parse(b.firedAt) - Date.parse(a.firedAt))
-        .slice(0, limit ?? 50);
+        .slice(0, limit ?? 50)
+        // Copies: the store is mutated in place, and the query cache must see a change.
+        .map((e) => ({ ...e }));
     },
 
     'alerts.ack': (i, s): AlertEventView => {
@@ -167,21 +217,26 @@ export const alerts: DomainResolvers = {
     },
 
     'alerts.rules': (_i, s): AlertRuleView[] =>
-      [...getState(s).rules].sort(
-        (a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name),
-      ),
+      getState(s)
+        .rules.map((r) => ({ ...r, selector: { ...r.selector } }))
+        .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name)),
 
     'alerts.createRule': (i, s): AlertRuleView => {
       const b = i as {
         name: string;
         signal: AlertSignal;
+        selector?: AlertSelector;
         threshold?: number | null;
         forSeconds?: number;
         channelIds?: string[];
         enabled?: boolean;
       };
+      const selector = normalizeAlertSelector(b.selector);
+      const why = validateAlertSelector(b.signal, selector);
+      if (why) throw new Error(why);
       const rule = makeRule(b.signal, {
         name: b.name,
+        selector,
         threshold: b.threshold ?? null,
         forSeconds: b.forSeconds ?? 0,
         channelIds: b.channelIds ?? [],
@@ -197,6 +252,7 @@ export const alerts: DomainResolvers = {
       const b = i as {
         id: string;
         name?: string;
+        selector?: AlertSelector;
         threshold?: number | null;
         forSeconds?: number;
         channelIds?: string[];
@@ -205,11 +261,50 @@ export const alerts: DomainResolvers = {
       const rule = getState(s).rules.find((r) => r.id === b.id);
       if (!rule) throw new Error('alert rule not found');
       if (b.name !== undefined) rule.name = b.name;
+      if (b.selector !== undefined) {
+        const selector = normalizeAlertSelector(b.selector);
+        const why = validateAlertSelector(rule.signal, selector);
+        if (why) throw new Error(why);
+        rule.selector = selector;
+      }
       if (b.threshold !== undefined) rule.threshold = b.threshold;
       if (b.forSeconds !== undefined) rule.forSeconds = b.forSeconds;
       if (b.channelIds !== undefined) rule.channelIds = b.channelIds;
       if (b.enabled !== undefined) rule.enabled = b.enabled;
       return rule;
+    },
+
+    'alerts.muteRule': (i, s): AlertRuleView => {
+      const { id: ruleId, minutes } = i as { id: string; minutes?: number };
+      const rule = getState(s).rules.find((r) => r.id === ruleId);
+      if (!rule) throw new Error('alert rule not found');
+      rule.mutedUntil = new Date(Date.now() + (minutes ?? 60) * 60_000).toISOString();
+      return rule;
+    },
+
+    'alerts.unmuteRule': (i, s): AlertRuleView => {
+      const { id: ruleId } = i as { id: string };
+      const rule = getState(s).rules.find((r) => r.id === ruleId);
+      if (!rule) throw new Error('alert rule not found');
+      rule.mutedUntil = null;
+      // Anything the mute kept quiet and still firing "goes out" now.
+      for (const e of getState(s).events) if (e.ruleId === rule.id && e.status === 'firing' && e.notify === 'muted') e.notify = 'sent';
+      return rule;
+    },
+
+    'alerts.quietHours': (_i, s): AlertQuietHoursView => {
+      const q = getState(s).quiet;
+      return { ...q, activeNow: inQuietHours(q, new Date()) };
+    },
+
+    'alerts.setQuietHours': (i, s): AlertQuietHoursView => {
+      const q = i as Omit<AlertQuietHoursView, 'activeNow'>;
+      const st = getState(s);
+      st.quiet = { enabled: q.enabled, start: q.start, end: q.end, timeZone: q.timeZone, criticalPages: q.criticalPages ?? true };
+      if (!inQuietHours(st.quiet, new Date())) {
+        for (const e of st.events) if (e.status === 'firing' && e.notify === 'held') e.notify = 'sent';
+      }
+      return { ...st.quiet, activeNow: inQuietHours(st.quiet, new Date()) };
     },
 
     'alerts.deleteRule': (i, s): { removed: true } => {
@@ -222,7 +317,7 @@ export const alerts: DomainResolvers = {
       return { removed: true };
     },
 
-    'alerts.channels': (_i, s): NotificationChannelView[] => getState(s).channels,
+    'alerts.channels': (_i, s): NotificationChannelView[] => getState(s).channels.map((c) => ({ ...c })),
 
     'alerts.createChannel': (i, s): NotificationChannelView => {
       const b = i as { name: string; config: ChannelConfigInput };

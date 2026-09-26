@@ -1,5 +1,5 @@
 import * as React from 'react';
-import type { AlertEventView } from '@swarmy/core';
+import type { AlertEventView, AlertSelector } from '@swarmy/core';
 import { cn } from '@swarmy/ui';
 import { TONE_DOT } from '@/components/calm';
 import { WEEK_MS, spanWords, weekHistory } from './rule-history';
@@ -14,6 +14,8 @@ const when = (t: number): string =>
 interface RuleHistoryChartProps {
   events: AlertEventView[];
   signal: string;
+  /** The rule's target: only its subjects count. */
+  selector: AlertSelector;
   /** The draft's threshold / duration differ from what's saved. */
   changed: boolean;
   /** The event page came back full (200), so the week may be cut short. */
@@ -24,9 +26,9 @@ interface RuleHistoryChartProps {
  * LAST 7 DAYS · REAL DATA: every time this signal fired, from the event feed.
  * It is the history of the saved rule — an unsaved threshold has none yet.
  */
-export function RuleHistoryChart({ events, signal, changed, pageFull }: RuleHistoryChartProps): React.JSX.Element {
+export function RuleHistoryChart({ events, signal, selector, changed, pageFull }: RuleHistoryChartProps): React.JSX.Element {
   const [now] = React.useState(() => Date.now());
-  const { fires, partial } = weekHistory(events, signal, now, pageFull);
+  const { fires, partial } = weekHistory(events, signal, now, pageFull, selector);
   const from = now - WEEK_MS;
   const x = (t: number): number => ((t - from) / WEEK_MS) * W;
   const last = fires.at(-1);

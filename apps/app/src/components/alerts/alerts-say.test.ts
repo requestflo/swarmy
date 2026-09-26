@@ -4,7 +4,7 @@ import { alertsSay } from './alerts-say';
 
 const o = (firing: number, critical = 0): AlertsOverview => ({ firing, firingCritical: critical, resolved24h: 0, rules: 18, rulesEnabled: 18, channels: 3 });
 const ev = (ruleName: string, resource: string): AlertEventView => ({
-  id: ruleName, ruleId: null, ruleName, signal: 'x', severity: 'warning', resource, message: '', status: 'firing', firedAt: '', resolvedAt: null,
+  id: ruleName, ruleId: null, ruleName, signal: 'x', severity: 'warning', resource, message: '', status: 'firing', notify: 'sent', firedAt: '', resolvedAt: null,
 });
 
 test('all quiet', () => {

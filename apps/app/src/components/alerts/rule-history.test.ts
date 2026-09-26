@@ -5,7 +5,7 @@ import { WEEK_MS, spanWords, weekHistory } from './rule-history';
 const now = Date.parse('2026-09-26T12:00:00Z');
 const ev = (signal: string, minutesAgo: number, resolved: boolean): AlertEventView => ({
   id: `${signal}-${minutesAgo}`, ruleId: null, ruleName: null, signal, severity: 'warning', resource: 'service:checkout',
-  message: '', status: resolved ? 'resolved' : 'firing', firedAt: new Date(now - minutesAgo * 60_000).toISOString(),
+  message: '', status: resolved ? 'resolved' : 'firing', notify: 'sent', firedAt: new Date(now - minutesAgo * 60_000).toISOString(),
   resolvedAt: resolved ? new Date(now - (minutesAgo - 10) * 60_000).toISOString() : null,
 });
 
@@ -15,6 +15,13 @@ describe('weekHistory', () => {
     const h = weekHistory(events, 'error-rate', now, false);
     expect(h.fires.map((f) => f.end === null)).toEqual([false, true]);
     expect(h.partial).toBe(false);
+  });
+  test('only the rule target, and one fire per subject and moment', () => {
+    const shop = { ...ev('error-rate', 18, false), resource: 'service:storefront_checkout' };
+    const twin = { ...shop, id: 'twin' };
+    const blog = { ...ev('error-rate', 40, true), resource: 'service:blog_web' };
+    expect(weekHistory([shop, twin, blog], 'error-rate', now, false, { app: 'storefront' }).fires).toHaveLength(1);
+    expect(weekHistory([shop, twin, blog], 'error-rate', now, false).fires).toHaveLength(2);
   });
   test('a full page that stops short of a week is a floor', () => {
     expect(weekHistory([ev('error-rate', 30, true)], 'error-rate', now, true).partial).toBe(true);
