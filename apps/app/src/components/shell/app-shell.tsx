@@ -18,7 +18,11 @@ export function AppShell({ children }: { children: React.ReactNode }): React.JSX
   return (
     <CommandPaletteProvider>
       <DepthProvider>
-      <div className="bg-background min-h-screen">
+      <div className="bg-background relative min-h-screen">
+        {/* The fixed sidenav covers the viewport; this strip carries its navy down
+            the whole document, so tall pages (and full-page captures, overscroll)
+            never show the page ground under the nav column. */}
+        <div aria-hidden className="bg-nav pointer-events-none absolute inset-y-0 left-0 hidden w-60 border-r border-[var(--nav-line)] lg:block" />
         <Sidenav />
         <div className="flex min-h-screen flex-col lg:pl-60">
           {isDemo() && <DemoBanner />}
