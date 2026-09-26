@@ -1,16 +1,8 @@
 import * as React from 'react';
-import { Link } from '@tanstack/react-router';
-import {
-  ArrowRightIcon,
-  CheckCircle2Icon,
-  ExternalLinkIcon,
-  KeyRoundIcon,
-  MinusCircleIcon,
-  XCircleIcon,
-} from 'lucide-react';
+import { CheckCircle2Icon, MinusCircleIcon, XCircleIcon } from 'lucide-react';
 import type { BlueprintDeployResultView, BlueprintStepStatus } from '@swarmy/core';
-import { Button, CopyButton } from '@swarmy/ui';
-import { StatusWord } from '@/components/calm';
+import { Button } from '@swarmy/ui';
+import { DeploySecretsBanner } from '@/components/deploy/deploy-secrets-banner';
 
 function StatusIcon({ status }: { status: BlueprintStepStatus }): React.JSX.Element {
   if (status === 'succeeded') return <CheckCircle2Icon className="text-tone-ok size-4" />;
@@ -19,8 +11,10 @@ function StatusIcon({ status }: { status: BlueprintStepStatus }): React.JSX.Elem
 }
 
 /**
- * Step 3 of the inline wizard: per-step outcomes, one-time reveals (a coral
- * inline banner — never a modal) and the jump into the new stack's workspace.
+ * A run that stopped before the app itself went out (so there is no app page
+ * to watch): per-step outcomes and any one-time reveals from the steps that
+ * did run. Every run that got the app out lands on the app page instead
+ * (components/deploy/deploy-flow).
  */
 export function BlueprintDeployResult({
   result,
@@ -31,17 +25,6 @@ export function BlueprintDeployResult({
 }): React.JSX.Element {
   return (
     <div className="space-y-4">
-      {result.ok ? (
-        <div className="flex flex-col gap-1">
-          <StatusWord tone={result.url ? 'ok' : 'info'} word={result.url ? 'Online' : 'Deploying'} />
-          <p className="font-display text-[1.6rem] leading-tight font-bold tracking-[-0.02em]">
-            {result.url ? 'It’s live.' : 'It’s on its way.'}
-          </p>
-          {result.url ? (
-            <p className="text-muted-foreground text-[13px]">Anyone can open it now. Point your own domain at it any time.</p>
-          ) : null}
-        </div>
-      ) : null}
       <ol className="divide-border divide-y rounded-xl border">
         {result.steps.map((step, i) => (
           <li key={`${step.kind}-${i}`} className="flex items-start gap-3 px-3 py-2.5">
@@ -50,53 +33,18 @@ export function BlueprintDeployResult({
             </span>
             <div className="min-w-0">
               <p className="text-sm font-medium">{step.label}</p>
-              {step.detail ? (
-                <p className="mono-data text-muted-foreground text-[11px]">{step.detail}</p>
-              ) : null}
-              {step.error ? (
-                <p className="text-tone-bad text-xs break-words">{step.error}</p>
-              ) : null}
-              {step.status === 'skipped' ? (
-                <p className="text-muted-foreground text-xs">Skipped after the failure above.</p>
-              ) : null}
+              {step.detail ? <p className="mono-data text-muted-foreground text-[11px]">{step.detail}</p> : null}
+              {step.error ? <p className="text-tone-bad text-xs break-words">{step.error}</p> : null}
+              {step.status === 'skipped' ? <p className="text-muted-foreground text-xs">Skipped after the failure above.</p> : null}
             </div>
           </li>
         ))}
       </ol>
-
-      {result.notes.length > 0 ? (
-        <div className="border-primary/40 bg-primary/5 space-y-2 rounded-xl border px-3 py-2.5">
-          <p className="mono-label text-primary flex items-center gap-1.5">
-            <KeyRoundIcon className="size-3.5" /> Save these now — shown once
-          </p>
-          {result.notes.map((note) => (
-            <div key={note} className="flex items-center justify-between gap-2">
-              <code className="mono-data text-xs break-all">{note}</code>
-              <CopyButton value={note} />
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {result.url ? (
-          <Button asChild variant="outline" className="rounded-full font-bold">
-            <a href={result.url} target="_blank" rel="noreferrer">
-              Open {result.url.replace('https://', '')} <ExternalLinkIcon className="size-4" />
-            </a>
-          </Button>
-        ) : null}
-        {result.ok ? (
-          <Button asChild className="rounded-full font-bold">
-            <Link to="/stacks/$name" params={{ name: result.stackName }}>
-              Open {result.stackName} <ArrowRightIcon className="size-4" />
-            </Link>
-          </Button>
-        ) : (
-          <Button variant="outline" className="rounded-full font-bold" onClick={onClose}>
-            Close
-          </Button>
-        )}
+      <DeploySecretsBanner notes={result.notes} />
+      <div className="flex justify-end">
+        <Button variant="outline" className="rounded-full font-bold" onClick={onClose}>
+          Close
+        </Button>
       </div>
     </div>
   );

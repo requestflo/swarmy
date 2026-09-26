@@ -47,6 +47,8 @@ interface DomainView {
   auto?: boolean;
   /** Demo-only: the DNS "record" exists (flip it with verifyDomain). Absent = seeded, active. */
   dnsPending?: boolean;
+  /** Demo-only: a fresh deploy's certificate is being issued until this epoch ms. */
+  issuingUntil?: number;
 }
 
 type DemoWwwMode = 'redirect-www-to-apex' | 'redirect-apex-to-www' | 'serve-both';
@@ -58,8 +60,23 @@ function demoCompanion(host: string): string | null {
 }
 
 /** Mirror of `DomainStatusView`: pending demo domains wait for DNS; the rest are secured. */
-function demoStatus(host: string, pending: boolean, tls: TlsMode) {
+function demoStatus(host: string, pending: boolean, tls: TlsMode, issuingUntil?: number) {
   const now = Date.now();
+  if (issuingUntil && now < issuingUntil && tls !== 'off') {
+    return {
+      host,
+      state: 'issuing' as const,
+      reason: `Getting a certificate for ${host} from Let's Encrypt.`,
+      warnings: [] as string[],
+      gated: false,
+      verifiedAt: new Date(now).toISOString(),
+      verifiedManually: false,
+      lastCheckedAt: new Date(now - 2_000).toISOString(),
+      nextCheckAt: new Date(now + 2_000).toISOString(),
+      dns: { a: [DEMO_EDGE_IP], aaaa: [], cname: [], matched: [DEMO_EDGE_IP] },
+      certificate: null,
+    };
+  }
   const verified = !pending;
   return {
     host,
@@ -111,7 +128,7 @@ function withDomainStatus(d: DomainView) {
     www: d.www ?? null,
     auto: d.auto ?? false,
     companionHost: companion,
-    status: demoStatus(d.host, d.dnsPending ?? false, d.tls),
+    status: demoStatus(d.host, d.dnsPending ?? false, d.tls, d.issuingUntil),
     companionStatus: companion ? demoStatus(companion, d.dnsPending ?? false, d.tls) : null,
   };
 }
@@ -306,6 +323,32 @@ function demoDnsChallenge(s: DemoStore) {
       provider: host.endsWith('.northwind.dev') ? ('swarmy' as const) : byo ? ('cloudflare' as const) : null,
     })),
   };
+}
+
+/** A fresh demo deploy's route (blueprint-deploys.ts): certificate issuing until `issuingUntil`. */
+export function seedDemoRoute(
+  s: DemoStore,
+  r: { host: string; serviceId: string; serviceName: string; stack: string; port: number; auto: boolean; issuingUntil: number },
+): void {
+  const st = getState(s);
+  st.domains = [
+    ...st.domains.filter((d) => d.host !== r.host),
+    {
+      id: rid('dom'),
+      host: r.host,
+      serviceId: r.serviceId,
+      serviceName: r.serviceName,
+      stack: r.stack,
+      targetPort: r.port,
+      tls: 'auto',
+      pathPrefix: null,
+      ingressDriver: null,
+      protection: null,
+      canaryPct: null,
+      auto: r.auto,
+      issuingUntil: r.issuingUntil,
+    },
+  ];
 }
 
 export const ingress: DomainResolvers = {

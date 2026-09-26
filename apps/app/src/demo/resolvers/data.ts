@@ -553,7 +553,16 @@ export const data: DomainResolvers = {
                 },
               },
             ]
-          : [];
+          : t
+            ? // Any other app's database parts (e.g. a template just deployed) are covered by default too.
+              s.services
+                .filter((sv) => s.stacks.find((st) => st.id === sv.stackId)?.name === stack && /mariadb|mysql|postgres/.test(sv.image))
+                .map((sv) => ({
+                  kind: 'compose' as const, name: `${stack}_${sv.name}`, engine: sv.image.includes('postgres') ? 'postgres' : 'mysql',
+                  volume: `${stack}_${sv.name}-data`, status: 'auto' as const, method: 'volume', retentionDays: 7,
+                  nextRunAt: next, lastRunAt: null, logical: null,
+                }))
+            : [];
       return { stack, destination: t ? { id: t.id, name: t.name } : null, databases };
     },
     // App-DB logical dumps (restic catalog): three nights + one safety dump.

@@ -3,6 +3,7 @@ import type { AppRouter } from '@swarmy/trpc';
 import { getStore } from './store';
 import { HANDLERS, SUBSCRIPTIONS } from './registry';
 import { fallback } from './fallback';
+import { advanceDemoDeploys } from './resolvers/blueprint-deploys';
 
 /**
  * A terminating tRPC link that resolves every operation from the in-memory demo
@@ -46,6 +47,7 @@ export function demoLink(): TRPCLink<AppRouter> {
     ({ op }: { op: { path: string; type: 'query' | 'mutation' | 'subscription'; input: unknown } }) =>
       demoObservable((observer) => {
         const store = getStore();
+        advanceDemoDeploys(store);
         const { path, type, input } = op;
 
         if (type === 'subscription') {

@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Input, Label, Textarea, toast } from '@swarmy/ui';
 import { Depth, Tech } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
+import { handDeploy } from '@/components/deploy/deploy-handoff';
 import { useComposeCheck } from './use-compose-check';
 import { ComposeFeedback } from './compose-feedback';
 import { ComposeAside } from './compose-aside';
@@ -31,7 +32,6 @@ export function DeployStackForm(): React.JSX.Element {
   const deploy = useMutation(
     trpc.stacks.deployFromCompose.mutationOptions({
       onSuccess: (res, vars) => {
-        toast.success(`${vars.name} is deploying`);
         // Translator warnings (ignored compose keys, undeclared volumes, legacy
         // volume reuse …) — surfaced once; the deploy itself went through.
         const notable = res.warnings.filter((w) => w.level !== 'info');
@@ -43,7 +43,9 @@ export function DeployStackForm(): React.JSX.Element {
           );
         }
         void qc.invalidateQueries();
-        void navigate({ to: '/stacks/$name', params: { name: vars.name } });
+        // Land on the app page's "Deploying → It's live" state.
+        handDeploy(vars.name);
+        void navigate({ to: '/stacks/$name', params: { name: vars.name }, search: { deployed: 1 } });
       },
       onError: (e) => toast.error(e.message),
     }),

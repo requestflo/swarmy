@@ -10,6 +10,7 @@ import type {
 } from '@swarmy/core';
 import { APP_TEMPLATES, findAppTemplate, loadTemplate, primaryService, templateMeta } from '@swarmy/templates';
 import type { DemoStore, DomainResolvers } from '../types';
+import { demoDeployParts, landDemoDeploy } from './blueprint-deploys';
 
 /**
  * Blueprints demo resolvers — the Blueprints gallery (`/blueprints`): the full
@@ -351,16 +352,21 @@ export const blueprints: DomainResolvers = {
         (steps.find((st) => st.kind === 'stack.deploy')?.detail.services ?? '')
           .split(', ')
           .filter(Boolean).length || 1;
+      const stackId = `stk-${rand()}`;
       s.stacks = [
-        {
-          id: `stk-${rand()}`,
-          name: params.name,
-          serviceCount,
-          status: 'running',
-          updatedAt: new Date().toISOString(),
-        },
+        { id: stackId, name: params.name, serviceCount, status: 'deploying', updatedAt: new Date().toISOString() },
         ...s.stacks,
       ];
+      // The app's services start at 0/1 and come up over ~15 s (blueprint-deploys.ts), with an address.
+      const planServices = (steps.find((st) => st.kind === 'stack.deploy')?.detail.services ?? '').split(', ').filter(Boolean);
+      const route = steps.find((st) => st.kind === 'ingress.route');
+      landDemoDeploy(s, {
+        stackId,
+        stack: params.name,
+        parts: demoDeployParts(id, params.name, params.options, planServices, route ? { service: route.detail.service ?? '', port: Number(route.detail.port) || 80 } : null),
+        domain: params.domain,
+        exposed: meta.supportsDomain && findAppTemplate(id)?.exposure !== 'private',
+      });
       const url = params.domain && meta.supportsDomain ? `https://${params.domain}` : null;
       const notes =
         id === 'directus'

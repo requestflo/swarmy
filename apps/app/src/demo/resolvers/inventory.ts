@@ -49,6 +49,8 @@ const SYNTHETIC_EDGES: InvEdge[] = [
 ];
 
 function makeContainers(sv: ServiceDetail): InvContainer[] {
+  // `pending` = the task is still preparing (pulling the image): no container yet.
+  if (sv.status === 'pending') return [];
   const out: InvContainer[] = [];
   for (let i = 1; i <= sv.replicas.running; i++)
     out.push({ id: `${sv.id}-ctr-${i}`, name: `${sv.name}.${i}`, image: sv.image, state: 'running' });

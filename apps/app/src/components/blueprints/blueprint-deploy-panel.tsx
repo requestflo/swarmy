@@ -10,13 +10,15 @@ import { toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { BlueprintParamsForm } from './blueprint-params-form';
 import { BlueprintPlanPreview } from './blueprint-plan-preview';
+import { landOnDeployedApp } from '@/components/deploy/deploy-handoff';
 import { BlueprintDeployResult } from './blueprint-deploy-result';
 
 /**
  * The inline deploy wizard that expands inside a gallery card (no modal):
- * params form → dry-run plan preview → sequential deploy. A clean success
- * navigates straight to the new stack's workspace; results carrying one-time
- * reveals stay inline (coral banner) so nothing is lost.
+ * params form → dry-run plan preview → sequential deploy. Once the app itself
+ * went out, it always lands on the app page's "Deploying → It's live" state,
+ * carrying the step results and any one-time reveals (in memory, never the
+ * URL). Only a run that stopped before the app existed stays inline.
  */
 export function BlueprintDeployPanel({
   meta,
@@ -43,13 +45,8 @@ export function BlueprintDeployPanel({
     trpc.blueprints.deploy.mutationOptions({
       onSuccess: (r) => {
         void qc.invalidateQueries();
-        if (r.ok) toast.success(`${r.stackName} is deploying`);
-        else toast.error(`Deploy of ${r.stackName} hit a snag — see the steps`);
-        // Nothing to reveal → straight into the new stack's workspace.
-        if (r.ok && r.notes.length === 0) {
-          void navigate({ to: '/stacks/$name', params: { name: r.stackName } });
-          return;
-        }
+        if (landOnDeployedApp(r, navigate)) return;
+        toast.error(`Deploy of ${r.stackName} hit a snag — see the steps`);
         setResult(r);
       },
       onError: (e) => toast.error(e.message),
@@ -65,9 +62,7 @@ export function BlueprintDeployPanel({
           ? 'Nothing runs until you press Deploy.'
           : phase === 'preview'
             ? 'This is exactly what gets created. Nothing has run yet.'
-            : result?.ok
-              ? 'Everything below ran in order. Give it a minute to start.'
-              : 'The first failure stopped the run; later steps were skipped.'}
+            : 'The first failure stopped the run; later steps were skipped.'}
       </p>
       {phase === 'form' ? (
         <BlueprintParamsForm meta={meta} onSubmit={setParams} />
