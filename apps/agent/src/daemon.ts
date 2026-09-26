@@ -10,6 +10,7 @@ import { collectMetrics } from './stats';
 import { sendContainerList, sendServiceState, sendNodeList } from './snapshots';
 import { applyMesh, lastSampledMeshCidr, sampleMeshState } from './handlers/mesh';
 import { checkOverlayKeying, ensureMeshPin } from './handlers/mesh-pin';
+import { defaultDiskDeps, mountReturningDisks } from './handlers/disk';
 import { checkOverlayCarrier } from './handlers/overlay-heal';
 import { swarmRejoinInFlight } from './handlers/swarm';
 import { superviseMeshControl } from './handlers/mesh-control';
@@ -197,6 +198,14 @@ export async function runDaemon(): Promise<void> {
   };
   void meshControlTick();
   const meshControlTimer = setInterval(() => void meshControlTick(), 10_000);
+
+  // QA-085: a swarmy disk that came back after a reboot unmounted (empty
+  // mountpoint, declared in this box's fstab) is mounted now, before the
+  // controller's disk-reconcile gets to it. In the background, at start and
+  // once more 90 s later (a cloud volume can show up late after a reboot).
+  void mountReturningDisks(defaultDiskDeps(docker), log).catch(() => undefined);
+  const diskRecheck = setTimeout(() => void mountReturningDisks(defaultDiskDeps(docker), log).catch(() => undefined), 90_000);
+  diskRecheck.unref?.();
 
   // QA-066 (b): overlay endpoints orphaned by dockerd (NO-CARRIER) — detect and
   // heal regardless of the controller link, which rides those very overlays.

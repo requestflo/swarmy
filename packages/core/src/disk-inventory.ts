@@ -61,6 +61,8 @@ export interface DiskView {
   mountpoints: string[];
   /** Filesystem signature on the whole disk, when there is one. */
   fstype: string | null;
+  /** Filesystem label on the whole disk (`swarmy-<id>` on one swarmy formatted). */
+  label: string | null;
   /** Plain-words reason for the state (Summary layer). */
   reason: string;
 }
@@ -115,6 +117,7 @@ export function classifyDisks(devices: readonly LsblkDevice[]): DiskView[] {
         model: d.model?.trim() || null,
         mountpoints,
         fstype: d.fstype ?? null,
+        label: d.label?.trim() || null,
       };
       const swap = d.fstype === 'swap' || (d.children ?? []).some((c) => c.fstype === 'swap');
       if (swap || mountpoints.some((m) => SYSTEM_MOUNTS.has(m))) {
@@ -286,6 +289,30 @@ export function nodeDisks(labels: Record<string, string> | undefined): { id: str
     .map((d) => ({ ...d, isDefault: d.id === def }));
 }
 
+/**
+ * Problems with a node-label patch that touches swarmy's disk labels
+ * (QA-086): `swarmy.disk.<id>` must be exactly `/var/lib/swarmy/disks/<id>`
+ * (or '' to clear it), and `swarmy.disk.default` must name a disk declared
+ * in the resulting labels (or be ''). Pure; [] = fine.
+ */
+export function diskLabelProblems(patch: Record<string, string>, current: Record<string, string> | undefined): string[] {
+  const problems: string[] = [];
+  for (const [k, v] of Object.entries(patch)) {
+    if (!k.startsWith(DISK_LABEL_PREFIX) || k === DISK_DEFAULT_LABEL) continue;
+    const id = k.slice(DISK_LABEL_PREFIX.length);
+    if (v === '') continue;
+    if (!SAFE_ID.test(id) || v !== `${SWARMY_DISK_ROOT}${id}`) problems.push(`${k} must be ${SWARMY_DISK_ROOT}${SAFE_ID.test(id) ? id : '<id>'}`);
+  }
+  const def = patch[DISK_DEFAULT_LABEL];
+  if (def !== undefined && def !== '') {
+    const merged = { ...(current ?? {}), ...patch };
+    if (!nodeDisks(merged).some((d) => d.id === def)) {
+      problems.push(`${DISK_DEFAULT_LABEL} must name a disk swarmy set up on this server (use disks.setDefault)`);
+    }
+  }
+  return problems;
+}
+
 /** Mountpoint of the node's default data disk, or null. */
 export function defaultDiskMount(labels: Record<string, string> | undefined): string | null {
   return nodeDisks(labels).find((d) => d.isDefault)?.mountpoint ?? null;
@@ -337,6 +364,11 @@ export function renderDiskProbeScript(path?: string): string {
     `lsblk -J -b -o ${LSBLK_COLS},MOUNTPOINTS 2>/dev/null || lsblk -J -b -o ${LSBLK_COLS},MOUNTPOINT`,
     'echo __SWARMY_DF__',
     `df -Pk 2>/dev/null | awk 'NR>1 && index($6,"${SWARMY_DISK_ROOT}")==1 {printf "%s %.0f\\n", $6, $2*1024}'`,
+    // QA-085: lsblk reads LABEL/FSTYPE from udev; with no udev record (early
+    // after boot, no /run/udev) they come back empty and a returning swarmy
+    // disk looked like "has data". A fresh blkid probe of each whole disk fills them in.
+    'echo __SWARMY_FSPROBE__',
+    `for d in $(lsblk -dn -o NAME,TYPE 2>/dev/null | awk '$2 == "disk" { print $1 }'); do blkid -c /dev/null -o export "/dev/$d" 2>/dev/null; echo; done`,
   ];
   if (path) {
     lines.push(
@@ -366,17 +398,48 @@ function section(out: string, marker: string, next: string[]): string | undefine
   return ends.length ? rest.slice(0, Math.min(...ends)) : rest;
 }
 
+/** `blkid -o export` blocks (blank-line separated `KEY=value` lines) → by DEVNAME. Pure. */
+export function parseBlkidExport(out: string): Map<string, Record<string, string>> {
+  const res = new Map<string, Record<string, string>>();
+  for (const block of out.split(/\n\s*\n/)) {
+    const kv: Record<string, string> = {};
+    for (const line of block.split('\n')) {
+      const m = /^([A-Z_]+)=(.*)$/.exec(line.trim());
+      if (m) kv[m[1]!] = m[2]!.replace(/\\(.)/g, '$1');
+    }
+    if (kv.DEVNAME) res.set(kv.DEVNAME, kv);
+  }
+  return res;
+}
+
+/** Fill a whole disk's missing fstype/label/uuid from a fresh blkid probe (never overrides lsblk). Pure. */
+function fillFromBlkid(devices: LsblkDevice[], probed: Map<string, Record<string, string>>): LsblkDevice[] {
+  if (probed.size === 0) return devices;
+  return devices.map((d) => {
+    const b = probed.get(d.path ?? `/dev/${d.name}`);
+    if (!b) return d;
+    return {
+      ...d,
+      fstype: d.fstype || b.TYPE || d.fstype,
+      label: d.label || b.LABEL || d.label,
+      uuid: d.uuid || b.UUID || d.uuid,
+      pttype: d.pttype || b.PTTYPE || d.pttype,
+    };
+  });
+}
+
 /** Read {@link renderDiskProbeScript}'s output. Pure. */
 export function parseDiskProbe(out: string): DiskProbe {
   const err = /__SWARMY_ERR__ (.*)/.exec(out)?.[1];
   const lsblk = section(out, '__SWARMY_LSBLK__', ['__SWARMY_DF__']) ?? '';
-  const df = section(out, '__SWARMY_DF__', ['__SWARMY_WIPEFS__']) ?? '';
+  const df = section(out, '__SWARMY_DF__', ['__SWARMY_FSPROBE__', '__SWARMY_WIPEFS__']) ?? '';
   const fsTotalBytes: Record<string, number> = {};
   for (const line of df.split('\n')) {
     const [mount, size] = line.trim().split(/\s+/);
     if (mount && size && Number.isFinite(Number(size))) fsTotalBytes[mount] = Number(size);
   }
-  const probe: DiskProbe = { devices: parseLsblk(lsblk.trim()), fsTotalBytes, ...(err ? { error: err } : {}) };
+  const devices = fillFromBlkid(parseLsblk(lsblk.trim()), parseBlkidExport(section(out, '__SWARMY_FSPROBE__', ['__SWARMY_WIPEFS__']) ?? ''));
+  const probe: DiskProbe = { devices, fsTotalBytes, ...(err ? { error: err } : {}) };
   const wipefs = section(out, '__SWARMY_WIPEFS__', ['__SWARMY_BLKID__']);
   if (wipefs !== undefined) {
     const blkid = section(out, '__SWARMY_BLKID__', ['__SWARMY_BLKID_RC__']) ?? '';
@@ -577,7 +640,20 @@ export function repairStamp(at: Date = new Date()): string {
  * hide the data). Prints `__SWARMY_REPAIRED__ uuid=… moved=0|1 files=N
  * bytes=N aside=<dir>|-` on success; {@link parseRepaired} reads it.
  */
-export function renderRepairScript(input: { path: string; serial: string; stamp: string }, paths: DiskScriptPaths = {}): string {
+export function renderRepairScript(
+  input: {
+    path: string;
+    serial: string;
+    stamp: string;
+    /**
+     * Agent start (QA-085): only mount a disk whose mountpoint is empty (or
+     * missing) and that this box's fstab already declares by UUID — never copy
+     * or move anything without the controller.
+     */
+    onlyIfEmptyAndInFstab?: boolean;
+  },
+  paths: DiskScriptPaths = {},
+): string {
   if (!DEV_PATH.test(input.path) || input.path.includes('..')) throw new Error('bad device path');
   if (!STAMP.test(input.stamp)) throw new Error('bad stamp');
   const root = paths.root ?? SWARMY_DISK_ROOT;
@@ -622,6 +698,12 @@ if mounted_at "$TMP"; then err "something is already mounted at $TMP"; fi
 [ ! -e "$TMP" ] || [ -z "$(ls -A "$TMP" 2>/dev/null)" ] || err "$TMP is in the way (it has files in it)"
 [ ! -e "$ASIDE" ] || err "$ASIDE already exists"
 MOVED=0; FILES=0; BYTES=0
+${
+  input.onlyIfEmptyAndInFstab
+    ? `awk -v u="UUID=$UUID" -v m="$MNT" '$1 == u && $2 == m { f = 1 } END { exit !f }' "$FSTAB" 2>/dev/null || err "$MNT is not in this server's fstab; leaving it to the controller"
+if [ -d "$MNT" ] && [ -n "$(ls -A "$MNT" 2>/dev/null)" ]; then err "$MNT has files in it on the root disk; leaving the move to the controller"; fi`
+    : ''
+}
 if [ -d "$MNT" ] && [ -n "$(ls -A "$MNT" 2>/dev/null)" ]; then
   # Files on the ROOT disk under the mountpoint: the stale fstab line would
   # hide them on the next boot. Drop it first; it is re-added only once the

@@ -28,7 +28,8 @@ import { bytes } from '@/lib/format';
  * new data goes there; a disk grown in the cloud console can be grown here.
  * A disk swarmy formatted that is not attached (QA-075b) says so, with what
  * was written to the root disk meanwhile; swarmy attaches it on its own, and
- * "Attach it now" does it at once. Renders nothing while the server is
+ * "Attach it now" does it at once. "Make default" picks which mounted swarmy
+ * disk new data goes to. Renders nothing while the server is
  * offline or has only its system disk.
  */
 export function NodeDisksCard({ nodeId, online }: { nodeId: string; online: boolean }): React.JSX.Element | null {
@@ -41,6 +42,9 @@ export function NodeDisksCard({ nodeId, online }: { nodeId: string; online: bool
   };
   const format = useMutation(trpc.disks.format.mutationOptions({ onSuccess: (r) => done(`Disk ready at ${r.mountpoint}`), onError: (e) => toast.error(e.message) }));
   const grow = useMutation(trpc.disks.grow.mutationOptions({ onSuccess: () => done('Disk grown'), onError: (e) => toast.error(e.message) }));
+  const setDefault = useMutation(
+    trpc.disks.setDefault.mutationOptions({ onSuccess: () => done('New data now goes to this disk'), onError: (e) => toast.error(e.message) }),
+  );
   const repair = useMutation(
     trpc.disks.repair.mutationOptions({
       onSuccess: (r) => done(r.moved ? `Disk attached — moved ${bytes(r.bytes)} onto it` : 'Disk attached'),
@@ -147,6 +151,17 @@ export function NodeDisksCard({ nodeId, online }: { nodeId: string; online: bool
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
+            ) : null}
+            {d.state === 'swarmy' && !d.isDefault && d.id ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={setDefault.isPending}
+                className="pointer-coarse:min-h-11"
+                onClick={() => setDefault.mutate({ nodeId, diskId: d.id! })}
+              >
+                Make default
+              </Button>
             ) : null}
             {d.state === 'swarmy' && d.growableBytes > 0 && d.serial ? (
               <Button size="sm" variant="ghost" disabled={grow.isPending} onClick={() => grow.mutate({ nodeId, serial: d.serial! })}>

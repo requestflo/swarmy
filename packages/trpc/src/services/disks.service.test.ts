@@ -8,9 +8,13 @@ import {
   recordDiskListing,
   repairNodeDisk,
   resetDiskListings,
+  runDiskReconcileFor,
+  setDefaultDisk,
   setDiskFormatAllowed,
   unmountedDefaultDiskNodes,
+  withDeclaredState,
 } from './disks.service';
+import { setNodeLabels } from './node.service';
 
 const GB = 1024 ** 3;
 const blank = {
@@ -259,5 +263,97 @@ describe('placement skips a server whose data disk is not attached (QA-075b)', (
     recordDiskListing('n1', [{ ...blank, state: 'swarmy', mountpoints: [MNT] }]);
     expect(chooseDiskAwarePin({ hub, activeOrgId: 'org1' }, new Map(), 'sw1')).toBe('sw1');
     resetDiskListings();
+  });
+});
+
+// ── QA-085: a disk back after a reboot, not mounted ──────────────────────────
+
+describe('a returning disk (QA-085)', () => {
+  it('a declared disk with swarmy’s label is never has-data, whatever the agent said', () => {
+    const hasData = { ...blank, state: 'has-data' as const, fstype: 'ext4', label: 'swarmy-AAAA1111', reason: 'Has a ext4 filesystem' };
+    const fixed = withDeclaredState({ disks: [hasData] }, declared);
+    expect(fixed.disks[0]!.state).toBe('swarmy-unmounted');
+    // Undeclared, someone else's label, or mounted somewhere: left alone.
+    expect(withDeclaredState({ disks: [hasData] }, {}).disks[0]!.state).toBe('has-data');
+    expect(withDeclaredState({ disks: [{ ...hasData, label: 'data' }] }, declared).disks[0]!.state).toBe('has-data');
+    expect(withDeclaredState({ disks: [{ ...hasData, mountpoints: ['/mnt/x'] }] }, declared).disks[0]!.state).toBe('has-data');
+  });
+
+  it('a MISSING default disk is a warning, not silently dropped', () => {
+    const v = disksView('n1', declared, { disks: [{ ...blank, name: 'sda', serial: 'root', id: 'root', state: 'system' }] });
+    expect(v.warnings).toHaveLength(1);
+    expect(v.warnings[0]).toMatchObject({ kind: 'missing', isDefault: true, diskId: 'AAAA1111' });
+    expect(v.warnings[0]!.message).toContain("Your default disk isn't attached to this server");
+    expect(v.disks.some((d) => d.isDefault)).toBe(false);
+  });
+
+  it('an empty mountpoint re-attaches with NO scale-down when nothing is running on it', async () => {
+    const f = repairCtx();
+    const empty = { ...unattached, pending: { files: 0, bytes: 0, services: ['shop_db-primary'], running: [] as string[] } };
+    f.ctx.hub.dispatch = async (node: string, cmd: string, payload: any) => {
+      f.calls.push({ node, cmd, payload });
+      if (cmd === 'disk.list') return { disks: [empty] };
+      if (cmd === 'disk.repair') return { serial: 'AAAA1111', id: 'AAAA1111', mountpoint: MNT, alreadyMounted: false, uuid: 'u-1', moved: false, files: 0, bytes: 0, aside: null };
+      return {};
+    };
+    const r = await repairNodeDisk(f.ctx, { nodeId: 'n1', serial: 'AAAA1111' });
+    expect(r).toMatchObject({ moved: false, services: [] });
+    expect(steps(f)).toEqual(['disk.repair']);
+    expect(f.audits.map((a) => a.action)).toEqual(['node.disk.repair.start', 'node.disk.repair.done']);
+  });
+
+  it('the worker path re-attaches a declared empty-dir disk it finds', async () => {
+    const f = repairCtx();
+    const empty = { ...unattached, pending: { files: 0, bytes: 0, services: [], running: [] } };
+    f.ctx.hub.dispatch = async (node: string, cmd: string, payload: any) => {
+      f.calls.push({ node, cmd, payload });
+      if (cmd === 'disk.list') return { disks: [empty] };
+      if (cmd === 'disk.repair') return { serial: 'AAAA1111', id: 'AAAA1111', mountpoint: MNT, alreadyMounted: false, uuid: 'u-1', moved: false, files: 0, bytes: 0, aside: null };
+      return {};
+    };
+    const out = await runDiskReconcileFor(f.ctx, 'n1');
+    expect(out).toMatchObject({ repaired: ['AAAA1111'], failed: [] });
+    expect(f.audits[0].actorType).toBe('system');
+  });
+});
+
+// ── QA-086: choosing the default disk ────────────────────────────────────────
+
+describe('setDefaultDisk / setLabels guard (QA-086)', () => {
+  const B = '/var/lib/swarmy/disks/BBBB2222';
+  const two = [
+    { ...blank, state: 'swarmy' as const, fstype: 'ext4', mountpoints: [MNT] },
+    { ...blank, name: 'sdc', path: '/dev/sdc', serial: 'BBBB2222', id: 'BBBB2222', state: 'swarmy' as const, fstype: 'ext4', mountpoints: [B] },
+    { ...blank, name: 'sdd', path: '/dev/sdd', serial: 'CCCC3333', id: 'CCCC3333', state: 'swarmy-unmounted' as const, fstype: 'ext4' },
+  ];
+  function ctxWithDisks() {
+    const f = fakeCtx({ ...declared, 'swarmy.disk.BBBB2222': B });
+    const orig = f.ctx.hub.dispatch;
+    f.ctx.hub.dispatch = async (node: string, cmd: string, payload: any) => (cmd === 'disk.list' ? (f.calls.push({ node, cmd, payload }), { disks: two }) : orig(node, cmd, payload));
+    return f;
+  }
+
+  it('moves the default to another mounted swarmy disk, via a manager, audited', async () => {
+    const f = ctxWithDisks();
+    expect(await setDefaultDisk(f.ctx, { nodeId: 'n1', diskId: 'BBBB2222' })).toEqual({ nodeId: 'n1', diskId: 'BBBB2222', mountpoint: B, previous: 'AAAA1111' });
+    expect(f.nodeLabels['swarmy.disk.default']).toBe('BBBB2222');
+    expect(f.calls.find((c) => c.cmd === 'node.update')!.node).toBe('n2');
+    expect(f.audits.at(-1)).toMatchObject({ action: 'node.disk.setDefault', metadata: { diskId: 'BBBB2222', previous: 'AAAA1111' } });
+  });
+
+  it('refuses an unknown or unmounted disk', async () => {
+    const f = ctxWithDisks();
+    await expect(setDefaultDisk(f.ctx, { nodeId: 'n1', diskId: 'nope' })).rejects.toThrow(/no disk nope/);
+    await expect(setDefaultDisk(f.ctx, { nodeId: 'n1', diskId: 'CCCC3333' })).rejects.toThrow(/not a mounted swarmy disk/);
+    expect(f.nodeLabels['swarmy.disk.default']).toBe('AAAA1111');
+  });
+
+  it('nodes.setLabels rejects a bad swarmy.disk.default or disk mountpoint, and allows a good one', async () => {
+    const f = ctxWithDisks();
+    await expect(setNodeLabels(f.ctx, 'n1', { 'swarmy.disk.default': 'whatever' })).rejects.toThrow(/disks.setDefault/);
+    await expect(setNodeLabels(f.ctx, 'n1', { 'swarmy.disk.X1': '/tmp' })).rejects.toThrow(/must be \/var\/lib\/swarmy\/disks\/X1/);
+    expect(f.calls.some((c) => c.cmd === 'node.update')).toBe(false);
+    await setNodeLabels(f.ctx, 'n1', { 'swarmy.disk.default': 'BBBB2222' });
+    expect(f.nodeLabels['swarmy.disk.default']).toBe('BBBB2222');
   });
 });

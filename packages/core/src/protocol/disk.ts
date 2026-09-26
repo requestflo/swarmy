@@ -79,6 +79,8 @@ export const DiskEntryWire = z.object({
   state: z.enum(['blank', 'has-data', 'swarmy', 'swarmy-unmounted', 'mounted', 'system', 'ineligible']),
   mountpoints: z.array(z.string()),
   fstype: z.string().nullable(),
+  /** Filesystem label (older agents omit it). */
+  label: z.string().nullable().optional(),
   reason: z.string(),
   id: z.string().nullable(),
   fsTotalBytes: z.number().nullable(),
@@ -88,7 +90,15 @@ export const DiskEntryWire = z.object({
    * mountpoint directory on the ROOT disk while the disk was not attached, and
    * the apps (swarm service names, else container names) using volumes there.
    */
-  pending: z.object({ files: z.number(), bytes: z.number(), services: z.array(z.string()) }).optional(),
+  pending: z
+    .object({
+      files: z.number(),
+      bytes: z.number(),
+      services: z.array(z.string()),
+      /** Of `services`, those with a RUNNING container on the disk right now. */
+      running: z.array(z.string()).optional(),
+    })
+    .optional(),
 });
 export type DiskEntryWire = z.infer<typeof DiskEntryWire>;
 

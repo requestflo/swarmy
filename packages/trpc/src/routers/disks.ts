@@ -6,6 +6,7 @@ import {
   growNodeDisk,
   listNodeDisks,
   repairNodeDisk,
+  setDefaultDisk,
   setDiskFormatAllowed,
 } from '../services/disks.service';
 
@@ -43,6 +44,11 @@ export const disksRouter = router({
   repair: adminProcedure
     .input(z.object({ nodeId: z.string(), serial: z.string().min(1) }))
     .mutation(({ ctx, input }) => repairNodeDisk(ctx, input)),
+
+  /** Choose which mounted swarmy disk new data goes to (`swarmy.disk.default`). Audited. */
+  setDefault: adminProcedure
+    .input(z.object({ nodeId: z.string(), diskId: z.string().regex(/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/) }))
+    .mutation(({ ctx, input }) => setDefaultDisk(ctx, input)),
 
   /** Per-server opt-out of formatting (`swarmy.node.diskFormat`). */
   setFormatAllowed: adminProcedure

@@ -4,6 +4,7 @@ import {
   NODE_EXEC_LABEL,
   NODE_SHELL_LABEL,
   NODE_DISK_FORMAT_LABEL,
+  diskLabelProblems,
   hasExecDisabledLabel,
   hasShellLabel,
   NODE_STORAGE_LABEL,
@@ -279,6 +280,10 @@ export async function setNodeLabels(
     select: { id: true },
   });
   if (!node) throw notFound('node', id);
+  // swarmy's disk labels decide where new data lands (QA-086): only
+  // well-formed values; the default must name a disk declared on this node.
+  const diskProblems = diskLabelProblems(labels, ctx.hub.nodeInfoFor(id)?.labels);
+  if (diskProblems.length > 0) throw commandRejected(diskProblems.join('; '));
   // Apply to the swarm node (Docker truth); labels read back via `nodeInfoFor`.
   // We do NOT persist labels on the Node row. Best-effort push — ignore if
   // offline (reconciles when the node reconnects).

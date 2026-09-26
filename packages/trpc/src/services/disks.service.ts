@@ -31,6 +31,7 @@ import {
   nodeDisks,
   NODE_DISK_FORMAT_LABEL,
   repairStamp,
+  swarmyFsLabel,
 } from '@swarmy/core';
 import type {
   DiskEntryWire,
@@ -96,6 +97,41 @@ export function sizeWords(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`;
 }
 
+/**
+ * Pure safety net (QA-085): a disk this node DECLARES, carrying swarmy's own
+ * label for its serial and mounted nowhere, is `swarmy-unmounted` — never
+ * `has-data` — whatever an agent's classifier made of it.
+ */
+export function withDeclaredState(listed: ListDisksResult, labels: Record<string, string>): ListDisksResult {
+  const declared = new Set(nodeDisks(labels).map((d) => d.id));
+  const fix = (d: DiskEntryWire): DiskEntryWire => {
+    if (d.state !== 'has-data' || !d.id || !d.serial || !declared.has(d.id) || d.mountpoints.length > 0) return d;
+    let own: string;
+    try {
+      own = swarmyFsLabel(d.serial);
+    } catch {
+      return d;
+    }
+    return d.label === own
+      ? { ...d, state: 'swarmy-unmounted', reason: 'Formatted by swarmy, but not attached on the server — new data is not going to this disk yet. swarmy re-attaches it.' }
+      : d;
+  };
+  return { ...listed, disks: listed.disks.map(fix) };
+}
+
+/** `disk.list` on a node, with {@link withDeclaredState} applied and the listing remembered. */
+async function listOn(ctx: Ctx, nodeId: string): Promise<ListDisksResult> {
+  let listed: ListDisksResult;
+  try {
+    listed = await ctx.hub.dispatch<ListDisksResult>(nodeId, 'disk.list', {});
+  } catch (e) {
+    throw mapDispatchError(e);
+  }
+  listed = withDeclaredState(listed, labelsOf(ctx, nodeId));
+  recordDiskListing(nodeId, listed.disks);
+  return listed;
+}
+
 /** Pure: the list view from the agent's answer and the node's labels. */
 export function disksView(
   nodeId: string,
@@ -113,7 +149,9 @@ export function disksView(
     if (!d) {
       warnings.push({
         diskId: decl.id, name: null, kind: 'missing', isDefault: decl.isDefault,
-        message: `The data disk …${decl.id.slice(-4)} is not connected to this server, so nothing can be stored on it.${where}`,
+        message: decl.isDefault
+          ? `Your default disk isn't attached to this server (…${decl.id.slice(-4)}), so new data can't go to it. Attach it again in your cloud console.${where}`
+          : `The data disk …${decl.id.slice(-4)} isn't attached to this server. Attach it again in your cloud console.`,
       });
     } else {
       const moved = d.pending && d.pending.bytes > 0 ? ` and moves the ${sizeWords(d.pending.bytes)} written in the meantime` : '';
@@ -216,13 +254,7 @@ async function lastMovingRepair(ctx: Ctx, nodeId: string): Promise<LastDiskRepai
 
 export async function listNodeDisks(ctx: Ctx, nodeId: string): Promise<NodeDisksView> {
   await ownNode(ctx, nodeId);
-  let listed: ListDisksResult;
-  try {
-    listed = await ctx.hub.dispatch<ListDisksResult>(nodeId, 'disk.list', {});
-  } catch (e) {
-    throw mapDispatchError(e);
-  }
-  recordDiskListing(nodeId, listed.disks);
+  const listed = await listOn(ctx, nodeId);
   return disksView(nodeId, labelsOf(ctx, nodeId), listed, await lastMovingRepair(ctx, nodeId));
 }
 
@@ -376,15 +408,7 @@ export async function repairNodeDisk(
   }
   if (!nodeDisks(labels).some((d) => d.id === id)) throw commandRejected(`disk …${id.slice(-4)} is not one swarmy set up on this server`);
 
-  let listed = opts.listed;
-  if (!listed) {
-    try {
-      listed = await ctx.hub.dispatch<ListDisksResult>(input.nodeId, 'disk.list', {});
-    } catch (e) {
-      throw mapDispatchError(e);
-    }
-  }
-  recordDiskListing(input.nodeId, listed.disks);
+  const listed = opts.listed ?? (await listOn(ctx, input.nodeId));
   const disk = listed.disks.find((d) => d.serial === serial);
   if (!disk) throw commandRejected(`disk …${id.slice(-4)} is not connected to this server`);
   const base = { serial, id, mountpoint: disk.mountpoints[0] ?? `/var/lib/swarmy/disks/${id}` };
@@ -397,7 +421,10 @@ export async function repairNodeDisk(
   const audit = (step: 'start' | 'stopped' | 'done' | 'failed' | 'restarted', metadata: Record<string, unknown>) =>
     writeAudit(ctx, { action: `node.disk.repair.${step}`, ...target, metadata: { serial, id, ...metadata } });
 
-  const users = disk.pending?.services ?? [];
+  // An EMPTY mountpoint (a disk back after a reboot, QA-085) needs no copy:
+  // only something RUNNING on it has to stop. With files to move, every user
+  // stops, so no task restarts mid-copy.
+  const users = disk.pending && disk.pending.files === 0 ? (disk.pending.running ?? disk.pending.services) : (disk.pending?.services ?? []);
   const plan = planRepairScale(users, ctx.hub.liveInventory(ctx.activeOrgId).services);
   if (plan.global.length > 0) {
     const error = `${plan.global.join(', ')} runs on every server, so swarmy cannot stop it here to move its data — stop it by hand, then try again`;
@@ -471,8 +498,7 @@ export async function runDiskReconcileFor(
   const declared = nodeDisks(labels);
   if (declared.length === 0) return { nodeId, skipped: 'no-disks' };
   if (!isDiskRepairCapable(labels)) return { nodeId, skipped: 'disabled' };
-  const listed = await ctx.hub.dispatch<ListDisksResult>(nodeId, 'disk.list', {});
-  recordDiskListing(nodeId, listed.disks);
+  const listed = await listOn(ctx, nodeId);
   const repaired: string[] = [];
   const failed: { serial: string; error: string }[] = [];
   for (const d of listed.disks) {
@@ -485,4 +511,39 @@ export async function runDiskReconcileFor(
     }
   }
   return { nodeId, checked: declared.length, repaired, failed };
+}
+
+// ── Choose the default disk (QA-086) ──────────────────────────────────────────
+
+/**
+ * Make a MOUNTED swarmy disk the one new data goes to: `swarmy.disk.default=<id>`
+ * (and its `swarmy.disk.<id>` declaration, if missing). Refuses a disk that is
+ * not connected, not swarmy's, or not mounted. Audited.
+ */
+export async function setDefaultDisk(
+  ctx: Ctx,
+  input: { nodeId: string; diskId: string },
+): Promise<{ nodeId: string; diskId: string; mountpoint: string; previous: string | null }> {
+  await ownNode(ctx, input.nodeId);
+  const labels = labelsOf(ctx, input.nodeId);
+  const listed = await listOn(ctx, input.nodeId);
+  const disk = listed.disks.find((d) => d.id === input.diskId);
+  if (!disk) throw commandRejected(`there is no disk ${input.diskId} on this server`);
+  const mountpoint = disk.mountpoints.find((m) => m === `/var/lib/swarmy/disks/${input.diskId}`);
+  if (disk.state !== 'swarmy' || !mountpoint) {
+    throw commandRejected(`${disk.name} is not a mounted swarmy disk, so new data can't go to it (${disk.reason})`);
+  }
+  const previous = labels[DISK_DEFAULT_LABEL] ?? null;
+  const ok = await dispatchNodeLabels(ctx.hub, ctx.activeOrgId, input.nodeId, {
+    [`swarmy.disk.${input.diskId}`]: mountpoint,
+    [DISK_DEFAULT_LABEL]: input.diskId,
+  });
+  if (!ok) throw commandRejected('could not update the server (no manager online)');
+  await writeAudit(ctx, {
+    action: 'node.disk.setDefault',
+    targetType: 'node',
+    targetId: input.nodeId,
+    metadata: { diskId: input.diskId, previous, mountpoint },
+  });
+  return { nodeId: input.nodeId, diskId: input.diskId, mountpoint, previous };
 }

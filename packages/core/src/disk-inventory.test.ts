@@ -8,6 +8,7 @@ import {
   DISK_FSTAB_OPTIONS,
   diskEntries,
   diskFormatGateAllows,
+  diskLabelProblems,
   diskId,
   diskLabelsAfterFormat,
   diskMountpoint,
@@ -187,6 +188,22 @@ describe('disk ids, labels and placement', () => {
   });
 });
 
+describe('diskLabelProblems (QA-086)', () => {
+  const cur = { 'swarmy.disk.A1': '/var/lib/swarmy/disks/A1' };
+  it('accepts a declared default, a well-formed disk label and clears', () => {
+    expect(diskLabelProblems({ 'swarmy.disk.default': 'A1' }, cur)).toEqual([]);
+    expect(diskLabelProblems({ 'swarmy.disk.B2': '/var/lib/swarmy/disks/B2', 'swarmy.disk.default': 'B2' }, {})).toEqual([]);
+    expect(diskLabelProblems({ 'swarmy.disk.default': '', 'swarmy.disk.A1': '' }, cur)).toEqual([]);
+    expect(diskLabelProblems({ 'swarmy.region': 'lon1' }, cur)).toEqual([]);
+  });
+  it('rejects an undeclared default and a mountpoint anywhere else', () => {
+    expect(diskLabelProblems({ 'swarmy.disk.default': 'nope' }, cur)[0]).toContain('disks.setDefault');
+    expect(diskLabelProblems({ 'swarmy.disk.default': '../../etc' }, cur)).toHaveLength(1);
+    expect(diskLabelProblems({ 'swarmy.disk.A1': '/tmp' }, cur)[0]).toContain('/var/lib/swarmy/disks/A1');
+    expect(diskLabelProblems({ 'swarmy.disk.default': 'A1', 'swarmy.disk.A1': '' }, cur)).toHaveLength(1);
+  });
+});
+
 describe('host scripts', () => {
   it('shQuote survives embedded quotes', () => {
     expect(shQuote("a'b")).toBe(`'a'\\''b'`);
@@ -211,6 +228,28 @@ describe('host scripts', () => {
     expect(e!.id).toBe('12345678');
     expect(e!.fsTotalBytes).toBe(100 * GB);
     expect(e!.growableBytes).toBe(100 * GB);
+  });
+
+  it('a returning swarmy disk with no udev data (lsblk label/fstype empty) is still swarmy-unmounted via blkid (QA-085)', () => {
+    const out = [
+      '__SWARMY_LSBLK__',
+      JSON.stringify({ blockdevices: [blank({ fstype: null, label: null })] }),
+      '__SWARMY_DF__',
+      '',
+      '__SWARMY_FSPROBE__',
+      'DEVNAME=/dev/sda\nPTTYPE=gpt\n',
+      `DEVNAME=/dev/sdb\nLABEL=${swarmyFsLabel('12345678')}\nUUID=u-9\nBLOCK_SIZE=4096\nTYPE=ext4\n`,
+      '',
+    ].join('\n');
+    const [d] = diskEntries(parseDiskProbe(out));
+    expect(d!.state).toBe('swarmy-unmounted');
+    expect(d!.label).toBe(swarmyFsLabel('12345678'));
+    // A blank disk stays blank (blkid prints nothing for it).
+    const blankOut = out.replace(/DEVNAME=\/dev\/sdb[\s\S]*TYPE=ext4\n/, '');
+    expect(diskEntries(parseDiskProbe(blankOut))[0]!.state).toBe('blank');
+    // Never overrides what lsblk did report.
+    const other = out.replace('"fstype":null', '"fstype":"xfs"');
+    expect(diskEntries(parseDiskProbe(other))[0]!.fstype).toBe('xfs');
   });
 
   it('a blkid hit or an unknown blkid status counts as a signature (fail closed)', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { FormatDiskPayload } from '@swarmy/core/protocol';
-import { ensureDiskVolumeDir, formatDisk, growDisk, listDisks, repairDisk, type DiskDeps, type DiskUser } from './disk';
+import { ensureDiskVolumeDir, formatDisk, growDisk, listDisks, mountReturningDisks, repairDisk, type DiskDeps, type DiskUser } from './disk';
 import { agentErrorCode } from '../executor';
 
 const GB = 1024 ** 3;
@@ -187,5 +187,52 @@ describe('repairDisk / pending (QA-075b)', () => {
   it("surfaces the repair script's own error", async () => {
     const h = repairHost(unmounted, { repairOut: '__SWARMY_ERR__ the copy on the disk does not match the originals\n__SWARMY_ROLLED_BACK__\n' });
     await expect(repairDisk(h.deps, rp)).rejects.toMatchObject({ code: 'E_DISK_REPAIR', message: 'the copy on the disk does not match the originals' });
+  });
+});
+
+describe('mountReturningDisks at agent start (QA-085)', () => {
+  const MNT = '/var/lib/swarmy/disks/12345678';
+  const back = probeOut(sdb({ fstype: 'ext4', label: 'swarmy-12345678' }));
+  function startHost(pendingLine: string, users: DiskUser[] = [], repairOut = `__SWARMY_REPAIRED__ uuid=u-1 moved=0 files=0 bytes=0 aside=-\n`) {
+    const scripts: string[] = [];
+    const deps: DiskDeps = {
+      override: undefined,
+      runHost: async (script) => {
+        scripts.push(script);
+        if (script.includes('mount -t ext4 "$DEV" "$MNT"')) return { code: repairOut.includes('__SWARMY_ERR__') ? 3 : 0, out: repairOut };
+        if (script.includes('__SWARMY_PENDING__')) return { code: 0, out: pendingLine };
+        return { code: 0, out: back };
+      },
+      users: async () => users,
+    };
+    return { deps, scripts, repairs: () => scripts.filter((s) => s.includes('mount -t ext4 "$DEV" "$MNT"')) };
+  }
+
+  it('mounts an empty, fstab-declared disk straight away, in the no-copy mode', async () => {
+    const h = startHost(`__SWARMY_PENDING__ ${MNT} 0 0\n`, [{ container: 'old-task', service: 'shop_db-primary', running: false }]);
+    const logs: string[] = [];
+    expect(await mountReturningDisks(h.deps, (m) => logs.push(m))).toEqual(['12345678']);
+    expect(h.repairs()).toHaveLength(1);
+    expect(h.repairs()[0]).toContain("is not in this server's fstab");
+    expect(logs[0]).toContain('mounted it at');
+  });
+
+  it('leaves a disk with files, or with a running user, to the controller', async () => {
+    const full = startHost(`__SWARMY_PENDING__ ${MNT} 3 100\n`);
+    expect(await mountReturningDisks(full.deps, () => undefined)).toEqual([]);
+    expect(full.repairs()).toEqual([]);
+    const busy = startHost(`__SWARMY_PENDING__ ${MNT} 0 0\n`, [{ container: 'c', running: true }]);
+    expect(await mountReturningDisks(busy.deps, () => undefined)).toEqual([]);
+    const off = startHost(`__SWARMY_PENDING__ ${MNT} 0 0\n`);
+    off.deps.repairAllowed = false;
+    expect(await mountReturningDisks(off.deps, () => undefined)).toEqual([]);
+    expect(off.scripts).toEqual([]);
+  });
+
+  it('never throws; a refusal is logged', async () => {
+    const h = startHost(`__SWARMY_PENDING__ ${MNT} 0 0\n`, [], '__SWARMY_ERR__ not in fstab\n');
+    const logs: string[] = [];
+    expect(await mountReturningDisks(h.deps, (m) => logs.push(m))).toEqual([]);
+    expect(logs[0]).toContain('left for the controller');
   });
 });

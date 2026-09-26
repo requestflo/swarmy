@@ -27,6 +27,7 @@ import {
   renderPendingProbeScript,
   renderRepairScript,
   renderVolumeDirScript,
+  repairStamp,
 } from '@swarmy/core';
 import type { DockerClient } from '@swarmy/core/docker';
 import type {
@@ -139,7 +140,9 @@ async function attachPending(deps: DiskDeps, disks: DiskEntryWire[]): Promise<vo
     const mnt = diskMountpoint(d.serial!);
     const p = pending[mnt];
     const users = await (deps.users?.(mnt) ?? Promise.resolve([])).catch(() => [] as DiskUser[]);
-    if (p || users.length > 0) d.pending = { files: p?.files ?? 0, bytes: p?.bytes ?? 0, services: userNames(users) };
+    if (p || users.length > 0) {
+      d.pending = { files: p?.files ?? 0, bytes: p?.bytes ?? 0, services: userNames(users), running: userNames(users.filter((u) => u.running)) };
+    }
   }
 }
 
@@ -227,6 +230,37 @@ export async function repairDisk(deps: DiskDeps, p: RepairDiskPayload): Promise<
   const done = parseRepaired(out.out);
   if (out.code !== 0 || !done) throw fail('E_DISK_REPAIR', hostError(out.out, 're-attaching the disk failed'));
   return { ...base, alreadyMounted: false, ...done };
+}
+
+/**
+ * Agent start (QA-085): a swarmy disk that came back after a reboot but was
+ * not mounted (the cloud attached it after fstab's device timeout) is mounted
+ * straight away — but ONLY when its mountpoint is empty or missing, nothing
+ * running uses it, and this box's fstab already declares it by UUID. Nothing
+ * is copied or moved here; everything else waits for the controller's
+ * disk-reconcile. Never throws; returns the serials it mounted.
+ */
+export async function mountReturningDisks(deps: DiskDeps, log: (m: string) => void): Promise<string[]> {
+  if (deps.repairAllowed === false) return [];
+  let listed: ListDisksResult;
+  try {
+    listed = await listDisks(deps);
+  } catch {
+    return [];
+  }
+  const mounted: string[] = [];
+  for (const d of listed.disks) {
+    if (d.state !== 'swarmy-unmounted' || !d.serial) continue;
+    if ((d.pending?.files ?? 0) > 0 || (d.pending?.running?.length ?? 0) > 0) continue;
+    const r = await deps.runHost(renderRepairScript({ path: d.path, serial: d.serial, stamp: repairStamp(), onlyIfEmptyAndInFstab: true }), 120_000);
+    if (r.code === 0 && parseRepaired(r.out)) {
+      mounted.push(d.serial);
+      log(`disk ${d.name} (${d.serial}) was back but not mounted; mounted it at ${diskMountpoint(d.serial)}`);
+    } else {
+      log(`disk ${d.name} (${d.serial}) is not mounted; left for the controller: ${hostError(r.out, 'mount failed')}`);
+    }
+  }
+  return mounted;
 }
 
 /** Make the directory a disk-placed volume binds to; refuses when the disk is not mounted. */

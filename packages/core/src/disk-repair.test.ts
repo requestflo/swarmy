@@ -85,8 +85,8 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-function run(extraEnv: Record<string, string> = {}, label = swarmyFsLabel(SERIAL)) {
-  const script = renderRepairScript({ path: '/dev/sdb', serial: SERIAL, stamp: STAMP }, { root, mountinfo, fstab })
+function run(extraEnv: Record<string, string> = {}, label = swarmyFsLabel(SERIAL), onlyIfEmptyAndInFstab = false) {
+  const script = renderRepairScript({ path: '/dev/sdb', serial: SERIAL, stamp: STAMP, onlyIfEmptyAndInFstab }, { root, mountinfo, fstab })
     // The host-namespace guard is covered in disk-inventory.test.ts; a CI
     // runner may not be allowed to read PID 1's namespace.
     .replace(/^if \[ -e \/proc\/1\/ns\/mnt \][\s\S]*?^fi$/m, '');
@@ -206,6 +206,40 @@ describe('renderRepairScript (QA-075b), in a real shell', () => {
     expect(busy.code).toBe(3);
     expect(busy.out).toContain(`something is already mounted at ${mnt}`);
     expect(existsSync(log)).toBe(false);
+  }, 30_000);
+});
+
+describe('renderRepairScript at agent start (QA-085: a disk back after a reboot, not mounted)', () => {
+  it('an empty mountpoint the fstab declares is mounted, fstab rewritten after the host check', async () => {
+    await mkdir(mnt);
+    const r = run({}, undefined, true);
+    expect(r.out).not.toContain('__SWARMY_ERR__');
+    expect(parseRepaired(r.out)).toMatchObject({ moved: false, aside: null });
+    expect(await hostMounted(mnt)).toBe(true);
+    expect(await fstabLinesFor(mnt)).toEqual([`UUID=uuid-1 ${mnt} ext4 ${DISK_FSTAB_OPTIONS} 0 2`]);
+    expect(existsSync(log)).toBe(false);
+  }, 30_000);
+
+  it('a missing mountpoint dir is fine too', async () => {
+    expect(run({}, undefined, true).code).toBe(0);
+    expect(await hostMounted(mnt)).toBe(true);
+  }, 30_000);
+
+  it('leaves a non-empty mountpoint, or one this box’s fstab does not declare, to the controller', async () => {
+    const before = await seedRootDiskData();
+    const full = run({}, undefined, true);
+    expect(full.code).toBe(3);
+    expect(full.out).toContain('leaving the move to the controller');
+    expect(await tree(mnt)).toEqual(before);
+    expect(await hostMounted(mnt)).toBe(false);
+    expect(existsSync(log)).toBe(false);
+
+    await rm(mnt, { recursive: true });
+    await writeFile(fstab, 'UUID=root-1 / ext4 defaults 0 1\n');
+    const undeclared = run({}, undefined, true);
+    expect(undeclared.code).toBe(3);
+    expect(undeclared.out).toContain("not in this server's fstab");
+    expect(await hostMounted(mnt)).toBe(false);
   }, 30_000);
 });
 
