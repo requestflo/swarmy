@@ -64,6 +64,11 @@ describe('nextHealthEvents (route certificate + health check)', () => {
     expect(r.live).toBe(true);
   });
 
+  it('a deploy pinned to a server names it in the health lines', () => {
+    const r = run([{ services: svc(1), allVisible: true, domain: null, server: 'wkr-2' }]);
+    expect(r.lines).toEqual(['health:started checking 2/2 services running on wkr-2', 'health:done 2/2 services running on wkr-2 · it’s live']);
+  });
+
   it('never calls it live before every created service is visible', () => {
     expect(nextHealthEvents(fresh, { services: svc(1), allVisible: false, domain: null }).live).toBe(false);
   });

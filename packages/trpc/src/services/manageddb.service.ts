@@ -567,14 +567,17 @@ export async function provisionDb(ctx: OrgContext, input: ProvisionDbInput): Pro
 export async function provisionDbWithPassword(
   ctx: OrgContext,
   input: ProvisionDbInput,
+  /** `pinNode`: a NEW cluster's primary goes on this swarm node (a pinned blueprint deploy). */
+  opts: { pinNode?: string } = {},
 ): Promise<ProvisionDbInternalResult> {
-  const { result, password } = await provisionDbCore(ctx, input);
+  const { result, password } = await provisionDbCore(ctx, input, opts);
   return { ...result, password: password ?? (await readDbPassword(ctx, input.stack.trim(), result.cluster)) };
 }
 
 async function provisionDbCore(
   ctx: OrgContext,
   input: ProvisionDbInput,
+  opts: { pinNode?: string } = {},
 ): Promise<{ result: ProvisionDbResult; password?: string }> {
   if ((input.engine ?? 'postgres') !== 'postgres') {
     throw commandRejected(`unsupported engine "${input.engine}" (only postgres for now)`);
@@ -639,7 +642,8 @@ async function provisionDbCore(
         return task ? ctx.hub.swarmNodeIdFor(task.nodeId) : undefined;
       })();
   }
-  pinNode ??= choosePrimaryPin(ctx, node.id);
+  // An existing cluster keeps where its data is; a new one follows a picked server.
+  pinNode ??= opts.pinNode ?? choosePrimaryPin(ctx, node.id);
   if (!pinNode) {
     throw commandRejected(
       'cannot resolve a swarm node to pin the Postgres primary to (no node has reported yet) — retry in a few seconds',

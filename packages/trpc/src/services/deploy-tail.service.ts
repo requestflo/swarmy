@@ -14,7 +14,7 @@ import type { DeployTrace } from './deploy-trace.service';
 const TICK_MS = 2_000;
 const MAX_MS = 10 * 60_000;
 
-async function snapshot(ctx: OrgContext, stack: string, expect: string[]): Promise<HealthSnapshot> {
+async function snapshot(ctx: OrgContext, stack: string, expect: string[], server?: string): Promise<HealthSnapshot> {
   const { services, containers } = ctx.hub.liveInventory(ctx.activeOrgId);
   const live = buildInventory(services, containers).services.filter((s) => s.stack === stack);
   const domains = await listDomains(ctx, stack).catch(() => []);
@@ -22,6 +22,7 @@ async function snapshot(ctx: OrgContext, stack: string, expect: string[]): Promi
   return {
     services: live.map((s) => ({ name: s.name, running: s.replicas.running, desired: s.replicas.desired })),
     allVisible: expect.every((n) => live.some((s) => s.name === n)),
+    ...(server ? { server } : {}),
     domain: d
       ? {
           host: d.host,
@@ -40,7 +41,8 @@ export function followDeployTail(
   ctx: OrgContext,
   trace: DeployTrace,
   services: string[],
-  opts: { tickMs?: number; maxMs?: number; sleep?: (ms: number) => Promise<void> } = {},
+  /** `server`: the server a pinned deploy went to, named in the health lines. */
+  opts: { tickMs?: number; maxMs?: number; sleep?: (ms: number) => Promise<void>; server?: string } = {},
 ): Promise<void> {
   const tick = opts.tickMs ?? TICK_MS;
   const max = opts.maxMs ?? MAX_MS;
@@ -48,7 +50,7 @@ export function followDeployTail(
   const run = async (): Promise<void> => {
     let memo: HealthMemo = { route: null, health: null };
     for (let waited = 0; waited <= max; waited += tick) {
-      const snap = await snapshot(ctx, trace.stack, services).catch(() => null);
+      const snap = await snapshot(ctx, trace.stack, services, opts.server).catch(() => null);
       if (snap) {
         const out = nextHealthEvents(memo, snap);
         memo = out.memo;

@@ -2223,6 +2223,19 @@ export interface BlueprintPlanView {
    * IP is unknown or the app is private. Absent when a domain was given.
    */
   autoHost?: string | null;
+  /**
+   * The server the app is pinned to (`params.node`), with the placement
+   * constraint every service gets. Absent = Automatic.
+   */
+  node?: BlueprintPlacementView;
+}
+
+/** A pinned deploy's server: the node id asked for, its name and the constraint rendered. */
+export interface BlueprintPlacementView {
+  id: string;
+  name: string;
+  /** `node.id==<swarm node id>`. */
+  constraint: string;
 }
 
 export type BlueprintStepStatus = 'succeeded' | 'failed' | 'skipped';
@@ -2246,15 +2259,44 @@ export interface BlueprintDeployResultView {
   /** Public URL when a route step landed (`https://<domain>`). */
   url: string | null;
   /**
-   * One-time reveals (e.g. a generated admin password). Shown ONCE in the deploy
-   * result and never retrievable again — mirrors the cache-provision pattern.
+   * One-time reveals only (e.g. a generated admin password). Shown ONCE in the
+   * deploy result and never retrievable again — mirrors the cache-provision
+   * pattern. Plain after-deploy steps are in `afterLive`, never here.
    */
   notes: string[];
+  /**
+   * What to do once it's live (the template's first-login steps, `<url>`
+   * replaced by the real address, plus heads-ups like "email isn't wired
+   * yet"). Nothing secret. Absent on older controllers, whose `notes` mixed both.
+   */
+  afterLive?: string[];
+  /** The server it was pinned to, when `params.node` was given. */
+  node?: BlueprintPlacementView;
   /**
    * The traced deploy's id: `deploys.events({ deployId })` streams its steps
    * (image pull, data, start, certificate, health). Absent on older controllers.
    */
   deployId?: string;
+}
+
+// ── First look (the "It's live" stats) ──────────────────────────────────────
+
+/**
+ * `deploys.firstLook`: what swarmy measured about a fresh app from the
+ * controller. Each part is null until it could be measured; a failed probe
+ * says so in plain words instead of a number.
+ */
+export interface FirstLookView {
+  stack: string;
+  /** The address probed (one of the app's own routes), or null when it has none. */
+  host: string | null;
+  checkedAt: string;
+  /** Time to first byte of an HTTPS GET via a swarmy edge (≤ 1 same-host redirect, 5 s cap). */
+  response: { ok: true; ms: number; status: number } | { ok: false; error: string } | null;
+  /** Whether the certificate is valid and until when (the edge probe's record, else this request's handshake). */
+  https: { valid: boolean; validUntil: string | null; source: 'edge-check' | 'handshake'; error: string | null } | null;
+  /** Running vs wanted copies, across the app's services (Docker truth). */
+  copies: { running: number; desired: number };
 }
 
 // ── Managed search (slice F4) — views over Docker-truth `swarmy.search.*` labels ──

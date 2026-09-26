@@ -100,7 +100,7 @@ describe('every template through the compose/model pipeline', () => {
             }
           }
         }
-        for (const n of deploy.payload.notes ?? []) {
+        for (const n of [...(deploy.payload.notes ?? []), ...(deploy.payload.afterLive ?? [])]) {
           for (const tok of n.match(/__SWARMY_[A-Z0-9_]+?__/g) ?? []) expect(known.has(tok)).toBe(true);
           expect(n).not.toContain('${{');
         }
@@ -181,6 +181,14 @@ describe('binding resolution', () => {
     expect(doc.networks).toEqual({ 'stats_db-net': { external: true } });
   });
 
+  it('a generated login is a one-time secret; the first-login steps are for after it’s live', () => {
+    const g = deployOf(compileTemplate(findAppTemplate('grafana')!, params({ name: 'dash', domain: 'dash.example.com' })).steps).payload;
+    expect(g.notes).toHaveLength(1);
+    expect(g.notes![0]).toMatch(/^Grafana admin login: admin \/ __SWARMY_/);
+    expect(g.afterLive?.[0]).toBe('Sign in at https://dash.example.com as admin with the password shown above.');
+    for (const line of g.afterLive ?? []) expect(line).not.toContain('__SWARMY_');
+  });
+
   it('mounted secrets become secret wires (value never in env)', () => {
     const ghost = compileTemplate(findAppTemplate('ghost')!, params({ name: 'blog' }));
     const wires = deployOf(ghost.steps).payload.wires;
@@ -195,7 +203,11 @@ describe('binding resolution', () => {
       services: { ghost: { environment: Record<string, string> } };
     };
     expect(src.services.ghost.environment.url).toBe('');
-    expect(deployOf(ghost.steps).payload.notes?.[0]).toContain('app.url');
+    const d = deployOf(ghost.steps).payload;
+    expect(d.afterLive?.at(-1)).toContain('app.url');
+    // Ghost generates no login: nothing to save once, only steps for after it's live.
+    expect(d.notes).toEqual([]);
+    expect(d.afterLive?.[0]).toBe('Open the app URL/ghost to create the owner account.');
   });
 
   it('generated secrets carry their shape', () => {

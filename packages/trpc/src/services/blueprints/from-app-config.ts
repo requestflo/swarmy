@@ -200,7 +200,7 @@ export function compileTemplate(
   const isPrivate = t.exposure === 'private';
   const domain = isPrivate ? null : (params.domain ?? env.autoHost ?? null);
   const bindings = bindingMap(stack, desired, res, domain);
-  const notes: string[] = [];
+  const headsUp: string[] = [];
 
   const steps: PlanStep[] = [];
   if (res.db) {
@@ -328,7 +328,7 @@ export function compileTemplate(
     services[s.name] = svc;
   }
   if (missingApp.size) {
-    notes.push(
+    headsUp.push(
       `${[...missingApp].join(' and ')} had no domain yet, so it was left empty. Add a domain to ${primary?.name ?? 'the app'} and redeploy it to set it.`,
     );
   }
@@ -339,13 +339,13 @@ export function compileTemplate(
   }
 
   const url = domain ? `https://${domain}` : null;
-  for (const r of t.reveal ?? []) {
-    notes.push(renderValue(r, bindings).value);
-  }
+  // One-time secrets (generated logins) vs plain steps: two lists, never mixed.
+  const reveals = (t.reveal ?? []).map((r) => renderValue(r, bindings).value);
   const internal = primary ? `http://${stack}_${primary.name}:${primary.port}` : '';
-  for (const p of t.postDeploy) {
-    notes.push(p.replaceAll('<url>', url ?? 'the app URL').replaceAll('<internal>', internal));
-  }
+  const afterLive = [
+    ...t.postDeploy.map((p) => p.replaceAll('<url>', url ?? 'the app URL').replaceAll('<internal>', internal)),
+    ...headsUp,
+  ];
 
   const postLabels: Record<string, Record<string, string>> = {};
   if (isPrivate && primary) {
@@ -364,7 +364,8 @@ export function compileTemplate(
       ensureNetworks: [],
       postLabels,
       wires,
-      notes,
+      notes: reveals,
+      afterLive,
     },
   });
   if (params.domain && primary && !isPrivate) {

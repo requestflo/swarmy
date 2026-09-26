@@ -137,6 +137,13 @@ export type PlanStep =
          * a reveal is shown ONCE and never persisted.
          */
         notes?: string[];
+        /**
+         * What to do once it's live (first-login steps, heads-ups) — nothing
+         * secret. Tokens are NOT substituted into these.
+         */
+        afterLive?: string[];
+        /** `node.id==<id>` when the deploy is pinned to a server (./placement). */
+        placement?: string;
       };
     }
   | { kind: 'ingress.route'; label: string; payload: { service: string; host: string; port: number } };
@@ -803,7 +810,10 @@ export function planStepView(step: PlanStep): BlueprintPlanStepView {
       return {
         kind: step.kind,
         label: step.label,
-        detail: { services: step.payload.services.join(', ') },
+        detail: {
+          services: step.payload.services.join(', '),
+          ...(step.payload.placement ? { placement: step.payload.placement } : {}),
+        },
       };
     case 'ingress.route':
       return {

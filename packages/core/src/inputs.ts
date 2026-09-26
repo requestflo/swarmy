@@ -1082,6 +1082,18 @@ export const BlueprintParamsInput = z.object({
   domain: BlueprintDomain.optional(),
   size: BlueprintSizeInput.default('m'),
   options: z.record(z.union([z.string().max(500), z.boolean()])).default({}),
+  /**
+   * Pin the app to one server (a node id from `nodes.list`): every service it
+   * creates gets `node.id==<its swarm id>`, and its managed data follows unless
+   * it already has a placement of its own. Absent = Automatic (the scheduler).
+   * The node must be in this org and Ready.
+   */
+  node: z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[A-Za-z0-9_.-]+$/, 'a node id')
+    .optional(),
 });
 export type BlueprintParamsInput = z.infer<typeof BlueprintParamsInput>;
 
@@ -1093,6 +1105,14 @@ export type BlueprintPlanInput = z.infer<typeof BlueprintPlanInput>;
 
 export const BlueprintDeployInput = BlueprintPlanInput;
 export type BlueprintDeployInput = z.infer<typeof BlueprintDeployInput>;
+
+/** `deploys.firstLook`: the app's first-look checks (its primary address, or one of its own routes). */
+export const FirstLookInput = z.object({
+  stack: z.string().min(1).max(63).regex(/^[a-z0-9][a-z0-9_-]*$/i, 'an app name'),
+  /** One of this app's routed hosts; default: its primary route. Any other host is refused. */
+  host: z.string().trim().min(1).max(253).optional(),
+});
+export type FirstLookInput = z.infer<typeof FirstLookInput>;
 
 // ── Managed search (slice F4) — wizard/router inputs (labels are Docker truth) ──
 import { SEARCH_ENGINES } from './views';

@@ -15,6 +15,8 @@ export interface HealthSnapshot {
   services: Array<{ name: string; running: number; desired: number }>;
   /** Every service the deploy created is visible in the inventory. */
   allVisible: boolean;
+  /** The server a pinned deploy went to ("2/2 services running on wkr-2"). */
+  server?: string;
   domain: {
     host: string;
     tls: string;
@@ -71,7 +73,7 @@ export function nextHealthEvents(memo: HealthMemo, snap: HealthSnapshot): { even
   const allUp = snap.allVisible && snap.services.length > 0 && up === snap.services.length;
   const routeOk = snap.allVisible && (route === null ? true : route.settled && route.status === 'done' && snap.domain!.serving);
   const live = allUp && routeOk;
-  const n = `${up}/${snap.services.length} services running`;
+  const n = `${up}/${snap.services.length} services running${snap.server ? ` on ${snap.server}` : ''}`;
   if (allUp && memo.health === null) {
     events.push({ stage: 'health', status: 'started', message: snap.domain ? `checking ${n} and ${snap.domain.host}` : `checking ${n}` });
     next.health = 'checking';

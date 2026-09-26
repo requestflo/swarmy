@@ -47,6 +47,7 @@ import {
   type WireAction,
 } from './blueprints/catalog';
 import { ALL_BLUEPRINTS, findBlueprint } from './blueprints/registry';
+import { pinPlanSteps, resolvePlacementNode, type ResolvedPlacement } from './blueprints/placement';
 import { TemplateCompileError } from './blueprints/from-app-config';
 import { credentialEnvToSecrets, isCreateTimeWire, withCreateTimeWires, type CreateTimeWire } from './blueprints/create-wires';
 
@@ -93,6 +94,7 @@ async function planEnv(
   ctx: OrgContext,
   entry: BlueprintEntry,
   input: BlueprintPlanInput,
+  placement: ResolvedPlacement | null,
 ): Promise<PlanEnv> {
   const env: PlanEnv = {};
   if (!input.params.domain && entry.autoAddressService) {
@@ -100,7 +102,9 @@ async function planEnv(
       () => null,
     );
   }
-  if (entry.pinsVolumes) {
+  // A server picked by the person wins: volumes pin there too, so they can't disagree.
+  if (placement) env.pinNode = placement.swarmNodeId;
+  else if (entry.pinsVolumes) {
     try {
       const pin = chooseDataPin(ctx, (await resolveManagerNode(ctx)).id);
       if (pin) env.pinNode = pin;
@@ -111,10 +115,11 @@ async function planEnv(
   return env;
 }
 
-/** Run a plan generator, mapping a template compile failure onto a 400. */
-function planSteps(entry: BlueprintEntry, input: BlueprintPlanInput, env: PlanEnv): PlanStep[] {
+/** Run a plan generator (pinned to the picked server), mapping a template compile failure onto a 400. */
+function planSteps(entry: BlueprintEntry, input: BlueprintPlanInput, env: PlanEnv, placement: ResolvedPlacement | null): PlanStep[] {
   try {
-    return entry.plan(input.params, env);
+    const steps = entry.plan(input.params, env);
+    return placement ? pinPlanSteps(steps, placement.swarmNodeId) : steps;
   } catch (e) {
     if (e instanceof TemplateCompileError) throw commandRejected(e.message);
     throw e;
@@ -127,16 +132,20 @@ export async function planBlueprint(
   input: BlueprintPlanInput,
 ): Promise<BlueprintPlanView> {
   const entry = getEntry(input.id);
-  const env = await planEnv(ctx, entry, input);
-  const steps = planSteps(entry, input, env);
+  const placement = input.params.node ? await resolvePlacementNode(ctx, input.params.node) : null;
+  const env = await planEnv(ctx, entry, input, placement);
+  const steps = planSteps(entry, input, env, placement);
   return {
     id: input.id,
     stackName: input.params.name,
     summary: buildPlanSummary(input.params.name, steps),
     steps: steps.map(planStepView),
     ...(input.params.domain ? {} : { autoHost: env.autoHost ?? null }),
+    ...(placement ? { node: placementView(placement) } : {}),
   };
 }
+
+const placementView = (p: ResolvedPlacement) => ({ id: p.id, name: p.name, constraint: p.constraint });
 
 // ── Live-inventory helpers ────────────────────────────────────────────────────
 
@@ -250,6 +259,10 @@ interface StepContext {
   tokens: Record<string, string>;
   /** One-time reveals surfaced ONCE in the deploy result. */
   notes: string[];
+  /** Plain steps and heads-ups for once it's live — never a secret. */
+  afterLive: string[];
+  /** Swarm node the person pinned the app to: managed data follows it (./blueprints/placement). */
+  pinNode?: string;
   /** Created bucket name → Garage bucket id (for the attach wire). */
   bucketIds: Record<string, string>;
   /** Created secret family → its physical Docker secret (wired at create). */
@@ -334,7 +347,7 @@ async function applyWire(
         const r = await bindEmailToService(ctx, { stack, appService: wire.service, from: wire.from, env: wire.env });
         waitKeys = r.env.length ? r.env : [SECRET_ENV_VAR];
       } catch (e) {
-        sctx.notes.push(
+        sctx.afterLive.push(
           `Email is not wired yet (${e instanceof Error ? e.message : String(e)}). Set up the email service under Email, then redeploy ${stack} to bind it.`,
         );
         return;
@@ -354,7 +367,7 @@ async function applyWire(
   // the next never clobbers it. On timeout, degrade to a note (never a secret).
   const converged = await waitForEnvKeys(ctx, stack, wire.service, waitKeys);
   if (!converged) {
-    sctx.notes.push(`Wiring on ${wire.service} is still converging — check its panel in a minute.`);
+    sctx.afterLive.push(`Wiring on ${wire.service} is still converging — check its panel in a minute.`);
   }
 }
 
@@ -371,12 +384,11 @@ async function runStep(
       // not create it — ensure it first (same pattern as cache provisioning).
       await ensureOverlayNetwork(ctx, clusterNetworkName(stack, step.payload.cluster));
       // Server-side only: the password becomes the blueprint's DB tokens, never a response.
-      const res = await provisionDbWithPassword(ctx, {
-        stack,
-        name: step.payload.cluster,
-        replicas: step.payload.replicas,
-        database: step.payload.database,
-      });
+      const res = await provisionDbWithPassword(
+        ctx,
+        { stack, name: step.payload.cluster, replicas: step.payload.replicas, database: step.payload.database },
+        { pinNode: sctx.pinNode },
+      );
       sctx.tokens[TOKEN_DB_URL] =
         `postgres://postgres:${res.password}@${res.rwHost}:5432/${step.payload.database}`;
       sctx.tokens[TOKEN_DB_HOST] = res.rwHost;
@@ -394,7 +406,7 @@ async function runStep(
         replicas: step.payload.replicas,
         regions: [],
         ...(step.payload.purpose === 'queue' ? { purpose: 'queue' as const } : {}),
-      });
+      }, { pinNode: sctx.pinNode });
       sctx.tokens[TOKEN_REDIS_URL] = `redis://:${res.password}@${res.host}:${res.port}`;
       sctx.tokens[TOKEN_REDIS_PASSWORD] = res.password;
       return `${step.payload.engine} cache ${stack}/${step.payload.cluster} · ${step.payload.memoryMb} MB · ${step.payload.topology}`;
@@ -504,6 +516,8 @@ async function runStep(
       for (const note of step.payload.notes ?? []) {
         sctx.notes.push(substituteTokens(note, sctx.tokens));
       }
+      // The template's own steps first, then any heads-ups the wiring raised.
+      sctx.afterLive.unshift(...(step.payload.afterLive ?? []));
       return `Stack ${stack} deployed · ${step.payload.services.join(', ')}`;
     }
     case 'ingress.route': {
@@ -547,8 +561,9 @@ export async function deployBlueprint(
     throw commandRejected(`stack "${stack}" already exists — pick another name`);
   }
 
-  const env = await planEnv(ctx, entry, input);
-  const steps = planSteps(entry, input, env);
+  const placement = input.params.node ? await resolvePlacementNode(ctx, input.params.node) : null;
+  const env = await planEnv(ctx, entry, input, placement);
+  const steps = planSteps(entry, input, env, placement);
   const trace = beginDeployTrace(ctx, stack);
   const route = steps.find((st) => st.kind === 'ingress.route');
   const sctx: StepContext = {
@@ -556,8 +571,10 @@ export async function deployBlueprint(
     steps,
     tokens: {},
     notes: [],
+    afterLive: [],
     bucketIds: {},
     secretNames: {},
+    ...(placement ? { pinNode: placement.swarmNodeId } : {}),
     trace,
     mainService: route?.kind === 'ingress.route' ? route.payload.service : entry.autoAddressService,
   };
@@ -588,7 +605,7 @@ export async function deployBlueprint(
   }
   // The tail (route certificate + health) closes the trace; a stopped run closes it now.
   if (failed || !sctx.deployed) trace.finish();
-  else void followDeployTail(ctx, trace, sctx.deployed);
+  else void followDeployTail(ctx, trace, sctx.deployed, placement ? { server: placement.name } : {});
 
   await writeAudit(ctx, {
     action: 'blueprints.deploy',
@@ -598,6 +615,7 @@ export async function deployBlueprint(
       stack,
       size: input.params.size,
       domain: input.params.domain ?? null,
+      node: placement ? { id: placement.id, name: placement.name } : null,
       ok: !failed,
       steps: results.map((r) => ({ kind: r.kind, status: r.status })),
     },
@@ -610,6 +628,8 @@ export async function deployBlueprint(
     steps: results,
     url: blueprintUrl({ routedUrl: url, autoHost: env.autoHost ?? null, ok: !failed }),
     notes: sctx.notes,
+    afterLive: sctx.afterLive,
+    ...(placement ? { node: placementView(placement) } : {}),
     deployId: trace.id,
   };
 }

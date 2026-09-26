@@ -803,6 +803,8 @@ export function getCacheCluster(
 export async function provisionCache(
   ctx: OrgContext,
   input: ProvisionCacheRequest,
+  /** `pinNode`: the primary goes on this swarm node (a pinned blueprint deploy). */
+  opts: { pinNode?: string } = {},
 ): Promise<CacheProvisionResult> {
   const stack = input.stack.trim();
   const cluster = input.name.trim();
@@ -843,7 +845,7 @@ export async function provisionCache(
   const node = await resolveManagerNode(ctx);
   // Pin the primary (its data volume is node-local). No node reported yet ⇒
   // deploy unpinned; cache-reconcile pins it where its first task lands.
-  const pinNode = chooseDataPin(ctx, node.id);
+  const pinNode = opts.pinNode ?? chooseDataPin(ctx, node.id);
   if (pinNode) {
     decl.pinNode = pinNode;
     if (isMultiNodeSwarm(ctx)) decl.avoidNode = pinNode;
