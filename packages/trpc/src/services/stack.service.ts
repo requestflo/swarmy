@@ -27,6 +27,8 @@ import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { enforceAdmission } from './admission-gate';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
+import { liveServiceSpec } from './service-patch';
+import { carrySecretFamilies, mountsSecretFamily } from './secret-family-carry';
 import { augmentSpecsForStack } from './otel-injection';
 import { stackTelemetryEnabled } from './observability.service';
 import { augmentSpecsForErrors, releaseFor, specsRequestErrors } from './errors/injection';
@@ -466,6 +468,16 @@ export async function deployFromCompose(
 
   const plan = planComposeStack(input.composeSource, input.name, migration.legacyVolumes, variables.vars);
   const liveByName = new Map(liveRaw.map((s) => [s.name, s]));
+  // Secret families (blueprint passwords, Secrets-page attaches) exist only on
+  // the live service — read their exact refs from the live spec (Docker truth)
+  // so a redeploy never drops them (QA-073 follow-up).
+  const familyLive = new Map<string, ServiceSpec>();
+  for (const spec of plan.specs) {
+    const live = liveByName.get(spec.name);
+    if (!live || !mountsSecretFamily(live.secrets)) continue;
+    const node = await resolveManagerNode(ctx);
+    familyLive.set(spec.name, await liveServiceSpec(ctx, node.id, live));
+  }
   // "Connect apps" pairings are stack-level Docker truth (`swarmy.links` on
   // its services): every (re)deployed or newly added service keeps them.
   const peers = stackPeers(liveStackServices(ctx, input.name));
@@ -480,7 +492,10 @@ export async function deployFromCompose(
     const wired = input.atCreate ? input.atCreate(spec as ServiceSpec, short) : (spec as ServiceSpec);
     const routed = carryIngressRoutes(wired, source);
     // …and the secret variables set on it (Docker secrets, never values).
-    const attached = carrySecretVars(carryManagedAttachments(routed, source), source);
+    const attached = carrySecretFamilies(
+      carrySecretVars(carryManagedAttachments(routed, source), source),
+      familyLive.get(spec.name),
+    );
     return carryLinks(attached, { orgId: ctx.activeOrgId, stack: input.name, peers });
   });
 

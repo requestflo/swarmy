@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import type { ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../../context';
+import { wrapSecretEnv } from '@swarmy/core';
 import { deployBlueprint } from '../blueprints.service';
+import { stacks } from '../apps.repo';
+import { redeployStack } from '../stack.service';
 import { withCreateTimeWires } from './create-wires';
 
 /**
@@ -64,13 +67,49 @@ function fakeCtx() {
       nodeInventory: () => [],
       dispatch: async (_node: string, command: string, payload: Record<string, any>) => {
         dispatched.push({ command, payload });
-        if (command === 'service.deploy') live.set(payload.spec.name, payload.spec);
+        // Like the agent: the secret-env shim is applied at deploy, so the live
+        // spec carries SWARMY_SECRET_ENV + the shim command, not `secretEnv`.
+        if (command === 'service.deploy') {
+          live.set(payload.spec.name, wrapSecretEnv(payload.spec, { entrypoint: ['docker-entrypoint.sh'], cmd: ['run'] }));
+        }
+        if (command === 'service.inspect') {
+          const s = live.get(payload.service);
+          return s ? { inspect: inspectOf(s) } : {};
+        }
         if (command === 'secret.list') return { secrets: [] };
         return {};
       },
     },
   } as unknown as OrgContext;
   return { ctx, dispatched };
+}
+
+/** A `docker service inspect` payload for a live spec (what the agent returns). */
+function inspectOf(s: ServiceSpec): unknown {
+  return {
+    Spec: {
+      Name: s.name,
+      Labels: s.labels ?? {},
+      TaskTemplate: {
+        ContainerSpec: {
+          Image: s.image,
+          Env: Object.entries(s.env ?? {}).map(([k, v]) => `${k}=${v}`),
+          ...(s.command ? { Command: s.command } : {}),
+          ...(s.args ? { Args: s.args } : {}),
+          Secrets: (s.secrets ?? []).map((r) => ({ SecretName: r.source, File: { Name: r.target ?? r.source, UID: '0', GID: '0', Mode: 0o444 } })),
+          Configs: (s.configs ?? []).map((r) => ({ ConfigName: r.source, File: { Name: r.target ?? r.source, UID: '0', GID: '0', Mode: 0o444 } })),
+        },
+      },
+      Mode: { Replicated: { Replicas: 1 } },
+    },
+  };
+}
+
+/** The spec each service was LAST deployed with. */
+function lastDeploys(d: { command: string; payload: Record<string, any> }[]): Map<string, ServiceSpec> {
+  const out = new Map<string, ServiceSpec>();
+  for (const x of d) if (x.command === 'service.deploy') out.set(x.payload.spec.name, x.payload.spec);
+  return out;
 }
 
 /** The spec each service was FIRST created with. */
@@ -124,6 +163,28 @@ describe('blueprint deploy wires generated secrets at CREATE (QA-073)', () => {
       }
     });
   }
+});
+
+describe('a plain redeploy keeps a blueprint\'s generated secrets (QA-073 follow-up)', () => {
+  it('ghost: Redeploy of the stored compose still mounts the password on mysql + ghost', async () => {
+    const { ctx, dispatched } = fakeCtx();
+    await deployBlueprint(ctx, { id: 'ghost', params: { name: 'blog', size: 'm', options: {} } });
+    const physical = dispatched.find((d) => d.command === 'secret.create')!.payload.name as string;
+    const row = await stacks(ctx, 'org1').findFirst({ where: { orgId: 'org1', name: 'blog' }, select: { id: true } });
+    expect(row).toBeTruthy();
+    dispatched.length = 0;
+    // The dashboard's Redeploy: the stored compose, nothing else.
+    await redeployStack(ctx, { id: row!.id });
+    const redeployed = lastDeploys(dispatched);
+
+    const mysql = redeployed.get('blog_mysql')!;
+    expect(mysql.secrets).toContainEqual(expect.objectContaining({ source: physical, target: 'blog-db-password' }));
+    expect(mysql.env?.MYSQL_PASSWORD_FILE).toBe('/run/secrets/blog-db-password');
+
+    const ghost = redeployed.get('blog_ghost')!;
+    expect(ghost.secrets).toContainEqual(expect.objectContaining({ source: physical, target: 'database__connection__password' }));
+    expect(ghost.secretEnv).toContain('database__connection__password');
+  });
 });
 
 describe('withCreateTimeWires', () => {
