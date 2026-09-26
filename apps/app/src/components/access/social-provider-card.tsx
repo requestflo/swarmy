@@ -70,11 +70,11 @@ export function SocialProviderCard({ provider }: { provider: ProviderEntry }): R
           disabled={save.isPending}
         />
       </CardHeader>
-      <CardContent className="grid gap-4 text-sm">
+      <CardContent className="grid grid-cols-1 gap-4 text-sm">
         <div className="grid gap-1.5">
           <Label>Callback URL</Label>
-          <div className="flex items-center gap-2">
-            <code className="bg-muted mono-data flex-1 overflow-x-auto rounded-lg px-3 py-2 text-xs">
+          <div className="flex min-w-0 items-center gap-2">
+            <code className="bg-muted mono-data min-w-0 flex-1 overflow-x-auto rounded-lg px-3 py-2 text-xs">
               {provider.callbackUrl}
             </code>
             <CopyButton value={provider.callbackUrl} label="Copy" />

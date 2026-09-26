@@ -6,6 +6,7 @@ import { RowPage, plural } from '@/components/rowpage/row-page';
 import { InviteMemberDialog } from '@/components/settings/invite-member-dialog';
 import { SecurityTab } from '@/components/security/security-tab';
 import { accessCode } from './access-code';
+import { InviteLinksSection } from './invite-links-section';
 import { PeopleSection } from './people-section';
 import { PoliciesTab } from './policies-tab';
 import { PolicyWhoCan } from './policy-who-can';
@@ -23,7 +24,8 @@ export function AccessPage(): React.JSX.Element {
   const { methods } = useSignInMethods();
   const role = org.data?.role;
   const canInvite = role === 'owner' || role === 'admin';
-  const robots = (keys.data ?? []).filter((k) => !k.revokedAt).length;
+  const inviteLinks = useQuery({ ...trpc.inviteLinks.list.queryOptions(), enabled: canInvite });
+  const robots = (keys.data ?? []).filter((k) => k.status === 'active').length;
   const social = methods?.filter((m) => m.enabled && m.kind === 'social').map((m) => m.label) ?? [];
   const company = [...(methods?.some((m) => m.enabled && m.kind === 'sso') ? ['company sign-in'] : []), ...social];
 
@@ -46,14 +48,15 @@ export function AccessPage(): React.JSX.Element {
         <>
           <CodeView
             title="Access as code"
-            tabs={accessCode(rules, methods ?? [])}
-            note="Each rule is a policy document that runs the same on the JSON engine or Cedar. Rules are edited here and audited; there is no REST route for them yet."
+            tabs={accessCode(rules, methods ?? [], canInvite ? (inviteLinks.data ?? []) : null)}
+            note="Dashboard setting. Each rule is a policy document that runs the same on the JSON engine or Cedar. Rules and invite links are edited here and audited; there is no REST route for them yet."
           />
           <PolicyWhoCan />
         </>
       }
     >
       <PeopleSection canInvite={canInvite} />
+      {canInvite ? <InviteLinksSection /> : null}
       <PoliciesTab />
       <SignInSection methods={methods} />
       <Depth at="controls">
