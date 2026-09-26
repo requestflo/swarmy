@@ -377,6 +377,29 @@ export function diskEntries(probe: DiskProbe): DiskEntry[] {
   });
 }
 
+/** fstab options for a swarmy disk: never block boot, and be mounted before dockerd starts. */
+export const DISK_FSTAB_OPTIONS = 'defaults,nofail,x-systemd.device-timeout=10s,x-systemd.before=docker.service';
+
+/**
+ * Refuse unless this shell is in the HOST's mount namespace (PID 1's). A mount
+ * made in a private namespace (systemd sandboxing gives the agent unit one) is
+ * invisible to the host and dockerd (QA-075).
+ */
+const HOST_NS_CHECK = `if [ -e /proc/1/ns/mnt ] && [ "$(readlink /proc/self/ns/mnt)" != "$(readlink /proc/1/ns/mnt)" ]; then
+  err "not in the host mount namespace; a mount here would be invisible to Docker"
+fi`;
+
+/**
+ * Shell that fails unless PID 1 (the host, so dockerd too) sees \`dev\` mounted
+ * at \`mnt\`: the mountpoint is in /proc/1/mountinfo with the device's MAJ:MIN.
+ */
+function hostMountCheck(mnt: string, dev: string): string {
+  return `WANT_MM=$(lsblk -dn -o MAJ:MIN ${dev} | tr -d ' ')
+HOST_MM=$(awk -v m=${mnt} '$5 == m { mm = $3 } END { print mm }' /proc/1/mountinfo)
+[ -n "$HOST_MM" ] || err "$MNT is not mounted as the host sees it (a private mount namespace?)"
+[ "$HOST_MM" = "$WANT_MM" ] || err "the host sees device $HOST_MM at $MNT, not the disk ($WANT_MM)"`;
+}
+
 /**
  * Host script that formats ONE disk ext4 and mounts it. It re-checks, in the
  * same shell and immediately before `mkfs`, everything `formatGate` checked
@@ -395,6 +418,7 @@ err() { echo "__SWARMY_ERR__ $*"; exit 3; }
 DEV=${shQuote(input.path)}
 WANT=${shQuote(input.serial.trim())}
 MNT=${shQuote(mnt)}
+${HOST_NS_CHECK}
 [ -b "$DEV" ] || err "$DEV is not a block device"
 HAVE=$(lsblk -dn -o SERIAL "$DEV" | sed 's/^ *//;s/ *$//')
 [ "$HAVE" = "$WANT" ] || err "$DEV is now a different disk (serial changed)"
@@ -403,15 +427,23 @@ HAVE=$(lsblk -dn -o SERIAL "$DEV" | sed 's/^ *//;s/ *$//')
 [ "$(lsblk -nr -o NAME "$DEV" | wc -l | tr -d ' ')" = "1" ] || err "$DEV has partitions"
 [ -z "$(wipefs -n "$DEV" 2>&1)" ] || err "a filesystem or partition signature was found on $DEV"
 if blkid -p "$DEV" >/dev/null 2>&1; then err "a filesystem or partition signature was found on $DEV"; fi
+# Never hide data: an unmounted mountpoint with files in it is data on the
+# root disk (QA-075). Refuse before mkfs, before fstab, before mount.
+if [ -d "$MNT" ] && ! mountpoint -q "$MNT" && [ -n "$(ls -A "$MNT" 2>/dev/null)" ]; then
+  err "$MNT already has files in it on the root disk; move them away first (mounting the disk there would hide them)"
+fi
 command -v mkfs.ext4 >/dev/null 2>&1 || err "mkfs.ext4 is not installed on this server (install e2fsprogs)"
 mkfs.ext4 -q -L ${shQuote(label)} -m 1 -E nodiscard "$DEV" </dev/null || err "mkfs.ext4 failed"
 UUID=$(blkid -s UUID -o value "$DEV")
 [ -n "$UUID" ] || err "the new filesystem has no UUID"
 mkdir -p "$MNT"
 sed -i "\\| $MNT |d" /etc/fstab
-echo "UUID=$UUID $MNT ext4 defaults,nofail,x-systemd.device-timeout=10s 0 2" >> /etc/fstab
+# nofail: a missing disk never blocks boot; before=docker: after a reboot the
+# disk is back at $MNT before dockerd starts the containers that write to it.
+echo "UUID=$UUID $MNT ext4 ${DISK_FSTAB_OPTIONS} 0 2" >> /etc/fstab
 command -v systemctl >/dev/null 2>&1 && systemctl daemon-reload >/dev/null 2>&1 || true
-mountpoint -q "$MNT" || mount "$MNT"
+mountpoint -q "$MNT" || mount "$MNT" || err "mounting $DEV at $MNT failed"
+${hostMountCheck('"$MNT"', '"$DEV"')}
 mkdir -p "$MNT/volumes"
 echo "__SWARMY_FORMATTED__ $UUID"
 `;
@@ -440,7 +472,12 @@ export function renderVolumeDirScript(device: string): string {
   const d = parseDiskVolumeDevice(device);
   if (!d) throw new Error('not a swarmy disk volume path');
   return `set -eu
-mountpoint -q ${shQuote(d.mountpoint)} || { echo "__SWARMY_ERR__ ${d.mountpoint} is not mounted"; exit 3; }
+err() { echo "__SWARMY_ERR__ $*"; exit 3; }
+MNT=${shQuote(d.mountpoint)}
+${HOST_NS_CHECK}
+mountpoint -q "$MNT" || err "$MNT is not mounted"
+# dockerd binds from the HOST's view: the disk must be mounted there too (QA-075).
+awk -v m="$MNT" '$5 == m { f = 1 } END { exit !f }' /proc/1/mountinfo || err "$MNT is not mounted as the host sees it"
 mkdir -p ${shQuote(device)}
 echo __SWARMY_OK__
 `;

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'bun:test';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   classifyDisks,
   defaultDiskMount,
+  DISK_FSTAB_OPTIONS,
   diskEntries,
   diskFormatGateAllows,
   diskId,
@@ -225,6 +229,48 @@ describe('host scripts', () => {
     expect(s).toContain('UUID=$UUID $MNT ext4');
   });
 
+  it('format script mounts in the host namespace, refuses a non-empty mountpoint and verifies the host sees the disk (QA-075)', () => {
+    const s = renderFormatScript({ path: '/dev/sdb', serial: '12345678', sizeBytes: 100 * GB });
+    const mkfs = s.indexOf('mkfs.ext4 -q');
+    const mount = s.indexOf('mount "$MNT"');
+    // Refuses to run in a private mount namespace (the sandboxed agent's own).
+    expect(s).toContain('"$(readlink /proc/self/ns/mnt)" != "$(readlink /proc/1/ns/mnt)"');
+    expect(s.indexOf('/proc/self/ns/mnt')).toBeLessThan(mkfs);
+    // Non-empty, unmounted mountpoint ⇒ refuse before mkfs / fstab / mount.
+    const nonEmpty = s.indexOf('ls -A "$MNT"');
+    expect(nonEmpty).toBeGreaterThan(-1);
+    expect(nonEmpty).toBeLessThan(mkfs);
+    expect(s).toContain('already has files in it');
+    // After mounting: PID 1's mountinfo must show the disk's MAJ:MIN at $MNT.
+    const verify = s.indexOf('/proc/1/mountinfo');
+    expect(verify).toBeGreaterThan(mount);
+    expect(verify).toBeLessThan(s.indexOf('__SWARMY_FORMATTED__'));
+    expect(s).toContain('lsblk -dn -o MAJ:MIN "$DEV"');
+    expect(s).toContain('not mounted as the host sees it');
+    expect(s).toContain('|| err "mounting $DEV at $MNT failed"');
+    // Reboot: fstab by UUID, nofail, and mounted before dockerd starts.
+    expect(DISK_FSTAB_OPTIONS).toContain('x-systemd.before=docker.service');
+    expect(s).toContain(`UUID=$UUID $MNT ext4 ${DISK_FSTAB_OPTIONS} 0 2`);
+  });
+
+  it('the rendered non-empty refusal really refuses in a shell', async () => {
+    const script = renderFormatScript({ path: '/dev/sdb', serial: '1', sizeBytes: GB });
+    const guard = /^if \[ -d "\$MNT" \][\s\S]*?^fi$/m.exec(script)?.[0];
+    expect(guard).toBeDefined();
+    const dir = await mkdtemp(join(tmpdir(), 'swarmy-disk-'));
+    const run = () =>
+      Bun.spawnSync(['sh', '-c', `set -eu\nerr() { echo "__SWARMY_ERR__ $*"; exit 3; }\nMNT=${shQuote(dir)}\n${guard}\necho ok`]);
+    try {
+      expect(run().stdout.toString()).toContain('ok');
+      await writeFile(join(dir, 'app.db'), 'x');
+      const full = run();
+      expect(full.exitCode).toBe(3);
+      expect(full.stdout.toString()).toContain('already has files in it');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('sizes are printed as whole numbers (awk would print 5.2e+09 for a big disk)', () => {
     expect(renderDiskProbeScript()).toContain('printf "%s %.0f\\n"');
     expect(renderGrowScript('12345678')).toContain('printf "%.0f"');
@@ -232,7 +278,10 @@ describe('host scripts', () => {
 
   it('grow and volume-dir scripts', () => {
     expect(renderGrowScript('12345678')).toContain('resize2fs');
-    expect(renderVolumeDirScript('/var/lib/swarmy/disks/A1/volumes/v')).toContain("mountpoint -q '/var/lib/swarmy/disks/A1'");
+    expect(renderVolumeDirScript('/var/lib/swarmy/disks/A1/volumes/v')).toContain("MNT='/var/lib/swarmy/disks/A1'");
+    expect(renderVolumeDirScript('/var/lib/swarmy/disks/A1/volumes/v')).toContain('mountpoint -q "$MNT"');
+    // dockerd binds from the host's view (QA-075).
+    expect(renderVolumeDirScript('/var/lib/swarmy/disks/A1/volumes/v')).toContain('/proc/1/mountinfo');
     expect(() => renderVolumeDirScript('/tmp/x')).toThrow();
   });
 });

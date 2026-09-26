@@ -23,12 +23,13 @@
  * of any SA is not the mesh IP (twice in a row), restarts dockerd once (with
  * the pin in place a restart does fix it), at most once per 30 min.
  *
- * Runs on the host: natively for the binary agent (root), through a one-shot
+ * Runs on the host: natively for the binary agent (root, entering PID 1's
+ * mount namespace when the unit's sandboxing gave it a private one), through a one-shot
  * `--pid host --privileged` nsenter container for the container agent. A host
  * without systemd (Docker Desktop) is skipped with a note.
  */
 import { selfContainer } from '../self-container';
-import { existsSync } from 'node:fs';
+import { existsSync, readlinkSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { DockerClient } from '@swarmy/core/docker';
@@ -118,12 +119,34 @@ function inContainer(): boolean {
   return existsSync('/.dockerenv');
 }
 
+/** `/proc/<pid>/ns/mnt` link target (`mnt:[4026531841]`), or null when unreadable. */
+function mountNs(pid: 'self' | '1'): string | null {
+  try {
+    return readlinkSync(`/proc/${pid}/ns/mnt`);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pure: the argv the NATIVE agent runs a host script with. systemd sandboxing
+ * on the agent unit (ProtectKernelTunables/ProtectControlGroups) gives the
+ * agent a PRIVATE mount namespace, so a plain `sh -c 'mount …'` mounts only
+ * inside it: the host and dockerd never see it (QA-075). When our namespace is
+ * not PID 1's — or we cannot tell — enter PID 1's mount namespace first.
+ */
+export function nativeHostArgv(script: string, ns: { self: string | null; host: string | null }): string[] {
+  const same = ns.self !== null && ns.host !== null && ns.self === ns.host;
+  return same ? ['sh', '-c', script] : ['nsenter', '-t', '1', '-m', '--', 'sh', '-c', script];
+}
+
 /** Run a POSIX-sh script in the host's namespaces. Never throws. */
 export async function runOnHost(docker: DockerClient, script: string, timeoutMs = 60_000): Promise<{ code: number; out: string }> {
   try {
     if (!inContainer()) {
       if (process.getuid?.() !== 0) return { code: 1, out: 'not root' };
-      const p = Bun.spawn(['sh', '-c', script], { stdout: 'pipe', stderr: 'pipe' });
+      const argv = nativeHostArgv(script, { self: mountNs('self'), host: mountNs('1') });
+      const p = Bun.spawn(argv, { stdout: 'pipe', stderr: 'pipe' });
       const t = setTimeout(() => p.kill(), timeoutMs);
       const [o, e, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
       clearTimeout(t);

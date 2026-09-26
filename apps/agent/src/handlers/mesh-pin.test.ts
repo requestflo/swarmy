@@ -7,6 +7,7 @@ import {
   MESH_PIN_SH,
   meshPinFor,
   misKeyedSAs,
+  nativeHostArgv,
   renderMeshPinInstall,
 } from './mesh-pin';
 
@@ -60,5 +61,19 @@ describe('mesh pin (QA-059: the swarm stays on the mesh after a reboot)', () => 
       const r = Bun.spawnSync(['bash', '-c', `. "$0"; mesh_pin_prefix ${ip} ${bits}`, INSTALLER], { stdout: 'pipe' });
       expect(r.stdout.toString()).toBe(meshPinFor(`${ip}/${bits}`)!.prefix);
     }
+  });
+});
+
+describe('native host exec (QA-075: a disk mount must land in the HOST mount namespace)', () => {
+  test('a sandboxed agent (private mount namespace) enters PID 1\'s mount namespace', () => {
+    const argv = nativeHostArgv('mount /x', { self: 'mnt:[4026532301]', host: 'mnt:[4026531841]' });
+    expect(argv).toEqual(['nsenter', '-t', '1', '-m', '--', 'sh', '-c', 'mount /x']);
+  });
+  test('when the namespace cannot be read, it still goes through PID 1', () => {
+    expect(nativeHostArgv('true', { self: null, host: 'mnt:[1]' }).slice(0, 5)).toEqual(['nsenter', '-t', '1', '-m', '--']);
+    expect(nativeHostArgv('true', { self: 'mnt:[1]', host: null })[0]).toBe('nsenter');
+  });
+  test('already in the host namespace: plain sh', () => {
+    expect(nativeHostArgv('true', { self: 'mnt:[4026531841]', host: 'mnt:[4026531841]' })).toEqual(['sh', '-c', 'true']);
   });
 });
