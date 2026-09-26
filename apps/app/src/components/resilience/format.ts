@@ -35,10 +35,16 @@ export const DRILL_TITLES: Record<ResilienceDrillKind, string> = {
   'backup-verify': 'Backup verify',
 };
 
+/** Plain words for Summary; DRILL_TECH says how, at Controls. */
 export const DRILL_BLURBS: Record<ResilienceDrillKind, string> = {
   restore:
-    'Clones your latest DB backup into a throwaway cluster, runs SELECT 1, then destroys the clone.',
-  'backup-verify': 'Runs restic check against your backup destination to prove the repo is intact.',
+    'Puts your latest database save back into a throwaway copy, checks it answers, then deletes the copy.',
+  'backup-verify': 'Reads your backups where they’re kept to prove every save is whole and can be put back.',
+};
+
+export const DRILL_TECH: Record<ResilienceDrillKind, string> = {
+  restore: 'restore latest dump → throwaway cluster · SELECT 1 · destroy',
+  'backup-verify': 'restic check against the backup destination · read-only one-shot container',
 };
 
 /** Hot Signal status-token classes per severity. */

@@ -19,6 +19,7 @@ import { DISK_HOT_PCT } from '../servers/use-fleet';
 import { gb, plainRoles } from '../servers/server-words';
 import { ServerCode } from './server-code';
 import { useServer } from './use-server';
+import { isNotFound, ServerNotFound } from './server-not-found';
 
 const STATE_SAY: Record<string, string> = {
   online: 'is online.',
@@ -38,7 +39,8 @@ export function ServerDetailPage({ nodeId }: { nodeId: string }): React.JSX.Elem
   const s = useServer(nodeId);
   if (s.pending) return <PageSkeleton variant="kpis" />;
   if (!s.node || !s.server) {
-    return <PageError title="Couldn’t find that server." error={s.error} retry={s.refetch} />;
+    if (isNotFound(s.error)) return <ServerNotFound nodeId={nodeId} />;
+    return <PageError title="Couldn’t load that server." error={s.error} retry={s.refetch} />;
   }
   const { node: n, server } = s;
   const hot = n.status === 'online' && server.diskPct !== null && server.diskPct >= DISK_HOT_PCT;

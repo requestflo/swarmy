@@ -10,6 +10,7 @@ export function useAppFacts(stack: string) {
   const domains = useQuery({ ...trpc.ingress.listDomains.queryOptions({ stack }), refetchInterval: 15_000 });
   const releases = useQuery({ ...trpc.releases.list.queryOptions({ stackName: stack, limit: 5 }), refetchInterval: 15_000 });
   const coverage = useQuery(trpc.backups.autoCoverage.queryOptions({ stack }));
+  const managed = useQuery(trpc.dbBackups.overview.queryOptions());
   const telemetry = useQuery(trpc.observability.stackTelemetry.queryOptions({ stack }));
   const safety = useQuery(trpc.releases.getSafety.queryOptions({ stackName: stack }));
   const resilience = useQuery(trpc.resilience.overview.queryOptions({ stack }));
@@ -19,6 +20,8 @@ export function useAppFacts(stack: string) {
     domains: domains.data,
     releases: releases.data,
     coverage: coverage.data,
+    /** Managed databases' own schedules: with `coverage`, what the Data fact says (see appDataCoverage). */
+    managedDbs: managed.data,
     telemetry: telemetry.data,
     safety: safety.data,
     problems: resilience.data?.ready ? resilience.data.problems : undefined,

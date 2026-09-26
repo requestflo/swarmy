@@ -11,6 +11,7 @@ import { StackVolumeCoverageCard } from './stack-volume-coverage-card';
 import { StackSchedulesCard } from './stack-schedules-card';
 import { StackSnapshotsCard } from './stack-snapshots-card';
 import { useStackBackups } from './use-stack-backups';
+import { backupsAlreadyOn } from './app-data-coverage';
 import { RetryBackupAction } from './retry-backup-action';
 
 interface StackBackupsProps {
@@ -61,11 +62,12 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
             }}
             prefillVolume={prefillVolume}
             onChangeAuto={changeVolume}
+            savedElsewhere={b.data.mine.filter((r) => r.scheduled).map((r) => r.cluster)}
           />
   );
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
       <div className="flex min-w-0 flex-col gap-5">
         <SayHeader
           size="md"
@@ -99,11 +101,7 @@ export function StackBackups({ stack }: StackBackupsProps): React.JSX.Element {
       <aside className="flex min-w-0 flex-col gap-4">
         <StackBackupsCode stack={stack} b={b} />
         <AlreadyOn
-          items={[
-            { what: 'Backups', detail: b.coverage?.appOptedOut ? 'off for this app' : 'every volume nightly' },
-            { what: 'Databases', detail: `${b.coverage?.databases.length ?? 0} on the same nightly run` },
-            { what: 'Encrypted', detail: 'before it leaves the server' },
-          ]}
+          items={backupsAlreadyOn(b.data, b.coverage)}
         />
         <Link to="/backups" className="px-1"><SectionLink>Where backups go →</SectionLink></Link>
       </aside>

@@ -4,6 +4,7 @@ import { Tech } from '@/components/calm';
 import { imageTag, personName } from '@/components/apps/app-words';
 import { TextSkeleton } from '@/components/states';
 import { relTime } from '@/lib/format';
+import { appDataCoverage, dataFactWords } from '@/components/backups/app-data-coverage';
 import type { AppFacts } from './use-app-facts';
 
 function Fact({ label, value, tech, link }: { label: string; value: React.ReactNode; tech?: React.ReactNode; link?: React.ReactNode }): React.JSX.Element {
@@ -37,6 +38,7 @@ export function AppFacts({ stack, f }: { stack: string; f: AppFacts }): React.JS
   const dbs = f.coverage?.databases ?? [];
   const vols = f.coverage?.volumes ?? [];
   const dest = f.coverage?.destination;
+  const data = appDataCoverage(stack, f.coverage, f.managedDbs);
   const owners = (f.members ?? []).filter((m) => m.role !== 'member').length;
 
   return (
@@ -56,8 +58,8 @@ export function AppFacts({ stack, f }: { stack: string; f: AppFacts }): React.JS
         />
         <Fact
           label="Data"
-          value={f.coverage ? (dest && (dbs.length || vols.length) ? `${dbs.length ? `${dbs.length} database${dbs.length === 1 ? '' : 's'}` : `${vols.length} volume${vols.length === 1 ? '' : 's'}`}, saved nightly` : dbs.length || vols.length ? 'Not backed up yet' : 'Keeps no data of its own') : undefined}
-          tech={dbs.length || vols.length ? [...dbs.map((d) => `${d.name} · ${d.engine} · ${d.method}`), ...vols.map((v) => v.volume)].join('  ') + (dest ? `  → ${dest.name}` : '') : undefined}
+          value={f.coverage && f.managedDbs ? dataFactWords(data) : undefined}
+          tech={data.keepsNothing ? undefined : [...data.mine.map((r) => `${r.cluster} · ${r.engine ?? 'postgres'} · ${r.cron ?? 'no schedule'}`), ...dbs.map((d) => `${d.name} · ${d.engine} · ${d.method}`), ...vols.map((v) => v.volume)].join('  ') + (dest ? `  → ${dest.name}` : '')}
           link={<FactLink to="/stacks/$name/backups" stack={stack}>Backups</FactLink>}
         />
         <Fact

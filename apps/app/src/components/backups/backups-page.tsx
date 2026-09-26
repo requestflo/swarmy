@@ -8,6 +8,7 @@ import { AlreadyOn, Depth, NextAction, Say } from '@/components/calm';
 import { PageError, PageSkeleton } from '@/components/states';
 import { ControllerSection } from '@/components/controllerbackup/controller-section';
 import { relativeTime } from './backup-format';
+import { failureWords, volumeWords } from './backup-words';
 import { BackupsCode } from './backups-code';
 import { DestinationRows } from './destination-rows';
 import { DestinationsCard } from './destinations-card';
@@ -56,7 +57,7 @@ export function BackupsPage(): React.JSX.Element {
         title={title}
         description="Saves are encrypted and deduplicated. Each app chooses what it saves on its Backups tab; this page is where they go, how to get them back, and swarmy's own backup."
       />
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="flex min-w-0 flex-col gap-5">
           {t.length === 0 ? (
             <NextAction
@@ -74,8 +75,8 @@ export function BackupsPage(): React.JSX.Element {
           ) : broken ? (
             <NextAction
               tone="bad"
-              title={`${broken.volume} didn’t save ${relativeTime(broken.startedAt)}`}
-              tech={broken.error ?? undefined}
+              title={`${volumeWords(broken.volume)} didn’t save ${relativeTime(broken.startedAt)}`}
+              tech={[broken.volume, broken.error].filter(Boolean).join(' · ')}
               actions={
                 <Button asChild>
                   <Link to="/stacks/$name/backups" params={{ name: broken.volume.split('_')[0] ?? broken.volume }}>
@@ -84,14 +85,14 @@ export function BackupsPage(): React.JSX.Element {
                 </Button>
               }
             >
-              The saves before it are still there. Run it again from its app’s Backups tab; if it fails twice, the reason is below at Controls.
+              {failureWords(broken.error)} The saves before it are still there; run it again now from its app’s Backups tab.
             </NextAction>
           ) : null}
           <EstateSnapshotsCard />
           <DestinationRows targets={t} />
           <Depth at="controls">
             <NativeTargetHero targets={t} />
-            <div className="grid gap-5 lg:grid-cols-2">
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-2">
               <DestinationsCard targets={t} />
               <ReplicatedStorePanel />
             </div>

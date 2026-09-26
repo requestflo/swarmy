@@ -4,11 +4,13 @@ import type { ResilienceDrillCardView, ResilienceDrillTargetView } from '@swarmy
 import { cn } from '@swarmy/ui';
 import {
   DRILL_BLURBS,
+  DRILL_TECH,
   DRILL_TITLES,
   formatDurationMs,
   formatDurationSec,
   relativeTime,
 } from './format';
+import { Tech } from '@/components/calm';
 import { RunDrillDialog } from './run-drill-dialog';
 
 function lastLine(card: ResilienceDrillCardView): {
@@ -22,8 +24,8 @@ function lastLine(card: ResilienceDrillCardView): {
   }
   const bits = [`Last ${DRILL_TITLES[card.kind].toLowerCase()}: successful, ${when}`];
   if (card.kind === 'restore') {
-    if (card.rpoSeconds != null) bits.push(`RPO ${formatDurationSec(card.rpoSeconds)}`);
-    if (card.rtoEstimateMs != null) bits.push(`RTO ${formatDurationMs(card.rtoEstimateMs)} estimate`);
+    if (card.rpoSeconds != null) bits.push(`could lose up to ${formatDurationSec(card.rpoSeconds)}`);
+    if (card.rtoEstimateMs != null) bits.push(`back in about ${formatDurationMs(card.rtoEstimateMs)}`);
   } else {
     bits.push(`took ${formatDurationMs(card.last.durationMs)}`);
   }
@@ -45,6 +47,7 @@ function DrillCard({
       <div>
         <h3 className="text-sm font-bold">{DRILL_TITLES[card.kind]}</h3>
         <p className="text-muted-foreground mt-1 text-xs">{DRILL_BLURBS[card.kind]}</p>
+        <Tech className="mt-1 block">{DRILL_TECH[card.kind]}</Tech>
       </div>
       <div className="flex items-start gap-2">
         <Icon

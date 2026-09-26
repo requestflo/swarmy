@@ -1,11 +1,15 @@
 import * as React from 'react';
 import { ChevronDownIcon } from 'lucide-react';
 import { cn } from '@swarmy/ui';
+import { Depth } from '@/components/calm';
+import { failureWords } from './backup-words';
 
 interface SnapshotFailureReasonProps {
   /** The captured restic / agent error for a FAILED run. */
   error: string | null | undefined;
   className?: string;
+  /** Say it in plain words first (Summary) and keep the raw error for Controls. */
+  plain?: boolean;
 }
 
 /**
@@ -16,9 +20,18 @@ interface SnapshotFailureReasonProps {
 export function SnapshotFailureReason({
   error,
   className,
+  plain,
 }: SnapshotFailureReasonProps): React.JSX.Element | null {
   const [expanded, setExpanded] = React.useState(false);
   const text = error?.trim();
+  if (plain) {
+    return (
+      <span className="flex min-w-0 flex-col">
+        <span className="text-tone-bad">{failureWords(text)}</span>
+        {text ? <Depth at="controls"><SnapshotFailureReason error={text} className={className} /></Depth> : null}
+      </span>
+    );
+  }
   if (!text) return null;
   const long = text.length > 96 || text.includes('\n');
   return (

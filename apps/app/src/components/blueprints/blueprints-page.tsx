@@ -63,11 +63,8 @@ export function BlueprintsPage(): React.JSX.Element {
     >
       <SayHeader
         eyebrow={list.isPending ? 'Templates' : `Templates · ${total} apps`}
-        title={
-          <>
-            Bundled with swarmy, every version pinned. <em>Reviewed before it ships.</em>
-          </>
-        }
+        title={list.isPending ? 'Apps, ready to run.' : `${total} apps, ready to run.`}
+        lede="Bundled with swarmy, every version pinned, reviewed before it ships."
         actions={
           <Button asChild variant="outline" className="pointer-coarse:min-h-11">
             <Link to="/deploy">Compose, image or git instead</Link>

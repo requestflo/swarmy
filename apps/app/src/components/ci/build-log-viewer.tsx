@@ -77,10 +77,11 @@ export function BuildLogViewer({
     <div
       ref={boxRef}
       onScroll={onScroll}
-      className="bg-foreground/95 text-background h-[60vh] overflow-auto rounded-xl p-4 font-mono text-xs leading-relaxed"
+      // `dark` scopes the dark tokens to the panel, so stderr's tone-bad reads on the code ground in both themes.
+      className="calm-code dark h-[60vh] overflow-auto p-4 text-xs leading-relaxed"
     >
       {lines.length === 0 ? (
-        <p className="text-background/70">{live ? 'Waiting for build output…' : 'No logs captured.'}</p>
+        <p className="opacity-70">{live ? 'Waiting for build output…' : 'No logs captured.'}</p>
       ) : (
         lines.map((l, i) => (
           <pre

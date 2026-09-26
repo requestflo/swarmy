@@ -1,10 +1,11 @@
 import * as React from 'react';
 import { DatabaseBackupIcon } from 'lucide-react';
 import { EmptyState } from '@swarmy/ui';
-import { CalmRow, RowList, type Tone } from '@/components/calm';
+import { CalmRow, Depth, RowList, type Tone } from '@/components/calm';
 import { fmtBytes, relativeTime } from './backup-format';
 import { RestoreSnapshotConfirm } from './restore-snapshot-confirm';
 import { SnapshotFailureReason } from './snapshot-failure-reason';
+import { volumeWords } from './backup-words';
 
 export interface SnapshotItem {
   id: string;
@@ -47,11 +48,16 @@ export function SnapshotRows({ rows, emptyTitle, emptyDescription }: SnapshotRow
           <CalmRow
             key={snap.id}
             tone={s.tone}
-            name={snap.volume}
-            sub={when(snap.startedAt)}
+            name={volumeWords(snap.volume)}
+            sub={
+              <span title={snap.volume}>
+                {when(snap.startedAt)}
+                <Depth at="controls"> · {snap.volume}</Depth>
+              </span>
+            }
             say={
               snap.status === 'FAILED' ? (
-                <SnapshotFailureReason error={snap.error} />
+                <SnapshotFailureReason error={snap.error} plain />
               ) : (
                 `${fmtBytes(snap.sizeBytes)} · in ${snap.targetName || 'an unknown destination'} · ${relativeTime(snap.startedAt)}`
               )

@@ -9,6 +9,7 @@ import { PageError, PageSkeleton } from '@/components/states';
 import { useEstateData } from './use-estate-data';
 import { DataGroups } from './data-groups';
 import { EstateDataCode } from './data-code';
+import { storeCount } from './estate-data';
 
 /** Data hub — its tab is "All data": everything the apps keep, and whether each is safe. */
 export function DataPage(): React.JSX.Element {
@@ -30,15 +31,18 @@ export function DataPage(): React.JSX.Element {
   const total = d.items.length;
   const needs = d.items.filter((i) => i.tone === 'warn' || i.tone === 'bad').length;
   const dbs = d.pgRows.length;
-  const saved = d.pgRows.filter((r) => r.scheduled && r.lastStatus !== 'failed').length;
+  const scheduled = d.pgRows.filter((r) => r.scheduled).length;
+  const failing = d.pgRows.filter((r) => r.scheduled && r.lastStatus === 'failed').length;
+  const allSaved = dbs > 0 && scheduled === dbs && failing === 0;
+  const counted = storeCount(d.items);
   const appCount = d.apps.filter((a) => a !== 'Shared').length;
   const title =
     total === 0 ? (
       <>No data yet. <em>Your apps keep nothing so far.</em></>
     ) : needs === 0 ? (
-      <>{total} stores across {appCount} app{appCount === 1 ? '' : 's'}. <em>Every one is safe.</em></>
+      <>{counted} across {appCount} app{appCount === 1 ? '' : 's'}. <em>Every one is safe.</em></>
     ) : (
-      <>{total} stores across {appCount} app{appCount === 1 ? '' : 's'}. <Say tone="warn">{needs} need{needs === 1 ? 's' : ''} a look.</Say></>
+      <>{counted} across {appCount} app{appCount === 1 ? '' : 's'}. <Say tone="warn">{needs} need{needs === 1 ? 's' : ''} a look.</Say></>
     );
   const w = d.worst;
 
@@ -46,9 +50,9 @@ export function DataPage(): React.JSX.Element {
     <Pad>
       <SectionHeader
         title={title}
-        description={dbs ? `${saved} of ${dbs} database${dbs === 1 ? '' : 's'} saved on a schedule. Buckets are kept on ${d.copies} server${d.copies === 1 ? '' : 's'}.` : 'Databases, caches and buckets from every app, with how each is kept safe.'}
+        description={dbs ? `${scheduled} of ${dbs} database${dbs === 1 ? '' : 's'} saved on a schedule${failing ? `, and ${failing === 1 ? 'one' : failing} of those failed its last save` : ''}. Buckets are kept on ${d.copies} server${d.copies === 1 ? '' : 's'}.` : 'Databases, caches and buckets from every app, with how each is kept safe.'}
       />
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
         <div className="flex min-w-0 flex-col gap-5">
           {w ? (
             <NextAction
@@ -83,7 +87,10 @@ export function DataPage(): React.JSX.Element {
           <EstateDataCode d={d} />
           <AlreadyOn
             items={[
-              { what: 'Backups', detail: dbs ? `${saved} of ${dbs} databases on a schedule` : 'every new database is saved nightly', to: '/backups' },
+              // A partial state isn't "already on": until every database saves cleanly it's in the headline and NextAction instead.
+              ...(allSaved || dbs === 0
+                ? [{ what: 'Backups', detail: dbs ? `all ${dbs} databases on a schedule` : 'every new database is saved nightly', to: '/backups' as const }]
+                : []),
               { what: 'Volumes', detail: 'every app volume saved nightly', to: '/backups' },
               { what: 'Buckets', detail: `each file kept on ${d.copies} server${d.copies === 1 ? '' : 's'}`, to: '/data/buckets' },
             ]}

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTRPC } from '@/integrations/trpc';
+import { appDataCoverage } from './app-data-coverage';
 
 /** One app's backups: destinations, schedules, restore points and default-on coverage (moved from the tab, unchanged). */
 export function useStackBackups(stack: string) {
@@ -9,6 +10,7 @@ export function useStackBackups(stack: string) {
   const schedules = useQuery({ ...trpc.backupSchedules.list.queryOptions({ stack }), refetchInterval: 5_000 });
   const snapshots = useQuery({ ...trpc.backups.listSnapshots.queryOptions({ stack }), refetchInterval: 5_000 });
   const coverage = useQuery({ ...trpc.backups.autoCoverage.queryOptions({ stack }), refetchInterval: 15_000 });
+  const managed = useQuery({ ...trpc.dbBackups.overview.queryOptions(), refetchInterval: 30_000 });
 
   const targetRows = targets.data ?? [];
   const targetOptions = React.useMemo(() => targetRows.map((t) => ({ id: t.id, name: t.name })), [targetRows]);
@@ -28,6 +30,8 @@ export function useStackBackups(stack: string) {
     pending: targets.isPending || schedules.isPending || snapshots.isPending || coverage.isPending,
     targets,
     coverage: c,
+    /** Compose + managed databases and volumes, the same words the app's Overview facts use. */
+    data: appDataCoverage(stack, c, managed.data),
     targetOptions,
     scheduleRows,
     snapshotRows,

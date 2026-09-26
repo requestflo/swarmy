@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { DatabaseIcon } from 'lucide-react';
 import { CalmRow, RowList, Section, SectionLink } from '@/components/calm';
 import { EmptyState } from '@/components/states';
+import { storeCount } from './estate-data';
 import type { EstateData } from './use-estate-data';
 
 /** Every store, grouped by app, one flat row each; each app links into its own Data tab. */
@@ -26,7 +27,7 @@ export function DataGroups({ d }: { d: EstateData }): React.JSX.Element {
           <Section
             key={app}
             title={app === 'Shared' ? 'Not attached to an app' : app}
-            count={`${rows.length} store${rows.length === 1 ? '' : 's'}`}
+            count={storeCount(rows)}
             flush
             action={
               app === 'Shared' ? (

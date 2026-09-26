@@ -47,6 +47,8 @@ interface StackSchedulesCardProps {
   prefillVolume?: string;
   /** An auto schedule's "(change)": open the form prefilled with its volume. */
   onChangeAuto: (volume: string) => void;
+  /** Managed databases that save on their own nightly run (the Data tab), so "nothing scheduled" isn't claimed. */
+  savedElsewhere?: string[];
 }
 
 /** This stack's recurring backups — create expands inline, delete confirms. */
@@ -58,6 +60,7 @@ export function StackSchedulesCard({
   onCreatingChange: setCreating,
   prefillVolume,
   onChangeAuto,
+  savedElsewhere,
 }: StackSchedulesCardProps): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
@@ -100,8 +103,12 @@ export function StackSchedulesCard({
             <EmptyState
               className="border-0"
               icon={<CalendarClockIcon />}
-              title="Nothing runs on a schedule yet."
-              description={`Create one and ${stack}'s volumes back themselves up — swarmy handles the rest.`}
+              title={savedElsewhere?.length ? 'No volume has its own schedule.' : 'Nothing runs on a schedule yet.'}
+              description={
+                savedElsewhere?.length
+                  ? `${savedElsewhere.join(', ')} already saves on its own nightly run (see the Data tab). Create one here to back up a volume too.`
+                  : `Create one and ${stack}'s volumes back themselves up — swarmy handles the rest.`
+              }
             />
           </div>
         ) : (

@@ -1,11 +1,15 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { HeartPulseIcon } from 'lucide-react';
+import type { ResilienceCheckId } from '@swarmy/core';
 import { Button, EmptyState } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { DrillCards } from './drill-cards';
 import { DrillHistory } from './drill-history';
 import { ProblemsList } from './problems-list';
+
+/** Checks about the whole estate (storage, edge, DNS, swarmy itself): they belong on /backups and Network, not on one app's tab. */
+const ESTATE_CHECKS = new Set<ResilienceCheckId>(['storage-replication', 'storage-offsite', 'ingress-single', 'geodns-single-region', 'controller-backup']);
 
 interface StackResilienceSectionProps {
   stack: string;
@@ -47,7 +51,7 @@ export function StackResilienceSection({ stack }: StackResilienceSectionProps): 
         <div className="card-pop p-2">
           <EmptyState
             icon={<HeartPulseIcon />}
-            title="Couldn't check this stack"
+            title="Couldn't check this app"
             description={overview.error.message}
             action={
               <Button variant="outline" onClick={() => void overview.refetch()}>
@@ -58,7 +62,7 @@ export function StackResilienceSection({ stack }: StackResilienceSectionProps): 
         </div>
       ) : overview.data ? (
         <div className="space-y-6">
-          <ProblemsList problems={overview.data.problems} />
+          <ProblemsList problems={overview.data.problems.filter((p) => !ESTATE_CHECKS.has(p.check))} />
           <DrillCards drills={overview.data.drills} targets={overview.data.drillTargets} />
           <DrillHistory history={history.data ?? []} isLoading={history.isLoading} />
         </div>

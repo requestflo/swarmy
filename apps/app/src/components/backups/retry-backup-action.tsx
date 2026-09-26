@@ -4,6 +4,7 @@ import { Button, toast } from '@swarmy/ui';
 import { NextAction } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
 import { relativeTime } from './backup-format';
+import { failureWords, volumeWords } from './backup-words';
 
 /** The failed save is the one next action: run it again, same volume, same destination. */
 export function RetryBackupAction({
@@ -16,7 +17,7 @@ export function RetryBackupAction({
   const run = useMutation(
     trpc.backups.backupVolume.mutationOptions({
       onSuccess: () => {
-        toast.success(`${snap.volume} saved`);
+        toast.success(`${volumeWords(snap.volume)} saved`);
         void qc.invalidateQueries();
       },
       onError: (e) => toast.error(`Backup of ${snap.volume} failed again`, { description: e.message }),
@@ -25,15 +26,15 @@ export function RetryBackupAction({
   return (
     <NextAction
       tone="bad"
-      title={`${snap.volume} didn’t save ${relativeTime(snap.startedAt)}`}
-      tech={snap.error ?? undefined}
+      title={`${volumeWords(snap.volume)} didn’t save ${relativeTime(snap.startedAt)}`}
+      tech={[snap.volume, snap.error].filter(Boolean).join(' · ')}
       actions={
         <Button disabled={run.isPending} onClick={() => run.mutate({ volume: snap.volume, targetId: snap.targetId })}>
           {run.isPending ? 'Saving…' : 'Back it up again'}
         </Button>
       }
     >
-      Runs the same save to the same place now. It doesn’t stop the app.
+      {failureWords(snap.error)} Or run it again now: same save, same place, and it doesn’t stop the app.
     </NextAction>
   );
 }

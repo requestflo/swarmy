@@ -20,7 +20,7 @@ interface MetricsPanelProps {
   stack?: string;
 }
 
-/** Per-minute average chart over the last hour — coral bars, no chart chrome. */
+/** Per-minute average chart over the last hour — info-tone bars (coral is for the one action), no chart chrome. */
 export function MetricsPanel({ enabled, stack }: MetricsPanelProps): React.JSX.Element {
   const trpc = useTRPC();
   const [metric, setMetric] = React.useState<string>(METRIC_PRESETS[0].value);
@@ -67,7 +67,7 @@ export function MetricsPanel({ enabled, stack }: MetricsPanelProps): React.JSX.E
               <div
                 key={p.bucket}
                 title={`${p.bucket} · ${p.value}`}
-                className="bg-primary/70 hover:bg-primary min-h-[2px] flex-1 rounded-t-sm transition-colors"
+                className="bg-tone-info/60 hover:bg-tone-info min-h-[2px] flex-1 rounded-t-sm transition-colors"
                 style={{ height: `${Math.max(2, (p.value / max) * 100)}%` }}
               />
             ))}

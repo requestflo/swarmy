@@ -16,6 +16,19 @@ export interface DataItem {
   cluster?: string;
 }
 
+/**
+ * "4 stores and 1 bucket". Buckets are counted apart so an app's group here
+ * agrees with its Data tab ("keeps its data in 4 places"), which lists only
+ * databases, caches and indexes.
+ */
+export function storeCount(items: DataItem[]): string {
+  const b = items.filter((i) => i.kind === 'Bucket').length;
+  const n = items.length - b;
+  const stores = n ? `${n} store${n === 1 ? '' : 's'}` : '';
+  const buckets = b ? `${b} bucket${b === 1 ? '' : 's'}` : '';
+  return [stores, buckets].filter(Boolean).join(' and ');
+}
+
 /** "0 3 * * *" → "nightly at 03:00"; anything else stays as the cron. */
 export function scheduleWords(cron: string | null): string {
   if (!cron) return 'on a schedule';
@@ -54,7 +67,7 @@ export function pgItem(r: PgRow): DataItem {
     tech,
     say: `${when[0]!.toUpperCase()}${when.slice(1)} · ${last}`,
     tone: stale ? 'warn' : 'ok',
-    word: stale ? 'Needs you' : 'Safe',
+    word: stale ? 'Needs you' : 'Online',
     risk: stale ? 60 : r.pitr ? 0 : 10,
   };
 }
@@ -66,10 +79,12 @@ export function cacheItem(c: { stack: string; name: string; engine: string; memo
     app: c.stack,
     kind: 'Cache',
     name: c.name,
-    say: copies > 0 ? `In memory, with ${copies} standby cop${copies === 1 ? 'y' : 'ies'}` : 'In memory only. The app rebuilds it after a restart.',
+    say: copies > 0
+      ? `In memory, with ${copies} standby cop${copies === 1 ? 'y' : 'ies'}. Safe if a server fails.`
+      : 'In memory only, nothing to back up. The app rebuilds it after a restart.',
     tech: `${c.engine} · ${c.memoryMb} MB · replicas ${c.replicas.running}/${c.replicas.desired}`,
-    tone: copies > 0 ? 'ok' : 'idle',
-    word: copies > 0 ? 'Safe' : 'Rebuildable',
+    tone: 'ok',
+    word: 'Online',
     risk: copies > 0 ? 5 : 20,
   };
 }
@@ -80,10 +95,10 @@ export function indexItem(kind: 'Search' | 'Vectors', s: { stack: string; name: 
     app: s.stack,
     kind,
     name: s.name,
-    say: 'An index. It can be rebuilt from the app’s own data.',
+    say: 'An index, nothing to back up. It can be rebuilt from the app’s own data.',
     tech: s.engine,
-    tone: 'idle',
-    word: 'Rebuildable',
+    tone: 'ok',
+    word: 'Online',
     risk: 15,
   };
 }
@@ -94,10 +109,10 @@ export function bucketItem(b: { name: string; usageBytes: number; objects: numbe
     app,
     kind: 'Bucket',
     name: b.name,
-    say: `${fmtBytes(b.usageBytes)} in ${b.objects.toLocaleString()} files · kept on ${copies} server${copies === 1 ? '' : 's'}`,
+    say: `${fmtBytes(b.usageBytes)} in ${b.objects.toLocaleString()} files · ${copies > 1 ? `kept on ${copies} servers` : 'only one copy, on one server'}`,
     tech: `garage · replication ${copies}`,
     tone: copies > 1 ? 'ok' : 'warn',
-    word: copies > 1 ? 'Safe' : 'One copy',
+    word: copies > 1 ? 'Online' : 'Needs you',
     risk: copies > 1 ? 5 : 50,
   };
 }

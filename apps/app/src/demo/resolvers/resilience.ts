@@ -142,7 +142,6 @@ function runDemoDrill(st: ResilienceState, kind: DrillKind, target: string | nul
 // `single-replica` aggregates service names rather than a stack ref — grafana
 // and prometheus are seeded under the `platform` stack (see resolvers/data.ts).
 function problemMatchesStack(p: ProblemView, stack: string): boolean {
-  if (p.check === 'geodns-single-region') return true;
   if (!p.resource) return true;
   if (p.resource.includes(stack)) return true;
   if (p.check === 'single-replica') return stack === 'platform';

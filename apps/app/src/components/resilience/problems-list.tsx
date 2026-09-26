@@ -48,12 +48,8 @@ export function ProblemsList({
   if (problems.length === 0) {
     return (
       <div className="card-pop p-8 text-center">
-        <p className="headline text-2xl">
-          Everything's <em>covered</em>.
-        </p>
-        <p className="text-muted-foreground mt-2 text-sm">
-          Replicas, backups, topology and the edge all check out. Run a drill below to keep it proven.
-        </p>
+        <p className="say text-xl">No other gaps found.</p>
+        <p className="text-muted-foreground mt-2 text-sm">Run a drill below to prove a restore works.</p>
       </div>
     );
   }
