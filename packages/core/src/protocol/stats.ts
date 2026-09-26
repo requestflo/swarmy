@@ -29,10 +29,37 @@ export const ContainerMetricsSample = z.object({
 });
 export type ContainerMetricsSample = z.infer<typeof ContainerMetricsSample>;
 
+/** Requests one edge Caddy served for one host since the previous scrape. */
+export const EdgeHostTraffic = z.object({
+  /** Request Host as Caddy's `per_host` metrics label it (lower-case, no port). */
+  host: z.string().min(1),
+  /** Requests since the previous scrape (a counter DELTA, never a total). */
+  requests: z.number().int().nonnegative(),
+  /** Of those, responses with a 5xx status. */
+  errors5xx: z.number().int().nonnegative(),
+});
+export type EdgeHostTraffic = z.infer<typeof EdgeHostTraffic>;
+
+/**
+ * Per-edge request counts (Q4): the agent on a node running the swarmy edge
+ * Caddy scrapes Caddy's local Prometheus `/metrics` and reports per-host
+ * deltas since its previous scrape. Absent on non-edge nodes, on the first
+ * scrape (no baseline yet) and from agents that predate it.
+ */
+export const EdgeTrafficSample = z.object({
+  sampledAt: Timestamp,
+  /** Seconds covered by these deltas (time since the previous scrape). */
+  intervalSec: z.number().positive(),
+  hosts: z.array(EdgeHostTraffic),
+});
+export type EdgeTrafficSample = z.infer<typeof EdgeTrafficSample>;
+
 export const MetricsPayload = z.object({
   sampledAt: Timestamp,
   node: NodeMetricsSample,
   containers: z.array(ContainerMetricsSample),
+  /** Edge request counts — OPTIONAL so older agents/controllers interoperate. */
+  edge: EdgeTrafficSample.optional(),
 });
 export type MetricsPayload = z.infer<typeof MetricsPayload>;
 
