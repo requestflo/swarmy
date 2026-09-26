@@ -60,6 +60,15 @@ export const NODE_REGION_LABEL = 'swarmy.region';
 export const NODE_PUBLIC_IP_LABEL = 'swarmy.node.public-ip';
 export const NODE_PUBLIC_IP_OVERRIDE_LABEL = 'swarmy.node.public-ip.override';
 
+/**
+ * Is the node reachable from outside (`public`) or behind NAT (`nat`, a home
+ * VM)? Stamped from the agent's heartbeat; the operator-set override wins.
+ * The retire planner never puts a NAT'd node in a manager/Garage/edge role
+ * (QA-084, node-decommission.plan.ts `nodeReachability`).
+ */
+export const NODE_REACHABILITY_LABEL = 'swarmy.node.reachability';
+export const NODE_REACHABILITY_OVERRIDE_LABEL = 'swarmy.node.reachability.override';
+
 /** Effective public IP from live labels (override beats agent-reported). */
 export function publicIpFromLabels(labels: Record<string, string> | undefined): string | null {
   return labels?.[NODE_PUBLIC_IP_OVERRIDE_LABEL] || labels?.[NODE_PUBLIC_IP_LABEL] || null;
@@ -485,17 +494,19 @@ export async function stampReportedPublicIp(
   nodeId: string,
   reportedIp: string | undefined,
   socketAddr?: string,
+  reachability?: 'public' | 'nat',
 ): Promise<void> {
   const ip = publicIpToStamp(reportedIp, socketAddr);
-  if (!ip) return;
   const labels = hub.nodeInfoFor(nodeId)?.labels;
-  if (labels?.[NODE_PUBLIC_IP_LABEL] === ip) return;
+  // One label write for both (concurrent node updates race on the version).
+  const patch: Record<string, string> = {};
+  if (ip && labels?.[NODE_PUBLIC_IP_LABEL] !== ip) patch[NODE_PUBLIC_IP_LABEL] = ip;
+  if (reachability && labels?.[NODE_REACHABILITY_LABEL] !== reachability) patch[NODE_REACHABILITY_LABEL] = reachability;
+  if (Object.keys(patch).length === 0) return;
   // Pre-swarm nodes have no node labels to stamp yet — stay silent, the next
   // heartbeat after the swarm join lands it (warning here would fire per beat).
-  const stamped = await dispatchNodeLabels(hub, orgId, nodeId, {
-    [NODE_PUBLIC_IP_LABEL]: ip,
-  });
-  if (!stamped) return;
+  const stamped = await dispatchNodeLabels(hub, orgId, nodeId, patch);
+  if (!stamped || !patch[NODE_PUBLIC_IP_LABEL]) return;
   const source = observedPublicIpv4(socketAddr);
   if (reportedIp && source && source !== reportedIp) {
     console.warn(

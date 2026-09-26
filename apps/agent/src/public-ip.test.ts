@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { detectPublicIp, resetPublicIpCache, setObservedPublicIp } from './public-ip';
+import { classifyReachability, detectPublicIp, resetPublicIpCache, setObservedPublicIp } from './public-ip';
 
 const echo = (body: string, calls: string[]) => async (url: string) => {
   calls.push(url);
@@ -27,5 +27,24 @@ describe('detectPublicIp — controller view first, echo last', () => {
   });
   it('with echo disabled (SWARMY_PUBLIC_IP_ECHO=off) and no controller view, returns undefined', async () => {
     expect(await detectPublicIp({ providers: [] })).toBeUndefined();
+  });
+});
+
+describe('classifyReachability (QA-084)', () => {
+  const lan = ['127.0.0.1', '192.168.5.15', '100.106.145.62'];
+  it('public IP on an interface → public', () => {
+    expect(classifyReachability({ publicIp: '203.0.113.7', hostAddresses: ['127.0.0.1', '203.0.113.7'], dmi: ['QEMU'] })).toBe('public');
+  });
+  it('a home VM (public IP is the router’s) → nat', () => {
+    expect(classifyReachability({ publicIp: '81.2.69.160', hostAddresses: lan, dmi: ['QEMU', 'Standard PC (Q35 + ICH9, 2009)'] })).toBe('nat');
+  });
+  it('1:1-NAT clouds (EC2, GCE, Azure) → public', () => {
+    for (const dmi of [['Amazon EC2'], ['Google', 'Google Compute Engine'], ['Microsoft Corporation', '7783-7084-3265-9085-8269-3286-77']]) {
+      expect(classifyReachability({ publicIp: '203.0.113.7', hostAddresses: ['10.0.0.4'], dmi })).toBe('public');
+    }
+  });
+  it('can’t tell → undefined (never nat)', () => {
+    expect(classifyReachability({ publicIp: undefined, hostAddresses: lan, dmi: [] })).toBeUndefined();
+    expect(classifyReachability({ publicIp: '203.0.113.7', hostAddresses: null, dmi: [] })).toBeUndefined();
   });
 });

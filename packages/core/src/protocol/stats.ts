@@ -48,6 +48,13 @@ export const HeartbeatPayload = z.object({
   inflightCommands: z.number().int().nonnegative(),
   /** Re-detected public IP (hourly) so label drift heals without re-register. */
   publicIp: z.string().optional(),
+  /**
+   * Whether that public IP reaches this server (`public`) or it sits behind
+   * NAT (`nat` — a home VM). Absent = the agent can't tell. Stamped as the
+   * `swarmy.node.reachability` label; NAT'd servers never get manager/Garage/
+   * edge roles in a retire plan (QA-084).
+   */
+  reachability: z.enum(['public', 'nat']).optional(),
 });
 export type HeartbeatPayload = z.infer<typeof HeartbeatPayload>;
 

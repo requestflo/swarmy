@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import type { SwarmNodeInfo } from '@swarmy/core/protocol';
 import {
   DestinationPicker,
+  nodeReachability,
   planDecommission,
   type DecomContainerInput,
   type DecomNodeInput,
@@ -420,5 +421,113 @@ describe('DestinationPicker', () => {
   it('skips drained, down and offline servers', () => {
     const nodes = [node('t'), node('d', { availability: 'drain' }), node('o', {}, { online: false }), node('ok')];
     expect(new DestinationPicker(nodes, 't', undefined, []).pick()!.nodeId).toBe('ok');
+  });
+});
+
+describe('role placement never lands on a NAT\'d server (QA-084)', () => {
+  const g = { 'swarmy.garage.member': 'true' };
+  const nat = { 'swarmy.node.reachability': 'nat', 'swarmy.node.public-ip': '81.2.69.160' };
+  const cloud = (ip: string, extra: Record<string, string> = {}) => ({ 'swarmy.node.public-ip': ip, ...extra });
+  // The 1.5 retire run: a cloud manager/Garage member retiring, the home VM
+  // (swarmy-mac, a worker behind NAT) sorting first by id and roomiest.
+  const homeVm = (labels: Record<string, string> = nat) =>
+    node('mac', { labels, addr: '100.106.145.62' }, { hostname: 'swarmy-mac', disk: { usedBytes: 0, totalBytes: 500 * GB } });
+
+  it('replacement manager + Garage member: the public cloud worker, never the home VM, and the plan says why', () => {
+    const p = planDecommission(
+      input({
+        targetNodeId: 'a',
+        nodes: [
+          node('a', { role: 'manager', leader: true, labels: { ...g, ...cloud('203.0.113.1'), 'swarmy.region': 'eu' } }),
+          homeVm({ ...nat, 'swarmy.region': 'eu' }),
+          node('z', { labels: cloud('203.0.113.26', { 'swarmy.region': 'eu' }) }, { hostname: 'cloud-z' }),
+        ],
+        garageReplicationFactor: 1,
+      }),
+    );
+    expect(p.runnable).toBe(true);
+    const promote = p.steps.find((s) => s.kind === 'manager-promote')!;
+    const garage = p.steps.find((s) => s.kind === 'garage-add-member')!;
+    expect(promote.destination!.nodeId).toBe('z');
+    expect(garage.destination!.nodeId).toBe('z');
+    for (const step of [promote, garage]) {
+      expect(step.detail).toContain('Chose cloud-z because it has a public IP (203.0.113.26)');
+      expect(step.detail).toContain('is in eu like the server it replaces');
+      expect(step.detail).toContain('Passed over swarmy-mac: behind NAT');
+    }
+  });
+
+  it('only a NAT\'d candidate → a blocker naming it and the override, not a silent pick', () => {
+    const p = planDecommission(
+      input({ targetNodeId: 'a', nodes: [node('a', { role: 'manager', labels: { ...g, ...cloud('203.0.113.1') } }), homeVm()] }),
+    );
+    expect(p.runnable).toBe(false);
+    expect(p.steps.some((s) => s.kind === 'manager-promote' || s.kind === 'garage-add-member')).toBe(false);
+    const codes = p.blockers.map((b) => b.code);
+    expect(codes).toContain('no-manager-candidate');
+    expect(codes).toContain('garage-no-replacement');
+    const b = p.blockers.find((x) => x.code === 'no-manager-candidate')!;
+    expect(b.message).toContain('swarmy-mac');
+    expect(b.fix).toContain('swarmy.node.reachability.override=public');
+  });
+
+  it('an operator override makes the NAT\'d server eligible', () => {
+    const p = planDecommission(
+      input({
+        targetNodeId: 'a',
+        nodes: [
+          node('a', { role: 'manager', labels: cloud('203.0.113.1') }),
+          homeVm({ ...nat, 'swarmy.node.reachability.override': 'public' }),
+        ],
+      }),
+    );
+    const promote = p.steps.find((s) => s.kind === 'manager-promote')!;
+    expect(promote.destination!.nodeId).toBe('mac');
+    expect(promote.detail).toContain('marked publicly reachable by an operator');
+  });
+
+  it('the edge role never hands over to a NAT\'d server either', () => {
+    const p = planDecommission(
+      input({
+        nodes: [
+          node('a', { role: 'manager' }),
+          node('b', { labels: { 'swarmy.node.ingress': 'true', ...cloud('203.0.113.2') } }),
+          homeVm(),
+        ],
+      }),
+    );
+    expect(p.blockers.map((x) => x.code)).toContain('edge-no-replacement');
+  });
+
+  it('ranking: public > same region > capacity > load', () => {
+    const t = node('t', { labels: { 'swarmy.region': 'eu' } });
+    const big = { disk: { usedBytes: 0, totalBytes: 400 * GB } };
+    const small = { disk: { usedBytes: 0, totalBytes: 100 * GB } };
+    // A confirmed-public server beats a merely-has-an-IP one, even outside the region and smaller.
+    const confirmed = node('p', { labels: cloud('198.51.100.1', { 'swarmy.node.reachability': 'public', 'swarmy.region': 'us' }) }, small);
+    const unconfirmed = node('q', { labels: cloud('198.51.100.2', { 'swarmy.region': 'eu' }) }, big);
+    expect(new DestinationPicker([t, confirmed, unconfirmed], 't', 'eu', []).pickRoleHost().chosen!.nodeId).toBe('p');
+    // Same reachability: region beats capacity.
+    const euSmall = node('e', { labels: cloud('198.51.100.3', { 'swarmy.region': 'eu' }) }, small);
+    const usBig = node('u', { labels: cloud('198.51.100.4', { 'swarmy.region': 'us' }) }, big);
+    expect(new DestinationPicker([t, usBig, euSmall], 't', 'eu', []).pickRoleHost().chosen!.nodeId).toBe('e');
+    // Same region: capacity beats load.
+    const euBigBusy = node('f', { labels: cloud('198.51.100.5', { 'swarmy.region': 'eu' }) }, big);
+    const busy = [svc('pg', { 'swarmy.db.node': 'sw-f' })];
+    expect(new DestinationPicker([t, euSmall, euBigBusy], 't', 'eu', busy).pickRoleHost().chosen!.nodeId).toBe('f');
+    // Everything equal: fewer data services wins.
+    const euSmall2 = node('g', { labels: cloud('198.51.100.6', { 'swarmy.region': 'eu' }) }, small);
+    const busyE = [svc('pg', { 'swarmy.db.node': 'sw-e' })];
+    expect(new DestinationPicker([t, euSmall, euSmall2], 't', 'eu', busyE).pickRoleHost().chosen!.nodeId).toBe('g');
+  });
+
+  it('nodeReachability reads override, the agent report, then the advertise address', () => {
+    const r = (labels: Record<string, string>, addr?: string) => nodeReachability(node('x', { labels, addr })).level;
+    expect(r({ 'swarmy.node.reachability': 'nat', 'swarmy.node.reachability.override': 'public' })).toBe('public');
+    expect(r({ 'swarmy.node.reachability': 'public', 'swarmy.node.reachability.override': 'nat' })).toBe('nat');
+    expect(r({ 'swarmy.node.reachability': 'nat', 'swarmy.node.public-ip': '81.2.69.160' })).toBe('nat');
+    expect(r({ 'swarmy.node.public-ip': '203.0.113.7' }, '203.0.113.7')).toBe('public');
+    expect(r({ 'swarmy.node.public-ip': '203.0.113.7' }, '100.64.0.9')).toBe('probably-public');
+    expect(r({})).toBe('unknown');
   });
 });

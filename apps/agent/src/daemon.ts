@@ -13,7 +13,7 @@ import { checkOverlayKeying, ensureMeshPin } from './handlers/mesh-pin';
 import { checkOverlayCarrier } from './handlers/overlay-heal';
 import { swarmRejoinInFlight } from './handlers/swarm';
 import { superviseMeshControl } from './handlers/mesh-control';
-import { detectPublicIp, setObservedPublicIp } from './public-ip';
+import { detectPublicIp, detectReachability, setObservedPublicIp } from './public-ip';
 import { sampleIngressStatus } from './handlers/ingress-status';
 import { agentPackaging } from './handlers/update';
 import { REGISTRY_FIREWALL_INTERVAL_MS, enforceRegistryFirewall, parseAllowCidrs } from './handlers/registry-firewall';
@@ -475,13 +475,17 @@ export async function runDaemon(): Promise<void> {
 
     timers.push(
       setInterval(() => {
-        void detectPublicIp().then((publicIp) => {
+        void detectPublicIp().then(async (publicIp) => {
           if (publicIp) facts.publicIp = publicIp;
+          // QA-084: behind NAT? (the retire planner keeps NAT'd servers out of
+          // manager/Garage/edge roles). Never fails the heartbeat.
+          const reachability = await detectReachability(publicIp ?? facts.publicIp, hostNetworked).catch(() => undefined);
           conn.send('heartbeat', {
             seq: heartbeatSeq++,
             uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
             inflightCommands: 0,
             publicIp,
+            ...(reachability ? { reachability } : {}),
           });
         });
       }, heartbeatMs),

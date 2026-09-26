@@ -25,6 +25,11 @@
  *                        drops this server's IP before anything stops.
  *   Manager            → promote a replacement if quorum needs it, demote.
  *
+ * Replacement managers, Garage members and edge servers are chosen by
+ * {@link DestinationPicker.pickRoleHost} (QA-084): publicly reachable first
+ * (never a NAT'd/home server unless an operator overrides it), then the
+ * target's region, then free capacity, then load — and the step says why.
+ *
  * The source copy is NEVER deleted by the plan: the server leaves the swarm
  * with its disk intact, so the operator can still recover from it.
  *
@@ -54,6 +59,9 @@ const NODE_OUTLET = 'swarmy.node.outlet';
 const NODE_REGION = 'swarmy.region';
 const NODE_PUBLIC_IP = 'swarmy.node.public-ip';
 const NODE_PUBLIC_IP_OVERRIDE = 'swarmy.node.public-ip.override';
+// Mirrors node.service NODE_REACHABILITY_LABEL / _OVERRIDE_LABEL.
+const NODE_REACHABILITY = 'swarmy.node.reachability';
+const NODE_REACHABILITY_OVERRIDE = 'swarmy.node.reachability.override';
 const SERVICE_NAME_LABEL = 'com.docker.swarm.service.name';
 
 /** A disk may not pass this after a move lands on it (node-hygiene's pressure line). */
@@ -227,6 +235,33 @@ function hasPublicIp(n: DecomNodeInput): boolean {
   return Boolean(l[NODE_PUBLIC_IP_OVERRIDE] || l[NODE_PUBLIC_IP]);
 }
 
+/**
+ * How reachable a server is from the other servers and the internet, best
+ * first. `nat` = behind NAT (a home VM, a laptop): it can dial out but nothing
+ * can dial in, so it must never hold a role others depend on reaching —
+ * manager, object-storage member, edge.
+ */
+export type Reachability = 'public' | 'probably-public' | 'unknown' | 'nat';
+
+const REACH_RANK: Record<Reachability, number> = { public: 0, 'probably-public': 1, unknown: 2, nat: 3 };
+
+/** A server's reachability and the plain-words reason (the plan quotes it). */
+export function nodeReachability(n: DecomNodeInput): { level: Reachability; why: string } {
+  const l = n.swarm?.labels ?? {};
+  const override = l[NODE_REACHABILITY_OVERRIDE];
+  if (override === 'public') return { level: 'public', why: 'is marked publicly reachable by an operator' };
+  if (override === 'nat') return { level: 'nat', why: 'is marked as behind NAT by an operator' };
+  const ip = l[NODE_PUBLIC_IP_OVERRIDE] || l[NODE_PUBLIC_IP];
+  const reported = l[NODE_REACHABILITY];
+  if (reported === 'nat') {
+    return { level: 'nat', why: `is behind NAT (its public IP${ip ? ` ${ip}` : ''} is not on the server itself)` };
+  }
+  if (reported === 'public') return { level: 'public', why: `is reachable on a public address${ip ? ` (${ip})` : ''}` };
+  if (ip && n.swarm?.addr === ip) return { level: 'public', why: `advertises its public address (${ip})` };
+  if (ip) return { level: 'probably-public', why: `has a public IP (${ip})` };
+  return { level: 'unknown', why: 'has no known public IP' };
+}
+
 function freeBytes(n: DecomNodeInput): number | undefined {
   if (!n.disk || !(n.disk.totalBytes > 0)) return undefined;
   return n.disk.totalBytes - n.disk.usedBytes;
@@ -277,6 +312,48 @@ export class DestinationPicker {
     return cap - n.disk.usedBytes - (this.reserved.get(n.nodeId) ?? 0);
   }
 
+  /**
+   * Host for a platform ROLE (replacement manager, Garage member, edge) —
+   * QA-084. Ranked: publicly reachable (a NAT'd server is never chosen unless
+   * an operator set `swarmy.node.reachability.override=public` on it), same
+   * region as the retiring server, most free capacity, fewest data services,
+   * id. Returns the pick plus a sentence saying why, and the NAT'd servers it
+   * passed over so a blocker can name them.
+   */
+  pickRoleHost(opts: { exclude?: readonly string[]; filter?: (n: DecomNodeInput) => boolean } = {}): RoleHostPick {
+    const exclude = new Set([this.targetNodeId, ...(opts.exclude ?? [])]);
+    const pool = this.nodes.filter((n) => !exclude.has(n.nodeId) && isSchedulable(n) && (opts.filter?.(n) ?? true));
+    const reach = new Map(pool.map((n) => [n.nodeId, nodeReachability(n)] as const));
+    const natSkipped = pool.filter((n) => reach.get(n.nodeId)!.level === 'nat');
+    const eligible = pool.filter((n) => reach.get(n.nodeId)!.level !== 'nat');
+    const regionOf = (n: DecomNodeInput) => n.swarm?.labels[NODE_REGION];
+    const sameRegion = (n: DecomNodeInput) => this.region !== undefined && regionOf(n) === this.region;
+    const pinnedOn = (n: DecomNodeInput) => this.pinned.get(n.swarm?.swarmNodeId ?? '') ?? 0;
+    eligible.sort(
+      (a, b) =>
+        REACH_RANK[reach.get(a.nodeId)!.level] - REACH_RANK[reach.get(b.nodeId)!.level] ||
+        Number(sameRegion(b)) - Number(sameRegion(a)) ||
+        (this.room(b) ?? -1) - (this.room(a) ?? -1) ||
+        pinnedOn(a) - pinnedOn(b) ||
+        a.nodeId.localeCompare(b.nodeId),
+    );
+    const chosen = eligible[0];
+    const natNote =
+      natSkipped.length > 0
+        ? ` Passed over ${joinWords(natSkipped.map((n) => n.hostname))}: behind NAT, so the other servers can't reach ${natSkipped.length === 1 ? 'it' : 'them'}.`
+        : '';
+    if (!chosen) return { natSkipped, reason: natNote.trim() };
+    const parts = [reach.get(chosen.nodeId)!.why];
+    if (this.region !== undefined) {
+      parts.push(sameRegion(chosen) ? `is in ${this.region} like the server it replaces` : `is outside ${this.region} (no eligible server there)`);
+    }
+    const free = freeBytes(chosen);
+    if (free !== undefined) parts.push(`has ${formatBytes(free)} free`);
+    const load = pinnedOn(chosen);
+    parts.push(`runs ${load} data service${load === 1 ? '' : 's'}`);
+    return { chosen, natSkipped, reason: `Chose ${chosen.hostname} because it ${joinWords(parts)}.${natNote}` };
+  }
+
   pick(opts: { bytes?: number; exclude?: readonly string[] } = {}): DecomNodeInput | undefined {
     const exclude = new Set([this.targetNodeId, ...(opts.exclude ?? [])]);
     const candidates = this.nodes.filter((n) => {
@@ -302,6 +379,20 @@ export class DestinationPicker {
     if (sw) this.pinned.set(sw, (this.pinned.get(sw) ?? 0) + 1);
     return chosen;
   }
+}
+
+export interface RoleHostPick {
+  chosen?: DecomNodeInput;
+  /** Schedulable candidates left out because they sit behind NAT. */
+  natSkipped: DecomNodeInput[];
+  /** Why this server (Controls layer; quoted in the step detail). */
+  reason: string;
+}
+
+/** Blocker `fix` text when NAT'd servers were the only candidates. */
+function natFix(skipped: readonly DecomNodeInput[], otherwise: string): string {
+  if (skipped.length === 0) return otherwise;
+  return `Add a server with a public address. If ${joinWords(skipped.map((n) => n.hostname))} really can be reached from the other servers, set ${NODE_REACHABILITY_OVERRIDE}=public on it.`;
 }
 
 function dest(n: DecomNodeInput): { nodeId: string; hostname: string } {
@@ -550,12 +641,13 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
     const rf = Math.max(1, input.garageReplicationFactor ?? 1);
     const remaining = garageMembers.length - 1;
     if (remaining < rf || remaining === 0) {
-      const d = picker.pick({ exclude: garageMembers.map((n) => n.nodeId) });
+      const pick = picker.pickRoleHost({ exclude: garageMembers.map((n) => n.nodeId) });
+      const d = pick.chosen;
       if (!d) {
         blockers.push({
           code: 'garage-no-replacement',
-          message: `${host} holds object-storage data (${remaining} other member${remaining === 1 ? '' : 's'}, ${rf} ${rf === 1 ? 'copy' : 'copies'} required) and no other server can take its place.`,
-          fix: 'Add a server with enough disk, or lower the storage replication factor.',
+          message: `${host} holds object-storage data (${remaining} other member${remaining === 1 ? '' : 's'}, ${rf} ${rf === 1 ? 'copy' : 'copies'} required) and no other server can take its place.${pick.natSkipped.length ? ` ${pick.reason}` : ''}`,
+          fix: natFix(pick.natSkipped, 'Add a server with enough disk, or lower the storage replication factor.'),
         });
       } else {
         garageSteps.push({
@@ -563,7 +655,7 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
           kind: 'garage-add-member',
           destination: dest(d),
           title: `Make ${d.hostname} an object-storage server.`,
-          detail: `Labels ${GARAGE_MEMBER_NODE_LABEL}=true on ${d.hostname}; storage-reconcile starts its Garage task, connects RPC and assigns it a zone and capacity in the layout.`,
+          detail: `Labels ${GARAGE_MEMBER_NODE_LABEL}=true on ${d.hostname}; storage-reconcile starts its Garage task, connects RPC and assigns it a zone and capacity in the layout. ${pick.reason}`,
           downtime: 'none',
           verify: 'garage status lists the new node as healthy with a role in the applied layout.',
           rollback: `Set ${GARAGE_MEMBER_NODE_LABEL}=false and remove it from the layout.`,
@@ -740,12 +832,13 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
       });
       continue;
     }
-    const d = others.filter((n) => isSchedulable(n) && hasPublicIp(n)).sort((a, b) => a.nodeId.localeCompare(b.nodeId))[0];
+    const pick = picker.pickRoleHost({ filter: hasPublicIp });
+    const d = pick.chosen;
     if (!d) {
       blockers.push({
         code: 'edge-no-replacement',
-        message: `${host} is the only ${name} server and no other server has a public IP.`,
-        fix: 'Add a server with a public IP, or set one with the public IP override.',
+        message: `${host} is the only ${name} server and no other server has a reachable public IP.${pick.natSkipped.length ? ` ${pick.reason}` : ''}`,
+        fix: natFix(pick.natSkipped, 'Add a server with a public IP, or set one with the public IP override.'),
       });
       continue;
     }
@@ -754,7 +847,7 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
       kind: 'edge-handover',
       destination: dest(d),
       title: `Make ${d.hostname} the ${name} server instead of ${host}.`,
-      detail: `Sets ${label}=true on ${d.hostname} and waits for its edge to answer health checks, then clears it on ${host} and waits one DNS TTL. Update any A record you manage outside swarmy to ${d.hostname}'s IP.`,
+      detail: `Sets ${label}=true on ${d.hostname} and waits for its edge to answer health checks, then clears it on ${host} and waits one DNS TTL. Update any A record you manage outside swarmy to ${d.hostname}'s IP. ${pick.reason}`,
       downtime: 'seconds',
       verify: `${d.hostname} passes the edge health probe and is in the DNS snapshot; ${host} is not.`,
       rollback: `Set ${label}=true on ${host} again.`,
@@ -770,15 +863,14 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
   if (role === 'manager') {
     const managers = input.nodes.filter((n) => n.swarm?.role === 'manager');
     const remaining = managers.length - 1;
-    const worker = others
-      .filter((n) => isSchedulable(n) && n.swarm?.role === 'worker')
-      .sort((a, b) => Number(hasPublicIp(b)) - Number(hasPublicIp(a)) || a.nodeId.localeCompare(b.nodeId))[0];
+    const pick = picker.pickRoleHost({ filter: (n) => n.swarm?.role === 'worker' });
+    const worker = pick.chosen;
     if (remaining === 0 || (remaining % 2 === 0 && worker)) {
       if (!worker) {
         blockers.push({
           code: 'no-manager-candidate',
-          message: `${host} is the swarm's only manager and no other server can become one.`,
-          fix: 'Add a server first.',
+          message: `${host} is the swarm's only manager and no other server can become one.${pick.natSkipped.length ? ` ${pick.reason}` : ''}`,
+          fix: natFix(pick.natSkipped, 'Add a server first.'),
         });
       } else {
         managerSteps.push({
@@ -786,14 +878,16 @@ export function planDecommission(input: DecommissionInput): DecommissionPlan {
           kind: 'manager-promote',
           destination: dest(worker),
           title: `Make ${worker.hostname} a manager so the swarm keeps a working majority.`,
-          detail: `docker node promote; after ${host} leaves there are ${remaining + 1} managers (an odd number tolerates ${Math.floor(remaining / 2)} failure${Math.floor(remaining / 2) === 1 ? '' : 's'}).`,
+          detail: `docker node promote; after ${host} leaves there are ${remaining + 1} managers (an odd number tolerates ${Math.floor(remaining / 2)} failure${Math.floor(remaining / 2) === 1 ? '' : 's'}). ${pick.reason}`,
           downtime: 'none',
           verify: 'docker node ls shows it Reachable.',
           rollback: 'docker node demote.',
         });
       }
     } else if (remaining % 2 === 0) {
-      warnings.push(`After ${host} leaves there are ${remaining} managers; an even count tolerates no more failures than one fewer.`);
+      warnings.push(
+        `After ${host} leaves there are ${remaining} managers; an even count tolerates no more failures than one fewer.${pick.natSkipped.length ? ` ${pick.reason}` : ''}`,
+      );
     }
     demote = {
       id: `manager-demote:${target.nodeId}`,

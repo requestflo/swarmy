@@ -65,3 +65,56 @@ export function resetPublicIpCache(): void {
   cached = undefined;
   observed = undefined;
 }
+
+// ── reachability (QA-084) ────────────────────────────────────────────────────
+
+/**
+ * Clouds that front a VM with 1:1 NAT: the public IP is NOT on an interface,
+ * yet inbound traffic reaches the VM. Matched against DMI vendor/product/asset tag.
+ */
+const ONE_TO_ONE_NAT_CLOUD_RE = /amazon ec2|google compute engine|^google$|alibaba cloud|oraclecloud|7783-7084-3265-9085-8269-3286-77/i;
+
+/**
+ * PURE — is this server publicly reachable, or behind NAT (a home VM, a
+ * laptop)? The controller stamps the answer as `swarmy.node.reachability`
+ * and the retire planner never picks a NAT'd server for a manager, Garage or
+ * edge role. Returns undefined when it can't tell (no public IP known, or
+ * the agent can't see the host's interfaces) — undefined is never "nat".
+ *
+ *  - the public IP sits on one of the host's interfaces → public;
+ *  - it doesn't, but DMI says a 1:1-NAT cloud (EC2, GCE, Azure, …) → public;
+ *  - otherwise → nat.
+ */
+export function classifyReachability(input: {
+  publicIp: string | undefined;
+  hostAddresses: readonly string[] | null;
+  dmi: readonly string[];
+}): 'public' | 'nat' | undefined {
+  if (!input.publicIp || !isPublicIpv4(input.publicIp) || input.hostAddresses === null) return undefined;
+  if (input.hostAddresses.includes(input.publicIp.trim())) return 'public';
+  if (input.dmi.some((v) => ONE_TO_ONE_NAT_CLOUD_RE.test(v.trim()))) return 'public';
+  return 'nat';
+}
+
+/**
+ * This host's reachability. `hostNetworked` = the agent sees the host's own
+ * interfaces (binary agent, or a container on the host network); a container
+ * on a bridge/overlay only sees its own addresses, so it reports nothing.
+ */
+export async function detectReachability(
+  publicIp: string | undefined,
+  hostNetworked: boolean,
+): Promise<'public' | 'nat' | undefined> {
+  if (!hostNetworked) return undefined;
+  const { networkInterfaces } = await import('node:os');
+  const hostAddresses = Object.values(networkInterfaces())
+    .flat()
+    .flatMap((a) => (a && a.family === 'IPv4' ? [a.address] : []));
+  const dmi: string[] = [];
+  const { readFile } = await import('node:fs/promises');
+  for (const f of ['sys_vendor', 'product_name', 'chassis_asset_tag', 'board_vendor']) {
+    const v = await readFile(`/sys/class/dmi/id/${f}`, 'utf8').catch(() => '');
+    if (v.trim()) dmi.push(v.trim());
+  }
+  return classifyReachability({ publicIp, hostAddresses, dmi });
+}

@@ -68,7 +68,14 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
         // Geo-edge: keep the public-ip label current (no-op when unchanged).
         const orgId = deps.store.nodeOrg.get(nodeId);
         if (orgId) {
-          void stampReportedPublicIp(deps.hub, orgId, nodeId, env.payload.publicIp, ws.data.sourceIp ?? ws.remoteAddress);
+          void stampReportedPublicIp(
+            deps.hub,
+            orgId,
+            nodeId,
+            env.payload.publicIp,
+            ws.data.sourceIp ?? ws.remoteAddress,
+            env.payload.reachability,
+          );
         }
         // Echo a ping: the agent's only proof the link is alive in the inbound
         // direction. Without it a controller that vanished without a FIN (task
