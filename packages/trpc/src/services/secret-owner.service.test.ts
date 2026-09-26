@@ -51,6 +51,8 @@ function fakeCtx(seed: { secrets?: SwarmResourceInfo[]; services?: ServiceSpec[]
   const audits: Array<{ action: string; targetId: string | null; metadata: any }> = [];
   const secrets = new Map((seed.secrets ?? []).map((s) => [s.name, s]));
   const live = new Map((seed.services ?? []).map((s) => [s.name, s]));
+  // Node-local named volumes, per server (Docker creates them at task start).
+  const volumes: Record<string, Set<string>> = { node1: new Set(), node2: new Set(['blog_content']) };
   const ctx = {
     activeOrgId: 'org1',
     user: { id: 'user1' },
@@ -80,19 +82,26 @@ function fakeCtx(seed: { secrets?: SwarmResourceInfo[]; services?: ServiceSpec[]
           ports: [],
           secrets: (s.secrets ?? []).map((r) => r.source),
           configs: [],
+          mounts: (s.mounts ?? []).map((m) => ({ type: m.type, source: m.source, target: m.target })),
         })),
         containers: [],
       }),
       isOnline: () => true,
-      onlineNodeIds: () => ['node1'],
+      onlineNodeIds: () => ['node1', 'node2'],
       managerNode: () => 'node1',
       nodeInventory: () => [],
-      dispatch: async (_node: string, command: string, payload: Record<string, any>) => {
+      dispatch: async (node: string, command: string, payload: Record<string, any>) => {
         dispatched.push({ command, payload });
         switch (command) {
           case 'service.deploy':
             live.set(payload.spec.name, payload.spec);
+            for (const m of (payload.spec as ServiceSpec).mounts ?? []) if (m.type === 'volume' && m.source) volumes.node1!.add(m.source);
             return {};
+          case 'volume.remove':
+            volumes[node]?.delete(payload.name);
+            return {};
+          case 'volume.list':
+            return { volumes: [...(volumes[node] ?? [])].map((name) => ({ name, driver: 'local' })) };
           case 'service.remove':
             live.delete(payload.service);
             return {};
@@ -110,7 +119,7 @@ function fakeCtx(seed: { secrets?: SwarmResourceInfo[]; services?: ServiceSpec[]
       },
     },
   } as unknown as OrgContext;
-  return { ctx, dispatched, audits, secrets, live };
+  return { ctx, dispatched, audits, secrets, live, volumes };
 }
 
 const spec = (name: string, stack: string, secretNames: string[]): ServiceSpec =>
@@ -121,17 +130,46 @@ const spec = (name: string, stack: string, secretNames: string[]): ServiceSpec =
     secrets: secretNames.map((source) => ({ source })),
   }) as ServiceSpec;
 
-describe('stack delete removes the secrets its blueprint generated (QA-078)', () => {
-  it('ghost: deploy → delete → deploy the same name succeeds (fresh v1, no "already exists")', async () => {
+describe('stack delete keeps or deletes the app\'s data — volumes + its blueprint\'s secrets together (QA-078)', () => {
+  const allVolumes = (w: ReturnType<typeof fakeCtx>) => [...w.volumes.node1!, ...w.volumes.node2!].sort();
+
+  it('ghost, data KEPT (default): volumes + the password family stay; the same-name redeploy adopts it', async () => {
     const w = fakeCtx();
     const first = await deployBlueprint(w.ctx, { id: 'ghost', params: { name: 'blog', size: 'm', options: {} } });
     expect(first.ok).toBe(true);
     const created = [...w.secrets.values()].find((s) => s.labels[SECRET_FAMILY_LABEL] === 'blog-db-password')!;
     expect(created.labels).toMatchObject({ [SECRET_OWNER_STACK_LABEL]: 'blog', [SECRET_OWNER_BLUEPRINT_LABEL]: 'ghost' });
+    // ghost's content on node1 (and an older copy on node2), MySQL's data on node1.
+    expect(allVolumes(w)).toEqual(['blog_content', 'blog_content', 'blog_mysql']);
 
     const row = await stacks(w.ctx, 'org1').findFirst({ where: { orgId: 'org1', name: 'blog' }, select: { id: true } });
-    await removeStack(w.ctx, row!.id);
-    expect([...w.secrets.keys()].filter((n) => n.startsWith('blog-db-password'))).toEqual([]);
+    const res = await removeStack(w.ctx, row!.id);
+    expect(res).toMatchObject({ deleteData: false, volumesDeleted: [], volumesKept: ['blog_content', 'blog_mysql'] });
+    expect(w.dispatched.some((d) => d.command === 'volume.remove' || d.command === 'secret.remove')).toBe(false);
+    expect([...w.secrets.keys()]).toEqual(['blog-db-password__v1']);
+    expect(w.volumes.node1!.has('blog_mysql')).toBe(true);
+    expect(w.audits).toContainEqual(
+      expect.objectContaining({ action: 'stack.remove', targetId: 'blog', metadata: expect.objectContaining({ deleteData: false }) }),
+    );
+
+    const again = await deployBlueprint(w.ctx, { id: 'ghost', params: { name: 'blog', size: 'm', options: {} } });
+    expect(again.steps.filter((s) => s.status !== 'succeeded')).toEqual([]);
+    // The same password the kept MySQL data was initialised with (adopted, not a new v2).
+    expect(again.steps.find((s) => s.kind === 'secret')?.detail).toMatch(/reused/);
+    expect([...w.secrets.keys()]).toEqual(['blog-db-password__v1']);
+    expect([...w.live.values()].find((s) => s.name === 'blog_mysql')?.secrets).toContainEqual(
+      expect.objectContaining({ source: 'blog-db-password__v1' }),
+    );
+  });
+
+  it('ghost, data DELETED: volumes go on every server, the family goes, audited; the redeploy starts clean', async () => {
+    const w = fakeCtx();
+    await deployBlueprint(w.ctx, { id: 'ghost', params: { name: 'blog', size: 'm', options: {} } });
+    const row = await stacks(w.ctx, 'org1').findFirst({ where: { orgId: 'org1', name: 'blog' }, select: { id: true } });
+    const res = await removeStack(w.ctx, row!.id, { deleteData: true });
+    expect(res).toMatchObject({ deleteData: true, volumesDeleted: ['blog_content', 'blog_mysql'], volumesKept: [] });
+    expect(allVolumes(w)).toEqual([]); // node2's copy of blog_content too
+    expect([...w.secrets.keys()]).toEqual([]);
     expect(w.audits).toContainEqual(
       expect.objectContaining({
         action: 'secrets.delete',
@@ -139,10 +177,16 @@ describe('stack delete removes the secrets its blueprint generated (QA-078)', ()
         metadata: expect.objectContaining({ reason: 'stack.remove', stack: 'blog', blueprint: 'ghost' }),
       }),
     );
+    expect(w.audits).toContainEqual(
+      expect.objectContaining({
+        action: 'stack.remove',
+        metadata: expect.objectContaining({ deleteData: true, volumesDeleted: ['blog_content', 'blog_mysql'], secretsDeleted: ['blog-db-password'] }),
+      }),
+    );
 
     const again = await deployBlueprint(w.ctx, { id: 'ghost', params: { name: 'blog', size: 'm', options: {} } });
     expect(again.steps.filter((s) => s.status !== 'succeeded')).toEqual([]);
-    expect(again.ok).toBe(true);
+    expect(again.steps.find((s) => s.kind === 'secret')?.detail).toMatch(/created \(v1/);
   });
 
   it('meilisearch-app: its credential-env secrets are owner-labelled too, so delete → redeploy works', async () => {
@@ -153,7 +197,7 @@ describe('stack delete removes the secrets its blueprint generated (QA-078)', ()
     expect(families.length).toBeGreaterThan(1);
     for (const l of families) expect(l).toMatchObject({ [SECRET_OWNER_STACK_LABEL]: 'srch', [SECRET_OWNER_BLUEPRINT_LABEL]: 'meilisearch-app' });
     const row = await stacks(w.ctx, 'org1').findFirst({ where: { orgId: 'org1', name: 'srch' }, select: { id: true } });
-    await removeStack(w.ctx, row!.id);
+    await removeStack(w.ctx, row!.id, { deleteData: true });
     expect(w.secrets.size).toBe(0);
     const again = await deployBlueprint(w.ctx, { id: 'meilisearch-app', params: { name: 'srch', size: 'm', options: {} } });
     expect(again.steps.filter((s) => s.status !== 'succeeded')).toEqual([]);
@@ -177,7 +221,7 @@ describe('stack delete removes the secrets its blueprint generated (QA-078)', ()
     const row = await stacks(w.ctx, 'org1').create({
       data: { orgId: 'org1', name: 'blog', composeSource: 'services:\n  mysql:\n    image: mysql:8.4.7\n' },
     });
-    await removeStack(w.ctx, row.id);
+    await removeStack(w.ctx, row.id, { deleteData: true });
     expect([...w.secrets.keys()].sort()).toEqual(['blog-manual__v1', 'blog-shared__v1', 'blogx-db-password__v1']);
     expect(w.audits.filter((a) => a.action === 'secrets.delete').map((a) => a.targetId)).toEqual(['blog-db-password']);
   });

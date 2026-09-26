@@ -380,7 +380,8 @@ export const core: DomainResolvers = {
         throw new Error('swarmy-system is managed by swarmy and cannot be removed');
       }
       s.stacks = s.stacks.filter((st) => st.id !== id);
-      return { id, removed: true as const };
+      const { deleteData = false } = i as { deleteData?: boolean };
+      return { id, removed: true as const, deleteData, volumesDeleted: [], volumesKept: [] };
     },
     'stacks.deployFromCompose': () => ({ ok: true as const, deploymentId: 'dep-demo', warnings: [] }),
   },

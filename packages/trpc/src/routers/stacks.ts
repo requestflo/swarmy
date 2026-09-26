@@ -41,8 +41,9 @@ export const stacksRouter = router({
     .mutation(({ ctx, input }) => redeployStack(ctx, input)),
 
   remove: abacProcedure('stack.remove', resolveStack)
-    .input(z.object({ id: z.string() }))
-    .mutation(({ ctx, input }) => removeStack(ctx, input.id)),
+    /** `deleteData`: also delete the app's volumes + its blueprint's secrets (default keeps both). */
+    .input(z.object({ id: z.string(), deleteData: z.boolean().default(false) }))
+    .mutation(({ ctx, input }) => removeStack(ctx, input.id, { deleteData: input.deleteData })),
 
   /**
    * Internal DNS names for an app's services and managed resources, and who

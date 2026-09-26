@@ -261,13 +261,14 @@ describe('removeStack — cleans up the stack overlays', () => {
     (ctx as unknown as { hub: Record<string, unknown> }).hub.onlineNodeIds = () => ['node1'];
 
     const res = await removeStack(ctx, 'stack-1');
-    expect(res).toEqual({ id: 'stack-1', removed: true });
+    // Unchecked "Also delete this app's data": the named volume stays (QA-078).
+    expect(res).toEqual({ id: 'stack-1', removed: true, deleteData: false, volumesDeleted: [], volumesKept: ['site_pgdata'] });
     expect(peekKv(ctx.hub, 'org1', 'stack', 'stack-1')).toBeNull();
-    // (secret.list: the blueprint-generated secrets it owns are cleaned up too — QA-078.)
-    expect(dispatched.map((d) => d.command)).toEqual(['service.remove', 'service.remove', 'secret.list', 'network.removeForStack']);
+    // Data (volumes + the blueprint's secrets) is kept unless deleteData — QA-078.
+    expect(dispatched.map((d) => d.command)).toEqual(['service.remove', 'service.remove', 'network.removeForStack']);
     expect(dispatched.slice(0, 2).map((d) => d.payload.service)).toEqual(['site_web', 'site_db']);
     // Stack-scoped: the agent only removes networks labelled for THIS stack + swarmy.managed.
-    expect(dispatched[3]!.payload).toEqual({ stack: 'site' });
+    expect(dispatched[2]!.payload).toEqual({ stack: 'site' });
   });
 });
 

@@ -30,6 +30,7 @@ import { resolveManagerNode } from './dispatch.service';
 import { liveServiceSpec } from './service-patch';
 import { carrySecretFamilies, mountsSecretFamily } from './secret-family-carry';
 import { removeStackOwnedSecrets } from './secret-owner.service';
+import { liveStackMounts, removeStackVolumes, stackVolumeNames } from './stack-data';
 import { augmentSpecsForStack } from './otel-injection';
 import { stackTelemetryEnabled } from './observability.service';
 import { augmentSpecsForErrors, releaseFor, specsRequestErrors } from './errors/injection';
@@ -703,29 +704,63 @@ export async function redeployStack(
   });
 }
 
+export interface RemoveStackResult {
+  id: string;
+  removed: true;
+  /** Whether the app's data (named volumes + its blueprint's secrets) was deleted too. */
+  deleteData: boolean;
+  /** Named volumes deleted (deleteData) — or kept on the servers (not). */
+  volumesDeleted: string[];
+  volumesKept: string[];
+}
+
+/**
+ * Remove a stack. `deleteData` ("Also delete this app's data", off by default)
+ * also deletes its named volumes on every server AND the secret families its
+ * blueprint generated; off keeps both, so a same-name redeploy adopts the
+ * family and the old data still opens (QA-078). Audited either way.
+ */
 export async function removeStack(
   ctx: OrgContext,
   id: string,
-): Promise<{ id: string; removed: true }> {
+  opts: { deleteData?: boolean } = {},
+): Promise<RemoveStackResult> {
+  const deleteData = Boolean(opts.deleteData);
   // Label-only stacks (no DB config row, e.g. swarmy-system) use their name as
   // `id` in the stacks list — guard before the (would-be) notFound lookup too.
   guardNotSystemStack(ctx, id);
   const stack = await stacks(ctx, ctx.activeOrgId).findFirst({
     where: { id, orgId: ctx.activeOrgId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, composeSource: true },
   });
   if (!stack) throw notFound('stack', id);
   guardNotSystemStack(ctx, stack.name);
+  // Which volumes are this app's data — read before its services go.
+  let composeSpecs: ServiceSpec[] = [];
+  try {
+    composeSpecs = planComposeStack(stack.composeSource ?? '', stack.name).specs as ServiceSpec[];
+  } catch {
+    // An unparseable stored compose: the live mounts still name the volumes.
+  }
+  const volumes = stackVolumeNames(liveStackMounts(ctx, stack.name), composeSpecs);
+  let volumesDeleted: string[] = [];
+  let volumesFailed: string[] = [];
+  let secrets: { removed: string[]; kept: string[] } = { removed: [], kept: [] };
   const node = await resolveManagerNode(ctx).catch(() => null);
   if (node) {
     // Service membership comes from live Docker inventory, not a DB relation.
     for (const svc of liveStackServices(ctx, stack.name)) {
       await ctx.hub.dispatch(node.id, 'service.remove', { service: svc.name }).catch(() => undefined);
     }
-    // The secret families a blueprint generated for THIS stack (owner label),
-    // unless a service outside the stack still mounts one — else redeploying
-    // the same name fails on "family already exists" (QA-078). Audited.
-    await removeStackOwnedSecrets(ctx, node.id, stack.name).catch(() => undefined);
+    if (deleteData) {
+      const res = await removeStackVolumes(ctx, stack.name, volumes);
+      volumesDeleted = res.deleted;
+      volumesFailed = res.failed;
+      // The secret families a blueprint generated for THIS stack (owner label),
+      // unless a service outside the stack still mounts one. Kept when the data
+      // is kept: the old database was initialised with them (QA-078).
+      secrets = await removeStackOwnedSecrets(ctx, node.id, stack.name).catch(() => secrets);
+    }
     // Then the stack's own overlays (`<stack>_default`, `<stack>_<net>`). The
     // agent only removes networks labelled for THIS stack + `swarmy.managed`
     // (what `network.ensure` stamped at deploy) — never external ones — and
@@ -736,7 +771,20 @@ export async function removeStack(
       .catch(() => undefined);
   }
   await stacks(ctx, ctx.activeOrgId).delete({ where: { id } });
-  return { id, removed: true };
+  const volumesKept = deleteData ? volumesFailed : volumes;
+  await writeAudit(ctx, {
+    action: 'stack.remove',
+    targetType: 'stack',
+    targetId: stack.name,
+    metadata: {
+      deleteData,
+      volumesDeleted,
+      volumesKept,
+      secretsDeleted: secrets.removed,
+      ...(secrets.kept.length ? { secretsKeptInUse: secrets.kept } : {}),
+    },
+  });
+  return { id, removed: true, deleteData, volumesDeleted, volumesKept };
 }
 
 /**
