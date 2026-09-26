@@ -8,7 +8,9 @@ import { explainImagePullError } from './pull-errors';
  * `com.docker.stack.namespace` label); services without one fall into a single
  * "(ungrouped)" project. Edges are *inferred*, never declared:
  *   - network: two services sharing a non-system overlay network are linked.
- *   - depends: a service whose env references another service's name/alias.
+ *   - depends: a service whose env references another service by a name it
+ *     can resolve: the full service name, or a short name/alias on a network
+ *     the two share that is not platform plumbing (never the `swarmy` overlay).
  */
 export const STACK_LABEL = 'com.docker.stack.namespace';
 export const SCALE_TO_ZERO_LABEL = 'swarmy.scaleToZero.enabled';
@@ -320,27 +322,45 @@ function inferEdges(services: InvService[]): InvEdge[] {
     }
   }
 
-  // Env-ref edges (directed: referencer → referenced).
-  const nameToId = new Map<string, string>();
-  for (const s of services) {
-    const names = new Set<string>([s.name.toLowerCase()]);
-    if (s.stack !== UNGROUPED && s.name.startsWith(`${s.stack}_`)) {
-      names.add(s.name.slice(s.stack.length + 1).toLowerCase());
+  // Env-ref edges (directed: referencer → referenced). A name only counts
+  // where Docker would actually resolve it for the referencer:
+  //   - a full service name (`stack_svc`) — unique, deliberate wiring;
+  //   - a short name or alias only on a network the two share that is not
+  //     platform plumbing. Every routed app sits on the `swarmy` overlay with
+  //     its short name as an alias, so matching those would link unrelated
+  //     apps ("api" in one app's URL is not another stack's `api`).
+  const fullName = new Map<string, string>();
+  const aliasOn = new Map<string, Map<string, string[]>>(); // network → name → ids
+  for (const t of services) {
+    if (t.name.length >= 3) fullName.set(t.name.toLowerCase(), t.id);
+    const short = t.stack !== UNGROUPED && t.name.startsWith(`${t.stack}_`) ? t.name.slice(t.stack.length + 1).toLowerCase() : null;
+    for (const n of t.networks) {
+      if (!n.name || SYSTEM_NETWORKS.has(n.name)) continue;
+      const names = aliasOn.get(n.name) ?? aliasOn.set(n.name, new Map()).get(n.name)!;
+      for (const nm of new Set([...(short ? [short] : []), ...n.aliases.map((x) => x.toLowerCase())])) {
+        if (nm.length >= 3) (names.get(nm) ?? names.set(nm, []).get(nm)!).push(t.id);
+      }
     }
-    for (const n of s.networks) for (const a of n.aliases) names.add(a.toLowerCase());
-    for (const nm of names) if (nm.length >= 3) nameToId.set(nm, s.id);
   }
+  const mentions = (val: string, name: string) =>
+    val === name || new RegExp(`(^|[^a-z0-9-])${escapeRe(name)}([^a-z0-9-]|$)`).test(val);
   for (const s of services) {
+    const reachable = new Map<string, Set<string>>([...fullName].map(([nm, id]) => [nm, new Set([id])]));
+    for (const n of s.networks) {
+      if (!n.name || SYSTEM_NETWORKS.has(n.name)) continue;
+      for (const [nm, ids] of aliasOn.get(n.name) ?? []) {
+        const set = reachable.get(nm) ?? reachable.set(nm, new Set()).get(nm)!;
+        for (const id of ids) set.add(id);
+      }
+    }
     for (const kv of s.env) {
       const eq = kv.indexOf('=');
       const key = eq >= 0 ? kv.slice(0, eq) : kv;
       const val = (eq >= 0 ? kv.slice(eq + 1) : '').toLowerCase();
       if (!val) continue;
-      for (const [name, id] of nameToId) {
-        if (id === s.id) continue;
-        if (val === name || new RegExp(`(^|[^a-z0-9-])${escapeRe(name)}([^a-z0-9-]|$)`).test(val)) {
-          add(s.id, id, 'depends', key);
-        }
+      for (const [name, ids] of reachable) {
+        if (!mentions(val, name)) continue;
+        for (const id of ids) if (id !== s.id) add(s.id, id, 'depends', key);
       }
     }
   }

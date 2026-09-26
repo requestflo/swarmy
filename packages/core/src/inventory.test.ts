@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import {
   buildInventory,
   FAILING_AFTER_MS,
@@ -68,6 +68,58 @@ test('infers a depends edge from an env reference to another service name', () =
   expect(dep).toBeTruthy();
   expect(dep!.from).toBe('a');
   expect(dep!.to).toBe('b');
+});
+
+describe('depends edges come only from names the service can actually reach (QA-082)', () => {
+  const stack = (ns: string) => ({ 'com.docker.stack.namespace': ns });
+  const on = (...nets: Array<[string, string[]]>) => nets.map(([name, aliases]) => ({ name, aliases }));
+  const deps = (services: SwarmServiceInfo[]) =>
+    buildInventory(services, []).edges.filter((e) => e.kind === 'depends').map((e) => `${e.from}->${e.to}`);
+
+  test('two unrelated apps on the shared swarmy overlay are not linked by short names', () => {
+    expect(
+      deps([
+        svc({ id: 'demo', name: 'qa-demo_demo', labels: stack('qa-demo'), networks: on(['qa-demo_default', ['demo']], ['swarmy', ['demo']]), env: ['NEXT_PUBLIC_API_URL=https://demo.ayebox.com/api'] }),
+        svc({ id: 'api', name: 'qa-queue_api', labels: stack('qa-queue'), networks: on(['qa-queue_default', ['api']], ['swarmy', ['api']]), env: ['PUBLIC_URL=https://demo.ayebox.com'] }),
+      ]),
+    ).toEqual([]);
+  });
+
+  test('a short name links parts of the same app on their own network', () => {
+    expect(
+      deps([
+        svc({ id: 'web', name: 'shop_web', labels: stack('shop'), networks: on(['shop_default', ['web']], ['swarmy', ['web']]), env: ['API_URL=http://api:8080'] }),
+        svc({ id: 'api', name: 'shop_api', labels: stack('shop'), networks: on(['shop_default', ['api']]) }),
+      ]),
+    ).toEqual(['web->api']);
+  });
+
+  test('a data service reached over a network the two share counts', () => {
+    expect(
+      deps([
+        svc({ id: 'app', name: 'blog_app', labels: stack('blog'), networks: on(['blog_default', ['app']], ['blog-db_net', []]), env: ['DATABASE_URL=postgres://u@pg-primary:5432/blog'] }),
+        svc({ id: 'pg', name: 'blog-db_pg', labels: stack('blog-db'), networks: on(['blog-db_net', ['pg-primary', 'pg']]) }),
+      ]),
+    ).toEqual(['app->pg']);
+  });
+
+  test('an alias only reachable over the swarmy overlay does not count', () => {
+    expect(
+      deps([
+        svc({ id: 'app', name: 'blog_app', labels: stack('blog'), networks: on(['blog_default', ['app']], ['swarmy', []]), env: ['CACHE=redis://cache:6379'] }),
+        svc({ id: 'cache', name: 'other_cache', labels: stack('other'), networks: on(['other_default', ['cache']], ['swarmy', ['cache']]) }),
+      ]),
+    ).toEqual([]);
+  });
+
+  test('a full service name is deliberate wiring, whatever the network', () => {
+    expect(
+      deps([
+        svc({ id: 'app', name: 'blog_app', labels: stack('blog'), networks: on(['swarmy', []]), env: ['S3_ENDPOINT=http://swarmy-garage:3900'] }),
+        svc({ id: 'garage', name: 'swarmy-garage', labels: stack('swarmy-system'), networks: on(['swarmy', ['garage']]) }),
+      ]),
+    ).toEqual(['app->garage']);
+  });
 });
 
 test('attaches containers and marks scale-to-zero idle', () => {
