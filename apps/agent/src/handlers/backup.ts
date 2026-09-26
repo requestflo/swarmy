@@ -9,6 +9,7 @@
  * Wire types live in `@swarmy/core/protocol` (`backup.ts`). Results are reported
  * through the existing `commandResult` path; progress lines stream via `logChunk`.
  */
+import { MANAGED_PG_PGDATA, MANAGED_PG_ROOT } from '@swarmy/core';
 import type { DockerClient } from '@swarmy/core/docker';
 import type {
   BackupVolumePayload,
@@ -30,7 +31,6 @@ import {
   ISO_TIMESTAMP_RE,
   SNAPSHOT_REF_RE,
   DEFAULT_PG_CLIENT_IMAGE,
-  MANAGED_PG_PGDATA_SUBDIR,
   DEFAULT_PGBACKREST_IMAGE,
   DEFAULT_RESTIC_IMAGE,
   DEFAULT_WALG_IMAGE,
@@ -42,13 +42,10 @@ import type { AgentConnection } from '../connection';
 const MOUNT = '/data';
 /** Where the logical dump is staged (scratch volume) inside the db sidecars. */
 const DUMP_MOUNT = '/backup';
-/**
- * The managed primary's data volume is its data ROOT (mounted at
- * `/var/lib/postgresql/data` in the service — see @swarmy/core manageddb-pg), so
- * the cluster's PGDATA is the `pgdata/` subdirectory of the volume, not its root.
- */
-const PGVOL_MOUNT = '/pgvol';
-const PGDATA_MOUNT = `${PGVOL_MOUNT}/${MANAGED_PG_PGDATA_SUBDIR}`;
+/** Postgres image default PGDATA when a member's env sets none. */
+const IMAGE_DEFAULT_PGDATA = '/var/lib/postgresql/data';
+/** Label Swarm stamps on every task container: the owning service's name. */
+const SWARM_SERVICE_NAME_LABEL = 'com.docker.swarm.service.name';
 
 // ── payload guards (defense in depth behind the protocol schemas) ────────────
 // Every bind below is built from a payload field. The wire schema already
@@ -540,6 +537,99 @@ export function pgConnEnv(conn: DbConnection): string[] {
   ];
 }
 
+/**
+ * Where the Postgres SERVER sees its data: the data volume's mount target and
+ * PGDATA inside the member container. Physical engines must use exactly these
+ * paths. `wal-g backup-push` checks its PGDATA against the server's
+ * `data_directory` and refuses a mismatch (QA-074), and a restored base backup
+ * must land where the server will look for it.
+ */
+export interface PgDataLayout {
+  /** Mount target of the data volume in the server container. */
+  mountTarget: string;
+  /** The server's PGDATA (the mount target or a directory under it). */
+  pgdata: string;
+}
+
+/** What a member container or service spec reports: its mounts and env. */
+export interface ObservedPgMember {
+  mounts: ReadonlyArray<{ source?: string; target: string }>;
+  env: readonly string[];
+}
+
+/**
+ * PURE: the server's data layout from its observed mounts + env, or null when
+ * `dataVolume` is not mounted there. Both paths are validated (they become a
+ * bind target and an env value), and a PGDATA outside the data volume is
+ * refused: backing that up would copy the wrong directory.
+ */
+export function pgDataLayoutFrom(observed: ObservedPgMember, dataVolume: string): PgDataLayout | null {
+  const mount = observed.mounts.find((m) => m.source === dataVolume);
+  if (!mount) return null;
+  const mountTarget = assertContainerPath(mount.target.replace(/\/+$/, '') || '/');
+  const envPgdata = observed.env.find((e) => e.startsWith('PGDATA='))?.slice('PGDATA='.length);
+  const pgdata = assertContainerPath((envPgdata || IMAGE_DEFAULT_PGDATA).replace(/\/+$/, '') || '/');
+  if (pgdata !== mountTarget && !pgdata.startsWith(`${mountTarget}/`)) {
+    throw new Error(`PGDATA ${pgdata} is not on the data volume ${dataVolume} (mounted at ${mountTarget})`);
+  }
+  return { mountTarget, pgdata };
+}
+
+/** The managed-member layout (@swarmy/core manageddb-pg): the spec every member is built from. */
+export const MANAGED_PG_LAYOUT: PgDataLayout = { mountTarget: MANAGED_PG_ROOT, pgdata: MANAGED_PG_PGDATA };
+
+/**
+ * Read the live server's data layout for `service`:
+ *  1. its task container on THIS node (physical engines run where the data
+ *     is, and a worker node cannot inspect services), newest first, stopped
+ *     ones included for a restore into a stopped member;
+ *  2. the service spec (works on a manager);
+ *  3. the managed-member layout every swarmy Postgres spec is built from.
+ */
+export async function resolvePgDataLayout(
+  docker: DockerClient,
+  service: string,
+  dataVolume: string,
+): Promise<PgDataLayout> {
+  const d = docker.docker;
+  try {
+    const list = (await d.listContainers({
+      all: true,
+      filters: { label: [`${SWARM_SERVICE_NAME_LABEL}=${service}`] },
+    })) as Array<{ Id: string; Created?: number }>;
+    for (const c of [...list].sort((a, b) => (b.Created ?? 0) - (a.Created ?? 0))) {
+      const info = (await d.getContainer(c.Id).inspect()) as {
+        Mounts?: Array<{ Name?: string; Source?: string; Destination: string }>;
+        Config?: { Env?: string[] };
+      };
+      const layout = pgDataLayoutFrom(
+        {
+          mounts: (info.Mounts ?? []).map((m) => ({ source: m.Name ?? m.Source, target: m.Destination })),
+          env: info.Config?.Env ?? [],
+        },
+        dataVolume,
+      );
+      if (layout) return layout;
+    }
+  } catch (e) {
+    if (e instanceof Error && /refusing unsafe|is not on the data volume/.test(e.message)) throw e;
+  }
+  try {
+    const svc = (await d.getService(service).inspect()) as {
+      Spec?: { TaskTemplate?: { ContainerSpec?: { Mounts?: Array<{ Source?: string; Target: string }>; Env?: string[] } } };
+    };
+    const cs = svc.Spec?.TaskTemplate?.ContainerSpec;
+    const layout = pgDataLayoutFrom(
+      { mounts: (cs?.Mounts ?? []).map((m) => ({ source: m.Source, target: m.Target })), env: cs?.Env ?? [] },
+      dataVolume,
+    );
+    if (layout) return layout;
+  } catch (e) {
+    if (e instanceof Error && /refusing unsafe|is not on the data volume/.test(e.message)) throw e;
+  }
+  return MANAGED_PG_LAYOUT;
+}
+
 /** A scratch Docker volume name for staging a logical dump (ephemeral). */
 function scratchVolumeName(jobId: string): string {
   return `swarmy-dbdump-${jobId.replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 48) || 'job'}`;
@@ -693,6 +783,10 @@ async function backupDbPhysical(
     throw new Error('physical backup requires the primary PGDATA volume (dataVolume) to be set');
   }
   const { env, bucket, endpoint, prefix } = physicalEnv(p.repo);
+  const dataVolume = assertVolumeName(p.dataVolume);
+  // Same paths as the server (QA-074): wal-g refuses a PGDATA that differs
+  // from the server's data_directory.
+  const layout = await resolvePgDataLayout(docker, p.conn.host, dataVolume);
   if (p.engine === 'wal-g') {
     const image = p.engineImage ?? DEFAULT_WALG_IMAGE;
     const res = await runSidecar(
@@ -700,9 +794,9 @@ async function backupDbPhysical(
       {
         image,
         entrypoint: ['/bin/sh', '-c'],
-        args: ['set -e; export PGDATA=' + PGDATA_MOUNT + '; wal-g backup-push "$PGDATA"'],
-        env: [...env, ...pgConnEnv(p.conn), `PGDATA=${PGDATA_MOUNT}`],
-        binds: [`${assertVolumeName(p.dataVolume)}:${PGVOL_MOUNT}:ro`],
+        args: [WALG_BACKUP_SCRIPT],
+        env: [...env, ...pgConnEnv(p.conn), `PGDATA=${layout.pgdata}`],
+        binds: [`${dataVolume}:${layout.mountTarget}:ro`],
         networkMode: p.network,
       },
       onLine,
@@ -726,12 +820,9 @@ async function backupDbPhysical(
     {
       image,
       entrypoint: ['/bin/sh', '-c'],
-      args: [
-        `set -e; pgbackrest --stanza=swarmy --pg1-path=${PGDATA_MOUNT} ${flags} stanza-create || true; ` +
-          `pgbackrest --stanza=swarmy --pg1-path=${PGDATA_MOUNT} ${flags} --type=full backup`,
-      ],
-      env: [...env, ...pgConnEnv(p.conn)],
-      binds: [`${assertVolumeName(p.dataVolume)}:${PGVOL_MOUNT}`],
+      args: [pgbackrestBackupScript(flags)],
+      env: [...env, ...pgConnEnv(p.conn), `PGDATA=${layout.pgdata}`],
+      binds: [`${dataVolume}:${layout.mountTarget}`],
       networkMode: p.network,
     },
     onLine,
@@ -773,19 +864,33 @@ export function logicalRestoreScript(dumpAll: boolean): string {
         `--clean --if-exists --no-owner ${DUMP_MOUNT}/dump.pgc`;
 }
 
-/** wal-g fetch + recovery target: `$SWARMY_BACKUP_NAME`, `$SWARMY_TARGET_TIME`. */
+// Every physical script reads the server's PGDATA from `$PGDATA` (container env
+// resolved by resolvePgDataLayout), so no path is spliced into shell.
+
+/** wal-g base backup of the server's own `$PGDATA`. */
+export const WALG_BACKUP_SCRIPT = 'set -e; wal-g backup-push "$PGDATA"';
+
+/** pgbackrest full backup of `$PGDATA`; `flags` from {@link pgBackRestRepoFlags} (quoted). */
+export function pgbackrestBackupScript(flags: string): string {
+  return (
+    `set -e; pgbackrest --stanza=swarmy --pg1-path="$PGDATA" ${flags} stanza-create || true; ` +
+    `pgbackrest --stanza=swarmy --pg1-path="$PGDATA" ${flags} --type=full backup`
+  );
+}
+
+/** wal-g fetch + recovery target into `$PGDATA`: `$SWARMY_BACKUP_NAME`, `$SWARMY_TARGET_TIME`. */
 export function walgRestoreScript(withTarget: boolean): string {
   const recoveryConf = withTarget
     ? `printf "recovery_target_time = '%s'\\nrecovery_target_action = 'promote'\\n" "$SWARMY_TARGET_TIME" ` +
-      `>> ${PGDATA_MOUNT}/postgresql.auto.conf; touch ${PGDATA_MOUNT}/recovery.signal;`
+      `>> "$PGDATA/postgresql.auto.conf"; touch "$PGDATA/recovery.signal";`
     : '';
-  return `set -e; export PGDATA=${PGDATA_MOUNT}; wal-g backup-fetch "$PGDATA" "$SWARMY_BACKUP_NAME"; ${recoveryConf}`;
+  return `set -e; wal-g backup-fetch "$PGDATA" "$SWARMY_BACKUP_NAME"; ${recoveryConf}`;
 }
 
-/** pgbackrest restore: `$SWARMY_TARGET_TIME`; `flags` from {@link pgBackRestRepoFlags} (quoted). */
+/** pgbackrest restore into `$PGDATA`: `$SWARMY_TARGET_TIME`; `flags` from {@link pgBackRestRepoFlags} (quoted). */
 export function pgbackrestRestoreScript(flags: string, withTarget: boolean): string {
   const typeFlag = withTarget ? '--type=time --target="$SWARMY_TARGET_TIME"' : '--type=default';
-  return `set -e; pgbackrest --stanza=swarmy --pg1-path=${PGDATA_MOUNT} ${flags} ${typeFlag} --delta restore`;
+  return `set -e; pgbackrest --stanza=swarmy --pg1-path="$PGDATA" ${flags} ${typeFlag} --delta restore`;
 }
 
 /** The env the PITR scripts read (validated again here — defense in depth). */
@@ -910,6 +1015,8 @@ async function restoreDbPitr(
   const target = p.targetTime ?? '';
   const scriptEnv = pitrScriptEnv(p);
   const dataVolume = assertVolumeName(p.dataVolume);
+  // Restore into the path the server will read (QA-074), not a sidecar-only one.
+  const layout = await resolvePgDataLayout(docker, p.conn.host, dataVolume);
   if (p.engine === 'wal-g') {
     const image = p.engineImage ?? DEFAULT_WALG_IMAGE;
     // Fetch the base backup, then stage a recovery target so PG replays WAL to it.
@@ -919,8 +1026,8 @@ async function restoreDbPitr(
         image,
         entrypoint: ['/bin/sh', '-c'],
         args: [walgRestoreScript(Boolean(target))],
-        env: [...env, ...scriptEnv, `PGDATA=${PGDATA_MOUNT}`],
-        binds: [`${dataVolume}:${PGVOL_MOUNT}`],
+        env: [...env, ...scriptEnv, `PGDATA=${layout.pgdata}`],
+        binds: [`${dataVolume}:${layout.mountTarget}`],
         networkMode: p.network,
       },
       onLine,
@@ -937,8 +1044,8 @@ async function restoreDbPitr(
         image,
         entrypoint: ['/bin/sh', '-c'],
         args: [pgbackrestRestoreScript(flags, Boolean(target))],
-        env: [...env, ...scriptEnv],
-        binds: [`${dataVolume}:${PGVOL_MOUNT}`],
+        env: [...env, ...scriptEnv, `PGDATA=${layout.pgdata}`],
+        binds: [`${dataVolume}:${layout.mountTarget}`],
         networkMode: p.network,
       },
       onLine,

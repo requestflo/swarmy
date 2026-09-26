@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'bun:test';
 import type { DockerClient } from '@swarmy/core/docker';
-import type { DbBackupPayload } from '@swarmy/core/protocol';
+import type { DbBackupPayload, DbRestorePayload } from '@swarmy/core/protocol';
 import type { AgentConnection } from '../connection';
 import {
   assertContainerPath,
   backupDb,
+  MANAGED_PG_LAYOUT,
+  pgDataLayoutFrom,
+  resolvePgDataLayout,
+  restoreDb,
   assertSnapshotRef,
   assertVolumeName,
   forgetArgsFor,
@@ -185,6 +189,8 @@ describe('physical base-backup sidecar connection env (QA-067)', () => {
     const docker = {
       pullImage: async () => undefined,
       docker: {
+        listContainers: async () => [],
+        getService: () => ({ inspect: async () => Promise.reject(new Error('not a manager')) }),
         modem: { demuxStream: (_s: unknown, o: { write(b: Buffer): void }) => o.write(Buffer.from(out)) },
         createContainer: async (opts: { Image: string; Env: string[]; Cmd: string[] }) => {
           created.push(opts);
@@ -243,5 +249,138 @@ describe('physical base-backup sidecar connection env (QA-067)', () => {
     expect(env).toContain('PGUSER=postgres');
     expect(env).toContain('PGPASSWORD=s3cr3t');
     expect(created[0]!.Cmd.join(' ')).not.toContain('s3cr3t');
+  });
+});
+
+/**
+ * QA-074: the physical sidecars must see the data at the SAME paths as the
+ * Postgres server. wal-g refuses a PGDATA that differs from the server's
+ * `data_directory`, and a restore must land where the server reads.
+ */
+describe('physical sidecars use the server data layout (QA-074)', () => {
+  const VOL = 'shop_main-primary-data';
+  /** A member container as `docker inspect` reports it (a custom layout, to prove nothing is hardcoded). */
+  const serverContainer = {
+    Mounts: [
+      { Type: 'volume', Name: 'shop_main-wal-archive', Destination: '/wal-archive' },
+      { Type: 'volume', Name: VOL, Source: `/var/lib/docker/volumes/${VOL}/_data`, Destination: '/srv/pg' },
+    ],
+    Config: { Env: ['POSTGRES_PASSWORD=pw', 'PGDATA=/srv/pg/cluster'] },
+  };
+
+  function fakeDocker(opts: { container?: unknown; service?: unknown } = {}) {
+    const created: Array<{ Env: string[]; Cmd: string[]; HostConfig: { Binds: string[] } }> = [];
+    const filters: unknown[] = [];
+    const docker = {
+      pullImage: async () => undefined,
+      docker: {
+        listContainers: async (o: { filters: unknown }) => {
+          filters.push(o.filters);
+          return opts.container ? [{ Id: 'c-old', Created: 1 }, { Id: 'c-new', Created: 2 }] : [];
+        },
+        getContainer: (id: string) => ({
+          inspect: async () => (id === 'c-new' ? opts.container : { Mounts: [], Config: { Env: [] } }),
+        }),
+        getService: () => ({
+          inspect: async () => (opts.service ? opts.service : Promise.reject(new Error('This node is not a swarm manager'))),
+        }),
+        modem: { demuxStream: () => undefined },
+        createContainer: async (o: { Env: string[]; Cmd: string[]; HostConfig: { Binds: string[] } }) => {
+          created.push(o);
+          return {
+            attach: async () => ({}),
+            start: async () => undefined,
+            wait: async () => ({ StatusCode: 0 }),
+            remove: async () => undefined,
+          };
+        },
+      },
+    } as unknown as DockerClient;
+    return { docker, created, filters };
+  }
+  const conn = { send: () => undefined } as unknown as AgentConnection;
+  const pgConn = { host: 'shop_main-primary', port: 5432, user: 'postgres', password: 'pw', database: 'app' };
+  const repo = { kind: 's3' as const, repo: 's3:http://swarmy-garage:3900/bkt/pfx', password: 'rp' };
+  const backup = (engine: 'wal-g' | 'pgbackrest'): DbBackupPayload => ({
+    commandId: 'c1', jobId: 'j1', engine, conn: pgConn, repo, tags: [], dataVolume: VOL,
+  });
+  const restore = (engine: 'wal-g' | 'pgbackrest'): DbRestorePayload => ({
+    commandId: 'c2', engine, mode: 'pitr', conn: pgConn, repo, snapshotId: 'latest', tags: [], dataVolume: VOL,
+    targetTime: '2026-09-24T15:30:00Z',
+  });
+  const expectServerLayout = (c: { Env: string[]; Cmd: string[]; HostConfig: { Binds: string[] } }, mode: string) => {
+    expect(c.HostConfig.Binds).toEqual([`${VOL}:/srv/pg${mode}`]);
+    expect(c.Env).toContain('PGDATA=/srv/pg/cluster');
+    // Scripts read $PGDATA; no sidecar-only path anywhere.
+    expect(c.Cmd.join(' ')).not.toContain('/pgvol');
+    expect(c.Cmd.join(' ')).toContain('"$PGDATA"');
+  };
+
+  it('reads mount target + PGDATA from the live server container (newest task, by service name)', async () => {
+    const { docker, filters } = fakeDocker({ container: serverContainer });
+    expect(await resolvePgDataLayout(docker, 'shop_main-primary', VOL)).toEqual({
+      mountTarget: '/srv/pg',
+      pgdata: '/srv/pg/cluster',
+    });
+    expect(filters[0]).toEqual({ label: ['com.docker.swarm.service.name=shop_main-primary'] });
+  });
+
+  it('falls back to the service spec (manager), then to the managed layout', async () => {
+    const service = {
+      Spec: { TaskTemplate: { ContainerSpec: { Mounts: [{ Source: VOL, Target: '/data' }], Env: ['PGDATA=/data/pg'] } } },
+    };
+    expect(await resolvePgDataLayout(fakeDocker({ service }).docker, 'svc', VOL)).toEqual({
+      mountTarget: '/data',
+      pgdata: '/data/pg',
+    });
+    expect(await resolvePgDataLayout(fakeDocker().docker, 'svc', VOL)).toEqual(MANAGED_PG_LAYOUT);
+    expect(MANAGED_PG_LAYOUT).toEqual({ mountTarget: '/var/lib/postgresql/data', pgdata: '/var/lib/postgresql/data/pgdata' });
+  });
+
+  it('pgDataLayoutFrom refuses a PGDATA off the data volume and unsafe paths', () => {
+    expect(pgDataLayoutFrom({ mounts: [{ source: 'other', target: '/x' }], env: [] }, VOL)).toBeNull();
+    expect(() => pgDataLayoutFrom({ mounts: [{ source: VOL, target: '/srv/pg' }], env: ['PGDATA=/elsewhere'] }, VOL)).toThrow(
+      /not on the data volume/,
+    );
+    expect(() => pgDataLayoutFrom({ mounts: [{ source: VOL, target: '/srv/pg' }], env: ['PGDATA=/srv/pg/../x'] }, VOL)).toThrow(
+      /unsafe/,
+    );
+    // No PGDATA env: the official image default.
+    expect(pgDataLayoutFrom({ mounts: [{ source: VOL, target: '/var/lib/postgresql/data' }], env: [] }, VOL)).toEqual({
+      mountTarget: '/var/lib/postgresql/data',
+      pgdata: '/var/lib/postgresql/data',
+    });
+  });
+
+  it('wal-g base backup mounts the volume where the server does and uses its PGDATA', async () => {
+    const { docker, created } = fakeDocker({ container: serverContainer });
+    await backupDb(docker, conn, backup('wal-g'));
+    expectServerLayout(created[0]!, ':ro');
+  });
+
+  it('pgbackrest base backup uses the server layout too', async () => {
+    const { docker, created } = fakeDocker({ container: serverContainer });
+    await backupDb(docker, conn, backup('pgbackrest'));
+    expectServerLayout(created[0]!, '');
+  });
+
+  it('wal-g restore fetch lands at the server layout (with the recovery target under $PGDATA)', async () => {
+    const { docker, created } = fakeDocker({ container: serverContainer });
+    await restoreDb(docker, conn, restore('wal-g'));
+    expectServerLayout(created[0]!, '');
+    expect(created[0]!.Cmd.join(' ')).toContain('"$PGDATA/recovery.signal"');
+  });
+
+  it('pgbackrest restore lands at the server layout', async () => {
+    const { docker, created } = fakeDocker({ container: serverContainer });
+    await restoreDb(docker, conn, restore('pgbackrest'));
+    expectServerLayout(created[0]!, '');
+  });
+
+  it('with no live truth, the default managed member layout is used (not a sidecar-only path)', async () => {
+    const { docker, created } = fakeDocker();
+    await backupDb(docker, conn, backup('wal-g'));
+    expect(created[0]!.HostConfig.Binds).toEqual([`${VOL}:/var/lib/postgresql/data:ro`]);
+    expect(created[0]!.Env).toContain('PGDATA=/var/lib/postgresql/data/pgdata');
   });
 });
