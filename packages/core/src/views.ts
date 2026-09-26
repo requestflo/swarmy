@@ -160,6 +160,21 @@ export interface ServiceDetail extends ServiceSummary {
   secretKeys?: Record<string, 'env' | 'file'>;
 }
 
+/**
+ * What a service's copies use right now (the latest container-stats sample
+ * per copy, across servers). Per copy, because limits and reservations are
+ * per copy. `null` from `services.usage` when no copy has reported yet.
+ */
+export interface ServiceUsageView {
+  /** Copies with a stats sample. */
+  sampled: number;
+  /** CPU cores (100% of one core = 1). */
+  cpuCores: { avg: number; peak: number };
+  memBytes: { avg: number; peak: number };
+  /** Sample time (ms since epoch). */
+  ts: number;
+}
+
 /** One secret app variable — metadata only, the value is write-only. */
 export interface ServiceSecretVarView {
   key: string;

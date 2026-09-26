@@ -95,6 +95,27 @@ export const CreateServiceInput = z.object({
 });
 export type CreateServiceInput = z.infer<typeof CreateServiceInput>;
 
+/** One side of a service's resources: CPU cores and memory bytes, per copy. */
+const ResourceSide = z
+  .object({
+    cpus: z.number().positive().max(512).optional(),
+    memoryBytes: z.number().int().min(4 * 1024 * 1024).optional(),
+  })
+  .nullable();
+
+export const ServiceResourcesInput = z.object({
+  limits: ResourceSide.optional(),
+  reservations: ResourceSide.optional(),
+});
+export type ServiceResourcesInput = z.infer<typeof ServiceResourcesInput>;
+
+export const ServiceRestartInput = z.object({
+  condition: z.enum(['on-failure', 'any', 'none']),
+  maxAttempts: z.number().int().min(0).max(1000).optional(),
+  delaySeconds: z.number().min(0).max(3600).optional(),
+});
+export type ServiceRestartInput = z.infer<typeof ServiceRestartInput>;
+
 export const UpdateServiceInput = CreateServiceInput.partial().extend({
   id: z.string(),
   /**
@@ -103,6 +124,20 @@ export const UpdateServiceInput = CreateServiceInput.partial().extend({
    * drop the service's secrets.
    */
   removeSecretKeys: z.array(z.string().regex(/^[A-Z_][A-Z0-9_]*$/)).optional(),
+  /**
+   * CPU/memory per copy (Docker `TaskTemplate.Resources`). Each side is
+   * authoritative when sent: `null` clears that side, an omitted key inside it
+   * is cleared too. Omit `resources` to carry the live values.
+   */
+  resources: ServiceResourcesInput.optional(),
+  /** "If it crashes" (Docker `RestartPolicy`), merged over the live policy. */
+  restartPolicy: ServiceRestartInput.optional(),
+  /** "During a deploy": start the new copy first, or stop the old one first (`UpdateConfig.Order`). */
+  updateOrder: z.enum(['start-first', 'stop-first']).optional(),
+  /** Service labels set (merged over the live set). */
+  setLabels: z.record(z.string().min(1).max(255), z.string().max(4096)).optional(),
+  /** Service labels removed (before `setLabels` is merged). */
+  removeLabels: z.array(z.string().min(1)).optional(),
 });
 export type UpdateServiceInput = z.infer<typeof UpdateServiceInput>;
 

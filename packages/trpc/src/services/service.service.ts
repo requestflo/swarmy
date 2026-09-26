@@ -15,6 +15,7 @@ import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { enforceAdmission } from './admission-gate';
 import { writeAudit } from './audit.service';
 import { pinToNodeConstraint, resolveManagerNode } from './dispatch.service';
+import { applyServiceSettings, labelEdits } from './service-settings';
 import { patchLiveService } from './service-patch';
 import { prepareStackServiceSpec } from './stack.service';
 import { INGRESS_ROUTES_LABEL, serializeRoutes, type Route } from './ingress-routes';
@@ -340,6 +341,8 @@ export async function updateService(
     }
   }
 
+  const edits = labelEdits(input);
+
   // Patch the FULL live spec (service.inspect): only the fields the caller
   // names are replaced; everything else — mounts, command, placement,
   // resources, healthcheck, secrets/configs (with targets), restart policy and
@@ -351,7 +354,9 @@ export async function updateService(
     existing,
     {
       image,
+      removeLabels: edits.removeLabels,
       setLabels: {
+        ...edits.setLabels,
         'swarmy.managed': 'true',
         ...(project ? { 'com.docker.stack.namespace': project } : {}),
       },
@@ -390,7 +395,8 @@ export async function updateService(
           if (Object.keys(placement).length > 0) out.placement = placement;
           else delete out.placement;
         }
-        return secretPlan ? secretPlan(out, live) : out;
+        const tuned = applyServiceSettings(out, input);
+        return secretPlan ? secretPlan(tuned, live) : tuned;
       },
     },
     {
@@ -424,6 +430,12 @@ export async function updateService(
       update: true,
       override: input.override === true,
       ...(secretAudit ? { secretVars: secretAudit } : {}),
+      ...(input.resources ? { resources: input.resources } : {}),
+      ...(input.restartPolicy ? { restartPolicy: input.restartPolicy } : {}),
+      ...(input.updateOrder ? { updateOrder: input.updateOrder } : {}),
+      ...(edits.removeLabels.length || Object.keys(edits.setLabels).length
+        ? { labels: { set: Object.keys(edits.setLabels), removed: edits.removeLabels } }
+        : {}),
     },
   });
   return { id, deploymentId: id };

@@ -628,3 +628,45 @@ describe('service.updateService keeps what the caller did not re-specify', () =>
     expect(spec.command).toEqual(['/app/server']);
   });
 });
+
+describe('service settings (resources · if it crashes · during a deploy · labels)', () => {
+  function tunedInspect() {
+    const raw = liveInspect();
+    (raw.Spec.TaskTemplate.RestartPolicy as Record<string, unknown>).Delay = 5e9;
+    (raw.Spec as Record<string, unknown>).UpdateConfig = { Parallelism: 1, Order: 'start-first', FailureAction: 'rollback' };
+    return raw;
+  }
+
+  it('specFromInspect carries the rolling policy and the restart delay', () => {
+    const spec = specFromInspect(tunedInspect(), [])!;
+    expect(spec.restartPolicy).toEqual({ condition: 'on-failure', maxAttempts: 3, delayNs: 5e9 });
+    expect(spec.updateConfig).toEqual({ parallelism: 1, order: 'start-first', failureAction: 'rollback' });
+  });
+
+  it('an unrelated update keeps start-first (the policy is no longer reset to Docker defaults)', async () => {
+    const { ctx, deployed } = fakeCtx({ services: [appInfo()], inspect: tunedInspect() });
+    await updateService(ctx, { id: 'svc-api', image: 'ghcr.io/acme/api:1.3.0' });
+    expect(deployed().updateConfig?.order).toBe('start-first');
+  });
+
+  it('applies only the named knobs and carries everything else', async () => {
+    const { ctx, deployed } = fakeCtx({ services: [appInfo({ labels: { team: 'shop' } })], inspect: tunedInspect() });
+    await updateService(ctx, {
+      id: 'svc-api',
+      resources: { limits: { cpus: 0.5, memoryBytes: 768 * 1024 ** 2 } },
+      restartPolicy: { condition: 'any', maxAttempts: 5 },
+      updateOrder: 'stop-first',
+      setLabels: { 'swarmy.otel': 'on' },
+      removeLabels: ['swarmy.managed'],
+    });
+    const spec = deployed();
+    expect(spec.resources).toEqual({ limits: { cpus: 0.5, memoryBytes: 768 * 1024 ** 2 } });
+    expect(spec.restartPolicy).toEqual({ condition: 'any', maxAttempts: 5, delayNs: 5e9 });
+    expect(spec.updateConfig).toEqual({ parallelism: 1, order: 'stop-first', failureAction: 'rollback' });
+    expect(spec.labels?.['swarmy.otel']).toBe('on');
+    expect(spec.labels?.['swarmy.managed']).toBe('true');
+    expect(spec.mounts).toEqual([{ type: 'volume', source: 'shop_data', target: '/data' }]);
+    expect(spec.command).toEqual(['/app/server']);
+    expect(spec.image).toBe('ghcr.io/acme/api:1.2.3');
+  });
+});

@@ -21,6 +21,7 @@ export * from './dotenv';
 export * from './pull-errors';
 export * from './swarm-kv';
 export * from './app-secrets';
+export * from './service-inspect';
 export * from './clickhouse';
 export * from './telemetry';
 export * from './api-keys';

@@ -67,6 +67,8 @@ export const ServiceSpec = z.object({
     .object({
       condition: z.enum(['none', 'on-failure', 'any']).optional(),
       maxAttempts: z.number().int().optional(),
+      /** Wait between restart attempts (Docker `RestartPolicy.Delay`, ns). */
+      delayNs: z.number().int().nonnegative().optional(),
     })
     .optional(),
   /**

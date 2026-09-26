@@ -1192,6 +1192,7 @@ export function toServiceCreateOptions(spec: ServiceSpec): Docker.CreateServiceO
         ? {
             Condition: spec.restartPolicy.condition,
             MaxAttempts: spec.restartPolicy.maxAttempts,
+            Delay: spec.restartPolicy.delayNs,
           }
         : undefined,
       Resources: spec.resources

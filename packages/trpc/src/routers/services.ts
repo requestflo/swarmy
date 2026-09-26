@@ -33,6 +33,7 @@ import {
   setSecretVar,
 } from '../services/app-secrets.service';
 import { resolveServiceLogTarget } from '../services/live-resolve';
+import { serviceUsage } from '../services/service-usage';
 
 export const servicesRouter = router({
   list: orgProcedure
@@ -65,6 +66,9 @@ export const servicesRouter = router({
       const [inspect, resource] = await Promise.all([inspectService(ctx, input.id), resolveService(ctx, input)]);
       return (await canReadSecrets(ctx, resource)) ? inspect : redactInspect(inspect);
     }),
+
+  /** What the copies use right now (per copy, across servers); null until one reports. */
+  usage: orgProcedure.input(z.object({ id: z.string() })).query(({ ctx, input }) => serviceUsage(ctx, input.id)),
 
   create: abacProcedure('service.deploy', resolveNewService).input(CreateServiceInput).mutation(({ ctx, input }) => createService(ctx, input)),
 
