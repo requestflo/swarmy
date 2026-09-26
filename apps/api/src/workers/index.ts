@@ -1,4 +1,5 @@
 import { startMetricsSampler } from './metrics-sampler';
+import { startEdgeTrafficRollups } from './edge-traffic';
 import { startRetention } from './retention';
 import { startImageGc } from './image-gc';
 import { startNodeHygiene } from './node-hygiene';
@@ -44,6 +45,7 @@ export function startWorkers(): () => void {
     // First: a restored bundle's swarm config goes back before reconcilers read it.
     startSwarmKvRestore(),
     startMetricsSampler(),
+    startEdgeTrafficRollups(),
     startRetention(),
     startImageGc(),
     startNodeHygiene(),

@@ -1,4 +1,5 @@
 import type { ContainerInfo, SwarmNodeInfo, SwarmServiceInfo, SwarmState } from '@swarmy/core/protocol';
+import { EdgeTrafficRing } from '@swarmy/core';
 import type {
   ContainerStatsSnapshot,
   LogLine,
@@ -96,6 +97,8 @@ export class GatewayStore {
   /** Last heartbeat/snapshot time per node (replaces DB Node.lastSeenAt). */
   readonly lastSeen = new Map<string, number>();
   /** Latest per-node edge health telemetry (geo-edge: caddy/dns task liveness). */
+  /** Per-edge request counts (Q4): 1-minute buckets, last 6 h, from `metrics.edge`. */
+  readonly edgeTraffic = new EdgeTrafficRing();
   readonly ingressNodeStatus = new Map<
     string,
     { caddyRunning: boolean; dnsRunning: boolean; sampledAt: number }

@@ -25,6 +25,7 @@ import {
   type CommandName,
   type DispatchDecorator,
 } from '@swarmy/trpc';
+import type { EdgeTrafficRing } from '@swarmy/core';
 import { asyncQueue, GatewayStore } from './store';
 import { pickCommandId } from './command-id';
 import { ConnectionRegistry } from './registry';
@@ -284,6 +285,11 @@ export class AgentHubImpl implements AgentHub {
   }
 
   /** Latest edge health telemetry for a node (geo-edge), if it has reported. */
+  /** Per-edge request ring (Q4), fed by the agents' `metrics.edge`. */
+  edgeTraffic(): EdgeTrafficRing {
+    return this.store.edgeTraffic;
+  }
+
   ingressStatusFor(
     controllerNodeId: string,
   ): { caddyRunning: boolean; dnsRunning: boolean; sampledAt: number } | undefined {

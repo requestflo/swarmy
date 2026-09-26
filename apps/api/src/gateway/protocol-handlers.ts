@@ -122,6 +122,12 @@ export async function handleAgentMessage(ws: AgentSocket, raw: string, deps: Dep
           netTxBytes: c.netTxBytes,
         })),
       );
+      // Edge nodes: per-host request deltas scraped from the local Caddy (Q4).
+      // Placed on the controller's clock (agent clock skew can't shift buckets).
+      if (p.edge) {
+        const orgId = deps.store.nodeOrg.get(nodeId);
+        if (orgId) deps.store.edgeTraffic.record(orgId, nodeId, p.edge, Date.now());
+      }
       return;
     }
     case 'containerList': {
