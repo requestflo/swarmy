@@ -628,6 +628,9 @@ async function loadOrgConfig(
       ...baseGlobal,
       extraConfig,
       tracing,
+      // Per-host request metrics (Q4): each edge's agent scrapes Caddy's
+      // local /metrics for per-region / per-app request rates.
+      requestMetrics: true,
       // Shared cert store: edge-per-node only (the single controller keeps
       // Caddy's local file storage — nothing to coordinate, and no dependency
       // on object storage for the only edge). Coordinates only — no secrets.

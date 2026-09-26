@@ -1,4 +1,5 @@
 import type { ContainerInfo, SwarmServiceInfo, SwarmNodeInfo, SwarmState, TermTarget } from '@swarmy/core/protocol';
+import type { EdgeTrafficRing } from '@swarmy/core';
 import type {
   ClusterStatsFrame,
   ContainerStatsSnapshot,
@@ -209,6 +210,13 @@ export interface AgentHub {
     /** Local SWARMY_ALLOW_NODE_SHELL override from register facts (absent = unset). */
     shellOverride?: 'allow' | 'deny';
   } | undefined;
+
+  /**
+   * The controller's in-memory per-edge request ring (Q4: 1-minute buckets,
+   * last 6 h), fed by the agents' `metrics.edge`. Optional: test/demo hubs
+   * omit it and traffic reads as "no data yet".
+   */
+  edgeTraffic?(): EdgeTrafficRing;
 
   /** Latest edge health telemetry for a node (geo-edge), if it has reported. */
   ingressStatusFor(

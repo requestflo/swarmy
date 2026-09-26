@@ -55,6 +55,7 @@ import { exposureRouter } from './routers/exposure';
 import { guardrailsRouter } from './routers/guardrails';
 import { auditLogRouter } from './routers/auditLog';
 import { costRouter } from './routers/cost';
+import { trafficRouter } from './routers/traffic';
 import { resilienceRouter } from './routers/resilience';
 import { swarmRouter } from './routers/swarm';
 import { blueprintsRouter } from './routers/blueprints';
@@ -123,6 +124,7 @@ export const appRouter = router({
   guardrails: guardrailsRouter,
   audit: auditLogRouter,
   cost: costRouter,
+  traffic: trafficRouter,
   resilience: resilienceRouter,
   swarm: swarmRouter,
   blueprints: blueprintsRouter,

@@ -435,3 +435,5 @@ export { BOUNCE_HOOK_PORT, BOUNCE_HOOK_USER, MAIL_SERVICE } from './services/ema
 export { setEmailLogStore, flushEmailLogs, port25Probe, domainCheck } from './services/email/store';
 export { checkEmailDomain, probePort25, ensureAppEmailCredential } from './services/email.service';
 export { observabilityStore, orgErrorRates, type ServiceErrorRate } from './services/observability.service';
+// ── per-edge request counting (Q4): rollup flush + prune for the edge-traffic worker ──
+export { flushTrafficRollups, pruneTrafficRollups } from './services/traffic.service';
