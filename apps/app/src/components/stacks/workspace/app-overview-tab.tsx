@@ -4,18 +4,18 @@ import { CodeView } from '@/components/calm';
 import { plural } from '@/components/apps/app-words';
 import { useApps } from '@/components/apps/use-apps';
 import { ServiceCanvas } from '@/components/canvas/service-canvas';
+import { ServiceSettingsPanel } from '@/components/service-settings/service-settings-panel';
 import { CardSkeleton } from '@/components/states';
 import { AppAlreadyOn, appAlreadyOn } from './app-already-on';
 import { appCodeTabs } from './app-code';
 import { AppFacts } from './app-facts';
 import { AppWorthDoing } from './app-worth-doing';
 import { PartsList } from './parts-list';
-import { ServiceSheet } from './service-sheet';
 import { useAppFacts } from './use-app-facts';
 
 /**
  * The app's Overview tab (RApp / AppCanvas): "How it is built" — the live
- * canvas with the selected part's sheet — and an aside with the one thing
+ * canvas with the selected part's settings panel — and an aside with the one thing
  * worth doing, the facts, and what's already on. Code puts the live spec at
  * the top of the aside.
  */
@@ -23,18 +23,15 @@ export function AppOverviewTab({
   stack,
   part,
   onSelect,
-  onOpen,
 }: {
   stack: string;
-  /** Selected part (service id) — its sheet shows at the bottom of the canvas. */
+  /** Selected part (service id) — its settings panel opens over the canvas. */
   part: string | undefined;
   onSelect: (id: string | undefined) => void;
-  onOpen: (id: string, origin: { x: number; y: number } | null) => void;
 }): React.JSX.Element {
   const a = useApps();
   const f = useAppFacts(stack);
   const app = [...a.apps, ...a.platform].find((x) => x.name === stack);
-  const selected = app?.stat.services.find((s) => s.id === part);
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_400px] xl:grid-rows-[auto_1fr] xl:gap-x-6">
@@ -60,21 +57,13 @@ export function AppOverviewTab({
         </div>
         {app ? (
           <div className="calm-card px-4 py-1 md:hidden">
-            <PartsList services={app.stat.services} onOpen={(id) => onOpen(id, null)} />
+            <PartsList services={app.stat.services} onOpen={(id) => onSelect(id)} />
           </div>
         ) : null}
         <div className="calm-card relative hidden h-[min(620px,calc(100dvh-16rem))] min-h-[420px] overflow-hidden p-0 md:block">
           <ReactFlowProvider key={stack}>
             <ServiceCanvas embedded stackFilter={stack} selectedId={part ?? ''} onOpenService={(id) => onSelect(id)} />
           </ReactFlowProvider>
-          {selected ? (
-            <ServiceSheet
-              stack={stack}
-              service={selected}
-              onOpen={() => onOpen(selected.id, null)}
-              onClose={() => onSelect(undefined)}
-            />
-          ) : null}
         </div>
       </section>
       <aside aria-label="About this app" className="flex min-w-0 flex-col gap-4 xl:col-start-2 xl:row-start-2">
@@ -87,6 +76,7 @@ export function AppOverviewTab({
           <CardSkeleton lines={4} />
         )}
       </aside>
+      {part ? <ServiceSettingsPanel serviceId={part} onClose={() => onSelect(undefined)} /> : null}
     </div>
   );
 }

@@ -1,5 +1,6 @@
-import type { DeployPhase, DeployStatus, NodeSummary, ServiceSummary } from '@swarmy/core';
+import type { DeployPhase, DeployStatus, NodeSummary, ServiceSummary, UpdateServiceInput } from '@swarmy/core';
 import type { DemoStore, DomainResolvers } from '../types';
+import { applyDemoSettings } from './service-settings';
 
 /**
  * Core demo resolvers — the flagship surfaces (command bar, Applications canvas,
@@ -339,9 +340,10 @@ export const core: DomainResolvers = {
       return { id, removed: true as const };
     },
     'services.update': (i, s) => {
-      const b = i as { id: string; env?: { key: string; value: string }[]; image?: string; replicas?: number };
+      const b = i as UpdateServiceInput;
       const sv = s.services.find((x) => x.id === b.id);
       if (!sv) throw new Error(`service "${b.id}" not found`);
+      applyDemoSettings(s, sv, b);
       if (b.env) sv.env = Object.fromEntries(b.env.map((e) => [e.key, e.value]));
       if (b.image) sv.image = b.image;
       if (b.replicas !== undefined) sv.replicas = { ...sv.replicas, desired: b.replicas };

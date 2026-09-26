@@ -110,11 +110,7 @@ export const gaps: DomainResolvers = {
       };
     },
 
-    'services.inspect': (i, store): Out['services']['inspect'] => {
-      const id = inp<{ id: string }>(i).id;
-      const svc = store.services.find((s) => s.id === id);
-      return svc ? { ID: svc.id, Spec: { Name: svc.name } } : {};
-    },
+    // services.inspect / services.usage live in service-settings.ts.
 
     // `swarmy login` device approval: there's no CLI waiting on a demo.
     'apiKeys.cliRequest': (): Out['apiKeys']['cliRequest'] => {
