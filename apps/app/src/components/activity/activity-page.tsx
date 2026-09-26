@@ -35,7 +35,7 @@ export function ActivityPage(): React.JSX.Element {
     'What happened, newest first.'
   ) : incident ? (
     <>
-      <Say tone="bad">{incident.title}</Say> is open.{' '}
+      <Say tone="bad">{openIncidents.length === 1 ? 'An incident is open' : `${openIncidents.length} incidents are open`}</Say>.{' '}
       {firing.length ? <em>{plural(firing.length, 'alert')} firing.</em> : null}
     </>
   ) : firing[0] ? (
@@ -49,7 +49,7 @@ export function ActivityPage(): React.JSX.Element {
   );
   const lede = feed.isLoading
     ? undefined
-    : `In the last 24 hours: ${plural(count('deploy'), 'deploy')}, ${plural(count('alert'), 'alert')}, ${plural(count('backup'), 'backup')} and ${plural(count('change'), 'other change')}.`;
+    : `${incident ? `${incident.title}. ` : ''}In the last 24 hours: ${plural(count('deploy'), 'deploy')}, ${plural(count('alert'), 'alert')}, ${plural(count('backup'), 'backup')} and ${plural(count('change'), 'other change')}.`;
 
   const code = <CodeView title="This stream as code" tabs={activityCode(feed.audit)} note="The audit log over REST, with an org API key. Alerts and incidents are read in the dashboard." />;
   const stream = feed.isLoading ? (
