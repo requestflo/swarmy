@@ -23,7 +23,9 @@
  * falls through to the front, for this node's client and for remote peers
  * alike. The jumps exist only while the front answers a TLS handshake for the
  * name, so :443 never falls into a black hole. The front exits when the edge
- * renews the certificate, and its restart policy serves the new one.
+ * renews the certificate (a bounded stop: grace, then SIGKILL), its restart
+ * policy serves the new one, and a Running front that stops answering is
+ * re-created (QA-072).
  */
 import { connect } from 'node:tls';
 import { DockerClient, defaultContainerLogConfig } from '@swarmy/core/docker';
@@ -37,6 +39,12 @@ export const MESH_FRONT_CHAIN = 'SWARMY-MESH-FRONT';
 export const EDGE_DATA_VOLUME = 'swarmy-ingress-caddy-data';
 const EDGE_SERVICE = 'swarmy-ingress-caddy';
 const SPEC_LABEL = 'swarmy.mesh.front.spec';
+/** Caddy's shutdown grace, and how often the front looks for a renewed cert. */
+export const FRONT_GRACE_S = 5;
+export const FRONT_CERT_POLL_S = 15;
+/** Consecutive failed probes of a RUNNING front before it is re-created (QA-072), and the floor between re-creates. */
+export const FRONT_PROBE_FAILS = 3;
+export const FRONT_RECREATE_EVERY_MS = 5 * 60_000;
 
 export interface MeshFront {
   domain: string;
@@ -77,6 +85,9 @@ export function renderFrontScript(f: MeshFront): string {
     '{',
     '  admin off',
     '  auto_https off',
+    // QA-072: signal/relay streams live for hours; with Caddy's default
+    // eternal grace a SIGTERM never finished, and :18443 stayed closed.
+    `  grace_period ${FRONT_GRACE_S}s`,
     '  storage file_system /tmp/front/storage',
     '}',
     `https://${f.domain}:${MESH_FRONT_PORT} {`,
@@ -105,8 +116,11 @@ export function renderFrontScript(f: MeshFront): string {
     `cat > /tmp/front/Caddyfile <<'SWARMY_FRONT_EOF'\n${caddyfile}\nSWARMY_FRONT_EOF`,
     'sum="$(cat "$crt" | sha256sum)"',
     'caddy run --config /tmp/front/Caddyfile --adapter caddyfile & pid=$!',
-    // A renewed certificate: exit, and the restart policy serves the new one.
-    'while kill -0 "$pid" 2>/dev/null; do sleep 300; now="$(find_crt)"; [ -n "$now" ] && [ "$(cat "$now" | sha256sum)" != "$sum" ] && { kill "$pid"; wait "$pid"; exit 0; }; done',
+    // A renewed certificate: stop Caddy (bounded: SIGKILL once the grace is
+    // over, QA-072) and exit, so the restart policy serves the new one.
+    `stop() { kill "$pid" 2>/dev/null; i=0; while kill -0 "$pid" 2>/dev/null && [ "$i" -lt ${FRONT_GRACE_S + 5} ]; do sleep 1; i=$((i+1)); done; kill -9 "$pid" 2>/dev/null; exit 0; }`,
+    'trap stop TERM INT',
+    `while kill -0 "$pid" 2>/dev/null; do sleep ${FRONT_CERT_POLL_S} & wait $!; now="$(find_crt)"; [ -n "$now" ] && [ "$(cat "$now" | sha256sum)" != "$sum" ] && stop; done`,
     'exit 1',
   ].join('\n');
 }
@@ -175,6 +189,18 @@ async function edgeImage(docker: DockerClient): Promise<string | undefined> {
 }
 
 let fallbackState = '';
+let probeFails = 0;
+let lastRecreateAt = 0;
+
+/**
+ * Pure (QA-072): re-create a front that is Running but has not answered
+ * `fails` probes in a row — a wedged Caddy stays "Up" forever, and the
+ * restart policy never fires. Bounded, so a front that is merely waiting for
+ * its first cert is not churned more than once per window.
+ */
+export function frontNeedsRecreate(fails: number, lastRecreate: number, now: number): boolean {
+  return fails >= FRONT_PROBE_FAILS && now - lastRecreate >= FRONT_RECREATE_EVERY_MS;
+}
 
 /** Converge the front + its :443 fallback for this node's control-plane spec. Never throws. */
 export async function ensureMeshFront(docker: DockerClient, configYaml: string | null, log: (m: string) => void): Promise<void> {
@@ -191,7 +217,10 @@ export async function ensureMeshFront(docker: DockerClient, configYaml: string |
       return;
     }
     const want = JSON.stringify(f);
-    if (!cur || cur.Config?.Labels?.[SPEC_LABEL] !== want) {
+    const stale = !cur || cur.Config?.Labels?.[SPEC_LABEL] !== want;
+    const wedged = !stale && cur?.State?.Running === true && frontNeedsRecreate(probeFails, lastRecreateAt, Date.now());
+    if (wedged) log(`mesh front for ${f.domain} running but not answering ${probeFails} probes in a row: re-creating it (QA-072)`);
+    if (stale || wedged) {
       const image = (await edgeImage(docker)) ?? cur?.Config?.Image;
       if (!image) return; // no edge has run here yet: nothing to serve with
       await d.getContainer(MESH_FRONT_CONTAINER).remove({ force: true }).catch(() => undefined);
@@ -209,11 +238,15 @@ export async function ensureMeshFront(docker: DockerClient, configYaml: string |
         },
       });
       await c.start();
+      probeFails = 0;
+      lastRecreateAt = Date.now();
       log(`mesh front for ${f.domain} started (:${MESH_FRONT_PORT}): the mesh domain no longer needs the swarm edge on this node`);
     } else if (!cur.State?.Running) {
       await d.getContainer(MESH_FRONT_CONTAINER).start().catch(() => undefined);
     }
-    await setFallback(docker, f, await frontServes(f), log);
+    const serving = await frontServes(f);
+    probeFails = serving ? 0 : probeFails + 1;
+    await setFallback(docker, f, serving, log);
   } catch (e) {
     log(`mesh front: ${e instanceof Error ? e.message : String(e)}`);
   }

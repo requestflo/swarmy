@@ -43,3 +43,28 @@ describe('mesh front (QA-066 f: the mesh domain without the swarm edge)', () => 
     expect(renderFrontFallback(null, true)).toContain('fallback: off');
   });
 });
+
+describe('mesh front never wedges (QA-072)', () => {
+  const f = { domain: 'mesh.lab', port: 443, upstream: '127.0.0.1:8081' };
+
+  test('Caddy gets a bounded grace, and the stop SIGKILLs after it', async () => {
+    const { FRONT_GRACE_S } = await import('./mesh-front');
+    const s = renderFrontScript(f);
+    expect(s).toContain(`  grace_period ${FRONT_GRACE_S}s`);
+    // No bare `wait "$pid"`: that is what sat forever behind the eternal grace.
+    expect(s).not.toMatch(/kill "\$pid"; wait "\$pid"/);
+    expect(s).toContain('kill -9 "$pid"');
+    expect(s).toContain(`[ "$i" -lt ${FRONT_GRACE_S + 5} ]`);
+    expect(s).toContain('trap stop TERM INT');
+  });
+
+  test('a Running front that fails 3 probes in a row is re-created, at most once per window', async () => {
+    const { frontNeedsRecreate, FRONT_RECREATE_EVERY_MS } = await import('./mesh-front');
+    const now = 10 * FRONT_RECREATE_EVERY_MS;
+    expect(frontNeedsRecreate(0, 0, now)).toBe(false);
+    expect(frontNeedsRecreate(2, 0, now)).toBe(false);
+    expect(frontNeedsRecreate(3, 0, now)).toBe(true);
+    expect(frontNeedsRecreate(7, now - 1_000, now)).toBe(false);
+    expect(frontNeedsRecreate(7, now - FRONT_RECREATE_EVERY_MS, now)).toBe(true);
+  });
+});
