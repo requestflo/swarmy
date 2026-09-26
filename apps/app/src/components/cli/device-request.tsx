@@ -2,15 +2,17 @@ import * as React from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { CheckIcon, LaptopIcon, TerminalIcon, XIcon } from 'lucide-react';
 import { Button, cn } from '@swarmy/ui';
+import type { ApiKeyScope } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { NextAction, Section, StatusWord, Tech } from '@/components/calm';
 import { CardSkeleton, ErrorState } from '@/components/states';
 import { QuietSwitch } from '@/components/rowpage/row-page';
 
-type Scope = 'read' | 'write' | 'secrets.read';
+type Scope = ApiKeyScope;
 
 const SCOPE_COPY: Record<Scope, { label: string; hint: string }> = {
   read: { label: 'See everything', hint: 'Apps, services, logs and variables (secret values stay hidden).' },
+  deploy: { label: 'Ship and roll back', hint: 'Deploys and put-backs only. It can’t change variables, servers or people.' },
   write: { label: 'Deploy and change things', hint: 'Deploys, variable changes, previews. Your workspace rules still apply.' },
   'secrets.read': { label: 'Read secret values', hint: 'env pull --include-secrets. Every read is audited.' },
 };
