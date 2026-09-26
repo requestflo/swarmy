@@ -13,13 +13,33 @@ export function matchesQuery(meta: BlueprintMetaView, query: string): boolean {
   return q.split(/\s+/).every((word) => hay.includes(word));
 }
 
+/** The three quick toggles on the Templates page. */
+export interface TemplateToggles {
+  /** Fits a 1 GB server (the catalogue's own `heavy` flag). */
+  small?: boolean;
+  /** Uses managed Postgres. */
+  postgres?: boolean;
+  /** Lightweight: needs 256 MB or less. */
+  light?: boolean;
+}
+
+export const LIGHT_MB = 256;
+
+export function matchesToggles(meta: BlueprintMetaView, t: TemplateToggles = {}): boolean {
+  if (t.small && meta.heavy) return false;
+  if (t.postgres && !(meta.managed ?? []).includes('postgres')) return false;
+  if (t.light && !(meta.minMemoryMb !== undefined && meta.minMemoryMb <= LIGHT_MB)) return false;
+  return true;
+}
+
 export function filterBlueprints(
   cards: BlueprintMetaView[],
   query: string,
   category: CategoryFilter,
+  toggles: TemplateToggles = {},
 ): BlueprintMetaView[] {
   return cards.filter(
-    (m) => (category === 'all' || m.category === category) && matchesQuery(m, query),
+    (m) => (category === 'all' || m.category === category) && matchesQuery(m, query) && matchesToggles(m, toggles),
   );
 }
 
@@ -27,8 +47,9 @@ export function filterBlueprints(
 export function categoryCounts(
   cards: BlueprintMetaView[],
   query: string,
+  toggles: TemplateToggles = {},
 ): Array<{ id: BlueprintCategory; label: string; count: number }> {
-  const matching = cards.filter((m) => matchesQuery(m, query));
+  const matching = cards.filter((m) => matchesQuery(m, query) && matchesToggles(m, toggles));
   return BLUEPRINT_CATEGORIES.map((c) => ({
     id: c.id,
     label: c.label,

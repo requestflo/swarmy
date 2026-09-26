@@ -31,7 +31,8 @@ export function SectionHeader({
   const { pathname } = useLocation();
   const group = groupForPathname(pathname);
   const badges = useNavBadges();
-  const tabs = group
+  // The Deploy flow's source cards are its chooser; it has no tab strip.
+  const tabs = group && group !== 'Deploy'
     ? SECTIONS.filter((s) => s.group === group).map((s) => ({
         to: s.to,
         label: s.label,

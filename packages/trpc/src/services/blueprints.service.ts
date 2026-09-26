@@ -124,12 +124,14 @@ export async function planBlueprint(
   input: BlueprintPlanInput,
 ): Promise<BlueprintPlanView> {
   const entry = getEntry(input.id);
-  const steps = planSteps(entry, input, await planEnv(ctx, entry, input));
+  const env = await planEnv(ctx, entry, input);
+  const steps = planSteps(entry, input, env);
   return {
     id: input.id,
     stackName: input.params.name,
     summary: buildPlanSummary(input.params.name, steps),
     steps: steps.map(planStepView),
+    ...(input.params.domain ? {} : { autoHost: env.autoHost ?? null }),
   };
 }
 

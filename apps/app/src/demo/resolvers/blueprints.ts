@@ -314,6 +314,17 @@ function summaryOf(stack: string, steps: BlueprintPlanStepView[]): string {
   return `Will create: ${parts.join(', ')}.`;
 }
 
+/** The demo edge's automatic address (`<service>-<stack>.<edge-ip>.sslip.io`, as auto-address.ts forms it). */
+function demoAutoHost(id: string, stack: string): string | null {
+  const t = findAppTemplate(id);
+  if (!t || t.exposure === 'private') return null;
+  const desired = loadTemplate(t, { stack }).desired;
+  const primary = desired ? primaryService(t, desired) : null;
+  if (!primary) return null;
+  const label = `${primary.name}-${stack}`.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  return `${label}.203-0-113-10.sslip.io`;
+}
+
 const rand = (): string => Math.random().toString(36).slice(2, 12);
 
 // ── Resolvers ─────────────────────────────────────────────────────────────────
@@ -325,7 +336,13 @@ export const blueprints: DomainResolvers = {
     'blueprints.plan': (i): BlueprintPlanView => {
       const { id, params } = i as BlueprintPlanInput;
       const steps = planSteps(id, params);
-      return { id, stackName: params.name, summary: summaryOf(params.name, steps), steps };
+      return {
+        id,
+        stackName: params.name,
+        summary: summaryOf(params.name, steps),
+        steps,
+        ...(params.domain ? {} : { autoHost: demoAutoHost(id, params.name) }),
+      };
     },
 
     'blueprints.deploy': (i, s: DemoStore): BlueprintDeployResultView => {

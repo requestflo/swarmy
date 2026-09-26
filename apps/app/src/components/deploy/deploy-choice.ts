@@ -1,47 +1,28 @@
-/** What the Deploy hub has picked: a template, or one of the bring-your-own routes. */
-export type DeployChoice =
-  | { kind: 'template'; id: string }
-  | { kind: 'git' }
-  | { kind: 'compose' }
-  | { kind: 'image' };
+import { FileCodeIcon, GitBranchIcon, LayoutGridIcon, PackageIcon, type LucideIcon } from 'lucide-react';
 
-export type OwnKind = Exclude<DeployChoice['kind'], 'template'>;
+/** What the Deploy hub has open: the template shelf, or the git flow. Compose and image are their own pages. */
+export type DeploySource = 'template' | 'git';
 
-export interface OwnOption {
-  kind: OwnKind;
+export interface SourceCard {
+  key: DeploySource | 'compose' | 'image';
   title: string;
-  /** Plain line (Summary). */
+  /** Plain line under the title. */
   say: string;
-  /** What swarmy generates from it (Controls). */
+  /** What swarmy makes of it (Controls). */
   tech: string;
-  /** The step that takes it from here. */
-  to: '/ci' | '/stacks/new' | '/services/new';
-  cta: string;
+  icon: LucideIcon;
+  /** Compose and image go to their own pages. */
+  to?: '/stacks/new' | '/services/new';
 }
 
-export const OWN_OPTIONS: OwnOption[] = [
-  {
-    kind: 'git',
-    title: 'Git repo',
-    say: 'built on every push',
-    tech: 'reads swarmy.yaml, a compose file or a Dockerfile · builds on your servers · pushes to the in-swarm registry',
-    to: '/ci',
-    cta: 'Connect a repo',
-  },
-  {
-    kind: 'compose',
-    title: 'Compose file',
-    say: 'paste it in',
-    tech: 'docker compose → one swarm stack · every service at once · .env substitution',
-    to: '/stacks/new',
-    cta: 'Paste a compose file',
-  },
-  {
-    kind: 'image',
-    title: 'Image',
-    say: 'from any registry',
-    tech: 'one image → one service · copies, ports, env, optional web address',
-    to: '/services/new',
-    cta: 'Pick an image',
-  },
+export const SOURCE_CARDS: SourceCard[] = [
+  { key: 'template', title: 'Template', say: 'Ready-made', tech: 'a pinned swarmy.yaml · data and secrets wired', icon: LayoutGridIcon },
+  { key: 'compose', title: 'Compose file', say: 'Paste or drop YAML', tech: 'docker compose → one app · .env substitution', icon: FileCodeIcon, to: '/stacks/new' },
+  { key: 'image', title: 'Image', say: 'ghcr.io/you/app:tag', tech: 'one image → one service', icon: PackageIcon, to: '/services/new' },
+  { key: 'git', title: 'Git repo', say: 'We build it, every push', tech: 'swarmy.yaml, compose or Dockerfile · built on your servers', icon: GitBranchIcon },
 ];
+
+/** "60+" — the catalogue size, rounded down so it stays true as it grows. */
+export function roundedCount(n: number): string {
+  return n >= 10 ? `${Math.floor(n / 10) * 10}+` : String(n);
+}

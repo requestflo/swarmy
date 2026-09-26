@@ -141,6 +141,7 @@ export const NAV_GROUPS: NavGroup[] = [
 
 /** Prefixes that belong to a row without being one of its tabs. */
 const PREFIX_GROUP: [string, DestinationGroup][] = [
+  ['/deploy', 'Deploy'],
   ['/stacks/new', 'Deploy'],
   ['/services/new', 'Deploy'],
   ['/stacks', 'Apps'],

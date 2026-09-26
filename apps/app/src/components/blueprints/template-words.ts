@@ -1,32 +1,4 @@
-import type { BlueprintMetaView } from '@swarmy/core';
-
-const MANAGED: Record<string, string> = {
-  postgres: 'its own database',
-  cache: 'a fast cache',
-  bucket: 'file storage',
-  search: 'search',
-};
-
-/** "What you get", in plain words, from the card's resource chips. */
-export function youGet(meta: BlueprintMetaView): { what: string; detail: string }[] {
-  const out: { what: string; detail: string }[] = [];
-  const managed = (meta.managed ?? []).map((m) => MANAGED[m]).filter(Boolean);
-  const services = meta.services?.length ?? 0;
-  out.push({
-    what: 'The app',
-    detail: managed.length ? `with ${managed.join(', ')}, all wired together` : services > 1 ? `${services} parts, wired together` : 'ready to run',
-  });
-  if (meta.resources.includes('Secret') || meta.managed?.includes('postgres')) {
-    out.push({ what: 'Passwords', detail: 'made for you; you never paste one' });
-  }
-  if (meta.resources.includes('Volume')) out.push({ what: 'Its files', detail: 'kept on disk across restarts and updates' });
-  if (meta.resources.includes('Private')) {
-    out.push({ what: 'Private', detail: 'only your other apps can reach it' });
-  } else if (meta.supportsDomain) {
-    out.push({ what: 'HTTPS', detail: 'at a web address, or your own domain any time' });
-  }
-  return out;
-}
+import { BLUEPRINT_CATEGORIES, type BlueprintMetaView } from '@swarmy/core';
 
 /** "~420 MB" / "~1.3 GB" from the template's memory estimate. */
 export function memoryLabel(meta: BlueprintMetaView): string | null {
@@ -43,3 +15,22 @@ export function defaultAppName(meta: BlueprintMetaView): string {
 export function getsAutoAddress(meta: BlueprintMetaView): boolean {
   return meta.source !== undefined && meta.source !== 'builtin' && meta.supportsDomain;
 }
+
+/** "2 services" from the catalogue's service list (null for built-ins that don't say). */
+export function servicesLabel(meta: BlueprintMetaView): string | null {
+  const n = meta.services?.length;
+  return n ? `${n} service${n === 1 ? '' : 's'}` : null;
+}
+
+/** The category's chip label ("CMS & blogs"). */
+export function categoryLabel(meta: BlueprintMetaView): string {
+  return BLUEPRINT_CATEGORIES.find((c) => c.id === meta.category)?.label ?? meta.category;
+}
+
+/** Managed data, as the short chip words the cards use. */
+export const MANAGED_CHIP: Record<string, string> = {
+  postgres: 'Postgres',
+  cache: 'cache',
+  bucket: 'bucket',
+  search: 'search',
+};

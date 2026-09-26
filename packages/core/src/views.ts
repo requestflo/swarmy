@@ -2192,6 +2192,8 @@ export interface BlueprintMetaView {
   services?: string[];
   /** The service + port that gets the URL. */
   httpPort?: number;
+  /** Short name of that service (the one in `services` that visitors reach). */
+  primaryService?: string;
   /** First-login steps, shown after a deploy. */
   postDeploy?: string[];
   /** Where the template came from (curated here, or seeded from Coolify's Apache-2.0 set). */
@@ -2215,6 +2217,12 @@ export interface BlueprintPlanView {
   /** "Will create: Postgres cluster db, stack blog (2 services), route …". */
   summary: string;
   steps: BlueprintPlanStepView[];
+  /**
+   * With no domain: the automatic HTTPS address the app's web service will get
+   * (`<service>-<stack>.<zone>` or `….<edge-ip>.sslip.io`); null when the edge
+   * IP is unknown or the app is private. Absent when a domain was given.
+   */
+  autoHost?: string | null;
 }
 
 export type BlueprintStepStatus = 'succeeded' | 'failed' | 'skipped';

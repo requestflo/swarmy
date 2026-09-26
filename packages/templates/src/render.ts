@@ -150,7 +150,7 @@ export function templateMeta(t: AppTemplate): BlueprintMetaView {
       : {}),
     managed,
     services: desired.services.map((s) => s.name),
-    ...(primary ? { httpPort: primary.port } : {}),
+    ...(primary ? { httpPort: primary.port, primaryService: primary.name } : {}),
     postDeploy: t.postDeploy,
     source: t.source ? 'coolify' : 'curated',
     ...(t.source

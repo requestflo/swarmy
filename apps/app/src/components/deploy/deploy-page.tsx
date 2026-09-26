@@ -1,97 +1,78 @@
 import * as React from 'react';
-import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import type { BlueprintCategory } from '@swarmy/core';
-import { cn } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
-import { SectionHeader } from '@/components/section-header';
-import { TemplateCard } from '@/components/blueprints/template-card';
+import { CalmPage, SayHeader } from '@/components/calm';
+import { ErrorState } from '@/components/states';
 import { GitNewAppCard } from '@/components/ci/git-new-app-card';
-import type { DeployChoice } from './deploy-choice';
-import { OwnChoices } from './own-choices';
-import { DeploySelection } from './deploy-selection';
+import type { DeploySource } from './deploy-choice';
 import { DeployCode } from './deploy-code';
-import { DeployFit } from './deploy-fit';
-
-/** The plain-words shelves (RDeploy), each a template category. */
-const SHELVES: { id: BlueprintCategory; label: string }[] = [
-  { id: 'cms', label: 'A website or blog' },
-  { id: 'analytics', label: 'Visitor stats' },
-  { id: 'automation', label: 'Automation' },
-  { id: 'productivity', label: 'Team tools' },
-  { id: 'ai', label: 'AI' },
-];
+import { DeployGitAside } from './deploy-git-aside';
+import { DeployTemplateAside } from './deploy-template-aside';
+import { SourceCards } from './source-cards';
+import { TemplateShelf } from './template-shelf';
+import { useServerRoom } from './use-server-room';
 
 /**
- * Deploy an app (RDeploy): "What are you putting online?" — a few templates
- * per shelf, a link to all of them, and bring-your-own (git, compose, image).
- * The aside says what the pick gives you and holds the one coral step on;
- * Controls adds what swarmy generates; Code shows the file and the call.
+ * Deploy an app (board 2 + RDeploy): "What are you putting online?" — four
+ * source cards (template · compose · image · git), then twelve templates and
+ * the picked one in the aside with its one coral step on to Configure.
+ * Compose and image open their own pages; git opens its wizard here.
  */
 export function DeployPage(): React.JSX.Element {
   const trpc = useTRPC();
   const list = useQuery(trpc.blueprints.list.queryOptions());
   const all = React.useMemo(() => (list.data ?? []).filter((m) => !m.docOnly), [list.data]);
-  const [shelf, setShelf] = React.useState<BlueprintCategory | 'own'>('cms');
-  const [choice, setChoice] = React.useState<DeployChoice | null>(null);
-  const featured = shelf === 'own' ? [] : all.filter((m) => m.category === shelf).slice(0, 4);
-  const current: DeployChoice | null = choice ?? (featured[0] ? { kind: 'template', id: featured[0].id } : null);
-  const template = current?.kind === 'template' ? (all.find((m) => m.id === current.id) ?? null) : null;
+  const room = useServerRoom();
+  const [source, setSource] = React.useState<DeploySource>('template');
+  const [picked, setPicked] = React.useState<string | null>(null);
+  const template = all.find((m) => m.id === picked) ?? all.find((m) => m.id === 'ghost') ?? all[0] ?? null;
 
-  const chip = (id: BlueprintCategory | 'own', label: string): React.JSX.Element => (
-    <button
-      key={id}
-      type="button"
-      aria-pressed={shelf === id}
-      onClick={() => {
-        setShelf(id);
-        setChoice(id === 'own' ? { kind: 'git' } : null);
-      }}
-      className={cn(
-        'min-h-10 rounded-full border px-4 text-[13.5px] font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
-        shelf === id ? 'bg-foreground text-background border-transparent' : 'border-border hover:bg-foreground/[0.04]',
-      )}
-    >
-      {label}
-    </button>
-  );
+  const pick = (id: string): void => {
+    setPicked(id);
+    if (window.matchMedia('(max-width: 1279px)').matches) {
+      requestAnimationFrame(() => document.getElementById('deploy-aside')?.scrollIntoView({ behavior: 'smooth' }));
+    }
+  };
+
+  const aside =
+    source === 'git' ? (
+      <>
+        <DeployCode source="git" template={null} />
+        <DeployGitAside />
+      </>
+    ) : template ? (
+      <>
+        <DeployCode source="template" template={template} />
+        <div id="deploy-aside" className="scroll-mt-4 xl:sticky xl:top-4">
+          <DeployTemplateAside meta={template} />
+        </div>
+      </>
+    ) : list.isPending ? (
+      <div className="shimmer-line h-96 rounded-2xl" />
+    ) : null;
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] px-6 pt-8 pb-24 lg:pb-20 xl:px-10">
-      <SectionHeader eyebrow="Nothing runs until you press Deploy" title="What are you putting online?" />
-      <div className="grid gap-7 xl:grid-cols-[minmax(0,1fr)_400px]">
-        <div className="flex min-w-0 flex-col gap-5">
-          <div role="group" aria-label="Kinds of app" className="flex flex-wrap gap-2">
-            {SHELVES.filter((s) => list.isPending || all.some((m) => m.category === s.id)).map((s) => chip(s.id, s.label))}
-            {chip('own', 'My own code')}
-          </div>
-          {shelf !== 'own' ? (
-            list.isPending ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {[0, 1, 2, 3].map((i) => <div key={i} className="shimmer-line h-28 rounded-2xl" />)}
-              </div>
-            ) : (
-              <>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {featured.map((m) => (
-                    <TemplateCard key={m.id} meta={m} selected={template?.id === m.id} onPick={(id) => setChoice({ kind: 'template', id })} />
-                  ))}
-                </div>
-                <Link to="/blueprints" className="text-primary w-fit font-mono text-[12.5px] hover:underline">
-                  Browse all {all.length} apps →
-                </Link>
-              </>
-            )
-          ) : null}
-          <OwnChoices value={current && current.kind !== 'template' ? current.kind : null} onPick={(k) => setChoice({ kind: k })} />
-          {current?.kind === 'git' ? <GitNewAppCard onClose={() => setChoice(null)} /> : null}
-          {template ? <DeployFit template={template} /> : null}
-        </div>
-        <aside className="flex min-w-0 flex-col gap-4">
-          {current ? <DeployCode choice={current} template={template} /> : null}
-          {current ? <DeploySelection choice={current} template={template} /> : null}
-        </aside>
-      </div>
-    </div>
+    <CalmPage
+      wide
+      crumbs={[{ label: 'Overview', to: '/overview' }, { label: 'deploy' }]}
+      actions={
+        room.roomiest ? (
+          <span className="text-muted-foreground hidden text-[13px] md:inline">
+            Lands on <span className="text-foreground font-mono">{room.roomiest.name}</span> unless you say otherwise
+          </span>
+        ) : null
+      }
+      aside={aside}
+    >
+      <SayHeader eyebrow="Nothing runs until you press Deploy" title="What are you putting online?" />
+      <SourceCards value={source} onPick={setSource} templateCount={list.isPending ? null : all.length} />
+      {source === 'git' ? (
+        <GitNewAppCard onClose={() => setSource('template')} />
+      ) : list.isError ? (
+        <ErrorState title="Couldn't load the templates." error={list.error} retry={() => void list.refetch()} />
+      ) : (
+        <TemplateShelf all={all} pending={list.isPending} selected={template?.id ?? null} onPick={pick} />
+      )}
+    </CalmPage>
   );
 }

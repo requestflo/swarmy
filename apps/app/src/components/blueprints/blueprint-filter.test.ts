@@ -34,4 +34,16 @@ describe('blueprint gallery filter', () => {
     ]);
     expect(categoryCounts(CARDS, 'simple')).toEqual([{ id: 'analytics', label: 'Analytics', count: 1 }]);
   });
+
+  it('applies the quick toggles', () => {
+    const cards: BlueprintMetaView[] = [
+      { ...card('ghost', 'cms', 'Blog'), heavy: true, minMemoryMb: 1152 },
+      { ...card('umami', 'analytics', 'Stats'), managed: ['postgres'], minMemoryMb: 640 },
+      { ...card('kuma', 'monitoring', 'Uptime'), minMemoryMb: 256 },
+    ];
+    expect(filterBlueprints(cards, '', 'all', { small: true }).map((c) => c.id)).toEqual(['umami', 'kuma']);
+    expect(filterBlueprints(cards, '', 'all', { postgres: true }).map((c) => c.id)).toEqual(['umami']);
+    expect(filterBlueprints(cards, '', 'all', { light: true }).map((c) => c.id)).toEqual(['kuma']);
+    expect(categoryCounts(cards, '', { light: true })).toEqual([{ id: 'monitoring', label: 'Monitoring', count: 1 }]);
+  });
 });

@@ -1,23 +1,39 @@
 import * as React from 'react';
 import type { BlueprintMetaView } from '@swarmy/core';
 import { cn } from '@swarmy/ui';
-import { Tech } from '@/components/calm';
-import { BlueprintIcon } from './blueprint-icons';
-import { memoryLabel } from './template-words';
+import { LetterAvatar } from './letter-avatar';
+import { MANAGED_CHIP, categoryLabel, memoryLabel, servicesLabel } from './template-words';
+
+function Chip({ tone, children }: { tone: 'warn' | 'info' | 'idle'; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <span
+      className={cn(
+        'rounded-md px-1.5 py-0.5 text-[11px] font-semibold whitespace-nowrap',
+        tone === 'warn' && 'bg-status-warning/15 text-tone-warn',
+        tone === 'info' && 'bg-status-progress/12 text-tone-info',
+        tone === 'idle' && 'bg-muted text-muted-foreground',
+      )}
+    >
+      {children}
+    </span>
+  );
+}
 
 /**
- * One template in the grid: a real button (picking fills the Configure
- * panel). Summary shows the name and the one-line "what you get"; Controls
- * adds the version, what it creates and its memory.
+ * One template: a real button (picking fills the aside). `gallery` (the
+ * Templates page) shows the pinned version and memory/managed-data chips;
+ * `hub` (the Deploy page) shows the category and `~MB · N services`.
  */
 export function TemplateCard({
   meta,
   selected,
   onPick,
+  variant = 'gallery',
 }: {
   meta: BlueprintMetaView;
   selected: boolean;
   onPick: (id: string) => void;
+  variant?: 'gallery' | 'hub';
 }): React.JSX.Element {
   const mem = memoryLabel(meta);
   return (
@@ -26,27 +42,35 @@ export function TemplateCard({
       aria-pressed={selected}
       onClick={() => onPick(meta.id)}
       className={cn(
-        'calm-card flex min-h-11 min-w-0 flex-col gap-2 px-4 py-3.5 text-left outline-none transition-colors',
-        'focus-visible:ring-ring/60 hover:bg-foreground/[0.025] focus-visible:ring-2',
-        selected && 'ring-primary/70 ring-2',
+        'calm-card flex min-h-11 min-w-0 flex-col gap-2 px-3.5 py-3 text-left outline-none transition-colors',
+        'hover:bg-foreground/[0.025] focus-visible:ring-ring/60 focus-visible:ring-2',
+        selected && 'border-primary ring-primary/30 ring-2',
       )}
     >
-      <span className="flex items-center gap-3">
-        <span className="bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg">
-          <BlueprintIcon id={meta.id} category={meta.category} className="size-4.5" />
-        </span>
+      <span className="flex min-w-0 items-center gap-2.5">
+        <LetterAvatar id={meta.id} name={meta.name} size="sm" />
         <span className="flex min-w-0 flex-col">
-          <span className="truncate text-[14.5px] font-semibold">{meta.name}</span>
-          {meta.version ? <Tech className="truncate text-[11px]">v{meta.version}</Tech> : null}
+          <span className="truncate text-[14px] leading-tight font-semibold">{meta.name}</span>
+          <span className="text-muted-foreground truncate font-mono text-[11px]">
+            {variant === 'hub' ? categoryLabel(meta) : meta.version ? `v${meta.version}` : categoryLabel(meta)}
+          </span>
         </span>
-        {meta.heavy ? (
-          <span className="text-tone-warn ml-auto shrink-0 text-[11px] font-semibold">{mem ?? 'Heavy'}</span>
-        ) : null}
       </span>
-      <span className="text-muted-foreground line-clamp-2 text-[13px] leading-snug">{meta.tagline}</span>
-      <Tech className="text-[11px]">
-        {[mem, ...meta.resources].filter(Boolean).join(' · ')}
-      </Tech>
+      <span className="text-muted-foreground line-clamp-2 text-[12.5px] leading-snug">{meta.tagline}</span>
+      {variant === 'hub' ? (
+        <span className="text-muted-foreground mt-auto font-mono text-[11px]">
+          {[mem, servicesLabel(meta)].filter(Boolean).join(' · ')}
+        </span>
+      ) : (
+        <span className="mt-auto flex flex-wrap gap-1">
+          {mem ? <Chip tone={meta.heavy ? 'warn' : 'idle'}>{meta.heavy ? `${mem} RAM` : mem}</Chip> : null}
+          {(meta.managed ?? []).map((m) => (
+            <Chip key={m} tone="info">
+              {MANAGED_CHIP[m] ?? m}
+            </Chip>
+          ))}
+        </span>
+      )}
     </button>
   );
 }

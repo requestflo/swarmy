@@ -46,6 +46,7 @@ import { Route as AuthedObservabilityTraceIdRouteImport } from './routes/_authed
 import { Route as AuthedNodesNewRouteImport } from './routes/_authed/nodes/new'
 import { Route as AuthedNodesNodeIdRouteImport } from './routes/_authed/nodes/$nodeId'
 import { Route as AuthedIncidentsIncidentIdRouteImport } from './routes/_authed/incidents_.$incidentId'
+import { Route as AuthedDeployTemplateRouteImport } from './routes/_authed/deploy_.$template'
 import { Route as AuthedDataBucketsRouteImport } from './routes/_authed/data_.buckets'
 import { Route as AuthedCiBuildIdRouteImport } from './routes/_authed/ci_.$buildId'
 import { Route as AuthedStacksNameIndexRouteImport } from './routes/_authed/stacks/$name.index'
@@ -256,6 +257,11 @@ const AuthedIncidentsIncidentIdRoute =
     path: '/incidents/$incidentId',
     getParentRoute: () => AuthedRoute,
   } as any)
+const AuthedDeployTemplateRoute = AuthedDeployTemplateRouteImport.update({
+  id: '/deploy_/$template',
+  path: '/deploy/$template',
+  getParentRoute: () => AuthedRoute,
+} as any)
 const AuthedDataBucketsRoute = AuthedDataBucketsRouteImport.update({
   id: '/data_/buckets',
   path: '/data/buckets',
@@ -413,6 +419,7 @@ export interface FileRoutesByFullPath {
   '/s/$slug': typeof SSlugRoute
   '/ci/$buildId': typeof AuthedCiBuildIdRoute
   '/data/buckets': typeof AuthedDataBucketsRoute
+  '/deploy/$template': typeof AuthedDeployTemplateRoute
   '/incidents/$incidentId': typeof AuthedIncidentsIncidentIdRoute
   '/nodes/$nodeId': typeof AuthedNodesNodeIdRoute
   '/nodes/new': typeof AuthedNodesNewRoute
@@ -474,6 +481,7 @@ export interface FileRoutesByTo {
   '/': typeof AuthedIndexRoute
   '/ci/$buildId': typeof AuthedCiBuildIdRoute
   '/data/buckets': typeof AuthedDataBucketsRoute
+  '/deploy/$template': typeof AuthedDeployTemplateRoute
   '/incidents/$incidentId': typeof AuthedIncidentsIncidentIdRoute
   '/nodes/$nodeId': typeof AuthedNodesNodeIdRoute
   '/nodes/new': typeof AuthedNodesNewRoute
@@ -536,6 +544,7 @@ export interface FileRoutesById {
   '/_authed/': typeof AuthedIndexRoute
   '/_authed/ci_/$buildId': typeof AuthedCiBuildIdRoute
   '/_authed/data_/buckets': typeof AuthedDataBucketsRoute
+  '/_authed/deploy_/$template': typeof AuthedDeployTemplateRoute
   '/_authed/incidents_/$incidentId': typeof AuthedIncidentsIncidentIdRoute
   '/_authed/nodes/$nodeId': typeof AuthedNodesNodeIdRoute
   '/_authed/nodes/new': typeof AuthedNodesNewRoute
@@ -599,6 +608,7 @@ export interface FileRouteTypes {
     | '/s/$slug'
     | '/ci/$buildId'
     | '/data/buckets'
+    | '/deploy/$template'
     | '/incidents/$incidentId'
     | '/nodes/$nodeId'
     | '/nodes/new'
@@ -660,6 +670,7 @@ export interface FileRouteTypes {
     | '/'
     | '/ci/$buildId'
     | '/data/buckets'
+    | '/deploy/$template'
     | '/incidents/$incidentId'
     | '/nodes/$nodeId'
     | '/nodes/new'
@@ -721,6 +732,7 @@ export interface FileRouteTypes {
     | '/_authed/'
     | '/_authed/ci_/$buildId'
     | '/_authed/data_/buckets'
+    | '/_authed/deploy_/$template'
     | '/_authed/incidents_/$incidentId'
     | '/_authed/nodes/$nodeId'
     | '/_authed/nodes/new'
@@ -1024,6 +1036,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthedIncidentsIncidentIdRouteImport
       parentRoute: typeof AuthedRoute
     }
+    '/_authed/deploy_/$template': {
+      id: '/_authed/deploy_/$template'
+      path: '/deploy/$template'
+      fullPath: '/deploy/$template'
+      preLoaderRoute: typeof AuthedDeployTemplateRouteImport
+      parentRoute: typeof AuthedRoute
+    }
     '/_authed/data_/buckets': {
       id: '/_authed/data_/buckets'
       path: '/data/buckets'
@@ -1258,6 +1277,7 @@ interface AuthedRouteChildren {
   AuthedIndexRoute: typeof AuthedIndexRoute
   AuthedCiBuildIdRoute: typeof AuthedCiBuildIdRoute
   AuthedDataBucketsRoute: typeof AuthedDataBucketsRoute
+  AuthedDeployTemplateRoute: typeof AuthedDeployTemplateRoute
   AuthedIncidentsIncidentIdRoute: typeof AuthedIncidentsIncidentIdRoute
   AuthedNodesNodeIdRoute: typeof AuthedNodesNodeIdRoute
   AuthedNodesNewRoute: typeof AuthedNodesNewRoute
@@ -1299,6 +1319,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedIndexRoute: AuthedIndexRoute,
   AuthedCiBuildIdRoute: AuthedCiBuildIdRoute,
   AuthedDataBucketsRoute: AuthedDataBucketsRoute,
+  AuthedDeployTemplateRoute: AuthedDeployTemplateRoute,
   AuthedIncidentsIncidentIdRoute: AuthedIncidentsIncidentIdRoute,
   AuthedNodesNodeIdRoute: AuthedNodesNodeIdRoute,
   AuthedNodesNewRoute: AuthedNodesNewRoute,
