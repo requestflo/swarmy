@@ -221,25 +221,56 @@ export interface PinCandidateNode {
   labels?: Record<string, string>;
 }
 
-/**
- * Choose the node a NEW primary is pinned to. Pure. Among schedulable
- * (ready + active) nodes it prefers, in order: a node with a default data disk
- * (`swarmy.disk.default`, so the data lands on the added disk and not the root
- * disk — QA-076), the fewest existing pinned primaries, `fallback` (the
- * manager the controller dispatches through), managers, then id order for
- * determinism. With no usable inventory it returns `fallback`.
- */
-export function choosePinNode(input: {
+export interface PinChoiceInput {
   nodes: readonly PinCandidateNode[];
   /** swarm node id → number of primaries already pinned there. */
   pinnedCounts: ReadonlyMap<string, number>;
   fallback?: string;
-}): string | undefined {
+  /**
+   * Swarm node ids whose DECLARED default data disk is not really mounted
+   * right now (formatted but not attached on the host — QA-075b). New data
+   * there would have nowhere safe to go, so these nodes are skipped.
+   */
+  unmountedDefaultDisk?: ReadonlySet<string>;
+}
+
+export interface PinChoice {
+  node: string | undefined;
+  /** Why some nodes were passed over (plain words), when any were. */
+  note?: string;
+  /** Set when NO node is eligible: the placement must be refused with this message. */
+  refusal?: string;
+}
+
+/**
+ * Choose the node a NEW primary is pinned to, and say why when nodes were
+ * skipped. Pure. Among schedulable (ready + active) nodes it prefers, in
+ * order: a node with a default data disk (`swarmy.disk.default`, so the data
+ * lands on the added disk and not the root disk — QA-076), the fewest existing
+ * pinned primaries, `fallback` (the manager the controller dispatches
+ * through), managers, then id order for determinism. A node whose declared
+ * default disk is not mounted ({@link PinChoiceInput.unmountedDefaultDisk})
+ * is skipped; only when every schedulable node is skipped is it a refusal.
+ * With no usable inventory it returns `fallback`.
+ */
+export function explainPinNode(input: PinChoiceInput): PinChoice {
   const usable = input.nodes.filter((n) => n.status === 'ready' && n.availability === 'active');
-  if (usable.length === 0) return input.fallback;
+  if (usable.length === 0) return { node: input.fallback };
+  const broken = (n: PinCandidateNode) =>
+    Boolean(input.unmountedDefaultDisk?.has(n.swarmNodeId)) && defaultDiskMount(n.labels) !== null;
+  const skipped = usable.filter(broken).map((n) => n.swarmNodeId);
+  const eligible = usable.filter((n) => !broken(n));
+  if (eligible.length === 0) {
+    return {
+      node: undefined,
+      refusal:
+        `no server can take the data right now: the data disk on ${skipped.join(', ')} is set up but not attached, ` +
+        'so new data would land on the root disk. swarmy re-attaches it within a few minutes (see the server\'s Disks card) — try again then.',
+    };
+  }
   const load = (id: string) => input.pinnedCounts.get(id) ?? 0;
   const disk = (n: PinCandidateNode) => Number(defaultDiskMount(n.labels) !== null);
-  const sorted = [...usable].sort(
+  const sorted = [...eligible].sort(
     (a, b) =>
       disk(b) - disk(a) ||
       load(a.swarmNodeId) - load(b.swarmNodeId) ||
@@ -247,7 +278,15 @@ export function choosePinNode(input: {
       Number(b.role === 'manager') - Number(a.role === 'manager') ||
       a.swarmNodeId.localeCompare(b.swarmNodeId),
   );
-  return sorted[0]!.swarmNodeId;
+  const node = sorted[0]!.swarmNodeId;
+  return skipped.length
+    ? { node, note: `placed on ${node}: skipped ${skipped.join(', ')} because its data disk is set up but not attached` }
+    : { node };
+}
+
+/** {@link explainPinNode}, node only (undefined also when every node was skipped). */
+export function choosePinNode(input: PinChoiceInput): string | undefined {
+  return explainPinNode(input).node;
 }
 
 /** Count pinned primaries per swarm node off live service labels. */

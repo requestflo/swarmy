@@ -44,6 +44,7 @@ export type CommandName =
   | 'disk.list' // add a disk: lsblk + df on the host, classified
   | 'disk.format' // add a disk: ext4 + mount a BLANK disk (gated: node capability + formatGate)
   | 'disk.grow' // add a disk: grow a swarmy disk's filesystem after the cloud volume was enlarged
+  | 'disk.repair' // re-attach a swarmy disk that is formatted but not mounted on the host (QA-075b)
   | 'image.prune'
   | 'node.hygiene' // disk hygiene: prune stopped one-shots, unused images, build cache
   | 'mesh.control' // self-hosted NetBird control plane (swarmy-mesh-control, agent-supervised)
@@ -107,6 +108,7 @@ export const COMMAND_PROTOCOL_TYPE: Record<CommandName, string> = {
   'disk.list': 'listDisks',
   'disk.format': 'formatDisk',
   'disk.grow': 'growDisk',
+  'disk.repair': 'repairDisk',
   'image.prune': 'pruneImages',
   'node.hygiene': 'nodeHygiene',
   'mesh.control': 'applyMeshControl',

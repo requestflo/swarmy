@@ -34,7 +34,7 @@ import { probeSmtp } from './handlers/email';
 import { updateAgent } from './handlers/update';
 import { prepareSecretEnv } from './handlers/secret-env';
 import { prePullForDeploy } from './handlers/deploy-pull';
-import { defaultDiskDeps, formatDisk, growDisk, listDisks } from './handlers/disk';
+import { defaultDiskDeps, formatDisk, growDisk, listDisks, repairDisk } from './handlers/disk';
 import {
   secretCreate,
   secretRemove,
@@ -327,6 +327,11 @@ export async function handleCommand(
     case 'growDisk': {
       const p = envlp.payload;
       return run(conn, p.commandId, () => growDisk(defaultDiskDeps(docker), p));
+    }
+    case 'repairDisk': {
+      // Gated inside the handler (node label + SWARMY_ALLOW_DISK_REPAIR); only ever a swarmy-labelled disk.
+      const p = envlp.payload;
+      return run(conn, p.commandId, () => repairDisk(defaultDiskDeps(docker), p));
     }
     case 'swarmJoin': {
       const p = envlp.payload;

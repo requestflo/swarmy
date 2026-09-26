@@ -24,6 +24,7 @@ import {
   renderGrowScript,
   renderVolumeDirScript,
   shQuote,
+  swarmyFsLabel,
   type LsblkDevice,
 } from './disk-inventory';
 
@@ -74,6 +75,18 @@ describe('classifyDisks', () => {
     expect(classifyDisks([blank({ fstype: 'xfs', mountpoints: ['/var/lib/docker'] })])[0]!.state).toBe('system');
     expect(classifyDisks([blank({ fstype: 'ext4', mountpoints: ['/var/lib/swarmy/disks/abcd'] })])[0]!.state).toBe('swarmy');
     expect(classifyDisks([blank({ fstype: 'ext4', mountpoint: '/data' })])[0]!.state).toBe('mounted');
+  });
+
+  it('an unmounted ext4 carrying swarmy’s label is swarmy-unmounted, never has-data (QA-075b)', () => {
+    const d = classifyDisks([blank({ fstype: 'ext4', label: swarmyFsLabel('12345678') })])[0]!;
+    expect(d.state).toBe('swarmy-unmounted');
+    expect(d.reason).toContain('not attached');
+    // Someone else's ext4 / another label / partitioned: still has-data.
+    expect(classifyDisks([blank({ fstype: 'ext4', label: 'data' })])[0]!.state).toBe('has-data');
+    expect(classifyDisks([blank({ fstype: 'xfs', label: swarmyFsLabel('12345678') })])[0]!.state).toBe('has-data');
+    // Mounted by swarmy: swarmy.
+    expect(classifyDisks([blank({ fstype: 'ext4', label: swarmyFsLabel('12345678'), mountpoints: ['/var/lib/swarmy/disks/12345678'] })])[0]!.state).toBe('swarmy');
+    expect(swarmyFsLabel('0123456789ABCDEF').length).toBeLessThanOrEqual(16);
   });
 
   it('read-only, removable, tiny → ineligible; string flags from old lsblk', () => {
@@ -232,7 +245,8 @@ describe('host scripts', () => {
   it('format script mounts in the host namespace, refuses a non-empty mountpoint and verifies the host sees the disk (QA-075)', () => {
     const s = renderFormatScript({ path: '/dev/sdb', serial: '12345678', sizeBytes: 100 * GB });
     const mkfs = s.indexOf('mkfs.ext4 -q');
-    const mount = s.indexOf('mount "$MNT"');
+    const mount = s.indexOf('mount -t ext4 "$DEV" "$MNT"');
+    expect(mount).toBeGreaterThan(mkfs);
     // Refuses to run in a private mount namespace (the sandboxed agent's own).
     expect(s).toContain('"$(readlink /proc/self/ns/mnt)" != "$(readlink /proc/1/ns/mnt)"');
     expect(s.indexOf('/proc/self/ns/mnt')).toBeLessThan(mkfs);
@@ -251,6 +265,8 @@ describe('host scripts', () => {
     // Reboot: fstab by UUID, nofail, and mounted before dockerd starts.
     expect(DISK_FSTAB_OPTIONS).toContain('x-systemd.before=docker.service');
     expect(s).toContain(`UUID=$UUID $MNT ext4 ${DISK_FSTAB_OPTIONS} 0 2`);
+    // fstab is written only once the host check passed (QA-075b).
+    expect(s.indexOf('echo "UUID=$UUID $MNT ext4')).toBeGreaterThan(verify);
   });
 
   it('the rendered non-empty refusal really refuses in a shell', async () => {

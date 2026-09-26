@@ -6,6 +6,7 @@ import {
   DB_PIN_NODE_LABEL,
   applyDbStorage,
   choosePinNode,
+  explainPinNode,
   dbStorageState,
   pinnedPrimaryCounts,
   primaryDataVolumeName,
@@ -154,6 +155,24 @@ describe('choosePinNode', () => {
         fallback: 'm1',
       }),
     ).toBe('m1');
+  });
+
+  it('skips a node whose declared default disk is not mounted, says why, and refuses only when none is left (QA-075b)', () => {
+    const withDisk = { labels: { 'swarmy.disk.default': 'vol1', 'swarmy.disk.vol1': '/var/lib/swarmy/disks/vol1' } };
+    const nodes = [node('lon1-a', 'manager'), node('lon1-b', 'worker', withDisk)];
+    const r = explainPinNode({ nodes, pinnedCounts: new Map(), fallback: 'lon1-a', unmountedDefaultDisk: new Set(['lon1-b']) });
+    expect(r.node).toBe('lon1-a');
+    expect(r.note).toContain('skipped lon1-b');
+    expect(r.refusal).toBeUndefined();
+    // Healthy: no note, the disk node wins as before.
+    expect(explainPinNode({ nodes, pinnedCounts: new Map(), fallback: 'lon1-a' })).toEqual({ node: 'lon1-b' });
+    // A node without a disk is never skipped by the set.
+    expect(explainPinNode({ nodes: [node('m1', 'manager')], pinnedCounts: new Map(), unmountedDefaultDisk: new Set(['m1']) }).node).toBe('m1');
+    // The only schedulable node is skipped ⇒ a refusal with a clear message, and no node.
+    const only = explainPinNode({ nodes: [node('lon1-b', 'worker', withDisk)], pinnedCounts: new Map(), fallback: 'lon1-b', unmountedDefaultDisk: new Set(['lon1-b']) });
+    expect(only.node).toBeUndefined();
+    expect(only.refusal).toContain('lon1-b is set up but not attached');
+    expect(choosePinNode({ nodes: [node('lon1-b', 'worker', withDisk)], pinnedCounts: new Map(), unmountedDefaultDisk: new Set(['lon1-b']) })).toBeUndefined();
   });
 
   it('falls back when there is no usable inventory', () => {

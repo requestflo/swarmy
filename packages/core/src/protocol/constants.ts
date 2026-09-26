@@ -116,4 +116,7 @@ export const DEFAULT_COMMAND_TIMEOUTS: Record<string, number> = {
   listDisks: 60_000,
   formatDisk: 900_000,
   growDisk: 900_000,
+  // Re-attach (QA-075b): waits for the disk's apps to stop, then rsyncs what
+  // was written to the root disk — bounded by how much there is.
+  repairDisk: 4 * 3_600_000,
 };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { FormatDiskPayload } from '@swarmy/core/protocol';
-import { ensureDiskVolumeDir, formatDisk, growDisk, listDisks, type DiskDeps } from './disk';
+import { ensureDiskVolumeDir, formatDisk, growDisk, listDisks, repairDisk, type DiskDeps, type DiskUser } from './disk';
 import { agentErrorCode } from '../executor';
 
 const GB = 1024 ** 3;
@@ -123,5 +123,69 @@ describe('disk volume dir + error codes', () => {
     expect(agentErrorCode(Object.assign(new Error('x'), { code: 'E_DISK_REFUSED' }))).toBe('E_DISK_REFUSED');
     expect(agentErrorCode(Object.assign(new Error('x'), { code: 'ENOENT' }))).toBe('E_DOCKER');
     expect(agentErrorCode('boom')).toBe('E_DOCKER');
+  });
+});
+
+describe('repairDisk / pending (QA-075b)', () => {
+  const MNT = '/var/lib/swarmy/disks/12345678';
+  const unmounted = probeOut(sdb({ fstype: 'ext4', label: 'swarmy-12345678' }));
+  const repairOk = `__SWARMY_REPAIRED__ uuid=u-1 moved=1 files=3 bytes=4096 aside=${MNT}.pre-mount-S1\n`;
+
+  function repairHost(probe: string, opts: { repairOut?: string; users?: DiskUser[][]; allowed?: boolean } = {}) {
+    const scripts: string[] = [];
+    let call = 0;
+    let t = 0;
+    const deps: DiskDeps = {
+      override: undefined,
+      repairAllowed: opts.allowed,
+      runHost: async (script) => {
+        scripts.push(script);
+        if (script.includes('rsync -aHAX')) return { code: opts.repairOut?.includes('__SWARMY_ERR__') ? 3 : 0, out: opts.repairOut ?? repairOk };
+        if (script.includes('__SWARMY_PENDING__')) return { code: 0, out: `__SWARMY_PENDING__ ${MNT} 3 4096\n` };
+        return { code: 0, out: probe };
+      },
+      users: async () => opts.users?.[Math.min(call++, opts.users.length - 1)] ?? [],
+      sleep: async (ms) => {
+        t += ms;
+      },
+      now: () => t,
+    };
+    return { deps, scripts, repaired: () => scripts.some((s) => s.includes('rsync -aHAX')) };
+  }
+  const rp = { commandId: CMD, path: '/dev/sdb', serial: '12345678', stamp: 'S1', waitMs: 10_000 };
+
+  it('lists an unattached swarmy disk with what is pending on the root disk and who uses it', async () => {
+    const h = repairHost(unmounted, { users: [[{ container: 'shop_db-primary.1.x', service: 'shop_db-primary', running: true }]] });
+    const r = await listDisks(h.deps);
+    expect(r.disks[0]).toMatchObject({ state: 'swarmy-unmounted', pending: { files: 3, bytes: 4096, services: ['shop_db-primary'] } });
+  });
+
+  it('re-attaches once nothing is running on the disk', async () => {
+    const busyThenFree: DiskUser[][] = [[{ container: 'c1', service: 'shop_db-primary', running: true }], [{ container: 'c1', service: 'shop_db-primary', running: false }]];
+    const h = repairHost(unmounted, { users: busyThenFree });
+    expect(await repairDisk(h.deps, rp)).toEqual({
+      serial: '12345678', id: '12345678', mountpoint: MNT, alreadyMounted: false, uuid: 'u-1', moved: true, files: 3, bytes: 4096, aside: `${MNT}.pre-mount-S1`,
+    });
+  });
+
+  it('E_DISK_BUSY when a container keeps running; nothing is copied', async () => {
+    const h = repairHost(unmounted, { users: [[{ container: 'web-1', running: true }]] });
+    await expect(repairDisk(h.deps, rp)).rejects.toMatchObject({ code: 'E_DISK_BUSY', message: expect.stringContaining('web-1') });
+    expect(h.repaired()).toBe(false);
+  });
+
+  it('already mounted is a no-op; a non-swarmy disk, a moved device or the local veto are refused', async () => {
+    const mounted = repairHost(probeOut(sdb({ fstype: 'ext4', label: 'swarmy-12345678', mountpoints: [MNT] })));
+    expect(await repairDisk(mounted.deps, rp)).toMatchObject({ alreadyMounted: true, moved: false });
+    expect(mounted.repaired()).toBe(false);
+    await expect(repairDisk(repairHost(probeOut(sdb({ fstype: 'ext4', label: 'data' }))).deps, rp)).rejects.toMatchObject({ code: 'E_DISK_REFUSED' });
+    await expect(repairDisk(repairHost(unmounted).deps, { ...rp, path: '/dev/sdc' })).rejects.toMatchObject({ code: 'E_DISK_REFUSED' });
+    await expect(repairDisk(repairHost(unmounted, { allowed: false }).deps, rp)).rejects.toMatchObject({ code: 'E_DISK_REPAIR_DISABLED' });
+    await expect(repairDisk(repairHost(unmounted).deps, { ...rp, nodeCapable: false })).rejects.toMatchObject({ code: 'E_DISK_REPAIR_DISABLED' });
+  });
+
+  it("surfaces the repair script's own error", async () => {
+    const h = repairHost(unmounted, { repairOut: '__SWARMY_ERR__ the copy on the disk does not match the originals\n__SWARMY_ROLLED_BACK__\n' });
+    await expect(repairDisk(h.deps, rp)).rejects.toMatchObject({ code: 'E_DISK_REPAIR', message: 'the copy on the disk does not match the originals' });
   });
 });

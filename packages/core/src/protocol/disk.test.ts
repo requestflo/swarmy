@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { FormatDiskPayload } from './disk';
+import { DiskEntryWire, FormatDiskPayload, RepairDiskPayload } from './disk';
 import { DEFAULT_COMMAND_TIMEOUTS } from './constants';
 import { parseControllerEnvelope } from './messages';
 
@@ -24,6 +24,21 @@ describe('disk commands (add a disk)', () => {
     expect(FormatDiskPayload.safeParse({ ...ok, path: '/dev/../etc/shadow' }).success).toBe(false);
     expect(FormatDiskPayload.safeParse({ ...ok, fstype: 'xfs' }).success).toBe(false);
     expect(FormatDiskPayload.safeParse({ ...ok, serial: 'abc' }).success).toBe(false);
+  });
+
+  it('repairDisk round-trips, defaults its wait and refuses odd stamps (QA-075b)', () => {
+    const r = parseControllerEnvelope(frame('repairDisk', { commandId: CMD_ID, path: '/dev/sdb', serial: '12345678', stamp: '20260926T101500Z', nodeCapable: true }));
+    expect(r.type).toBe('repairDisk');
+    if (r.type === 'repairDisk') expect(r.payload.waitMs).toBe(120_000);
+    const ok = { commandId: CMD_ID, path: '/dev/sdb', serial: '12345678', stamp: 'x' };
+    expect(RepairDiskPayload.safeParse({ ...ok, stamp: '$(reboot)' }).success).toBe(false);
+    expect(RepairDiskPayload.safeParse({ ...ok, path: '/dev/sdb;x' }).success).toBe(false);
+    expect(DEFAULT_COMMAND_TIMEOUTS.repairDisk).toBeGreaterThanOrEqual(3_600_000);
+    const entry = {
+      name: 'sdb', path: '/dev/sdb', sizeBytes: 1, serial: 's', model: null, state: 'swarmy-unmounted', mountpoints: [], fstype: 'ext4',
+      reason: 'r', id: 's', fsTotalBytes: null, growableBytes: 0, pending: { files: 2, bytes: 10, services: ['shop_db-primary'] },
+    };
+    expect(DiskEntryWire.parse(entry).pending?.services).toEqual(['shop_db-primary']);
   });
 
   it('has timeouts for all three', () => {

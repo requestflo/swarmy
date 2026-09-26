@@ -47,6 +47,28 @@ export type GrowDiskPayload = z.infer<typeof GrowDiskPayload>;
 export const GrowDiskMsg = z.object({ type: z.literal('growDisk'), payload: GrowDiskPayload });
 export type GrowDiskMsg = z.infer<typeof GrowDiskMsg>;
 
+/**
+ * Re-attach a swarmy disk that is formatted but not mounted on the host
+ * (QA-075b). The agent waits (up to `waitMs`) until no running container uses
+ * the disk, else `E_DISK_BUSY`; then runs the repair script, which copies
+ * anything already written into the bare mountpoint onto the disk, verifies
+ * it, keeps the originals aside and mounts the disk. Never deletes data.
+ */
+export const RepairDiskPayload = z.object({
+  ...cmd,
+  path: DevicePath,
+  serial: z.string().min(1).max(128),
+  /** Suffix of the set-aside directory (`<mnt>.pre-mount-<stamp>`). */
+  stamp: z.string().regex(/^[0-9A-Za-z-]{1,32}$/),
+  /** How long to wait for the containers using the disk to stop. */
+  waitMs: z.number().int().nonnegative().max(600_000).default(120_000),
+  /** Controller's read of `swarmy.node.diskRepair` (absent label ⇒ true). */
+  nodeCapable: z.boolean().optional(),
+});
+export type RepairDiskPayload = z.infer<typeof RepairDiskPayload>;
+export const RepairDiskMsg = z.object({ type: z.literal('repairDisk'), payload: RepairDiskPayload });
+export type RepairDiskMsg = z.infer<typeof RepairDiskMsg>;
+
 /** One whole disk (the `DiskEntry` shape from `@swarmy/core` disk-inventory). */
 export const DiskEntryWire = z.object({
   name: z.string(),
@@ -54,13 +76,19 @@ export const DiskEntryWire = z.object({
   sizeBytes: z.number(),
   serial: z.string().nullable(),
   model: z.string().nullable(),
-  state: z.enum(['blank', 'has-data', 'swarmy', 'mounted', 'system', 'ineligible']),
+  state: z.enum(['blank', 'has-data', 'swarmy', 'swarmy-unmounted', 'mounted', 'system', 'ineligible']),
   mountpoints: z.array(z.string()),
   fstype: z.string().nullable(),
   reason: z.string(),
   id: z.string().nullable(),
   fsTotalBytes: z.number().nullable(),
   growableBytes: z.number(),
+  /**
+   * `swarmy-unmounted` only (QA-075b): what was written into the bare
+   * mountpoint directory on the ROOT disk while the disk was not attached, and
+   * the apps (swarm service names, else container names) using volumes there.
+   */
+  pending: z.object({ files: z.number(), bytes: z.number(), services: z.array(z.string()) }).optional(),
 });
 export type DiskEntryWire = z.infer<typeof DiskEntryWire>;
 
@@ -82,4 +110,19 @@ export interface GrowDiskResult {
   serial: string;
   mountpoint: string;
   fsTotalBytes: number;
+}
+
+export interface RepairDiskResult {
+  serial: string;
+  id: string;
+  mountpoint: string;
+  /** It was already mounted on the host: nothing was done. */
+  alreadyMounted: boolean;
+  uuid: string | null;
+  /** Files were copied from the root disk onto the disk. */
+  moved: boolean;
+  files: number;
+  bytes: number;
+  /** Where the originals were kept on the root disk, when moved. */
+  aside: string | null;
 }

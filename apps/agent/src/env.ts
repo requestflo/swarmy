@@ -66,6 +66,9 @@ export const env = {
   // turns it off per node, SWARMY_ALLOW_DISK_FORMAT=false vetoes it on this box
   // (`true` forces it on over the label). See diskFormatGateAllows in @swarmy/core.
   DISK_FORMAT_OVERRIDE: parseCapabilityOverride(process.env.SWARMY_ALLOW_DISK_FORMAT),
+  // Re-attaching a swarmy disk that is formatted but not mounted (QA-075b) is
+  // on by default (it never deletes); SWARMY_ALLOW_DISK_REPAIR=false vetoes it here.
+  ALLOW_DISK_REPAIR: (process.env.SWARMY_ALLOW_DISK_REPAIR ?? 'true') !== 'false',
   // Hard per-session output cap (bytes) — `yes`-bomb / runaway-output guard.
   // 0 disables the cap. Default 64 MiB.
   TERM_MAX_OUTPUT_BYTES: Number(process.env.SWARMY_TERM_MAX_OUTPUT_BYTES ?? 64 * 1024 * 1024),
