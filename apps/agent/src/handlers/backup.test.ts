@@ -23,6 +23,12 @@ import {
   repoBinds,
   shq,
   walgRestoreScript,
+  physicalNetworks,
+  physicalSidecarTimeoutMs,
+  pgbackrestBackupScript,
+  runSidecar,
+  S3_PREFLIGHT,
+  WALG_BACKUP_SCRIPT,
 } from './backup';
 
 describe('forgetArgsFor (retention → restic forget invocation)', () => {
@@ -402,5 +408,128 @@ describe('physical sidecars use the server data layout (QA-074)', () => {
     await backupDb(docker, conn, backup('wal-g'));
     expect(created[0]!.HostConfig.Binds).toEqual([`${VOL}:/var/lib/postgresql/data:ro`]);
     expect(created[0]!.Env).toContain('PGDATA=/var/lib/postgresql/data/pgdata');
+  });
+});
+
+/**
+ * QA-079: the physical sidecar must reach BOTH the DB (cluster net) and an
+ * in-cluster S3 destination (the storage overlay), and a stuck run must fail
+ * with a clear error instead of hanging the job.
+ */
+describe('physical sidecar networks + hard timeout (QA-079)', () => {
+  it('physicalNetworks: cluster net as the mode, storage overlay joined as well', () => {
+    expect(physicalNetworks({ network: 'qa-data_pg-net', resticNetwork: 'swarmy' })).toEqual({
+      networkMode: 'qa-data_pg-net',
+      networks: ['swarmy'],
+    });
+    expect(physicalNetworks({ network: 'qa-data_pg-net' })).toEqual({ networkMode: 'qa-data_pg-net' });
+    expect(physicalNetworks({ resticNetwork: 'swarmy' })).toEqual({ networkMode: 'swarmy' });
+    expect(physicalNetworks({ network: 'swarmy', resticNetwork: 'swarmy' })).toEqual({ networkMode: 'swarmy' });
+    expect(physicalNetworks({})).toEqual({});
+  });
+
+  function fakeDocker(opts: { hang?: boolean } = {}) {
+    const created: Array<{ Env: string[]; Cmd: string[]; HostConfig: { NetworkMode?: string } }> = [];
+    const connected: Array<{ net: string; container: string }> = [];
+    let killed = false;
+    let removed = false;
+    const docker = {
+      pullImage: async () => undefined,
+      docker: {
+        listContainers: async () => [],
+        getService: () => ({ inspect: async () => Promise.reject(new Error('not a manager')) }),
+        getImage: () => ({ inspect: async () => ({ Config: { User: '' } }) }),
+        getNetwork: (net: string) => ({
+          connect: async (o: { Container: string }) => {
+            connected.push({ net, container: o.Container });
+          },
+        }),
+        modem: { demuxStream: () => undefined },
+        createContainer: async (o: { Env: string[]; Cmd: string[]; HostConfig: { NetworkMode?: string } }) => {
+          created.push(o);
+          return {
+            id: 'sidecar-1',
+            putArchive: async () => undefined,
+            attach: async () => ({}),
+            start: async () => undefined,
+            wait: () => (opts.hang ? new Promise(() => undefined) : Promise.resolve({ StatusCode: 0 })),
+            kill: async () => {
+              killed = true;
+            },
+            remove: async () => {
+              removed = true;
+            },
+          };
+        },
+      },
+    } as unknown as DockerClient;
+    return { docker, created, connected, state: () => ({ killed, removed }) };
+  }
+  const conn = { send: () => undefined } as unknown as AgentConnection;
+  const pgConn = { host: 'qa-data_pg-primary', port: 5432, user: 'postgres', password: 'pw', database: 'app' };
+  const repo = { kind: 's3' as const, repo: 's3:http://swarmy-garage:3900/bkt/pfx', password: 'rp' };
+
+  it('wal-g base backup joins the cluster net AND the storage overlay', async () => {
+    const { docker, created, connected } = fakeDocker();
+    const p: DbBackupPayload = {
+      commandId: 'c1', jobId: 'j1', engine: 'wal-g', conn: pgConn, repo, tags: [],
+      dataVolume: 'qa-data_pg-primary-data', network: 'qa-data_pg-net', resticNetwork: 'swarmy',
+    };
+    await backupDb(docker, conn, p);
+    expect(created[0]!.HostConfig.NetworkMode).toBe('qa-data_pg-net');
+    expect(connected).toEqual([{ net: 'swarmy', container: 'sidecar-1' }]);
+    expect(created[0]!.Env).toContain('SWARMY_S3_HOST=swarmy-garage');
+  });
+
+  it('the PITR restore fetch joins both networks too', async () => {
+    const { docker, connected } = fakeDocker();
+    const p: DbRestorePayload = {
+      commandId: 'c2', engine: 'wal-g', mode: 'pitr', conn: pgConn, repo, snapshotId: 'latest', tags: [],
+      dataVolume: 'qa-data_pg-primary-data', network: 'qa-data_pg-net', resticNetwork: 'swarmy',
+    };
+    await restoreDb(docker, conn, p);
+    expect(connected).toEqual([{ net: 'swarmy', container: 'sidecar-1' }]);
+  });
+
+  it('a hung sidecar is killed, removed, and fails with a clear error', async () => {
+    const { docker, state } = fakeDocker({ hang: true });
+    await expect(
+      runSidecar(docker, {
+        image: 'walg', args: [], env: [], binds: [],
+        timeout: { ms: 20, what: 'wal-g backup-push' },
+      }),
+    ).rejects.toThrow(/wal-g backup-push did not finish within 0s and was stopped/);
+    expect(state()).toEqual({ killed: true, removed: true });
+  });
+
+  it('the ceiling is the command budget less a margin (so the agent reports first)', () => {
+    expect(physicalSidecarTimeoutMs(undefined, 'dbBackup')).toBe(4 * 3_600_000 - 60_000);
+    expect(physicalSidecarTimeoutMs(600_000, 'dbRestore')).toBe(540_000);
+    expect(physicalSidecarTimeoutMs(1_000, 'dbBackup')).toBe(30_000);
+  });
+
+  it('every physical script runs the S3 preflight first', () => {
+    for (const script of [WALG_BACKUP_SCRIPT, pgbackrestBackupScript('--f'), walgRestoreScript(true), pgbackrestRestoreScript('--f', false)]) {
+      expect(script.startsWith(`set -e; ${S3_PREFLIGHT}`)).toBe(true);
+    }
+  });
+
+  it('the preflight fails fast on an unresolvable destination host (real shell, stub getent)', async () => {
+    const dir = `${process.env.TMPDIR ?? '/tmp'}/swarmy-getent-${process.pid}`;
+    await Bun.write(`${dir}/getent`, '#!/bin/sh\n[ "$2" = "swarmy-garage" ] && exit 2; echo "10.0.0.1 $2"\n');
+    Bun.spawnSync(['chmod', '+x', `${dir}/getent`]);
+    const run = (host: string) =>
+      Bun.spawnSync(['sh', '-c', `${S3_PREFLIGHT}echo ok`], {
+        env: { PATH: `${dir}:/usr/bin:/bin`, SWARMY_S3_HOST: host },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+    const bad = run('swarmy-garage');
+    expect(bad.exitCode).toBe(3);
+    expect(bad.stderr.toString()).toContain('does not resolve from the backup sidecar');
+    const good = run('s3.example.com');
+    expect(good.exitCode).toBe(0);
+    expect(good.stdout.toString().trim()).toBe('ok');
+    Bun.spawnSync(['rm', '-rf', dir]);
   });
 });

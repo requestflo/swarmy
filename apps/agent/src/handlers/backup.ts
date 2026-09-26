@@ -35,6 +35,7 @@ import {
   DEFAULT_RESTIC_IMAGE,
   DEFAULT_WALG_IMAGE,
   isPhysicalEngine,
+  DEFAULT_COMMAND_TIMEOUTS,
 } from '@swarmy/core/protocol';
 import type { AgentConnection } from '../connection';
 import { putSecretFiles } from './secret-file';
@@ -110,6 +111,17 @@ export async function runSidecar(
     env: string[];
     binds: string[];
     networkMode?: string;
+    /**
+     * More networks to join before start, on top of `networkMode`. A physical
+     * engine needs the cluster net (the DB) AND the storage overlay (an
+     * in-cluster `swarmy-garage` destination), QA-079.
+     */
+    networks?: string[];
+    /**
+     * Hard ceiling: past it the container is killed and the run throws
+     * `<what> did not finish within …` rather than hanging the job forever.
+     */
+    timeout?: { ms: number; what: string };
     /** Override the image ENTRYPOINT (e.g. ['/bin/sh','-c']) to run a tool directly. */
     entrypoint?: string[];
     /** Run as this user (e.g. '0:0'): a fresh scratch volume is root-owned. */
@@ -143,6 +155,14 @@ export async function runSidecar(
   });
 
   try {
+    for (const net of opts.networks ?? []) {
+      if (!net || net === opts.networkMode) continue;
+      try {
+        await d.getNetwork(net).connect({ Container: container.id });
+      } catch (e) {
+        throw new Error(`could not attach the ${opts.image} sidecar to network ${net}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     if (opts.pgPassword !== undefined) {
       const owner = await sidecarOwner(docker, opts.image, opts.user);
       await putSecretFiles(container, [{ ...PG_PASSFILE_AT, contents: pgPassfileLine(opts.pgPassword), mode: 0o600, ...owner }]);
@@ -173,7 +193,7 @@ export async function runSidecar(
     }).demuxStream(stream, out, err);
 
     await container.start();
-    const status = await container.wait();
+    const status = await waitWithTimeout(container, opts.timeout);
     const exitCode = (status as { StatusCode?: number }).StatusCode ?? 0;
     return { exitCode, stdout, stderr };
   } finally {
@@ -181,6 +201,46 @@ export async function runSidecar(
     // image as a one-shot would otherwise leak one per run). Named binds stay.
     await container.remove({ force: true, v: true }).catch(() => undefined);
   }
+}
+
+/**
+ * `container.wait()` bounded by `timeout`: on expiry the container is killed
+ * (the caller's `finally` removes it) and a plain-words error is thrown.
+ */
+async function waitWithTimeout(
+  container: { wait(): Promise<unknown>; kill(): Promise<unknown> },
+  timeout: { ms: number; what: string } | undefined,
+): Promise<unknown> {
+  if (!timeout) return container.wait();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      void container.kill().catch(() => undefined);
+      reject(new Error(`${timeout.what} did not finish within ${formatDuration(timeout.ms)} and was stopped`));
+    }, timeout.ms);
+  });
+  try {
+    return await Promise.race([container.wait(), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function formatDuration(ms: number): string {
+  if (ms >= 3_600_000) return `${Math.round(ms / 360_000) / 10}h`;
+  if (ms >= 60_000) return `${Math.round(ms / 6_000) / 10}min`;
+  return `${Math.round(ms / 1000)}s`;
+}
+
+/**
+ * The hard ceiling for a physical-engine sidecar: the command's own budget
+ * (payload `timeoutMs`, else the dbBackup/dbRestore default), less a margin,
+ * so the agent reports a clear failure before the controller gives up on the
+ * command.
+ */
+export function physicalSidecarTimeoutMs(explicit: number | undefined, kind: 'dbBackup' | 'dbRestore'): number {
+  const budget = explicit ?? DEFAULT_COMMAND_TIMEOUTS[kind] ?? 4 * 3_600_000;
+  return Math.max(30_000, budget - 60_000);
 }
 
 /** Ensure the restic repo exists (idempotent — `init` no-ops on an existing repo). */
@@ -693,6 +753,8 @@ function physicalEnv(repo: ResticRepo): { env: string[]; bucket: string; endpoin
     `WALG_S3_PREFIX=${walgPrefix}`,
     `AWS_ENDPOINT=${endpoint}`,
     'AWS_S3_FORCE_PATH_STYLE=true',
+    // Read by S3_PREFLIGHT: the host must resolve from inside the sidecar.
+    `SWARMY_S3_HOST=${new URL(endpoint).hostname}`,
   ];
   if (repo.accessKeyId) env.push(`AWS_ACCESS_KEY_ID=${repo.accessKeyId}`);
   if (repo.secretAccessKey) env.push(`AWS_SECRET_ACCESS_KEY=${repo.secretAccessKey}`);
@@ -812,6 +874,23 @@ async function backupDbLogical(
   }
 }
 
+/**
+ * Networks for a physical-engine sidecar: the cluster net to reach the DB,
+ * plus the storage overlay (`resticNetwork`) when the destination is
+ * in-cluster, as the logical path's restic leg already does (QA-079).
+ */
+export function physicalNetworks(p: { network?: string; resticNetwork?: string }): {
+  networkMode?: string;
+  networks?: string[];
+} {
+  const primary = p.network ?? p.resticNetwork;
+  const extra = p.resticNetwork && p.resticNetwork !== primary ? [p.resticNetwork] : [];
+  return {
+    ...(primary ? { networkMode: primary } : {}),
+    ...(extra.length > 0 ? { networks: extra } : {}),
+  };
+}
+
 async function backupDbPhysical(
   docker: DockerClient,
   p: DbBackupPayload,
@@ -837,7 +916,8 @@ async function backupDbPhysical(
         env: [...env, ...pgConnEnv(p.conn), `PGDATA=${layout.pgdata}`],
         pgPassword: p.conn.password,
         binds: [`${dataVolume}:${layout.mountTarget}:ro`],
-        networkMode: p.network,
+        ...physicalNetworks(p),
+        timeout: { ms: physicalSidecarTimeoutMs(p.timeoutMs, 'dbBackup'), what: 'wal-g backup-push' },
       },
       onLine,
     );
@@ -864,7 +944,8 @@ async function backupDbPhysical(
       env: [...env, ...pgConnEnv(p.conn), `PGDATA=${layout.pgdata}`],
       pgPassword: p.conn.password,
       binds: [`${dataVolume}:${layout.mountTarget}`],
-      networkMode: p.network,
+      ...physicalNetworks(p),
+      timeout: { ms: physicalSidecarTimeoutMs(p.timeoutMs, 'dbBackup'), what: 'pgbackrest backup' },
     },
     onLine,
   );
@@ -908,13 +989,23 @@ export function logicalRestoreScript(dumpAll: boolean): string {
 // Every physical script reads the server's PGDATA from `$PGDATA` (container env
 // resolved by resolvePgDataLayout), so no path is spliced into shell.
 
+/**
+ * Fail in seconds, not hours, when the S3 destination's host does not resolve
+ * from inside the sidecar (QA-079: an in-cluster `swarmy-garage` destination
+ * while the sidecar was only on the cluster net). Skipped where the image has
+ * no `getent`; the agent-side timeout still bounds the run.
+ */
+export const S3_PREFLIGHT =
+  'if [ -n "${SWARMY_S3_HOST:-}" ] && command -v getent >/dev/null 2>&1 && ! getent hosts "$SWARMY_S3_HOST" >/dev/null; then ' +
+  'echo "swarmy: the backup destination host $SWARMY_S3_HOST does not resolve from the backup sidecar (is it on the storage network?)" >&2; exit 3; fi; ';
+
 /** wal-g base backup of the server's own `$PGDATA`. */
-export const WALG_BACKUP_SCRIPT = 'set -e; wal-g backup-push "$PGDATA"';
+export const WALG_BACKUP_SCRIPT = `set -e; ${S3_PREFLIGHT}wal-g backup-push "$PGDATA"`;
 
 /** pgbackrest full backup of `$PGDATA`; `flags` from {@link pgBackRestRepoFlags} (quoted). */
 export function pgbackrestBackupScript(flags: string): string {
   return (
-    `set -e; pgbackrest --stanza=swarmy --pg1-path="$PGDATA" ${flags} stanza-create || true; ` +
+    `set -e; ${S3_PREFLIGHT}pgbackrest --stanza=swarmy --pg1-path="$PGDATA" ${flags} stanza-create || true; ` +
     `pgbackrest --stanza=swarmy --pg1-path="$PGDATA" ${flags} --type=full backup`
   );
 }
@@ -925,13 +1016,13 @@ export function walgRestoreScript(withTarget: boolean): string {
     ? `printf "recovery_target_time = '%s'\\nrecovery_target_action = 'promote'\\n" "$SWARMY_TARGET_TIME" ` +
       `>> "$PGDATA/postgresql.auto.conf"; touch "$PGDATA/recovery.signal";`
     : '';
-  return `set -e; wal-g backup-fetch "$PGDATA" "$SWARMY_BACKUP_NAME"; ${recoveryConf}`;
+  return `set -e; ${S3_PREFLIGHT}wal-g backup-fetch "$PGDATA" "$SWARMY_BACKUP_NAME"; ${recoveryConf}`;
 }
 
 /** pgbackrest restore into `$PGDATA`: `$SWARMY_TARGET_TIME`; `flags` from {@link pgBackRestRepoFlags} (quoted). */
 export function pgbackrestRestoreScript(flags: string, withTarget: boolean): string {
   const typeFlag = withTarget ? '--type=time --target="$SWARMY_TARGET_TIME"' : '--type=default';
-  return `set -e; pgbackrest --stanza=swarmy --pg1-path="$PGDATA" ${flags} ${typeFlag} --delta restore`;
+  return `set -e; ${S3_PREFLIGHT}pgbackrest --stanza=swarmy --pg1-path="$PGDATA" ${flags} ${typeFlag} --delta restore`;
 }
 
 /** The env the PITR scripts read (validated again here — defense in depth). */
@@ -1070,7 +1161,8 @@ async function restoreDbPitr(
         args: [walgRestoreScript(Boolean(target))],
         env: [...env, ...scriptEnv, `PGDATA=${layout.pgdata}`],
         binds: [`${dataVolume}:${layout.mountTarget}`],
-        networkMode: p.network,
+        ...physicalNetworks(p),
+        timeout: { ms: physicalSidecarTimeoutMs(p.timeoutMs, 'dbRestore'), what: 'wal-g backup-fetch' },
       },
       onLine,
     );
@@ -1088,7 +1180,8 @@ async function restoreDbPitr(
         args: [pgbackrestRestoreScript(flags, Boolean(target))],
         env: [...env, ...scriptEnv, `PGDATA=${layout.pgdata}`],
         binds: [`${dataVolume}:${layout.mountTarget}`],
-        networkMode: p.network,
+        ...physicalNetworks(p),
+        timeout: { ms: physicalSidecarTimeoutMs(p.timeoutMs, 'dbRestore'), what: 'pgbackrest restore' },
       },
       onLine,
     );
