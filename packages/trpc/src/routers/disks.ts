@@ -5,6 +5,7 @@ import {
   formatNodeDisk,
   growNodeDisk,
   listNodeDisks,
+  repairNodeDisk,
   setDiskFormatAllowed,
 } from '../services/disks.service';
 
@@ -32,6 +33,16 @@ export const disksRouter = router({
   grow: adminProcedure
     .input(z.object({ nodeId: z.string(), serial: z.string().min(1) }))
     .mutation(({ ctx, input }) => growNodeDisk(ctx, input)),
+
+  /**
+   * Re-attach a disk swarmy formatted that is not mounted (QA-075b): stops
+   * the apps on it, moves what was written to the root disk onto it (the
+   * originals are kept), mounts it and starts the apps again. The
+   * disk-reconcile worker does the same on its own; this is "do it now".
+   */
+  repair: adminProcedure
+    .input(z.object({ nodeId: z.string(), serial: z.string().min(1) }))
+    .mutation(({ ctx, input }) => repairNodeDisk(ctx, input)),
 
   /** Per-server opt-out of formatting (`swarmy.node.diskFormat`). */
   setFormatAllowed: adminProcedure

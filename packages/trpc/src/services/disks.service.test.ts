@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'bun:test';
 import type { ListDisksResult } from '@swarmy/core/protocol';
-import { disksView, formatNodeDisk, placeOnDefaultDisk, setDiskFormatAllowed } from './disks.service';
+import {
+  chooseDiskAwarePin,
+  disksView,
+  formatNodeDisk,
+  placeOnDefaultDisk,
+  recordDiskListing,
+  repairNodeDisk,
+  resetDiskListings,
+  setDiskFormatAllowed,
+  unmountedDefaultDiskNodes,
+} from './disks.service';
 
 const GB = 1024 ** 3;
 const blank = {
@@ -37,8 +47,9 @@ function fakeCtx(labels: Record<string, string> = {}, opts: { formatFails?: stri
 
 describe('disksView', () => {
   const listed: ListDisksResult = { disks: [blank] };
-  it('formatting is allowed by default and marks the default disk', () => {
-    const v = disksView('n1', { 'swarmy.disk.AAAA1111': '/var/lib/swarmy/disks/AAAA1111', 'swarmy.disk.default': 'AAAA1111' }, listed);
+  it('formatting is allowed by default and marks the (mounted) default disk', () => {
+    const mounted = { ...blank, state: 'swarmy' as const, fstype: 'ext4', mountpoints: ['/var/lib/swarmy/disks/AAAA1111'] };
+    const v = disksView('n1', { 'swarmy.disk.AAAA1111': '/var/lib/swarmy/disks/AAAA1111', 'swarmy.disk.default': 'AAAA1111' }, { disks: [mounted] });
     expect(v.formatAllowed).toBe(true);
     expect(v.disks[0]!.isDefault).toBe(true);
   });
@@ -116,5 +127,137 @@ describe('placeOnDefaultDisk', () => {
     await expect(placeOnDefaultDisk(g.ctx, 'sw1', 'v', { required: true })).rejects.toThrow(/default disk.*disk not mounted/);
     // No default disk declared: still a no-op, even when required.
     expect(await placeOnDefaultDisk(fakeCtx().ctx, 'sw1', 'v', { required: true })).toBeNull();
+  });
+});
+
+// ── QA-075b: a swarmy disk that is formatted but not mounted ─────────────────
+
+const MNT = '/var/lib/swarmy/disks/AAAA1111';
+const declared = { 'swarmy.disk.AAAA1111': MNT, 'swarmy.disk.default': 'AAAA1111' };
+const unattached = {
+  ...blank, state: 'swarmy-unmounted' as const, fstype: 'ext4', reason: 'Formatted by swarmy, but not attached',
+  pending: { files: 12, bytes: 3 * GB, services: ['shop_db-primary', 'shop_web'] },
+};
+
+describe('disksView: only a really mounted disk takes new data (QA-075b)', () => {
+  it('isDefault only when the declared default is mounted; a warning otherwise', () => {
+    const v = disksView('n1', declared, { disks: [unattached] });
+    expect(v.disks[0]!.isDefault).toBe(false);
+    expect(v.warnings).toHaveLength(1);
+    expect(v.warnings[0]).toMatchObject({ diskId: 'AAAA1111', kind: 'unmounted', isDefault: true });
+    expect(v.warnings[0]!.message).toContain('not attached');
+    expect(v.warnings[0]!.message).toContain('3.0 GB');
+    const ok = disksView('n1', declared, { disks: [{ ...blank, state: 'swarmy', mountpoints: [MNT] }] });
+    expect(ok.disks[0]!.isDefault).toBe(true);
+    expect(ok.warnings).toEqual([]);
+  });
+  it('a declared disk that is not connected at all is warned about too', () => {
+    expect(disksView('n1', declared, { disks: [] }).warnings[0]).toMatchObject({ kind: 'missing', name: null });
+  });
+});
+
+function repairCtx(opts: { repairFails?: string; scaleFails?: string; services?: any[]; noManager?: boolean } = {}) {
+  const f = fakeCtx(declared);
+  const hub = f.ctx.hub;
+  hub.managerNode = () => (opts.noManager ? undefined : 'n2');
+  hub.liveInventory = () => ({
+    services: opts.services ?? [
+      { name: 'shop_db-primary', mode: 'replicated', desiredReplicas: 1 },
+      { name: 'shop_web', mode: 'replicated', desiredReplicas: 3 },
+    ],
+    containers: [],
+  });
+  hub.dispatch = async (node: string, cmd: string, payload: any) => {
+    f.calls.push({ node, cmd, payload });
+    if (cmd === 'disk.list') return { disks: [unattached] };
+    if (cmd === 'service.scale' && opts.scaleFails === payload.service && payload.replicas === 0) throw new Error('scale failed');
+    if (cmd === 'disk.repair') {
+      if (opts.repairFails) throw new Error(opts.repairFails);
+      return { serial: 'AAAA1111', id: 'AAAA1111', mountpoint: MNT, alreadyMounted: false, uuid: 'u-1', moved: true, files: 12, bytes: 3 * GB, aside: `${MNT}.pre-mount-x` };
+    }
+    return {};
+  };
+  return f;
+}
+
+const steps = (f: { calls: { cmd: string; payload: any }[] }) =>
+  f.calls.filter((c) => c.cmd !== 'disk.list').map((c) => (c.cmd === 'service.scale' ? `scale ${c.payload.service}=${c.payload.replicas}` : c.cmd));
+
+describe('repairNodeDisk', () => {
+  it('stops the apps on the disk, re-attaches it, starts them again, and audits every step', async () => {
+    const f = repairCtx();
+    const r = await repairNodeDisk(f.ctx, { nodeId: 'n1', serial: 'AAAA1111' });
+    expect(r).toMatchObject({ moved: true, bytes: 3 * GB, services: ['shop_db-primary', 'shop_web'], restartErrors: [] });
+    expect(steps(f)).toEqual(['scale shop_db-primary=0', 'scale shop_web=0', 'disk.repair', 'scale shop_db-primary=1', 'scale shop_web=3']);
+    expect(f.calls.find((c) => c.cmd === 'disk.repair')!).toMatchObject({ node: 'n1', payload: { path: '/dev/sdb', serial: 'AAAA1111', nodeCapable: true } });
+    expect(f.calls.filter((c) => c.cmd === 'service.scale').every((c) => c.node === 'n2')).toBe(true);
+    expect(f.audits.map((a) => a.action)).toEqual([
+      'node.disk.repair.start', 'node.disk.repair.stopped', 'node.disk.repair.done', 'node.disk.repair.restarted',
+    ]);
+    expect(f.audits[2].metadata).toMatchObject({ moved: true, bytes: 3 * GB });
+  });
+
+  it('ALWAYS scales the apps back when the repair fails', async () => {
+    const f = repairCtx({ repairFails: 'the copy on the disk does not match the originals' });
+    await expect(repairNodeDisk(f.ctx, { nodeId: 'n1', serial: 'AAAA1111' })).rejects.toThrow(/does not match/);
+    expect(steps(f)).toEqual(['scale shop_db-primary=0', 'scale shop_web=0', 'disk.repair', 'scale shop_db-primary=1', 'scale shop_web=3']);
+    expect(f.audits.map((a) => a.action)).toEqual([
+      'node.disk.repair.start', 'node.disk.repair.stopped', 'node.disk.repair.failed', 'node.disk.repair.restarted',
+    ]);
+  });
+
+  it('a failed scale-down still scales back what it touched, and never repairs', async () => {
+    const f = repairCtx({ scaleFails: 'shop_web' });
+    await expect(repairNodeDisk(f.ctx, { nodeId: 'n1', serial: 'AAAA1111' })).rejects.toThrow(/scale failed/);
+    expect(steps(f)).toEqual(['scale shop_db-primary=0', 'scale shop_web=0', 'scale shop_db-primary=1', 'scale shop_web=3']);
+  });
+
+  it('aborts on a global service, before stopping anything', async () => {
+    const f = repairCtx({ services: [{ name: 'shop_db-primary', mode: 'global' }, { name: 'shop_web', mode: 'replicated', desiredReplicas: 1 }] });
+    await expect(repairNodeDisk(f.ctx, { nodeId: 'n1', serial: 'AAAA1111' })).rejects.toThrow(/runs on every server/);
+    expect(steps(f)).toEqual([]);
+    expect(f.audits.at(-1).action).toBe('node.disk.repair.failed');
+  });
+
+  it('refuses a disk the node does not declare, or when repair is turned off for the server', async () => {
+    const f = repairCtx();
+    await expect(repairNodeDisk(f.ctx, { nodeId: 'n1', serial: 'ZZZZ9999' })).rejects.toThrow(/not one swarmy set up/);
+    f.nodeLabels['swarmy.node.diskRepair'] = 'false';
+    await expect(repairNodeDisk(f.ctx, { nodeId: 'n1', serial: 'AAAA1111' })).rejects.toThrow(/turned off/);
+    expect(steps(f)).toEqual([]);
+  });
+});
+
+describe('placement skips a server whose data disk is not attached (QA-075b)', () => {
+  it('unmountedDefaultDiskNodes follows the last listing; chooseDiskAwarePin skips, notes, and refuses only when none is left', async () => {
+    resetDiskListings();
+    const hub: any = {
+      onlineNodeIds: () => ['n1', 'n2'],
+      swarmNodeIdFor: (n: string) => ({ n1: 'sw1', n2: 'sw2' })[n],
+      nodeInventory: () => [
+        { swarmNodeId: 'sw1', role: 'worker', availability: 'active', status: 'ready', labels: declared },
+        { swarmNodeId: 'sw2', role: 'manager', availability: 'active', status: 'ready', labels: {} },
+      ],
+    };
+    // Never listed ⇒ unknown ⇒ not skipped: the disk node wins as before.
+    expect(unmountedDefaultDiskNodes(hub, 'org1').size).toBe(0);
+    expect(chooseDiskAwarePin({ hub, activeOrgId: 'org1' }, new Map(), 'sw2')).toBe('sw1');
+
+    recordDiskListing('n1', [unattached]);
+    expect([...unmountedDefaultDiskNodes(hub, 'org1')]).toEqual(['sw1']);
+    const audits: any[] = [];
+    const db: any = { auditLog: { create: async ({ data }: any) => audits.push(data) } };
+    expect(chooseDiskAwarePin({ hub, activeOrgId: 'org1', db }, new Map(), 'sw2')).toBe('sw2');
+    await Promise.resolve();
+    expect(audits[0]).toMatchObject({ action: 'data.placement.skip' });
+    expect(audits[0].metadata.note).toContain('skipped sw1');
+
+    hub.nodeInventory = () => [{ swarmNodeId: 'sw1', role: 'worker', availability: 'active', status: 'ready', labels: declared }];
+    expect(() => chooseDiskAwarePin({ hub, activeOrgId: 'org1' }, new Map(), 'sw1')).toThrow(/no server can take the data right now/);
+
+    // Mounted again ⇒ eligible again.
+    recordDiskListing('n1', [{ ...blank, state: 'swarmy', mountpoints: [MNT] }]);
+    expect(chooseDiskAwarePin({ hub, activeOrgId: 'org1' }, new Map(), 'sw1')).toBe('sw1');
+    resetDiskListings();
   });
 });

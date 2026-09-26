@@ -19,7 +19,6 @@
  */
 import {
   applyDataPin,
-  choosePinNode,
   pinnedDataCounts,
   planDataPin,
   type DataPinPlan,
@@ -28,6 +27,7 @@ import type { ContainerInfo, ServiceSpec } from '@swarmy/core/protocol';
 import type { OrgContext } from '../context';
 import type { AgentHub } from '../hub/types';
 import { commandRejected, mapDispatchError } from '../errors';
+import { chooseDiskAwarePin } from './disks.service';
 import { writeAudit } from './audit.service';
 import { fireEvent, type FireEventInput } from './alerts-fire';
 import { applyServicePatch, liveServiceSpec, type LiveServiceRef } from './service-patch';
@@ -74,11 +74,8 @@ export function chooseDataPin(
   ctx: Pick<OrgContext, 'hub' | 'activeOrgId'>,
   managerNodeId: string,
 ): string | undefined {
-  return choosePinNode({
-    nodes: ctx.hub.nodeInventory(ctx.activeOrgId),
-    pinnedCounts: pinnedDataCounts(ctx.hub.liveInventory(ctx.activeOrgId).services),
-    fallback: ctx.hub.swarmNodeIdFor(managerNodeId),
-  });
+  // Skips a node whose declared data disk is not attached (QA-075b).
+  return chooseDiskAwarePin(ctx, pinnedDataCounts(ctx.hub.liveInventory(ctx.activeOrgId).services), ctx.hub.swarmNodeIdFor(managerNodeId));
 }
 
 /** More than one swarm node ⇒ floating replicas are anti-affine to the pinned member. */

@@ -30,7 +30,6 @@ import {
   BASEBACKUP_OK_MARKER,
   applyPgMember,
   buildInventory,
-  choosePinNode,
   DB_PIN_NODE_LABEL,
   dbStorageLabels,
   failoverReadiness,
@@ -59,7 +58,7 @@ import {
 import type { OrgContext } from '../context';
 import { commandRejected, mapDispatchError, notFound } from '../errors';
 import { writeAudit } from './audit.service';
-import { placeOnDefaultDisk } from './disks.service';
+import { chooseDiskAwarePin, placeOnDefaultDisk } from './disks.service';
 import { AUTO_BACKUP_RETENTION_DAYS } from './autoBackup';
 import { resolveManagerNode } from './dispatch.service';
 import { resolveExecTarget } from './live-resolve';
@@ -340,15 +339,13 @@ function isMultiNode(ctx: OrgContext): boolean {
 }
 
 /**
- * The swarm node a NEW primary is pinned to: the node with the fewest pinned
- * primaries (ready + active), ties to the manager we dispatch through.
+ * The swarm node a NEW primary is pinned to: a node with a mounted default
+ * disk first, then the fewest pinned primaries (ready + active), ties to the
+ * manager we dispatch through.
  */
 function choosePrimaryPin(ctx: OrgContext, managerNodeId: string): string | undefined {
-  return choosePinNode({
-    nodes: ctx.hub.nodeInventory(ctx.activeOrgId),
-    pinnedCounts: pinnedPrimaryCounts(ctx.hub.liveInventory(ctx.activeOrgId).services),
-    fallback: ctx.hub.swarmNodeIdFor(managerNodeId),
-  });
+  // Skips a node whose declared data disk is not attached (QA-075b); refuses only when none is left.
+  return chooseDiskAwarePin(ctx, pinnedPrimaryCounts(ctx.hub.liveInventory(ctx.activeOrgId).services), ctx.hub.swarmNodeIdFor(managerNodeId));
 }
 
 /** Common labels stamped on every DB-role service (primary + replica). */
@@ -651,7 +648,7 @@ async function provisionDbCore(
   // A NEW cluster's primary volume lands on the pinned server's added disk,
   // when it has one (plans/epic-volume-mobility.md phase 1). Never for an
   // existing cluster: its data already lives where it is.
-  // The pin already prefers a node with a default disk (choosePinNode); a
+  // The pin already prefers a node with a mounted default disk (chooseDiskAwarePin); a
   // failed pre-create there is an error, not a silent root-disk fallback (QA-076).
   if (!existingLive) await placeOnDefaultDisk(ctx, pinNode, dataVolume, { required: true });
   const existingReplica = findCluster(ctx, stack, cluster).replica;

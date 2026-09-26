@@ -1,6 +1,7 @@
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
 import type { OrgContext } from '@swarmy/trpc';
+import { unmountedDefaultDiskNodes } from '@swarmy/trpc';
 import {
   DB_DATA_VOLUME_LABEL,
   DB_FAILOVER_CONFIRM_LABEL,
@@ -1426,6 +1427,8 @@ async function reconcileOrg(orgId: string): Promise<void> {
               nodes,
               pinnedCounts: pinnedPrimaryCounts(hub.liveInventory(orgId).services),
               fallback: hub.swarmNodeIdFor(node),
+              // Never a node whose declared data disk is not attached (QA-075b).
+              unmountedDefaultDisk: unmountedDefaultDiskNodes(hub, orgId),
             });
             await deploy(extraPrimarySpec(c, primary, i, pin));
           }

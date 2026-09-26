@@ -362,6 +362,8 @@ export { fireEvent } from './services/alerts-fire';
 export * from './services/errors';
 export { ensureDefaultRules } from './services/alerts.service';
 export { runNodeHygieneAllOrgs } from './services/node-hygiene.service';
+// Disk re-attach (QA-075b): the disk-reconcile worker's per-node check + the placement signal.
+export { runDiskReconcileFor, unmountedDefaultDiskNodes, type DiskReconcileOutcome } from './services/disks.service';
 export type { FireEventInput } from './services/alerts-fire';
 export { recordIncidentEvent } from './services/incidents-record';
 export { garageMajorOf, toGarageRequest, LEGACY_GARAGE_IMAGE, type GarageMajor } from './services/garage-admin';
