@@ -357,7 +357,7 @@ export const releases: DomainResolvers = {
           strategy: { type: 'canary', trafficPct: 10, durationMin: 15 },
           healthGate: { windowSec: 180, autoRollback: true },
           notes: null,
-          createdAt: iso(2 * MIN),
+          createdAt: iso(20 * MIN),
           composeSource: storefrontCompose('1.9.0', '1.9.0', 3),
         },
         {

@@ -47,7 +47,7 @@ function dayLabel(iso: string): string {
  * The clean vertical timeline: mono clock, an icon per kind on a hairline
  * rail, the message — the "14:01 London node offline → 14:05 resolved" story.
  */
-export function IncidentTimeline({ events }: { events: IncidentEventView[] }): React.JSX.Element {
+export function IncidentTimeline({ events, words = (t) => t }: { events: IncidentEventView[]; words?: (text: string) => string }): React.JSX.Element {
   let lastDay = '';
   return (
     <ol className="relative">
@@ -81,10 +81,10 @@ export function IncidentTimeline({ events }: { events: IncidentEventView[] }): R
               </div>
               <div className="min-w-0 flex-1 pb-6">
                 <p className={cn('text-[14px] leading-snug', event.kind === 'note' && 'whitespace-pre-wrap')}>
-                  {event.message}
+                  {event.kind === 'note' && author !== 'swarmy' ? event.message : words(event.message)}
                 </p>
                 {author ? <p className="text-muted-foreground mt-0.5 text-xs">{author}</p> : null}
-                <Tech>{event.kind}{Object.keys(event.meta).length ? ` · ${JSON.stringify(event.meta)}` : ''}</Tech>
+                <Tech>{event.kind} · {event.message}{Object.keys(event.meta).length ? ` · ${JSON.stringify(event.meta)}` : ''}</Tech>
               </div>
             </div>
           </li>

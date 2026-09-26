@@ -247,22 +247,30 @@ export const incidents: DomainResolvers = {
 
     // One story with the Overview row ("checkout is running 1 of 2 copies") and
     // Today ("Calum changed storefront (1.9.0). Rolling out now."): the 1.9.0
-    // rollout (rel-store-6, releases.ts) left checkout a copy short.
+    // rollout (rel-store-6, releases.ts, 20 min ago) sent checkout's errors up
+    // 2 minutes later (the incident room's best guess) and left it a copy short.
     const deployGate: DemoIncident = {
       id: 'inc-deploy-storefront',
       title: 'checkout is down to 1 of 2 copies during the 1.9.0 rollout',
       status: 'open',
       severity: 'major',
       summary: null,
-      openedAt: minutesAgo(1),
+      openedAt: minutesAgo(18),
       resolvedAt: null,
       events: [
         {
           id: 'ie-d1',
-          at: minutesAgo(1),
+          at: minutesAgo(18),
           kind: 'opened',
           message: 'Incident opened (release:storefront)',
           meta: gkRel,
+        },
+        {
+          id: 'ie-d1b',
+          at: minutesAgo(18),
+          kind: 'alert.fired',
+          message: 'error-rate on service:storefront_checkout — Error rate on storefront_checkout is 6.2% over 5m (41/662 spans)',
+          meta: { ...gkRel, signal: 'error-rate', resource: 'service:storefront_checkout', stackName: 'storefront' },
         },
         {
           id: 'ie-d2',

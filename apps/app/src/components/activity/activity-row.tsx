@@ -28,7 +28,7 @@ export function ActivityRow({
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-          <span className="min-w-0 text-[14px] font-semibold break-words">{item.title}</span>
+          <span className="line-clamp-2 min-w-0 text-[14px] font-semibold break-words">{item.title}</span>
           {item.word ? <StreamPill word={item.word} tone={item.tone} /> : null}
         </span>
         <span className="text-muted-foreground text-[13px] leading-snug break-words">{item.say}</span>

@@ -94,3 +94,16 @@ export function markSuspects(items: ActivityItem[], incidentApps: { app: string;
     return hit ? { ...it, word: 'suspect', tone: 'warn' } : it;
   });
 }
+
+/**
+ * Plain words on a Stream line (Summary): resource keys, release ids and
+ * glossary words rewritten by `words`; what changed moves to the tech line.
+ * Audit lines are already humanized and pass through.
+ */
+export function plainItem(item: ActivityItem, words: (text: string) => string): ActivityItem {
+  if (item.kind !== 'alert' && item.kind !== 'incident') return item;
+  const title = words(item.title);
+  const say = words(item.say);
+  const raw = [title !== item.title ? item.title : '', say !== item.say ? item.say : ''].filter(Boolean).join(' · ');
+  return raw ? { ...item, title, say, tech: `${item.tech} · ${raw}` } : item;
+}

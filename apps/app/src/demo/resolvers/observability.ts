@@ -810,3 +810,8 @@ observability.handlers!['observability.health'] = (i, s): HealthNarrativeView =>
 import { telemetryHandlers } from './telemetry';
 
 Object.assign(observability.handlers!, telemetryHandlers);
+
+// ── request series (the incident room's chart) ────────────────────────────────
+import { requestHandlers } from './observability-requests';
+
+Object.assign(observability.handlers!, requestHandlers);

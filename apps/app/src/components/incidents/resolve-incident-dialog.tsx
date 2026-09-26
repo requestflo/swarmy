@@ -21,9 +21,12 @@ import { useTRPC } from '@/integrations/trpc';
 export function ResolveIncidentDialog({
   incidentId,
   title,
+  quiet,
 }: {
   incidentId: string;
   title: string;
+  /** Outline when another action (a put-back) is the page's one coral. */
+  quiet?: boolean;
 }): React.JSX.Element {
   const trpc = useTRPC();
   const qc = useQueryClient();
@@ -45,7 +48,7 @@ export function ResolveIncidentDialog({
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger asChild>
-        <Button className="pointer-coarse:min-h-11">
+        <Button variant={quiet ? 'outline' : 'default'} className="pointer-coarse:min-h-11">
           <CheckCircle2Icon className="size-4" /> Resolve incident
         </Button>
       </AlertDialogTrigger>
