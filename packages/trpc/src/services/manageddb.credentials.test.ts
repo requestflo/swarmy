@@ -336,6 +336,50 @@ describe('managed Postgres credentials are Docker secrets', () => {
     expect(await readDbPassword(w.ctx, STACK, CLUSTER)).toBe('legacy-plain-password');
   });
 
+  it('QA-084b: members already migrated + an app still on plaintext DATABASE_URL* → one pass re-wires only the app', async () => {
+    const w = world();
+    await provisionDb(w.ctx, { stack: STACK, name: CLUSTER, replicas: 1, password: 'pre-upgrade-app-password', autoBackup: false });
+    const plain = 'postgres://postgres:pre-upgrade-app-password@shop_main-primary:5432/app';
+    addApp(
+      w,
+      { LOG: 'debug', DATABASE_URL: plain, DATABASE_RO_URL: plain.replace('primary', 'replica') },
+      { 'swarmy.db.inject': CLUSTER, 'swarmy.db.inject.var': 'DATABASE_URL' },
+    );
+    w.specsSeen.length = 0; // the seeded legacy app spec held the value by construction
+    const res = await migrateDbCredentials(w.ctx, { stack: STACK, cluster: CLUSTER });
+    expect(res.members).toEqual([]); // members were migrated before
+    expect(res.consumers).toEqual([APP]);
+    const app = w.services.get(APP)!;
+    expect(app.env.some((e) => e.startsWith('DATABASE_URL=') || e.startsWith('DATABASE_RO_URL='))).toBe(false);
+    expect(app.refs).toContainEqual({ source: 'shop_main-pg-url__v1', target: 'DATABASE_URL' });
+    expect(app.refs).toContainEqual({ source: 'shop_main-pg-ro-url__v1', target: 'DATABASE_RO_URL' });
+    expect(app.secretEnv).toEqual(['DATABASE_RO_URL', 'DATABASE_URL']);
+    w.assertNowhere('pre-upgrade-app-password');
+    // Idempotent: the next pass finds nothing to do.
+    expect((await migrateDbCredentials(w.ctx, { stack: STACK, cluster: CLUSTER })).consumers).toEqual([]);
+  });
+
+  it('QA-084b: an app is re-wired even while its writer cannot be touched (non-persistent storage)', async () => {
+    const w = world();
+    w.put({
+      name: 'shop_main-primary',
+      image: 'pg',
+      labels: { 'com.docker.stack.namespace': STACK, 'swarmy.db.cluster': CLUSTER, 'swarmy.db.role': 'primary' },
+      env: { POSTGRES_PASSWORD: 'anon-writer-password', POSTGRES_DB: 'app' },
+      mounts: [],
+    });
+    addApp(
+      w,
+      { DATABASE_URL: 'postgres://postgres:anon-writer-password@shop_main-primary:5432/app' },
+      { 'swarmy.db.inject': CLUSTER },
+    );
+    const res = await migrateDbCredentials(w.ctx, { stack: STACK, cluster: CLUSTER });
+    expect(res.members).toEqual([]);
+    expect(res.consumers).toEqual([APP]);
+    expect(w.services.get(APP)!.env.some((e) => e.startsWith('DATABASE_URL='))).toBe(false);
+    expect(w.services.get('shop_main-primary')!.gen).toBe(1); // the writer was never redeployed
+  });
+
   it('migration never restarts a writer whose data is not on a persistent volume', async () => {
     const w = world();
     w.put({

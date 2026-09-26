@@ -222,6 +222,23 @@ export function pgPassfileLine(password: string): string {
   return `*:*:*:*:${password.replace(/\\/g, '\\\\').replace(/:/g, '\\:')}\n`;
 }
 
+/**
+ * PURE — an app wired to `cluster` by `db.inject` (its `swarmy.db.inject`
+ * label) that still carries the connection URL — and so the password — as
+ * plain env (`DATABASE_URL` / `DATABASE_RO_URL`, or its custom inject var):
+ * a pre-secret attach the reconcile re-wires onto the URL secrets (QA-084b).
+ */
+export function dbConsumerHasPlaintextUrl(
+  env: Record<string, string>,
+  labels: Record<string, string>,
+  cluster: string,
+): boolean {
+  if (labels['swarmy.db.inject'] !== cluster) return false;
+  const envVar = labels['swarmy.db.inject.var'] || 'DATABASE_URL';
+  const roVar = envVar.endsWith('_URL') ? `${envVar.slice(0, -4)}_RO_URL` : `${envVar}_RO`;
+  return env[envVar] !== undefined || env[roVar] !== undefined;
+}
+
 /** A member still carrying its password as plain env (pre-secret) — migrate it. */
 export function pgNeedsCredentialMigration(env: Record<string, string>, labels: Record<string, string>): boolean {
   return !labels[DB_PASSWORD_SECRET_LABEL] && Boolean(env[PG_ENV.password] || env[PG_ENV.replicationPassword]);

@@ -29,6 +29,7 @@ import {
   regionReplicaDataVolumeName,
   PG_PASSWORD_FROM_MEMBER,
   DB_PASSWORD_SECRET_LABEL,
+  dbConsumerHasPlaintextUrl,
   pgNeedsCredentialMigration,
 } from '@swarmy/core';
 import { decryptSecret } from '@swarmy/core/crypto';
@@ -390,6 +391,22 @@ export function needsCredentialMigration(c: Pick<Cluster, 'primary' | 'replica' 
     (m): m is SwarmServiceInfo => Boolean(m),
   );
   return members.some((m) => pgNeedsCredentialMigration(envRecord(m.env ?? []), m.labels));
+}
+
+/**
+ * PURE — an app wired to this cluster (`swarmy.db.inject`, same stack) that
+ * still carries a plaintext DATABASE_URL* (a pre-secret attach). Checked every
+ * tick, independent of the members' own migration (QA-084b).
+ */
+export function consumersNeedCredentialMigration(
+  services: readonly SwarmServiceInfo[],
+  c: Pick<Cluster, 'stack' | 'cluster'>,
+): boolean {
+  return services.some(
+    (s) =>
+      (s.labels[STACK_LABEL] ?? '') === c.stack &&
+      dbConsumerHasPlaintextUrl(envRecord(s.env ?? []), s.labels, c.cluster),
+  );
 }
 
 /** `${orgId}/${stack}/${cluster}` clusters currently warned for legacy storage
@@ -1262,7 +1279,7 @@ async function reconcileOrg(orgId: string): Promise<void> {
     //      created from the live value, `_FILE` env, plain env removed, one
     //      update per member. When something moved, the rest of this cluster
     //      waits a tick (the inventory is about to change under it).
-    if (contract && needsCredentialMigration(c)) {
+    if (contract && (needsCredentialMigration(c) || consumersNeedCredentialMigration(services, c))) {
       const moved = await contract.seams
         .migrateDbCredentials(contract.ctx, { stack: c.stack, cluster: c.cluster })
         .then((r) => r.members.length + r.consumers.length)

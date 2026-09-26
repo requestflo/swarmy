@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import type { ServiceSpec, SwarmServiceInfo } from '@swarmy/core/protocol';
 import { pitrPrimarySpec, preparePitrPrimary } from './manageddb-pitr.core';
 import {
+  consumersNeedCredentialMigration,
   extraPrimarySpec,
   needsCredentialMigration,
   placePrimarySpec,
@@ -100,5 +101,22 @@ describe('reconcile member specs keep the password a secret file', () => {
     expect(needsCredentialMigration(cluster as never)).toBe(false);
     const legacy = svc({ name: 'shop_main-replica', labels: {}, env: ['POSTGRES_PASSWORD=plain'] });
     expect(needsCredentialMigration({ ...cluster, replica: legacy } as never)).toBe(true);
+  });
+});
+
+describe('QA-084b: the tick gate sees apps, not only members', () => {
+  it('a migrated cluster + an app with plaintext DATABASE_URL still needs a pass; a re-wired app does not', () => {
+    const legacyApp = svc({
+      name: 'shop_web',
+      labels: { 'com.docker.stack.namespace': 'shop', 'swarmy.db.inject': 'main', 'swarmy.db.inject.var': 'DATABASE_URL' },
+      env: ['DATABASE_URL=postgres://postgres:pw@shop_main-primary:5432/app'],
+    });
+    expect(needsCredentialMigration(cluster as never)).toBe(false);
+    expect(consumersNeedCredentialMigration([primary, legacyApp], cluster)).toBe(true);
+    const rewired = svc({ ...legacyApp, env: ['SWARMY_SECRET_ENV=DATABASE_RO_URL,DATABASE_URL'], secrets: ['shop_main-pg-url__v3'] });
+    expect(consumersNeedCredentialMigration([primary, rewired], cluster)).toBe(false);
+    // Another stack's app with the same cluster name is not this cluster's.
+    const other = svc({ ...legacyApp, labels: { ...legacyApp.labels, 'com.docker.stack.namespace': 'blog' } });
+    expect(consumersNeedCredentialMigration([other], cluster)).toBe(false);
   });
 });

@@ -15,6 +15,7 @@ import {
   dbSecretName,
   parseDbSecretName,
   pgNeedsCredentialMigration,
+  dbConsumerHasPlaintextUrl,
   secretEnvFileNames,
   type DbSecretKind,
   pgBootRole,
@@ -869,10 +870,7 @@ async function patchMemberCredential(ctx: OrgContext, member: InvService, secret
 
 /** An app wired by `db.inject` still carrying its connection URL (and so the password) as plain env. */
 function consumerNeedsMigration(app: InvService, cluster: string): boolean {
-  if (app.labels[DB_INJECT_LABEL] !== cluster) return false;
-  const envVar = app.labels[DB_INJECT_VAR_LABEL] || 'DATABASE_URL';
-  const env = envRecord(app);
-  return env[envVar] !== undefined || env[roVarName(envVar)] !== undefined;
+  return dbConsumerHasPlaintextUrl(envRecord(app), app.labels, cluster);
 }
 
 /**
@@ -890,33 +888,41 @@ export async function migrateDbCredentials(
   const { stack, cluster } = input;
   const { primary, members } = findCluster(ctx, stack, cluster);
   if (!primary) return { cluster, members: [], consumers: [] };
+  let secret = primary.labels[DB_PASSWORD_SECRET_LABEL];
+  const moved: string[] = [];
   // Never restart a writer whose data is not on a persistent volume: a legacy
   // anonymous-volume primary would come back EMPTY. Migrate storage first.
   const writerLive = liveSwarmService(ctx, primary.name);
-  if (!writerLive || dbStorageState(writerLive).state !== 'persistent') {
-    return { cluster, members: [], consumers: [] };
-  }
-  let secret = primary.labels[DB_PASSWORD_SECRET_LABEL];
-  const node = await resolveManagerNode(ctx);
-  if (!secret) {
-    const env = envRecord(primary);
-    const password = env[PG_ENV.password];
-    if (!password) return { cluster, members: [], consumers: [] };
-    const repl = env[PG_ENV.replicationPassword];
-    if (repl && repl !== password) {
-      throw commandRejected(
-        `cluster "${cluster}": the replication password differs from the superuser password — it cannot share one secret; rotate it first`,
-      );
+  const writerSafe = Boolean(writerLive && dbStorageState(writerLive).state === 'persistent');
+  if (writerSafe) {
+    const node = await resolveManagerNode(ctx);
+    if (!secret) {
+      const env = envRecord(primary);
+      const password = env[PG_ENV.password];
+      const repl = env[PG_ENV.replicationPassword];
+      if (password && repl && repl !== password) {
+        throw commandRejected(
+          `cluster "${cluster}": the replication password differs from the superuser password — it cannot share one secret; rotate it first`,
+        );
+      }
+      if (password) {
+        secret = dbSecretName(stack, cluster, 'password', 1);
+        await createDbSecret(ctx, node.id, stack, cluster, 'password', secret, password);
+      }
     }
-    secret = dbSecretName(stack, cluster, 'password', 1);
-    await createDbSecret(ctx, node.id, stack, cluster, 'password', secret, password);
+    if (secret) {
+      for (const m of membersInOrder(members, primary)) {
+        if (m.labels[DB_PASSWORD_SECRET_LABEL] === secret && !pgNeedsCredentialMigration(envRecord(m), {})) continue;
+        await patchMemberCredential(ctx, m, secret);
+        moved.push(m.name);
+      }
+    }
   }
-  const moved: string[] = [];
-  for (const m of membersInOrder(members, primary)) {
-    if (m.labels[DB_PASSWORD_SECRET_LABEL] === secret && !pgNeedsCredentialMigration(envRecord(m), {})) continue;
-    await patchMemberCredential(ctx, m, secret);
-    moved.push(m.name);
-  }
+  // Apps: independent of the members (QA-084b) — an app wired BEFORE the
+  // upgrade keeps a plaintext DATABASE_URL* until re-wired, even when the
+  // members were migrated on an earlier tick. Every pass re-wires any app
+  // still carrying one onto the URL secrets (idempotent: a re-wired app no
+  // longer matches).
   const consumers: string[] = [];
   for (const app of liveStackServices(ctx, stack)) {
     if (!consumerNeedsMigration(app, cluster)) continue;
