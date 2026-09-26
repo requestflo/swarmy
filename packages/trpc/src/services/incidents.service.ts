@@ -149,7 +149,10 @@ export async function getIncident(
 
 /**
  * Public incident feed for status pages (slice C5): open incidents plus the
- * last 30 days of resolved ones, with a trimmed update feed and no meta.
+ * last 30 days of resolved ones. Visitors see ONLY the updates a person posted
+ * for them (`publicUpdates`) plus the bare lifecycle — opened / resolved in
+ * fixed words (`toPublicTimeline`). Internal notes, alert messages, group keys
+ * and who resolved it never leave the dashboard.
  * `_pageId` is accepted for future per-page component scoping.
  */
 export async function publicIncidents(
@@ -164,7 +167,9 @@ export async function publicIncidents(
     },
     orderBy: [{ status: 'asc' }, { openedAt: 'desc' }],
     take: 25,
-    include: { events: { orderBy: { at: 'desc' }, take: 10 } },
+    include: {
+      events: { where: { kind: { in: [...PUBLIC_LIFECYCLE_KINDS] } }, orderBy: { at: 'desc' }, take: 10 },
+    },
   });
   const posted = rows.length
     ? await ctx.db.incidentEvent.findMany({
@@ -183,13 +188,32 @@ export async function publicIncidents(
     severity: toSeverityView(row.severity),
     openedAt: row.openedAt.toISOString(),
     resolvedAt: row.resolvedAt?.toISOString() ?? null,
-    updates: row.events.map((e) => ({
-      at: e.at.toISOString(),
-      kind: e.kind,
-      message: e.message,
-    })),
+    updates: toPublicTimeline(row.events),
     publicUpdates: toPublicUpdates(posted.filter((e) => e.incidentId === row.id)),
   }));
+}
+
+/** The lifecycle kinds a visitor may see, and the only words they get for them. */
+const PUBLIC_LIFECYCLE_KINDS = ['opened', 'resolved'] as const;
+const PUBLIC_LIFECYCLE_WORDS: Record<(typeof PUBLIC_LIFECYCLE_KINDS)[number], string> = {
+  opened: 'We’re looking into an issue.',
+  resolved: 'This incident has been resolved.',
+};
+
+/**
+ * Pure: the automatic public timeline — opened/resolved only, latest first,
+ * in fixed words. Every other kind (notes, alert.fired, status drafts, …) and
+ * every stored message (they can carry internal detail) are dropped.
+ */
+export function toPublicTimeline(
+  events: Array<{ at: Date; kind: string }>,
+): Array<{ at: string; kind: string; message: string }> {
+  return [...events]
+    .filter((e): e is typeof e & { kind: (typeof PUBLIC_LIFECYCLE_KINDS)[number] } =>
+      (PUBLIC_LIFECYCLE_KINDS as readonly string[]).includes(e.kind),
+    )
+    .sort((a, b) => b.at.getTime() - a.at.getTime())
+    .map((e) => ({ at: e.at.toISOString(), kind: e.kind, message: PUBLIC_LIFECYCLE_WORDS[e.kind] }));
 }
 
 /** Timeline kinds written by `postUpdate` — `status.<phase>`. */

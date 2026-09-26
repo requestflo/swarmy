@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createTestDb, type TestDb } from '@swarmy/db';
 import type { OrgContext } from '../context';
-import { postUpdate, publicIncidents, toPublicUpdates } from './incidents.service';
+import { postUpdate, publicIncidents, toPublicTimeline, toPublicUpdates } from './incidents.service';
 
 const ORG = 'org_a';
 const OTHER = 'org_b';
@@ -92,9 +92,50 @@ describe('publicIncidents — only posted public updates reach visitors', () => 
     ]);
   });
 
+  it('the automatic feed is opened/resolved only, in fixed words — never a note, alert text or who resolved it', async () => {
+    const id = await openIncident(ORG, 'Checkout slow');
+    const base = Date.now() - 1_800_000;
+    const at = (m: number): Date => new Date(base + m * 60_000);
+    await t.db.incidentEvent.createMany({
+      data: [
+        { orgId: ORG, incidentId: id, at: at(0), kind: 'opened', message: 'Incident opened (alert:service:shop_checkout)', meta: { groupKey: 'alert:service:shop_checkout' } },
+        { orgId: ORG, incidentId: id, at: at(1), kind: 'alert.fired', message: 'Error rate on shop_checkout is 9% (41/450 spans)', meta: {} },
+        { orgId: ORG, incidentId: id, at: at(2), kind: 'note', message: 'internal: rotated the db password', meta: { author: 'Calum' } },
+        { orgId: ORG, incidentId: id, at: at(3), kind: 'status.identified', message: 'draft wording', meta: { phase: 'identified' } },
+        { orgId: ORG, incidentId: id, at: at(4), kind: 'resolved', message: 'Manually resolved by Calum MacRae', meta: { manual: true } },
+      ],
+    });
+    const mine = (await publicIncidents(ctx)).find((i) => i.id === id);
+    expect(mine?.updates).toEqual([
+      { at: at(4).toISOString(), kind: 'resolved', message: 'This incident has been resolved.' },
+      { at: at(0).toISOString(), kind: 'opened', message: 'We’re looking into an issue.' },
+    ]);
+    expect(mine?.publicUpdates).toEqual([]);
+    const text = JSON.stringify(mine);
+    for (const secret of ['internal', 'Calum', 'shop_checkout', '41/450', 'draft wording']) expect(text).not.toContain(secret);
+  });
+
   it("never includes another org's incidents", async () => {
     await openIncident(OTHER, 'Other org outage');
     expect((await publicIncidents(ctx)).some((i) => i.title === 'Other org outage')).toBe(false);
+  });
+});
+
+describe('toPublicTimeline (pure)', () => {
+  it('keeps only opened/resolved, latest first, and never the stored message', () => {
+    const a = new Date('2026-09-26T10:00:00Z');
+    const b = new Date('2026-09-26T11:00:00Z');
+    expect(
+      toPublicTimeline([
+        { at: a, kind: 'opened' },
+        { at: b, kind: 'note' },
+        { at: b, kind: 'reopened' },
+        { at: b, kind: 'resolved' },
+      ]),
+    ).toEqual([
+      { at: b.toISOString(), kind: 'resolved', message: 'This incident has been resolved.' },
+      { at: a.toISOString(), kind: 'opened', message: 'We’re looking into an issue.' },
+    ]);
   });
 });
 

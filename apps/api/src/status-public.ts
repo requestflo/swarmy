@@ -10,17 +10,18 @@
  *
  * Mounted at `/status` in apps/api/src/index.ts.
  */
-import { Hono } from 'hono';
 import { prisma } from '@swarmy/db';
 import { authRegistry } from '@swarmy/auth';
 import { publicStatus, systemContext } from '@swarmy/trpc';
 import type { PublicStatusView } from '@swarmy/core';
 import { hub } from './gateway';
+import { createStatusPublicApp } from './status-public-route';
 
-/** How long a rendered snapshot (and a 404) is served from memory. */
-const CACHE_TTL_MS = 30_000;
-
-/** Resolve the slug's owning org, then build the snapshot in that org's system context. */
+/**
+ * Resolve the slug's owning org, then build the snapshot in that org's system
+ * context. The incident feed in it is visitor-safe by construction
+ * (`publicIncidents`: posted updates + opened/resolved only, never notes).
+ */
 async function buildSnapshot(slug: string): Promise<PublicStatusView | null> {
   const page = await prisma.statusPage.findUnique({ where: { slug }, select: { orgId: true, enabled: true } });
   if (!page || !page.enabled) return null;
@@ -28,45 +29,9 @@ async function buildSnapshot(slug: string): Promise<PublicStatusView | null> {
   return publicStatus(ctx, slug);
 }
 
-// ── Route + 30s in-memory cache ───────────────────────────────────────────────
+const route = createStatusPublicApp(buildSnapshot);
 
-interface CacheEntry {
-  expires: number;
-  snapshot: PublicStatusView | null;
-}
-
-const cache = new Map<string, CacheEntry>();
+export const statusPublicApp = route.app;
 
 /** Exported for tests / future invalidation on page mutations. */
-export function clearStatusCache(): void {
-  cache.clear();
-}
-
-const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-
-export const statusPublicApp = new Hono();
-
-statusPublicApp.get('/:slugJson', async (c) => {
-  const slugJson = c.req.param('slugJson');
-  if (!slugJson.endsWith('.json')) return c.json({ error: 'not found' }, 404);
-  const slug = slugJson.slice(0, -'.json'.length);
-  if (!SLUG_RE.test(slug)) return c.json({ error: 'not found' }, 404);
-
-  const now = Date.now();
-  let entry = cache.get(slug);
-  if (!entry || entry.expires <= now) {
-    // Occasional sweep so dead slugs don't accumulate entries forever.
-    if (cache.size > 500) {
-      for (const [key, e] of cache) if (e.expires <= now) cache.delete(key);
-    }
-    const snapshot = await buildSnapshot(slug).catch(() => null);
-    entry = { expires: now + CACHE_TTL_MS, snapshot };
-    cache.set(slug, entry);
-  }
-
-  if (!entry.snapshot) return c.json({ error: 'not found' }, 404);
-  return c.json(entry.snapshot, 200, {
-    'cache-control': 'public, max-age=30',
-    'access-control-allow-origin': '*',
-  });
-});
+export const clearStatusCache = route.clearCache;

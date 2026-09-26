@@ -11,8 +11,12 @@ import {
   leaderChanges,
   parseLagSeconds,
   queueDepthConditions,
-  ruleSettings,
+  conditionForSeconds,
+  fanOut,
+  incidentAllowed,
+  ruleConditions,
   serviceDownConditions,
+  subjectKey,
   type Condition,
   type RuleLike,
 } from './alert-evaluator';
@@ -163,33 +167,123 @@ describe('leaderChanges (db-failover edge)', () => {
   });
 });
 
-describe('ruleSettings', () => {
-  const rule = (over: Partial<RuleLike>): RuleLike => ({
-    signal: 'disk-usage',
-    threshold: null,
-    forSeconds: 0,
-    isDefault: true,
-    createdAt: new Date('2026-01-01T00:00:00Z'),
-    ...over,
-  });
+const rule = (over: Partial<RuleLike> & { id: string }): RuleLike => ({
+  signal: 'error-rate',
+  threshold: null,
+  forSeconds: 0,
+  enabled: true,
+  selector: {},
+  mutedUntil: null,
+  ...over,
+});
 
-  it('falls back to the catalog defaults when the org has no rule', () => {
-    expect(ruleSettings([], 'disk-usage')).toEqual({ threshold: 85, forSeconds: 0 });
-    expect(ruleSettings([], 'node-offline')).toEqual({ threshold: 0, forSeconds: 300 });
-  });
+// Error rate per Docker service (`<app>_<part>`), as orgErrorRates returns it.
+const RATES = [
+  { service: 'storefront_checkout', calls: 100, errors: 3 }, // 3%
+  { service: 'storefront_web', calls: 100, errors: 6 }, // 6%
+  { service: 'blog_web', calls: 100, errors: 7 }, // 7%
+];
 
-  it('prefers a custom rule over the seeded default', () => {
+describe('ruleConditions (several rules per signal, owner decision Q10)', () => {
+  it('two rules on one signal, different targets: each fires on its own subjects at its own threshold', () => {
     const rules = [
-      rule({ threshold: 70, isDefault: true }),
-      rule({ threshold: 95, isDefault: false, createdAt: new Date('2026-02-01T00:00:00Z') }),
+      rule({ id: 'shop', threshold: 5, selector: { app: 'storefront' } }),
+      rule({ id: 'checkout', threshold: 2, selector: { app: 'storefront', service: 'checkout' } }),
     ];
-    expect(ruleSettings(rules, 'disk-usage').threshold).toBe(95);
+    const out = ruleConditions(rules, 'error-rate', (t) => errorRateConditions(RATES, t));
+    expect(out.map((c) => [c.ruleId, c.resource])).toEqual([
+      ['shop', 'service:storefront_web'],
+      ['checkout', 'service:storefront_checkout'],
+    ]);
+    // blog is nobody's target, so nothing fires for it.
+    expect(out.some((c) => c.resource === 'service:blog_web')).toBe(false);
+    // Each rule's condition carries its own threshold in the words.
+    expect(out.find((c) => c.ruleId === 'checkout')!.message).toContain('threshold 2%');
+  });
+
+  it('an "any" rule and a narrowed rule both fire for the same subject, as separate events', () => {
+    const rules = [rule({ id: 'any', threshold: 5 }), rule({ id: 'web', threshold: 5, selector: { app: 'storefront' } })];
+    const out = ruleConditions(rules, 'error-rate', (t) => errorRateConditions(RATES, t));
+    expect(out.map((c) => `${c.ruleId}:${c.resource}`).sort()).toEqual([
+      'any:service:blog_web',
+      'any:service:storefront_web',
+      'web:service:storefront_web',
+    ]);
+    expect(new Set(out.map(conditionKey)).size).toBe(3);
+  });
+
+  it('builds once per distinct threshold', () => {
+    let calls = 0;
+    const rules = [rule({ id: 'a', threshold: 5 }), rule({ id: 'b', threshold: 5, selector: { app: 'blog' } }), rule({ id: 'c', threshold: 2 })];
+    ruleConditions(rules, 'error-rate', (t) => {
+      calls += 1;
+      return errorRateConditions(RATES, t);
+    });
+    expect(calls).toBe(2);
+  });
+
+  it('disabled rules fire nothing; a signal with no rule row at all fires ruleless at the catalog default', () => {
+    expect(ruleConditions([rule({ id: 'off', enabled: false })], 'error-rate', (t) => errorRateConditions(RATES, t))).toEqual([]);
+    const ruleless = ruleConditions([], 'error-rate', (t) => errorRateConditions(RATES, t));
+    expect(ruleless.map((c) => [c.ruleId, c.resource])).toEqual([
+      [undefined, 'service:storefront_web'],
+      [undefined, 'service:blog_web'],
+    ]);
+  });
+
+  it('server signals narrow to one server (forecast resources included)', () => {
+    const rules = [rule({ id: 'lon', signal: 'disk-usage', selector: { server: 'london-2' } })];
+    const out = fanOut(rules, [
+      cond({ signal: 'disk-usage', resource: 'node:london-2', severity: 'warning' }),
+      cond({ signal: 'disk-usage', resource: 'node:london-2:forecast', severity: 'warning' }),
+      cond({ signal: 'disk-usage', resource: 'node:wkr-1', severity: 'warning' }),
+    ]);
+    expect(out.map((c) => [c.ruleId, c.resource])).toEqual([
+      ['lon', 'node:london-2'],
+      ['lon', 'node:london-2:forecast'],
+    ]);
+  });
+
+  it('each rule gates on its own for-duration', () => {
+    const rules = [rule({ id: 'fast', forSeconds: 0 }), rule({ id: 'slow', forSeconds: 300 })];
+    const conds = ruleConditions(rules, 'error-rate', (t) => errorRateConditions(RATES, t));
+    const pending = new Map<string, number>();
+    const first = gateConditions(pending, conds, (c) => conditionForSeconds(rules, c), 0);
+    expect(new Set(first.map((c) => c.ruleId))).toEqual(new Set(['fast']));
+    const later = gateConditions(pending, conds, (c) => conditionForSeconds(rules, c), 300_000);
+    expect(new Set(later.map((c) => c.ruleId))).toEqual(new Set(['fast', 'slow']));
+    // Ruleless conditions use the catalog hold.
+    expect(conditionForSeconds([], cond())).toBe(300);
   });
 });
 
-describe('conditionKey', () => {
-  it('is the dedupe axis signal|resource', () => {
-    expect(conditionKey(cond())).toBe('node-offline|node:w1');
+describe('incidentAllowed (a muted rule records but opens no incident)', () => {
+  const now = Date.parse('2026-09-26T10:00:00Z');
+  const later = new Date(now + 60 * 60_000);
+  const c = { signal: 'service-down' as const, resource: 'service:storefront_checkout' };
+
+  it('blocks a muted rule, allows it again once the mute has passed', () => {
+    expect(incidentAllowed([rule({ id: 'r', signal: 'service-down', mutedUntil: later })], { ...c, ruleId: 'r' }, now)).toBe(false);
+    expect(incidentAllowed([rule({ id: 'r', signal: 'service-down', mutedUntil: new Date(now - 1) })], { ...c, ruleId: 'r' }, now)).toBe(true);
+  });
+
+  it('for a fanned-out signal, any un-muted covering rule is enough', () => {
+    const rules = [
+      rule({ id: 'muted', signal: 'db-failover', mutedUntil: later }),
+      rule({ id: 'other-app', signal: 'db-failover', selector: { app: 'blog' } }),
+    ];
+    expect(incidentAllowed(rules, { signal: 'db-failover', resource: 'db:storefront/pg' }, now)).toBe(false);
+    rules.push(rule({ id: 'shop', signal: 'db-failover', selector: { app: 'storefront' } }));
+    expect(incidentAllowed(rules, { signal: 'db-failover', resource: 'db:storefront/pg' }, now)).toBe(true);
+    expect(incidentAllowed([], { signal: 'db-failover', resource: 'db:x/pg' }, now)).toBe(true);
+  });
+});
+
+describe('conditionKey / subjectKey', () => {
+  it('dedupes per rule + resource; the incident axis is signal + resource', () => {
+    expect(conditionKey(cond())).toBe('-|node-offline|node:w1');
+    expect(conditionKey(cond({ ruleId: 'r1' }))).toBe('r1|node-offline|node:w1');
+    expect(subjectKey(cond({ ruleId: 'r1' }))).toBe('node-offline|node:w1');
   });
 });
 

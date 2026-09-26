@@ -3,6 +3,8 @@ import type {
   AckAlertEventInput,
   AlertEventView,
   AlertEventsInput,
+  AlertNotifyView,
+  AlertQuietHoursView,
   AlertRuleRefInput,
   AlertRuleView,
   AlertSeverityView,
@@ -13,14 +15,26 @@ import type {
   ChannelTestResult,
   CreateAlertRuleInput,
   CreateChannelInput,
+  MuteAlertRuleInput,
   NotificationChannelView,
+  SetQuietHoursInput,
   UpdateAlertRuleInput,
   UpdateChannelInput,
 } from '@swarmy/core';
-import { ALERT_SIGNAL_INFO, ALERT_SIGNALS } from '@swarmy/core';
+import {
+  ALERT_SIGNAL_INFO,
+  ALERT_SIGNALS,
+  inQuietHours,
+  normalizeAlertSelector,
+  parseAlertSelector,
+  selectorKey,
+  validateAlertSelector,
+  type AlertSelector,
+} from '@swarmy/core';
 import type { OrgContext } from '../context';
-import { commandRejected, notFound } from '../errors';
+import { badRequest, commandRejected, notFound } from '../errors';
 import { writeAudit } from './audit.service';
+import { releaseHeld } from './alerts-fire';
 import {
   buildChannelRequest,
   channelTarget,
@@ -49,12 +63,18 @@ export {
  *   generic webhook (URL + optional HMAC secret). Per-kind payloads are
  *   rendered by the pure `alerts-channels.ts`. Destination config is vault-encrypted in `configEnc` and NEVER
  *   returned to clients — views carry a redacted target only.
- * - Rules: one seeded default per known signal (`ensureDefaultRules`, called
+ * - Rules: several per signal, each with its own target (`selectorJson`, an
+ *   `AlertSelector` validated against the signal's target kind) — owner
+ *   decision Q10. One seeded default per known signal (`ensureDefaultRules`, called
  *   from `listRules` AND every alert-evaluator tick, so every org is covered
  *   without opening the page) plus user-defined rules; thresholds/for-duration/
  *   channel bindings are editable. Deleting a default leaves an opt-out
  *   tombstone (`optedOutAt`, disabled, hidden) so the seed never re-creates it
  *   and the signal stays muted — the autoBackup opt-out pattern.
+ * - Mute: `muteRule` sets `mutedUntil` (default 1 h) — the rule keeps
+ *   recording events but sends nothing and opens no incident until then.
+ * - Quiet hours: one `AlertQuietHours` row per org; warnings are held in the
+ *   window and sent once when it ends if still firing (`alerts-fire.ts`).
  * - Events: `AlertEvent` rows raised through `alerts-fire.ts` (`fireEvent` /
  *   `resolveEvent`) by the alert-evaluator worker and other slices.
  */
@@ -418,6 +438,8 @@ interface RuleRow {
   id: string;
   name: string;
   signal: string;
+  selectorJson: unknown;
+  mutedUntil: Date | null;
   threshold: number | null;
   forSeconds: number;
   channelIds: unknown;
@@ -436,6 +458,8 @@ function toRuleView(row: RuleRow): AlertRuleView {
     id: row.id,
     name: row.name,
     signal: row.signal,
+    selector: parseAlertSelector(row.selectorJson),
+    mutedUntil: row.mutedUntil && row.mutedUntil.getTime() > Date.now() ? row.mutedUntil.toISOString() : null,
     threshold: row.threshold,
     forSeconds: row.forSeconds,
     channelIds: parseChannelIds(row.channelIds),
@@ -494,15 +518,25 @@ export async function listRules(ctx: OrgContext): Promise<AlertRuleView[]> {
   return rows.map((r) => toRuleView(r as RuleRow));
 }
 
+/** A selector checked against the signal's target kind (server / app+part / none). */
+export function checkedSelector(signal: string, selector: AlertSelector | undefined): AlertSelector {
+  const sel = normalizeAlertSelector(selector);
+  const why = validateAlertSelector(signal, sel);
+  if (why) throw badRequest(why);
+  return sel;
+}
+
 export async function createRule(
   ctx: OrgContext,
   input: CreateAlertRuleInput,
 ): Promise<AlertRuleView> {
+  const selector = checkedSelector(input.signal, input.selector);
   const row = await ctx.db.alertRule.create({
     data: {
       orgId: ctx.activeOrgId,
       name: input.name,
       signal: input.signal,
+      selectorJson: selector as object,
       threshold: input.threshold ?? null,
       forSeconds: input.forSeconds,
       channelIds: input.channelIds,
@@ -514,7 +548,7 @@ export async function createRule(
     action: 'alerts.createRule',
     targetType: 'alertRule',
     targetId: row.id,
-    metadata: { name: input.name, signal: input.signal },
+    metadata: { name: input.name, signal: input.signal, target: selectorKey(selector) },
   });
   return toRuleView(row as RuleRow);
 }
@@ -527,10 +561,12 @@ export async function updateRule(
     where: { id: input.id, orgId: ctx.activeOrgId },
   });
   if (!existing || existing.optedOutAt) throw notFound('alert rule', input.id);
+  const selector = input.selector !== undefined ? checkedSelector(existing.signal, input.selector) : undefined;
   const row = await ctx.db.alertRule.update({
     where: { id: existing.id },
     data: {
       ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(selector !== undefined ? { selectorJson: selector as object } : {}),
       ...(input.threshold !== undefined ? { threshold: input.threshold } : {}),
       ...(input.forSeconds !== undefined ? { forSeconds: input.forSeconds } : {}),
       ...(input.channelIds !== undefined ? { channelIds: input.channelIds } : {}),
@@ -543,6 +579,7 @@ export async function updateRule(
     targetId: row.id,
     metadata: {
       signal: row.signal,
+      target: selectorKey(parseAlertSelector(row.selectorJson)),
       threshold: row.threshold,
       forSeconds: row.forSeconds,
       enabled: row.enabled,
@@ -550,6 +587,77 @@ export async function updateRule(
     },
   });
   return toRuleView(row as RuleRow);
+}
+
+/**
+ * "Mute for 1h": until `mutedUntil` the rule still records its events (the
+ * history stays honest) but sends no notification and opens no incident.
+ * Still-firing events are sent once when the mute ends (`releaseHeld`).
+ */
+export async function muteRule(ctx: OrgContext, input: MuteAlertRuleInput): Promise<AlertRuleView> {
+  const existing = await ctx.db.alertRule.findFirst({ where: { id: input.id, orgId: ctx.activeOrgId } });
+  if (!existing || existing.optedOutAt) throw notFound('alert rule', input.id);
+  const mutedUntil = new Date(Date.now() + input.minutes * 60_000);
+  const row = await ctx.db.alertRule.update({ where: { id: existing.id }, data: { mutedUntil } });
+  await writeAudit(ctx, {
+    action: 'alerts.muteRule',
+    targetType: 'alertRule',
+    targetId: row.id,
+    metadata: { name: row.name, signal: row.signal, minutes: input.minutes, until: mutedUntil.toISOString() },
+  });
+  return toRuleView(row as RuleRow);
+}
+
+/** Lift a mute now; still-firing events the mute kept quiet go out once. */
+export async function unmuteRule(ctx: OrgContext, input: AlertRuleRefInput): Promise<AlertRuleView> {
+  const existing = await ctx.db.alertRule.findFirst({ where: { id: input.id, orgId: ctx.activeOrgId } });
+  if (!existing || existing.optedOutAt) throw notFound('alert rule', input.id);
+  const row = await ctx.db.alertRule.update({ where: { id: existing.id }, data: { mutedUntil: null } });
+  await writeAudit(ctx, {
+    action: 'alerts.unmuteRule',
+    targetType: 'alertRule',
+    targetId: row.id,
+    metadata: { name: row.name, signal: row.signal },
+  });
+  await releaseHeld(ctx).catch(() => undefined);
+  return toRuleView(row as RuleRow);
+}
+
+// ── Quiet hours (one per workspace) ───────────────────────────────────────────
+
+/** What an org with no row gets: off, 22:00–07:00 UTC, critical still pages. */
+export const DEFAULT_QUIET_HOURS = { enabled: false, start: '22:00', end: '07:00', timeZone: 'UTC', criticalPages: true };
+
+export async function getQuietHours(ctx: OrgContext): Promise<AlertQuietHoursView> {
+  const row = await ctx.db.alertQuietHours.findUnique({ where: { orgId: ctx.activeOrgId } });
+  const q = row
+    ? { enabled: row.enabled, start: row.start, end: row.end, timeZone: row.timeZone, criticalPages: row.criticalPages }
+    : DEFAULT_QUIET_HOURS;
+  return { ...q, activeNow: inQuietHours(q, new Date()) };
+}
+
+export async function setQuietHours(ctx: OrgContext, input: SetQuietHoursInput): Promise<AlertQuietHoursView> {
+  const data = {
+    enabled: input.enabled,
+    start: input.start,
+    end: input.end,
+    timeZone: input.timeZone,
+    criticalPages: input.criticalPages,
+  };
+  await ctx.db.alertQuietHours.upsert({
+    where: { orgId: ctx.activeOrgId },
+    create: { orgId: ctx.activeOrgId, ...data },
+    update: data,
+  });
+  await writeAudit(ctx, {
+    action: 'alerts.setQuietHours',
+    targetType: 'alertQuietHours',
+    targetId: ctx.activeOrgId,
+    metadata: data,
+  });
+  // Quiet hours just ended/turned off: what they held goes out now, once.
+  await releaseHeld(ctx).catch(() => undefined);
+  return getQuietHours(ctx);
 }
 
 export async function deleteRule(
@@ -592,6 +700,7 @@ function toEventView(row: {
   resource: string;
   message: string;
   status: 'FIRING' | 'RESOLVED';
+  notify: string;
   firedAt: Date;
   resolvedAt: Date | null;
 }): AlertEventView {
@@ -604,6 +713,7 @@ function toEventView(row: {
     resource: row.resource,
     message: row.message,
     status: row.status === 'FIRING' ? 'firing' : 'resolved',
+    notify: row.notify.toLowerCase() as AlertNotifyView,
     firedAt: row.firedAt.toISOString(),
     resolvedAt: row.resolvedAt?.toISOString() ?? null,
   };

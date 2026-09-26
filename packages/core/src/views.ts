@@ -1040,7 +1040,16 @@ export interface AlertSignalInfo {
   defaultThreshold: number | null;
   defaultForSeconds: number;
   severity: AlertSeverityView;
+  /**
+   * What a rule for this signal can be narrowed to (`AlertSelector`): one
+   * server, one app (optionally one part of it), or nothing (every rule
+   * watches everything). See `alert-targets.ts`.
+   */
+  target: AlertTargetKind;
 }
+
+/** A signal's subject: a server, an app (and its parts), or no narrower target. */
+export type AlertTargetKind = 'server' | 'app' | null;
 
 /**
  * Event-style signals: each fire is a discrete happening (a build broke, a
@@ -1068,6 +1077,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: null,
     defaultForSeconds: 300,
     severity: 'critical',
+    target: 'server',
   },
   'build-failed': {
     label: 'Build failed',
@@ -1076,6 +1086,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: null,
     defaultForSeconds: 0,
     severity: 'warning',
+    target: null,
   },
   'deploy-failed': {
     label: 'Deploy failed',
@@ -1084,6 +1095,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: null,
     defaultForSeconds: 0,
     severity: 'critical',
+    target: 'app',
   },
   'deploy-rolled-back': {
     label: 'Deploy rolled back',
@@ -1092,6 +1104,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: null,
     defaultForSeconds: 0,
     severity: 'critical',
+    target: 'app',
   },
   'crash-loop': {
     label: 'Part keeps crashing',
@@ -1100,6 +1113,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: 3,
     defaultForSeconds: 0,
     severity: 'critical',
+    target: 'app',
   },
   'service-down': {
     label: 'Part short of copies',
@@ -1108,6 +1122,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: null,
     defaultForSeconds: 60,
     severity: 'warning',
+    target: 'app',
   },
   'db-degraded': {
     label: 'Database degraded',
@@ -1116,6 +1131,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: 30,
     defaultForSeconds: 0,
     severity: 'warning',
+    target: 'app',
   },
   'db-failover': {
     label: 'Database switched over',
@@ -1124,6 +1140,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: null,
     defaultForSeconds: 0,
     severity: 'critical',
+    target: 'app',
   },
   'backup-failed': {
     label: 'Backup failed or missed',
@@ -1132,6 +1149,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: null,
     defaultForSeconds: 0,
     severity: 'warning',
+    target: null,
   },
   'cert-expiry': {
     label: 'Certificate expiring',
@@ -1140,6 +1158,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: 14,
     defaultForSeconds: 0,
     severity: 'warning',
+    target: null,
   },
   'disk-usage': {
     label: 'Disk almost full',
@@ -1148,6 +1167,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: 85,
     defaultForSeconds: 0,
     severity: 'warning',
+    target: 'server',
   },
   'queue-depth': {
     label: 'Queue backlog',
@@ -1156,6 +1176,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: 1000,
     defaultForSeconds: 0,
     severity: 'warning',
+    target: 'app',
   },
   'error-rate': {
     label: 'Error rate high',
@@ -1164,6 +1185,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: 5,
     defaultForSeconds: 0,
     severity: 'warning',
+    target: 'app',
   },
   'store-unreachable': {
     label: 'Telemetry store unreachable',
@@ -1172,6 +1194,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: null,
     defaultForSeconds: 60,
     severity: 'warning',
+    target: null,
   },
   'error-new-issue': {
     label: 'New error',
@@ -1180,6 +1203,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: null,
     defaultForSeconds: 0,
     severity: 'warning',
+    target: 'app',
   },
   'error-regression': {
     label: 'Error came back',
@@ -1188,6 +1212,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: null,
     defaultForSeconds: 0,
     severity: 'critical',
+    target: 'app',
   },
   'error-spike': {
     label: 'Error spike',
@@ -1196,6 +1221,7 @@ export const ALERT_SIGNAL_INFO: Record<AlertSignal, AlertSignalInfo> = {
     defaultThreshold: null,
     defaultForSeconds: 0,
     severity: 'critical',
+    target: 'app',
   },
 };
 
@@ -1217,6 +1243,14 @@ export interface AlertRuleView {
   id: string;
   name: string;
   signal: string;
+  /**
+   * What the rule is narrowed to (`AlertSelector`, alert-targets.ts): `{}` =
+   * any; `{ server }` for server signals; `{ app, service? }` for app ones.
+   * A signal may have several rules, each with its own target (Q10).
+   */
+  selector: { app?: string; server?: string; service?: string };
+  /** Muted until this instant (ISO): records events, sends nothing. Null = not muted. */
+  mutedUntil: string | null;
   threshold: number | null;
   forSeconds: number;
   channelIds: string[];
@@ -1235,8 +1269,27 @@ export interface AlertEventView {
   resource: string;
   message: string;
   status: AlertEventStatusView;
+  /** Whether its firing notification went out, is held for quiet hours, or was muted. */
+  notify: AlertNotifyView;
   firedAt: string;
   resolvedAt: string | null;
+}
+
+/** sent · held (quiet hours) · muted (rule muted) · skipped (held/muted, then resolved). */
+export type AlertNotifyView = 'sent' | 'held' | 'muted' | 'skipped';
+
+/** Workspace quiet hours (Q10): warnings are held in the window; critical still pages if on. */
+export interface AlertQuietHoursView {
+  enabled: boolean;
+  /** "22:00" — wall clock in `timeZone`. start > end wraps past midnight. */
+  start: string;
+  end: string;
+  /** IANA zone, e.g. "Europe/London". */
+  timeZone: string;
+  /** Critical alerts still notify during quiet hours. */
+  criticalPages: boolean;
+  /** Quiet hours are in force right now. */
+  activeNow: boolean;
 }
 
 /** Aggregates for the Alerts page hero + the shell bell badge. */

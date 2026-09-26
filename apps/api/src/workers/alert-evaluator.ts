@@ -8,11 +8,19 @@ import {
   observabilityConfigRepo,
   orgErrorRates,
   recordIncidentEvent,
+  releaseHeld,
   sampleUptimeTick,
   systemContext,
 } from '@swarmy/trpc';
 import type { OrgContext } from '@swarmy/trpc';
-import { ALERT_SIGNAL_INFO, type AlertSignal } from '@swarmy/core';
+import {
+  ALERT_SIGNAL_INFO,
+  parseAlertSelector,
+  selectorMatches,
+  subjectFromResource,
+  type AlertSelector,
+  type AlertSignal,
+} from '@swarmy/core';
 import { hub, store } from '../gateway';
 import { forecastConditions, loadDiskSeries } from './disk-forecast-alerts';
 
@@ -33,6 +41,13 @@ import { forecastConditions, loadDiskSeries } from './disk-forecast-alerts';
  *   queue-depth        `swarmy.queues.stats` wait above the rule threshold
  *   error-rate         ClickHouse span error-rate above threshold (store up)
  *   store-unreachable  observability enabled but the store stopped answering
+ *
+ * Several rules per signal (owner decision Q10): each enabled rule evaluates
+ * the signal with its OWN threshold and for-duration, keeps only the subjects
+ * its target covers (`selectorMatches` over `subjectFromResource`), and owns
+ * its events (dedupe = rule + resource). A muted rule still records events
+ * (alerts-fire marks them MUTED) but opens no incident; every tick ends with
+ * `releaseHeld`, which sends once what quiet hours / a mute held back.
  *
  * Every tick first runs `ensureDefaultRules` for the org, so the default
  * alert catalog is ON for every org without anyone opening the Alerts page
@@ -76,10 +91,16 @@ export interface Condition {
   resource: string;
   severity: 'info' | 'warning' | 'critical';
   message: string;
+  /** The rule this condition fires for (unset = ruleless: the signal has no rule row). */
+  ruleId?: string;
 }
 
-export const conditionKey = (c: Pick<Condition, 'signal' | 'resource'>): string =>
-  `${c.signal}|${c.resource}`;
+/** The per-rule dedupe axis: rule + signal + resource. */
+export const conditionKey = (c: Pick<Condition, 'signal' | 'resource'> & { ruleId?: string | null }): string =>
+  `${c.ruleId ?? '-'}|${c.signal}|${c.resource}`;
+
+/** The incident axis: one story per signal + resource, whichever rules fired. */
+export const subjectKey = (c: Pick<Condition, 'signal' | 'resource'>): string => `${c.signal}|${c.resource}`;
 
 /**
  * For-duration gate. Mutates `pending` (key → first-seen ms): new keys start
@@ -89,7 +110,7 @@ export const conditionKey = (c: Pick<Condition, 'signal' | 'resource'>): string 
 export function gateConditions(
   pending: Map<string, number>,
   conditions: Condition[],
-  forSeconds: (signal: AlertSignal) => number,
+  forSeconds: (c: Condition) => number,
   now: number,
 ): Condition[] {
   const current = new Set(conditions.map(conditionKey));
@@ -101,7 +122,7 @@ export function gateConditions(
     const key = conditionKey(c);
     const first = pending.get(key) ?? now;
     if (!pending.has(key)) pending.set(key, now);
-    if (now - first >= Math.max(0, forSeconds(c.signal)) * 1000) ready.push(c);
+    if (now - first >= Math.max(0, forSeconds(c)) * 1000) ready.push(c);
   }
   return ready;
 }
@@ -290,29 +311,98 @@ export function leaderChanges(
   return out;
 }
 
-/** Effective threshold/forSeconds: the org's rule for the signal, else catalog. */
+/** A rule as the evaluator reads it (opt-out tombstones excluded). */
 export interface RuleLike {
+  id: string;
   signal: string;
   threshold: number | null;
   forSeconds: number;
-  isDefault: boolean;
-  createdAt: Date;
+  enabled: boolean;
+  selector: AlertSelector;
+  mutedUntil: Date | null;
 }
 
-export function ruleSettings(
+/** The enabled rules watching a signal. */
+export function rulesFor(rules: RuleLike[], signal: AlertSignal): RuleLike[] {
+  return rules.filter((r) => r.signal === signal && r.enabled);
+}
+
+/**
+ * Fan a signal out to its rules: each enabled rule gets the conditions built
+ * with its own threshold (catalog default when unset), kept only where its
+ * target covers the subject, tagged with its id. A signal with NO rule row at
+ * all yields ruleless conditions at the catalog default (alerts-fire then
+ * sends them to every channel); rule rows that are all disabled yield none.
+ * `build` is called once per distinct threshold.
+ */
+export function ruleConditions(
   rules: RuleLike[],
   signal: AlertSignal,
-): { threshold: number; forSeconds: number } {
+  build: (threshold: number) => Condition[],
+): Condition[] {
   const info = ALERT_SIGNAL_INFO[signal];
-  const matching = rules
-    .filter((r) => r.signal === signal)
-    .sort(
-      (a, b) =>
-        Number(a.isDefault) - Number(b.isDefault) || a.createdAt.getTime() - b.createdAt.getTime(),
-    )[0];
+  const fallback = info.defaultThreshold ?? 0;
+  if (!rules.some((r) => r.signal === signal)) return build(fallback);
+  const cache = new Map<number, Condition[]>();
+  const out: Condition[] = [];
+  for (const rule of rulesFor(rules, signal)) {
+    const threshold = rule.threshold ?? fallback;
+    let conds = cache.get(threshold);
+    if (!conds) {
+      conds = build(threshold);
+      cache.set(threshold, conds);
+    }
+    for (const c of conds) {
+      if (selectorMatches(rule.selector, subjectFromResource(c.resource))) out.push({ ...c, ruleId: rule.id });
+    }
+  }
+  return out;
+}
+
+/** The for-duration a condition must hold: its rule's, else the catalog's. */
+export function conditionForSeconds(rules: RuleLike[], c: Condition): number {
+  const rule = c.ruleId ? rules.find((r) => r.id === c.ruleId) : undefined;
+  return rule?.forSeconds ?? ALERT_SIGNAL_INFO[c.signal].defaultForSeconds;
+}
+
+/**
+ * May a critical condition open (or add to) an incident? Only when at least
+ * one un-muted enabled rule covers it — or the signal has no rule at all. A
+ * muted rule records its events but opens no incident.
+ */
+export function incidentAllowed(
+  rules: RuleLike[],
+  c: Pick<Condition, 'signal' | 'resource'> & { ruleId?: string },
+  now: number,
+): boolean {
+  const live = (r: RuleLike): boolean => !r.mutedUntil || r.mutedUntil.getTime() <= now;
+  if (c.ruleId) {
+    const rule = rules.find((r) => r.id === c.ruleId);
+    return rule ? rule.enabled && live(rule) : false;
+  }
+  if (!rules.some((r) => r.signal === c.signal)) return true;
+  const subject = subjectFromResource(c.resource);
+  return rulesFor(rules, c.signal).some((r) => live(r) && selectorMatches(r.selector, subject));
+}
+
+/** Parse the stored rule rows into `RuleLike`s. */
+export function toRuleLike(row: {
+  id: string;
+  signal: string;
+  threshold: number | null;
+  forSeconds: number;
+  enabled: boolean;
+  selectorJson: unknown;
+  mutedUntil: Date | null;
+}): RuleLike {
   return {
-    threshold: matching?.threshold ?? info.defaultThreshold ?? 0,
-    forSeconds: matching?.forSeconds ?? info.defaultForSeconds,
+    id: row.id,
+    signal: row.signal,
+    threshold: row.threshold,
+    forSeconds: row.forSeconds,
+    enabled: row.enabled,
+    selector: parseAlertSelector(row.selectorJson),
+    mutedUntil: row.mutedUntil,
   };
 }
 
@@ -348,7 +438,10 @@ const orgMap = <T>(bag: Map<string, T>, orgId: string, make: () => T): T => {
 
 async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Condition[]> {
   const orgId = ctx.activeOrgId;
+  // Threshold-free conditions (fanned out to the rules at the end) and the
+  // per-rule threshold ones (built once per distinct rule threshold).
   const conditions: Condition[] = [];
+  const perRule: Condition[] = [];
 
   // node-offline + disk-usage — enrolled nodes vs hub state.
   const nodes = await prisma.node.findMany({
@@ -365,16 +458,11 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
       });
     }
   }
-  const diskThreshold = ruleSettings(rules, 'disk-usage').threshold;
-  conditions.push(
-    ...diskConditions(
-      nodes.map((n) => {
-        const s = hub.latestNodeStats(n.id);
-        return { name: n.name, usedBytes: s?.fsUsedBytes ?? null, totalBytes: s?.fsTotalBytes ?? null };
-      }),
-      diskThreshold,
-    ),
-  );
+  const diskStats = nodes.map((n) => {
+    const s = hub.latestNodeStats(n.id);
+    return { name: n.name, usedBytes: s?.fsUsedBytes ?? null, totalBytes: s?.fsTotalBytes ?? null };
+  });
+  perRule.push(...ruleConditions(rules, 'disk-usage', (t) => diskConditions(diskStats, t)));
   // disk-usage forecast — "full in N days" + a concrete next step (same rule).
   {
     const now = Date.now();
@@ -408,19 +496,13 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
     ),
   );
 
-  const crashThreshold = ruleSettings(rules, 'crash-loop').threshold;
-  conditions.push(
-    ...crashLoopConditions(
-      services.map((s) => ({
-        name: s.name,
-        recentFailures: s.taskHealth?.recentFailures ?? null,
-        lastError: s.taskHealth?.lastError,
-      })),
-      crashThreshold,
-    ),
-  );
+  const crashInputs = services.map((s) => ({
+    name: s.name,
+    recentFailures: s.taskHealth?.recentFailures ?? null,
+    lastError: s.taskHealth?.lastError,
+  }));
+  perRule.push(...ruleConditions(rules, 'crash-loop', (t) => crashLoopConditions(crashInputs, t)));
 
-  const lagThreshold = ruleSettings(rules, 'db-degraded').threshold;
   const lags: Array<{ cluster: string; member: string; lagSeconds: number }> = [];
   for (const s of services) {
     const cluster = s.labels[DB_CLUSTER_LABEL];
@@ -437,9 +519,8 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
       });
     }
   }
-  conditions.push(...dbLagConditions(lags, lagThreshold));
+  perRule.push(...ruleConditions(rules, 'db-degraded', (t) => dbLagConditions(lags, t)));
 
-  const queueThreshold = ruleSettings(rules, 'queue-depth').threshold;
   const queueEntries: Array<{ worker: string; queue: string; wait: number }> = [];
   for (const s of services) {
     const raw = s.labels[QUEUES_STATS_LABEL];
@@ -456,7 +537,7 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
       // malformed stats label — skip
     }
   }
-  conditions.push(...queueDepthConditions(queueEntries, queueThreshold));
+  perRule.push(...ruleConditions(rules, 'queue-depth', (t) => queueDepthConditions(queueEntries, t)));
 
   // backup-failed — a schedule whose most recent finished job failed.
   const scheduleRows = await backupSchedules({ db: prisma, hub }, orgId).findMany({
@@ -527,13 +608,19 @@ async function collectConditions(ctx: OrgContext, rules: RuleLike[]): Promise<Co
     } else if (obsConfig.clickhouseDsn) {
       const rows = await orgErrorRates(ctx, { windowMinutes: ERROR_RATE_WINDOW_MIN });
       if (rows) {
-        const { threshold } = ruleSettings(rules, 'error-rate');
-        conditions.push(...errorRateConditions(rows, threshold));
+        perRule.push(...ruleConditions(rules, 'error-rate', (t) => errorRateConditions(rows, t)));
       }
     }
   }
 
-  return conditions;
+  return [...fanOut(rules, conditions), ...perRule];
+}
+
+/** Threshold-free conditions → one per rule whose target covers them. */
+export function fanOut(rules: RuleLike[], conditions: Condition[]): Condition[] {
+  const bySignal = new Map<AlertSignal, Condition[]>();
+  for (const c of conditions) bySignal.set(c.signal, [...(bySignal.get(c.signal) ?? []), c]);
+  return [...bySignal].flatMap(([signal, list]) => ruleConditions(rules, signal, () => list));
 }
 
 // ── Per-org tick ──────────────────────────────────────────────────────────────
@@ -543,10 +630,22 @@ async function evaluateOrg(orgId: string): Promise<void> {
   // Default alerts are ON for every org — seed any missing default (idempotent,
   // steady state = one read; tombstoned opt-outs are never re-created).
   await ensureDefaultRules(ctx).catch(() => undefined);
-  const rules = (await prisma.alertRule.findMany({
-    where: { orgId },
-    select: { signal: true, threshold: true, forSeconds: true, isDefault: true, createdAt: true },
-  })) as RuleLike[];
+  // Every rule row, tombstones included: a signal whose only rows are
+  // disabled/opted out is silent, not "ruleless" (see `ruleConditions`).
+  const rules = (
+    await prisma.alertRule.findMany({
+      where: { orgId },
+      select: {
+        id: true,
+        signal: true,
+        threshold: true,
+        forSeconds: true,
+        enabled: true,
+        selectorJson: true,
+        mutedUntil: true,
+      },
+    })
+  ).map(toRuleLike);
 
   const conditions = await collectConditions(ctx, rules);
 
@@ -563,65 +662,62 @@ async function evaluateOrg(orgId: string): Promise<void> {
   const prevLeaders = orgMap(leadersByOrg, orgId, () => new Map<string, string>());
   for (const change of leaderChanges(prevLeaders, currLeaders)) {
     const message = `Database cluster ${change.cluster} failed over: leader ${change.from} → ${change.to}`;
-    await fireEvent(ctx, {
-      signal: 'db-failover',
-      severity: 'critical',
-      resource: `db:${change.cluster}`,
-      message,
-    }).catch(() => undefined);
-    await recordIncidentEvent(ctx, {
-      groupKey: `db:${change.cluster}`,
-      kind: 'db.failover',
-      message,
-      severity: 'critical',
-      meta: { from: change.from, to: change.to },
-    }).catch(() => undefined);
+    const resource = `db:${change.cluster}`;
+    // No ruleId: alerts-fire fans it out to every rule whose target covers it.
+    await fireEvent(ctx, { signal: 'db-failover', severity: 'critical', resource, message }).catch(() => undefined);
+    if (incidentAllowed(rules, { signal: 'db-failover', resource }, Date.now())) {
+      await recordIncidentEvent(ctx, {
+        groupKey: resource,
+        kind: 'db.failover',
+        message,
+        severity: 'critical',
+        meta: { from: change.from, to: change.to },
+      }).catch(() => undefined);
+    }
   }
   leadersByOrg.set(orgId, currLeaders);
 
-  // Gate on for-duration, then fire.
+  // Gate on each rule's for-duration, then fire (each rule owns its events).
   const pending = orgMap(pendingByOrg, orgId, () => new Map<string, number>());
   const fired = orgMap(firedByOrg, orgId, () => new Set<string>());
-  const ready = gateConditions(
-    pending,
-    conditions,
-    (signal) => ruleSettings(rules, signal).forSeconds,
-    Date.now(),
-  );
+  const now = Date.now();
+  const ready = gateConditions(pending, conditions, (c) => conditionForSeconds(rules, c), now);
   for (const c of ready) {
     await fireEvent(ctx, c).catch(() => undefined);
-    const key = conditionKey(c);
-    if (!fired.has(key)) {
+    // One incident story per signal + resource, opened by the first un-muted
+    // rule that fires it critical (a muted rule records but opens nothing).
+    const key = subjectKey(c);
+    if (!fired.has(key) && c.severity === 'critical' && incidentAllowed(rules, c, now)) {
       fired.add(key);
-      if (c.severity === 'critical') {
-        await recordIncidentEvent(ctx, {
-          groupKey: `alert:${c.resource}`,
-          kind: 'alert.fired',
-          message: c.message,
-          severity: 'critical',
-          meta: { signal: c.signal },
-        }).catch(() => undefined);
-      }
+      await recordIncidentEvent(ctx, {
+        groupKey: `alert:${c.resource}`,
+        kind: 'alert.fired',
+        message: c.message,
+        severity: 'critical',
+        meta: { signal: c.signal },
+      }).catch(() => undefined);
     }
   }
 
-  // Resolve level-triggered events whose condition cleared.
+  // Resolve each rule's level-triggered events whose condition cleared.
   const active = new Set(conditions.map(conditionKey));
+  const activeSubjects = new Set(conditions.map(subjectKey));
   const open = await prisma.alertEvent.findMany({
     where: { orgId, status: 'FIRING', signal: { in: LEVEL_SIGNALS } },
-    select: { signal: true, resource: true, severity: true, message: true },
+    select: { ruleId: true, signal: true, resource: true, severity: true },
   });
   for (const event of open) {
-    const key = `${event.signal}|${event.resource}`;
-    if (active.has(key)) continue;
+    if (active.has(conditionKey(event as Condition))) continue;
     await fireEvent(ctx, {
       signal: event.signal,
       severity: 'info',
       resource: event.resource,
       message: `${event.signal} on ${event.resource} recovered`,
       status: 'resolved',
+      ...(event.ruleId ? { ruleId: event.ruleId } : {}),
     }).catch(() => undefined);
-    if (fired.delete(key) && event.severity === 'critical') {
+    const key = subjectKey(event as Condition);
+    if (!activeSubjects.has(key) && fired.delete(key) && event.severity === 'critical') {
       await recordIncidentEvent(ctx, {
         groupKey: `alert:${event.resource}`,
         kind: 'alert.resolved',
@@ -630,6 +726,9 @@ async function evaluateOrg(orgId: string): Promise<void> {
       }).catch(() => undefined);
     }
   }
+
+  // Quiet hours over / a mute lifted: send what they held, once.
+  await releaseHeld(ctx).catch(() => undefined);
 
   // Status-page uptime bars: one sample per component (throttled in the service).
   await sampleUptimeTick(ctx).catch(() => undefined);

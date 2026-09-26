@@ -647,9 +647,21 @@ export type UpdateChannelInput = z.infer<typeof UpdateChannelInput>;
 export const ChannelRefInput = z.object({ id: z.string().min(1) });
 export type ChannelRefInput = z.infer<typeof ChannelRefInput>;
 
+/** A rule's target (`AlertSelector`); validated against the signal in the service. */
+const ALERT_TARGET_NAME = z.string().trim().min(1).max(128);
+export const AlertSelectorInput = z
+  .object({
+    app: ALERT_TARGET_NAME.optional(),
+    server: ALERT_TARGET_NAME.optional(),
+    service: ALERT_TARGET_NAME.optional(),
+  })
+  .strict();
+export type AlertSelectorInput = z.infer<typeof AlertSelectorInput>;
+
 export const CreateAlertRuleInput = z.object({
   name: z.string().min(1).max(120),
   signal: z.enum(ALERT_SIGNALS),
+  selector: AlertSelectorInput.default({}),
   threshold: z.number().finite().nullable().optional(),
   forSeconds: z.number().int().min(0).max(86_400).default(0),
   channelIds: z.array(z.string().min(1)).max(50).default([]),
@@ -660,6 +672,7 @@ export type CreateAlertRuleInput = z.infer<typeof CreateAlertRuleInput>;
 export const UpdateAlertRuleInput = z.object({
   id: z.string().min(1),
   name: z.string().min(1).max(120).optional(),
+  selector: AlertSelectorInput.optional(),
   threshold: z.number().finite().nullable().optional(),
   forSeconds: z.number().int().min(0).max(86_400).optional(),
   channelIds: z.array(z.string().min(1)).max(50).optional(),
@@ -669,6 +682,35 @@ export type UpdateAlertRuleInput = z.infer<typeof UpdateAlertRuleInput>;
 
 export const AlertRuleRefInput = z.object({ id: z.string().min(1) });
 export type AlertRuleRefInput = z.infer<typeof AlertRuleRefInput>;
+
+/** "Mute for 1h": the rule records events but sends nothing until it ends. */
+export const MuteAlertRuleInput = z.object({
+  id: z.string().min(1),
+  minutes: z.number().int().min(1).max(7 * 24 * 60).default(60),
+});
+export type MuteAlertRuleInput = z.infer<typeof MuteAlertRuleInput>;
+
+const HHMM = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'use HH:MM, e.g. 22:00');
+/** Workspace quiet hours (warnings held in the window; critical still pages if on). */
+export const SetQuietHoursInput = z.object({
+  enabled: z.boolean(),
+  start: HHMM,
+  end: HHMM,
+  timeZone: z
+    .string()
+    .min(1)
+    .max(64)
+    .refine((tz) => {
+      try {
+        new Intl.DateTimeFormat('en-GB', { timeZone: tz });
+        return true;
+      } catch {
+        return false;
+      }
+    }, 'unknown time zone'),
+  criticalPages: z.boolean().default(true),
+});
+export type SetQuietHoursInput = z.infer<typeof SetQuietHoursInput>;
 
 export const AlertEventsInput = z.object({
   status: z.enum(ALERT_EVENT_STATUSES).optional(),

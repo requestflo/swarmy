@@ -115,7 +115,12 @@ db→protocol→service→router→UI shape see `skill("add-feature-slice")`.
   Running/Reachable badges.
 - **Signal → alert → incident → status**: `alert-evaluator.ts` worker evaluates
   `AlertRule`s and samples `UptimeSample`; `alerts-fire.ts` raises/resolves
-  `AlertEvent` (deduped on rule/signal + `resource`) and notifies channels;
+  `AlertEvent` and notifies channels. Several rules per signal, each narrowed
+  by its `selectorJson` target (`@swarmy/core` `alert-targets.ts`:
+  `selectorMatches(sel, subjectFromResource(resource))`), each deduping its own
+  events on (ruleId, resource). `AlertRule.mutedUntil` records but never
+  notifies or opens an incident; workspace quiet hours (`AlertQuietHours`) hold
+  warnings as `notify: HELD` and `releaseHeld` sends still-firing ones once;
   `incidents-record.ts` opens/updates `Incident` + `IncidentEvent`;
   `statusPages.service.ts` composes the public snapshot (90-day uptime).
 - **Result of a fire**: everything is audited via `writeAudit` — fires, resolves,

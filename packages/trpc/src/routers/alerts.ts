@@ -5,6 +5,8 @@ import {
   ChannelRefInput,
   CreateAlertRuleInput,
   CreateChannelInput,
+  MuteAlertRuleInput,
+  SetQuietHoursInput,
   UpdateAlertRuleInput,
   UpdateChannelInput,
 } from '@swarmy/core';
@@ -15,11 +17,15 @@ import {
   createRule,
   deleteChannel,
   deleteRule,
+  getQuietHours,
   listChannels,
   listEvents,
   listRules,
+  muteRule,
   overview,
+  setQuietHours,
   testChannel,
+  unmuteRule,
   updateChannel,
   updateRule,
 } from '../services/alerts.service';
@@ -57,11 +63,11 @@ export const alertsRouter = router({
   // ── Rules ───────────────────────────────────────────────────────────────────
   /** All rules; seeds the per-signal defaults on first call. */
   rules: orgProcedure.query(({ ctx }) => listRules(ctx)),
-  /** Add a custom rule for a known signal. */
+  /** Add a rule for a known signal, optionally narrowed to one app/part or server. */
   createRule: orgProcedure
     .input(CreateAlertRuleInput)
     .mutation(({ ctx, input }) => createRule(ctx, input)),
-  /** Edit threshold / for-duration / channel bindings / enabled. */
+  /** Edit target / threshold / for-duration / channel bindings / enabled. */
   updateRule: orgProcedure
     .input(UpdateAlertRuleInput)
     .mutation(({ ctx, input }) => updateRule(ctx, input)),
@@ -69,6 +75,22 @@ export const alertsRouter = router({
   deleteRule: orgProcedure
     .input(AlertRuleRefInput)
     .mutation(({ ctx, input }) => deleteRule(ctx, input)),
+  /** "Mute for 1h": keep recording, send nothing, open no incident until it ends. */
+  muteRule: orgProcedure
+    .input(MuteAlertRuleInput)
+    .mutation(({ ctx, input }) => muteRule(ctx, input)),
+  /** Lift a mute now (still-firing events it kept quiet go out once). */
+  unmuteRule: orgProcedure
+    .input(AlertRuleRefInput)
+    .mutation(({ ctx, input }) => unmuteRule(ctx, input)),
+
+  // ── Quiet hours ─────────────────────────────────────────────────────────────
+  /** The workspace quiet hours (defaults when never set: off, 22:00–07:00 UTC). */
+  quietHours: orgProcedure.query(({ ctx }) => getQuietHours(ctx)),
+  /** Set the quiet hours; releasing anything they no longer hold. */
+  setQuietHours: orgProcedure
+    .input(SetQuietHoursInput)
+    .mutation(({ ctx, input }) => setQuietHours(ctx, input)),
 
   // ── Events ──────────────────────────────────────────────────────────────────
   /** The event feed, newest first, optionally filtered to firing/resolved. */

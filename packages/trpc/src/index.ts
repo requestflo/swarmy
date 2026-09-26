@@ -361,7 +361,7 @@ export { evaluateAdmission } from './services/admission.service';
 export type { AdmissionIntent, Violation } from './services/admission.service';
 export { summarizeStack, summarizeService } from './services/health-summary';
 export type { HealthSummary } from './services/health-summary';
-export { fireEvent } from './services/alerts-fire';
+export { fireEvent, releaseHeld, isRuleMuted } from './services/alerts-fire';
 // Error tracking (Sentry-compatible ingest, artifacts, spike sweep).
 export * from './services/errors';
 export { ensureDefaultRules } from './services/alerts.service';
