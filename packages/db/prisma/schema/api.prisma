@@ -7,6 +7,8 @@ model ApiKey {
   keyHash     String    @unique
   prefix      String
   scopes      Json      @default("[\"read\"]")
+  /// App (stack) names this key may reach; null = every app in the org.
+  stackNames  Json?
   lastUsedAt  DateTime?
   expiresAt   DateTime?
   createdById String?

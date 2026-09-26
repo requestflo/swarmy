@@ -25,6 +25,7 @@ model User {
   auditLogs   AuditLog[]
   invitations Invitation[] @relation("InvitationInviter")
   apiKeys     ApiKey[]     @relation("ApiKeyCreator")
+  inviteLinks InviteLink[] @relation("InviteLinkCreator")
   preference  UserPreference?
 
   @@map("user")
@@ -139,6 +140,7 @@ model Organization {
   builds              Build[]
   registryCredentials RegistryCredential[]
   apiKeys             ApiKey[]
+  inviteLinks         InviteLink[]
   backupJobs          BackupJob[]
   restoreOperations   RestoreOperation[]
   offsiteMirrorRuns   OffsiteMirrorRun[]

@@ -93,3 +93,29 @@ model OrgSecurityPolicy {
 
   @@map("org_security_policy")
 }
+
+// A shareable, multi-use invite link (owner decision Q7). Whoever opens it and
+// signs in joins the org with `role`; with `stackName` set they also get an
+// `operator` ResourceGrant on that app. Only the sha-256 of the token is kept
+// (`swi_<prefix>_<secret>`, shown once). `uses` is bumped by a compare-and-swap
+// so a link can't be redeemed past `maxUses` (null = unlimited).
+model InviteLink {
+  id          String    @id @default(cuid())
+  orgId       String
+  tokenHash   String    @unique
+  prefix      String
+  role        String
+  stackName   String?
+  expiresAt   DateTime?
+  maxUses     Int?
+  uses        Int       @default(0)
+  createdById String?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy User?        @relation("InviteLinkCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@map("invite_link")
+}
