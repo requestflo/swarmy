@@ -15,13 +15,27 @@ import type { BoardRow } from './app-board-model';
 export function AppFix({ row, primary }: { row: BoardRow; primary: boolean }): React.JSX.Element | null {
   const fix = row.fix;
   if (!fix) return null;
-  const label = fix.putBack ? releaseLabel(fix.putBack) : null;
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pb-3 @4xl:pl-[46px] @4xl:pr-[18px]">
       <p className="text-foreground/80 min-w-0 flex-1 basis-72 text-[13px] leading-snug">{fix.diagnosis}</p>
+      <AppFixActions row={row} primary={primary} />
+    </div>
+  );
+}
+
+/**
+ * The fix's actions on their own (the Apps list row and the Map's Right-now
+ * card share them): put back the last healthy version, open the incident.
+ */
+export function AppFixActions({ row, primary }: { row: BoardRow; primary: boolean }): React.JSX.Element | null {
+  const fix = row.fix;
+  if (!fix) return null;
+  const label = fix.putBack ? releaseLabel(fix.putBack) : null;
+  return (
+    <>
       {fix.putBack ? (
         <>
-          <span className="text-muted-foreground font-mono text-[11px]">one copy at a time · your data isn’t touched</span>
+          <span className="text-muted-foreground font-mono text-[12px]">one copy at a time · your data isn’t touched</span>
           <RollbackConfirm
             release={fix.putBack}
             label={label ?? undefined}
@@ -42,11 +56,11 @@ export function AppFix({ row, primary }: { row: BoardRow; primary: boolean }): R
       ) : null}
       {fix.putBack ? (
         <Depth at="controls">
-          <span className="text-muted-foreground w-full font-mono text-[11px]">
+          <span className="text-muted-foreground w-full font-mono text-[12px]">
             releases.rollback · redeploys {fix.putBack.images.map((i) => i.image).join(', ')} as a new release
           </span>
         </Depth>
       ) : null}
-    </div>
+    </>
   );
 }

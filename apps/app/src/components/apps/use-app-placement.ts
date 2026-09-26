@@ -1,12 +1,14 @@
 import * as React from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import type { Inventory, NodeSummary } from '@swarmy/core';
+import type { Inventory, NodeSummary, ServiceSummary } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 
 export interface Placement {
   nodes: NodeSummary[] | undefined;
   /** app (stack) name → the servers its copies run on; undefined until every server answered. */
   byApp: Map<string, NodeSummary[]> | undefined;
+  /** server id → the services with copies on it (the estate map's cards); undefined until every server answered. */
+  servicesByNode: Map<string, ServiceSummary[]> | undefined;
 }
 
 /**
@@ -45,5 +47,11 @@ export function useAppPlacement(inventory: Inventory | undefined): Placement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settled, inventory, nodes.data, key]);
 
-  return { nodes: nodes.data, byApp };
+  const servicesByNode = React.useMemo(
+    () => (settled ? new Map(online.map((n, i) => [n.id, perNode[i]?.data ?? []])) : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [settled, nodes.data, key],
+  );
+
+  return { nodes: nodes.data, byApp, servicesByNode };
 }

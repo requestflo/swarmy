@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { NodeSummary, TrafficNowView } from '@swarmy/core';
+import type { NodeSummary, ServiceSummary, TrafficNowView } from '@swarmy/core';
 import { useTRPC } from '@/integrations/trpc';
 import { buildRows, type BoardRow } from './app-board-model';
 import { useAppPlacement } from './use-app-placement';
@@ -10,6 +10,8 @@ export interface AppsBoard extends AppsState {
   rows: BoardRow[];
   nodes: NodeSummary[] | undefined;
   traffic: TrafficNowView | undefined;
+  /** server id → services with copies on it (the Map view's cards). */
+  servicesByNode: Map<string, ServiceSummary[]> | undefined;
 }
 
 /**
@@ -41,5 +43,5 @@ export function useAppsBoard(): AppsBoard {
     [a.apps, gitApps.data, releases.data, placement.byApp, incidents.data, health.data],
   );
 
-  return { ...a, rows, nodes: placement.nodes, traffic: traffic.data };
+  return { ...a, rows, nodes: placement.nodes, traffic: traffic.data, servicesByNode: placement.servicesByNode };
 }

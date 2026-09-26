@@ -112,6 +112,21 @@ const platformCompose = (tag: string, withCache: boolean): string =>
     `    image: ghcr.io/northwind/platform-auth:${tag}`,
   ].join('\n');
 
+const dataCompose = (workerTag: string, natsReplicas: number): string =>
+  [
+    'services:',
+    '  postgres:',
+    '    image: postgres:16-alpine',
+    '  redis:',
+    '    image: redis:7-alpine',
+    '  nats:',
+    '    image: nats:2.10-alpine',
+    '    deploy:',
+    `      replicas: ${natsReplicas}`,
+    '  worker:',
+    `    image: ghcr.io/northwind/worker:${workerTag}`,
+  ].join('\n');
+
 function toView(r: ReleaseSeed): ReleaseView {
   const { composeSource: _omit, ...view } = r;
   return view;
@@ -335,7 +350,7 @@ export const releases: DomainResolvers = {
   },
 
   seed: (store) => {
-    // Six releases across the demo stacks, newest first: one converging deploy,
+    // Eight releases across the demo stacks, newest first: one converging deploy,
     // a failed gate that auto-rolled back (and the rollback release that
     // followed it), plus healthy/superseded history for believable diffs.
     const state: ReleasesState = {
@@ -375,6 +390,38 @@ export const releases: DomainResolvers = {
           notes: null,
           createdAt: iso(3 * HOUR),
           composeSource: platformCompose('0.42.1', true),
+        },
+        // The data app's day: a worker bump in the small hours and the one
+        // before it, so the estate map's Rewind has a believable day of deploys.
+        {
+          id: 'rel-data-2',
+          stackName: 'data',
+          status: 'healthy',
+          images: [
+            { name: 'worker', image: 'ghcr.io/northwind/worker:2.4.0' },
+            { name: 'nats', image: 'nats:2.10-alpine' },
+          ],
+          actor: 'priya@northwind.dev',
+          strategy: null,
+          healthGate: null,
+          notes: null,
+          createdAt: iso(14 * HOUR),
+          composeSource: dataCompose('2.4.0', 3),
+        },
+        {
+          id: 'rel-data-1',
+          stackName: 'data',
+          status: 'superseded',
+          images: [
+            { name: 'worker', image: 'ghcr.io/northwind/worker:2.3.9' },
+            { name: 'nats', image: 'nats:2.10-alpine' },
+          ],
+          actor: 'priya@northwind.dev',
+          strategy: null,
+          healthGate: null,
+          notes: null,
+          createdAt: iso(21 * HOUR),
+          composeSource: dataCompose('2.3.9', 3),
         },
         {
           id: 'rel-store-5',

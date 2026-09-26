@@ -5,7 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from '@swarmy/ui';
 import { CalmPage, useDepth } from '@/components/calm';
 import { PageError, PageSkeleton } from '@/components/states';
-import { ApplicationsCanvas } from '@/components/canvas/applications-canvas';
+import { EstateMapCode } from '@/components/estate-map/estate-map-code';
+import { EstateMapView } from '@/components/estate-map/estate-map-view';
 import { useTRPC } from '@/integrations/trpc';
 import { useEstateSummary } from '@/lib/use-estate-summary';
 import { groupRows, poolFor, statusCounts, type StatusFilter } from './app-board-model';
@@ -23,7 +24,8 @@ import { useAppsBoard } from './use-apps-board';
  * Apps (board 69): the sentence, search + filters + grouping, every app as a
  * table-like row (right now · environments · servers · last deploy · traffic),
  * the inline fix for an app that needs you, and swarmy's own parts. The Map
- * view sits behind the List | Map toggle.
+ * view (the estate map: regions, flows, Right now, Rewind) sits behind the
+ * List | Map toggle and carries the same sentence in its Right-now card.
  */
 export function AppsPage(): React.JSX.Element {
   const trpc = useTRPC();
@@ -74,15 +76,15 @@ export function AppsPage(): React.JSX.Element {
         </>
       }
       wide
-      aside={code ? <AppsCodeView apps={b.apps} /> : undefined}
+      aside={code ? view === 'map' && !empty ? <EstateMapCode traffic={b.traffic} /> : <AppsCodeView apps={b.apps} /> : undefined}
     >
       {empty ? (
         <AppsEmpty workspace={org.data?.name} />
       ) : (
         <>
-          <AppsSay say={say} c={counts} />
           {view === 'list' ? (
             <>
+              <AppsSay say={say} c={counts} />
               <AppsControls
                 q={q}
                 onQ={setQ}
@@ -104,9 +106,12 @@ export function AppsPage(): React.JSX.Element {
               />
             </>
           ) : (
-            <section aria-label="Map" className="calm-card overflow-hidden">
-              <ApplicationsCanvas />
-            </section>
+            <EstateMapView
+              b={b}
+              say={say}
+              servers={{ online: e?.nodes.online ?? 0, total: e?.nodes.total ?? b.nodes?.length ?? 0 }}
+              channels={e?.alerts.channels ?? 0}
+            />
           )}
         </>
       )}

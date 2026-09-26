@@ -10,6 +10,22 @@ import { applyDemoSettings } from './service-settings';
 
 const jitter = (base: number, spread = 6) => Math.max(2, Math.min(98, base + (Math.random() - 0.5) * spread));
 
+/**
+ * Where an unpinned service's copies run: like the real placement filter
+ * (tasks on the node), its running copies spread over the online servers,
+ * starting at a spot seeded by its id so the answer is stable between polls.
+ */
+function runsOn(sv: ServiceSummary, nodes: NodeSummary[], nodeId: string): boolean {
+  if (sv.nodeId) return sv.nodeId === nodeId;
+  const online = nodes.filter((n) => n.status === 'online');
+  const at = online.findIndex((n) => n.id === nodeId);
+  if (at < 0 || sv.replicas.running === 0) return false;
+  let h = 0;
+  for (const c of sv.id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const start = h % online.length;
+  return (at - start + online.length) % online.length < Math.min(sv.replicas.running, online.length);
+}
+
 function byId<T extends { id: string }>(arr: T[], id: string): T | undefined {
   return arr.find((x) => x.id === id);
 }
@@ -279,7 +295,7 @@ export const core: DomainResolvers = {
       const f = (i as { nodeId?: string; stackId?: string; status?: string; search?: string }) ?? {};
       return s.services.filter(
         (sv) =>
-          (!f.nodeId || sv.nodeId === f.nodeId) &&
+          (!f.nodeId || runsOn(sv, s.nodes as NodeSummary[], f.nodeId)) &&
           (!f.stackId || sv.stackId === f.stackId || s.stacks.find((st) => st.id === sv.stackId)?.name === f.stackId) &&
           (!f.status || sv.status === f.status) &&
           (!f.search || sv.name.includes(f.search) || sv.image.includes(f.search)),
