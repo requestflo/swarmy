@@ -105,9 +105,13 @@ state belongs see `skill("docker-native-storage")`.
   `volume.provision`, `volume.remove` (wire types `applyStorageNode` /
   `provisionVolume` / `removeVolume`), `container.runOnce`. Never hand-roll a wire
   frame — see `skill("agent-handlers")`.
-- **Provision result carries the secret once.** `provision*` returns
-  `{ …, password|masterKey|apiKey|secretAccessKey }` exactly once; the router
-  comment says so and the UI shows it in a copy-once panel.
+- **Provision result carries the secret once — except Postgres.** `provision*`
+  returns `{ …, password|masterKey|apiKey|secretAccessKey }` exactly once; the
+  UI shows it in a copy-once panel. `db.provision` returns NO password (only
+  `passwordEnv`): a person reads it via `db.revealPassword`
+  (`abacProcedure('secrets.read')`, audited `db.password.reveal`); server-side
+  callers that need it (blueprint tokens) use `provisionDbWithPassword`. The
+  `db.inject` response masks the password in its URLs.
 - **Garage render is pure.** `renderGarageDeployment(input)` →
   `RenderedStoreDeployment` (toml + volumes + GLOBAL placement under the
   `swarmy-system` stack); the agent's `applyStorageNode` applies it. Ports:

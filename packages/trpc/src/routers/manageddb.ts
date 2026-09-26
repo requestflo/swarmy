@@ -9,12 +9,18 @@ import {
   migrateStorage,
   provisionDb,
   removeDb,
+  revealDbPassword,
   setRegionReplicas,
   setReplicas,
   setTopology,
   getFailoverReadiness,
   setWriteRegion,
 } from '../services/manageddb.service';
+
+/** `postgres://user:secret@host` → `postgres://user:***@host`. */
+export function maskUrlPassword(url: string): string {
+  return url.replace(/^([a-z][a-z0-9+.-]*:\/\/[^:/@]*:)[^@]*@/i, '$1***@');
+}
 
 const stackName = z
   .string()
@@ -69,7 +75,17 @@ export const managedDbRouter = router({
           .optional(),
       }),
     )
+    // Never carries the password — see `revealPassword`.
     .mutation(({ ctx, input }) => provisionDb(ctx, input)),
+
+  /**
+   * Reveal a cluster's superuser password: the one explicit, ABAC-gated
+   * (`secrets.read`, audited permit/deny) path a client reads it through;
+   * the service adds a `db.password.reveal` audit row.
+   */
+  revealPassword: abacProcedure('secrets.read', resolveStackByName)
+    .input(z.object({ stack: stackName, cluster: clusterName }))
+    .mutation(({ ctx, input }) => revealDbPassword(ctx, input)),
 
   /** Read the managed-DB topology for a stack (clusters + health + rw/ro hosts). */
   get: orgProcedure
@@ -204,5 +220,10 @@ export const managedDbRouter = router({
           .optional(),
       }),
     )
-    .mutation(({ ctx, input }) => injectConnection(ctx, input)),
+    // The connection URLs embed the password — the response masks it (the app
+    // gets the real URL in its env; a person reads it via `revealPassword`).
+    .mutation(async ({ ctx, input }) => {
+      const res = await injectConnection(ctx, input);
+      return { ...res, rwUrl: maskUrlPassword(res.rwUrl), roUrl: maskUrlPassword(res.roUrl) };
+    }),
 });

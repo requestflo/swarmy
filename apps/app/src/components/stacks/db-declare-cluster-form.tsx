@@ -1,13 +1,14 @@
 import * as React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { DatabaseIcon, ZapIcon } from 'lucide-react';
+import { DatabaseIcon, EyeIcon, ZapIcon } from 'lucide-react';
 import { Button, CopyButton, Input, Label, toast } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { useOnlineNodeCount } from '@/lib/use-online-node-count';
 
 /**
- * Declare a managed-Postgres cluster on this stack; shows the one-time
- * superuser password. A stack can hold ANY NUMBER of independent clusters
+ * Declare a managed-Postgres cluster on this stack. Provisioning never returns
+ * the superuser password: it is revealed only on an explicit click, through
+ * `db.revealPassword` (policy-gated on `secrets.read` and audited). A stack can hold ANY NUMBER of independent clusters
  * (`main`, `analytics`, …) — `existingNames` lets this form reframe itself as
  * "add another" and refuse a name that's already taken.
  */
@@ -38,9 +39,8 @@ export function DbDeclareClusterForm({
   React.useEffect(() => {
     if (!touched.current) setReplicasState(fitReplicas);
   }, [fitReplicas]);
-  const [creds, setCreds] = React.useState<{ rwHost: string; roHost: string; password: string } | null>(
-    null,
-  );
+  const [created, setCreated] = React.useState<{ cluster: string; rwHost: string; roHost: string } | null>(null);
+  const [password, setPassword] = React.useState<string | null>(null);
 
   const trimmed = name.trim();
   const duplicate = existingNames.includes(trimmed);
@@ -49,28 +49,50 @@ export function DbDeclareClusterForm({
     trpc.db.provision.mutationOptions({
       onSuccess: (res) => {
         toast.success(`Provisioning ${res.cluster} — 1 primary + ${res.replicas} replicas`);
-        setCreds({ rwHost: res.rwHost, roHost: res.roHost, password: res.password });
+        setCreated({ cluster: res.cluster, rwHost: res.rwHost, roHost: res.roHost });
+        setPassword(null);
         setName(hasClusters ? '' : 'main');
         void qc.invalidateQueries();
       },
       onError: (e) => toast.error(e.message),
     }),
   );
+  const reveal = useMutation(
+    trpc.db.revealPassword.mutationOptions({
+      onSuccess: (res) => setPassword(res.password),
+      onError: (e) => toast.error(e.message),
+    }),
+  );
 
   return (
     <div className="space-y-4">
-      {creds && (
+      {created && (
         <div className="border-primary/40 bg-primary/5 rounded-lg border p-4">
           <div className="flex items-center gap-2">
             <ZapIcon className="text-primary size-4" />
-            <p className="text-sm font-medium">Superuser password (shown once)</p>
+            <p className="text-sm font-medium">
+              <code className="mono-data">{created.cluster}</code> is on its way — writes go to{' '}
+              <code className="mono-data">{created.rwHost}</code>
+            </p>
           </div>
-          <div className="bg-background mt-2 flex items-center justify-between gap-2 rounded-md px-3 py-2">
-            <code className="mono-data truncate text-xs">{creds.password}</code>
-            <CopyButton value={creds.password} />
-          </div>
+          {password ? (
+            <div className="bg-background mt-2 flex items-center justify-between gap-2 rounded-md px-3 py-2">
+              <code className="mono-data truncate text-xs">{password}</code>
+              <CopyButton value={password} />
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              onClick={() => reveal.mutate({ stack, cluster: created.cluster })}
+              disabled={reveal.isPending}
+            >
+              <EyeIcon className="size-4" /> Reveal superuser password
+            </Button>
+          )}
           <p className="text-muted-foreground mono-label mt-2">
-            Stored only in Docker (service env). Copy it now.
+            Connected apps get it in their env. Revealing it is recorded in the audit log.
           </p>
         </div>
       )}

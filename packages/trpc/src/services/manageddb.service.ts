@@ -431,10 +431,19 @@ export interface ProvisionDbResult {
   /** True when `replicas` was not given and the server-count default chose it. */
   replicasDefaulted: boolean;
   /**
-   * Generated/used superuser password. Returned ONCE here so the caller can
-   * surface it; it is NOT stored anywhere outside Docker. See the secret
-   * tradeoff note below.
+   * The name of the env var holding the superuser password on the members.
+   * The password itself is NEVER in this result: a client sees it only via
+   * the audited, `secrets.read`-gated `db.revealPassword` ({@link revealDbPassword}).
    */
+  passwordEnv: string;
+}
+
+/**
+ * {@link provisionDbWithPassword}'s result: the public result plus the
+ * superuser password. SERVER-SIDE ONLY (blueprint token wiring) — never return
+ * it from a router or REST route.
+ */
+export interface ProvisionDbInternalResult extends ProvisionDbResult {
   password: string;
 }
 
@@ -538,10 +547,20 @@ export function managedPgSpecs(input: ManagedPgSpecInput): {
  * inspect`, like any compose secret-in-env). Productionising this = a Docker
  * secret (`POSTGRES_PASSWORD_FILE`, which the official image honours) once a `secret.create` command exists.
  */
-export async function provisionDb(
+export async function provisionDb(ctx: OrgContext, input: ProvisionDbInput): Promise<ProvisionDbResult> {
+  const { password: _secret, ...result } = await provisionDbWithPassword(ctx, input);
+  return result;
+}
+
+/**
+ * {@link provisionDb} that also hands the superuser password back to a
+ * SERVER-SIDE caller (blueprints wire it into generated tokens). Never expose
+ * this result to a client.
+ */
+export async function provisionDbWithPassword(
   ctx: OrgContext,
   input: ProvisionDbInput,
-): Promise<ProvisionDbResult> {
+): Promise<ProvisionDbInternalResult> {
   if ((input.engine ?? 'postgres') !== 'postgres') {
     throw commandRejected(`unsupported engine "${input.engine}" (only postgres for now)`);
   }
@@ -692,8 +711,31 @@ export async function provisionDb(
     roHost: replica,
     replicas,
     replicasDefaulted,
+    passwordEnv: PG_ENV.password,
     password,
   };
+}
+
+/**
+ * Reveal a cluster's superuser password — the ONLY way a client reads it.
+ * The router gates this on `secrets.read` (ABAC, audited permit/deny); this
+ * writes the `db.password.reveal` business audit row (never the value). The
+ * password is read from Docker truth (the primary's env), never from a store.
+ */
+export async function revealDbPassword(
+  ctx: OrgContext,
+  input: { stack: string; cluster: string },
+): Promise<{ cluster: string; password: string }> {
+  const { primary } = findCluster(ctx, input.stack, input.cluster);
+  if (!primary) throw notFound('db cluster primary', input.cluster);
+  const password = envRecord(primary)[PG_ENV.password];
+  if (!password) throw commandRejected(`cluster "${input.cluster}" reports no superuser password`);
+  await writeAudit(ctx, {
+    action: 'db.password.reveal',
+    targetType: 'dbCluster',
+    targetId: `${input.stack}/${input.cluster}`,
+  });
+  return { cluster: input.cluster, password };
 }
 
 /**

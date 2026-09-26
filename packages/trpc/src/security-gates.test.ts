@@ -116,6 +116,7 @@ const POLICY_GATES: Array<[string, unknown, string]> = [
   ['db.setWriteRegion', { ...shop, region: 'eu' }, 'stack.deploy'],
   ['db.setRegionReplicas', { ...shop, region: 'eu', replicas: 1 }, 'stack.deploy'],
   ['db.inject', { ...shop, appService: 'web' }, 'service.configure'],
+  ['db.revealPassword', shop, 'secrets.read'],
   ['cache.provision', { stack: 'shop', name: 'kv' }, 'stack.deploy'],
   ['cache.setReplicas', { ...shop, replicas: 1 }, 'stack.deploy'],
   ['cache.setMemory', { ...shop, memoryMb: 128 }, 'stack.deploy'],

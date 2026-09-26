@@ -19,7 +19,7 @@ import { chooseDataPin } from './data-pin';
 import { writeAudit } from './audit.service';
 import { resolveManagerNode } from './dispatch.service';
 import { patchLiveService } from './service-patch';
-import { clusterNetworkName, injectConnection, provisionDb } from './manageddb.service';
+import { clusterNetworkName, injectConnection, provisionDbWithPassword } from './manageddb.service';
 import { attachCacheToService, provisionCache } from './cache.service';
 import { attachToService as attachBucketToService, createBucket } from './buckets.service';
 import {
@@ -353,7 +353,8 @@ async function runStep(
       // provisionDb attaches members to the per-cluster overlay network but does
       // not create it — ensure it first (same pattern as cache provisioning).
       await ensureOverlayNetwork(ctx, clusterNetworkName(stack, step.payload.cluster));
-      const res = await provisionDb(ctx, {
+      // Server-side only: the password becomes the blueprint's DB tokens, never a response.
+      const res = await provisionDbWithPassword(ctx, {
         stack,
         name: step.payload.cluster,
         replicas: step.payload.replicas,

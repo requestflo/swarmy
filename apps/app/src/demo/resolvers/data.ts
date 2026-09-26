@@ -506,6 +506,7 @@ export const data: DomainResolvers = {
       if (t) t.topology = topology;
       return { cluster, topology };
     },
+    'db.revealPassword': (i) => ({ cluster: (i as { cluster: string }).cluster, password: 'demo-pg-password-0123456789ab' }),
     'db.setReplicas': (i, s) => {
       const { stack, cluster, replicas } = i as { stack: string; cluster: string; replicas: number };
       const t = getState(s).dbTopologies.find((x) => x.stack === stack && x.cluster === cluster);
