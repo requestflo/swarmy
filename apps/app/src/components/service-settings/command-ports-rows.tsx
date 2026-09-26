@@ -13,7 +13,9 @@ export function CommandRow({ spec }: { spec: ServiceSpec }): React.JSX.Element {
       {cmd.length || args.length ? (
         <>
           <p className="text-[13.5px]">
-            Starts with <span className="font-mono text-[12.5px] break-all">{[...cmd, ...args].join(' ')}</span>
+            Starts with{' '}
+            {/* No ligatures: Geist Mono's would swallow the space in "server.js --port". */}
+            <span className="font-mono text-[12.5px] break-all [font-variant-ligatures:none]">{[...cmd, ...args].join(' ')}</span>
           </p>
           <Tech>
             command: {cmd.length ? JSON.stringify(cmd) : '(image default)'} · args: {args.length ? JSON.stringify(args) : '—'}
