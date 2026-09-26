@@ -18,12 +18,49 @@ import {
 
 const KEY_CONTEXT = 'swarmy.vault.v1';
 
+/**
+ * scrypt is deliberately slow (~30ms a call, far more on a loaded box), and its
+ * inputs here are fixed per secret, so the derived key is memoised. In-process
+ * only — never persisted. Keyed by a sha256 of the secret, never the secret
+ * itself, and bounded (a tiny LRU) so a rotated or test-varied key can't grow it.
+ */
+const VAULT_KEY_CACHE_MAX = 8;
+const vaultKeyCache = new Map<string, Buffer>();
+const vaultKeyCacheCounts = { hits: 0, misses: 0 };
+
 function deriveKey(): Buffer {
   const secret = process.env.SWARMY_SECRET_KEY;
   if (!secret) {
     throw new Error('SWARMY_SECRET_KEY is not set — required to encrypt/decrypt secrets');
   }
-  return scryptSync(secret, KEY_CONTEXT, 32);
+  const id = createHash('sha256').update(secret).digest('hex');
+  const hit = vaultKeyCache.get(id);
+  if (hit) {
+    vaultKeyCacheCounts.hits += 1;
+    // Re-insert so the map's insertion order is least- → most-recently used.
+    vaultKeyCache.delete(id);
+    vaultKeyCache.set(id, hit);
+    return hit;
+  }
+  vaultKeyCacheCounts.misses += 1;
+  const key = scryptSync(secret, KEY_CONTEXT, 32);
+  vaultKeyCache.set(id, key);
+  if (vaultKeyCache.size > VAULT_KEY_CACHE_MAX) {
+    vaultKeyCache.delete(vaultKeyCache.keys().next().value!);
+  }
+  return key;
+}
+
+/** Test seam: cache counters and size (no key material). */
+export function vaultKeyCacheStats(): { size: number; hits: number; misses: number } {
+  return { size: vaultKeyCache.size, ...vaultKeyCacheCounts };
+}
+
+/** Test seam: empty the derived-key cache and reset its counters. */
+export function clearVaultKeyCache(): void {
+  vaultKeyCache.clear();
+  vaultKeyCacheCounts.hits = 0;
+  vaultKeyCacheCounts.misses = 0;
 }
 
 export function isVaultConfigured(): boolean {
