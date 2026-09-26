@@ -16,6 +16,20 @@ enum AlertEventStatus {
   RESOLVED
 }
 
+/// What happened to an alert event's firing notification (owner decision Q10).
+enum AlertNotifyState {
+  /// Delivered (or no channel to deliver to).
+  SENT
+  /// Quiet hours: recorded, not sent yet. Sent once when quiet hours end if
+  /// the event is still firing.
+  HELD
+  /// The rule was muted when it fired: recorded, not sent. Sent once after
+  /// the mute ends if the event is still firing (a snooze, not a delete).
+  MUTED
+  /// Held or muted, then resolved before it could be sent: never sent.
+  SKIPPED
+}
+
 enum IncidentStatus {
   OPEN
   RESOLVED
@@ -47,6 +61,9 @@ model AlertRule {
   // disk-usage, crash-loop) or fired by a slice (build-failed, deploy-failed,
   // deploy-rolled-back, backup-failed).
   signal       String
+  // What the rule is narrowed to (`AlertSelector` in @swarmy/core
+  // alert-targets.ts): {} = any; {server} for server signals; {app, service?}
+  // for app signals. Several rules may share a signal (Q10).
   selectorJson Json     @default("{}")
   threshold    Float?
   forSeconds   Int      @default(0)
@@ -58,6 +75,9 @@ model AlertRule {
   /// hidden from lists) so the default seed never re-creates it — the
   /// autoBackup `optedOutAt` pattern.
   optedOutAt   DateTime?
+  /// "Mute for 1h": until this instant the rule still records events but
+  /// sends no notifications and opens no incident. Null = not muted.
+  mutedUntil   DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -78,6 +98,8 @@ model AlertEvent {
   resource   String
   message    String
   status     AlertEventStatus @default(FIRING)
+  // Whether the firing notification went out, is held (quiet hours) or muted.
+  notify     AlertNotifyState @default(SENT)
   firedAt    DateTime         @default(now())
   resolvedAt DateTime?
 
@@ -86,7 +108,27 @@ model AlertEvent {
 
   @@index([orgId, status, firedAt])
   @@index([ruleId, resource, status])
+  @@index([orgId, status, notify])
   @@map("alert_event")
+}
+
+/// Workspace quiet hours (owner decision Q10): one row per org. Between
+/// `start` and `end` (HH:MM, wall clock in `timeZone`; start > end wraps past
+/// midnight) warning notifications are held; critical ones still page while
+/// `criticalPages`. Absent row = quiet hours off.
+model AlertQuietHours {
+  id            String   @id @default(cuid())
+  orgId         String   @unique
+  enabled       Boolean  @default(false)
+  start         String   @default("22:00")
+  end           String   @default("07:00")
+  timeZone      String   @default("UTC")
+  criticalPages Boolean  @default(true)
+  updatedAt     DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("alert_quiet_hours")
 }
 
 model Incident {

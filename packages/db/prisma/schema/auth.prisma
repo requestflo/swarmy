@@ -167,6 +167,7 @@ model Organization {
   notificationChannels   NotificationChannel[]
   alertRules             AlertRule[]
   alertEvents            AlertEvent[]
+  alertQuietHours        AlertQuietHours?
   incidents              Incident[]
   incidentEvents         IncidentEvent[]
   statusPages            StatusPage[]
