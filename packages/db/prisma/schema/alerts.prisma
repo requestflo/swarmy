@@ -131,6 +131,26 @@ model AlertQuietHours {
   @@map("alert_quiet_hours")
 }
 
+/// Workspace cost budget (owner decision Q6): one row per org. The monthly
+/// budget the `cost-budget` alert rule compares the projected month against
+/// (the rule's threshold is the warn-at %), plus the weekly cost summary sent
+/// through the alert channels. `lastWeeklyAt` makes the weekly send idempotent.
+model CostBudget {
+  id               String    @id @default(cuid())
+  orgId            String    @unique
+  /// Null = no budget (the weekly summary can still run).
+  monthlyUsd       Float?
+  weeklySummary    Boolean   @default(false)
+  /// string[] of NotificationChannel ids; [] = every enabled channel.
+  weeklyChannelIds Json      @default("[]")
+  lastWeeklyAt     DateTime?
+  updatedAt        DateTime  @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("cost_budgets")
+}
+
 model Incident {
   id         String         @id @default(cuid())
   orgId      String

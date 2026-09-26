@@ -168,6 +168,7 @@ model Organization {
   alertRules             AlertRule[]
   alertEvents            AlertEvent[]
   alertQuietHours        AlertQuietHours?
+  costBudget             CostBudget?
   incidents              Incident[]
   incidentEvents         IncidentEvent[]
   statusPages            StatusPage[]
