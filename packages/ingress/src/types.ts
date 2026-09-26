@@ -320,6 +320,15 @@ export const IngressGlobalOptionsSchema = z.object({
    */
   tracing: z.boolean().default(false),
   /**
+   * Per-host request metrics (Q4 per-edge request counting): renders the
+   * global `metrics { per_host }` option so Caddy's Prometheus endpoint —
+   * served ONLY on its admin listener (localhost:2019 inside the task, or the
+   * overlay under `applyVia: 'admin'`; never published) — labels
+   * `caddy_http_requests_total` by host. The agent on each edge scrapes it
+   * locally. Controller-computed (on for swarmy's Caddy).
+   */
+  requestMetrics: z.boolean().default(false),
+  /**
    * Raw escape hatch (driver-typed): applyVia, provider, certs, onDemandAsk,
    * geoipMmdbPath (country-mmdb path inside the ingress container — enables
    * countryAllow/countryDeny rendering), etc.

@@ -58,6 +58,10 @@ export function buildCaddyfile(config: IngressConfig): string {
     const adminListen = typeof extra.adminListen === 'string' ? extra.adminListen : '0.0.0.0:2019';
     global.push(`  admin ${adminListen}`);
   }
+  // Per-host request metrics (Q4): Caddy serves them on the admin endpoint
+  // only (localhost inside the task — or the overlay under applyVia 'admin' —
+  // never a published port); the node's agent scrapes them locally.
+  if (config.globalOptions.requestMetrics) global.push('  metrics {', '    per_host', '  }');
   // Tracing runs first so its span wraps the whole request (incl. the proxy).
   if (config.globalOptions.tracing) global.push('  order tracing first');
   // RUM injector (swarmy_rum — swarmy Caddy build only). Before the cache

@@ -1076,6 +1076,47 @@ describe('caddy dashboard vhost — the controller UI on its https domain', () =
   });
 });
 
+describe('per-host request metrics (Q4 per-edge request counting)', () => {
+  it('off (default) → no metrics option, output unchanged', () => {
+    const out = buildCaddyfile(cfg([{ domain: 'shop.local', service: 'web', port: 80, tls: 'off' }]));
+    expect(out).not.toContain('metrics');
+    expect(out.startsWith('{')).toBe(false);
+  });
+
+  it('on → a global `metrics { per_host }` block, no admin listener opened (stays localhost)', () => {
+    const out = buildCaddyfile(
+      cfg([{ domain: 'shop.local', service: 'web', port: 80, tls: 'off' }], { requestMetrics: true }),
+    );
+    expect(out).toBe(
+      [
+        '{',
+        '  metrics {',
+        '    per_host',
+        '  }',
+        '}',
+        '',
+        'http://shop.local {',
+        '  reverse_proxy web:80 {',
+        '    stream_close_delay 5m',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    expect(out).not.toContain('admin');
+  });
+
+  it('under applyVia admin the metrics ride the existing overlay admin listener', () => {
+    const out = buildCaddyfile(
+      cfg([{ domain: 'shop.local', service: 'web', port: 80, tls: 'off' }], {
+        requestMetrics: true,
+        extraConfig: { applyVia: 'admin' },
+      }),
+    );
+    expect(out.split('\n').slice(0, 6)).toEqual(['{', '  admin 0.0.0.0:2019', '  metrics {', '    per_host', '  }', '}']);
+  });
+});
+
 describe('distributed tracing (observability)', () => {
   it('tracing off (default) → no tracing directive, no order override', () => {
     const out = buildCaddyfile(cfg([{ domain: 'shop.local', service: 'web', port: 80, tls: 'off' }]));
