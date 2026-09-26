@@ -1,42 +1,43 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { PlusIcon } from 'lucide-react';
-import { Button } from '@swarmy/ui';
 import { useTRPC } from '@/integrations/trpc';
 import { CodeView, Depth, Section } from '@/components/calm';
 import { RowPage, plural } from '@/components/rowpage/row-page';
 import { apiCode } from './api-code';
 import { ApiKeysTab } from './api-keys-tab';
 import { CliSection } from './cli-section';
-import { NewKeyForm } from './new-key-form';
+import { soonestExpiry } from './key-words';
+import { NewKeyPanel } from './new-key-panel';
 import { OauthClientsTab } from './oauth-clients-tab';
 
 /** Settings → API, CLI & MCP: keys for the API, SDKs, Terraform, the CLI and coding agents. */
 export function ApiKeysPage(): React.JSX.Element {
   const trpc = useTRPC();
   const keys = useQuery(trpc.apiKeys.list.queryOptions());
-  const [creating, setCreating] = React.useState(false);
+  const org = useQuery(trpc.org.currentOrg.queryOptions());
+  const isAdmin = org.data?.role === 'owner' || org.data?.role === 'admin';
   const active = (keys.data ?? []).filter((k) => k.status === 'active');
-  const writers = active.filter((k) => k.scopes.includes('write')).length;
+  const soon = keys.data ? soonestExpiry(keys.data) : null;
+  const scoped = active.filter((k) => k.stackNames).length;
   const title = !keys.data ? (
     'API, CLI and MCP.'
   ) : (
     <>
-      {plural(active.length, 'key')} can reach swarmy. <em>{writers ? `${writers} can change things.` : 'All read-only.'}</em>
+      {plural(active.length, 'key')} can reach swarmy.{' '}
+      <em>{soon ?? (scoped ? `${scoped} ${scoped === 1 ? 'is' : 'are'} limited to some apps.` : 'None expire soon.')}</em>
     </>
   );
   return (
     <RowPage
       title={title}
-      description="The REST API, the SDKs, Terraform, the swarmy CLI and coding agents all use the same keys, scoped to this workspace and to what you can do."
-      actions={
-        <Button className="pointer-coarse:min-h-11" onClick={() => setCreating(true)} disabled={creating}>
-          <PlusIcon className="size-4" /> New API key
-        </Button>
+      description="The REST API, the SDKs, Terraform, the swarmy CLI and coding agents all use the same keys. A key acts as the person who made it, only on the apps you pick, until it expires."
+      aside={
+        <>
+          <CodeView title="Use a key" tabs={apiCode()} note="Real calls: POST /api/v1/stacks and /api-keys, the Terraform provider's swarmy_api_key and swarmy_stack, the CLI and the MCP server." />
+          {isAdmin ? <NewKeyPanel /> : null}
+        </>
       }
-      aside={<CodeView title="Connect it" tabs={apiCode()} note="Real commands: the CLI, the MCP server it serves, and the key endpoints of the public API." />}
     >
-      {creating ? <NewKeyForm onDone={() => setCreating(false)} /> : null}
       <ApiKeysTab />
       <CliSection />
       <Depth at="controls">

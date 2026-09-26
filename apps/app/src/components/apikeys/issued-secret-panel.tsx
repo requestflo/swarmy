@@ -26,12 +26,12 @@ export function IssuedSecretPanel({ title, lines }: IssuedSecretPanelProps): Rea
     <Alert className="ink-block border-0">
       <KeyRoundIcon className="size-4" />
       <AlertTitle className="font-bold">{title}</AlertTitle>
-      <AlertDescription className="text-ink-foreground/70 space-y-4">
+      <AlertDescription className="text-ink-foreground/70 min-w-0 space-y-4">
         {lines.map((line) => (
-          <div key={line.label}>
+          <div key={line.label} className="min-w-0">
             <p className="mono-label mt-3 mb-1 first:mt-0">{line.label}</p>
             <div className="flex flex-wrap items-center gap-2">
-              <code className="bg-ink-foreground/10 mono-data flex-1 overflow-x-auto rounded-lg px-3 py-2 text-xs">
+              <code className="bg-ink-foreground/10 mono-data min-w-0 flex-1 basis-48 overflow-x-auto rounded-lg px-3 py-2 text-xs">
                 {line.value}
               </code>
               <CopyButton value={line.value} label="Copy" />

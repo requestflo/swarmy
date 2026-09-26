@@ -1,9 +1,21 @@
 import { API_BASE, curl, type CodeTab } from '@/components/calm';
 
-/** Code depth: install and sign in to the CLI, wire an agent, and the key API over REST. Real commands only. */
-export function apiCode(): CodeTab[] {
+/**
+ * Code depth: use a key (curl, Terraform), mint one over REST, the CLI and
+ * agents. Real paths and resources only: POST /api-keys + POST /stacks are in
+ * openapi.json; `swarmy_api_key` / `swarmy_stack` are the provider's resources.
+ */
+export function apiCode(app = 'storefront'): CodeTab[] {
   const origin = API_BASE.replace(/\/api\/v1$/, '');
   return [
+    {
+      label: 'curl',
+      code: `# ship ${app} with a Deploy key (202 Accepted; poll the deploy)\ncurl -X POST ${API_BASE}/stacks \\\n  -H "Authorization: Bearer $SWARMY_TOKEN" \\\n  -H "Idempotency-Key: $GITHUB_SHA" \\\n  -H "Content-Type: application/json" \\\n  -d '{"name":"${app}","compose_source":"…"}'\n\n# mint a key limited to ${app}\n${curl('POST', '/api-keys', { name: 'github-actions', preset: 'deploy', stack_names: [app], expiry: '90d' })}`,
+    },
+    {
+      label: 'Terraform',
+      code: `provider "swarmy" {\n  endpoint = "${origin}" # or SWARMY_ENDPOINT\n  # api_key from SWARMY_API_KEY\n}\n\nresource "swarmy_api_key" "ci" {\n  name   = "github-actions"\n  scopes = ["read", "deploy"] # the Deploy preset\n  # no per-app limit or expiry in the provider yet: set those over REST\n}\n\nresource "swarmy_stack" "${app}" {\n  name           = "${app}"\n  compose_source = file("compose.yaml")\n}`,
+    },
     {
       label: 'CLI',
       code: `curl -fsSL ${origin}/install/cli.sh | sh\nswarmy login --controller ${origin}\nswarmy whoami\nswarmy deploy\nswarmy logs web -f`,
@@ -15,10 +27,6 @@ export function apiCode(): CodeTab[] {
     {
       label: 'Cursor',
       code: JSON.stringify({ mcpServers: { swarmy: { command: 'swarmy', args: ['mcp'] } } }, null, 2),
-    },
-    {
-      label: 'REST',
-      code: `${curl('GET', '/api-keys')}\n\n${curl('POST', '/api-keys', { name: 'ci-terraform', scopes: ['read', 'write'] })}`,
     },
   ];
 }

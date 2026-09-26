@@ -9,7 +9,16 @@ import {
   type PolicyDoc,
   type Role,
 } from '@swarmy/abac/model';
+import {
+  API_KEY_PRESETS,
+  apiKeyExpiresAt,
+  presetOf,
+  type ApiKeyExpiry,
+  type ApiKeyPreset,
+  type ApiKeyScope,
+} from '@swarmy/core';
 import { DEMO_USER } from '../data';
+import { inviteLinkPreviewFor } from './invite-links';
 import type { DemoStore, DomainResolvers } from '../types';
 
 /**
@@ -52,18 +61,19 @@ interface GrantView {
   relation: 'owner' | 'operator' | 'viewer';
 }
 
-type ApiKeyScope = 'read' | 'write';
-
 interface ApiKeyView {
   id: string;
   name: string;
   prefix: string;
   scopes: ApiKeyScope[];
+  preset: ApiKeyPreset | 'custom';
+  stackNames: string[] | null;
   lastUsedAt: string | null;
+  expiresAt: string | null;
   createdAt: string;
   createdById: string | null;
   revokedAt: string | null;
-  status: 'active' | 'revoked';
+  status: 'active' | 'revoked' | 'expired';
 }
 
 type OAuthScope = 'read' | 'write';
@@ -305,51 +315,35 @@ function seedGrants(): GrantView[] {
 }
 
 function seedApiKeys(): ApiKeyView[] {
+  const key = (
+    id: string,
+    name: string,
+    scopes: ApiKeyScope[],
+    stackNames: string[] | null,
+    lastUsed: number | null,
+    made: number,
+    by: string,
+    expiresIn: number | null,
+    revoked: number | null = null,
+  ): ApiKeyView => ({
+    id,
+    name,
+    prefix: hex(8),
+    scopes,
+    preset: presetOf(scopes),
+    stackNames,
+    lastUsedAt: lastUsed === null ? null : iso(lastUsed),
+    expiresAt: expiresIn === null ? null : new Date(now + expiresIn).toISOString(),
+    createdAt: iso(made),
+    createdById: by,
+    revokedAt: revoked === null ? null : iso(revoked),
+    status: revoked === null ? 'active' : 'revoked',
+  });
   return [
-    {
-      id: 'key-ci',
-      name: 'ci-terraform',
-      prefix: hex(8),
-      scopes: ['read', 'write'],
-      lastUsedAt: iso(12 * MIN),
-      createdAt: iso(40 * DAY),
-      createdById: DEMO_USER.id,
-      revokedAt: null,
-      status: 'active',
-    },
-    {
-      id: 'key-grafana',
-      name: 'grafana-readonly',
-      prefix: hex(8),
-      scopes: ['read'],
-      lastUsedAt: iso(2 * HOUR),
-      createdAt: iso(18 * DAY),
-      createdById: 'user-ada',
-      revokedAt: null,
-      status: 'active',
-    },
-    {
-      id: 'key-backup',
-      name: 'nightly-backup',
-      prefix: hex(8),
-      scopes: ['read', 'write'],
-      lastUsedAt: iso(9 * HOUR),
-      createdAt: iso(63 * DAY),
-      createdById: DEMO_USER.id,
-      revokedAt: null,
-      status: 'active',
-    },
-    {
-      id: 'key-laptop',
-      name: 'omar-laptop',
-      prefix: hex(8),
-      scopes: ['read'],
-      lastUsedAt: null,
-      createdAt: iso(90 * DAY),
-      createdById: 'user-omar',
-      revokedAt: iso(5 * DAY),
-      status: 'revoked',
-    },
+    key('key-gha', 'github-actions', ['read', 'deploy'], ['storefront'], 12 * MIN, 78 * DAY, DEMO_USER.id, 12 * DAY),
+    key('key-grafana', 'grafana-readonly', ['read'], null, 2 * HOUR, 18 * DAY, 'user-ada', 347 * DAY),
+    key('key-ci', 'ci-terraform', ['read', 'write', 'secrets.read'], null, 9 * HOUR, 40 * DAY, DEMO_USER.id, null),
+    key('key-laptop', 'omar-laptop', ['read'], null, null, 90 * DAY, 'user-omar', null, 5 * DAY),
   ];
 }
 
@@ -684,15 +678,20 @@ export const access: DomainResolvers = {
     'apiKeys.list': (_i, store): ApiKeyView[] => state(store).apiKeys,
 
     'apiKeys.create': (input, store) => {
-      const b = input as { name: string; scopes?: ApiKeyScope[] };
-      const scopes = b.scopes && b.scopes.length ? b.scopes : (['read'] as ApiKeyScope[]);
+      const b = input as { name: string; preset?: ApiKeyPreset; scopes?: ApiKeyScope[]; stackNames?: string[] | null; expiry?: ApiKeyExpiry };
+      const scopes = b.preset ? [...API_KEY_PRESETS[b.preset].scopes] : b.scopes && b.scopes.length ? b.scopes : (['read'] as ApiKeyScope[]);
+      if (b.stackNames && b.stackNames.length === 0) throw new Error('pick at least one app, or leave the key on every app');
       const prefix = hex(8);
+      const expiresAt = b.expiry ? apiKeyExpiresAt(b.expiry) : null;
       const view: ApiKeyView = {
         id: `key-${rid()}`,
         name: b.name,
         prefix,
         scopes,
+        preset: presetOf(scopes),
+        stackNames: b.stackNames ?? null,
         lastUsedAt: null,
+        expiresAt: expiresAt ? expiresAt.toISOString() : null,
         createdAt: new Date().toISOString(),
         createdById: store.user.id,
         revokedAt: null,
@@ -762,7 +761,9 @@ export const access: DomainResolvers = {
       ],
     }),
     'authConfig.invitePreview': (input, store) => {
-      const inv = state(store).invitations.find((i) => i.id === (input as { id: string }).id);
+      const id = (input as { id: string }).id;
+      if (id.startsWith('swi_')) return inviteLinkPreviewFor(store, id);
+      const inv = state(store).invitations.find((i) => i.id === id);
       return inv ? { orgName: store.org.name, role: inv.role, email: inv.email, expired: inv.status === 'expired' } : null;
     },
     'authConfig.acceptInvite': (_i, store) => ({ orgId: store.org.id }),
