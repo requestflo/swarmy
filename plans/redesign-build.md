@@ -68,14 +68,17 @@ in `lib/destinations.ts`.
 |---|---|---|---|
 | Overview | `/overview` | RHome, Main (Welcome, empty estate), RWelcome (pick your depth), RChecklist (Worth doing next), Phone | S1 |
 | Apps | `/` | RHome "Your apps", Estate / EstateLight (map is a view toggle, never nav) | S1 |
-| Apps | `/stacks/$name` (Overview tab) | RApp, AppCanvas, ServiceSheet, Move | S1 |
-| Apps | `/stacks/$name/{config}` | AppVariables, EnvPaste, RSecrets | S2 |
-| Apps | `/stacks/$name/{releases}` | AppRollout, TimeTravel, RPromote, Environments, BranchPreviews | S2 |
-| Apps | `/stacks/$name/{settings}` | AppScaling, AppPlacement | S2 |
-| Apps | `/stacks/$name/{messaging}` | AppJobs, QueueStudio (`queues.$cluster`) | S2 |
-| Apps | `/stacks/$name/{data,studio}` | DataStores, PgDetail, PgBackups, RDatabase, DbStudio | S2 |
-| Apps | `/stacks/$name/{observability,errors,analytics,replays,rum-settings}` | Logs, Errors, Analytics, Replay, ReplaySettings, ObsSettings | S2 |
-| Apps | `/stacks/$name/{network,access}` | DomainProtect (app domains), AppAccess | S2 |
+| Apps | `/stacks/$name` (Services tab) | RApp, AppCanvas, ServiceSheet, Move | S1 |
+| Apps | Domains · `/stacks/$name/network` | DomainProtect (app domains) | S2 |
+| Apps | Data › Databases · Studio · Queues · `/stacks/$name/{data,studio,queues,queues/$cluster}` (cache/search/vector anchored `#cache` `#search` `#vector` on `data`) | DataStores, PgDetail, RDatabase, DbStudio, QueueStudio | S2 |
+| Apps | Observability › Logs & traces · Replays · Errors · Analytics · Settings · `/stacks/$name/{observability,replays,errors,analytics,rum-settings}` | Logs, Replay, Errors, Analytics, ReplaySettings, ObsSettings | S2 |
+| Apps | Access · `/stacks/$name/access` | AppAccess | S2 |
+| Apps | Config › Variables & secrets · `/stacks/$name/config` | AppVariables, EnvPaste, RSecrets | S2 |
+| Apps | Config › Scaling · Health & rollout · Placement & volumes · Jobs & previews · `/stacks/$name/config/{scaling,rollout,placement,jobs}` | AppScaling, AppRollout (settings), AppPlacement, AppJobs, BranchPreviews | S2 |
+| Apps | Backups · `/stacks/$name/backups` | PgBackups, Backups (app) | S2 |
+| Apps | Releases · `/stacks/$name/releases` | AppRollout (history, canary in flight), RPromote, Environments | S2 |
+| Apps | Source · `/stacks/$name/source` (read-only live spec) | AppCanvas "Source" | S2 |
+| Apps | old `/stacks/$name/settings` → `config/scaling`, `/stacks/$name/messaging` → `config/jobs` (`#queues` → `queues`) | (redirects, `lib/stack-nav-match.ts`) | S2 |
 | Apps | `/services/$id`, terminals | ServiceSheet, Logs | S2 |
 | (verb) | `/deploy` (new), `/blueprints`, `/stacks/new`, `/services/new` | Deploy, RDeploy, Templates, Configure, GitConnect, GitDetect, YamlEditor, PrPlan, Deploying, Live | S3 |
 | Servers | `/nodes`, `/nodes/$id` | Servers, RUpkeep | S3 |
@@ -174,3 +177,7 @@ mode renders with no console errors, a pathspec commit.
 - RSignIn two-column sign-in (`components/auth/sign-in-layout.tsx`); the
   DEMO_BUILD hooks in `routes/login.tsx` / `app-login.tsx` are unchanged.
 - The four files over 150 lines are split.
+- 2026-09-26 (owner): the app workspace takes the boards' 9-tab IA with
+  sub-tabs (Services · Domains · Data · Observability · Access · Config ·
+  Backups · Releases · Source; `lib/stack-nav.ts`); old URLs redirect.
+  Source is read-only; dashboard editing of swarmy.yaml stays deferred (§7).
