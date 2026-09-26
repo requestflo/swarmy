@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { useTRPC } from '@/integrations/trpc';
 import { AlreadyOn, Depth, SayHeader } from '@/components/calm';
 import { RumCode } from './rum-code';
@@ -59,7 +60,16 @@ export function RumSettingsPage({ stack }: { stack: string }): React.JSX.Element
   );
   return (
     <div className="flex flex-col gap-4 pb-8">
-      <SayHeader size="md" title={title} lede="Every change is a label the edge reads. It applies on the next page view, with no redeploy." />
+      <SayHeader
+        size="md"
+        title={title}
+        lede="Every change is a label the edge reads. It applies on the next page view, with no redeploy."
+        actions={
+          <Link to="/telemetry" className="text-primary inline-flex items-center font-mono text-[11.5px] hover:underline pointer-coarse:min-h-11">
+            Estate telemetry settings →
+          </Link>
+        }
+      />
       <RumCode stack={stack} settings={s} routes={q.data.routes} />
       {!admin ? <p className="text-muted-foreground text-sm">Only owners and admins can change these settings.</p> : null}
       <Depth only="summary">

@@ -795,3 +795,8 @@ observability.handlers!['observability.health'] = (i, s): HealthNarrativeView =>
   const status = entries.length === 0 ? 'unknown' : entries.some((e) => e.status !== 'healthy') ? 'degraded' : 'healthy';
   return { status, reasons, entries, generatedAt: new Date().toISOString() };
 };
+
+// ── telemetry settings (Activity → Telemetry) ─────────────────────────────────
+import { telemetryHandlers } from './telemetry';
+
+Object.assign(observability.handlers!, telemetryHandlers);

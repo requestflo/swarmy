@@ -154,6 +154,15 @@ describe('projectTelemetryForecast', () => {
     expect(p.fit).toBe('comfortable');
   });
 
+  it('keeps what is stored when the share drops; it ages out under the TTL', () => {
+    const p = projectTelemetryForecast(view, { ...board(), sampling: { keepErrors: true, slowTraceMs: 1000, restPercent: 10 } });
+    expect(p.points?.[0]).toBeCloseTo(38.2 * GB, -6);
+    expect((p.perSignal[0]?.projectedBytes ?? 0) / GB).toBeCloseTo(0.944 * 14, 2);
+    // A shorter retention drops the excess at the next merge.
+    const short = projectTelemetryForecast(view, { ...board(), retention: { tracesDays: 3, logsDays: 14, metricsDays: 30 } });
+    expect((short.points?.[0] ?? 0) / GB).toBeCloseTo(2.36 * 3 + 13.9 + 4.2, 1);
+  });
+
   it('scales the trace rate by the draft share and flags a tight disk', () => {
     const p = projectTelemetryForecast(view, { ...board(), sampling: { keepErrors: true, slowTraceMs: 1000, restPercent: 100 } });
     expect(p.perSignal[0]?.bytesPerDay).toBeCloseTo(9.44 * GB, -6);

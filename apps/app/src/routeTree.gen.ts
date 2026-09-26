@@ -14,6 +14,7 @@ import { Route as AppLoginRouteImport } from './routes/app-login'
 import { Route as AuthedRouteImport } from './routes/_authed'
 import { Route as AuthedIndexRouteImport } from './routes/_authed/index'
 import { Route as SSlugRouteImport } from './routes/s.$slug'
+import { Route as AuthedTelemetryRouteImport } from './routes/_authed/telemetry'
 import { Route as AuthedSettingsRouteImport } from './routes/_authed/settings'
 import { Route as AuthedOverviewRouteImport } from './routes/_authed/overview'
 import { Route as AuthedNetworkingRouteImport } from './routes/_authed/networking'
@@ -102,6 +103,11 @@ const SSlugRoute = SSlugRouteImport.update({
   id: '/s/$slug',
   path: '/s/$slug',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthedTelemetryRoute = AuthedTelemetryRouteImport.update({
+  id: '/telemetry',
+  path: '/telemetry',
+  getParentRoute: () => AuthedRoute,
 } as any)
 const AuthedSettingsRoute = AuthedSettingsRouteImport.update({
   id: '/settings',
@@ -471,6 +477,7 @@ export interface FileRoutesByFullPath {
   '/networking': typeof AuthedNetworkingRoute
   '/overview': typeof AuthedOverviewRoute
   '/settings': typeof AuthedSettingsRoute
+  '/telemetry': typeof AuthedTelemetryRoute
   '/s/$slug': typeof SSlugRoute
   '/ci/$buildId': typeof AuthedCiBuildIdRoute
   '/data/buckets': typeof AuthedDataBucketsRoute
@@ -540,6 +547,7 @@ export interface FileRoutesByTo {
   '/networking': typeof AuthedNetworkingRoute
   '/overview': typeof AuthedOverviewRoute
   '/settings': typeof AuthedSettingsRoute
+  '/telemetry': typeof AuthedTelemetryRoute
   '/s/$slug': typeof SSlugRoute
   '/': typeof AuthedIndexRoute
   '/ci/$buildId': typeof AuthedCiBuildIdRoute
@@ -611,6 +619,7 @@ export interface FileRoutesById {
   '/_authed/networking': typeof AuthedNetworkingRoute
   '/_authed/overview': typeof AuthedOverviewRoute
   '/_authed/settings': typeof AuthedSettingsRoute
+  '/_authed/telemetry': typeof AuthedTelemetryRoute
   '/s/$slug': typeof SSlugRoute
   '/_authed/': typeof AuthedIndexRoute
   '/_authed/ci_/$buildId': typeof AuthedCiBuildIdRoute
@@ -684,6 +693,7 @@ export interface FileRouteTypes {
     | '/networking'
     | '/overview'
     | '/settings'
+    | '/telemetry'
     | '/s/$slug'
     | '/ci/$buildId'
     | '/data/buckets'
@@ -753,6 +763,7 @@ export interface FileRouteTypes {
     | '/networking'
     | '/overview'
     | '/settings'
+    | '/telemetry'
     | '/s/$slug'
     | '/'
     | '/ci/$buildId'
@@ -823,6 +834,7 @@ export interface FileRouteTypes {
     | '/_authed/networking'
     | '/_authed/overview'
     | '/_authed/settings'
+    | '/_authed/telemetry'
     | '/s/$slug'
     | '/_authed/'
     | '/_authed/ci_/$buildId'
@@ -914,6 +926,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/s/$slug'
       preLoaderRoute: typeof SSlugRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authed/telemetry': {
+      id: '/_authed/telemetry'
+      path: '/telemetry'
+      fullPath: '/telemetry'
+      preLoaderRoute: typeof AuthedTelemetryRouteImport
+      parentRoute: typeof AuthedRoute
     }
     '/_authed/settings': {
       id: '/_authed/settings'
@@ -1445,6 +1464,7 @@ interface AuthedRouteChildren {
   AuthedNetworkingRoute: typeof AuthedNetworkingRoute
   AuthedOverviewRoute: typeof AuthedOverviewRoute
   AuthedSettingsRoute: typeof AuthedSettingsRoute
+  AuthedTelemetryRoute: typeof AuthedTelemetryRoute
   AuthedIndexRoute: typeof AuthedIndexRoute
   AuthedCiBuildIdRoute: typeof AuthedCiBuildIdRoute
   AuthedDataBucketsRoute: typeof AuthedDataBucketsRoute
@@ -1489,6 +1509,7 @@ const AuthedRouteChildren: AuthedRouteChildren = {
   AuthedNetworkingRoute: AuthedNetworkingRoute,
   AuthedOverviewRoute: AuthedOverviewRoute,
   AuthedSettingsRoute: AuthedSettingsRoute,
+  AuthedTelemetryRoute: AuthedTelemetryRoute,
   AuthedIndexRoute: AuthedIndexRoute,
   AuthedCiBuildIdRoute: AuthedCiBuildIdRoute,
   AuthedDataBucketsRoute: AuthedDataBucketsRoute,

@@ -266,11 +266,13 @@ export interface TelemetryProjection {
 }
 
 /**
- * Project each signal's size over `horizon` days under `settings`: it grows by
- * its daily rate until the TTL starts dropping the oldest day, then holds at
- * rate × retention (a shortened retention drops to that at the next merge).
- * The trace rate is scaled from the share it was measured under to the draft
- * share — approximate, since errors and slow traces are kept either way.
+ * Project each signal's size over `horizon` days under `settings`. What is
+ * stored now was written at the measured rate, so it spans `bytes / rate` days
+ * and ages out under the (draft) retention; new data arrives at the draft rate
+ * and holds at rate × retention once the TTL starts dropping the oldest day.
+ * A shortened retention drops the excess at the next merge. The trace rate is
+ * scaled from the share it was measured under to the draft share —
+ * approximate, since errors and slow traces are kept either way.
  */
 export function projectTelemetryForecast(
   view: TelemetryForecastView,
@@ -285,10 +287,17 @@ export function projectTelemetryForecast(
   const perSignal = TELEMETRY_SIGNALS.map((signal) => {
     const u = view.signals.find((x) => x.signal === signal);
     const scale = signal === 'traces' ? settings.sampling.restPercent / Math.max(1, view.measuredRestPercent) : 1;
-    const rate = u?.bytesPerDay == null ? null : u.bytesPerDay * scale;
-    const at = (d: number): number | null =>
-      u?.bytes == null || rate === null ? null : Math.min(u.bytes + rate * d, rate * retention[signal]);
-    return { signal, bytesPerDay: rate, days: retention[signal], at };
+    const measured = u?.bytesPerDay ?? null;
+    const rate = measured === null ? null : measured * scale;
+    const r = retention[signal];
+    const at = (d: number): number | null => {
+      if (u?.bytes == null || measured === null || rate === null) return null;
+      // Days of history the stored bytes span (all of the window when nothing is written).
+      const span = measured > 0 ? u.bytes / measured : r;
+      const old = measured > 0 ? measured * Math.max(0, Math.min(span, r - d)) : d < r ? u.bytes : 0;
+      return old + rate * Math.min(d, r);
+    };
+    return { signal, bytesPerDay: rate, days: r, at };
   });
   const complete = perSignal.every((p) => p.at(0) !== null);
   const points = complete

@@ -100,6 +100,7 @@ export const SECTIONS: Destination[] = [
   // ── Activity ────────────────────────────────────────────────────────────
   { to: '/activity', label: 'Timeline', icon: ActivityIcon, group: 'Activity', blurb: 'Everything that happened, newest first', keywords: 'timeline history feed changes deploys', exact: true },
   { to: '/alerts', label: 'Alerts', icon: BellIcon, group: 'Activity', blurb: 'What’s firing, rules and where they go', keywords: 'rules channels notifications firing resolved slack email discord thresholds', badge: 'alertsFiring' },
+  { to: '/telemetry', label: 'Telemetry', icon: ActivityIcon, group: 'Activity', blurb: 'Which apps send traces, logs and metrics, what’s kept and for how long', keywords: 'telemetry otel collector sampling tail retention redaction ttl clickhouse disk forecast traces logs metrics' },
   { to: '/incidents', label: 'Incidents', icon: SirenIcon, group: 'Activity', blurb: 'Open and past incidents', keywords: 'outage timeline postmortem resolved downtime', badge: 'incidentsOpen' },
   { to: '/audit', label: 'Audit log', icon: ScrollTextIcon, group: 'Activity', blurb: 'Who did what, exportable', keywords: 'compliance who did what history export actions' },
   { to: '/cost', label: 'Cost', icon: CircleDollarSignIcon, group: 'Activity', blurb: 'Spend, budgets and savings', keywords: 'spend usd budgets utilization idle savings recommendations capacity billing' },

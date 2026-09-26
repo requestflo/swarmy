@@ -24,8 +24,8 @@ export function relTime(value: string | Date | null | undefined): string {
   if (!value) return 'never';
   const t = typeof value === 'string' ? new Date(value).getTime() : value.getTime();
   const diff = Date.now() - t;
-  if (diff < 0) return 'just now';
   const s = Math.floor(diff / 1000);
+  if (s < 5) return 'just now';
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ago`;
