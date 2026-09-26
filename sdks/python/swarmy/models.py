@@ -66,13 +66,13 @@ class GitRepoRef:
 
 @dataclass
 class AppPreviewData:
-    from: str
+    from_: str
     scrub: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "AppPreviewData":
         return cls(
-            from=d.get("from"),
+            from_=d.get("from"),
             scrub=d.get("scrub"),
         )
 
@@ -1255,12 +1255,12 @@ class AppPromoteResult:
 
 @dataclass
 class PromoteAppBody:
-    from: str
+    from_: str
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "PromoteAppBody":
         return cls(
-            from=d.get("from"),
+            from_=d.get("from"),
         )
 
 

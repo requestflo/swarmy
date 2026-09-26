@@ -94,8 +94,36 @@ function snakeToPascal(s: string): string {
     .join('');
 }
 
+/** A wire key usable as a bare identifier in every target language. */
+const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Python's hard keywords (`keyword.kwlist`) — never valid as a field name. */
+const PY_KEYWORDS = new Set([
+  'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break', 'class', 'continue',
+  'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'global', 'if', 'import', 'in',
+  'is', 'lambda', 'nonlocal', 'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield',
+]);
+
+/**
+ * Python attribute for a wire key: a keyword gets a trailing underscore
+ * (`from` → `from_`, PEP 8), and `from_dict` still reads the wire name. A key
+ * that is not an identifier at all fails the generator loudly.
+ */
+function pyFieldName(key: string): string {
+  if (!IDENT.test(key)) throw new Error(`gen-sdks: "${key}" is not a valid Python field name — add a mapping`);
+  return PY_KEYWORDS.has(key) ? `${key}_` : key;
+}
+
+/** TS property: keywords are fine as property names; a non-identifier is quoted. */
+function tsPropName(key: string): string {
+  return IDENT.test(key) ? key : JSON.stringify(key);
+}
+
 /** Go acronym-aware field name from a snake_case JSON key. */
 function goFieldName(key: string): string {
+  // Exported (capitalised) Go names can't collide with Go's lowercase keywords;
+  // a non-identifier key would produce an invalid field name.
+  if (!IDENT.test(key)) throw new Error(`gen-sdks: "${key}" is not a valid Go field name — add a mapping`);
   const acronyms: Record<string, string> = {
     id: 'ID',
     os: 'OS',
@@ -140,7 +168,7 @@ function tsType(schema: JsonSchema): string {
 function tsInlineObject(schema: JsonSchema): string {
   const props = Object.entries(schema.properties ?? {}).map(([k, v]) => {
     const opt = isRequired(schema, k) ? '' : '?';
-    return `${k}${opt}: ${tsType(v)}`;
+    return `${tsPropName(k)}${opt}: ${tsType(v)}`;
   });
   return `{ ${props.join('; ')} }`;
 }
@@ -163,7 +191,7 @@ function genTypeScript(): string {
       let t = tsType(propSchema);
       if (propSchema.nullable) t += ' | null';
       const opt = required ? '' : '?';
-      lines.push(`  ${prop}${opt}: ${t};`);
+      lines.push(`  ${tsPropName(prop)}${opt}: ${t};`);
     }
     lines.push('}');
     lines.push('');
@@ -238,7 +266,7 @@ function genPython(): string {
       let t = pyType(propSchema, nestedName);
       const required = isRequired(schema, prop);
       if (propSchema.nullable || !required) t = `Optional[${t}]`;
-      fields.push({ prop, type: t, required });
+      fields.push({ prop: pyFieldName(prop), type: t, required });
     }
     // dataclass: required (no default) fields first, then defaulted ones.
     const ordered = [...fields].sort((a, b) => Number(b.required) - Number(a.required));
@@ -252,16 +280,17 @@ function genPython(): string {
     for (const [prop, propSchema] of Object.entries(schema.properties ?? {})) {
       const key = `${name}.${prop}`;
       const nestedName = INLINE_OBJECT_NAMES[key];
+      const attr = pyFieldName(prop); // the wire name stays `prop`
       if (nestedName && propSchema.type === 'object') {
         if (propSchema.nullable || !isRequired(schema, prop)) {
           lines.push(
-            `            ${prop}=${nestedName}.from_dict(d["${prop}"]) if d.get("${prop}") is not None else None,`,
+            `            ${attr}=${nestedName}.from_dict(d["${prop}"]) if d.get("${prop}") is not None else None,`,
           );
         } else {
-          lines.push(`            ${prop}=${nestedName}.from_dict(d.get("${prop}") or {}),`);
+          lines.push(`            ${attr}=${nestedName}.from_dict(d.get("${prop}") or {}),`);
         }
       } else {
-        lines.push(`            ${prop}=d.get("${prop}"),`);
+        lines.push(`            ${attr}=d.get("${prop}"),`);
       }
     }
     lines.push('        )');

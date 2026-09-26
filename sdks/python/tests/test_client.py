@@ -150,3 +150,23 @@ def test_missing_endpoint_raises():
         swarmy.SwarmyClient("", "swk_x")
     with pytest.raises(ValueError):
         swarmy.SwarmyClient("http://x", "")
+
+
+def test_keyword_field_is_escaped_but_reads_the_wire_name():
+    # `from` is a Python keyword: the generated attribute is `from_`, the wire key stays "from".
+    from swarmy.models import AppPreviewData, PromoteAppBody
+
+    assert AppPreviewData.from_dict({"from": "production", "scrub": None}).from_ == "production"
+    assert PromoteAppBody.from_dict({"from": "staging"}).from_ == "staging"
+
+
+def test_stack_remove_keeps_data_unless_delete_data():
+    removed = {"id": "stk_1", "removed": True, "delete_data": False, "volumes_deleted": [], "volumes_kept": ["shop_data"]}
+    client, opener = make_client([FakeResponse(json.dumps(removed)), FakeResponse(json.dumps({**removed, "delete_data": True}))])
+    kept = client.stacks.remove("stk_1")
+    assert opener.requests[0].get_method() == "DELETE"
+    assert opener.requests[0].full_url == "https://swarm.example.com/api/v1/stacks/stk_1"
+    assert kept.volumes_kept == ["shop_data"]
+    gone = client.stacks.remove("stk_1", delete_data=True)
+    assert opener.requests[1].full_url == "https://swarm.example.com/api/v1/stacks/stk_1?delete_data=true"
+    assert gone.delete_data is True
