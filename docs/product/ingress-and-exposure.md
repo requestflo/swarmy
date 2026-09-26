@@ -198,9 +198,23 @@ honest lifecycle, shown on the row in plain words:
   names, or NS delegation when the host sits in a zone swarmy serves, or the
   proxied CNAME to a Cloudflare Tunnel. Registrar-shaped: `@`, `www`, `app`.
 - **Verification asks the public, not the node.** The controller resolves the
-  host over DNS-over-HTTPS on two public resolvers (1.1.1.1, 8.8.8.8) — what
-  Let's Encrypt will see, not a node's split-horizon view — and every resolver
-  that answers must see a swarmy edge. It names the usual traps: the old IP
+  host over DNS-over-HTTPS on 12 public resolvers from a mix of operators and
+  regions (`DOH_RESOLVERS` in `packages/core/src/doh-resolvers.ts`: Cloudflare
+  and Google over the JSON API, the rest over RFC 8484 wire format) — what
+  Let's Encrypt will see, not a node's split-horizon view. The go-live gate
+  (owner decision Q13): at least 3 of every 4 resolvers that ANSWERED point at
+  a swarmy edge, and 1.1.1.1 and 8.8.8.8 are among the agreeing ones.
+  Resolvers still returning an old answer show as "still cached" and don't
+  block; resolvers that time out or error are left out of the count (an
+  anchor too). When no public resolver answers (no egress), the controller's
+  own resolver and swarmy-dns decide, and each one that answers must agree.
+  `SWARMY_DOH_RESOLVERS` picks the list: unset = the 12; `off`/`none`/empty =
+  none; otherwise a comma list of preset ids (`cloudflare,google,quad9`) and
+  https URLs (JSON API by default, `wire:https://…` for RFC 8484). The anchor
+  clause applies only to the anchors that are configured, so a custom list
+  without `cloudflare`/`google` is gated on 3-in-4 alone. The dashboard draws
+  the answers on a world map at each operator's home city (they are anycast,
+  so that is not where the answer came from). It names the usual traps: the old IP
   still propagating, Cloudflare's orange cloud, a stray AAAA (Let's Encrypt
   tries IPv6 first), a leftover extra A record.
 - **No certificate order for a name that can't validate.** A domain added

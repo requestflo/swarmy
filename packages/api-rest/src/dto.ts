@@ -68,6 +68,44 @@ const WwwMode = z
 /** Custom-domain lifecycle state (open enum — new values may be added). */
 const DomainState = z.enum(['waiting_dns', 'verified', 'issuing', 'active', 'error']).openapi('IngressDomainState');
 
+const DomainResolverDto = z
+  .object({
+    id: z.string().openapi({ description: 'Catalogue id (`cloudflare`, `quad9`, …), `system`, `swarmy-dns`, or a custom resolver host.' }),
+    name: z.string(),
+    operator: z.string().nullable(),
+    city: z.string().nullable().openapi({ description: 'The operator’s home city. Public resolvers are anycast: this is not where the answer came from.' }),
+    region: z.string().nullable(),
+    lat: z.number().nullable(),
+    lon: z.number().nullable(),
+    tier: z.enum(['local', 'public']),
+    format: z.enum(['json', 'wire']).nullable().openapi({ description: '`json` = DoH JSON API; `wire` = RFC 8484 `application/dns-message`.' }),
+    url: z.string().nullable(),
+    anchor: z.boolean().openapi({ description: '1.1.1.1 or 8.8.8.8 — must be among the agreeing resolvers when configured.' }),
+    state: z.enum(['agrees', 'cached', 'no_answer', 'error']).openapi({
+      description: '`agrees` points at your edges; `cached` still returns another (usually old) answer and does not block; `no_answer`/`error` are left out of the count.',
+    }),
+    ips: z.array(z.string()),
+    cname: z.array(z.string()),
+    nxdomain: z.boolean(),
+    error: z.string().nullable(),
+  })
+  .openapi('DomainDnsResolver');
+
+const DnsGateDto = z
+  .object({
+    basis: z.enum(['public', 'local', 'none']),
+    agreeing: z.number().int(),
+    answering: z.number().int(),
+    needed: z.number().int(),
+    anchors: z.array(z.string()),
+    anchors_agree: z.boolean(),
+    pass: z.boolean(),
+  })
+  .openapi('DomainDnsGate', {
+    description:
+      'The go-live gate: at least 3 of every 4 public resolvers that answered point at your edges, with 1.1.1.1 and 8.8.8.8 (when configured) among them. With no public answer, the controller’s own resolver and swarmy-dns decide (`basis: local`).',
+  });
+
 export const DomainStatusDto = z
   .object({
     host: z.string(),
@@ -87,6 +125,8 @@ export const DomainStatusDto = z
         aaaa: z.array(z.string()),
         cname: z.array(z.string()),
         matched: z.array(z.string()),
+        resolvers: z.array(DomainResolverDto),
+        gate: DnsGateDto.nullable(),
       })
       .nullable(),
     certificate: z

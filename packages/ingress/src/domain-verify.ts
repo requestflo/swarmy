@@ -22,6 +22,7 @@
  * us. Verification is sticky — once verified, a DNS blip reports `error` but
  * never un-renders a working site (that would drop its certificate).
  */
+import { DOH_ANCHORS, LOCAL_RESOLVERS, canonicalResolverId, type DnsGateView, type ResolverState } from '@swarmy/core';
 import { normalizeHostname, isWildcardHost } from './www';
 
 // ───────────────────────────────────────────── state ──
@@ -46,6 +47,8 @@ export interface DnsObservation {
    * field existed don't carry it.
    */
   resolvers?: ResolverSeen[];
+  /** The go-live gate as evaluated on this check (see {@link dnsGate}). Optional for old records. */
+  gate?: DnsGateView;
 }
 
 /** One resolver's answer as kept on the observation (see `DnsObservation.resolvers`). */
@@ -59,6 +62,10 @@ export interface ResolverSeen {
   error?: string;
   /** It answered with at least one swarmy edge (or the tunnel CNAME). */
   matches: boolean;
+  /** agrees / cached (an old or other answer) / no_answer (timeout) / error. Optional for old records. */
+  state?: ResolverState;
+  /** `local` = system resolver / swarmy-dns; `public` = DoH. Optional for old records. */
+  tier?: 'local' | 'public';
 }
 
 /** What one certificate probe observed (TLS handshake against the edges). */
@@ -326,6 +333,7 @@ export function recordSignature(rec: DomainCheckRecord): string {
     rec.dns?.ok ?? null,
     rec.dns?.reason ?? null,
     rec.dns?.warnings ?? [],
+    rec.dns?.gate ? [rec.dns.gate.agreeing, rec.dns.gate.answering] : null,
     rec.cert?.ok ?? null,
     rec.cert?.notAfter ?? null,
     rec.cert?.error ?? null,
@@ -448,11 +456,93 @@ export function lookupNameFor(host: string): string {
   return isWildcardHost(h) ? `swarmy-dns-check.${h.slice(2)}` : h;
 }
 
+/** Is this resolver asked from inside the cluster (system resolver / swarmy-dns)? */
+export function isLocalResolver(id: string): boolean {
+  return LOCAL_RESOLVERS.includes(id);
+}
+
+/** A resolver that errored: unreachable / timed out (`no_answer`) vs answered with an error (`error`). */
+export function silentState(error: string): 'no_answer' | 'error' {
+  return /time|abort|fetch failed|unable to connect|network|ECONN|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|socket/i.test(error)
+    ? 'no_answer'
+    : 'error';
+}
+
+/** Share of answering public resolvers that must agree: 3 of every 4. */
+export const GATE_NUMERATOR = 3;
+export const GATE_DENOMINATOR = 4;
+
+/** How many of `answering` resolvers must agree (⌈3n/4⌉). */
+export function gateNeeded(answering: number): number {
+  return Math.ceil((answering * GATE_NUMERATOR) / GATE_DENOMINATOR);
+}
+
 /**
- * Decide whether public DNS points `host` at a swarmy edge. Every resolver
- * that answered must see at least one of our edges (so "only one resolver has
- * it" reads as propagating, not done). A foreign AAAA with no IPv6 edge match
- * BLOCKS: Let's Encrypt prefers IPv6, so validation would land elsewhere.
+ * THE GO-LIVE GATE (owner decision Q13) over one check's per-resolver results.
+ *
+ * - Public DoH resolvers that answered vote: at least 3 of every 4 must point at
+ *   our edges, AND 1.1.1.1 and 8.8.8.8 must be among the agreeing ones.
+ * - The anchor clause covers only the anchors that are CONFIGURED (present in
+ *   the list) — a custom `SWARMY_DOH_RESOLVERS` without cloudflare/google is
+ *   gated on 3-in-4 alone — and, like every resolver, an anchor that did not
+ *   answer (timeout / error) is left out rather than blocking, so a network
+ *   that can't reach dns.google still works.
+ * - Resolvers still returning another answer are "still cached": they count in
+ *   the denominator but never block on their own.
+ * - No public resolver answered (air-gapped / no egress): the local tier (the
+ *   controller's own resolver + swarmy-dns) decides, and every local resolver
+ *   that answered must agree — the pre-Q13 rule.
+ */
+export function dnsGate(resolvers: readonly Pick<ResolverSeen, 'resolver' | 'matches' | 'error' | 'tier'>[]): DnsGateView {
+  const pub = resolvers.filter((r) => r.tier !== 'local');
+  const anchorIds = [...new Set(pub.map((r) => canonicalResolverId(r.resolver)).filter((id) => id in DOH_ANCHORS))];
+  const anchors = Object.keys(DOH_ANCHORS)
+    .filter((id) => anchorIds.includes(id))
+    .map((id) => DOH_ANCHORS[id]!);
+  const pubAnswered = pub.filter((r) => !r.error);
+  if (pubAnswered.length > 0) {
+    const agreeing = pubAnswered.filter((r) => r.matches).length;
+    const needed = gateNeeded(pubAnswered.length);
+    const anchorsAgree = pubAnswered
+      .filter((r) => canonicalResolverId(r.resolver) in DOH_ANCHORS)
+      .every((r) => r.matches);
+    return { basis: 'public', agreeing, answering: pubAnswered.length, needed, anchors, anchorsAgree, pass: agreeing >= needed && anchorsAgree };
+  }
+  const local = resolvers.filter((r) => r.tier === 'local' && !r.error);
+  if (local.length === 0) {
+    return { basis: 'none', agreeing: 0, answering: 0, needed: 0, anchors, anchorsAgree: true, pass: false };
+  }
+  const agreeing = local.filter((r) => r.matches).length;
+  return {
+    basis: 'local',
+    agreeing,
+    answering: local.length,
+    needed: local.length,
+    anchors,
+    anchorsAgree: true,
+    pass: agreeing === local.length,
+  };
+}
+
+/** "9 of 12 resolvers see your edges; swarmy needs 9, including 1.1.1.1 and 8.8.8.8" — the gate in words. */
+function gateShortfall(gate: DnsGateView, voters: readonly ResolverSeen[]): string {
+  const ipsOf = (x: ResolverSeen) => [...x.a, ...x.aaaa].join(', ') || (x.nxdomain ? 'no record' : 'nothing');
+  const anchorsBehind = voters.filter((x) => !x.matches && canonicalResolverId(x.resolver) in DOH_ANCHORS);
+  const incl = gate.anchors.length ? `, including ${gate.anchors.join(' and ')}` : '';
+  const lag = anchorsBehind.length
+    ? ` ${anchorsBehind.map((x) => `${DOH_ANCHORS[canonicalResolverId(x.resolver)]} still sees ${ipsOf(x)}`).join('; ')}.`
+    : '';
+  return `Still propagating: ${gate.agreeing} of ${gate.answering} resolvers see a swarmy edge; swarmy needs ${gate.needed}${incl}.${lag}`;
+}
+
+/**
+ * Decide whether public DNS points `host` at a swarmy edge, by the go-live
+ * gate ({@link dnsGate}): 3 of every 4 public resolvers that answered, with
+ * 1.1.1.1 and 8.8.8.8 among them; the local tier only when no public resolver
+ * answered. Resolvers holding an old answer are "still cached" — they show on
+ * the map and don't block. A foreign AAAA (seen by an agreeing resolver) with
+ * no IPv6 edge match BLOCKS: Let's Encrypt prefers IPv6, so validation would
+ * land elsewhere.
  */
 export function evaluateDns(host: string, answers: readonly ResolverAnswer[], expected: ExpectedTarget): DnsObservation {
   const answered = answers.filter((a) => !a.error);
@@ -461,19 +551,25 @@ export function evaluateDns(host: string, answers: readonly ResolverAnswer[], ex
   const cname = [...new Set(answered.flatMap((x) => x.cname))].sort();
   const edgeSet = new Set(expected.ips.map(canonIp));
   const tunnel = expected.tunnelCname?.toLowerCase() ?? null;
-  const resolvers: ResolverSeen[] = answers.map((x) => ({
-    resolver: x.resolver,
-    a: x.a,
-    aaaa: x.aaaa,
-    cname: x.cname,
-    ...(x.nxdomain ? { nxdomain: true } : {}),
-    ...(x.error ? { error: x.error } : {}),
-    matches:
+  const resolvers: ResolverSeen[] = answers.map((x) => {
+    const matches =
       !x.error &&
       ([...x.a, ...x.aaaa].some((ip) => edgeSet.has(canonIp(ip))) ||
-        (tunnel !== null && (x.cname.includes(tunnel) || (x.a.length > 0 && x.a.every(isCloudflareProxyIp))))),
-  }));
-  const base = { a, aaaa, cname, warnings: [] as string[], matched: [] as string[], resolvers };
+        (tunnel !== null && (x.cname.includes(tunnel) || (x.a.length > 0 && x.a.every(isCloudflareProxyIp)))));
+    return {
+      resolver: x.resolver,
+      a: x.a,
+      aaaa: x.aaaa,
+      cname: x.cname,
+      ...(x.nxdomain ? { nxdomain: true } : {}),
+      ...(x.error ? { error: x.error } : {}),
+      matches,
+      state: x.error ? silentState(x.error) : matches ? 'agrees' : 'cached',
+      tier: isLocalResolver(x.resolver) ? 'local' : 'public',
+    };
+  });
+  const gate = dnsGate(resolvers);
+  const base = { a, aaaa, cname, warnings: [] as string[], matched: [] as string[], resolvers, gate };
   const fail = (reason: string, warnings: string[] = []): DnsObservation => ({ ...base, ok: false, reason, warnings });
 
   if (answered.length === 0) {
@@ -489,23 +585,26 @@ export function evaluateDns(host: string, answers: readonly ResolverAnswer[], ex
     return fail(`${host} points at ${[...a, ...aaaa].join(', ')}, not the Cloudflare Tunnel (${target}).`);
   }
 
-  if (a.length === 0 && aaaa.length === 0) {
+  // The resolvers whose answers decide: the public ones that answered, or the
+  // local tier when none did.
+  const voters = resolvers.filter((r) => !r.error && (gate.basis === 'public' ? r.tier === 'public' : r.tier === 'local'));
+  const va = [...new Set(voters.flatMap((x) => x.a))].sort();
+  const vaaaa = [...new Set(voters.flatMap((x) => x.aaaa))].sort();
+  const vcname = [...new Set(voters.flatMap((x) => x.cname))].sort();
+
+  if (va.length === 0 && vaaaa.length === 0) {
     return fail(
-      answered.every((x) => x.nxdomain)
+      voters.every((x) => x.nxdomain)
         ? `No DNS record for ${host} yet.`
-        : `${host} exists but has no A/AAAA record${cname.length ? ` (CNAME → ${cname.join(', ')} resolves to nothing)` : ''}.`,
+        : `${host} exists but has no A/AAAA record${vcname.length ? ` (CNAME → ${vcname.join(', ')} resolves to nothing)` : ''}.`,
     );
   }
   if (expected.ips.length === 0) {
     return fail('No ingress node has a known public IP yet, so there is nothing to compare DNS against.');
   }
-  const ours = new Set(expected.ips.map(canonIp));
-  const isOurs = (ip: string) => ours.has(canonIp(ip));
-  const matched = [...a, ...aaaa].filter(isOurs);
-  const foreignA = a.filter((ip) => !isOurs(ip));
-  const foreignAaaa = aaaa.filter((ip) => !isOurs(ip));
-
-  const all = [...a, ...aaaa];
+  const isOurs = (ip: string) => edgeSet.has(canonIp(ip));
+  const all = [...va, ...vaaaa];
+  const matched = all.filter(isOurs);
   if (matched.length === 0) {
     if (all.every(isCloudflareProxyIp)) {
       return fail(
@@ -514,16 +613,16 @@ export function evaluateDns(host: string, answers: readonly ResolverAnswer[], ex
     }
     return fail(`${host} points at ${all.join(', ')} — expected ${expected.ips.join(' or ')}.`);
   }
-  const lagging = answered.filter((x) => ![...x.a, ...x.aaaa].some(isOurs));
-  if (lagging.length > 0) {
-    return {
-      ...base,
-      matched,
-      ok: false,
-      reason: `Still propagating: ${lagging.map((x) => `${x.resolver} sees ${[...x.a, ...x.aaaa].join(', ') || 'nothing'}`).join('; ')}.`,
-    };
+  if (!gate.pass) {
+    return { ...base, matched, ok: false, reason: gateShortfall(gate, voters) };
   }
-  const v6Matched = aaaa.some(isOurs);
+  // Stale-record checks look only at what the AGREEING resolvers answered —
+  // another resolver's old answer is a cache, not a record to remove.
+  const agreeing = voters.filter((x) => x.matches);
+  const foreignA = [...new Set(agreeing.flatMap((x) => x.a))].filter((ip) => !isOurs(ip)).sort();
+  const agreeingAaaa = [...new Set(agreeing.flatMap((x) => x.aaaa))];
+  const foreignAaaa = agreeingAaaa.filter((ip) => !isOurs(ip)).sort();
+  const v6Matched = agreeingAaaa.some(isOurs);
   if (foreignAaaa.length > 0 && !v6Matched) {
     return {
       ...base,

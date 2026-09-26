@@ -53,7 +53,26 @@ export function domainStatusToDto(s: DomainStatusView) {
     verified_manually: s.verifiedManually,
     last_checked_at: s.lastCheckedAt,
     next_check_at: s.nextCheckAt,
-    dns: s.dns,
+    dns: s.dns
+      ? {
+          a: s.dns.a,
+          aaaa: s.dns.aaaa,
+          cname: s.dns.cname,
+          matched: s.dns.matched,
+          resolvers: s.dns.resolvers,
+          gate: s.dns.gate
+            ? {
+                basis: s.dns.gate.basis,
+                agreeing: s.dns.gate.agreeing,
+                answering: s.dns.gate.answering,
+                needed: s.dns.gate.needed,
+                anchors: s.dns.gate.anchors,
+                anchors_agree: s.dns.gate.anchorsAgree,
+                pass: s.dns.gate.pass,
+              }
+            : null,
+        }
+      : null,
     certificate: s.certificate
       ? {
           issuer: s.certificate.issuer,

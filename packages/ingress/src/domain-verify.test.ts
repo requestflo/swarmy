@@ -7,7 +7,9 @@ import {
   certCoversHost,
   certFromProbes,
   dnsGuidance,
+  dnsGate,
   domainState,
+  gateNeeded,
   evaluateDns,
   isCloudflareProxyIp,
   isHostGated,
@@ -86,10 +88,13 @@ describe('evaluateDns', () => {
       EDGE,
     );
     expect(v.resolvers).toEqual([
-      { resolver: 'system', a: ['203.0.113.10'], aaaa: [], cname: [], matches: true },
-      { resolver: '1.1.1.1', a: ['198.51.100.7'], aaaa: [], cname: [], matches: false },
-      { resolver: '8.8.8.8', a: [], aaaa: [], cname: [], error: 'timeout', matches: false },
+      { resolver: 'system', a: ['203.0.113.10'], aaaa: [], cname: [], matches: true, state: 'agrees', tier: 'local' },
+      { resolver: '1.1.1.1', a: ['198.51.100.7'], aaaa: [], cname: [], matches: false, state: 'cached', tier: 'public' },
+      { resolver: '8.8.8.8', a: [], aaaa: [], cname: [], error: 'timeout', matches: false, state: 'no_answer', tier: 'public' },
     ]);
+    // The public resolver that answered decides; the controller's own resolver doesn't outvote it.
+    expect(v.ok).toBe(false);
+    expect(v.gate).toMatchObject({ basis: 'public', agreeing: 0, answering: 1 });
   });
   it('matches IPv6 in any textual form', () => {
     expect(evaluateDns('a.com', [ans('c', [], ['2001:0db8:0000::0010'])], EDGE).ok).toBe(true);
@@ -110,7 +115,9 @@ describe('evaluateDns', () => {
   it('propagating when one resolver still sees the old address', () => {
     const v = evaluateDns('a.com', [ans('1.1.1.1', ['203.0.113.10']), ans('8.8.8.8', ['198.51.100.7'])], EDGE);
     expect(v.ok).toBe(false);
-    expect(v.reason).toBe('Still propagating: 8.8.8.8 sees 198.51.100.7.');
+    expect(v.reason).toBe(
+      'Still propagating: 1 of 2 resolvers see a swarmy edge; swarmy needs 2, including 1.1.1.1 and 8.8.8.8. 8.8.8.8 still sees 198.51.100.7.',
+    );
   });
   it('ignores a resolver that errored', () => {
     const v = evaluateDns('a.com', [ans('1.1.1.1', ['203.0.113.10']), ans('8.8.8.8', [], [], { error: 'timeout' })], EDGE);
@@ -140,6 +147,88 @@ describe('evaluateDns', () => {
     expect(evaluateDns('a.com', [ans('c', ['104.21.3.4'])], t).ok).toBe(true);
     expect(evaluateDns('a.com', [ans('c', [], [], { cname: ['abc.cfargotunnel.com'] })], t).ok).toBe(true);
     expect(evaluateDns('a.com', [ans('c', ['203.0.113.10'])], t).ok).toBe(false);
+  });
+});
+
+describe('the go-live gate (Q13): 3 of every 4 answering public resolvers, 1.1.1.1 + 8.8.8.8 among them', () => {
+  const OURS = ['203.0.113.10'];
+  const OLD = ['198.51.100.7'];
+  const OTHERS = ['quad9', 'opendns', 'adguard', 'mullvad', 'controld', 'cira', 'alidns', 'dnspod', 'quad101', 'iij'];
+  /** The 12 default resolvers; `bad` see the old answer, `silent` time out. */
+  const twelve = (bad: string[] = [], silent: string[] = []): ResolverAnswer[] =>
+    ['cloudflare', 'google', ...OTHERS].map((id) =>
+      silent.includes(id)
+        ? ans(id, [], [], { error: 'The operation timed out.' })
+        : ans(id, bad.includes(id) ? OLD : OURS),
+    );
+
+  it('12 of 12 agree → pass', () => {
+    const v = evaluateDns('a.com', twelve(), EDGE);
+    expect(v.ok).toBe(true);
+    expect(v.gate).toEqual({ basis: 'public', agreeing: 12, answering: 12, needed: 9, anchors: ['1.1.1.1', '8.8.8.8'], anchorsAgree: true, pass: true });
+  });
+  it('9 of 12 agree, including both anchors → pass; the 3 old answers are "still cached", not stale records', () => {
+    const v = evaluateDns('a.com', twelve(['alidns', 'dnspod', 'iij']), EDGE);
+    expect(v).toMatchObject({ ok: true, reason: null, warnings: [] });
+    expect(v.gate).toMatchObject({ agreeing: 9, answering: 12, needed: 9, anchorsAgree: true });
+    expect(v.resolvers!.filter((r) => r.state === 'cached').map((r) => r.resolver)).toEqual(['alidns', 'dnspod', 'iij']);
+  });
+  it('9 of 12 agree without 8.8.8.8 → fail', () => {
+    const v = evaluateDns('a.com', twelve(['google', 'alidns', 'dnspod']), EDGE);
+    expect(v.ok).toBe(false);
+    expect(v.gate).toMatchObject({ agreeing: 9, needed: 9, anchorsAgree: false, pass: false });
+    expect(v.reason).toBe(
+      'Still propagating: 9 of 12 resolvers see a swarmy edge; swarmy needs 9, including 1.1.1.1 and 8.8.8.8. 8.8.8.8 still sees 198.51.100.7.',
+    );
+  });
+  it('8 of 12 → fail', () => {
+    const v = evaluateDns('a.com', twelve(['quad9', 'alidns', 'dnspod', 'iij']), EDGE);
+    expect(v.ok).toBe(false);
+    expect(v.gate).toMatchObject({ agreeing: 8, answering: 12, needed: 9, anchorsAgree: true, pass: false });
+  });
+  it('4 time out, 7 of the 8 that answered agree (anchors included) → pass', () => {
+    const v = evaluateDns('a.com', twelve(['iij'], ['alidns', 'dnspod', 'quad101', 'cira']), EDGE);
+    expect(v.ok).toBe(true);
+    expect(v.gate).toMatchObject({ agreeing: 7, answering: 8, needed: 6 });
+    expect(v.resolvers!.filter((r) => r.state === 'no_answer')).toHaveLength(4);
+  });
+  it('a custom list without the anchors is gated on 3-in-4 alone', () => {
+    const custom = [ans('doh.a.internal', OURS), ans('doh.b.internal', OURS), ans('doh.c.internal', OURS), ans('doh.d.internal', OLD)];
+    const v = evaluateDns('a.com', custom, EDGE);
+    expect(v.ok).toBe(true);
+    expect(v.gate).toMatchObject({ agreeing: 3, answering: 4, needed: 3, anchors: [], anchorsAgree: true });
+    expect(evaluateDns('a.com', [...custom.slice(0, 2), ans('doh.c.internal', OLD), custom[3]!], EDGE).ok).toBe(false);
+  });
+  it('only the configured anchor is required (google left out of the list)', () => {
+    const v = evaluateDns('a.com', twelve(['alidns']).filter((x) => x.resolver !== 'google'), EDGE);
+    expect(v.gate).toMatchObject({ anchors: ['1.1.1.1'], anchorsAgree: true, pass: true });
+  });
+  it('an anchor that did not answer is left out, like any silent resolver', () => {
+    const v = evaluateDns('a.com', twelve([], ['google']), EDGE);
+    expect(v.gate).toMatchObject({ agreeing: 11, answering: 11, anchorsAgree: true, pass: true });
+  });
+  it('every public resolver timed out → the system resolver and swarmy-dns decide, as before', () => {
+    const local = [ans('system', OURS), ans('swarmy-dns', OURS)];
+    const v = evaluateDns('a.com', [...local, ...twelve([], ['cloudflare', 'google', ...OTHERS])], EDGE);
+    expect(v.ok).toBe(true);
+    expect(v.gate).toMatchObject({ basis: 'local', agreeing: 2, answering: 2, needed: 2, pass: true });
+    const split = evaluateDns('a.com', [ans('system', OLD), ans('swarmy-dns', OURS), ...twelve([], ['cloudflare', 'google', ...OTHERS])], EDGE);
+    expect(split.ok).toBe(false);
+    expect(split.gate).toMatchObject({ basis: 'local', agreeing: 1, answering: 2, pass: false });
+  });
+  it('an old answer on the local resolver never outvotes the public quorum', () => {
+    const v = evaluateDns('a.com', [ans('system', OLD), ...twelve()], EDGE);
+    expect(v.ok).toBe(true);
+    expect(v.resolvers![0]).toMatchObject({ resolver: 'system', tier: 'local', state: 'cached' });
+  });
+  it('an HTTP error / SERVFAIL is "error", a timeout "no answer"; both leave the count', () => {
+    const v = evaluateDns('a.com', [ans('cloudflare', OURS), ans('google', OURS), ans('quad9', [], [], { error: 'HTTP 503' }), ans('iij', [], [], { error: 'fetch failed' })], EDGE);
+    expect(v.resolvers!.map((r) => r.state)).toEqual(['agrees', 'agrees', 'error', 'no_answer']);
+    expect(v.gate).toMatchObject({ agreeing: 2, answering: 2, pass: true });
+  });
+  it('dnsGate / gateNeeded: ⌈3n/4⌉', () => {
+    expect([1, 2, 3, 4, 8, 11, 12].map(gateNeeded)).toEqual([1, 2, 3, 3, 6, 9, 9]);
+    expect(dnsGate([]).basis).toBe('none');
   });
 });
 
