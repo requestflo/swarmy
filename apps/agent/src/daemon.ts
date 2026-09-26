@@ -16,6 +16,7 @@ import { swarmRejoinInFlight } from './handlers/swarm';
 import { superviseMeshControl } from './handlers/mesh-control';
 import { detectPublicIp, detectReachability, setObservedPublicIp } from './public-ip';
 import { sampleIngressStatus } from './handlers/ingress-status';
+import { EdgeTrafficScraper, dockerMetricsFetcher } from './handlers/edge-traffic';
 import { agentPackaging } from './handlers/update';
 import { REGISTRY_FIREWALL_INTERVAL_MS, enforceRegistryFirewall, parseAllowCidrs } from './handlers/registry-firewall';
 import { COMMIT, VERSION, versionInfo } from './version';
@@ -352,6 +353,8 @@ export async function runDaemon(): Promise<void> {
 
   let heartbeatSeq = 0;
   let timers: ReturnType<typeof setInterval>[] = [];
+  // Survives reconnects: its baseline makes the next delta cover the gap.
+  const edgeTraffic = new EdgeTrafficScraper(dockerMetricsFetcher(docker));
 
   // Swarm-membership watchdog. The agent is useless off-swarm — it can't run a
   // single Docker Swarm command — so if the swarm is LEFT out from under a
@@ -501,7 +504,12 @@ export async function runDaemon(): Promise<void> {
     );
     timers.push(
       setInterval(async () => {
-        conn.send('metrics', await collectMetrics(docker));
+        // Edge nodes add per-host request deltas scraped from the local Caddy (Q4).
+        const [metrics, edge] = await Promise.all([
+          collectMetrics(docker),
+          edgeTraffic.sample().catch(() => undefined),
+        ]);
+        conn.send('metrics', edge ? { ...metrics, edge } : metrics);
       }, metricsMs),
     );
     timers.push(
