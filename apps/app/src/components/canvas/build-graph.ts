@@ -209,8 +209,6 @@ function edgeFor(e: InvEdge): CanvasEdge {
 export function buildGraph(
   inv: Inventory,
   live: Positions = {},
-  /** Unplaced-card layout: `flow` follows the links (one app); `apps` gives each app a column (the estate map). */
-  layout: 'flow' | 'apps' = 'flow',
 ): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
   // Group regional siblings by their logical parent app name.
   const siblingsByParent = new Map<string, InvService[]>();
@@ -362,7 +360,7 @@ export function buildGraph(
   // standalone card never collide; with no frames this is the original flat grid.
   const flatX = groupsColWidth > 0 ? groupsColWidth + COL_GAP * 2 : 0;
   const free = inv.services.filter((s) => !grouped.has(s.id));
-  const flow = layout === 'apps' ? appColumns(free, inv, flatX) : flowFallback(free, inv.edges, flatX);
+  const flow = flowFallback(free, inv.edges, flatX);
   const serviceNodes: ServiceFlowNode[] = free.map((service, i) => ({
     id: service.id,
     type: 'service',
@@ -411,20 +409,6 @@ function flowFallback(services: InvService[], edges: InvEdge[], xOffset: number)
     list.forEach((id, row) => {
       out.set(id, { x: xOffset + col * (SERVICE_W + COL_GAP * 2), y: offset + row * (SERVICE_H + ROW_GAP) });
     });
-  }
-  return out;
-}
-
-/** The estate map: one column per app (in inventory order), its parts stacked beneath. */
-function appColumns(services: InvService[], inv: Inventory, xOffset: number): Map<string, { x: number; y: number }> {
-  const out = new Map<string, { x: number; y: number }>();
-  const free = new Set(services.map((s) => s.id));
-  let col = 0;
-  for (const p of inv.projects) {
-    const ids = p.serviceIds.filter((id) => free.has(id));
-    if (!ids.length) continue;
-    ids.forEach((id, row) => out.set(id, { x: xOffset + col * (SERVICE_W + COL_GAP * 2), y: row * (SERVICE_H + ROW_GAP) }));
-    col++;
   }
   return out;
 }

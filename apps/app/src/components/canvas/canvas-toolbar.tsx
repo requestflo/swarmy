@@ -16,8 +16,8 @@ export function CanvasToolbar({
   stack,
 }: {
   count: number;
-  /** App the canvas is scoped to, or null for the estate map. */
-  stack?: string | null;
+  /** App the canvas is scoped to. */
+  stack?: string;
 }): React.JSX.Element {
   const { fitView } = useReactFlow();
   return (

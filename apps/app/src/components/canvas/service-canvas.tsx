@@ -6,7 +6,6 @@ import {
   Controls,
   MiniMap,
   useNodesState,
-  type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useNavigate } from '@tanstack/react-router';
@@ -18,7 +17,6 @@ import { ProjectGroupNode } from './project-group-node';
 import { DbClusterNode } from './db-cluster-node';
 import { buildGraph, type CanvasNode, type ServiceNodeData } from './build-graph';
 import { filterInventory } from './filter-inventory';
-import { useCanvasLayout } from './use-canvas-layout';
 import { CanvasToolbar } from './canvas-toolbar';
 import { useDepth } from '@/components/calm';
 import { ErrorState } from '@/components/states';
@@ -26,8 +24,8 @@ import { ErrorState } from '@/components/states';
 const NODE_TYPES = { service: ServiceNode, project: ProjectGroupNode, dbCluster: DbClusterNode };
 
 interface ServiceCanvasProps {
-  /** Stack name to scope the canvas to, or null for the flat cross-swarm view. */
-  stackFilter: string | null;
+  /** The app (stack) the canvas shows. */
+  stackFilter: string;
   /**
    * Tap a service card → transport into it. Receives the tap's screen
    * position so the overlay can zoom out of the node itself.
@@ -42,7 +40,7 @@ interface ServiceCanvasProps {
 /**
  * The service-level canvas: the live Docker inventory as a React Flow graph —
  * Project (stack) → Service → Container with inferred network/depends links.
- * Scoped to one stack (drill-in) or the whole swarm ("All services"). Drag
+ * Scoped to one app (the estate-wide view is the Apps page's Map). Drag
  * arranges services within their frame (visual only, persisted as the
  * service's swarmy.canvas.x/y labels). Tapping a card transports you into it: a service card
  * opens the zoom-in service overlay, a db-cluster frame the stack's Data tab.
@@ -54,7 +52,6 @@ export function ServiceCanvas({ stackFilter, onOpenService, embedded, selectedId
   const trpc = useTRPC();
   const navigate = useNavigate();
   const inventory = useQuery({ ...trpc.inventory.get.queryOptions(), refetchInterval: 4_000 });
-  const { savedViewport, setViewport } = useCanvasLayout();
   // Canvas position is Docker-truth: persisted as swarmy.canvas.x/y labels on the service.
   const setCanvasPos = useMutation(trpc.services.setCanvasPos.mutationOptions());
   const controls = useDepth().atLeast('controls');
@@ -70,7 +67,7 @@ export function ServiceCanvas({ stackFilter, onOpenService, embedded, selectedId
   );
 
   const graph = React.useMemo(
-    () => (scoped ? buildGraph(scoped, {}, stackFilter === null ? 'apps' : 'flow') : { nodes: [], edges: [] }),
+    () => (scoped ? buildGraph(scoped, {}) : { nodes: [], edges: [] }),
     [scoped, stackFilter],
   );
 
@@ -97,11 +94,6 @@ export function ServiceCanvas({ stackFilter, onOpenService, embedded, selectedId
     },
     [navigate, onOpenService],
   );
-
-  // Viewport (camera) is only persisted for the flat "All services" view — the
-  // store holds one viewport per org, so a drilled-in stack just fit-views
-  // instead of clobbering it. Drag positions persist in every view.
-  const isAll = stackFilter === null;
 
   // First paint is a canvas-shaped skeleton, not an empty pane; a failed
   // inventory read says so and offers a retry.
@@ -138,9 +130,7 @@ export function ServiceCanvas({ stackFilter, onOpenService, embedded, selectedId
           draggedRef.current.add(node.id);
           setCanvasPos.mutate({ id: node.id, x: node.position.x, y: node.position.y });
         }}
-        onMoveEnd={(_e, vp: Viewport) => isAll && setViewport(vp)}
-        defaultViewport={isAll ? (savedViewport ?? undefined) : undefined}
-        fitView={!isAll || !savedViewport}
+        fitView
         fitViewOptions={{ padding: 0.2, maxZoom: 1, minZoom: embedded ? 0.6 : undefined }}
         minZoom={0.2}
         maxZoom={1.6}
