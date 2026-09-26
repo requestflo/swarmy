@@ -12,7 +12,7 @@ import type { DemoStore, DomainResolvers } from '../types';
 
 /**
  * Alerting demo resolvers — the Alerts surface (`/alerts`): rules seeded from
- * the signal catalog, two notification channels, and a live-feeling event feed
+ * the signal catalog plus one custom rule, three notification channels, and a live-feeling event feed
  * (two firing, a few resolved). Shapes mirror alerts.service.ts views exactly
  * (imported from @swarmy/core, never redeclared). State lives in
  * `store.extra.alerts`; mutations rewrite it so invalidation re-renders.
@@ -67,64 +67,69 @@ export const alerts: DomainResolvers = {
       hasSecret: false,
       createdAt: agoIso(60 * 24 * 21),
     };
+    const phones: NotificationChannelView = {
+      id: id('ch'),
+      name: 'ntfy · phones',
+      kind: 'ntfy',
+      enabled: true,
+      target: 'ntfy.northwind.dev/ops',
+      hasSecret: true,
+      createdAt: agoIso(60 * 24 * 9),
+    };
     const rules = ALERT_SIGNALS.map((signal) =>
-      makeRule(signal, signal === 'node-offline' ? { channelIds: [email.id, slack.id] } : {}),
+      makeRule(signal, signal === 'node-offline' ? { channelIds: [email.id, slack.id, phones.id] } : {}),
     );
+    // One custom rule: it takes over from the built-in error-rate one (the
+    // oldest custom rule for a signal wins, as in alerts-fire `matchRule`).
+    const appErrors = makeRule('error-rate', {
+      name: 'App errors',
+      threshold: 5,
+      forSeconds: 300,
+      channelIds: [slack.id],
+      isDefault: false,
+      createdAt: agoIso(60 * 24 * 10),
+    });
+    rules.push(appErrors);
     const ruleFor = (signal: AlertSignal): AlertRuleView | undefined =>
-      rules.find((r) => r.signal === signal);
+      rules.find((r) => r.signal === signal && !r.isDefault) ?? rules.find((r) => r.signal === signal);
+    const ev = (
+      signal: AlertSignal,
+      resource: string,
+      message: string,
+      firedMin: number,
+      lastedMin: number | null,
+      severity: AlertEventView['severity'] = ALERT_SIGNAL_INFO[signal].severity,
+    ): AlertEventView => ({
+      id: id('evt'),
+      ruleId: ruleFor(signal)?.id ?? null,
+      ruleName: ruleFor(signal)?.name ?? null,
+      signal,
+      severity,
+      resource,
+      message,
+      status: lastedMin === null ? 'firing' : 'resolved',
+      firedAt: agoIso(firedMin),
+      resolvedAt: lastedMin === null ? null : agoIso(firedMin - lastedMin),
+    });
+    const H = 60;
+    const D = 24 * H;
 
+    // One story with Overview and Incidents: the storefront 1.9.0 rollout left
+    // checkout a copy short (incident inc-deploy-storefront, opened 1 min ago),
+    // and checkout's error rate is 6.2% (the demo service map). Checkout errors
+    // also fired twice earlier this week, so "Fired 3× this week" is the feed.
     const events: AlertEventView[] = [
-      {
-        id: id('evt'),
-        ruleId: ruleFor('disk-usage')?.id ?? null,
-        ruleName: 'Disk almost full',
-        signal: 'disk-usage',
-        severity: 'warning',
-        resource: 'node:hetzner-worker-2',
-        message: 'The disk on server hetzner-worker-2 is 84.6% full (threshold 80%)',
-        status: 'firing',
-        firedAt: agoIso(42),
-        resolvedAt: null,
-      },
-      {
-        id: id('evt'),
-        ruleId: ruleFor('queue-depth')?.id ?? null,
-        ruleName: 'Queue backlog',
-        signal: 'queue-depth',
-        severity: 'warning',
-        resource: 'queue:storefront_media-worker/image-resize',
-        message: 'Queue image-resize has 1,412 waiting jobs (threshold 1,000)',
-        status: 'firing',
-        firedAt: agoIso(11),
-        resolvedAt: null,
-      },
-      {
-        id: id('evt'),
-        ruleId: ruleFor('service-down')?.id ?? null,
-        ruleName: 'Part short of copies',
-        signal: 'service-down',
-        severity: 'critical',
-        resource: 'service:checkout',
-        message: 'checkout is running 0 of 2 copies',
-        status: 'resolved',
-        firedAt: agoIso(60 * 5),
-        resolvedAt: agoIso(60 * 5 - 6),
-      },
-      {
-        id: id('evt'),
-        ruleId: ruleFor('node-offline')?.id ?? null,
-        ruleName: 'Server offline',
-        signal: 'node-offline',
-        severity: 'critical',
-        resource: 'node:hetzner-worker-1',
-        message: 'Server hetzner-worker-1 is offline',
-        status: 'resolved',
-        firedAt: agoIso(60 * 26),
-        resolvedAt: agoIso(60 * 25),
-      },
+      ev('error-rate', 'service:checkout', 'Error rate on checkout is 6.2% over 5m (41/662 spans, threshold 5%)', 18, null),
+      ev('service-down', 'service:checkout', 'checkout is running 1 of 2 copies', 1, null),
+      ev('error-rate', 'service:checkout', 'Error rate on checkout is 7.9% over 5m (58/734 spans, threshold 5%)', 2 * D + 5 * H, 26),
+      ev('error-rate', 'service:api', 'Error rate on api is 5.4% over 5m (37/690 spans, threshold 5%)', 5 * D + 9 * H, 12),
+      ev('service-down', 'service:checkout', 'checkout was running 0 of 2 copies', 5 * H, 6, 'critical'),
+      ev('node-offline', 'node:wkr-3', 'Server wkr-3 is offline', 26 * H, 60),
+      ev('disk-usage', 'node:wkr-1', 'The disk on server wkr-1 is 86.3% full (threshold 85%)', 4 * D, 3 * H),
+      ev('backup-failed', 'backup:data_pgdata', 'Last backup of volume data_pgdata failed: repository is already locked', 6 * D + 3 * H, 9 * H),
     ];
 
-    store.extra.alerts = { channels: [email, slack], rules, events } satisfies AlertsState;
+    store.extra.alerts = { channels: [email, slack, phones], rules, events } satisfies AlertsState;
   },
 
   handlers: {
@@ -260,7 +265,7 @@ export const alerts: DomainResolvers = {
       const channel = getState(s).channels.find((c) => c.id === channelId);
       if (!channel) throw new Error('channel not found');
       return channel.kind === 'email'
-        ? { ok: true, detail: `queued email to ${channel.target}` }
+        ? { ok: true, detail: 'handed to the mail server' }
         : { ok: true, detail: 'delivered (HTTP 200)' };
     },
   },

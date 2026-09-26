@@ -27,12 +27,13 @@ export function ChannelKindPicker({ value, onChange }: ChannelKindPickerProps): 
         <button
           key={k}
           type="button"
+          aria-pressed={value === k}
           onClick={() => onChange(k)}
           className={cn(
-            'rounded-full border px-3 py-1 text-xs font-semibold transition-colors',
+            'rounded-full border px-3 py-1 text-xs font-semibold transition-colors pointer-coarse:min-h-11',
             value === k
-              ? 'border-primary bg-primary/10 text-primary'
-              : 'border-border text-muted-foreground hover:bg-accent',
+              ? 'border-foreground bg-foreground text-background'
+              : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
           )}
         >
           {KIND_LABEL[k]}

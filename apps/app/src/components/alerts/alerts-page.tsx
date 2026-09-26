@@ -1,76 +1,103 @@
 import * as React from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { PlusIcon } from 'lucide-react';
 import { Button } from '@swarmy/ui';
-import { useTRPC } from '@/integrations/trpc';
-import { CodeView, NextAction, Say } from '@/components/calm';
-import { RowPage, plural } from '@/components/rowpage/row-page';
-import { AckButton } from './ack-button';
-import { alertsCode } from './alerts-code';
-import { ChannelsPanel } from './channels-panel';
-import { FiringEvents } from './firing-events';
-import { RulesTable } from './rules-table';
+import { Say } from '@/components/calm';
+import { RowPage } from '@/components/rowpage/row-page';
+import { CardSkeleton, ErrorState } from '@/components/states';
+import { alertsLede, alertsSay } from './alerts-say';
+import { ChannelsColumn } from './channels-column';
+import { RuleEditor } from './rule-editor';
+import { RulesList, orderRules } from './rules-list';
+import { useAlertsData } from './use-alerts-data';
 
-/** Activity → Alerts: what's firing (ack), what swarmy watches, and where alerts go. */
+type Selection = { mode: 'edit'; id: string } | { mode: 'new' } | null;
+
+/**
+ * Activity → Alerts (boards 45 + 55): the rules list, the sentence editor and
+ * the channels, side by side at xl, two columns at lg, stacked on a phone.
+ * The one coral is "New rule" — until the editor holds unsaved changes, when
+ * "Save rule" takes it and New rule steps back to outline.
+ */
 export function AlertsPage(): React.JSX.Element {
-  const trpc = useTRPC();
-  const [addOpen, setAddOpen] = React.useState(false);
-  const overview = useQuery({ ...trpc.alerts.overview.queryOptions(), refetchInterval: 10_000 });
-  const firing = useQuery({ ...trpc.alerts.events.queryOptions({ status: 'firing', limit: 100 }), refetchInterval: 10_000 });
-  const rules = useQuery(trpc.alerts.rules.queryOptions());
-  const channels = useQuery(trpc.alerts.channels.queryOptions());
-  const o = overview.data;
-  const top = firing.data?.[0];
+  const data = useAlertsData();
+  const [sel, setSel] = React.useState<Selection>(null);
+  const [dirty, setDirty] = React.useState(false);
+  const o = data.overview;
+  const firing = data.events.filter((e) => e.status === 'firing');
 
-  const title = !o ? (
-    'Alerts.'
-  ) : o.firing === 0 ? (
+  const fallback = orderRules(data.rules, data.firingByRule)[0];
+  const selectedId = sel?.mode === 'edit' && data.rules.some((r) => r.id === sel.id) ? sel.id : sel?.mode === 'new' ? null : fallback?.id ?? null;
+  const selected = data.rules.find((r) => r.id === selectedId);
+  const isNew = sel?.mode === 'new' || (!selected && data.ready);
+
+  const say = o ? alertsSay(o, firing) : null;
+  const title = !say ? 'Alerts.' : say.alarm ? (
     <>
-      All quiet. <em>{plural(o.rulesEnabled, 'rule')} watching.</em>
+      <Say tone={say.alarm.tone}>{say.alarm.text}</Say> {say.rest ? <em>{say.rest}</em> : null}
     </>
   ) : (
     <>
-      <Say tone={o.firingCritical > 0 ? 'bad' : 'warn'}>{plural(o.firing, 'alert')} firing.</Say>{' '}
-      {o.firingCritical > 0 ? <em>{o.firingCritical} critical.</em> : <em>Nothing critical.</em>}
+      {say.lead} <em>{say.rest}</em>
     </>
   );
-  const lede = o
-    ? `${plural(o.rulesEnabled, 'rule')} on of ${o.rules}, going to ${plural(o.channels, 'channel')}. ${plural(o.resolved24h, 'alert')} resolved in the last day.`
-    : undefined;
 
-  const next = !o ? null : o.channels === 0 ? (
-    <NextAction
-      title="Alerts don’t reach anyone yet."
-      tech="alerts.createChannel · email · slack · teams · discord · telegram · ntfy · gotify · webhook"
-      actions={
-        <Button className="pointer-coarse:min-h-11" onClick={() => setAddOpen(true)}>
-          <PlusIcon className="size-4" /> Add where alerts go
-        </Button>
-      }
-    >
-      Add an email, Slack or a webhook and send it a test. Secrets are encrypted and never shown again.
-    </NextAction>
-  ) : top ? (
-    <NextAction
-      title={top.message}
-      since={new Date(top.firedAt).toTimeString().slice(0, 5)}
-      tech={`${top.signal} · ${top.resource} · ${top.severity}`}
-      actions={<AckButton id={top.id} label="Acknowledge" primary size="default" />}
-    >
-      Acknowledging says someone has it and stops the reminders. The rule keeps watching.
-    </NextAction>
-  ) : null;
+  const startNew = (): void => {
+    setDirty(false);
+    setSel({ mode: 'new' });
+    toEditorOnPhone();
+  };
 
   return (
     <RowPage
       title={title}
-      description={lede}
+      description={o ? alertsLede(o) : undefined}
+      actions={
+        <Button variant={dirty ? 'outline' : 'default'} className="pointer-coarse:min-h-11" onClick={startNew}>
+          <PlusIcon className="size-4" /> New rule
+        </Button>
+      }
     >
-      <CodeView title="Alerting as code" tabs={alertsCode(rules.data ?? [], channels.data ?? [])} source="readonly" />
-      {next}
-      <FiringEvents />
-      <ChannelsPanel open={addOpen} onOpenChange={setAddOpen} />
-      <RulesTable />
+      {data.error && !data.ready ? (
+        <ErrorState title="Couldn’t load the alert rules." error={data.error} retry={data.refetch} />
+      ) : !data.ready ? (
+        <CardSkeleton />
+      ) : (
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)] xl:grid-cols-[minmax(0,320px)_minmax(0,1fr)_minmax(0,340px)]">
+          <RulesList
+            rules={data.rules}
+            channels={data.channels}
+            events={data.events}
+            firingByRule={data.firingByRule}
+            selectedId={isNew ? null : selectedId}
+            onSelect={(id) => {
+              setDirty(false);
+              setSel({ mode: 'edit', id });
+              toEditorOnPhone();
+            }}
+          />
+          <RuleEditor
+            key={isNew ? 'new' : selectedId ?? 'none'}
+            rule={isNew ? null : selected ?? null}
+            data={data}
+            onDirtyChange={setDirty}
+            onSaved={(id) => {
+              setDirty(false);
+              setSel({ mode: 'edit', id });
+            }}
+            onDeleted={() => {
+              setDirty(false);
+              setSel(null);
+            }}
+          />
+          <ChannelsColumn channels={data.channels} rules={data.rules} rule={isNew ? null : selected ?? null} className="lg:col-span-2 xl:col-span-1" />
+        </div>
+      )}
     </RowPage>
   );
+}
+
+/** Below lg the editor sits under the list, so bring it into view on select. */
+function toEditorOnPhone(): void {
+  if (!window.matchMedia('(max-width: 1023px)').matches) return;
+  requestAnimationFrame(() => document.getElementById('rule-editor')?.scrollIntoView({ block: 'start' }));
 }

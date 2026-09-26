@@ -1,51 +1,58 @@
 import * as React from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { SendIcon, Trash2Icon } from 'lucide-react';
+import { useMutation } from '@tanstack/react-query';
 import type { NotificationChannelView } from '@swarmy/core';
-import { Button, toast } from '@swarmy/ui';
-import { QuietSwitch } from '@/components/rowpage/row-page';
+import { Button, cn } from '@swarmy/ui';
+import { Tech } from '@/components/calm';
 import { useTRPC } from '@/integrations/trpc';
-import { CalmRow, Depth } from '@/components/calm';
+import { ChannelEdit } from './channel-edit';
+import { ChannelKindIcon, maskedTarget } from './channel-kind-icon';
 
-/** One place alerts go: name and where, and from Controls test / on-off / remove. */
-export function ChannelRow({ channel }: { channel: NotificationChannelView }): React.JSX.Element {
+interface TestOutcome {
+  at: string;
+  ok: boolean;
+  detail: string;
+}
+
+const hhmm = (): string => new Date().toTimeString().slice(0, 5);
+
+/** One channel: kind icon, name, a masked target, Send test with its result inline, and Edit. */
+export function ChannelRow({ channel, usedBy }: { channel: NotificationChannelView; usedBy: number }): React.JSX.Element {
   const trpc = useTRPC();
-  const qc = useQueryClient();
-  const invalidate = (): void => void qc.invalidateQueries();
+  const [editing, setEditing] = React.useState(false);
+  const [outcome, setOutcome] = React.useState<TestOutcome | null>(null);
   const test = useMutation(
     trpc.alerts.testChannel.mutationOptions({
-      onSuccess: (r) => (r.ok ? toast.success(`Test sent: ${r.detail}`) : toast.error(`Test failed: ${r.detail}`)),
-      onError: (e) => toast.error(e.message),
-    }),
-  );
-  const update = useMutation(trpc.alerts.updateChannel.mutationOptions({ onSuccess: invalidate, onError: (e) => toast.error(e.message) }));
-  const remove = useMutation(
-    trpc.alerts.deleteChannel.mutationOptions({
-      onSuccess: () => {
-        toast.success(`Channel ${channel.name} removed.`);
-        invalidate();
-      },
-      onError: (e) => toast.error(e.message),
+      onSuccess: (r) => setOutcome({ at: hhmm(), ok: r.ok, detail: r.detail }),
+      onError: (e) => setOutcome({ at: hhmm(), ok: false, detail: e.message }),
     }),
   );
   return (
-    <CalmRow
-      tone={channel.enabled ? 'ok' : 'idle'}
-      name={channel.name}
-      sub={`${channel.kind} · ${channel.target}`}
-      tech={channel.hasSecret ? 'signed (HMAC)' : 'encrypted at rest'}
-      word={channel.enabled ? 'On' : 'Off'}
-      trailing={
-        <Depth at="controls">
-          <Button variant="ghost" size="icon" aria-label={`Send a test to ${channel.name}`} disabled={test.isPending} onClick={() => test.mutate({ id: channel.id })} className="pointer-coarse:size-11">
-            <SendIcon className="size-4" />
-          </Button>
-          <QuietSwitch checked={channel.enabled} disabled={update.isPending} onCheckedChange={(enabled) => update.mutate({ id: channel.id, enabled })} aria-label={`Turn ${channel.name} ${channel.enabled ? 'off' : 'on'}`} />
-          <Button variant="ghost" size="icon" aria-label={`Remove ${channel.name}`} disabled={remove.isPending} onClick={() => remove.mutate({ id: channel.id })} className="pointer-coarse:size-11">
-            <Trash2Icon className="text-tone-bad size-4" />
-          </Button>
-        </Depth>
-      }
-    />
+    <li className="calm-card flex flex-col gap-2 px-3.5 py-3">
+      <div className="flex items-center gap-3">
+        <ChannelKindIcon kind={channel.kind} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className={cn('truncate text-[14px] font-semibold', !channel.enabled && 'text-muted-foreground')}>
+            {channel.name}
+            {channel.enabled ? null : <span className="text-tone-idle ml-2 text-xs font-semibold">off</span>}
+          </span>
+          <span className="text-muted-foreground font-mono text-[11px] break-all">{maskedTarget(channel)}</span>
+        </div>
+        <Button variant="outline" size="sm" className="shrink-0 pointer-coarse:min-h-11" disabled={test.isPending} onClick={() => test.mutate({ id: channel.id })}>
+          {test.isPending ? 'Sending…' : 'Send test'}
+        </Button>
+        <Button variant="ghost" size="sm" aria-expanded={editing} className="shrink-0 px-2.5 pointer-coarse:min-h-11" onClick={() => setEditing((v) => !v)}>
+          {editing ? 'Close' : 'Edit'}
+        </Button>
+      </div>
+      {outcome ? (
+        <p role="status" className={cn('pl-11 font-mono text-[11.5px]', outcome.ok ? 'text-tone-ok' : 'text-tone-bad')}>
+          {outcome.ok ? `Sent ${outcome.at} · ${outcome.detail}` : `Didn’t arrive (${outcome.at}): ${outcome.detail}`}
+        </p>
+      ) : null}
+      <Tech className="pl-11">
+        {channel.id} · named by {usedBy} rule{usedBy === 1 ? '' : 's'} · also gets every “Every channel” rule
+      </Tech>
+      {editing ? <ChannelEdit channel={channel} onDone={() => setEditing(false)} /> : null}
+    </li>
   );
 }
